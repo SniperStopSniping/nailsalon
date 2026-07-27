@@ -1,6 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
+import {
+  BOOKING_EXPERIENCE_DEFAULTS,
+  bookingExperienceUpdateSchema,
+  getAccessibleBookingForeground,
+  getBookingExperienceCssVariables,
+  getColorContrastRatio,
+  resolveBookingExperience,
+} from '@/libs/bookingExperience';
+
 import { GET, PATCH } from './route';
 
 vi.mock('server-only', () => ({}));
@@ -535,8 +544,16 @@ describe('/api/admin/salon/settings merchandising settings', () => {
     expect(logAuditEvent).toHaveBeenCalled();
   });
 
-  it('writes the full settings object when merchandising is saved alongside booking config', async () => {
-    getSalonBySlug.mockResolvedValue(baseSalon);
+  it('chains targeted writes when merchandising is saved alongside booking config', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        bookingExperience: {
+          ...BOOKING_EXPERIENCE_DEFAULTS,
+          bookingMessage: 'Keep this concurrent value',
+        },
+      },
+    });
     updatedRows.push({
       ...baseSalon,
       settings: {
@@ -564,11 +581,19 @@ describe('/api/admin/salon/settings merchandising settings', () => {
 
     const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
 
-    expect(setPayload.settings.merchandising).toEqual({
-      featureLusterManicure: false,
-      lusterPromoDismissed: false,
-      serviceLibraryIntroDismissed: false,
-    });
+    expect(setPayload.settings.booking).toBeUndefined();
+    expect(setPayload.settings.merchandising).toBeUndefined();
+
+    const sqlChunks = (setPayload.settings as { queryChunks?: unknown[] }).queryChunks ?? [];
+    const paramValues = sqlChunks.filter(
+      (chunk): chunk is string => typeof chunk === 'string',
+    );
+
+    expect(paramValues.some(value => value.includes('"featureLusterManicure":false'))).toBe(true);
+    // The expression starts from the live settings column and never serializes
+    // a stale bookingExperience value, so a concurrent customization save is
+    // preserved.
+    expect(paramValues.some(value => value.includes('Keep this concurrent value'))).toBe(false);
   });
 
   it('rejects invalid merchandising payloads', async () => {
@@ -1007,5 +1032,517 @@ describe('/api/admin/salon/settings smart fit settings (P7.4)', () => {
     expect(body.smartFit.eligibleTechnicianIds).toEqual([]);
     // Empty arrays trigger no ownership queries.
     expect(db.select).not.toHaveBeenCalled();
+  });
+});
+
+function createBookingExperience() {
+  return {
+    primaryColor: '#123456',
+    bookingMessage: 'Welcome to our booking page.',
+    policy: {
+      enabled: true,
+      title: 'Before you book',
+      text: 'Please arrive five minutes early.',
+    },
+    appointmentOnly: true,
+    socialLinks: {
+      instagram: 'https://www.instagram.com/lusterstudio',
+      facebook: 'https://facebook.com/lusterstudio',
+      tiktok: 'https://www.tiktok.com/@lusterstudio',
+    },
+    confirmationMessage: 'We look forward to seeing you.',
+  };
+}
+
+function collectSqlStringChunks(value: unknown): string[] {
+  if (typeof value === 'string') {
+    return [value];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap(collectSqlStringChunks);
+  }
+  if (
+    typeof value === 'object'
+    && value !== null
+    && 'queryChunks' in value
+  ) {
+    return collectSqlStringChunks(
+      (value as { queryChunks?: unknown[] }).queryChunks ?? [],
+    );
+  }
+  return [];
+}
+
+describe('booking experience validation and safe resolution', () => {
+  it('normalizes colour, whitespace, and CRLF while preserving safe line breaks', () => {
+    const result = bookingExperienceUpdateSchema.parse({
+      ...createBookingExperience(),
+      primaryColor: '  #abcdef  ',
+      bookingMessage: '  First line\r\nSecond line  ',
+      policy: {
+        enabled: true,
+        title: '  Booking policy  ',
+        text: '  Policy line one\r\nPolicy line two  ',
+      },
+      confirmationMessage: '  Confirmed\r\nSee you soon  ',
+    });
+
+    expect(result.primaryColor).toBe('#ABCDEF');
+    expect(result.bookingMessage).toBe('First line\nSecond line');
+    expect(result.policy).toEqual({
+      enabled: true,
+      title: 'Booking policy',
+      text: 'Policy line one\nPolicy line two',
+    });
+    expect(result.confirmationMessage).toBe('Confirmed\nSee you soon');
+  });
+
+  it('enforces every text limit after trimming and requires enabled policy text', () => {
+    const bookingMessage = bookingExperienceUpdateSchema.safeParse({
+      ...createBookingExperience(),
+      bookingMessage: `  ${'a'.repeat(161)}  `,
+    });
+    const policyTitle = bookingExperienceUpdateSchema.safeParse({
+      ...createBookingExperience(),
+      policy: {
+        ...createBookingExperience().policy,
+        title: 'a'.repeat(61),
+      },
+    });
+    const policyText = bookingExperienceUpdateSchema.safeParse({
+      ...createBookingExperience(),
+      policy: {
+        ...createBookingExperience().policy,
+        text: 'a'.repeat(1_501),
+      },
+    });
+    const confirmationMessage = bookingExperienceUpdateSchema.safeParse({
+      ...createBookingExperience(),
+      confirmationMessage: 'a'.repeat(501),
+    });
+    const enabledWithoutText = bookingExperienceUpdateSchema.safeParse({
+      ...createBookingExperience(),
+      policy: {
+        enabled: true,
+        title: null,
+        text: '   ',
+      },
+    });
+    const disabledDraft = bookingExperienceUpdateSchema.safeParse({
+      ...createBookingExperience(),
+      policy: {
+        enabled: false,
+        title: 'Draft',
+        text: 'Unpublished draft text',
+      },
+    });
+
+    expect(bookingMessage.success).toBe(false);
+    expect(policyTitle.success).toBe(false);
+    expect(policyText.success).toBe(false);
+    expect(confirmationMessage.success).toBe(false);
+    expect(enabledWithoutText.success).toBe(false);
+    expect(disabledDraft.success).toBe(true);
+  });
+
+  it('rejects disallowed controls, arbitrary CSS colours, and noncanonical colour shapes', () => {
+    for (const primaryColor of [
+      '#FFF',
+      '#FFFFFFFF',
+      'red',
+      'rgb(0, 0, 0)',
+      'var(--brand)',
+      '#123456; color: red',
+    ]) {
+      expect(bookingExperienceUpdateSchema.safeParse({
+        ...createBookingExperience(),
+        primaryColor,
+      }).success).toBe(false);
+    }
+
+    for (const bookingMessage of [
+      'before\u0000after',
+      'before\tafter',
+      'before\rafter',
+      'before\u007Fafter',
+    ]) {
+      expect(bookingExperienceUpdateSchema.safeParse({
+        ...createBookingExperience(),
+        bookingMessage,
+      }).success).toBe(false);
+    }
+  });
+
+  it('allows only absolute approved HTTPS profile URLs', () => {
+    const valid = bookingExperienceUpdateSchema.safeParse({
+      ...createBookingExperience(),
+      socialLinks: {
+        instagram: 'https://instagram.com/luster.studio',
+        facebook: 'https://www.facebook.com/luster.studio/',
+        tiktok: 'https://tiktok.com/@luster.studio?lang=en',
+      },
+    });
+
+    expect(valid.success).toBe(true);
+
+    if (valid.success) {
+      expect(valid.data.socialLinks.instagram).toBe(
+        'https://instagram.com/luster.studio',
+      );
+    }
+
+    const invalidInstagramUrls = [
+      'http://instagram.com/luster',
+      'https://instagram.com',
+      'https://instagram.com/',
+      'https://instagram.com.evil.example/luster',
+      'https://facebook.com/luster',
+      'https://user:password@instagram.com/luster',
+      'https://instagram.com:444/luster',
+      'https://instagram.com/%E0%A4%A',
+      'https://instagram.com/luster%00studio',
+      'instagram.com/luster',
+    ];
+    for (const instagram of invalidInstagramUrls) {
+      expect(bookingExperienceUpdateSchema.safeParse({
+        ...createBookingExperience(),
+        socialLinks: {
+          ...createBookingExperience().socialLinks,
+          instagram,
+        },
+      }).success).toBe(false);
+    }
+  });
+
+  it('normalizes blank links to null and rejects overlong URLs', () => {
+    const normalized = bookingExperienceUpdateSchema.parse({
+      ...createBookingExperience(),
+      socialLinks: {
+        instagram: '   ',
+        facebook: null,
+        tiktok: 'https://tiktok.com/@luster',
+      },
+    });
+
+    expect(normalized.socialLinks.instagram).toBeNull();
+    expect(normalized.socialLinks.facebook).toBeNull();
+
+    const overlong = `https://instagram.com/${'a'.repeat(480)}?${'b'.repeat(20)}`;
+
+    expect(bookingExperienceUpdateSchema.safeParse({
+      ...createBookingExperience(),
+      socialLinks: {
+        ...createBookingExperience().socialLinks,
+        instagram: overlong,
+      },
+    }).success).toBe(false);
+  });
+
+  it('falls back field-by-field for missing or invalid stored JSON', () => {
+    expect(resolveBookingExperience(null)).toEqual(
+      BOOKING_EXPERIENCE_DEFAULTS,
+    );
+
+    const resolved = resolveBookingExperience({
+      bookingExperience: {
+        primaryColor: 'not-css',
+        bookingMessage: '  A valid stored message  ',
+        policy: {
+          enabled: true,
+          title: 'Draft title',
+          text: 'bad\u0000text',
+        },
+        appointmentOnly: 'yes',
+        socialLinks: {
+          instagram: 'https://instagram.com/valid',
+          facebook: 'https://evil.example/facebook',
+        },
+        confirmationMessage: '  Valid confirmation  ',
+      },
+    } as unknown as Parameters<typeof resolveBookingExperience>[0]);
+
+    expect(resolved).toEqual({
+      ...BOOKING_EXPERIENCE_DEFAULTS,
+      bookingMessage: 'A valid stored message',
+      policy: {
+        enabled: false,
+        title: 'Draft title',
+        text: null,
+      },
+      socialLinks: {
+        instagram: 'https://instagram.com/valid',
+        facebook: null,
+        tiktok: null,
+      },
+      confirmationMessage: 'Valid confirmation',
+    });
+  });
+
+  it('chooses a WCAG-compliant foreground for light and dark colours', () => {
+    const darkForeground = getAccessibleBookingForeground('#123456');
+    const lightForeground = getAccessibleBookingForeground('#F5D000');
+
+    expect(darkForeground).toBe('#FFFFFF');
+    expect(lightForeground).toBe('#000000');
+    expect(getColorContrastRatio('#123456', darkForeground)).toBeGreaterThanOrEqual(4.5);
+    expect(getColorContrastRatio('#F5D000', lightForeground)).toBeGreaterThanOrEqual(4.5);
+
+    const variables = getBookingExperienceCssVariables('#F5D000');
+
+    expect(variables['--booking-brand-foreground']).toBe('#000000');
+    expect(getColorContrastRatio(
+      variables['--booking-brand-state-border'] ?? '#FFFFFF',
+      '#FFFFFF',
+    )).toBeGreaterThanOrEqual(3);
+    expect(getBookingExperienceCssVariables(null)).toEqual({});
+  });
+});
+
+describe('/api/admin/salon/settings booking experience', () => {
+  const baseSalon = {
+    id: 'salon_1',
+    slug: 'salon-a',
+    ownerPhone: '4169021427',
+    ownerEmail: 'owner@example.com',
+    email: 'salon@example.com',
+    reviewsEnabled: true,
+    rewardsEnabled: true,
+    billingMode: 'NONE',
+    stripeSubscriptionStatus: null,
+    features: {},
+    settings: {},
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    updatedRows.length = 0;
+    selectResults.length = 0;
+    requireAdmin.mockResolvedValue({
+      ok: true,
+      admin: { id: 'admin_1' },
+    });
+    getBookingConfigForSalon.mockResolvedValue({});
+    resolveBookingConfigFromSettings.mockReturnValue({});
+    getDefaultLoyaltyPoints.mockReturnValue({ welcomeBonus: 0 });
+    resolveSalonLoyaltyPoints.mockReturnValue({ welcomeBonus: 0 });
+  });
+
+  it('returns defaults for an unconfigured salon and safely resolves invalid stored data', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        bookingExperience: {
+          ...createBookingExperience(),
+          primaryColor: '<style>',
+          bookingMessage: 'Valid stored message',
+          socialLinks: {
+            ...createBookingExperience().socialLinks,
+            instagram: 'javascript:alert(1)',
+          },
+        },
+      },
+    });
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.bookingExperience.primaryColor).toBeNull();
+    expect(body.bookingExperience.bookingMessage).toBe('Valid stored message');
+    expect(body.bookingExperience.socialLinks.instagram).toBeNull();
+
+    getSalonBySlug.mockResolvedValue({ ...baseSalon, settings: null });
+    const defaultsResponse = await GET(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a'),
+    );
+    const defaultsBody = await defaultsResponse.json();
+
+    expect(defaultsBody.bookingExperience).toEqual(
+      BOOKING_EXPERIENCE_DEFAULTS,
+    );
+  });
+
+  it('authorizes against the trusted salon resolved from the slug', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      id: 'salon_2',
+      slug: 'salon-b',
+    });
+    requireAdmin.mockResolvedValue({
+      ok: false,
+      response: new Response(
+        JSON.stringify({ error: 'Forbidden' }),
+        { status: 403 },
+      ),
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-b', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonId: 'salon_1',
+          bookingExperience: createBookingExperience(),
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(requireAdmin).toHaveBeenCalledWith('salon_2');
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid customization before writing settings', async () => {
+    getSalonBySlug.mockResolvedValue(baseSalon);
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingExperience: {
+            ...createBookingExperience(),
+            policy: {
+              enabled: true,
+              title: null,
+              text: null,
+            },
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(400);
+    expect(db.update).not.toHaveBeenCalled();
+    expect(logAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it('persists only bookingExperience with jsonb_set and preserves unrelated settings', async () => {
+    const bookingExperience = {
+      ...createBookingExperience(),
+      primaryColor: '#f5d000',
+      bookingMessage: '  A private welcome message  ',
+    };
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        booking: { bufferMinutes: 20 },
+        notifications: { salonEmail: { newBooking: false } },
+        unrelatedFutureKey: { keep: true },
+      },
+    });
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        booking: { bufferMinutes: 20 },
+        notifications: { salonEmail: { newBooking: false } },
+        unrelatedFutureKey: { keep: true },
+        bookingExperience: {
+          ...bookingExperience,
+          primaryColor: '#F5D000',
+          bookingMessage: 'A private welcome message',
+        },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingExperience }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.bookingExperience.primaryColor).toBe('#F5D000');
+    expect(body.bookingExperience.bookingMessage).toBe(
+      'A private welcome message',
+    );
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+
+    expect(setPayload.settings).toBeDefined();
+    expect(setPayload.settings.bookingExperience).toBeUndefined();
+
+    const sqlChunks = (setPayload.settings as { queryChunks?: unknown[] }).queryChunks ?? [];
+    const paramValues = sqlChunks.filter(
+      (chunk): chunk is string => typeof chunk === 'string',
+    );
+
+    expect(paramValues.some(value => value.includes('"primaryColor":"#F5D000"'))).toBe(true);
+    expect(paramValues.some(value => value.includes('unrelatedFutureKey'))).toBe(false);
+    expect(paramValues.some(value => value.includes('bufferMinutes'))).toBe(false);
+
+    expect(logAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      salonId: 'salon_1',
+      actorId: 'admin_1',
+      metadata: {
+        before: {
+          bookingExperience: expect.objectContaining({
+            bookingMessagePresent: false,
+            bookingMessageLength: 0,
+          }),
+        },
+        after: {
+          bookingExperience: expect.objectContaining({
+            primaryColor: '#F5D000',
+            bookingMessagePresent: true,
+            bookingMessageLength: 25,
+          }),
+        },
+      },
+    }));
+    expect(JSON.stringify(logAuditEvent.mock.calls[0]?.[0])).not.toContain(
+      'A private welcome message',
+    );
+  });
+
+  it('chains booking and customization writes without serializing unrelated settings', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        unrelatedFutureKey: { keep: true },
+      },
+    });
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        booking: {
+          bufferMinutes: 10,
+          slotIntervalMinutes: 15,
+          currency: 'CAD',
+          timezone: 'America/Toronto',
+          introPriceDefaultLabel: null,
+          firstVisitDiscountEnabled: false,
+        },
+        bookingExperience: createBookingExperience(),
+        unrelatedFutureKey: { keep: true },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingConfig: {},
+          bookingExperience: createBookingExperience(),
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+
+    expect(setPayload.settings.booking).toBeUndefined();
+    expect(setPayload.settings.bookingExperience).toBeUndefined();
+    expect(
+      collectSqlStringChunks(setPayload.settings)
+        .some(value => value.includes('unrelatedFutureKey')),
+    ).toBe(false);
   });
 });

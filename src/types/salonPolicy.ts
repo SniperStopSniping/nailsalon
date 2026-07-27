@@ -183,6 +183,23 @@ export type FeatureKey = keyof SalonFeatures;
 // SALON SETTINGS (Admin Controls)
 // =============================================================================
 
+export type BookingExperience = {
+  primaryColor: string | null;
+  bookingMessage: string | null;
+  policy: {
+    enabled: boolean;
+    title: string | null;
+    text: string | null;
+  };
+  appointmentOnly: boolean;
+  socialLinks: {
+    instagram: string | null;
+    facebook: string | null;
+    tiktok: string | null;
+  };
+  confirmationMessage: string | null;
+};
+
 /**
  * Admin-controlled operational settings.
  * Includes module enable/disable toggles and visibility policy.
@@ -204,6 +221,12 @@ export type SalonSettings = {
     firstVisitDiscountEnabled?: boolean;
     clientChangeCutoffHours?: number;
   };
+
+  // Controlled public booking-page and confirmation-message customization.
+  // The canonical defaults, validation, and safe legacy-data resolver live in
+  // src/libs/bookingExperience.ts.
+  bookingExperience?: BookingExperience;
+
   // Checkout payments & taxes (0058). Tax defaults OFF for every salon and is
   // never inferred from the address; completed appointments snapshot the
   // resolved config, so edits here never recalculate history. Canonical zod

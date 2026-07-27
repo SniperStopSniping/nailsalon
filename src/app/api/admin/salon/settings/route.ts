@@ -18,6 +18,10 @@ import { requireAdmin } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
 import { bookingConfigSchema, getBookingConfigForSalon, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
+  bookingExperienceUpdateSchema,
+  resolveBookingExperience,
+} from '@/libs/bookingExperience';
+import {
   bookingNotificationSettingsUpdateSchema,
   mergeBookingNotificationSettings,
   resolveBookingNotificationCapabilities,
@@ -66,6 +70,7 @@ const adminUpdateSchema = z.object({
   merchandising: merchandisingSettingsUpdateSchema.optional(),
   payments: salonPaymentsSettingsSchema.optional(),
   smartFit: smartFitSettingsUpdateSchema.optional(),
+  bookingExperience: bookingExperienceUpdateSchema.optional(),
 });
 
 // Fields that are forbidden for admins to update (403 if present)
@@ -102,6 +107,34 @@ function buildSalonEmailNotificationResponse(salon: {
       ? { email: recipient.email, source: recipient.source }
       : null,
     salonNotificationRecipientMissing: recipient.email === null,
+  };
+}
+
+function buildBookingExperienceAuditMetadata(
+  bookingExperience: ReturnType<typeof resolveBookingExperience>,
+) {
+  return {
+    primaryColor: bookingExperience.primaryColor,
+    bookingMessagePresent: bookingExperience.bookingMessage !== null,
+    bookingMessageLength: bookingExperience.bookingMessage
+      ? Array.from(bookingExperience.bookingMessage).length
+      : 0,
+    policyEnabled: bookingExperience.policy.enabled,
+    policyTitlePresent: bookingExperience.policy.title !== null,
+    policyTextLength: bookingExperience.policy.text
+      ? Array.from(bookingExperience.policy.text).length
+      : 0,
+    appointmentOnly: bookingExperience.appointmentOnly,
+    socialLinksConfigured: {
+      instagram: bookingExperience.socialLinks.instagram !== null,
+      facebook: bookingExperience.socialLinks.facebook !== null,
+      tiktok: bookingExperience.socialLinks.tiktok !== null,
+    },
+    confirmationMessagePresent:
+      bookingExperience.confirmationMessage !== null,
+    confirmationMessageLength: bookingExperience.confirmationMessage
+      ? Array.from(bookingExperience.confirmationMessage).length
+      : 0,
   };
 }
 
@@ -155,6 +188,9 @@ export async function GET(request: Request): Promise<Response> {
       reviewsEnabled: salon.reviewsEnabled ?? true,
       rewardsEnabled: salon.rewardsEnabled ?? true,
       bookingConfig,
+      bookingExperience: resolveBookingExperience(
+        (salon.settings as SalonSettings | null | undefined) ?? null,
+      ),
       bookingNotifications,
       ...buildSalonEmailNotificationResponse({
         settings: (salon.settings as SalonSettings | null | undefined) ?? null,
@@ -259,6 +295,9 @@ export async function PATCH(request: Request): Promise<Response> {
     }
     const currentSettings = ((salon.settings as SalonSettings | null | undefined) ?? {}) as SalonSettings;
     const currentBookingConfig = resolveBookingConfigFromSettings((salon.settings as SalonSettings | null | undefined) ?? null);
+    const currentBookingExperience = resolveBookingExperience(
+      (salon.settings as SalonSettings | null | undefined) ?? null,
+    );
     const currentBookingNotifications = resolveBookingNotificationSettingsFromSettings(
       (salon.settings as SalonSettings | null | undefined) ?? null,
     );
@@ -307,6 +346,17 @@ export async function PATCH(request: Request): Promise<Response> {
       after.bookingConfig = mergedBookingConfig;
       ensureNextSettings().booking = mergedBookingConfig;
       touchedSettingsKeys.push('booking');
+    }
+
+    if (updates.bookingExperience) {
+      before.bookingExperience = buildBookingExperienceAuditMetadata(
+        currentBookingExperience,
+      );
+      after.bookingExperience = buildBookingExperienceAuditMetadata(
+        updates.bookingExperience,
+      );
+      ensureNextSettings().bookingExperience = updates.bookingExperience;
+      touchedSettingsKeys.push('bookingExperience');
     }
 
     // Both notification blocks live under `settings.notifications`, so they are
@@ -436,31 +486,37 @@ export async function PATCH(request: Request): Promise<Response> {
       touchedSettingsKeys.push('merchandising');
     }
 
-    if (nextSettings) {
-      // Single-key updates (merchandising promo dismissals, the Payments &
-      // taxes card) write just their key via jsonb_set so a concurrent
-      // booking/notification save is never clobbered by this read-modify-write.
-      if (
-        mergedMerchandising
-        && touchedSettingsKeys.length === 1
-        && touchedSettingsKeys[0] === 'merchandising'
-      ) {
-        dbUpdates.settings = sql`jsonb_set(coalesce(${salonSchema.settings}, '{}'::jsonb), '{merchandising}', ${JSON.stringify(mergedMerchandising)}::jsonb)`;
-      } else if (
-        mergedPayments
-        && touchedSettingsKeys.length === 1
-        && touchedSettingsKeys[0] === 'payments'
-      ) {
-        dbUpdates.settings = sql`jsonb_set(coalesce(${salonSchema.settings}, '{}'::jsonb), '{payments}', ${JSON.stringify(mergedPayments)}::jsonb)`;
-      } else if (
-        mergedSmartFit
-        && touchedSettingsKeys.length === 1
-        && touchedSettingsKeys[0] === 'smartFit'
-      ) {
-        dbUpdates.settings = sql`jsonb_set(coalesce(${salonSchema.settings}, '{}'::jsonb), '{smartFit}', ${JSON.stringify(mergedSmartFit)}::jsonb)`;
-      } else {
-        dbUpdates.settings = nextSettings;
+    if (touchedSettingsKeys.length > 0) {
+      // The helper above initializes this before recording a touched key.
+      // `currentSettings` is a defensive fallback for TypeScript's conservative
+      // control-flow analysis across the helper closure.
+      const settingsToPersist = nextSettings ?? currentSettings;
+
+      // Every touched top-level key is applied to the current database value.
+      // This avoids a stale read-modify-write replacing unrelated settings
+      // when two settings cards are saved concurrently.
+      let settingsExpression = sql`coalesce(${salonSchema.settings}, '{}'::jsonb)`;
+
+      if (touchedSettingsKeys.includes('booking')) {
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{booking}', ${JSON.stringify(settingsToPersist.booking)}::jsonb)`;
       }
+      if (touchedSettingsKeys.includes('bookingExperience')) {
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience}', ${JSON.stringify(settingsToPersist.bookingExperience)}::jsonb)`;
+      }
+      if (touchedSettingsKeys.includes('notifications')) {
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{notifications}', ${JSON.stringify(settingsToPersist.notifications)}::jsonb)`;
+      }
+      if (touchedSettingsKeys.includes('payments')) {
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{payments}', ${JSON.stringify(settingsToPersist.payments)}::jsonb)`;
+      }
+      if (touchedSettingsKeys.includes('smartFit')) {
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{smartFit}', ${JSON.stringify(settingsToPersist.smartFit)}::jsonb)`;
+      }
+      if (touchedSettingsKeys.includes('merchandising')) {
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{merchandising}', ${JSON.stringify(settingsToPersist.merchandising)}::jsonb)`;
+      }
+
+      dbUpdates.settings = settingsExpression;
     }
 
     // 7. If no changes, return current state
@@ -478,6 +534,7 @@ export async function PATCH(request: Request): Promise<Response> {
         reviewsEnabled: salon.reviewsEnabled ?? true,
         rewardsEnabled: salon.rewardsEnabled ?? true,
         bookingConfig: currentBookingConfig,
+        bookingExperience: currentBookingExperience,
         bookingNotifications: currentBookingNotifications,
         ...buildSalonEmailNotificationResponse({
           settings: currentSettings,
@@ -544,6 +601,9 @@ export async function PATCH(request: Request): Promise<Response> {
       reviewsEnabled: updatedSalon.reviewsEnabled ?? true,
       rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
       bookingConfig,
+      bookingExperience: resolveBookingExperience(
+        (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+      ),
       bookingNotifications,
       ...buildSalonEmailNotificationResponse({
         settings: (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
