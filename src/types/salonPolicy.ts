@@ -57,6 +57,8 @@ export type SalonFeatures = {
     staffDashboard?: boolean; // default: true
     // Subscription-tier override. Missing means "use the plan default".
     customization?: boolean;
+    // Provenance/CAS pointer only. Entitlement resolution must never inspect it.
+    customizationOverrideAuditId?: string;
   };
   staff?: {
     scheduleOverrides?: boolean; // default: true
@@ -210,6 +212,40 @@ export type ResolvedSubscriptionFeatureEntitlement = {
   planKey: InternalPlanKey;
   storedPlan: string | null;
   lockedReason: SubscriptionEntitlementLockedReason;
+};
+
+export type BookingExperienceEntitlementOverrideState =
+  | 'default'
+  | 'force_enabled'
+  | 'force_disabled';
+
+export type BookingExperienceEntitlementOverrideActor = {
+  id: string;
+  email: string | null;
+};
+
+export type BookingExperienceEntitlementOverrideProvenance = {
+  auditId: string;
+  overrideState: BookingExperienceEntitlementOverrideState;
+  reason: string | null;
+  actor: BookingExperienceEntitlementOverrideActor;
+  updatedAt: string;
+};
+
+export type BookingExperienceEntitlementInspection =
+  ResolvedSubscriptionFeatureEntitlement & {
+    planDefault: boolean;
+    overrideState: BookingExperienceEntitlementOverrideState;
+    overrideAuditId: string | null;
+    reason: string | null;
+    actor: BookingExperienceEntitlementOverrideActor | null;
+    updatedAt: string | null;
+    provenanceRecorded: boolean;
+  };
+
+export type BookingExperienceEntitlementOverrideServerState = {
+  features: SalonFeatures;
+  bookingExperienceEntitlement: BookingExperienceEntitlementInspection;
 };
 
 // =============================================================================
