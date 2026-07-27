@@ -7,6 +7,29 @@ import { BookConfirmClient } from './BookConfirmClient';
 const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpen, navigationMock, sessionMock, bookingExperienceMock } = vi.hoisted(() => ({
   bookingExperienceMock: {
     confirmationMessage: null as string | null,
+    policy: {
+      enabled: false,
+      title: null as string | null,
+      text: null as string | null,
+      showOnServicePage: true,
+      showBeforeConfirmation: true,
+      showAfterConfirmation: true,
+      showInConfirmationEmail: true,
+    },
+    quickFacts: {
+      appointmentOnly: {
+        enabled: false,
+        label: null as string | null,
+      },
+      depositNotice: {
+        enabled: false,
+        label: null as string | null,
+      },
+      cancellationNotice: {
+        enabled: false,
+        label: null as string | null,
+      },
+    },
   },
   sessionMock: {
     isLoggedIn: true,
@@ -108,6 +131,27 @@ describe('BookConfirmClient', () => {
     sessionMock.clientEmail = 'ava@example.com';
     sessionMock.phone = '4165550101';
     bookingExperienceMock.confirmationMessage = null;
+    Object.assign(bookingExperienceMock.policy, {
+      enabled: false,
+      title: null,
+      text: null,
+      showOnServicePage: true,
+      showBeforeConfirmation: true,
+      showAfterConfirmation: true,
+      showInConfirmationEmail: true,
+    });
+    Object.assign(bookingExperienceMock.quickFacts.appointmentOnly, {
+      enabled: false,
+      label: null,
+    });
+    Object.assign(bookingExperienceMock.quickFacts.depositNotice, {
+      enabled: false,
+      label: null,
+    });
+    Object.assign(bookingExperienceMock.quickFacts.cancellationNotice, {
+      enabled: false,
+      label: null,
+    });
   });
 
   it('shows the shared salon message only after unchanged confirmed appointment details', async () => {
@@ -170,6 +214,214 @@ describe('BookConfirmClient', () => {
     expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(syncFromUrl).toHaveBeenCalledWith(expect.objectContaining({ techId: 'tech_1' }));
+  });
+
+  describe('booking policy presentation', () => {
+    const renderReview = () => render(
+      <BookConfirmClient
+        services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        salonSlug="salon-a"
+        dateStr="2026-03-20"
+        timeStr="10:00"
+        bookingFlow={[]}
+        location={null}
+      />,
+    );
+
+    const enablePolicy = (overrides: Partial<typeof bookingExperienceMock.policy> = {}) => {
+      Object.assign(bookingExperienceMock.policy, {
+        enabled: true,
+        title: 'Deposit and cancellation policy',
+        text: 'Please provide at least 24 hours’ notice for cancellations.',
+        showBeforeConfirmation: true,
+        showAfterConfirmation: true,
+        ...overrides,
+      });
+    };
+
+    it('orders explicit quick facts and the policy immediately before the final action', () => {
+      enablePolicy();
+      Object.assign(bookingExperienceMock.quickFacts.appointmentOnly, {
+        enabled: true,
+        label: 'Appointment only',
+      });
+      Object.assign(bookingExperienceMock.quickFacts.cancellationNotice, {
+        enabled: true,
+        label: '24-hour cancellation policy',
+      });
+
+      renderReview();
+
+      const summary = screen.getByText('Appointment summary');
+      const contact = screen.getByText('Your contact details');
+      const bookingDetails = screen.getByText('Before you confirm');
+      const quickFacts = screen.getByTestId('booking-quick-facts');
+      const policy = screen.getByTestId('booking-policy-before-confirmation');
+      const confirm = screen.getByRole('button', { name: /confirm appointment/i });
+      const changeSelection = screen.getByRole('button', { name: /change time or services/i });
+
+      expect(summary.compareDocumentPosition(contact) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(contact.compareDocumentPosition(bookingDetails) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(bookingDetails.compareDocumentPosition(quickFacts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(quickFacts.nextElementSibling).toBe(policy);
+      expect(policy.nextElementSibling).toBe(confirm);
+      expect(confirm.compareDocumentPosition(changeSelection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+      expect(within(quickFacts).getByText('Appointment only')).toBeInTheDocument();
+      expect(within(quickFacts).getByText('24-hour cancellation policy')).toBeInTheDocument();
+      expect(within(quickFacts).queryByText(/deposit required/i)).not.toBeInTheDocument();
+      expect(within(quickFacts).getAllByRole('listitem')).toHaveLength(2);
+      expect(policy).toHaveTextContent('Deposit and cancellation policy');
+    });
+
+    it('wraps uninterrupted badge labels and policy titles without changing the card hierarchy', () => {
+      const longBadgeLabel = 'A'.repeat(40);
+      const longPolicyTitle = 'P'.repeat(60);
+      enablePolicy({ title: longPolicyTitle });
+      Object.assign(bookingExperienceMock.quickFacts.appointmentOnly, {
+        enabled: true,
+        label: longBadgeLabel,
+      });
+
+      renderReview();
+
+      const quickFacts = screen.getByTestId('booking-quick-facts');
+      const badgeLabel = within(quickFacts).getByText(longBadgeLabel);
+      const badge = badgeLabel.closest('li');
+      const policy = screen.getByTestId('booking-policy-before-confirmation');
+      const title = within(policy).getByRole('heading', {
+        level: 3,
+        name: longPolicyTitle,
+      });
+
+      expect(badge).toHaveClass('max-w-full', 'min-w-0');
+      expect(badge).not.toHaveClass('whitespace-nowrap');
+      expect(badgeLabel).toHaveClass('min-w-0', 'break-words');
+      expect(badgeLabel).not.toHaveClass('whitespace-nowrap');
+      expect(title).toHaveClass('min-w-0', 'break-words');
+      expect(title).not.toHaveClass('whitespace-nowrap');
+    });
+
+    it('honors the before-confirmation placement flag', () => {
+      enablePolicy({ showBeforeConfirmation: false });
+
+      renderReview();
+
+      expect(screen.queryByTestId('booking-policy-before-confirmation')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeInTheDocument();
+    });
+
+    it('does not infer or render badges when every explicit quick fact is disabled', () => {
+      enablePolicy();
+
+      renderReview();
+
+      expect(screen.queryByTestId('booking-quick-facts')).not.toBeInTheDocument();
+      expect(screen.queryByText('Appointment only')).not.toBeInTheDocument();
+    });
+
+    it('expands long pre-confirmation policy text accessibly', () => {
+      const longPolicy = `${'Please contact the salon before cancelling your reserved appointment. '.repeat(5)}No-shows may lose their deposit.`;
+      enablePolicy({ text: longPolicy });
+
+      renderReview();
+
+      const policy = screen.getByTestId('booking-policy-before-confirmation');
+      const expand = within(policy).getByRole('button', { name: 'View full policy' });
+      const controlledContentId = expand.getAttribute('aria-controls');
+
+      expect(expand).toHaveAttribute('aria-expanded', 'false');
+      expect(expand).toHaveAttribute('aria-controls');
+      expect(expand).toHaveClass(
+        'text-[var(--n5-ink-main)]',
+        'underline',
+        'decoration-current',
+        'focus-visible:outline',
+        'focus-visible:outline-[var(--n5-ink-main)]',
+      );
+      expect(expand).not.toHaveClass(
+        'text-[var(--n5-accent)]',
+        'decoration-transparent',
+      );
+      expect(document.getElementById(controlledContentId!)).toBeInTheDocument();
+      expect(within(policy).queryByText(longPolicy)).not.toBeInTheDocument();
+
+      fireEvent.click(expand);
+
+      const collapse = within(policy).getByRole('button', { name: 'Show less' });
+
+      expect(collapse).toHaveAttribute('aria-expanded', 'true');
+      expect(collapse).toHaveAttribute('aria-controls', controlledContentId);
+      expect(collapse).toHaveClass(
+        'text-[var(--n5-ink-main)]',
+        'underline',
+        'decoration-current',
+      );
+      expect(within(policy).getByText(longPolicy)).toBeInTheDocument();
+    });
+
+    it('shows a more compact collapsible reminder after the summary and before management', async () => {
+      const mediumPolicy = `${'Please contact the salon as soon as possible if you cannot attend. '.repeat(3)}Thank you.`;
+      enablePolicy({ text: mediumPolicy });
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          appointment: {
+            id: 'appt_policy',
+          },
+        },
+      }), { status: 200 }));
+
+      renderReview();
+
+      const beforePolicy = screen.getByTestId('booking-policy-before-confirmation');
+
+      expect(within(beforePolicy).queryByRole('button', { name: 'View full policy' })).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+      const reminder = await screen.findByTestId('booking-policy-after-confirmation');
+      const summary = screen.getByText('Appointment summary');
+      const manage = screen.getByRole('button', { name: /manage this appointment/i });
+      const expand = within(reminder).getByRole('button', { name: 'View full policy' });
+
+      expect(summary.compareDocumentPosition(reminder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(reminder.compareDocumentPosition(manage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(reminder).toHaveTextContent('Please remember');
+      expect(expand).toHaveAttribute('aria-expanded', 'false');
+      expect(expand).toHaveClass(
+        'text-[var(--n5-ink-main)]',
+        'underline',
+        'decoration-current',
+      );
+      expect(expand).not.toHaveClass('decoration-transparent');
+
+      fireEvent.click(expand);
+
+      expect(within(reminder).getByText(mediumPolicy)).toBeInTheDocument();
+      expect(within(reminder).getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('honors the after-confirmation placement flag', async () => {
+      enablePolicy({ showAfterConfirmation: false });
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          appointment: {
+            id: 'appt_no_reminder',
+          },
+        },
+      }), { status: 200 }));
+
+      renderReview();
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+      expect(await screen.findByText('Appointment confirmed')).toBeInTheDocument();
+      expect(screen.queryByTestId('booking-policy-after-confirmation')).not.toBeInTheDocument();
+    });
   });
 
   it('routes the confirmed booking to payment methods instead of a missing payment page', async () => {

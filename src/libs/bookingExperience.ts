@@ -11,6 +11,7 @@ export const BOOKING_EXPERIENCE_LIMITS = {
   bookingMessage: 160,
   policyTitle: 60,
   policyText: 1_500,
+  quickFactLabel: 40,
   confirmationMessage: 500,
   socialUrl: 500,
 } as const;
@@ -22,8 +23,25 @@ export const BOOKING_EXPERIENCE_DEFAULTS: BookingExperience = {
     enabled: false,
     title: null,
     text: null,
+    showOnServicePage: true,
+    showBeforeConfirmation: true,
+    showAfterConfirmation: true,
+    showInConfirmationEmail: true,
   },
-  appointmentOnly: false,
+  quickFacts: {
+    appointmentOnly: {
+      enabled: false,
+      label: null,
+    },
+    depositNotice: {
+      enabled: false,
+      label: null,
+    },
+    cancellationNotice: {
+      enabled: false,
+      label: null,
+    },
+  },
   socialLinks: {
     instagram: null,
     facebook: null,
@@ -90,6 +108,51 @@ function optionalPlainTextSchema(maxCharacters: number, label: string) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: `${label} must be ${maxCharacters} characters or fewer`,
+      });
+      return z.NEVER;
+    }
+
+    return normalized;
+  });
+}
+
+/**
+ * Policy copy is user-authored long-form content. Normalize only transport and
+ * accidental line-ending whitespace so intentional spacing inside a line is
+ * preserved.
+ */
+function optionalPolicyTextSchema() {
+  return z.union([z.string(), z.null()]).transform((value, context) => {
+    if (value === null) {
+      return null;
+    }
+
+    // A lone carriage return remains invalid rather than being silently
+    // rewritten as customer-visible policy copy.
+    const normalizedLineEndings = value.replace(/\r\n/gu, '\n');
+    if (containsDisallowedControlCharacter(normalizedLineEndings)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Policy text contains a disallowed control character',
+      });
+      return z.NEVER;
+    }
+
+    const normalized = normalizedLineEndings
+      .split('\n')
+      .map(line => line.trimEnd())
+      .join('\n')
+      .trim()
+      .replace(/\n{3,}/gu, '\n\n');
+
+    if (normalized === '') {
+      return null;
+    }
+
+    if (characterCount(normalized) > BOOKING_EXPERIENCE_LIMITS.policyText) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Policy text must be ${BOOKING_EXPERIENCE_LIMITS.policyText} characters or fewer`,
       });
       return z.NEVER;
     }
@@ -235,10 +298,11 @@ const policySchema = z.object({
     BOOKING_EXPERIENCE_LIMITS.policyTitle,
     'Policy title',
   ),
-  text: optionalPlainTextSchema(
-    BOOKING_EXPERIENCE_LIMITS.policyText,
-    'Policy text',
-  ),
+  text: optionalPolicyTextSchema(),
+  showOnServicePage: z.boolean(),
+  showBeforeConfirmation: z.boolean(),
+  showAfterConfirmation: z.boolean(),
+  showInConfirmationEmail: z.boolean(),
 }).strict().superRefine((policy, context) => {
   if (policy.enabled && policy.text === null) {
     context.addIssue({
@@ -249,27 +313,65 @@ const policySchema = z.object({
   }
 });
 
-export const bookingExperienceUpdateSchema = z.object({
+const quickFactSchema = z.object({
+  enabled: z.boolean(),
+  label: optionalPlainTextSchema(
+    BOOKING_EXPERIENCE_LIMITS.quickFactLabel,
+    'Quick fact label',
+  ),
+}).strict().superRefine((quickFact, context) => {
+  if (quickFact.enabled && quickFact.label === null) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'A label is required when the quick fact is enabled',
+      path: ['label'],
+    });
+  }
+});
+
+const quickFactsSchema = z.object({
+  appointmentOnly: quickFactSchema,
+  depositNotice: quickFactSchema,
+  cancellationNotice: quickFactSchema,
+}).strict();
+
+const socialLinksSchema = z.object({
+  instagram: socialUrlSchema('instagram'),
+  facebook: socialUrlSchema('facebook'),
+  tiktok: socialUrlSchema('tiktok'),
+}).strict();
+
+export const bookingExperienceAppearanceUpdateSchema = z.object({
   primaryColor: primaryColorSchema,
   bookingMessage: optionalPlainTextSchema(
     BOOKING_EXPERIENCE_LIMITS.bookingMessage,
     'Booking message',
   ),
-  policy: policySchema,
-  appointmentOnly: z.boolean(),
-  socialLinks: z.object({
-    instagram: socialUrlSchema('instagram'),
-    facebook: socialUrlSchema('facebook'),
-    tiktok: socialUrlSchema('tiktok'),
-  }).strict(),
+  socialLinks: socialLinksSchema,
   confirmationMessage: optionalPlainTextSchema(
     BOOKING_EXPERIENCE_LIMITS.confirmationMessage,
     'Confirmation message',
   ),
 }).strict();
 
+export const bookingPolicyUpdateSchema = z.object({
+  policy: policySchema,
+  quickFacts: quickFactsSchema,
+}).strict();
+
+/**
+ * Full canonical shape retained for shared validation/tests. The admin route
+ * intentionally accepts only the two targeted schemas above.
+ */
+export const bookingExperienceUpdateSchema
+  = bookingExperienceAppearanceUpdateSchema.merge(bookingPolicyUpdateSchema);
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function resolveNullableField(
@@ -278,6 +380,47 @@ function resolveNullableField(
 ): string | null {
   const result = schema.safeParse(value);
   return result.success ? result.data : null;
+}
+
+function resolveQuickFact(value: unknown): BookingExperience['quickFacts']['appointmentOnly'] {
+  if (!isRecord(value)) {
+    return {
+      enabled: false,
+      label: null,
+    };
+  }
+
+  const label = resolveNullableField(
+    optionalPlainTextSchema(
+      BOOKING_EXPERIENCE_LIMITS.quickFactLabel,
+      'Quick fact label',
+    ),
+    value.label,
+  );
+
+  return {
+    enabled: value.enabled === true && label !== null,
+    label,
+  };
+}
+
+function cloneBookingExperienceDefaults(): BookingExperience {
+  return {
+    ...BOOKING_EXPERIENCE_DEFAULTS,
+    policy: { ...BOOKING_EXPERIENCE_DEFAULTS.policy },
+    quickFacts: {
+      appointmentOnly: {
+        ...BOOKING_EXPERIENCE_DEFAULTS.quickFacts.appointmentOnly,
+      },
+      depositNotice: {
+        ...BOOKING_EXPERIENCE_DEFAULTS.quickFacts.depositNotice,
+      },
+      cancellationNotice: {
+        ...BOOKING_EXPERIENCE_DEFAULTS.quickFacts.cancellationNotice,
+      },
+    },
+    socialLinks: { ...BOOKING_EXPERIENCE_DEFAULTS.socialLinks },
+  };
 }
 
 /**
@@ -289,27 +432,31 @@ export function resolveBookingExperience(
   settings: SalonSettings | null | undefined,
 ): BookingExperience {
   if (!isRecord(settings) || !isRecord(settings.bookingExperience)) {
-    return {
-      ...BOOKING_EXPERIENCE_DEFAULTS,
-      policy: { ...BOOKING_EXPERIENCE_DEFAULTS.policy },
-      socialLinks: { ...BOOKING_EXPERIENCE_DEFAULTS.socialLinks },
-    };
+    return cloneBookingExperienceDefaults();
   }
 
   const stored = settings.bookingExperience as unknown as Record<string, unknown>;
   const storedPolicy = isRecord(stored.policy) ? stored.policy : {};
+  const storedQuickFacts = isRecord(stored.quickFacts)
+    ? stored.quickFacts
+    : {};
   const storedSocialLinks = isRecord(stored.socialLinks)
     ? stored.socialLinks
     : {};
 
   const policyText = resolveNullableField(
-    optionalPlainTextSchema(
-      BOOKING_EXPERIENCE_LIMITS.policyText,
-      'Policy text',
-    ),
+    optionalPolicyTextSchema(),
     storedPolicy.text,
   );
   const requestedPolicyEnabled = storedPolicy.enabled === true;
+  const appointmentOnlyQuickFact = hasOwn(
+    storedQuickFacts,
+    'appointmentOnly',
+  )
+    ? resolveQuickFact(storedQuickFacts.appointmentOnly)
+    : stored.appointmentOnly === true
+      ? { enabled: true, label: 'Appointment only' }
+      : { ...BOOKING_EXPERIENCE_DEFAULTS.quickFacts.appointmentOnly };
 
   return {
     primaryColor: resolveNullableField(primaryColorSchema, stored.primaryColor),
@@ -332,8 +479,29 @@ export function resolveBookingExperience(
         storedPolicy.title,
       ),
       text: policyText,
+      showOnServicePage: typeof storedPolicy.showOnServicePage === 'boolean'
+        ? storedPolicy.showOnServicePage
+        : BOOKING_EXPERIENCE_DEFAULTS.policy.showOnServicePage,
+      showBeforeConfirmation:
+        typeof storedPolicy.showBeforeConfirmation === 'boolean'
+          ? storedPolicy.showBeforeConfirmation
+          : BOOKING_EXPERIENCE_DEFAULTS.policy.showBeforeConfirmation,
+      showAfterConfirmation:
+        typeof storedPolicy.showAfterConfirmation === 'boolean'
+          ? storedPolicy.showAfterConfirmation
+          : BOOKING_EXPERIENCE_DEFAULTS.policy.showAfterConfirmation,
+      showInConfirmationEmail:
+        typeof storedPolicy.showInConfirmationEmail === 'boolean'
+          ? storedPolicy.showInConfirmationEmail
+          : BOOKING_EXPERIENCE_DEFAULTS.policy.showInConfirmationEmail,
     },
-    appointmentOnly: stored.appointmentOnly === true,
+    quickFacts: {
+      appointmentOnly: appointmentOnlyQuickFact,
+      depositNotice: resolveQuickFact(storedQuickFacts.depositNotice),
+      cancellationNotice: resolveQuickFact(
+        storedQuickFacts.cancellationNotice,
+      ),
+    },
     socialLinks: {
       instagram: resolveNullableField(
         socialUrlSchema('instagram'),

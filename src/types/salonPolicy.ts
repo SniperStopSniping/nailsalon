@@ -259,14 +259,71 @@ export type BookingExperience = {
     enabled: boolean;
     title: string | null;
     text: string | null;
+    showOnServicePage: boolean;
+    showBeforeConfirmation: boolean;
+    showAfterConfirmation: boolean;
+    showInConfirmationEmail: boolean;
   };
-  appointmentOnly: boolean;
+  quickFacts: {
+    appointmentOnly: {
+      enabled: boolean;
+      label: string | null;
+    };
+    depositNotice: {
+      enabled: boolean;
+      label: string | null;
+    };
+    cancellationNotice: {
+      enabled: boolean;
+      label: string | null;
+    };
+  };
   socialLinks: {
     instagram: string | null;
     facebook: string | null;
     tiktok: string | null;
   };
   confirmationMessage: string | null;
+};
+
+/**
+ * Persisted Booking Experience JSON can predate the current canonical shape
+ * or contain independently missing fields. It must always pass through
+ * `resolveBookingExperience` before being exposed to application UI.
+ */
+export type StoredBookingExperience = {
+  primaryColor?: string | null;
+  bookingMessage?: string | null;
+  policy?: {
+    enabled?: boolean;
+    title?: string | null;
+    text?: string | null;
+    showOnServicePage?: boolean;
+    showBeforeConfirmation?: boolean;
+    showAfterConfirmation?: boolean;
+    showInConfirmationEmail?: boolean;
+  };
+  quickFacts?: {
+    appointmentOnly?: {
+      enabled?: boolean;
+      label?: string | null;
+    };
+    depositNotice?: {
+      enabled?: boolean;
+      label?: string | null;
+    };
+    cancellationNotice?: {
+      enabled?: boolean;
+      label?: string | null;
+    };
+  };
+  socialLinks?: {
+    instagram?: string | null;
+    facebook?: string | null;
+    tiktok?: string | null;
+  };
+  confirmationMessage?: string | null;
+  appointmentOnly?: boolean;
 };
 
 /**
@@ -294,7 +351,7 @@ export type SalonSettings = {
   // Controlled public booking-page and confirmation-message customization.
   // The canonical defaults, validation, and safe legacy-data resolver live in
   // src/libs/bookingExperience.ts.
-  bookingExperience?: BookingExperience;
+  bookingExperience?: StoredBookingExperience;
 
   // Checkout payments & taxes (0058). Tax defaults OFF for every salon and is
   // never inferred from the address; completed appointments snapshot the

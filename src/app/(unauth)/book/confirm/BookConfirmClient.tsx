@@ -8,14 +8,16 @@ import {
   Check,
   CreditCard,
   Home,
+  Info,
   MapPin,
   RefreshCw,
+  ShieldCheck,
   Sparkles,
   Star,
   User,
 } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { SectionCard } from '@/components/ui/section-card';
@@ -140,6 +142,29 @@ type SmartFitSuggestion = {
   offer: CustomerSmartFitOffer;
 };
 
+type ConfirmationPolicy = {
+  enabled: boolean;
+  title: string | null;
+  text: string | null;
+  showBeforeConfirmation: boolean;
+  showAfterConfirmation: boolean;
+};
+
+type ConfirmationQuickFacts = {
+  appointmentOnly: {
+    enabled: boolean;
+    label: string | null;
+  };
+  depositNotice: {
+    enabled: boolean;
+    label: string | null;
+  };
+  cancellationNotice: {
+    enabled: boolean;
+    label: string | null;
+  };
+};
+
 // --- Helpers ---
 
 const formatTime12h = (timeString: string) => {
@@ -204,6 +229,129 @@ const triggerLuxuryConfetti = () => {
 };
 
 // --- Subcomponents ---
+
+const POLICY_COLLAPSE_THRESHOLDS = {
+  beforeConfirmation: 280,
+  afterConfirmation: 160,
+} as const;
+
+const truncatePolicyText = (text: string, maxCharacters: number) => {
+  const characters = Array.from(text);
+  if (characters.length <= maxCharacters) {
+    return text;
+  }
+  return `${characters.slice(0, maxCharacters).join('').trimEnd()}…`;
+};
+
+const PolicyCard = ({
+  title,
+  text,
+  placement,
+}: {
+  title: string;
+  text: string;
+  placement: 'beforeConfirmation' | 'afterConfirmation';
+}) => {
+  const [expanded, setExpanded] = useState(false);
+  const contentId = useId();
+  const threshold = POLICY_COLLAPSE_THRESHOLDS[placement];
+  const isLong = Array.from(text).length > threshold;
+  const displayedText = isLong && !expanded
+    ? truncatePolicyText(text, threshold)
+    : text;
+  const isCompact = placement === 'afterConfirmation';
+
+  return (
+    <section
+      data-testid={isCompact
+        ? 'booking-policy-after-confirmation'
+        : 'booking-policy-before-confirmation'}
+      aria-labelledby={`${contentId}-title`}
+      className={`border ${isCompact ? 'rounded-xl px-4 py-3' : 'rounded-2xl p-4'}`}
+      style={{
+        borderColor: 'color-mix(in srgb, var(--n5-accent) 24%, var(--n5-border-muted))',
+        backgroundColor: 'color-mix(in srgb, var(--n5-accent) 7%, var(--n5-bg-card))',
+      }}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className={`flex shrink-0 items-center justify-center rounded-full text-[var(--n5-accent)] ${isCompact ? 'size-8' : 'size-9'}`}
+          style={{
+            backgroundColor: 'color-mix(in srgb, var(--n5-accent) 12%, white)',
+          }}
+        >
+          <ShieldCheck aria-hidden="true" className={isCompact ? 'size-4' : 'size-[18px]'} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3
+            id={`${contentId}-title`}
+            className={`font-body min-w-0 break-words font-semibold text-[var(--n5-ink-main)] ${isCompact ? 'text-sm' : 'text-[15px]'}`}
+          >
+            {title}
+          </h3>
+          <p
+            id={contentId}
+            className={`font-body mt-1 whitespace-pre-line break-words text-[var(--n5-ink-muted)] ${isCompact ? 'text-xs leading-5' : 'text-sm leading-6'}`}
+          >
+            {displayedText}
+          </p>
+          {isLong && (
+            <button
+              type="button"
+              aria-controls={contentId}
+              aria-expanded={expanded}
+              onClick={() => setExpanded(current => !current)}
+              className="font-body mt-2 rounded-sm text-xs font-semibold text-[var(--n5-ink-main)] underline decoration-current underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--n5-ink-main)]"
+            >
+              {expanded ? 'Show less' : 'View full policy'}
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+};
+
+const QuickFactBadges = ({
+  quickFacts,
+}: {
+  quickFacts: ConfirmationQuickFacts;
+}) => {
+  const enabledFacts = [
+    { key: 'appointmentOnly', ...quickFacts.appointmentOnly },
+    { key: 'depositNotice', ...quickFacts.depositNotice },
+    { key: 'cancellationNotice', ...quickFacts.cancellationNotice },
+  ].filter(
+    (fact): fact is { key: string; enabled: true; label: string } =>
+      fact.enabled && typeof fact.label === 'string' && fact.label.length > 0,
+  );
+
+  if (enabledFacts.length === 0) {
+    return null;
+  }
+
+  return (
+    <ul
+      data-testid="booking-quick-facts"
+      aria-label="Booking quick facts"
+      className="flex flex-wrap gap-2"
+    >
+      {enabledFacts.map(fact => (
+        <li
+          key={fact.key}
+          className="font-body inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold text-[var(--n5-ink-main)]"
+          style={{
+            borderColor: 'color-mix(in srgb, var(--n5-accent) 22%, var(--n5-border-muted))',
+            backgroundColor: 'color-mix(in srgb, var(--n5-accent) 6%, var(--n5-bg-card))',
+          }}
+        >
+          <Info aria-hidden="true" className="size-3.5 shrink-0 text-[var(--n5-accent)]" />
+          <span className="min-w-0 break-words">{fact.label}</span>
+        </li>
+      ))}
+    </ul>
+  );
+};
 
 const SummaryRow = ({
   icon,
@@ -666,6 +814,8 @@ const ConfirmContent = ({
   onSignOut,
   onBookForSomeoneElse,
   onBookForMyself,
+  policy,
+  quickFacts,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -707,6 +857,8 @@ const ConfirmContent = ({
   onSignOut: () => void;
   onBookForSomeoneElse: () => void;
   onBookForMyself: () => void;
+  policy: ConfirmationPolicy;
+  quickFacts: ConfirmationQuickFacts;
 }) => {
   // Focus and announcement management for the one nearby suggestion: both
   // actions unmount the banner (and the focused button with it), so focus
@@ -1050,6 +1202,16 @@ const ConfirmContent = ({
             </div>
           )}
 
+          <QuickFactBadges quickFacts={quickFacts} />
+
+          {policy.enabled && policy.showBeforeConfirmation && policy.text && (
+            <PolicyCard
+              title={policy.title ?? 'Booking policy'}
+              text={policy.text}
+              placement="beforeConfirmation"
+            />
+          )}
+
           <button
             ref={confirmActionRef}
             type="button"
@@ -1137,6 +1299,7 @@ const SuccessContent = ({
   clientChangeCutoffHours,
   totalPriceDisplay,
   confirmationMessage,
+  policy,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -1163,6 +1326,7 @@ const SuccessContent = ({
   canonicalStartTime: string | null;
   clientChangeCutoffHours: number;
   confirmationMessage: string | null;
+  policy: ConfirmationPolicy;
 }) => {
   const directionsUrl = buildGoogleMapsDirectionsUrl(location);
   const calendarStart = canonicalStartTime ? new Date(canonicalStartTime) : null;
@@ -1239,6 +1403,14 @@ const SuccessContent = ({
             totalPriceDisplay={totalPriceDisplay}
           />
         </motion.div>
+
+        {policy.enabled && policy.showAfterConfirmation && policy.text && (
+          <PolicyCard
+            title="Please remember"
+            text={policy.text}
+            placement="afterConfirmation"
+          />
+        )}
 
         {confirmationMessage && (
           <motion.div
@@ -2141,6 +2313,7 @@ export function BookConfirmClient({
           clientChangeCutoffHours={clientChangeCutoffHours}
           totalPriceDisplay={totalPriceDisplay}
           confirmationMessage={bookingExperience.confirmationMessage}
+          policy={bookingExperience.policy}
         />
         <NameCaptureModal
           isOpen={showNameModal}
@@ -2204,6 +2377,8 @@ export function BookConfirmClient({
       onSignOut={handleSignOut}
       onBookForSomeoneElse={handleBookForSomeoneElse}
       onBookForMyself={handleBookForMyself}
+      policy={bookingExperience.policy}
+      quickFacts={bookingExperience.quickFacts}
     />
   );
 }

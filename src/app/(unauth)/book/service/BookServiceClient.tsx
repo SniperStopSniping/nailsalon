@@ -1,6 +1,6 @@
 'use client';
 
-import { Facebook, Instagram, Music2 } from 'lucide-react';
+import { Facebook, Info, Instagram, Music2, ShieldCheck } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { type CSSProperties, useEffect, useRef, useState } from 'react';
 
@@ -224,6 +224,28 @@ export function BookServiceClient({
     const href = bookingExperience.socialLinks[key];
     return href ? [{ key, label, Icon, href }] : [];
   });
+  const serviceQuickFacts = [
+    {
+      key: 'appointment-only',
+      ...bookingExperience.quickFacts.appointmentOnly,
+    },
+    {
+      key: 'deposit-notice',
+      ...bookingExperience.quickFacts.depositNotice,
+    },
+    {
+      key: 'cancellation-notice',
+      ...bookingExperience.quickFacts.cancellationNotice,
+    },
+  ].flatMap(fact =>
+    fact.enabled && fact.label?.trim()
+      ? [{ key: fact.key, label: fact.label }]
+      : []);
+  const servicePagePolicyText = bookingExperience.policy.enabled
+    && bookingExperience.policy.showOnServicePage
+    && bookingExperience.policy.text?.trim()
+    ? bookingExperience.policy.text
+    : null;
 
   const isFirstStep = getFirstStep(bookingFlow) === 'service';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
@@ -880,40 +902,68 @@ export function BookServiceClient({
           className="-mb-1"
         />
 
-        {(bookingExperience.bookingMessage || bookingExperience.appointmentOnly) && (
+        {(bookingExperience.bookingMessage || serviceQuickFacts.length > 0) && (
           <section
             data-testid="booking-experience-intro"
             aria-label="Booking information"
-            className="mb-4 rounded-2xl border bg-white/85 px-4 py-3 shadow-[0_4px_16px_rgba(0,0,0,0.04)]"
-            style={{
-              borderColor: hasBookingBrandColor
-                ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                : themeVars.cardBorder,
-            }}
+            className="mb-4 space-y-2.5"
           >
-            {bookingExperience.appointmentOnly && (
-              <div
-                data-testid="booking-appointment-only"
-                className="mb-2 inline-flex rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em] text-neutral-900"
-                style={{
-                  borderColor: hasBookingBrandColor
-                    ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                    : themeVars.cardBorder,
-                  backgroundColor: hasBookingBrandColor
-                    ? 'var(--booking-brand-selection-background, white)'
-                    : themeVars.surfaceAlt,
-                }}
+            {serviceQuickFacts.length > 0 && (
+              <ul
+                data-testid="booking-quick-facts"
+                aria-label="Booking quick facts"
+                className="flex flex-wrap gap-2"
               >
-                Appointment Only
-              </div>
+                {serviceQuickFacts.map(fact => (
+                  <li
+                    key={fact.key}
+                    data-testid={fact.key === 'appointment-only'
+                      ? 'booking-appointment-only'
+                      : `booking-quick-fact-${fact.key}`}
+                    className="inline-flex min-w-0 max-w-full rounded-full border px-2.5 py-1 text-xs font-medium leading-4 text-neutral-700"
+                    style={{
+                      borderColor: hasBookingBrandColor
+                        ? 'color-mix(in srgb, var(--booking-brand-state-border, var(--theme-primary)) 42%, transparent)'
+                        : themeVars.cardBorder,
+                      backgroundColor: hasBookingBrandColor
+                        ? 'color-mix(in srgb, var(--booking-brand-primary) 8%, white)'
+                        : themeVars.surfaceAlt,
+                    }}
+                  >
+                    <span className="min-w-0 break-words">{fact.label}</span>
+                  </li>
+                ))}
+              </ul>
             )}
             {bookingExperience.bookingMessage && (
-              <p
-                data-testid="booking-message"
-                className="whitespace-pre-line break-words text-sm leading-5 text-neutral-700"
+              <div
+                data-testid="booking-message-card"
+                className="flex items-start gap-2.5 rounded-xl border px-3 py-2.5"
+                style={{
+                  borderColor: hasBookingBrandColor
+                    ? 'color-mix(in srgb, var(--booking-brand-state-border, var(--theme-primary)) 34%, transparent)'
+                    : `color-mix(in srgb, ${themeVars.accent} 20%, ${themeVars.cardBorder})`,
+                  backgroundColor: hasBookingBrandColor
+                    ? 'color-mix(in srgb, var(--booking-brand-primary) 6%, white)'
+                    : `color-mix(in srgb, white 92%, ${themeVars.accent})`,
+                }}
               >
-                {bookingExperience.bookingMessage}
-              </p>
+                <Info
+                  aria-hidden="true"
+                  className="mt-0.5 size-4 shrink-0"
+                  style={{
+                    color: hasBookingBrandColor
+                      ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                      : themeVars.primaryDark,
+                  }}
+                />
+                <p
+                  data-testid="booking-message"
+                  className="whitespace-pre-line break-words text-sm leading-5 text-neutral-700"
+                >
+                  {bookingExperience.bookingMessage}
+                </p>
+              </div>
             )}
           </section>
         )}
@@ -1605,26 +1655,42 @@ export function BookServiceClient({
               </>
             )}
 
-        {bookingExperience.policy.enabled && bookingExperience.policy.text && (
+        {servicePagePolicyText && (
           <section
             data-testid="booking-policy"
             aria-labelledby={bookingExperience.policy.title ? 'booking-policy-title' : undefined}
             aria-label={bookingExperience.policy.title ? undefined : 'Booking policy'}
-            className="mt-5 rounded-2xl border bg-white/85 p-4 shadow-[0_4px_16px_rgba(0,0,0,0.04)]"
+            className="mt-5 rounded-xl border px-3.5 py-3"
             style={{
               borderColor: hasBookingBrandColor
-                ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                : themeVars.cardBorder,
+                ? 'color-mix(in srgb, var(--booking-brand-state-border, var(--theme-primary)) 34%, transparent)'
+                : `color-mix(in srgb, ${themeVars.accent} 20%, ${themeVars.cardBorder})`,
+              backgroundColor: hasBookingBrandColor
+                ? 'color-mix(in srgb, var(--booking-brand-primary) 6%, white)'
+                : `color-mix(in srgb, white 92%, ${themeVars.accent})`,
             }}
           >
-            {bookingExperience.policy.title && (
-              <h2 id="booking-policy-title" className="mb-2 break-words text-sm font-semibold text-neutral-900">
-                {bookingExperience.policy.title}
-              </h2>
-            )}
-            <p className="whitespace-pre-line break-words text-sm leading-5 text-neutral-700">
-              {bookingExperience.policy.text}
-            </p>
+            <div className="flex items-start gap-2.5">
+              <ShieldCheck
+                aria-hidden="true"
+                className="mt-0.5 size-4 shrink-0"
+                style={{
+                  color: hasBookingBrandColor
+                    ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                    : themeVars.primaryDark,
+                }}
+              />
+              <div className="min-w-0">
+                {bookingExperience.policy.title && (
+                  <h2 id="booking-policy-title" className="mb-1 min-w-0 break-words text-sm font-semibold text-neutral-900">
+                    {bookingExperience.policy.title}
+                  </h2>
+                )}
+                <p className="whitespace-pre-line break-words text-sm leading-5 text-neutral-700">
+                  {servicePagePolicyText}
+                </p>
+              </div>
+            </div>
           </section>
         )}
 

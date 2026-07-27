@@ -49,8 +49,25 @@ const {
         enabled: false,
         title: null as string | null,
         text: null as string | null,
+        showOnServicePage: true,
+        showBeforeConfirmation: true,
+        showAfterConfirmation: true,
+        showInConfirmationEmail: true,
       },
-      appointmentOnly: false,
+      quickFacts: {
+        appointmentOnly: {
+          enabled: false,
+          label: null as string | null,
+        },
+        depositNotice: {
+          enabled: false,
+          label: null as string | null,
+        },
+        cancellationNotice: {
+          enabled: false,
+          label: null as string | null,
+        },
+      },
       socialLinks: {
         instagram: null as string | null,
         facebook: null as string | null,
@@ -71,8 +88,25 @@ const DEFAULT_BOOKING_EXPERIENCE: BookingExperience = {
     enabled: false,
     title: null,
     text: null,
+    showOnServicePage: true,
+    showBeforeConfirmation: true,
+    showAfterConfirmation: true,
+    showInConfirmationEmail: true,
   },
-  appointmentOnly: false,
+  quickFacts: {
+    appointmentOnly: {
+      enabled: false,
+      label: null,
+    },
+    depositNotice: {
+      enabled: false,
+      label: null,
+    },
+    cancellationNotice: {
+      enabled: false,
+      label: null,
+    },
+  },
   socialLinks: {
     instagram: null,
     facebook: null,
@@ -88,8 +122,25 @@ const CONFIGURED_BOOKING_EXPERIENCE: BookingExperience = {
     enabled: true,
     title: 'Before you book',
     text: 'Please arrive five minutes early.',
+    showOnServicePage: true,
+    showBeforeConfirmation: true,
+    showAfterConfirmation: true,
+    showInConfirmationEmail: true,
   },
-  appointmentOnly: true,
+  quickFacts: {
+    appointmentOnly: {
+      enabled: true,
+      label: 'Appointment only',
+    },
+    depositNotice: {
+      enabled: false,
+      label: null,
+    },
+    cancellationNotice: {
+      enabled: false,
+      label: null,
+    },
+  },
   socialLinks: {
     instagram: 'https://instagram.com/salon-a',
     facebook: 'https://www.facebook.com/salon-a',
@@ -193,6 +244,7 @@ vi.mock('@/providers/SalonProvider', () => ({
     children: React.ReactNode;
   }) => {
     salonProviderPropsMock.bookingExperience = bookingExperience;
+    salonContextMock.bookingExperience = bookingExperience as BookingExperience;
     return children;
   },
   useSalon: () => ({
@@ -211,8 +263,25 @@ function resetBookingExperienceMock() {
       enabled: false,
       title: null,
       text: null,
+      showOnServicePage: true,
+      showBeforeConfirmation: true,
+      showAfterConfirmation: true,
+      showInConfirmationEmail: true,
     },
-    appointmentOnly: false,
+    quickFacts: {
+      appointmentOnly: {
+        enabled: false,
+        label: null,
+      },
+      depositNotice: {
+        enabled: false,
+        label: null,
+      },
+      cancellationNotice: {
+        enabled: false,
+        label: null,
+      },
+    },
     socialLinks: {
       instagram: null,
       facebook: null,
@@ -465,8 +534,25 @@ describe('BookServiceClient', () => {
         enabled: true,
         title: 'Before your visit',
         text: 'Please arrive five minutes early.\nCall us if you need help.',
+        showOnServicePage: true,
+        showBeforeConfirmation: true,
+        showAfterConfirmation: true,
+        showInConfirmationEmail: true,
       },
-      appointmentOnly: true,
+      quickFacts: {
+        appointmentOnly: {
+          enabled: true,
+          label: 'Appointment only',
+        },
+        depositNotice: {
+          enabled: false,
+          label: null,
+        },
+        cancellationNotice: {
+          enabled: false,
+          label: null,
+        },
+      },
       socialLinks: {
         instagram: 'https://www.instagram.com/salon-a',
         facebook: null,
@@ -488,18 +574,32 @@ describe('BookServiceClient', () => {
 
     expect(screen.getByTestId('booking-step-header').compareDocumentPosition(intro)
       & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByTestId('booking-appointment-only')).toHaveTextContent(
-      'Appointment Only',
-    );
+
+    const appointmentOnlyBadge = screen.getByTestId('booking-appointment-only');
+
+    expect(appointmentOnlyBadge).toHaveTextContent('Appointment only');
+    expect(appointmentOnlyBadge).toHaveClass('rounded-full', 'text-xs', 'font-medium');
+    expect(appointmentOnlyBadge).not.toHaveClass('uppercase', 'tracking-[0.12em]');
     expect(message).toHaveTextContent(
       '<strong>Welcome</strong> See https://example.com before booking.',
     );
     expect(message).toHaveClass('break-words', 'whitespace-pre-line');
     expect(message.querySelector('strong')).toBeNull();
     expect(message.querySelector('a')).toBeNull();
+    expect(screen.getByTestId('booking-message-card')).toHaveClass(
+      'rounded-xl',
+      'border',
+    );
+    expect(screen.getByTestId('booking-message-card')).not.toHaveClass(
+      'shadow-[0_4px_16px_rgba(0,0,0,0.04)]',
+    );
 
     const policy = screen.getByTestId('booking-policy');
 
+    expect(policy).toHaveClass('rounded-xl', 'border');
+    expect(policy).not.toHaveClass(
+      'shadow-[0_4px_16px_rgba(0,0,0,0.04)]',
+    );
     expect(policy).toHaveTextContent('Before your visit');
     expect(policy).toHaveTextContent(
       'Please arrive five minutes early. Call us if you need help.',
@@ -557,6 +657,163 @@ describe('BookServiceClient', () => {
     );
   });
 
+  it('renders the legacy Appointment Only setting through the resolved provider quick fact', () => {
+    const salon = buildPublicShellSalon({
+      bookingExperience: {
+        primaryColor: null,
+        bookingMessage: null,
+        policy: {
+          enabled: false,
+          title: null,
+          text: null,
+        },
+        appointmentOnly: true,
+        socialLinks: {
+          instagram: null,
+          facebook: null,
+          tiktok: null,
+        },
+        confirmationMessage: null,
+      },
+    });
+
+    render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="book-service"
+        salon={salon}
+      >
+        <BookServiceClient
+          services={[services[0]!]}
+          bookingFlow={['service', 'tech', 'time', 'confirm']}
+          locations={[]}
+        />
+      </PublicSalonPageShell>,
+    );
+
+    const quickFacts = screen.getByTestId('booking-quick-facts');
+    const appointmentOnlyLabel = within(quickFacts).getByText('Appointment only');
+    const appointmentOnlyBadge = appointmentOnlyLabel.closest('li');
+
+    expect(appointmentOnlyBadge).toHaveClass('rounded-full', 'text-xs');
+    expect(appointmentOnlyLabel).toHaveClass('min-w-0', 'break-words');
+    expect(within(quickFacts).getAllByRole('listitem')).toHaveLength(1);
+  });
+
+  it('shows only explicitly enabled quick facts and uses their configured labels', () => {
+    salonContextMock.bookingExperience = {
+      ...DEFAULT_BOOKING_EXPERIENCE,
+      policy: {
+        ...DEFAULT_BOOKING_EXPERIENCE.policy,
+        enabled: true,
+        text: 'A $15 deposit may apply. Please cancel 24 hours in advance.',
+      },
+      quickFacts: {
+        appointmentOnly: {
+          enabled: true,
+          label: 'By appointment',
+        },
+        depositNotice: {
+          enabled: false,
+          label: '$15 deposit required',
+        },
+        cancellationNotice: {
+          enabled: true,
+          label: '24-hour cancellation policy',
+        },
+      },
+    };
+
+    render(
+      <BookServiceClient
+        services={[services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const quickFacts = screen.getByTestId('booking-quick-facts');
+
+    expect(within(quickFacts).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(quickFacts).getByText('By appointment')).toBeInTheDocument();
+    expect(
+      within(quickFacts).getByText('24-hour cancellation policy'),
+    ).toBeInTheDocument();
+    expect(
+      within(quickFacts).queryByText('$15 deposit required'),
+    ).not.toBeInTheDocument();
+  });
+
+  it('wraps uninterrupted quick-fact labels and policy titles without horizontal overflow classes', () => {
+    const longBadgeLabel = 'D'.repeat(40);
+    const longPolicyTitle = 'P'.repeat(60);
+    salonContextMock.bookingExperience = {
+      ...DEFAULT_BOOKING_EXPERIENCE,
+      policy: {
+        ...DEFAULT_BOOKING_EXPERIENCE.policy,
+        enabled: true,
+        title: longPolicyTitle,
+        text: 'Please review this policy before booking.',
+      },
+      quickFacts: {
+        ...DEFAULT_BOOKING_EXPERIENCE.quickFacts,
+        depositNotice: {
+          enabled: true,
+          label: longBadgeLabel,
+        },
+      },
+    };
+
+    render(
+      <BookServiceClient
+        services={[services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const quickFacts = screen.getByTestId('booking-quick-facts');
+    const badgeLabel = within(quickFacts).getByText(longBadgeLabel);
+    const badge = badgeLabel.closest('li');
+    const policyTitle = within(screen.getByTestId('booking-policy')).getByRole(
+      'heading',
+      { name: longPolicyTitle },
+    );
+
+    expect(badge).toHaveClass('max-w-full', 'min-w-0');
+    expect(badge).not.toHaveClass('whitespace-nowrap');
+    expect(badgeLabel).toHaveClass('min-w-0', 'break-words');
+    expect(badgeLabel).not.toHaveClass('whitespace-nowrap');
+    expect(policyTitle).toHaveClass('min-w-0', 'break-words');
+    expect(policyTitle).not.toHaveClass('whitespace-nowrap');
+  });
+
+  it('honours the service-page policy placement flag', () => {
+    salonContextMock.bookingExperience = {
+      ...DEFAULT_BOOKING_EXPERIENCE,
+      policy: {
+        enabled: true,
+        title: 'Booking policy',
+        text: 'Please provide 24 hours notice.',
+        showOnServicePage: false,
+        showBeforeConfirmation: true,
+        showAfterConfirmation: true,
+        showInConfirmationEmail: true,
+      },
+    };
+
+    render(
+      <BookServiceClient
+        services={[services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    expect(screen.queryByTestId('booking-policy')).not.toBeInTheDocument();
+    expect(screen.queryByText('Please provide 24 hours notice.')).not.toBeInTheDocument();
+  });
+
   it('keeps a disabled policy unpublished and displays only configured social platforms', () => {
     salonContextMock.bookingExperience = {
       primaryColor: null,
@@ -565,8 +822,25 @@ describe('BookServiceClient', () => {
         enabled: false,
         title: 'Draft policy',
         text: 'This draft must remain private.',
+        showOnServicePage: true,
+        showBeforeConfirmation: true,
+        showAfterConfirmation: true,
+        showInConfirmationEmail: true,
       },
-      appointmentOnly: false,
+      quickFacts: {
+        appointmentOnly: {
+          enabled: false,
+          label: null,
+        },
+        depositNotice: {
+          enabled: false,
+          label: null,
+        },
+        cancellationNotice: {
+          enabled: false,
+          label: null,
+        },
+      },
       socialLinks: {
         instagram: null,
         facebook: 'https://www.facebook.com/salon-a',
@@ -812,7 +1086,20 @@ describe('BookServiceClient', () => {
         enabled: false,
         text: null,
       },
-      appointmentOnly: false,
+      quickFacts: {
+        appointmentOnly: {
+          enabled: false,
+          label: null,
+        },
+        depositNotice: {
+          enabled: false,
+          label: null,
+        },
+        cancellationNotice: {
+          enabled: false,
+          label: null,
+        },
+      },
       socialLinks: {
         instagram: null,
         facebook: null,

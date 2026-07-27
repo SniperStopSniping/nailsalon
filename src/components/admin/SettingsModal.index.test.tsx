@@ -60,8 +60,25 @@ const DEFAULT_BOOKING_EXPERIENCE: BookingExperience = {
     enabled: false,
     title: null,
     text: null,
+    showOnServicePage: true,
+    showBeforeConfirmation: true,
+    showAfterConfirmation: true,
+    showInConfirmationEmail: true,
   },
-  appointmentOnly: false,
+  quickFacts: {
+    appointmentOnly: {
+      enabled: false,
+      label: null,
+    },
+    depositNotice: {
+      enabled: false,
+      label: null,
+    },
+    cancellationNotice: {
+      enabled: false,
+      label: null,
+    },
+  },
   socialLinks: {
     instagram: null,
     facebook: null,
@@ -77,8 +94,25 @@ const CONFIGURED_BOOKING_EXPERIENCE: BookingExperience = {
     enabled: true,
     title: 'Before you book',
     text: 'Please arrive five minutes early.',
+    showOnServicePage: true,
+    showBeforeConfirmation: true,
+    showAfterConfirmation: true,
+    showInConfirmationEmail: true,
   },
-  appointmentOnly: true,
+  quickFacts: {
+    appointmentOnly: {
+      enabled: true,
+      label: 'Appointment only',
+    },
+    depositNotice: {
+      enabled: true,
+      label: '$15 deposit required',
+    },
+    cancellationNotice: {
+      enabled: true,
+      label: '24-hour cancellation policy',
+    },
+  },
   socialLinks: {
     instagram: 'https://instagram.com/salon-a',
     facebook: 'https://www.facebook.com/salon-a',
@@ -93,6 +127,9 @@ function mockEndpoints(options: {
   bookingExperienceEntitled?: boolean;
   bookingExperiencePatchResponse?: Promise<Response>;
 } = {}) {
+  let persistedBookingExperience
+    = options.bookingExperience ?? DEFAULT_BOOKING_EXPERIENCE;
+
   fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
 
@@ -159,16 +196,36 @@ function mockEndpoints(options: {
     }
 
     if (url.includes('/api/admin/salon/settings?salonSlug=salon-a')) {
-      const requestedBookingExperience = init?.body
-        ? JSON.parse(String(init.body)).bookingExperience
-        : undefined;
+      const requestBody = init?.body
+        ? JSON.parse(String(init.body))
+        : {};
+      const requestedAppearance = requestBody.bookingExperienceAppearance;
+      const requestedPolicy = requestBody.bookingPolicy;
+      const isBookingExperiencePatch = Boolean(
+        requestedAppearance || requestedPolicy || requestBody.bookingExperience,
+      );
 
       if (
         init?.method === 'PATCH'
-        && requestedBookingExperience
+        && isBookingExperiencePatch
         && options.bookingExperiencePatchResponse
       ) {
         return options.bookingExperiencePatchResponse;
+      }
+
+      if (init?.method === 'PATCH' && requestedAppearance) {
+        persistedBookingExperience = {
+          ...persistedBookingExperience,
+          ...requestedAppearance,
+        };
+      }
+
+      if (init?.method === 'PATCH' && requestedPolicy) {
+        persistedBookingExperience = {
+          ...persistedBookingExperience,
+          policy: requestedPolicy.policy,
+          quickFacts: requestedPolicy.quickFacts,
+        };
       }
 
       return Promise.resolve(new Response(JSON.stringify({
@@ -191,10 +248,7 @@ function mockEndpoints(options: {
         ownerEmailPresent: true,
         smsChannelAvailable: true,
         emailChannelAvailable: true,
-        bookingExperience:
-          requestedBookingExperience
-          ?? options.bookingExperience
-          ?? DEFAULT_BOOKING_EXPERIENCE,
+        bookingExperience: persistedBookingExperience,
         bookingExperienceEntitlement: {
           featureKey: 'booking_experience_customization',
           entitled: options.bookingExperienceEntitled ?? true,
@@ -263,6 +317,7 @@ describe('SettingsModal index', () => {
     expect(await screen.findByText('Locations & directions')).toBeInTheDocument();
     expect(screen.getByText('Branding & appearance')).toBeInTheDocument();
     expect(screen.getByText('Booking rules')).toBeInTheDocument();
+    expect(screen.getByText('Booking policy')).toBeInTheDocument();
     expect(screen.getByText('Booking & cancellation alerts')).toBeInTheDocument();
     expect(await screen.findByText('Modules & programs')).toBeInTheDocument();
     expect(screen.getByText('Manage integrations')).toBeInTheDocument();
@@ -377,18 +432,10 @@ describe('SettingsModal index', () => {
     expect(
       screen.getByDisplayValue('Welcome to online booking.'),
     ).toBeInTheDocument();
-    expect(
-      screen.getByDisplayValue('Please arrive five minutes early.'),
-    ).toBeInTheDocument();
 
     const preview = within(screen.getByTestId('booking-experience-preview'));
 
     expect(preview.getByText('Welcome to online booking.')).toBeInTheDocument();
-    expect(preview.getByText('Appointment Only')).toBeInTheDocument();
-    expect(preview.getByText('Before you book')).toBeInTheDocument();
-    expect(
-      preview.getByText('Please arrive five minutes early.'),
-    ).toBeInTheDocument();
     expect(
       preview.getByRole('img', { name: 'Instagram social icon preview' }),
     ).toBeInTheDocument();
@@ -408,6 +455,51 @@ describe('SettingsModal index', () => {
     expect(
       preview.getByTestId('booking-experience-preview-service'),
     ).toHaveStyle({ borderColor: '#123456' });
+  });
+
+  it('loads the canonical policy, explicit quick facts, placements, and preview in the dedicated editor', async () => {
+    fetchMock.mockReset();
+    mockEndpoints({ bookingExperience: CONFIGURED_BOOKING_EXPERIENCE });
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Booking policy'));
+
+    expect(await screen.findByRole('checkbox', {
+      name: 'Enable booking policy',
+    })).toBeChecked();
+    expect(screen.getByRole('textbox', { name: 'Policy title' })).toHaveValue(
+      'Before you book',
+    );
+    expect(screen.getByRole('textbox', { name: 'Full policy text' })).toHaveValue(
+      'Please arrive five minutes early.',
+    );
+    expect(screen.getByText('Show before confirmation')).toBeInTheDocument();
+    expect(screen.getByRole('checkbox', {
+      name: 'Enable appointment only badge',
+    })).toBeChecked();
+    expect(screen.getByRole('textbox', {
+      name: 'Appointment only label',
+    })).toHaveValue('Appointment only');
+    expect(screen.getByRole('textbox', {
+      name: 'Deposit notice label',
+    })).toHaveValue('$15 deposit required');
+
+    const preview = within(screen.getByTestId('booking-policy-preview'));
+
+    expect(preview.getByText('Appointment only')).toBeInTheDocument();
+    expect(preview.getByText('$15 deposit required')).toBeInTheDocument();
+    expect(preview.getByText('24-hour cancellation policy')).toBeInTheDocument();
+    expect(preview.getByText('Before you book')).toBeInTheDocument();
+    expect(preview.getByText('Please arrive five minutes early.')).toBeInTheDocument();
+    expect(preview.getByText('Confirm appointment')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('checkbox', {
+      name: 'Show before confirmation',
+    }));
+
+    expect(preview.queryByText('Before you book')).not.toBeInTheDocument();
+    expect(preview.getByText('Confirm appointment')).toBeInTheDocument();
   });
 
   it('shows preserved booking settings read-only and marks the public preview inactive when locked', async () => {
@@ -455,7 +547,31 @@ describe('SettingsModal index', () => {
     ).toHaveLength(0);
   });
 
-  it('updates every bounded preview element from the unsaved draft', async () => {
+  it('keeps preserved policy values read-only and its public preview inactive when locked', async () => {
+    fetchMock.mockReset();
+    mockEndpoints({
+      bookingExperience: CONFIGURED_BOOKING_EXPERIENCE,
+      bookingExperienceEntitled: false,
+    });
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Booking policy'));
+
+    expect(await screen.findByTestId('booking-policy-locked')).toHaveTextContent(
+      'Your saved policy is preserved',
+    );
+    expect(screen.getByRole('textbox', { name: 'Policy title' })).toHaveValue(
+      'Before you book',
+    );
+    expect(screen.getByRole('textbox', { name: 'Policy title' })).toBeDisabled();
+    expect(screen.getByTestId('booking-policy-preview-inactive')).toBeVisible();
+    expect(screen.getByTestId('booking-policy-preview')).not.toBeVisible();
+    expect(screen.getByRole('button', { name: 'Save booking policy' }))
+      .toBeDisabled();
+  });
+
+  it('updates every appearance preview element from the unsaved draft', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
     fireEvent.click(await screen.findByText('Branding & appearance'));
@@ -466,14 +582,6 @@ describe('SettingsModal index', () => {
     });
     fireEvent.change(screen.getByRole('textbox', { name: 'Booking message' }), {
       target: { value: 'Pick a service that feels right.' },
-    });
-    fireEvent.click(screen.getByRole('checkbox', { name: /Appointment Only/i }));
-    fireEvent.click(screen.getByRole('checkbox', { name: /Booking policy/i }));
-    fireEvent.change(screen.getByRole('textbox', { name: 'Policy title' }), {
-      target: { value: 'Booking notes' },
-    });
-    fireEvent.change(screen.getByRole('textbox', { name: /Policy text/i }), {
-      target: { value: 'Changes require advance notice.' },
     });
     fireEvent.change(screen.getByRole('textbox', { name: 'Instagram' }), {
       target: { value: 'https://instagram.com/salon-a' },
@@ -488,9 +596,6 @@ describe('SettingsModal index', () => {
     const preview = within(screen.getByTestId('booking-experience-preview'));
 
     expect(preview.getByText('Pick a service that feels right.')).toBeInTheDocument();
-    expect(preview.getByText('Appointment Only')).toBeInTheDocument();
-    expect(preview.getByText('Booking notes')).toBeInTheDocument();
-    expect(preview.getByText('Changes require advance notice.')).toBeInTheDocument();
     expect(preview.getByText('Bring your inspiration photos.')).toBeInTheDocument();
     expect(
       preview.getByRole('img', { name: 'Instagram social icon preview' }),
@@ -507,9 +612,87 @@ describe('SettingsModal index', () => {
     expect(
       preview.getByTestId('booking-experience-preview-service'),
     ).toHaveStyle({ borderColor: '#000000' });
-    expect(
-      preview.getByTestId('booking-experience-preview-badge'),
-    ).toHaveStyle({ borderColor: '#000000' });
+  });
+
+  it('updates explicit quick facts and the canonical policy preview from an unsaved policy draft', async () => {
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Booking policy'));
+    await screen.findByTestId('booking-policy-preview');
+
+    fireEvent.click(screen.getByRole('checkbox', {
+      name: 'Enable booking policy',
+    }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Policy title' }), {
+      target: { value: 'Booking notes' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Full policy text' }), {
+      target: { value: 'Changes require advance notice.' },
+    });
+    fireEvent.click(screen.getByRole('checkbox', {
+      name: 'Enable appointment only badge',
+    }));
+    fireEvent.change(screen.getByRole('textbox', {
+      name: 'Appointment only label',
+    }), {
+      target: { value: 'Appointment only' },
+    });
+
+    const preview = within(screen.getByTestId('booking-policy-preview'));
+
+    expect(preview.getByText('Appointment only')).toBeInTheDocument();
+    expect(preview.getByText('Booking notes')).toBeInTheDocument();
+    expect(preview.getByText('Changes require advance notice.')).toBeInTheDocument();
+  });
+
+  it('saves only the policy and quick-fact subpaths from the dedicated editor', async () => {
+    fetchMock.mockReset();
+    mockEndpoints({ bookingExperience: CONFIGURED_BOOKING_EXPERIENCE });
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Booking policy'));
+    fireEvent.change(await screen.findByRole('textbox', {
+      name: 'Policy title',
+    }), {
+      target: { value: 'Updated booking policy' },
+    });
+    fireEvent.change(screen.getByRole('textbox', {
+      name: 'Deposit notice label',
+    }), {
+      target: { value: 'Deposit required for new clients' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save booking policy' }));
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(([input, init]) =>
+        String(input).includes('/api/admin/salon/settings')
+        && (init as RequestInit | undefined)?.method === 'PATCH');
+
+      expect(patchCall).toBeTruthy();
+
+      const body = JSON.parse(String((patchCall![1] as RequestInit).body));
+
+      expect(body).toEqual({
+        bookingPolicy: {
+          policy: {
+            ...CONFIGURED_BOOKING_EXPERIENCE.policy,
+            title: 'Updated booking policy',
+          },
+          quickFacts: {
+            ...CONFIGURED_BOOKING_EXPERIENCE.quickFacts,
+            depositNotice: {
+              enabled: true,
+              label: 'Deposit required for new clients',
+            },
+          },
+        },
+      });
+      expect(body).not.toHaveProperty('bookingExperience');
+      expect(body).not.toHaveProperty('bookingExperienceAppearance');
+    });
+
+    expect(await screen.findByText('Booking policy saved.')).toBeInTheDocument();
   });
 
   it('keeps Reset to Default draft-only until an explicit Save', async () => {
@@ -524,7 +707,6 @@ describe('SettingsModal index', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset to Default' }));
 
     expect(screen.getByRole('textbox', { name: 'Booking message' })).toHaveValue('');
-    expect(screen.getByRole('checkbox', { name: /Appointment Only/i })).not.toBeChecked();
     expect(
       fetchMock.mock.calls.filter(([, init]) =>
         (init as RequestInit | undefined)?.method === 'PATCH'),
@@ -541,7 +723,12 @@ describe('SettingsModal index', () => {
 
       expect(patchCall).toBeTruthy();
       expect(JSON.parse(String((patchCall![1] as RequestInit).body))).toEqual({
-        bookingExperience: DEFAULT_BOOKING_EXPERIENCE,
+        bookingExperienceAppearance: {
+          primaryColor: DEFAULT_BOOKING_EXPERIENCE.primaryColor,
+          bookingMessage: DEFAULT_BOOKING_EXPERIENCE.bookingMessage,
+          socialLinks: DEFAULT_BOOKING_EXPERIENCE.socialLinks,
+          confirmationMessage: DEFAULT_BOOKING_EXPERIENCE.confirmationMessage,
+        },
       });
     });
 
@@ -796,20 +983,20 @@ describe('SettingsModal index', () => {
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
-    fireEvent.click(await screen.findByText('Branding & appearance'));
-    await screen.findByTestId('booking-experience-preview');
-    fireEvent.change(screen.getByRole('textbox', { name: 'Booking message' }), {
-      target: { value: 'Unsaved message' },
+    fireEvent.click(await screen.findByText('Booking policy'));
+    await screen.findByTestId('booking-policy-preview');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Policy title' }), {
+      target: { value: 'Unsaved policy title' },
     });
     fireEvent.click(
-      screen.getByRole('button', { name: 'Save booking experience' }),
+      screen.getByRole('button', { name: 'Save booking policy' }),
     );
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Policy text is required when the policy is enabled.',
     );
     expect(
-      screen.queryByText('Booking experience saved.'),
+      screen.queryByText('Booking policy saved.'),
     ).not.toBeInTheDocument();
     expect(refreshMock).not.toHaveBeenCalled();
   });
