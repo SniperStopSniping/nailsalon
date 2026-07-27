@@ -54,7 +54,6 @@ const appointmentNotConfirmableResult: TransactionalEmailResult = {
 
 type BookingConfirmationEligibility = {
   deletedAt: Date | null;
-  salonSettings?: unknown;
   startTime: Date;
   status: string;
 };
@@ -78,15 +77,27 @@ async function loadBookingConfirmationEligibility(input: {
     status: appointmentSchema.status,
     deletedAt: appointmentSchema.deletedAt,
     startTime: appointmentSchema.startTime,
-    salonSettings: salonSchema.settings,
-  }).from(appointmentSchema).innerJoin(
-    salonSchema,
-    eq(salonSchema.id, appointmentSchema.salonId),
-  ).where(and(
+  }).from(appointmentSchema).where(and(
     eq(appointmentSchema.id, input.appointmentId),
     eq(appointmentSchema.salonId, input.salonId),
   )).limit(1);
   return appointment;
+}
+
+async function loadBookingConfirmationMessage(
+  salonId: string,
+): Promise<string | null> {
+  try {
+    const [salon] = await db.select({
+      settings: salonSchema.settings,
+    }).from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
+
+    return resolveBookingExperience(salon?.settings).confirmationMessage;
+  } catch {
+    // Booking customization is optional. A lookup or legacy-data failure must
+    // never prevent the unchanged operational confirmation from being sent.
+    return null;
+  }
 }
 
 function isAmbiguousProviderFailure(
@@ -281,9 +292,7 @@ export async function sendCustomerBookingConfirmationEmail(input: {
       });
       return false;
     }
-    confirmationMessage = resolveBookingExperience(
-      appointment.salonSettings,
-    ).confirmationMessage;
+    confirmationMessage = await loadBookingConfirmationMessage(input.salonId);
     recipient = await resolveAppointmentOperationalEmailRecipient({
       salonId: input.salonId,
       appointmentId: input.appointmentId,

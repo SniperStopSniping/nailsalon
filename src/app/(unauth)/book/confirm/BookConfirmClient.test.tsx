@@ -144,6 +144,7 @@ describe('BookConfirmClient', () => {
     const message = screen.getByTestId('booking-confirmation-message');
 
     expect(message).toHaveTextContent('Please arrive 10 minutes early. We look forward to seeing you.');
+    expect(message).toHaveClass('break-words', 'whitespace-pre-line');
     expect(details.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(screen.getByRole('button', { name: /manage this appointment/i })).toBeInTheDocument();
   });

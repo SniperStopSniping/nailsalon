@@ -1246,7 +1246,7 @@ const SuccessContent = ({
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.35 }}
-            className="whitespace-pre-line rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-sm leading-relaxed text-[var(--n5-ink-main)]"
+            className="whitespace-pre-line break-words rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-sm leading-relaxed text-[var(--n5-ink-main)]"
           >
             {confirmationMessage}
           </motion.div>

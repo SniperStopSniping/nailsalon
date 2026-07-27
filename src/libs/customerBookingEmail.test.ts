@@ -33,6 +33,7 @@ const state = vi.hoisted(() => ({
   resolveAppointmentOperationalEmailRecipient: vi.fn(),
   resolveBookingConfigFromSettings: vi.fn(),
   selectQueue: [] as QueuedSelectResult[],
+  settingsQueue: [] as QueuedSelectResult[],
   sendTransactionalEmailDetailed: vi.fn(),
   updateQueue: [] as QueuedUpdateResult[],
   updates: [] as Array<{ table: unknown; set: Record<string, unknown> }>,
@@ -102,19 +103,26 @@ const { dbMock } = vi.hoisted(() => {
       insert: vi.fn((table: unknown) => insertChain(table)),
       select: vi.fn((fields?: Record<string, unknown>) => {
         const eligibilityProjection = fields
-          && Object.keys(fields).length === 4
+          && Object.keys(fields).length === 3
           && 'status' in fields
           && 'deletedAt' in fields
-          && 'startTime' in fields
-          && 'salonSettings' in fields;
-        return selectChain(() => eligibilityProjection
-          ? state.eligibilityQueue.shift() ?? [{
-            status: 'confirmed',
-            deletedAt: null,
-            startTime: new Date('2099-07-01T18:00:00Z'),
-            salonSettings: null,
-          }]
-          : state.selectQueue.shift() ?? []);
+          && 'startTime' in fields;
+        const settingsProjection = fields
+          && Object.keys(fields).length === 1
+          && 'settings' in fields;
+        return selectChain(() => {
+          if (eligibilityProjection) {
+            return state.eligibilityQueue.shift() ?? [{
+              status: 'confirmed',
+              deletedAt: null,
+              startTime: new Date('2099-07-01T18:00:00Z'),
+            }];
+          }
+          if (settingsProjection) {
+            return state.settingsQueue.shift() ?? [{ settings: null }];
+          }
+          return state.selectQueue.shift() ?? [];
+        });
       }),
       update: vi.fn((table: unknown) => updateChain(table)),
     },
@@ -212,6 +220,7 @@ describe('customer booking operational email', () => {
     state.insertQueue.length = 0;
     state.insertedValues.length = 0;
     state.selectQueue.length = 0;
+    state.settingsQueue.length = 0;
     state.updateQueue.length = 0;
     state.updates.length = 0;
     state.recipient = {
@@ -249,11 +258,8 @@ describe('customer booking operational email', () => {
 
   it('appends the normalized shared message after unchanged initial HTML and plain-text content', async () => {
     state.insertQueue.push([{ id: 'delivery_1' }]);
-    state.eligibilityQueue.push([{
-      status: 'confirmed',
-      deletedAt: null,
-      startTime: new Date('2099-07-01T18:00:00Z'),
-      salonSettings: settingsWithConfirmationMessage(
+    state.settingsQueue.push([{
+      settings: settingsWithConfirmationMessage(
         'Please arrive <early>.\nBring your confirmation & ID.',
       ),
     }]);
@@ -277,6 +283,27 @@ describe('customer booking operational email', () => {
       '<p>Please arrive &lt;early&gt;.<br />Bring your confirmation &amp; ID.</p>',
     );
     expect(email.html).not.toContain('<early>');
+  });
+
+  it('omits customization and still sends when the optional settings lookup fails', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.settingsQueue.push(new Error('settings unavailable'));
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith({
+      to: 'current@example.com',
+      subject: 'Salon booking confirmed',
+      text:
+        'Hi Client,\n\n'
+        + 'Your Manicure appointment with Salon is confirmed for Wednesday, July 1 at 2:00 PM.\n\n'
+        + 'View, reschedule, or cancel: https://salon.example/manage/token',
+      html:
+        '<p>Hi Client,</p><p>Your <strong>Manicure</strong> appointment with Salon is confirmed for '
+        + '<strong>Wednesday, July 1 at 2:00 PM</strong>.</p>'
+        + '<p><a href="https://salon.example/manage/token">View, reschedule, or cancel your appointment</a></p>',
+    });
   });
 
   it('uses an explicit zero-candidate orphan snapshot for the initial confirmation without mutating snapshots', async () => {

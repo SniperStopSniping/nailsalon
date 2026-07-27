@@ -91,6 +91,7 @@ function mockEndpoints(options: {
   billingMode?: 'NONE' | 'STRIPE';
   bookingExperience?: BookingExperience;
   bookingExperiencePatchError?: string;
+  bookingExperiencePatchResponse?: Promise<Response>;
 } = {}) {
   fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
@@ -171,6 +172,14 @@ function mockEndpoints(options: {
           error: 'Invalid request data',
           message: options.bookingExperiencePatchError,
         }), { status: 400 }));
+      }
+
+      if (
+        init?.method === 'PATCH'
+        && requestedBookingExperience
+        && options.bookingExperiencePatchResponse
+      ) {
+        return options.bookingExperiencePatchResponse;
       }
 
       return Promise.resolve(new Response(JSON.stringify({
@@ -387,10 +396,15 @@ describe('SettingsModal index', () => {
       preview.queryByRole('img', { name: 'TikTok social icon preview' }),
     ).not.toBeInTheDocument();
     expect(preview.getByText('We look forward to seeing you.')).toBeInTheDocument();
-    expect(preview.getByRole('button', { name: 'Continue' })).toHaveStyle({
+    expect(
+      preview.getByTestId('booking-experience-preview-button'),
+    ).toHaveStyle({
       backgroundColor: '#123456',
       color: '#FFFFFF',
     });
+    expect(
+      preview.getByTestId('booking-experience-preview-service'),
+    ).toHaveStyle({ borderColor: '#123456' });
   });
 
   it('updates every bounded preview element from the unsaved draft', async () => {
@@ -436,10 +450,18 @@ describe('SettingsModal index', () => {
     expect(
       preview.getByRole('img', { name: 'TikTok social icon preview' }),
     ).toBeInTheDocument();
-    expect(preview.getByRole('button', { name: 'Continue' })).toHaveStyle({
+    expect(
+      preview.getByTestId('booking-experience-preview-button'),
+    ).toHaveStyle({
       backgroundColor: '#F5D000',
       color: '#000000',
     });
+    expect(
+      preview.getByTestId('booking-experience-preview-service'),
+    ).toHaveStyle({ borderColor: '#000000' });
+    expect(
+      preview.getByTestId('booking-experience-preview-badge'),
+    ).toHaveStyle({ borderColor: '#000000' });
   });
 
   it('keeps Reset to Default draft-only until an explicit Save', async () => {
@@ -477,6 +499,48 @@ describe('SettingsModal index', () => {
 
     expect(await screen.findByText('Booking experience saved.')).toBeInTheDocument();
     expect(refreshMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('locks the draft while an explicit Save is in flight', async () => {
+    let resolvePatch!: (response: Response) => void;
+    const pendingPatch = new Promise<Response>((resolve) => {
+      resolvePatch = resolve;
+    });
+    fetchMock.mockReset();
+    mockEndpoints({ bookingExperiencePatchResponse: pendingPatch });
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Branding & appearance'));
+    const bookingMessage = await screen.findByRole('textbox', {
+      name: 'Booking message',
+    });
+    fireEvent.change(bookingMessage, {
+      target: { value: 'Save this exact draft.' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save booking experience' }),
+    );
+
+    await waitFor(() => {
+      expect(bookingMessage).toBeDisabled();
+      expect(
+        screen.getByRole('button', { name: 'Reset to Default' }),
+      ).toBeDisabled();
+    });
+
+    resolvePatch(new Response(JSON.stringify({
+      bookingExperience: {
+        ...DEFAULT_BOOKING_EXPERIENCE,
+        bookingMessage: 'Save this exact draft.',
+      },
+    }), { status: 200 }));
+
+    expect(await screen.findByText('Booking experience saved.')).toHaveAttribute(
+      'role',
+      'status',
+    );
+    expect(bookingMessage).toBeEnabled();
   });
 
   it('guards unsaved booking-experience navigation and discards only the draft', async () => {

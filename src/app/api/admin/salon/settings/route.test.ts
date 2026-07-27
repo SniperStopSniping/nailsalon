@@ -1,3 +1,4 @@
+import { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
@@ -1201,6 +1202,11 @@ describe('booking experience validation and safe resolution', () => {
       'https://instagram.com:444/luster',
       'https://instagram.com/%E0%A4%A',
       'https://instagram.com/luster%00studio',
+      'https://instagram.com/luster%0Astudio',
+      'https://instagram.com/luster\nstudio',
+      'https://instagram.com/%2F',
+      'https://instagram.com/%20',
+      'https://instagram.com/%5C',
       'instagram.com/luster',
     ];
     for (const instagram of invalidInstagramUrls) {
@@ -1234,6 +1240,14 @@ describe('booking experience validation and safe resolution', () => {
       socialLinks: {
         ...createBookingExperience().socialLinks,
         instagram: overlong,
+      },
+    }).success).toBe(false);
+
+    expect(bookingExperienceUpdateSchema.safeParse({
+      ...createBookingExperience(),
+      socialLinks: {
+        ...createBookingExperience().socialLinks,
+        instagram: `https://instagram.com/${'é'.repeat(200)}`,
       },
     }).success).toBe(false);
   });
@@ -1293,6 +1307,14 @@ describe('booking experience validation and safe resolution', () => {
     expect(getColorContrastRatio(
       variables['--booking-brand-state-border'] ?? '#FFFFFF',
       '#FFFFFF',
+    )).toBeGreaterThanOrEqual(3);
+
+    const boundaryVariables = getBookingExperienceCssVariables('#898989');
+
+    expect(boundaryVariables['--booking-brand-state-border']).toBe('#000000');
+    expect(getColorContrastRatio(
+      boundaryVariables['--booking-brand-state-border'] ?? '#FFFFFF',
+      '#EDEDED',
     )).toBeGreaterThanOrEqual(3);
     expect(getBookingExperienceCssVariables(null)).toEqual({});
   });
@@ -1544,5 +1566,66 @@ describe('/api/admin/salon/settings booking experience', () => {
       collectSqlStringChunks(setPayload.settings)
         .some(value => value.includes('unrelatedFutureKey')),
     ).toBe(false);
+  });
+
+  it('preserves concurrent unrelated settings with real PostgreSQL JSONB updates', async () => {
+    const database = new PGlite();
+
+    try {
+      await database.exec(`
+        CREATE TABLE salon_settings_concurrency (
+          id text PRIMARY KEY,
+          settings jsonb
+        );
+        INSERT INTO salon_settings_concurrency (id, settings)
+        VALUES (
+          'salon_1',
+          '{
+            "booking":{"bufferMinutes":10},
+            "bookingExperience":{"bookingMessage":"Original"},
+            "unrelatedFutureKey":{"keep":true}
+          }'::jsonb
+        );
+      `);
+
+      await Promise.all([
+        database.exec(`
+          UPDATE salon_settings_concurrency
+          SET settings = jsonb_set(
+            coalesce(settings, '{}'::jsonb),
+            '{bookingExperience}',
+            '{"bookingMessage":"Saved customization"}'::jsonb
+          )
+          WHERE id = 'salon_1'
+        `),
+        database.exec(`
+          UPDATE salon_settings_concurrency
+          SET settings = jsonb_set(
+            coalesce(settings, '{}'::jsonb),
+            '{booking}',
+            '{"bufferMinutes":30}'::jsonb
+          )
+          WHERE id = 'salon_1'
+        `),
+      ]);
+
+      const result = await database.query<{
+        settings: Record<string, unknown>;
+      }>(`
+        SELECT settings
+        FROM salon_settings_concurrency
+        WHERE id = 'salon_1'
+      `);
+
+      expect(result.rows[0]?.settings).toEqual({
+        booking: { bufferMinutes: 30 },
+        bookingExperience: {
+          bookingMessage: 'Saved customization',
+        },
+        unrelatedFutureKey: { keep: true },
+      });
+    } finally {
+      await database.close();
+    }
   });
 });

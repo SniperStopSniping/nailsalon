@@ -448,7 +448,7 @@ describe('BookServiceClient', () => {
     expect(message).toHaveTextContent(
       '<strong>Welcome</strong> See https://example.com before booking.',
     );
-    expect(message).toHaveClass('whitespace-pre-line');
+    expect(message).toHaveClass('break-words', 'whitespace-pre-line');
     expect(message.querySelector('strong')).toBeNull();
     expect(message.querySelector('a')).toBeNull();
 
@@ -459,6 +459,7 @@ describe('BookServiceClient', () => {
       'Please arrive five minutes early. Call us if you need help.',
     );
     expect(within(policy).getByText(/Please arrive five minutes early/)).toHaveClass(
+      'break-words',
       'whitespace-pre-line',
     );
 
@@ -488,6 +489,10 @@ describe('BookServiceClient', () => {
       'bg-[var(--booking-brand-primary)]',
       'text-[var(--booking-brand-foreground)]',
     );
+    expect(activeCategory).toHaveStyle({
+      borderColor: 'var(--booking-brand-state-border)',
+      borderWidth: '2px',
+    });
 
     const serviceCard = screen.getByTestId('service-card-svc-1');
     fireEvent.click(serviceCard);

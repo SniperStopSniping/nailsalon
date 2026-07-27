@@ -910,7 +910,7 @@ export function BookServiceClient({
             {bookingExperience.bookingMessage && (
               <p
                 data-testid="booking-message"
-                className="whitespace-pre-line text-sm leading-5 text-neutral-700"
+                className="whitespace-pre-line break-words text-sm leading-5 text-neutral-700"
               >
                 {bookingExperience.bookingMessage}
               </p>
@@ -1301,9 +1301,17 @@ export function BookServiceClient({
                               color: active
                                 ? bookingBrandForeground ?? 'white'
                                 : '#525252',
-                              borderWidth: active ? 0 : '1px',
+                              borderWidth: active
+                                ? hasBookingBrandColor
+                                  ? '2px'
+                                  : 0
+                                : '1px',
                               borderStyle: 'solid',
-                              borderColor: active ? 'transparent' : themeVars.cardBorder,
+                              borderColor: active
+                                ? hasBookingBrandColor
+                                  ? 'var(--booking-brand-state-border)'
+                                  : 'transparent'
+                                : themeVars.cardBorder,
                               boxShadow: active ? '0 4px 6px -1px rgb(0 0 0 / 0.1)' : undefined,
                             }}
                           >
@@ -1610,11 +1618,11 @@ export function BookServiceClient({
             }}
           >
             {bookingExperience.policy.title && (
-              <h2 id="booking-policy-title" className="mb-2 text-sm font-semibold text-neutral-900">
+              <h2 id="booking-policy-title" className="mb-2 break-words text-sm font-semibold text-neutral-900">
                 {bookingExperience.policy.title}
               </h2>
             )}
-            <p className="whitespace-pre-line text-sm leading-5 text-neutral-700">
+            <p className="whitespace-pre-line break-words text-sm leading-5 text-neutral-700">
               {bookingExperience.policy.text}
             </p>
           </section>

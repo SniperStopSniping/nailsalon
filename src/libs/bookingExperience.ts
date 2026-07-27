@@ -57,6 +57,13 @@ function containsDisallowedControlCharacter(value: string): boolean {
   });
 }
 
+function containsUrlControlCharacter(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return codePoint <= 31 || (codePoint >= 127 && codePoint <= 159);
+  });
+}
+
 function optionalPlainTextSchema(maxCharacters: number, label: string) {
   return z.union([z.string(), z.null()]).transform((value, context) => {
     if (value === null) {
@@ -125,18 +132,18 @@ function socialUrlSchema(platform: SocialPlatform) {
       return null;
     }
 
-    if (characterCount(trimmed) > BOOKING_EXPERIENCE_LIMITS.socialUrl) {
+    if (containsUrlControlCharacter(value)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `${platform} URL must be ${BOOKING_EXPERIENCE_LIMITS.socialUrl} characters or fewer`,
+        message: `${platform} URL contains a disallowed control character`,
       });
       return z.NEVER;
     }
 
-    if (containsDisallowedControlCharacter(trimmed)) {
+    if (characterCount(trimmed) > BOOKING_EXPERIENCE_LIMITS.socialUrl) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `${platform} URL contains a disallowed control character`,
+        message: `${platform} URL must be ${BOOKING_EXPERIENCE_LIMITS.socialUrl} characters or fewer`,
       });
       return z.NEVER;
     }
@@ -189,7 +196,7 @@ function socialUrlSchema(platform: SocialPlatform) {
       return z.NEVER;
     }
 
-    if (containsDisallowedControlCharacter(decodedUrlParts)) {
+    if (containsUrlControlCharacter(decodedUrlParts)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: `${platform} URL contains a disallowed encoded character`,
@@ -197,9 +204,10 @@ function socialUrlSchema(platform: SocialPlatform) {
       return z.NEVER;
     }
 
-    const hasProfilePath = parsed.pathname
-      .split('/')
-      .some(segment => segment.length > 0);
+    const decodedPathname = decodeURIComponent(parsed.pathname);
+    const hasProfilePath = decodedPathname
+      .split(/[\\/]/u)
+      .some(segment => segment.trim().length > 0);
     if (!hasProfilePath) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
@@ -208,7 +216,16 @@ function socialUrlSchema(platform: SocialPlatform) {
       return z.NEVER;
     }
 
-    return parsed.toString();
+    const canonicalUrl = parsed.toString();
+    if (characterCount(canonicalUrl) > BOOKING_EXPERIENCE_LIMITS.socialUrl) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `${platform} URL must be ${BOOKING_EXPERIENCE_LIMITS.socialUrl} characters or fewer after normalization`,
+      });
+      return z.NEVER;
+    }
+
+    return canonicalUrl;
   });
 }
 
@@ -354,6 +371,21 @@ function hexToRgb(color: string): [number, number, number] | null {
   ];
 }
 
+function mixWithWhite(color: string, colorWeight: number): string | null {
+  const rgb = hexToRgb(color);
+  if (!rgb) {
+    return null;
+  }
+
+  const mixed = rgb.map(channel =>
+    Math.round(channel * colorWeight + 255 * (1 - colorWeight)));
+
+  return `#${mixed
+    .map(channel => channel.toString(16).padStart(2, '0'))
+    .join('')
+    .toUpperCase()}`;
+}
+
 function linearizeSrgb(channel: number): number {
   const normalized = channel / 255;
   return normalized <= 0.04045
@@ -418,7 +450,11 @@ export function getBookingExperienceCssVariables(
 
   const color = parsedColor.data;
   const foreground = getAccessibleBookingForeground(color);
-  const stateBorder = getColorContrastRatio(color, '#FFFFFF') >= 3
+  const selectionBackground = mixWithWhite(color, 0.15) ?? '#FFFFFF';
+  const stateBorder = (
+    getColorContrastRatio(color, '#FFFFFF') >= 3
+    && getColorContrastRatio(color, selectionBackground) >= 3
+  )
     ? color
     : '#000000';
 

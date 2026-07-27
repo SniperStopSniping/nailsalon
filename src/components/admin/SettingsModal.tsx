@@ -49,6 +49,7 @@ import { type ReactNode, useCallback, useEffect, useState } from 'react';
 import {
   BOOKING_EXPERIENCE_DEFAULTS,
   getAccessibleBookingForeground,
+  getBookingExperienceCssVariables,
 } from '@/libs/bookingExperience';
 import type { BookingStep } from '@/libs/bookingFlow';
 import type { ResolvedLoyaltyPoints } from '@/libs/loyalty';
@@ -905,8 +906,13 @@ function BookingExperienceEditor({
 }: BookingExperienceEditorProps) {
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-8">
+      <div
+        aria-live="polite"
+        className="flex items-center justify-center gap-2 py-8"
+        role="status"
+      >
         <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+        <span className="sr-only">Loading booking experience settings</span>
       </div>
     );
   }
@@ -917,6 +923,11 @@ function BookingExperienceEditor({
     ? draft.primaryColor as string
     : '#9F1239';
   const previewForeground = getAccessibleBookingForeground(previewColor);
+  const previewStateBorder = hasValidPreviewColor
+    ? getBookingExperienceCssVariables(previewColor)[
+      '--booking-brand-state-border'
+    ] ?? previewColor
+    : previewColor;
   const configuredSocials = [
     {
       key: 'instagram',
@@ -939,7 +950,11 @@ function BookingExperienceEditor({
   ] as const;
 
   return (
-    <div className="space-y-5 p-4">
+    <fieldset
+      aria-label="Booking experience editor"
+      className="m-0 min-w-0 space-y-5 border-0 p-4"
+      disabled={saving}
+    >
       {error && (
         <div
           className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
@@ -1198,8 +1213,9 @@ function BookingExperienceEditor({
           </div>
           {draft.appointmentOnly && (
             <span
+              data-testid="booking-experience-preview-badge"
               className="rounded-full border-2 bg-white px-2.5 py-1 text-xs font-semibold text-gray-900"
-              style={{ borderColor: previewColor }}
+              style={{ borderColor: previewStateBorder }}
             >
               Appointment Only
             </span>
@@ -1207,14 +1223,15 @@ function BookingExperienceEditor({
         </div>
 
         {draft.bookingMessage && (
-          <p className="whitespace-pre-line text-sm text-gray-700">
+          <p className="whitespace-pre-line break-words text-sm text-gray-700">
             {draft.bookingMessage}
           </p>
         )}
 
         <div
+          data-testid="booking-experience-preview-service"
           className="flex items-center justify-between rounded-[12px] border-2 bg-white p-3"
-          style={{ borderColor: previewColor }}
+          style={{ borderColor: previewStateBorder }}
         >
           <div>
             <div className="font-semibold text-gray-950">Signature manicure</div>
@@ -1231,8 +1248,8 @@ function BookingExperienceEditor({
           </span>
         </div>
 
-        <button
-          type="button"
+        <div
+          data-testid="booking-experience-preview-button"
           className="w-full rounded-[10px] px-4 py-2.5 text-sm font-semibold"
           style={{
             backgroundColor: previewColor,
@@ -1240,14 +1257,14 @@ function BookingExperienceEditor({
           }}
         >
           Continue
-        </button>
+        </div>
 
         {draft.policy.enabled && draft.policy.text && (
           <div className="border-t border-gray-200 pt-3">
-            <h4 className="font-semibold text-gray-950">
+            <h4 className="break-words font-semibold text-gray-950">
               {draft.policy.title || 'Booking policy'}
             </h4>
-            <p className="mt-1 whitespace-pre-line text-sm text-gray-700">
+            <p className="mt-1 whitespace-pre-line break-words text-sm text-gray-700">
               {draft.policy.text}
             </p>
           </div>
@@ -1265,7 +1282,7 @@ function BookingExperienceEditor({
                   key={social.key}
                   aria-label={`${social.label} social icon preview`}
                   className="flex size-9 items-center justify-center rounded-full border-2 bg-white text-gray-900"
-                  style={{ borderColor: previewColor }}
+                  style={{ borderColor: previewStateBorder }}
                   role="img"
                 >
                   <SocialIcon className="size-4" aria-hidden="true" />
@@ -1280,7 +1297,7 @@ function BookingExperienceEditor({
             <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
               Confirmation message
             </div>
-            <p className="mt-1 whitespace-pre-line text-sm text-gray-700">
+            <p className="mt-1 whitespace-pre-line break-words text-sm text-gray-700">
               {draft.confirmationMessage}
             </p>
           </div>
@@ -1298,7 +1315,10 @@ function BookingExperienceEditor({
         </button>
         <div className="flex items-center gap-3">
           {saved && !error && (
-            <span className="text-xs font-medium text-green-600">
+            <span
+              className="text-xs font-medium text-green-600"
+              role="status"
+            >
               Booking experience saved.
             </span>
           )}
@@ -1313,7 +1333,7 @@ function BookingExperienceEditor({
           </button>
         </div>
       </div>
-    </div>
+    </fieldset>
   );
 }
 
