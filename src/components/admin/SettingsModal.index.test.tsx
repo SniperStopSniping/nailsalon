@@ -1,6 +1,14 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import type { BookingExperience } from '@/types/salonPolicy';
 
 import { formatCanadianPostalCode, SettingsModal } from './SettingsModal';
 
@@ -45,7 +53,45 @@ vi.mock('./BookingFlowEditor', () => ({
   BookingFlowEditor: () => <div data-testid="booking-flow-editor" />,
 }));
 
-function mockEndpoints(options: { billingMode?: 'NONE' | 'STRIPE' } = {}) {
+const DEFAULT_BOOKING_EXPERIENCE: BookingExperience = {
+  primaryColor: null,
+  bookingMessage: null,
+  policy: {
+    enabled: false,
+    title: null,
+    text: null,
+  },
+  appointmentOnly: false,
+  socialLinks: {
+    instagram: null,
+    facebook: null,
+    tiktok: null,
+  },
+  confirmationMessage: null,
+};
+
+const CONFIGURED_BOOKING_EXPERIENCE: BookingExperience = {
+  primaryColor: '#123456',
+  bookingMessage: 'Welcome to online booking.',
+  policy: {
+    enabled: true,
+    title: 'Before you book',
+    text: 'Please arrive five minutes early.',
+  },
+  appointmentOnly: true,
+  socialLinks: {
+    instagram: 'https://instagram.com/salon-a',
+    facebook: 'https://www.facebook.com/salon-a',
+    tiktok: null,
+  },
+  confirmationMessage: 'We look forward to seeing you.',
+};
+
+function mockEndpoints(options: {
+  billingMode?: 'NONE' | 'STRIPE';
+  bookingExperience?: BookingExperience;
+  bookingExperiencePatchError?: string;
+} = {}) {
   fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
 
@@ -112,6 +158,21 @@ function mockEndpoints(options: { billingMode?: 'NONE' | 'STRIPE' } = {}) {
     }
 
     if (url.includes('/api/admin/salon/settings?salonSlug=salon-a')) {
+      const requestedBookingExperience = init?.body
+        ? JSON.parse(String(init.body)).bookingExperience
+        : undefined;
+
+      if (
+        init?.method === 'PATCH'
+        && requestedBookingExperience
+        && options.bookingExperiencePatchError
+      ) {
+        return Promise.resolve(new Response(JSON.stringify({
+          error: 'Invalid request data',
+          message: options.bookingExperiencePatchError,
+        }), { status: 400 }));
+      }
+
       return Promise.resolve(new Response(JSON.stringify({
         reviewsEnabled: true,
         rewardsEnabled: true,
@@ -132,6 +193,10 @@ function mockEndpoints(options: { billingMode?: 'NONE' | 'STRIPE' } = {}) {
         ownerEmailPresent: true,
         smsChannelAvailable: true,
         emailChannelAvailable: true,
+        bookingExperience:
+          requestedBookingExperience
+          ?? options.bookingExperience
+          ?? DEFAULT_BOOKING_EXPERIENCE,
       }), { status: 200 }));
     }
 
@@ -283,6 +348,186 @@ describe('SettingsModal index', () => {
     });
 
     expect(await screen.findByText('Parking instructions saved.')).toBeInTheDocument();
+  });
+
+  it('keeps the page-theme editor and loads the bounded booking experience editor in Branding', async () => {
+    fetchMock.mockReset();
+    mockEndpoints({ bookingExperience: CONFIGURED_BOOKING_EXPERIENCE });
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Branding & appearance'));
+
+    expect(await screen.findByTestId('page-themes-settings')).toBeInTheDocument();
+    expect(
+      screen.getByRole('textbox', { name: 'Primary brand colour' }),
+    ).toHaveValue('#123456');
+    expect(
+      screen.getByDisplayValue('Welcome to online booking.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByDisplayValue('Please arrive five minutes early.'),
+    ).toBeInTheDocument();
+
+    const preview = within(screen.getByTestId('booking-experience-preview'));
+
+    expect(preview.getByText('Welcome to online booking.')).toBeInTheDocument();
+    expect(preview.getByText('Appointment Only')).toBeInTheDocument();
+    expect(preview.getByText('Before you book')).toBeInTheDocument();
+    expect(
+      preview.getByText('Please arrive five minutes early.'),
+    ).toBeInTheDocument();
+    expect(
+      preview.getByRole('img', { name: 'Instagram social icon preview' }),
+    ).toBeInTheDocument();
+    expect(
+      preview.getByRole('img', { name: 'Facebook social icon preview' }),
+    ).toBeInTheDocument();
+    expect(
+      preview.queryByRole('img', { name: 'TikTok social icon preview' }),
+    ).not.toBeInTheDocument();
+    expect(preview.getByText('We look forward to seeing you.')).toBeInTheDocument();
+    expect(preview.getByRole('button', { name: 'Continue' })).toHaveStyle({
+      backgroundColor: '#123456',
+      color: '#FFFFFF',
+    });
+  });
+
+  it('updates every bounded preview element from the unsaved draft', async () => {
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Branding & appearance'));
+    await screen.findByTestId('booking-experience-preview');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Primary brand colour' }), {
+      target: { value: '#F5D000' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Booking message' }), {
+      target: { value: 'Pick a service that feels right.' },
+    });
+    fireEvent.click(screen.getByRole('checkbox', { name: /Appointment Only/i }));
+    fireEvent.click(screen.getByRole('checkbox', { name: /Booking policy/i }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'Policy title' }), {
+      target: { value: 'Booking notes' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: /Policy text/i }), {
+      target: { value: 'Changes require advance notice.' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Instagram' }), {
+      target: { value: 'https://instagram.com/salon-a' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'TikTok' }), {
+      target: { value: 'https://tiktok.com/@salon-a' },
+    });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Confirmation message' }), {
+      target: { value: 'Bring your inspiration photos.' },
+    });
+
+    const preview = within(screen.getByTestId('booking-experience-preview'));
+
+    expect(preview.getByText('Pick a service that feels right.')).toBeInTheDocument();
+    expect(preview.getByText('Appointment Only')).toBeInTheDocument();
+    expect(preview.getByText('Booking notes')).toBeInTheDocument();
+    expect(preview.getByText('Changes require advance notice.')).toBeInTheDocument();
+    expect(preview.getByText('Bring your inspiration photos.')).toBeInTheDocument();
+    expect(
+      preview.getByRole('img', { name: 'Instagram social icon preview' }),
+    ).toBeInTheDocument();
+    expect(
+      preview.getByRole('img', { name: 'TikTok social icon preview' }),
+    ).toBeInTheDocument();
+    expect(preview.getByRole('button', { name: 'Continue' })).toHaveStyle({
+      backgroundColor: '#F5D000',
+      color: '#000000',
+    });
+  });
+
+  it('keeps Reset to Default draft-only until an explicit Save', async () => {
+    fetchMock.mockReset();
+    mockEndpoints({ bookingExperience: CONFIGURED_BOOKING_EXPERIENCE });
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Branding & appearance'));
+    await screen.findByDisplayValue('Welcome to online booking.');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to Default' }));
+
+    expect(screen.getByRole('textbox', { name: 'Booking message' })).toHaveValue('');
+    expect(screen.getByRole('checkbox', { name: /Appointment Only/i })).not.toBeChecked();
+    expect(
+      fetchMock.mock.calls.filter(([, init]) =>
+        (init as RequestInit | undefined)?.method === 'PATCH'),
+    ).toHaveLength(0);
+
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save booking experience' }),
+    );
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(([input, init]) =>
+        String(input).includes('/api/admin/salon/settings')
+        && (init as RequestInit | undefined)?.method === 'PATCH');
+
+      expect(patchCall).toBeTruthy();
+      expect(JSON.parse(String((patchCall![1] as RequestInit).body))).toEqual({
+        bookingExperience: DEFAULT_BOOKING_EXPERIENCE,
+      });
+    });
+
+    expect(await screen.findByText('Booking experience saved.')).toBeInTheDocument();
+    expect(refreshMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('guards unsaved booking-experience navigation and discards only the draft', async () => {
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Branding & appearance'));
+    await screen.findByTestId('booking-experience-preview');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Booking message' }), {
+      target: { value: 'Unsaved welcome' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+
+    expect(
+      await screen.findByRole('alertdialog', { name: 'Unsaved changes' }),
+    ).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
+
+    fireEvent.click(await screen.findByText('Branding & appearance'));
+
+    expect(
+      await screen.findByRole('textbox', { name: 'Booking message' }),
+    ).toHaveValue('');
+  });
+
+  it('surfaces booking experience validation errors without replacing the saved state', async () => {
+    fetchMock.mockReset();
+    mockEndpoints({
+      bookingExperiencePatchError: 'Instagram must use an approved HTTPS profile URL.',
+    });
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Branding & appearance'));
+    await screen.findByTestId('booking-experience-preview');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Instagram' }), {
+      target: { value: 'http://example.com/not-instagram' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save booking experience' }),
+    );
+
+    expect(
+      await screen.findByRole('alert'),
+    ).toHaveTextContent('Instagram must use an approved HTTPS profile URL.');
+    expect(refreshMock).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole('button', { name: 'Save booking experience' }),
+    ).toBeEnabled();
   });
 
   it('saves the owner profile through the existing profile endpoint', async () => {
