@@ -28,6 +28,7 @@ import {
   resolveBookingNotificationSettingsFromSettings,
 } from '@/libs/bookingNotificationSettings';
 import { db } from '@/libs/DB';
+import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import { getDefaultLoyaltyPoints, resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { getSalonBySlug } from '@/libs/queries';
 import {
@@ -182,6 +183,11 @@ export async function GET(request: Request): Promise<Response> {
       ownerPhone: salon.ownerPhone,
       ownerEmail: salon.ownerEmail,
     });
+    const bookingExperienceEntitlement
+      = resolveBookingExperienceEntitlement({
+        storedPlan: salon.plan,
+        features: salon.features,
+      });
 
     // 4. Return settings
     return Response.json({
@@ -191,6 +197,7 @@ export async function GET(request: Request): Promise<Response> {
       bookingExperience: resolveBookingExperience(
         (salon.settings as SalonSettings | null | undefined) ?? null,
       ),
+      bookingExperienceEntitlement,
       bookingNotifications,
       ...buildSalonEmailNotificationResponse({
         settings: (salon.settings as SalonSettings | null | undefined) ?? null,
@@ -284,6 +291,26 @@ export async function PATCH(request: Request): Promise<Response> {
     }
 
     const updates = validated.data;
+    const bookingExperienceEntitlement
+      = resolveBookingExperienceEntitlement({
+        storedPlan: salon.plan,
+        features: salon.features,
+      });
+    if (
+      updates.bookingExperience !== undefined
+      && !bookingExperienceEntitlement.entitled
+    ) {
+      return Response.json(
+        {
+          error: {
+            code: 'UPGRADE_REQUIRED',
+            message: 'Booking Experience Customization requires an eligible plan.',
+          },
+        },
+        { status: 403 },
+      );
+    }
+
     if (salon.freeSoloEnabled && (updates.reviewsEnabled !== undefined || updates.rewardsEnabled !== undefined)) {
       return Response.json(
         {
@@ -542,6 +569,7 @@ export async function PATCH(request: Request): Promise<Response> {
         rewardsEnabled: salon.rewardsEnabled ?? true,
         bookingConfig: currentBookingConfig,
         bookingExperience: currentBookingExperience,
+        bookingExperienceEntitlement,
         bookingNotifications: currentBookingNotifications,
         ...buildSalonEmailNotificationResponse({
           settings: currentSettings,
@@ -603,6 +631,11 @@ export async function PATCH(request: Request): Promise<Response> {
       ownerPhone: updatedSalon.ownerPhone,
       ownerEmail: updatedSalon.ownerEmail,
     });
+    const updatedBookingExperienceEntitlement
+      = resolveBookingExperienceEntitlement({
+        storedPlan: updatedSalon.plan,
+        features: updatedSalon.features,
+      });
 
     return Response.json({
       reviewsEnabled: updatedSalon.reviewsEnabled ?? true,
@@ -611,6 +644,7 @@ export async function PATCH(request: Request): Promise<Response> {
       bookingExperience: resolveBookingExperience(
         (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
       ),
+      bookingExperienceEntitlement: updatedBookingExperienceEntitlement,
       bookingNotifications,
       ...buildSalonEmailNotificationResponse({
         settings: (updatedSalon.settings as SalonSettings | null | undefined) ?? null,

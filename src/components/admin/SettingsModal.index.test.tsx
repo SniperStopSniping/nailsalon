@@ -90,6 +90,7 @@ const CONFIGURED_BOOKING_EXPERIENCE: BookingExperience = {
 function mockEndpoints(options: {
   billingMode?: 'NONE' | 'STRIPE';
   bookingExperience?: BookingExperience;
+  bookingExperienceEntitled?: boolean;
   bookingExperiencePatchResponse?: Promise<Response>;
 } = {}) {
   fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
@@ -194,6 +195,20 @@ function mockEndpoints(options: {
           requestedBookingExperience
           ?? options.bookingExperience
           ?? DEFAULT_BOOKING_EXPERIENCE,
+        bookingExperienceEntitlement: {
+          featureKey: 'booking_experience_customization',
+          entitled: options.bookingExperienceEntitled ?? true,
+          source: 'plan',
+          planKey: options.bookingExperienceEntitled === false
+            ? 'free'
+            : 'tier_1',
+          storedPlan: options.bookingExperienceEntitled === false
+            ? 'free'
+            : 'single_salon',
+          lockedReason: options.bookingExperienceEntitled === false
+            ? 'upgrade_required'
+            : null,
+        },
       }), { status: 200 }));
     }
 
@@ -395,6 +410,51 @@ describe('SettingsModal index', () => {
     ).toHaveStyle({ borderColor: '#123456' });
   });
 
+  it('shows preserved booking settings read-only and marks the public preview inactive when locked', async () => {
+    fetchMock.mockReset();
+    mockEndpoints({
+      bookingExperience: CONFIGURED_BOOKING_EXPERIENCE,
+      bookingExperienceEntitled: false,
+    });
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Branding & appearance'));
+
+    expect(await screen.findByTestId('booking-experience-locked')).toHaveTextContent(
+      'Your saved settings are preserved',
+    );
+    expect(
+      screen.getByRole('textbox', { name: 'Booking message' }),
+    ).toHaveValue('Welcome to online booking.');
+    expect(
+      screen.getByRole('textbox', { name: 'Booking message' }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('textbox', { name: 'Confirmation message' }),
+    ).toHaveValue('We look forward to seeing you.');
+    expect(
+      screen.getByRole('textbox', { name: 'Confirmation message' }),
+    ).toBeDisabled();
+    expect(
+      screen.getByTestId('booking-experience-preview-inactive'),
+    ).toHaveTextContent('The saved configuration above is not currently public.');
+    expect(
+      screen.getByTestId('booking-experience-preview'),
+    ).not.toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Reset to Default' }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Save booking experience' }),
+    ).toBeDisabled();
+    expect(
+      fetchMock.mock.calls.filter(([input, init]) =>
+        String(input).includes('/api/admin/salon/settings')
+        && (init as RequestInit | undefined)?.method === 'PATCH'),
+    ).toHaveLength(0);
+  });
+
   it('updates every bounded preview element from the unsaved draft', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
@@ -529,6 +589,105 @@ describe('SettingsModal index', () => {
       'status',
     );
     expect(bookingMessage).toBeEnabled();
+  });
+
+  it('locks immediately after a stale entitled editor receives UPGRADE_REQUIRED', async () => {
+    fetchMock.mockReset();
+    mockEndpoints({
+      bookingExperience: CONFIGURED_BOOKING_EXPERIENCE,
+      bookingExperiencePatchResponse: Promise.resolve(
+        new Response(JSON.stringify({
+          error: {
+            code: 'UPGRADE_REQUIRED',
+            message:
+              'Booking Experience Customization requires an eligible plan.',
+          },
+        }), { status: 403 }),
+      ),
+    });
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Branding & appearance'));
+    const bookingMessage = await screen.findByRole('textbox', {
+      name: 'Booking message',
+    });
+    fireEvent.change(bookingMessage, {
+      target: { value: 'Preserve this draft after downgrade.' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save booking experience' }),
+    );
+
+    expect(
+      await screen.findByTestId('booking-experience-locked'),
+    ).toHaveTextContent('Your saved settings are preserved');
+    expect(bookingMessage).toHaveValue(
+      'Preserve this draft after downgrade.',
+    );
+    expect(bookingMessage).toBeDisabled();
+    expect(
+      screen.getByTestId('booking-experience-preview-inactive'),
+    ).toHaveTextContent('The saved configuration above is not currently public.');
+    expect(
+      screen.getByTestId('booking-experience-preview'),
+    ).not.toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Reset to Default' }),
+    ).toBeDisabled();
+    expect(
+      screen.getByRole('button', { name: 'Save booking experience' }),
+    ).toBeDisabled();
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Booking Experience Customization requires an eligible plan.',
+    );
+  });
+
+  it('uses entitlement metadata returned by a successful Save', async () => {
+    fetchMock.mockReset();
+    mockEndpoints({
+      bookingExperience: CONFIGURED_BOOKING_EXPERIENCE,
+      bookingExperiencePatchResponse: Promise.resolve(
+        new Response(JSON.stringify({
+          bookingExperience: {
+            ...CONFIGURED_BOOKING_EXPERIENCE,
+            bookingMessage: 'Saved immediately before access changed.',
+          },
+          bookingExperienceEntitlement: {
+            featureKey: 'booking_experience_customization',
+            entitled: false,
+            source: 'override',
+            planKey: 'tier_1',
+            storedPlan: 'single_salon',
+            lockedReason: 'upgrade_required',
+          },
+        }), { status: 200 }),
+      ),
+    });
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Branding & appearance'));
+    const bookingMessage = await screen.findByRole('textbox', {
+      name: 'Booking message',
+    });
+    fireEvent.change(bookingMessage, {
+      target: { value: 'Saved immediately before access changed.' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save booking experience' }),
+    );
+
+    expect(
+      await screen.findByTestId('booking-experience-locked'),
+    ).toBeInTheDocument();
+    expect(bookingMessage).toHaveValue(
+      'Saved immediately before access changed.',
+    );
+    expect(bookingMessage).toBeDisabled();
+    expect(
+      await screen.findByText('Booking experience saved.'),
+    ).toBeInTheDocument();
   });
 
   it('guards unsaved booking-experience navigation and discards only the draft', async () => {

@@ -57,6 +57,7 @@ import { useSalon } from '@/providers/SalonProvider';
 import type {
   ModuleKey,
   ResolvedModules,
+  ResolvedSubscriptionFeatureEntitlement,
   SalonSettings,
   SalonVisibilityPolicy,
 } from '@/types/salonPolicy';
@@ -882,6 +883,92 @@ function bookingExperiencesMatch(
 const BOOKING_EXPERIENCE_SAVE_ERROR
   = 'Failed to save booking experience settings.';
 
+const LOCKED_BOOKING_EXPERIENCE_ENTITLEMENT:
+ResolvedSubscriptionFeatureEntitlement = {
+  featureKey: 'booking_experience_customization',
+  entitled: false,
+  source: 'plan',
+  planKey: 'free',
+  storedPlan: null,
+  lockedReason: 'upgrade_required',
+};
+
+function readBookingExperienceEntitlement(
+  responseBody: unknown,
+): ResolvedSubscriptionFeatureEntitlement | null {
+  if (
+    typeof responseBody !== 'object'
+    || responseBody === null
+    || Array.isArray(responseBody)
+  ) {
+    return null;
+  }
+
+  const candidate = (
+    responseBody as Record<string, unknown>
+  ).bookingExperienceEntitlement;
+  if (
+    typeof candidate !== 'object'
+    || candidate === null
+    || Array.isArray(candidate)
+  ) {
+    return null;
+  }
+
+  const entitlement = candidate as Record<string, unknown>;
+  if (
+    entitlement.featureKey !== 'booking_experience_customization'
+    || typeof entitlement.entitled !== 'boolean'
+    || (
+      entitlement.source !== 'plan'
+      && entitlement.source !== 'override'
+    )
+    || (
+      entitlement.planKey !== 'free'
+      && entitlement.planKey !== 'tier_1'
+      && entitlement.planKey !== 'tier_2'
+      && entitlement.planKey !== 'enterprise'
+    )
+    || (
+      typeof entitlement.storedPlan !== 'string'
+      && entitlement.storedPlan !== null
+    )
+    || (
+      entitlement.lockedReason !== null
+      && entitlement.lockedReason !== 'upgrade_required'
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    featureKey: entitlement.featureKey,
+    entitled: entitlement.entitled,
+    source: entitlement.source,
+    planKey: entitlement.planKey,
+    storedPlan: entitlement.storedPlan,
+    lockedReason: entitlement.lockedReason,
+  };
+}
+
+function isBookingExperienceUpgradeRequired(responseBody: unknown): boolean {
+  if (
+    typeof responseBody !== 'object'
+    || responseBody === null
+    || Array.isArray(responseBody)
+  ) {
+    return false;
+  }
+
+  const error = (responseBody as Record<string, unknown>).error;
+  return (
+    typeof error === 'object'
+    && error !== null
+    && !Array.isArray(error)
+    && (error as Record<string, unknown>).code === 'UPGRADE_REQUIRED'
+  );
+}
+
 function normalizeBookingExperienceSaveError(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null;
@@ -959,6 +1046,7 @@ function getBookingExperienceSaveError(responseBody: unknown): string {
 
 type BookingExperienceEditorProps = {
   draft: BookingExperienceFormState;
+  entitlement: ResolvedSubscriptionFeatureEntitlement;
   loading: boolean;
   saving: boolean;
   saved: boolean;
@@ -973,6 +1061,7 @@ type BookingExperienceEditorProps = {
 
 function BookingExperienceEditor({
   draft,
+  entitlement,
   loading,
   saving,
   saved,
@@ -1031,8 +1120,24 @@ function BookingExperienceEditor({
     <fieldset
       aria-label="Booking experience editor"
       className="m-0 min-w-0 space-y-5 border-0 p-4"
-      disabled={saving}
+      disabled={saving || !entitlement.entitled}
     >
+      {!entitlement.entitled && (
+        <div
+          className="rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+          data-testid="booking-experience-locked"
+          role="status"
+        >
+          <p className="font-semibold">
+            Booking Experience Customization is locked for this plan.
+          </p>
+          <p className="mt-1">
+            Your saved settings are preserved, but they are not currently
+            applied to public booking, confirmations, or emails. They will be
+            restored automatically if access returns.
+          </p>
+        </div>
+      )}
       {error && (
         <div
           className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
@@ -1276,9 +1381,26 @@ function BookingExperienceEditor({
         </label>
       </div>
 
+      {!entitlement.entitled && (
+        <div
+          aria-label="Booking experience preview inactive"
+          className="rounded-[14px] border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-700"
+          data-testid="booking-experience-preview-inactive"
+        >
+          <p className="font-semibold">Public preview inactive</p>
+          <p className="mt-1">
+            The saved configuration above is not currently public.
+          </p>
+        </div>
+      )}
+
       <div
+        aria-hidden={!entitlement.entitled}
         data-testid="booking-experience-preview"
-        className="space-y-4 rounded-[14px] border border-gray-200 bg-[#FFF8F5] p-4"
+        hidden={!entitlement.entitled}
+        className={`space-y-4 rounded-[14px] border border-gray-200 bg-[#FFF8F5] p-4 ${
+          entitlement.entitled ? '' : 'hidden'
+        }`}
       >
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -1386,6 +1508,7 @@ function BookingExperienceEditor({
         <button
           type="button"
           onClick={onReset}
+          disabled={!entitlement.entitled}
           className="inline-flex items-center gap-2 rounded-[10px] border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
         >
           <RotateCcw className="size-4" />
@@ -1403,7 +1526,7 @@ function BookingExperienceEditor({
           <button
             type="button"
             onClick={onSave}
-            disabled={saving || !dirty}
+            disabled={saving || !dirty || !entitlement.entitled}
             className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="size-4" />
@@ -1895,6 +2018,10 @@ export function SettingsModal({
   const [bookingExperienceSaved, setBookingExperienceSaved] = useState(false);
   const [bookingExperienceError, setBookingExperienceError]
     = useState<string | null>(null);
+  const [bookingExperienceEntitlement, setBookingExperienceEntitlement]
+    = useState<ResolvedSubscriptionFeatureEntitlement>(
+      LOCKED_BOOKING_EXPERIENCE_ENTITLEMENT,
+    );
   const [savedBookingExperience, setSavedBookingExperience]
     = useState<BookingExperienceFormState>(() =>
       copyBookingExperience(BOOKING_EXPERIENCE_DEFAULTS));
@@ -2074,6 +2201,10 @@ export function SettingsModal({
         setSavedBookingExperience(loadedBookingExperience);
         setBookingExperienceDraft(
           copyBookingExperience(loadedBookingExperience),
+        );
+        setBookingExperienceEntitlement(
+          readBookingExperienceEntitlement(data)
+          ?? LOCKED_BOOKING_EXPERIENCE_ENTITLEMENT,
         );
         setBookingExperienceDirty(false);
         setBookingExperienceError(null);
@@ -2468,7 +2599,12 @@ export function SettingsModal({
   ]);
 
   const saveBookingExperience = useCallback(async () => {
-    if (!salonSlug || bookingExperienceSaving || !bookingExperienceDirty) {
+    if (
+      !salonSlug
+      || bookingExperienceSaving
+      || !bookingExperienceDirty
+      || !bookingExperienceEntitlement.entitled
+    ) {
       return;
     }
 
@@ -2490,12 +2626,24 @@ export function SettingsModal({
       const body = await response.json().catch(() => null);
 
       if (!response.ok) {
+        if (
+          response.status === 403
+          && isBookingExperienceUpgradeRequired(body)
+        ) {
+          setBookingExperienceEntitlement(
+            LOCKED_BOOKING_EXPERIENCE_ENTITLEMENT,
+          );
+        }
         throw new Error(getBookingExperienceSaveError(body));
       }
 
       const persisted = copyBookingExperience(
         body?.bookingExperience ?? bookingExperienceDraft,
       );
+      const returnedEntitlement = readBookingExperienceEntitlement(body);
+      if (returnedEntitlement) {
+        setBookingExperienceEntitlement(returnedEntitlement);
+      }
       setSavedBookingExperience(persisted);
       setBookingExperienceDraft(copyBookingExperience(persisted));
       setBookingExperienceDirty(false);
@@ -2515,6 +2663,7 @@ export function SettingsModal({
     bookingExperienceSaving,
     bookingExperienceDirty,
     bookingExperienceDraft,
+    bookingExperienceEntitlement.entitled,
     router,
   ]);
 
@@ -3117,6 +3266,7 @@ export function SettingsModal({
             >
               <BookingExperienceEditor
                 draft={bookingExperienceDraft}
+                entitlement={bookingExperienceEntitlement}
                 loading={bookingExperienceLoading}
                 saving={bookingExperienceSaving}
                 saved={bookingExperienceSaved}

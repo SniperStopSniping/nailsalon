@@ -1340,6 +1340,7 @@ describe('/api/admin/salon/settings booking experience', () => {
     rewardsEnabled: true,
     billingMode: 'NONE',
     stripeSubscriptionStatus: null,
+    plan: 'single_salon',
     features: {},
     settings: {},
   };
@@ -1383,6 +1384,14 @@ describe('/api/admin/salon/settings booking experience', () => {
     expect(body.bookingExperience.primaryColor).toBeNull();
     expect(body.bookingExperience.bookingMessage).toBe('Valid stored message');
     expect(body.bookingExperience.socialLinks.instagram).toBeNull();
+    expect(body.bookingExperienceEntitlement).toEqual({
+      featureKey: 'booking_experience_customization',
+      entitled: true,
+      source: 'plan',
+      planKey: 'tier_1',
+      storedPlan: 'single_salon',
+      lockedReason: null,
+    });
 
     getSalonBySlug.mockResolvedValue({ ...baseSalon, settings: null });
     const defaultsResponse = await GET(
@@ -1492,6 +1501,14 @@ describe('/api/admin/salon/settings booking experience', () => {
     expect(body.bookingExperience.bookingMessage).toBe(
       'A private welcome message',
     );
+    expect(body.bookingExperienceEntitlement).toEqual({
+      featureKey: 'booking_experience_customization',
+      entitled: true,
+      source: 'plan',
+      planKey: 'tier_1',
+      storedPlan: 'single_salon',
+      lockedReason: null,
+    });
 
     const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
 
@@ -1534,6 +1551,72 @@ describe('/api/admin/salon/settings booking experience', () => {
     expect(JSON.stringify(logAuditEvent.mock.calls[0]?.[0])).not.toContain(
       'A private welcome message',
     );
+  });
+
+  it('returns saved customization with locked entitlement metadata for a free salon', async () => {
+    const savedBookingExperience = createBookingExperience();
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      plan: 'free',
+      settings: {
+        bookingExperience: savedBookingExperience,
+      },
+    });
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.bookingExperience).toEqual(savedBookingExperience);
+    expect(body.bookingExperienceEntitlement).toEqual({
+      featureKey: 'booking_experience_customization',
+      entitled: false,
+      source: 'plan',
+      planKey: 'free',
+      storedPlan: 'free',
+      lockedReason: 'upgrade_required',
+    });
+  });
+
+  it('rejects a direct locked customization PATCH without mutating saved settings', async () => {
+    const savedBookingExperience = {
+      ...createBookingExperience(),
+      bookingMessage: 'Keep this saved message.',
+    };
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      plan: 'free',
+      settings: {
+        bookingExperience: savedBookingExperience,
+        unrelatedFutureKey: { keep: true },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingExperience: {
+            ...savedBookingExperience,
+            bookingMessage: 'Attempted replacement.',
+          },
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(403);
+    expect(body).toEqual({
+      error: {
+        code: 'UPGRADE_REQUIRED',
+        message: 'Booking Experience Customization requires an eligible plan.',
+      },
+    });
+    expect(db.update).not.toHaveBeenCalled();
+    expect(logAuditEvent).not.toHaveBeenCalled();
   });
 
   it('chains booking and customization writes without serializing unrelated settings', async () => {

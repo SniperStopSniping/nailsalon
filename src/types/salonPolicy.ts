@@ -55,6 +55,8 @@ export type SalonFeatures = {
   booking?: {
     onlineBooking?: boolean; // default: true
     staffDashboard?: boolean; // default: true
+    // Subscription-tier override. Missing means "use the plan default".
+    customization?: boolean;
   };
   staff?: {
     scheduleOverrides?: boolean; // default: true
@@ -178,6 +180,37 @@ export type ResolvedSalonFeatures = {
  * Supports both nested paths and legacy flat keys.
  */
 export type FeatureKey = keyof SalonFeatures;
+
+// =============================================================================
+// SUBSCRIPTION ENTITLEMENTS
+// =============================================================================
+
+/**
+ * Stable internal plan keys used by feature entitlement code.
+ *
+ * Stored salon plan values are mapped to these keys by the authoritative
+ * resolver. Customer-facing names, prices, and Stripe identifiers must not be
+ * used as feature keys.
+ */
+export type InternalPlanKey = 'free' | 'tier_1' | 'tier_2' | 'enterprise';
+
+/**
+ * Stable feature keys used by the subscription entitlement resolver.
+ */
+export type SubscriptionFeatureKey = 'booking_experience_customization';
+
+export type SubscriptionEntitlementSource = 'plan' | 'override';
+
+export type SubscriptionEntitlementLockedReason = 'upgrade_required' | null;
+
+export type ResolvedSubscriptionFeatureEntitlement = {
+  featureKey: SubscriptionFeatureKey;
+  entitled: boolean;
+  source: SubscriptionEntitlementSource;
+  planKey: InternalPlanKey;
+  storedPlan: string | null;
+  lockedReason: SubscriptionEntitlementLockedReason;
+};
 
 // =============================================================================
 // SALON SETTINGS (Admin Controls)

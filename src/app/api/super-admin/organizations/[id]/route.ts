@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { logAuditEvent } from '@/libs/auditLog';
 import { areSuperAdminTestToolsEnabled } from '@/libs/authConfig.server';
 import { db } from '@/libs/DB';
+import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import { getEntitledModules } from '@/libs/featureGating';
 import { getSalonIntegrationHealth } from '@/libs/integrationHealth';
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
@@ -194,6 +195,10 @@ export async function GET(
     const publicUrl = buildSalonTenantPublicUrl('/', salon);
     const bookingUrl = buildSalonTenantPublicUrl('/book', salon);
     const findBookingUrl = buildSalonTenantPublicUrl('/find-booking', salon);
+    const bookingExperienceEntitlement = resolveBookingExperienceEntitlement({
+      storedPlan: salon.plan,
+      features: salon.features,
+    });
 
     return Response.json({
       testToolsEnabled: areSuperAdminTestToolsEnabled(),
@@ -209,6 +214,7 @@ export async function GET(
         maxLocations: salon.maxLocations ?? 1,
         isMultiLocationEnabled: salon.isMultiLocationEnabled ?? false,
         features: salon.features ?? null,
+        bookingExperienceEntitlement,
         // Feature toggles
         onlineBookingEnabled: salon.onlineBookingEnabled ?? true,
         smsRemindersEnabled: salon.smsRemindersEnabled ?? true,
@@ -375,6 +381,10 @@ export async function PUT(
         maxLocations: updated!.maxLocations ?? 1,
         isMultiLocationEnabled: updated!.isMultiLocationEnabled ?? false,
         features: updated!.features ?? null,
+        bookingExperienceEntitlement: resolveBookingExperienceEntitlement({
+          storedPlan: updated!.plan,
+          features: updated!.features,
+        }),
         // Feature toggles
         onlineBookingEnabled: updated!.onlineBookingEnabled ?? true,
         smsRemindersEnabled: updated!.smsRemindersEnabled ?? true,

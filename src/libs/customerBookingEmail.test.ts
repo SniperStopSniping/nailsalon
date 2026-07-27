@@ -108,7 +108,9 @@ const { dbMock } = vi.hoisted(() => {
           && 'deletedAt' in fields
           && 'startTime' in fields;
         const settingsProjection = fields
-          && Object.keys(fields).length === 1
+          && Object.keys(fields).length === 3
+          && 'plan' in fields
+          && 'features' in fields
           && 'settings' in fields;
         return selectChain(() => {
           if (eligibilityProjection) {
@@ -119,7 +121,11 @@ const { dbMock } = vi.hoisted(() => {
             }];
           }
           if (settingsProjection) {
-            return state.settingsQueue.shift() ?? [{ settings: null }];
+            return state.settingsQueue.shift() ?? [{
+              plan: 'single_salon',
+              features: null,
+              settings: null,
+            }];
           }
           return state.selectQueue.shift() ?? [];
         });
@@ -175,6 +181,8 @@ const appointmentRow = {
   salonName: 'Salon',
   salonSlug: 'salon',
   customDomain: null,
+  salonPlan: 'single_salon',
+  salonFeatures: null,
   salonSettings: null,
 };
 
@@ -259,6 +267,8 @@ describe('customer booking operational email', () => {
   it('appends the normalized shared message after unchanged initial HTML and plain-text content', async () => {
     state.insertQueue.push([{ id: 'delivery_1' }]);
     state.settingsQueue.push([{
+      plan: 'single_salon',
+      features: null,
       settings: settingsWithConfirmationMessage(
         'Please arrive <early>.\nBring your confirmation & ID.',
       ),
@@ -285,6 +295,63 @@ describe('customer booking operational email', () => {
     expect(email.html).not.toContain('<early>');
   });
 
+  it('omits the saved message from an initial email when the salon plan is locked', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.settingsQueue.push([{
+      plan: 'free',
+      features: null,
+      settings: settingsWithConfirmationMessage('Saved free-plan note.'),
+    }]);
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.text).not.toContain('Saved free-plan note.');
+    expect(email.html).not.toContain('Saved free-plan note.');
+  });
+
+  it('restores the saved initial-email message as soon as plan entitlement returns', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }], [{ id: 'delivery_2' }]);
+    const settings = settingsWithConfirmationMessage('Preserved salon note.');
+    state.settingsQueue.push(
+      [{ plan: 'free', features: null, settings }],
+      [{ plan: 'single_salon', features: null, settings }],
+    );
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    const lockedEmail = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+    const restoredEmail = state.sendTransactionalEmailDetailed.mock.calls[1]?.[0];
+
+    expect(lockedEmail.text).not.toContain('Preserved salon note.');
+    expect(restoredEmail.text).toContain('\n\nPreserved salon note.');
+    expect(restoredEmail.html).toContain('<p>Preserved salon note.</p>');
+  });
+
+  it('honors an explicit enable override for an initial email on the free plan', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.settingsQueue.push([{
+      plan: 'free',
+      features: { booking: { customization: true } },
+      settings: settingsWithConfirmationMessage('Support-enabled note.'),
+    }]);
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.stringContaining('\n\nSupport-enabled note.'),
+        html: expect.stringContaining('<p>Support-enabled note.</p>'),
+      }),
+    );
+  });
+
   it('omits customization and still sends when the optional settings lookup fails', async () => {
     state.insertQueue.push([{ id: 'delivery_1' }]);
     state.settingsQueue.push(new Error('settings unavailable'));
@@ -304,6 +371,30 @@ describe('customer booking operational email', () => {
         + '<strong>Wednesday, July 1 at 2:00 PM</strong>.</p>'
         + '<p><a href="https://salon.example/manage/token">View, reschedule, or cancel your appointment</a></p>',
     });
+  });
+
+  it('fails closed without blocking the initial email when entitlement resolution throws', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    const features = Object.defineProperty({}, 'booking', {
+      get() {
+        throw new Error('unexpected entitlement failure');
+      },
+    });
+    state.settingsQueue.push([{
+      plan: 'single_salon',
+      features,
+      settings: settingsWithConfirmationMessage('Must not be rendered.'),
+    }]);
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.not.stringContaining('Must not be rendered.'),
+        html: expect.not.stringContaining('Must not be rendered.'),
+      }),
+    );
   });
 
   it('uses an explicit zero-candidate orphan snapshot for the initial confirmation without mutating snapshots', async () => {
@@ -456,6 +547,19 @@ describe('customer booking operational email', () => {
     expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
   });
 
+  it('does not use another tenant delivery or salon entitlement during retry', async () => {
+    state.selectQueue.push([]);
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_2',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).rejects.toThrow('BOOKING_EMAIL_DELIVERY_NOT_FOUND');
+
+    expect(state.resolveAppointmentOperationalEmailRecipient).not.toHaveBeenCalled();
+    expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+  });
+
   it('re-resolves a changed current email for a pending retry', async () => {
     state.selectQueue.push(
       [{ status: 'failed', retryable: true }],
@@ -510,6 +614,92 @@ describe('customer booking operational email', () => {
     );
     expect(email.html).toMatch(
       /View, reschedule, or cancel<\/a><\/p><p>Latest salon note\.<br \/>Please use the side entrance\.<\/p>$/,
+    );
+  });
+
+  it('omits the saved message from a retry when the salon plan is locked', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed', retryable: true }],
+      [{
+        ...appointmentRow,
+        salonPlan: 'free',
+        salonSettings: settingsWithConfirmationMessage('Saved locked retry note.'),
+      }],
+      [{ name: 'Manicure' }],
+      [],
+    );
+    state.insertQueue.push([{}]);
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).resolves.toMatchObject({ ok: true });
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.not.stringContaining('Saved locked retry note.'),
+        html: expect.not.stringContaining('Saved locked retry note.'),
+      }),
+    );
+  });
+
+  it('honors an explicit disable override for a retry on an entitled plan', async () => {
+    state.selectQueue.push(
+      [{ status: 'failed', retryable: true }],
+      [{
+        ...appointmentRow,
+        salonFeatures: { booking: { customization: false } },
+        salonSettings: settingsWithConfirmationMessage('Disabled override note.'),
+      }],
+      [{ name: 'Manicure' }],
+      [],
+    );
+    state.insertQueue.push([{}]);
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).resolves.toMatchObject({ ok: true });
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.not.stringContaining('Disabled override note.'),
+        html: expect.not.stringContaining('Disabled override note.'),
+      }),
+    );
+  });
+
+  it('fails closed without blocking a retry when entitlement resolution throws', async () => {
+    const features = Object.defineProperty({}, 'booking', {
+      get() {
+        throw new Error('unexpected entitlement failure');
+      },
+    });
+    state.selectQueue.push(
+      [{ status: 'failed', retryable: true }],
+      [{
+        ...appointmentRow,
+        salonFeatures: features,
+        salonSettings: settingsWithConfirmationMessage('Must not be rendered.'),
+      }],
+      [{ name: 'Manicure' }],
+      [],
+    );
+    state.insertQueue.push([{}]);
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+      deliveryId: 'delivery_1',
+    })).resolves.toMatchObject({ ok: true });
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.not.stringContaining('Must not be rendered.'),
+        html: expect.not.stringContaining('Must not be rendered.'),
+      }),
     );
   });
 
@@ -1205,5 +1395,37 @@ describe('customer booking operational email', () => {
     expect(state.updates.some(update =>
       update.table === appointmentSchema
       || update.table === clientCommunicationSchema)).toBe(false);
+  });
+
+  it('omits the saved message from a manual resend while the salon is locked', async () => {
+    state.insertQueue.push([{}], [{}]);
+    state.selectQueue.push(
+      [{
+        status: 'failed',
+        retryable: true,
+        errorCode: 'MANUAL_RESEND_REQUESTED',
+      }],
+      [{
+        ...appointmentRow,
+        salonPlan: 'free',
+        salonSettings: settingsWithConfirmationMessage(
+          'Saved manual-resend note.',
+        ),
+      }],
+      [{ name: 'Manicure' }],
+      [],
+    );
+
+    await expect(resendCustomerBookingConfirmationEmail({
+      salonId: 'salon_1',
+      appointmentId: 'appointment_1',
+    })).resolves.toMatchObject({ ok: true });
+
+    expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: expect.not.stringContaining('Saved manual-resend note.'),
+        html: expect.not.stringContaining('Saved manual-resend note.'),
+      }),
+    );
   });
 });

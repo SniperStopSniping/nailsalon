@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingExperienceCssVariables } from '@/libs/bookingExperience';
+import type { BookingExperience } from '@/types/salonPolicy';
 
 import { BookServiceClient } from './BookServiceClient';
 
@@ -62,6 +63,40 @@ const {
     bookingExperience: null as unknown,
   },
 }));
+
+const DEFAULT_BOOKING_EXPERIENCE: BookingExperience = {
+  primaryColor: null,
+  bookingMessage: null,
+  policy: {
+    enabled: false,
+    title: null,
+    text: null,
+  },
+  appointmentOnly: false,
+  socialLinks: {
+    instagram: null,
+    facebook: null,
+    tiktok: null,
+  },
+  confirmationMessage: null,
+};
+
+const CONFIGURED_BOOKING_EXPERIENCE: BookingExperience = {
+  primaryColor: '#123456',
+  bookingMessage: 'Welcome to online booking.',
+  policy: {
+    enabled: true,
+    title: 'Before you book',
+    text: 'Please arrive five minutes early.',
+  },
+  appointmentOnly: true,
+  socialLinks: {
+    instagram: 'https://instagram.com/salon-a',
+    facebook: 'https://www.facebook.com/salon-a',
+    tiktok: null,
+  },
+  confirmationMessage: 'We look forward to seeing you.',
+};
 
 vi.mock('next/image', () => ({
   default: ({
@@ -187,7 +222,14 @@ function resetBookingExperienceMock() {
   };
 }
 
-function buildPublicShellSalon(settings: unknown) {
+function buildPublicShellSalon(
+  settings: unknown,
+  options: {
+    features?: unknown;
+    includePlan?: boolean;
+    plan?: unknown;
+  } = {},
+) {
   return {
     id: 'salon-a-id',
     name: 'Salon A',
@@ -195,6 +237,10 @@ function buildPublicShellSalon(settings: unknown) {
     themeKey: null,
     status: 'active',
     settings,
+    features: options.features ?? null,
+    ...(options.includePlan === false
+      ? {}
+      : { plan: options.plan ?? 'single_salon' }),
   } as React.ComponentProps<typeof PublicSalonPageShell>['salon'];
 }
 
@@ -617,6 +663,114 @@ describe('BookServiceClient', () => {
     expect(
       container.querySelector('[data-booking-experience-theme]'),
     ).toBeNull();
+  });
+
+  it.each([
+    ['a missing plan', { includePlan: false }],
+    ['an unknown plan', { plan: 'legacy_unknown' }],
+  ])('fails closed for %s', (_label, options) => {
+    const salon = buildPublicShellSalon(
+      { bookingExperience: CONFIGURED_BOOKING_EXPERIENCE },
+      options,
+    );
+    const { container } = render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="book-service"
+        salon={salon}
+      >
+        <div>Booking content</div>
+      </PublicSalonPageShell>,
+    );
+
+    expect(
+      container.querySelector('[data-booking-experience-theme]'),
+    ).toBeNull();
+    expect(salonProviderPropsMock.bookingExperience).toEqual(
+      DEFAULT_BOOKING_EXPERIENCE,
+    );
+  });
+
+  it('passes canonical defaults to public booking and confirmation consumers when the plan is locked', () => {
+    const salon = buildPublicShellSalon(
+      { bookingExperience: CONFIGURED_BOOKING_EXPERIENCE },
+      { plan: 'free' },
+    );
+    render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="book-confirm"
+        salon={salon}
+      >
+        <div>Confirmation content</div>
+      </PublicSalonPageShell>,
+    );
+
+    expect(salonProviderPropsMock.bookingExperience).toEqual(
+      DEFAULT_BOOKING_EXPERIENCE,
+    );
+    expect(
+      (salonProviderPropsMock.bookingExperience as BookingExperience)
+        .confirmationMessage,
+    ).toBeNull();
+  });
+
+  it('restores saved public customization on the next render when entitlement returns', () => {
+    const settings = {
+      bookingExperience: CONFIGURED_BOOKING_EXPERIENCE,
+    };
+    const { rerender } = render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="book-confirm"
+        salon={buildPublicShellSalon(settings, { plan: 'free' })}
+      >
+        <div>Confirmation content</div>
+      </PublicSalonPageShell>,
+    );
+
+    expect(salonProviderPropsMock.bookingExperience).toEqual(
+      DEFAULT_BOOKING_EXPERIENCE,
+    );
+
+    rerender(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="book-confirm"
+        salon={buildPublicShellSalon(settings, { plan: 'single_salon' })}
+      >
+        <div>Confirmation content</div>
+      </PublicSalonPageShell>,
+    );
+
+    expect(salonProviderPropsMock.bookingExperience).toMatchObject(
+      CONFIGURED_BOOKING_EXPERIENCE,
+    );
+  });
+
+  it('fails closed to canonical defaults if entitlement resolution throws', () => {
+    const features = Object.defineProperty({}, 'booking', {
+      get() {
+        throw new Error('unexpected entitlement failure');
+      },
+    });
+    const salon = buildPublicShellSalon(
+      { bookingExperience: CONFIGURED_BOOKING_EXPERIENCE },
+      { features },
+    );
+
+    expect(() => render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="book-service"
+        salon={salon}
+      >
+        <div>Booking content</div>
+      </PublicSalonPageShell>,
+    )).not.toThrow();
+    expect(salonProviderPropsMock.bookingExperience).toEqual(
+      DEFAULT_BOOKING_EXPERIENCE,
+    );
   });
 
   it('falls back safely when persisted booking customization is malformed', () => {

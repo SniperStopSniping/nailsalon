@@ -100,6 +100,7 @@ describe('GET/PUT /api/super-admin/organizations/[id]', () => {
         maxLocations: 1,
         isMultiLocationEnabled: false,
         features: {
+          booking: { customization: false },
           onlineBooking: true,
           rewards: true,
           visibilityControls: true,
@@ -133,9 +134,18 @@ describe('GET/PUT /api/super-admin/organizations/[id]', () => {
 
     expect(response.status).toBe(200);
     expect(body.salon.features).toEqual({
+      booking: { customization: false },
       onlineBooking: true,
       rewards: true,
       visibilityControls: true,
+    });
+    expect(body.salon.bookingExperienceEntitlement).toEqual({
+      featureKey: 'booking_experience_customization',
+      entitled: false,
+      source: 'override',
+      planKey: 'tier_1',
+      storedPlan: 'single_salon',
+      lockedReason: 'upgrade_required',
     });
   });
 
