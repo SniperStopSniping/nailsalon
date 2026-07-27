@@ -1,3 +1,21 @@
+# [1.35.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.34.0...v1.35.0) (2026-07-27)
+
+
+### Bug Fixes
+
+* **clients:** bound active lifecycle queues ([070be89](https://github.com/SniperStopSniping/nailsalon/commit/070be895e5fd0f03f40261818e9a4bd7762f44e4))
+* **clients:** canonicalize lifecycle queue bookings ([599f4c1](https://github.com/SniperStopSniping/nailsalon/commit/599f4c1d400343f63a0b5aa784a086ce48c8c83d))
+* **clients:** exclude archived lifecycle records ([a962bc3](https://github.com/SniperStopSniping/nailsalon/commit/a962bc3647b71e0cfc65b0c96fdf4daea5ac180f))
+* **clients:** preserve deep archived communication history ([b272ebd](https://github.com/SniperStopSniping/nailsalon/commit/b272ebda606c9b3fd5d5081bb6deec37c4a16e6a))
+* **clients:** resolve legacy queue identities ([326b8d9](https://github.com/SniperStopSniping/nailsalon/commit/326b8d95b9bf9675d2fd46b54147f4ac9d41ffa0))
+
+
+### Features
+
+* **api:** add explicit client deletion actions ([d888b0c](https://github.com/SniperStopSniping/nailsalon/commit/d888b0c8b109497e6a54b13edc31bdeabacfc21e))
+* **clients:** add archive and permanent delete authority ([e5f7567](https://github.com/SniperStopSniping/nailsalon/commit/e5f7567587292fe379c9431a3030d4b93e1435a3))
+* **clients:** add safe deletion dialogs ([02fc062](https://github.com/SniperStopSniping/nailsalon/commit/02fc062147e8c6a91b573e8e00b963f986fad43c))
+
 # [1.34.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.33.4...v1.34.0) (2026-07-26)
 
 
