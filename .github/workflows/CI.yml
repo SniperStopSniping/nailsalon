@@ -351,6 +351,52 @@ jobs:
           cleanup_v133
           trap - EXIT
 
+  booking-entitlement-override-postgres:
+    name: Booking entitlement override PostgreSQL concurrency
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    # This job uses only a disposable loopback PostgreSQL service. The test
+    # refuses to reset any database unless this explicit safety marker and the
+    # connection's database/user/application identity all match.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: booking_entitlement_ci
+          POSTGRES_USER: booking_entitlement_ci
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U booking_entitlement_ci -d booking_entitlement_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      BOOKING_ENTITLEMENT_OVERRIDE_TEST_DATABASE_URL: postgresql://booking_entitlement_ci@127.0.0.1:5432/booking_entitlement_ci
+      BOOKING_ENTITLEMENT_OVERRIDE_DISPOSABLE_DATABASE_CONFIRMED: 'true'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: HUSKY=0 npm ci
+
+      - name: Run Booking Experience entitlement override concurrency tests
+        run: >-
+          npx vitest run --no-file-parallelism
+          'src/app/api/super-admin/organizations/[id]/entitlements/booking-experience-customization/route.concurrency.integration.test.ts'
+
   synchronize-with-crowdin:
     name: GitHub PR synchronize with Crowdin
     runs-on: ubuntu-latest

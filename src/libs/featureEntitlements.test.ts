@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildBookingExperienceEntitlementInspection,
+  getBookingExperienceOverrideAuditId,
+  getBookingExperienceOverrideState,
+  getSubscriptionFeaturePlanDefault,
   INTERNAL_PLAN_KEYS,
   mapStoredPlanToInternalPlan,
+  parseBookingExperienceOverrideProvenance,
   resolveBookingExperienceEntitlement,
   resolveEntitlement,
   resolveSubscriptionFeatureEntitlement,
@@ -147,6 +152,176 @@ describe('subscription feature entitlements', () => {
         enterprise: true,
       },
     });
+  });
+
+  it.each([
+    [undefined, 'default'],
+    [{ booking: {} }, 'default'],
+    [{ booking: { customization: true } }, 'force_enabled'],
+    [{ booking: { customization: false } }, 'force_disabled'],
+    [{ booking: { customization: 'true' } }, 'default'],
+  ] as const)('derives the three-state Booking Experience override from %j', (features, state) => {
+    expect(getBookingExperienceOverrideState(features as SalonFeatures | undefined)).toBe(state);
+  });
+
+  it('keeps plan defaults independent from override metadata', () => {
+    expect(getSubscriptionFeaturePlanDefault(
+      'free',
+      'booking_experience_customization',
+    )).toBe(false);
+    expect(getSubscriptionFeaturePlanDefault(
+      'single_salon',
+      'booking_experience_customization',
+    )).toBe(true);
+  });
+
+  it.each([
+    ['valid pointer', 'audit-1', 'audit-1'],
+    ['missing pointer', undefined, null],
+    ['empty pointer', '', null],
+    ['whitespace pointer', ' audit-1 ', null],
+    ['oversized pointer', 'a'.repeat(129), null],
+    ['non-string pointer', 42, null],
+  ])('safely reads a %s without using it as an entitlement input', (_label, pointer, expected) => {
+    const features = {
+      booking: {
+        customizationOverrideAuditId: pointer,
+      },
+    } as unknown as SalonFeatures;
+
+    expect(getBookingExperienceOverrideAuditId(features)).toBe(expected);
+    expect(resolveBookingExperienceEntitlement({
+      storedPlan: 'free',
+      features,
+    })).toMatchObject({
+      entitled: false,
+      source: 'plan',
+    });
+  });
+
+  it('builds an inspection only from matching current provenance', () => {
+    const features: SalonFeatures = {
+      booking: {
+        customization: true,
+        customizationOverrideAuditId: 'audit-1',
+      },
+    };
+    const matchingProvenance = {
+      auditId: 'audit-1',
+      overrideState: 'force_enabled',
+      reason: 'Approved support exception',
+      actor: { id: 'admin-1', email: 'admin@example.test' },
+      updatedAt: '2026-07-27T17:00:00.000Z',
+    } as const;
+
+    expect(buildBookingExperienceEntitlementInspection(
+      { storedPlan: 'free', features },
+      matchingProvenance,
+    )).toEqual({
+      featureKey: 'booking_experience_customization',
+      entitled: true,
+      source: 'override',
+      planKey: 'free',
+      storedPlan: 'free',
+      lockedReason: null,
+      planDefault: false,
+      overrideState: 'force_enabled',
+      overrideAuditId: 'audit-1',
+      reason: 'Approved support exception',
+      actor: { id: 'admin-1', email: 'admin@example.test' },
+      updatedAt: '2026-07-27T17:00:00.000Z',
+      provenanceRecorded: true,
+    });
+
+    expect(buildBookingExperienceEntitlementInspection(
+      { storedPlan: 'free', features },
+      { ...matchingProvenance, auditId: 'audit-from-another-salon' },
+    )).toMatchObject({
+      entitled: true,
+      reason: null,
+      actor: null,
+      updatedAt: null,
+      provenanceRecorded: false,
+    });
+  });
+
+  it('never lets malformed or mismatched provenance change entitlement resolution', () => {
+    const features = {
+      booking: {
+        customization: false,
+        customizationOverrideAuditId: 'audit-1',
+      },
+    } satisfies SalonFeatures;
+
+    const inspection = buildBookingExperienceEntitlementInspection(
+      { storedPlan: 'enterprise', features },
+      {
+        auditId: 'audit-1',
+        overrideState: 'force_enabled',
+        reason: 'Mismatched state',
+        actor: { id: 'admin-1', email: null },
+        updatedAt: 'not-a-date',
+      },
+    );
+
+    expect(inspection).toMatchObject({
+      overrideState: 'force_disabled',
+      entitled: false,
+      source: 'override',
+      reason: null,
+      actor: null,
+      updatedAt: null,
+      provenanceRecorded: false,
+    });
+  });
+
+  it('accepts provenance only from the exact salon, action, feature, state, and pointer', () => {
+    const candidate = {
+      id: 'audit-1',
+      salonId: 'salon-1',
+      action: 'booking_experience_entitlement_override_changed',
+      performedBy: 'admin-1',
+      performedByEmail: 'admin@example.test',
+      metadata: {
+        field: 'booking_experience_customization',
+        newValue: {
+          overrideState: 'force_enabled',
+          reason: 'Approved exception',
+        },
+      },
+      createdAt: new Date('2026-07-27T17:00:00.000Z'),
+    };
+    const expected = {
+      salonId: 'salon-1',
+      auditId: 'audit-1',
+      overrideState: 'force_enabled',
+    } as const;
+
+    expect(parseBookingExperienceOverrideProvenance(candidate, expected)).toEqual({
+      auditId: 'audit-1',
+      overrideState: 'force_enabled',
+      reason: 'Approved exception',
+      actor: { id: 'admin-1', email: 'admin@example.test' },
+      updatedAt: '2026-07-27T17:00:00.000Z',
+    });
+    expect(parseBookingExperienceOverrideProvenance(
+      { ...candidate, salonId: 'salon-2' },
+      expected,
+    )).toBeNull();
+    expect(parseBookingExperienceOverrideProvenance(
+      { ...candidate, action: 'updated' },
+      expected,
+    )).toBeNull();
+    expect(parseBookingExperienceOverrideProvenance(
+      {
+        ...candidate,
+        metadata: {
+          ...candidate.metadata,
+          field: 'another_feature',
+        },
+      },
+      expected,
+    )).toBeNull();
   });
 });
 

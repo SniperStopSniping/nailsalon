@@ -2444,6 +2444,7 @@ export const AUDIT_ACTIONS = [
   'location_added',
   'location_updated',
   'location_deleted',
+  'booking_experience_entitlement_override_changed',
 ] as const;
 export type AuditAction = (typeof AUDIT_ACTIONS)[number];
 
