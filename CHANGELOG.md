@@ -1,3 +1,16 @@
+# [1.38.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.37.0...v1.38.0) (2026-07-27)
+
+
+### Bug Fixes
+
+* protect booking entitlement from general feature writes ([6f42d7a](https://github.com/SniperStopSniping/nailsalon/commit/6f42d7a3704921461d71a2022f9b5bfa89ac4521))
+
+
+### Features
+
+* add audited booking entitlement override API ([ac6aca2](https://github.com/SniperStopSniping/nailsalon/commit/ac6aca2f0c65c8507a72a4b453248280fe322a86))
+* add booking entitlement override control ([0f1e91b](https://github.com/SniperStopSniping/nailsalon/commit/0f1e91b11a42925882c9b54e51161aee3466c751))
+
 # [1.37.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.36.0...v1.37.0) (2026-07-27)
 
 
