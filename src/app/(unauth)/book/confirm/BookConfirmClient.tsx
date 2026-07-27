@@ -283,12 +283,12 @@ const PolicyCard = ({
           <ShieldCheck aria-hidden="true" className={isCompact ? 'size-4' : 'size-[18px]'} />
         </div>
         <div className="min-w-0 flex-1">
-          <h2
+          <h3
             id={`${contentId}-title`}
-            className={`font-body font-semibold text-[var(--n5-ink-main)] ${isCompact ? 'text-sm' : 'text-[15px]'}`}
+            className={`font-body min-w-0 break-words font-semibold text-[var(--n5-ink-main)] ${isCompact ? 'text-sm' : 'text-[15px]'}`}
           >
             {title}
-          </h2>
+          </h3>
           <p
             id={contentId}
             className={`font-body mt-1 whitespace-pre-line break-words text-[var(--n5-ink-muted)] ${isCompact ? 'text-xs leading-5' : 'text-sm leading-6'}`}
@@ -301,7 +301,7 @@ const PolicyCard = ({
               aria-controls={contentId}
               aria-expanded={expanded}
               onClick={() => setExpanded(current => !current)}
-              className="font-body mt-2 text-xs font-semibold text-[var(--n5-accent)] underline decoration-transparent underline-offset-2 transition-colors hover:decoration-current"
+              className="font-body mt-2 rounded-sm text-xs font-semibold text-[var(--n5-ink-main)] underline decoration-current underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--n5-ink-main)]"
             >
               {expanded ? 'Show less' : 'View full policy'}
             </button>
@@ -339,14 +339,14 @@ const QuickFactBadges = ({
       {enabledFacts.map(fact => (
         <li
           key={fact.key}
-          className="font-body inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold text-[var(--n5-ink-main)]"
+          className="font-body inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-semibold text-[var(--n5-ink-main)]"
           style={{
             borderColor: 'color-mix(in srgb, var(--n5-accent) 22%, var(--n5-border-muted))',
             backgroundColor: 'color-mix(in srgb, var(--n5-accent) 6%, var(--n5-bg-card))',
           }}
         >
-          <Info aria-hidden="true" className="size-3.5 text-[var(--n5-accent)]" />
-          <span>{fact.label}</span>
+          <Info aria-hidden="true" className="size-3.5 shrink-0 text-[var(--n5-accent)]" />
+          <span className="min-w-0 break-words">{fact.label}</span>
         </li>
       ))}
     </ul>

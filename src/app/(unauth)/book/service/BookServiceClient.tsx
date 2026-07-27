@@ -920,7 +920,7 @@ export function BookServiceClient({
                     data-testid={fact.key === 'appointment-only'
                       ? 'booking-appointment-only'
                       : `booking-quick-fact-${fact.key}`}
-                    className="inline-flex rounded-full border px-2.5 py-1 text-xs font-medium leading-4 text-neutral-700"
+                    className="inline-flex min-w-0 max-w-full rounded-full border px-2.5 py-1 text-xs font-medium leading-4 text-neutral-700"
                     style={{
                       borderColor: hasBookingBrandColor
                         ? 'color-mix(in srgb, var(--booking-brand-state-border, var(--theme-primary)) 42%, transparent)'
@@ -930,7 +930,7 @@ export function BookServiceClient({
                         : themeVars.surfaceAlt,
                     }}
                   >
-                    {fact.label}
+                    <span className="min-w-0 break-words">{fact.label}</span>
                   </li>
                 ))}
               </ul>
@@ -1682,7 +1682,7 @@ export function BookServiceClient({
               />
               <div className="min-w-0">
                 {bookingExperience.policy.title && (
-                  <h2 id="booking-policy-title" className="mb-1 break-words text-sm font-semibold text-neutral-900">
+                  <h2 id="booking-policy-title" className="mb-1 min-w-0 break-words text-sm font-semibold text-neutral-900">
                     {bookingExperience.policy.title}
                   </h2>
                 )}

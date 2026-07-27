@@ -692,9 +692,11 @@ describe('BookServiceClient', () => {
     );
 
     const quickFacts = screen.getByTestId('booking-quick-facts');
-    const appointmentOnlyBadge = within(quickFacts).getByText('Appointment only');
+    const appointmentOnlyLabel = within(quickFacts).getByText('Appointment only');
+    const appointmentOnlyBadge = appointmentOnlyLabel.closest('li');
 
     expect(appointmentOnlyBadge).toHaveClass('rounded-full', 'text-xs');
+    expect(appointmentOnlyLabel).toHaveClass('min-w-0', 'break-words');
     expect(within(quickFacts).getAllByRole('listitem')).toHaveLength(1);
   });
 
@@ -740,6 +742,50 @@ describe('BookServiceClient', () => {
     expect(
       within(quickFacts).queryByText('$15 deposit required'),
     ).not.toBeInTheDocument();
+  });
+
+  it('wraps uninterrupted quick-fact labels and policy titles without horizontal overflow classes', () => {
+    const longBadgeLabel = 'D'.repeat(40);
+    const longPolicyTitle = 'P'.repeat(60);
+    salonContextMock.bookingExperience = {
+      ...DEFAULT_BOOKING_EXPERIENCE,
+      policy: {
+        ...DEFAULT_BOOKING_EXPERIENCE.policy,
+        enabled: true,
+        title: longPolicyTitle,
+        text: 'Please review this policy before booking.',
+      },
+      quickFacts: {
+        ...DEFAULT_BOOKING_EXPERIENCE.quickFacts,
+        depositNotice: {
+          enabled: true,
+          label: longBadgeLabel,
+        },
+      },
+    };
+
+    render(
+      <BookServiceClient
+        services={[services[0]!]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const quickFacts = screen.getByTestId('booking-quick-facts');
+    const badgeLabel = within(quickFacts).getByText(longBadgeLabel);
+    const badge = badgeLabel.closest('li');
+    const policyTitle = within(screen.getByTestId('booking-policy')).getByRole(
+      'heading',
+      { name: longPolicyTitle },
+    );
+
+    expect(badge).toHaveClass('max-w-full', 'min-w-0');
+    expect(badge).not.toHaveClass('whitespace-nowrap');
+    expect(badgeLabel).toHaveClass('min-w-0', 'break-words');
+    expect(badgeLabel).not.toHaveClass('whitespace-nowrap');
+    expect(policyTitle).toHaveClass('min-w-0', 'break-words');
+    expect(policyTitle).not.toHaveClass('whitespace-nowrap');
   });
 
   it('honours the service-page policy placement flag', () => {

@@ -279,6 +279,34 @@ describe('BookConfirmClient', () => {
       expect(policy).toHaveTextContent('Deposit and cancellation policy');
     });
 
+    it('wraps uninterrupted badge labels and policy titles without changing the card hierarchy', () => {
+      const longBadgeLabel = 'A'.repeat(40);
+      const longPolicyTitle = 'P'.repeat(60);
+      enablePolicy({ title: longPolicyTitle });
+      Object.assign(bookingExperienceMock.quickFacts.appointmentOnly, {
+        enabled: true,
+        label: longBadgeLabel,
+      });
+
+      renderReview();
+
+      const quickFacts = screen.getByTestId('booking-quick-facts');
+      const badgeLabel = within(quickFacts).getByText(longBadgeLabel);
+      const badge = badgeLabel.closest('li');
+      const policy = screen.getByTestId('booking-policy-before-confirmation');
+      const title = within(policy).getByRole('heading', {
+        level: 3,
+        name: longPolicyTitle,
+      });
+
+      expect(badge).toHaveClass('max-w-full', 'min-w-0');
+      expect(badge).not.toHaveClass('whitespace-nowrap');
+      expect(badgeLabel).toHaveClass('min-w-0', 'break-words');
+      expect(badgeLabel).not.toHaveClass('whitespace-nowrap');
+      expect(title).toHaveClass('min-w-0', 'break-words');
+      expect(title).not.toHaveClass('whitespace-nowrap');
+    });
+
     it('honors the before-confirmation placement flag', () => {
       enablePolicy({ showBeforeConfirmation: false });
 
@@ -305,14 +333,35 @@ describe('BookConfirmClient', () => {
 
       const policy = screen.getByTestId('booking-policy-before-confirmation');
       const expand = within(policy).getByRole('button', { name: 'View full policy' });
+      const controlledContentId = expand.getAttribute('aria-controls');
 
       expect(expand).toHaveAttribute('aria-expanded', 'false');
       expect(expand).toHaveAttribute('aria-controls');
+      expect(expand).toHaveClass(
+        'text-[var(--n5-ink-main)]',
+        'underline',
+        'decoration-current',
+        'focus-visible:outline',
+        'focus-visible:outline-[var(--n5-ink-main)]',
+      );
+      expect(expand).not.toHaveClass(
+        'text-[var(--n5-accent)]',
+        'decoration-transparent',
+      );
+      expect(document.getElementById(controlledContentId!)).toBeInTheDocument();
       expect(within(policy).queryByText(longPolicy)).not.toBeInTheDocument();
 
       fireEvent.click(expand);
 
-      expect(within(policy).getByRole('button', { name: 'Show less' })).toHaveAttribute('aria-expanded', 'true');
+      const collapse = within(policy).getByRole('button', { name: 'Show less' });
+
+      expect(collapse).toHaveAttribute('aria-expanded', 'true');
+      expect(collapse).toHaveAttribute('aria-controls', controlledContentId);
+      expect(collapse).toHaveClass(
+        'text-[var(--n5-ink-main)]',
+        'underline',
+        'decoration-current',
+      );
       expect(within(policy).getByText(longPolicy)).toBeInTheDocument();
     });
 
@@ -344,6 +393,12 @@ describe('BookConfirmClient', () => {
       expect(reminder.compareDocumentPosition(manage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       expect(reminder).toHaveTextContent('Please remember');
       expect(expand).toHaveAttribute('aria-expanded', 'false');
+      expect(expand).toHaveClass(
+        'text-[var(--n5-ink-main)]',
+        'underline',
+        'decoration-current',
+      );
+      expect(expand).not.toHaveClass('decoration-transparent');
 
       fireEvent.click(expand);
 
