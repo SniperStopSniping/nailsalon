@@ -4,6 +4,7 @@ import {
   getBookingExperienceCssVariables,
   resolveBookingExperience,
 } from '@/libs/bookingExperience';
+import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import type { PageAppearanceResult } from '@/libs/pageAppearance';
 import type { Salon, SalonStatus } from '@/models/Schema';
 import { SalonProvider } from '@/providers/SalonProvider';
@@ -23,7 +24,22 @@ export function PublicSalonPageShell({
   pageName,
   salon,
 }: PublicSalonPageShellProps) {
-  const bookingExperience = resolveBookingExperience(salon.settings);
+  let bookingExperience = resolveBookingExperience(null);
+
+  try {
+    const entitlement = resolveBookingExperienceEntitlement({
+      storedPlan: salon.plan,
+      features: salon.features,
+    });
+
+    if (entitlement.entitled) {
+      bookingExperience = resolveBookingExperience(salon.settings);
+    }
+  } catch {
+    // Customization is optional. If entitlement resolution ever fails, keep
+    // public pages available with the canonical, uncustomized experience.
+  }
+
   const bookingExperienceStyles = pageName.startsWith('book-')
     ? getBookingExperienceCssVariables(bookingExperience.primaryColor)
     : {};

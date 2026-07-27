@@ -35,7 +35,10 @@ import {
   STARTER_FEATURES,
 } from '@/libs/featureTiers';
 import type { SalonPlan, SalonStatus } from '@/models/Schema';
-import type { SalonFeatures } from '@/types/salonPolicy';
+import type {
+  ResolvedSubscriptionFeatureEntitlement,
+  SalonFeatures,
+} from '@/types/salonPolicy';
 
 import { AuditLogTable } from './AuditLogTable';
 import { ChangeSalonSlugModal, type SalonSlugUpdateResult } from './ChangeSalonSlugModal';
@@ -56,6 +59,7 @@ type SalonDetail = {
   isMultiLocationEnabled: boolean;
   // Feature entitlements (JSONB - source of truth)
   features: SalonFeatures;
+  bookingExperienceEntitlement: ResolvedSubscriptionFeatureEntitlement;
   // Legacy feature toggles (kept for backward compatibility)
   onlineBookingEnabled: boolean;
   smsRemindersEnabled: boolean;
@@ -1125,6 +1129,60 @@ export function SalonDetailPanel({ salonId, onClose, onDeleted }: SalonDetailPan
                         expanded={expandedSections.featureAccess ?? true}
                         onToggle={() => toggleSection('featureAccess')}
                       >
+                        <div
+                          className="mb-5 rounded-xl border border-gray-200 bg-gray-50 p-4"
+                          data-testid="booking-experience-entitlement-inspection"
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div>
+                              <h4 className="font-semibold text-gray-900">
+                                Booking Experience Customization
+                              </h4>
+                              <p className="mt-1 text-xs text-gray-500">
+                                Read-only resolved subscription entitlement
+                              </p>
+                            </div>
+                            <span
+                              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                salon.bookingExperienceEntitlement.entitled
+                                  ? 'bg-emerald-100 text-emerald-800'
+                                  : 'bg-amber-100 text-amber-900'
+                              }`}
+                            >
+                              {salon.bookingExperienceEntitlement.entitled
+                                ? 'Enabled'
+                                : 'Locked'}
+                            </span>
+                          </div>
+                          <dl className="mt-3 grid gap-2 text-xs sm:grid-cols-2">
+                            <div>
+                              <dt className="text-gray-500">Stored plan</dt>
+                              <dd className="font-medium text-gray-900">
+                                {salon.bookingExperienceEntitlement.storedPlan
+                                ?? 'Missing'}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-gray-500">Internal plan key</dt>
+                              <dd className="font-medium text-gray-900">
+                                {salon.bookingExperienceEntitlement.planKey}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-gray-500">Source</dt>
+                              <dd className="font-medium text-gray-900">
+                                {salon.bookingExperienceEntitlement.source}
+                              </dd>
+                            </div>
+                            <div>
+                              <dt className="text-gray-500">Locked reason</dt>
+                              <dd className="font-medium text-gray-900">
+                                {salon.bookingExperienceEntitlement.lockedReason
+                                ?? 'None'}
+                              </dd>
+                            </div>
+                          </dl>
+                        </div>
                         <SalonFeatureAccessManager
                           features={features}
                           onChange={nextFeatures => void handleFeatureAccessChange(nextFeatures)}

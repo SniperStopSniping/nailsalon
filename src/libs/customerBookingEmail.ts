@@ -5,9 +5,11 @@ import { resolveBookingExperience } from '@/libs/bookingExperience';
 import { resolveAppointmentOperationalEmailRecipient } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import type { TransactionalEmailResult } from '@/libs/email';
+import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 import { appointmentAccessTokenSchema, appointmentSchema, appointmentServicesSchema, integrationOutboxSchema, notificationDeliverySchema, salonSchema } from '@/models/Schema';
+import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\'': '&#39;', '"': '&quot;' })[character]!);
@@ -89,13 +91,41 @@ async function loadBookingConfirmationMessage(
 ): Promise<string | null> {
   try {
     const [salon] = await db.select({
+      plan: salonSchema.plan,
+      features: salonSchema.features,
       settings: salonSchema.settings,
     }).from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
 
-    return resolveBookingExperience(salon?.settings).confirmationMessage;
+    return resolveEntitledBookingConfirmationMessage({
+      storedPlan: salon?.plan,
+      features: salon?.features,
+      settings: salon?.settings,
+    });
   } catch {
-    // Booking customization is optional. A lookup or legacy-data failure must
-    // never prevent the unchanged operational confirmation from being sent.
+    // Booking customization is optional. A lookup, resolver, or legacy-data
+    // failure must never prevent the operational confirmation from being sent.
+    return null;
+  }
+}
+
+function resolveEntitledBookingConfirmationMessage(input: {
+  storedPlan: unknown;
+  features: SalonFeatures | null | undefined;
+  settings: SalonSettings | null | undefined;
+}): string | null {
+  try {
+    const entitlement = resolveBookingExperienceEntitlement({
+      storedPlan: input.storedPlan,
+      features: input.features,
+    });
+    if (!entitlement.entitled) {
+      return null;
+    }
+
+    return resolveBookingExperience(input.settings).confirmationMessage;
+  } catch {
+    // Entitlement failures fail closed for customization without blocking the
+    // unchanged operational email.
     return null;
   }
 }
@@ -415,6 +445,8 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
       salonName: salonSchema.name,
       salonSlug: salonSchema.slug,
       customDomain: salonSchema.customDomain,
+      salonPlan: salonSchema.plan,
+      salonFeatures: salonSchema.features,
       salonSettings: salonSchema.settings,
     }).from(appointmentSchema).innerJoin(salonSchema, eq(salonSchema.id, appointmentSchema.salonId)).where(and(
       eq(appointmentSchema.id, input.appointmentId),
@@ -427,9 +459,11 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
     const services = await db.select({ name: appointmentServicesSchema.nameSnapshot }).from(appointmentServicesSchema).where(eq(appointmentServicesSchema.appointmentId, input.appointmentId));
     const { resolveBookingConfigFromSettings } = await import('@/libs/bookingConfig');
     const config = resolveBookingConfigFromSettings(row.salonSettings);
-    const confirmationMessage = resolveBookingExperience(
-      row.salonSettings,
-    ).confirmationMessage;
+    const confirmationMessage = resolveEntitledBookingConfirmationMessage({
+      storedPlan: row.salonPlan,
+      features: row.salonFeatures,
+      settings: row.salonSettings,
+    });
     const date = formatDateInTimeZone(row.appointment.startTime.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, config.timezone);
     const time = formatTimeInTimeZone(row.appointment.startTime.toISOString(), {}, config.timezone);
     const serviceNames = services.map(service => service.name || 'Appointment');
