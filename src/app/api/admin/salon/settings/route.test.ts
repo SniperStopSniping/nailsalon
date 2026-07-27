@@ -1071,6 +1071,15 @@ function collectSqlStringChunks(value: unknown): string[] {
       (value as { queryChunks?: unknown[] }).queryChunks ?? [],
     );
   }
+  if (
+    typeof value === 'object'
+    && value !== null
+    && 'value' in value
+  ) {
+    return collectSqlStringChunks(
+      (value as { value?: unknown }).value,
+    );
+  }
   return [];
 }
 
@@ -1498,6 +1507,11 @@ describe('/api/admin/salon/settings booking experience', () => {
     expect(paramValues.some(value => value.includes('unrelatedFutureKey'))).toBe(false);
     expect(paramValues.some(value => value.includes('bufferMinutes'))).toBe(false);
 
+    const settingsSql = collectSqlStringChunks(setPayload.settings).join(' ');
+
+    expect(settingsSql).toContain('jsonb_typeof');
+    expect(settingsSql).toContain(`= 'object'`);
+
     expect(logAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
       salonId: 'salon_1',
       actorId: 'admin_1',
@@ -1568,6 +1582,74 @@ describe('/api/admin/salon/settings booking experience', () => {
     ).toBe(false);
   });
 
+  it('safely writes bookingExperience over null and non-object JSONB settings', async () => {
+    const database = new PGlite();
+
+    try {
+      await database.exec(`
+        CREATE TABLE salon_settings_legacy_values (
+          id text PRIMARY KEY,
+          settings jsonb
+        );
+        INSERT INTO salon_settings_legacy_values (id, settings)
+        VALUES
+          ('sql_null', NULL),
+          ('json_null', 'null'::jsonb),
+          ('json_string', '"legacy"'::jsonb),
+          ('json_number', '42'::jsonb),
+          ('json_boolean', 'true'::jsonb),
+          ('json_array', '["legacy"]'::jsonb),
+          (
+            'valid_object',
+            '{"unrelatedFutureKey":{"keep":true}}'::jsonb
+          );
+
+        UPDATE salon_settings_legacy_values
+        SET settings = jsonb_set(
+          CASE
+            WHEN jsonb_typeof(settings) = 'object' THEN settings
+            ELSE '{}'::jsonb
+          END,
+          '{bookingExperience}',
+          '{"bookingMessage":"Saved customization"}'::jsonb
+        );
+      `);
+
+      const result = await database.query<{
+        id: string;
+        settings: Record<string, unknown>;
+      }>(`
+        SELECT id, settings
+        FROM salon_settings_legacy_values
+        ORDER BY id
+      `);
+
+      const savedCustomization = {
+        bookingExperience: { bookingMessage: 'Saved customization' },
+      };
+
+      expect(
+        Object.fromEntries(
+          result.rows.map(row => [row.id, row.settings]),
+        ),
+      ).toEqual({
+        json_array: savedCustomization,
+        json_boolean: savedCustomization,
+        json_null: savedCustomization,
+        json_number: savedCustomization,
+        json_string: savedCustomization,
+        sql_null: savedCustomization,
+        valid_object: {
+          ...savedCustomization,
+          unrelatedFutureKey: { keep: true },
+        },
+      });
+      expect(result.rows).toHaveLength(7);
+    } finally {
+      await database.close();
+    }
+  });
+
   it('preserves concurrent unrelated settings with real PostgreSQL JSONB updates', async () => {
     const database = new PGlite();
 
@@ -1592,7 +1674,10 @@ describe('/api/admin/salon/settings booking experience', () => {
         database.exec(`
           UPDATE salon_settings_concurrency
           SET settings = jsonb_set(
-            coalesce(settings, '{}'::jsonb),
+            CASE
+              WHEN jsonb_typeof(settings) = 'object' THEN settings
+              ELSE '{}'::jsonb
+            END,
             '{bookingExperience}',
             '{"bookingMessage":"Saved customization"}'::jsonb
           )
@@ -1601,7 +1686,10 @@ describe('/api/admin/salon/settings booking experience', () => {
         database.exec(`
           UPDATE salon_settings_concurrency
           SET settings = jsonb_set(
-            coalesce(settings, '{}'::jsonb),
+            CASE
+              WHEN jsonb_typeof(settings) = 'object' THEN settings
+              ELSE '{}'::jsonb
+            END,
             '{booking}',
             '{"bufferMinutes":30}'::jsonb
           )

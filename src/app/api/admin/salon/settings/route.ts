@@ -494,8 +494,15 @@ export async function PATCH(request: Request): Promise<Response> {
 
       // Every touched top-level key is applied to the current database value.
       // This avoids a stale read-modify-write replacing unrelated settings
-      // when two settings cards are saved concurrently.
-      let settingsExpression = sql`coalesce(${salonSchema.settings}, '{}'::jsonb)`;
+      // when two settings cards are saved concurrently. Legacy non-object
+      // JSONB values cannot accept a jsonb_set path, so only preserve objects.
+      let settingsExpression = sql`
+        CASE
+          WHEN jsonb_typeof(${salonSchema.settings}) = 'object'
+            THEN ${salonSchema.settings}
+          ELSE '{}'::jsonb
+        END
+      `;
 
       if (touchedSettingsKeys.includes('booking')) {
         settingsExpression = sql`jsonb_set(${settingsExpression}, '{booking}', ${JSON.stringify(settingsToPersist.booking)}::jsonb)`;

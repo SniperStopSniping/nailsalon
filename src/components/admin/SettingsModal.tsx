@@ -879,6 +879,84 @@ function bookingExperiencesMatch(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+const BOOKING_EXPERIENCE_SAVE_ERROR
+  = 'Failed to save booking experience settings.';
+
+function normalizeBookingExperienceSaveError(value: unknown): string | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const normalized = value.replace(/\s+/gu, ' ').trim();
+  if (normalized === '' || normalized.length > 240) {
+    return null;
+  }
+
+  return normalized.charAt(0).toUpperCase() + normalized.slice(1);
+}
+
+function getBookingExperienceSaveError(responseBody: unknown): string {
+  if (
+    typeof responseBody !== 'object'
+    || responseBody === null
+    || Array.isArray(responseBody)
+  ) {
+    return BOOKING_EXPERIENCE_SAVE_ERROR;
+  }
+
+  const response = responseBody as Record<string, unknown>;
+  const details = response.details;
+  if (
+    typeof details === 'object'
+    && details !== null
+    && !Array.isArray(details)
+  ) {
+    const fieldErrors = (details as { fieldErrors?: unknown }).fieldErrors;
+    if (
+      typeof fieldErrors === 'object'
+      && fieldErrors !== null
+      && !Array.isArray(fieldErrors)
+    ) {
+      const entries = Object.entries(fieldErrors).sort(([left], [right]) => {
+        if (left === right) {
+          return 0;
+        }
+        return left < right ? -1 : 1;
+      });
+
+      for (const [, messages] of entries) {
+        if (!Array.isArray(messages)) {
+          continue;
+        }
+
+        for (const message of messages) {
+          const normalized = normalizeBookingExperienceSaveError(message);
+          if (normalized) {
+            return normalized;
+          }
+        }
+      }
+    }
+  }
+
+  const nestedError = (
+    typeof response.error === 'object'
+    && response.error !== null
+    && !Array.isArray(response.error)
+  )
+    ? normalizeBookingExperienceSaveError(
+      (response.error as { message?: unknown }).message,
+    )
+    : null;
+
+  return (
+    normalizeBookingExperienceSaveError(response.message)
+    ?? nestedError
+    ?? normalizeBookingExperienceSaveError(response.error)
+    ?? BOOKING_EXPERIENCE_SAVE_ERROR
+  );
+}
+
 type BookingExperienceEditorProps = {
   draft: BookingExperienceFormState;
   loading: boolean;
@@ -2412,12 +2490,7 @@ export function SettingsModal({
       const body = await response.json().catch(() => null);
 
       if (!response.ok) {
-        throw new Error(
-          body?.message
-          || body?.error?.message
-          || body?.error
-          || 'Failed to save booking experience settings.',
-        );
+        throw new Error(getBookingExperienceSaveError(body));
       }
 
       const persisted = copyBookingExperience(
@@ -2432,7 +2505,7 @@ export function SettingsModal({
       setBookingExperienceError(
         error instanceof Error
           ? error.message
-          : 'Failed to save booking experience settings.',
+          : BOOKING_EXPERIENCE_SAVE_ERROR,
       );
     } finally {
       setBookingExperienceSaving(false);

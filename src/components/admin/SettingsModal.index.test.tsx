@@ -90,7 +90,6 @@ const CONFIGURED_BOOKING_EXPERIENCE: BookingExperience = {
 function mockEndpoints(options: {
   billingMode?: 'NONE' | 'STRIPE';
   bookingExperience?: BookingExperience;
-  bookingExperiencePatchError?: string;
   bookingExperiencePatchResponse?: Promise<Response>;
 } = {}) {
   fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
@@ -162,17 +161,6 @@ function mockEndpoints(options: {
       const requestedBookingExperience = init?.body
         ? JSON.parse(String(init.body)).bookingExperience
         : undefined;
-
-      if (
-        init?.method === 'PATCH'
-        && requestedBookingExperience
-        && options.bookingExperiencePatchError
-      ) {
-        return Promise.resolve(new Response(JSON.stringify({
-          error: 'Invalid request data',
-          message: options.bookingExperiencePatchError,
-        }), { status: 400 }));
-      }
 
       if (
         init?.method === 'PATCH'
@@ -567,10 +555,26 @@ describe('SettingsModal index', () => {
     ).toHaveValue('');
   });
 
-  it('surfaces booking experience validation errors without replacing the saved state', async () => {
+  it('shows a field-specific save error and keeps the failed draft unsaved', async () => {
     fetchMock.mockReset();
     mockEndpoints({
-      bookingExperiencePatchError: 'Instagram must use an approved HTTPS profile URL.',
+      bookingExperience: CONFIGURED_BOOKING_EXPERIENCE,
+      bookingExperiencePatchResponse: Promise.resolve(
+        new Response(JSON.stringify({
+          error: 'Invalid request data',
+          details: {
+            fieldErrors: {
+              bookingExperience: [
+                'Instagram link must be a valid Instagram profile URL.',
+              ],
+            },
+          },
+          bookingExperience: {
+            ...CONFIGURED_BOOKING_EXPERIENCE,
+            bookingMessage: 'This response must not replace the draft.',
+          },
+        }), { status: 400 }),
+      ),
     });
 
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
@@ -581,17 +585,113 @@ describe('SettingsModal index', () => {
     fireEvent.change(screen.getByRole('textbox', { name: 'Instagram' }), {
       target: { value: 'http://example.com/not-instagram' },
     });
+    fireEvent.change(screen.getByRole('textbox', { name: 'Booking message' }), {
+      target: { value: 'Keep this unsaved draft.' },
+    });
     fireEvent.click(
       screen.getByRole('button', { name: 'Save booking experience' }),
     );
 
     expect(
       await screen.findByRole('alert'),
-    ).toHaveTextContent('Instagram must use an approved HTTPS profile URL.');
+    ).toHaveTextContent('Instagram link must be a valid Instagram profile URL.');
+    expect(screen.getByRole('textbox', { name: 'Instagram' })).toHaveValue(
+      'http://example.com/not-instagram',
+    );
+    expect(screen.getByRole('textbox', { name: 'Booking message' })).toHaveValue(
+      'Keep this unsaved draft.',
+    );
+    expect(
+      screen.queryByText('Booking experience saved.'),
+    ).not.toBeInTheDocument();
     expect(refreshMock).not.toHaveBeenCalled();
     expect(
       screen.getByRole('button', { name: 'Save booking experience' }),
     ).toBeEnabled();
+    expect(
+      fetchMock.mock.calls.filter(([input, init]) =>
+        String(input).includes('/api/admin/salon/settings')
+        && (init as RequestInit | undefined)?.method === 'PATCH'),
+    ).toHaveLength(1);
+  });
+
+  it('chooses a deterministic field message when validation reports multiple errors', async () => {
+    fetchMock.mockReset();
+    mockEndpoints({
+      bookingExperiencePatchResponse: Promise.resolve(
+        new Response(JSON.stringify({
+          error: 'Invalid request data',
+          details: {
+            fieldErrors: {
+              socialLinks: [
+                'Instagram link must be a valid Instagram profile URL.',
+              ],
+              policy: [
+                'Policy text is required when the policy is enabled.',
+              ],
+            },
+          },
+        }), { status: 400 }),
+      ),
+    });
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Branding & appearance'));
+    await screen.findByTestId('booking-experience-preview');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Booking message' }), {
+      target: { value: 'Unsaved message' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save booking experience' }),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Policy text is required when the policy is enabled.',
+    );
+    expect(
+      screen.queryByText('Booking experience saved.'),
+    ).not.toBeInTheDocument();
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
+  it('falls back safely when field validation details are malformed', async () => {
+    fetchMock.mockReset();
+    mockEndpoints({
+      bookingExperiencePatchResponse: Promise.resolve(
+        new Response(JSON.stringify({
+          error: { code: 'INVALID_REQUEST' },
+          details: {
+            fieldErrors: {
+              bookingExperience: [null, '', { stack: 'internal details' }],
+            },
+          },
+        }), { status: 400 }),
+      ),
+    });
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Branding & appearance'));
+    await screen.findByTestId('booking-experience-preview');
+    fireEvent.change(screen.getByRole('textbox', { name: 'Booking message' }), {
+      target: { value: 'Keep this draft too' },
+    });
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Save booking experience' }),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Failed to save booking experience settings.',
+    );
+    expect(screen.getByRole('alert')).not.toHaveTextContent('[object Object]');
+    expect(screen.getByRole('textbox', { name: 'Booking message' })).toHaveValue(
+      'Keep this draft too',
+    );
+    expect(
+      screen.queryByText('Booking experience saved.'),
+    ).not.toBeInTheDocument();
+    expect(refreshMock).not.toHaveBeenCalled();
   });
 
   it('saves the owner profile through the existing profile endpoint', async () => {
