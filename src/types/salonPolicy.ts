@@ -252,18 +252,36 @@ export type BookingExperienceEntitlementOverrideServerState = {
 // SALON SETTINGS (Admin Controls)
 // =============================================================================
 
+export type BookingPolicyAcknowledgment = {
+  required: boolean;
+  text: string | null;
+};
+
+export type BookingExperiencePolicy = {
+  enabled: boolean;
+  title: string | null;
+  text: string | null;
+  showOnServicePage: boolean;
+  showBeforeConfirmation: boolean;
+  showAfterConfirmation: boolean;
+  showInConfirmationEmail: boolean;
+  /**
+   * Optional at this compatibility boundary because the v1.39.0 editor and
+   * older browser tabs do not know about acknowledgment configuration yet.
+   * The defensive resolver materializes it for the explicit admin projection.
+   */
+  acknowledgment?: BookingPolicyAcknowledgment;
+  /**
+   * Server-resolved content fingerprint. It is never accepted as persisted
+   * salon configuration or as authoritative browser input.
+   */
+  readonly version?: string | null;
+};
+
 export type BookingExperience = {
   primaryColor: string | null;
   bookingMessage: string | null;
-  policy: {
-    enabled: boolean;
-    title: string | null;
-    text: string | null;
-    showOnServicePage: boolean;
-    showBeforeConfirmation: boolean;
-    showAfterConfirmation: boolean;
-    showInConfirmationEmail: boolean;
-  };
+  policy: BookingExperiencePolicy;
   quickFacts: {
     appointmentOnly: {
       enabled: boolean;
@@ -286,6 +304,16 @@ export type BookingExperience = {
   confirmationMessage: string | null;
 };
 
+export type ResolvedBookingExperience = Omit<
+  BookingExperience,
+  'policy'
+> & {
+  policy: Omit<BookingExperiencePolicy, 'acknowledgment' | 'version'> & {
+    acknowledgment: BookingPolicyAcknowledgment;
+    readonly version: string | null;
+  };
+};
+
 /**
  * Persisted Booking Experience JSON can predate the current canonical shape
  * or contain independently missing fields. It must always pass through
@@ -302,6 +330,10 @@ export type StoredBookingExperience = {
     showBeforeConfirmation?: boolean;
     showAfterConfirmation?: boolean;
     showInConfirmationEmail?: boolean;
+    acknowledgment?: {
+      required?: boolean;
+      text?: string | null;
+    };
   };
   quickFacts?: {
     appointmentOnly?: {

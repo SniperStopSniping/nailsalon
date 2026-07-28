@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 import { PGlite } from '@electric-sql/pglite';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
@@ -7,6 +9,7 @@ import {
   bookingExperienceAppearanceUpdateSchema,
   bookingExperienceUpdateSchema,
   bookingPolicyUpdateSchema,
+  DEFAULT_BOOKING_POLICY_TITLE,
   getAccessibleBookingForeground,
   getBookingExperienceCssVariables,
   getColorContrastRatio,
@@ -1094,6 +1097,29 @@ function createBookingPolicy() {
   };
 }
 
+const acknowledgmentText
+  = 'I understand this appointment reserves the technician’s time.';
+
+function createBookingPolicyWithAcknowledgment(
+  acknowledgment: {
+    required: boolean;
+    text: string | null;
+  } = {
+    required: false,
+    text: acknowledgmentText,
+  },
+) {
+  const bookingPolicy = createBookingPolicy();
+
+  return {
+    ...bookingPolicy,
+    policy: {
+      ...bookingPolicy.policy,
+      acknowledgment,
+    },
+  };
+}
+
 function collectSqlStringChunks(value: unknown): string[] {
   if (typeof value === 'string') {
     return [value];
@@ -1175,6 +1201,307 @@ describe('booking experience validation and safe resolution', () => {
     expect(result.policy.text).toBe(
       'Keep   intentional spaces.\nSecond line.\n\nLast line.',
     );
+  });
+
+  it('normalizes acknowledgment wording conservatively and counts Unicode code points', () => {
+    const normalized = bookingPolicyUpdateSchema.parse({
+      ...createBookingPolicyWithAcknowledgment(),
+      policy: {
+        ...createBookingPolicyWithAcknowledgment().policy,
+        acknowledgment: {
+          required: false,
+          text:
+            '  Keep   intentional spaces.  \r\nSecond line.   \r\n\r\n\r\n\r\nLast line.  ',
+        },
+      },
+    });
+    const acceptedUnicode = bookingPolicyUpdateSchema.safeParse({
+      ...createBookingPolicyWithAcknowledgment(),
+      policy: {
+        ...createBookingPolicyWithAcknowledgment().policy,
+        acknowledgment: {
+          required: false,
+          text: `  ${'💅'.repeat(220)}  `,
+        },
+      },
+    });
+    const rejectedUnicode = bookingPolicyUpdateSchema.safeParse({
+      ...createBookingPolicyWithAcknowledgment(),
+      policy: {
+        ...createBookingPolicyWithAcknowledgment().policy,
+        acknowledgment: {
+          required: false,
+          text: '💅'.repeat(221),
+        },
+      },
+    });
+    const nullableDraft = bookingPolicyUpdateSchema.safeParse({
+      ...createBookingPolicyWithAcknowledgment(),
+      policy: {
+        ...createBookingPolicyWithAcknowledgment().policy,
+        acknowledgment: {
+          required: false,
+          text: null,
+        },
+      },
+    });
+    const controlCharacter = bookingPolicyUpdateSchema.safeParse({
+      ...createBookingPolicyWithAcknowledgment(),
+      policy: {
+        ...createBookingPolicyWithAcknowledgment().policy,
+        acknowledgment: {
+          required: false,
+          text: 'Before\u0000after',
+        },
+      },
+    });
+
+    expect(normalized.policy.acknowledgment?.text).toBe(
+      'Keep   intentional spaces.\nSecond line.\n\nLast line.',
+    );
+    expect(acceptedUnicode.success).toBe(true);
+    expect(rejectedUnicode.success).toBe(false);
+    expect(nullableDraft.success).toBe(true);
+    expect(controlCharacter.success).toBe(false);
+  });
+
+  it('generates the exact deterministic policy fingerprint from normalized visible content', () => {
+    const resolved = resolveBookingExperience({
+      bookingExperience: {
+        ...createBookingExperience(),
+        policy: {
+          ...createBookingExperience().policy,
+          title: '   ',
+          text: '  Give   24 hours notice.  \r\nThank you.   ',
+          acknowledgment: {
+            required: false,
+            text: '  I understand.  \r\n\r\n\r\nPlease contact the salon.   ',
+          },
+          version: 'policy-v1:not-trusted',
+        },
+      },
+    } as unknown as Parameters<typeof resolveBookingExperience>[0], {
+      includeAcknowledgmentConfiguration: true,
+    });
+    const canonicalPayload = JSON.stringify({
+      schemaVersion: 1,
+      title: DEFAULT_BOOKING_POLICY_TITLE,
+      text: 'Give   24 hours notice.\nThank you.',
+      acknowledgmentText: 'I understand.\n\nPlease contact the salon.',
+    });
+    const expectedVersion = `policy-v1:${
+      createHash('sha256').update(canonicalPayload, 'utf8').digest('hex')
+    }`;
+
+    expect(resolved.policy.title).toBeNull();
+    expect(resolved.policy.text).toBe(
+      'Give   24 hours notice.\nThank you.',
+    );
+    expect(resolved.policy.acknowledgment.text).toBe(
+      'I understand.\n\nPlease contact the salon.',
+    );
+    expect(resolved.policy.version).toBe(expectedVersion);
+    expect(resolved.policy.version).toMatch(/^policy-v1:[a-f0-9]{64}$/u);
+    expect(
+      resolveBookingExperience(
+        {
+          bookingExperience: {
+            ...createBookingExperience(),
+            policy: {
+              ...createBookingExperience().policy,
+              title: null,
+              text: 'Give   24 hours notice.\nThank you.',
+              acknowledgment: {
+                required: false,
+                text: 'I understand.\n\nPlease contact the salon.',
+              },
+            },
+          },
+        },
+        { includeAcknowledgmentConfiguration: true },
+      ).policy.version,
+    ).toBe(expectedVersion);
+  });
+
+  it('versions accepted wording only and ignores placement, badge, appearance, and message changes', () => {
+    const canonical = {
+      ...createBookingExperience(),
+      policy: {
+        ...createBookingExperience().policy,
+        title: 'Deposit and cancellation policy',
+        text: 'Please provide 24 hours notice.',
+        acknowledgment: {
+          required: false,
+          text: acknowledgmentText,
+        },
+      },
+    };
+    const versionFor = (bookingExperience: unknown) =>
+      resolveBookingExperience(
+        {
+          bookingExperience,
+        } as Parameters<typeof resolveBookingExperience>[0],
+        { includeAcknowledgmentConfiguration: true },
+      ).policy.version;
+    const originalVersion = versionFor(canonical);
+
+    expect(originalVersion).toMatch(/^policy-v1:[a-f0-9]{64}$/u);
+    expect(versionFor(canonical)).toBe(originalVersion);
+    expect(versionFor({
+      ...canonical,
+      policy: {
+        ...canonical.policy,
+        title: 'Updated title',
+      },
+    })).not.toBe(originalVersion);
+    expect(versionFor({
+      ...canonical,
+      policy: {
+        ...canonical.policy,
+        text: 'Please provide 48 hours notice.',
+      },
+    })).not.toBe(originalVersion);
+    expect(versionFor({
+      ...canonical,
+      policy: {
+        ...canonical.policy,
+        acknowledgment: {
+          required: false,
+          text: `${acknowledgmentText} Thank you.`,
+        },
+      },
+    })).not.toBe(originalVersion);
+
+    expect(versionFor({
+      ...canonical,
+      primaryColor: '#ABCDEF',
+      bookingMessage: 'Different booking message',
+      confirmationMessage: 'Different confirmation message',
+      socialLinks: {
+        instagram: null,
+        facebook: null,
+        tiktok: null,
+      },
+      policy: {
+        ...canonical.policy,
+        showOnServicePage: false,
+        showBeforeConfirmation: false,
+        showAfterConfirmation: false,
+        showInConfirmationEmail: false,
+      },
+      quickFacts: {
+        ...canonical.quickFacts,
+        depositNotice: {
+          enabled: true,
+          label: '$15 deposit required',
+        },
+      },
+    })).toBe(originalVersion);
+  });
+
+  it('fails malformed stored acknowledgment data closed without hiding valid policy fields', () => {
+    const resolveAcknowledgment = (acknowledgment: unknown) =>
+      resolveBookingExperience(
+        {
+          bookingExperience: {
+            ...createBookingExperience(),
+            policy: {
+              ...createBookingExperience().policy,
+              acknowledgment,
+            },
+          },
+        } as unknown as Parameters<typeof resolveBookingExperience>[0],
+        { includeAcknowledgmentConfiguration: true },
+      );
+
+    for (const acknowledgment of [
+      undefined,
+      'invalid',
+      [],
+      { required: true },
+      { required: true, text: 'a'.repeat(221) },
+      { required: true, text: 'bad\u0000text' },
+    ]) {
+      const resolved = resolveAcknowledgment(acknowledgment);
+
+      expect(resolved.policy.enabled).toBe(true);
+      expect(resolved.policy.title).toBe('Before you book');
+      expect(resolved.policy.text).toBe(
+        'Please arrive five minutes early.',
+      );
+      expect(resolved.quickFacts.appointmentOnly.enabled).toBe(true);
+      expect(resolved.policy.acknowledgment).toEqual({
+        required: false,
+        text: null,
+      });
+      expect(resolved.policy.version).toBeNull();
+    }
+
+    const invalidRequired = resolveAcknowledgment({
+      required: 'true',
+      text: 'Valid draft wording',
+    });
+    const partialText = resolveAcknowledgment({
+      text: 'Valid draft wording',
+    });
+    const validRequired = resolveAcknowledgment({
+      required: true,
+      text: 'Valid draft wording',
+    });
+
+    expect(invalidRequired.policy.acknowledgment).toEqual({
+      required: false,
+      text: 'Valid draft wording',
+    });
+    expect(partialText.policy.acknowledgment).toEqual({
+      required: false,
+      text: 'Valid draft wording',
+    });
+    expect(validRequired.policy.acknowledgment).toEqual({
+      required: true,
+      text: 'Valid draft wording',
+    });
+    expect(invalidRequired.policy.version).toMatch(
+      /^policy-v1:[a-f0-9]{64}$/u,
+    );
+  });
+
+  it('does not version an unavailable canonical policy or acknowledgment', () => {
+    const missingPolicy = resolveBookingExperience(
+      {
+        bookingExperience: {
+          ...createBookingExperience(),
+          policy: {
+            ...createBookingExperience().policy,
+            enabled: false,
+            text: null,
+            acknowledgment: {
+              required: false,
+              text: acknowledgmentText,
+            },
+          },
+        },
+      } as unknown as Parameters<typeof resolveBookingExperience>[0],
+      { includeAcknowledgmentConfiguration: true },
+    );
+    const missingAcknowledgment = resolveBookingExperience(
+      {
+        bookingExperience: {
+          ...createBookingExperience(),
+          policy: {
+            ...createBookingExperience().policy,
+            acknowledgment: {
+              required: false,
+              text: null,
+            },
+          },
+        },
+      } as unknown as Parameters<typeof resolveBookingExperience>[0],
+      { includeAcknowledgmentConfiguration: true },
+    );
+
+    expect(missingPolicy.policy.version).toBeNull();
+    expect(missingAcknowledgment.policy.version).toBeNull();
   });
 
   it('enforces every text limit after trimming and requires enabled policy text', () => {
@@ -1375,23 +1702,26 @@ describe('booking experience validation and safe resolution', () => {
       BOOKING_EXPERIENCE_DEFAULTS,
     );
 
-    const resolved = resolveBookingExperience({
-      bookingExperience: {
-        primaryColor: 'not-css',
-        bookingMessage: '  A valid stored message  ',
-        policy: {
-          enabled: true,
-          title: 'Draft title',
-          text: 'bad\u0000text',
+    const resolved = resolveBookingExperience(
+      {
+        bookingExperience: {
+          primaryColor: 'not-css',
+          bookingMessage: '  A valid stored message  ',
+          policy: {
+            enabled: true,
+            title: 'Draft title',
+            text: 'bad\u0000text',
+          },
+          appointmentOnly: 'yes',
+          socialLinks: {
+            instagram: 'https://instagram.com/valid',
+            facebook: 'https://evil.example/facebook',
+          },
+          confirmationMessage: '  Valid confirmation  ',
         },
-        appointmentOnly: 'yes',
-        socialLinks: {
-          instagram: 'https://instagram.com/valid',
-          facebook: 'https://evil.example/facebook',
-        },
-        confirmationMessage: '  Valid confirmation  ',
-      },
-    } as unknown as Parameters<typeof resolveBookingExperience>[0]);
+      } as unknown as Parameters<typeof resolveBookingExperience>[0],
+      { includeAcknowledgmentConfiguration: true },
+    );
 
     expect(resolved).toEqual({
       ...BOOKING_EXPERIENCE_DEFAULTS,
@@ -1404,6 +1734,11 @@ describe('booking experience validation and safe resolution', () => {
         showBeforeConfirmation: true,
         showAfterConfirmation: true,
         showInConfirmationEmail: true,
+        acknowledgment: {
+          required: false,
+          text: null,
+        },
+        version: null,
       },
       socialLinks: {
         instagram: 'https://instagram.com/valid',
@@ -1553,8 +1888,58 @@ describe('/api/admin/salon/settings booking experience', () => {
     );
     const defaultsBody = await defaultsResponse.json();
 
-    expect(defaultsBody.bookingExperience).toEqual(
-      BOOKING_EXPERIENCE_DEFAULTS,
+    expect(defaultsBody.bookingExperience).toEqual({
+      ...BOOKING_EXPERIENCE_DEFAULTS,
+      policy: {
+        ...BOOKING_EXPERIENCE_DEFAULTS.policy,
+        acknowledgment: {
+          required: false,
+          text: null,
+        },
+        version: null,
+      },
+    });
+  });
+
+  it('returns a server-generated version and ignores a stored fake version', async () => {
+    const storedBookingExperience = {
+      ...createBookingExperience(),
+      policy: {
+        ...createBookingExperience().policy,
+        acknowledgment: {
+          required: false,
+          text: acknowledgmentText,
+        },
+        version: 'policy-v1:client-controlled',
+      },
+    };
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        bookingExperience: storedBookingExperience,
+      },
+    });
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.bookingExperience.policy.version).toMatch(
+      /^policy-v1:[a-f0-9]{64}$/u,
+    );
+    expect(body.bookingExperience.policy.version).not.toBe(
+      'policy-v1:client-controlled',
+    );
+    expect(body.bookingExperience.policy.version).toBe(
+      resolveBookingExperience(
+        {
+          bookingExperience: storedBookingExperience,
+        } as unknown as Parameters<typeof resolveBookingExperience>[0],
+        { includeAcknowledgmentConfiguration: true },
+      )
+        .policy.version,
     );
   });
 
@@ -1621,6 +2006,68 @@ describe('/api/admin/salon/settings booking experience', () => {
     expect(db.update).not.toHaveBeenCalled();
     expect(logAuditEvent).not.toHaveBeenCalled();
     expect(legacySettings.bookingExperience.appointmentOnly).toBe(true);
+  });
+
+  it('rejects malformed and unknown request fields without writing', async () => {
+    getSalonBySlug.mockResolvedValue(baseSalon);
+    const invalidBodies: Array<string> = [
+      '{',
+      'null',
+      '[]',
+      '"primitive"',
+      JSON.stringify({
+        version: 'policy-v1:client-controlled',
+      }),
+      JSON.stringify({
+        fingerprint: 'client-controlled',
+      }),
+      JSON.stringify({
+        bookingPolicy: {
+          ...createBookingPolicyWithAcknowledgment(),
+          version: 'policy-v1:client-controlled',
+        },
+      }),
+      JSON.stringify({
+        bookingPolicy: {
+          ...createBookingPolicyWithAcknowledgment(),
+          policy: {
+            ...createBookingPolicyWithAcknowledgment().policy,
+            version: 'policy-v1:client-controlled',
+          },
+        },
+      }),
+      JSON.stringify({
+        bookingPolicy: {
+          ...createBookingPolicyWithAcknowledgment(),
+          policy: {
+            ...createBookingPolicyWithAcknowledgment().policy,
+            acknowledgment: {
+              required: false,
+              text: acknowledgmentText,
+              fingerprint: 'client-controlled',
+            },
+          },
+        },
+      }),
+    ];
+
+    for (const body of invalidBodies) {
+      const response = await PATCH(
+        new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body,
+        }),
+      );
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toMatchObject({
+        error: 'Invalid request data',
+      });
+    }
+
+    expect(db.update).not.toHaveBeenCalled();
+    expect(logAuditEvent).not.toHaveBeenCalled();
   });
 
   it('rejects the legacy full-object PATCH with a typed refresh response', async () => {
@@ -1815,8 +2262,271 @@ describe('/api/admin/salon/settings booking experience', () => {
     }));
   });
 
+  it('stores a normalized acknowledgment draft with a server-generated version', async () => {
+    const bookingPolicy = createBookingPolicyWithAcknowledgment({
+      required: false,
+      text:
+        '  Keep   intentional spaces.  \r\nSecond line.   \r\n\r\n\r\n\r\nLast line.  ',
+    });
+    const normalizedAcknowledgment
+      = 'Keep   intentional spaces.\nSecond line.\n\nLast line.';
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        bookingExperience: createBookingExperience(),
+        unrelatedFutureKey: { keep: true },
+      },
+    });
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        bookingExperience: {
+          ...createBookingExperience(),
+          policy: {
+            ...createBookingExperience().policy,
+            acknowledgment: {
+              required: false,
+              text: normalizedAcknowledgment,
+            },
+          },
+        },
+        unrelatedFutureKey: { keep: true },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingPolicy }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.bookingExperience.policy.acknowledgment).toEqual({
+      required: false,
+      text: normalizedAcknowledgment,
+    });
+    expect(body.bookingExperience.policy.version).toMatch(
+      /^policy-v1:[a-f0-9]{64}$/u,
+    );
+    expect(body.bookingExperience.primaryColor).toBe('#123456');
+    expect(body.bookingExperience.quickFacts).toEqual(
+      createBookingExperience().quickFacts,
+    );
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+    const settingsSql = collectSqlStringChunks(setPayload.settings).join(' ');
+
+    expect(settingsSql).toContain(
+      '{bookingExperience,policy,acknowledgment}',
+    );
+    expect(settingsSql).toContain(
+      `#- '{bookingExperience,policy,version}'`,
+    );
+    expect(settingsSql).not.toContain('policy-v1:');
+    expect(settingsSql).not.toContain('unrelatedFutureKey');
+
+    const auditCall = logAuditEvent.mock.calls[0]?.[0];
+
+    expect(auditCall).toEqual(expect.objectContaining({
+      metadata: {
+        before: {
+          bookingPolicy: expect.objectContaining({
+            acknowledgment: {
+              required: false,
+              textConfigured: false,
+              textLength: 0,
+              versionAvailable: false,
+            },
+          }),
+        },
+        after: {
+          bookingPolicy: expect.objectContaining({
+            acknowledgment: {
+              required: false,
+              textConfigured: true,
+              textLength: Array.from(normalizedAcknowledgment).length,
+              versionAvailable: true,
+            },
+          }),
+        },
+      },
+    }));
+    expect(JSON.stringify(auditCall)).not.toContain(
+      normalizedAcknowledgment,
+    );
+    expect(JSON.stringify(auditCall)).not.toContain('policy-v1:');
+  });
+
+  it('accepts an explicit disabled acknowledgment with null draft wording', async () => {
+    const bookingPolicy = createBookingPolicyWithAcknowledgment({
+      required: false,
+      text: null,
+    });
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        bookingExperience: {
+          ...createBookingExperience(),
+          policy: {
+            ...createBookingExperience().policy,
+            acknowledgment: {
+              required: false,
+              text: 'Remove this draft.',
+            },
+          },
+        },
+      },
+    });
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        bookingExperience: {
+          ...createBookingExperience(),
+          policy: {
+            ...createBookingExperience().policy,
+            acknowledgment: {
+              required: false,
+              text: null,
+            },
+          },
+        },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookingPolicy }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.bookingExperience.policy.acknowledgment).toEqual({
+      required: false,
+      text: null,
+    });
+    expect(body.bookingExperience.policy.version).toBeNull();
+    expect(db.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves acknowledgment atomically when a v1.39 policy editor omits it', async () => {
+    const savedAcknowledgment = {
+      required: false,
+      text: 'Preserve this draft wording.',
+    };
+    const storedBookingExperience = {
+      ...createBookingExperience(),
+      policy: {
+        ...createBookingExperience().policy,
+        acknowledgment: savedAcknowledgment,
+      },
+    };
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        bookingExperience: storedBookingExperience,
+        unrelatedFutureKey: { keep: true },
+      },
+    });
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        bookingExperience: storedBookingExperience,
+        unrelatedFutureKey: { keep: true },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingPolicy: createBookingPolicy(),
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.bookingExperience.policy.acknowledgment).toEqual(
+      savedAcknowledgment,
+    );
+    expect(body.bookingExperience.policy.version).toMatch(
+      /^policy-v1:[a-f0-9]{64}$/u,
+    );
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+    const settingsSql = collectSqlStringChunks(setPayload.settings).join(' ');
+
+    expect(settingsSql).not.toContain(
+      '{bookingExperience,policy,acknowledgment}',
+    );
+    expect(settingsSql).not.toContain(savedAcknowledgment.text);
+    expect(settingsSql).toContain('{bookingExperience,policy,title}');
+    expect(settingsSql).toContain('{bookingExperience,quickFacts}');
+  });
+
+  it('rejects required acknowledgment with a typed conflict and zero mutation', async () => {
+    const savedSettings = {
+      bookingExperience: {
+        ...createBookingExperience(),
+        policy: {
+          ...createBookingExperience().policy,
+          acknowledgment: {
+            required: false,
+            text: 'Keep this saved draft.',
+          },
+        },
+      },
+    };
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: savedSettings,
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingPolicy: createBookingPolicyWithAcknowledgment({
+            required: true,
+            text: acknowledgmentText,
+          }),
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: 'BOOKING_POLICY_ACKNOWLEDGMENT_NOT_AVAILABLE',
+      message:
+        'Required booking-policy acknowledgment is not available yet.',
+    });
+    expect(db.update).not.toHaveBeenCalled();
+    expect(logAuditEvent).not.toHaveBeenCalled();
+    expect(savedSettings.bookingExperience.policy.acknowledgment).toEqual({
+      required: false,
+      text: 'Keep this saved draft.',
+    });
+  });
+
   it('returns saved customization with locked entitlement metadata for a free salon', async () => {
-    const savedBookingExperience = createBookingExperience();
+    const savedBookingExperience = {
+      ...createBookingExperience(),
+      policy: {
+        ...createBookingExperience().policy,
+        acknowledgment: {
+          required: false,
+          text: acknowledgmentText,
+        },
+      },
+    };
     getSalonBySlug.mockResolvedValue({
       ...baseSalon,
       plan: 'free',
@@ -1831,7 +2541,20 @@ describe('/api/admin/salon/settings booking experience', () => {
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.bookingExperience).toEqual(savedBookingExperience);
+    expect(body.bookingExperience).toEqual(
+      resolveBookingExperience(
+        {
+          bookingExperience: savedBookingExperience,
+        },
+        { includeAcknowledgmentConfiguration: true },
+      ),
+    );
+    expect(body.bookingExperience.policy.acknowledgment.text).toBe(
+      acknowledgmentText,
+    );
+    expect(body.bookingExperience.policy.version).toMatch(
+      /^policy-v1:[a-f0-9]{64}$/u,
+    );
     expect(body.bookingExperienceEntitlement).toEqual({
       featureKey: 'booking_experience_customization',
       entitled: false,
@@ -1842,10 +2565,17 @@ describe('/api/admin/salon/settings booking experience', () => {
     });
   });
 
-  it('rejects both targeted customization PATCHes when entitlement is locked', async () => {
+  it('rejects targeted customization PATCHes before acknowledgment availability checks when locked', async () => {
     const savedBookingExperience = {
       ...createBookingExperience(),
       bookingMessage: 'Keep this saved message.',
+      policy: {
+        ...createBookingExperience().policy,
+        acknowledgment: {
+          required: false,
+          text: 'Keep this saved acknowledgment draft.',
+        },
+      },
     };
     getSalonBySlug.mockResolvedValue({
       ...baseSalon,
@@ -1865,6 +2595,12 @@ describe('/api/admin/salon/settings booking experience', () => {
       },
       {
         bookingPolicy: createBookingPolicy(),
+      },
+      {
+        bookingPolicy: createBookingPolicyWithAcknowledgment({
+          required: true,
+          text: acknowledgmentText,
+        }),
       },
     ]) {
       const response = await PATCH(
@@ -1887,6 +2623,9 @@ describe('/api/admin/salon/settings booking experience', () => {
 
     expect(db.update).not.toHaveBeenCalled();
     expect(logAuditEvent).not.toHaveBeenCalled();
+    expect(savedBookingExperience.policy.acknowledgment.text).toBe(
+      'Keep this saved acknowledgment draft.',
+    );
   });
 
   it('chains booking and customization writes without serializing unrelated settings', async () => {
@@ -2028,7 +2767,20 @@ describe('/api/admin/salon/settings booking experience', () => {
             "bookingExperience":{
               "bookingMessage":"Original",
               "appointmentOnly":true,
-              "policy":{"enabled":false,"title":null,"text":null}
+              "policy":{
+                "enabled":false,
+                "title":null,
+                "text":null,
+                "showOnServicePage":true,
+                "showBeforeConfirmation":true,
+                "showAfterConfirmation":true,
+                "showInConfirmationEmail":true,
+                "acknowledgment":{
+                  "required":false,
+                  "text":"Original acknowledgment draft."
+                },
+                "version":"policy-v1:stored-fake"
+              }
             },
             "unrelatedFutureKey":{"keep":true}
           }'::jsonb
@@ -2070,35 +2822,52 @@ describe('/api/admin/salon/settings booking experience', () => {
             jsonb_set(
               jsonb_set(
                 jsonb_set(
-                  CASE
-                    WHEN jsonb_typeof(settings) = 'object' THEN settings
-                    ELSE '{}'::jsonb
-                  END,
-                  '{bookingExperience}',
-                  CASE
-                    WHEN jsonb_typeof(settings->'bookingExperience') = 'object'
-                      THEN settings->'bookingExperience'
-                    ELSE '{}'::jsonb
-                  END
+                  jsonb_set(
+                    jsonb_set(
+                      jsonb_set(
+                        CASE
+                          WHEN jsonb_typeof(settings) = 'object' THEN settings
+                          ELSE '{}'::jsonb
+                        END,
+                        '{bookingExperience,policy,enabled}',
+                        'true'::jsonb
+                      ),
+                      '{bookingExperience,policy,title}',
+                      '"Booking policy"'::jsonb
+                    ),
+                    '{bookingExperience,policy,text}',
+                    '"Give 24 hours notice."'::jsonb
+                  ),
+                  '{bookingExperience,policy,showBeforeConfirmation}',
+                  'false'::jsonb
                 ),
-                '{bookingExperience,policy}',
+                '{bookingExperience,quickFacts}',
                 '{
-                  "enabled":true,
-                  "title":"Booking policy",
-                  "text":"Give 24 hours notice.",
-                  "showOnServicePage":true,
-                  "showBeforeConfirmation":true,
-                  "showAfterConfirmation":true,
-                  "showInConfirmationEmail":true
+                  "appointmentOnly":{"enabled":true,"label":"Appointment only"},
+                  "depositNotice":{"enabled":false,"label":null},
+                  "cancellationNotice":{"enabled":true,"label":"24-hour policy"}
                 }'::jsonb
               ),
-              '{bookingExperience,quickFacts}',
-              '{
-                "appointmentOnly":{"enabled":true,"label":"Appointment only"},
-                "depositNotice":{"enabled":false,"label":null},
-                "cancellationNotice":{"enabled":true,"label":"24-hour policy"}
-              }'::jsonb
-            ) #- '{bookingExperience,appointmentOnly}'
+              '{bookingExperience,policy,showAfterConfirmation}',
+              'true'::jsonb
+            )
+              #- '{bookingExperience,policy,version}'
+              #- '{bookingExperience,appointmentOnly}'
+          )
+          WHERE id = 'salon_1'
+        `),
+        database.exec(`
+          UPDATE salon_settings_concurrency
+          SET settings = jsonb_set(
+            CASE
+              WHEN jsonb_typeof(settings) = 'object' THEN settings
+              ELSE '{}'::jsonb
+            END,
+            '{bookingExperience,policy,acknowledgment}',
+            '{
+              "required":false,
+              "text":"Concurrently saved acknowledgment draft."
+            }'::jsonb
           )
           WHERE id = 'salon_1'
         `),
@@ -2122,9 +2891,13 @@ describe('/api/admin/salon/settings booking experience', () => {
             title: 'Booking policy',
             text: 'Give 24 hours notice.',
             showOnServicePage: true,
-            showBeforeConfirmation: true,
+            showBeforeConfirmation: false,
             showAfterConfirmation: true,
             showInConfirmationEmail: true,
+            acknowledgment: {
+              required: false,
+              text: 'Concurrently saved acknowledgment draft.',
+            },
           },
           quickFacts: {
             appointmentOnly: {
