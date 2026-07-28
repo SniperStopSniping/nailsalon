@@ -23,22 +23,44 @@ describe('POST /api/appointments/:id/resend-confirmation', () => {
   });
 
   it('resends only through the tenant-scoped managed appointment', async () => {
-    const response = await POST(new Request('http://localhost', { method: 'POST' }), { params: { id: 'appt_1' } });
+    const response = await POST(
+      new Request('http://localhost?salonSlug=glow', { method: 'POST' }),
+      { params: { id: 'appt_1' } },
+    );
 
     expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      data: { status: 'sent' },
+    });
+    expect(requireAppointmentManagerAccess).toHaveBeenCalledWith('appt_1', {
+      assignedOnly: true,
+      wrongRoleMessage: 'Only salon staff or admins can resend confirmations',
+      assignmentForbiddenMessage: 'You can only manage your own appointments',
+      tenantForbiddenMessage: 'Appointment does not belong to your salon',
+      salonSlugHint: 'glow',
+    });
     expect(resendCustomerBookingConfirmationEmail).toHaveBeenCalledWith({ salonId: 'salon_1', appointmentId: 'appt_1' });
   });
 
-  it('returns the existing access denial unchanged', async () => {
-    requireAppointmentManagerAccess.mockResolvedValue({ ok: false, response: new Response(null, { status: 403 }) });
+  it('returns a cross-tenant access denial without invoking resend', async () => {
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: false,
+      response: Response.json(
+        { error: { code: 'APPOINTMENT_NOT_FOUND' } },
+        { status: 404 },
+      ),
+    });
 
     const response = await POST(new Request('http://localhost', { method: 'POST' }), { params: { id: 'appt_other' } });
 
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toEqual({
+      error: { code: 'APPOINTMENT_NOT_FOUND' },
+    });
     expect(resendCustomerBookingConfirmationEmail).not.toHaveBeenCalled();
   });
 
-  it('lets the delivery helper resolve a current terminal email when the snapshot is empty', async () => {
+  it('keeps historical appointments eligible without route-level evidence fields', async () => {
     requireAppointmentManagerAccess.mockResolvedValue({
       ok: true,
       actorRole: 'admin',
@@ -48,6 +70,9 @@ describe('POST /api/appointments/:id/resend-confirmation', () => {
     const response = await POST(new Request('http://localhost', { method: 'POST' }), { params: { id: 'appt_1' } });
 
     expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      data: { status: 'sent' },
+    });
     expect(resendCustomerBookingConfirmationEmail).toHaveBeenCalledWith({
       salonId: 'salon_1',
       appointmentId: 'appt_1',
@@ -68,6 +93,26 @@ describe('POST /api/appointments/:id/resend-confirmation', () => {
       error: {
         code: 'EMAIL_UNAVAILABLE',
         message: 'This appointment has no client email address.',
+      },
+    });
+  });
+
+  it('preserves the queued-retry response when email preparation fails', async () => {
+    resendCustomerBookingConfirmationEmail.mockRejectedValue(
+      new Error('BOOKING_POLICY_EVIDENCE_LOOKUP_FAILED'),
+    );
+
+    const response = await POST(
+      new Request('http://localhost', { method: 'POST' }),
+      { params: { id: 'appt_1' } },
+    );
+
+    expect(response.status).toBe(502);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'EMAIL_QUEUED_FOR_RETRY',
+        message:
+          'Email could not be delivered yet. Luster will retry automatically.',
       },
     });
   });

@@ -1,32 +1,94 @@
+import { createHash } from 'node:crypto';
+
 import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
-import { resolveBookingExperience } from '@/libs/bookingExperience';
+import {
+  BOOKING_EXPERIENCE_LIMITS,
+  resolveBookingExperience,
+} from '@/libs/bookingExperience';
 import { resolveAppointmentOperationalEmailRecipient } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import type { TransactionalEmailResult } from '@/libs/email';
 import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
-import { appointmentAccessTokenSchema, appointmentSchema, appointmentServicesSchema, integrationOutboxSchema, notificationDeliverySchema, salonSchema } from '@/models/Schema';
+import {
+  appointmentAccessTokenSchema,
+  appointmentBookingPolicyAcknowledgmentSchema,
+  appointmentSchema,
+  appointmentServicesSchema,
+  integrationOutboxSchema,
+  notificationDeliverySchema,
+  salonSchema,
+} from '@/models/Schema';
 import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '\'': '&#39;', '"': '&quot;' })[character]!);
 }
 
+type ConfirmationPolicyModel =
+  | {
+    kind: 'acknowledged';
+    title: string;
+    policyText: string;
+    acknowledgmentText: string;
+  }
+  | {
+    kind: 'informational';
+    title: string;
+    policyText: string;
+  }
+  | {
+    kind: 'none';
+  };
+
+type BookingPolicyEvidenceResult =
+  | { status: 'none' }
+  | {
+    status: 'valid';
+    evidence: {
+      title: string;
+      policyText: string;
+      acknowledgmentText: string;
+      version: string;
+      acknowledgedAt: Date;
+    };
+  }
+  | {
+    status: 'invalid';
+    reason: 'duplicate' | 'malformed';
+  };
+
 type BookingEmailCustomization = {
   confirmationMessage: string | null;
-  policy: {
-    title: string;
-    text: string;
-  } | null;
+  policy: ConfirmationPolicyModel;
 };
+
+const NO_CONFIRMATION_POLICY = { kind: 'none' } as const;
 
 const NO_BOOKING_EMAIL_CUSTOMIZATION: BookingEmailCustomization = {
   confirmationMessage: null,
-  policy: null,
+  policy: NO_CONFIRMATION_POLICY,
 };
+
+function composeBookingPolicyText(policy: ConfirmationPolicyModel): string | null {
+  if (policy.kind === 'none') {
+    return null;
+  }
+  if (policy.kind === 'informational') {
+    return `${policy.title}\n${policy.policyText}`;
+  }
+  return [
+    'Booking policy acknowledged',
+    policy.title,
+    policy.policyText,
+    '',
+    'Acknowledgment shown when this appointment was originally booked:',
+    policy.acknowledgmentText,
+  ].join('\n');
+}
 
 function composeBookingConfirmationText(input: {
   appointmentContent: string;
@@ -35,12 +97,14 @@ function composeBookingConfirmationText(input: {
 }): string {
   return [
     input.appointmentContent,
-    input.customization.policy
-      ? `${input.customization.policy.title}\n${input.customization.policy.text}`
-      : null,
+    composeBookingPolicyText(input.customization.policy),
     input.manageContent,
     input.customization.confirmationMessage,
   ].filter((content): content is string => Boolean(content)).join('\n\n');
+}
+
+function renderLineBreaks(value: string): string {
+  return escapeHtml(value).replace(/\n/g, '<br />');
 }
 
 function composeBookingConfirmationHtml(input: {
@@ -48,11 +112,13 @@ function composeBookingConfirmationHtml(input: {
   manageContent: string;
   customization: BookingEmailCustomization;
 }): string {
-  const policyContent = input.customization.policy
-    ? `<div><p><strong>${escapeHtml(input.customization.policy.title)}</strong></p><p>${escapeHtml(input.customization.policy.text).replace(/\n/g, '<br />')}</p></div>`
-    : '';
+  const policyContent = input.customization.policy.kind === 'none'
+    ? ''
+    : input.customization.policy.kind === 'informational'
+      ? `<div><p><strong>${escapeHtml(input.customization.policy.title)}</strong></p><p>${renderLineBreaks(input.customization.policy.policyText)}</p></div>`
+      : `<div><p><strong>Booking policy acknowledged</strong></p><p><strong>${escapeHtml(input.customization.policy.title)}</strong></p><p>${renderLineBreaks(input.customization.policy.policyText)}</p><p>Acknowledgment shown when this appointment was originally booked:<br />${renderLineBreaks(input.customization.policy.acknowledgmentText)}</p></div>`;
   const confirmationContent = input.customization.confirmationMessage
-    ? `<p>${escapeHtml(input.customization.confirmationMessage).replace(/\n/g, '<br />')}</p>`
+    ? `<p>${renderLineBreaks(input.customization.confirmationMessage)}</p>`
     : '';
   return `${input.appointmentContent}${policyContent}${input.manageContent}${confirmationContent}`;
 }
@@ -107,7 +173,7 @@ async function loadBookingConfirmationEligibility(input: {
   return appointment;
 }
 
-async function loadBookingEmailCustomization(
+async function loadCurrentBookingEmailCustomization(
   salonId: string,
 ): Promise<BookingEmailCustomization> {
   try {
@@ -150,16 +216,170 @@ function resolveEntitledBookingEmailCustomization(input: {
         && experience.policy.showInConfirmationEmail
         && experience.policy.text
         ? {
+            kind: 'informational',
             title: experience.policy.title || 'Booking policy',
-            text: experience.policy.text,
+            policyText: experience.policy.text,
           }
-        : null,
+        : NO_CONFIRMATION_POLICY,
     };
   } catch {
     // Entitlement failures fail closed for customization without blocking the
     // unchanged operational email.
     return NO_BOOKING_EMAIL_CUSTOMIZATION;
   }
+}
+
+function characterCount(value: string): number {
+  return Array.from(value).length;
+}
+
+function containsDisallowedEvidenceCharacter(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return (
+      codePoint <= 9
+      || (codePoint >= 11 && codePoint <= 31)
+      || (codePoint >= 127 && codePoint <= 159)
+    );
+  });
+}
+
+function isValidEvidenceText(value: unknown, maxCharacters: number): value is string {
+  return (
+    typeof value === 'string'
+    && value.trim().length > 0
+    && characterCount(value) <= maxCharacters
+    && !containsDisallowedEvidenceCharacter(value)
+  );
+}
+
+function bookingPolicyVersionForEvidence(input: {
+  title: string;
+  policyText: string;
+  acknowledgmentText: string;
+}): string {
+  const canonicalPayload = JSON.stringify({
+    schemaVersion: 1,
+    title: input.title,
+    text: input.policyText,
+    acknowledgmentText: input.acknowledgmentText,
+  });
+  const digest = createHash('sha256')
+    .update(canonicalPayload, 'utf8')
+    .digest('hex');
+
+  return `policy-v1:${digest}`;
+}
+
+async function loadBookingPolicyEvidence(input: {
+  salonId: string;
+  appointmentId: string;
+}): Promise<BookingPolicyEvidenceResult> {
+  const rows = await db.select({
+    title: appointmentBookingPolicyAcknowledgmentSchema.policyTitleSnapshot,
+    policyText: appointmentBookingPolicyAcknowledgmentSchema.policyTextSnapshot,
+    acknowledgmentText:
+      appointmentBookingPolicyAcknowledgmentSchema.acknowledgmentTextSnapshot,
+    version: appointmentBookingPolicyAcknowledgmentSchema.policyVersion,
+    acknowledgedAt: appointmentBookingPolicyAcknowledgmentSchema.acknowledgedAt,
+  }).from(appointmentBookingPolicyAcknowledgmentSchema).where(and(
+    eq(appointmentBookingPolicyAcknowledgmentSchema.salonId, input.salonId),
+    eq(
+      appointmentBookingPolicyAcknowledgmentSchema.appointmentId,
+      input.appointmentId,
+    ),
+    eq(appointmentBookingPolicyAcknowledgmentSchema.source, 'public_booking'),
+  )).limit(2);
+
+  if (rows.length === 0) {
+    return { status: 'none' };
+  }
+  if (rows.length > 1) {
+    return { status: 'invalid', reason: 'duplicate' };
+  }
+
+  const [evidence] = rows;
+  if (
+    !evidence
+    || !isValidEvidenceText(
+      evidence.title,
+      BOOKING_EXPERIENCE_LIMITS.policyTitle,
+    )
+    || !isValidEvidenceText(
+      evidence.policyText,
+      BOOKING_EXPERIENCE_LIMITS.policyText,
+    )
+    || !isValidEvidenceText(
+      evidence.acknowledgmentText,
+      BOOKING_EXPERIENCE_LIMITS.policyAcknowledgmentText,
+    )
+    || typeof evidence.version !== 'string'
+    || !/^policy-v1:[0-9a-f]{64}$/u.test(evidence.version)
+    || !(evidence.acknowledgedAt instanceof Date)
+    || !Number.isFinite(evidence.acknowledgedAt.getTime())
+  ) {
+    return { status: 'invalid', reason: 'malformed' };
+  }
+  if (evidence.version !== bookingPolicyVersionForEvidence(evidence)) {
+    return { status: 'invalid', reason: 'malformed' };
+  }
+
+  return {
+    status: 'valid',
+    evidence: {
+      title: evidence.title,
+      policyText: evidence.policyText,
+      acknowledgmentText: evidence.acknowledgmentText,
+      version: evidence.version,
+      acknowledgedAt: evidence.acknowledgedAt,
+    },
+  };
+}
+
+function warnInvalidBookingPolicyEvidence(input: {
+  salonId: string;
+  appointmentId: string;
+  reason: 'duplicate' | 'malformed';
+}): void {
+  console.warn(
+    '[BOOKING CONFIRMATION] Booking policy evidence ignored',
+    {
+      operation: 'booking_confirmation_policy_evidence',
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      reason: `${input.reason}_evidence`,
+    },
+  );
+}
+
+async function buildBookingEmailCustomization(input: {
+  salonId: string;
+  appointmentId: string;
+  currentCustomization: BookingEmailCustomization;
+}): Promise<BookingEmailCustomization> {
+  const evidenceResult = await loadBookingPolicyEvidence(input);
+  if (evidenceResult.status === 'none') {
+    return input.currentCustomization;
+  }
+  if (evidenceResult.status === 'invalid') {
+    warnInvalidBookingPolicyEvidence({
+      ...input,
+      reason: evidenceResult.reason,
+    });
+    return {
+      ...input.currentCustomization,
+      policy: NO_CONFIRMATION_POLICY,
+    };
+  }
+  return {
+    ...input.currentCustomization,
+    policy: {
+      kind: 'acknowledged',
+      title: evidenceResult.evidence.title,
+      policyText: evidenceResult.evidence.policyText,
+      acknowledgmentText: evidenceResult.evidence.acknowledgmentText,
+    },
+  };
 }
 
 function isAmbiguousProviderFailure(
@@ -355,7 +575,14 @@ export async function sendCustomerBookingConfirmationEmail(input: {
       });
       return false;
     }
-    customization = await loadBookingEmailCustomization(input.salonId);
+    const currentCustomization = await loadCurrentBookingEmailCustomization(
+      input.salonId,
+    );
+    customization = await buildBookingEmailCustomization({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      currentCustomization,
+    });
     recipient = await resolveAppointmentOperationalEmailRecipient({
       salonId: input.salonId,
       appointmentId: input.appointmentId,
@@ -500,10 +727,15 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
     const services = await db.select({ name: appointmentServicesSchema.nameSnapshot }).from(appointmentServicesSchema).where(eq(appointmentServicesSchema.appointmentId, input.appointmentId));
     const { resolveBookingConfigFromSettings } = await import('@/libs/bookingConfig');
     const config = resolveBookingConfigFromSettings(row.salonSettings);
-    const customization = resolveEntitledBookingEmailCustomization({
+    const currentCustomization = resolveEntitledBookingEmailCustomization({
       storedPlan: row.salonPlan,
       features: row.salonFeatures,
       settings: row.salonSettings,
+    });
+    const customization = await buildBookingEmailCustomization({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      currentCustomization,
     });
     const date = formatDateInTimeZone(row.appointment.startTime.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, config.timezone);
     const time = formatTimeInTimeZone(row.appointment.startTime.toISOString(), {}, config.timezone);
