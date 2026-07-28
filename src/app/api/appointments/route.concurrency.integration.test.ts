@@ -2585,6 +2585,17 @@ suite('POST /api/appointments — genuine concurrency', () => {
 
     expect(response.status).toBe(201);
 
+    const responseBody = await response.json() as {
+      data: {
+        appointment: {
+          updatedAt: string;
+        };
+      };
+    };
+    const committedAppointmentUpdatedAt = new Date(
+      responseBody.data.appointment.updatedAt,
+    );
+
     const appointments = await activeAppointments();
     const acknowledgments = await policyAcknowledgments();
 
@@ -2601,9 +2612,15 @@ suite('POST /api/appointments — genuine concurrency', () => {
       scheduledStartAtSnapshot: appointments[0]!.startTime,
       scheduledEndAtSnapshot: appointments[0]!.endTime,
       attemptId,
-      appointmentUpdatedAtSnapshot: appointments[0]!.updatedAt,
+      appointmentUpdatedAtSnapshot: committedAppointmentUpdatedAt,
       reservationRevisionSnapshot: null,
     });
+    // The existing post-commit Google outbox enqueue advances the live
+    // appointment updated_at when it marks sync pending. Historical evidence
+    // intentionally retains the timestamp of the row returned by the atomic
+    // appointment+acknowledgment transaction.
+    expect(appointments[0]!.updatedAt.getTime())
+      .toBeGreaterThanOrEqual(committedAppointmentUpdatedAt.getTime());
     expect(acknowledgments[0]!.requestHash).toMatch(/^[a-f0-9]{64}$/u);
   });
 
