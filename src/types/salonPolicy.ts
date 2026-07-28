@@ -266,9 +266,9 @@ export type BookingExperiencePolicy = {
   showAfterConfirmation: boolean;
   showInConfirmationEmail: boolean;
   /**
-   * Optional at this compatibility boundary because the v1.39.0 editor and
-   * older browser tabs do not know about acknowledgment configuration yet.
-   * The defensive resolver materializes it for the explicit admin projection.
+   * Optional at the persisted/public compatibility boundary. Older browser
+   * tabs omit it, dormant drafts are admin-only, and the defensive resolver
+   * exposes it publicly only for a fully valid required acknowledgment.
    */
   acknowledgment?: BookingPolicyAcknowledgment;
   /**

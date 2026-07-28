@@ -44,10 +44,18 @@ import {
   X,
 } from 'lucide-react';
 import { useParams, useRouter } from 'next/navigation';
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useId,
+  useState,
+} from 'react';
 
 import {
   BOOKING_EXPERIENCE_DEFAULTS,
+  BOOKING_EXPERIENCE_LIMITS,
+  DEFAULT_BOOKING_POLICY_ACKNOWLEDGMENT_TEXT,
   getAccessibleBookingForeground,
   getBookingExperienceCssVariables,
 } from '@/libs/bookingExperience';
@@ -864,6 +872,11 @@ function copyBookingExperience(
       showBeforeConfirmation: value.policy.showBeforeConfirmation,
       showAfterConfirmation: value.policy.showAfterConfirmation,
       showInConfirmationEmail: value.policy.showInConfirmationEmail,
+      acknowledgment: {
+        required: value.policy.acknowledgment?.required ?? false,
+        text: value.policy.acknowledgment?.text ?? null,
+      },
+      version: value.policy.version ?? null,
     },
     quickFacts: {
       appointmentOnly: { ...value.quickFacts.appointmentOnly },
@@ -1460,6 +1473,38 @@ function BookingPolicyEditor({
   onReset,
   onSave,
 }: BookingPolicyEditorProps) {
+  const [previewAcknowledged, setPreviewAcknowledged] = useState(false);
+  const [previewPolicyExpanded, setPreviewPolicyExpanded] = useState(false);
+  const previewPolicyContentId = useId();
+  const acknowledgmentRequired
+    = draft.policy.acknowledgment?.required === true;
+  const acknowledgmentText = draft.policy.acknowledgment?.text ?? '';
+  const acknowledgmentCharacterCount = Array.from(acknowledgmentText).length;
+  const normalizedPolicyText = draft.policy.text?.trim() ?? '';
+  const normalizedAcknowledgmentText = acknowledgmentText.trim();
+  const acknowledgmentDependenciesValid = (
+    acknowledgmentCharacterCount
+    <= BOOKING_EXPERIENCE_LIMITS.policyAcknowledgmentText
+    && (
+      !acknowledgmentRequired
+      || (
+        normalizedPolicyText.length > 0
+        && normalizedAcknowledgmentText.length > 0
+      )
+    )
+  );
+
+  useEffect(() => {
+    setPreviewAcknowledged(false);
+    setPreviewPolicyExpanded(false);
+  }, [
+    acknowledgmentRequired,
+    draft.policy.title,
+    draft.policy.text,
+    draft.policy.version,
+    acknowledgmentText,
+  ]);
+
   if (loading) {
     return (
       <div
@@ -1496,6 +1541,18 @@ function BookingPolicyEditor({
       ...draft.quickFacts[field.key],
     }))
     .filter(fact => fact.enabled && fact.label);
+  const previewPolicyCharacters = Array.from(draft.policy.text ?? '');
+  const previewPolicyIsLong = previewPolicyCharacters.length > 280;
+  const previewPolicyText = (
+    previewPolicyIsLong && !previewPolicyExpanded
+      ? `${previewPolicyCharacters.slice(0, 280).join('').trimEnd()}…`
+      : draft.policy.text
+  );
+  const showPolicyInPreview = (
+    draft.policy.enabled
+    && (draft.policy.showBeforeConfirmation || acknowledgmentRequired)
+    && Boolean(draft.policy.text)
+  );
 
   return (
     <fieldset
@@ -1543,6 +1600,7 @@ function BookingPolicyEditor({
             aria-label="Enable booking policy"
             type="checkbox"
             checked={draft.policy.enabled}
+            disabled={acknowledgmentRequired}
             onChange={event =>
               onChange(current => ({
                 ...current,
@@ -1554,6 +1612,11 @@ function BookingPolicyEditor({
             className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
           />
         </label>
+        {acknowledgmentRequired && (
+          <p className="text-xs text-gray-600">
+            The policy stays enabled while acknowledgment is required.
+          </p>
+        )}
 
         <label className="flex flex-col gap-1">
           <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
@@ -1622,7 +1685,12 @@ function BookingPolicyEditor({
             >
               <input
                 type="checkbox"
+                aria-label={label}
                 checked={draft.policy[key]}
+                disabled={
+                  key === 'showBeforeConfirmation'
+                  && acknowledgmentRequired
+                }
                 onChange={event =>
                   onChange(current => ({
                     ...current,
@@ -1637,6 +1705,140 @@ function BookingPolicyEditor({
             </label>
           ))}
         </div>
+        {acknowledgmentRequired && (
+          <p className="text-xs text-gray-600">
+            The policy must appear before confirmation while acknowledgment is required.
+          </p>
+        )}
+      </div>
+
+      <div className="space-y-4 rounded-[12px] border border-gray-200 bg-white p-4">
+        <label className="flex items-start justify-between gap-3">
+          <div>
+            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+              Require acknowledgment
+            </span>
+            <p className="mt-1 text-sm text-gray-700">
+              Ask customers to confirm this policy before creating a new public booking.
+            </p>
+          </div>
+          <input
+            aria-label="Require acknowledgment"
+            type="checkbox"
+            checked={acknowledgmentRequired}
+            onChange={(event) => {
+              const required = event.target.checked;
+              onChange(current => ({
+                ...current,
+                policy: {
+                  ...current.policy,
+                  enabled: required ? true : current.policy.enabled,
+                  showBeforeConfirmation:
+                    required ? true : current.policy.showBeforeConfirmation,
+                  acknowledgment: {
+                    required,
+                    text: current.policy.acknowledgment?.text ?? null,
+                  },
+                },
+              }));
+            }}
+            className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+            Acknowledgment wording
+            {acknowledgmentRequired ? ' (required)' : ''}
+          </span>
+          <textarea
+            aria-label="Acknowledgment wording"
+            aria-describedby="booking-policy-acknowledgment-help booking-policy-acknowledgment-count"
+            aria-invalid={
+              acknowledgmentCharacterCount
+              > BOOKING_EXPERIENCE_LIMITS.policyAcknowledgmentText
+            }
+            value={acknowledgmentText}
+            onChange={event =>
+              onChange(current => ({
+                ...current,
+                policy: {
+                  ...current.policy,
+                  acknowledgment: {
+                    required:
+                      current.policy.acknowledgment?.required ?? false,
+                    text: event.target.value || null,
+                  },
+                },
+              }))}
+            rows={4}
+            required={acknowledgmentRequired}
+            placeholder={DEFAULT_BOOKING_POLICY_ACKNOWLEDGMENT_TEXT}
+            className="w-full resize-y rounded-[10px] border border-gray-200 p-3 text-[15px] leading-relaxed text-black outline-none transition-colors focus:border-[#007AFF]"
+          />
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <p
+              id="booking-policy-acknowledgment-help"
+              className="max-w-xl text-xs leading-5 text-gray-600"
+            >
+              This records that the customer confirmed the policy. It does not authorize
+              payments, card storage, cancellation fees, or no-show charges.
+            </p>
+            <span
+              id="booking-policy-acknowledgment-count"
+              className={`text-xs ${
+                acknowledgmentCharacterCount
+                > BOOKING_EXPERIENCE_LIMITS.policyAcknowledgmentText
+                  ? 'font-semibold text-red-700'
+                  : 'text-gray-500'
+              }`}
+            >
+              {acknowledgmentCharacterCount}
+              /
+              {BOOKING_EXPERIENCE_LIMITS.policyAcknowledgmentText}
+            </span>
+          </div>
+        </label>
+
+        <button
+          type="button"
+          onClick={() =>
+            onChange(current => ({
+              ...current,
+              policy: {
+                ...current.policy,
+                acknowledgment: {
+                  required:
+                    current.policy.acknowledgment?.required ?? false,
+                  text: DEFAULT_BOOKING_POLICY_ACKNOWLEDGMENT_TEXT,
+                },
+              },
+            }))}
+          className="inline-flex items-center rounded-[10px] border border-gray-200 px-3 py-2 text-sm font-semibold text-gray-800 transition-colors hover:bg-gray-50"
+        >
+          Use suggested wording
+        </button>
+
+        {!acknowledgmentDependenciesValid
+        && (
+          acknowledgmentRequired
+          || acknowledgmentCharacterCount
+          > BOOKING_EXPERIENCE_LIMITS.policyAcknowledgmentText
+        ) && (
+          <div
+            className="rounded-[10px] border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+            role="alert"
+          >
+            {acknowledgmentCharacterCount
+            > BOOKING_EXPERIENCE_LIMITS.policyAcknowledgmentText
+              ? `Acknowledgment wording must be ${BOOKING_EXPERIENCE_LIMITS.policyAcknowledgmentText} characters or fewer.`
+              : !normalizedPolicyText
+                  ? 'Enter full policy text before requiring acknowledgment.'
+                  : !normalizedAcknowledgmentText
+                      ? 'Enter acknowledgment wording before requiring acknowledgment.'
+                      : null}
+          </div>
+        )}
       </div>
 
       <div className="space-y-3 rounded-[12px] border border-gray-200 bg-white p-4">
@@ -1741,22 +1943,51 @@ function BookingPolicyEditor({
             ))}
           </div>
         )}
-        {draft.policy.enabled
-        && draft.policy.showBeforeConfirmation
-        && draft.policy.text && (
+        {showPolicyInPreview && (
           <div className="rounded-[12px] border border-amber-200 bg-amber-50/70 p-3">
             <div className="flex items-center gap-2 font-semibold text-gray-950">
               <Shield className="size-4 text-amber-700" aria-hidden="true" />
               {draft.policy.title || 'Booking policy'}
             </div>
-            <p className="mt-1 whitespace-pre-line break-words text-sm leading-6 text-gray-700">
-              {draft.policy.text}
+            <p
+              id={previewPolicyContentId}
+              className="mt-1 whitespace-pre-line break-words text-sm leading-6 text-gray-700"
+            >
+              {previewPolicyText}
             </p>
+            {previewPolicyIsLong && (
+              <button
+                type="button"
+                aria-controls={previewPolicyContentId}
+                aria-expanded={previewPolicyExpanded}
+                onClick={() =>
+                  setPreviewPolicyExpanded(current => !current)}
+                className="mt-2 rounded-sm text-xs font-semibold text-gray-950 underline decoration-current underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+              >
+                {previewPolicyExpanded ? 'Show less' : 'View full policy'}
+              </button>
+            )}
           </div>
         )}
-        <div className="w-full rounded-[10px] bg-amber-500 px-4 py-3 text-center text-sm font-semibold text-gray-950">
+        {acknowledgmentRequired && acknowledgmentText && (
+          <label className="flex items-start gap-3 rounded-[10px] border border-gray-200 bg-white p-3 text-sm leading-6 text-gray-800">
+            <input
+              type="checkbox"
+              checked={previewAcknowledged}
+              onChange={event =>
+                setPreviewAcknowledged(event.target.checked)}
+              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+            />
+            <span className="min-w-0 break-words">{acknowledgmentText}</span>
+          </label>
+        )}
+        <button
+          type="button"
+          disabled={acknowledgmentRequired && !previewAcknowledged}
+          className="w-full rounded-[10px] bg-amber-500 px-4 py-3 text-center text-sm font-semibold text-gray-950 disabled:cursor-not-allowed disabled:opacity-50"
+        >
           Confirm appointment
-        </div>
+        </button>
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4">
@@ -1778,7 +2009,12 @@ function BookingPolicyEditor({
           <button
             type="button"
             onClick={onSave}
-            disabled={saving || !dirty || !entitlement.entitled}
+            disabled={
+              saving
+              || !dirty
+              || !entitlement.entitled
+              || !acknowledgmentDependenciesValid
+            }
             className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="size-4" />
@@ -2982,7 +3218,27 @@ export function SettingsModal({
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             bookingPolicy: {
-              policy: bookingExperienceDraft.policy,
+              policy: {
+                enabled: bookingExperienceDraft.policy.enabled,
+                title: bookingExperienceDraft.policy.title,
+                text: bookingExperienceDraft.policy.text,
+                showOnServicePage:
+                  bookingExperienceDraft.policy.showOnServicePage,
+                showBeforeConfirmation:
+                  bookingExperienceDraft.policy.showBeforeConfirmation,
+                showAfterConfirmation:
+                  bookingExperienceDraft.policy.showAfterConfirmation,
+                showInConfirmationEmail:
+                  bookingExperienceDraft.policy.showInConfirmationEmail,
+                acknowledgment: {
+                  required:
+                    bookingExperienceDraft.policy.acknowledgment?.required
+                    ?? false,
+                  text:
+                    bookingExperienceDraft.policy.acknowledgment?.text
+                    ?? null,
+                },
+              },
               quickFacts: bookingExperienceDraft.quickFacts,
             },
           }),
@@ -3708,7 +3964,7 @@ export function SettingsModal({
         {view === 'booking-policy' && (
           <Section
             title="Booking policy"
-            footer="These reminders are informational. They do not collect deposits, charge fees, or prove policy acceptance."
+            footer="Acknowledgment records what a customer confirmed. It does not authorize deposits, card storage, cancellation fees, no-show charges, or automatic enforcement."
           >
             <BookingPolicyEditor
               draft={bookingExperienceDraft}

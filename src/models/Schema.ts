@@ -16,6 +16,7 @@ import {
   text,
   timestamp,
   uniqueIndex,
+  uuid,
 } from 'drizzle-orm/pg-core';
 
 // This file defines the structure of your database tables using the Drizzle ORM.
@@ -627,11 +628,124 @@ export const appointmentSchema = pgTable(
     deletedAtIdx: index('appointment_deleted_at_idx').on(table.deletedAt),
     // Fraud detection: basic composite for salonClientId lookups
     salonClientIdx: index('appointment_salon_client_idx').on(table.salonId, table.salonClientId),
+    // Supports tenant-safe child references that bind an appointment to its
+    // owning salon rather than trusting appointment_id by itself.
+    salonIdIdIdx: uniqueIndex('appointment_salon_id_id_idx').on(
+      table.salonId,
+      table.id,
+    ),
     // NOTE: For fraud queries, use PARTIAL INDEX via raw SQL migration (most efficient):
     // CREATE INDEX appt_fraud_lookup_idx
     // ON appointment (salon_id, salon_client_id, completed_at)
     // WHERE status = 'completed' AND payment_status = 'paid';
     // (Drizzle doesn't support partial indexes - add via migration only)
+  }),
+);
+
+// -----------------------------------------------------------------------------
+// AppointmentBookingPolicyAcknowledgment - Append-only evidence of the exact
+// customer-visible booking policy accepted for one public booking attempt.
+// Public rescheduling is reserved by the source constraint but is not written
+// by the new-booking acknowledgment release.
+// -----------------------------------------------------------------------------
+export const appointmentBookingPolicyAcknowledgmentSchema = pgTable(
+  'appointment_booking_policy_acknowledgment',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id').notNull(),
+    appointmentId: text('appointment_id').notNull(),
+    policyVersion: text('policy_version').notNull(),
+    policyTitleSnapshot: text('policy_title_snapshot').notNull(),
+    policyTextSnapshot: text('policy_text_snapshot').notNull(),
+    acknowledgmentTextSnapshot: text('acknowledgment_text_snapshot').notNull(),
+    source: text('source')
+      .$type<'public_booking' | 'public_reschedule'>()
+      .notNull(),
+    scheduledStartAtSnapshot: timestamp('scheduled_start_at_snapshot', {
+      mode: 'date',
+      withTimezone: true,
+    }).notNull(),
+    scheduledEndAtSnapshot: timestamp('scheduled_end_at_snapshot', {
+      mode: 'date',
+      withTimezone: true,
+    }).notNull(),
+    attemptId: uuid('attempt_id').notNull(),
+    requestHash: text('request_hash').notNull(),
+    appointmentUpdatedAtSnapshot: timestamp(
+      'appointment_updated_at_snapshot',
+      { mode: 'date', withTimezone: true },
+    ).notNull(),
+    // Reserved for the atomic-move release. Initial public bookings persist
+    // NULL because no reservation revision exists yet.
+    reservationRevisionSnapshot: integer('reservation_revision_snapshot'),
+    acknowledgedAt: timestamp('acknowledged_at', {
+      mode: 'date',
+      withTimezone: true,
+    }).defaultNow().notNull(),
+  },
+  table => ({
+    sourceValid: check(
+      'appointment_booking_policy_ack_source_valid',
+      sql`${table.source} IN ('public_booking', 'public_reschedule')`,
+    ),
+    versionValid: check(
+      'appointment_booking_policy_ack_version_valid',
+      sql`${table.policyVersion} ~ '^policy-v1:[0-9a-f]{64}$'`,
+    ),
+    titleValid: check(
+      'appointment_booking_policy_ack_title_valid',
+      sql`char_length(${table.policyTitleSnapshot}) BETWEEN 1 AND 60
+        AND char_length(btrim(${table.policyTitleSnapshot})) > 0`,
+    ),
+    policyTextValid: check(
+      'appointment_booking_policy_ack_policy_text_valid',
+      sql`char_length(${table.policyTextSnapshot}) BETWEEN 1 AND 1500
+        AND char_length(btrim(${table.policyTextSnapshot})) > 0`,
+    ),
+    acknowledgmentTextValid: check(
+      'appointment_booking_policy_ack_text_valid',
+      sql`char_length(${table.acknowledgmentTextSnapshot}) BETWEEN 1 AND 220
+        AND char_length(btrim(${table.acknowledgmentTextSnapshot})) > 0`,
+    ),
+    requestHashValid: check(
+      'appointment_booking_policy_ack_request_hash_valid',
+      sql`${table.requestHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    scheduleValid: check(
+      'appointment_booking_policy_ack_schedule_valid',
+      sql`${table.scheduledEndAtSnapshot} > ${table.scheduledStartAtSnapshot}`,
+    ),
+    reservationRevisionValid: check(
+      'appointment_booking_policy_ack_revision_valid',
+      sql`${table.reservationRevisionSnapshot} IS NULL OR ${table.reservationRevisionSnapshot} >= 0`,
+    ),
+    salonFk: foreignKey({
+      columns: [table.salonId],
+      foreignColumns: [salonSchema.id],
+      name: 'appointment_booking_policy_ack_salon_fk',
+    }).onDelete('cascade'),
+    appointmentTenantFk: foreignKey({
+      columns: [table.salonId, table.appointmentId],
+      foreignColumns: [appointmentSchema.salonId, appointmentSchema.id],
+      name: 'appointment_booking_policy_ack_appointment_fk',
+    }).onDelete('cascade'),
+    attemptUnique: uniqueIndex(
+      'booking_policy_ack_attempt_unique',
+    ).on(
+      table.salonId,
+      table.source,
+      table.attemptId,
+    ),
+    appointmentScheduleIdx: index(
+      'appointment_booking_policy_ack_history_idx',
+    ).on(
+      table.salonId,
+      table.appointmentId,
+      table.source,
+      table.scheduledStartAtSnapshot,
+      table.scheduledEndAtSnapshot,
+      table.acknowledgedAt,
+    ),
   }),
 );
 
@@ -2196,6 +2310,11 @@ export type NewTechnicianService = typeof technicianServicesSchema.$inferInsert;
 
 export type Appointment = typeof appointmentSchema.$inferSelect;
 export type NewAppointment = typeof appointmentSchema.$inferInsert;
+
+export type AppointmentBookingPolicyAcknowledgment
+  = typeof appointmentBookingPolicyAcknowledgmentSchema.$inferSelect;
+export type NewAppointmentBookingPolicyAcknowledgment
+  = typeof appointmentBookingPolicyAcknowledgmentSchema.$inferInsert;
 
 export type AppointmentService = typeof appointmentServicesSchema.$inferSelect;
 export type NewAppointmentService = typeof appointmentServicesSchema.$inferInsert;

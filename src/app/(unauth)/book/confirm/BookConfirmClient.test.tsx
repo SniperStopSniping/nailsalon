@@ -15,6 +15,11 @@ const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpe
       showBeforeConfirmation: true,
       showAfterConfirmation: true,
       showInConfirmationEmail: true,
+      acknowledgment: {
+        required: false,
+        text: null as string | null,
+      },
+      version: null as string | null,
     },
     quickFacts: {
       appointmentOnly: {
@@ -139,6 +144,11 @@ describe('BookConfirmClient', () => {
       showBeforeConfirmation: true,
       showAfterConfirmation: true,
       showInConfirmationEmail: true,
+      acknowledgment: {
+        required: false,
+        text: null,
+      },
+      version: null,
     });
     Object.assign(bookingExperienceMock.quickFacts.appointmentOnly, {
       enabled: false,
@@ -217,6 +227,10 @@ describe('BookConfirmClient', () => {
   });
 
   describe('booking policy presentation', () => {
+    const initialPolicyVersion = `policy-v1:${'a'.repeat(64)}`;
+    const updatedPolicyVersion = `policy-v1:${'b'.repeat(64)}`;
+    const acknowledgmentText
+      = 'I understand this appointment reserves the technician’s time. If I cannot attend, I will contact the salon as soon as possible.';
     const renderReview = () => render(
       <BookConfirmClient
         services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
@@ -314,6 +328,274 @@ describe('BookConfirmClient', () => {
 
       expect(screen.queryByTestId('booking-policy-before-confirmation')).not.toBeInTheDocument();
       expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeInTheDocument();
+    });
+
+    it('requires an unchecked acknowledgment immediately below the forced policy card for a new public booking', async () => {
+      enablePolicy({
+        showBeforeConfirmation: false,
+        acknowledgment: {
+          required: true,
+          text: acknowledgmentText,
+        },
+        version: initialPolicyVersion,
+      });
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          appointment: {
+            id: 'appt_acknowledged',
+          },
+        },
+      }), { status: 201 }));
+
+      renderReview();
+
+      const policy = screen.getByTestId('booking-policy-before-confirmation');
+      const acknowledgment = screen.getByTestId('booking-policy-acknowledgment');
+      const checkbox = within(acknowledgment).getByRole('checkbox', {
+        name: acknowledgmentText,
+      });
+      const confirm = screen.getByRole('button', {
+        name: /confirm appointment/i,
+      });
+
+      expect(policy.nextElementSibling).toBe(acknowledgment);
+      expect(acknowledgment.nextElementSibling).toBe(confirm);
+      expect(checkbox).not.toBeChecked();
+      expect(checkbox).toBeRequired();
+      expect(confirm).toBeDisabled();
+      expect(acknowledgment).toHaveTextContent(acknowledgmentText);
+      expect(acknowledgment).toHaveTextContent(
+        'Check the box to confirm your appointment.',
+      );
+      expect(acknowledgment).not.toHaveTextContent(/payment authorization|store a card|charge a fee/i);
+
+      fireEvent.click(checkbox);
+
+      await waitFor(() => expect(confirm).toBeEnabled());
+      fireEvent.click(confirm);
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+      expect(requestBody.bookingPolicyAcknowledgment).toEqual({
+        accepted: true,
+        version: initialPolicyVersion,
+        attemptId: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu,
+        ),
+      });
+    });
+
+    it('does not render or submit acknowledgment for an optional policy', async () => {
+      enablePolicy();
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          appointment: {
+            id: 'appt_optional_policy',
+          },
+        },
+      }), { status: 201 }));
+
+      renderReview();
+
+      expect(
+        screen.queryByTestId('booking-policy-acknowledgment'),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', {
+        name: /confirm appointment/i,
+      }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+      expect(requestBody).not.toHaveProperty('bookingPolicyAcknowledgment');
+    });
+
+    it('keeps public rescheduling outside acknowledgment scope', async () => {
+      navigationMock.searchParams = new URLSearchParams(
+        'techId=tech_1&originalAppointmentId=appt_original&manageToken=manage_safe',
+      );
+      enablePolicy({
+        acknowledgment: {
+          required: true,
+          text: acknowledgmentText,
+        },
+        version: initialPolicyVersion,
+      });
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          appointment: {
+            id: 'appt_rescheduled',
+          },
+        },
+      }), { status: 201 }));
+
+      renderReview();
+
+      expect(
+        screen.queryByTestId('booking-policy-acknowledgment'),
+      ).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', {
+        name: /confirm appointment/i,
+      }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+
+      expect(requestBody.originalAppointmentId).toBe('appt_original');
+      expect(requestBody).not.toHaveProperty('bookingPolicyAcknowledgment');
+    });
+
+    it('refreshes a stale policy without losing booking details or automatically resubmitting', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      enablePolicy({
+        text: 'The original policy wording.',
+        acknowledgment: {
+          required: true,
+          text: acknowledgmentText,
+        },
+        version: initialPolicyVersion,
+      });
+      fetchMock
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          error: 'BOOKING_POLICY_CHANGED',
+          message:
+            'The salon updated its booking policy. Please review it and confirm again.',
+          bookingPolicy: {
+            enabled: true,
+            title: 'Updated booking policy',
+            text: 'The latest policy wording.',
+            showBeforeConfirmation: true,
+            showAfterConfirmation: true,
+            acknowledgment: {
+              required: true,
+              text: 'I reviewed the latest booking policy.',
+            },
+            version: updatedPolicyVersion,
+          },
+        }), { status: 409 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          data: {
+            appointment: {
+              id: 'appt_after_policy_refresh',
+            },
+          },
+        }), { status: 201 }));
+
+      renderReview();
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Customer name')).toHaveValue('Ava');
+      });
+      fireEvent.change(screen.getByLabelText('Customer name'), {
+        target: { value: 'Ava Chen' },
+      });
+      fireEvent.click(screen.getByRole('checkbox', {
+        name: acknowledgmentText,
+      }));
+      fireEvent.click(screen.getByRole('button', {
+        name: /confirm appointment/i,
+      }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'The salon updated its booking policy. Please review it and confirm again.',
+      );
+      expect(screen.getByText('Updated booking policy')).toBeInTheDocument();
+      expect(screen.getByText('The latest policy wording.')).toBeInTheDocument();
+      expect(screen.getByLabelText('Customer name')).toHaveValue('Ava Chen');
+      expect(screen.getByLabelText('Customer email')).toHaveValue('ava@example.com');
+      expect(screen.getByLabelText('Customer phone')).toHaveValue('4165550101');
+      expect(screen.getByRole('checkbox', {
+        name: 'I reviewed the latest booking policy.',
+      })).not.toBeChecked();
+      expect(screen.getByRole('button', {
+        name: /confirm appointment/i,
+      })).toBeDisabled();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      const firstRequest = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      fireEvent.click(screen.getByRole('checkbox', {
+        name: 'I reviewed the latest booking policy.',
+      }));
+      await waitFor(() => expect(screen.getByRole('button', {
+        name: /confirm appointment/i,
+      })).toBeEnabled());
+      fireEvent.click(screen.getByRole('button', {
+        name: /confirm appointment/i,
+      }));
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      const secondRequest = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+
+      expect(secondRequest.bookingPolicyAcknowledgment.version)
+        .toBe(updatedPolicyVersion);
+      expect(secondRequest.bookingPolicyAcknowledgment.attemptId)
+        .not.toBe(firstRequest.bookingPolicyAcknowledgment.attemptId);
+      expect(secondRequest.clientName).toBe(firstRequest.clientName);
+      expect(secondRequest.clientEmail).toBe(firstRequest.clientEmail);
+      expect(secondRequest.clientPhone).toBe(firstRequest.clientPhone);
+      expect(secondRequest.startTime).toBe(firstRequest.startTime);
+      expect(secondRequest.serviceIds).toEqual(firstRequest.serviceIds);
+    });
+
+    it('keeps the acknowledgment attempt stable for an exact network retry and rotates it after a material edit', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      enablePolicy({
+        acknowledgment: {
+          required: true,
+          text: acknowledgmentText,
+        },
+        version: initialPolicyVersion,
+      });
+      fetchMock
+        .mockRejectedValueOnce(new TypeError('network unavailable'))
+        .mockRejectedValueOnce(new TypeError('network unavailable'))
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          data: {
+            appointment: {
+              id: 'appt_retry',
+            },
+          },
+        }), { status: 201 }));
+
+      renderReview();
+      fireEvent.click(screen.getByRole('checkbox', {
+        name: acknowledgmentText,
+      }));
+      await waitFor(() => expect(screen.getByRole('button', {
+        name: /confirm appointment/i,
+      })).toBeEnabled());
+      fireEvent.click(screen.getByRole('button', {
+        name: /confirm appointment/i,
+      }));
+
+      await screen.findByText(/network unavailable/i);
+      fireEvent.click(screen.getByRole('button', {
+        name: /confirm appointment/i,
+      }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+      const firstRequest = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
+      const exactRetry = JSON.parse(String(fetchMock.mock.calls[1]?.[1]?.body));
+
+      expect(exactRetry.bookingPolicyAcknowledgment.attemptId)
+        .toBe(firstRequest.bookingPolicyAcknowledgment.attemptId);
+
+      await screen.findByText(/network unavailable/i);
+      fireEvent.change(screen.getByLabelText('Customer name'), {
+        target: { value: 'Ava Changed' },
+      });
+      fireEvent.click(screen.getByRole('button', {
+        name: /confirm appointment/i,
+      }));
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3));
+
+      const editedRetry = JSON.parse(String(fetchMock.mock.calls[2]?.[1]?.body));
+
+      expect(editedRetry.bookingPolicyAcknowledgment.attemptId)
+        .not.toBe(firstRequest.bookingPolicyAcknowledgment.attemptId);
     });
 
     it('does not infer or render badges when every explicit quick fact is disabled', () => {

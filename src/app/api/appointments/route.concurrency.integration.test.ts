@@ -16,6 +16,7 @@
  *   CONCURRENCY_TEST_DATABASE_URL=postgres://qa:qa@127.0.0.1:55432/luster_qa \
  *     npx vitest run src/app/api/appointments/route.concurrency.integration.test.ts
  */
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { and, eq, inArray } from 'drizzle-orm';
@@ -34,6 +35,7 @@ import {
 } from 'vitest';
 
 import * as schema from '@/models/Schema';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 const RAW_URL = process.env.CONCURRENCY_TEST_DATABASE_URL ?? '';
 let parsedConcurrencyUrl: URL | null = null;
@@ -45,18 +47,28 @@ try {
 const parsedDatabaseName = parsedConcurrencyUrl
   ? decodeURIComponent(parsedConcurrencyUrl.pathname).replace(/^\//, '')
   : '';
+const parsedDatabaseUser = parsedConcurrencyUrl
+  ? decodeURIComponent(parsedConcurrencyUrl.username)
+  : '';
 const disposableDatabaseConfirmed
   = process.env.CLIENT_LIFECYCLE_DISPOSABLE_DATABASE_CONFIRMED === 'true'
+  || process.env.BOOKING_POLICY_ACKNOWLEDGMENT_DISPOSABLE_DATABASE_CONFIRMED === 'true'
   || (
     parsedDatabaseName === 'luster_qa'
     && parsedConcurrencyUrl?.username === 'qa'
   );
 const IS_LOCAL_THROWAWAY = parsedConcurrencyUrl != null
   && ['127.0.0.1', 'localhost'].includes(parsedConcurrencyUrl.hostname)
+  && parsedDatabaseName.length > 0
+  && parsedDatabaseUser.length > 0
   && disposableDatabaseConfirmed
   && !RAW_URL.includes('neon.tech');
 
 vi.mock('server-only', () => ({}));
+vi.mock('@/core/redis/redisClient', () => ({
+  redis: null,
+  isRedisAvailable: vi.fn(async () => false),
+}));
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));
 const {
@@ -69,6 +81,7 @@ const {
   requireAppointmentAccess,
   requireAppointmentManagerAccess,
   requireStaffAppointmentAccess,
+  recordGoogleEventReviewDecision,
 } = vi.hoisted(() => ({
   sendTransactionalEmail: vi.fn(),
   sendTransactionalEmailDetailed: vi.fn(),
@@ -79,6 +92,7 @@ const {
   requireAppointmentAccess: vi.fn(),
   requireAppointmentManagerAccess: vi.fn(),
   requireStaffAppointmentAccess: vi.fn(),
+  recordGoogleEventReviewDecision: vi.fn(),
 }));
 
 vi.mock('@/libs/DB', () => ({
@@ -114,12 +128,27 @@ vi.mock('@/libs/googleCalendar', async importOriginal => ({
   getGoogleCalendarBusyWindows: vi.fn(async () => []),
   hasGoogleCalendarConflict: vi.fn(async () => false),
 }));
+vi.mock('@/libs/googleEventReview', () => ({
+  recordGoogleEventReviewDecision,
+}));
 
 const SALON_ID = 'salon_conc';
 const TECH_ID = 'tech_conc';
 const SECOND_TECH_ID = 'tech_conc_2';
 const SERVICE_ID = 'svc_conc';
 const START_TIME = '2099-09-01T15:00:00.000Z';
+const POLICY_TITLE = 'Deposit and cancellation policy';
+const POLICY_TEXT
+  = 'Please provide at least 24 hours’ notice when cancelling.';
+const ACKNOWLEDGMENT_TEXT
+  = 'I understand this appointment reserves the technician’s time.';
+const BASE_SALON_SETTINGS: SalonSettings = {
+  booking: {
+    timezone: 'America/Toronto',
+    slotIntervalMinutes: 15,
+    bufferMinutes: 10,
+  },
+};
 
 let pool: pg.Pool;
 let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -137,14 +166,17 @@ suite('POST /api/appointments — genuine concurrency', () => {
     });
     const safety = await pool.query<{
       database_name: string;
+      database_user: string;
       application_name: string;
     }>(`
       SELECT
         current_database() AS database_name,
+        current_user AS database_user,
         current_setting('application_name') AS application_name
     `);
     if (
       safety.rows[0]?.database_name !== parsedDatabaseName
+      || safety.rows[0]?.database_user !== parsedDatabaseUser
       || !disposableDatabaseConfirmed
       || safety.rows[0]?.application_name
       !== 'codex-appointment-concurrency-test'
@@ -157,8 +189,10 @@ suite('POST /api/appointments — genuine concurrency', () => {
     await migrate(db, { migrationsFolder: path.join(process.cwd(), 'migrations') });
 
     await pool.query(`TRUNCATE TABLE
+      appointment_booking_policy_acknowledgment,
       appointment_access_token, appointment_add_on, appointment_services,
-      notification_delivery, integration_outbox, appointment,
+      notification_delivery, integration_outbox, google_calendar_event,
+      appointment,
       technician_blocked_slot, technician_time_off, add_on, service,
       technician, salon_client, salon_location, salon
       RESTART IDENTITY CASCADE`);
@@ -171,7 +205,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
       isActive: true,
       status: 'active',
       publicationStatus: 'published',
-      settings: { booking: { timezone: 'America/Toronto', slotIntervalMinutes: 15, bufferMinutes: 10 } },
+      settings: BASE_SALON_SETTINGS,
     });
     await db.insert(schema.technicianSchema).values([
       {
@@ -247,14 +281,25 @@ suite('POST /api/appointments — genuine concurrency', () => {
     });
     sendTransactionalEmail.mockResolvedValue(true);
     sendTransactionalEmailDetailed.mockResolvedValue({ ok: true, errorCode: null, providerMessageId: 'm' });
+    recordGoogleEventReviewDecision.mockResolvedValue(undefined);
 
     await pool.query(`TRUNCATE TABLE
       audit_log, client_communication, appointment_audit_log,
       appointment_payment_link, reward, referral,
+      appointment_booking_policy_acknowledgment,
       appointment_access_token, appointment_add_on, appointment_services,
-      notification_delivery, integration_outbox, appointment,
+      notification_delivery, integration_outbox, google_calendar_event,
+      appointment,
       salon_client_contact_alias, salon_client
       RESTART IDENTITY CASCADE`);
+    await db
+      .update(schema.salonSchema)
+      .set({
+        settings: BASE_SALON_SETTINGS,
+        features: null,
+        plan: 'single_salon',
+      })
+      .where(eq(schema.salonSchema.id, SALON_ID));
   });
 
   afterEach(async () => {
@@ -291,6 +336,129 @@ suite('POST /api/appointments — genuine concurrency', () => {
         ...overrides,
       }),
     });
+  }
+
+  function requiredPolicySettings(input?: {
+    title?: string;
+    text?: string;
+    acknowledgmentText?: string;
+  }): SalonSettings {
+    return {
+      ...BASE_SALON_SETTINGS,
+      bookingExperience: {
+        policy: {
+          enabled: true,
+          title: input?.title ?? POLICY_TITLE,
+          text: input?.text ?? POLICY_TEXT,
+          showOnServicePage: true,
+          showBeforeConfirmation: true,
+          showAfterConfirmation: true,
+          showInConfirmationEmail: true,
+          acknowledgment: {
+            required: true,
+            text: input?.acknowledgmentText ?? ACKNOWLEDGMENT_TEXT,
+          },
+        },
+      },
+    };
+  }
+
+  function policyVersion(input?: {
+    title?: string;
+    text?: string;
+    acknowledgmentText?: string;
+  }): string {
+    const digest = createHash('sha256')
+      .update(JSON.stringify({
+        schemaVersion: 1,
+        title: input?.title ?? POLICY_TITLE,
+        text: input?.text ?? POLICY_TEXT,
+        acknowledgmentText:
+          input?.acknowledgmentText ?? ACKNOWLEDGMENT_TEXT,
+      }), 'utf8')
+      .digest('hex');
+    return `policy-v1:${digest}`;
+  }
+
+  async function configureRequiredPolicy(
+    input?: Parameters<typeof requiredPolicySettings>[0],
+  ): Promise<void> {
+    await db
+      .update(schema.salonSchema)
+      .set({ settings: requiredPolicySettings(input) })
+      .where(eq(schema.salonSchema.id, SALON_ID));
+  }
+
+  function policyAcknowledgment(
+    attemptId = randomUUID(),
+    version = policyVersion(),
+  ) {
+    return {
+      accepted: true,
+      version,
+      attemptId,
+    };
+  }
+
+  async function policyAcknowledgments() {
+    return db
+      .select()
+      .from(schema.appointmentBookingPolicyAcknowledgmentSchema);
+  }
+
+  function postgresErrorDetails(error: unknown): {
+    code: string | null;
+    constraint: string | null;
+  } {
+    let current = error;
+    for (let depth = 0; depth < 4; depth += 1) {
+      if (!current || typeof current !== 'object') {
+        break;
+      }
+      const candidate = current as {
+        code?: unknown;
+        constraint?: unknown;
+        cause?: unknown;
+      };
+      if (
+        typeof candidate.code === 'string'
+        || typeof candidate.constraint === 'string'
+      ) {
+        return {
+          code: typeof candidate.code === 'string' ? candidate.code : null,
+          constraint: typeof candidate.constraint === 'string'
+            ? candidate.constraint
+            : null,
+        };
+      }
+      current = candidate.cause;
+    }
+    return { code: null, constraint: null };
+  }
+
+  function acknowledgmentSnapshotValues(
+    appointment: typeof schema.appointmentSchema.$inferSelect,
+    overrides: Partial<
+      typeof schema.appointmentBookingPolicyAcknowledgmentSchema.$inferInsert
+    > = {},
+  ): typeof schema.appointmentBookingPolicyAcknowledgmentSchema.$inferInsert {
+    return {
+      id: `policy_ack_${randomUUID()}`,
+      salonId: appointment.salonId,
+      appointmentId: appointment.id,
+      policyVersion: policyVersion(),
+      policyTitleSnapshot: POLICY_TITLE,
+      policyTextSnapshot: POLICY_TEXT,
+      acknowledgmentTextSnapshot: ACKNOWLEDGMENT_TEXT,
+      source: 'public_booking',
+      scheduledStartAtSnapshot: appointment.startTime,
+      scheduledEndAtSnapshot: appointment.endTime,
+      attemptId: randomUUID(),
+      requestHash: 'a'.repeat(64),
+      appointmentUpdatedAtSnapshot: appointment.updatedAt,
+      reservationRevisionSnapshot: null,
+      ...overrides,
+    };
   }
 
   async function activeAppointments() {
@@ -488,6 +656,59 @@ suite('POST /api/appointments — genuine concurrency', () => {
         [SALON_ID],
       );
       return await registerHeldLock(connection);
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      connection.release();
+      throw error;
+    }
+  }
+
+  async function holdSalonPolicyUpdate(
+    settings: SalonSettings,
+  ): Promise<HeldLock & { commit: () => Promise<void> }> {
+    const connection = await pool.connect();
+    try {
+      await connection.query('BEGIN');
+      await connection.query(
+        'UPDATE salon SET settings = $2::jsonb WHERE id = $1',
+        [SALON_ID, JSON.stringify(settings)],
+      );
+      const pidResult = await connection.query<{ pid: number }>(
+        'SELECT pg_backend_pid()::int AS pid',
+      );
+      let finished = false;
+      const release = async () => {
+        if (finished) {
+          return;
+        }
+        finished = true;
+        pendingLockReleases.delete(release);
+        try {
+          await connection.query('ROLLBACK');
+        } finally {
+          connection.release();
+        }
+      };
+      const commit = async () => {
+        if (finished) {
+          return;
+        }
+        finished = true;
+        pendingLockReleases.delete(release);
+        try {
+          await connection.query('COMMIT');
+        } catch (error) {
+          connection.release(error instanceof Error ? error : true);
+          throw error;
+        }
+        connection.release();
+      };
+      pendingLockReleases.add(release);
+      return {
+        pid: pidResult.rows[0]!.pid,
+        release,
+        commit,
+      };
     } catch (error) {
       await connection.query('ROLLBACK');
       connection.release();
@@ -2351,6 +2572,397 @@ suite('POST /api/appointments — genuine concurrency', () => {
       .toBe('4165553000');
     expect(sendTransactionalEmail).not.toHaveBeenCalled();
     expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+  });
+
+  it('atomically stores a server-owned policy snapshot with a public booking', async () => {
+    await configureRequiredPolicy();
+    const attemptId = randomUUID();
+    const { POST } = await import('./route');
+
+    const response = await POST(bookingRequest({
+      bookingPolicyAcknowledgment: policyAcknowledgment(attemptId),
+    }));
+
+    expect(response.status).toBe(201);
+
+    const appointments = await activeAppointments();
+    const acknowledgments = await policyAcknowledgments();
+
+    expect(appointments).toHaveLength(1);
+    expect(acknowledgments).toHaveLength(1);
+    expect(acknowledgments[0]).toMatchObject({
+      salonId: SALON_ID,
+      appointmentId: appointments[0]!.id,
+      policyVersion: policyVersion(),
+      policyTitleSnapshot: POLICY_TITLE,
+      policyTextSnapshot: POLICY_TEXT,
+      acknowledgmentTextSnapshot: ACKNOWLEDGMENT_TEXT,
+      source: 'public_booking',
+      scheduledStartAtSnapshot: appointments[0]!.startTime,
+      scheduledEndAtSnapshot: appointments[0]!.endTime,
+      attemptId,
+      appointmentUpdatedAtSnapshot: appointments[0]!.updatedAt,
+      reservationRevisionSnapshot: null,
+    });
+    expect(acknowledgments[0]!.requestHash).toMatch(/^[a-f0-9]{64}$/u);
+  });
+
+  it('rolls back the appointment and transaction-created children when the acknowledgment insert fails', async () => {
+    await configureRequiredPolicy();
+    await pool.query(`
+      CREATE FUNCTION fail_booking_policy_ack_insert()
+      RETURNS trigger
+      LANGUAGE plpgsql
+      AS $$
+      BEGIN
+        RAISE EXCEPTION 'forced acknowledgment insertion failure';
+      END;
+      $$
+    `);
+    await pool.query(`
+      CREATE TRIGGER fail_booking_policy_ack_insert
+      BEFORE INSERT ON appointment_booking_policy_acknowledgment
+      FOR EACH ROW EXECUTE FUNCTION fail_booking_policy_ack_insert()
+    `);
+
+    let response: Response;
+    try {
+      const { POST } = await import('./route');
+      response = await POST(bookingRequest({
+        bookingPolicyAcknowledgment: policyAcknowledgment(),
+      }));
+    } finally {
+      await pool.query(`
+        DROP TRIGGER IF EXISTS fail_booking_policy_ack_insert
+          ON appointment_booking_policy_acknowledgment
+      `);
+      await pool.query(
+        'DROP FUNCTION IF EXISTS fail_booking_policy_ack_insert()',
+      );
+    }
+
+    expect(response!.status).toBe(500);
+
+    const [
+      appointments,
+      acknowledgments,
+      clients,
+      accessTokens,
+      services,
+      addOns,
+    ] = await Promise.all([
+      activeAppointments(),
+      policyAcknowledgments(),
+      db.select().from(schema.salonClientSchema),
+      db.select().from(schema.appointmentAccessTokenSchema),
+      db.select().from(schema.appointmentServicesSchema),
+      db.select().from(schema.appointmentAddOnSchema),
+    ]);
+
+    expect(appointments).toHaveLength(0);
+    expect(acknowledgments).toHaveLength(0);
+    expect(clients).toHaveLength(0);
+    expect(accessTokens).toHaveLength(0);
+    expect(services).toHaveLength(0);
+    expect(addOns).toHaveLength(0);
+  });
+
+  it('rejects a cross-salon appointment binding through the composite foreign key', async () => {
+    const { POST } = await import('./route');
+    const response = await POST(bookingRequest());
+
+    expect(response.status).toBe(201);
+
+    const [appointment] = await activeAppointments();
+
+    expect(appointment).toBeDefined();
+
+    const otherSalonId = 'salon_ack_foreign';
+    await db.insert(schema.salonSchema).values({
+      id: otherSalonId,
+      name: 'Foreign Acknowledgment Salon',
+      slug: 'foreign-acknowledgment-salon',
+      plan: 'single_salon',
+      status: 'active',
+      publicationStatus: 'published',
+      isActive: true,
+    });
+
+    let insertionError: unknown;
+    try {
+      await db
+        .insert(schema.appointmentBookingPolicyAcknowledgmentSchema)
+        .values(acknowledgmentSnapshotValues(appointment!, {
+          salonId: otherSalonId,
+        }));
+    } catch (error) {
+      insertionError = error;
+    } finally {
+      await db
+        .delete(schema.salonSchema)
+        .where(eq(schema.salonSchema.id, otherSalonId));
+    }
+
+    expect(postgresErrorDetails(insertionError)).toEqual({
+      code: '23503',
+      constraint: 'appointment_booking_policy_ack_appointment_fk',
+    });
+    expect(await policyAcknowledgments()).toHaveLength(0);
+  });
+
+  it('allows one attempt UUID to bind to only one appointment in a salon/source', async () => {
+    await configureRequiredPolicy();
+    const attemptId = randomUUID();
+    const { POST } = await import('./route');
+    const response = await POST(bookingRequest({
+      bookingPolicyAcknowledgment: policyAcknowledgment(attemptId),
+    }));
+
+    expect(response.status).toBe(201);
+
+    await seedAppointment({
+      id: 'appt_second_ack_target',
+      status: 'confirmed',
+      salonClientId: null,
+      clientPhone: '4165552999',
+      clientEmail: 'second-target@example.invalid',
+      technicianId: SECOND_TECH_ID,
+      startTime: '2099-09-03T15:00:00.000Z',
+    });
+    const [secondAppointment] = await db
+      .select()
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, 'appt_second_ack_target'))
+      .limit(1);
+
+    let insertionError: unknown;
+    try {
+      await db
+        .insert(schema.appointmentBookingPolicyAcknowledgmentSchema)
+        .values(acknowledgmentSnapshotValues(secondAppointment!, {
+          attemptId,
+          requestHash: 'b'.repeat(64),
+        }));
+    } catch (error) {
+      insertionError = error;
+    }
+
+    expect(postgresErrorDetails(insertionError)).toEqual({
+      code: '23505',
+      constraint: 'booking_policy_ack_attempt_unique',
+    });
+    expect(await policyAcknowledgments()).toHaveLength(1);
+  });
+
+  it('creates no duplicate acknowledgment evidence for identical concurrent Redis-less requests', async () => {
+    await configureRequiredPolicy();
+    const acknowledgment = policyAcknowledgment();
+    const { POST } = await import('./route');
+
+    const responses = await Promise.all([
+      POST(bookingRequest({ bookingPolicyAcknowledgment: acknowledgment })),
+      POST(bookingRequest({ bookingPolicyAcknowledgment: acknowledgment })),
+    ]);
+
+    expect(responses.map(response => response.status).sort()).toEqual([201, 409]);
+    expect(await activeAppointments()).toHaveLength(1);
+    expect(await policyAcknowledgments()).toHaveLength(1);
+  });
+
+  it('rejects one attempt UUID reused with a different canonical request hash', async () => {
+    await configureRequiredPolicy();
+    const attemptId = randomUUID();
+    const { POST } = await import('./route');
+    const first = await POST(bookingRequest({
+      bookingPolicyAcknowledgment: policyAcknowledgment(attemptId),
+    }));
+
+    expect(first.status).toBe(201);
+
+    const changed = await POST(bookingRequest({
+      technicianId: SECOND_TECH_ID,
+      startTime: '2099-09-04T15:00:00.000Z',
+      clientName: 'Changed Attempt',
+      clientEmail: 'changed-attempt@example.invalid',
+      clientPhone: '4165552444',
+      bookingPolicyAcknowledgment: policyAcknowledgment(attemptId),
+    }));
+    const body = await changed.json();
+
+    expect(changed.status).toBe(409);
+    expect(body).toMatchObject({
+      error: 'ACKNOWLEDGMENT_ATTEMPT_REUSED',
+      message: 'This booking attempt changed. Please confirm the appointment again.',
+    });
+    expect(await activeAppointments()).toHaveLength(1);
+    expect(await policyAcknowledgments()).toHaveLength(1);
+  });
+
+  it('atomically rejects concurrent changed requests sharing one attempt UUID', async () => {
+    await configureRequiredPolicy();
+    const attemptId = randomUUID();
+    const { POST } = await import('./route');
+
+    const responses = await Promise.all([
+      POST(bookingRequest({
+        bookingPolicyAcknowledgment: policyAcknowledgment(attemptId),
+      })),
+      POST(bookingRequest({
+        technicianId: SECOND_TECH_ID,
+        startTime: '2099-09-04T15:00:00.000Z',
+        clientName: 'Concurrent Changed Attempt',
+        clientEmail: 'concurrent-changed@example.invalid',
+        clientPhone: '4165552444',
+        bookingPolicyAcknowledgment: policyAcknowledgment(attemptId),
+      })),
+    ]);
+    const successful = responses.filter(response => response.status === 201);
+    const rejected = responses.filter(response => response.status === 409);
+
+    expect(successful).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    await expect(rejected[0]!.json()).resolves.toMatchObject({
+      error: 'ACKNOWLEDGMENT_ATTEMPT_REUSED',
+      message: 'This booking attempt changed. Please confirm the appointment again.',
+    });
+    expect(await activeAppointments()).toHaveLength(1);
+    expect(await policyAcknowledgments()).toHaveLength(1);
+    expect(await db.select().from(schema.salonClientSchema)).toHaveLength(1);
+  });
+
+  it('waits for a concurrent policy writer and rejects the now-stale wording', async () => {
+    await configureRequiredPolicy();
+    const staleAcknowledgment = policyAcknowledgment();
+    const nextPolicy = {
+      title: 'Updated cancellation policy',
+      text: 'Please provide at least 48 hours’ notice when cancelling.',
+      acknowledgmentText:
+        'I reviewed the updated policy and will contact the salon promptly.',
+    };
+    const held = await holdSalonPolicyUpdate(
+      requiredPolicySettings(nextPolicy),
+    );
+    const { POST } = await import('./route');
+    const bookingPromise = POST(bookingRequest({
+      bookingPolicyAcknowledgment: staleAcknowledgment,
+    }));
+
+    try {
+      await waitForBlockedSessions(1, held.pid);
+      await held.commit();
+    } catch (error) {
+      await held.release();
+      await bookingPromise;
+      throw error;
+    }
+
+    const response = await bookingPromise;
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body).toMatchObject({
+      error: 'BOOKING_POLICY_CHANGED',
+      message:
+        'The salon updated its booking policy. Please review it and confirm again.',
+      bookingPolicy: {
+        title: nextPolicy.title,
+        text: nextPolicy.text,
+        acknowledgment: {
+          required: true,
+          text: nextPolicy.acknowledgmentText,
+        },
+        version: policyVersion(nextPolicy),
+      },
+    });
+    expect(await activeAppointments()).toHaveLength(0);
+    expect(await policyAcknowledgments()).toHaveLength(0);
+    expect(await db.select().from(schema.salonClientSchema)).toHaveLength(0);
+  });
+
+  it('creates no acknowledgment for an optional policy', async () => {
+    const { POST } = await import('./route');
+    const response = await POST(bookingRequest());
+
+    expect(response.status).toBe(201);
+    expect(await activeAppointments()).toHaveLength(1);
+    expect(await policyAcknowledgments()).toHaveLength(0);
+  });
+
+  it('creates no acknowledgment when customization entitlement is disabled', async () => {
+    await configureRequiredPolicy();
+    await db
+      .update(schema.salonSchema)
+      .set({ features: { booking: { customization: false } } })
+      .where(eq(schema.salonSchema.id, SALON_ID));
+    const { POST } = await import('./route');
+    const response = await POST(bookingRequest());
+
+    expect(response.status).toBe(201);
+    expect(await activeAppointments()).toHaveLength(1);
+    expect(await policyAcknowledgments()).toHaveLength(0);
+  });
+
+  it('never manufactures public acknowledgment evidence for staff or admin bookings', async () => {
+    await configureRequiredPolicy();
+    const { POST } = await import('./route');
+    requireStaffSession.mockResolvedValue({
+      ok: true,
+      session: {
+        salonId: SALON_ID,
+        technicianId: TECH_ID,
+      },
+    });
+    const staffResponse = await POST(bookingRequest({
+      bookingPolicyAcknowledgment: policyAcknowledgment(),
+    }));
+
+    expect(staffResponse.status).toBe(201);
+
+    requireStaffSession.mockResolvedValue({ ok: false });
+    requireAdmin.mockResolvedValue({ ok: true });
+    const adminResponse = await POST(bookingRequest({
+      technicianId: SECOND_TECH_ID,
+      startTime: '2099-09-05T15:00:00.000Z',
+      clientName: 'Admin-created Client',
+      clientEmail: 'admin-created@example.invalid',
+      clientPhone: '4165552555',
+      bookingPolicyAcknowledgment: policyAcknowledgment(),
+    }));
+
+    expect(adminResponse.status).toBe(201);
+    expect(await activeAppointments()).toHaveLength(2);
+    expect(await policyAcknowledgments()).toHaveLength(0);
+  });
+
+  it('never creates public acknowledgment evidence for Google-event conversion', async () => {
+    await configureRequiredPolicy();
+    requireAdmin.mockResolvedValue({ ok: true });
+    await db.insert(schema.googleCalendarEventSchema).values({
+      id: 'google_event_ack_exclusion',
+      salonId: SALON_ID,
+      calendarId: 'primary',
+      googleEventId: 'provider_event_ack_exclusion',
+      title: 'Imported booking',
+      attendeeName: 'Imported Client',
+      attendeePhone: '4165552666',
+      attendeeEmail: 'imported@example.invalid',
+      startTime: new Date(START_TIME),
+      endTime: new Date('2099-09-01T16:00:00.000Z'),
+      durationMinutes: 60,
+      reviewStatus: 'needs_review',
+    });
+    const { POST } = await import('./route');
+    const response = await POST(bookingRequest({
+      clientName: 'Imported Client',
+      clientEmail: 'imported@example.invalid',
+      clientPhone: '4165552666',
+      googleEventReviewId: 'google_event_ack_exclusion',
+      bookingPolicyAcknowledgment: policyAcknowledgment(),
+    }));
+
+    expect(response.status).toBe(201);
+    expect(await activeAppointments()).toHaveLength(1);
+    expect(await policyAcknowledgments()).toHaveLength(0);
   });
 
   it('lets exactly one of two simultaneous identical bookings win', async () => {

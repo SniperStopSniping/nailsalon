@@ -1265,6 +1265,167 @@ describe('booking experience validation and safe resolution', () => {
     expect(controlCharacter.success).toBe(false);
   });
 
+  it('rejects invisible and bidirectional acknowledgment formatting characters', () => {
+    const unsafeCharacters = [
+      '\u00AD',
+      '\u061C',
+      '\u180E',
+      '\u200B',
+      '\u200C',
+      '\u200D',
+      '\u200E',
+      '\u200F',
+      '\u202A',
+      '\u202E',
+      '\u2060',
+      '\u2063',
+      '\u2066',
+      '\u2069',
+      '\uFEFF',
+    ];
+
+    for (const unsafeCharacter of unsafeCharacters) {
+      const result = bookingPolicyUpdateSchema.safeParse({
+        ...createBookingPolicyWithAcknowledgment(),
+        policy: {
+          ...createBookingPolicyWithAcknowledgment().policy,
+          acknowledgment: {
+            required: false,
+            text: `Review${unsafeCharacter}this policy`,
+          },
+        },
+      });
+
+      expect(result.success).toBe(false);
+    }
+
+    const corrected = resolveBookingExperience(
+      {
+        bookingExperience: {
+          ...createBookingExperience(),
+          policy: {
+            ...createBookingExperience().policy,
+            acknowledgment: {
+              required: false,
+              text: acknowledgmentText,
+            },
+          },
+        },
+      },
+      { includeAcknowledgmentConfiguration: true },
+    );
+    const unsafeStored = resolveBookingExperience(
+      {
+        bookingExperience: {
+          ...createBookingExperience(),
+          policy: {
+            ...createBookingExperience().policy,
+            acknowledgment: {
+              required: true,
+              text: `Review\u202Ethis policy`,
+            },
+          },
+        },
+      },
+      { includeAcknowledgmentConfiguration: true },
+    );
+
+    expect(corrected.policy.version).toMatch(
+      /^policy-v1:[a-f0-9]{64}$/u,
+    );
+    expect(unsafeStored.policy.acknowledgment).toEqual({
+      required: false,
+      text: null,
+    });
+    expect(unsafeStored.policy.version).toBeNull();
+  });
+
+  it('forces required acknowledgment policy visibility and validates both texts', () => {
+    const forced = bookingPolicyUpdateSchema.parse({
+      ...createBookingPolicyWithAcknowledgment({
+        required: true,
+        text: acknowledgmentText,
+      }),
+      policy: {
+        ...createBookingPolicyWithAcknowledgment().policy,
+        enabled: false,
+        showBeforeConfirmation: false,
+        acknowledgment: {
+          required: true,
+          text: acknowledgmentText,
+        },
+      },
+    });
+    const missingPolicyText = bookingPolicyUpdateSchema.safeParse({
+      ...createBookingPolicyWithAcknowledgment({
+        required: true,
+        text: acknowledgmentText,
+      }),
+      policy: {
+        ...createBookingPolicyWithAcknowledgment().policy,
+        enabled: false,
+        text: null,
+        acknowledgment: {
+          required: true,
+          text: acknowledgmentText,
+        },
+      },
+    });
+    const missingAcknowledgmentText = bookingPolicyUpdateSchema.safeParse({
+      ...createBookingPolicyWithAcknowledgment({
+        required: true,
+        text: null,
+      }),
+    });
+
+    expect(forced.policy.enabled).toBe(true);
+    expect(forced.policy.showBeforeConfirmation).toBe(true);
+    expect(missingPolicyText.success).toBe(false);
+    expect(missingAcknowledgmentText.success).toBe(false);
+  });
+
+  it('exposes only fully valid required acknowledgment on the customer projection', () => {
+    const requiredStoredPolicy = {
+      ...createBookingExperience(),
+      policy: {
+        ...createBookingExperience().policy,
+        enabled: false,
+        showBeforeConfirmation: false,
+        acknowledgment: {
+          required: true,
+          text: acknowledgmentText,
+        },
+      },
+    };
+    const customerRequired = resolveBookingExperience({
+      bookingExperience: requiredStoredPolicy,
+    });
+    const customerDraft = resolveBookingExperience({
+      bookingExperience: {
+        ...requiredStoredPolicy,
+        policy: {
+          ...requiredStoredPolicy.policy,
+          acknowledgment: {
+            required: false,
+            text: acknowledgmentText,
+          },
+        },
+      },
+    });
+
+    expect(customerRequired.policy.enabled).toBe(true);
+    expect(customerRequired.policy.showBeforeConfirmation).toBe(true);
+    expect(customerRequired.policy.acknowledgment).toEqual({
+      required: true,
+      text: acknowledgmentText,
+    });
+    expect(customerRequired.policy.version).toMatch(
+      /^policy-v1:[a-f0-9]{64}$/u,
+    );
+    expect(customerDraft.policy).not.toHaveProperty('acknowledgment');
+    expect(customerDraft.policy).not.toHaveProperty('version');
+  });
+
   it('generates the exact deterministic policy fingerprint from normalized visible content', () => {
     const resolved = resolveBookingExperience({
       bookingExperience: {
@@ -1421,6 +1582,7 @@ describe('booking experience validation and safe resolution', () => {
       { required: true },
       { required: true, text: 'a'.repeat(221) },
       { required: true, text: 'bad\u0000text' },
+      { required: true, text: 'misleading\u202Etext' },
     ]) {
       const resolved = resolveAcknowledgment(acknowledgment);
 
@@ -2471,7 +2633,158 @@ describe('/api/admin/salon/settings booking experience', () => {
     expect(settingsSql).toContain('{bookingExperience,quickFacts}');
   });
 
-  it('rejects required acknowledgment with a typed conflict and zero mutation', async () => {
+  it('prevents an older editor from disabling a saved required policy', async () => {
+    const savedAcknowledgment = {
+      required: true,
+      text: acknowledgmentText,
+    };
+    const storedBookingExperience = {
+      ...createBookingExperience(),
+      policy: {
+        ...createBookingExperience().policy,
+        acknowledgment: savedAcknowledgment,
+      },
+    };
+    const legacyPolicyUpdate = {
+      ...createBookingPolicy(),
+      policy: {
+        ...createBookingPolicy().policy,
+        enabled: false,
+        showBeforeConfirmation: false,
+      },
+    };
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        bookingExperience: storedBookingExperience,
+      },
+    });
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        bookingExperience: {
+          ...storedBookingExperience,
+          policy: {
+            ...legacyPolicyUpdate.policy,
+            enabled: true,
+            showBeforeConfirmation: true,
+            acknowledgment: savedAcknowledgment,
+          },
+          quickFacts: legacyPolicyUpdate.quickFacts,
+        },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingPolicy: legacyPolicyUpdate,
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.bookingExperience.policy).toEqual(expect.objectContaining({
+      enabled: true,
+      showBeforeConfirmation: true,
+      acknowledgment: savedAcknowledgment,
+    }));
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+    const settingsSql = collectSqlStringChunks(setPayload.settings).join(' ');
+
+    expect(settingsSql).toContain(
+      `#>'{bookingExperience,policy,acknowledgment,required}'`,
+    );
+    expect(settingsSql).not.toContain(
+      '{bookingExperience,policy,acknowledgment}',
+    );
+  });
+
+  it('preserves concurrently-required policy text from a stale null update', async () => {
+    const stalePolicyUpdate = {
+      ...createBookingPolicy(),
+      policy: {
+        ...createBookingPolicy().policy,
+        enabled: false,
+        text: null,
+        showBeforeConfirmation: false,
+      },
+    };
+    const concurrentPolicyText = 'Keep this concurrently required policy.';
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        bookingExperience: {
+          ...createBookingExperience(),
+          policy: {
+            ...createBookingExperience().policy,
+            enabled: false,
+            acknowledgment: {
+              required: false,
+              text: null,
+            },
+          },
+        },
+      },
+    });
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        bookingExperience: {
+          ...createBookingExperience(),
+          policy: {
+            ...createBookingExperience().policy,
+            enabled: true,
+            text: concurrentPolicyText,
+            showBeforeConfirmation: true,
+            acknowledgment: {
+              required: true,
+              text: acknowledgmentText,
+            },
+          },
+        },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingPolicy: stalePolicyUpdate,
+        }),
+      }),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.bookingExperience.policy).toEqual(expect.objectContaining({
+      enabled: true,
+      text: concurrentPolicyText,
+      showBeforeConfirmation: true,
+      acknowledgment: {
+        required: true,
+        text: acknowledgmentText,
+      },
+    }));
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+    const settingsSql = collectSqlStringChunks(setPayload.settings).join(' ');
+
+    expect(settingsSql).toContain('COALESCE');
+    expect(settingsSql).toContain(
+      `#>'{bookingExperience,policy,text}'`,
+    );
+    expect(settingsSql).toContain(
+      `#>'{bookingExperience,policy,acknowledgment,required}'`,
+    );
+  });
+
+  it('enables required acknowledgment and persists forced policy visibility', async () => {
     const savedSettings = {
       bookingExperience: {
         ...createBookingExperience(),
@@ -2484,9 +2797,37 @@ describe('/api/admin/salon/settings booking experience', () => {
         },
       },
     };
+    const requestedBookingPolicy = {
+      ...createBookingPolicyWithAcknowledgment({
+        required: true,
+        text: acknowledgmentText,
+      }),
+      policy: {
+        ...createBookingPolicyWithAcknowledgment().policy,
+        enabled: false,
+        showBeforeConfirmation: false,
+        acknowledgment: {
+          required: true,
+          text: acknowledgmentText,
+        },
+      },
+    };
     getSalonBySlug.mockResolvedValue({
       ...baseSalon,
       settings: savedSettings,
+    });
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        bookingExperience: {
+          ...createBookingExperience(),
+          policy: {
+            ...requestedBookingPolicy.policy,
+            enabled: true,
+            showBeforeConfirmation: true,
+          },
+        },
+      },
     });
 
     const response = await PATCH(
@@ -2494,26 +2835,99 @@ describe('/api/admin/salon/settings booking experience', () => {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          bookingPolicy: createBookingPolicyWithAcknowledgment({
-            required: true,
-            text: acknowledgmentText,
-          }),
+          bookingPolicy: requestedBookingPolicy,
         }),
       }),
     );
+    const body = await response.json();
 
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toEqual({
-      error: 'BOOKING_POLICY_ACKNOWLEDGMENT_NOT_AVAILABLE',
-      message:
-        'Required booking-policy acknowledgment is not available yet.',
+    expect(response.status).toBe(200);
+    expect(body.bookingExperience.policy).toEqual(expect.objectContaining({
+      enabled: true,
+      showBeforeConfirmation: true,
+      acknowledgment: {
+        required: true,
+        text: acknowledgmentText,
+      },
+    }));
+    expect(body.bookingExperience.policy.version).toMatch(
+      /^policy-v1:[a-f0-9]{64}$/u,
+    );
+    expect(db.update).toHaveBeenCalledTimes(1);
+    expect(logAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: {
+        before: {
+          bookingPolicy: expect.objectContaining({
+            acknowledgment: expect.objectContaining({
+              required: false,
+            }),
+          }),
+        },
+        after: {
+          bookingPolicy: expect.objectContaining({
+            acknowledgment: expect.objectContaining({
+              required: true,
+              versionAvailable: true,
+            }),
+            placements: expect.objectContaining({
+              beforeConfirmation: true,
+            }),
+          }),
+        },
+      },
+    }));
+    expect(JSON.stringify(logAuditEvent.mock.calls[0]?.[0])).not.toContain(
+      acknowledgmentText,
+    );
+  });
+
+  it('rejects incomplete or unsafe required acknowledgment with zero mutation', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        bookingExperience: createBookingExperience(),
+      },
     });
+
+    const invalidPolicies = [
+      createBookingPolicyWithAcknowledgment({
+        required: true,
+        text: null,
+      }),
+      {
+        ...createBookingPolicyWithAcknowledgment({
+          required: true,
+          text: acknowledgmentText,
+        }),
+        policy: {
+          ...createBookingPolicyWithAcknowledgment().policy,
+          text: null,
+          acknowledgment: {
+            required: true,
+            text: acknowledgmentText,
+          },
+        },
+      },
+      createBookingPolicyWithAcknowledgment({
+        required: true,
+        text: 'Review\u2066this policy',
+      }),
+    ];
+
+    for (const bookingPolicy of invalidPolicies) {
+      const response = await PATCH(
+        new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ bookingPolicy }),
+        }),
+      );
+
+      expect(response.status).toBe(400);
+    }
+
     expect(db.update).not.toHaveBeenCalled();
     expect(logAuditEvent).not.toHaveBeenCalled();
-    expect(savedSettings.bookingExperience.policy.acknowledgment).toEqual({
-      required: false,
-      text: 'Keep this saved draft.',
-    });
   });
 
   it('returns saved customization with locked entitlement metadata for a free salon', async () => {
@@ -2565,7 +2979,7 @@ describe('/api/admin/salon/settings booking experience', () => {
     });
   });
 
-  it('rejects targeted customization PATCHes before acknowledgment availability checks when locked', async () => {
+  it('rejects targeted customization PATCHes before required acknowledgment validation when locked', async () => {
     const savedBookingExperience = {
       ...createBookingExperience(),
       bookingMessage: 'Keep this saved message.',
@@ -2921,6 +3335,108 @@ describe('/api/admin/salon/settings booking experience', () => {
         },
         unrelatedFutureKey: { keep: true },
       });
+    } finally {
+      await database.close();
+    }
+  });
+
+  it('keeps required policy visibility when a stale editor omits acknowledgment', async () => {
+    const database = new PGlite();
+
+    try {
+      await database.exec(`
+        CREATE TABLE salon_required_policy_concurrency (
+          id text PRIMARY KEY,
+          settings jsonb NOT NULL
+        );
+        INSERT INTO salon_required_policy_concurrency (id, settings)
+        VALUES (
+          'salon_1',
+          '{
+            "bookingExperience":{
+              "policy":{
+                "enabled":false,
+                "text":"Give 24 hours notice.",
+                "showBeforeConfirmation":false,
+                "acknowledgment":{
+                  "required":false,
+                  "text":"I understand."
+                }
+              }
+            }
+          }'::jsonb
+        );
+
+        UPDATE salon_required_policy_concurrency
+        SET settings = jsonb_set(
+          jsonb_set(
+            jsonb_set(
+              settings,
+              '{bookingExperience,policy,acknowledgment}',
+              '{"required":true,"text":"I understand."}'::jsonb
+            ),
+            '{bookingExperience,policy,enabled}',
+            'true'::jsonb
+          ),
+          '{bookingExperience,policy,showBeforeConfirmation}',
+          'true'::jsonb
+        )
+        WHERE id = 'salon_1';
+
+        UPDATE salon_required_policy_concurrency
+        SET settings = jsonb_set(
+          jsonb_set(
+            jsonb_set(
+              settings,
+              '{bookingExperience,policy,enabled}',
+              CASE
+                WHEN settings#>'{bookingExperience,policy,acknowledgment,required}' = 'true'::jsonb
+                  THEN 'true'::jsonb
+                ELSE 'false'::jsonb
+              END
+            ),
+            '{bookingExperience,policy,text}',
+            CASE
+              WHEN settings#>'{bookingExperience,policy,acknowledgment,required}' = 'true'::jsonb
+                THEN COALESCE(
+                  settings#>'{bookingExperience,policy,text}',
+                  'null'::jsonb
+                )
+              ELSE 'null'::jsonb
+            END
+          ),
+          '{bookingExperience,policy,showBeforeConfirmation}',
+          CASE
+            WHEN settings#>'{bookingExperience,policy,acknowledgment,required}' = 'true'::jsonb
+              THEN 'true'::jsonb
+            ELSE 'false'::jsonb
+          END
+        )
+        WHERE id = 'salon_1';
+      `);
+
+      const result = await database.query<{
+        enabled: boolean;
+        policyText: string;
+        required: boolean;
+        showBeforeConfirmation: boolean;
+      }>(`
+        SELECT
+          (settings#>>'{bookingExperience,policy,enabled}')::boolean AS enabled,
+          settings#>>'{bookingExperience,policy,text}' AS "policyText",
+          (settings#>>'{bookingExperience,policy,acknowledgment,required}')::boolean AS required,
+          (settings#>>'{bookingExperience,policy,showBeforeConfirmation}')::boolean
+            AS "showBeforeConfirmation"
+        FROM salon_required_policy_concurrency
+        WHERE id = 'salon_1'
+      `);
+
+      expect(result.rows).toEqual([{
+        enabled: true,
+        policyText: 'Give 24 hours notice.',
+        required: true,
+        showBeforeConfirmation: true,
+      }]);
     } finally {
       await database.close();
     }

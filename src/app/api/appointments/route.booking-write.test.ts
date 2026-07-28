@@ -1,4 +1,6 @@
 /* eslint-disable import/first */
+import { createHash, randomUUID } from 'node:crypto';
+
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
@@ -100,13 +102,7 @@ const {
   resolveOperationalSalonClientContact: vi.fn(),
   withClientLifecycleTransactionRetry: vi.fn(),
   db: {
-    select: vi.fn(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => Object.assign(Promise.resolve([]), {
-          limit: vi.fn(async () => []),
-        })),
-      })),
-    })),
+    select: vi.fn(),
     insert: vi.fn(),
     update: vi.fn(),
     execute: vi.fn(async () => undefined),
@@ -226,10 +222,55 @@ vi.mock('@/libs/SMS', () => ({
 
 import { POST } from './route';
 
+const REQUIRED_POLICY_TITLE = 'Deposit and cancellation policy';
+const REQUIRED_POLICY_TEXT
+  = 'Please provide at least 24 hours’ notice when cancelling.';
+const REQUIRED_ACKNOWLEDGMENT_TEXT
+  = 'I understand this appointment reserves the technician’s time.';
+
+function requiredPolicyVersion(input: {
+  title?: string;
+  text?: string;
+  acknowledgmentText?: string;
+} = {}): string {
+  const digest = createHash('sha256')
+    .update(JSON.stringify({
+      schemaVersion: 1,
+      title: input.title ?? REQUIRED_POLICY_TITLE,
+      text: input.text ?? REQUIRED_POLICY_TEXT,
+      acknowledgmentText:
+        input.acknowledgmentText ?? REQUIRED_ACKNOWLEDGMENT_TEXT,
+    }), 'utf8')
+    .digest('hex');
+
+  return `policy-v1:${digest}`;
+}
+
 describe('POST /api/appointments booking policy', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
+    db.select.mockImplementation((selection?: Record<string, unknown>) => {
+      const isPolicyLock = Boolean(
+        selection
+        && 'plan' in selection
+        && 'features' in selection
+        && 'settings' in selection,
+      );
+      const rows = isPolicyLock
+        ? [{ plan: null, features: null, settings: null }]
+        : [];
+      return {
+        from: vi.fn(() => ({
+          where: vi.fn(() => Object.assign(Promise.resolve(rows), {
+            limit: vi.fn(async () => rows),
+            for: vi.fn(() => ({
+              limit: vi.fn(async () => rows),
+            })),
+          })),
+        })),
+      };
+    });
     getSalonBySlug.mockResolvedValue({ id: 'salon_1', slug: 'salon-a', name: 'Salon A' });
     getSalonById.mockResolvedValue({
       id: 'salon_1',
@@ -487,6 +528,152 @@ describe('POST /api/appointments booking policy', () => {
       }),
     }));
   }
+
+  function requireBookingPolicyAcknowledgment() {
+    getSalonBySlug.mockResolvedValue({
+      id: 'salon_1',
+      slug: 'salon-a',
+      name: 'Salon A',
+      plan: 'single_salon',
+      features: null,
+      settings: {
+        booking: {
+          bufferMinutes: 10,
+          slotIntervalMinutes: 15,
+          currency: 'CAD',
+          timezone: 'America/Toronto',
+        },
+        bookingExperience: {
+          policy: {
+            enabled: true,
+            title: REQUIRED_POLICY_TITLE,
+            text: REQUIRED_POLICY_TEXT,
+            showOnServicePage: true,
+            showBeforeConfirmation: true,
+            showAfterConfirmation: true,
+            showInConfirmationEmail: true,
+            acknowledgment: {
+              required: true,
+              text: REQUIRED_ACKNOWLEDGMENT_TEXT,
+            },
+          },
+        },
+      },
+    });
+  }
+
+  it.each([
+    ['missing', undefined],
+    ['explicitly false', {
+      accepted: false,
+      version: requiredPolicyVersion(),
+      attemptId: randomUUID(),
+    }],
+  ])(
+    'rejects a direct public-booking bypass when acknowledgment is %s',
+    async (_case, bookingPolicyAcknowledgment) => {
+      requireBookingPolicyAcknowledgment();
+
+      const response = await postBooking({
+        ...(bookingPolicyAcknowledgment === undefined
+          ? {}
+          : { bookingPolicyAcknowledgment }),
+      });
+
+      expect(response.status).toBe(400);
+      await expect(response.json()).resolves.toEqual({
+        error: 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED',
+        message: 'Review and acknowledge the booking policy before confirming.',
+      });
+      expect(db.transaction).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not let an unscoped management token bypass new-booking acknowledgment', async () => {
+    requireBookingPolicyAcknowledgment();
+
+    const response = await postBooking({
+      manageToken: 'manage_token_12345678901234567890',
+    });
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'RESCHEDULE_CONTEXT_INVALID',
+        message: 'A management token must identify the appointment being rescheduled.',
+      },
+    });
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      accepted: true,
+      version: requiredPolicyVersion(),
+      attemptId: randomUUID(),
+      title: 'Browser-supplied snapshot',
+    },
+    {
+      accepted: true,
+      version: requiredPolicyVersion(),
+      attemptId: 'not-a-uuid',
+    },
+    {
+      accepted: 'true',
+      version: requiredPolicyVersion(),
+      attemptId: randomUUID(),
+    },
+  ])(
+    'strictly rejects a malformed or authoritative-looking acknowledgment payload',
+    async (bookingPolicyAcknowledgment) => {
+      requireBookingPolicyAcknowledgment();
+
+      const response = await postBooking({ bookingPolicyAcknowledgment });
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body.error.code).toBe('VALIDATION_ERROR');
+      expect(db.transaction).not.toHaveBeenCalled();
+      expect(db.insert).not.toHaveBeenCalled();
+    },
+  );
+
+  it('returns only the latest customer-safe policy when the displayed version is stale', async () => {
+    requireBookingPolicyAcknowledgment();
+
+    const response = await postBooking({
+      bookingPolicyAcknowledgment: {
+        accepted: true,
+        version: `policy-v1:${'0'.repeat(64)}`,
+        attemptId: randomUUID(),
+      },
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: 'BOOKING_POLICY_CHANGED',
+      message:
+        'The salon updated its booking policy. Please review it and confirm again.',
+      bookingPolicy: {
+        enabled: true,
+        title: REQUIRED_POLICY_TITLE,
+        text: REQUIRED_POLICY_TEXT,
+        showOnServicePage: true,
+        showBeforeConfirmation: true,
+        showAfterConfirmation: true,
+        showInConfirmationEmail: true,
+        acknowledgment: {
+          required: true,
+          text: REQUIRED_ACKNOWLEDGMENT_TEXT,
+        },
+        version: requiredPolicyVersion(),
+      },
+    });
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(db.insert).not.toHaveBeenCalled();
+  });
 
   it('locks and books against an existing terminal client inside the authoritative transaction', async () => {
     canTechnicianTakeAppointment.mockReturnValue({
@@ -1977,6 +2164,19 @@ describe('POST /api/appointments booking policy', () => {
         select: vi.fn()
           .mockImplementationOnce(() => ({
             from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                for: vi.fn(() => ({
+                  limit: vi.fn(async () => [{
+                    plan: null,
+                    features: null,
+                    settings: null,
+                  }]),
+                })),
+              })),
+            })),
+          }))
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
               where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
             })),
           }))
@@ -2098,6 +2298,18 @@ describe('POST /api/appointments booking policy', () => {
     db.select.mockImplementationOnce(() => ({
       from: vi.fn(() => ({
         where: vi.fn(() => ({ limit: vi.fn(async () => [campaign]) })),
+      })),
+    })).mockImplementationOnce(() => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          for: vi.fn(() => ({
+            limit: vi.fn(async () => [{
+              plan: null,
+              features: null,
+              settings: null,
+            }]),
+          })),
+        })),
       })),
     })).mockImplementationOnce(() => ({
       from: vi.fn(() => ({
