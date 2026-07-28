@@ -364,6 +364,9 @@ describe('BookConfirmClient', () => {
       expect(checkbox).toBeRequired();
       expect(confirm).toBeDisabled();
       expect(acknowledgment).toHaveTextContent(acknowledgmentText);
+      expect(
+        within(acknowledgment).getByText(acknowledgmentText),
+      ).toHaveClass('whitespace-pre-line');
       expect(acknowledgment).toHaveTextContent(
         'Check the box to confirm your appointment.',
       );
@@ -410,6 +413,161 @@ describe('BookConfirmClient', () => {
       const requestBody = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
 
       expect(requestBody).not.toHaveProperty('bookingPolicyAcknowledgment');
+    });
+
+    it('adopts a newly required policy without losing the stale page booking state or auto-submitting', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      navigationMock.searchParams = new URLSearchParams(
+        'techId=tech_1&serviceIds=srv_1&smartFitDiscountCents=650&smartFitTotalCents=5850',
+      );
+      enablePolicy({
+        acknowledgment: {
+          required: false,
+          text: null,
+        },
+        version: null,
+      });
+      const newlyRequiredAcknowledgment
+        = 'I understand this appointment reserves the technician’s time.\nI will contact the salon if I cannot attend.';
+      fetchMock
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          error: 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED',
+          message: 'Review and acknowledge the booking policy before confirming.',
+          bookingPolicy: {
+            enabled: true,
+            title: 'Current booking policy',
+            text: 'The salon now requires acknowledgment before booking.',
+            showOnServicePage: true,
+            showBeforeConfirmation: true,
+            showAfterConfirmation: true,
+            showInConfirmationEmail: true,
+            acknowledgment: {
+              required: true,
+              text: newlyRequiredAcknowledgment,
+            },
+            version: updatedPolicyVersion,
+          },
+        }), { status: 400 }))
+        .mockResolvedValueOnce(new Response(JSON.stringify({
+          data: {
+            appointment: {
+              id: 'appt_after_acknowledgment_required',
+            },
+          },
+        }), { status: 201 }));
+
+      renderReview();
+
+      await waitFor(() => {
+        expect(screen.getByLabelText('Customer name')).toHaveValue('Ava');
+      });
+
+      expect(
+        screen.queryByTestId('booking-policy-acknowledgment'),
+      ).not.toBeInTheDocument();
+      expect(screen.getByTestId('smart-fit-review')).toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('Customer name'), {
+        target: { value: 'Ava Chen' },
+      });
+      const initialConfirm = screen.getByRole('button', {
+        name: /confirm appointment/i,
+      });
+
+      expect(initialConfirm).toBeEnabled();
+
+      fireEvent.click(initialConfirm);
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Review and acknowledge the booking policy before confirming.',
+      );
+      expect(screen.getByText('Current booking policy')).toBeInTheDocument();
+      expect(screen.getByText(
+        'The salon now requires acknowledgment before booking.',
+      )).toBeInTheDocument();
+      expect(screen.getByLabelText('Customer name')).toHaveValue('Ava Chen');
+      expect(screen.getByLabelText('Customer email')).toHaveValue(
+        'ava@example.com',
+      );
+      expect(screen.getByLabelText('Customer phone')).toHaveValue(
+        '4165550101',
+      );
+      expect(screen.getByTestId('smart-fit-review')).toHaveTextContent(
+        'Total $58.50',
+      );
+
+      const acknowledgment = screen.getByTestId(
+        'booking-policy-acknowledgment',
+      );
+      const checkbox = within(acknowledgment).getByRole('checkbox', {
+        name: /I understand this appointment reserves the technician’s time\.\s+I will contact the salon if I cannot attend\./i,
+      });
+      const acknowledgmentLabel = checkbox.closest('label')?.querySelector(
+        'span',
+      );
+      const requiredConfirm = screen.getByRole('button', {
+        name: /confirm appointment/i,
+      });
+
+      expect(checkbox).not.toBeChecked();
+      expect(requiredConfirm).toBeDisabled();
+      expect(acknowledgmentLabel).toHaveClass('whitespace-pre-line');
+      expect(acknowledgmentLabel?.textContent).toBe(
+        newlyRequiredAcknowledgment,
+      );
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      const firstRequest = JSON.parse(
+        String(fetchMock.mock.calls[0]?.[1]?.body),
+      );
+      const firstIdempotencyKey = (
+        fetchMock.mock.calls[0]?.[1]?.headers as Record<string, string>
+      )['Idempotency-Key'];
+
+      expect(firstRequest).not.toHaveProperty(
+        'bookingPolicyAcknowledgment',
+      );
+      expect(firstRequest.expectedDiscountType).toBe('smart_fit');
+      expect(firstRequest.expectedTotalCents).toBe(5850);
+
+      fireEvent.click(checkbox);
+      await waitFor(() => expect(requiredConfirm).toBeEnabled());
+      fireEvent.click(requiredConfirm);
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      const secondRequest = JSON.parse(
+        String(fetchMock.mock.calls[1]?.[1]?.body),
+      );
+      const secondIdempotencyKey = (
+        fetchMock.mock.calls[1]?.[1]?.headers as Record<string, string>
+      )['Idempotency-Key'];
+
+      expect(secondRequest.bookingPolicyAcknowledgment).toEqual({
+        accepted: true,
+        version: updatedPolicyVersion,
+        attemptId: expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu,
+        ),
+      });
+      expect(secondIdempotencyKey).not.toBe(firstIdempotencyKey);
+      expect(secondRequest.clientName).toBe(firstRequest.clientName);
+      expect(secondRequest.clientEmail).toBe(firstRequest.clientEmail);
+      expect(secondRequest.clientPhone).toBe(firstRequest.clientPhone);
+      expect(secondRequest.startTime).toBe(firstRequest.startTime);
+      expect(secondRequest.appointmentDate).toBe(
+        firstRequest.appointmentDate,
+      );
+      expect(secondRequest.appointmentTime).toBe(
+        firstRequest.appointmentTime,
+      );
+      expect(secondRequest.technicianId).toBe(firstRequest.technicianId);
+      expect(secondRequest.serviceIds).toEqual(firstRequest.serviceIds);
+      expect(secondRequest.expectedDiscountType).toBe(
+        firstRequest.expectedDiscountType,
+      );
+      expect(secondRequest.expectedTotalCents).toBe(
+        firstRequest.expectedTotalCents,
+      );
     });
 
     it('keeps public rescheduling outside acknowledgment scope', async () => {

@@ -1321,7 +1321,7 @@ const ConfirmContent = ({
                     onPolicyAcknowledgmentChange(event.target.checked)}
                   className="mt-1 size-4 shrink-0 rounded border-[var(--n5-border)] text-[var(--n5-accent)] focus:ring-[var(--n5-accent)]"
                 />
-                <span className="min-w-0 break-words">
+                <span className="min-w-0 whitespace-pre-line break-words">
                   {policy.acknowledgment.text}
                 </span>
               </label>
@@ -2246,14 +2246,19 @@ export function BookConfirmClient({
           ? errorData.message
           : errorData?.error?.message;
 
-        if (errorCode === 'BOOKING_POLICY_CHANGED') {
+        if (
+          errorCode === 'BOOKING_POLICY_CHANGED'
+          || errorCode === 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED'
+        ) {
           const latestPolicy = readLatestRequiredBookingPolicy(
             errorData.bookingPolicy,
             displayedPolicy,
           );
           if (!latestPolicy) {
             throw new Error(
-              'The salon updated its booking policy. Refresh the page to review it before confirming.',
+              errorCode === 'BOOKING_POLICY_CHANGED'
+                ? 'The salon updated its booking policy. Refresh the page to review it before confirming.'
+                : 'The salon now requires booking-policy acknowledgment. Refresh the page to review it before confirming.',
             );
           }
 
@@ -2262,7 +2267,12 @@ export function BookConfirmClient({
           acknowledgmentAttemptIdRef.current = crypto.randomUUID();
           idempotencyKeyRef.current = crypto.randomUUID();
           setBookingError(
-            'The salon updated its booking policy. Please review it and confirm again.',
+            errorCode === 'BOOKING_POLICY_CHANGED'
+              ? 'The salon updated its booking policy. Please review it and confirm again.'
+              : (
+                  errorMessage
+                  || 'Review and acknowledge the booking policy before confirming.'
+                ),
           );
           bookingInitiatedRef.current = false;
           return;

@@ -385,7 +385,7 @@ class BookingActiveAppointmentError extends Error {
 }
 
 class BookingPolicyAcknowledgmentRequiredError extends Error {
-  constructor() {
+  constructor(public readonly bookingPolicy: RequiredBookingPolicy) {
     super('BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED');
     this.name = 'BookingPolicyAcknowledgmentRequiredError';
   }
@@ -405,11 +405,14 @@ class BookingPolicyAttemptReusedError extends Error {
   }
 }
 
-function bookingPolicyAcknowledgmentRequiredResponse(): Response {
+function bookingPolicyAcknowledgmentRequiredResponse(
+  bookingPolicy: RequiredBookingPolicy,
+): Response {
   return Response.json(
     {
       error: 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED',
       message: BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED_MESSAGE,
+      bookingPolicy,
     },
     { status: 400 },
   );
@@ -1237,7 +1240,9 @@ export async function POST(request: Request): Promise<Response> {
         !requestedPolicyAcknowledgment
         || requestedPolicyAcknowledgment.accepted !== true
       ) {
-        return bookingPolicyAcknowledgmentRequiredResponse();
+        return bookingPolicyAcknowledgmentRequiredResponse(
+          preliminaryRequiredPolicy,
+        );
       }
       if (
         requestedPolicyAcknowledgment.version
@@ -2365,7 +2370,7 @@ export async function POST(request: Request): Promise<Response> {
         !requestedPolicyAcknowledgment
         || requestedPolicyAcknowledgment.accepted !== true
       ) {
-        throw new BookingPolicyAcknowledgmentRequiredError();
+        throw new BookingPolicyAcknowledgmentRequiredError(policy);
       }
       if (requestedPolicyAcknowledgment.version !== policy.version) {
         throw new BookingPolicyChangedError(policy);
@@ -3233,7 +3238,9 @@ export async function POST(request: Request): Promise<Response> {
         salonClient = transactionalResult.salonClient;
       } catch (error) {
         if (error instanceof BookingPolicyAcknowledgmentRequiredError) {
-          return bookingPolicyAcknowledgmentRequiredResponse();
+          return bookingPolicyAcknowledgmentRequiredResponse(
+            error.bookingPolicy,
+          );
         }
         if (error instanceof BookingPolicyChangedError) {
           return bookingPolicyChangedResponse(error.bookingPolicy);

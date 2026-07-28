@@ -246,6 +246,23 @@ function requiredPolicyVersion(input: {
   return `policy-v1:${digest}`;
 }
 
+function requiredPolicyProjection() {
+  return {
+    enabled: true,
+    title: REQUIRED_POLICY_TITLE,
+    text: REQUIRED_POLICY_TEXT,
+    showOnServicePage: true,
+    showBeforeConfirmation: true,
+    showAfterConfirmation: true,
+    showInConfirmationEmail: true,
+    acknowledgment: {
+      required: true,
+      text: REQUIRED_ACKNOWLEDGMENT_TEXT,
+    },
+    version: requiredPolicyVersion(),
+  };
+}
+
 describe('POST /api/appointments booking policy', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -584,11 +601,64 @@ describe('POST /api/appointments booking policy', () => {
       await expect(response.json()).resolves.toEqual({
         error: 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED',
         message: 'Review and acknowledge the booking policy before confirming.',
+        bookingPolicy: requiredPolicyProjection(),
       });
       expect(db.transaction).not.toHaveBeenCalled();
       expect(db.insert).not.toHaveBeenCalled();
     },
   );
+
+  it('returns the locked required policy when acknowledgment becomes required during booking', async () => {
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    db.select.mockImplementation((selection?: Record<string, unknown>) => {
+      const isPolicyLock = Boolean(
+        selection
+        && 'plan' in selection
+        && 'features' in selection
+        && 'settings' in selection,
+      );
+      const rows = isPolicyLock
+        ? [{
+            plan: 'single_salon',
+            features: null,
+            settings: {
+              bookingExperience: {
+                policy: {
+                  ...requiredPolicyProjection(),
+                  version: undefined,
+                },
+              },
+            },
+          }]
+        : [];
+      return {
+        from: vi.fn(() => ({
+          where: vi.fn(() => Object.assign(Promise.resolve(rows), {
+            limit: vi.fn(async () => rows),
+            for: vi.fn(() => ({
+              limit: vi.fn(async () => rows),
+            })),
+          })),
+        })),
+      };
+    });
+
+    const response = await postBooking();
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED',
+      message: 'Review and acknowledge the booking policy before confirming.',
+      bookingPolicy: requiredPolicyProjection(),
+    });
+    expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(db.insert).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
+    expect(sendBookingNotificationsForNewBooking).not.toHaveBeenCalled();
+  });
 
   it('does not let an unscoped management token bypass new-booking acknowledgment', async () => {
     requireBookingPolicyAcknowledgment();
@@ -656,20 +726,7 @@ describe('POST /api/appointments booking policy', () => {
       error: 'BOOKING_POLICY_CHANGED',
       message:
         'The salon updated its booking policy. Please review it and confirm again.',
-      bookingPolicy: {
-        enabled: true,
-        title: REQUIRED_POLICY_TITLE,
-        text: REQUIRED_POLICY_TEXT,
-        showOnServicePage: true,
-        showBeforeConfirmation: true,
-        showAfterConfirmation: true,
-        showInConfirmationEmail: true,
-        acknowledgment: {
-          required: true,
-          text: REQUIRED_ACKNOWLEDGMENT_TEXT,
-        },
-        version: requiredPolicyVersion(),
-      },
+      bookingPolicy: requiredPolicyProjection(),
     });
     expect(db.transaction).not.toHaveBeenCalled();
     expect(db.insert).not.toHaveBeenCalled();
