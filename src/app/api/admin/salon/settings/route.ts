@@ -21,6 +21,7 @@ import {
   bookingExperienceAppearanceUpdateSchema,
   bookingPolicyUpdateSchema,
   resolveBookingExperience,
+  type ResolvedBookingExperience,
 } from '@/libs/bookingExperience';
 import {
   bookingNotificationSettingsUpdateSchema,
@@ -75,7 +76,7 @@ const adminUpdateSchema = z.object({
   bookingExperienceAppearance:
     bookingExperienceAppearanceUpdateSchema.optional(),
   bookingPolicy: bookingPolicyUpdateSchema.optional(),
-});
+}).strict();
 
 // Fields that are forbidden for admins to update (403 if present)
 const FORBIDDEN_FIELDS = [
@@ -137,12 +138,10 @@ function buildBookingExperienceAppearanceAuditMetadata(
 }
 
 function buildBookingPolicyAuditMetadata(
-  bookingExperience: ReturnType<typeof resolveBookingExperience>,
+  bookingExperience: ResolvedBookingExperience,
 ) {
   const quickFactMetadata = (
-    quickFact: ReturnType<
-      typeof resolveBookingExperience
-    >['quickFacts']['appointmentOnly'],
+    quickFact: ResolvedBookingExperience['quickFacts']['appointmentOnly'],
   ) => ({
     enabled: quickFact.enabled,
     labelPresent: quickFact.label !== null,
@@ -160,6 +159,15 @@ function buildBookingPolicyAuditMetadata(
     textLength: bookingExperience.policy.text
       ? Array.from(bookingExperience.policy.text).length
       : 0,
+    acknowledgment: {
+      required: bookingExperience.policy.acknowledgment.required,
+      textConfigured:
+        bookingExperience.policy.acknowledgment.text !== null,
+      textLength: bookingExperience.policy.acknowledgment.text
+        ? Array.from(bookingExperience.policy.acknowledgment.text).length
+        : 0,
+      versionAvailable: bookingExperience.policy.version !== null,
+    },
     placements: {
       servicePage: bookingExperience.policy.showOnServicePage,
       beforeConfirmation: bookingExperience.policy.showBeforeConfirmation,
@@ -237,6 +245,7 @@ export async function GET(request: Request): Promise<Response> {
       bookingConfig,
       bookingExperience: resolveBookingExperience(
         (salon.settings as SalonSettings | null | undefined) ?? null,
+        { includeAcknowledgmentConfiguration: true },
       ),
       bookingExperienceEntitlement,
       bookingNotifications,
@@ -307,7 +316,15 @@ export async function PATCH(request: Request): Promise<Response> {
     }
 
     // 3. Parse request body
-    const body = await request.json();
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json(
+        { error: 'Invalid request data' },
+        { status: 400 },
+      );
+    }
 
     if (
       typeof body === 'object'
@@ -376,6 +393,19 @@ export async function PATCH(request: Request): Promise<Response> {
       );
     }
 
+    if (
+      updates.bookingPolicy?.policy.acknowledgment?.required === true
+    ) {
+      return Response.json(
+        {
+          error: 'BOOKING_POLICY_ACKNOWLEDGMENT_NOT_AVAILABLE',
+          message:
+            'Required booking-policy acknowledgment is not available yet.',
+        },
+        { status: 409 },
+      );
+    }
+
     if (salon.freeSoloEnabled && (updates.reviewsEnabled !== undefined || updates.rewardsEnabled !== undefined)) {
       return Response.json(
         {
@@ -389,6 +419,7 @@ export async function PATCH(request: Request): Promise<Response> {
     const currentBookingConfig = resolveBookingConfigFromSettings((salon.settings as SalonSettings | null | undefined) ?? null);
     const currentBookingExperience = resolveBookingExperience(
       (salon.settings as SalonSettings | null | undefined) ?? null,
+      { includeAcknowledgmentConfiguration: true },
     );
     const currentBookingNotifications = resolveBookingNotificationSettingsFromSettings(
       (salon.settings as SalonSettings | null | undefined) ?? null,
@@ -461,23 +492,31 @@ export async function PATCH(request: Request): Promise<Response> {
     }
 
     if (updates.bookingPolicy) {
-      const nextBookingExperience = {
-        ...currentBookingExperience,
-        policy: {
-          ...updates.bookingPolicy.policy,
+      const nextBookingExperience = resolveBookingExperience(
+        {
+          bookingExperience: {
+            ...currentBookingExperience,
+            policy: {
+              ...updates.bookingPolicy.policy,
+              acknowledgment:
+                updates.bookingPolicy.policy.acknowledgment
+                ?? currentBookingExperience.policy.acknowledgment,
+            },
+            quickFacts: {
+              appointmentOnly: {
+                ...updates.bookingPolicy.quickFacts.appointmentOnly,
+              },
+              depositNotice: {
+                ...updates.bookingPolicy.quickFacts.depositNotice,
+              },
+              cancellationNotice: {
+                ...updates.bookingPolicy.quickFacts.cancellationNotice,
+              },
+            },
+          },
         },
-        quickFacts: {
-          appointmentOnly: {
-            ...updates.bookingPolicy.quickFacts.appointmentOnly,
-          },
-          depositNotice: {
-            ...updates.bookingPolicy.quickFacts.depositNotice,
-          },
-          cancellationNotice: {
-            ...updates.bookingPolicy.quickFacts.cancellationNotice,
-          },
-        },
-      };
+        { includeAcknowledgmentConfiguration: true },
+      );
 
       before.bookingPolicy = buildBookingPolicyAuditMetadata(
         currentBookingExperience,
@@ -668,7 +707,34 @@ export async function PATCH(request: Request): Promise<Response> {
         touchedSettingsKeys.includes('bookingPolicy')
         && updates.bookingPolicy
       ) {
-        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy}', ${JSON.stringify(updates.bookingPolicy.policy)}::jsonb)`;
+        // Preserve acknowledgment atomically for v1.39.0 browser tabs, which
+        // submit only the original policy fields. Each owned base field is
+        // updated against the current database value; acknowledgment changes
+        // only when the client explicitly supplies that new subobject.
+        settingsExpression = sql`
+          jsonb_set(
+            ${settingsExpression},
+            '{bookingExperience,policy}',
+            CASE
+              WHEN jsonb_typeof(${settingsExpression}#>'{bookingExperience,policy}') = 'object'
+                THEN ${settingsExpression}#>'{bookingExperience,policy}'
+              ELSE '{}'::jsonb
+            END
+          )
+        `;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,enabled}', ${JSON.stringify(updates.bookingPolicy.policy.enabled)}::jsonb)`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,title}', ${JSON.stringify(updates.bookingPolicy.policy.title)}::jsonb)`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,text}', ${JSON.stringify(updates.bookingPolicy.policy.text)}::jsonb)`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,showOnServicePage}', ${JSON.stringify(updates.bookingPolicy.policy.showOnServicePage)}::jsonb)`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,showBeforeConfirmation}', ${JSON.stringify(updates.bookingPolicy.policy.showBeforeConfirmation)}::jsonb)`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,showAfterConfirmation}', ${JSON.stringify(updates.bookingPolicy.policy.showAfterConfirmation)}::jsonb)`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,showInConfirmationEmail}', ${JSON.stringify(updates.bookingPolicy.policy.showInConfirmationEmail)}::jsonb)`;
+        if (updates.bookingPolicy.policy.acknowledgment !== undefined) {
+          settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,acknowledgment}', ${JSON.stringify(updates.bookingPolicy.policy.acknowledgment)}::jsonb)`;
+        }
+        // A version is trusted output only. Remove any legacy/hostile stored
+        // value instead of carrying it into the canonical policy JSON.
+        settingsExpression = sql`(${settingsExpression} #- '{bookingExperience,policy,version}')`;
         settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,quickFacts}', ${JSON.stringify(updates.bookingPolicy.quickFacts)}::jsonb)`;
         // The explicit replacement is part of this same atomic UPDATE. A
         // failed validation/write therefore leaves the legacy boolean intact.
@@ -744,6 +810,15 @@ export async function PATCH(request: Request): Promise<Response> {
       );
     }
 
+    if (updates.bookingPolicy) {
+      after.bookingPolicy = buildBookingPolicyAuditMetadata(
+        resolveBookingExperience(
+          (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+          { includeAcknowledgmentConfiguration: true },
+        ),
+      );
+    }
+
     // 9. Write audit log
     void logAuditEvent({
       salonId: salon.id,
@@ -780,6 +855,7 @@ export async function PATCH(request: Request): Promise<Response> {
       bookingConfig,
       bookingExperience: resolveBookingExperience(
         (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+        { includeAcknowledgmentConfiguration: true },
       ),
       bookingExperienceEntitlement: updatedBookingExperienceEntitlement,
       bookingNotifications,

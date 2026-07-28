@@ -2,18 +2,31 @@ import { z } from 'zod';
 
 import type {
   BookingExperience as BookingExperienceShape,
+  ResolvedBookingExperience as ResolvedBookingExperienceShape,
   SalonSettings,
 } from '@/types/salonPolicy';
 
 export type BookingExperience = BookingExperienceShape;
+export type ResolvedBookingExperience = ResolvedBookingExperienceShape;
 
 export const BOOKING_EXPERIENCE_LIMITS = {
   bookingMessage: 160,
   policyTitle: 60,
   policyText: 1_500,
+  policyAcknowledgmentText: 220,
   quickFactLabel: 40,
   confirmationMessage: 500,
   socialUrl: 500,
+} as const;
+
+export const DEFAULT_BOOKING_POLICY_TITLE = 'Booking policy';
+
+export const DEFAULT_BOOKING_POLICY_ACKNOWLEDGMENT_TEXT
+  = 'I understand this appointment reserves the technician’s time. If I cannot attend, I will contact the salon as soon as possible.';
+
+const BOOKING_POLICY_ACKNOWLEDGMENT_DEFAULTS = {
+  required: false,
+  text: null,
 } as const;
 
 export const BOOKING_EXPERIENCE_DEFAULTS: BookingExperience = {
@@ -121,7 +134,10 @@ function optionalPlainTextSchema(maxCharacters: number, label: string) {
  * accidental line-ending whitespace so intentional spacing inside a line is
  * preserved.
  */
-function optionalPolicyTextSchema() {
+function optionalCanonicalPolicyContentSchema(
+  maxCharacters: number,
+  label: string,
+) {
   return z.union([z.string(), z.null()]).transform((value, context) => {
     if (value === null) {
       return null;
@@ -133,7 +149,7 @@ function optionalPolicyTextSchema() {
     if (containsDisallowedControlCharacter(normalizedLineEndings)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: 'Policy text contains a disallowed control character',
+        message: `${label} contains a disallowed control character`,
       });
       return z.NEVER;
     }
@@ -149,16 +165,30 @@ function optionalPolicyTextSchema() {
       return null;
     }
 
-    if (characterCount(normalized) > BOOKING_EXPERIENCE_LIMITS.policyText) {
+    if (characterCount(normalized) > maxCharacters) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
-        message: `Policy text must be ${BOOKING_EXPERIENCE_LIMITS.policyText} characters or fewer`,
+        message: `${label} must be ${maxCharacters} characters or fewer`,
       });
       return z.NEVER;
     }
 
     return normalized;
   });
+}
+
+function optionalPolicyTextSchema() {
+  return optionalCanonicalPolicyContentSchema(
+    BOOKING_EXPERIENCE_LIMITS.policyText,
+    'Policy text',
+  );
+}
+
+function optionalPolicyAcknowledgmentTextSchema() {
+  return optionalCanonicalPolicyContentSchema(
+    BOOKING_EXPERIENCE_LIMITS.policyAcknowledgmentText,
+    'Acknowledgment text',
+  );
 }
 
 const primaryColorSchema = z.union([z.string(), z.null()]).transform(
@@ -292,6 +322,11 @@ function socialUrlSchema(platform: SocialPlatform) {
   });
 }
 
+const policyAcknowledgmentSchema = z.object({
+  required: z.boolean(),
+  text: optionalPolicyAcknowledgmentTextSchema(),
+}).strict();
+
 const policySchema = z.object({
   enabled: z.boolean(),
   title: optionalPlainTextSchema(
@@ -303,6 +338,9 @@ const policySchema = z.object({
   showBeforeConfirmation: z.boolean(),
   showAfterConfirmation: z.boolean(),
   showInConfirmationEmail: z.boolean(),
+  // Optional until the acknowledgment UI ships. Legacy v1.39.0 browser tabs
+  // omit this member, and the API preserves any stored value in that case.
+  acknowledgment: policyAcknowledgmentSchema.optional(),
 }).strict().superRefine((policy, context) => {
   if (policy.enabled && policy.text === null) {
     context.addIssue({
@@ -404,10 +442,16 @@ function resolveQuickFact(value: unknown): BookingExperience['quickFacts']['appo
   };
 }
 
-function cloneBookingExperienceDefaults(): BookingExperience {
+function cloneBookingExperienceDefaults(): ResolvedBookingExperience {
   return {
     ...BOOKING_EXPERIENCE_DEFAULTS,
-    policy: { ...BOOKING_EXPERIENCE_DEFAULTS.policy },
+    policy: {
+      ...BOOKING_EXPERIENCE_DEFAULTS.policy,
+      acknowledgment: {
+        ...BOOKING_POLICY_ACKNOWLEDGMENT_DEFAULTS,
+      },
+      version: null,
+    },
     quickFacts: {
       appointmentOnly: {
         ...BOOKING_EXPERIENCE_DEFAULTS.quickFacts.appointmentOnly,
@@ -423,16 +467,107 @@ function cloneBookingExperienceDefaults(): BookingExperience {
   };
 }
 
+function resolvePolicyAcknowledgment(
+  value: unknown,
+): ResolvedBookingExperience['policy']['acknowledgment'] {
+  if (!isRecord(value)) {
+    return {
+      ...BOOKING_POLICY_ACKNOWLEDGMENT_DEFAULTS,
+    };
+  }
+
+  return {
+    required: typeof value.required === 'boolean'
+      ? value.required
+      : BOOKING_POLICY_ACKNOWLEDGMENT_DEFAULTS.required,
+    text: resolveNullableField(
+      optionalPolicyAcknowledgmentTextSchema(),
+      value.text,
+    ),
+  };
+}
+
+function resolvePolicyVersion(input: {
+  title: string | null;
+  text: string | null;
+  acknowledgmentText: string | null;
+}): string | null {
+  if (input.text === null || input.acknowledgmentText === null) {
+    return null;
+  }
+
+  if (
+    typeof process === 'undefined'
+    || typeof process.getBuiltinModule !== 'function'
+  ) {
+    // Client bundles can import defaults and colour helpers from this module,
+    // but only a trusted Node runtime may generate the authoritative version.
+    return null;
+  }
+
+  try {
+    const crypto = process.getBuiltinModule('node:crypto');
+    const canonicalPayload = JSON.stringify({
+      schemaVersion: 1,
+      title: input.title ?? DEFAULT_BOOKING_POLICY_TITLE,
+      text: input.text,
+      acknowledgmentText: input.acknowledgmentText,
+    });
+    const digest = crypto
+      .createHash('sha256')
+      .update(canonicalPayload, 'utf8')
+      .digest('hex');
+
+    return `policy-v1:${digest}`;
+  } catch {
+    // Persisted customization must remain readable even if hashing is
+    // unexpectedly unavailable. A null version fails closed.
+    return null;
+  }
+}
+
+function hidePrerequisitePolicyFields(
+  input: ResolvedBookingExperience,
+): BookingExperience {
+  return {
+    ...input,
+    policy: {
+      enabled: input.policy.enabled,
+      title: input.policy.title,
+      text: input.policy.text,
+      showOnServicePage: input.policy.showOnServicePage,
+      showBeforeConfirmation: input.policy.showBeforeConfirmation,
+      showAfterConfirmation: input.policy.showAfterConfirmation,
+      showInConfirmationEmail: input.policy.showInConfirmationEmail,
+    },
+  };
+}
+
 /**
  * Resolves persisted JSON defensively and never throws. Invalid fields fall
  * back independently, so one malformed legacy value cannot hide otherwise
- * valid booking customization.
+ * valid booking customization. The acknowledgment projection is opt-in until
+ * its customer UI ships, keeping the v1.39.0 public experience byte-for-byte
+ * compatible while the admin API can expose the new read-only contract.
  */
 export function resolveBookingExperience(
   settings: SalonSettings | null | undefined,
+  options: { includeAcknowledgmentConfiguration: true },
+): ResolvedBookingExperience;
+export function resolveBookingExperience(
+  settings: SalonSettings | null | undefined,
+  options?: { includeAcknowledgmentConfiguration?: false },
+): BookingExperience;
+export function resolveBookingExperience(
+  settings: SalonSettings | null | undefined,
+  options?: { includeAcknowledgmentConfiguration?: boolean },
 ): BookingExperience {
   if (!isRecord(settings) || !isRecord(settings.bookingExperience)) {
-    return cloneBookingExperienceDefaults();
+    const defaults = cloneBookingExperienceDefaults();
+
+    return options?.includeAcknowledgmentConfiguration
+      ? defaults
+      : hidePrerequisitePolicyFields(defaults);
   }
 
   const stored = settings.bookingExperience as unknown as Record<string, unknown>;
@@ -448,7 +583,25 @@ export function resolveBookingExperience(
     optionalPolicyTextSchema(),
     storedPolicy.text,
   );
+  const policyTitle = resolveNullableField(
+    optionalPlainTextSchema(
+      BOOKING_EXPERIENCE_LIMITS.policyTitle,
+      'Policy title',
+    ),
+    storedPolicy.title,
+  );
+  const resolvedPolicyAcknowledgment = resolvePolicyAcknowledgment(
+    storedPolicy.acknowledgment,
+  );
   const requestedPolicyEnabled = storedPolicy.enabled === true;
+  const policyAcknowledgment = {
+    ...resolvedPolicyAcknowledgment,
+    required:
+      requestedPolicyEnabled
+      && policyText !== null
+      && resolvedPolicyAcknowledgment.text !== null
+      && resolvedPolicyAcknowledgment.required,
+  };
   const appointmentOnlyQuickFact = hasOwn(
     storedQuickFacts,
     'appointmentOnly',
@@ -458,7 +611,7 @@ export function resolveBookingExperience(
       ? { enabled: true, label: 'Appointment only' }
       : { ...BOOKING_EXPERIENCE_DEFAULTS.quickFacts.appointmentOnly };
 
-  return {
+  const resolved: ResolvedBookingExperience = {
     primaryColor: resolveNullableField(primaryColorSchema, stored.primaryColor),
     bookingMessage: resolveNullableField(
       optionalPlainTextSchema(
@@ -471,13 +624,7 @@ export function resolveBookingExperience(
       // An invalid/empty published policy fails closed while its other valid
       // draft fields remain available to the editor.
       enabled: requestedPolicyEnabled && policyText !== null,
-      title: resolveNullableField(
-        optionalPlainTextSchema(
-          BOOKING_EXPERIENCE_LIMITS.policyTitle,
-          'Policy title',
-        ),
-        storedPolicy.title,
-      ),
+      title: policyTitle,
       text: policyText,
       showOnServicePage: typeof storedPolicy.showOnServicePage === 'boolean'
         ? storedPolicy.showOnServicePage
@@ -494,6 +641,12 @@ export function resolveBookingExperience(
         typeof storedPolicy.showInConfirmationEmail === 'boolean'
           ? storedPolicy.showInConfirmationEmail
           : BOOKING_EXPERIENCE_DEFAULTS.policy.showInConfirmationEmail,
+      acknowledgment: policyAcknowledgment,
+      version: resolvePolicyVersion({
+        title: policyTitle,
+        text: policyText,
+        acknowledgmentText: policyAcknowledgment.text,
+      }),
     },
     quickFacts: {
       appointmentOnly: appointmentOnlyQuickFact,
@@ -524,6 +677,10 @@ export function resolveBookingExperience(
       stored.confirmationMessage,
     ),
   };
+
+  return options?.includeAcknowledgmentConfiguration
+    ? resolved
+    : hidePrerequisitePolicyFields(resolved);
 }
 
 function hexToRgb(color: string): [number, number, number] | null {
