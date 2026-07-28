@@ -2719,15 +2719,25 @@ suite('POST /api/appointments — genuine concurrency', () => {
       retryCustomerBookingConfirmationEmail,
     } = await import('@/libs/customerBookingEmail');
 
+    const retryCallStart = sendTransactionalEmailDetailed.mock.calls.length;
+
     await expect(retryCustomerBookingConfirmationEmail({
       salonId: SALON_ID,
       appointmentId: appointment!.id,
       deliveryId: initialDelivery!.id,
     })).resolves.toMatchObject({ ok: true });
 
-    const retryPayload = (
-      sendTransactionalEmailDetailed.mock.calls[1]?.[0]
-    ) as EmailPayload;
+    const retryPayloads = sendTransactionalEmailDetailed.mock.calls
+      .slice(retryCallStart)
+      .map(([payload]) => payload as EmailPayload)
+      .filter(payload =>
+        payload.to === 'racer.one@example.invalid'
+        && payload.subject === 'Concurrency Salon booking confirmed',
+      );
+
+    expect(retryPayloads).toHaveLength(1);
+
+    const retryPayload = retryPayloads[0]!;
 
     expect(retryPayload.text).toContain(
       `Booking policy acknowledged\n${POLICY_TITLE}\n${POLICY_TEXT}`,
@@ -2745,14 +2755,24 @@ suite('POST /api/appointments — genuine concurrency', () => {
       providerMessageId: 'snapshot-manual-resend',
     });
 
+    const resendCallStart = sendTransactionalEmailDetailed.mock.calls.length;
+
     await expect(resendCustomerBookingConfirmationEmail({
       salonId: SALON_ID,
       appointmentId: appointment!.id,
     })).resolves.toMatchObject({ ok: true });
 
-    const resendPayload = (
-      sendTransactionalEmailDetailed.mock.calls[2]?.[0]
-    ) as EmailPayload;
+    const resendPayloads = sendTransactionalEmailDetailed.mock.calls
+      .slice(resendCallStart)
+      .map(([payload]) => payload as EmailPayload)
+      .filter(payload =>
+        payload.to === 'racer.one@example.invalid'
+        && payload.subject === 'Concurrency Salon booking confirmed',
+      );
+
+    expect(resendPayloads).toHaveLength(1);
+
+    const resendPayload = resendPayloads[0]!;
 
     expect(resendPayload.text).toContain(
       `Booking policy acknowledged\n${POLICY_TITLE}\n${POLICY_TEXT}`,
