@@ -1,3 +1,15 @@
+# [1.41.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.40.0...v1.41.0) (2026-07-28)
+
+
+### Bug Fixes
+
+* recover when booking acknowledgment becomes required ([8574cd0](https://github.com/SniperStopSniping/nailsalon/commit/8574cd07f2600268159c8717c4ab5409943ef605))
+
+
+### Features
+
+* require booking policy acknowledgment for new bookings ([af492d4](https://github.com/SniperStopSniping/nailsalon/commit/af492d4ce7fdbcba810681539cf7e48687e6723c))
+
 # [1.40.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.39.0...v1.40.0) (2026-07-28)
 
 
