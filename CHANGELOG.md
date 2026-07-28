@@ -1,3 +1,10 @@
+# [1.40.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.39.0...v1.40.0) (2026-07-28)
+
+
+### Features
+
+* add booking policy acknowledgment configuration ([a26aed0](https://github.com/SniperStopSniping/nailsalon/commit/a26aed05a7e1032e9728487da9ac2961101abfef))
+
 # [1.39.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.38.0...v1.39.0) (2026-07-27)
 
 
