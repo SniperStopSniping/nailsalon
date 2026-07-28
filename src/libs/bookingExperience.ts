@@ -88,6 +88,31 @@ function containsDisallowedControlCharacter(value: string): boolean {
   });
 }
 
+/**
+ * Invisible formatting code points can make acknowledgment wording appear
+ * empty or change its visual reading order without changing the stored text.
+ * Tightening this list intentionally fails affected stored drafts closed and
+ * can therefore remove/rotate their server-generated policy fingerprint.
+ *
+ * Keep this narrower than broad whitespace normalization: ordinary internal
+ * spacing and script-visible characters remain salon-authored content.
+ */
+function containsUnsafeAcknowledgmentFormatCharacter(value: string): boolean {
+  return Array.from(value).some((character) => {
+    const codePoint = character.codePointAt(0) ?? 0;
+    return (
+      codePoint === 0x00AD // Soft hyphen
+      || codePoint === 0x061C // Arabic letter mark
+      || codePoint === 0x180E // Mongolian vowel separator
+      || (codePoint >= 0x200B && codePoint <= 0x200F)
+      || (codePoint >= 0x202A && codePoint <= 0x202E)
+      || (codePoint >= 0x2060 && codePoint <= 0x2064)
+      || (codePoint >= 0x2066 && codePoint <= 0x206F)
+      || codePoint === 0xFEFF
+    );
+  });
+}
+
 function containsUrlControlCharacter(value: string): boolean {
   return Array.from(value).some((character) => {
     const codePoint = character.codePointAt(0) ?? 0;
@@ -130,17 +155,30 @@ function optionalPlainTextSchema(maxCharacters: number, label: string) {
 }
 
 /**
- * Policy copy is user-authored long-form content. Normalize only transport and
- * accidental line-ending whitespace so intentional spacing inside a line is
- * preserved.
+ * Policy and acknowledgment copy are user-authored long-form content.
+ * Normalize only transport and accidental line-ending whitespace so
+ * intentional spacing inside a line is preserved.
  */
 function optionalCanonicalPolicyContentSchema(
   maxCharacters: number,
   label: string,
+  rejectUnsafeAcknowledgmentFormatting = false,
 ) {
   return z.union([z.string(), z.null()]).transform((value, context) => {
     if (value === null) {
       return null;
+    }
+
+    if (
+      rejectUnsafeAcknowledgmentFormatting
+      && containsUnsafeAcknowledgmentFormatCharacter(value)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message:
+          'Acknowledgment text contains an unsafe invisible formatting character',
+      });
+      return z.NEVER;
     }
 
     // A lone carriage return remains invalid rather than being silently
@@ -188,6 +226,7 @@ function optionalPolicyAcknowledgmentTextSchema() {
   return optionalCanonicalPolicyContentSchema(
     BOOKING_EXPERIENCE_LIMITS.policyAcknowledgmentText,
     'Acknowledgment text',
+    true,
   );
 }
 
@@ -338,18 +377,41 @@ const policySchema = z.object({
   showBeforeConfirmation: z.boolean(),
   showAfterConfirmation: z.boolean(),
   showInConfirmationEmail: z.boolean(),
-  // Optional until the acknowledgment UI ships. Legacy v1.39.0 browser tabs
-  // omit this member, and the API preserves any stored value in that case.
+  // Optional for compatibility with older open browser tabs. They omit this
+  // member, and the API preserves any stored value in that case.
   acknowledgment: policyAcknowledgmentSchema.optional(),
 }).strict().superRefine((policy, context) => {
-  if (policy.enabled && policy.text === null) {
+  const acknowledgmentRequired = policy.acknowledgment?.required === true;
+
+  if ((policy.enabled || acknowledgmentRequired) && policy.text === null) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
-      message: 'Policy text is required when the policy is enabled',
+      message:
+        acknowledgmentRequired
+          ? 'Policy text is required when acknowledgment is required'
+          : 'Policy text is required when the policy is enabled',
       path: ['text'],
     });
   }
-});
+
+  if (
+    acknowledgmentRequired
+    && policy.acknowledgment?.text === null
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Acknowledgment text is required when acknowledgment is required',
+      path: ['acknowledgment', 'text'],
+    });
+  }
+}).transform(policy =>
+  policy.acknowledgment?.required === true
+    ? {
+        ...policy,
+        enabled: true,
+        showBeforeConfirmation: true,
+      }
+    : policy);
 
 const quickFactSchema = z.object({
   enabled: z.boolean(),
@@ -526,9 +588,17 @@ function resolvePolicyVersion(input: {
   }
 }
 
-function hidePrerequisitePolicyFields(
+function projectCustomerBookingExperience(
   input: ResolvedBookingExperience,
 ): BookingExperience {
+  const exposeRequiredAcknowledgment = (
+    input.policy.enabled
+    && input.policy.showBeforeConfirmation
+    && input.policy.acknowledgment.required
+    && input.policy.acknowledgment.text !== null
+    && input.policy.version !== null
+  );
+
   return {
     ...input,
     policy: {
@@ -539,6 +609,14 @@ function hidePrerequisitePolicyFields(
       showBeforeConfirmation: input.policy.showBeforeConfirmation,
       showAfterConfirmation: input.policy.showAfterConfirmation,
       showInConfirmationEmail: input.policy.showInConfirmationEmail,
+      ...(exposeRequiredAcknowledgment
+        ? {
+            acknowledgment: {
+              ...input.policy.acknowledgment,
+            },
+            version: input.policy.version,
+          }
+        : {}),
     },
   };
 }
@@ -546,9 +624,9 @@ function hidePrerequisitePolicyFields(
 /**
  * Resolves persisted JSON defensively and never throws. Invalid fields fall
  * back independently, so one malformed legacy value cannot hide otherwise
- * valid booking customization. The acknowledgment projection is opt-in until
- * its customer UI ships, keeping the v1.39.0 public experience byte-for-byte
- * compatible while the admin API can expose the new read-only contract.
+ * valid booking customization. The default/customer projection exposes
+ * acknowledgment content only when it is fully configured and required;
+ * dormant drafts remain available only through the explicit admin projection.
  */
 export function resolveBookingExperience(
   settings: SalonSettings | null | undefined,
@@ -567,7 +645,7 @@ export function resolveBookingExperience(
 
     return options?.includeAcknowledgmentConfiguration
       ? defaults
-      : hidePrerequisitePolicyFields(defaults);
+      : projectCustomerBookingExperience(defaults);
   }
 
   const stored = settings.bookingExperience as unknown as Record<string, unknown>;
@@ -593,15 +671,20 @@ export function resolveBookingExperience(
   const resolvedPolicyAcknowledgment = resolvePolicyAcknowledgment(
     storedPolicy.acknowledgment,
   );
-  const requestedPolicyEnabled = storedPolicy.enabled === true;
+  const policyVersion = resolvePolicyVersion({
+    title: policyTitle,
+    text: policyText,
+    acknowledgmentText: resolvedPolicyAcknowledgment.text,
+  });
   const policyAcknowledgment = {
     ...resolvedPolicyAcknowledgment,
     required:
-      requestedPolicyEnabled
-      && policyText !== null
+      policyText !== null
       && resolvedPolicyAcknowledgment.text !== null
+      && policyVersion !== null
       && resolvedPolicyAcknowledgment.required,
   };
+  const requestedPolicyEnabled = storedPolicy.enabled === true;
   const appointmentOnlyQuickFact = hasOwn(
     storedQuickFacts,
     'appointmentOnly',
@@ -623,16 +706,20 @@ export function resolveBookingExperience(
     policy: {
       // An invalid/empty published policy fails closed while its other valid
       // draft fields remain available to the editor.
-      enabled: requestedPolicyEnabled && policyText !== null,
+      enabled:
+        (requestedPolicyEnabled || policyAcknowledgment.required)
+        && policyText !== null,
       title: policyTitle,
       text: policyText,
       showOnServicePage: typeof storedPolicy.showOnServicePage === 'boolean'
         ? storedPolicy.showOnServicePage
         : BOOKING_EXPERIENCE_DEFAULTS.policy.showOnServicePage,
       showBeforeConfirmation:
-        typeof storedPolicy.showBeforeConfirmation === 'boolean'
-          ? storedPolicy.showBeforeConfirmation
-          : BOOKING_EXPERIENCE_DEFAULTS.policy.showBeforeConfirmation,
+        policyAcknowledgment.required
+          ? true
+          : typeof storedPolicy.showBeforeConfirmation === 'boolean'
+            ? storedPolicy.showBeforeConfirmation
+            : BOOKING_EXPERIENCE_DEFAULTS.policy.showBeforeConfirmation,
       showAfterConfirmation:
         typeof storedPolicy.showAfterConfirmation === 'boolean'
           ? storedPolicy.showAfterConfirmation
@@ -642,11 +729,7 @@ export function resolveBookingExperience(
           ? storedPolicy.showInConfirmationEmail
           : BOOKING_EXPERIENCE_DEFAULTS.policy.showInConfirmationEmail,
       acknowledgment: policyAcknowledgment,
-      version: resolvePolicyVersion({
-        title: policyTitle,
-        text: policyText,
-        acknowledgmentText: policyAcknowledgment.text,
-      }),
+      version: policyVersion,
     },
     quickFacts: {
       appointmentOnly: appointmentOnlyQuickFact,
@@ -680,7 +763,7 @@ export function resolveBookingExperience(
 
   return options?.includeAcknowledgmentConfiguration
     ? resolved
-    : hidePrerequisitePolicyFields(resolved);
+    : projectCustomerBookingExperience(resolved);
 }
 
 function hexToRgb(color: string): [number, number, number] | null {

@@ -183,6 +183,7 @@ vi.mock('@/libs/SMS', () => ({
 }));
 
 import { DEL_IF_OWNER_LUA } from '@/core/redis/keys';
+import { hashCanonicalBookingRequest } from '@/libs/bookingPolicyAcknowledgment';
 
 import { POST } from './route';
 
@@ -266,5 +267,46 @@ describe('POST /api/appointments booking-lock lifecycle', () => {
     expect(response.status).toBe(201);
     expect(redis.set).not.toHaveBeenCalled();
     expect(redis.eval).not.toHaveBeenCalled();
+  });
+
+  it('binds the acknowledgment attempt, version, and acceptance state into the full request hash', () => {
+    const baseRequest = {
+      salonId: 'salon_1',
+      startTime: '2099-03-13T15:00:00.000Z',
+      bookingPolicyAcknowledgment: {
+        accepted: true,
+        version: `policy-v1:${'a'.repeat(64)}`,
+        attemptId: '4e4cc0d4-5678-4b18-a9e1-1ddf88980b41',
+      },
+    };
+    const originalHash = hashCanonicalBookingRequest(baseRequest);
+    const exactRetryHash = hashCanonicalBookingRequest(baseRequest);
+    const changedAttemptHash = hashCanonicalBookingRequest({
+      ...baseRequest,
+      bookingPolicyAcknowledgment: {
+        ...baseRequest.bookingPolicyAcknowledgment,
+        attemptId: '3d58db86-9ab8-426c-b65a-54a116671f4b',
+      },
+    });
+    const changedVersionHash = hashCanonicalBookingRequest({
+      ...baseRequest,
+      bookingPolicyAcknowledgment: {
+        ...baseRequest.bookingPolicyAcknowledgment,
+        version: `policy-v1:${'b'.repeat(64)}`,
+      },
+    });
+    const changedAcceptanceHash = hashCanonicalBookingRequest({
+      ...baseRequest,
+      bookingPolicyAcknowledgment: {
+        ...baseRequest.bookingPolicyAcknowledgment,
+        accepted: false,
+      },
+    });
+
+    expect(originalHash).toMatch(/^[a-f0-9]{64}$/u);
+    expect(exactRetryHash).toBe(originalHash);
+    expect(changedAttemptHash).not.toBe(originalHash);
+    expect(changedVersionHash).not.toBe(originalHash);
+    expect(changedAcceptanceHash).not.toBe(originalHash);
   });
 });

@@ -393,19 +393,6 @@ export async function PATCH(request: Request): Promise<Response> {
       );
     }
 
-    if (
-      updates.bookingPolicy?.policy.acknowledgment?.required === true
-    ) {
-      return Response.json(
-        {
-          error: 'BOOKING_POLICY_ACKNOWLEDGMENT_NOT_AVAILABLE',
-          message:
-            'Required booking-policy acknowledgment is not available yet.',
-        },
-        { status: 409 },
-      );
-    }
-
     if (salon.freeSoloEnabled && (updates.reviewsEnabled !== undefined || updates.rewardsEnabled !== undefined)) {
       return Response.json(
         {
@@ -421,6 +408,36 @@ export async function PATCH(request: Request): Promise<Response> {
       (salon.settings as SalonSettings | null | undefined) ?? null,
       { includeAcknowledgmentConfiguration: true },
     );
+    const acknowledgmentWasExplicitlyProvided
+      = updates.bookingPolicy?.policy.acknowledgment !== undefined;
+    let effectiveBookingPolicyUpdate = updates.bookingPolicy;
+    if (updates.bookingPolicy) {
+      // Older open editor tabs do not submit acknowledgment. Merge the
+      // server-resolved value before validating so they cannot accidentally
+      // disable an already-required policy. Parsing again also applies the
+      // required => enabled + pre-confirm invariants to persisted values.
+      const mergedBookingPolicy = bookingPolicyUpdateSchema.safeParse({
+        ...updates.bookingPolicy,
+        policy: {
+          ...updates.bookingPolicy.policy,
+          acknowledgment:
+            updates.bookingPolicy.policy.acknowledgment
+            ?? currentBookingExperience.policy.acknowledgment,
+        },
+      });
+
+      if (!mergedBookingPolicy.success) {
+        return Response.json(
+          {
+            error: 'Invalid request data',
+            details: mergedBookingPolicy.error.flatten(),
+          },
+          { status: 400 },
+        );
+      }
+
+      effectiveBookingPolicyUpdate = mergedBookingPolicy.data;
+    }
     const currentBookingNotifications = resolveBookingNotificationSettingsFromSettings(
       (salon.settings as SalonSettings | null | undefined) ?? null,
     );
@@ -491,32 +508,43 @@ export async function PATCH(request: Request): Promise<Response> {
       touchedSettingsKeys.push('bookingExperienceAppearance');
     }
 
-    if (updates.bookingPolicy) {
+    if (effectiveBookingPolicyUpdate) {
       const nextBookingExperience = resolveBookingExperience(
         {
           bookingExperience: {
             ...currentBookingExperience,
             policy: {
-              ...updates.bookingPolicy.policy,
-              acknowledgment:
-                updates.bookingPolicy.policy.acknowledgment
-                ?? currentBookingExperience.policy.acknowledgment,
+              ...effectiveBookingPolicyUpdate.policy,
             },
             quickFacts: {
               appointmentOnly: {
-                ...updates.bookingPolicy.quickFacts.appointmentOnly,
+                ...effectiveBookingPolicyUpdate.quickFacts.appointmentOnly,
               },
               depositNotice: {
-                ...updates.bookingPolicy.quickFacts.depositNotice,
+                ...effectiveBookingPolicyUpdate.quickFacts.depositNotice,
               },
               cancellationNotice: {
-                ...updates.bookingPolicy.quickFacts.cancellationNotice,
+                ...effectiveBookingPolicyUpdate.quickFacts.cancellationNotice,
               },
             },
           },
         },
         { includeAcknowledgmentConfiguration: true },
       );
+
+      if (
+        effectiveBookingPolicyUpdate.policy.acknowledgment?.required === true
+        && nextBookingExperience.policy.version === null
+      ) {
+        return Response.json(
+          {
+            error: 'BOOKING_POLICY_VERSION_UNAVAILABLE',
+            message:
+              'The booking policy version could not be generated. Try again.',
+          },
+          { status: 409 },
+        );
+      }
 
       before.bookingPolicy = buildBookingPolicyAuditMetadata(
         currentBookingExperience,
@@ -705,12 +733,12 @@ export async function PATCH(request: Request): Promise<Response> {
       }
       if (
         touchedSettingsKeys.includes('bookingPolicy')
-        && updates.bookingPolicy
+        && effectiveBookingPolicyUpdate
       ) {
-        // Preserve acknowledgment atomically for v1.39.0 browser tabs, which
-        // submit only the original policy fields. Each owned base field is
-        // updated against the current database value; acknowledgment changes
-        // only when the client explicitly supplies that new subobject.
+        // Preserve acknowledgment atomically for older open browser tabs,
+        // which submit only the original policy fields. Each owned base field
+        // is updated against the current database value; acknowledgment
+        // changes only when the client explicitly supplies that subobject.
         settingsExpression = sql`
           jsonb_set(
             ${settingsExpression},
@@ -722,20 +750,53 @@ export async function PATCH(request: Request): Promise<Response> {
             END
           )
         `;
-        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,enabled}', ${JSON.stringify(updates.bookingPolicy.policy.enabled)}::jsonb)`;
-        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,title}', ${JSON.stringify(updates.bookingPolicy.policy.title)}::jsonb)`;
-        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,text}', ${JSON.stringify(updates.bookingPolicy.policy.text)}::jsonb)`;
-        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,showOnServicePage}', ${JSON.stringify(updates.bookingPolicy.policy.showOnServicePage)}::jsonb)`;
-        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,showBeforeConfirmation}', ${JSON.stringify(updates.bookingPolicy.policy.showBeforeConfirmation)}::jsonb)`;
-        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,showAfterConfirmation}', ${JSON.stringify(updates.bookingPolicy.policy.showAfterConfirmation)}::jsonb)`;
-        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,showInConfirmationEmail}', ${JSON.stringify(updates.bookingPolicy.policy.showInConfirmationEmail)}::jsonb)`;
-        if (updates.bookingPolicy.policy.acknowledgment !== undefined) {
-          settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,acknowledgment}', ${JSON.stringify(updates.bookingPolicy.policy.acknowledgment)}::jsonb)`;
+        const enabledValue = acknowledgmentWasExplicitlyProvided
+          ? sql`${JSON.stringify(effectiveBookingPolicyUpdate.policy.enabled)}::jsonb`
+          : sql`
+              CASE
+                WHEN ${settingsExpression}#>'{bookingExperience,policy,acknowledgment,required}' = 'true'::jsonb
+                  THEN 'true'::jsonb
+                ELSE ${JSON.stringify(effectiveBookingPolicyUpdate.policy.enabled)}::jsonb
+              END
+            `;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,enabled}', ${enabledValue})`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,title}', ${JSON.stringify(effectiveBookingPolicyUpdate.policy.title)}::jsonb)`;
+        const policyTextValue = (
+          !acknowledgmentWasExplicitlyProvided
+          && effectiveBookingPolicyUpdate.policy.text === null
+        )
+          ? sql`
+              CASE
+                WHEN ${settingsExpression}#>'{bookingExperience,policy,acknowledgment,required}' = 'true'::jsonb
+                  THEN COALESCE(
+                    ${settingsExpression}#>'{bookingExperience,policy,text}',
+                    'null'::jsonb
+                  )
+                ELSE 'null'::jsonb
+              END
+            `
+          : sql`${JSON.stringify(effectiveBookingPolicyUpdate.policy.text)}::jsonb`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,text}', ${policyTextValue})`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,showOnServicePage}', ${JSON.stringify(effectiveBookingPolicyUpdate.policy.showOnServicePage)}::jsonb)`;
+        const showBeforeConfirmationValue = acknowledgmentWasExplicitlyProvided
+          ? sql`${JSON.stringify(effectiveBookingPolicyUpdate.policy.showBeforeConfirmation)}::jsonb`
+          : sql`
+              CASE
+                WHEN ${settingsExpression}#>'{bookingExperience,policy,acknowledgment,required}' = 'true'::jsonb
+                  THEN 'true'::jsonb
+                ELSE ${JSON.stringify(effectiveBookingPolicyUpdate.policy.showBeforeConfirmation)}::jsonb
+              END
+            `;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,showBeforeConfirmation}', ${showBeforeConfirmationValue})`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,showAfterConfirmation}', ${JSON.stringify(effectiveBookingPolicyUpdate.policy.showAfterConfirmation)}::jsonb)`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,showInConfirmationEmail}', ${JSON.stringify(effectiveBookingPolicyUpdate.policy.showInConfirmationEmail)}::jsonb)`;
+        if (acknowledgmentWasExplicitlyProvided) {
+          settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,policy,acknowledgment}', ${JSON.stringify(effectiveBookingPolicyUpdate.policy.acknowledgment)}::jsonb)`;
         }
         // A version is trusted output only. Remove any legacy/hostile stored
         // value instead of carrying it into the canonical policy JSON.
         settingsExpression = sql`(${settingsExpression} #- '{bookingExperience,policy,version}')`;
-        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,quickFacts}', ${JSON.stringify(updates.bookingPolicy.quickFacts)}::jsonb)`;
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingExperience,quickFacts}', ${JSON.stringify(effectiveBookingPolicyUpdate.quickFacts)}::jsonb)`;
         // The explicit replacement is part of this same atomic UPDATE. A
         // failed validation/write therefore leaves the legacy boolean intact.
         settingsExpression = sql`(${settingsExpression} #- '{bookingExperience,appointmentOnly}')`;

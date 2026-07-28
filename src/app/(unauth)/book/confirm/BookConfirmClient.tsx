@@ -148,6 +148,11 @@ type ConfirmationPolicy = {
   text: string | null;
   showBeforeConfirmation: boolean;
   showAfterConfirmation: boolean;
+  acknowledgment?: {
+    required: boolean;
+    text: string | null;
+  };
+  readonly version?: string | null;
 };
 
 type ConfirmationQuickFacts = {
@@ -164,6 +169,80 @@ type ConfirmationQuickFacts = {
     label: string | null;
   };
 };
+
+const POLICY_VERSION_PATTERN = /^policy-v1:[a-f0-9]{64}$/u;
+
+function isRequiredBookingPolicy(
+  policy: ConfirmationPolicy,
+  isReschedule: boolean,
+): policy is ConfirmationPolicy & {
+  acknowledgment: { required: true; text: string };
+  version: string;
+} {
+  return (
+    !isReschedule
+    && policy.enabled
+    && typeof policy.text === 'string'
+    && policy.text.length > 0
+    && policy.acknowledgment?.required === true
+    && typeof policy.acknowledgment.text === 'string'
+    && policy.acknowledgment.text.length > 0
+    && typeof policy.version === 'string'
+    && POLICY_VERSION_PATTERN.test(policy.version)
+  );
+}
+
+function readLatestRequiredBookingPolicy(
+  value: unknown,
+  current: ConfirmationPolicy,
+): ConfirmationPolicy | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return null;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const acknowledgment = candidate.acknowledgment;
+  if (
+    candidate.enabled !== true
+    || typeof candidate.text !== 'string'
+    || candidate.text.length === 0
+    || typeof candidate.version !== 'string'
+    || !POLICY_VERSION_PATTERN.test(candidate.version)
+    || typeof acknowledgment !== 'object'
+    || acknowledgment === null
+    || Array.isArray(acknowledgment)
+  ) {
+    return null;
+  }
+
+  const acknowledgmentCandidate = acknowledgment as Record<string, unknown>;
+  if (
+    acknowledgmentCandidate.required !== true
+    || typeof acknowledgmentCandidate.text !== 'string'
+    || acknowledgmentCandidate.text.length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    enabled: true,
+    title:
+      typeof candidate.title === 'string' || candidate.title === null
+        ? candidate.title
+        : current.title,
+    text: candidate.text,
+    showBeforeConfirmation: true,
+    showAfterConfirmation:
+      typeof candidate.showAfterConfirmation === 'boolean'
+        ? candidate.showAfterConfirmation
+        : current.showAfterConfirmation,
+    acknowledgment: {
+      required: true,
+      text: acknowledgmentCandidate.text,
+    },
+    version: candidate.version,
+  };
+}
 
 // --- Helpers ---
 
@@ -816,6 +895,8 @@ const ConfirmContent = ({
   onBookForMyself,
   policy,
   quickFacts,
+  policyAcknowledged,
+  onPolicyAcknowledgmentChange,
 }: {
   services: ServiceSummary[];
   addOns: AddOnSummary[];
@@ -859,11 +940,14 @@ const ConfirmContent = ({
   onBookForMyself: () => void;
   policy: ConfirmationPolicy;
   quickFacts: ConfirmationQuickFacts;
+  policyAcknowledged: boolean;
+  onPolicyAcknowledgmentChange: (value: boolean) => void;
 }) => {
   // Focus and announcement management for the one nearby suggestion: both
   // actions unmount the banner (and the focused button with it), so focus
   // moves to the confirm button and a polite live region states the outcome.
   const confirmActionRef = useRef<HTMLButtonElement>(null);
+  const acknowledgmentHelpId = useId();
   const [smartFitOutcomeAnnouncement, setSmartFitOutcomeAnnouncement] = useState<string | null>(null);
 
   // Drives both the confirm button's disabled state and the hint under it, so
@@ -877,6 +961,10 @@ const ConfirmContent = ({
     email: guestEmail,
     phone: guestPhone,
   });
+  const acknowledgmentRequired = isRequiredBookingPolicy(
+    policy,
+    isReschedule,
+  );
 
   const handleAcceptSuggestion = () => {
     if (smartFitSuggestion) {
@@ -1204,12 +1292,49 @@ const ConfirmContent = ({
 
           <QuickFactBadges quickFacts={quickFacts} />
 
-          {policy.enabled && policy.showBeforeConfirmation && policy.text && (
+          {policy.enabled
+          && (policy.showBeforeConfirmation || acknowledgmentRequired)
+          && policy.text && (
             <PolicyCard
+              key={policy.version ?? `${policy.title}:${policy.text}`}
               title={policy.title ?? 'Booking policy'}
               text={policy.text}
               placement="beforeConfirmation"
             />
+          )}
+
+          {acknowledgmentRequired && (
+            <div
+              data-testid="booking-policy-acknowledgment"
+              className="rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4"
+            >
+              <label className="flex items-start gap-3 text-sm leading-6 text-[var(--n5-ink-main)]">
+                <input
+                  aria-describedby={
+                    policyAcknowledged ? undefined : acknowledgmentHelpId
+                  }
+                  aria-required="true"
+                  required
+                  type="checkbox"
+                  checked={policyAcknowledged}
+                  onChange={event =>
+                    onPolicyAcknowledgmentChange(event.target.checked)}
+                  className="mt-1 size-4 shrink-0 rounded border-[var(--n5-border)] text-[var(--n5-accent)] focus:ring-[var(--n5-accent)]"
+                />
+                <span className="min-w-0 whitespace-pre-line break-words">
+                  {policy.acknowledgment.text}
+                </span>
+              </label>
+              {!policyAcknowledged && (
+                <p
+                  id={acknowledgmentHelpId}
+                  role="status"
+                  className="font-body mt-2 text-xs font-semibold text-[var(--n5-ink-muted)]"
+                >
+                  Check the box to confirm your appointment.
+                </p>
+              )}
+            </div>
           )}
 
           <button
@@ -1219,7 +1344,11 @@ const ConfirmContent = ({
               triggerHaptic('confirm');
               onConfirm();
             }}
-            disabled={isSubmitting || contactBlocker !== null}
+            disabled={
+              isSubmitting
+              || contactBlocker !== null
+              || (acknowledgmentRequired && !policyAcknowledged)
+            }
             className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               borderRadius: n5.radiusMd,
@@ -1733,6 +1862,29 @@ export function BookConfirmClient({
   const urlLocationId = searchParams.get('locationId') || '';
   const urlServiceIdsParam = searchParams.get('serviceIds') || '';
   const urlServiceIds = urlServiceIdsParam ? urlServiceIdsParam.split(',').filter(Boolean) : [];
+  const upstreamPolicy = bookingExperience.policy as ConfirmationPolicy;
+  const upstreamPolicyIdentity = JSON.stringify({
+    enabled: upstreamPolicy.enabled,
+    title: upstreamPolicy.title,
+    text: upstreamPolicy.text,
+    showBeforeConfirmation: upstreamPolicy.showBeforeConfirmation,
+    showAfterConfirmation: upstreamPolicy.showAfterConfirmation,
+    acknowledgment: upstreamPolicy.acknowledgment ?? null,
+    version: upstreamPolicy.version ?? null,
+  });
+  const [displayedPolicy, setDisplayedPolicy]
+    = useState<ConfirmationPolicy>(() => upstreamPolicy);
+  const [policyAcknowledged, setPolicyAcknowledged] = useState(false);
+  const upstreamPolicyIdentityRef = useRef(upstreamPolicyIdentity);
+
+  useEffect(() => {
+    if (upstreamPolicyIdentityRef.current === upstreamPolicyIdentity) {
+      return;
+    }
+    upstreamPolicyIdentityRef.current = upstreamPolicyIdentity;
+    setDisplayedPolicy(upstreamPolicy);
+    setPolicyAcknowledged(false);
+  }, [upstreamPolicy, upstreamPolicyIdentity]);
 
   // Smart Fit (P7.3): server-derived preview values relayed from the time
   // step's availability response. Display hints only — the booking API stays
@@ -1835,6 +1987,10 @@ export function BookConfirmClient({
   const bookingInitiatedRef = useRef(false);
   // Stable idempotency key for this booking session - prevents double-submit
   const idempotencyKeyRef = useRef<string>(crypto.randomUUID());
+  // Separate from the Redis-backed response key: this UUID is persisted with
+  // a required policy acknowledgment and bound by the server to the exact
+  // canonical booking request.
+  const acknowledgmentAttemptIdRef = useRef<string>(crypto.randomUUID());
 
   const [showNameModal, setShowNameModal] = useState(false);
   const [firstName, setFirstName] = useState('');
@@ -1911,6 +2067,56 @@ export function BookConfirmClient({
   const resolvedSubtotalBeforeDiscount = subtotalBeforeDiscount;
   // totalPrice is in dollars, convert to cents for points calculation
   const pointsEarned = computeEarnedPointsFromCents(Math.round(resolvedTotalPrice * 100));
+  const acknowledgmentRequired = isRequiredBookingPolicy(
+    displayedPolicy,
+    Boolean(originalAppointmentId),
+  );
+  const bookingAttemptMaterialKey = JSON.stringify({
+    salonSlug,
+    baseServiceId,
+    selectedAddOns,
+    serviceIds: services.map(service => service.id),
+    technicianId: techId === 'any' ? null : techId,
+    publicActor: isLoggedIn ? 'client' : 'guest',
+    clientName: guestName.trim(),
+    bookingSubject,
+    clientEmail: guestEmail.trim().toLowerCase(),
+    clientPhone: guestPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''),
+    smsConsent: smsEnabled
+      ? { granted: smsConsent, wordingVersion: 'booking-v1' }
+      : null,
+    canonicalStartTime,
+    appointmentDate: dateStr,
+    appointmentTime: timeStr,
+    locationId: location?.id ?? null,
+    originalAppointmentId: originalAppointmentId || null,
+    manageToken: manageToken || null,
+    campaignToken:
+      campaignPromotionPreview && campaignToken ? campaignToken : null,
+    smartFit: smartFitOffer
+      ? {
+          discountAmountCents: smartFitOffer.discountAmountCents,
+          discountedPriceCents: smartFitOffer.discountedPriceCents,
+        }
+      : null,
+    bookingPolicyAcknowledgment: acknowledgmentRequired
+      ? {
+          accepted: policyAcknowledged,
+          version: displayedPolicy.version,
+        }
+      : null,
+  });
+  const bookingAttemptMaterialKeyRef = useRef(bookingAttemptMaterialKey);
+
+  useEffect(() => {
+    if (bookingAttemptMaterialKeyRef.current === bookingAttemptMaterialKey) {
+      return;
+    }
+
+    bookingAttemptMaterialKeyRef.current = bookingAttemptMaterialKey;
+    acknowledgmentAttemptIdRef.current = crypto.randomUUID();
+    idempotencyKeyRef.current = crypto.randomUUID();
+  }, [bookingAttemptMaterialKey]);
 
   const handleAcceptSmartFitSuggestion = useCallback(() => {
     if (!smartFitSuggestion) {
@@ -1949,6 +2155,10 @@ export function BookConfirmClient({
     if (bookingInitiatedRef.current) {
       return;
     }
+    if (acknowledgmentRequired && !policyAcknowledged) {
+      setBookingError('Check the box to confirm your appointment.');
+      return;
+    }
     bookingInitiatedRef.current = true;
 
     setIsBooking(true);
@@ -1983,6 +2193,13 @@ export function BookConfirmClient({
         ...(originalAppointmentId && { originalAppointmentId }),
         ...(manageToken && { manageToken }),
         ...(campaignPromotionPreview && campaignToken && { campaignToken }),
+        ...(acknowledgmentRequired && policyAcknowledged && {
+          bookingPolicyAcknowledgment: {
+            accepted: true as const,
+            version: displayedPolicy.version,
+            attemptId: acknowledgmentAttemptIdRef.current,
+          },
+        }),
         // Smart Fit expectations (P7.2 contract): only for a displayed Smart
         // Fit offer, and only these two approved fields. The server rejects a
         // stale expectation with 409 SMART_FIT_CHANGED instead of booking at
@@ -2022,20 +2239,71 @@ export function BookConfirmClient({
           throw new Error('Something went wrong on our end while confirming your appointment. Please try again in a moment.');
         }
 
-        if (errorData.error?.code === 'EXISTING_APPOINTMENT') {
-          setHasExistingAppointment(true);
-          setBookingError(errorData.error?.message || 'You already have an upcoming appointment.');
+        const errorCode = typeof errorData?.error === 'string'
+          ? errorData.error
+          : errorData?.error?.code;
+        const errorMessage = typeof errorData?.message === 'string'
+          ? errorData.message
+          : errorData?.error?.message;
+
+        if (
+          errorCode === 'BOOKING_POLICY_CHANGED'
+          || errorCode === 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED'
+        ) {
+          const latestPolicy = readLatestRequiredBookingPolicy(
+            errorData.bookingPolicy,
+            displayedPolicy,
+          );
+          if (!latestPolicy) {
+            throw new Error(
+              errorCode === 'BOOKING_POLICY_CHANGED'
+                ? 'The salon updated its booking policy. Refresh the page to review it before confirming.'
+                : 'The salon now requires booking-policy acknowledgment. Refresh the page to review it before confirming.',
+            );
+          }
+
+          setDisplayedPolicy(latestPolicy);
+          setPolicyAcknowledged(false);
+          acknowledgmentAttemptIdRef.current = crypto.randomUUID();
+          idempotencyKeyRef.current = crypto.randomUUID();
+          setBookingError(
+            errorCode === 'BOOKING_POLICY_CHANGED'
+              ? 'The salon updated its booking policy. Please review it and confirm again.'
+              : (
+                  errorMessage
+                  || 'Review and acknowledge the booking policy before confirming.'
+                ),
+          );
           bookingInitiatedRef.current = false;
           return;
         }
 
-        if (errorData.error?.code === 'TIME_CONFLICT' || errorData.error?.code === 'NO_AVAILABLE_TECHNICIAN') {
+        if (errorCode === 'ACKNOWLEDGMENT_ATTEMPT_REUSED') {
+          setPolicyAcknowledged(false);
+          acknowledgmentAttemptIdRef.current = crypto.randomUUID();
+          idempotencyKeyRef.current = crypto.randomUUID();
+          setBookingError(
+            errorMessage
+            || 'This booking attempt changed. Please confirm the appointment again.',
+          );
+          bookingInitiatedRef.current = false;
+          return;
+        }
+
+        if (errorCode === 'EXISTING_APPOINTMENT') {
+          setHasExistingAppointment(true);
+          setBookingError(errorMessage || 'You already have an upcoming appointment.');
+          bookingInitiatedRef.current = false;
+          return;
+        }
+
+        if (errorCode === 'TIME_CONFLICT' || errorCode === 'NO_AVAILABLE_TECHNICIAN') {
           setSlotTaken(true);
           bookingInitiatedRef.current = false;
           return;
         }
 
-        if (errorData.error?.code === 'SMART_FIT_CHANGED') {
+        if (errorCode === 'SMART_FIT_CHANGED') {
           // The expected discounted price is no longer valid. No booking was
           // created; the client re-picks from refreshed availability instead
           // of this stale expectation ever being resubmitted.
@@ -2048,8 +2316,8 @@ export function BookConfirmClient({
             setSmartFitOutranked(true);
           }
           setSmartFitStale({
-            message: typeof errorData.error?.message === 'string' && errorData.error.message
-              ? errorData.error.message
+            message: typeof errorMessage === 'string' && errorMessage
+              ? errorMessage
               : SMART_FIT_STALE_FALLBACK_MESSAGE,
             breakdown,
           });
@@ -2057,7 +2325,7 @@ export function BookConfirmClient({
           return;
         }
 
-        throw new Error(errorData.error?.message || `We couldn't confirm this booking (code ${response.status}). Please try again.`);
+        throw new Error(errorMessage || `We couldn't confirm this booking (code ${response.status}). Please try again.`);
       }
 
       const data = await response.json();
@@ -2082,7 +2350,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [baseServiceId, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsEnabled, techId, timeStr]);
+  }, [acknowledgmentRequired, baseServiceId, bookingSubject, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsEnabled, techId, timeStr]);
 
   useEffect(() => {
     if (bookingComplete && !nameCheckInitiatedRef.current) {
@@ -2313,7 +2581,7 @@ export function BookConfirmClient({
           clientChangeCutoffHours={clientChangeCutoffHours}
           totalPriceDisplay={totalPriceDisplay}
           confirmationMessage={bookingExperience.confirmationMessage}
-          policy={bookingExperience.policy}
+          policy={displayedPolicy}
         />
         <NameCaptureModal
           isOpen={showNameModal}
@@ -2377,8 +2645,10 @@ export function BookConfirmClient({
       onSignOut={handleSignOut}
       onBookForSomeoneElse={handleBookForSomeoneElse}
       onBookForMyself={handleBookForMyself}
-      policy={bookingExperience.policy}
+      policy={displayedPolicy}
       quickFacts={bookingExperience.quickFacts}
+      policyAcknowledged={policyAcknowledged}
+      onPolicyAcknowledgmentChange={setPolicyAcknowledged}
     />
   );
 }

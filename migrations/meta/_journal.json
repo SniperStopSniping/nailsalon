@@ -442,6 +442,13 @@
       "when": 1784950000007,
       "tag": "0062_client_lifecycle_stabilization",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1785209465859,
+      "tag": "0063_booking_policy_acknowledgments",
+      "breakpoints": true
     }
   ]
 }

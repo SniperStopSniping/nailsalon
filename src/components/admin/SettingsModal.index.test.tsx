@@ -64,6 +64,11 @@ const DEFAULT_BOOKING_EXPERIENCE: BookingExperience = {
     showBeforeConfirmation: true,
     showAfterConfirmation: true,
     showInConfirmationEmail: true,
+    acknowledgment: {
+      required: false,
+      text: null,
+    },
+    version: null,
   },
   quickFacts: {
     appointmentOnly: {
@@ -98,6 +103,12 @@ const CONFIGURED_BOOKING_EXPERIENCE: BookingExperience = {
     showBeforeConfirmation: true,
     showAfterConfirmation: true,
     showInConfirmationEmail: true,
+    acknowledgment: {
+      required: false,
+      text:
+        'I understand this appointment reserves the technician’s time.',
+    },
+    version: `policy-v1:${'a'.repeat(64)}`,
   },
   quickFacts: {
     appointmentOnly: {
@@ -502,6 +513,159 @@ describe('SettingsModal index', () => {
     expect(preview.getByText('Confirm appointment')).toBeInTheDocument();
   });
 
+  it('forces required policy dependencies and keeps the acknowledgment preview local until Save', async () => {
+    const longPolicy = `${'Please contact the salon as soon as possible if you cannot attend. '.repeat(5)}Thank you.`;
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Booking policy'));
+    await screen.findByTestId('booking-policy-preview');
+
+    const requireAcknowledgment = screen.getByRole('checkbox', {
+      name: 'Require acknowledgment',
+    });
+    fireEvent.click(requireAcknowledgment);
+
+    expect(requireAcknowledgment).toBeChecked();
+    expect(screen.getByRole('checkbox', {
+      name: 'Enable booking policy',
+    })).toBeChecked();
+    expect(screen.getByRole('checkbox', {
+      name: 'Enable booking policy',
+    })).toBeDisabled();
+    expect(screen.getByRole('checkbox', {
+      name: 'Show before confirmation',
+    })).toBeChecked();
+    expect(screen.getByRole('checkbox', {
+      name: 'Show before confirmation',
+    })).toBeDisabled();
+    expect(screen.getByRole('button', {
+      name: 'Save booking policy',
+    })).toBeDisabled();
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Enter full policy text before requiring acknowledgment.',
+    );
+
+    fireEvent.change(screen.getByRole('textbox', {
+      name: 'Full policy text',
+    }), {
+      target: { value: longPolicy },
+    });
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Enter acknowledgment wording before requiring acknowledgment.',
+    );
+
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Use suggested wording',
+    }));
+
+    const preview = within(screen.getByTestId('booking-policy-preview'));
+    const previewCheckbox = preview.getByRole('checkbox', {
+      name: 'I understand this appointment reserves the technician’s time. If I cannot attend, I will contact the salon as soon as possible.',
+    });
+    const previewConfirm = preview.getByRole('button', {
+      name: 'Confirm appointment',
+    });
+    const previewExpand = preview.getByRole('button', {
+      name: 'View full policy',
+    });
+
+    expect(screen.getByRole('textbox', {
+      name: 'Acknowledgment wording',
+    })).toHaveValue(
+      'I understand this appointment reserves the technician’s time. If I cannot attend, I will contact the salon as soon as possible.',
+    );
+    expect(previewCheckbox).not.toBeChecked();
+    expect(previewConfirm).toBeDisabled();
+    expect(previewExpand).toHaveAttribute('aria-expanded', 'false');
+    expect(previewExpand).toHaveAttribute('aria-controls');
+
+    fireEvent.click(previewExpand);
+
+    expect(preview.getByRole('button', {
+      name: 'Show less',
+    })).toHaveAttribute('aria-expanded', 'true');
+    expect(preview.getByText(longPolicy)).toBeInTheDocument();
+
+    fireEvent.click(previewCheckbox);
+
+    expect(previewConfirm).toBeEnabled();
+    expect(
+      fetchMock.mock.calls.filter(([, init]) =>
+        (init as RequestInit | undefined)?.method === 'PATCH'),
+    ).toHaveLength(0);
+    expect(screen.getByRole('button', {
+      name: 'Save booking policy',
+    })).toBeEnabled();
+  });
+
+  it('counts acknowledgment wording by Unicode code point and blocks oversized drafts', async () => {
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Booking policy'));
+    const wording = await screen.findByRole('textbox', {
+      name: 'Acknowledgment wording',
+    });
+
+    fireEvent.change(wording, {
+      target: { value: '💅'.repeat(220) },
+    });
+
+    expect(screen.getByText('220/220')).toBeInTheDocument();
+
+    fireEvent.change(wording, {
+      target: { value: '💅'.repeat(221) },
+    });
+
+    expect(screen.getByText('221/220')).toHaveClass('text-red-700');
+    expect(wording).toHaveAttribute('aria-invalid', 'true');
+  });
+
+  it('sends required acknowledgment configuration without the read-only version', async () => {
+    fetchMock.mockReset();
+    mockEndpoints();
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Booking policy'));
+    fireEvent.click(screen.getByRole('checkbox', {
+      name: 'Require acknowledgment',
+    }));
+    fireEvent.change(screen.getByRole('textbox', {
+      name: 'Full policy text',
+    }), {
+      target: { value: 'Please give notice if you cannot attend.' },
+    });
+    fireEvent.change(screen.getByRole('textbox', {
+      name: 'Acknowledgment wording',
+    }), {
+      target: { value: 'I understand this appointment reserves time.' },
+    });
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Save booking policy',
+    }));
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(([input, init]) =>
+        String(input).includes('/api/admin/salon/settings')
+        && (init as RequestInit | undefined)?.method === 'PATCH');
+
+      expect(patchCall).toBeTruthy();
+
+      const body = JSON.parse(String((patchCall![1] as RequestInit).body));
+
+      expect(body.bookingPolicy.policy).toMatchObject({
+        enabled: true,
+        showBeforeConfirmation: true,
+        acknowledgment: {
+          required: true,
+          text: 'I understand this appointment reserves time.',
+        },
+      });
+      expect(body.bookingPolicy.policy).not.toHaveProperty('version');
+    });
+  });
+
   it('shows preserved booking settings read-only and marks the public preview inactive when locked', async () => {
     fetchMock.mockReset();
     mockEndpoints({
@@ -565,6 +729,12 @@ describe('SettingsModal index', () => {
       'Before you book',
     );
     expect(screen.getByRole('textbox', { name: 'Policy title' })).toBeDisabled();
+    expect(screen.getByRole('checkbox', {
+      name: 'Require acknowledgment',
+    })).toBeDisabled();
+    expect(screen.getByRole('textbox', {
+      name: 'Acknowledgment wording',
+    })).toBeDisabled();
     expect(screen.getByTestId('booking-policy-preview-inactive')).toBeVisible();
     expect(screen.getByTestId('booking-policy-preview')).not.toBeVisible();
     expect(screen.getByRole('button', { name: 'Save booking policy' }))
@@ -676,8 +846,18 @@ describe('SettingsModal index', () => {
       expect(body).toEqual({
         bookingPolicy: {
           policy: {
-            ...CONFIGURED_BOOKING_EXPERIENCE.policy,
+            enabled: true,
             title: 'Updated booking policy',
+            text: 'Please arrive five minutes early.',
+            showOnServicePage: true,
+            showBeforeConfirmation: true,
+            showAfterConfirmation: true,
+            showInConfirmationEmail: true,
+            acknowledgment: {
+              required: false,
+              text:
+                'I understand this appointment reserves the technician’s time.',
+            },
           },
           quickFacts: {
             ...CONFIGURED_BOOKING_EXPERIENCE.quickFacts,
@@ -690,6 +870,7 @@ describe('SettingsModal index', () => {
       });
       expect(body).not.toHaveProperty('bookingExperience');
       expect(body).not.toHaveProperty('bookingExperienceAppearance');
+      expect(body.bookingPolicy.policy).not.toHaveProperty('version');
     });
 
     expect(await screen.findByText('Booking policy saved.')).toBeInTheDocument();

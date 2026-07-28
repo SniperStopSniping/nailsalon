@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { and, desc, eq, gte, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
@@ -41,6 +39,18 @@ import {
   type LoadedBookingPolicy,
   resolveTechnicianCapabilityMode,
 } from '@/libs/bookingPolicy';
+import {
+  BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED_MESSAGE,
+  BOOKING_POLICY_ACKNOWLEDGMENT_SOURCE,
+  BOOKING_POLICY_ATTEMPT_REUSED_MESSAGE,
+  BOOKING_POLICY_CHANGED_MESSAGE,
+  BOOKING_POLICY_CHECK_RETRY_MESSAGE,
+  buildPublicBookingPolicyAcknowledgmentSnapshot,
+  hashCanonicalBookingRequest,
+  hashSensitiveBookingValue,
+  type RequiredBookingPolicy,
+  resolveRequiredBookingPolicy,
+} from '@/libs/bookingPolicyAcknowledgment';
 import {
   BookingSelectionError,
   getPublicBookingSelectionMessage,
@@ -129,6 +139,7 @@ import {
   appointmentAccessTokenSchema,
   appointmentAddOnSchema,
   appointmentAuditLogSchema,
+  appointmentBookingPolicyAcknowledgmentSchema,
   appointmentPhotoSchema,
   appointmentSchema,
   type AppointmentService,
@@ -225,6 +236,15 @@ function formatLocationAddress(location: {
 // REQUEST VALIDATION
 // =============================================================================
 
+const bookingPolicyAcknowledgmentRequestSchema = z.object({
+  // Kept boolean here so an explicit false can receive the same authoritative
+  // typed response as an omitted acknowledgment when the current policy
+  // requires acceptance.
+  accepted: z.boolean(),
+  version: z.string().regex(/^policy-v1:[a-f0-9]{64}$/u),
+  attemptId: z.string().uuid(),
+}).strict();
+
 const createAppointmentSchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
   serviceIds: z.array(z.string()).min(1, 'At least one service is required').optional(),
@@ -266,6 +286,8 @@ const createAppointmentSchema = z.object({
   // is never silently changed. Absent fields keep legacy behavior.
   expectedDiscountType: z.string().trim().max(50).nullable().optional(),
   expectedTotalCents: z.number().int().min(0).max(50_000_000).optional(),
+  bookingPolicyAcknowledgment:
+    bookingPolicyAcknowledgmentRequestSchema.optional(),
 });
 
 type CreateAppointmentRequest = z.infer<typeof createAppointmentSchema>;
@@ -360,6 +382,111 @@ class BookingActiveAppointmentError extends Error {
     super('BOOKING_ACTIVE_APPOINTMENT');
     this.name = 'BookingActiveAppointmentError';
   }
+}
+
+class BookingPolicyAcknowledgmentRequiredError extends Error {
+  constructor(public readonly bookingPolicy: RequiredBookingPolicy) {
+    super('BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED');
+    this.name = 'BookingPolicyAcknowledgmentRequiredError';
+  }
+}
+
+class BookingPolicyChangedError extends Error {
+  constructor(public readonly bookingPolicy: RequiredBookingPolicy) {
+    super('BOOKING_POLICY_CHANGED');
+    this.name = 'BookingPolicyChangedError';
+  }
+}
+
+class BookingPolicyAttemptReusedError extends Error {
+  constructor() {
+    super('ACKNOWLEDGMENT_ATTEMPT_REUSED');
+    this.name = 'BookingPolicyAttemptReusedError';
+  }
+}
+
+function bookingPolicyAcknowledgmentRequiredResponse(
+  bookingPolicy: RequiredBookingPolicy,
+): Response {
+  return Response.json(
+    {
+      error: 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED',
+      message: BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED_MESSAGE,
+      bookingPolicy,
+    },
+    { status: 400 },
+  );
+}
+
+function bookingPolicyChangedResponse(
+  bookingPolicy: RequiredBookingPolicy,
+): Response {
+  return Response.json(
+    {
+      error: 'BOOKING_POLICY_CHANGED',
+      message: BOOKING_POLICY_CHANGED_MESSAGE,
+      bookingPolicy,
+    },
+    { status: 409 },
+  );
+}
+
+function bookingPolicyAttemptReusedResponse(): Response {
+  return Response.json(
+    {
+      error: 'ACKNOWLEDGMENT_ATTEMPT_REUSED',
+      message: BOOKING_POLICY_ATTEMPT_REUSED_MESSAGE,
+    },
+    { status: 409 },
+  );
+}
+
+function bookingPolicyCheckRetryResponse(): Response {
+  return Response.json(
+    {
+      error: 'BOOKING_POLICY_CHECK_RETRY',
+      message: BOOKING_POLICY_CHECK_RETRY_MESSAGE,
+    },
+    {
+      status: 503,
+      headers: { 'Retry-After': '1' },
+    },
+  );
+}
+
+function postgresErrorField(
+  error: unknown,
+  field: 'code' | 'constraint',
+): string | null {
+  let current = error;
+  for (let depth = 0; depth < 6; depth += 1) {
+    if (!current || typeof current !== 'object') {
+      return null;
+    }
+    const candidate = current as {
+      code?: unknown;
+      constraint?: unknown;
+      cause?: unknown;
+    };
+    const value = candidate[field];
+    if (typeof value === 'string') {
+      return value;
+    }
+    current = candidate.cause;
+  }
+  return null;
+}
+
+function isBookingPolicyLockTimeout(error: unknown): boolean {
+  return ['55P03', '57014'].includes(
+    postgresErrorField(error, 'code') ?? '',
+  );
+}
+
+function isBookingPolicyAttemptConstraintViolation(error: unknown): boolean {
+  return postgresErrorField(error, 'code') === '23505'
+    && postgresErrorField(error, 'constraint')
+    === 'booking_policy_ack_attempt_unique';
 }
 
 function smartFitStaleResponse(error: SmartFitStaleError): Response {
@@ -678,6 +805,19 @@ export async function POST(request: Request): Promise<Response> {
       } satisfies ErrorResponse, { status: 400 });
     }
 
+    // A management token is meaningful only when it is scoped to an original
+    // appointment and subsequently verified below. Treating its mere presence
+    // as a reschedule marker would let an unverified token bypass controls that
+    // apply only to new public bookings, including required policy acceptance.
+    if (data.manageToken && !normalizedOriginalApptId) {
+      return Response.json({
+        error: {
+          code: 'RESCHEDULE_CONTEXT_INVALID',
+          message: 'A management token must identify the appointment being rescheduled.',
+        },
+      } satisfies ErrorResponse, { status: 400 });
+    }
+
     // Validate raw startTime early. If appointmentDate/appointmentTime are provided,
     // the server will recompute the final instant from the salon timezone after
     // the salon is resolved.
@@ -878,6 +1018,68 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
+    const isNewPublicBooking = (
+      actorRole === 'guest' || actorRole === 'client'
+    )
+    && !normalizedOriginalApptId
+    && !data.manageToken
+    && !googleReviewEvent;
+    const requestedPolicyAcknowledgment = data.bookingPolicyAcknowledgment;
+
+    // This full canonical hash is a database authority as well as the Redis
+    // payload hash. It is therefore generated even when Redis is unavailable.
+    // Key order is intentionally fixed; arrays whose order is not meaningful
+    // are sorted after normalization.
+    const requestBodyHash = hashCanonicalBookingRequest({
+      salonId: salon.id,
+      serviceIds: [...normalizedLegacyServiceIds].sort(),
+      baseServiceId: normalizedBaseServiceId,
+      selectedAddOns: normalizedSelectedAddOns
+        .map(addOn => ({
+          addOnId: addOn.addOnId,
+          quantity: addOn.quantity ?? 1,
+        }))
+        .sort((left, right) =>
+          left.addOnId.localeCompare(right.addOnId)
+          || left.quantity - right.quantity),
+      technicianId: normalizedTechnicianId,
+      clientPhone: normalizedPhone,
+      clientName: normalizedClientName,
+      clientEmail: normalizedClientEmail,
+      smsConsent: data.smsConsent
+        ? {
+            granted: data.smsConsent.granted,
+            wordingVersion: data.smsConsent.wordingVersion,
+          }
+        : null,
+      startTime: canonicalStartTime,
+      locationId: normalizedLocationId,
+      originalAppointmentId: normalizedOriginalApptId,
+      manageTokenHash: hashSensitiveBookingValue(
+        data.manageToken?.trim() || null,
+      ),
+      bookingSubject: bookingSubjectMode,
+      actorRole,
+      googleEventReviewId: data.googleEventReviewId ?? null,
+      priceCentsOverride: data.priceCentsOverride ?? null,
+      durationMinutesOverride: data.durationMinutesOverride ?? null,
+      notes: normalizedNotes,
+      campaignTokenHash: normalizedCampaignToken
+        ? hashRetentionCampaignToken(normalizedCampaignToken)
+        : null,
+      expectedDiscountType: data.expectedDiscountType === undefined
+        ? null
+        : (data.expectedDiscountType?.trim() || null),
+      expectedTotalCents: data.expectedTotalCents ?? null,
+      bookingPolicyAcknowledgment: requestedPolicyAcknowledgment
+        ? {
+            accepted: requestedPolicyAcknowledgment.accepted,
+            version: requestedPolicyAcknowledgment.version,
+            attemptId: requestedPolicyAcknowledgment.attemptId,
+          }
+        : null,
+    });
+
     let preliminaryCanonicalIdentity: CanonicalSalonClientIdentity | null = null;
     try {
       preliminaryCanonicalIdentity = await resolveCanonicalSalonClientIdentity({
@@ -904,7 +1106,6 @@ export async function POST(request: Request): Promise<Response> {
     // Client should send Idempotency-Key header with a UUID generated on page load
     const idempotencyKey = request.headers.get('Idempotency-Key');
     let idempotencyCacheKey: string | null = null;
-    let requestBodyHash: string | null = null;
     let redisAvailable = false;
     let idempotencyEnabled = false; // Master flag - if false, skip ALL idempotency codepaths
 
@@ -918,34 +1119,6 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     if (idempotencyKey && redisAvailable && redis) {
-      // Generate hash using ALREADY NORMALIZED values (computed once above)
-      // This ensures hash matches DB canonicalization exactly
-      requestBodyHash = createHash('sha256')
-        .update(JSON.stringify({
-          salonId: salon.id, // Use resolved salonId, not slug
-          serviceIds: [...normalizedLegacyServiceIds].sort(), // Sorted for consistency
-          baseServiceId: normalizedBaseServiceId,
-          selectedAddOns: normalizedSelectedAddOns
-            .map(addOn => ({ addOnId: addOn.addOnId, quantity: addOn.quantity ?? 1 }))
-            .sort((a, b) => a.addOnId.localeCompare(b.addOnId)),
-          technicianId: normalizedTechnicianId, // Already normalized (null or valid ID, NOT lowercased)
-          clientPhone: normalizedPhone, // 10-digit normalized (same as DB)
-          clientName: normalizedClientName, // Trimmed + empty→null
-          clientEmail: normalizedClientEmail,
-          startTime: canonicalStartTime, // UTC ISO (validated above)
-          locationId: normalizedLocationId, // Trimmed + empty→null
-          originalAppointmentId: normalizedOriginalApptId, // Trimmed + empty→null
-          googleEventReviewId: data.googleEventReviewId ?? null,
-          priceCentsOverride: data.priceCentsOverride ?? null,
-          durationMinutesOverride: data.durationMinutesOverride ?? null,
-          notes: normalizedNotes,
-          campaignTokenHash: normalizedCampaignToken
-            ? hashRetentionCampaignToken(normalizedCampaignToken)
-            : null,
-        }))
-        .digest('hex')
-        .substring(0, 16); // Short hash is sufficient
-
       idempotencyCacheKey = getBookingIdempotencyKey(salon.id, idempotencyKey);
       lockKey = getBookingLockKey(salon.id, idempotencyKey);
 
@@ -1051,6 +1224,62 @@ export async function POST(request: Request): Promise<Response> {
         console.warn('Idempotency cache read failed, proceeding without:', cacheReadError);
         idempotencyCacheKey = null; // Disable cache write too
         lockKey = null;
+      }
+    }
+
+    const preliminaryRequiredPolicy = isNewPublicBooking
+      ? resolveRequiredBookingPolicy({
+        storedPlan: salon.plan,
+        features: (salon.features as SalonFeatures | null | undefined) ?? null,
+        settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+      })
+      : null;
+
+    if (preliminaryRequiredPolicy) {
+      if (
+        !requestedPolicyAcknowledgment
+        || requestedPolicyAcknowledgment.accepted !== true
+      ) {
+        return bookingPolicyAcknowledgmentRequiredResponse(
+          preliminaryRequiredPolicy,
+        );
+      }
+      if (
+        requestedPolicyAcknowledgment.version
+        !== preliminaryRequiredPolicy.version
+      ) {
+        return bookingPolicyChangedResponse(preliminaryRequiredPolicy);
+      }
+
+      // Fast-path detection improves the response for a malicious or stale
+      // attempt reuse. The transaction-scoped unique constraint remains the
+      // race-safe authority.
+      const [existingAttempt] = await db
+        .select({
+          requestHash:
+            appointmentBookingPolicyAcknowledgmentSchema.requestHash,
+        })
+        .from(appointmentBookingPolicyAcknowledgmentSchema)
+        .where(and(
+          eq(
+            appointmentBookingPolicyAcknowledgmentSchema.salonId,
+            salon.id,
+          ),
+          eq(
+            appointmentBookingPolicyAcknowledgmentSchema.source,
+            BOOKING_POLICY_ACKNOWLEDGMENT_SOURCE,
+          ),
+          eq(
+            appointmentBookingPolicyAcknowledgmentSchema.attemptId,
+            requestedPolicyAcknowledgment.attemptId,
+          ),
+        ))
+        .limit(1);
+      if (
+        existingAttempt
+        && existingAttempt.requestHash !== requestBodyHash
+      ) {
+        return bookingPolicyAttemptReusedResponse();
       }
     }
 
@@ -2088,6 +2317,67 @@ export async function POST(request: Request): Promise<Response> {
 
     type BookingTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
+    const lockAndResolveRequiredBookingPolicyInTx = async (
+      tx: BookingTx,
+    ): Promise<RequiredBookingPolicy | null> => {
+      if (!isNewPublicBooking) {
+        return null;
+      }
+
+      // Lock order for this route is:
+      //   salon-client identity -> salon policy row -> technician advisory lock
+      //   -> appointment/children.
+      // Settings and entitlement writers lock only the salon row. Salon purge
+      // deletes children before the salon row. No audited writer takes a
+      // technician/client lock after first taking the salon row, so this short
+      // transaction-local SHARE lock does not invert an existing order.
+      //
+      // Bound only the salon-policy wait. Resetting to 0 after acquisition
+      // leaves the route's established client/technician lock behavior intact.
+      await tx.execute(sql`set local lock_timeout = '3s'`);
+      const [lockedSalon] = await tx
+        .select({
+          plan: salonSchema.plan,
+          features: salonSchema.features,
+          settings: salonSchema.settings,
+        })
+        .from(salonSchema)
+        .where(eq(salonSchema.id, salon.id))
+        .for('share')
+        .limit(1);
+      await tx.execute(sql`set local lock_timeout = '0'`);
+
+      if (!lockedSalon) {
+        throw new Error('SALON_NOT_FOUND_DURING_BOOKING');
+      }
+
+      return resolveRequiredBookingPolicy({
+        storedPlan: lockedSalon.plan,
+        features:
+          (lockedSalon.features as SalonFeatures | null | undefined) ?? null,
+        settings:
+          (lockedSalon.settings as SalonSettings | null | undefined) ?? null,
+      });
+    };
+
+    const assertCurrentBookingPolicyAcknowledgment = (
+      policy: RequiredBookingPolicy | null,
+    ): RequiredBookingPolicy | null => {
+      if (!policy) {
+        return null;
+      }
+      if (
+        !requestedPolicyAcknowledgment
+        || requestedPolicyAcknowledgment.accepted !== true
+      ) {
+        throw new BookingPolicyAcknowledgmentRequiredError(policy);
+      }
+      if (requestedPolicyAcknowledgment.version !== policy.version) {
+        throw new BookingPolicyChangedError(policy);
+      }
+      return policy;
+    };
+
     const finalizeBookingPricingInTx = async (
       tx: BookingTx,
       salonClient: Pick<OperationalSalonClientContact, 'id' | 'phone'>,
@@ -2658,6 +2948,41 @@ export async function POST(request: Request): Promise<Response> {
       try {
         const transactionalResult = await runSerializedBookingTransaction(
           async (tx, lockedSalonClient) => {
+            const currentRequiredPolicy
+              = assertCurrentBookingPolicyAcknowledgment(
+                await lockAndResolveRequiredBookingPolicyInTx(tx),
+              );
+
+            if (currentRequiredPolicy && requestedPolicyAcknowledgment) {
+              const [existingAttempt] = await tx
+                .select({
+                  requestHash:
+                    appointmentBookingPolicyAcknowledgmentSchema.requestHash,
+                })
+                .from(appointmentBookingPolicyAcknowledgmentSchema)
+                .where(and(
+                  eq(
+                    appointmentBookingPolicyAcknowledgmentSchema.salonId,
+                    salon.id,
+                  ),
+                  eq(
+                    appointmentBookingPolicyAcknowledgmentSchema.source,
+                    BOOKING_POLICY_ACKNOWLEDGMENT_SOURCE,
+                  ),
+                  eq(
+                    appointmentBookingPolicyAcknowledgmentSchema.attemptId,
+                    requestedPolicyAcknowledgment.attemptId,
+                  ),
+                ))
+                .limit(1);
+              if (
+                existingAttempt
+                && existingAttempt.requestHash !== requestBodyHash
+              ) {
+                throw new BookingPolicyAttemptReusedError();
+              }
+            }
+
             if (technician) {
             // Re-validate the slot against committed bookings while holding a
             // per-technician advisory lock, so two concurrent requests for the
@@ -2750,6 +3075,21 @@ export async function POST(request: Request): Promise<Response> {
 
             if (!createdAppointment) {
               throw new Error('Failed to create appointment');
+            }
+
+            if (currentRequiredPolicy && requestedPolicyAcknowledgment) {
+              await tx
+                .insert(appointmentBookingPolicyAcknowledgmentSchema)
+                .values(buildPublicBookingPolicyAcknowledgmentSnapshot({
+                  salonId: salon.id,
+                  appointmentId: createdAppointment.id,
+                  policy: currentRequiredPolicy,
+                  scheduledStartAt: createdAppointment.startTime,
+                  scheduledEndAt: createdAppointment.endTime,
+                  attemptId: requestedPolicyAcknowledgment.attemptId,
+                  requestHash: requestBodyHash,
+                  appointmentUpdatedAt: createdAppointment.updatedAt,
+                }));
             }
 
             await tx.insert(appointmentAccessTokenSchema).values({
@@ -2897,6 +3237,23 @@ export async function POST(request: Request): Promise<Response> {
         appointmentAddOns = transactionalResult.appointmentAddOns;
         salonClient = transactionalResult.salonClient;
       } catch (error) {
+        if (error instanceof BookingPolicyAcknowledgmentRequiredError) {
+          return bookingPolicyAcknowledgmentRequiredResponse(
+            error.bookingPolicy,
+          );
+        }
+        if (error instanceof BookingPolicyChangedError) {
+          return bookingPolicyChangedResponse(error.bookingPolicy);
+        }
+        if (
+          error instanceof BookingPolicyAttemptReusedError
+          || isBookingPolicyAttemptConstraintViolation(error)
+        ) {
+          return bookingPolicyAttemptReusedResponse();
+        }
+        if (isBookingPolicyLockTimeout(error)) {
+          return bookingPolicyCheckRetryResponse();
+        }
         if (error instanceof BookingActiveAppointmentError) {
           return bookingActiveAppointmentResponse(bookingSubjectMode);
         }
