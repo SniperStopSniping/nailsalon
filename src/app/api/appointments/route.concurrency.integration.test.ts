@@ -2624,6 +2624,273 @@ suite('POST /api/appointments — genuine concurrency', () => {
     expect(acknowledgments[0]!.requestHash).toMatch(/^[a-f0-9]{64}$/u);
   });
 
+  it('keeps initial, retry, and manual-resend policy content bound to committed evidence', async () => {
+    await configureRequiredPolicy();
+    type EmailPayload = {
+      to: string;
+      subject: string;
+      text: string;
+      html: string;
+    };
+    let evidenceSeenAtInitialDelivery:
+    Awaited<ReturnType<typeof policyAcknowledgments>> = [];
+    let initialPayload: EmailPayload | null = null;
+    sendTransactionalEmailDetailed.mockImplementationOnce(
+      async (payload: EmailPayload) => {
+        evidenceSeenAtInitialDelivery = await policyAcknowledgments();
+        initialPayload = payload;
+        return {
+          ok: false,
+          errorCode: 'RESEND_HTTP_500',
+          providerMessageId: null,
+        };
+      },
+    );
+
+    const { POST } = await import('./route');
+    const response = await POST(bookingRequest({
+      bookingPolicyAcknowledgment: policyAcknowledgment(),
+    }));
+
+    expect(response.status).toBe(201);
+
+    const [appointment] = await activeAppointments();
+
+    expect(appointment).toBeDefined();
+    expect(evidenceSeenAtInitialDelivery).toHaveLength(1);
+    expect(evidenceSeenAtInitialDelivery[0]).toMatchObject({
+      salonId: SALON_ID,
+      appointmentId: appointment!.id,
+      source: 'public_booking',
+      policyTitleSnapshot: POLICY_TITLE,
+      policyTextSnapshot: POLICY_TEXT,
+      acknowledgmentTextSnapshot: ACKNOWLEDGMENT_TEXT,
+    });
+    expect(initialPayload).toEqual(expect.objectContaining({
+      text: expect.stringContaining(
+        `Booking policy acknowledged\n${POLICY_TITLE}\n${POLICY_TEXT}`,
+      ),
+      html: expect.stringContaining('Booking policy acknowledged'),
+    }));
+
+    const evidenceAfterInitialFailure = await policyAcknowledgments();
+
+    expect(evidenceAfterInitialFailure).toEqual(evidenceSeenAtInitialDelivery);
+
+    const editedPolicy = {
+      title: 'Later edited policy',
+      text: 'These later-edited terms must not replace stored evidence.',
+      acknowledgmentText:
+        'This later-edited acknowledgment must not replace stored evidence.',
+    };
+    await configureRequiredPolicy(editedPolicy);
+    const [initialDelivery] = await db
+      .select({
+        id: schema.notificationDeliverySchema.id,
+        status: schema.notificationDeliverySchema.status,
+        retryable: schema.notificationDeliverySchema.retryable,
+      })
+      .from(schema.notificationDeliverySchema)
+      .where(and(
+        eq(schema.notificationDeliverySchema.salonId, SALON_ID),
+        eq(
+          schema.notificationDeliverySchema.appointmentId,
+          appointment!.id,
+        ),
+        eq(
+          schema.notificationDeliverySchema.purpose,
+          'booking_confirmation',
+        ),
+      ))
+      .limit(1);
+
+    expect(initialDelivery).toMatchObject({
+      status: 'failed',
+      retryable: true,
+    });
+
+    sendTransactionalEmailDetailed.mockResolvedValue({
+      ok: true,
+      errorCode: null,
+      providerMessageId: 'snapshot-retry',
+    });
+    const {
+      resendCustomerBookingConfirmationEmail,
+      retryCustomerBookingConfirmationEmail,
+    } = await import('@/libs/customerBookingEmail');
+
+    const retryCallStart = sendTransactionalEmailDetailed.mock.calls.length;
+
+    await expect(retryCustomerBookingConfirmationEmail({
+      salonId: SALON_ID,
+      appointmentId: appointment!.id,
+      deliveryId: initialDelivery!.id,
+    })).resolves.toMatchObject({ ok: true });
+
+    const retryPayloads = sendTransactionalEmailDetailed.mock.calls
+      .slice(retryCallStart)
+      .map(([payload]) => payload as EmailPayload)
+      .filter(payload =>
+        payload.to === 'racer.one@example.invalid'
+        && payload.subject === 'Concurrency Salon booking confirmed',
+      );
+
+    expect(retryPayloads).toHaveLength(1);
+
+    const retryPayload = retryPayloads[0]!;
+
+    expect(retryPayload.text).toContain(
+      `Booking policy acknowledged\n${POLICY_TITLE}\n${POLICY_TEXT}`,
+    );
+    expect(retryPayload.text).toContain(ACKNOWLEDGMENT_TEXT);
+    expect(retryPayload.text).not.toContain(editedPolicy.title);
+    expect(retryPayload.text).not.toContain(editedPolicy.text);
+    expect(await policyAcknowledgments()).toEqual(
+      evidenceSeenAtInitialDelivery,
+    );
+
+    sendTransactionalEmailDetailed.mockResolvedValue({
+      ok: true,
+      errorCode: null,
+      providerMessageId: 'snapshot-manual-resend',
+    });
+
+    const resendCallStart = sendTransactionalEmailDetailed.mock.calls.length;
+
+    await expect(resendCustomerBookingConfirmationEmail({
+      salonId: SALON_ID,
+      appointmentId: appointment!.id,
+    })).resolves.toMatchObject({ ok: true });
+
+    const resendPayloads = sendTransactionalEmailDetailed.mock.calls
+      .slice(resendCallStart)
+      .map(([payload]) => payload as EmailPayload)
+      .filter(payload =>
+        payload.to === 'racer.one@example.invalid'
+        && payload.subject === 'Concurrency Salon booking confirmed',
+      );
+
+    expect(resendPayloads).toHaveLength(1);
+
+    const resendPayload = resendPayloads[0]!;
+
+    expect(resendPayload.text).toContain(
+      `Booking policy acknowledged\n${POLICY_TITLE}\n${POLICY_TEXT}`,
+    );
+    expect(resendPayload.text).toContain(ACKNOWLEDGMENT_TEXT);
+    expect(resendPayload.text).not.toContain(editedPolicy.title);
+    expect(resendPayload.text).not.toContain(editedPolicy.text);
+    expect(await policyAcknowledgments()).toEqual(
+      evidenceSeenAtInitialDelivery,
+    );
+  });
+
+  it('uses informational policy only for a tenant-scoped zero-row public-booking lookup', async () => {
+    const currentPolicy = {
+      title: 'Current informational policy',
+      text: 'Current informational terms for historical bookings.',
+      acknowledgmentText: 'Current acknowledgment wording.',
+    };
+    await configureRequiredPolicy(currentPolicy);
+    const target = await seedAppointment({
+      id: 'appt_reschedule_evidence_only',
+      status: 'confirmed',
+      salonClientId: null,
+      clientPhone: '4165552871',
+      clientEmail: 'reschedule-only@example.invalid',
+      startTime: '2099-10-06T15:00:00.000Z',
+    });
+    const decoy = await seedAppointment({
+      id: 'appt_public_booking_evidence_decoy',
+      status: 'confirmed',
+      salonClientId: null,
+      clientPhone: '4165552872',
+      clientEmail: 'decoy@example.invalid',
+      technicianId: SECOND_TECH_ID,
+      startTime: '2099-10-07T15:00:00.000Z',
+    });
+    await db
+      .insert(schema.appointmentBookingPolicyAcknowledgmentSchema)
+      .values([
+        acknowledgmentSnapshotValues(target, {
+          source: 'public_reschedule',
+          policyTitleSnapshot: 'Reschedule-only evidence',
+          policyTextSnapshot: 'Reschedule-only evidence terms.',
+          acknowledgmentTextSnapshot:
+            'Reschedule-only acknowledgment wording.',
+        }),
+        acknowledgmentSnapshotValues(decoy, {
+          policyTitleSnapshot: 'Other appointment evidence',
+          policyTextSnapshot: 'Other appointment evidence terms.',
+          acknowledgmentTextSnapshot:
+            'Other appointment acknowledgment wording.',
+        }),
+      ]);
+
+    const bookingPolicyQueries: Array<{
+      query: string;
+      params: unknown[];
+    }> = [];
+    const loggedDb = drizzle(pool, {
+      schema,
+      logger: {
+        logQuery(query, params) {
+          if (query.includes('appointment_booking_policy_acknowledgment')) {
+            bookingPolicyQueries.push({ query, params });
+          }
+        },
+      },
+    });
+    holder.db = loggedDb;
+    let result: boolean;
+    try {
+      const { sendCustomerBookingConfirmationEmail }
+        = await import('@/libs/customerBookingEmail');
+      result = await sendCustomerBookingConfirmationEmail({
+        salonId: SALON_ID,
+        appointmentId: target.id,
+        salonName: 'Concurrency Salon',
+        clientName: 'Historical Racer',
+        serviceNames: ['Concurrency Service'],
+        startTime: target.startTime.toISOString(),
+        timeZone: 'America/Toronto',
+        manageUrl: 'https://app.luster.test/manage/historical',
+      });
+    } finally {
+      holder.db = db;
+    }
+
+    expect(result!).toBe(true);
+
+    const payload = sendTransactionalEmailDetailed.mock.calls[0]?.[0] as {
+      text: string;
+      html: string;
+    };
+
+    expect(payload.text).toContain(
+      `${currentPolicy.title}\n${currentPolicy.text}`,
+    );
+    expect(payload.text).not.toContain('Booking policy acknowledged');
+    expect(payload.text).not.toContain('Reschedule-only evidence');
+    expect(payload.text).not.toContain('Other appointment evidence');
+    expect(payload.html).not.toContain('Booking policy acknowledged');
+
+    expect(bookingPolicyQueries).toHaveLength(1);
+
+    const evidenceQuery = bookingPolicyQueries[0]!;
+
+    expect(evidenceQuery.query).toContain('"salon_id"');
+    expect(evidenceQuery.query).toContain('"appointment_id"');
+    expect(evidenceQuery.query).toContain('"source"');
+    expect(evidenceQuery.query.toLowerCase()).toContain('limit');
+    expect(evidenceQuery.params).toEqual(expect.arrayContaining([
+      SALON_ID,
+      target.id,
+      'public_booking',
+      2,
+    ]));
+  });
+
   it('rolls back the appointment and transaction-created children when the acknowledgment insert fails', async () => {
     await configureRequiredPolicy();
     await pool.query(`
