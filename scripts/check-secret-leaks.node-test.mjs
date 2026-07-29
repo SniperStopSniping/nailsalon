@@ -1,6 +1,5 @@
 // Kept outside *.test.* so the repository's Vitest-only changed-test selector
 // does not claim this explicitly invoked Node test suite.
-/* eslint-disable test/no-import-node-test */
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
