@@ -1,3 +1,10 @@
+## [1.42.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.42.2...v1.42.3) (2026-07-29)
+
+
+### Bug Fixes
+
+* retire legacy customer portal routes ([#71](https://github.com/SniperStopSniping/nailsalon/issues/71)) ([e4991cd](https://github.com/SniperStopSniping/nailsalon/commit/e4991cd149298ebd0042845a9c7952907ed281d6))
+
 ## [1.42.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.42.1...v1.42.2) (2026-07-29)
 
 
