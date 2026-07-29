@@ -546,6 +546,56 @@ test('accepts placeholders, reserved addresses, identifiers, hashes, and synthet
   });
 });
 
+test('does not classify minified password-related UI copy as a credential', () => {
+  withRepository((repository) => {
+    write(repository, '.gitignore', '.next/\n');
+    commit(repository, 'test: ignore generated client output');
+    const localizationKeys = [
+      'block_button_reset_password',
+      'form_field_action_forgot_password',
+      'form_password_length_too_short',
+      'form_password_pwned',
+      'form_password_pwned_sign_in',
+      'primary_button_set_password',
+    ];
+    write(
+      repository,
+      '.next/static/chunks/localization.js',
+      `const messages={${localizationKeys.map(
+        key => `${key}:"Synthetic password guidance contains 12 safe words."`,
+      ).join(',')}};`,
+    );
+    expectPass(scan(repository));
+
+    const secret = `Adjacent${SECRET_BODY}`;
+    write(
+      repository,
+      '.next/static/chunks/localization.js',
+      `const messages={${localizationKeys[0]}:"Safe reset password copy.",password:"${secret}"};`,
+    );
+    expectFinding(scan(repository), 'GENERIC_SECRET_ASSIGNMENT', secret);
+
+    write(
+      repository,
+      '.next/static/chunks/localization.js',
+      `const messages={${localizationKeys[0]}:"${secret}"};`,
+    );
+    expectFinding(scan(repository), 'GENERIC_SECRET_ASSIGNMENT', secret);
+
+    const providerSecretValue = providerSecret(['whsec', ''].join('_'));
+    write(
+      repository,
+      '.next/static/chunks/localization.js',
+      `const messages={${localizationKeys[0]}:"${providerSecretValue}"};`,
+    );
+    expectFinding(
+      scan(repository),
+      'STRIPE_WEBHOOK_SIGNING_SECRET',
+      providerSecretValue,
+    );
+  });
+});
+
 test('does not exempt sensitive hashes, UUIDs, or invalid public identifiers', () => {
   withRepository((repository) => {
     const sensitiveHash = [

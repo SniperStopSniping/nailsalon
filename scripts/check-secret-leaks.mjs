@@ -66,6 +66,18 @@ const SAFE_EXACT_PLACEHOLDERS = new Set([
   'ci-placeholder-not-a-secret',
 ]);
 
+// Clerk's generated localization catalog uses credential words in UI-message
+// identifiers. Only these exact keys may contain bounded, multi-word copy;
+// token-like values and every adjacent assignment remain subject to scanning.
+const SAFE_LOCALIZATION_COPY_KEYS = new Set([
+  'BLOCK_BUTTON_RESET_PASSWORD',
+  'FORM_FIELD_ACTION_FORGOT_PASSWORD',
+  'FORM_PASSWORD_LENGTH_TOO_SHORT',
+  'FORM_PASSWORD_PWNED',
+  'FORM_PASSWORD_PWNED_SIGN_IN',
+  'PRIMARY_BUTTON_SET_PASSWORD',
+]);
+
 class SafeScannerError extends Error {
   constructor(message) {
     super(message);
@@ -253,6 +265,15 @@ function isHighEntropy(value) {
     && /[A-Z]/.test(compact)
     && /\d/.test(compact);
   return hasVariety && shannonEntropy(compact) >= 3.4;
+}
+
+function isSafeLocalizationCopy(key, value) {
+  const words = value.trim().split(/\s+/);
+  return SAFE_LOCALIZATION_COPY_KEYS.has(key)
+    && value.length <= 256
+    && !/[\r\n\t]/.test(value)
+    && words.length >= 2
+    && words.length <= 40;
 }
 
 function isSafeUuid(value, key) {
@@ -671,6 +692,10 @@ function scanAssignments(path, text, source, findings) {
           classification: RULES.WEBHOOK_SIGNING_SECRET,
           source,
         });
+        continue;
+      }
+
+      if (isSafeLocalizationCopy(key, value)) {
         continue;
       }
 
