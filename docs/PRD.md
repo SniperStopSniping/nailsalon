@@ -89,9 +89,13 @@ Franchise-style SaaS where:
 - Browse and select services
 - Choose preferred technician
 - Pick appointment date and time
-- Confirm booking
+- Complete a guest booking with name, email, and phone
+- Manage an appointment through its tokenized manage link
+- Use find-booking when the manage link is unavailable
+- Access a customer profile and preferences (future feature)
 - View appointment history (future feature)
 - Participate in loyalty/rewards program (future feature)
+- Participate in referrals (future feature)
 
 ---
 
@@ -185,8 +189,9 @@ The core client experience is a 4-step booking wizard:
 
 **On Successful Confirmation (MVP):**
 - Appointment is persisted to the database
-- Linked to `salonId`, `serviceId`, `technicianId`, and client (via phone)
+- Linked to `salonId`, `serviceId`, `technicianId`, and guest contact details
 - User sees confirmation screen with booking details
+- User receives the canonical server-supplied tokenized manage URL
 - Booking status set to `confirmed`
 
 ### 4.2 Admin: Service Catalog Management (MVP - Planned)
@@ -217,67 +222,41 @@ type Service = {
 };
 ```
 
-### 4.3 Phone-First Authentication
+### 4.3 Current Customer Self-Service
 
-All users authenticate via SMS OTP:
+Customers currently book as guests; no customer authentication or account session
+is required. The confirmation flow uses the canonical server-supplied tokenized
+manage URL for appointment self-service, with find-booking available as a safe
+fallback.
 
-1. User enters phone number
-2. System sends 6-digit OTP via SMS
-3. User enters code to verify
-4. Session is established
-
-**Key Behaviors:**
-- Auto-advance when phone number is complete (10 digits)
-- Auto-verify when code is complete (6 digits)
-- "Change phone number" option to go back
-- Same auth flow for clients, owners, and technicians
+The legacy customer portal is unavailable. Profile, appointment history,
+preferences, rewards, referrals, membership, payment methods, and gallery are not
+currently shipped customer account surfaces.
 
 ---
 
 ## 5. Authentication
 
-### 5.1 Authentication Method
+### 5.1 Current Customer Authentication State
 
-**Phone-first SMS OTP** is the only authentication method:
+Customer authentication is unavailable. The retired customer phone-OTP and legacy
+session flows remain permanently disabled, and guest booking does not create or
+renew a customer session. Owner and workforce authentication are separate systems
+and are not changed by this customer boundary.
 
-- No email/password
-- No social login (Google, Apple) - future roadmap
-- No guest booking - authentication required
-- No third-party auth providers (e.g., Clerk)
+### 5.2 Planned Customer Account Authentication
 
-### 5.2 Authentication Flow
+Customer accounts are planned work, not a currently implemented feature. The new
+architecture will be tenant-scoped and use passwordless email OTP with secure
+customer sessions. It must be implemented separately from the retired customer
+portal and legacy phone-authentication flow.
 
-```
-┌─────────────────┐
-│  Enter Phone    │
-│  +1 (xxx) xxx-xxxx
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Send OTP via   │
-│  SMS (Twilio)   │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Enter 6-digit  │
-│  Verification   │
-└────────┬────────┘
-         │
-         ▼
-┌─────────────────┐
-│  Session        │
-│  Established    │
-└─────────────────┘
-```
+### 5.3 Planned Customer Session Management
 
-### 5.3 Session Management
-
-- Sessions stored securely (implementation TBD)
-- Session persists across page refreshes
-- Logout clears session data
-- Session timeout policy TBD
+- Sessions will be securely stored and scoped to the salon tenant.
+- Session issuance, renewal, timeout, and logout behavior remain planned work.
+- My Bookings will use the new customer account/session architecture.
+- No current guest booking or tokenized manage flow depends on a customer session.
 
 ---
 
@@ -302,9 +281,9 @@ Super Admin (Platform)
 | Manage salon branding | ✓ | ✓ | - | - |
 | Manage services | ✓ | ✓ | - | - |
 | Manage technicians | ✓ | ✓ | - | - |
-| View salon appointments | ✓ | ✓ | Own only | Own only |
+| View salon appointments | ✓ | ✓ | Own only | Tokenized link only |
 | Book appointments | - | - | - | ✓ |
-| View own profile | ✓ | ✓ | ✓ | ✓ |
+| View own profile | ✓ | ✓ | ✓ | Planned |
 
 ---
 
@@ -319,7 +298,7 @@ Super Admin (Platform)
   - Search       - View techs   - Calendar     - Summary
   - Categories   - See ratings  - Time slots   - Animation
   - Multi-select - Select one   - Morning/PM   - Confetti
-  - Auth prompt  - "Any" option - Select slot  - Next steps
+  - Guest flow   - "Any" option - Select slot  - Manage link
 ```
 
 **Step 1: Service Selection**
@@ -330,7 +309,6 @@ Super Admin (Platform)
 - 2-column grid of service cards
 - Multi-selection with checkmarks
 - Running total in sticky footer
-- Auth prompt if not logged in
 - "Continue" navigates to tech selection
 
 **Step 2: Technician Selection**
@@ -364,20 +342,20 @@ Super Admin (Platform)
   - Service details
   - Date and time
   - Total price
-  - Points earned
+- Editable guest name, email, and phone before submission
 - "Pay Now" button (future)
-- "View or Change Appointment" button
-- "Back to Profile" link
+- Canonical tokenized manage link for the created appointment
 
-### 7.2 Blocking Login Modal
+### 7.2 Guest Booking and Appointment Management
 
-If user tries to proceed without authentication:
+1. Customer completes the booking flow without signing in.
+2. Customer supplies editable guest name, email, and phone details.
+3. Confirmation exposes the server-supplied tokenized manage URL.
+4. The tokenized manage route supports appointment self-service.
+5. Find-booking provides the safe recovery fallback when needed.
 
-1. Modal appears with phone input
-2. User enters phone number
-3. Code is sent and verification input appears
-4. On success, modal closes and flow continues
-5. Cancel option to close modal
+The retired portal, customer login modal, and legacy phone-OTP flow are not current
+customer entry points.
 
 ---
 
@@ -428,6 +406,8 @@ The following features are **NOT in current scope** but planned for future relea
 | **Referral Program** | Invite friends, earn bonuses | High |
 | **Client Profile** | View/edit personal info | Medium |
 | **Appointment History** | Past bookings list | Medium |
+| **Preferences** | Store tenant-scoped customer preferences | Medium |
+| **My Bookings** | Authenticated list of the customer's bookings | High |
 | **Gallery/Portfolio** | Browse nail art examples | Low |
 | **Favorites** | Save preferred techs/services | Low |
 | **SMS Notifications** | Booking confirmation, 24h reminder, 3h reminder, follow-ups | High |
@@ -460,7 +440,7 @@ The following features are **NOT in current scope** but planned for future relea
 
 | Feature | Description | Priority |
 |---------|-------------|----------|
-| **Email/Password Auth** | Alternative login method | Low |
+| **Customer Email OTP** | Tenant-scoped passwordless sign-in with secure customer sessions | High |
 | **Social Login** | Google, Apple sign-in | Low |
 | **Custom Domains** | salon.com instead of subdomain | Medium |
 | **Receptionist Role** | Limited booking-only access | Low |
@@ -479,7 +459,7 @@ The following features are **NOT in current scope** but planned for future relea
 | **BIAB** | Builder In A Bottle - nail service type |
 | **Gel-X** | Press-on extension nail system |
 | **Tech/Artist** | Nail technician who performs services |
-| **OTP** | One-Time Password (SMS verification code) |
+| **OTP** | One-Time Password verification code; planned customer accounts use email delivery |
 
 ---
 
