@@ -7,12 +7,6 @@ const SERVICE_ID_CANDIDATES = Array.from(new Set([
   'svc_biab-short',
   'srv_biab-short',
 ]));
-const LEGACY_AUTH_PATHS = new Set([
-  '/api/auth/validate-session',
-  '/api/auth/send-otp',
-  '/api/auth/verify-otp',
-]);
-
 async function resolveWorkingServiceId(page: Page): Promise<string> {
   for (const serviceId of SERVICE_ID_CANDIDATES) {
     await page.goto(`${appPath('/book/confirm')}?salonSlug=${e2eConfig.salonSlug}&serviceIds=${serviceId}&techId=any&date=2030-03-20&time=10:00`);
@@ -32,11 +26,6 @@ async function installLegacyAuthTripwire(page: Page) {
 
   await page.route('**/api/auth/**', async (route) => {
     const path = new URL(route.request().url()).pathname;
-    if (!LEGACY_AUTH_PATHS.has(path)) {
-      await route.fallback();
-      return;
-    }
-
     requests.push(path);
     await route.fulfill({
       status: 410,
@@ -94,6 +83,24 @@ async function acknowledgeBookingPolicyWhenRequired(page: Page) {
 }
 
 test.describe('Customer journeys', () => {
+  test('retired change-appointment entry points return not found without legacy auth traffic', async ({ page }) => {
+    const legacyAuthRequests = await installLegacyAuthTripwire(page);
+    const retiredPaths = [
+      `/change-appointment?salonSlug=${e2eConfig.salonSlug}`,
+      `/fr/change-appointment?salonSlug=${e2eConfig.salonSlug}`,
+      `/fr/${e2eConfig.salonSlug}/change-appointment`,
+    ];
+
+    for (const retiredPath of retiredPaths) {
+      const response = await page.goto(retiredPath);
+
+      expect(response?.status(), `${retiredPath} should return HTTP 404`).toBe(404);
+      await expect(page.getByText(/change your appointment/i)).toHaveCount(0);
+    }
+
+    expect(legacyAuthRequests).toEqual([]);
+  });
+
   test('stale legacy auth cannot establish identity and guest booking still confirms', async ({ page }) => {
     const legacyAuthRequests = await installLegacyAuthTripwire(page);
     await seedStaleLegacyCustomerCookies(page);
@@ -101,6 +108,7 @@ test.describe('Customer journeys', () => {
     let appointmentPostCount = 0;
     let postedBody: Record<string, unknown> | null = null;
     let appointmentCookieHeader = '';
+    const canonicalManageUrl = appPath(`/${e2eConfig.salonSlug}/manage/stale-cookie-test-token`);
 
     await page.route('**/api/appointments', async (route) => {
       if (route.request().method() !== 'POST') {
@@ -121,7 +129,7 @@ test.describe('Customer journeys', () => {
             appointment: {
               id: 'appt_confirmed_1',
             },
-            manageUrl: appPath('/manage/stale-cookie-test-token'),
+            manageUrl: canonicalManageUrl,
           },
         }),
       });
@@ -148,10 +156,19 @@ test.describe('Customer journeys', () => {
 
     await expect.poll(() => appointmentPostCount).toBe(1);
     await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
-    await expect(page.getByRole('button', { name: /manage this appointment/i })).toBeVisible();
+
+    const manageLink = page.getByRole('link', { name: /manage this appointment/i });
+
+    await expect(manageLink).toBeVisible();
+    await expect(manageLink).toHaveAttribute('href', canonicalManageUrl);
+    await expect(page.locator('a[href*="/change-appointment"]')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /sign out|book for someone else/i })).toHaveCount(0);
+    await expect(page.locator('a[href*="/profile"], a[href*="/rewards"], a[href*="/payment-methods"]')).toHaveCount(0);
+    await expect(page.getByText('appt_confirmed_1', { exact: true })).toHaveCount(0);
 
     expect(postedBody?.serviceIds).toEqual([serviceId]);
     expect(postedBody?.salonSlug).toBe(e2eConfig.salonSlug);
+    expect(postedBody?.bookingSubject).toBe('guest');
     expect(postedBody?.clientName).toBe('Fresh Guest');
     expect(postedBody?.clientEmail).toBe('fresh@example.com');
     expect(postedBody?.clientPhone).toBe('6475550199');
@@ -159,6 +176,63 @@ test.describe('Customer journeys', () => {
     expect(JSON.stringify(postedBody)).not.toContain('stale@example.com');
     expect(JSON.stringify(postedBody)).not.toContain('4165550000');
     expect(appointmentCookieHeader).toContain('client_session=stale-e2e-session');
+    expect(legacyAuthRequests).toEqual([]);
+  });
+
+  test('confirmation without a manage URL stays successful and offers tenant-safe recovery', async ({ page }) => {
+    const legacyAuthRequests = await installLegacyAuthTripwire(page);
+
+    await page.route('**/api/appointments', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.fallback();
+        return;
+      }
+
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          data: {
+            appointmentId: 'appt_without_manage_url',
+            appointment: {
+              id: 'appt_without_manage_url',
+            },
+          },
+        }),
+      });
+    });
+
+    const serviceId = await resolveWorkingServiceId(page);
+    await page.goto(`${appPath('/book/confirm')}?salonSlug=${e2eConfig.salonSlug}&serviceIds=${serviceId}&techId=any&date=2030-03-20&time=10:00`);
+
+    await page.getByLabel('Customer name').fill('Recovery Guest');
+    await page.getByLabel('Customer email').fill('recovery@example.com');
+    await page.getByLabel('Customer phone').fill('6475550188');
+    await acknowledgeBookingPolicyWhenRequired(page);
+    await page.getByRole('button', { name: /confirm appointment/i }).click();
+
+    await expect(page.getByRole('heading', { name: /appointment confirmed/i })).toBeVisible();
+    await expect(page.getByRole('status')).toContainText(/private management link is not available/i);
+
+    const recoveryLink = page.getByRole('link', { name: /find my booking to receive a secure management link/i });
+
+    await expect(recoveryLink).toBeVisible();
+
+    const recoveryHref = await recoveryLink.getAttribute('href');
+
+    expect(recoveryHref).not.toBeNull();
+
+    const recoveryUrl = new URL(recoveryHref!, page.url());
+
+    expect(recoveryUrl.pathname).toMatch(appPathPattern('/find-booking'));
+    expect([
+      ...recoveryUrl.pathname.split('/'),
+      recoveryUrl.searchParams.get('salonSlug'),
+    ]).toContain(e2eConfig.salonSlug);
+
+    await expect(page.getByRole('link', { name: /manage this appointment/i })).toHaveCount(0);
+    await expect(page.locator('a[href*="/change-appointment"]')).toHaveCount(0);
+    await expect(page.getByText('appt_without_manage_url', { exact: true })).toHaveCount(0);
     expect(legacyAuthRequests).toEqual([]);
   });
 
@@ -194,6 +268,33 @@ test.describe('Customer journeys', () => {
       ...confirmationUrl.pathname.split('/'),
       confirmationUrl.searchParams.get('salonSlug'),
     ]).toContain(e2eConfig.salonSlug);
+    expect(legacyAuthRequests).toEqual([]);
+  });
+
+  test('tech booking remains usable on mobile without the retired floating dock', async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    const legacyAuthRequests = await installLegacyAuthTripwire(page);
+    const serviceId = await resolveWorkingServiceId(page);
+
+    await page.goto(`${appPath('/book/tech')}?salonSlug=${e2eConfig.salonSlug}&serviceIds=${serviceId}`);
+
+    await expect(page.getByRole('heading', { name: /choose your artist/i })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: /bottom navigation/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /go to invite|go to rewards|go to profile/i })).toHaveCount(0);
+
+    const anyArtist = page.getByRole('button', { name: /surprise me with any available artist/i });
+
+    await expect(anyArtist).toBeEnabled();
+
+    await anyArtist.click();
+
+    await expect(page).toHaveURL(appPathPattern('/book/time'));
+
+    const horizontalOverflow = await page.evaluate(
+      () => document.documentElement.scrollWidth > window.innerWidth,
+    );
+
+    expect(horizontalOverflow).toBe(false);
     expect(legacyAuthRequests).toEqual([]);
   });
 });

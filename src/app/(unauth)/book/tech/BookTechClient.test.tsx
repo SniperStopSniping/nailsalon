@@ -9,6 +9,7 @@ const {
   routerPush,
   setTechnicianId,
   syncFromUrl,
+  bookingFloatingDockRender,
   blockingLoginModalRender,
   bookingPhoneLoginRender,
   legacyAuthFetch,
@@ -17,6 +18,7 @@ const {
   routerPush: vi.fn(),
   setTechnicianId: vi.fn(),
   syncFromUrl: vi.fn(),
+  bookingFloatingDockRender: vi.fn(),
   blockingLoginModalRender: vi.fn(),
   bookingPhoneLoginRender: vi.fn(),
   legacyAuthFetch: vi.fn(),
@@ -57,7 +59,10 @@ vi.mock('@/components/booking/BookingStepHeader', () => ({
 }));
 
 vi.mock('@/components/booking/BookingFloatingDock', () => ({
-  BookingFloatingDock: () => null,
+  BookingFloatingDock: () => {
+    bookingFloatingDockRender();
+    return <nav aria-label="Legacy customer account dock">Account dock</nav>;
+  },
 }));
 
 vi.mock('@/components/booking/BookingPhoneLogin', () => ({
@@ -200,7 +205,7 @@ describe('BookTechClient', () => {
   it('removes legacy login UI and lets a signed-out guest continue from a tech-first flow', () => {
     vi.useFakeTimers();
 
-    render(
+    const { container } = render(
       <BookTechClient
         technicians={[{
           id: 'tech_1',
@@ -227,6 +232,9 @@ describe('BookTechClient', () => {
     expect(screen.queryByRole('button', { name: /send code/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /verify/i })).not.toBeInTheDocument();
     expect(screen.queryByText(/log in|sign in|customer login/i)).not.toBeInTheDocument();
+    expect(bookingFloatingDockRender).not.toHaveBeenCalled();
+    expect(screen.queryByRole('navigation', { name: /legacy customer account dock/i })).not.toBeInTheDocument();
+    expect(container.querySelector('.h-16')).not.toBeInTheDocument();
     expect(legacyAuthFetch).not.toHaveBeenCalled();
 
     const anyArtistButton = screen.getByRole('button', { name: /surprise me/i });
