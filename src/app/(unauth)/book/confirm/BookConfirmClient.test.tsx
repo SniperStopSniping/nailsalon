@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
-const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpen, navigationMock, sessionMock, bookingExperienceMock } = vi.hoisted(() => ({
+const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpen, navigationMock, bookingExperienceMock } = vi.hoisted(() => ({
   bookingExperienceMock: {
     confirmationMessage: null as string | null,
     policy: {
@@ -36,12 +36,6 @@ const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpe
       },
     },
   },
-  sessionMock: {
-    isLoggedIn: true,
-    clientName: 'Ava' as string | null,
-    clientEmail: 'ava@example.com' as string | null,
-    phone: '4165550101',
-  },
   routerBack: vi.fn(),
   routerPush: vi.fn(),
   routerReplace: vi.fn(),
@@ -70,18 +64,6 @@ vi.mock('next/navigation', () => ({
 vi.mock('@/hooks/useBookingState', () => ({
   useBookingState: () => ({
     syncFromUrl,
-  }),
-}));
-
-vi.mock('@/hooks/useClientSession', () => ({
-  useClientSession: () => ({
-    isCheckingSession: false,
-    handleLoginSuccess: vi.fn(),
-    validateSession: vi.fn(),
-    isLoggedIn: sessionMock.isLoggedIn,
-    clientName: sessionMock.clientName,
-    clientEmail: sessionMock.clientEmail,
-    phone: sessionMock.phone,
   }),
 }));
 
@@ -131,10 +113,11 @@ describe('BookConfirmClient', () => {
     vi.stubGlobal('fetch', fetchMock);
     window.open = windowOpen;
     sessionStorage.clear();
-    sessionMock.isLoggedIn = true;
-    sessionMock.clientName = 'Ava';
-    sessionMock.clientEmail = 'ava@example.com';
-    sessionMock.phone = '4165550101';
+    sessionStorage.setItem('luster_booking_contact', JSON.stringify({
+      name: 'Ava',
+      email: 'ava@example.com',
+      phone: '4165550101',
+    }));
     bookingExperienceMock.confirmationMessage = null;
     Object.assign(bookingExperienceMock.policy, {
       enabled: false,
@@ -171,6 +154,7 @@ describe('BookConfirmClient', () => {
         appointment: {
           id: 'appt_123',
         },
+        manageUrl: 'https://salon-a.test/en/salon-a/manage/private-token',
       },
     }), { status: 200 }));
 
@@ -200,7 +184,10 @@ describe('BookConfirmClient', () => {
     expect(message).toHaveTextContent('Please arrive 10 minutes early. We look forward to seeing you.');
     expect(message).toHaveClass('break-words', 'whitespace-pre-line');
     expect(details.compareDocumentPosition(message) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(screen.getByRole('button', { name: /manage this appointment/i })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /manage this appointment/i })).toHaveAttribute(
+      'href',
+      'https://salon-a.test/en/salon-a/manage/private-token',
+    );
   });
 
   it('does not create a booking on initial page load', () => {
@@ -224,6 +211,82 @@ describe('BookConfirmClient', () => {
     expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(syncFromUrl).toHaveBeenCalledWith(expect.objectContaining({ techId: 'tech_1' }));
+  });
+
+  it('keeps guest details available after a generic booking failure', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      error: {
+        code: 'BOOKING_FAILED',
+        message: 'We could not confirm this appointment yet.',
+      },
+    }), { status: 500 }));
+
+    render(
+      <BookConfirmClient
+        services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        salonSlug="salon-a"
+        dateStr="2026-03-20"
+        timeStr="10:00"
+        bookingFlow={[]}
+        location={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'We could not confirm this appointment yet.',
+    );
+    expect(screen.getByLabelText('Customer name')).toHaveValue('Ava');
+    expect(screen.getByLabelText('Customer email')).toHaveValue('ava@example.com');
+    expect(screen.getByLabelText('Customer phone')).toHaveValue('4165550101');
+    expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled();
+    expect(screen.queryByText('Appointment confirmed')).not.toBeInTheDocument();
+  });
+
+  it('transitions an existing-appointment response to safe management options', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      error: {
+        code: 'EXISTING_APPOINTMENT',
+        message: 'You already have an upcoming appointment.',
+      },
+    }), { status: 409 }));
+
+    render(
+      <BookConfirmClient
+        services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        salonSlug="salon-a"
+        dateStr="2026-03-20"
+        timeStr="10:00"
+        bookingFlow={[]}
+        location={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    expect(await screen.findByText('You already have a booking')).toBeInTheDocument();
+    expect(screen.getByTestId('existing-appointment-send-link')).toBeInTheDocument();
+    expect(screen.getByTestId('existing-appointment-manage')).toBeInTheDocument();
+    expect(screen.getByTestId('existing-appointment-edit-contact')).toBeInTheDocument();
+    expect(screen.getByTestId('existing-appointment-retry')).toBeInTheDocument();
+    expect(screen.queryByText('Appointment confirmed')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('existing-appointment-manage'));
+
+    expect(routerPush).toHaveBeenCalledWith('/en/salon-a/find-booking');
   });
 
   describe('booking policy presentation', () => {
@@ -813,6 +876,7 @@ describe('BookConfirmClient', () => {
           appointment: {
             id: 'appt_policy',
           },
+          manageUrl: 'https://salon-a.test/en/salon-a/manage/policy-token',
         },
       }), { status: 200 }));
 
@@ -826,7 +890,7 @@ describe('BookConfirmClient', () => {
 
       const reminder = await screen.findByTestId('booking-policy-after-confirmation');
       const summary = screen.getByText('Appointment summary');
-      const manage = screen.getByRole('button', { name: /manage this appointment/i });
+      const manage = screen.getByRole('link', { name: /manage this appointment/i });
       const expand = within(reminder).getByRole('button', { name: 'View full policy' });
 
       expect(summary.compareDocumentPosition(reminder) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
@@ -864,12 +928,14 @@ describe('BookConfirmClient', () => {
     });
   });
 
-  it('routes the confirmed booking to payment methods instead of a missing payment page', async () => {
+  it('renders the canonical manage URL exactly and removes account actions', async () => {
+    const manageUrl = 'https://salon-a.test/en/salon-a/manage/private-token?source=confirmation';
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: {
         appointment: {
           id: 'appt_123',
         },
+        manageUrl,
       },
     }), { status: 200 }));
 
@@ -891,16 +957,96 @@ describe('BookConfirmClient', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /how to pay/i })).toBeInTheDocument();
-    });
+    const manageAction = await screen.findByRole('link', { name: /manage this appointment/i });
 
-    fireEvent.click(screen.getByRole('button', { name: /how to pay/i }));
-
-    expect(routerPush).toHaveBeenCalledWith('/en/salon-a/payment-methods');
+    expect(manageAction).toHaveAttribute('href', manageUrl);
+    expect(screen.queryByRole('button', { name: /how to pay/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /view rewards/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^profile$/i })).not.toBeInTheDocument();
+    expect(document.body.innerHTML).not.toContain('/change-appointment');
   });
 
-  it('does not imply visit points are already in the rewards balance after booking', async () => {
+  it('keeps confirmation visible and offers tenant-scoped secure recovery when manageUrl is absent', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: {
+        appointmentId: 'appt_private_123',
+        appointment: {
+          id: 'appt_private_123',
+        },
+      },
+    }), { status: 200 }));
+
+    render(
+      <BookConfirmClient
+        services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        salonSlug="salon-a"
+        dateStr="2026-03-20"
+        timeStr="10:00"
+        bookingFlow={[]}
+        location={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    expect(await screen.findByText('Appointment confirmed')).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /private management link is not available on this screen/i,
+    );
+    expect(screen.getByRole('link', { name: /find my booking to receive a secure management link/i }))
+      .toHaveAttribute('href', '/en/salon-a/find-booking');
+    expect(screen.queryByRole('link', { name: /manage this appointment/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('appt_private_123')).not.toBeInTheDocument();
+    expect(document.body.innerHTML).not.toContain('/change-appointment');
+  });
+
+  it('preserves Google and Apple calendar actions on successful confirmation', async () => {
+    const manageUrl = 'https://salon-a.test/en/salon-a/manage/calendar-token';
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: {
+        appointment: {
+          id: 'appt_calendar',
+        },
+        manageUrl,
+      },
+    }), { status: 200 }));
+
+    render(
+      <BookConfirmClient
+        services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        salonSlug="salon-a"
+        dateStr="2026-03-20"
+        timeStr="10:00"
+        canonicalStartTime="2026-03-20T14:00:00.000Z"
+        bookingFlow={[]}
+        location={null}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    const googleCalendar = await screen.findByRole('link', { name: /google calendar/i });
+    const appleCalendar = screen.getByRole('link', { name: /apple calendar/i });
+
+    expect(googleCalendar).toHaveAttribute(
+      'href',
+      expect.stringContaining('https://calendar.google.com/calendar/render?'),
+    );
+    expect(googleCalendar).toHaveAttribute('target', '_blank');
+    expect(appleCalendar).toHaveAttribute('href', `${manageUrl}/calendar.ics`);
+  });
+
+  it('keeps passive earned-points context without exposing a rewards account action', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: {
         appointment: {
@@ -927,12 +1073,10 @@ describe('BookConfirmClient', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: /^view rewards & pending points$/i })).toBeInTheDocument();
-    });
-
-    expect(screen.queryByText(/view rewards balance \(\+/i)).not.toBeInTheDocument();
+    expect(await screen.findByText('Appointment confirmed')).toBeInTheDocument();
     expect(screen.getByText(/estimated reward after completion:/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /view rewards/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /view rewards/i })).not.toBeInTheDocument();
   });
 
   it('opens Google Maps directions from the confirmed screen when location details exist', async () => {
@@ -1389,7 +1533,7 @@ describe('BookConfirmClient', () => {
      * one was missing, so a customer who skipped one just saw a dead button.
      */
     it('marks every contact field as required, visibly and for assistive tech', () => {
-      sessionMock.isLoggedIn = false;
+      sessionStorage.clear();
       renderReview();
 
       expect(screen.getAllByText('Required')).toHaveLength(3);
@@ -1400,7 +1544,7 @@ describe('BookConfirmClient', () => {
     });
 
     it('names the one thing still missing while the button stays disabled', () => {
-      sessionMock.isLoggedIn = false;
+      sessionStorage.clear();
       renderReview();
 
       const confirm = screen.getByRole('button', { name: /confirm appointment/i });
@@ -1418,7 +1562,7 @@ describe('BookConfirmClient', () => {
     });
 
     it('clears the hint and enables the button once the details are complete', () => {
-      sessionMock.isLoggedIn = false;
+      sessionStorage.clear();
       renderReview();
 
       fireEvent.change(screen.getByLabelText('Customer name'), { target: { value: 'Ava Chen' } });
@@ -1429,36 +1573,17 @@ describe('BookConfirmClient', () => {
       expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled();
     });
 
-    it('tells a signed-in customer they are signed in', () => {
+    it('keeps all guest contact fields editable', async () => {
       renderReview();
 
-      expect(screen.getByTestId('signed-in-notice')).toHaveTextContent('You\'re signed in as Ava');
-    });
-
-    it('falls back to a masked phone when the account has no name, never the full number', () => {
-      sessionMock.clientName = null;
-      renderReview();
-
-      const notice = screen.getByTestId('signed-in-notice');
-
-      expect(notice).toHaveTextContent('(•••) •••-0101');
-      expect(notice).not.toHaveTextContent(/4165550101/);
-    });
-
-    it('shows no signed-in notice for a guest', () => {
-      sessionMock.isLoggedIn = false;
-      renderReview();
-
-      expect(screen.queryByTestId('signed-in-notice')).not.toBeInTheDocument();
+      await waitFor(() => expect(screen.getByLabelText('Customer name')).toHaveValue('Ava'));
+      for (const label of ['Customer name', 'Customer email', 'Customer phone']) {
+        expect(screen.getByLabelText(label)).not.toHaveAttribute('readonly');
+      }
     });
   });
 
-  /**
-   * The signed-in identity must be visible AND escapable. A stale session used
-   * to pin the browser to an account with no way out, which is what made the
-   * duplicate-booking block feel permanent.
-   */
-  describe('signed-in identity controls', () => {
+  describe('guest-only identity', () => {
     const renderReview = () => render(
       <BookConfirmClient
         services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
@@ -1475,49 +1600,33 @@ describe('BookConfirmClient', () => {
       />,
     );
 
-    it('locks the account phone and explains where to change it', () => {
+    it('does not render retired account, login, or identity-switching controls', () => {
       renderReview();
 
-      expect(screen.getByLabelText('Customer phone')).toHaveAttribute('readonly');
-      expect(screen.getByText(/Change it in your profile/i)).toBeInTheDocument();
-    });
-
-    it('submits self mode with the account identity', async () => {
-      fetchMock.mockResolvedValue(new Response(JSON.stringify({
-        data: { appointmentId: 'appt_1', appointment: { id: 'appt_1' } },
-      }), { status: 201 }));
-
-      renderReview();
-      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
-
-      await waitFor(() => expect(fetchMock).toHaveBeenCalled());
-      const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
-
-      expect(body.bookingSubject).toBe('self');
-    });
-
-    it('clears the prefilled details when booking for someone else', () => {
-      renderReview();
-
-      fireEvent.click(screen.getByRole('button', { name: /book for someone else/i }));
-
-      expect(screen.getByTestId('guest-mode-notice')).toBeInTheDocument();
       expect(screen.queryByTestId('signed-in-notice')).not.toBeInTheDocument();
-      expect(screen.getByLabelText('Customer phone')).toHaveValue('');
-      expect(screen.getByLabelText('Customer email')).toHaveValue('');
-      // And the field is editable again — it is no longer the account's number.
-      expect(screen.getByLabelText('Customer phone')).not.toHaveAttribute('readonly');
+      expect(screen.queryByTestId('guest-mode-notice')).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /book for someone else/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /book for myself/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /sign out/i })).not.toBeInTheDocument();
+      expect(screen.queryByText(/same account/i)).not.toBeInTheDocument();
+      expect(screen.queryByText(/change it in your profile/i)).not.toBeInTheDocument();
+      expect(screen.getByText(/same contact details/i)).toBeInTheDocument();
     });
 
-    it('submits guest mode with the other person\'s details', async () => {
+    it('submits explicit guest identity using editable contact details despite an inert legacy cookie', async () => {
+      document.cookie = 'client_session=inert-legacy-value; path=/';
       fetchMock.mockResolvedValue(new Response(JSON.stringify({
-        data: { appointmentId: 'appt_2', appointment: { id: 'appt_2' } },
+        data: {
+          appointmentId: 'appt_1',
+          manageUrl: 'https://salon-a.test/en/salon-a/manage/private-token',
+          appointment: { id: 'appt_1' },
+        },
       }), { status: 201 }));
 
       renderReview();
-      fireEvent.click(screen.getByRole('button', { name: /book for someone else/i }));
+      await waitFor(() => expect(screen.getByLabelText('Customer name')).toHaveValue('Ava'));
       fireEvent.change(screen.getByLabelText('Customer name'), { target: { value: 'Sam Guest' } });
-      fireEvent.change(screen.getByLabelText('Customer email'), { target: { value: 'sam@example.com' } });
+      fireEvent.change(screen.getByLabelText('Customer email'), { target: { value: 'SAM@example.com' } });
       fireEvent.change(screen.getByLabelText('Customer phone'), { target: { value: '416-555-9999' } });
       fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
@@ -1525,40 +1634,23 @@ describe('BookConfirmClient', () => {
       const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
 
       expect(body.bookingSubject).toBe('guest');
+      expect(body.clientName).toBe('Sam Guest');
       expect(body.clientPhone).toBe('4165559999');
       expect(body.clientEmail).toBe('sam@example.com');
-      // Never the account holder's details.
-      expect(body.clientPhone).not.toBe('4165550101');
+      expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual(['/api/appointments']);
+
+      document.cookie = 'client_session=; Max-Age=0; path=/';
     });
 
-    it('can switch back to booking for myself', () => {
+    it('makes no legacy auth or customer-profile request during ordinary interaction', async () => {
       renderReview();
+      await waitFor(() => expect(screen.getByLabelText('Customer name')).toHaveValue('Ava'));
+      fireEvent.change(screen.getByLabelText('Customer name'), { target: { value: 'Ava Chen' } });
+      fireEvent.change(screen.getByLabelText('Customer email'), { target: { value: 'ava.chen@example.com' } });
+      fireEvent.change(screen.getByLabelText('Customer phone'), { target: { value: '647-555-0102' } });
 
-      fireEvent.click(screen.getByRole('button', { name: /book for someone else/i }));
-      fireEvent.click(screen.getByRole('button', { name: /book for myself instead/i }));
-
-      expect(screen.getByTestId('signed-in-notice')).toBeInTheDocument();
-      expect(screen.getByLabelText('Customer email')).toHaveValue('ava@example.com');
-    });
-
-    it('signs out from the booking flow and clears the identity', async () => {
-      fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
-
-      renderReview();
-      fireEvent.click(screen.getByRole('button', { name: /^sign out$/i }));
-
-      await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/auth/logout', { method: 'POST' }));
-
-      expect(screen.getByLabelText('Customer phone')).toHaveValue('');
-    });
-
-    it('shows no identity controls for a visitor who is not signed in', () => {
-      sessionMock.isLoggedIn = false;
-      renderReview();
-
-      expect(screen.queryByTestId('signed-in-notice')).not.toBeInTheDocument();
-      expect(screen.queryByTestId('guest-mode-notice')).not.toBeInTheDocument();
-      expect(screen.getByLabelText('Customer phone')).not.toHaveAttribute('readonly');
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(document.body.innerHTML).not.toMatch(/\/api\/(?:auth|client)\//);
     });
   });
 });

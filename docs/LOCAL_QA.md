@@ -31,35 +31,34 @@ Open:
 - [http://localhost:3000](http://localhost:3000)
 - or whichever port Next reports if `3000` is busy
 
-## Customer OTP / Booking QA
-
-### OTP login
-- Open a customer booking or confirm page with `?salonSlug=nail-salon-no5`
-- Enter a phone number
-- Submit or wait for auto-send
-- Enter the code
-
-Notes:
-- If Twilio Verify is configured, OTP uses real SMS
-- If Twilio is not configured in local dev, the dev verification fallback may accept `123456`
+## Guest Booking / Manage-Link QA
 
 ### Booking flow
 - Go to:
   - `/book/service?salonSlug=nail-salon-no5`
-  - `/profile?salonSlug=nail-salon-no5`
+  - `/book/tech?salonSlug=nail-salon-no5&serviceIds=svc_biab-short`
 - Verify:
   - service selection carries `salonSlug`
   - time selection shows real availability
+  - confirmation collects editable guest name, email, and phone
   - confirm only writes after explicit confirmation
-  - success CTA routes are real
+  - no customer account, login, or floating-dock controls appear
+  - the booking request uses the guest booking subject
+  - a returned `manageUrl` is rendered unchanged
 
-### Reschedule / cancel
-- Start from `/profile?salonSlug=nail-salon-no5`
-- Use `Manage booking`
+### Manage-link fallback and retired route
+- With a mocked successful response that omits `manageUrl`, verify:
+  - confirmation remains successful
+  - no raw appointment ID appears
+  - the fallback points to the tenant-scoped `/find-booking` page
+- Verify `/change-appointment`, `/fr/change-appointment`, and
+  `/fr/nail-salon-no5/change-appointment` return `404`.
+- Use a canonical `/manage/<token>` link or the tenant-scoped find-booking flow
+  for reschedule and cancellation QA.
 - Verify:
-  - `salonSlug` is preserved into `/change-appointment`
-  - `locationId` is preserved when present
-  - cancel returns to profile cleanly
+  - valid manage tokens preserve tenant context
+  - cancel and reschedule do not require customer login
+  - no browser request is made to `/api/auth/*`
 
 ## Unit / Route Tests
 
@@ -113,12 +112,6 @@ npm run test:e2e
 Use this if your local `3000` port is free and you want the default config behavior.
 
 ## Known Local Gotchas
-
-### OTP verify says customer login storage is not ready
-- Run:
-```bash
-npm run db:migrate:dev
-```
 
 ### Booking POST fails with missing appointment discount columns
 - Run:

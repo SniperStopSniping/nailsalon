@@ -1,12 +1,11 @@
 'use client';
 
 import confetti from 'canvas-confetti';
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   AlertCircle,
   Calendar,
   Check,
-  CreditCard,
   Home,
   Info,
   MapPin,
@@ -23,9 +22,8 @@ import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { SectionCard } from '@/components/ui/section-card';
 import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
-import { useClientSession } from '@/hooks/useClientSession';
 import type { BookingStep } from '@/libs/bookingFlow';
-import { appendSalonSlug, buildBookingUrl, buildChangeAppointmentUrl } from '@/libs/bookingParams';
+import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
 import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/directions';
 import { formatMoney } from '@/libs/formatMoney';
 import { triggerHaptic } from '@/libs/haptics';
@@ -888,11 +886,6 @@ const ConfirmContent = ({
   smartFitSuggestion,
   onAcceptSmartFitSuggestion,
   onDismissSmartFitSuggestion,
-  signedInAs,
-  bookingSubject,
-  onSignOut,
-  onBookForSomeoneElse,
-  onBookForMyself,
   policy,
   quickFacts,
   policyAcknowledged,
@@ -932,12 +925,6 @@ const ConfirmContent = ({
   smartFitSuggestion: SmartFitSuggestion | null;
   onAcceptSmartFitSuggestion: () => void;
   onDismissSmartFitSuggestion: () => void;
-  /** Display name for a signed-in client, already masked. Null when a guest. */
-  signedInAs: string | null;
-  bookingSubject: 'self' | 'guest';
-  onSignOut: () => void;
-  onBookForSomeoneElse: () => void;
-  onBookForMyself: () => void;
   policy: ConfirmationPolicy;
   quickFacts: ConfirmationQuickFacts;
   policyAcknowledged: boolean;
@@ -949,12 +936,6 @@ const ConfirmContent = ({
   const confirmActionRef = useRef<HTMLButtonElement>(null);
   const acknowledgmentHelpId = useId();
   const [smartFitOutcomeAnnouncement, setSmartFitOutcomeAnnouncement] = useState<string | null>(null);
-
-  // Drives both the confirm button's disabled state and the hint under it, so
-  // the two can never disagree about why booking is not available yet.
-  // A self booking is pinned to the account's phone: it is the OTP login
-  // credential, so editing it here would be an account-takeover path.
-  const identityLocked = Boolean(signedInAs) && bookingSubject === 'self';
 
   const contactBlocker = getContactDetailsBlocker({
     name: guestName,
@@ -1120,35 +1101,6 @@ const ConfirmContent = ({
             className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
             contentClassName="space-y-3 pt-0"
           >
-            {signedInAs && bookingSubject === 'self' && (
-              <div data-testid="signed-in-notice" className="rounded-xl border border-[var(--n5-border-muted)] bg-[var(--n5-bg-page)] p-3 text-xs leading-5 text-[var(--n5-ink-muted)]">
-                <p>
-                  You&apos;re signed in as
-                  {' '}
-                  <span className="font-semibold text-[var(--n5-ink-main)]">{signedInAs}</span>
-                  . This booking will be attached to your account.
-                </p>
-                <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-semibold text-[var(--n5-accent)]">
-                  <button type="button" onClick={onBookForSomeoneElse} className="underline underline-offset-2">
-                    Book for someone else
-                  </button>
-                  <button type="button" onClick={onSignOut} className="underline underline-offset-2">
-                    Sign out
-                  </button>
-                </div>
-              </div>
-            )}
-            {signedInAs && bookingSubject === 'guest' && (
-              <div data-testid="guest-mode-notice" className="rounded-xl border border-[var(--n5-border-muted)] bg-[var(--n5-bg-page)] p-3 text-xs leading-5 text-[var(--n5-ink-muted)]">
-                <p>
-                  You&apos;re booking for someone else. Enter their details below — this
-                  appointment won&apos;t be attached to your account.
-                </p>
-                <button type="button" onClick={onBookForMyself} className="mt-2 font-semibold text-[var(--n5-accent)] underline underline-offset-2">
-                  Book for myself instead
-                </button>
-              </div>
-            )}
             <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
               <span className="flex items-baseline justify-between gap-2">
                 Name
@@ -1168,12 +1120,7 @@ const ConfirmContent = ({
                 Mobile phone
                 <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)]">Required</span>
               </span>
-              <input aria-label="Customer phone" required aria-required="true" readOnly={identityLocked} type="tel" inputMode="tel" autoComplete="tel" value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className={`mt-1 w-full rounded-xl border border-[var(--n5-border)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] ${identityLocked ? 'cursor-not-allowed bg-[var(--n5-bg-card)] opacity-70' : 'bg-[var(--n5-bg-page)]'}`} />
-              {identityLocked && (
-                <span className="mt-1 block font-normal text-[var(--n5-ink-muted)]">
-                  Your account number. Change it in your profile, or book for someone else above.
-                </span>
-              )}
+              <input aria-label="Customer phone" required aria-required="true" type="tel" inputMode="tel" autoComplete="tel" value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
             </label>
             {smsEnabled && (
               <label className="flex items-start gap-3 rounded-xl border border-[var(--n5-border-muted)] p-3 text-xs leading-5 text-[var(--n5-ink-muted)]">
@@ -1185,7 +1132,7 @@ const ConfirmContent = ({
 
           <SectionCard
             title="Before you confirm"
-            description="This will reserve the time above and block duplicate bookings on the same account."
+            description="This will reserve the time above and block duplicate bookings using the same contact details."
             className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
             contentClassName="grid gap-2 pt-0 sm:grid-cols-2"
           >
@@ -1411,19 +1358,14 @@ const SuccessContent = ({
   dateStr,
   timeStr,
   pointsEarned,
-  appointmentId,
-  onViewRewards,
-  onManagePayment,
-  onViewAppointment,
   onOpenDirections,
-  onGoToProfile,
   onGoHome,
   location,
   rewardsEnabled,
   smsEnabled,
   smsConsentGranted,
-  showClientAccountActions,
   manageUrl,
+  findBookingUrl,
   canonicalStartTime,
   clientChangeCutoffHours,
   totalPriceDisplay,
@@ -1438,20 +1380,15 @@ const SuccessContent = ({
   dateStr: string;
   timeStr: string;
   pointsEarned: number;
-  appointmentId: string | null;
   totalPriceDisplay: string;
-  onViewRewards: () => void;
-  onManagePayment: () => void;
-  onViewAppointment: () => void;
   onOpenDirections: () => void;
-  onGoToProfile: () => void;
   onGoHome: () => void;
   location: LocationSummary;
   rewardsEnabled: boolean;
   smsEnabled: boolean;
   smsConsentGranted: boolean;
-  showClientAccountActions: boolean;
   manageUrl: string | null;
+  findBookingUrl: string;
   canonicalStartTime: string | null;
   clientChangeCutoffHours: number;
   confirmationMessage: string | null;
@@ -1560,23 +1497,39 @@ const SuccessContent = ({
           transition={{ delay: 0.4 }}
           className="space-y-3"
         >
-          <button
-            type="button"
-            onClick={() => {
-              triggerHaptic('confirm');
-              onViewAppointment();
-            }}
-            className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
-            style={{
-              borderRadius: n5.radiusMd,
-              boxShadow: n5.shadowSm,
-            }}
-          >
-            <RefreshCw className="size-5" />
-            <span>Manage this appointment</span>
-          </button>
+          {manageUrl
+            ? (
+                <a
+                  href={manageUrl}
+                  className="font-body flex w-full items-center justify-center gap-2 bg-[var(--n5-accent)] py-4 font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
+                  style={{
+                    borderRadius: n5.radiusMd,
+                    boxShadow: n5.shadowSm,
+                  }}
+                >
+                  <RefreshCw className="size-5" />
+                  <span>Manage this appointment</span>
+                </a>
+              )
+            : (
+                <div
+                  role="status"
+                  className="rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 text-sm leading-relaxed text-[var(--n5-ink-muted)]"
+                >
+                  <p>
+                    Your appointment is confirmed, but its private management link is not
+                    available on this screen.
+                  </p>
+                  <a
+                    href={findBookingUrl}
+                    className="mt-3 inline-flex font-semibold text-[var(--n5-accent)] underline underline-offset-2"
+                  >
+                    Find my booking to receive a secure management link
+                  </a>
+                </div>
+              )}
 
-          {manageUrl && (
+          {(googleCalendarUrl || manageUrl) && (
             <div className="grid grid-cols-2 gap-3">
               {googleCalendarUrl && (
                 <a href={googleCalendarUrl} target="_blank" rel="noreferrer" className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-center text-sm font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
@@ -1584,14 +1537,16 @@ const SuccessContent = ({
                   Google Calendar
                 </a>
               )}
-              <a href={`${manageUrl}/calendar.ics`} className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-center text-sm font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
-                <Calendar className="size-4" />
-                Apple Calendar
-              </a>
+              {manageUrl && (
+                <a href={`${manageUrl}/calendar.ics`} className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-center text-sm font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
+                  <Calendar className="size-4" />
+                  Apple Calendar
+                </a>
+              )}
             </div>
           )}
 
-          <div className={`grid gap-3 ${directionsUrl && showClientAccountActions ? 'sm:grid-cols-2' : 'grid-cols-1'}`}>
+          <div className="grid grid-cols-1 gap-3">
             {directionsUrl && (
               <button
                 type="button"
@@ -1609,45 +1564,9 @@ const SuccessContent = ({
                 <span>Directions</span>
               </button>
             )}
-
-            {showClientAccountActions && (
-              <button
-                type="button"
-                onClick={() => {
-                  triggerHaptic('confirm');
-                  onManagePayment();
-                }}
-                className="font-body flex w-full items-center justify-center gap-2 border bg-[var(--n5-bg-card)] py-3.5 font-bold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
-                style={{
-                  borderRadius: n5.radiusMd,
-                  borderColor: 'var(--n5-border)',
-                }}
-              >
-                <CreditCard className="size-4 text-[var(--n5-accent)]" />
-                <span>How to pay</span>
-              </button>
-            )}
           </div>
 
-          {showClientAccountActions && rewardsEnabled && (
-            <button
-              type="button"
-              onClick={() => {
-                triggerHaptic('select');
-                onViewRewards();
-              }}
-              className="font-body flex w-full items-center justify-center gap-2 border bg-[var(--n5-bg-card)] py-3 font-bold text-[var(--n5-ink-main)] transition-all active:scale-[0.98]"
-              style={{
-                borderRadius: n5.radiusMd,
-                borderColor: 'var(--n5-border)',
-              }}
-            >
-              <Star className="size-4 text-[var(--n5-accent)]" />
-              <span>View rewards &amp; pending points</span>
-            </button>
-          )}
-
-          <div className={`grid gap-3 pt-1 ${showClientAccountActions ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          <div className="grid grid-cols-1 gap-3 pt-1">
             <button
               type="button"
               onClick={() => {
@@ -1660,20 +1579,6 @@ const SuccessContent = ({
               <Home className="size-4" />
               <span>Back to booking</span>
             </button>
-            {showClientAccountActions && (
-              <button
-                type="button"
-                onClick={() => {
-                  triggerHaptic('select');
-                  onGoToProfile();
-                }}
-                className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-sm font-semibold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
-                style={{ borderColor: 'var(--n5-accent)' }}
-              >
-                <User className="size-4" />
-                <span>Profile</span>
-              </button>
-            )}
           </div>
         </motion.div>
 
@@ -1701,125 +1606,12 @@ const SuccessContent = ({
             {' '}
             hours before
           </p>
-          {appointmentId && (
-            <p className="font-body mt-2 text-[10px] text-[var(--n5-border)]">
-              ID:
-              {' '}
-              {appointmentId}
-            </p>
-          )}
         </motion.div>
       </main>
 
     </div>
   );
 };
-
-/**
- * Name Capture Modal
- */
-const NameCaptureModal = ({
-  isOpen,
-  firstName,
-  setFirstName,
-  isSaving,
-  onSave,
-  onSkip,
-}: {
-  isOpen: boolean;
-  firstName: string;
-  setFirstName: (name: string) => void;
-  isSaving: boolean;
-  onSave: () => void;
-  onSkip: () => void;
-}) => (
-  <AnimatePresence>
-    {isOpen && (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        className="fixed inset-0 z-[60] flex items-center justify-center p-4 backdrop-blur-sm"
-        style={{
-          backgroundColor: 'color-mix(in srgb, var(--n5-ink-main) 40%, transparent)',
-          // GPU layer for Android stability - prevents modal shift when keyboard opens
-          transform: 'translateZ(0)',
-          WebkitTransform: 'translateZ(0)',
-        }}
-        onClick={(e) => {
-          if (e.target === e.currentTarget) {
-            onSkip();
-          }
-        }}
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          exit={{ opacity: 0, scale: 0.95 }}
-          className="w-full max-w-sm overflow-hidden bg-[var(--n5-bg-card)]"
-          style={{
-            borderRadius: n5.radiusCard,
-            boxShadow: n5.shadowLg,
-            // Prevent keyboard from pushing modal too high on Android
-            maxHeight: '85vh',
-          }}
-          onClick={e => e.stopPropagation()}
-        >
-          <div style={{ padding: n5.spaceLg }}>
-            <div className="mb-4 text-center">
-              <div className="mb-3 text-4xl">👋</div>
-              <h2 className="font-heading text-xl font-bold text-[var(--n5-ink-main)]">
-                Before you go...
-              </h2>
-              <p className="font-body mt-1 text-sm text-[var(--n5-ink-muted)]">
-                What's your name?
-              </p>
-            </div>
-
-            <input
-              type="text"
-              value={firstName}
-              onChange={e => setFirstName(e.target.value)}
-              placeholder="First name"
-              className="font-body mb-4 w-full bg-[var(--n5-bg-surface)] px-4 py-3 text-lg text-[var(--n5-ink-main)] outline-none transition-colors placeholder:text-[var(--n5-ink-muted)]"
-              style={{ borderRadius: n5.radiusMd }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && firstName.trim()) {
-                  onSave();
-                }
-              }}
-              autoFocus
-            />
-
-            <div className="flex gap-3">
-              <button
-                type="button"
-                onClick={onSkip}
-                className="font-body flex-1 py-3 font-medium text-[var(--n5-ink-muted)] transition-colors hover:bg-[var(--n5-bg-surface)]"
-                style={{ borderRadius: n5.radiusMd }}
-              >
-                Skip
-              </button>
-              <button
-                type="button"
-                onClick={onSave}
-                disabled={!firstName.trim() || isSaving}
-                className="font-body flex-1 bg-[var(--n5-accent)] py-3 font-bold text-[var(--n5-ink-inverse)] transition-all disabled:opacity-50"
-                style={{ borderRadius: n5.radiusMd }}
-              >
-                {isSaving ? 'Saving...' : 'Save'}
-              </button>
-            </div>
-
-            <p className="font-body mt-4 text-center text-xs text-[var(--n5-ink-muted)]">
-              We'll remember you for next time!
-            </p>
-          </div>
-        </motion.div>
-      </motion.div>
-    )}
-  </AnimatePresence>
-);
 
 // --- Main Component ---
 
@@ -1895,14 +1687,6 @@ export function BookConfirmClient({
   const smartFitSuggestStartTimeParam = searchParams.get('smartFitSuggestStartTime') || '';
   const smartFitSuggestDiscountCentsParam = parseSmartFitCentsParam(searchParams.get('smartFitSuggestDiscountCents'));
   const smartFitSuggestTotalCentsParam = parseSmartFitCentsParam(searchParams.get('smartFitSuggestTotalCents'));
-  const {
-    isLoggedIn,
-    isCheckingSession,
-    phone: sessionPhone,
-    validateSession,
-    clientName,
-    clientEmail,
-  } = useClientSession();
 
   // Sync booking state from URL on mount (for consistency)
   const { syncFromUrl } = useBookingState(salonSlug);
@@ -1935,24 +1719,12 @@ export function BookConfirmClient({
       setSmartFitOutranked(true);
     }
   }, [salonSlug]);
-  const [appointmentId, setAppointmentId] = useState<string | null>(null);
   const [manageUrl, setManageUrl] = useState<string | null>(null);
   const [hasExistingAppointment, setHasExistingAppointment] = useState(false);
-  // Who this booking is for. Only an explicit customer action moves it to
-  // 'guest'; the server validates the same flag and refuses to guess.
-  const [bookingSubject, setBookingSubject] = useState<'self' | 'guest'>('self');
   const [guestName, setGuestName] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
   const [smsConsent, setSmsConsent] = useState(false);
-
-  useEffect(() => {
-    if (isLoggedIn && bookingSubject === 'self') {
-      setGuestName(current => current || clientName || '');
-      setGuestEmail(current => current || clientEmail || '');
-      setGuestPhone(current => current || sessionPhone || '');
-    }
-  }, [bookingSubject, clientEmail, clientName, isLoggedIn, sessionPhone]);
 
   // Contact details survive navigation and recoverable errors within this tab,
   // so a failed attempt or a trip back to the time step never re-asks for them.
@@ -1991,11 +1763,6 @@ export function BookConfirmClient({
   // a required policy acknowledgment and bound by the server to the exact
   // canonical booking request.
   const acknowledgmentAttemptIdRef = useRef<string>(crypto.randomUUID());
-
-  const [showNameModal, setShowNameModal] = useState(false);
-  const [firstName, setFirstName] = useState('');
-  const [isSavingName, setIsSavingName] = useState(false);
-  const nameCheckInitiatedRef = useRef(false);
 
   // Smart Fit precedence stays winner-take-all: any higher-priority discount
   // (campaign, first visit) means no Smart Fit presentation and no
@@ -2077,9 +1844,9 @@ export function BookConfirmClient({
     selectedAddOns,
     serviceIds: services.map(service => service.id),
     technicianId: techId === 'any' ? null : techId,
-    publicActor: isLoggedIn ? 'client' : 'guest',
+    publicActor: 'guest',
     clientName: guestName.trim(),
-    bookingSubject,
+    bookingSubject: 'guest',
     clientEmail: guestEmail.trim().toLowerCase(),
     clientPhone: guestPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''),
     smsConsent: smsEnabled
@@ -2182,7 +1949,7 @@ export function BookConfirmClient({
             }),
         technicianId: techId === 'any' ? null : techId,
         clientName: guestName.trim(),
-        bookingSubject,
+        bookingSubject: 'guest' as const,
         clientEmail: guestEmail.trim().toLowerCase(),
         clientPhone: guestPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, ''),
         ...(smsEnabled && { smsConsent: { granted: smsConsent, wordingVersion: 'booking-v1' } }),
@@ -2329,7 +2096,6 @@ export function BookConfirmClient({
       }
 
       const data = await response.json();
-      setAppointmentId(data.data.appointmentId || data.data.appointment.id);
       setManageUrl(data.data.manageUrl || null);
       setBookingComplete(true);
       try {
@@ -2350,130 +2116,11 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [acknowledgmentRequired, baseServiceId, bookingSubject, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsEnabled, techId, timeStr]);
-
-  useEffect(() => {
-    if (bookingComplete && !nameCheckInitiatedRef.current) {
-      nameCheckInitiatedRef.current = true;
-
-      if (isLoggedIn && !clientName?.trim()) {
-        const timer = setTimeout(() => setShowNameModal(true), 1500);
-        return () => clearTimeout(timer);
-      }
-    }
-    return undefined;
-  }, [bookingComplete, clientName, isLoggedIn]);
-
-  const handleSaveName = async () => {
-    if (!firstName.trim() || isSavingName) {
-      return;
-    }
-
-    setIsSavingName(true);
-    try {
-      const response = await fetch('/api/client/update-name', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          firstName: firstName.trim(),
-        }),
-      });
-
-      if (response.ok) {
-        await validateSession();
-      }
-
-      setShowNameModal(false);
-    } catch (error) {
-      console.error('Error saving name:', error);
-      setShowNameModal(false);
-    } finally {
-      setIsSavingName(false);
-    }
-  };
-
-  /** Switch to booking for another person: drop the account's prefilled details. */
-  const handleBookForSomeoneElse = () => {
-    setBookingSubject('guest');
-    setGuestName('');
-    setGuestEmail('');
-    setGuestPhone('');
-    setBookingError(null);
-    setHasExistingAppointment(false);
-    try {
-      sessionStorage.removeItem(GUEST_CONTACT_STORAGE_KEY);
-    } catch {
-      // Storage unavailable — nothing to clear.
-    }
-  };
-
-  const handleBookForMyself = () => {
-    setBookingSubject('self');
-    setGuestName(clientName || '');
-    setGuestEmail(clientEmail || '');
-    setGuestPhone(sessionPhone || '');
-    setBookingError(null);
-    setHasExistingAppointment(false);
-  };
-
-  /**
-   * Sign out from inside the booking flow. Without this a stale session left
-   * the customer permanently unable to book in that browser.
-   */
-  const handleSignOut = async () => {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-    } catch {
-      // Even if the call fails, clear what we control and re-validate below.
-    }
-    try {
-      sessionStorage.removeItem(GUEST_CONTACT_STORAGE_KEY);
-    } catch {
-      // Storage unavailable — nothing to clear.
-    }
-    setBookingSubject('guest');
-    setGuestName('');
-    setGuestEmail('');
-    setGuestPhone('');
-    setBookingError(null);
-    setHasExistingAppointment(false);
-    await validateSession();
-  };
-
-  const handleViewAppointment = () => {
-    if (manageUrl) {
-      window.location.assign(manageUrl);
-      return;
-    }
-    if (!appointmentId) {
-      return;
-    }
-
-    router.push(buildChangeAppointmentUrl({
-      basePath: `/${locale}/change-appointment`,
-      salonSlug,
-      serviceIds: baseServiceId ? undefined : services.map(s => s.id),
-      baseServiceId,
-      selectedAddOns,
-      techId: technician?.id || 'any',
-      locationId: location?.id ?? null,
-      originalAppointmentId: appointmentId,
-      manageToken: manageToken || null,
-      startTime: canonicalStartTime ?? zonedTimeToUtc({ date: dateStr, time: timeStr }).toISOString(),
-      tenantRoute: {
-        routeSalonSlug,
-        locale,
-      },
-    }));
-  };
+  }, [acknowledgmentRequired, baseServiceId, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsEnabled, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);
   }, [location]);
-
-  if (isCheckingSession) {
-    return <LoadingState />;
-  }
 
   // Loading state
   if (isBooking) {
@@ -2542,56 +2189,35 @@ export function BookConfirmClient({
   // Success state
   if (bookingComplete) {
     return (
-      <>
-        <SuccessContent
-          services={services}
-          addOns={addOns}
-          technician={technician}
-          totalPrice={resolvedTotalPrice}
-          totalDuration={resolvedTotalDuration}
-          dateStr={dateStr}
-          timeStr={timeStr}
-          pointsEarned={pointsEarned}
-          appointmentId={appointmentId}
-          onViewRewards={() => router.push(appendSalonSlug(`/${locale}/rewards`, salonSlug, {
-            routeSalonSlug,
-            locale,
-          }))}
-          onManagePayment={() => router.push(appendSalonSlug(`/${locale}/payment-methods`, salonSlug, {
-            routeSalonSlug,
-            locale,
-          }))}
-          onViewAppointment={handleViewAppointment}
-          onOpenDirections={handleOpenDirections}
-          onGoToProfile={() => router.push(appendSalonSlug(`/${locale}/profile`, salonSlug, {
-            routeSalonSlug,
-            locale,
-          }))}
-          onGoHome={() => router.push(appendSalonSlug('/book', salonSlug, {
-            routeSalonSlug,
-            locale,
-          }))}
-          location={location}
-          rewardsEnabled={rewardsEnabled}
-          smsEnabled={smsEnabled}
-          smsConsentGranted={smsConsent}
-          showClientAccountActions={isLoggedIn}
-          manageUrl={manageUrl}
-          canonicalStartTime={canonicalStartTime}
-          clientChangeCutoffHours={clientChangeCutoffHours}
-          totalPriceDisplay={totalPriceDisplay}
-          confirmationMessage={bookingExperience.confirmationMessage}
-          policy={displayedPolicy}
-        />
-        <NameCaptureModal
-          isOpen={showNameModal}
-          firstName={firstName}
-          setFirstName={setFirstName}
-          isSaving={isSavingName}
-          onSave={handleSaveName}
-          onSkip={() => setShowNameModal(false)}
-        />
-      </>
+      <SuccessContent
+        services={services}
+        addOns={addOns}
+        technician={technician}
+        totalPrice={resolvedTotalPrice}
+        totalDuration={resolvedTotalDuration}
+        dateStr={dateStr}
+        timeStr={timeStr}
+        pointsEarned={pointsEarned}
+        onOpenDirections={handleOpenDirections}
+        onGoHome={() => router.push(appendSalonSlug('/book', salonSlug, {
+          routeSalonSlug,
+          locale,
+        }))}
+        location={location}
+        rewardsEnabled={rewardsEnabled}
+        smsEnabled={smsEnabled}
+        smsConsentGranted={smsConsent}
+        manageUrl={manageUrl}
+        findBookingUrl={appendSalonSlug('/find-booking', salonSlug, {
+          routeSalonSlug,
+          locale,
+        })}
+        canonicalStartTime={canonicalStartTime}
+        clientChangeCutoffHours={clientChangeCutoffHours}
+        totalPriceDisplay={totalPriceDisplay}
+        confirmationMessage={bookingExperience.confirmationMessage}
+        policy={displayedPolicy}
+      />
     );
   }
 
@@ -2640,11 +2266,6 @@ export function BookConfirmClient({
       smartFitSuggestion={smartFitSuggestion}
       onAcceptSmartFitSuggestion={handleAcceptSmartFitSuggestion}
       onDismissSmartFitSuggestion={handleDismissSmartFitSuggestion}
-      signedInAs={isLoggedIn ? (clientName?.trim() || maskPhone(sessionPhone) || null) : null}
-      bookingSubject={bookingSubject}
-      onSignOut={handleSignOut}
-      onBookForSomeoneElse={handleBookForSomeoneElse}
-      onBookForMyself={handleBookForMyself}
       policy={displayedPolicy}
       quickFacts={bookingExperience.quickFacts}
       policyAcknowledged={policyAcknowledged}

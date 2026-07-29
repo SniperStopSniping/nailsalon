@@ -3,13 +3,11 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { BookingSummaryCard } from '@/components/booking/BookingSummaryCard';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
-import { useClientSession } from '@/hooks/useClientSession';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { buildBookingUrl, parseSelectedAddOnsParam } from '@/libs/bookingParams';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
@@ -75,15 +73,12 @@ export function BookTechClient({
   const techError = searchParams.get('techError');
   const hasBookableTechnicians = technicians.some(tech => tech.bookable);
 
-  // Check if this is the first step in the booking flow (for dock visibility)
+  // Check if this is the first step in the booking flow.
   const isFirstStep = getFirstStep(bookingFlow) === 'tech';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const locationId = searchParams.get('locationId') || '';
   const manageToken = searchParams.get('manageToken') || '';
   const campaignToken = searchParams.get('campaign') || '';
-
-  // Use shared auth hook
-  const { isLoggedIn, isCheckingSession } = useClientSession();
 
   // Use global booking state for technician persistence
   const { technicianId, setTechnicianId, syncFromUrl, isHydrated = false } = useBookingState(salonSlug);
@@ -385,13 +380,7 @@ export function BookTechClient({
             All our artists are highly trained professionals
           </p>
         </div>
-
-        {/* Spacer for floating dock when logged in */}
-        {!isCheckingSession && isLoggedIn && isFirstStep && <div className="h-16" />}
       </div>
-
-      {/* Floating Dock - shown only when logged in and this is the first step */}
-      {!isCheckingSession && isLoggedIn && isFirstStep && <BookingFloatingDock />}
     </div>
   );
 }

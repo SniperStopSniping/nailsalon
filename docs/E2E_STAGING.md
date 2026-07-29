@@ -5,13 +5,15 @@
 The real browser-confidence path is now staging-first.
 
 Use local Playwright for debugging selectors, fixture helpers, and individual flows.
-Use a staging or staging-like environment as the actual E2E gate.
+Use a staging or staging-like environment for the default gate and the focused
+preview checks required by a release.
 
-Core journeys covered by the gate:
-- customer OTP login
-- booking
-- confirmation
-- profile -> reschedule -> cancel
+Required journeys across those checks:
+- guest booking and editable contact collection
+- confirmation with the canonical manage action
+- retired `/change-appointment` route forms
+- safe find-booking guidance when a mocked success omits `manageUrl`
+- tokenized manage -> reschedule -> cancel
 - staff appointment completion
 - super-admin -> impersonation -> admin action -> end impersonation
 
@@ -32,7 +34,7 @@ The staging gate assumes stable seeded fixture data. The environment must provid
 - that technician must have upcoming availability within the next 21 days
 - one staff login matching `E2E_STAFF_PHONE`
 - one super-admin login matching `E2E_SUPER_ADMIN_PHONE`
-- deterministic OTP for customer, staff, and super-admin
+- deterministic credentials for the staff and super-admin journeys
 
 Recommended canonical fixture values:
 - `E2E_SALON_SLUG=nail-salon-no5`
@@ -71,7 +73,6 @@ E2E_OTP_CODE=123456
 ```
 
 Optional overrides:
-- `E2E_CUSTOMER_OTP_CODE`
 - `E2E_STAFF_OTP_CODE`
 - `E2E_SUPER_ADMIN_OTP_CODE`
 - `E2E_LOCALE`
@@ -108,6 +109,22 @@ E2E_OTP_CODE=123456 \
 npm run test:e2e:core:staging
 ```
 
+### Client PR 0B1 focused preview check
+
+`customer-journeys.e2e.ts` is not part of the default hosted E2E or Checkly
+patterns. Run it explicitly against the exact Preview deployment:
+
+```bash
+E2E_BASE_URL=https://your-preview-host \
+npx playwright test tests/e2e/customer-journeys.e2e.ts \
+  --project=chromium --no-deps
+```
+
+This focused spec intercepts appointment creation. It verifies canonical
+manage-link passthrough, the safe missing-`manageUrl` state, retired route
+forms, guest contact collection, and zero `/api/auth/*` browser traffic
+without creating a real appointment.
+
 ### Local debug only
 
 ```bash
@@ -124,5 +141,6 @@ E2E_BASE_URL=http://localhost:3101 npm run test:e2e:core:staging
 - When `E2E_BASE_URL` is set, Playwright does not boot a local server.
 - The external-base-url path gets longer timeouts, one retry, and retained traces/videos.
 - Staff and super-admin sessions are bootstrapped once in `tests/e2e/auth.setup.ts` and reused via storage state.
-- Customer flows still use real browser session behavior, but the suite now prefers seeded routing and stable test ids over brittle layout-dependent clicks.
+- Customer flows use guest contact details and assert that legacy customer-auth
+  endpoints receive no browser traffic.
 - Local commands intentionally blank Twilio env vars so OTP falls back to the deterministic `123456` development path.

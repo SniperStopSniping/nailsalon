@@ -158,17 +158,25 @@ If you want live autopost processing, add:
 6. Deploy or redeploy Vercel only after readiness succeeds.
 7. Confirm `/api/health` returns `200`,
    `clientLifecycleSchema: "ready"`, and the expected integration flags.
-8. Verify one real booking end to end:
-   - customer OTP works
-   - booking succeeds
+8. Verify the Client PR 0B1 customer baseline:
+   - guest name, email, and phone remain editable on confirmation
+   - no customer account, login, or floating-dock controls appear
+   - a disposable test booking, when explicitly approved, renders the exact
+     canonical `manageUrl` returned by the booking response
+   - the tenant-scoped find-booking page remains available
+   - `/change-appointment`, its locale form, and its locale/slug form return
+     `404`
+   - customer OTP and validate-session endpoints retain the Client PR 0A typed
+     `410`; logout remains a safe cookie/session cleanup endpoint
+9. Verify booking notifications:
    - technician/owner notifications work if enabled
-9. Verify one reminder flow:
+10. Verify one reminder flow:
    - a test appointment enters the reminder window
    - the cron route updates reminder fields only once
-10. Verify billing:
+11. Verify billing:
    - checkout session can be created
    - webhook updates salon subscription state
-11. Verify media:
+12. Verify media:
    - live staff avatar upload stores a durable public URL
    - public booking page renders that avatar
 
