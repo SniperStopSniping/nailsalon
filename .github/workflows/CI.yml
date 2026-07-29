@@ -26,7 +26,7 @@ jobs:
           node-version: 20.x
 
       - name: Test secret scanner
-        run: node --test scripts/check-secret-leaks.test.mjs
+        run: node --test scripts/check-secret-leaks.node-test.mjs
 
       - name: Scan tracked tree and reviewed commit range
         shell: bash
