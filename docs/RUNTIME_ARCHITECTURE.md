@@ -3,14 +3,19 @@
 ## Auth and Sessions
 
 ### Customer
-- Session cookie: `client_session`
-- Storage model: opaque server-backed session row in `client_session`
-- Restore path: `GET /api/auth/validate-session`
-- Login path: `POST /api/auth/send-otp` -> `POST /api/auth/verify-otp`
-- Active UI hook: [useClientSession.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/hooks/useClientSession.ts)
+- Current model: guest booking with editable name, email, and phone
+- Self-service: the capability-token `manageUrl` returned after booking, or the
+  tenant-scoped find-booking flow
+- Retired route: `/change-appointment` returns `404`; reschedule and
+  cancellation use the tokenized manage flow
+- Security floor:
+  - customer OTP and session-validation endpoints return typed `410`
+  - legacy customer sessions cannot issue, renew, restore, or authorize
+  - [useClientSession.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/hooks/useClientSession.ts)
+    remains statically signed out
 - Notes:
-  - Customer auth no longer trusts URL phone params.
-  - Legacy helper cookies are cleanup-only and should not be used for auth decisions.
+  - Legacy customer cookies are cleanup-only and never affect booking identity.
+  - A future emailed-OTP account system is not implemented.
 
 ### Staff
 - Session cookie: `staff_session`
@@ -50,9 +55,8 @@
 ### Customer API guards
 - Shared helpers live in [clientApiGuards.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/libs/clientApiGuards.ts)
 - Pattern:
-  - require authenticated customer session
-  - bind reads/writes to session identity
-  - resolve tenant from `salonSlug` or active tenant cookie
+  - fail closed with the retired customer-auth contract
+  - return no protected customer data or mutation authority
 
 ### Staff API guards
 - Shared helpers live in [staffApiGuards.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/libs/staffApiGuards.ts)
@@ -94,12 +98,18 @@
 
 ### Customer booking
 - Booking URLs should be built with [bookingParams.ts](/Users/me/Desktop/nail-salon-copy2 copy 2/src/libs/bookingParams.ts)
+- Booking confirmation submits editable contact details with
+  `bookingSubject: 'guest'`.
+- Successful booking responses supply the canonical tokenized `manageUrl`;
+  clients render it unchanged.
+- If `manageUrl` is unexpectedly absent, confirmation remains successful and
+  offers the tenant-scoped find-booking flow instead of constructing a URL.
 - Required context to preserve:
   - `salonSlug`
   - `serviceIds`
   - `techId`
   - `locationId` when present
-  - `originalAppointmentId` for reschedules
+  - manage capability context for reschedules
 
 ### Staff/admin UI
 - Shared UI shells now live under `src/components/ui` plus `src/components/staff` and `src/components/admin`.

@@ -26,10 +26,25 @@
 ## Browser QA
 
 - Browser specs exist, but the highest-value production journeys still need repeated clean browser passes:
-  - customer OTP login during booking confirmation
   - service -> time -> confirm transitions
-  - profile -> reschedule -> cancel
+  - canonical manage link -> reschedule -> cancel
   - admin and staff operational flows
+- Client PR 0B1 removes the active `/change-appointment` confirmation fallback
+  and the unreachable booking floating dock.
+- Live verification of a successful booking and valid manage token still
+  requires an approved disposable fixture. The focused customer-journey E2E
+  uses intercepted responses where that fixture is unavailable and must be run
+  explicitly because it is not part of the default hosted E2E pattern.
+
+## Retired Customer UI Follow-ups
+
+- Client PR 0B2 still needs to retire the remaining profile, history,
+  preferences, rewards, gallery, invite, membership, my-referrals,
+  payment-methods, and referral route surfaces.
+- `BookingPhoneLogin`, `BlockingLoginModal`, and `BookingFloatingDock` remain as
+  intentionally unreferenced source in 0B1.
+- A future customer account, emailed OTP, secure session, and My Bookings
+  architecture is not implemented by 0B1.
 
 ## Productization Gaps
 
