@@ -19,7 +19,14 @@ failOnConsole({
   shouldFailOnWarn: true,
 });
 
-// Set up environment variables for testing
+// Override the required build-time provider fields with explicit non-secret
+// values so unit tests do not depend on those fields in a local dotenv file.
+process.env.CLERK_SECRET_KEY = 'ci-placeholder-not-a-secret';
+process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'pk_test_Y2kubHVzdGVyLmludmFsaWQk';
+process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL = '/sign-in';
+process.env.STRIPE_SECRET_KEY = 'ci-placeholder-not-a-secret';
+process.env.STRIPE_WEBHOOK_SECRET = 'ci-placeholder-not-a-secret';
+process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = 'ci-placeholder-not-a-secret';
 process.env.BILLING_PLAN_ENV = 'test';
 
 // Tests must never connect to a real database. vitest.config.mts already
