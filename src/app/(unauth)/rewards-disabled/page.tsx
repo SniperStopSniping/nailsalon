@@ -29,10 +29,6 @@ export default function RewardsDisabledPage({
           href: appendSalonSlug('/book', resolvedSalonSlug, tenantRoute),
           primary: true,
         },
-        {
-          label: 'Back to Profile',
-          href: appendSalonSlug('/profile', resolvedSalonSlug, tenantRoute),
-        },
       ]}
       footer="The rewards program may be temporarily unavailable or not offered by this salon."
     />
