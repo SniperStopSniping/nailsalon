@@ -1,3 +1,11 @@
+## [1.42.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.42.0...v1.42.1) (2026-07-29)
+
+
+### Bug Fixes
+
+* disable legacy customer auth ([146e681](https://github.com/SniperStopSniping/nailsalon/commit/146e681b50ff630ef2c6fa63e9e5f626a8065c36))
+* remove dead customer login from tech booking ([4ce11e3](https://github.com/SniperStopSniping/nailsalon/commit/4ce11e3e1c9a96916864b59094dc4a4762a3b521))
+
 # [1.42.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.41.0...v1.42.0) (2026-07-29)
 
 
