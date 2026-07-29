@@ -1,3 +1,10 @@
+## [1.42.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.42.1...v1.42.2) (2026-07-29)
+
+
+### Bug Fixes
+
+* retire legacy booking entry points ([#70](https://github.com/SniperStopSniping/nailsalon/issues/70)) ([91322df](https://github.com/SniperStopSniping/nailsalon/commit/91322df1cf8b9dad36c7fd9d309b7b79b0ca1076))
+
 ## [1.42.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.42.0...v1.42.1) (2026-07-29)
 
 
