@@ -1,10 +1,18 @@
+/* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { clearClientSessionCookies, setClientSessionCookies } from './clientAuth';
-
-const { cookieSet, cookieDelete } = vi.hoisted(() => ({
+const {
+  cookieSet,
+  dbDelete,
+  dbInsert,
+  dbSelect,
+  dbUpdate,
+} = vi.hoisted(() => ({
   cookieSet: vi.fn(),
-  cookieDelete: vi.fn(),
+  dbDelete: vi.fn(),
+  dbInsert: vi.fn(),
+  dbSelect: vi.fn(),
+  dbUpdate: vi.fn(),
 }));
 
 vi.mock('server-only', () => ({}));
@@ -12,69 +20,90 @@ vi.mock('server-only', () => ({}));
 vi.mock('next/headers', () => ({
   cookies: vi.fn(async () => ({
     set: cookieSet,
-    delete: cookieDelete,
-    get: vi.fn(),
   })),
 }));
 
-describe('clientAuth cookie cleanup', () => {
+vi.mock('@/libs/DB', () => ({
+  db: {
+    delete: dbDelete,
+    insert: dbInsert,
+    select: dbSelect,
+    update: dbUpdate,
+  },
+}));
+
+import {
+  assertClientSessionStorageReady,
+  clearClientSessionCookies,
+  createClientSession,
+  LEGACY_CUSTOMER_AUTH_DISABLED_CODE,
+  LEGACY_CUSTOMER_AUTH_DISABLED_MESSAGE,
+  legacyCustomerAuthDisabledResponse,
+  refreshClientSession,
+  setClientSessionCookies,
+} from './clientAuth';
+
+describe('legacy client session shutdown', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('clears remaining client helper cookies on logout/session invalidation', async () => {
-    await clearClientSessionCookies();
+  it('returns the stable disabled response without exposing account data', async () => {
+    const response = legacyCustomerAuthDisabledResponse();
 
-    expect(cookieSet).toHaveBeenCalledWith('client_session', '', expect.objectContaining({ maxAge: 0 }));
-    expect(cookieSet).toHaveBeenCalledWith('client_phone', '', expect.objectContaining({ maxAge: 0 }));
-    expect(cookieSet).toHaveBeenCalledWith('client_name', '', expect.objectContaining({ maxAge: 0 }));
-    expect(cookieSet).toHaveBeenCalledWith('client_email', '', expect.objectContaining({ maxAge: 0 }));
-    expect(cookieDelete).not.toHaveBeenCalled();
+    expect(response.status).toBe(410);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: LEGACY_CUSTOMER_AUTH_DISABLED_CODE,
+        message: LEGACY_CUSTOMER_AUTH_DISABLED_MESSAGE,
+      },
+    });
   });
 
-  it('clears stale client helper cookies during normal session refresh', async () => {
-    await setClientSessionCookies({
-      sessionId: 'client_session_1',
-      phone: '+15551234567',
-      clientName: 'Ava',
-    });
-
-    expect(cookieSet).toHaveBeenCalledWith('client_session', 'client_session_1', expect.objectContaining({ maxAge: expect.any(Number) }));
-    expect(cookieSet).toHaveBeenCalledWith('client_phone', '', expect.objectContaining({ maxAge: 0 }));
-    expect(cookieSet).toHaveBeenCalledWith('client_name', '', expect.objectContaining({ maxAge: 0 }));
-    expect(cookieSet).toHaveBeenCalledWith('client_email', '', expect.objectContaining({ maxAge: 0 }));
-  });
-
-  /**
-   * Sign-out has to clear the cookie with the SAME attributes it was written
-   * with. A mismatched path/secure/sameSite/domain leaves the browser holding
-   * the original cookie, which is what makes a stale session feel permanent.
-   */
-  it('clears the session cookie with the same attributes it was set with', async () => {
-    await setClientSessionCookies({
-      sessionId: 'client_session_1',
-      phone: '+15551234567',
-      clientName: 'Ava',
-    });
-    const setCall = cookieSet.mock.calls.find(call => call[0] === 'client_session');
-
-    cookieSet.mockClear();
+  it('clears the session and all legacy helper cookies', async () => {
     await clearClientSessionCookies();
-    const clearCall = cookieSet.mock.calls.find(call => call[0] === 'client_session');
 
-    expect(setCall).toBeDefined();
-    expect(clearCall).toBeDefined();
+    expect(cookieSet).toHaveBeenCalledWith('client_session', '', expect.objectContaining({
+      httpOnly: true,
+      maxAge: 0,
+      path: '/',
+      sameSite: 'lax',
+    }));
 
-    const setOptions = setCall![2] as Record<string, unknown>;
-    const clearOptions = clearCall![2] as Record<string, unknown>;
-
-    for (const attribute of ['path', 'httpOnly', 'secure', 'sameSite', 'domain'] as const) {
-      expect(clearOptions[attribute]).toEqual(setOptions[attribute]);
+    for (const name of ['client_phone', 'client_name', 'client_email']) {
+      expect(cookieSet).toHaveBeenCalledWith(name, '', expect.objectContaining({
+        httpOnly: false,
+        maxAge: 0,
+        path: '/',
+        sameSite: 'lax',
+      }));
     }
+  });
 
-    // The only intended difference: the clear expires it immediately.
-    expect(clearCall![1]).toBe('');
-    expect(clearOptions.maxAge).toBe(0);
-    expect(setOptions.maxAge).toBeGreaterThan(0);
+  it('cannot issue a customer session cookie', async () => {
+    await expect(setClientSessionCookies({
+      sessionId: 'client_session_1',
+      phone: '+15551234567',
+      clientName: 'Ava',
+    })).rejects.toMatchObject({ code: LEGACY_CUSTOMER_AUTH_DISABLED_CODE });
+
+    expect(cookieSet).not.toHaveBeenCalled();
+  });
+
+  it('cannot inspect, create, or renew legacy session storage', async () => {
+    await expect(assertClientSessionStorageReady()).rejects.toMatchObject({
+      code: LEGACY_CUSTOMER_AUTH_DISABLED_CODE,
+    });
+    await expect(createClientSession('+15551234567')).rejects.toMatchObject({
+      code: LEGACY_CUSTOMER_AUTH_DISABLED_CODE,
+    });
+    await expect(refreshClientSession('client_session_1')).rejects.toMatchObject({
+      code: LEGACY_CUSTOMER_AUTH_DISABLED_CODE,
+    });
+
+    expect(dbSelect).not.toHaveBeenCalled();
+    expect(dbInsert).not.toHaveBeenCalled();
+    expect(dbUpdate).not.toHaveBeenCalled();
+    expect(dbDelete).not.toHaveBeenCalled();
   });
 });

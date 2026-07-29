@@ -124,7 +124,7 @@ export default function ClaimReferralPage() {
       const data = await response.json();
 
       if (!response.ok) {
-        setFormError(data.error || 'Failed to send code');
+        setFormError(getApiErrorMessage(data, 'Failed to send code'));
         setIsLoading(false);
         return;
       }

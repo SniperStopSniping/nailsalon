@@ -4,7 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('server-only', () => ({}));
 vi.mock('@/libs/DB', () => ({ db: {} }));
 vi.mock('@/libs/adminAuth', () => ({}));
-vi.mock('@/libs/clientAuth', () => ({}));
+vi.mock('@/libs/clientAuth', () => ({
+  legacyCustomerAuthDisabledResponse: () => Response.json({
+    error: {
+      code: 'LEGACY_CUSTOMER_AUTH_DISABLED',
+      message: 'Customer sign-in is unavailable. Book as a guest or use your secure appointment management link.',
+    },
+  }, { status: 410 }),
+}));
 vi.mock('@/libs/queries', () => ({}));
 vi.mock('@/libs/rateLimit', () => ({}));
 vi.mock('@/libs/staffAuth', () => ({}));
@@ -19,9 +26,12 @@ import { POST as staffVerify } from './staff/verify-otp/route';
 const originalLegacyFlag = process.env.LEGACY_OTP_AUTH_ENABLED;
 const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
-const routes = [
-  ['customer send', customerSend],
-  ['customer verify', customerVerify],
+const customerRoutes = [
+  ['send', customerSend],
+  ['verify', customerVerify],
+] as const;
+
+const workforceRoutes = [
   ['admin send', adminSend],
   ['admin verify', adminVerify],
   ['staff send', staffSend],
@@ -42,7 +52,26 @@ describe('retired OTP endpoints', () => {
     }
   });
 
-  it.each(routes)('%s returns 410 before validation, database, or Twilio', async (_name, handler) => {
+  it.each(customerRoutes)('customer %s remains retired even when the shared workforce flag is enabled', async (_name, handler) => {
+    process.env.LEGACY_OTP_AUTH_ENABLED = 'true';
+
+    const response = await handler(new Request('http://localhost/api/customer-otp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: '5551234567', code: '123456' }),
+    }));
+
+    expect(response.status).toBe(410);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'LEGACY_CUSTOMER_AUTH_DISABLED',
+        message: 'Customer sign-in is unavailable. Book as a guest or use your secure appointment management link.',
+      },
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it.each(workforceRoutes)('%s retains the shared legacy flag behavior', async (_name, handler) => {
     const response = await handler(new Request('http://localhost/api/retired-otp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
