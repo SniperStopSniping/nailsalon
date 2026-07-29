@@ -1,3 +1,10 @@
+# [1.42.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.41.0...v1.42.0) (2026-07-29)
+
+
+### Features
+
+* use booking policy snapshots in confirmation emails ([13f89c0](https://github.com/SniperStopSniping/nailsalon/commit/13f89c06a967b76d2e0f339299c3a2a0d4ce8e7d))
+
 # [1.41.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.40.0...v1.41.0) (2026-07-28)
 
 
