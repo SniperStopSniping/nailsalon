@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BookTechClient } from './BookTechClient';
 
@@ -9,11 +9,17 @@ const {
   routerPush,
   setTechnicianId,
   syncFromUrl,
+  blockingLoginModalRender,
+  bookingPhoneLoginRender,
+  legacyAuthFetch,
 } = vi.hoisted(() => ({
   routerBack: vi.fn(),
   routerPush: vi.fn(),
   setTechnicianId: vi.fn(),
   syncFromUrl: vi.fn(),
+  blockingLoginModalRender: vi.fn(),
+  bookingPhoneLoginRender: vi.fn(),
+  legacyAuthFetch: vi.fn(),
 }));
 
 vi.mock('next/image', () => ({
@@ -36,7 +42,14 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/components/BlockingLoginModal', () => ({
-  BlockingLoginModal: () => null,
+  BlockingLoginModal: () => {
+    blockingLoginModalRender();
+    return (
+      <div role="dialog" aria-label="Legacy customer login modal">
+        <button type="button">Verify</button>
+      </div>
+    );
+  },
 }));
 
 vi.mock('@/components/booking/BookingStepHeader', () => ({
@@ -48,15 +61,16 @@ vi.mock('@/components/booking/BookingFloatingDock', () => ({
 }));
 
 vi.mock('@/components/booking/BookingPhoneLogin', () => ({
-  BookingPhoneLogin: () => null,
-}));
-
-vi.mock('@/hooks/useClientSession', () => ({
-  useClientSession: () => ({
-    isLoggedIn: false,
-    isCheckingSession: false,
-    handleLoginSuccess: vi.fn(),
-  }),
+  BookingPhoneLogin: () => {
+    bookingPhoneLoginRender();
+    return (
+      <section aria-label="Legacy customer login card">
+        <label htmlFor="legacy-customer-phone">Phone number</label>
+        <input id="legacy-customer-phone" type="tel" />
+        <button type="button">Send code</button>
+      </section>
+    );
+  },
 }));
 
 vi.mock('@/hooks/useBookingState', () => ({
@@ -77,6 +91,13 @@ vi.mock('@/providers/SalonProvider', () => ({
 describe('BookTechClient', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.stubGlobal('fetch', legacyAuthFetch);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it('shows initials fallback for production-invalid local upload URLs', () => {
@@ -104,11 +125,12 @@ describe('BookTechClient', () => {
 
     expect(screen.getByText('DR')).toBeInTheDocument();
     expect(screen.queryByAltText('Daniela Ruiz')).not.toBeInTheDocument();
-
-    vi.unstubAllEnvs();
+    expect(legacyAuthFetch).not.toHaveBeenCalled();
   });
 
   it('renders unsupported technicians as disabled and does not navigate on click', () => {
+    vi.useFakeTimers();
+
     render(
       <BookTechClient
         technicians={[{
@@ -135,9 +157,13 @@ describe('BookTechClient', () => {
     expect(screen.getByText('Not assigned to this service yet')).toBeInTheDocument();
 
     fireEvent.click(techButton);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
 
     expect(routerPush).not.toHaveBeenCalled();
     expect(setTechnicianId).not.toHaveBeenCalled();
+    expect(legacyAuthFetch).not.toHaveBeenCalled();
   });
 
   it('shows service context above the technician list and uses neutral trust text for artists with no reviews', () => {
@@ -164,44 +190,110 @@ describe('BookTechClient', () => {
     expect(screen.getByText('Selected service')).toBeInTheDocument();
     expect(screen.getByText('Colour Change')).toBeInTheDocument();
     expect(screen.getByText('Isla Nail Studio')).toBeInTheDocument();
+    expect(screen.getByTestId('booking-summary-duration')).toHaveTextContent('30 min');
+    expect(screen.getByTestId('booking-summary-price')).toHaveTextContent('$25');
     expect(screen.getByText('No reviews yet')).toBeInTheDocument();
     expect(screen.queryByText(/\(0\)/)).not.toBeInTheDocument();
+    expect(legacyAuthFetch).not.toHaveBeenCalled();
   });
 
-  it('lets a guest continue when technician selection is the first booking step', () => {
+  it('removes legacy login UI and lets a signed-out guest continue from a tech-first flow', () => {
     vi.useFakeTimers();
 
-    try {
-      render(
-        <BookTechClient
-          technicians={[{
-            id: 'tech_1',
-            name: 'Taylor',
-            imageUrl: null,
-            specialties: ['Gel Manicure'],
-            rating: 4.8,
-            reviewCount: 9,
-            bookable: true,
-            unavailableReason: null,
-          }]}
-          services={[{ id: 'svc_1', name: 'Gel Manicure', price: 45, duration: 45 }]}
-          totalPrice={45}
-          totalDuration={45}
-          locationName="Isla Nail Studio"
-          bookingFlow={['tech', 'service', 'time', 'confirm']}
-        />,
-      );
+    render(
+      <BookTechClient
+        technicians={[{
+          id: 'tech_1',
+          name: 'Taylor',
+          imageUrl: null,
+          specialties: ['Gel Manicure'],
+          rating: 4.8,
+          reviewCount: 9,
+          bookable: true,
+          unavailableReason: null,
+        }]}
+        services={[{ id: 'svc_1', name: 'Gel Manicure', price: 45, duration: 45 }]}
+        totalPrice={45}
+        totalDuration={45}
+        locationName="Isla Nail Studio"
+        bookingFlow={['tech', 'service', 'time', 'confirm']}
+      />,
+    );
 
-      fireEvent.click(screen.getByRole('button', { name: /Taylor/i }));
+    expect(bookingPhoneLoginRender).not.toHaveBeenCalled();
+    expect(blockingLoginModalRender).not.toHaveBeenCalled();
+    expect(screen.queryByLabelText(/phone number/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /legacy customer login/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /send code/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /verify/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/log in|sign in|customer login/i)).not.toBeInTheDocument();
+    expect(legacyAuthFetch).not.toHaveBeenCalled();
 
-      act(() => {
-        vi.advanceTimersByTime(300);
-      });
+    const anyArtistButton = screen.getByRole('button', { name: /surprise me/i });
+    fireEvent.mouseEnter(anyArtistButton);
+    fireEvent.mouseLeave(anyArtistButton);
 
-      expect(setTechnicianId).toHaveBeenCalledWith('tech_1', 'explicit');
-      expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('/book/service'));
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(legacyAuthFetch).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: /Taylor/i }));
+
+    expect(setTechnicianId).toHaveBeenNthCalledWith(1, 'tech_1', 'explicit');
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(legacyAuthFetch).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(299);
+    });
+
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(legacyAuthFetch).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(1);
+    });
+
+    expect(setTechnicianId).toHaveBeenNthCalledWith(2, 'tech_1', 'explicit');
+    expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('/book/service'));
+    expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('techId=tech_1'));
+    expect(legacyAuthFetch).not.toHaveBeenCalled();
+  });
+
+  it('keeps any-technician selection working without customer-auth traffic', () => {
+    vi.useFakeTimers();
+
+    render(
+      <BookTechClient
+        technicians={[{
+          id: 'tech_1',
+          name: 'Taylor',
+          imageUrl: null,
+          specialties: ['Gel Manicure'],
+          rating: 4.8,
+          reviewCount: 9,
+          bookable: true,
+          unavailableReason: null,
+        }]}
+        services={[{ id: 'svc_1', name: 'Gel Manicure', price: 45, duration: 45 }]}
+        totalPrice={45}
+        totalDuration={45}
+        locationName="Isla Nail Studio"
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /surprise me/i }));
+
+    expect(setTechnicianId).toHaveBeenNthCalledWith(1, null, null);
+    expect(routerPush).not.toHaveBeenCalled();
+    expect(legacyAuthFetch).not.toHaveBeenCalled();
+
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+
+    expect(setTechnicianId).toHaveBeenNthCalledWith(2, null, null);
+    expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('/book/time'));
+    expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('techId=any'));
+    expect(legacyAuthFetch).not.toHaveBeenCalled();
   });
 });

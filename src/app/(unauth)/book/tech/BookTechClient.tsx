@@ -3,9 +3,7 @@
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useEffect, useState } from 'react';
 
-import { BlockingLoginModal } from '@/components/BlockingLoginModal';
 import { BookingFloatingDock } from '@/components/booking/BookingFloatingDock';
-import { BookingPhoneLogin } from '@/components/booking/BookingPhoneLogin';
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
 import { BookingSummaryCard } from '@/components/booking/BookingSummaryCard';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
@@ -77,7 +75,7 @@ export function BookTechClient({
   const techError = searchParams.get('techError');
   const hasBookableTechnicians = technicians.some(tech => tech.bookable);
 
-  // Check if this is the first step in the booking flow (for dock/login visibility)
+  // Check if this is the first step in the booking flow (for dock visibility)
   const isFirstStep = getFirstStep(bookingFlow) === 'tech';
   const originalAppointmentId = searchParams.get('originalAppointmentId') || '';
   const locationId = searchParams.get('locationId') || '';
@@ -85,14 +83,12 @@ export function BookTechClient({
   const campaignToken = searchParams.get('campaign') || '';
 
   // Use shared auth hook
-  const { isLoggedIn, isCheckingSession, handleLoginSuccess } = useClientSession();
+  const { isLoggedIn, isCheckingSession } = useClientSession();
 
   // Use global booking state for technician persistence
   const { technicianId, setTechnicianId, syncFromUrl, isHydrated = false } = useBookingState(salonSlug);
 
   const [selectedTech, setSelectedTech] = useState<string | null>(null);
-  const [pendingTechId, setPendingTechId] = useState<string | null>(null);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [mounted, setMounted] = useState(false);
   const serviceNames = [
     ...services.map(service => service.name),
@@ -166,27 +162,6 @@ export function BookTechClient({
     setTimeout(() => {
       goToNextStep(techId);
     }, 300);
-  };
-
-  // Handle login success from the blocking modal
-  const handleModalLoginSuccess = (verifiedPhone: string) => {
-    handleLoginSuccess(verifiedPhone);
-    setIsLoginModalOpen(false);
-
-    if (pendingTechId) {
-      setSelectedTech(pendingTechId);
-      // Save to global state
-      setTechnicianId(pendingTechId === 'any' ? null : pendingTechId, pendingTechId === 'any' ? null : 'explicit');
-      setTimeout(() => {
-        goToNextStep(pendingTechId);
-      }, 300);
-      setPendingTechId(null);
-    }
-  };
-
-  const handleCloseLoginModal = () => {
-    setIsLoginModalOpen(false);
-    setPendingTechId(null);
   };
 
   const handleBack = () => {
@@ -413,24 +388,10 @@ export function BookTechClient({
 
         {/* Spacer for floating dock when logged in */}
         {!isCheckingSession && isLoggedIn && isFirstStep && <div className="h-16" />}
-
-        {/* Auth Footer - shown only on first step when not logged in */}
-        {isFirstStep && !isCheckingSession && !isLoggedIn && (
-          <BookingPhoneLogin
-            onLoginSuccess={handleLoginSuccess}
-          />
-        )}
       </div>
 
       {/* Floating Dock - shown only when logged in and this is the first step */}
       {!isCheckingSession && isLoggedIn && isFirstStep && <BookingFloatingDock />}
-
-      {/* Blocking Login Modal */}
-      <BlockingLoginModal
-        isOpen={isLoginModalOpen}
-        onClose={handleCloseLoginModal}
-        onLoginSuccess={handleModalLoginSuccess}
-      />
     </div>
   );
 }
