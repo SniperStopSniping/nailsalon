@@ -2647,7 +2647,16 @@ describe('POST /api/appointments booking policy', () => {
       // Whatever the reason, the guard reports "no usable session".
       requireClientApiSession.mockResolvedValue({
         ok: false,
-        response: new Response(null, { status: 401 }),
+        response: Response.json(
+          {
+            error: {
+              code: 'LEGACY_CUSTOMER_AUTH_DISABLED',
+              message:
+                'Customer sign-in is unavailable. Book as a guest or use your secure appointment management link.',
+            },
+          },
+          { status: 410 },
+        ),
       });
     });
 

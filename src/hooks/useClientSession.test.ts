@@ -1,56 +1,42 @@
-import { act, renderHook, waitFor } from '@testing-library/react';
+import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { useClientSession } from './useClientSession';
 
-describe('useClientSession', () => {
+describe('useClientSession retirement adapter', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('validates the server-backed session instead of trusting URL state', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      valid: true,
-      phone: '+15551234567',
-      clientName: 'Ava',
-      clientEmail: 'ava@example.com',
-    })));
+  it('is immediately signed out without probing validate-session', async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
     const { result } = renderHook(() => useClientSession());
 
-    await waitFor(() => {
-      expect(result.current.isCheckingSession).toBe(false);
+    expect(result.current).toMatchObject({
+      isLoggedIn: false,
+      phone: '',
+      clientName: '',
+      clientEmail: '',
+      isCheckingSession: false,
     });
 
-    expect(fetchMock).toHaveBeenCalledWith('/api/auth/validate-session', {
-      cache: 'no-store',
+    await act(async () => {
+      await result.current.validateSession();
     });
-    expect(result.current.isLoggedIn).toBe(true);
-    expect(result.current.phone).toBe('+15551234567');
-    expect(result.current.clientName).toBe('Ava');
-    expect(result.current.clientEmail).toBe('ava@example.com');
+
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('lets OTP login promote the session client-side after verification', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({
-      valid: false,
-    })));
-    vi.stubGlobal('fetch', fetchMock);
-
+  it('cannot promote browser state after a legacy OTP callback', () => {
     const { result } = renderHook(() => useClientSession());
-
-    await waitFor(() => {
-      expect(result.current.isCheckingSession).toBe(false);
-    });
 
     act(() => {
       result.current.handleLoginSuccess('+15551234567');
     });
 
-    expect(result.current.isLoggedIn).toBe(true);
-    expect(result.current.phone).toBe('+15551234567');
-    expect(result.current.clientName).toBe('');
-    expect(result.current.clientEmail).toBe('');
+    expect(result.current.isLoggedIn).toBe(false);
+    expect(result.current.phone).toBe('');
   });
 });

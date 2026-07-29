@@ -1,7 +1,8 @@
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import React from 'react';
-
-import { fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { BookTechClient } from './BookTechClient';
 
 const {
   routerBack,
@@ -52,7 +53,7 @@ vi.mock('@/components/booking/BookingPhoneLogin', () => ({
 
 vi.mock('@/hooks/useClientSession', () => ({
   useClientSession: () => ({
-    isLoggedIn: true,
+    isLoggedIn: false,
     isCheckingSession: false,
     handleLoginSuccess: vi.fn(),
   }),
@@ -72,8 +73,6 @@ vi.mock('@/providers/SalonProvider', () => ({
     salonSlug: 'isla-nail-studio',
   }),
 }));
-
-import { BookTechClient } from './BookTechClient';
 
 describe('BookTechClient', () => {
   beforeEach(() => {
@@ -131,10 +130,12 @@ describe('BookTechClient', () => {
     );
 
     const techButton = screen.getByRole('button', { name: /Daniela/i });
+
     expect(techButton).toBeDisabled();
     expect(screen.getByText('Not assigned to this service yet')).toBeInTheDocument();
 
     fireEvent.click(techButton);
+
     expect(routerPush).not.toHaveBeenCalled();
     expect(setTechnicianId).not.toHaveBeenCalled();
   });
@@ -165,5 +166,42 @@ describe('BookTechClient', () => {
     expect(screen.getByText('Isla Nail Studio')).toBeInTheDocument();
     expect(screen.getByText('No reviews yet')).toBeInTheDocument();
     expect(screen.queryByText(/\(0\)/)).not.toBeInTheDocument();
+  });
+
+  it('lets a guest continue when technician selection is the first booking step', () => {
+    vi.useFakeTimers();
+
+    try {
+      render(
+        <BookTechClient
+          technicians={[{
+            id: 'tech_1',
+            name: 'Taylor',
+            imageUrl: null,
+            specialties: ['Gel Manicure'],
+            rating: 4.8,
+            reviewCount: 9,
+            bookable: true,
+            unavailableReason: null,
+          }]}
+          services={[{ id: 'svc_1', name: 'Gel Manicure', price: 45, duration: 45 }]}
+          totalPrice={45}
+          totalDuration={45}
+          locationName="Isla Nail Studio"
+          bookingFlow={['tech', 'service', 'time', 'confirm']}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: /Taylor/i }));
+
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+
+      expect(setTechnicianId).toHaveBeenCalledWith('tech_1', 'explicit');
+      expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('/book/service'));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

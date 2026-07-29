@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { ClientSessionPrincipal } from '@/libs/clientAuth';
-import { getClientSession } from '@/libs/clientAuth';
+import { legacyCustomerAuthDisabledResponse } from '@/libs/clientAuth';
 import type { Salon } from '@/models/Schema';
 
 import { getResolvedSalon, getSalonFromSlugOrCookie } from './tenant';
@@ -37,42 +37,9 @@ export function normalizeClientPhone(phone: string): string {
 }
 
 export async function requireClientApiSession(): Promise<ClientSessionGuard> {
-  const session = await getClientSession();
-
-  if (!session) {
-    return {
-      ok: false,
-      response: errorResponse(401, 'UNAUTHORIZED', 'Client authentication required'),
-    };
-  }
-
-  const normalizedPhone = normalizeClientPhone(session.phone);
-
-  if (normalizedPhone.length !== 10) {
-    return {
-      ok: false,
-      response: errorResponse(401, 'INVALID_SESSION', 'Client session is invalid'),
-    };
-  }
-
-  const rawDigits = session.phone.replace(/\D/g, '');
-  const phoneVariants = Array.from(
-    new Set(
-      [
-        session.phone,
-        rawDigits,
-        normalizedPhone,
-        `+1${normalizedPhone}`,
-        rawDigits ? `+${rawDigits}` : null,
-      ].filter((value): value is string => Boolean(value)),
-    ),
-  );
-
   return {
-    ok: true,
-    normalizedPhone,
-    phoneVariants,
-    session,
+    ok: false,
+    response: legacyCustomerAuthDisabledResponse(),
   };
 }
 

@@ -1,69 +1,25 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-
-type SessionResponse = {
-  valid?: boolean;
-  phone?: string;
-  clientName?: string | null;
-  clientEmail?: string | null;
-};
+import { useCallback } from 'react';
 
 export function useClientSession() {
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [phone, setPhone] = useState('');
-  const [clientName, setClientName] = useState('');
-  const [clientEmail, setClientEmail] = useState('');
-  const [isCheckingSession, setIsCheckingSession] = useState(true);
-
+  // Client PR 0A compatibility adapter. Existing consumers remain mounted
+  // until PR 0B removes the legacy account surfaces, but they must neither
+  // probe the retired endpoint nor promote browser-only login state.
   const validateSession = useCallback(async () => {
-    setIsCheckingSession(true);
-
-    try {
-      const response = await fetch('/api/auth/validate-session', {
-        cache: 'no-store',
-      });
-      const data = await response.json().catch(() => null) as SessionResponse | null;
-
-      if (response.ok && data?.valid && data.phone) {
-        setIsLoggedIn(true);
-        setPhone(data.phone);
-        setClientName(data.clientName ?? '');
-        setClientEmail(data.clientEmail ?? '');
-      } else {
-        setIsLoggedIn(false);
-        setPhone('');
-        setClientName('');
-        setClientEmail('');
-      }
-    } catch {
-      setIsLoggedIn(false);
-      setPhone('');
-      setClientName('');
-      setClientEmail('');
-    } finally {
-      setIsCheckingSession(false);
-    }
+    // Intentionally inert until the tenant-bound email account system exists.
   }, []);
 
-  useEffect(() => {
-    void validateSession();
-  }, [validateSession]);
-
-  const handleLoginSuccess = useCallback((verifiedPhone: string) => {
-    setIsLoggedIn(true);
-    setPhone(verifiedPhone);
-    setClientName('');
-    setClientEmail('');
-    setIsCheckingSession(false);
+  const handleLoginSuccess = useCallback((_verifiedPhone: string) => {
+    // Legacy OTP can no longer promote client-side identity.
   }, []);
 
   return {
-    isLoggedIn,
-    phone,
-    clientName,
-    clientEmail,
-    isCheckingSession,
+    isLoggedIn: false,
+    phone: '',
+    clientName: '',
+    clientEmail: '',
+    isCheckingSession: false,
     handleLoginSuccess,
     validateSession,
   };

@@ -160,14 +160,9 @@ export function BookTechClient({
     // Save to global state immediately
     setTechnicianId(techId === 'any' ? null : techId, techId === 'any' ? null : 'explicit');
 
-    // Gate navigation on login when this is the first step
-    if (isFirstStep && !isLoggedIn) {
-      setPendingTechId(techId);
-      setIsLoginModalOpen(true);
-      return;
-    }
-
-    // Use the phone from auth hook (may be updated after login)
+    // Guest booking remains authoritative while legacy customer auth is
+    // retired. In particular, a salon whose configured flow starts with
+    // technician selection must never block here on the disabled login modal.
     setTimeout(() => {
       goToNextStep(techId);
     }, 300);
