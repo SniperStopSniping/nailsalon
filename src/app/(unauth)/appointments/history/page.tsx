@@ -1,21 +1,5 @@
-import { getPublicPageContext } from '@/libs/tenant';
+import { notFound } from 'next/navigation';
 
-import AppointmentHistoryContent from './AppointmentHistoryContent';
-
-export default async function AppointmentHistoryPage({
-  searchParams,
-  params,
-}: {
-  searchParams: { salonSlug?: string };
-  params?: { locale?: string; slug?: string };
-}) {
-  const context = await getPublicPageContext('appointments-history', searchParams, params);
-  const { salon } = context;
-
-  return (
-    <AppointmentHistoryContent
-      salonName={salon.name}
-      salonSlug={salon.slug}
-    />
-  );
+export default function AppointmentHistoryPage() {
+  notFound();
 }

@@ -284,7 +284,7 @@ Before creating new components, check if these exist:
 | `PointsBadge` | Points display badge |
 | `PageLayout` | Page container wrapper |
 | `ProgressSteps` | Booking flow progress |
-| `BlockingLoginModal` | Authentication modal |
+| `BlockingLoginModal` | Retained legacy customer modal; do not reuse for authentication |
 
 ### 4.2 🔴 Follow Card Standards
 
@@ -544,14 +544,28 @@ const allServices = await db.select().from(services);
 // This leaks data across tenants!
 ```
 
-### 7.5 🔴 Do NOT Add Third-Party Auth Providers
+### 7.5 🔴 Do NOT Add Third-Party Auth Providers or Re-enable Legacy Customer Auth
 
 ```typescript
 // ❌ NEVER do this
 // "I added Clerk for easier authentication"
 // "I integrated Auth0 for better security"
-// The app uses custom phone-first OTP auth ONLY
+// Do not reuse the retired customer phone-OTP or session implementation
 ```
+
+The legacy customer portal pages are retired and must not be re-enabled. Retained
+customer content modules are unreachable reference code; they are not approved
+authentication or account implementations.
+
+Client PR 0A is a permanent security floor:
+
+- Customer send-OTP, verify-OTP, and session-validation endpoints remain typed HTTP 410 responses.
+- Legacy customer sessions cannot be issued or renewed, and stale cookies cannot authorize customer data.
+- Legacy OTP providers must not be called and customer session rows must not be written.
+
+Any future customer account must use the new tenant-scoped email-OTP and secure
+customer-session architecture. Do not reconnect the retired portal or its retained
+content modules while building it.
 
 ### 7.6 🔴 Do NOT Use Clerk Components
 

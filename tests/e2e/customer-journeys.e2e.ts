@@ -42,6 +42,46 @@ async function installLegacyAuthTripwire(page: Page) {
   return requests;
 }
 
+async function installRetiredCustomerTrafficTripwires(page: Page) {
+  const legacyAuthRequests = await installLegacyAuthTripwire(page);
+  const protectedCustomerRequests: string[] = [];
+  const referralRequests: string[] = [];
+
+  const installTripwire = async (pattern: RegExp, requests: string[]) => {
+    await page.route(pattern, async (route) => {
+      const request = route.request();
+      const path = new URL(request.url()).pathname;
+
+      requests.push(`${request.method()} ${path}`);
+      await route.fulfill({
+        status: 418,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: {
+            code: 'E2E_RETIRED_CUSTOMER_TRAFFIC_TRIPWIRE',
+            message: 'Retired customer pages must not call legacy customer APIs.',
+          },
+        }),
+      });
+    });
+  };
+
+  await installTripwire(
+    /\/api\/(?:client(?:[/?#]|$)|appointments\/history(?:[/?#]|$)|rewards(?:[/?#]|$)|gallery(?:[/?#]|$))/,
+    protectedCustomerRequests,
+  );
+  await installTripwire(
+    /\/api\/referrals(?:[/?#]|$)/,
+    referralRequests,
+  );
+
+  return {
+    legacyAuthRequests,
+    protectedCustomerRequests,
+    referralRequests,
+  };
+}
+
 async function seedStaleLegacyCustomerCookies(page: Page) {
   await page.goto('/robots.txt');
   const origin = new URL(page.url()).origin;
@@ -99,6 +139,74 @@ test.describe('Customer journeys', () => {
     }
 
     expect(legacyAuthRequests).toEqual([]);
+  });
+
+  test('remaining legacy customer pages return direct 404s without customer API traffic', async ({ page }) => {
+    const traffic = await installRetiredCustomerTrafficTripwires(page);
+    const syntheticReferralId = 'ref_e2e_retired_0b2';
+    const retiredPaths = [
+      {
+        label: 'root profile',
+        path: `/profile?salonSlug=${e2eConfig.salonSlug}`,
+      },
+      {
+        label: 'locale appointment history',
+        path: `/fr/appointments/history?salonSlug=${e2eConfig.salonSlug}`,
+      },
+      {
+        label: 'locale tenant rewards',
+        path: `/fr/${e2eConfig.salonSlug}/rewards`,
+      },
+      {
+        label: 'synthetic referral claim',
+        path: `/referral/${syntheticReferralId}?salonSlug=${e2eConfig.salonSlug}`,
+      },
+      {
+        label: 'root payment methods',
+        path: `/payment-methods?salonSlug=${e2eConfig.salonSlug}`,
+      },
+    ];
+
+    for (const retiredPath of retiredPaths) {
+      const response = await page.goto(retiredPath.path);
+
+      expect(
+        response?.status(),
+        `${retiredPath.label} (${retiredPath.path}) should return HTTP 404`,
+      ).toBe(404);
+      await expect(page.locator('body')).toContainText(/404|not found|could not be found/i);
+      await expect(
+        page.locator(
+          'input[type="tel"], input[name*="phone" i], input[autocomplete="one-time-code"]',
+        ),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole('button', {
+          name: /send (?:me )?(?:a )?code|verify code|claim referral|save profile|add payment method/i,
+        }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByRole('heading', {
+          name: /profile|appointment history|rewards|payment methods|claim your/i,
+        }),
+      ).toHaveCount(0);
+      await expect(
+        page.getByText(
+          /sign in with your booking phone|verification code|how points work|rewards apply automatically|beauty profile|my referrals|loading your referral|already claimed|referral details/i,
+        ),
+      ).toHaveCount(0);
+      await expect(page.getByText(syntheticReferralId, { exact: false })).toHaveCount(0);
+
+      expect(traffic.legacyAuthRequests, `${retiredPath.label} must not call /api/auth/*`).toEqual([]);
+      expect(
+        traffic.protectedCustomerRequests,
+        `${retiredPath.label} must not call protected customer APIs`,
+      ).toEqual([]);
+      expect(
+        traffic.referralRequests,
+        `${retiredPath.label} must not look up or claim a referral`,
+      ).toEqual([]);
+    }
   });
 
   test('stale legacy auth cannot establish identity and guest booking still confirms', async ({ page }) => {
