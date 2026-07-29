@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     strategy:
@@ -15,9 +18,14 @@ jobs:
 
     name: Build with ${{ matrix.node-version }}
     runs-on: ubuntu-latest
+    env:
+      CLERK_SECRET_KEY: ci-placeholder-not-a-secret
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2kubHVzdGVyLmludmFsaWQk
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
         with:
@@ -59,10 +67,23 @@ jobs:
     name: Run all tests
     runs-on: ubuntu-latest
     services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: luster_e2e_ci_disposable
+          POSTGRES_USER: luster_e2e_ci
+          POSTGRES_PASSWORD: luster-e2e-ci-only-password
+        ports:
+          - '127.0.0.1:55432:5432'
+        options: >-
+          --health-cmd "pg_isready -U luster_e2e_ci -d luster_e2e_ci_disposable"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
       redis:
         image: redis:7-alpine
         ports:
-          - 6379:6379
+          - '127.0.0.1:6379:6379'
         options: >-
           --health-cmd "redis-cli ping"
           --health-interval 10s
@@ -70,20 +91,27 @@ jobs:
           --health-retries 5
     env:
       REDIS_URL: redis://localhost:6379
-      DATABASE_URL: ${{ secrets.DATABASE_URL }}
-      CLERK_SECRET_KEY: ${{ secrets.CLERK_SECRET_KEY }}
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ secrets.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-      E2E_SUPER_ADMIN_PHONE: ${{ secrets.E2E_SUPER_ADMIN_PHONE }}
-      E2E_SUPER_ADMIN_PASSWORD: ${{ secrets.E2E_SUPER_ADMIN_PASSWORD }}
+      DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
+      LUSTER_DISPOSABLE_DATABASE: 'true'
+      CLERK_SECRET_KEY: ci-placeholder-not-a-secret
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2kubHVzdGVyLmludmFsaWQk
       SUPER_ADMIN_AUTH_MODE: password
-      SUPER_ADMIN_TEST_LOGIN_ENABLED: true
-      ALLOW_STAGING_SUPER_ADMIN_PASSWORD: true
-      LEGACY_OTP_AUTH_ENABLED: false
-      PERCY_TOKEN: ${{ secrets.PERCY_TOKEN }}
+      SUPER_ADMIN_TEST_LOGIN_ENABLED: 'true'
+      ALLOW_STAGING_SUPER_ADMIN_PASSWORD: 'true'
+      LEGACY_OTP_AUTH_ENABLED: 'false'
+      E2E_USE_REAL_TWILIO: 'false'
+      TWILIO_ACCOUNT_SID: ''
+      TWILIO_AUTH_TOKEN: ''
+      TWILIO_VERIFY_SERVICE_SID: ''
+      TWILIO_PHONE_NUMBER: ''
+      RESEND_API_KEY: ''
+      RESEND_FROM_EMAIL: ''
+      RESEND_REPLY_TO_EMAIL: ''
 
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0 # Retrieve Git history, needed to verify commits
       - name: Use Node.js ${{ matrix.node-version }}
         uses: actions/setup-node@v4
@@ -91,6 +119,34 @@ jobs:
           node-version: ${{ matrix.node-version }}
           cache: npm
       - run: npm ci
+
+      - name: Create ephemeral synthetic E2E admin credentials
+        shell: bash
+        run: |
+          SYNTHETIC_PHONE="$(printf '%s%s%s' '999' '555' '0150')"
+          SYNTHETIC_PASSWORD="ci-e2e-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${RANDOM}${RANDOM}"
+          echo "::add-mask::${SYNTHETIC_PASSWORD}"
+          {
+            echo "E2E_SUPER_ADMIN_PHONE=${SYNTHETIC_PHONE}"
+            echo "E2E_SUPER_ADMIN_PASSWORD=${SYNTHETIC_PASSWORD}"
+          } >> "$GITHUB_ENV"
+
+      - name: Test disposable database target guard
+        run: npm run test:disposable-database-target
+
+      # Static URL checks, Docker service identity checks, and live PostgreSQL
+      # session attestation all complete before migrations or synthetic seeding.
+      - name: Prepare disposable PostgreSQL for E2E
+        run: npm run db:prepare:e2e:ci
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+
+      - name: Prove synthetic E2E fixture seeding is idempotent
+        run: npm run db:seed:e2e
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
 
       # This suite is intentionally explicit. The default unit-test command
       # selects tests from the changed-file graph, so appointment behavior
@@ -101,8 +157,9 @@ jobs:
 
       - name: Build Next.js for E2E tests
         run: npm run build
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        # PR-controlled builds validate the production bundle without provider
+        # upload credentials. Trusted deployment remains responsible for Sentry
+        # source-map upload coverage.
 
       - if: github.event_name == 'pull_request'
         name: Validate all commits from PR
@@ -120,7 +177,10 @@ jobs:
       - name: Run unit tests
         run: npm run test -- --coverage
 
-      - name: Upload coverage reports to Codecov
+      # Coverage is still collected on PRs. Only trusted main executes the
+      # provider upload step with its repository credential.
+      - name: Upload coverage reports to Codecov from trusted main
+        if: github.event_name == 'push'
         uses: codecov/codecov-action@v4
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
@@ -131,20 +191,22 @@ jobs:
       - name: Run storybook tests
         run: npm run test-storybook:ci
 
-      # The E2E suite books against a real salon. It used to assume that salon
-      # simply existed, so when a super-admin hard delete removed nail-salon-no5
-      # every run failed and nothing in CI could put it back. Seeding here is
-      # idempotent and recreates the fixture if it has gone missing.
-      - name: Seed E2E fixtures
-        run: npx tsx scripts/seed-e2e-fixtures.ts
-
-      - name: Run E2E tests with Percy
-        if: env.PERCY_TOKEN != ''
-        run: npx percy exec -- npm run test:e2e
-
-      - name: Run E2E tests without Percy
-        if: env.PERCY_TOKEN == ''
+      # Functional visual assertions remain in Visual.e2e.ts for PRs, while
+      # trusted main retains hosted snapshot publication.
+      - name: Run E2E tests against disposable PostgreSQL
+        if: github.event_name == 'pull_request'
         run: npm run test:e2e
+
+      - name: Run E2E with trusted-main Percy coverage
+        if: github.event_name == 'push'
+        env:
+          PERCY_TOKEN: ${{ secrets.PERCY_TOKEN }}
+        run: |
+          if [ -n "$PERCY_TOKEN" ]; then
+            npx percy exec -- npm run test:e2e
+          else
+            npm run test:e2e
+          fi
 
       - uses: actions/upload-artifact@v4
         if: always()
@@ -189,6 +251,7 @@ jobs:
         with:
           # The conditional v1.33 smoke uses the exact immutable Production
           # commit in a detached temporary worktree.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
       - name: Use Node.js 20
@@ -434,30 +497,19 @@ jobs:
           src/app/api/appointments/route.concurrency.integration.test.ts
 
   synchronize-with-crowdin:
-    name: GitHub PR synchronize with Crowdin
+    name: Crowdin sync excluded from PR-head
     runs-on: ubuntu-latest
 
     needs: [build, test]
     if: github.event_name == 'pull_request'
-    env:
-      CROWDIN_PROJECT_ID: ${{ secrets.CROWDIN_PROJECT_ID }}
-      CROWDIN_PERSONAL_TOKEN: ${{ secrets.CROWDIN_PERSONAL_TOKEN }}
 
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }} # Crowdin Actions needs to push commits to the PR branch, checkout HEAD commit instead of merge commit
-          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
 
-      - name: crowdin action
-        if: env.CROWDIN_PROJECT_ID != '' && env.CROWDIN_PERSONAL_TOKEN != '' && hashFiles('crowdin.yml', 'crowdin.yaml') != ''
-        uses: crowdin/github-action@v2
-        with:
-          upload_sources: true
-          upload_translations: true
-          download_translations: true
-          create_pull_request: false
-          localization_branch_name: ${{ github.head_ref || github.ref_name }} # explanation here: https://stackoverflow.com/a/71158878
-          commit_message: 'chore: new Crowdin translations by GitHub Action'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # The previous action exposed Crowdin credentials to PR-head code. This
+      # check names the exclusion honestly until broader trusted automation is
+      # handled outside this narrowly scoped database-isolation PR.
+      - name: Confirm PR localization sync exclusion
+        run: echo "Crowdin synchronization is intentionally excluded from PR-head execution."

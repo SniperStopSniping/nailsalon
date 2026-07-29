@@ -1,11 +1,17 @@
 /* eslint-disable no-console -- CLI seeding script; console output is its UI */
-import 'dotenv/config';
+import { fileURLToPath } from 'node:url';
 
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Client } from 'pg';
 
 import { deriveBookingCategory } from '../src/libs/bookingCategory';
+import {
+  attestDisposableDatabaseSession,
+  DisposableDatabaseTargetError,
+  requireDisposableDatabaseTarget,
+  resolveDisposableDatabaseServerExpectation,
+} from '../src/libs/disposableDatabaseTarget';
 import {
   adminUserSchema,
   salonLocationSchema,
@@ -16,13 +22,32 @@ import {
 } from '../src/models/Schema';
 import { SALON, SERVICES, TECHNICIANS } from './fixtures/nail-salon-no5';
 
-/**
- * The one salon this script is allowed to create from nothing. Any other
- * E2E_SALON_SLUG must already exist: DATABASE_URL points at a database shared
- * with production, so inventing a salon nobody defined is not a safe default.
- */
 const PROVISIONABLE_SLUG = SALON.slug;
 const E2E_PRIMARY_LOCATION_ID = 'location_nail-salon-no5_primary';
+const E2E_STAFF_TECHNICIAN_ID = 'tech_daniela';
+const E2E_STAFF_TECH_NAME = 'Daniela';
+const E2E_STAFF_PHONE = '4165550201';
+const DEFAULT_E2E_SUPER_ADMIN_PHONE = '4165550101';
+const E2E_SUPER_ADMIN_NAME = 'Synthetic E2E Super Admin';
+const SYNTHETIC_SUPER_ADMIN_PHONE = /^1?[2-9]\d{2}55501\d{2}$/;
+
+const SYNTHETIC_SALON = {
+  ...SALON,
+  address: '100 Fixture Lane',
+  city: 'Testville',
+  deletedAt: null,
+  email: 'salon-fixture@example.invalid',
+  freeSoloEnabled: true,
+  isActive: true,
+  phone: '555-010-0000',
+  publicationStatus: 'published',
+  socialLinks: { instagram: 'luster-e2e-fixture' },
+  status: 'active',
+  zipCode: '00000',
+};
+
+type Db = ReturnType<typeof drizzle>;
+type Environment = Record<string, string | undefined>;
 
 function formatPhoneE164(phone: string) {
   const digits = phone.replace(/\D/g, '');
@@ -32,26 +57,67 @@ function formatPhoneE164(phone: string) {
   if (digits.length === 10) {
     return `+1${digits}`;
   }
-  throw new Error(`Invalid phone number: ${phone}`);
+  throw new Error('Synthetic E2E fixture phone is invalid.');
 }
 
-type Db = ReturnType<typeof drizzle>;
+function requireSyntheticFixtureInputs(environment: Environment) {
+  const salonSlug = environment.E2E_SALON_SLUG || PROVISIONABLE_SLUG;
+  if (salonSlug !== PROVISIONABLE_SLUG) {
+    throw new Error('Only the canonical synthetic E2E salon may be seeded.');
+  }
+
+  const staffTechName = environment.E2E_STAFF_TECH_NAME || E2E_STAFF_TECH_NAME;
+  const staffPhone = environment.E2E_STAFF_PHONE || E2E_STAFF_PHONE;
+  if (staffTechName !== E2E_STAFF_TECH_NAME || staffPhone !== E2E_STAFF_PHONE) {
+    throw new Error('Only the canonical synthetic E2E staff identity may be seeded.');
+  }
+
+  const superAdminPhone
+    = environment.E2E_SUPER_ADMIN_PHONE || DEFAULT_E2E_SUPER_ADMIN_PHONE;
+  const superAdminDigits = superAdminPhone.replace(/\D/g, '');
+  if (!SYNTHETIC_SUPER_ADMIN_PHONE.test(superAdminDigits)) {
+    throw new Error('The E2E super-admin phone must use the reserved synthetic range.');
+  }
+
+  return {
+    staffPhone,
+    superAdminPhone,
+  };
+}
 
 /**
- * Recreate the demo salon, its menu and its technicians.
+ * Upsert only the canonical synthetic salon, menu, and technicians.
  *
- * Deliberately does NOT run migrations - unlike scripts/seed.ts, which migrates
- * DATABASE_URL on startup. This runs in CI against the shared database, where
- * applying migrations as a side effect of seeding would be a much bigger event
- * than seeding.
+ * Running every upsert on every invocation repairs a partially completed first
+ * seed and makes the command safe to repeat. The disposable target guard has
+ * already prohibited hosted databases before this function can mutate data.
  */
 async function provisionSalon(db: Db) {
   await db
     .insert(salonSchema)
-    .values(SALON)
+    .values(SYNTHETIC_SALON)
     .onConflictDoUpdate({
       target: salonSchema.id,
-      set: { slug: SALON.slug, name: SALON.name, isActive: true, updatedAt: new Date() },
+      set: {
+        address: SYNTHETIC_SALON.address,
+        businessHours: SYNTHETIC_SALON.businessHours,
+        city: SYNTHETIC_SALON.city,
+        deletedAt: null,
+        email: SYNTHETIC_SALON.email,
+        freeSoloEnabled: true,
+        isActive: true,
+        name: SYNTHETIC_SALON.name,
+        phone: SYNTHETIC_SALON.phone,
+        policies: SYNTHETIC_SALON.policies,
+        publicationStatus: 'published',
+        slug: SYNTHETIC_SALON.slug,
+        socialLinks: SYNTHETIC_SALON.socialLinks,
+        state: SYNTHETIC_SALON.state,
+        status: 'active',
+        themeKey: SYNTHETIC_SALON.themeKey,
+        updatedAt: new Date(),
+        zipCode: SYNTHETIC_SALON.zipCode,
+      },
     });
 
   for (const service of SERVICES) {
@@ -62,13 +128,16 @@ async function provisionSalon(db: Db) {
       .onConflictDoUpdate({
         target: serviceSchema.id,
         set: {
-          salonId: service.salonId,
+          bookingCategory,
+          category: service.category,
+          description: service.description,
+          durationMinutes: service.durationMinutes,
+          imageUrl: service.imageUrl,
+          isActive: true,
           name: service.name,
           price: service.price,
-          durationMinutes: service.durationMinutes,
-          category: service.category,
-          bookingCategory,
-          isActive: true,
+          salonId: service.salonId,
+          sortOrder: service.sortOrder,
           updatedAt: new Date(),
         },
       });
@@ -81,214 +150,275 @@ async function provisionSalon(db: Db) {
       .onConflictDoUpdate({
         target: technicianSchema.id,
         set: {
-          salonId: technician.salonId,
-          name: technician.name,
-          weeklySchedule: technician.weeklySchedule,
+          avatarUrl: technician.avatarUrl,
+          bio: technician.bio,
+          endTime: technician.endTime,
           isActive: true,
+          name: technician.name,
+          rating: technician.rating,
+          reviewCount: technician.reviewCount,
+          salonId: technician.salonId,
+          specialties: technician.specialties,
+          startTime: technician.startTime,
           updatedAt: new Date(),
+          weeklySchedule: technician.weeklySchedule,
+          workDays: technician.workDays,
         },
       });
   }
 
-  // Every technician can perform every service. getPublicBookableServiceIds()
-  // treats a salon with zero assignment rows as unrestricted, but one with rows
-  // as an allow-list, so a partial set here would silently hide the menu.
+  // A partial allow-list would silently hide services from public booking.
   for (const technician of TECHNICIANS) {
     for (const service of SERVICES) {
       await db
         .insert(technicianServicesSchema)
-        .values({ technicianId: technician.id!, serviceId: service.id!, enabled: true })
-        .onConflictDoNothing();
+        .values({
+          enabled: true,
+          serviceId: service.id!,
+          technicianId: technician.id!,
+        })
+        .onConflictDoUpdate({
+          target: [
+            technicianServicesSchema.technicianId,
+            technicianServicesSchema.serviceId,
+          ],
+          set: { enabled: true },
+        });
     }
   }
+}
 
-  console.log(
-    `Provisioned salon ${SALON.slug}: ${SERVICES.length} services, ${TECHNICIANS.length} technicians.`,
+async function provisionLocation(db: Db) {
+  await db
+    .update(salonLocationSchema)
+    .set({ isPrimary: false, updatedAt: new Date() })
+    .where(eq(salonLocationSchema.salonId, SALON.id!));
+
+  await db
+    .insert(salonLocationSchema)
+    .values({
+      address: SYNTHETIC_SALON.address,
+      businessHours: SYNTHETIC_SALON.businessHours,
+      city: SYNTHETIC_SALON.city,
+      id: E2E_PRIMARY_LOCATION_ID,
+      isActive: true,
+      isPrimary: true,
+      name: 'Synthetic primary location',
+      phone: SYNTHETIC_SALON.phone,
+      salonId: SALON.id!,
+      state: SYNTHETIC_SALON.state,
+      zipCode: SYNTHETIC_SALON.zipCode,
+    })
+    .onConflictDoUpdate({
+      target: salonLocationSchema.id,
+      set: {
+        address: SYNTHETIC_SALON.address,
+        businessHours: SYNTHETIC_SALON.businessHours,
+        city: SYNTHETIC_SALON.city,
+        isActive: true,
+        isPrimary: true,
+        name: 'Synthetic primary location',
+        phone: SYNTHETIC_SALON.phone,
+        salonId: SALON.id!,
+        state: SYNTHETIC_SALON.state,
+        updatedAt: new Date(),
+        zipCode: SYNTHETIC_SALON.zipCode,
+      },
+    });
+}
+
+async function provisionStaff(
+  db: Db,
+  staffPhone: string,
+) {
+  const [technician] = await db
+    .select({ id: technicianSchema.id })
+    .from(technicianSchema)
+    .where(eq(technicianSchema.id, E2E_STAFF_TECHNICIAN_ID))
+    .limit(1);
+
+  if (!technician) {
+    throw new Error('Synthetic E2E staff fixture could not be provisioned.');
+  }
+
+  await db
+    .update(technicianSchema)
+    .set({
+      email: 'daniela-fixture@example.invalid',
+      phone: staffPhone,
+      updatedAt: new Date(),
+    })
+    .where(eq(technicianSchema.id, technician.id));
+}
+
+async function provisionSuperAdmin(db: Db, superAdminPhone: string) {
+  const superAdminPhoneE164 = formatPhoneE164(superAdminPhone);
+  const phoneDigits = superAdminPhone.replace(/\D/g, '');
+
+  await db
+    .insert(adminUserSchema)
+    .values({
+      email: `e2e-super-admin-${phoneDigits}@example.invalid`,
+      id: `admin_e2e_super_${phoneDigits}`,
+      isSuperAdmin: true,
+      name: E2E_SUPER_ADMIN_NAME,
+      phoneE164: superAdminPhoneE164,
+    })
+    .onConflictDoUpdate({
+      target: adminUserSchema.phoneE164,
+      set: {
+        email: `e2e-super-admin-${phoneDigits}@example.invalid`,
+        isSuperAdmin: true,
+        name: E2E_SUPER_ADMIN_NAME,
+        updatedAt: new Date(),
+      },
+    });
+}
+
+async function verifyFixtureReadiness(
+  db: Db,
+  superAdminPhone: string,
+) {
+  const [salon] = await db
+    .select({
+      freeSoloEnabled: salonSchema.freeSoloEnabled,
+      isActive: salonSchema.isActive,
+      publicationStatus: salonSchema.publicationStatus,
+    })
+    .from(salonSchema)
+    .where(
+      and(
+        eq(salonSchema.id, SALON.id!),
+        eq(salonSchema.slug, PROVISIONABLE_SLUG),
+      ),
+    )
+    .limit(1);
+
+  const serviceIds = SERVICES.map(service => service.id!);
+  const technicianIds = TECHNICIANS.map(technician => technician.id!);
+  const [serviceCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(serviceSchema)
+    .where(
+      and(
+        eq(serviceSchema.salonId, SALON.id!),
+        eq(serviceSchema.isActive, true),
+        inArray(serviceSchema.id, serviceIds),
+      ),
+    );
+  const [assignmentCount] = await db
+    .select({ count: sql<number>`count(*)::int` })
+    .from(technicianServicesSchema)
+    .where(
+      and(
+        eq(technicianServicesSchema.enabled, true),
+        inArray(technicianServicesSchema.technicianId, technicianIds),
+        inArray(technicianServicesSchema.serviceId, serviceIds),
+      ),
+    );
+  const [staff] = await db
+    .select({ email: technicianSchema.email, phone: technicianSchema.phone })
+    .from(technicianSchema)
+    .where(
+      and(
+        eq(technicianSchema.id, E2E_STAFF_TECHNICIAN_ID),
+        eq(technicianSchema.salonId, SALON.id!),
+        eq(technicianSchema.name, E2E_STAFF_TECH_NAME),
+        eq(technicianSchema.isActive, true),
+      ),
+    )
+    .limit(1);
+  const [location] = await db
+    .select({ id: salonLocationSchema.id })
+    .from(salonLocationSchema)
+    .where(
+      and(
+        eq(salonLocationSchema.id, E2E_PRIMARY_LOCATION_ID),
+        eq(salonLocationSchema.salonId, SALON.id!),
+        eq(salonLocationSchema.isPrimary, true),
+        eq(salonLocationSchema.isActive, true),
+      ),
+    )
+    .limit(1);
+  const [superAdmin] = await db
+    .select({ id: adminUserSchema.id })
+    .from(adminUserSchema)
+    .where(
+      and(
+        eq(adminUserSchema.phoneE164, formatPhoneE164(superAdminPhone)),
+        eq(adminUserSchema.isSuperAdmin, true),
+      ),
+    )
+    .limit(1);
+
+  const ready = salon?.freeSoloEnabled === true
+    && salon.isActive === true
+    && salon.publicationStatus === 'published'
+    && serviceCount?.count === SERVICES.length
+    && assignmentCount?.count === SERVICES.length * TECHNICIANS.length
+    && staff?.phone === E2E_STAFF_PHONE
+    && staff.email === 'daniela-fixture@example.invalid'
+    && Boolean(location)
+    && Boolean(superAdmin);
+
+  if (!ready) {
+    throw new Error('Synthetic E2E fixture readiness verification failed.');
+  }
+}
+
+function safeSeedError(error: unknown): Error {
+  if (error instanceof DisposableDatabaseTargetError) {
+    return error;
+  }
+  return new Error(
+    'Synthetic E2E fixture seeding failed on the approved disposable database.',
   );
 }
 
-async function main() {
-  const databaseUrl = process.env.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error('DATABASE_URL is required for E2E fixture seeding.');
-  }
-
-  const salonSlug = process.env.E2E_SALON_SLUG || PROVISIONABLE_SLUG;
-  const staffTechName = process.env.E2E_STAFF_TECH_NAME || 'Daniela';
-  const staffPhone = process.env.E2E_STAFF_PHONE || '4165550201';
-  const superAdminPhone = process.env.E2E_SUPER_ADMIN_PHONE || '4165550101';
-  const superAdminName = process.env.E2E_SUPER_ADMIN_NAME || 'E2E Super Admin';
-  const superAdminEmail = process.env.E2E_SUPER_ADMIN_EMAIL || 'e2e-super-admin@nailsalon.dev';
-
-  const client = new Client({ connectionString: databaseUrl });
-  await client.connect();
-
-  const db = drizzle(client);
+/**
+ * Validate statically, attest the connected session, and only then mutate the
+ * canonical synthetic fixture scope. There is no force or skip path.
+ */
+export async function seedE2EFixtures(
+  environment: Environment = process.env,
+): Promise<void> {
+  const target = requireDisposableDatabaseTarget(environment);
+  const expectedServer = resolveDisposableDatabaseServerExpectation(target);
+  const fixtureInputs = requireSyntheticFixtureInputs(environment);
+  const client = new Client({ connectionString: target.connectionString });
+  let connected = false;
 
   try {
-    const findSalon = async () =>
-      (await db
-        .select({ id: salonSchema.id, name: salonSchema.name, slug: salonSchema.slug })
-        .from(salonSchema)
-        .where(eq(salonSchema.slug, salonSlug))
-        .limit(1))[0];
+    await client.connect();
+    connected = true;
+    await attestDisposableDatabaseSession(client, target, expectedServer);
 
-    let salon = await findSalon();
-
-    if (!salon) {
-      if (salonSlug !== PROVISIONABLE_SLUG) {
-        throw new Error(
-          `Salon ${salonSlug} was not found, and only ${PROVISIONABLE_SLUG} can be created automatically. `
-          + `Create it first, or unset E2E_SALON_SLUG.`,
-        );
-      }
-
-      // The suite used to fail here forever once the salon went missing: a
-      // super-admin hard delete removed it and nothing in CI could put it back.
-      console.log(`Salon ${salonSlug} is missing - recreating it.`);
-      await provisionSalon(db);
-      salon = await findSalon();
-
-      if (!salon) {
-        throw new Error(`Failed to provision salon ${salonSlug}.`);
-      }
-    }
-
-    // The core e2e suite assumes the free-Luster profile (e2eConfig.freeSolo
-    // defaults to true): the public footer and auto tech-skip only render for
-    // free-solo salons, so make sure the fixture salon actually is one.
-    // isActive and publicationStatus additionally decide whether the public
-    // booking route resolves at all rather than redirecting to /not-found.
-    await db
-      .update(salonSchema)
-      .set({
-        freeSoloEnabled: true,
-        publicationStatus: 'published',
-        isActive: true,
-        deletedAt: null,
-        status: 'active',
-      })
-      .where(eq(salonSchema.id, salon.id));
-
-    // Appointment-sheet E2E coverage requires a real structured location so
-    // the Directions action is driven by the same detail contract production
-    // uses. Keep this mutation limited to the canonical disposable E2E salon;
-    // custom E2E targets retain their own location configuration.
-    if (salonSlug === PROVISIONABLE_SLUG) {
-      await db
-        .update(salonLocationSchema)
-        .set({ isPrimary: false, updatedAt: new Date() })
-        .where(eq(salonLocationSchema.salonId, salon.id));
-
-      await db
-        .insert(salonLocationSchema)
-        .values({
-          id: E2E_PRIMARY_LOCATION_ID,
-          salonId: salon.id,
-          name: 'Primary location',
-          address: SALON.address,
-          city: SALON.city,
-          state: SALON.state,
-          zipCode: SALON.zipCode,
-          phone: SALON.phone,
-          businessHours: SALON.businessHours,
-          isPrimary: true,
-          isActive: true,
-        })
-        .onConflictDoUpdate({
-          target: salonLocationSchema.id,
-          set: {
-            salonId: salon.id,
-            name: 'Primary location',
-            address: SALON.address,
-            city: SALON.city,
-            state: SALON.state,
-            zipCode: SALON.zipCode,
-            phone: SALON.phone,
-            businessHours: SALON.businessHours,
-            isPrimary: true,
-            isActive: true,
-            updatedAt: new Date(),
-          },
-        });
-    }
-
-    const [technician] = await db
-      .select({
-        id: technicianSchema.id,
-        name: technicianSchema.name,
-      })
-      .from(technicianSchema)
-      .where(
-        and(
-          eq(technicianSchema.salonId, salon.id),
-          eq(technicianSchema.name, staffTechName),
-        ),
-      )
-      .limit(1);
-
-    if (!technician) {
-      throw new Error(`Technician ${staffTechName} was not found in ${salonSlug}.`);
-    }
-
-    await db
-      .update(technicianSchema)
-      .set({
-        phone: staffPhone,
-        email: `${staffTechName.toLowerCase().replace(/\s+/g, '.')}@e2e.local`,
-        updatedAt: new Date(),
-      })
-      .where(eq(technicianSchema.id, technician.id));
-
-    // The suite signs in by phone, so the phone is the fixture's identity and
-    // the name/email are incidental. An existing account therefore only needs
-    // the super-admin bit: the previous upsert also forced name and email onto
-    // it, which would have renamed a real administrator to "E2E Super Admin"
-    // and taken their address had the unique email index not rejected it first.
-    const superAdminPhoneE164 = formatPhoneE164(superAdminPhone);
-    const [existingAdmin] = await db
-      .select({ id: adminUserSchema.id, name: adminUserSchema.name })
-      .from(adminUserSchema)
-      .where(eq(adminUserSchema.phoneE164, superAdminPhoneE164))
-      .limit(1);
-
-    if (existingAdmin) {
-      await db
-        .update(adminUserSchema)
-        .set({ isSuperAdmin: true, updatedAt: new Date() })
-        .where(eq(adminUserSchema.id, existingAdmin.id));
-      console.log(
-        `Promoted existing admin "${existingAdmin.name ?? existingAdmin.id}" to super-admin for E2E.`,
-      );
-    } else {
-      // email is uniquely indexed; leave it unset rather than steal it from
-      // whichever account already holds the fixture address.
-      const [emailOwner] = await db
-        .select({ id: adminUserSchema.id })
-        .from(adminUserSchema)
-        .where(sql`lower(${adminUserSchema.email}) = lower(${superAdminEmail})`)
-        .limit(1);
-
-      await db
-        .insert(adminUserSchema)
-        .values({
-          id: `admin_e2e_super_${superAdminPhone.replace(/\D/g, '')}`,
-          phoneE164: superAdminPhoneE164,
-          name: superAdminName,
-          email: emailOwner ? null : superAdminEmail,
-          isSuperAdmin: true,
-        });
-      console.log(`Created E2E super-admin fixture: ${superAdminName}.`);
-    }
-
-    console.log(`Seeded E2E staff fixture: ${technician.name} (${staffPhone})`);
-    console.log(`Target salon: ${salon.name} (${salon.slug})`);
+    const db = drizzle(client);
+    await provisionSalon(db);
+    await provisionLocation(db);
+    await provisionStaff(
+      db,
+      fixtureInputs.staffPhone,
+    );
+    await provisionSuperAdmin(db, fixtureInputs.superAdminPhone);
+    await verifyFixtureReadiness(db, fixtureInputs.superAdminPhone);
+    console.log('Synthetic E2E fixtures are ready on the attested disposable database.');
+  } catch (error) {
+    throw safeSeedError(error);
   } finally {
-    await client.end();
+    if (connected) {
+      await client.end().catch(() => {});
+    }
   }
 }
 
-main().catch((error) => {
-  console.error('Failed to seed E2E fixtures:', error);
-  process.exit(1);
-});
+const entryPath = process.argv[1];
+if (entryPath && fileURLToPath(import.meta.url) === entryPath) {
+  seedE2EFixtures().catch((error) => {
+    const message = error instanceof Error
+      ? error.message
+      : 'Synthetic E2E fixture seeding failed safely.';
+    console.error(message);
+    process.exitCode = 1;
+  });
+}
