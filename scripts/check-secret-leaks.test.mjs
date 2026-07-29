@@ -570,6 +570,14 @@ test('does not classify minified password-related UI copy as a credential', () =
     const secret = `Adjacent${SECRET_BODY}`;
     write(
       repository,
+      'src/localization.js',
+      `const messages={${localizationKeys[0]}:"Synthetic password guidance contains 12 safe words."};`,
+    );
+    expectFinding(scan(repository), 'GENERIC_SECRET_ASSIGNMENT', []);
+    rmSync(join(repository, 'src/localization.js'));
+
+    write(
+      repository,
       '.next/static/chunks/localization.js',
       `const messages={${localizationKeys[0]}:"Safe reset password copy.",password:"${secret}"};`,
     );
@@ -581,6 +589,31 @@ test('does not classify minified password-related UI copy as a credential', () =
       `const messages={${localizationKeys[0]}:"${secret}"};`,
     );
     expectFinding(scan(repository), 'GENERIC_SECRET_ASSIGNMENT', secret);
+
+    const secondSecret = `Separated${SECRET_BODY}`;
+    write(
+      repository,
+      '.next/static/chunks/localization.js',
+      `const messages={${localizationKeys[0]}:"${secret} ${secondSecret}"};`,
+    );
+    expectFinding(
+      scan(repository),
+      'GENERIC_SECRET_ASSIGNMENT',
+      [secret, secondSecret],
+    );
+
+    const firstFragment = 'Js3Cd5Ef7Gh9Jk2L';
+    const secondFragment = 'm4Np6Qr8St0Uv1Zx';
+    write(
+      repository,
+      '.next/static/chunks/localization.js',
+      `const formPasswordPwned = \`\n${firstFragment}\n${secondFragment}\n\`;\n`,
+    );
+    expectFinding(
+      scan(repository),
+      'MULTILINE_SECRET_ASSIGNMENT',
+      [firstFragment, secondFragment],
+    );
 
     const providerSecretValue = providerSecret(['whsec', ''].join('_'));
     write(

@@ -267,13 +267,21 @@ function isHighEntropy(value) {
   return hasVariety && shannonEntropy(compact) >= 3.4;
 }
 
-function isSafeLocalizationCopy(key, value) {
+function isSafeLocalizationCopy(path, source, key, value) {
   const words = value.trim().split(/\s+/);
-  return SAFE_LOCALIZATION_COPY_KEYS.has(key)
+  const alphabeticWords = words.filter((word) => {
+    const core = word.replace(/^[^a-z0-9]+|[^a-z0-9]+$/gi, '');
+    return /^[a-z]+(?:[-'][a-z]+)*$/i.test(core);
+  });
+  return source === 'generated-client'
+    && normalizePath(path).startsWith('.next/static/')
+    && SAFE_LOCALIZATION_COPY_KEYS.has(key)
     && value.length <= 256
     && !/[\r\n\t]/.test(value)
     && words.length >= 2
-    && words.length <= 40;
+    && words.length <= 40
+    && alphabeticWords.length >= Math.ceil(words.length * 0.6)
+    && words.every(word => !isHighEntropy(word));
 }
 
 function isSafeUuid(value, key) {
@@ -695,7 +703,7 @@ function scanAssignments(path, text, source, findings) {
         continue;
       }
 
-      if (isSafeLocalizationCopy(key, value)) {
+      if (isSafeLocalizationCopy(path, source, key, value)) {
         continue;
       }
 
