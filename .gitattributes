@@ -1,0 +1,4 @@
+# Runtime dotenv files must never reveal their contents in rendered diffs.
+# The scanner reads Git blobs directly, so these attributes are not a bypass.
+.env* -diff
+.env.example diff

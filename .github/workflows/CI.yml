@@ -10,7 +10,36 @@ permissions:
   contents: read
 
 jobs:
+  secret-scan:
+    name: Secret hygiene
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+
+      - name: Test secret scanner
+        run: node --test scripts/check-secret-leaks.node-test.mjs
+
+      - name: Scan tracked tree and reviewed commit range
+        shell: bash
+        env:
+          SECRET_SCAN_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          SECRET_SCAN_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: >-
+          node scripts/check-secret-leaks.mjs
+          --base "$SECRET_SCAN_BASE_SHA"
+          --head "$SECRET_SCAN_HEAD_SHA"
+
   build:
+    needs: secret-scan
     strategy:
       matrix:
         node-version: [20.x, 22.6] # Need to use 22.6 due to Next.js build errors: https://github.com/vercel/next.js/issues/69263
@@ -19,8 +48,13 @@ jobs:
     name: Build with ${{ matrix.node-version }}
     runs-on: ubuntu-latest
     env:
+      BILLING_PLAN_ENV: test
       CLERK_SECRET_KEY: ci-placeholder-not-a-secret
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2kubHVzdGVyLmludmFsaWQk
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+      STRIPE_SECRET_KEY: ci-placeholder-not-a-secret
+      STRIPE_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
 
     steps:
       - uses: actions/checkout@v4
@@ -36,6 +70,7 @@ jobs:
 
   full-vitest:
     name: Full Vitest Suite
+    needs: secret-scan
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -60,6 +95,7 @@ jobs:
         run: npm run test:all
 
   test:
+    needs: secret-scan
     strategy:
       matrix:
         node-version: [20.x]
@@ -93,8 +129,13 @@ jobs:
       REDIS_URL: redis://localhost:6379
       DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
       LUSTER_DISPOSABLE_DATABASE: 'true'
+      BILLING_PLAN_ENV: test
       CLERK_SECRET_KEY: ci-placeholder-not-a-secret
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2kubHVzdGVyLmludmFsaWQk
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+      STRIPE_SECRET_KEY: ci-placeholder-not-a-secret
+      STRIPE_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
       SUPER_ADMIN_AUTH_MODE: password
       SUPER_ADMIN_TEST_LOGIN_ENABLED: 'true'
       ALLOW_STAGING_SUPER_ADMIN_PASSWORD: 'true'
@@ -118,6 +159,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
+
       - run: npm ci
 
       - name: Create ephemeral synthetic E2E admin credentials
@@ -168,8 +210,8 @@ jobs:
       - name: Linter
         run: npm run lint
 
-      - name: Secret leak scan
-        run: npm run security:check-secrets
+      - name: Scan built client assets and runtime credentials
+        run: npm run security:check-secrets -- --tree
 
       - name: Type checking
         run: npm run check-types
@@ -217,6 +259,7 @@ jobs:
 
   client-lifecycle-postgres:
     name: Client lifecycle PostgreSQL stabilization
+    needs: secret-scan
     runs-on: ubuntu-latest
     timeout-minutes: 25
     permissions:
@@ -441,6 +484,7 @@ jobs:
 
   booking-entitlement-override-postgres:
     name: Booking entitlement override PostgreSQL concurrency
+    needs: secret-scan
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
