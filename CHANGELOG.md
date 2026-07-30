@@ -1,3 +1,12 @@
+## [1.42.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.42.3...v1.42.4) (2026-07-30)
+
+
+### Bug Fixes
+
+* **ci:** keep scanner tests on Node runner ([2404175](https://github.com/SniperStopSniping/nailsalon/commit/24041759cd860d65157fb3e8833e40133e58de2a))
+* **security:** ignore bounded localization copy ([de7a522](https://github.com/SniperStopSniping/nailsalon/commit/de7a522b4462ea93a4311286daea9d37cbc3477c))
+* **security:** scope localization exception ([09eb4b9](https://github.com/SniperStopSniping/nailsalon/commit/09eb4b95500b887282a3f010a7bf0243353e709e))
+
 ## [1.42.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.42.2...v1.42.3) (2026-07-29)
 
 
