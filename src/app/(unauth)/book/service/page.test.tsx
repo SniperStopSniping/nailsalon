@@ -139,8 +139,69 @@ describe('BookServicePage first-visit offer visibility', () => {
     expect(screen.getByText('Book service client')).toBeInTheDocument();
     expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
       showNewClientPromo: true,
+      showServiceImages: true,
     }));
     expect(isClientEligibleForFirstVisitDiscount).not.toHaveBeenCalled();
+  });
+
+  it('passes an explicit image opt-out without removing stored service image data', async () => {
+    getClientSession.mockResolvedValue(null);
+    getPublicPageContext.mockResolvedValue({
+      appearance: null,
+      salon: {
+        id: 'salon_1',
+        slug: 'salon-a',
+        bookingFlow: ['service', 'tech', 'time', 'confirm'],
+        settings: {
+          merchandising: {
+            showServiceImages: false,
+          },
+        },
+      },
+    });
+    getServicesBySalonId.mockResolvedValue([
+      {
+        id: 'svc_image_opt_out',
+        salonId: 'salon_1',
+        name: 'Stored image service',
+        description: null,
+        descriptionItems: [],
+        slug: null,
+        price: 5000,
+        priceDisplayText: null,
+        durationMinutes: 60,
+        isIntroPrice: false,
+        introPriceLabel: null,
+        introPriceExpiresAt: null,
+        bookingQuestions: null,
+        category: 'manicure',
+        bookingCategory: 'manicure',
+        templateKey: null,
+        featuredOrder: null,
+        imageUrl: '/assets/images/biab-medium.webp',
+        sortOrder: 0,
+        isActive: true,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    const element = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+
+    render(element);
+
+    expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+      showServiceImages: false,
+      services: [
+        expect.objectContaining({
+          id: 'svc_image_opt_out',
+          imageUrl: '/assets/images/biab-medium.webp',
+        }),
+      ],
+    }));
   });
 
   it('shows the offer for known customers who are still eligible', async () => {

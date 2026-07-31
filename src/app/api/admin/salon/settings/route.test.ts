@@ -487,7 +487,7 @@ describe('/api/admin/salon/settings merchandising settings', () => {
     resolveSalonLoyaltyPoints.mockReturnValue({ welcomeBonus: 0 });
   });
 
-  it('defaults Feature Luster Manicure to enabled on GET when settings are empty', async () => {
+  it('defaults service images and Feature Luster Manicure to enabled on GET when settings are empty', async () => {
     getSalonBySlug.mockResolvedValue({ ...baseSalon, settings: null });
 
     const response = await GET(
@@ -498,20 +498,32 @@ describe('/api/admin/salon/settings merchandising settings', () => {
     expect(response.status).toBe(200);
     expect(body.merchandising).toEqual({
       featureLusterManicure: true,
+      showServiceImages: true,
       lusterPromoDismissed: false,
       serviceLibraryIntroDismissed: false,
     });
   });
 
-  it('persists a merchandising update into salon.settings without touching services', async () => {
-    getSalonBySlug.mockResolvedValue(baseSalon);
+  it('persists a service-image opt-out without touching services or other merchandising settings', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        merchandising: {
+          featureLusterManicure: false,
+          showServiceImages: null,
+          lusterPromoDismissed: true,
+          serviceLibraryIntroDismissed: true,
+        },
+      },
+    });
     updatedRows.push({
       ...baseSalon,
       settings: {
         merchandising: {
           featureLusterManicure: false,
-          lusterPromoDismissed: false,
-          serviceLibraryIntroDismissed: false,
+          showServiceImages: false,
+          lusterPromoDismissed: true,
+          serviceLibraryIntroDismissed: true,
         },
       },
     });
@@ -521,16 +533,23 @@ describe('/api/admin/salon/settings merchandising settings', () => {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          merchandising: { featureLusterManicure: false },
+          merchandising: { showServiceImages: false },
         }),
       }),
     );
     const body = await response.json();
 
     expect(response.status).toBe(200);
-    expect(body.merchandising.featureLusterManicure).toBe(false);
+    expect(body.merchandising).toEqual({
+      featureLusterManicure: false,
+      showServiceImages: false,
+      lusterPromoDismissed: true,
+      serviceLibraryIntroDismissed: true,
+    });
 
-    // Only the salon row is updated; disabling never deactivates the service.
+    // The null legacy/corrupt value fails open without resetting valid sibling
+    // settings. Hiding images still never edits service rows or removes their
+    // stored image URLs.
     expect(db.update).toHaveBeenCalledTimes(1);
 
     const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
@@ -546,7 +565,10 @@ describe('/api/admin/salon/settings merchandising settings', () => {
       (chunk): chunk is string => typeof chunk === 'string',
     );
 
+    expect(paramValues.some(value => value.includes('"showServiceImages":false'))).toBe(true);
     expect(paramValues.some(value => value.includes('"featureLusterManicure":false'))).toBe(true);
+    expect(paramValues.some(value => value.includes('"lusterPromoDismissed":true'))).toBe(true);
+    expect(paramValues.some(value => value.includes('"serviceLibraryIntroDismissed":true'))).toBe(true);
     expect(logAuditEvent).toHaveBeenCalled();
   });
 
@@ -566,6 +588,7 @@ describe('/api/admin/salon/settings merchandising settings', () => {
         booking: {},
         merchandising: {
           featureLusterManicure: false,
+          showServiceImages: true,
           lusterPromoDismissed: false,
           serviceLibraryIntroDismissed: false,
         },
@@ -596,6 +619,7 @@ describe('/api/admin/salon/settings merchandising settings', () => {
     );
 
     expect(paramValues.some(value => value.includes('"featureLusterManicure":false'))).toBe(true);
+    expect(paramValues.some(value => value.includes('"showServiceImages":true'))).toBe(true);
     // The expression starts from the live settings column and never serializes
     // a stale bookingExperience value, so a concurrent customization save is
     // preserved.
@@ -610,12 +634,13 @@ describe('/api/admin/salon/settings merchandising settings', () => {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          merchandising: { featureLusterManicure: 'nope' },
+          merchandising: { showServiceImages: 'nope' },
         }),
       }),
     );
 
     expect(response.status).toBe(400);
+    expect(db.update).not.toHaveBeenCalled();
   });
 });
 

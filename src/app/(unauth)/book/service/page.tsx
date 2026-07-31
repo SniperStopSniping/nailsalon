@@ -214,6 +214,7 @@ export default async function BookServicePage({
           currency={bookingConfig.currency}
           showNewClientPromo={showNewClientPromo}
           lusterFeaturingEnabled={merchandising.featureLusterManicure}
+          showServiceImages={merchandising.showServiceImages}
         />
       </Suspense>
     </PublicSalonPageShell>

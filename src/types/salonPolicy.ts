@@ -431,6 +431,7 @@ export type SalonSettings = {
   // Booking-page merchandising (featured services, owner promos).
   merchandising?: {
     featureLusterManicure?: boolean; // default: true
+    showServiceImages?: boolean; // default: true
     lusterPromoDismissed?: boolean; // default: false
     serviceLibraryIntroDismissed?: boolean; // default: false
   };
