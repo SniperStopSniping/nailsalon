@@ -109,11 +109,11 @@ describe('IntegrationsModal', () => {
     render(<IntegrationsModal onClose={vi.fn()} salonSlug="salon-a" />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('integration-row-texting')).toHaveTextContent('Manual ready');
+      expect(screen.getByTestId('integration-row-google')).toHaveTextContent('Not connected');
     });
 
+    expect(screen.getByTestId('integration-row-texting')).toHaveTextContent('Manual ready');
     expect(screen.getByTestId('integration-row-texting')).not.toHaveTextContent(/disconnected/i);
-    expect(screen.getByTestId('integration-row-google')).toHaveTextContent('Not connected');
     expect(screen.getByTestId('integration-row-email')).toHaveTextContent('Ready');
     // No payments row: no client-payment integration exists.
     expect(screen.queryByText(/payments/i)).toBeInTheDocument(); // informational footnote only
@@ -143,11 +143,11 @@ describe('IntegrationsModal', () => {
     );
 
     await waitFor(() => {
-      expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Ready');
+      expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Not connected');
     });
 
+    expect(screen.getByTestId('manual-texting-section')).toHaveTextContent('Ready');
     expect(screen.getByTestId('manual-texting-section')).toHaveTextContent(/no Twilio needed/i);
-    expect(screen.getByTestId('automatic-texting-section')).toHaveTextContent('Not connected');
     expect(screen.getByText('Authorize Twilio')).toBeInTheDocument();
   });
 
