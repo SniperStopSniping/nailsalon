@@ -13,6 +13,7 @@ import {
 } from './fixtures/preview-service-image-fixtures';
 
 export type PreviewFixtureCommand = 'plan' | 'apply' | 'verify' | 'reset';
+type FailureStage = 'configuration' | 'connection' | PreviewFixtureCommand;
 type Row = Record<string, unknown>;
 type PreviewFixtureDatabase = {
   query: <T extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]) => Promise<{ rows: T[] }>;
@@ -26,6 +27,8 @@ const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
 const PRODUCTION_LIKE = /(?:^|[._-])(?:main|primary|prod|production|live)(?:$|[._-])/i;
 const CLERK_USER_ID = /^user_[A-Za-z0-9]{20,64}$/;
+const SAFE_SQLSTATES = new Set(['08000', '08001', '08003', '08004', '08006', '0A000', '23503', '23505', '25006', '25P02', '3D000', '3F000', '40001', '42501', '42P01', '42703', '53300', '55P03', '57014', '57P01']);
+const SAFE_SYSTEM_ERROR_CODES = new Set(['EACCES', 'EADDRINUSE', 'EADDRNOTAVAIL', 'EAI_AGAIN', 'ECONNABORTED', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND', 'EPERM', 'EPIPE', 'ETIMEDOUT']);
 const MESSAGES = {
   PRODUCTION_REJECTED: 'Preview fixture target rejected: the application environment is not Preview.',
   CONFIRMATION_REJECTED: 'Preview fixture target rejected: required confirmation is absent.',
@@ -40,13 +43,19 @@ const MESSAGES = {
 } as const;
 type ErrorCode = keyof typeof MESSAGES;
 export class PreviewFixtureError extends Error {
-  constructor(readonly code: ErrorCode) {
-    super(MESSAGES[code]);
+  constructor(readonly code: ErrorCode, readonly stage: FailureStage | null = null, readonly diagnosticCode: string | null = null) {
+    super(`${MESSAGES[code]}${stage ? ` Stage: ${stage}.` : ''}${diagnosticCode ? ` Code: ${diagnosticCode}.` : ''}`);
     this.name = 'PreviewFixtureError';
   }
 }
+const trustedErrors = new WeakSet<PreviewFixtureError>();
+function fixtureError(code: ErrorCode, stage: FailureStage | null = null, diagnosticCode: string | null = null) {
+  const error = new PreviewFixtureError(code, stage, diagnosticCode);
+  trustedErrors.add(error);
+  return error;
+}
 function reject(code: ErrorCode): never {
-  throw new PreviewFixtureError(code);
+  throw fixtureError(code);
 }
 function ensure(condition: unknown, code: ErrorCode): asserts condition {
   if (!condition) {
@@ -58,6 +67,17 @@ function decode(value: string): string {
     return decodeURIComponent(value);
   } catch {
     reject('TARGET_REJECTED');
+  }
+}
+function safeDiagnosticCode(error: unknown): string | null {
+  if ((typeof error !== 'object' && typeof error !== 'function') || error === null) {
+    return null;
+  }
+  try {
+    const code = Reflect.get(error, 'code');
+    return typeof code === 'string' && ((/^[A-Z0-9]{5}$/.test(code) && SAFE_SQLSTATES.has(code)) || (/^E[A-Z0-9_]{1,31}$/.test(code) && SAFE_SYSTEM_ERROR_CODES.has(code))) ? code : null;
+  } catch {
+    return null;
   }
 }
 type Target = { clientConfig: ClientConfig; databaseUser: string; adminUserId: string | null };
@@ -75,8 +95,8 @@ function requireTarget(environment: Record<string, string | undefined>, command:
   ensure(environment.LUSTER_PREVIEW_APPLICATION_NAME === APPLICATION_NAME, 'TARGET_REJECTED');
   ensure(environment.LUSTER_PREVIEW_FIXTURE_VERSION === PREVIEW_FIXTURE_VERSION && environment.LUSTER_PREVIEW_FIXTURE_CONFIRM === CONFIRM, 'CONFIRMATION_REJECTED');
   ensure(command !== 'reset' || environment.LUSTER_PREVIEW_FIXTURE_RESET_CONFIRM === RESET_CONFIRM, 'CONFIRMATION_REJECTED');
-  const adminUserId = environment.LUSTER_PREVIEW_CLERK_USER_ID ?? null;
-  const adminInputsPresent = Boolean(adminUserId || environment.LUSTER_PREVIEW_ADMIN_CONFIRM || environment.LUSTER_PREVIEW_CLERK_ENV);
+  const adminUserId = environment.LUSTER_PREVIEW_CLERK_USER_ID?.trim() || null;
+  const adminInputsPresent = adminUserId !== null || environment.LUSTER_PREVIEW_ADMIN_CONFIRM !== undefined || environment.LUSTER_PREVIEW_CLERK_ENV !== undefined;
   ensure(!adminInputsPresent || (adminUserId && CLERK_USER_ID.test(adminUserId) && environment.LUSTER_PREVIEW_ADMIN_CONFIRM === ADMIN_CONFIRM && environment.LUSTER_PREVIEW_CLERK_ENV === 'development'), 'TARGET_REJECTED');
   let parsed: URL;
   try {
@@ -100,15 +120,15 @@ function requireTarget(environment: Record<string, string | undefined>, command:
   ensure(/^[a-f0-9]{64}$/.test(expectedFingerprint) && timingSafeEqual(Buffer.from(actualFingerprint), Buffer.from(expectedFingerprint)), 'FINGERPRINT_REJECTED');
   return { adminUserId, databaseUser, clientConfig: { host, port: 5432, database, user: databaseUser, password, application_name: APPLICATION_NAME, ssl: { rejectUnauthorized: true, servername: host }, connectionTimeoutMillis: 10_000, statement_timeout: 30_000 } };
 }
-async function assertSession(db: PreviewFixtureDatabase, target: Target) {
-  const { rows } = await db.query<Row>(`/* preview-fixture-session */ SELECT pg_catalog.current_database() AS database_name, current_user AS database_user, pg_catalog.current_setting('application_name', true) AS application_name, ssl.ssl, role.rolsuper, role.rolcreaterole, role.rolcreatedb, role.rolbypassrls, role.rolcanlogin FROM pg_catalog.pg_roles role LEFT JOIN pg_catalog.pg_stat_ssl ssl ON ssl.pid = pg_catalog.pg_backend_pid() WHERE role.rolname = current_user`);
+async function assertSession(db: PreviewFixtureDatabase, target: Target, phase: 'connection' | 'session' = 'session') {
+  const { rows } = await db.query<Row>(`/* preview-fixture-${phase} */ SELECT pg_catalog.current_database() AS database_name, current_user AS database_user, pg_catalog.current_setting('application_name', true) AS application_name, ssl.ssl, role.rolsuper, role.rolcreaterole, role.rolcreatedb, role.rolbypassrls, role.rolcanlogin FROM pg_catalog.pg_roles role LEFT JOIN pg_catalog.pg_stat_ssl ssl ON ssl.pid = pg_catalog.pg_backend_pid() WHERE role.rolname = current_user`);
   const row = rows[0];
   ensure(rows.length === 1 && row?.database_name === DATABASE_NAME && row.database_user === target.databaseUser && row.application_name === APPLICATION_NAME && row.ssl === true, 'SESSION_REJECTED');
   ensure(!row.rolsuper && !row.rolcreaterole && !row.rolcreatedb && !row.rolbypassrls && row.rolcanlogin === true, 'SESSION_REJECTED');
 }
 async function assertTransaction(db: PreviewFixtureDatabase, readOnly: boolean) {
-  const { rows } = await db.query<Row>(`/* preview-fixture-transaction */ SELECT pg_catalog.current_setting('transaction_isolation') AS isolation, pg_catalog.current_setting('transaction_read_only') AS read_only, pg_catalog.current_setting('search_path') AS search_path`);
-  ensure(rows[0]?.isolation === 'serializable' && rows[0]?.read_only === (readOnly ? 'on' : 'off') && rows[0]?.search_path === 'pg_catalog, public', 'TRANSACTION_REJECTED');
+  const { rows } = await db.query<Row>(`/* preview-fixture-transaction */ SELECT pg_catalog.current_setting('transaction_isolation') AS isolation, pg_catalog.current_setting('transaction_read_only') AS read_only, pg_catalog.current_setting('search_path') AS search_path, pg_catalog.current_setting('row_security') AS row_security`);
+  ensure(rows[0]?.isolation === 'serializable' && rows[0]?.read_only === (readOnly ? 'on' : 'off') && rows[0]?.search_path === 'pg_catalog, public' && rows[0]?.row_security === 'off', 'TRANSACTION_REJECTED');
 }
 async function assertMigrations(db: PreviewFixtureDatabase) {
   let expected: ReturnType<typeof readMigrationFiles>;
@@ -257,29 +277,147 @@ async function deleteRows(db: PreviewFixtureDatabase, table: string, rows: reado
   }).join(' AND ')})`);
   await db.query(`DELETE FROM public.${quote(table)} WHERE ${predicates.join(' OR ')}`, values);
 }
-const INCOMING_REFERENCE_COUNTS: Record<string, number> = { service: 4, add_on: 3, technician: 13, salon_location: 1, salon: 48, admin_user: 6 };
-async function assertNoIncomingReferences(db: PreviewFixtureDatabase, parents: Record<string, string[]>) {
-  const references = await db.query<Row>(`SELECT DISTINCT child.relname AS child_table, child_column.attname AS child_column, parent.relname AS parent_table FROM pg_catalog.pg_constraint fk JOIN pg_catalog.pg_class child ON child.oid = fk.conrelid JOIN pg_catalog.pg_namespace child_schema ON child_schema.oid = child.relnamespace JOIN pg_catalog.pg_class parent ON parent.oid = fk.confrelid JOIN pg_catalog.pg_namespace parent_schema ON parent_schema.oid = parent.relnamespace JOIN LATERAL unnest(fk.conkey, fk.confkey) AS keys(child_attnum, parent_attnum) ON true JOIN pg_catalog.pg_attribute child_column ON child_column.attrelid = child.oid AND child_column.attnum = keys.child_attnum JOIN pg_catalog.pg_attribute parent_column ON parent_column.attrelid = parent.oid AND parent_column.attnum = keys.parent_attnum WHERE fk.contype = 'f' AND child_schema.nspname = 'public' AND parent_schema.nspname = 'public' AND parent_column.attname = 'id' AND parent.relname = ANY($1::text[])`, [Object.keys(parents)]);
-  ensure(!Object.keys(parents).some(parent => references.rows.filter(row => row.parent_table === parent).length !== INCOMING_REFERENCE_COUNTS[parent]), 'SESSION_REJECTED');
-  for (const row of references.rows) {
-    const child = String(row.child_table);
-    const column = String(row.child_column);
-    const ids = parents[String(row.parent_table)] ?? [];
-    const result = await db.query<Row>(`SELECT count(*)::int AS count FROM public.${quote(child)} WHERE ${quote(column)} = ANY($1::text[])`, [ids]);
+const FOREIGN_KEY_ACTIONS = { a: 'NO ACTION', r: 'RESTRICT', c: 'CASCADE', n: 'SET NULL', d: 'SET DEFAULT' } as const;
+type ForeignKeyAction = typeof FOREIGN_KEY_ACTIONS[keyof typeof FOREIGN_KEY_ACTIONS];
+type IncomingForeignKeyIdentity = readonly [childSchema: string, childTable: string, constraintName: string, childColumns: readonly string[], parentSchema: string, parentTable: string, parentColumns: readonly string[], updateAction: ForeignKeyAction, deleteAction: ForeignKeyAction];
+const EXPECTED_INCOMING_FOREIGN_KEYS = [
+  ['public', 'appointment_add_on', 'appointment_add_on_add_on_id_fkey', ['add_on_id'], 'public', 'add_on', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'appointment_final_item', 'appointment_final_item_catalog_add_on_id_fkey', ['catalog_add_on_id'], 'public', 'add_on', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'service_add_on', 'service_add_on_add_on_id_fkey', ['add_on_id'], 'public', 'add_on', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'admin_invite', 'admin_invite_created_by_fkey', ['created_by'], 'public', 'admin_user', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'admin_salon_membership', 'admin_salon_membership_admin_id_fkey', ['admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'admin_session', 'admin_session_admin_id_fkey', ['admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'salon_signup_invite', 'salon_signup_invite_consumed_by_admin_id_fkey', ['consumed_by_admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'salon_signup_invite', 'salon_signup_invite_created_by_admin_id_fkey', ['created_by_admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'time_off_request', 'time_off_request_decided_by_admin_id_fkey', ['decided_by_admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'add_on', 'add_on_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'admin_invite', 'admin_invite_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'admin_salon_membership', 'admin_salon_membership_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'appointment', 'appointment_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'appointment_access_token', 'appointment_access_token_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'appointment_audit_log', 'appointment_audit_log_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'appointment_booking_policy_acknowledgment', 'appointment_booking_policy_ack_salon_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'appointment_final_item', 'appointment_final_item_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'appointment_payment', 'appointment_payment_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'appointment_payment_link', 'appointment_payment_link_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'appointment_photo', 'appointment_photo_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'audit_log', 'audit_log_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
+  ['public', 'autopost_queue', 'autopost_queue_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'client_communication', 'client_communication_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'client_preferences', 'client_preferences_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'communication_consent', 'communication_consent_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'fraud_signal', 'fraud_signal_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'google_calendar_draft', 'google_calendar_draft_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'google_calendar_event', 'google_calendar_event_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'google_event_review_pattern', 'google_event_review_pattern_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'integration_outbox', 'integration_outbox_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'notification', 'notification_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'notification_delivery', 'notification_delivery_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'referral', 'referral_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'retention_campaign', 'retention_campaign_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'retention_campaign_redemption', 'retention_campaign_redemption_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'review', 'review_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'reward', 'reward_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'salon_audit_log', 'salon_audit_log_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'salon_client', 'salon_client_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'salon_client_contact_alias', 'salon_client_contact_alias_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'salon_client_note', 'salon_client_note_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'salon_google_calendar_connection', 'salon_google_calendar_connection_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'salon_location', 'salon_location_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'salon_page_appearance', 'salon_page_appearance_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'salon_policies', 'salon_policies_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'salon_retention_settings', 'salon_retention_settings_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'salon_signup_invite', 'salon_signup_invite_result_salon_id_salon_id_fk', ['result_salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
+  ['public', 'salon_signup_invite', 'salon_signup_invite_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'salon_twilio_connection', 'salon_twilio_connection_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'service', 'service_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'service_add_on', 'service_add_on_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'staff_session', 'staff_session_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'technician', 'technician_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'technician_blocked_slot', 'technician_blocked_slot_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'technician_schedule_override', 'technician_schedule_override_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'technician_time_off', 'technician_time_off_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'time_off_request', 'time_off_request_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'technician', 'technician_location_fk', ['primary_location_id'], 'public', 'salon_location', ['id'], 'NO ACTION', 'SET NULL'],
+  ['public', 'appointment_final_item', 'appointment_final_item_catalog_service_id_fkey', ['catalog_service_id'], 'public', 'service', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'appointment_services', 'appointment_services_service_id_service_id_fk', ['service_id'], 'public', 'service', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'service_add_on', 'service_add_on_service_id_fkey', ['service_id'], 'public', 'service', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'technician_services', 'technician_services_service_id_service_id_fk', ['service_id'], 'public', 'service', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'appointment', 'appointment_review_followup_sent_by_technician_id_fk', ['review_followup_sent_by'], 'public', 'technician', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'appointment', 'appointment_technician_id_technician_id_fk', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'appointment_photo', 'appointment_photo_uploaded_by_tech_id_technician_id_fk', ['uploaded_by_tech_id'], 'public', 'technician', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'client_preferences', 'client_preferences_favorite_tech_id_technician_id_fk', ['favorite_tech_id'], 'public', 'technician', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'notification', 'notification_recipient_technician_id_fkey', ['recipient_technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'review', 'review_technician_id_fkey', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'salon_client', 'salon_client_preferred_technician_id_fkey', ['preferred_technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'staff_session', 'staff_session_technician_id_fkey', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'technician_blocked_slot', 'technician_blocked_slot_technician_id_fkey', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'technician_schedule_override', 'technician_schedule_override_technician_id_fkey', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'technician_services', 'technician_services_technician_id_technician_id_fk', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'technician_time_off', 'technician_time_off_technician_id_fkey', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'time_off_request', 'time_off_request_technician_id_fkey', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'CASCADE'],
+] as const satisfies readonly IncomingForeignKeyIdentity[];
+const FIXTURE_TARGET_ROWS: Record<string, readonly Row[]> = { salon: FIXTURE.salons, salon_location: FIXTURE.locations, service: FIXTURE.services, add_on: FIXTURE.addOns, technician: FIXTURE.technicians, admin_user: [FIXTURE.admin], service_add_on: FIXTURE.rules, technician_services: FIXTURE.assignments, admin_salon_membership: FIXTURE.memberships };
+function uniqueRelations(relations: ReadonlyArray<readonly [string, string]>): Array<readonly [string, string]> {
+  return [...new Map(relations.map(relation => [JSON.stringify(relation), relation])).values()].sort(([schemaA, tableA], [schemaB, tableB]) => `${schemaA}.${tableA}`.localeCompare(`${schemaB}.${tableB}`));
+}
+const MUTATION_LOCK_RELATIONS = uniqueRelations([
+  ...Object.keys(FIXTURE_TARGET_ROWS).map(table => ['public', table] as const),
+  ...EXPECTED_INCOMING_FOREIGN_KEYS.map(([childSchema, childTable]) => [childSchema, childTable] as const),
+]);
+async function lockMutationRelations(db: PreviewFixtureDatabase) {
+  await db.query(`/* preview-fixture-relation-lock */ LOCK TABLE ${MUTATION_LOCK_RELATIONS.map(([schema, table]) => `${quote(schema)}.${quote(table)}`).join(', ')} IN EXCLUSIVE MODE NOWAIT`);
+}
+function foreignKeyIdentity(row: Row): IncomingForeignKeyIdentity {
+  const childColumns = row.child_columns;
+  const parentColumns = row.parent_columns;
+  const updateAction = typeof row.update_action === 'string' ? FOREIGN_KEY_ACTIONS[row.update_action as keyof typeof FOREIGN_KEY_ACTIONS] : undefined;
+  const deleteAction = typeof row.delete_action === 'string' ? FOREIGN_KEY_ACTIONS[row.delete_action as keyof typeof FOREIGN_KEY_ACTIONS] : undefined;
+  ensure(typeof row.child_schema === 'string' && typeof row.child_table === 'string' && typeof row.constraint_name === 'string' && Array.isArray(childColumns) && childColumns.length > 0 && childColumns.every(column => typeof column === 'string') && typeof row.parent_schema === 'string' && typeof row.parent_table === 'string' && Array.isArray(parentColumns) && parentColumns.length === childColumns.length && parentColumns.every(column => typeof column === 'string') && updateAction && deleteAction, 'SESSION_REJECTED');
+  return [row.child_schema, row.child_table, row.constraint_name, childColumns, row.parent_schema, row.parent_table, parentColumns, updateAction, deleteAction];
+}
+const normalizeForeignKeyIdentity = (identity: IncomingForeignKeyIdentity) => JSON.stringify(identity);
+export function normalizeIncomingForeignKeyEdge(row: Row): string {
+  return normalizeForeignKeyIdentity(foreignKeyIdentity(row));
+}
+async function assertIncomingForeignKeyContract(db: PreviewFixtureDatabase): Promise<IncomingForeignKeyIdentity[]> {
+  const references = await db.query<Row>(`/* preview-fixture-incoming-foreign-keys */ SELECT child_schema.nspname AS child_schema, child.relname AS child_table, fk.conname AS constraint_name, array_agg(child_column.attname ORDER BY keys.ordinality) AS child_columns, parent_schema.nspname AS parent_schema, parent.relname AS parent_table, array_agg(parent_column.attname ORDER BY keys.ordinality) AS parent_columns, fk.confupdtype AS update_action, fk.confdeltype AS delete_action FROM pg_catalog.pg_constraint fk JOIN pg_catalog.pg_class child ON child.oid = fk.conrelid JOIN pg_catalog.pg_namespace child_schema ON child_schema.oid = child.relnamespace JOIN pg_catalog.pg_class parent ON parent.oid = fk.confrelid JOIN pg_catalog.pg_namespace parent_schema ON parent_schema.oid = parent.relnamespace JOIN LATERAL unnest(fk.conkey, fk.confkey) WITH ORDINALITY AS keys(child_attnum, parent_attnum, ordinality) ON true JOIN pg_catalog.pg_attribute child_column ON child_column.attrelid = child.oid AND child_column.attnum = keys.child_attnum JOIN pg_catalog.pg_attribute parent_column ON parent_column.attrelid = parent.oid AND parent_column.attnum = keys.parent_attnum WHERE fk.contype = 'f' AND parent_schema.nspname = 'public' AND parent.relname = ANY($1::text[]) GROUP BY child_schema.nspname, child.relname, fk.conname, parent_schema.nspname, parent.relname, fk.confupdtype, fk.confdeltype`, [Object.keys(FIXTURE_TARGET_ROWS)]);
+  const identities = references.rows.map(foreignKeyIdentity);
+  const actual = identities.map(normalizeForeignKeyIdentity).sort();
+  const expected = EXPECTED_INCOMING_FOREIGN_KEYS.map(normalizeForeignKeyIdentity).sort();
+  ensure(actual.length === expected.length && actual.every((identity, index) => identity === expected[index]), 'SESSION_REJECTED');
+  return identities;
+}
+async function assertNoIncomingReferences(db: PreviewFixtureDatabase, references: readonly IncomingForeignKeyIdentity[], parentTables: readonly string[]) {
+  const requested = new Set(parentTables);
+  for (const [childSchema, childTable, , childColumns, , parentTable, parentColumns] of references) {
+    if (!requested.has(parentTable)) {
+      continue;
+    }
+    const parents = FIXTURE_TARGET_ROWS[parentTable];
+    ensure(parents && parents.length > 0, 'SESSION_REJECTED');
+    const values: unknown[] = [];
+    const predicates = parents.map(parent => `(${childColumns.map((childColumn, index) => {
+      const parentColumn = parentColumns[index];
+      ensure(parentColumn && Object.hasOwn(parent, parentColumn), 'SESSION_REJECTED');
+      values.push(parent[parentColumn]);
+      return `${quote(childColumn)} IS NOT DISTINCT FROM $${values.length}`;
+    }).join(' AND ')})`);
+    const result = await db.query<Row>(`SELECT count(*)::int AS count FROM ${quote(childSchema)}.${quote(childTable)} WHERE ${predicates.join(' OR ')}`, values);
     ensure(Number(result.rows[0]?.count) === 0, 'COLLISION_REJECTED');
   }
 }
-async function resetFixture(db: PreviewFixtureDatabase) {
+async function resetFixture(db: PreviewFixtureDatabase, references: readonly IncomingForeignKeyIdentity[]) {
   await deleteRows(db, 'service_add_on', FIXTURE.rules, ['id']);
   await deleteRows(db, 'technician_services', FIXTURE.assignments, ['technician_id', 'service_id']);
   await deleteRows(db, 'admin_salon_membership', FIXTURE.memberships, ['admin_id', 'salon_id']);
-  await assertNoIncomingReferences(db, { service: FIXTURE.services.map(row => row.id), add_on: FIXTURE.addOns.map(row => row.id), technician: FIXTURE.technicians.map(row => row.id) });
+  await assertNoIncomingReferences(db, references, ['service', 'add_on', 'technician']);
   await deleteRows(db, 'service', FIXTURE.services, ['id']);
   await deleteRows(db, 'add_on', FIXTURE.addOns, ['id']);
   await deleteRows(db, 'technician', FIXTURE.technicians, ['id']);
-  await assertNoIncomingReferences(db, { salon_location: FIXTURE.locations.map(row => row.id) });
+  await assertNoIncomingReferences(db, references, ['salon_location']);
   await deleteRows(db, 'salon_location', FIXTURE.locations, ['id']);
-  await assertNoIncomingReferences(db, { salon: FIXTURE.salons.map(row => row.id), admin_user: [FIXTURE.admin.id] });
+  await assertNoIncomingReferences(db, references, ['salon', 'admin_user']);
   await deleteRows(db, 'salon', FIXTURE.salons, ['id']);
   await deleteRows(db, 'admin_user', [FIXTURE.admin], ['id']);
 }
@@ -298,56 +436,76 @@ async function verifyReset(db: PreviewFixtureDatabase, target: Target) {
     ensure(Number(result.rows[0]?.count) === 0, 'STATE_REJECTED');
   }
 }
-async function withTransaction<T>(db: PreviewFixtureDatabase, target: Target, readOnly: boolean, commit: boolean, operation: () => Promise<T>): Promise<T> {
-  await db.query(`BEGIN ISOLATION LEVEL SERIALIZABLE ${readOnly ? 'READ ONLY' : 'READ WRITE'}`);
-  await db.query('SET LOCAL search_path = pg_catalog, public');
+async function withTransaction<T>(db: PreviewFixtureDatabase, target: Target, readOnly: boolean, commit: boolean, operation: (references: readonly IncomingForeignKeyIdentity[]) => Promise<T>): Promise<T> {
+  let transactionOpen = false;
   try {
+    await db.query(`BEGIN ISOLATION LEVEL SERIALIZABLE ${readOnly ? 'READ ONLY' : 'READ WRITE'}`);
+    transactionOpen = true;
+    await db.query('SET LOCAL search_path = pg_catalog, public');
+    await db.query('SET LOCAL row_security = off');
+    if (!readOnly) {
+      await lockMutationRelations(db);
+    }
     await assertTransaction(db, readOnly);
     await assertSession(db, target);
     await assertMigrations(db);
     await assertSchema(db);
+    const references = await assertIncomingForeignKeyContract(db);
     await assertOwnership(db, target);
-    const result = await operation();
+    const result = await operation(references);
     await db.query(commit ? 'COMMIT' : 'ROLLBACK');
+    transactionOpen = false;
     return result;
   } catch (error) {
-    await db.query('ROLLBACK').catch(() => {});
+    if (transactionOpen) {
+      await db.query('ROLLBACK').catch(() => {});
+    }
     throw error;
   }
 }
 export async function runPreviewServiceImageFixture(commandValue: string | undefined, environment: Record<string, string | undefined> = process.env, log?: (message: string) => void) {
-  const command = requireCommand(commandValue);
-  const target = requireTarget(environment, command);
-  const database = new Client(target.clientConfig);
+  let database: Client | undefined;
+  let stage: FailureStage = 'configuration';
   try {
-    await database.connect();
+    const command = requireCommand(commandValue);
+    const target = requireTarget(environment, command);
+    stage = 'connection';
+    const client = new Client(target.clientConfig);
+    database = client;
+    await client.connect();
+    await assertSession(client, target, 'connection');
+    stage = command;
     if (command === 'plan') {
-      await withTransaction(database, target, true, false, async () => undefined);
+      await withTransaction(client, target, true, false, async () => undefined);
     }
     if (command === 'apply') {
-      await withTransaction(database, target, false, true, async () => {
-        await applyFixture(database, target);
-        await verifyFixture(database, target);
+      await withTransaction(client, target, false, true, async () => {
+        await applyFixture(client, target);
+        await verifyFixture(client, target);
       });
     }
     if (command === 'verify') {
-      await withTransaction(database, target, true, false, () => verifyFixture(database, target));
+      await withTransaction(client, target, true, false, () => verifyFixture(client, target));
     }
     if (command === 'reset') {
-      await withTransaction(database, target, false, true, async () => {
-        await resetFixture(database);
-        await verifyReset(database, target);
+      await withTransaction(client, target, false, true, async (references) => {
+        await resetFixture(client, references);
+        await verifyReset(client, target);
       });
     }
     log?.(`Preview fixture ${command} complete: salons=${PREVIEW_FIXTURE_COUNTS.salons}, services=${PREVIEW_FIXTURE_COUNTS.services}, technicians=${PREVIEW_FIXTURE_COUNTS.technicians}, add-ons=${PREVIEW_FIXTURE_COUNTS.addOns}, side-effects=0.`);
     return PREVIEW_FIXTURE_COUNTS;
   } catch (error) {
-    if (error instanceof PreviewFixtureError) {
-      throw error;
+    if (typeof error === 'object' && error !== null && trustedErrors.has(error as PreviewFixtureError)) {
+      throw fixtureError((error as PreviewFixtureError).code);
     }
-    throw new PreviewFixtureError('OPERATION_FAILED');
+    throw fixtureError('OPERATION_FAILED', stage, safeDiagnosticCode(error));
   } finally {
-    await database.end().catch(() => {});
+    try {
+      await database?.end();
+    } catch {
+      // Connection cleanup must not replace the already sanitized operation result.
+    }
   }
 }
 const entryPath = process.argv[1];
