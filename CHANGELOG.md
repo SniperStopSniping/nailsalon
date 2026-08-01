@@ -1,3 +1,10 @@
+## [1.43.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.43.0...v1.43.1) (2026-08-01)
+
+
+### Bug Fixes
+
+* support Neon fixture attestation ([e473a9a](https://github.com/SniperStopSniping/nailsalon/commit/e473a9a734c68b196cf9540bd12045bc03740167))
+
 # [1.43.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.42.4...v1.43.0) (2026-08-01)
 
 
