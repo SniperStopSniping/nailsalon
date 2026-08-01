@@ -11,6 +11,12 @@ import {
   PREVIEW_FIXTURE_VERSION,
   PREVIEW_SERVICE_IMAGE_FIXTURE as FIXTURE,
 } from './fixtures/preview-service-image-fixtures';
+import {
+  createPreviewFixtureTlsBoundary,
+  isPreviewFixtureTlsRuntimeEnvironmentSafe,
+  type PreviewFixtureTlsAttestation,
+  type PreviewFixtureTlsBoundary,
+} from './preview-fixture-tls-attestation';
 
 export type PreviewFixtureCommand = 'plan' | 'apply' | 'verify' | 'reset';
 type FailureStage = 'configuration' | 'connection' | PreviewFixtureCommand;
@@ -26,6 +32,7 @@ const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
 const PRODUCTION_LIKE = /(?:^|[._-])(?:main|primary|prod|production|live)(?:$|[._-])/i;
+const POOLED_HOST = /(?:^|[.-])(?:pgbouncer|pooled|pooler)(?:[.-]|$)/i;
 const CLERK_USER_ID = /^user_[A-Za-z0-9]{20,64}$/;
 const SAFE_SQLSTATES = new Set(['08000', '08001', '08003', '08004', '08006', '0A000', '23503', '23505', '25006', '25P02', '3D000', '3F000', '40001', '42501', '42P01', '42703', '53300', '55P03', '57014', '57P01']);
 const SAFE_SYSTEM_ERROR_CODES = new Set(['EACCES', 'EADDRINUSE', 'EADDRNOTAVAIL', 'EAI_AGAIN', 'ECONNABORTED', 'ECONNREFUSED', 'ECONNRESET', 'EHOSTUNREACH', 'ENETUNREACH', 'ENOTFOUND', 'EPERM', 'EPIPE', 'ETIMEDOUT']);
@@ -80,7 +87,7 @@ function safeDiagnosticCode(error: unknown): string | null {
     return null;
   }
 }
-type Target = { clientConfig: ClientConfig; databaseUser: string; adminUserId: string | null };
+type Target = { clientConfig: ClientConfig; databaseUser: string; adminUserId: string | null; tlsBoundary: PreviewFixtureTlsBoundary };
 function requireCommand(value: string | undefined): PreviewFixtureCommand {
   if (value === 'plan' || value === 'apply' || value === 'verify' || value === 'reset') {
     return value;
@@ -93,7 +100,9 @@ function requireTarget(environment: Record<string, string | undefined>, command:
   ensure(environment.LUSTER_PREVIEW_FIXTURE_ENV === 'preview' && (!deployment || deployment === 'preview') && (!applicationEnvironment || !PRODUCTION_LIKE.test(applicationEnvironment)), 'PRODUCTION_REJECTED');
   ensure(environment.LUSTER_PREVIEW_EXPECTED_DATABASE === DATABASE_NAME, 'TARGET_REJECTED');
   ensure(environment.LUSTER_PREVIEW_APPLICATION_NAME === APPLICATION_NAME, 'TARGET_REJECTED');
+  ensure(environment.LUSTER_PREVIEW_CONNECTION_MODE === 'direct', 'TARGET_REJECTED');
   ensure(environment.LUSTER_PREVIEW_FIXTURE_VERSION === PREVIEW_FIXTURE_VERSION && environment.LUSTER_PREVIEW_FIXTURE_CONFIRM === CONFIRM, 'CONFIRMATION_REJECTED');
+  ensure(isPreviewFixtureTlsRuntimeEnvironmentSafe(environment) && isPreviewFixtureTlsRuntimeEnvironmentSafe(process.env), 'SESSION_REJECTED');
   ensure(command !== 'reset' || environment.LUSTER_PREVIEW_FIXTURE_RESET_CONFIRM === RESET_CONFIRM, 'CONFIRMATION_REJECTED');
   const adminUserId = environment.LUSTER_PREVIEW_CLERK_USER_ID?.trim() || null;
   const adminInputsPresent = adminUserId !== null || environment.LUSTER_PREVIEW_ADMIN_CONFIRM !== undefined || environment.LUSTER_PREVIEW_CLERK_ENV !== undefined;
@@ -107,7 +116,14 @@ function requireTarget(environment: Record<string, string | undefined>, command:
   ensure(parsed.protocol === 'postgresql:' && !parsed.hash && parsed.port === '5432' && parsed.password, 'TARGET_REJECTED');
   const host = parsed.hostname.toLowerCase();
   const expectedHost = environment.LUSTER_PREVIEW_EXPECTED_HOST?.toLowerCase() ?? '';
-  ensure(host === expectedHost && /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(host) && !PRODUCTION_LIKE.test(host), 'TARGET_REJECTED');
+  const hostLabels = host.split('.');
+  const endpointLabel = hostLabels[0] ?? '';
+  const directNeonHost = hostLabels.length >= 5
+    && hostLabels.at(-2) === 'neon'
+    && hostLabels.at(-1) === 'tech'
+    && /^ep-[a-z0-9](?:[a-z0-9-]{0,58}[a-z0-9])?$/.test(endpointLabel)
+    && !endpointLabel.endsWith('-pooler');
+  ensure(host === expectedHost && /^(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(host) && directNeonHost && !PRODUCTION_LIKE.test(host) && !POOLED_HOST.test(host), 'TARGET_REJECTED');
   const sslModes = parsed.searchParams.getAll('sslmode');
   const allowedKeys = new Set(['sslmode']);
   ensure(![...parsed.searchParams.keys()].some(key => !allowedKeys.has(key)) && sslModes.length === 1 && ['require', 'verify-full'].includes(sslModes[0]!) && environment.LUSTER_PREVIEW_EXPECTED_SSL_MODE === sslModes[0], 'TARGET_REJECTED');
@@ -118,13 +134,17 @@ function requireTarget(environment: Record<string, string | undefined>, command:
   const expectedFingerprint = environment.LUSTER_PREVIEW_TARGET_FINGERPRINT ?? '';
   const actualFingerprint = createHash('sha256').update(`${host}|5432|${databaseUser}|${database}`).digest('hex');
   ensure(/^[a-f0-9]{64}$/.test(expectedFingerprint) && timingSafeEqual(Buffer.from(actualFingerprint), Buffer.from(expectedFingerprint)), 'FINGERPRINT_REJECTED');
-  return { adminUserId, databaseUser, clientConfig: { host, port: 5432, database, user: databaseUser, password, application_name: APPLICATION_NAME, ssl: { rejectUnauthorized: true, servername: host }, connectionTimeoutMillis: 10_000, statement_timeout: 30_000 } };
+  const tlsBoundary = createPreviewFixtureTlsBoundary(host);
+  return { adminUserId, databaseUser, tlsBoundary, clientConfig: { host, port: 5432, database, user: databaseUser, password, application_name: APPLICATION_NAME, ssl: tlsBoundary.clientConfiguration, connectionTimeoutMillis: 10_000, statement_timeout: 30_000 } };
 }
-async function assertSession(db: PreviewFixtureDatabase, target: Target, phase: 'connection' | 'session' = 'session') {
-  const { rows } = await db.query<Row>(`/* preview-fixture-${phase} */ SELECT pg_catalog.current_database() AS database_name, current_user AS database_user, pg_catalog.current_setting('application_name', true) AS application_name, ssl.ssl, role.rolsuper, role.rolcreaterole, role.rolcreatedb, role.rolbypassrls, role.rolcanlogin FROM pg_catalog.pg_roles role LEFT JOIN pg_catalog.pg_stat_ssl ssl ON ssl.pid = pg_catalog.pg_backend_pid() WHERE role.rolname = current_user`);
+async function assertSession(db: Client, target: Target, phase: 'connection' | 'session' = 'session'): Promise<PreviewFixtureTlsAttestation> {
+  const { rows } = await db.query<Row>(`/* preview-fixture-${phase} */ SELECT pg_catalog.current_database() AS database_name, current_user AS database_user, pg_catalog.current_setting('application_name', true) AS application_name, ssl.ssl AS backend_tls, role.rolsuper, role.rolcreaterole, role.rolcreatedb, role.rolbypassrls, role.rolcanlogin FROM pg_catalog.pg_roles role LEFT JOIN pg_catalog.pg_stat_ssl ssl ON ssl.pid = pg_catalog.pg_backend_pid() WHERE role.rolname = current_user`);
   const row = rows[0];
-  ensure(rows.length === 1 && row?.database_name === DATABASE_NAME && row.database_user === target.databaseUser && row.application_name === APPLICATION_NAME && row.ssl === true, 'SESSION_REJECTED');
+  ensure(rows.length === 1 && row?.database_name === DATABASE_NAME && row.database_user === target.databaseUser && row.application_name === APPLICATION_NAME, 'SESSION_REJECTED');
   ensure(!row.rolsuper && !row.rolcreaterole && !row.rolcreatedb && !row.rolbypassrls && row.rolcanlogin === true, 'SESSION_REJECTED');
+  const tlsAttestation = target.tlsBoundary.attest(db, row.backend_tls);
+  ensure(tlsAttestation, 'SESSION_REJECTED');
+  return tlsAttestation;
 }
 async function assertTransaction(db: PreviewFixtureDatabase, readOnly: boolean) {
   const { rows } = await db.query<Row>(`/* preview-fixture-transaction */ SELECT pg_catalog.current_setting('transaction_isolation') AS isolation, pg_catalog.current_setting('transaction_read_only') AS read_only, pg_catalog.current_setting('search_path') AS search_path, pg_catalog.current_setting('row_security') AS row_security`);
@@ -436,7 +456,7 @@ async function verifyReset(db: PreviewFixtureDatabase, target: Target) {
     ensure(Number(result.rows[0]?.count) === 0, 'STATE_REJECTED');
   }
 }
-async function withTransaction<T>(db: PreviewFixtureDatabase, target: Target, readOnly: boolean, commit: boolean, operation: (references: readonly IncomingForeignKeyIdentity[]) => Promise<T>): Promise<T> {
+async function withTransaction<T>(db: Client, target: Target, readOnly: boolean, commit: boolean, operation: (references: readonly IncomingForeignKeyIdentity[]) => Promise<T>): Promise<T> {
   let transactionOpen = false;
   try {
     await db.query(`BEGIN ISOLATION LEVEL SERIALIZABLE ${readOnly ? 'READ ONLY' : 'READ WRITE'}`);
@@ -473,7 +493,8 @@ export async function runPreviewServiceImageFixture(commandValue: string | undef
     const client = new Client(target.clientConfig);
     database = client;
     await client.connect();
-    await assertSession(client, target, 'connection');
+    ensure(target.tlsBoundary.attest(client, null), 'SESSION_REJECTED');
+    const tlsAttestation = await assertSession(client, target, 'connection');
     stage = command;
     if (command === 'plan') {
       await withTransaction(client, target, true, false, async () => undefined);
@@ -493,7 +514,7 @@ export async function runPreviewServiceImageFixture(commandValue: string | undef
         await verifyReset(client, target);
       });
     }
-    log?.(`Preview fixture ${command} complete: salons=${PREVIEW_FIXTURE_COUNTS.salons}, services=${PREVIEW_FIXTURE_COUNTS.services}, technicians=${PREVIEW_FIXTURE_COUNTS.technicians}, add-ons=${PREVIEW_FIXTURE_COUNTS.addOns}, side-effects=0.`);
+    log?.(`Preview fixture ${command} complete: salons=${PREVIEW_FIXTURE_COUNTS.salons}, services=${PREVIEW_FIXTURE_COUNTS.services}, technicians=${PREVIEW_FIXTURE_COUNTS.technicians}, add-ons=${PREVIEW_FIXTURE_COUNTS.addOns}, side-effects=0. TLS: ${tlsAttestation}.`);
     return PREVIEW_FIXTURE_COUNTS;
   } catch (error) {
     if (typeof error === 'object' && error !== null && trustedErrors.has(error as PreviewFixtureError)) {

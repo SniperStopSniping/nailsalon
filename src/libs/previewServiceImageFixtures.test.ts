@@ -1,5 +1,8 @@
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { Socket } from 'node:net';
 import path from 'node:path';
+import { TLSSocket } from 'node:tls';
 
 import { PGlite } from '@electric-sql/pglite';
 import { drizzle } from 'drizzle-orm/pglite';
@@ -7,6 +10,12 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { vi } from 'vitest';
 
 import { PREVIEW_SERVICE_IMAGE_FIXTURE as FIXTURE } from '../../scripts/fixtures/preview-service-image-fixtures';
+import {
+  PREVIEW_FIXTURE_TLS_ATTESTATIONS,
+  PREVIEW_FIXTURE_TLS_TEST_ONLY,
+  type PreviewFixtureTlsAttestation,
+  type PreviewFixtureTlsEvidence,
+} from '../../scripts/preview-fixture-tls-attestation';
 import {
   normalizeIncomingForeignKeyEdge,
   PreviewFixtureError,
@@ -18,6 +27,21 @@ type FixtureDatabase = {
   query: <T extends Record<string, unknown> = Record<string, unknown>>(text: string, values?: unknown[]) => Promise<{ rows: T[] }>;
 };
 const pgHarness = vi.hoisted(() => ({ database: null as unknown, connections: 0 }));
+const tlsHarness = vi.hoisted(() => ({
+  attestation: 'client TLS verified; backend TLS visible' as PreviewFixtureTlsAttestation | null,
+}));
+vi.mock('../../scripts/preview-fixture-tls-attestation', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../scripts/preview-fixture-tls-attestation')>();
+
+  return {
+    ...actual,
+    createPreviewFixtureTlsBoundary: (expectedHost: string) => {
+      const boundary = actual.createPreviewFixtureTlsBoundary(expectedHost);
+
+      return Object.freeze({ ...boundary, attest: vi.fn(() => tlsHarness.attestation) });
+    },
+  };
+});
 vi.mock('pg', () => ({
   Client: class {
     async connect() {
@@ -35,7 +59,7 @@ vi.mock('pg', () => ({
   },
 }));
 
-const SYNTHETIC_HOST = 'fixture-db.preview.invalid';
+const SYNTHETIC_HOST = 'ep-fixture-direct.us-east-2.aws.neon.tech';
 const SYNTHETIC_ROLE = 'preview_fixture_runtime';
 const SYNTHETIC_PASSWORD = ['synthetic', 'placeholder', 'not', 'secret'].join('-');
 const SYNTHETIC_CLERK_ID = ['user', 'SyntheticDevelopmentFixture0001'].join('_');
@@ -57,6 +81,7 @@ function fixtureEnvironment(overrides: Record<string, string | undefined> = {}) 
     LUSTER_PREVIEW_EXPECTED_DATABASE: 'luster_preview',
     LUSTER_PREVIEW_EXPECTED_HOST: SYNTHETIC_HOST,
     LUSTER_PREVIEW_EXPECTED_SSL_MODE: 'require',
+    LUSTER_PREVIEW_CONNECTION_MODE: 'direct',
     LUSTER_PREVIEW_APPLICATION_NAME: 'luster-preview-service-image-fixtures-v1',
     LUSTER_PREVIEW_FIXTURE_VERSION: 'service-images-v1',
     LUSTER_PREVIEW_FIXTURE_CONFIRM: 'CREATE_SYNTHETIC_PREVIEW_FIXTURES',
@@ -89,7 +114,7 @@ class AttestedPGlite implements FixtureDatabase {
         database_name: 'luster_preview',
         database_user: SYNTHETIC_ROLE,
         application_name: 'luster-preview-service-image-fixtures-v1',
-        ssl: true,
+        backend_tls: true,
         rolsuper: false,
         rolcreaterole: false,
         rolcreatedb: false,
@@ -166,6 +191,121 @@ function runFixture(command: string, environment: Record<string, string | undefi
   return runPreviewServiceImageFixture(command, environment, log);
 }
 
+afterEach(() => {
+  tlsHarness.attestation = PREVIEW_FIXTURE_TLS_ATTESTATIONS.backendVisible;
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
+});
+
+describe('Preview fixture client TLS attestation', () => {
+  const evaluateTlsEvidence = (evidence: Partial<PreviewFixtureTlsEvidence> | null | undefined) => {
+    expect(PREVIEW_FIXTURE_TLS_TEST_ONLY).not.toBeNull();
+
+    return PREVIEW_FIXTURE_TLS_TEST_ONLY!.evaluateEvidence(evidence);
+  };
+  const verifiedEvidence: PreviewFixtureTlsEvidence = {
+    transportKind: 'node-tls-socket',
+    connected: true,
+    encrypted: true,
+    authorized: true,
+    authorizationErrorPresent: false,
+    peerCertificatePresent: true,
+    peerIdentityVerified: true,
+    protocol: 'TLSv1.3',
+    cipherPresent: true,
+    handshakeFinished: true,
+    peerHandshakeFinished: true,
+    secureClientConfiguration: true,
+    insecureEnvironment: false,
+    backendTls: true,
+  };
+
+  it('distinguishes backend-visible TLS from verified TLS terminated upstream or hidden by routing', () => {
+    expect(evaluateTlsEvidence(verifiedEvidence)).toBe(PREVIEW_FIXTURE_TLS_ATTESTATIONS.backendVisible);
+    expect(evaluateTlsEvidence({ ...verifiedEvidence, backendTls: false })).toBe(PREVIEW_FIXTURE_TLS_ATTESTATIONS.backendTerminatedUpstream);
+    expect(evaluateTlsEvidence({ ...verifiedEvidence, backendTls: null })).toBe(PREVIEW_FIXTURE_TLS_ATTESTATIONS.backendTerminatedUpstream);
+  });
+
+  it.each([
+    ['missing evidence', null],
+    ['unsupported transport', { ...verifiedEvidence, transportKind: 'unsupported' }],
+    ['disconnected transport', { ...verifiedEvidence, connected: false }],
+    ['unencrypted transport', { ...verifiedEvidence, encrypted: false }],
+    ['unauthorized certificate', { ...verifiedEvidence, authorized: false }],
+    ['authorization error', { ...verifiedEvidence, authorizationErrorPresent: true }],
+    ['missing peer certificate', { ...verifiedEvidence, peerCertificatePresent: false }],
+    ['unverified peer identity', { ...verifiedEvidence, peerIdentityVerified: false }],
+    ['unsupported TLS protocol', { ...verifiedEvidence, protocol: 'unsupported' }],
+    ['missing cipher', { ...verifiedEvidence, cipherPresent: false }],
+    ['unfinished local handshake', { ...verifiedEvidence, handshakeFinished: false }],
+    ['unfinished peer handshake', { ...verifiedEvidence, peerHandshakeFinished: false }],
+    ['insecure client configuration', { ...verifiedEvidence, secureClientConfiguration: false }],
+    ['ambient certificate bypass', { ...verifiedEvidence, insecureEnvironment: true }],
+    ['invalid backend evidence', { ...verifiedEvidence, backendTls: 'invalid' }],
+    ['backend claim without client encryption', { ...verifiedEvidence, backendTls: true, encrypted: false }],
+  ] as const)('rejects %s', (_name, evidence) => {
+    expect(evaluateTlsEvidence(evidence)).toBeNull();
+  });
+
+  it('isolates the pg private-stream boundary and rejects duck objects, shape drift, and incomplete TLS sockets', async () => {
+    const { createPreviewFixtureTlsBoundary: createActualBoundary } = await vi.importActual<typeof import('../../scripts/preview-fixture-tls-attestation')>('../../scripts/preview-fixture-tls-attestation');
+    const boundary = createActualBoundary(SYNTHETIC_HOST);
+    const ssl = boundary.clientConfiguration;
+    const client = (stream: unknown, clientSsl: unknown = ssl) => ({ ssl: clientSsl, connection: { ssl: clientSsl, stream } }) as never;
+    const secretBearingFailure = new Proxy({}, {
+      get: () => {
+        throw new Error(`private failure ${SYNTHETIC_PASSWORD} ${SYNTHETIC_HOST}`);
+      },
+    });
+    const duck = { encrypted: true, authorized: true, authorizationError: null, connecting: false, destroyed: false, readyState: 'open', readable: true, writable: true };
+    const prototypeSpoof = Object.create(TLSSocket.prototype);
+    const incompleteSocket = new TLSSocket(new Socket());
+    const accessorSsl = Object.create(null, {
+      ca: { enumerable: true, get: () => ssl.ca },
+      minVersion: { enumerable: true, get: () => 'TLSv1.2' },
+      rejectUnauthorized: { enumerable: true, get: () => true },
+      servername: { enumerable: true, get: () => SYNTHETIC_HOST },
+    });
+    try {
+      expect(Object.isFrozen(boundary)).toBe(true);
+      expect(Object.isFrozen(ssl)).toBe(true);
+      expect(Object.isFrozen(ssl.ca)).toBe(true);
+      expect(Reflect.ownKeys(ssl).sort()).toEqual(['ca', 'minVersion', 'rejectUnauthorized', 'servername']);
+      expect(boundary.attest(client(new Socket()), true)).toBeNull();
+      expect(boundary.attest(client(duck), true)).toBeNull();
+      expect(boundary.attest(client(prototypeSpoof), true)).toBeNull();
+      expect(boundary.attest(client(incompleteSocket), true)).toBeNull();
+      expect(boundary.attest(secretBearingFailure as never, true)).toBeNull();
+      expect(boundary.attest(client(incompleteSocket, { ...ssl }), true)).toBeNull();
+      expect(boundary.attest(client(incompleteSocket, { ...ssl, rejectUnauthorized: false }), true)).toBeNull();
+      expect(boundary.attest(client(incompleteSocket, { ...ssl, checkServerIdentity: () => undefined }), true)).toBeNull();
+      expect(boundary.attest(client(incompleteSocket, accessorSsl), true)).toBeNull();
+    } finally {
+      incompleteSocket.destroy();
+    }
+  });
+
+  it('rejects startup CA injection and uses only Node bundled roots in a fresh process', () => {
+    const helperUrl = new URL('../../scripts/preview-fixture-tls-attestation.ts', import.meta.url).href;
+    const probe = `
+      import { rootCertificates } from 'node:tls';
+      import helper from ${JSON.stringify(helperUrl)};
+      const { createPreviewFixtureTlsBoundary, isPreviewFixtureTlsRuntimeEnvironmentSafe } = helper;
+      const boundary = createPreviewFixtureTlsBoundary(${JSON.stringify(SYNTHETIC_HOST)});
+      const ssl = boundary.clientConfiguration;
+      const rootsMatch = ssl.ca.length === rootCertificates.length && ssl.ca.every((root, index) => root === rootCertificates[index]);
+      if (isPreviewFixtureTlsRuntimeEnvironmentSafe(process.env) || !rootsMatch || !Object.isFrozen(ssl) || !Object.isFrozen(ssl.ca)) process.exit(1);
+    `;
+    const result = spawnSync(process.execPath, ['--import=tsx', '--input-type=module', '--eval', probe], {
+      cwd: process.cwd(),
+      encoding: 'utf8',
+      env: { ...process.env, NODE_ENV: 'production', NODE_EXTRA_CA_CERTS: '/synthetic/untrusted/ca.pem' },
+    });
+
+    expect(result.status, result.stderr).toBe(0);
+  });
+});
+
 describe('Preview service-image fixture FK normalization', () => {
   it('includes every required edge identity field and rejects unsupported actions', () => {
     const edge = { child_schema: 'public', child_table: 'child', constraint_name: 'child_parent_fkey', child_columns: ['parent_id'], parent_schema: 'public', parent_table: 'parent', parent_columns: ['id'], update_action: 'a', delete_action: 'a' };
@@ -205,6 +345,7 @@ describe('Preview service-image fixture target contract', () => {
     await expectCode(runFixture('plan', fixtureEnvironment({ LUSTER_PREVIEW_FIXTURE_CONFIRM: undefined }), neverConnect), 'CONFIRMATION_REJECTED');
     await expectCode(runFixture('reset', fixtureEnvironment({ LUSTER_PREVIEW_FIXTURE_RESET_CONFIRM: undefined }), neverConnect), 'CONFIRMATION_REJECTED');
     await expectCode(runFixture('plan', fixtureEnvironment({ LUSTER_PREVIEW_APPLICATION_NAME: undefined }), neverConnect), 'TARGET_REJECTED');
+    await expectCode(runFixture('plan', fixtureEnvironment({ LUSTER_PREVIEW_CONNECTION_MODE: undefined }), neverConnect), 'TARGET_REJECTED');
     const wrongDatabase = fixtureEnvironment();
     wrongDatabase.DATABASE_URL = wrongDatabase.DATABASE_URL.replace('/luster_preview', '/neondb');
     await expectCode(runFixture('plan', wrongDatabase, neverConnect), 'TARGET_REJECTED');
@@ -213,12 +354,44 @@ describe('Preview service-image fixture target contract', () => {
     noTls.DATABASE_URL = noTls.DATABASE_URL.replace(/\?.*$/, '');
     await expectCode(runFixture('plan', noTls, neverConnect), 'TARGET_REJECTED');
     await expectCode(runFixture('plan', fixtureEnvironment({ LUSTER_PREVIEW_EXPECTED_HOST: 'other.preview.invalid' }), neverConnect), 'TARGET_REJECTED');
+    const pooledHost = 'ep-fixture-direct-pooler.us-east-2.aws.neon.tech';
+    const pooledTarget = fixtureEnvironment();
+    pooledTarget.DATABASE_URL = pooledTarget.DATABASE_URL.replace(SYNTHETIC_HOST, pooledHost);
+    pooledTarget.LUSTER_PREVIEW_EXPECTED_HOST = pooledHost;
+    pooledTarget.LUSTER_PREVIEW_TARGET_FINGERPRINT = createHash('sha256').update(`${pooledHost}|5432|${SYNTHETIC_ROLE}|luster_preview`).digest('hex');
+    await expectCode(runFixture('plan', pooledTarget, neverConnect), 'TARGET_REJECTED');
+    const nonNeonHost = 'ep-fixture-direct.preview.invalid';
+    const nonNeonTarget = fixtureEnvironment();
+    nonNeonTarget.DATABASE_URL = nonNeonTarget.DATABASE_URL.replace(SYNTHETIC_HOST, nonNeonHost);
+    nonNeonTarget.LUSTER_PREVIEW_EXPECTED_HOST = nonNeonHost;
+    nonNeonTarget.LUSTER_PREVIEW_TARGET_FINGERPRINT = createHash('sha256').update(`${nonNeonHost}|5432|${SYNTHETIC_ROLE}|luster_preview`).digest('hex');
+    await expectCode(runFixture('plan', nonNeonTarget, neverConnect), 'TARGET_REJECTED');
+    const productionLikeHost = 'ep-prod-fixture.us-east-2.aws.neon.tech';
     const productionHost = fixtureEnvironment();
-    productionHost.DATABASE_URL = productionHost.DATABASE_URL.replace(SYNTHETIC_HOST, 'db.prod.preview.invalid');
-    productionHost.LUSTER_PREVIEW_EXPECTED_HOST = 'db.prod.preview.invalid';
-    productionHost.LUSTER_PREVIEW_TARGET_FINGERPRINT = createHash('sha256').update(`db.prod.preview.invalid|5432|${SYNTHETIC_ROLE}|luster_preview`).digest('hex');
+    productionHost.DATABASE_URL = productionHost.DATABASE_URL.replace(SYNTHETIC_HOST, productionLikeHost);
+    productionHost.LUSTER_PREVIEW_EXPECTED_HOST = productionLikeHost;
+    productionHost.LUSTER_PREVIEW_TARGET_FINGERPRINT = createHash('sha256').update(`${productionLikeHost}|5432|${SYNTHETIC_ROLE}|luster_preview`).digest('hex');
     await expectCode(runFixture('plan', productionHost, neverConnect), 'TARGET_REJECTED');
     await expectCode(runFixture('plan', fixtureEnvironment({ LUSTER_PREVIEW_EXPECTED_SSL_MODE: 'verify-full' }), neverConnect), 'TARGET_REJECTED');
+    await expectCode(runFixture('plan', fixtureEnvironment({ NODE_TLS_REJECT_UNAUTHORIZED: '0' }), neverConnect), 'SESSION_REJECTED');
+    for (const key of ['NODE_EXTRA_CA_CERTS', 'NODE_USE_SYSTEM_CA', 'OPENSSL_CONF', 'SSL_CERT_DIR', 'SSL_CERT_FILE']) {
+      await expectCode(runFixture('plan', fixtureEnvironment({ [key]: '/synthetic/untrusted/ca' }), neverConnect), 'SESSION_REJECTED');
+    }
+    for (const nodeOption of ['--use-openssl-ca', '"--use-openssl-ca"', '--use-"openssl"-ca', '--use-openssl-ca=true', '--use-system-ca=true', '--no-use-bundled-ca', '--openssl-config=/synthetic/openssl.cnf', '--openssl-shared-config']) {
+      await expectCode(runFixture('plan', fixtureEnvironment({ NODE_OPTIONS: nodeOption }), neverConnect), 'SESSION_REJECTED');
+    }
+    process.execArgv.push('--no-use-bundled-ca');
+    try {
+      await expectCode(runFixture('plan', fixtureEnvironment(), neverConnect), 'SESSION_REJECTED');
+    } finally {
+      process.execArgv.pop();
+    }
+    vi.stubEnv('NODE_TLS_REJECT_UNAUTHORIZED', '0');
+    await expectCode(runFixture('plan', fixtureEnvironment(), neverConnect), 'SESSION_REJECTED');
+    vi.unstubAllEnvs();
+    vi.stubEnv('NODE_EXTRA_CA_CERTS', '/synthetic/untrusted/ca');
+    await expectCode(runFixture('plan', fixtureEnvironment(), neverConnect), 'SESSION_REJECTED');
+    vi.unstubAllEnvs();
     await expectCode(runFixture('plan', fixtureEnvironment({ LUSTER_PREVIEW_CLERK_USER_ID: 'user_short', LUSTER_PREVIEW_ADMIN_CONFIRM: 'MAP_SYNTHETIC_DEVELOPMENT_USER', LUSTER_PREVIEW_CLERK_ENV: 'development' }), neverConnect), 'TARGET_REJECTED');
     const messages = [production.message].join(' ');
     for (const sensitive of [SYNTHETIC_PASSWORD, SYNTHETIC_HOST, SYNTHETIC_ROLE, fixtureEnvironment().DATABASE_URL]) {
@@ -270,8 +443,6 @@ describe('Preview service-image fixture target contract', () => {
       await expectCode(runFixture('plan', fixtureEnvironment(), database), 'SESSION_REJECTED');
       database.session = { application_name: 'wrong-application' };
       await expectCode(runFixture('plan', fixtureEnvironment(), database), 'SESSION_REJECTED');
-      database.session = { ssl: false };
-      await expectCode(runFixture('plan', fixtureEnvironment(), database), 'SESSION_REJECTED');
       database.session = {};
       database.transaction = { isolation: 'read committed' };
       await expectCode(runFixture('plan', fixtureEnvironment(), database), 'TRANSACTION_REJECTED');
@@ -288,9 +459,116 @@ describe('Preview service-image fixture target contract', () => {
       await client.close();
     }
   });
+
+  it('rejects an unverified client transport before any query even when backend metadata would claim TLS', async () => {
+    const { client, database } = await migratedDatabase();
+    const logs: string[] = [];
+    tlsHarness.attestation = null;
+    try {
+      const error = await expectCode(runFixture('plan', fixtureEnvironment(), database, message => logs.push(message)), 'SESSION_REJECTED');
+
+      expect(error.message).toBe('Preview fixture session rejected: live target attestation failed.');
+      expect(database.queries).toEqual([]);
+      expect(database.writes).toEqual([]);
+      expect(logs).toEqual([]);
+
+      for (const sensitive of [SYNTHETIC_PASSWORD, SYNTHETIC_HOST, fixtureEnvironment().DATABASE_URL]) {
+        expect(error.message).not.toContain(sensitive);
+      }
+    } finally {
+      await client.close();
+    }
+  });
 });
 
 describe('Preview service-image fixture behavior', () => {
+  it('documents the exact migration-ledger SELECT-only role contract without ownership or role membership', async () => {
+    const client = new PGlite();
+    await migrate(drizzle(client), { migrationsFolder: path.join(process.cwd(), 'migrations') });
+    try {
+      await client.query('CREATE ROLE fixture_ledger_migrator NOLOGIN');
+      await client.query('CREATE ROLE fixture_ledger_reader NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT');
+      await client.query('GRANT USAGE ON SCHEMA drizzle TO fixture_ledger_reader');
+      await client.query('GRANT SELECT ON TABLE drizzle.__drizzle_migrations TO fixture_ledger_reader');
+      await client.query('SET ROLE fixture_ledger_reader');
+
+      const privileges = await client.query<Record<string, boolean>>(`SELECT
+        has_table_privilege(current_user, 'drizzle.__drizzle_migrations', 'SELECT') AS can_select,
+        has_table_privilege(current_user, 'drizzle.__drizzle_migrations', 'INSERT') AS can_insert,
+        has_table_privilege(current_user, 'drizzle.__drizzle_migrations', 'UPDATE') AS can_update,
+        has_table_privilege(current_user, 'drizzle.__drizzle_migrations', 'DELETE') AS can_delete,
+        has_table_privilege(current_user, 'drizzle.__drizzle_migrations', 'TRUNCATE') AS can_truncate,
+        has_table_privilege(current_user, 'drizzle.__drizzle_migrations', 'REFERENCES') AS can_reference,
+        has_table_privilege(current_user, 'drizzle.__drizzle_migrations', 'TRIGGER') AS can_trigger`);
+
+      expect(privileges.rows[0]).toEqual({ can_select: true, can_insert: false, can_update: false, can_delete: false, can_truncate: false, can_reference: false, can_trigger: false });
+      expect((await client.query('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id')).rows).toHaveLength(64);
+
+      for (const statement of [
+        'INSERT INTO drizzle.__drizzle_migrations (hash, created_at) VALUES (\'denied\', 0)',
+        'UPDATE drizzle.__drizzle_migrations SET hash = hash WHERE false',
+        'DELETE FROM drizzle.__drizzle_migrations WHERE false',
+        'TRUNCATE TABLE drizzle.__drizzle_migrations',
+      ]) {
+        await expect(client.query(statement)).rejects.toMatchObject({ code: '42501' });
+      }
+
+      const roleContract = await client.query<{ owns_table: boolean; protected_memberships: number }>(`SELECT
+        ledger.relowner = reader.oid AS owns_table,
+        (SELECT count(*)::int FROM pg_catalog.pg_auth_members membership
+          WHERE membership.member = reader.oid AND membership.roleid = migrator.oid) AS protected_memberships
+        FROM pg_catalog.pg_class ledger
+        JOIN pg_catalog.pg_namespace namespace ON namespace.oid = ledger.relnamespace
+        CROSS JOIN pg_catalog.pg_roles reader
+        CROSS JOIN pg_catalog.pg_roles migrator
+        WHERE namespace.nspname = 'drizzle' AND ledger.relname = '__drizzle_migrations'
+          AND reader.rolname = 'fixture_ledger_reader' AND migrator.rolname = 'fixture_ledger_migrator'`);
+
+      expect(roleContract.rows[0]).toEqual({ owns_table: false, protected_memberships: 0 });
+    } finally {
+      await client.query('RESET ROLE').catch(() => {});
+      await client.close();
+    }
+  });
+
+  it('sanitizes missing ledger SELECT for every command, rolls back, and performs no writes', async () => {
+    const { client, database } = await migratedDatabase();
+    const rawUrl = fixtureEnvironment().DATABASE_URL;
+    const rawMessage = `ledger denied ${rawUrl} password=${SYNTHETIC_PASSWORD}`;
+    try {
+      for (const command of ['plan', 'apply', 'verify', 'reset'] as const) {
+        const logs: string[] = [];
+        const queryOffset = database.queries.length;
+        const writesBefore = database.writes.length;
+        database.failure = {
+          pattern: /^SELECT hash, created_at FROM drizzle\.__drizzle_migrations ORDER BY created_at, id$/,
+          error: Object.assign(new Error(rawMessage), { code: '42501', detail: rawMessage, stack: `raw ${SYNTHETIC_HOST}` }),
+        };
+
+        const error = await expectCode(runFixture(command, fixtureEnvironment(), database, message => logs.push(message)), 'OPERATION_FAILED');
+        const queries = database.queries.slice(queryOffset);
+        const ledgerIndex = queries.findIndex(query => query === 'SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id');
+
+        expect(error.stage).toBe(command);
+        expect(error.diagnosticCode).toBe('42501');
+        expect(error.message).toBe(`Preview fixture operation failed safely on the attested target. Stage: ${command}. Code: 42501.`);
+        expect(Object.hasOwn(error, 'cause')).toBe(false);
+        expect(logs).toEqual([]);
+        expect(database.writes).toHaveLength(writesBefore);
+        expect(ledgerIndex).toBeGreaterThan(-1);
+        expect(queries.slice(ledgerIndex + 1).map(query => query.trim())).toEqual(['ROLLBACK']);
+
+        for (const sensitive of [rawUrl, rawMessage, SYNTHETIC_PASSWORD, SYNTHETIC_HOST]) {
+          expect(error.message).not.toContain(sensitive);
+          expect(error.stack).not.toContain(sensitive);
+        }
+      }
+    } finally {
+      database.failure = null;
+      await client.close();
+    }
+  });
+
   it('rejects a reserved identifier collision without changing the unrelated row', async () => {
     const { client, database } = await migratedDatabase();
     try {
@@ -426,6 +704,23 @@ describe('Preview service-image fixture behavior', () => {
     }
   });
 
+  it('reports verified client TLS with backend visibility terminated upstream and still runs every plan check', async () => {
+    const { client, database } = await migratedDatabase();
+    const logs: string[] = [];
+    tlsHarness.attestation = PREVIEW_FIXTURE_TLS_ATTESTATIONS.backendTerminatedUpstream;
+    database.session = { backend_tls: false };
+    try {
+      await runFixture('plan', fixtureEnvironment(), database, message => logs.push(message));
+
+      expect(database.writes).toEqual([]);
+      expect(database.queries).toContain('SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at, id');
+      expect(database.queries.some(query => query.includes('preview-fixture-incoming-foreign-keys'))).toBe(true);
+      expect(logs).toEqual([expect.stringContaining(PREVIEW_FIXTURE_TLS_ATTESTATIONS.backendTerminatedUpstream)]);
+    } finally {
+      await client.close();
+    }
+  });
+
   it('plans without writes, applies idempotently, verifies variants, maps an optional Development owner, and resets exactly', async () => {
     const { client, database } = await migratedDatabase();
     const logs: string[] = [];
@@ -501,6 +796,7 @@ describe('Preview service-image fixture behavior', () => {
       const output = logs.join('\n');
 
       expect(output).toMatch(/salons=2, services=12, technicians=2, add-ons=2, side-effects=0/);
+      expect(output).toContain(PREVIEW_FIXTURE_TLS_ATTESTATIONS.backendVisible);
       expect(database.writes.filter(sql => /^(?:INSERT|UPDATE|DELETE)/i.test(sql.trim())).every(sql => /\bpublic\./.test(sql))).toBe(true);
 
       for (const sensitive of [SYNTHETIC_PASSWORD, SYNTHETIC_HOST, SYNTHETIC_ROLE, SYNTHETIC_CLERK_ID, FIXTURE.salons[0]!.slug, FIXTURE.admin.email]) {
