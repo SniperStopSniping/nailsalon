@@ -4,8 +4,9 @@ import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { createOpaqueToken } from '@/libs/lusterSecurity';
 import * as schema from '@/models/Schema';
 
 import { runAppointmentManageMutation } from './appointmentManage';
@@ -13,10 +14,27 @@ import { runAppointmentManageMutation } from './appointmentManage';
 vi.mock('server-only', () => ({}));
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));
+const sendAppointmentOperationalEmailOnce = vi.hoisted(() => vi.fn());
+const requireAppointmentManagerAccess = vi.hoisted(() => vi.fn());
+const getGoogleCalendarBusyWindows = vi.hoisted(() => vi.fn(async () => []));
+const sendSalonNotificationEmail = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock('@/libs/DB', () => ({
   get db() {
     return holder.db;
   },
+}));
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  sendAppointmentOperationalEmailOnce,
+}));
+vi.mock('@/libs/routeAccessGuards', () => ({
+  requireAppointmentManagerAccess,
+}));
+vi.mock('@/libs/googleCalendar', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/libs/googleCalendar')>()),
+  getGoogleCalendarBusyWindows,
+}));
+vi.mock('@/libs/salonNotificationEmail', () => ({
+  sendSalonNotificationEmail,
 }));
 
 const SALON_ID = 'salon_manage_mutator';
@@ -30,6 +48,7 @@ const CROSS_SALON_SERVICE_ID = 'service_manage_cross_salon';
 const ADD_ON_ID = 'addon_manage_art';
 const APPOINTMENT_ID = 'appointment_manage_mutator';
 const INITIAL_START = new Date('2027-01-04T14:00:00.000Z');
+const INITIAL_END = new Date(INITIAL_START.getTime() + 70 * 60_000);
 const REMINDER_STATE = {
   dayBeforeReminderSentAt: new Date('2027-01-03T14:00:00.000Z'),
   dayBeforeReminderChannel: 'email',
@@ -60,7 +79,7 @@ async function seedAppointment(
     clientPhone: '4165550199',
     clientName: 'Mutation Fixture',
     startTime: INITIAL_START,
-    endTime: new Date(INITIAL_START.getTime() + 70 * 60_000),
+    endTime: INITIAL_END,
     status: 'confirmed',
     totalPrice: 5500,
     totalDurationMinutes: 70,
@@ -112,6 +131,33 @@ async function appointment() {
     throw new Error('Missing appointment fixture');
   }
   return row;
+}
+
+async function staffRescheduleJobs() {
+  const rows = await db
+    .select()
+    .from(schema.integrationOutboxSchema)
+    .where(eq(schema.integrationOutboxSchema.appointmentId, APPOINTMENT_ID));
+  return rows.filter(row => row.operation === 'staff_reschedule_notification');
+}
+
+function expectedJob(previousStart: Date, previousEnd: Date, nextStart: Date, nextEnd: Date) {
+  return {
+    salonId: SALON_ID,
+    appointmentId: APPOINTMENT_ID,
+    provider: 'email',
+    operation: 'staff_reschedule_notification',
+    dedupeKey: `email:${APPOINTMENT_ID}:staff_reschedule:${previousStart.toISOString()}:${nextStart.toISOString()}`,
+    payload: {
+      appointmentId: APPOINTMENT_ID,
+      salonId: SALON_ID,
+      previousStartTime: previousStart.toISOString(),
+      previousEndTime: previousEnd.toISOString(),
+      newStartTime: nextStart.toISOString(),
+      newEndTime: nextEnd.toISOString(),
+      timeZone: 'America/Toronto',
+    },
+  };
 }
 
 function reminders(row: Awaited<ReturnType<typeof appointment>>) {
@@ -235,8 +281,13 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
+  vi.clearAllMocks();
   await db.delete(schema.appointmentSchema);
   await seedAppointment();
+});
+
+afterEach(() => {
+  expect(sendAppointmentOperationalEmailOnce).not.toHaveBeenCalled();
 });
 
 afterAll(async () => {
@@ -244,7 +295,7 @@ afterAll(async () => {
 });
 
 describe('real appointment management mutations', () => {
-  it('re-arms exactly the time-derived reminders when a move changes start time', async () => {
+  it('defaults customer notification off while re-arming reminders for a move', async () => {
     const nextStart = new Date('2027-01-04T16:00:00.000Z');
 
     await mutate({ startTime: nextStart });
@@ -263,10 +314,119 @@ describe('real appointment management mutations', () => {
       notes: 'keep appointment metadata',
       reviewFollowupSentAt: new Date('2026-12-31T15:00:00.000Z'),
     });
+    expect(await staffRescheduleJobs()).toEqual([]);
+  });
+
+  it('atomically enqueues a version-bound staff move, dedupes a retry, and preserves its payload', async () => {
+    const firstStart = new Date('2027-01-04T16:00:00.000Z');
+    const firstEnd = new Date(firstStart.getTime() + 70 * 60_000);
+
+    await mutate({ startTime: firstStart, notifyCustomerOnReschedule: true });
+
+    expect(await staffRescheduleJobs()).toEqual([
+      expect.objectContaining(expectedJob(INITIAL_START, INITIAL_END, firstStart, firstEnd)),
+    ]);
+
+    await mutate({ startTime: firstStart, notifyCustomerOnReschedule: true });
+
+    expect(await staffRescheduleJobs()).toHaveLength(1);
+
+    const secondStart = new Date('2027-01-04T18:00:00.000Z');
+    const secondEnd = new Date(secondStart.getTime() + 70 * 60_000);
+    await mutate({ startTime: secondStart, notifyCustomerOnReschedule: true });
+
+    const jobs = await staffRescheduleJobs();
+
+    expect(jobs).toHaveLength(2);
+    expect(jobs).toEqual(expect.arrayContaining([
+      expect.objectContaining(expectedJob(INITIAL_START, INITIAL_END, firstStart, firstEnd)),
+      expect.objectContaining(expectedJob(firstStart, firstEnd, secondStart, secondEnd)),
+    ]));
+  });
+
+  it('keeps one durable notification when the staff route retries the same move', async () => {
+    requireAppointmentManagerAccess.mockImplementation(async () => ({
+      ok: true,
+      actorRole: 'staff',
+      appointment: await appointment(),
+    }));
+    const { PATCH } = await import('@/app/api/appointments/[id]/manage/route');
+    const request = () => new Request('http://localhost/api/appointments/test/manage', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        operation: 'move',
+        startTime: '2027-01-04T16:00:00.000Z',
+      }),
+    });
+
+    expect((await PATCH(request(), { params: { id: APPOINTMENT_ID } })).status).toBe(200);
+    expect((await PATCH(request(), { params: { id: APPOINTMENT_ID } })).status).toBe(200);
+
+    expect(await staffRescheduleJobs()).toHaveLength(1);
+  });
+
+  it('keeps the customer-managed route on its existing single-send path without an outbox job', async () => {
+    const capability = createOpaqueToken();
+    await db.insert(schema.appointmentAccessTokenSchema).values({
+      id: 'token_customer_reschedule',
+      salonId: SALON_ID,
+      appointmentId: APPOINTMENT_ID,
+      tokenHash: capability.tokenHash,
+      expiresAt: new Date('2027-02-04T14:00:00.000Z'),
+    });
+    const { POST } = await import('@/app/api/public/appointments/manage/[token]/route');
+
+    const response = await POST(new Request('http://localhost/api/public/appointments/manage/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'reschedule',
+        startTime: '2027-01-04T16:00:00.000Z',
+      }),
+    }), { params: { token: capability.token } });
+
+    expect(response.status).toBe(200);
+    expect(sendAppointmentOperationalEmailOnce).toHaveBeenCalledTimes(1);
+    expect(await staffRescheduleJobs()).toEqual([]);
+
+    sendAppointmentOperationalEmailOnce.mockClear();
+  });
+
+  it('rolls back the outbox row with the appointment transaction', async () => {
+    const rollbackDb = new Proxy(db, {
+      get(target, property, receiver) {
+        if (property === 'transaction') {
+          return (callback: Parameters<typeof db.transaction>[0]) =>
+            db.transaction(async (tx) => {
+              await callback(tx);
+              throw new Error('FORCED_ROLLBACK_AFTER_ENQUEUE');
+            });
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    holder.db = rollbackDb;
+
+    try {
+      await expect(mutate({
+        startTime: new Date('2027-01-04T16:00:00.000Z'),
+        notifyCustomerOnReschedule: true,
+      })).rejects.toThrow('FORCED_ROLLBACK_AFTER_ENQUEUE');
+    } finally {
+      holder.db = db;
+    }
+
+    expect((await appointment()).startTime).toEqual(INITIAL_START);
+    expect(await staffRescheduleJobs()).toEqual([]);
   });
 
   it('directly moves to next available through the protected move and re-arms reminders', async () => {
-    await mutate({ operation: 'moveToNextAvailable' });
+    await mutate({
+      operation: 'moveToNextAvailable',
+      notifyCustomerOnReschedule: true,
+    });
 
     const row = await appointment();
 
@@ -277,12 +437,16 @@ describe('real appointment management mutations', () => {
       sameDayReminderSentAt: null,
       sameDayReminderChannel: null,
     });
+    expect(await staffRescheduleJobs()).toEqual([
+      expect.objectContaining(expectedJob(INITIAL_START, INITIAL_END, row.startTime, row.endTime)),
+    ]);
   });
 
   it('preserves every reminder field when technician reassignment keeps the start time', async () => {
     await mutate({
       operation: 'reassignTechnician',
       technicianId: OTHER_TECHNICIAN_ID,
+      notifyCustomerOnReschedule: true,
     });
 
     const row = await appointment();
@@ -290,18 +454,21 @@ describe('real appointment management mutations', () => {
     expect(row.technicianId).toBe(OTHER_TECHNICIAN_ID);
     expect(row.startTime).toEqual(INITIAL_START);
     expect(reminders(row)).toEqual(REMINDER_STATE);
+    expect(await staffRescheduleJobs()).toEqual([]);
   });
 
   it('preserves reminder state for a same-start service change', async () => {
     await mutate({
       operation: 'changeService',
       baseServiceId: REPLACEMENT_SERVICE_ID,
+      notifyCustomerOnReschedule: true,
     });
 
     const row = await appointment();
 
     expect(row.startTime).toEqual(INITIAL_START);
     expect(reminders(row)).toEqual(REMINDER_STATE);
+    expect(await staffRescheduleJobs()).toEqual([]);
   });
 
   it('atomically changes service lines and re-arms reminders for a time-changing service change', async () => {
@@ -311,6 +478,7 @@ describe('real appointment management mutations', () => {
       operation: 'changeService',
       baseServiceId: REPLACEMENT_SERVICE_ID,
       startTime: nextStart,
+      notifyCustomerOnReschedule: true,
     });
 
     const row = await appointment();
@@ -349,6 +517,9 @@ describe('real appointment management mutations', () => {
       lineTotalCentsSnapshot: 1000,
       lineDurationMinutesSnapshot: 10,
     });
+    expect(await staffRescheduleJobs()).toEqual([
+      expect.objectContaining(expectedJob(INITIAL_START, INITIAL_END, nextStart, row.endTime)),
+    ]);
   });
 
   it('rolls back every service, add-on, and appointment write when a line insert fails', async () => {
@@ -381,6 +552,7 @@ describe('real appointment management mutations', () => {
         operation: 'changeService',
         baseServiceId: REPLACEMENT_SERVICE_ID,
         startTime: new Date('2027-01-04T17:00:00.000Z'),
+        notifyCustomerOnReschedule: true,
       })).rejects.toBeDefined();
     } finally {
       randomUuid.mockRestore();
@@ -407,6 +579,7 @@ describe('real appointment management mutations', () => {
     expect(serviceRows[0]!.serviceId).toBe(SERVICE_ID);
     expect(addOnRows).toHaveLength(1);
     expect(addOnRows[0]!.addOnId).toBe(ADD_ON_ID);
+    expect(await staffRescheduleJobs()).toEqual([]);
   });
 
   it('rejects cross-salon technician and service targets without changing state', async () => {

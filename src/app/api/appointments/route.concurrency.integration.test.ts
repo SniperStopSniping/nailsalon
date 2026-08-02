@@ -746,6 +746,51 @@ suite('POST /api/appointments — genuine concurrency', () => {
     }
   }
 
+  async function holdIntegrationOutboxRow(
+    outboxId: string,
+  ): Promise<HeldLock> {
+    const connection = await pool.connect();
+    try {
+      await connection.query('BEGIN');
+      await connection.query(
+        `SELECT id FROM integration_outbox
+         WHERE id = $1 AND salon_id = $2
+         FOR UPDATE`,
+        [outboxId, SALON_ID],
+      );
+      return await registerHeldLock(connection);
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      connection.release();
+      throw error;
+    }
+  }
+
+  async function seedStaffRescheduleJob(
+    appointment: Awaited<ReturnType<typeof seedManagedAppointment>>,
+    id: string,
+  ) {
+    const previousStart = new Date(appointment.startTime.getTime() - 60 * 60_000);
+    const previousEnd = new Date(appointment.endTime.getTime() - 60 * 60_000);
+    await db.insert(schema.integrationOutboxSchema).values({
+      id,
+      salonId: SALON_ID,
+      appointmentId: appointment.id,
+      provider: 'email',
+      operation: 'staff_reschedule_notification',
+      dedupeKey: `email:${appointment.id}:staff_reschedule:${previousStart.toISOString()}:${appointment.startTime.toISOString()}`,
+      payload: {
+        appointmentId: appointment.id,
+        salonId: SALON_ID,
+        previousStartTime: previousStart.toISOString(),
+        previousEndTime: previousEnd.toISOString(),
+        newStartTime: appointment.startTime.toISOString(),
+        newEndTime: appointment.endTime.toISOString(),
+        timeZone: 'America/Toronto',
+      },
+    });
+  }
+
   async function holdSalonPolicyUpdate(
     settings: SalonSettings,
   ): Promise<HeldLock & { commit: () => Promise<void> }> {
@@ -3988,5 +4033,218 @@ suite('POST /api/appointments — genuine concurrency', () => {
     expect(deliveries).toHaveLength(1);
     expect(deliveries[0]).toMatchObject({ status: 'sent' });
     expect(deliveries[0]?.dedupeKey).toContain(startTime);
+  });
+
+  it('allows only one of two outbox workers to deliver a staff reschedule', async () => {
+    const appointment = await seedManagedAppointment({
+      id: 'staff_reschedule_two_workers',
+      startTime: '2099-09-15T16:00:00.000Z',
+      clientEmail: 'outbox-workers@example.com',
+    });
+    const outboxId = 'outbox_staff_reschedule_two_workers';
+    await db.insert(schema.integrationOutboxSchema).values({
+      id: outboxId,
+      salonId: SALON_ID,
+      appointmentId: appointment.id,
+      provider: 'email',
+      operation: 'staff_reschedule_notification',
+      dedupeKey: `email:${appointment.id}:staff_reschedule:2099-09-15T15:00:00.000Z:2099-09-15T16:00:00.000Z`,
+      payload: {
+        appointmentId: appointment.id,
+        salonId: SALON_ID,
+        previousStartTime: '2099-09-15T15:00:00.000Z',
+        previousEndTime: '2099-09-15T16:00:00.000Z',
+        newStartTime: '2099-09-15T16:00:00.000Z',
+        newEndTime: '2099-09-15T17:00:00.000Z',
+        timeZone: 'America/Toronto',
+      },
+    });
+    const held = await holdIntegrationOutboxRow(outboxId);
+    const { processIntegrationOutbox } = await import(
+      '@/libs/integrationOutbox'
+    );
+    const workers = [
+      processIntegrationOutbox(1),
+      processIntegrationOutbox(1),
+    ];
+
+    await releaseHeldBarrier(held, 2, workers);
+
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+
+    const [outbox, deliveries] = await Promise.all([
+      db.select().from(schema.integrationOutboxSchema).where(
+        eq(schema.integrationOutboxSchema.id, outboxId),
+      ),
+      db.select().from(schema.notificationDeliverySchema).where(
+        eq(schema.notificationDeliverySchema.appointmentId, appointment.id),
+      ),
+    ]);
+
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0]).toMatchObject({
+      status: 'completed',
+      attempts: 1,
+      lastError: null,
+    });
+    expect(outbox[0]?.processedAt).toBeInstanceOf(Date);
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]).toMatchObject({
+      purpose: 'client_appointment_rescheduled',
+      status: 'sent',
+    });
+  });
+
+  it('retries a transient staff-reschedule provider failure with backoff', async () => {
+    const appointment = await seedManagedAppointment({
+      id: 'staff_reschedule_retryable_provider',
+      startTime: '2099-09-15T18:00:00.000Z',
+      clientEmail: 'retryable-provider@example.com',
+    });
+    const outboxId = 'outbox_staff_reschedule_retryable_provider';
+    await seedStaffRescheduleJob(appointment, outboxId);
+    sendTransactionalEmailDetailed.mockResolvedValueOnce({
+      ok: false,
+      errorCode: 'RESEND_HTTP_500',
+      providerMessageId: null,
+    });
+    const { processIntegrationOutbox } = await import('@/libs/integrationOutbox');
+    const before = Date.now();
+
+    await processIntegrationOutbox(1);
+
+    const [[outbox], [delivery]] = await Promise.all([
+      db.select().from(schema.integrationOutboxSchema).where(eq(schema.integrationOutboxSchema.id, outboxId)),
+      db.select().from(schema.notificationDeliverySchema).where(eq(schema.notificationDeliverySchema.appointmentId, appointment.id)),
+    ]);
+
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+    expect(outbox).toMatchObject({ status: 'retry', attempts: 1 });
+    expect(outbox!.availableAt.getTime() - before).toBeGreaterThan(110_000);
+    expect(delivery).toMatchObject({ status: 'failed', retryable: true });
+  });
+
+  it('suppresses a duplicate provider call after an ambiguous timeout', async () => {
+    const appointment = await seedManagedAppointment({
+      id: 'staff_reschedule_ambiguous_provider',
+      startTime: '2099-09-15T20:00:00.000Z',
+      clientEmail: 'ambiguous-provider@example.com',
+    });
+    const outboxId = 'outbox_staff_reschedule_ambiguous_provider';
+    await seedStaffRescheduleJob(appointment, outboxId);
+    sendTransactionalEmailDetailed.mockResolvedValueOnce({
+      ok: false,
+      errorCode: 'RESEND_NETWORK_ERROR',
+      providerMessageId: null,
+    });
+    const { processIntegrationOutbox } = await import('@/libs/integrationOutbox');
+
+    await processIntegrationOutbox(1);
+    await db.update(schema.integrationOutboxSchema).set({ availableAt: new Date(0) })
+      .where(eq(schema.integrationOutboxSchema.id, outboxId));
+    await processIntegrationOutbox(1);
+
+    const [[outbox], [delivery]] = await Promise.all([
+      db.select().from(schema.integrationOutboxSchema).where(eq(schema.integrationOutboxSchema.id, outboxId)),
+      db.select().from(schema.notificationDeliverySchema).where(eq(schema.notificationDeliverySchema.appointmentId, appointment.id)),
+    ]);
+
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+    expect(outbox).toMatchObject({ status: 'completed', attempts: 2 });
+    expect(delivery).toMatchObject({
+      status: 'failed',
+      retryable: false,
+      errorCode: 'RESEND_NETWORK_ERROR',
+    });
+  });
+
+  it('terminates a staff-reschedule job with no valid recipient', async () => {
+    const appointment = await seedManagedAppointment({
+      id: 'staff_reschedule_missing_recipient',
+      startTime: '2099-09-15T22:00:00.000Z',
+    });
+    await db.update(schema.appointmentSchema).set({ clientEmail: null })
+      .where(eq(schema.appointmentSchema.id, appointment.id));
+    const outboxId = 'outbox_staff_reschedule_missing_recipient';
+    await seedStaffRescheduleJob(appointment, outboxId);
+    const { processIntegrationOutbox } = await import('@/libs/integrationOutbox');
+
+    await processIntegrationOutbox(1);
+
+    const [[outbox], [delivery]] = await Promise.all([
+      db.select().from(schema.integrationOutboxSchema).where(eq(schema.integrationOutboxSchema.id, outboxId)),
+      db.select().from(schema.notificationDeliverySchema).where(eq(schema.notificationDeliverySchema.appointmentId, appointment.id)),
+    ]);
+
+    expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(outbox).toMatchObject({
+      status: 'failed',
+      attempts: 1,
+      lastError: 'RECIPIENT_UNAVAILABLE',
+    });
+    expect(outbox!.processedAt).toBeInstanceOf(Date);
+    expect(delivery).toMatchObject({ status: 'failed', retryable: false });
+  });
+
+  it('cancels a cross-salon staff-reschedule job without delivery', async () => {
+    const appointment = await seedManagedAppointment({
+      id: 'staff_reschedule_cross_salon',
+      startTime: '2099-09-16T16:00:00.000Z',
+      clientEmail: 'cross-salon@example.com',
+    });
+    const otherSalonId = 'salon_outbox_other';
+    await db.insert(schema.salonSchema).values({
+      id: otherSalonId,
+      name: 'Other Outbox Salon',
+      slug: 'other-outbox-salon',
+      ownerEmail: 'other-owner@example.com',
+      isActive: true,
+      status: 'active',
+      publicationStatus: 'published',
+      settings: BASE_SALON_SETTINGS,
+    }).onConflictDoNothing();
+    const outboxId = 'outbox_staff_reschedule_cross_salon';
+    await db.insert(schema.integrationOutboxSchema).values({
+      id: outboxId,
+      salonId: otherSalonId,
+      appointmentId: appointment.id,
+      provider: 'email',
+      operation: 'staff_reschedule_notification',
+      dedupeKey: `email:${appointment.id}:staff_reschedule:2099-09-16T15:00:00.000Z:2099-09-16T16:00:00.000Z`,
+      payload: {
+        appointmentId: appointment.id,
+        salonId: otherSalonId,
+        previousStartTime: '2099-09-16T15:00:00.000Z',
+        previousEndTime: '2099-09-16T16:00:00.000Z',
+        newStartTime: '2099-09-16T16:00:00.000Z',
+        newEndTime: '2099-09-16T17:00:00.000Z',
+        timeZone: 'America/Toronto',
+      },
+    });
+    const { processIntegrationOutbox } = await import(
+      '@/libs/integrationOutbox'
+    );
+
+    await processIntegrationOutbox(1);
+
+    expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+
+    const [outbox, deliveries] = await Promise.all([
+      db.select().from(schema.integrationOutboxSchema).where(
+        eq(schema.integrationOutboxSchema.id, outboxId),
+      ),
+      db.select().from(schema.notificationDeliverySchema).where(
+        eq(schema.notificationDeliverySchema.appointmentId, appointment.id),
+      ),
+    ]);
+
+    expect(outbox).toHaveLength(1);
+    expect(outbox[0]).toMatchObject({
+      salonId: otherSalonId,
+      status: 'cancelled',
+      attempts: 1,
+      lastError: 'SUPERSEDED',
+    });
+    expect(deliveries).toHaveLength(0);
   });
 });
