@@ -217,6 +217,7 @@ type MoveArgs = {
   durationMinutes?: number;
   technicianId?: string | null;
   canReassignTechnician: boolean;
+  notifyCustomerOnReschedule?: boolean;
 };
 
 type ChangeServiceArgs = {
@@ -225,6 +226,7 @@ type ChangeServiceArgs = {
   startTime?: Date;
   technicianId?: string | null;
   canReassignTechnician: boolean;
+  notifyCustomerOnReschedule?: boolean;
 };
 
 type ReassignArgs = {
@@ -236,11 +238,13 @@ type ReassignArgs = {
 type NextAvailableArgs = {
   loaded: LoadedManagedAppointment;
   canReassignTechnician: boolean;
+  notifyCustomerOnReschedule?: boolean;
 };
 
 type MutationResult = {
   appointment: Appointment;
   warnings: ManageWarning[];
+  mutationApplied?: boolean;
 };
 type ManageTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const SEARCH_DAYS_AHEAD = 14;
@@ -707,7 +711,7 @@ async function withLockedManagedAppointment(
         );
       }
       return idempotentMove
-        ? { appointment: lockedAppointment, warnings: [] }
+        ? { appointment: lockedAppointment, warnings: [], mutationApplied: false }
         : apply(tx, authoritative);
     });
   } catch (error) {
@@ -993,7 +997,23 @@ async function applyMove(
     throw new AppointmentManageError('UPDATE_FAILED', 'Failed to update appointment.', 500);
   }
 
-  return { appointment, warnings: [] };
+  const mutationApplied = args.loaded.appointment.startTime.getTime()
+    !== appointment.startTime.getTime();
+  if (args.notifyCustomerOnReschedule && mutationApplied) {
+    const { enqueueStaffRescheduleNotification } = await import('@/libs/integrationOutbox');
+    await enqueueStaffRescheduleNotification(tx, {
+      appointmentId: appointment.id,
+      salonId: appointment.salonId,
+      previousStartTime: args.loaded.appointment.startTime,
+      previousEndTime: args.loaded.appointment.endTime,
+      newStartTime: appointment.startTime,
+      newEndTime: appointment.endTime,
+      mutationVersion: appointment.updatedAt,
+      timeZone: args.loaded.timeZone,
+    });
+  }
+
+  return { appointment, warnings: [], mutationApplied };
 }
 
 function mutateMove(args: MoveArgs): Promise<MutationResult> {
@@ -1080,6 +1100,7 @@ async function mutateMoveToNextAvailable(args: NextAvailableArgs): Promise<Mutat
     loaded: args.loaded,
     startTime: nextStart,
     canReassignTechnician: args.canReassignTechnician,
+    notifyCustomerOnReschedule: args.notifyCustomerOnReschedule,
   });
 }
 
@@ -1228,6 +1249,23 @@ async function applyChangeService(
     return [appointment] as const;
   })();
 
+  if (
+    args.notifyCustomerOnReschedule
+    && args.loaded.appointment.startTime.getTime() !== appointment.startTime.getTime()
+  ) {
+    const { enqueueStaffRescheduleNotification } = await import('@/libs/integrationOutbox');
+    await enqueueStaffRescheduleNotification(tx, {
+      appointmentId: appointment.id,
+      salonId: appointment.salonId,
+      previousStartTime: args.loaded.appointment.startTime,
+      previousEndTime: args.loaded.appointment.endTime,
+      newStartTime: appointment.startTime,
+      newEndTime: appointment.endTime,
+      mutationVersion: appointment.updatedAt,
+      timeZone: args.loaded.timeZone,
+    });
+  }
+
   return { appointment, warnings };
 }
 
@@ -1247,12 +1285,16 @@ export async function runAppointmentManageMutation(args: {
   baseServiceId?: string;
   technicianId?: string | null;
   canReassignTechnician: boolean;
+  notifyCustomerOnReschedule?: boolean;
+  includeMutationApplied?: boolean;
 }): Promise<{
     detail: AppointmentManageDetail;
     calendarEvent: AppointmentCalendarEvent;
+    mutationApplied?: boolean;
     warnings: ManageWarning[];
   }> {
   const loaded = await loadManagedAppointment(args.appointmentId, args.salonId);
+  const notifyCustomerOnReschedule = args.notifyCustomerOnReschedule ?? false;
   let result: MutationResult;
 
   switch (args.operation) {
@@ -1266,12 +1308,14 @@ export async function runAppointmentManageMutation(args: {
         durationMinutes: args.durationMinutes,
         technicianId: args.technicianId,
         canReassignTechnician: args.canReassignTechnician,
+        notifyCustomerOnReschedule,
       });
       break;
     case 'moveToNextAvailable':
       result = await mutateMoveToNextAvailable({
         loaded,
         canReassignTechnician: args.canReassignTechnician,
+        notifyCustomerOnReschedule,
       });
       break;
     case 'changeService':
@@ -1284,6 +1328,7 @@ export async function runAppointmentManageMutation(args: {
         startTime: args.startTime,
         technicianId: args.technicianId,
         canReassignTechnician: args.canReassignTechnician,
+        notifyCustomerOnReschedule,
       });
       break;
     case 'reassignTechnician':
@@ -1320,6 +1365,9 @@ export async function runAppointmentManageMutation(args: {
   return {
     detail,
     calendarEvent: buildCalendarEvent(reloaded),
+    ...(args.includeMutationApplied
+      ? { mutationApplied: result.mutationApplied !== false }
+      : {}),
     warnings: result.warnings,
   };
 }

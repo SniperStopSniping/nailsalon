@@ -139,7 +139,7 @@ describe('appointment manage route', () => {
     expect(runAppointmentManageMutation).not.toHaveBeenCalled();
   });
 
-  it('forwards move requests for admins to the manage mutation', async () => {
+  it('forwards identical staff move retries with customer notification enabled', async () => {
     requireAppointmentManagerAccess.mockResolvedValue({
       ok: true,
       actorRole: 'admin',
@@ -154,23 +154,32 @@ describe('appointment manage route', () => {
       warnings: [],
     });
 
-    const response = await PATCH(new Request('http://localhost/api/appointments/appt_1/manage', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        operation: 'move',
-        startTime: '2026-03-29T15:00:00.000Z',
-        durationMinutes: 105,
+    const patch = () => PATCH(
+      new Request('http://localhost/api/appointments/appt_1/manage', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          operation: 'move',
+          startTime: '2026-03-29T15:00:00.000Z',
+          durationMinutes: 105,
+        }),
       }),
-    }), { params: { id: 'appt_1' } });
+      { params: { id: 'appt_1' } },
+    );
 
-    expect(response.status).toBe(200);
-    expect(runAppointmentManageMutation).toHaveBeenCalledWith(expect.objectContaining({
-      appointmentId: 'appt_1',
-      salonId: 'salon_1',
-      operation: 'move',
-      durationMinutes: 105,
-      canReassignTechnician: true,
-    }));
+    expect((await patch()).status).toBe(200);
+    expect((await patch()).status).toBe(200);
+    expect(runAppointmentManageMutation).toHaveBeenCalledTimes(2);
+
+    for (const [args] of runAppointmentManageMutation.mock.calls) {
+      expect(args).toEqual(expect.objectContaining({
+        appointmentId: 'appt_1',
+        salonId: 'salon_1',
+        operation: 'move',
+        durationMinutes: 105,
+        canReassignTechnician: true,
+        notifyCustomerOnReschedule: true,
+      }));
+    }
   });
 });

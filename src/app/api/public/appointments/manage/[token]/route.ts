@@ -320,6 +320,7 @@ export async function POST(request: Request, context: { params: { token: string 
       // Customers move their own booking in time only. They never reassign
       // the technician, and the engine keeps the existing one.
       canReassignTechnician: false,
+      includeMutationApplied: true,
     });
   } catch (error) {
     if (error instanceof AppointmentManageError) {
@@ -445,37 +446,39 @@ export async function POST(request: Request, context: { params: { token: string 
   // All appointment, pricing, and calendar-outbox writes finish before the
   // external provider is called. The customer event is independently deduped,
   // so a delivery failure cannot roll back or duplicate the committed move.
-  try {
-    const timeZone = bookingConfig.timezone;
-    const newStart = new Date(result.detail.appointment.startTime);
-    const date = formatDateInTimeZone(newStart.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, timeZone);
-    const time = formatTimeInTimeZone(newStart.toISOString(), {}, timeZone);
-    const manageUrl = buildAppointmentManageUrl(
-      { slug: managed.details.salonSlug, customDomain: managed.details.salonCustomDomain },
-      context.params.token,
-    );
-    const text = `Your ${managed.details.salonName} appointment has been moved to ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`;
-    await sendAppointmentOperationalEmailOnce({
-      salonId: managed.capability.salonId,
-      appointmentId: managed.capability.appointmentId,
-      purpose: 'client_appointment_rescheduled',
-      eventVersion: [
-        previousSchedule.startTime,
-        previousSchedule.endTime,
-        result.detail.appointment.startTime,
-        result.detail.appointment.endTime,
-      ].join(':'),
-      prepare: () => ({
-        subject: `${managed.details.salonName} appointment rescheduled`,
-        text,
-        html: `<p>Your <strong>${escapeHtml(managed.details.salonName)}</strong> appointment has been moved to <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`,
-      }),
-    });
-  } catch {
-    console.error('[AppointmentManageLink] Reschedule confirmation email failed after the move committed:', {
-      salonId: managed.capability.salonId,
-      appointmentId: managed.capability.appointmentId,
-    });
+  if (result.mutationApplied) {
+    try {
+      const timeZone = bookingConfig.timezone;
+      const newStart = new Date(result.detail.appointment.startTime);
+      const date = formatDateInTimeZone(newStart.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, timeZone);
+      const time = formatTimeInTimeZone(newStart.toISOString(), {}, timeZone);
+      const manageUrl = buildAppointmentManageUrl(
+        { slug: managed.details.salonSlug, customDomain: managed.details.salonCustomDomain },
+        context.params.token,
+      );
+      const text = `Your ${managed.details.salonName} appointment has been moved to ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`;
+      await sendAppointmentOperationalEmailOnce({
+        salonId: managed.capability.salonId,
+        appointmentId: managed.capability.appointmentId,
+        purpose: 'client_appointment_rescheduled',
+        eventVersion: [
+          previousSchedule.startTime,
+          previousSchedule.endTime,
+          result.detail.appointment.startTime,
+          result.detail.appointment.endTime,
+        ].join(':'),
+        prepare: () => ({
+          subject: `${managed.details.salonName} appointment rescheduled`,
+          text,
+          html: `<p>Your <strong>${escapeHtml(managed.details.salonName)}</strong> appointment has been moved to <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`,
+        }),
+      });
+    } catch {
+      console.error('[AppointmentManageLink] Reschedule confirmation email failed after the move committed:', {
+        salonId: managed.capability.salonId,
+        appointmentId: managed.capability.appointmentId,
+      });
+    }
   }
 
   // Salon side: deduped on (appointment, event, previous schedule), so a retry

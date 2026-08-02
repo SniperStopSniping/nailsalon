@@ -13,6 +13,7 @@ import type {
   SalonNotificationPreviousSchedule,
   SalonNotificationSource,
 } from '@/libs/salonNotificationEmail';
+import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 import {
   appointmentSchema,
   googleCalendarEventSchema,
@@ -29,6 +30,58 @@ type SerializedGoogleEvent = Omit<
   startTime: string;
   endTime: string;
 };
+
+type StaffRescheduleNotificationInput<T extends Date | string>
+  = Record<'appointmentId' | 'salonId' | 'timeZone', string>
+  & Record<'previousStartTime' | 'previousEndTime' | 'newStartTime' | 'newEndTime' | 'mutationVersion', T>;
+type OutboxTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+function parseStaffRescheduleNotificationPayload(
+  value: unknown,
+): StaffRescheduleNotificationInput<string> | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const payload = value as Record<string, unknown>;
+  const stringFields = ['appointmentId', 'salonId', 'timeZone'] as const;
+  const timestampFields = [
+    'previousStartTime',
+    'previousEndTime',
+    'newStartTime',
+    'newEndTime',
+    'mutationVersion',
+  ] as const;
+  if (
+    stringFields.some(
+      field => typeof payload[field] !== 'string' || !payload[field],
+    )
+  ) {
+    return null;
+  }
+  try {
+    new Intl.DateTimeFormat('en', {
+      timeZone: payload.timeZone as string,
+    }).format(0);
+  } catch {
+    return null;
+  }
+  for (const field of timestampFields) {
+    const timestamp = payload[field];
+    if (typeof timestamp !== 'string') {
+      return null;
+    }
+    const parsed = new Date(timestamp);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== timestamp) {
+      return null;
+    }
+  }
+  return payload as StaffRescheduleNotificationInput<string>;
+}
+
+function escapeHtml(value: string): string {
+  return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll('\'', '&#039;');
+}
 
 function safeJobError(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error);
@@ -91,6 +144,27 @@ export async function enqueueGoogleCalendarDelete(input: {
       payload: { googleCalendarEventId: input.googleCalendarEventId || null },
     })
     .onConflictDoNothing();
+}
+
+export async function enqueueStaffRescheduleNotification(database: OutboxTransaction, input: StaffRescheduleNotificationInput<Date>) {
+  await database.insert(integrationOutboxSchema).values({
+    id: crypto.randomUUID(),
+    salonId: input.salonId,
+    appointmentId: input.appointmentId,
+    provider: 'email',
+    operation: 'staff_reschedule_notification',
+    dedupeKey: `email:${input.appointmentId}:staff_reschedule:${input.previousStartTime.toISOString()}:${input.newStartTime.toISOString()}:${input.mutationVersion.toISOString()}`,
+    payload: {
+      appointmentId: input.appointmentId,
+      salonId: input.salonId,
+      previousStartTime: input.previousStartTime.toISOString(),
+      previousEndTime: input.previousEndTime.toISOString(),
+      newStartTime: input.newStartTime.toISOString(),
+      newEndTime: input.newEndTime.toISOString(),
+      mutationVersion: input.mutationVersion.toISOString(),
+      timeZone: input.timeZone,
+    },
+  }).onConflictDoNothing();
 }
 
 export async function processIntegrationOutbox(limit = 50) {
@@ -219,6 +293,91 @@ export async function processIntegrationOutbox(limit = 50) {
           appointmentIds: payload.appointmentIds,
         });
         result = { status: 'synced' as const };
+      } else if (job.provider === 'email' && job.operation === 'staff_reschedule_notification') {
+        const payload = parseStaffRescheduleNotificationPayload(job.payload);
+        const loadCurrent = async () => {
+          const [current] = await db.select({
+            startTime: appointmentSchema.startTime,
+            endTime: appointmentSchema.endTime,
+            status: appointmentSchema.status,
+            deletedAt: appointmentSchema.deletedAt,
+            salonName: salonSchema.name,
+          }).from(appointmentSchema)
+            .innerJoin(salonSchema, eq(salonSchema.id, appointmentSchema.salonId))
+            .where(and(
+              eq(appointmentSchema.id, job.appointmentId!),
+              eq(appointmentSchema.salonId, job.salonId),
+            )).limit(1);
+          return current;
+        };
+        const finishTerminal = async (status: 'cancelled' | 'failed', lastError: 'SUPERSEDED' | 'RECIPIENT_UNAVAILABLE' | 'INVALID_PAYLOAD') => db
+          .update(integrationOutboxSchema).set({ status, processedAt: new Date(), lastError }).where(and(
+            eq(integrationOutboxSchema.id, job.id),
+            eq(integrationOutboxSchema.salonId, job.salonId),
+            eq(integrationOutboxSchema.status, 'processing'),
+          ));
+        if (
+          !payload
+          || payload.appointmentId !== job.appointmentId
+          || payload.salonId !== job.salonId
+        ) {
+          await finishTerminal('failed', 'INVALID_PAYLOAD');
+          summary.failed += 1;
+          continue;
+        }
+        const newStart = new Date(payload.newStartTime);
+        const current = await loadCurrent();
+        const isCurrent = (value: typeof current): value is NonNullable<typeof current> => Boolean(
+          value && !value.deletedAt && ['pending', 'confirmed'].includes(value.status)
+          && value.startTime.getTime() === newStart.getTime(),
+        );
+        if (!isCurrent(current)) {
+          await finishTerminal('cancelled', 'SUPERSEDED');
+          summary.succeeded += 1;
+          continue;
+        }
+        const date = formatDateInTimeZone(payload.newStartTime, { weekday: 'long', month: 'long', day: 'numeric' }, payload.timeZone);
+        const time = formatTimeInTimeZone(payload.newStartTime, {}, payload.timeZone);
+        let superseded = false;
+        const { sendAppointmentOperationalEmailOnce } = await import('@/libs/clientLifecycleStabilization');
+        const delivery = await sendAppointmentOperationalEmailOnce({
+          salonId: job.salonId,
+          appointmentId: job.appointmentId!,
+          purpose: 'client_appointment_rescheduled',
+          eventVersion: [payload.previousStartTime, payload.previousEndTime, payload.newStartTime, payload.newEndTime, payload.mutationVersion].join(':'),
+          retryFailed: true,
+          prepare: async () => {
+            const { mintAppointmentManageLink } = await import('@/libs/appointmentManageLink');
+            const manageUrl = await mintAppointmentManageLink({
+              id: job.appointmentId!,
+              salonId: job.salonId,
+              endTime: current.endTime,
+            });
+            return {
+              subject: `${current.salonName} appointment rescheduled`,
+              text: `Your ${current.salonName} appointment has been moved to ${date} at ${time}.\n\nView, reschedule, or cancel: ${manageUrl}`,
+              html: `<p>Your <strong>${escapeHtml(current.salonName)}</strong> appointment has been moved to <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p><p><a href="${escapeHtml(manageUrl)}">View, reschedule, or cancel</a></p>`,
+            };
+          },
+          validateBeforeDelivery: async () => {
+            superseded = !isCurrent(await loadCurrent());
+            return !superseded;
+          },
+          validationErrorCode: 'SUPERSEDED',
+        });
+        if (superseded) {
+          await finishTerminal('cancelled', 'SUPERSEDED');
+          summary.succeeded += 1;
+          continue;
+        }
+        if (delivery.status === 'unavailable') {
+          await finishTerminal('failed', 'RECIPIENT_UNAVAILABLE');
+          summary.failed += 1;
+          continue;
+        }
+        result = delivery.status === 'failed'
+          ? { status: 'failed' as const, error: 'STAFF_RESCHEDULE_EMAIL_FAILED' }
+          : { status: 'synced' as const };
       } else if (job.operation === 'delete_event') {
         const payload = job.payload as {
           googleCalendarEventId?: string | null;

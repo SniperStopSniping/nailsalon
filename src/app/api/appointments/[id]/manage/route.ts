@@ -185,6 +185,7 @@ export async function PATCH(
       baseServiceId: 'baseServiceId' in parsed.data ? parsed.data.baseServiceId : undefined,
       technicianId: 'technicianId' in parsed.data ? parsed.data.technicianId : undefined,
       canReassignTechnician,
+      notifyCustomerOnReschedule: true,
     });
     const salon = await getSalonSummary(access.appointment.salonId);
 

@@ -7,6 +7,8 @@ const {
   syncGoogleCalendarEventForAppointment,
   listGoogleCalendarEventsForSalon,
   retryCustomerBookingConfirmationEmail,
+  sendAppointmentOperationalEmailOnce,
+  mintAppointmentManageLink,
   selectResults,
   updates,
 } = vi.hoisted(() => {
@@ -43,6 +45,8 @@ const {
     syncGoogleCalendarEventForAppointment: vi.fn(),
     listGoogleCalendarEventsForSalon: vi.fn(),
     retryCustomerBookingConfirmationEmail: vi.fn(),
+    sendAppointmentOperationalEmailOnce: vi.fn(),
+    mintAppointmentManageLink: vi.fn(),
     selectResults,
     updates,
   };
@@ -60,7 +64,108 @@ vi.mock('@/libs/customerBookingEmail', () => ({
   retryCustomerBookingConfirmationEmail,
 }));
 
-import { processIntegrationOutbox } from './integrationOutbox';
+vi.mock('@/libs/clientLifecycleStabilization', () => ({
+  sendAppointmentOperationalEmailOnce,
+}));
+
+vi.mock('@/libs/appointmentManageLink', () => ({
+  mintAppointmentManageLink,
+}));
+
+import {
+  enqueueStaffRescheduleNotification,
+  processIntegrationOutbox,
+} from './integrationOutbox';
+
+const PREVIOUS_START = '2026-08-31T16:00:00.000Z';
+const PREVIOUS_END = '2026-08-31T17:00:00.000Z';
+const NEW_START = '2026-09-01T16:00:00.000Z';
+const NEW_END = '2026-09-01T17:00:00.000Z';
+const MUTATION_VERSION = '2026-08-30T12:00:00.001Z';
+
+function staffPayload() {
+  return {
+    appointmentId: 'appt_1',
+    salonId: 'salon_1',
+    previousStartTime: PREVIOUS_START,
+    previousEndTime: PREVIOUS_END,
+    newStartTime: NEW_START,
+    newEndTime: NEW_END,
+    mutationVersion: MUTATION_VERSION,
+    timeZone: 'America/Toronto',
+  };
+}
+
+function staffJob(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'job_1',
+    salonId: 'salon_1',
+    appointmentId: 'appt_1',
+    provider: 'email',
+    operation: 'staff_reschedule_notification',
+    status: 'pending',
+    attempts: 0,
+    payload: staffPayload(),
+    createdAt: new Date('2026-08-30T12:00:00.000Z'),
+    updatedAt: new Date('2026-08-30T12:00:00.000Z'),
+    availableAt: new Date('2026-08-30T12:00:00.000Z'),
+    processedAt: null,
+    lastError: null,
+    ...overrides,
+  };
+}
+
+function currentAppointment(overrides: Record<string, unknown> = {}) {
+  return {
+    startTime: new Date(NEW_START),
+    endTime: new Date(NEW_END),
+    status: 'confirmed',
+    deletedAt: null,
+    salonName: 'Salon A',
+    ...overrides,
+  };
+}
+
+function finishReadResults() {
+  selectResults.push([], [], []);
+}
+
+describe('enqueueStaffRescheduleNotification', () => {
+  it('uses only the passed transaction and writes the exact versioned payload', async () => {
+    const onConflictDoNothing = vi.fn(async () => undefined);
+    const values = vi.fn(() => ({ onConflictDoNothing }));
+    const database = { insert: vi.fn(() => ({ values })) };
+
+    await enqueueStaffRescheduleNotification(database as never, {
+      appointmentId: 'appt_1',
+      salonId: 'salon_1',
+      previousStartTime: new Date(PREVIOUS_START),
+      previousEndTime: new Date(PREVIOUS_END),
+      newStartTime: new Date(NEW_START),
+      newEndTime: new Date(NEW_END),
+      mutationVersion: new Date(MUTATION_VERSION),
+      timeZone: 'America/Toronto',
+    });
+
+    expect(database.insert).toHaveBeenCalledTimes(1);
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'email',
+      operation: 'staff_reschedule_notification',
+      dedupeKey: `email:appt_1:staff_reschedule:${PREVIOUS_START}:${NEW_START}:${MUTATION_VERSION}`,
+      payload: {
+        appointmentId: 'appt_1',
+        salonId: 'salon_1',
+        previousStartTime: PREVIOUS_START,
+        previousEndTime: PREVIOUS_END,
+        newStartTime: NEW_START,
+        newEndTime: NEW_END,
+        mutationVersion: MUTATION_VERSION,
+        timeZone: 'America/Toronto',
+      },
+    }));
+    expect(onConflictDoNothing).toHaveBeenCalledTimes(1);
+  });
+});
 
 describe('processIntegrationOutbox', () => {
   beforeEach(() => {
@@ -78,6 +183,207 @@ describe('processIntegrationOutbox', () => {
       errorCode: 'APPOINTMENT_NOT_CONFIRMABLE',
       providerMessageId: null,
     });
+    mintAppointmentManageLink.mockResolvedValue('https://app.luster.test/en/salon-a/manage/test-capability');
+    sendAppointmentOperationalEmailOnce.mockResolvedValue({
+      status: 'sent',
+      deliveryId: 'delivery_staff_1',
+      claimed: true,
+    });
+  });
+
+  it('cancels a superseded event without preparing or sending it', async () => {
+    selectResults.push(
+      [staffJob()],
+      [currentAppointment({ startTime: new Date('2026-09-01T18:00:00.000Z') })],
+    );
+    finishReadResults();
+
+    const result = await processIntegrationOutbox();
+
+    expect(result).toMatchObject({ scanned: 1, succeeded: 1, retried: 0 });
+    expect(sendAppointmentOperationalEmailOnce).not.toHaveBeenCalled();
+    expect(mintAppointmentManageLink).not.toHaveBeenCalled();
+    expect(updates).toContainEqual(expect.objectContaining({
+      status: 'cancelled',
+      lastError: 'SUPERSEDED',
+    }));
+  });
+
+  it('uses the immutable payload version after a later appointment-row update', async () => {
+    selectResults.push([staffJob()], [currentAppointment({
+      updatedAt: new Date('2026-08-30T12:05:00.000Z'),
+    })]);
+    finishReadResults();
+
+    const result = await processIntegrationOutbox();
+    const input = sendAppointmentOperationalEmailOnce.mock.calls[0]![0];
+    const content = await input.prepare();
+
+    expect(result).toMatchObject({ scanned: 1, succeeded: 1, retried: 0 });
+    expect(input).toMatchObject({
+      salonId: 'salon_1',
+      appointmentId: 'appt_1',
+      purpose: 'client_appointment_rescheduled',
+      eventVersion: [
+        PREVIOUS_START,
+        PREVIOUS_END,
+        NEW_START,
+        NEW_END,
+        MUTATION_VERSION,
+      ].join(':'),
+      retryFailed: true,
+      validationErrorCode: 'SUPERSEDED',
+    });
+    expect(content).toMatchObject({
+      subject: 'Salon A appointment rescheduled',
+      text: expect.stringContaining('View, reschedule, or cancel: https://app.luster.test/'),
+      html: expect.stringContaining('View, reschedule, or cancel'),
+    });
+    expect(updates).toContainEqual(expect.objectContaining({
+      status: 'completed',
+      processedAt: expect.any(Date),
+      lastError: null,
+    }));
+  });
+
+  it('rechecks the version immediately before delivery and cancels a late supersession', async () => {
+    const providerCall = vi.fn();
+    sendAppointmentOperationalEmailOnce.mockImplementationOnce(async (input) => {
+      await input.prepare();
+      const valid = await input.validateBeforeDelivery!();
+      if (valid) {
+        providerCall();
+      }
+      return valid
+        ? { status: 'sent', deliveryId: 'delivery_staff_1', claimed: true }
+        : { status: 'failed', deliveryId: 'delivery_staff_1', claimed: true };
+    });
+    selectResults.push(
+      [staffJob()],
+      [currentAppointment()],
+      [currentAppointment({ startTime: new Date('2026-09-01T18:00:00.000Z') })],
+    );
+    finishReadResults();
+
+    await processIntegrationOutbox();
+
+    expect(providerCall).not.toHaveBeenCalled();
+    expect(updates).toContainEqual(expect.objectContaining({
+      status: 'cancelled',
+      lastError: 'SUPERSEDED',
+    }));
+  });
+
+  it('backs off a retryable provider failure through the existing retry path', async () => {
+    sendAppointmentOperationalEmailOnce.mockResolvedValueOnce({
+      status: 'failed',
+      deliveryId: 'delivery_staff_1',
+      claimed: true,
+    });
+    selectResults.push([staffJob()], [currentAppointment()]);
+    finishReadResults();
+    const before = Date.now();
+
+    const result = await processIntegrationOutbox();
+    const retry = updates.find(
+      update => update.lastError === 'STAFF_RESCHEDULE_EMAIL_FAILED',
+    );
+
+    expect(result).toMatchObject({ scanned: 1, retried: 1, failed: 0 });
+    expect(retry).toEqual(expect.objectContaining({
+      status: 'retry',
+      lastError: 'STAFF_RESCHEDULE_EMAIL_FAILED',
+      availableAt: expect.any(Date),
+    }));
+    expect((retry!.availableAt as Date).getTime() - before).toBeGreaterThan(110_000);
+  });
+
+  it('does not repeat a provider call after an ambiguous first outcome', async () => {
+    const providerCall = vi.fn();
+    sendAppointmentOperationalEmailOnce
+      .mockImplementationOnce(async () => {
+        providerCall();
+        return { status: 'failed', deliveryId: 'delivery_staff_1', claimed: true };
+      })
+      .mockResolvedValueOnce({
+        status: 'duplicate',
+        deliveryId: 'delivery_staff_1',
+        claimed: false,
+      });
+    selectResults.push([staffJob()], [currentAppointment()]);
+    finishReadResults();
+    await processIntegrationOutbox();
+
+    selectResults.push(
+      [staffJob({ status: 'retry', attempts: 1, lastError: 'EMAIL_DELIVERY_STATE_UNKNOWN' })],
+      [currentAppointment()],
+    );
+    finishReadResults();
+    await processIntegrationOutbox();
+
+    expect(providerCall).toHaveBeenCalledTimes(1);
+    expect(sendAppointmentOperationalEmailOnce).toHaveBeenCalledTimes(2);
+    expect(updates).toContainEqual(expect.objectContaining({ status: 'completed' }));
+  });
+
+  it.each([
+    ['missing', { ...staffPayload(), mutationVersion: undefined }],
+    ['malformed', { ...staffPayload(), mutationVersion: 'not-a-timestamp' }],
+    ['noncanonical', { ...staffPayload(), mutationVersion: '2026-08-30T12:00:00Z' }],
+    ['invalid-timezone', { ...staffPayload(), timeZone: 'Not/A_Time_Zone' }],
+  ])('fails a %s staff payload without retry or delivery', async (_label, payload) => {
+    selectResults.push([staffJob({ payload })]);
+    finishReadResults();
+
+    const result = await processIntegrationOutbox();
+
+    expect(result).toMatchObject({ scanned: 1, retried: 0, failed: 1 });
+    expect(sendAppointmentOperationalEmailOnce).not.toHaveBeenCalled();
+    expect(mintAppointmentManageLink).not.toHaveBeenCalled();
+    expect(updates).toContainEqual(expect.objectContaining({
+      status: 'failed',
+      lastError: 'INVALID_PAYLOAD',
+      processedAt: expect.any(Date),
+    }));
+  });
+
+  it('terminates an unavailable recipient without retry', async () => {
+    sendAppointmentOperationalEmailOnce.mockResolvedValueOnce({
+      status: 'unavailable',
+      deliveryId: 'delivery_staff_1',
+      claimed: true,
+    });
+    selectResults.push([staffJob()], [currentAppointment()]);
+    finishReadResults();
+
+    const result = await processIntegrationOutbox();
+
+    expect(result).toMatchObject({ scanned: 1, retried: 0, failed: 1 });
+    expect(updates).toContainEqual(expect.objectContaining({
+      status: 'failed',
+      lastError: 'RECIPIENT_UNAVAILABLE',
+      processedAt: expect.any(Date),
+    }));
+    expect(updates.filter(update => update.status === 'retry')).toHaveLength(1);
+  });
+
+  it('refuses a cross-salon appointment identity before delivery', async () => {
+    selectResults.push([staffJob({
+      appointmentId: 'appt_other_salon',
+      payload: {
+        ...staffPayload(),
+        appointmentId: 'appt_other_salon',
+      },
+    })], []);
+    finishReadResults();
+
+    await processIntegrationOutbox();
+
+    expect(sendAppointmentOperationalEmailOnce).not.toHaveBeenCalled();
+    expect(updates).toContainEqual(expect.objectContaining({
+      status: 'cancelled',
+      lastError: 'SUPERSEDED',
+    }));
   });
 
   it('completes a terminal confirmation retry once without advancing it again', async () => {
