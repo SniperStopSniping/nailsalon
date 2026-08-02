@@ -1266,6 +1266,8 @@ export async function sendAppointmentOperationalEmailOnce(input: {
   purpose: string;
   eventVersion: string;
   prepare: () => Promise<OperationalEmailContent> | OperationalEmailContent;
+  validateBeforeDelivery?: () => Promise<boolean> | boolean;
+  validationErrorCode?: string;
   retryFailed?: boolean;
 }): Promise<OperationalEmailDeliveryResult> {
   const salonId = requireInput(input.salonId, 'salonId');
@@ -1381,6 +1383,36 @@ export async function sendAppointmentOperationalEmailOnce(input: {
       eq(notificationDeliverySchema.status, 'queued'),
     ));
     return { status: 'unavailable', deliveryId, claimed: true };
+  }
+
+  if (input.validateBeforeDelivery) {
+    let valid: boolean;
+    try {
+      valid = await input.validateBeforeDelivery();
+    } catch {
+      await db.update(notificationDeliverySchema).set({
+        status: 'failed',
+        errorCode: 'OPERATIONAL_EMAIL_PRE_DELIVERY_VALIDATION_FAILED',
+        retryable: input.retryFailed === true,
+      }).where(and(
+        eq(notificationDeliverySchema.id, deliveryId),
+        eq(notificationDeliverySchema.salonId, salonId),
+        eq(notificationDeliverySchema.status, 'queued'),
+      ));
+      return { status: 'failed', deliveryId, claimed: true };
+    }
+    if (!valid) {
+      await db.update(notificationDeliverySchema).set({
+        status: 'failed',
+        errorCode: input.validationErrorCode ?? 'OPERATIONAL_EMAIL_PRE_DELIVERY_REJECTED',
+        retryable: false,
+      }).where(and(
+        eq(notificationDeliverySchema.id, deliveryId),
+        eq(notificationDeliverySchema.salonId, salonId),
+        eq(notificationDeliverySchema.status, 'queued'),
+      ));
+      return { status: 'failed', deliveryId, claimed: true };
+    }
   }
 
   let providerResult;

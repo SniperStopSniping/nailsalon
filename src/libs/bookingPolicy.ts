@@ -519,6 +519,7 @@ export async function loadBookingPolicy(args: {
   startOfDay: Date;
   endOfDay: Date;
   excludedAppointmentId?: string | null;
+  database?: { select: typeof db.select };
 }): Promise<LoadedBookingPolicy> {
   const {
     salonId,
@@ -529,6 +530,7 @@ export async function loadBookingPolicy(args: {
     endOfDay,
     excludedAppointmentId,
   } = args;
+  const database = args.database ?? db;
 
   if (technicianIds.length === 0) {
     return {
@@ -539,7 +541,7 @@ export async function loadBookingPolicy(args: {
     };
   }
 
-  const overrides = await db
+  const overrides = await database
     .select({
       technicianId: technicianScheduleOverrideSchema.technicianId,
       type: technicianScheduleOverrideSchema.type,
@@ -557,7 +559,7 @@ export async function loadBookingPolicy(args: {
 
   let timeOffRows: Array<{ technicianId: string }> = [];
   try {
-    timeOffRows = await db
+    timeOffRows = await database
       .select({ technicianId: technicianTimeOffSchema.technicianId })
       .from(technicianTimeOffSchema)
       .where(
@@ -586,7 +588,7 @@ export async function loadBookingPolicy(args: {
     isRecurring: boolean | null;
   }> = [];
   try {
-    blockedSlotRows = await db
+    blockedSlotRows = await database
       .select({
         technicianId: technicianBlockedSlotSchema.technicianId,
         dayOfWeek: technicianBlockedSlotSchema.dayOfWeek,
@@ -627,7 +629,7 @@ export async function loadBookingPolicy(args: {
     appointmentConditions.push(ne(appointmentSchema.id, excludedAppointmentId));
   }
 
-  const appointments = await db
+  const appointments = await database
     .select({
       id: appointmentSchema.id,
       technicianId: appointmentSchema.technicianId,

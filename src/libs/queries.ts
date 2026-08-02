@@ -256,9 +256,10 @@ export type TechnicianWithServices = Technician & {
  */
 export async function getTechniciansBySalonId(
   salonId: string,
+  database: { select: typeof db.select } = db,
 ): Promise<TechnicianWithServices[]> {
   // Get all technicians for the salon
-  const technicians = await db
+  const technicians = await database
     .select()
     .from(technicianSchema)
     .where(
@@ -271,7 +272,7 @@ export async function getTechniciansBySalonId(
 
   // Get all service associations for these technicians
   const technicianIds = technicians.map(t => t.id);
-  const serviceAssociations = await db
+  const serviceAssociations = await database
     .select()
     .from(technicianServicesSchema)
     .where(inArray(technicianServicesSchema.technicianId, technicianIds));
