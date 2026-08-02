@@ -44,7 +44,10 @@ vi.mock('./BookingFlowEditor', () => ({
   BookingFlowEditor: () => <div data-testid="booking-flow-editor" />,
 }));
 
-const settingsPayload = (featureLusterManicure: boolean) => ({
+const settingsPayload = (
+  featureLusterManicure: boolean,
+  showServiceImages?: unknown,
+) => ({
   reviewsEnabled: true,
   rewardsEnabled: true,
   bookingConfig: {
@@ -72,6 +75,7 @@ const settingsPayload = (featureLusterManicure: boolean) => ({
   },
   merchandising: {
     featureLusterManicure,
+    ...(showServiceImages === undefined ? {} : { showServiceImages }),
     lusterPromoDismissed: false,
     serviceLibraryIntroDismissed: false,
   },
@@ -95,11 +99,16 @@ const settingsPayload = (featureLusterManicure: boolean) => ({
   subscriptionStatus: null,
 });
 
-describe('SettingsModal Luster merchandising toggle', () => {
+let settingsGetResponse = settingsPayload(true);
+let settingsPatchResponse = settingsPayload(false, false);
+
+describe('SettingsModal merchandising toggles', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchMock.mockReset();
     vi.stubGlobal('fetch', fetchMock);
+    settingsGetResponse = settingsPayload(true);
+    settingsPatchResponse = settingsPayload(false, false);
 
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -182,12 +191,12 @@ describe('SettingsModal Luster merchandising toggle', () => {
       if (url.includes('/api/admin/salon/settings?salonSlug=salon-a')) {
         if (init?.method === 'PATCH') {
           return Promise.resolve(new Response(
-            JSON.stringify(settingsPayload(false)),
+            JSON.stringify(settingsPatchResponse),
             { status: 200 },
           ));
         }
         return Promise.resolve(new Response(
-          JSON.stringify(settingsPayload(true)),
+          JSON.stringify(settingsGetResponse),
           { status: 200 },
         ));
       }
@@ -196,18 +205,22 @@ describe('SettingsModal Luster merchandising toggle', () => {
     });
   });
 
-  it('defaults the toggle on and saves an opt-out through the booking config PATCH', async () => {
+  it('defaults service images on and saves both merchandising settings together', async () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
     // Settings is now an index of categories; open the Booking rules view first.
     fireEvent.click(await screen.findByText('Booking rules'));
 
-    const toggle = await screen.findByTestId('feature-luster-manicure-toggle');
+    const lusterToggle = await screen.findByTestId('feature-luster-manicure-toggle');
+    const serviceImagesToggle = screen.getByTestId('show-service-images-toggle');
 
-    expect(toggle).toBeChecked();
+    expect(lusterToggle).toBeChecked();
+    expect(serviceImagesToggle).toBeChecked();
     expect(screen.getByText('Show your active Luster Manicure first in Featured Services.')).toBeInTheDocument();
+    expect(screen.getByText('Show uploaded service images on your public booking page. Turning this off keeps uploads stored.')).toBeInTheDocument();
 
-    fireEvent.click(toggle);
+    fireEvent.click(lusterToggle);
+    fireEvent.click(serviceImagesToggle);
     fireEvent.click(screen.getByRole('button', { name: /save booking config/i }));
 
     await waitFor(() => {
@@ -219,11 +232,41 @@ describe('SettingsModal Luster merchandising toggle', () => {
 
       const body = JSON.parse(String((patchCall![1] as RequestInit).body));
 
-      expect(body.merchandising).toEqual({ featureLusterManicure: false });
+      expect(body.merchandising).toEqual({
+        featureLusterManicure: false,
+        showServiceImages: false,
+      });
       expect(body.bookingConfig).toBeTruthy();
     });
 
     expect(await screen.findByText('Booking configuration saved.')).toBeInTheDocument();
     expect(screen.getByTestId('feature-luster-manicure-toggle')).not.toBeChecked();
+    expect(screen.getByTestId('show-service-images-toggle')).not.toBeChecked();
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['string', 'false'],
+    ['number', 0],
+    ['object', {}],
+  ])('defaults a %s service-image setting on', async (_label, rawValue) => {
+    settingsGetResponse = settingsPayload(true, rawValue);
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Booking rules'));
+
+    expect(await screen.findByTestId('show-service-images-toggle')).toBeChecked();
+  });
+
+  it('respects an explicit service-image opt-out', async () => {
+    settingsGetResponse = settingsPayload(true, false);
+
+    render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
+
+    fireEvent.click(await screen.findByText('Booking rules'));
+
+    expect(await screen.findByTestId('show-service-images-toggle')).not.toBeChecked();
   });
 });

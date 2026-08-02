@@ -104,6 +104,7 @@ type BookServiceClientProps = {
   currency?: string;
   showNewClientPromo?: boolean;
   lusterFeaturingEnabled?: boolean;
+  showServiceImages?: boolean;
 };
 
 // Height reserved for the fixed CTA bar. The in-page spacer and the tenant
@@ -209,6 +210,7 @@ export function BookServiceClient({
   currency = 'CAD',
   showNewClientPromo = false,
   lusterFeaturingEnabled = true,
+  showServiceImages = true,
 }: BookServiceClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -1237,6 +1239,9 @@ export function BookServiceClient({
                         <div className="flex min-w-max gap-2">
                           {featuredServices.map((service, featuredIndex) => {
                             const isSelected = selectedBaseServiceId === service.id;
+                            const featuredBadgeLabel = featuredIndex === 0 && service.bookingCategory === 'combo'
+                              ? 'Best value'
+                              : BOOKING_CATEGORY_META[service.bookingCategory].label;
                             return (
                               <button
                                 key={`featured-${service.id}`}
@@ -1267,22 +1272,36 @@ export function BookServiceClient({
                                     : themeVars.cardBorder,
                                 }}
                               >
-                                <div className="relative h-[80px] overflow-hidden sm:h-[96px]">
-                                  <ServiceCardImage
-                                    src={service.imageUrl}
-                                    alt={`${service.name} nail service`}
-                                    imageTestId={`featured-service-card-image-${service.id}`}
-                                    className="object-cover transition-transform duration-300"
-                                  />
-                                  <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/45 to-transparent sm:h-20" />
-                                  <div className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm">
-                                    {/* "Best value" only on the lead card — a badge on every card means nothing */}
-                                    {featuredIndex === 0 && service.bookingCategory === 'combo'
-                                      ? 'Best value'
-                                      : BOOKING_CATEGORY_META[service.bookingCategory].label}
+                                {showServiceImages && (
+                                  <div
+                                    data-testid={`featured-service-card-image-container-${service.id}`}
+                                    className="relative h-[80px] overflow-hidden sm:h-[96px]"
+                                  >
+                                    <ServiceCardImage
+                                      src={service.imageUrl}
+                                      alt={`${service.name} nail service`}
+                                      imageTestId={`featured-service-card-image-${service.id}`}
+                                      className="object-cover transition-transform duration-300"
+                                    />
+                                    <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/45 to-transparent sm:h-20" />
+                                    <div
+                                      data-testid={`featured-service-card-badge-${service.id}`}
+                                      className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm"
+                                    >
+                                      {/* "Best value" only on the lead card — a badge on every card means nothing */}
+                                      {featuredBadgeLabel}
+                                    </div>
                                   </div>
-                                </div>
+                                )}
                                 <div className="p-2">
+                                  {!showServiceImages && (
+                                    <div
+                                      data-testid={`featured-service-card-badge-${service.id}`}
+                                      className="mb-1 w-fit max-w-full whitespace-normal break-words rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-semibold uppercase leading-tight tracking-[0.08em] text-neutral-800"
+                                    >
+                                      {featuredBadgeLabel}
+                                    </div>
+                                  )}
                                   <div className="line-clamp-2 break-words text-[13px] font-bold leading-tight text-neutral-900 sm:text-[14px]">
                                     {service.name}
                                   </div>
@@ -1446,33 +1465,46 @@ export function BookServiceClient({
                                   transition: `opacity 300ms ease-out ${200 + animationIndex * 50}ms, transform 300ms ease-out ${200 + animationIndex * 50}ms, box-shadow 200ms ease-out, border-color 200ms ease-out`,
                                 }}
                               >
-                                <div
-                                  data-testid={`service-card-image-${service.id}`}
-                                  className={`relative overflow-hidden ${service.bookingCategory === 'combo' ? 'h-[96px]' : 'h-[68px]'}`}
-                                  style={{
-                                    background: hasBookingBrandColor
-                                      ? `linear-gradient(to bottom right, ${themeVars.background}, ${themeVars.selectedBackground})`
-                                      : `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
-                                  }}
-                                >
-                                  <ServiceCardImage
-                                    src={service.imageUrl}
-                                    alt={`${service.name} nail service`}
-                                    imageTestId={`service-card-image-element-${service.id}`}
-                                    placeholderTestId={`service-card-image-placeholder-${service.id}`}
-                                    className={`object-cover transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}
-                                  />
-                                  {service.resolvedIntroPriceLabel && (
-                                    <div className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm">
-                                      {service.resolvedIntroPriceLabel}
-                                    </div>
-                                  )}
-                                </div>
+                                {showServiceImages && (
+                                  <div
+                                    data-testid={`service-card-image-${service.id}`}
+                                    className={`relative overflow-hidden ${service.bookingCategory === 'combo' ? 'h-[96px]' : 'h-[68px]'}`}
+                                    style={{
+                                      background: hasBookingBrandColor
+                                        ? `linear-gradient(to bottom right, ${themeVars.background}, ${themeVars.selectedBackground})`
+                                        : `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
+                                    }}
+                                  >
+                                    <ServiceCardImage
+                                      src={service.imageUrl}
+                                      alt={`${service.name} nail service`}
+                                      imageTestId={`service-card-image-element-${service.id}`}
+                                      placeholderTestId={`service-card-image-placeholder-${service.id}`}
+                                      className={`object-cover transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}
+                                    />
+                                    {service.resolvedIntroPriceLabel && (
+                                      <div
+                                        data-testid={`service-card-intro-badge-${service.id}`}
+                                        className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm"
+                                      >
+                                        {service.resolvedIntroPriceLabel}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
 
                                 <div
                                   data-testid={`service-card-content-${service.id}`}
                                   className={`flex flex-1 flex-col ${service.bookingCategory === 'combo' ? 'p-2.5' : 'min-h-[104px] p-2.5'}`}
                                 >
+                                  {!showServiceImages && service.resolvedIntroPriceLabel && (
+                                    <div
+                                      data-testid={`service-card-intro-badge-${service.id}`}
+                                      className="mb-1 w-fit max-w-full whitespace-normal break-words rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-semibold uppercase leading-tight tracking-[0.08em] text-neutral-800"
+                                    >
+                                      {service.resolvedIntroPriceLabel}
+                                    </div>
+                                  )}
                                   <div className="break-words text-[14px] font-bold leading-tight text-neutral-900">
                                     {service.name}
                                   </div>

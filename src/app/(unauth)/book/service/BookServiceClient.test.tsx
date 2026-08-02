@@ -1599,6 +1599,85 @@ describe('BookServiceClient', () => {
     expect(screen.getByTestId('featured-service-card-image-svc-combo')).not.toHaveClass('scale-105');
   });
 
+  it('defaults images on and renders image-free cards without losing badges, layout, or selection behavior', () => {
+    const comboService = {
+      id: 'svc-combo-images',
+      name: 'BIAB + Classic Pedicure',
+      description: null,
+      descriptionItems: ['Builder gel overlay with a classic pedicure pairing'],
+      durationMinutes: 110,
+      priceCents: 8500,
+      priceDisplayText: null,
+      category: 'combo' as const,
+      bookingCategory: 'combo' as const,
+      templateKey: null,
+      featuredOrder: null,
+      imageUrl: '/service-combo.jpg',
+      resolvedIntroPriceLabel: null,
+    };
+    const introService = {
+      ...services[0]!,
+      resolvedIntroPriceLabel: 'New guest introductory price with extra detail',
+    };
+    const renderProps = {
+      services: [comboService, introService, services[1]!],
+      addOns,
+      serviceAddOnRules,
+      bookingFlow: ['service', 'tech', 'time', 'confirm'] as React.ComponentProps<
+        typeof BookServiceClient
+      >['bookingFlow'],
+      locations: [locations[0]!],
+      technicians: [technicians[0]!],
+    };
+
+    const defaultView = render(<BookServiceClient {...renderProps} />);
+
+    expect(screen.getByTestId('featured-service-card-image-container-svc-combo-images')).toHaveClass(
+      'h-[80px]',
+      'sm:h-[96px]',
+    );
+    expect(screen.getByTestId('service-card-image-svc-1')).toHaveClass('h-[68px]');
+
+    defaultView.unmount();
+
+    render(<BookServiceClient {...renderProps} showServiceImages={false} />);
+
+    const featuredCombo = screen.getByTestId('featured-service-card-svc-combo-images');
+    const featuredManicure = screen.getByTestId('featured-service-card-svc-2');
+    const regularCard = screen.getByTestId('service-card-svc-1');
+
+    expect(screen.queryByTestId('featured-service-card-image-container-svc-combo-images')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('featured-service-card-image-svc-combo-images')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-card-image-svc-1')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-card-image-element-svc-1')).not.toBeInTheDocument();
+
+    expect(within(featuredCombo).getByText('Best value')).toBeInTheDocument();
+    expect(within(featuredManicure).getByText('Manicure')).toBeInTheDocument();
+
+    const introBadge = screen.getByTestId('service-card-intro-badge-svc-1');
+
+    expect(introBadge).toHaveTextContent('New guest introductory price with extra detail');
+    expect(introBadge).toHaveClass('max-w-full', 'whitespace-normal', 'break-words');
+    expect(screen.getByTestId('service-card-content-svc-1')).toContainElement(introBadge);
+
+    expect(featuredCombo).toHaveClass(
+      'w-[min(272px,calc(100vw-4rem))]',
+      'sm:w-[320px]',
+    );
+    expect(regularCard.parentElement).toHaveClass('grid', 'grid-cols-2');
+
+    fireEvent.click(regularCard);
+
+    expect(screen.getByTestId('service-inline-addons-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+
+    const technicianPreview = screen.getByTestId('service-auto-technician-preview');
+
+    expect(technicianPreview).toBeInTheDocument();
+    expect(within(technicianPreview).getByText('M')).toBeInTheDocument();
+    expect(within(technicianPreview).getByText('Mila')).toBeInTheDocument();
+  });
+
   it('starts with no selected service, add-on panel, or sticky CTA on a fresh visit', () => {
     render(
       <BookServiceClient

@@ -2534,6 +2534,7 @@ export function SettingsModal({
       clientChangeCutoffHours: 24,
     });
   const [featureLusterManicure, setFeatureLusterManicure] = useState(true);
+  const [showServiceImages, setShowServiceImages] = useState(true);
   const [bookingNotificationsSaving, setBookingNotificationsSaving]
     = useState(false);
   const [bookingNotificationsSaved, setBookingNotificationsSaved]
@@ -2742,6 +2743,9 @@ export function SettingsModal({
         setFeatureLusterManicure(
           data.merchandising?.featureLusterManicure ?? true,
         );
+        setShowServiceImages(
+          data.merchandising?.showServiceImages !== false,
+        );
         setBookingConfigDirty(false);
         setBookingNotificationsForm({
           newBooking: {
@@ -2904,6 +2908,7 @@ export function SettingsModal({
             },
             merchandising: {
               featureLusterManicure,
+              showServiceImages,
             },
           }),
         },
@@ -2934,6 +2939,9 @@ export function SettingsModal({
       setFeatureLusterManicure(
         data.merchandising?.featureLusterManicure ?? featureLusterManicure,
       );
+      setShowServiceImages(
+        data.merchandising?.showServiceImages !== false,
+      );
       setBookingConfigSaved(true);
       setBookingConfigDirty(false);
       router.refresh();
@@ -2942,7 +2950,14 @@ export function SettingsModal({
     } finally {
       setBookingConfigSaving(false);
     }
-  }, [bookingConfigForm, bookingConfigSaving, featureLusterManicure, router, salonSlug]);
+  }, [
+    bookingConfigForm,
+    bookingConfigSaving,
+    featureLusterManicure,
+    router,
+    salonSlug,
+    showServiceImages,
+  ]);
 
   /** Field edits mark the payments view dirty so Back can warn about them. */
   const updatePaymentsForm = (
@@ -4204,6 +4219,29 @@ export function SettingsModal({
                           checked={featureLusterManicure}
                           onChange={(event) => {
                             setFeatureLusterManicure(event.target.checked);
+                            setBookingConfigDirty(true);
+                            setBookingConfigSaved(false);
+                          }}
+                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                        />
+                      </label>
+
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                        <div className="space-y-1">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            Show service images
+                          </span>
+                          <p className="text-sm text-gray-700">
+                            Show uploaded service images on your public booking
+                            page. Turning this off keeps uploads stored.
+                          </p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          data-testid="show-service-images-toggle"
+                          checked={showServiceImages}
+                          onChange={(event) => {
+                            setShowServiceImages(event.target.checked);
                             setBookingConfigDirty(true);
                             setBookingConfigSaved(false);
                           }}
