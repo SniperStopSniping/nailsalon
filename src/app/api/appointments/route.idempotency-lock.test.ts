@@ -9,6 +9,7 @@ const {
   resolveTechnicianCapabilityMode,
   resolveAutomaticBookingDiscount,
   checkPublicBookingRateLimit,
+  getPublicBookingClientIp,
   isRedisAvailable,
   redis,
   getSalonBySlug,
@@ -46,6 +47,7 @@ const {
   resolveTechnicianCapabilityMode: vi.fn(),
   resolveAutomaticBookingDiscount: vi.fn(),
   checkPublicBookingRateLimit: vi.fn(),
+  getPublicBookingClientIp: vi.fn(() => '203.0.113.7'),
   isRedisAvailable: vi.fn(),
   redis: {
     get: vi.fn(),
@@ -109,6 +111,7 @@ vi.mock('@/libs/firstVisitDiscount', () => ({
 
 vi.mock('@/libs/publicBookingRateLimit.server', () => ({
   checkPublicBookingRateLimit,
+  getPublicBookingClientIp,
 }));
 
 vi.mock('@/core/redis/redisClient', () => ({
@@ -308,6 +311,7 @@ describe('POST /api/appointments booking-lock lifecycle', () => {
       clientIp: '203.0.113.7',
       normalizedPhone: '1111111111',
     });
+    expect(getPublicBookingClientIp).toHaveBeenCalledWith(expect.any(Request));
     expect(getServicesByIds).not.toHaveBeenCalled();
     expect(hasGoogleCalendarConflict).not.toHaveBeenCalled();
     expect(db.transaction).not.toHaveBeenCalled();

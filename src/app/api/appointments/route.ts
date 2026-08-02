@@ -87,7 +87,10 @@ import {
 import { recordGoogleEventReviewDecision } from '@/libs/googleEventReview';
 import { enqueueGoogleCalendarDelete, enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
-import { checkPublicBookingRateLimit } from '@/libs/publicBookingRateLimit.server';
+import {
+  checkPublicBookingRateLimit,
+  getPublicBookingClientIp,
+} from '@/libs/publicBookingRateLimit.server';
 import {
   getAppointmentById,
   getAppointmentServiceNames,
@@ -100,7 +103,6 @@ import {
   getTechniciansBySalonId,
   normalizePhone,
 } from '@/libs/queries';
-import { getClientIp } from '@/libs/rateLimit';
 import { redactAppointmentForStaff } from '@/libs/redact';
 import {
   calculateRetentionDiscount,
@@ -1235,7 +1237,7 @@ export async function POST(request: Request): Promise<Response> {
     if (isNewPublicBooking) {
       const rateLimit = await checkPublicBookingRateLimit({
         salonId: salon.id,
-        clientIp: getClientIp(request),
+        clientIp: getPublicBookingClientIp(request),
         normalizedPhone,
       });
       if (!rateLimit.allowed) {

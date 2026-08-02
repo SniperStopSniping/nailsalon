@@ -1,11 +1,14 @@
 import 'server-only';
 
 import { randomUUID } from 'node:crypto';
+import { isIP } from 'node:net';
 
+import { logWarn } from '@/core/logging/logger';
 import { redis } from '@/core/redis/redisClient';
 import {
   getDeploymentEnvironment,
   hashRateLimitIdentifier,
+  isHostedDeployment,
 } from '@/libs/authConfig.server';
 
 export const PUBLIC_BOOKING_RATE_LIMITS = {
@@ -24,6 +27,192 @@ export const PUBLIC_BOOKING_RATE_LIMITS = {
 } as const;
 
 export const PUBLIC_BOOKING_RATE_LIMIT_TIMEOUT_MS = 500;
+
+const UNKNOWN_CLIENT_IP = 'unknown';
+const MAX_FORWARDED_HEADER_LENGTH = 1024;
+const MAX_FORWARDED_HEADER_ENTRIES = 16;
+const DEGRADATION_LOG_COOLDOWN_MS = 5 * 60 * 1000;
+
+type ForwardedHeaderResult
+  = | { status: 'missing' }
+  | { status: 'invalid' }
+  | { status: 'valid'; clientIp: string };
+
+type DegradationStage = 'configuration' | 'redis_eval' | 'response_parse';
+type DegradationCategory
+  = | 'backend_unavailable'
+  | 'timeout'
+  | 'operation_failed'
+  | 'malformed_response';
+
+const degradationLastLoggedAt = new Map<string, number>();
+
+class PublicBookingRateLimitTimeoutError extends Error {}
+
+function normalizeIpAddress(value: string): string | null {
+  const candidate = value.trim();
+  if (
+    !candidate
+    || candidate.length > 64
+    || candidate.includes('%')
+  ) {
+    return null;
+  }
+
+  const version = isIP(candidate);
+  if (version === 4) {
+    return candidate;
+  }
+  if (version !== 6) {
+    return null;
+  }
+
+  try {
+    // URL parsing provides a built-in, deterministic compressed/lowercase
+    // representation after node:net has strictly validated the address.
+    const hostname = new URL(`http://[${candidate}]/`).hostname;
+    const normalized = hostname.slice(1, -1).toLowerCase();
+    const mappedIpv4 = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/u.exec(
+      normalized,
+    );
+    if (!mappedIpv4) {
+      return normalized;
+    }
+
+    const high = Number.parseInt(mappedIpv4[1]!, 16);
+    const low = Number.parseInt(mappedIpv4[2]!, 16);
+    return [
+      high >>> 8,
+      high & 0xFF,
+      low >>> 8,
+      low & 0xFF,
+    ].join('.');
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Forwarded chains are read from the trusted proxy inward. Selecting the
+ * rightmost strictly valid entry prevents caller-controlled leftmost values
+ * from becoming the rate-limit identity.
+ */
+function parseForwardedHeader(value: string | null): ForwardedHeaderResult {
+  if (value === null) {
+    return { status: 'missing' };
+  }
+  if (!value || value.length > MAX_FORWARDED_HEADER_LENGTH) {
+    return { status: 'invalid' };
+  }
+
+  const entries = value.split(',');
+  if (
+    entries.length === 0
+    || entries.length > MAX_FORWARDED_HEADER_ENTRIES
+  ) {
+    return { status: 'invalid' };
+  }
+
+  const normalized = entries.map(normalizeIpAddress);
+  if (normalized.includes(null)) {
+    return { status: 'invalid' };
+  }
+
+  return {
+    status: 'valid',
+    clientIp: normalized.at(-1)!,
+  };
+}
+
+function parseSingleIpHeader(value: string | null): ForwardedHeaderResult {
+  if (value === null) {
+    return { status: 'missing' };
+  }
+  const normalized = normalizeIpAddress(value);
+  return normalized
+    ? { status: 'valid', clientIp: normalized }
+    : { status: 'invalid' };
+}
+
+/**
+ * Resolves the public-booking IP without changing the shared rate-limit
+ * helper used by unrelated owner, billing, recovery and authentication
+ * routes. Vercel-specific headers are platform-calculated and take priority.
+ * Generic X-Forwarded-For is considered only when those headers are absent,
+ * and is parsed from the trusted-proxy side rather than the caller side.
+ */
+export function getPublicBookingClientIp(request: Pick<Request, 'headers'>): string {
+  if (process.env.VERCEL_ENV) {
+    const vercelForwardedFor = parseForwardedHeader(
+      request.headers.get('x-vercel-forwarded-for'),
+    );
+    if (vercelForwardedFor.status === 'valid') {
+      return vercelForwardedFor.clientIp;
+    }
+
+    const realIp = parseSingleIpHeader(request.headers.get('x-real-ip'));
+    if (realIp.status === 'valid') {
+      return realIp.clientIp;
+    }
+
+    // A malformed platform-specific value is an anomalous trust state. Do not
+    // fall through from it to a generic header that a caller may have supplied.
+    if (
+      vercelForwardedFor.status === 'invalid'
+      || realIp.status === 'invalid'
+    ) {
+      return UNKNOWN_CLIENT_IP;
+    }
+  }
+
+  const forwardedFor = parseForwardedHeader(
+    request.headers.get('x-forwarded-for'),
+  );
+  if (forwardedFor.status === 'valid') {
+    return forwardedFor.clientIp;
+  }
+
+  // Retain the existing local/test x-real-ip fallback without treating a
+  // caller-supplied x-vercel-* name as platform evidence off Vercel.
+  if (!process.env.VERCEL_ENV) {
+    const realIp = parseSingleIpHeader(request.headers.get('x-real-ip'));
+    if (realIp.status === 'valid') {
+      return realIp.clientIp;
+    }
+  }
+
+  return UNKNOWN_CLIENT_IP;
+}
+
+function observeDegradation(
+  stage: DegradationStage,
+  category: DegradationCategory,
+): void {
+  if (!isHostedDeployment()) {
+    return;
+  }
+
+  const key = `${stage}:${category}`;
+  const now = Date.now();
+  const lastLoggedAt = degradationLastLoggedAt.get(key);
+  if (
+    lastLoggedAt !== undefined
+    && now - lastLoggedAt < DEGRADATION_LOG_COOLDOWN_MS
+  ) {
+    return;
+  }
+  degradationLastLoggedAt.set(key, now);
+
+  try {
+    logWarn('public_booking.rate_limit.degraded', { stage, category });
+  } catch {
+    // Observability must never turn a fail-open limiter into a booking outage.
+  }
+}
+
+export function resetPublicBookingRateLimitObservabilityForTests(): void {
+  degradationLastLoggedAt.clear();
+}
 
 /**
  * Atomically checks all applicable sliding windows before recording an
@@ -106,7 +295,7 @@ async function settleBeforeDeadline<T>(operation: Promise<T>): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_resolve, reject) => {
     timeout = setTimeout(() => {
-      reject(new Error('PUBLIC_BOOKING_RATE_LIMIT_TIMEOUT'));
+      reject(new PublicBookingRateLimitTimeoutError());
     }, PUBLIC_BOOKING_RATE_LIMIT_TIMEOUT_MS);
   });
 
@@ -120,7 +309,7 @@ async function settleBeforeDeadline<T>(operation: Promise<T>): Promise<T> {
 }
 
 function parseRedisResult(result: unknown): PublicBookingRateLimitResult | null {
-  if (!Array.isArray(result) || result.length < 2) {
+  if (!Array.isArray(result) || result.length !== 2) {
     return null;
   }
 
@@ -134,8 +323,12 @@ function parseRedisResult(result: unknown): PublicBookingRateLimitResult | null 
     return null;
   }
 
-  if (allowed === 1) {
+  if (allowed === 1 && retryAfterMs === 0) {
     return { allowed: true, reason: 'allowed' };
+  }
+
+  if (allowed === 1) {
+    return null;
   }
 
   if (retryAfterMs <= 0) {
@@ -160,7 +353,7 @@ function buildKeys(input: PublicBookingRateLimitInput): {
   // Redis Cluster while retaining per-salon/deployment isolation.
   const prefix = `luster:public-booking:{${scope}}`;
   const normalizedIp = input.clientIp.trim().toLowerCase();
-  const hasIp = Boolean(normalizedIp && normalizedIp !== 'unknown');
+  const hasIp = Boolean(normalizedIp && normalizedIp !== UNKNOWN_CLIENT_IP);
 
   return {
     hasIp,
@@ -186,6 +379,7 @@ export async function checkPublicBookingRateLimit(
   input: PublicBookingRateLimitInput,
 ): Promise<PublicBookingRateLimitResult> {
   if (!redis) {
+    observeDegradation('configuration', 'backend_unavailable');
     return { allowed: true, reason: 'unavailable' };
   }
 
@@ -207,9 +401,19 @@ export async function checkPublicBookingRateLimit(
       ),
     );
 
-    return parseRedisResult(result)
-      ?? { allowed: true, reason: 'unavailable' };
-  } catch {
+    const parsed = parseRedisResult(result);
+    if (!parsed) {
+      observeDegradation('response_parse', 'malformed_response');
+      return { allowed: true, reason: 'unavailable' };
+    }
+    return parsed;
+  } catch (error) {
+    observeDegradation(
+      'redis_eval',
+      error instanceof PublicBookingRateLimitTimeoutError
+        ? 'timeout'
+        : 'operation_failed',
+    );
     return { allowed: true, reason: 'unavailable' };
   }
 }

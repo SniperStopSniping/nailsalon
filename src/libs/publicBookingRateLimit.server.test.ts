@@ -5,6 +5,8 @@ vi.mock('server-only', () => ({}));
 const {
   getDeploymentEnvironment,
   hashRateLimitIdentifier,
+  isHostedDeployment,
+  logWarn,
   redis,
   redisState,
 } = vi.hoisted(() => {
@@ -21,6 +23,8 @@ const {
       }
       return (digest >>> 0).toString(16).padStart(8, '0').repeat(8);
     }),
+    isHostedDeployment: vi.fn(() => true),
+    logWarn: vi.fn(),
     redis,
     redisState: {
       current: redis as typeof redis | null,
@@ -34,16 +38,23 @@ vi.mock('@/core/redis/redisClient', () => ({
   },
 }));
 
+vi.mock('@/core/logging/logger', () => ({
+  logWarn,
+}));
+
 vi.mock('@/libs/authConfig.server', () => ({
   getDeploymentEnvironment,
   hashRateLimitIdentifier,
+  isHostedDeployment,
 }));
 
 /* eslint-disable import/first */
 import {
   checkPublicBookingRateLimit,
+  getPublicBookingClientIp,
   PUBLIC_BOOKING_RATE_LIMIT_TIMEOUT_MS,
   PUBLIC_BOOKING_RATE_LIMITS,
+  resetPublicBookingRateLimitObservabilityForTests,
 } from './publicBookingRateLimit.server';
 /* eslint-enable import/first */
 
@@ -160,6 +171,10 @@ function phoneFor(index: number): string {
   return `41655${String(index).padStart(5, '0')}`;
 }
 
+function requestWithIpHeaders(headers: HeadersInit = {}): Request {
+  return new Request('https://example.test/api/appointments', { headers });
+}
+
 function check(overrides: Partial<Parameters<typeof checkPublicBookingRateLimit>[0]> = {}) {
   return checkPublicBookingRateLimit({
     salonId: SALON_ID,
@@ -172,6 +187,7 @@ function check(overrides: Partial<Parameters<typeof checkPublicBookingRateLimit>
 describe('public booking distributed rate limit', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetPublicBookingRateLimitObservabilityForTests();
     clearFakeRedis();
     redisState.current = redis;
     redis.eval.mockImplementation(evaluateSlidingWindows);
@@ -179,6 +195,86 @@ describe('public booking distributed rate limit', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
+  });
+
+  describe('trusted Vercel client IP extraction', () => {
+    beforeEach(() => {
+      vi.stubEnv('VERCEL_ENV', 'production');
+    });
+
+    it('ignores attacker-controlled leftmost X-Forwarded-For when the Vercel header is present', () => {
+      const first = getPublicBookingClientIp(requestWithIpHeaders({
+        'x-vercel-forwarded-for': '203.0.113.40',
+        'x-forwarded-for': '192.0.2.10, 198.51.100.20',
+      }));
+      const second = getPublicBookingClientIp(requestWithIpHeaders({
+        'x-vercel-forwarded-for': '203.0.113.40',
+        'x-forwarded-for': '192.0.2.99, 198.51.100.20',
+      }));
+
+      expect(first).toBe('203.0.113.40');
+      expect(second).toBe(first);
+    });
+
+    it('strictly parses comma-separated trusted headers from the proxy side', () => {
+      expect(getPublicBookingClientIp(requestWithIpHeaders({
+        'x-vercel-forwarded-for': '192.0.2.10, 2001:0DB8:0:0:0:0:0:1',
+      }))).toBe('2001:db8::1');
+    });
+
+    it('uses x-real-ip as the supported trusted Vercel fallback', () => {
+      expect(getPublicBookingClientIp(requestWithIpHeaders({
+        'x-real-ip': '2001:0DB8:0:0:0:0:0:2',
+        'x-forwarded-for': '192.0.2.200',
+      }))).toBe('2001:db8::2');
+    });
+
+    it('classifies malformed trusted headers as unknown without trusting generic X-Forwarded-For', () => {
+      expect(getPublicBookingClientIp(requestWithIpHeaders({
+        'x-vercel-forwarded-for': 'not-an-ip, 203.0.113.40',
+        'x-forwarded-for': '198.51.100.25',
+      }))).toBe('unknown');
+      expect(getPublicBookingClientIp(requestWithIpHeaders({
+        'x-vercel-forwarded-for': '203.0.113.40:443',
+        'x-forwarded-for': '198.51.100.25',
+      }))).toBe('unknown');
+    });
+
+    it('uses a rightmost X-Forwarded-For fallback when platform headers are missing', () => {
+      expect(getPublicBookingClientIp(requestWithIpHeaders({
+        'x-forwarded-for': '192.0.2.123, 203.0.113.50',
+      }))).toBe('203.0.113.50');
+      expect(getPublicBookingClientIp(requestWithIpHeaders())).toBe('unknown');
+    });
+
+    it('normalizes equivalent mapped IPv4 and ordinary IPv6 representations', () => {
+      const mappedAddresses = [
+        '192.0.2.128',
+        '::ffff:192.0.2.128',
+        '::ffff:c000:0280',
+      ].map(value => getPublicBookingClientIp(requestWithIpHeaders({
+        'x-vercel-forwarded-for': value,
+      })));
+      const ipv6Addresses = [
+        '2001:db8::1',
+        '2001:0DB8:0:0:0:0:0:1',
+      ].map(value => getPublicBookingClientIp(requestWithIpHeaders({
+        'x-vercel-forwarded-for': value,
+      })));
+
+      expect(new Set(mappedAddresses)).toEqual(new Set(['192.0.2.128']));
+      expect(new Set(ipv6Addresses)).toEqual(new Set(['2001:db8::1']));
+    });
+
+    it('does not treat x-vercel-* as platform evidence outside Vercel', () => {
+      vi.stubEnv('VERCEL_ENV', '');
+
+      expect(getPublicBookingClientIp(requestWithIpHeaders({
+        'x-vercel-forwarded-for': '192.0.2.25',
+        'x-forwarded-for': '198.51.100.60',
+      }))).toBe('198.51.100.60');
+    });
   });
 
   it('uses the approved limits in one atomic sliding-window Redis operation', async () => {
@@ -231,6 +327,7 @@ describe('public booking distributed rate limit', () => {
     expect(serializedRedisCall).not.toContain(SALON_ID);
     expect(serializedRedisCall).not.toContain(CLIENT_IP);
     expect(serializedRedisCall).not.toContain(CLIENT_PHONE);
+    expect(logWarn).not.toHaveBeenCalled();
   });
 
   it('allows five repeated contact attempts and rate-limits the sixth without extending the cooldown', async () => {
@@ -289,16 +386,43 @@ describe('public booking distributed rate limit', () => {
   });
 
   it('applies the short IP burst limit even when a script rotates contact details', async () => {
+    vi.stubEnv('VERCEL_ENV', 'production');
     for (let attempt = 0; attempt < 10; attempt += 1) {
-      await expect(check({ normalizedPhone: phoneFor(attempt) })).resolves
+      const clientIp = getPublicBookingClientIp(requestWithIpHeaders({
+        'x-vercel-forwarded-for': CLIENT_IP,
+        'x-forwarded-for': `192.0.2.${attempt + 1}`,
+      }));
+
+      await expect(check({ clientIp, normalizedPhone: phoneFor(attempt) })).resolves
         .toMatchObject({ allowed: true });
     }
 
-    await expect(check({ normalizedPhone: phoneFor(10) })).resolves.toEqual({
+    const clientIp = getPublicBookingClientIp(requestWithIpHeaders({
+      'x-vercel-forwarded-for': CLIENT_IP,
+      'x-forwarded-for': '192.0.2.250',
+    }));
+
+    await expect(check({ clientIp, normalizedPhone: phoneFor(10) })).resolves.toEqual({
       allowed: false,
       reason: 'rate_limited',
       retryAfterSeconds: 60,
     });
+  });
+
+  it('does not let rotating spoofed X-Forwarded-For values bypass the IP burst limit', async () => {
+    vi.stubEnv('VERCEL_ENV', 'production');
+
+    for (let attempt = 0; attempt < 11; attempt += 1) {
+      const clientIp = getPublicBookingClientIp(requestWithIpHeaders({
+        'x-forwarded-for': `192.0.2.${attempt + 1}, ${CLIENT_IP}`,
+      }));
+      const result = await check({
+        clientIp,
+        normalizedPhone: phoneFor(attempt),
+      });
+
+      expect(result.allowed).toBe(attempt < 10);
+    }
   });
 
   it('applies the sustained IP limit across separate burst windows', async () => {
@@ -339,15 +463,29 @@ describe('public booking distributed rate limit', () => {
       reason: 'unavailable',
     });
     expect(redis.eval).not.toHaveBeenCalled();
+    expect(logWarn).toHaveBeenCalledWith(
+      'public_booking.rate_limit.degraded',
+      { stage: 'configuration', category: 'backend_unavailable' },
+    );
   });
 
   it('fails open when Redis rejects the atomic operation', async () => {
-    redis.eval.mockRejectedValueOnce(new Error('Redis unavailable'));
+    redis.eval.mockRejectedValueOnce(new Error(
+      `redis://secret.example/${SALON_ID}/${CLIENT_IP}/${CLIENT_PHONE}`,
+    ));
 
     await expect(check()).resolves.toEqual({
       allowed: true,
       reason: 'unavailable',
     });
+    expect(logWarn).toHaveBeenCalledWith(
+      'public_booking.rate_limit.degraded',
+      { stage: 'redis_eval', category: 'operation_failed' },
+    );
+    expect(JSON.stringify(logWarn.mock.calls)).not.toContain('secret.example');
+    expect(JSON.stringify(logWarn.mock.calls)).not.toContain(SALON_ID);
+    expect(JSON.stringify(logWarn.mock.calls)).not.toContain(CLIENT_IP);
+    expect(JSON.stringify(logWarn.mock.calls)).not.toContain(CLIENT_PHONE);
   });
 
   it('fails open on a slow Redis operation without delaying the booking', async () => {
@@ -361,6 +499,10 @@ describe('public booking distributed rate limit', () => {
       allowed: true,
       reason: 'unavailable',
     });
+    expect(logWarn).toHaveBeenCalledWith(
+      'public_booking.rate_limit.degraded',
+      { stage: 'redis_eval', category: 'timeout' },
+    );
   });
 
   it.each([
@@ -370,8 +512,35 @@ describe('public booking distributed rate limit', () => {
     [2, 0],
     [0, 0],
     [1, -1],
+    [1, 1],
+    [1, 0, 0],
   ])('fails open on a malformed Redis result: %j', async (redisResult) => {
     redis.eval.mockResolvedValueOnce(redisResult);
+
+    await expect(check()).resolves.toEqual({
+      allowed: true,
+      reason: 'unavailable',
+    });
+    expect(logWarn).toHaveBeenCalledWith(
+      'public_booking.rate_limit.degraded',
+      { stage: 'response_parse', category: 'malformed_response' },
+    );
+  });
+
+  it('deduplicates repeated degradation logs within the bounded cooldown', async () => {
+    redis.eval.mockRejectedValue(new Error('Redis unavailable'));
+
+    await check();
+    await check();
+
+    expect(logWarn).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps failing open if the structured logger itself throws', async () => {
+    redis.eval.mockRejectedValueOnce(new Error('Redis unavailable'));
+    logWarn.mockImplementationOnce(() => {
+      throw new Error('logger unavailable');
+    });
 
     await expect(check()).resolves.toEqual({
       allowed: true,
