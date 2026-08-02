@@ -87,6 +87,7 @@ import {
 import { recordGoogleEventReviewDecision } from '@/libs/googleEventReview';
 import { enqueueGoogleCalendarDelete, enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
+import { checkPublicBookingRateLimit } from '@/libs/publicBookingRateLimit.server';
 import {
   getAppointmentById,
   getAppointmentServiceNames,
@@ -99,6 +100,7 @@ import {
   getTechniciansBySalonId,
   normalizePhone,
 } from '@/libs/queries';
+import { getClientIp } from '@/libs/rateLimit';
 import { redactAppointmentForStaff } from '@/libs/redact';
 import {
   calculateRetentionDiscount,
@@ -336,6 +338,7 @@ type ErrorResponse = {
     code: string;
     message: string;
     details?: unknown;
+    retryAfterSeconds?: number;
   };
 };
 
@@ -450,6 +453,25 @@ function bookingPolicyCheckRetryResponse(): Response {
     {
       status: 503,
       headers: { 'Retry-After': '1' },
+    },
+  );
+}
+
+function publicBookingRateLimitResponse(retryAfterSeconds: number): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: 'Too many booking attempts. Please wait a few minutes and try again.',
+        retryAfterSeconds,
+      },
+    } satisfies ErrorResponse,
+    {
+      status: 429,
+      headers: {
+        'Cache-Control': 'no-store',
+        'Retry-After': String(retryAfterSeconds),
+      },
     },
   );
 }
@@ -1080,28 +1102,6 @@ export async function POST(request: Request): Promise<Response> {
         : null,
     });
 
-    let preliminaryCanonicalIdentity: CanonicalSalonClientIdentity | null = null;
-    try {
-      preliminaryCanonicalIdentity = await resolveCanonicalSalonClientIdentity({
-        salonId: salon.id,
-        phone: normalizedPhone,
-        email: normalizedClientEmail,
-      });
-    } catch (error) {
-      if (error instanceof ClientLifecycleStabilizationError) {
-        return Response.json(
-          {
-            error: {
-              code: 'CONTACT_IDENTITY_CONFLICT',
-              message: 'These contact details cannot be used for an online booking. Please check the details, or contact the salon for help.',
-            },
-          } satisfies ErrorResponse,
-          { status: 409 },
-        );
-      }
-      throw error;
-    }
-
     // 2d. IDEMPOTENCY CHECK: Prevent double-submit on booking confirmation
     // Client should send Idempotency-Key header with a UUID generated on page load
     const idempotencyKey = request.headers.get('Idempotency-Key');
@@ -1225,6 +1225,46 @@ export async function POST(request: Request): Promise<Response> {
         idempotencyCacheKey = null; // Disable cache write too
         lockKey = null;
       }
+    }
+
+    // A cached idempotent replay has already returned above. Only the lock
+    // owner (or a request without an idempotency key) spends rate-limit quota,
+    // so accidental concurrent submissions behave like one booking attempt.
+    // Staff/admin creations and all existing-appointment mutations are outside
+    // this public-new-booking boundary.
+    if (isNewPublicBooking) {
+      const rateLimit = await checkPublicBookingRateLimit({
+        salonId: salon.id,
+        clientIp: getClientIp(request),
+        normalizedPhone,
+      });
+      if (!rateLimit.allowed) {
+        return publicBookingRateLimitResponse(rateLimit.retryAfterSeconds);
+      }
+    }
+
+    // Keep abuse traffic out of the canonical-identity and downstream booking
+    // queries, while retaining fail-open behavior when Redis is unavailable.
+    let preliminaryCanonicalIdentity: CanonicalSalonClientIdentity | null = null;
+    try {
+      preliminaryCanonicalIdentity = await resolveCanonicalSalonClientIdentity({
+        salonId: salon.id,
+        phone: normalizedPhone,
+        email: normalizedClientEmail,
+      });
+    } catch (error) {
+      if (error instanceof ClientLifecycleStabilizationError) {
+        return Response.json(
+          {
+            error: {
+              code: 'CONTACT_IDENTITY_CONFLICT',
+              message: 'These contact details cannot be used for an online booking. Please check the details, or contact the salon for help.',
+            },
+          } satisfies ErrorResponse,
+          { status: 409 },
+        );
+      }
+      throw error;
     }
 
     const preliminaryRequiredPolicy = isNewPublicBooking

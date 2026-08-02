@@ -8,6 +8,7 @@ const {
   loadBookingPolicy,
   resolveTechnicianCapabilityMode,
   resolveAutomaticBookingDiscount,
+  checkPublicBookingRateLimit,
   isRedisAvailable,
   redis,
   getSalonBySlug,
@@ -44,6 +45,7 @@ const {
   loadBookingPolicy: vi.fn(),
   resolveTechnicianCapabilityMode: vi.fn(),
   resolveAutomaticBookingDiscount: vi.fn(),
+  checkPublicBookingRateLimit: vi.fn(),
   isRedisAvailable: vi.fn(),
   redis: {
     get: vi.fn(),
@@ -103,6 +105,10 @@ vi.mock('@/libs/bookingPolicy', () => ({
 vi.mock('@/libs/firstVisitDiscount', () => ({
   FIRST_VISIT_DISCOUNT_TYPE: 'first_visit_25',
   resolveAutomaticBookingDiscount,
+}));
+
+vi.mock('@/libs/publicBookingRateLimit.server', () => ({
+  checkPublicBookingRateLimit,
 }));
 
 vi.mock('@/core/redis/redisClient', () => ({
@@ -187,18 +193,20 @@ import { hashCanonicalBookingRequest } from '@/libs/bookingPolicyAcknowledgment'
 
 import { POST } from './route';
 
-function bookingRequest() {
+function bookingRequest(overrides: Record<string, unknown> = {}) {
   return new Request('http://localhost/api/appointments', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Idempotency-Key': 'lock-lifecycle-key',
+      'x-forwarded-for': '203.0.113.7',
     },
     body: JSON.stringify({
       salonSlug: 'salon-a',
       serviceIds: ['srv_1'],
       technicianId: 'tech_1',
       startTime: '2099-03-13T15:00:00.000Z',
+      ...overrides,
     }),
   });
 }
@@ -221,6 +229,11 @@ describe('POST /api/appointments booking-lock lifecycle', () => {
     getActiveAppointmentsForClient.mockResolvedValue([]);
     getLocationById.mockResolvedValue(null);
     getPrimaryLocation.mockResolvedValue(null);
+
+    checkPublicBookingRateLimit.mockResolvedValue({
+      allowed: true,
+      reason: 'allowed',
+    });
 
     isRedisAvailable.mockResolvedValue(true);
     redis.get.mockResolvedValue(null);
@@ -265,8 +278,98 @@ describe('POST /api/appointments booking-lock lifecycle', () => {
     const response = await POST(bookingRequest());
 
     expect(response.status).toBe(201);
+    expect(checkPublicBookingRateLimit).not.toHaveBeenCalled();
     expect(redis.set).not.toHaveBeenCalled();
     expect(redis.eval).not.toHaveBeenCalled();
+  });
+
+  it('returns a structured 429 before service or provider work when a public booking is limited', async () => {
+    checkPublicBookingRateLimit.mockResolvedValue({
+      allowed: false,
+      reason: 'rate_limited',
+      retryAfterSeconds: 73,
+    });
+
+    const response = await POST(bookingRequest());
+    const body = await response.json();
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('Retry-After')).toBe('73');
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(body).toMatchObject({
+      error: {
+        code: 'RATE_LIMIT_EXCEEDED',
+        message: expect.any(String),
+        retryAfterSeconds: 73,
+      },
+    });
+    expect(checkPublicBookingRateLimit).toHaveBeenCalledWith({
+      salonId: 'salon_1',
+      clientIp: '203.0.113.7',
+      normalizedPhone: '1111111111',
+    });
+    expect(getServicesByIds).not.toHaveBeenCalled();
+    expect(hasGoogleCalendarConflict).not.toHaveBeenCalled();
+    expect(db.transaction).not.toHaveBeenCalled();
+    expect(sendCustomerBookingConfirmationEmail).not.toHaveBeenCalled();
+    expect(sendBookingNotificationsForNewBooking).not.toHaveBeenCalled();
+  });
+
+  it('does not invoke the booking limiter for an invalid request schema', async () => {
+    const response = await POST(new Request('http://localhost/api/appointments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ salonSlug: 'salon-a' }),
+    }));
+
+    expect(response.status).toBe(400);
+    expect(checkPublicBookingRateLimit).not.toHaveBeenCalled();
+    expect(getSalonBySlug).not.toHaveBeenCalled();
+    expect(getServicesByIds).not.toHaveBeenCalled();
+  });
+
+  it('bypasses the public limiter for authenticated admin appointment creation', async () => {
+    requireAdmin.mockResolvedValue({ ok: true });
+
+    const response = await POST(bookingRequest({
+      clientPhone: '1111111111',
+      clientName: 'Ava',
+      clientEmail: 'ava@example.com',
+    }));
+
+    expect(response.status).toBe(400);
+    expect(checkPublicBookingRateLimit).not.toHaveBeenCalled();
+    expect(getServicesByIds).toHaveBeenCalledWith(['srv_1'], 'salon_1');
+  });
+
+  it('bypasses the public limiter for authenticated staff appointment creation', async () => {
+    requireStaffSession.mockResolvedValue({
+      ok: true,
+      session: { salonId: 'salon_1', technicianId: 'tech_1' },
+    });
+
+    const response = await POST(bookingRequest({
+      clientPhone: '1111111111',
+      clientName: 'Ava',
+      clientEmail: 'ava@example.com',
+    }));
+
+    expect(response.status).toBe(400);
+    expect(checkPublicBookingRateLimit).not.toHaveBeenCalled();
+    expect(getServicesByIds).toHaveBeenCalledWith(['srv_1'], 'salon_1');
+  });
+
+  it('fails open and continues normal booking processing when the limiter is unavailable', async () => {
+    checkPublicBookingRateLimit.mockResolvedValue({
+      allowed: true,
+      reason: 'unavailable',
+    });
+
+    const response = await POST(bookingRequest());
+
+    expect(response.status).toBe(400);
+    expect(checkPublicBookingRateLimit).toHaveBeenCalledTimes(1);
+    expect(getServicesByIds).toHaveBeenCalledWith(['srv_1'], 'salon_1');
   });
 
   it('binds the acknowledgment attempt, version, and acceptance state into the full request hash', () => {
