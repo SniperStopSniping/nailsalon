@@ -1,6 +1,6 @@
 {
   "name": "luster-booking-platform",
-  "version": "1.42.4",
+  "version": "1.43.1",
   "scripts": {
     "dev:spotlight": "spotlight-sidecar",
     "dev:next": "next dev",
@@ -47,6 +47,7 @@
     "db:seed:isla-daniela-services": "NODE_ENV=development dotenv -c development -- tsx scripts/backfill-isla-daniela-service-assignments.ts --salon-slug isla-nail-studio --technician-name Daniela --apply",
     "db:seed:isla-daniela-rating": "NODE_ENV=development dotenv -c development -- tsx scripts/backfill-isla-daniela-rating.ts",
     "db:seed:e2e": "tsx scripts/seed-e2e-fixtures.ts",
+    "db:fixture:preview": "tsx scripts/preview-service-image-fixtures.ts",
     "db:repair:booking-categories": "NODE_ENV=development dotenv -c development -- tsx scripts/repair-booking-categories.ts",
     "db:backfill-salon-client-id": "NODE_ENV=development dotenv -c development -- tsx scripts/backfill-appointment-salon-client-id.ts",
     "db:verify:booking-constraints": "NODE_ENV=development dotenv -c development -- tsx scripts/verify-booking-constraints.ts",

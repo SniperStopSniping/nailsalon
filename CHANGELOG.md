@@ -1,3 +1,22 @@
+## [1.43.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.43.0...v1.43.1) (2026-08-01)
+
+
+### Bug Fixes
+
+* support Neon fixture attestation ([e473a9a](https://github.com/SniperStopSniping/nailsalon/commit/e473a9a734c68b196cf9540bd12045bc03740167))
+
+# [1.43.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.42.4...v1.43.0) (2026-08-01)
+
+
+### Bug Fixes
+
+* harden Preview fixture safety checks ([7cc37dd](https://github.com/SniperStopSniping/nailsalon/commit/7cc37dd6bde42bae55042197dac02c0f8280d84b))
+
+
+### Features
+
+* add guarded preview service image fixtures ([783b274](https://github.com/SniperStopSniping/nailsalon/commit/783b27442283b94340c6e42f25af883ba82eb479))
+
 ## [1.42.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.42.3...v1.42.4) (2026-07-30)
 
 
