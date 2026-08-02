@@ -1,3 +1,11 @@
+## [1.44.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.44.2...v1.44.3) (2026-08-02)
+
+
+### Bug Fixes
+
+* queue staff reschedule notifications ([8f286ce](https://github.com/SniperStopSniping/nailsalon/commit/8f286ce7d6860096584a27f33bc7699e8404f9e9))
+* version staff reschedule notification events ([170adef](https://github.com/SniperStopSniping/nailsalon/commit/170adef0adae868a76a0a73e735bd2ccf507f563))
+
 ## [1.44.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.44.1...v1.44.2) (2026-08-02)
 
 
