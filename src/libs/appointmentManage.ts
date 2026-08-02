@@ -244,6 +244,7 @@ type NextAvailableArgs = {
 type MutationResult = {
   appointment: Appointment;
   warnings: ManageWarning[];
+  mutationApplied?: boolean;
 };
 type ManageTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const SEARCH_DAYS_AHEAD = 14;
@@ -710,7 +711,7 @@ async function withLockedManagedAppointment(
         );
       }
       return idempotentMove
-        ? { appointment: lockedAppointment, warnings: [] }
+        ? { appointment: lockedAppointment, warnings: [], mutationApplied: false }
         : apply(tx, authoritative);
     });
   } catch (error) {
@@ -996,10 +997,9 @@ async function applyMove(
     throw new AppointmentManageError('UPDATE_FAILED', 'Failed to update appointment.', 500);
   }
 
-  if (
-    args.notifyCustomerOnReschedule
-    && args.loaded.appointment.startTime.getTime() !== appointment.startTime.getTime()
-  ) {
+  const mutationApplied = args.loaded.appointment.startTime.getTime()
+    !== appointment.startTime.getTime();
+  if (args.notifyCustomerOnReschedule && mutationApplied) {
     const { enqueueStaffRescheduleNotification } = await import('@/libs/integrationOutbox');
     await enqueueStaffRescheduleNotification(tx, {
       appointmentId: appointment.id,
@@ -1008,11 +1008,12 @@ async function applyMove(
       previousEndTime: args.loaded.appointment.endTime,
       newStartTime: appointment.startTime,
       newEndTime: appointment.endTime,
+      mutationVersion: appointment.updatedAt,
       timeZone: args.loaded.timeZone,
     });
   }
 
-  return { appointment, warnings: [] };
+  return { appointment, warnings: [], mutationApplied };
 }
 
 function mutateMove(args: MoveArgs): Promise<MutationResult> {
@@ -1260,6 +1261,7 @@ async function applyChangeService(
       previousEndTime: args.loaded.appointment.endTime,
       newStartTime: appointment.startTime,
       newEndTime: appointment.endTime,
+      mutationVersion: appointment.updatedAt,
       timeZone: args.loaded.timeZone,
     });
   }
@@ -1284,9 +1286,11 @@ export async function runAppointmentManageMutation(args: {
   technicianId?: string | null;
   canReassignTechnician: boolean;
   notifyCustomerOnReschedule?: boolean;
+  includeMutationApplied?: boolean;
 }): Promise<{
     detail: AppointmentManageDetail;
     calendarEvent: AppointmentCalendarEvent;
+    mutationApplied?: boolean;
     warnings: ManageWarning[];
   }> {
   const loaded = await loadManagedAppointment(args.appointmentId, args.salonId);
@@ -1361,6 +1365,9 @@ export async function runAppointmentManageMutation(args: {
   return {
     detail,
     calendarEvent: buildCalendarEvent(reloaded),
+    ...(args.includeMutationApplied
+      ? { mutationApplied: result.mutationApplied !== false }
+      : {}),
     warnings: result.warnings,
   };
 }

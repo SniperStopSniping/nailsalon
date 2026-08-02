@@ -81,6 +81,20 @@ const PREVIOUS_START = '2026-08-31T16:00:00.000Z';
 const PREVIOUS_END = '2026-08-31T17:00:00.000Z';
 const NEW_START = '2026-09-01T16:00:00.000Z';
 const NEW_END = '2026-09-01T17:00:00.000Z';
+const MUTATION_VERSION = '2026-08-30T12:00:00.001Z';
+
+function staffPayload() {
+  return {
+    appointmentId: 'appt_1',
+    salonId: 'salon_1',
+    previousStartTime: PREVIOUS_START,
+    previousEndTime: PREVIOUS_END,
+    newStartTime: NEW_START,
+    newEndTime: NEW_END,
+    mutationVersion: MUTATION_VERSION,
+    timeZone: 'America/Toronto',
+  };
+}
 
 function staffJob(overrides: Record<string, unknown> = {}) {
   return {
@@ -91,15 +105,7 @@ function staffJob(overrides: Record<string, unknown> = {}) {
     operation: 'staff_reschedule_notification',
     status: 'pending',
     attempts: 0,
-    payload: {
-      appointmentId: 'appt_1',
-      salonId: 'salon_1',
-      previousStartTime: PREVIOUS_START,
-      previousEndTime: PREVIOUS_END,
-      newStartTime: NEW_START,
-      newEndTime: NEW_END,
-      timeZone: 'America/Toronto',
-    },
+    payload: staffPayload(),
     createdAt: new Date('2026-08-30T12:00:00.000Z'),
     updatedAt: new Date('2026-08-30T12:00:00.000Z'),
     availableAt: new Date('2026-08-30T12:00:00.000Z'),
@@ -137,6 +143,7 @@ describe('enqueueStaffRescheduleNotification', () => {
       previousEndTime: new Date(PREVIOUS_END),
       newStartTime: new Date(NEW_START),
       newEndTime: new Date(NEW_END),
+      mutationVersion: new Date(MUTATION_VERSION),
       timeZone: 'America/Toronto',
     });
 
@@ -144,7 +151,7 @@ describe('enqueueStaffRescheduleNotification', () => {
     expect(values).toHaveBeenCalledWith(expect.objectContaining({
       provider: 'email',
       operation: 'staff_reschedule_notification',
-      dedupeKey: `email:appt_1:staff_reschedule:${PREVIOUS_START}:${NEW_START}`,
+      dedupeKey: `email:appt_1:staff_reschedule:${PREVIOUS_START}:${NEW_START}:${MUTATION_VERSION}`,
       payload: {
         appointmentId: 'appt_1',
         salonId: 'salon_1',
@@ -152,6 +159,7 @@ describe('enqueueStaffRescheduleNotification', () => {
         previousEndTime: PREVIOUS_END,
         newStartTime: NEW_START,
         newEndTime: NEW_END,
+        mutationVersion: MUTATION_VERSION,
         timeZone: 'America/Toronto',
       },
     }));
@@ -201,8 +209,10 @@ describe('processIntegrationOutbox', () => {
     }));
   });
 
-  it('delivers the payload version and marks provider success processed', async () => {
-    selectResults.push([staffJob()], [currentAppointment()]);
+  it('uses the immutable payload version after a later appointment-row update', async () => {
+    selectResults.push([staffJob()], [currentAppointment({
+      updatedAt: new Date('2026-08-30T12:05:00.000Z'),
+    })]);
     finishReadResults();
 
     const result = await processIntegrationOutbox();
@@ -214,7 +224,13 @@ describe('processIntegrationOutbox', () => {
       salonId: 'salon_1',
       appointmentId: 'appt_1',
       purpose: 'client_appointment_rescheduled',
-      eventVersion: [PREVIOUS_START, PREVIOUS_END, NEW_START, NEW_END].join(':'),
+      eventVersion: [
+        PREVIOUS_START,
+        PREVIOUS_END,
+        NEW_START,
+        NEW_END,
+        MUTATION_VERSION,
+      ].join(':'),
       retryFailed: true,
       validationErrorCode: 'SUPERSEDED',
     });
@@ -310,6 +326,27 @@ describe('processIntegrationOutbox', () => {
     expect(updates).toContainEqual(expect.objectContaining({ status: 'completed' }));
   });
 
+  it.each([
+    ['missing', { ...staffPayload(), mutationVersion: undefined }],
+    ['malformed', { ...staffPayload(), mutationVersion: 'not-a-timestamp' }],
+    ['noncanonical', { ...staffPayload(), mutationVersion: '2026-08-30T12:00:00Z' }],
+    ['invalid-timezone', { ...staffPayload(), timeZone: 'Not/A_Time_Zone' }],
+  ])('fails a %s staff payload without retry or delivery', async (_label, payload) => {
+    selectResults.push([staffJob({ payload })]);
+    finishReadResults();
+
+    const result = await processIntegrationOutbox();
+
+    expect(result).toMatchObject({ scanned: 1, retried: 0, failed: 1 });
+    expect(sendAppointmentOperationalEmailOnce).not.toHaveBeenCalled();
+    expect(mintAppointmentManageLink).not.toHaveBeenCalled();
+    expect(updates).toContainEqual(expect.objectContaining({
+      status: 'failed',
+      lastError: 'INVALID_PAYLOAD',
+      processedAt: expect.any(Date),
+    }));
+  });
+
   it('terminates an unavailable recipient without retry', async () => {
     sendAppointmentOperationalEmailOnce.mockResolvedValueOnce({
       status: 'unavailable',
@@ -331,7 +368,13 @@ describe('processIntegrationOutbox', () => {
   });
 
   it('refuses a cross-salon appointment identity before delivery', async () => {
-    selectResults.push([staffJob({ appointmentId: 'appt_other_salon' })], []);
+    selectResults.push([staffJob({
+      appointmentId: 'appt_other_salon',
+      payload: {
+        ...staffPayload(),
+        appointmentId: 'appt_other_salon',
+      },
+    })], []);
     finishReadResults();
 
     await processIntegrationOutbox();

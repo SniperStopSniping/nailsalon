@@ -141,13 +141,19 @@ async function staffRescheduleJobs() {
   return rows.filter(row => row.operation === 'staff_reschedule_notification');
 }
 
-function expectedJob(previousStart: Date, previousEnd: Date, nextStart: Date, nextEnd: Date) {
+function expectedJob(
+  previousStart: Date,
+  previousEnd: Date,
+  nextStart: Date,
+  nextEnd: Date,
+  mutationVersion: Date,
+) {
   return {
     salonId: SALON_ID,
     appointmentId: APPOINTMENT_ID,
     provider: 'email',
     operation: 'staff_reschedule_notification',
-    dedupeKey: `email:${APPOINTMENT_ID}:staff_reschedule:${previousStart.toISOString()}:${nextStart.toISOString()}`,
+    dedupeKey: `email:${APPOINTMENT_ID}:staff_reschedule:${previousStart.toISOString()}:${nextStart.toISOString()}:${mutationVersion.toISOString()}`,
     payload: {
       appointmentId: APPOINTMENT_ID,
       salonId: SALON_ID,
@@ -155,6 +161,7 @@ function expectedJob(previousStart: Date, previousEnd: Date, nextStart: Date, ne
       previousEndTime: previousEnd.toISOString(),
       newStartTime: nextStart.toISOString(),
       newEndTime: nextEnd.toISOString(),
+      mutationVersion: mutationVersion.toISOString(),
       timeZone: 'America/Toronto',
     },
   };
@@ -317,31 +324,83 @@ describe('real appointment management mutations', () => {
     expect(await staffRescheduleJobs()).toEqual([]);
   });
 
-  it('atomically enqueues a version-bound staff move, dedupes a retry, and preserves its payload', async () => {
+  it('keeps every A-to-B-to-A-to-B intent distinct while deduping an identical replay', async () => {
     const firstStart = new Date('2027-01-04T16:00:00.000Z');
     const firstEnd = new Date(firstStart.getTime() + 70 * 60_000);
 
-    await mutate({ startTime: firstStart, notifyCustomerOnReschedule: true });
+    await mutate({
+      startTime: firstStart,
+      notifyCustomerOnReschedule: true,
+    });
+    const firstCommitted = await appointment();
+    const [firstJob] = await staffRescheduleJobs();
 
-    expect(await staffRescheduleJobs()).toEqual([
-      expect.objectContaining(expectedJob(INITIAL_START, INITIAL_END, firstStart, firstEnd)),
-    ]);
+    expect(firstJob).toEqual(expect.objectContaining(expectedJob(
+      INITIAL_START,
+      INITIAL_END,
+      firstStart,
+      firstEnd,
+      firstCommitted.updatedAt,
+    )));
 
     await mutate({ startTime: firstStart, notifyCustomerOnReschedule: true });
 
     expect(await staffRescheduleJobs()).toHaveLength(1);
+    expect((await staffRescheduleJobs())[0]).toEqual(firstJob);
 
-    const secondStart = new Date('2027-01-04T18:00:00.000Z');
-    const secondEnd = new Date(secondStart.getTime() + 70 * 60_000);
-    await mutate({ startTime: secondStart, notifyCustomerOnReschedule: true });
+    await mutate({
+      startTime: INITIAL_START,
+      notifyCustomerOnReschedule: true,
+    });
+    const secondCommitted = await appointment();
 
+    expect(await staffRescheduleJobs()).toHaveLength(2);
+
+    await mutate({
+      startTime: firstStart,
+      notifyCustomerOnReschedule: true,
+    });
+    const thirdCommitted = await appointment();
     const jobs = await staffRescheduleJobs();
 
-    expect(jobs).toHaveLength(2);
+    expect(jobs).toHaveLength(3);
     expect(jobs).toEqual(expect.arrayContaining([
-      expect.objectContaining(expectedJob(INITIAL_START, INITIAL_END, firstStart, firstEnd)),
-      expect.objectContaining(expectedJob(firstStart, firstEnd, secondStart, secondEnd)),
+      expect.objectContaining(expectedJob(
+        INITIAL_START,
+        INITIAL_END,
+        firstStart,
+        firstEnd,
+        firstCommitted.updatedAt,
+      )),
+      expect.objectContaining(expectedJob(
+        firstStart,
+        firstEnd,
+        INITIAL_START,
+        INITIAL_END,
+        secondCommitted.updatedAt,
+      )),
+      expect.objectContaining(expectedJob(
+        INITIAL_START,
+        INITIAL_END,
+        firstStart,
+        firstEnd,
+        thirdCommitted.updatedAt,
+      )),
     ]));
+    expect(new Set(jobs.map(job => job.dedupeKey)).size).toBe(3);
+    expect(new Set(jobs.map(job => (
+      job.payload as { mutationVersion: string }
+    ).mutationVersion)).size).toBe(3);
+    expect(jobs.find(job => job.id === firstJob?.id)).toEqual(firstJob);
+  });
+
+  it('does not enqueue a same-time move', async () => {
+    await mutate({
+      startTime: INITIAL_START,
+      notifyCustomerOnReschedule: true,
+    });
+
+    expect(await staffRescheduleJobs()).toEqual([]);
   });
 
   it('keeps one durable notification when the staff route retries the same move', async () => {
@@ -376,17 +435,19 @@ describe('real appointment management mutations', () => {
       expiresAt: new Date('2027-02-04T14:00:00.000Z'),
     });
     const { POST } = await import('@/app/api/public/appointments/manage/[token]/route');
-
-    const response = await POST(new Request('http://localhost/api/public/appointments/manage/token', {
+    const request = () => new Request('http://localhost/api/public/appointments/manage/token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'reschedule',
         startTime: '2027-01-04T16:00:00.000Z',
       }),
-    }), { params: { token: capability.token } });
+    });
+    const response = await POST(request(), { params: { token: capability.token } });
+    const replay = await POST(request(), { params: { token: capability.token } });
 
     expect(response.status).toBe(200);
+    expect(replay.status).toBe(200);
     expect(sendAppointmentOperationalEmailOnce).toHaveBeenCalledTimes(1);
     expect(await staffRescheduleJobs()).toEqual([]);
 
@@ -438,7 +499,13 @@ describe('real appointment management mutations', () => {
       sameDayReminderChannel: null,
     });
     expect(await staffRescheduleJobs()).toEqual([
-      expect.objectContaining(expectedJob(INITIAL_START, INITIAL_END, row.startTime, row.endTime)),
+      expect.objectContaining(expectedJob(
+        INITIAL_START,
+        INITIAL_END,
+        row.startTime,
+        row.endTime,
+        row.updatedAt,
+      )),
     ]);
   });
 
@@ -518,7 +585,13 @@ describe('real appointment management mutations', () => {
       lineDurationMinutesSnapshot: 10,
     });
     expect(await staffRescheduleJobs()).toEqual([
-      expect.objectContaining(expectedJob(INITIAL_START, INITIAL_END, nextStart, row.endTime)),
+      expect.objectContaining(expectedJob(
+        INITIAL_START,
+        INITIAL_END,
+        nextStart,
+        row.endTime,
+        row.updatedAt,
+      )),
     ]);
   });
 

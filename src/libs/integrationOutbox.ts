@@ -33,8 +33,50 @@ type SerializedGoogleEvent = Omit<
 
 type StaffRescheduleNotificationInput<T extends Date | string>
   = Record<'appointmentId' | 'salonId' | 'timeZone', string>
-  & Record<'previousStartTime' | 'previousEndTime' | 'newStartTime' | 'newEndTime', T>;
+  & Record<'previousStartTime' | 'previousEndTime' | 'newStartTime' | 'newEndTime' | 'mutationVersion', T>;
 type OutboxTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+function parseStaffRescheduleNotificationPayload(
+  value: unknown,
+): StaffRescheduleNotificationInput<string> | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const payload = value as Record<string, unknown>;
+  const stringFields = ['appointmentId', 'salonId', 'timeZone'] as const;
+  const timestampFields = [
+    'previousStartTime',
+    'previousEndTime',
+    'newStartTime',
+    'newEndTime',
+    'mutationVersion',
+  ] as const;
+  if (
+    stringFields.some(
+      field => typeof payload[field] !== 'string' || !payload[field],
+    )
+  ) {
+    return null;
+  }
+  try {
+    new Intl.DateTimeFormat('en', {
+      timeZone: payload.timeZone as string,
+    }).format(0);
+  } catch {
+    return null;
+  }
+  for (const field of timestampFields) {
+    const timestamp = payload[field];
+    if (typeof timestamp !== 'string') {
+      return null;
+    }
+    const parsed = new Date(timestamp);
+    if (Number.isNaN(parsed.getTime()) || parsed.toISOString() !== timestamp) {
+      return null;
+    }
+  }
+  return payload as StaffRescheduleNotificationInput<string>;
+}
 
 function escapeHtml(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('<', '&lt;')
@@ -111,7 +153,7 @@ export async function enqueueStaffRescheduleNotification(database: OutboxTransac
     appointmentId: input.appointmentId,
     provider: 'email',
     operation: 'staff_reschedule_notification',
-    dedupeKey: `email:${input.appointmentId}:staff_reschedule:${input.previousStartTime.toISOString()}:${input.newStartTime.toISOString()}`,
+    dedupeKey: `email:${input.appointmentId}:staff_reschedule:${input.previousStartTime.toISOString()}:${input.newStartTime.toISOString()}:${input.mutationVersion.toISOString()}`,
     payload: {
       appointmentId: input.appointmentId,
       salonId: input.salonId,
@@ -119,6 +161,7 @@ export async function enqueueStaffRescheduleNotification(database: OutboxTransac
       previousEndTime: input.previousEndTime.toISOString(),
       newStartTime: input.newStartTime.toISOString(),
       newEndTime: input.newEndTime.toISOString(),
+      mutationVersion: input.mutationVersion.toISOString(),
       timeZone: input.timeZone,
     },
   }).onConflictDoNothing();
@@ -251,8 +294,7 @@ export async function processIntegrationOutbox(limit = 50) {
         });
         result = { status: 'synced' as const };
       } else if (job.provider === 'email' && job.operation === 'staff_reschedule_notification') {
-        const payload = job.payload as StaffRescheduleNotificationInput<string>;
-        const newStart = new Date(payload.newStartTime);
+        const payload = parseStaffRescheduleNotificationPayload(job.payload);
         const loadCurrent = async () => {
           const [current] = await db.select({
             startTime: appointmentSchema.startTime,
@@ -268,12 +310,22 @@ export async function processIntegrationOutbox(limit = 50) {
             )).limit(1);
           return current;
         };
-        const finishTerminal = async (status: 'cancelled' | 'failed', lastError: 'SUPERSEDED' | 'RECIPIENT_UNAVAILABLE') => db
+        const finishTerminal = async (status: 'cancelled' | 'failed', lastError: 'SUPERSEDED' | 'RECIPIENT_UNAVAILABLE' | 'INVALID_PAYLOAD') => db
           .update(integrationOutboxSchema).set({ status, processedAt: new Date(), lastError }).where(and(
             eq(integrationOutboxSchema.id, job.id),
             eq(integrationOutboxSchema.salonId, job.salonId),
             eq(integrationOutboxSchema.status, 'processing'),
           ));
+        if (
+          !payload
+          || payload.appointmentId !== job.appointmentId
+          || payload.salonId !== job.salonId
+        ) {
+          await finishTerminal('failed', 'INVALID_PAYLOAD');
+          summary.failed += 1;
+          continue;
+        }
+        const newStart = new Date(payload.newStartTime);
         const current = await loadCurrent();
         const isCurrent = (value: typeof current): value is NonNullable<typeof current> => Boolean(
           value && !value.deletedAt && ['pending', 'confirmed'].includes(value.status)
@@ -292,7 +344,7 @@ export async function processIntegrationOutbox(limit = 50) {
           salonId: job.salonId,
           appointmentId: job.appointmentId!,
           purpose: 'client_appointment_rescheduled',
-          eventVersion: [payload.previousStartTime, payload.previousEndTime, payload.newStartTime, payload.newEndTime].join(':'),
+          eventVersion: [payload.previousStartTime, payload.previousEndTime, payload.newStartTime, payload.newEndTime, payload.mutationVersion].join(':'),
           retryFailed: true,
           prepare: async () => {
             const { mintAppointmentManageLink } = await import('@/libs/appointmentManageLink');
