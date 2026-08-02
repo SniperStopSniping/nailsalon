@@ -1,3 +1,10 @@
+## [1.44.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.44.1...v1.44.2) (2026-08-02)
+
+
+### Bug Fixes
+
+* make appointment moves and reminders race-safe ([7dddbbd](https://github.com/SniperStopSniping/nailsalon/commit/7dddbbd74f9c7b28db99e3b0b89a502de04f2ed1))
+
 ## [1.44.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.44.0...v1.44.1) (2026-08-02)
 
 
