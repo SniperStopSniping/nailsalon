@@ -1,8 +1,13 @@
 import 'server-only';
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 
-import { getBookingConfigForSalon } from '@/libs/bookingConfig';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import {
+  isSlotConstraintViolation,
+  lockTechnicianAndAssertSlotFree,
+  SlotConflictError,
+} from '@/libs/bookingConflictGuard';
 import {
   canTechnicianTakeAppointment,
   loadBookingPolicy,
@@ -24,6 +29,7 @@ import {
   appointmentServicesSchema,
   notificationDeliverySchema,
   salonClientSchema,
+  type SalonLocation,
   salonLocationSchema,
   salonSchema,
   type Service,
@@ -31,6 +37,7 @@ import {
   type ServiceCategory,
   serviceSchema,
 } from '@/models/Schema';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 export type ManageWarning =
   | 'INVALID_ADD_ONS_REMOVED'
@@ -82,14 +89,7 @@ type LoadedManagedAppointment = {
   appointment: Appointment;
   appointmentServices: AppointmentServiceSnapshot[];
   appointmentAddOns: AppointmentAddOnSnapshot[];
-  salonLocation: {
-    id: string;
-    name: string;
-    address: string | null;
-    city: string | null;
-    state: string | null;
-    zipCode: string | null;
-  } | null;
+  salonLocation: SalonLocation | null;
   activeServices: Service[];
   technicians: Awaited<ReturnType<typeof getTechniciansBySalonId>>;
   slotIntervalMinutes: number;
@@ -216,6 +216,7 @@ type MoveArgs = {
   startTime: Date;
   durationMinutes?: number;
   technicianId?: string | null;
+  canReassignTechnician: boolean;
 };
 
 type ChangeServiceArgs = {
@@ -223,21 +224,25 @@ type ChangeServiceArgs = {
   baseServiceId: string;
   startTime?: Date;
   technicianId?: string | null;
+  canReassignTechnician: boolean;
 };
 
 type ReassignArgs = {
   loaded: LoadedManagedAppointment;
   technicianId: string;
+  canReassignTechnician: boolean;
 };
 
 type NextAvailableArgs = {
   loaded: LoadedManagedAppointment;
+  canReassignTechnician: boolean;
 };
 
 type MutationResult = {
   appointment: Appointment;
   warnings: ManageWarning[];
 };
+type ManageTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const SEARCH_DAYS_AHEAD = 14;
 const MANAGE_VISIBLE_START_HOUR = 8;
 const MANAGE_VISIBLE_END_HOUR = 20;
@@ -397,8 +402,9 @@ function buildCalendarEvent(loaded: LoadedManagedAppointment): AppointmentCalend
 async function loadManagedAppointment(
   appointmentId: string,
   salonId: string,
+  database: { select: typeof db.select } = db,
 ): Promise<LoadedManagedAppointment> {
-  const [appointment] = await db
+  const [appointment] = await database
     .select()
     .from(appointmentSchema)
     .where(
@@ -419,9 +425,9 @@ async function loadManagedAppointment(
     salonLocation,
     activeServices,
     technicians,
-    bookingConfig,
+    salonSettings,
   ] = await Promise.all([
-    db
+    database
       .select({
         row: appointmentServicesSchema,
         liveService: serviceSchema,
@@ -429,20 +435,13 @@ async function loadManagedAppointment(
       .from(appointmentServicesSchema)
       .leftJoin(serviceSchema, eq(appointmentServicesSchema.serviceId, serviceSchema.id))
       .where(eq(appointmentServicesSchema.appointmentId, appointmentId)),
-    db
+    database
       .select()
       .from(appointmentAddOnSchema)
       .where(eq(appointmentAddOnSchema.appointmentId, appointmentId)),
     appointment.locationId
-      ? db
-        .select({
-          id: salonLocationSchema.id,
-          name: salonLocationSchema.name,
-          address: salonLocationSchema.address,
-          city: salonLocationSchema.city,
-          state: salonLocationSchema.state,
-          zipCode: salonLocationSchema.zipCode,
-        })
+      ? database
+        .select()
         .from(salonLocationSchema)
         .where(and(
           eq(salonLocationSchema.id, appointment.locationId),
@@ -451,13 +450,21 @@ async function loadManagedAppointment(
         .limit(1)
         .then(rows => rows[0] ?? null)
       : Promise.resolve(null),
-    db
+    database
       .select()
       .from(serviceSchema)
       .where(and(eq(serviceSchema.salonId, appointment.salonId), eq(serviceSchema.isActive, true))),
-    getTechniciansBySalonId(appointment.salonId),
-    getBookingConfigForSalon(appointment.salonId),
+    getTechniciansBySalonId(appointment.salonId, database),
+    database
+      .select({ settings: salonSchema.settings })
+      .from(salonSchema)
+      .where(eq(salonSchema.id, appointment.salonId))
+      .limit(1)
+      .then(rows => rows[0]?.settings ?? null),
   ]);
+  const bookingConfig = resolveBookingConfigFromSettings(
+    salonSettings as SalonSettings | null,
+  );
 
   return {
     appointment,
@@ -510,7 +517,7 @@ async function resolveTechnicianForMutation(args: {
     return null;
   }
 
-  const technician = await getTechnicianById(technicianId, args.loaded.appointment.salonId);
+  const technician = args.loaded.technicians.find(item => item.id === technicianId);
   if (!technician) {
     throw new AppointmentManageError('TECHNICIAN_NOT_FOUND', 'Technician not found.', 404);
   }
@@ -525,6 +532,7 @@ async function validateTimeAndTechnician(args: {
   bufferMinutes: number;
   technicianId?: string | null;
   requestedServices: RequestedService[];
+  database: ManageTransaction;
 }) {
   const technician = await resolveTechnicianForMutation({
     loaded: args.loaded,
@@ -539,9 +547,7 @@ async function validateTimeAndTechnician(args: {
     };
   }
 
-  const location = args.loaded.appointment.locationId
-    ? await getLocationById(args.loaded.appointment.locationId, args.loaded.appointment.salonId)
-    : null;
+  const location = args.loaded.salonLocation;
 
   const dateKey = getDateKeyInTimeZone(args.startTime, args.loaded.timeZone);
   const { startOfDay, endOfDay } = getZonedDayBounds(dateKey, args.loaded.timeZone);
@@ -553,6 +559,7 @@ async function validateTimeAndTechnician(args: {
     startOfDay,
     endOfDay,
     excludedAppointmentId: args.loaded.appointment.id,
+    database: args.database,
   });
 
   const endTime = new Date(args.startTime.getTime() + args.totalDurationMinutes * 60 * 1000);
@@ -588,12 +595,131 @@ async function validateTimeAndTechnician(args: {
       },
     );
   }
+  await lockTechnicianAndAssertSlotFree(args.database, {
+    salonId: args.loaded.appointment.salonId,
+    technicianId: technician.id,
+    startTime: args.startTime,
+    blockedEndTime: new Date(
+      args.startTime.getTime()
+      + (args.totalDurationMinutes + args.bufferMinutes) * 60_000,
+    ),
+    excludedAppointmentId: args.loaded.appointment.id,
+  });
 
   return {
     technician,
     startTime: args.startTime,
     endTime,
   };
+}
+
+function reminderRearmUpdate(previousStartTime: Date, nextStartTime: Date) {
+  return previousStartTime.getTime() === nextStartTime.getTime()
+    ? {}
+    : {
+        dayBeforeReminderSentAt: null,
+        dayBeforeReminderChannel: null,
+        sameDayReminderSentAt: null,
+        sameDayReminderChannel: null,
+      };
+}
+
+function managedWriteVersion(loaded: LoadedManagedAppointment) {
+  return JSON.stringify([
+    loaded.appointment,
+    loaded.appointmentServices.map(({ row }) => row).sort((a, b) => a.id.localeCompare(b.id)),
+    [...loaded.appointmentAddOns].sort((a, b) => a.id.localeCompare(b.id)),
+  ]);
+}
+
+function nextUpdatedAt(appointment: Appointment) {
+  return new Date(Math.max(Date.now(), appointment.updatedAt.getTime() + 1));
+}
+
+async function withLockedManagedAppointment(
+  args: {
+    loaded: LoadedManagedAppointment;
+    technicianId?: string | null;
+    canReassignTechnician: boolean;
+    startTime?: Date;
+    durationMinutes?: number;
+    allowIdempotentMove?: boolean;
+  },
+  apply: (tx: ManageTransaction, loaded: LoadedManagedAppointment) => Promise<MutationResult>,
+): Promise<MutationResult> {
+  try {
+    return await db.transaction(async (tx) => {
+      const expected = args.loaded.appointment;
+      const targetTechnicianId = args.technicianId ?? expected.technicianId;
+      const technicianIds = [...new Set([
+        expected.technicianId,
+        targetTechnicianId,
+      ].filter((id): id is string => Boolean(id)))].sort();
+
+      for (const technicianId of technicianIds) {
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(
+          hashtext(${expected.salonId}), hashtext(${technicianId})
+        )`);
+      }
+
+      const [lockedAppointment] = await tx
+        .select()
+        .from(appointmentSchema)
+        .where(and(
+          eq(appointmentSchema.id, expected.id),
+          eq(appointmentSchema.salonId, expected.salonId),
+        ))
+        .for('update')
+        .limit(1);
+      if (!lockedAppointment || lockedAppointment.deletedAt) {
+        throw new AppointmentManageError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
+      }
+      ensureEditable(lockedAppointment);
+
+      const authoritative = await loadManagedAppointment(
+        lockedAppointment.id,
+        lockedAppointment.salonId,
+        tx,
+      );
+      const stale = managedWriteVersion(authoritative) !== managedWriteVersion(args.loaded);
+      const idempotentMove = stale
+        && args.allowIdempotentMove
+        && args.startTime
+        && args.durationMinutes == null
+        && args.technicianId == null
+        && roundDownToSlot(args.startTime, authoritative.slotIntervalMinutes).getTime()
+        === lockedAppointment.startTime.getTime();
+      if (stale && !idempotentMove) {
+        throw new AppointmentManageError(
+          'STALE_STATE',
+          'The appointment changed while you were editing it. Refresh and try again.',
+          409,
+        );
+      }
+      if (
+        !args.canReassignTechnician
+        && targetTechnicianId !== lockedAppointment.technicianId
+      ) {
+        throw new AppointmentManageError(
+          'FORBIDDEN',
+          'Only salon owners or admins can reassign technicians.',
+          403,
+        );
+      }
+      return idempotentMove
+        ? { appointment: lockedAppointment, warnings: [] }
+        : apply(tx, authoritative);
+    });
+  } catch (error) {
+    if (error instanceof SlotConflictError || isSlotConstraintViolation(error)) {
+      throw new AppointmentManageError(
+        'APPOINTMENT_CONFLICT',
+        'That time is not available for the selected technician.',
+        409,
+      );
+    }
+    throw error;
+  }
 }
 
 async function findNextAvailableStart(
@@ -761,7 +887,16 @@ export async function getAppointmentManageDetail(args: {
       techNotes: loaded.appointment.techNotes,
     },
     client: salonClient,
-    location: loaded.salonLocation,
+    location: loaded.salonLocation
+      ? {
+          id: loaded.salonLocation.id,
+          name: loaded.salonLocation.name,
+          address: loaded.salonLocation.address,
+          city: loaded.salonLocation.city,
+          state: loaded.salonLocation.state,
+          zipCode: loaded.salonLocation.zipCode,
+        }
+      : null,
     services: loaded.appointmentServices.map((entry, index) => ({
       id: entry.row.serviceId,
       name: entry.row.nameSnapshot ?? entry.liveService?.name ?? 'Service',
@@ -809,8 +944,10 @@ export async function getAppointmentManageDetail(args: {
   };
 }
 
-async function mutateMove(args: MoveArgs): Promise<MutationResult> {
-  ensureEditable(args.loaded.appointment);
+async function applyMove(
+  args: MoveArgs,
+  tx: ManageTransaction,
+): Promise<MutationResult> {
   const requestedServices = toRequestedServices(args.loaded.appointmentServices);
   const totalDurationMinutes = args.durationMinutes ?? args.loaded.appointment.totalDurationMinutes;
   if (!Number.isInteger(totalDurationMinutes) || totalDurationMinutes < 15 || totalDurationMinutes > 480) {
@@ -829,9 +966,10 @@ async function mutateMove(args: MoveArgs): Promise<MutationResult> {
     bufferMinutes,
     technicianId: args.technicianId,
     requestedServices,
+    database: tx,
   });
 
-  const [appointment] = await db
+  const [appointment] = await tx
     .update(appointmentSchema)
     .set({
       technicianId: validated.technician?.id ?? args.loaded.appointment.technicianId,
@@ -840,7 +978,8 @@ async function mutateMove(args: MoveArgs): Promise<MutationResult> {
       totalDurationMinutes,
       bufferMinutes,
       blockedDurationMinutes: totalDurationMinutes + bufferMinutes,
-      updatedAt: new Date(),
+      ...reminderRearmUpdate(args.loaded.appointment.startTime, validated.startTime),
+      updatedAt: nextUpdatedAt(args.loaded.appointment),
     })
     .where(
       and(
@@ -857,8 +996,17 @@ async function mutateMove(args: MoveArgs): Promise<MutationResult> {
   return { appointment, warnings: [] };
 }
 
-async function mutateReassign(args: ReassignArgs): Promise<MutationResult> {
-  ensureEditable(args.loaded.appointment);
+function mutateMove(args: MoveArgs): Promise<MutationResult> {
+  return withLockedManagedAppointment(
+    { ...args, allowIdempotentMove: true },
+    (tx, loaded) => applyMove({ ...args, loaded }, tx),
+  );
+}
+
+async function applyReassign(
+  args: ReassignArgs,
+  tx: ManageTransaction,
+): Promise<MutationResult> {
   const requestedServices = toRequestedServices(args.loaded.appointmentServices);
   const validated = await validateTimeAndTechnician({
     loaded: args.loaded,
@@ -867,13 +1015,14 @@ async function mutateReassign(args: ReassignArgs): Promise<MutationResult> {
     bufferMinutes: args.loaded.appointment.bufferMinutes ?? args.loaded.bufferMinutes,
     technicianId: args.technicianId,
     requestedServices,
+    database: tx,
   });
 
-  const [appointment] = await db
+  const [appointment] = await tx
     .update(appointmentSchema)
     .set({
       technicianId: validated.technician?.id ?? null,
-      updatedAt: new Date(),
+      updatedAt: nextUpdatedAt(args.loaded.appointment),
     })
     .where(
       and(
@@ -888,6 +1037,13 @@ async function mutateReassign(args: ReassignArgs): Promise<MutationResult> {
   }
 
   return { appointment, warnings: [] };
+}
+
+function mutateReassign(args: ReassignArgs): Promise<MutationResult> {
+  return withLockedManagedAppointment(
+    args,
+    (tx, loaded) => applyReassign({ ...args, loaded }, tx),
+  );
 }
 
 async function mutateMoveToNextAvailable(args: NextAvailableArgs): Promise<MutationResult> {
@@ -923,13 +1079,15 @@ async function mutateMoveToNextAvailable(args: NextAvailableArgs): Promise<Mutat
   return mutateMove({
     loaded: args.loaded,
     startTime: nextStart,
+    canReassignTechnician: args.canReassignTechnician,
   });
 }
 
-async function mutateChangeService(args: ChangeServiceArgs): Promise<MutationResult> {
-  ensureEditable(args.loaded.appointment);
-
-  const [newService] = await db
+async function applyChangeService(
+  args: ChangeServiceArgs,
+  tx: ManageTransaction,
+): Promise<MutationResult> {
+  const [newService] = await tx
     .select()
     .from(serviceSchema)
     .where(
@@ -945,7 +1103,7 @@ async function mutateChangeService(args: ChangeServiceArgs): Promise<MutationRes
     throw new AppointmentManageError('INVALID_BASE_SERVICE', 'Service not found.', 404);
   }
 
-  const allowedRules = await db
+  const allowedRules = await tx
     .select({ addOnId: serviceAddOnSchema.addOnId })
     .from(serviceAddOnSchema)
     .where(
@@ -962,7 +1120,7 @@ async function mutateChangeService(args: ChangeServiceArgs): Promise<MutationRes
   const preservedAddOnPriceCents = sumAddOnLineTotals(kept);
   const preservedAddOnDurationMinutes = sumAddOnDurations(kept);
   const totalDurationMinutes = newBaseDurationMinutes + preservedAddOnDurationMinutes;
-  const bufferMinutes = args.loaded.bufferMinutes;
+  const bufferMinutes = args.loaded.appointment.bufferMinutes ?? args.loaded.bufferMinutes;
   const newSubtotalCents = newBasePriceCents + preservedAddOnPriceCents;
   const discount = computePreservedDiscount({
     loaded: args.loaded,
@@ -979,18 +1137,17 @@ async function mutateChangeService(args: ChangeServiceArgs): Promise<MutationRes
     args.loaded.slotIntervalMinutes,
   );
 
-  await validateTimeAndTechnician({
+  const validated = await validateTimeAndTechnician({
     loaded: args.loaded,
     startTime,
     totalDurationMinutes,
     bufferMinutes,
     technicianId: args.technicianId,
     requestedServices,
+    database: tx,
   });
 
-  const endTime = new Date(startTime.getTime() + totalDurationMinutes * 60 * 1000);
-
-  const [appointment] = await db.transaction(async (tx) => {
+  const [appointment] = await (async () => {
     await tx
       .delete(appointmentServicesSchema)
       .where(eq(appointmentServicesSchema.appointmentId, args.loaded.appointment.id));
@@ -1033,12 +1190,12 @@ async function mutateChangeService(args: ChangeServiceArgs): Promise<MutationRes
         })));
     }
 
-    const [updatedAppointment] = await tx
+    const [appointment] = await tx
       .update(appointmentSchema)
       .set({
-        technicianId: args.technicianId ?? args.loaded.appointment.technicianId,
-        startTime,
-        endTime,
+        technicianId: validated.technician?.id ?? args.loaded.appointment.technicianId,
+        startTime: validated.startTime,
+        endTime: validated.endTime,
         totalPrice: discount.totalPrice,
         totalDurationMinutes,
         basePriceCents: newBasePriceCents,
@@ -1053,7 +1210,8 @@ async function mutateChangeService(args: ChangeServiceArgs): Promise<MutationRes
         discountLabel: discount.discountLabel,
         discountPercent: discount.discountPercent,
         discountAppliedAt: discount.discountAppliedAt,
-        updatedAt: new Date(),
+        ...reminderRearmUpdate(args.loaded.appointment.startTime, validated.startTime),
+        updatedAt: nextUpdatedAt(args.loaded.appointment),
       })
       .where(
         and(
@@ -1063,14 +1221,21 @@ async function mutateChangeService(args: ChangeServiceArgs): Promise<MutationRes
       )
       .returning();
 
-    if (!updatedAppointment) {
+    if (!appointment) {
       throw new AppointmentManageError('UPDATE_FAILED', 'Failed to update appointment.', 500);
     }
 
-    return [updatedAppointment] as const;
-  });
+    return [appointment] as const;
+  })();
 
   return { appointment, warnings };
+}
+
+function mutateChangeService(args: ChangeServiceArgs): Promise<MutationResult> {
+  return withLockedManagedAppointment(
+    args,
+    (tx, loaded) => applyChangeService({ ...args, loaded }, tx),
+  );
 }
 
 export async function runAppointmentManageMutation(args: {
@@ -1100,10 +1265,14 @@ export async function runAppointmentManageMutation(args: {
         startTime: args.startTime,
         durationMinutes: args.durationMinutes,
         technicianId: args.technicianId,
+        canReassignTechnician: args.canReassignTechnician,
       });
       break;
     case 'moveToNextAvailable':
-      result = await mutateMoveToNextAvailable({ loaded });
+      result = await mutateMoveToNextAvailable({
+        loaded,
+        canReassignTechnician: args.canReassignTechnician,
+      });
       break;
     case 'changeService':
       if (!args.baseServiceId) {
@@ -1114,6 +1283,7 @@ export async function runAppointmentManageMutation(args: {
         baseServiceId: args.baseServiceId,
         startTime: args.startTime,
         technicianId: args.technicianId,
+        canReassignTechnician: args.canReassignTechnician,
       });
       break;
     case 'reassignTechnician':
@@ -1123,6 +1293,7 @@ export async function runAppointmentManageMutation(args: {
       result = await mutateReassign({
         loaded,
         technicianId: args.technicianId,
+        canReassignTechnician: args.canReassignTechnician,
       });
       break;
     default:

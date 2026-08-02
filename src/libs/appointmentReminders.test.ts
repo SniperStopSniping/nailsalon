@@ -24,10 +24,20 @@ const {
   updateWhere,
   queueSelectResults,
   queueSmsAttemptResults,
+  setCurrentReminderState,
+  getSmsClaimKeys,
+  emailClaims,
+  resetEmailClaims,
   resetSmsClaims,
 } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
   const smsAttemptResults: unknown[][] = [];
+  const currentReminderState = new Map<string, Record<string, unknown>>();
+  const candidateStartTimes = new Map<string, number>();
+  const emailClaims = new Map<string, {
+    deliveryId: string;
+    status: 'failed' | 'queued' | 'sent';
+  }>();
   const smsClaims = new Map<string, {
     createdAt: Date;
     id: string;
@@ -37,44 +47,70 @@ const {
   }>();
   const smsClaimKeysById = new Map<string, string>();
   let lastConflictedSmsClaimKey: string | null = null;
-  const queryResult = {
-    innerJoin: vi.fn(() => queryResult),
-    leftJoin: vi.fn(() => queryResult),
-    where: vi.fn(() => queryResult),
-    orderBy: vi.fn(() => queryResult),
-    limit: vi.fn(() => queryResult),
-    then: (resolve: (value: unknown[]) => void) => {
-      if (selectResults.length) {
-        resolve(selectResults.shift() ?? []);
-        return;
-      }
-      if (lastConflictedSmsClaimKey) {
-        const existing = smsClaims.get(lastConflictedSmsClaimKey);
-        lastConflictedSmsClaimKey = null;
-        resolve(existing ? [existing] : []);
-        return;
-      }
-      resolve([]);
-    },
-  };
-  const from = vi.fn(() => queryResult);
-  const staticResult = (rows: () => unknown[]) => {
+  const staticResult = (rows: () => unknown[], onResolve?: (rows: unknown[]) => void) => {
     const chain: any = {};
-    for (const method of ['from', 'where', 'orderBy', 'limit']) {
+    for (const method of ['from', 'innerJoin', 'leftJoin', 'where', 'orderBy', 'limit']) {
       chain[method] = vi.fn(() => chain);
     }
-    chain.then = (resolve: (value: unknown[]) => void) => resolve(rows());
+    chain.then = (resolve: (value: unknown[]) => void) => {
+      const result = rows();
+      onResolve?.(result);
+      resolve(result);
+    };
     return chain;
   };
   const select = vi.fn((fields?: Record<string, unknown>) => {
     const keys = Object.keys(fields ?? {}).sort().join(',');
+    if (
+      keys
+      === 'dayBeforeReminderSentAt,deletedAt,salonSettings,sameDayReminderSentAt,startTime,status'
+    ) {
+      return staticResult(() => {
+        const current = currentReminderState.values().next().value;
+        return current ? [current] : [];
+      });
+    }
     if (keys === 'status') {
       return staticResult(() => [{ status: 'granted' }]);
     }
     if (keys === 'retryable,status') {
       return staticResult(() => smsAttemptResults.shift() ?? []);
     }
-    return { from };
+    if (keys === 'id,status') {
+      return staticResult(() => {
+        if (!lastConflictedSmsClaimKey) {
+          return [];
+        }
+        const existing = smsClaims.get(lastConflictedSmsClaimKey);
+        lastConflictedSmsClaimKey = null;
+        return existing ? [existing] : [];
+      });
+    }
+    return staticResult(
+      () => selectResults.shift() ?? [],
+      (rows) => {
+        for (const row of rows) {
+          if (
+            row
+            && typeof row === 'object'
+            && 'appointmentId' in row
+            && 'startTime' in row
+            && typeof row.appointmentId === 'string'
+          ) {
+            currentReminderState.clear();
+            candidateStartTimes.clear();
+            currentReminderState.set(row.appointmentId, {
+              ...row,
+              deletedAt: null,
+              status: 'confirmed',
+            });
+            if (row.startTime instanceof Date) {
+              candidateStartTimes.set(row.appointmentId, row.startTime.getTime());
+            }
+          }
+        }
+      },
+    );
   });
 
   const updateWhere = vi.fn();
@@ -112,6 +148,30 @@ const {
       return chain;
     });
     chain.returning = vi.fn(async () => {
+      const marker = 'dayBeforeReminderSentAt' in values
+        ? 'dayBeforeReminderSentAt'
+        : 'sameDayReminderSentAt' in values
+          ? 'sameDayReminderSentAt'
+          : null;
+      if (marker) {
+        const entry = currentReminderState.entries().next().value as
+          | [string, Record<string, unknown>]
+          | undefined;
+        const currentStart = entry?.[1].startTime;
+        if (
+          !entry
+          || entry[1][marker] != null
+          || entry[1].deletedAt != null
+          || !['pending', 'confirmed'].includes(String(entry[1].status))
+          || !(currentStart instanceof Date)
+          || currentStart.getTime() !== candidateStartTimes.get(entry[0])
+        ) {
+          return [];
+        }
+        const next = { ...entry[1], ...values };
+        currentReminderState.set(entry[0], next);
+        return [next];
+      }
       const reclaimed = applyUpdate(true);
       if (reclaimed) {
         lastConflictedSmsClaimKey = null;
@@ -181,12 +241,26 @@ const {
     queueSmsAttemptResults: (...rows: unknown[][]) => {
       smsAttemptResults.splice(0, smsAttemptResults.length, ...rows);
     },
+    setCurrentReminderState: (
+      appointmentId: string,
+      values: Record<string, unknown>,
+    ) => {
+      currentReminderState.set(appointmentId, {
+        ...(currentReminderState.get(appointmentId) ?? {}),
+        ...values,
+      });
+    },
+    getSmsClaimKeys: () => [...smsClaims.keys()],
+    resetEmailClaims: () => {
+      emailClaims.clear();
+    },
     resetSmsClaims: () => {
       smsClaims.clear();
       smsClaimKeysById.clear();
       smsAttemptResults.length = 0;
       lastConflictedSmsClaimKey = null;
     },
+    emailClaims,
     db: {
       insert,
       select,
@@ -234,6 +308,7 @@ describe('appointment reminders', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     queueSelectResults();
+    resetEmailClaims();
     resetSmsClaims();
     isSmsEnabled.mockResolvedValue(true);
     getAppointmentServiceNames.mockResolvedValue(['BIAB Fill']);
@@ -244,25 +319,65 @@ describe('appointment reminders', () => {
     });
     sendTransactionalEmail.mockResolvedValue(true);
     sendAppointmentOperationalEmailOnce.mockImplementation(async (input) => {
-      const content = await input.prepare();
+      const key = [
+        input.purpose,
+        input.appointmentId,
+        input.eventVersion,
+      ].join(':');
+      const existing = emailClaims.get(key);
+      if (existing?.status === 'sent') {
+        return {
+          status: 'sent',
+          deliveryId: existing.deliveryId,
+          claimed: false,
+        };
+      }
+      if (existing?.status === 'queued' || (existing && !input.retryFailed)) {
+        return {
+          status: 'duplicate',
+          deliveryId: existing.deliveryId,
+          claimed: false,
+        };
+      }
+      const deliveryId = existing?.deliveryId ?? `email_delivery_${emailClaims.size + 1}`;
+      emailClaims.set(key, { deliveryId, status: 'queued' });
+      let content;
+      try {
+        content = await input.prepare();
+      } catch {
+        emailClaims.set(key, { deliveryId, status: 'failed' });
+        return { status: 'failed', deliveryId, claimed: true };
+      }
       const recipient = await resolveAppointmentOperationalEmailRecipient({
         salonId: input.salonId,
         appointmentId: input.appointmentId,
       });
       if (recipient.status === 'unavailable') {
+        emailClaims.set(key, { deliveryId, status: 'failed' });
         return {
           status: 'unavailable',
-          deliveryId: 'delivery_1',
+          deliveryId,
           claimed: true,
         };
+      }
+      let valid = true;
+      try {
+        valid = await input.validateBeforeDelivery?.() ?? true;
+      } catch {
+        valid = false;
+      }
+      if (!valid) {
+        emailClaims.set(key, { deliveryId, status: 'failed' });
+        return { status: 'failed', deliveryId, claimed: true };
       }
       const sent = await sendTransactionalEmail({
         to: recipient.email,
         ...content,
-      });
+      }).catch(() => false);
+      emailClaims.set(key, { deliveryId, status: sent ? 'sent' : 'failed' });
       return {
         status: sent ? 'sent' : 'failed',
-        deliveryId: 'delivery_1',
+        deliveryId,
         claimed: true,
       };
     });
@@ -907,9 +1022,16 @@ describe('appointment reminders', () => {
         };
       }
       claimed = true;
+      const content = await input.prepare();
+      if (await input.validateBeforeDelivery?.() === false) {
+        return {
+          status: 'failed',
+          deliveryId: 'delivery_1',
+          claimed: true,
+        };
+      }
       signalClaimed();
       await winnerRelease;
-      const content = await input.prepare();
       await sendTransactionalEmail({
         to: 'current@example.test',
         ...content,
@@ -1065,5 +1187,190 @@ describe('appointment reminders', () => {
     });
 
     expect(sendAppointmentReminder).toHaveBeenCalledTimes(1);
+  });
+
+  it('refuses a superseded old-time candidate and leaves the moved time eligible', async () => {
+    const oldStart = new Date('2026-04-01T19:00:00.000Z');
+    const newStart = new Date('2026-04-01T19:15:00.000Z');
+    const candidate = {
+      appointmentId: 'appt_moved_during_reminder',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: oldStart,
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: 'Daniela',
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+    queueSelectResults([candidate]);
+
+    const staleResult = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+      beforeDeliveryGuard: async () => {
+        setCurrentReminderState(candidate.appointmentId, {
+          startTime: newStart,
+          endTime: new Date('2026-04-01T20:15:00.000Z'),
+        });
+      },
+    });
+
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+    expect(sendAppointmentReminder).not.toHaveBeenCalled();
+    expect(updateSet.mock.calls.filter(([values]) => (
+      'dayBeforeReminderSentAt' in values
+      || 'sameDayReminderSentAt' in values
+    ))).toHaveLength(0);
+    expect(staleResult).toEqual(expect.objectContaining({
+      scanned: 1,
+      skipped: 1,
+      failures: 0,
+      dayBeforeSent: 0,
+    }));
+
+    queueSelectResults([{
+      ...candidate,
+      startTime: newStart,
+      endTime: new Date('2026-04-01T20:15:00.000Z'),
+    }]);
+    const currentResult = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(currentResult.dayBeforeSent).toBe(1);
+    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+    expect(sendAppointmentOperationalEmailOnce.mock.calls.at(-1)?.[0])
+      .toEqual(expect.objectContaining({ eventVersion: newStart.toISOString() }));
+  });
+
+  it('delivers an exact current candidate and commits its sent marker through CAS', async () => {
+    const startTime = new Date('2026-04-01T19:00:00.000Z');
+    queueSelectResults([{
+      appointmentId: 'appt_exact_current',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime,
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: 'Daniela',
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    }]);
+
+    const result = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+
+    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(1);
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
+      dayBeforeReminderChannel: 'email',
+      dayBeforeReminderSentAt: new Date('2026-03-31T22:05:00.000Z'),
+    }));
+    expect(result).toEqual(expect.objectContaining({
+      dayBeforeSent: 1,
+      dayBeforeEmail: 1,
+      skipped: 0,
+    }));
+  });
+
+  it('pins email and SMS reminder identity to the candidate start time', async () => {
+    const oldStart = new Date('2026-04-01T19:00:00.000Z');
+    const newStart = new Date('2026-04-01T19:15:00.000Z');
+    const candidate = {
+      appointmentId: 'appt_event_version',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: oldStart,
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: 'Daniela',
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+
+    for (const startTime of [oldStart, oldStart, newStart]) {
+      queueSelectResults([{
+        ...candidate,
+        startTime,
+        endTime: new Date(startTime.getTime() + 60 * 60 * 1000),
+      }]);
+      await processAppointmentReminders({
+        now: new Date('2026-03-31T22:05:00.000Z'),
+      });
+    }
+
+    const emailVersions = sendAppointmentOperationalEmailOnce.mock.calls.map(
+      ([input]) => input.eventVersion,
+    );
+
+    expect(emailVersions).toEqual([
+      oldStart.toISOString(),
+      oldStart.toISOString(),
+      newStart.toISOString(),
+    ]);
+    expect(new Set(emailVersions).size).toBe(2);
+
+    const smsKeys = getSmsClaimKeys();
+
+    expect(smsKeys).toHaveLength(2);
+    expect(smsKeys.some(key => key.endsWith(oldStart.toISOString()))).toBe(true);
+    expect(smsKeys.some(key => key.endsWith(newStart.toISOString()))).toBe(true);
+    expect(sendTransactionalEmail).toHaveBeenCalledTimes(2);
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(2);
+  });
+
+  it('allows concurrent workers at most one provider call per current channel', async () => {
+    const candidate = {
+      appointmentId: 'appt_default_durable_concurrency',
+      salonId: 'salon_1',
+      salonClientId: 'primary_client',
+      salonName: 'Isla Nail Studio',
+      salonSettings: { booking: { timezone: 'America/Toronto' } },
+      clientName: 'Ava',
+      clientPhone: '+14165551234',
+      startTime: new Date('2026-04-01T19:00:00.000Z'),
+      endTime: new Date('2026-04-01T20:00:00.000Z'),
+      technicianName: 'Daniela',
+      dayBeforeReminderSentAt: null,
+      sameDayReminderSentAt: null,
+    };
+    let signalEmailProvider!: () => void;
+    let releaseEmailProvider!: () => void;
+    const emailProviderStarted = new Promise<void>((resolve) => {
+      signalEmailProvider = resolve;
+    });
+    const emailProviderRelease = new Promise<void>((resolve) => {
+      releaseEmailProvider = resolve;
+    });
+    sendTransactionalEmail.mockImplementation(async () => {
+      signalEmailProvider();
+      await emailProviderRelease;
+      return true;
+    });
+    queueSelectResults([candidate], [candidate]);
+
+    const first = processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    await emailProviderStarted;
+    const secondResult = await processAppointmentReminders({
+      now: new Date('2026-03-31T22:05:00.000Z'),
+    });
+    releaseEmailProvider();
+    const firstResult = await first;
+
+    expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+    expect(sendAppointmentReminder).toHaveBeenCalledTimes(1);
+    expect(firstResult.dayBeforeSent + secondResult.dayBeforeSent).toBe(1);
   });
 });

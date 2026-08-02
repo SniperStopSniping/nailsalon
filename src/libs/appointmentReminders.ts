@@ -30,6 +30,7 @@ const SAME_DAY_WINDOW_MAX_MINUTES = 135;
 const MAX_CANDIDATES_PER_RUN = 500;
 
 type ReminderChannel = 'email' | 'sms';
+type ReminderType = 'day_before' | 'same_day';
 
 type ReminderCandidate = {
   appointmentId: string;
@@ -51,6 +52,7 @@ type ReminderCandidate = {
 type ReminderSendResult = {
   channel: ReminderChannel | null;
   attempted: boolean;
+  superseded?: boolean;
 };
 
 type ReminderSmsClaim = {
@@ -72,6 +74,7 @@ export type ProcessAppointmentRemindersResult = {
 
 export async function processAppointmentReminders(args?: {
   now?: Date;
+  beforeDeliveryGuard?: () => Promise<void>;
 }): Promise<ProcessAppointmentRemindersResult> {
   const now = args?.now ?? new Date();
   const candidates = await loadReminderCandidates(now);
@@ -120,22 +123,39 @@ export async function processAppointmentReminders(args?: {
     const services = await getAppointmentServiceNames(
       operationalCandidate.appointmentId,
     );
+    let guardHookUsed = false;
+    const beforeDeliveryGuard = async () => {
+      if (!guardHookUsed) {
+        guardHookUsed = true;
+        await args?.beforeDeliveryGuard?.();
+      }
+    };
 
     if (dueDayBefore) {
       const sendResult = await sendDayBeforeReminder(operationalCandidate, {
         services,
         timeZone,
         now,
+        beforeDeliveryGuard,
       });
 
+      if (sendResult.superseded) {
+        result.skipped += 1;
+        continue;
+      }
       if (sendResult.channel) {
-        await markReminderSent({
+        const marked = await markReminderSent({
           appointmentId: operationalCandidate.appointmentId,
           salonId: operationalCandidate.salonId,
           reminderType: 'day_before',
           channel: sendResult.channel,
           now,
+          startTime: operationalCandidate.startTime,
         });
+        if (!marked) {
+          result.skipped += 1;
+          continue;
+        }
         result.dayBeforeSent += 1;
         if (sendResult.channel === 'email') {
           result.dayBeforeEmail += 1;
@@ -155,16 +175,27 @@ export async function processAppointmentReminders(args?: {
       const sendResult = await sendSameDayReminder(operationalCandidate, {
         services,
         timeZone,
+        now,
+        beforeDeliveryGuard,
       });
 
+      if (sendResult.superseded) {
+        result.skipped += 1;
+        continue;
+      }
       if (sendResult.channel) {
-        await markReminderSent({
+        const marked = await markReminderSent({
           appointmentId: operationalCandidate.appointmentId,
           salonId: operationalCandidate.salonId,
           reminderType: 'same_day',
           channel: sendResult.channel,
           now,
+          startTime: operationalCandidate.startTime,
         });
+        if (!marked) {
+          result.skipped += 1;
+          continue;
+        }
         result.sameDaySent += 1;
       } else if (sendResult.attempted) {
         result.failures += 1;
@@ -280,6 +311,53 @@ async function resolveReminderOperationalContact(
     // so no management capability is sent until the state is resolved.
     clientPhone: contact?.phone ?? candidate.clientPhone,
   };
+}
+
+async function isCurrentReminderCandidate(args: {
+  candidate: ReminderCandidate;
+  reminderType: ReminderType;
+  now: Date;
+}): Promise<boolean> {
+  const [current] = await db
+    .select({
+      startTime: appointmentSchema.startTime,
+      status: appointmentSchema.status,
+      deletedAt: appointmentSchema.deletedAt,
+      dayBeforeReminderSentAt: appointmentSchema.dayBeforeReminderSentAt,
+      sameDayReminderSentAt: appointmentSchema.sameDayReminderSentAt,
+      salonSettings: salonSchema.settings,
+    })
+    .from(appointmentSchema)
+    .innerJoin(
+      salonSchema,
+      and(
+        eq(appointmentSchema.salonId, salonSchema.id),
+        eq(salonSchema.isActive, true),
+      ),
+    )
+    .where(and(
+      eq(appointmentSchema.id, args.candidate.appointmentId),
+      eq(appointmentSchema.salonId, args.candidate.salonId),
+    ))
+    .limit(1);
+  if (
+    !current
+    || current.deletedAt
+    || !['pending', 'confirmed'].includes(current.status)
+    || current.startTime.getTime() !== args.candidate.startTime.getTime()
+  ) {
+    return false;
+  }
+
+  if (args.reminderType === 'day_before') {
+    const timeZone = resolveBookingConfigFromSettings(
+      current.salonSettings as SalonSettings | null,
+    ).timezone;
+    return current.dayBeforeReminderSentAt == null
+      && isDayBeforeReminderDue({ now: args.now, startTime: current.startTime, timeZone });
+  }
+  return current.sameDayReminderSentAt == null
+    && isSameDayReminderDue({ now: args.now, startTime: current.startTime });
 }
 
 async function claimReminderSmsDelivery(input: {
@@ -405,10 +483,11 @@ async function finishReminderSmsDelivery(input: {
   deliveryId: string;
   retryable: boolean;
   sent: boolean;
+  errorCode?: string;
 }) {
   await db.update(notificationDeliverySchema).set({
     status: input.sent ? 'sent' : 'failed',
-    errorCode: input.sent ? null : 'SMS_DELIVERY_UNAVAILABLE',
+    errorCode: input.sent ? null : input.errorCode ?? 'SMS_DELIVERY_UNAVAILABLE',
     retryable: input.sent ? false : input.retryable,
   }).where(and(
     eq(notificationDeliverySchema.id, input.deliveryId),
@@ -423,6 +502,7 @@ async function sendDayBeforeReminder(
     services: string[];
     timeZone: string;
     now: Date;
+    beforeDeliveryGuard: () => Promise<void>;
   },
 ): Promise<ReminderSendResult> {
   let manageUrl: string | null = null;
@@ -434,19 +514,36 @@ async function sendDayBeforeReminder(
     }
     return manageUrl;
   };
+  let superseded = false;
   const emailDelivery = await sendAppointmentOperationalEmailOnce({
     salonId: candidate.salonId,
     appointmentId: candidate.appointmentId,
     purpose: 'appointment_day_before_reminder',
     eventVersion: candidate.startTime.toISOString(),
     retryFailed: true,
+    validationErrorCode: 'REMINDER_SUPERSEDED',
     prepare: async () =>
       buildDayBeforeEmailPayload(candidate, {
         services: context.services,
         timeZone: context.timeZone,
         manageUrl: await getManageUrl(),
       }),
+    validateBeforeDelivery: async () => {
+      await context.beforeDeliveryGuard();
+      const current = await isCurrentReminderCandidate({
+        candidate,
+        reminderType: 'day_before',
+        now: context.now,
+      });
+      if (!current) {
+        superseded = true;
+      }
+      return current;
+    },
   });
+  if (superseded) {
+    return { channel: null, attempted: false, superseded: true };
+  }
   const emailSent = emailDelivery.status === 'sent';
 
   const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
@@ -485,6 +582,22 @@ async function sendDayBeforeReminder(
     };
   }
 
+  const smsManageUrl = await getManageUrl();
+  await context.beforeDeliveryGuard();
+  if (!await isCurrentReminderCandidate({
+    candidate,
+    reminderType: 'day_before',
+    now: context.now,
+  })) {
+    await finishReminderSmsDelivery({
+      salonId: candidate.salonId,
+      deliveryId: smsClaim.deliveryId,
+      retryable: false,
+      sent: false,
+      errorCode: 'REMINDER_SUPERSEDED',
+    });
+    return { channel: null, attempted: false, superseded: true };
+  }
   const smsSent = await sendAppointmentReminder(candidate.salonId, {
     phone: normalizedPhone,
     clientName: candidate.clientName ?? undefined,
@@ -496,7 +609,7 @@ async function sendDayBeforeReminder(
     services: context.services,
     technicianName: candidate.technicianName,
     timeZone: context.timeZone,
-    manageUrl: await getManageUrl(),
+    manageUrl: smsManageUrl,
   }).catch(() => false);
   const smsRetryable = !smsSent && smsClaim.claimedAt
     ? await wasReminderSmsFailureRetryable({
@@ -524,6 +637,8 @@ async function sendSameDayReminder(
   context: {
     services: string[];
     timeZone: string;
+    now: Date;
+    beforeDeliveryGuard: () => Promise<void>;
   },
 ): Promise<ReminderSendResult> {
   let manageUrl: string | null = null;
@@ -535,19 +650,36 @@ async function sendSameDayReminder(
     }
     return manageUrl;
   };
+  let superseded = false;
   const emailDelivery = await sendAppointmentOperationalEmailOnce({
     salonId: candidate.salonId,
     appointmentId: candidate.appointmentId,
     purpose: 'appointment_same_day_reminder',
     eventVersion: candidate.startTime.toISOString(),
     retryFailed: true,
+    validationErrorCode: 'REMINDER_SUPERSEDED',
     prepare: async () =>
       buildSameDayEmailPayload(candidate, {
         services: context.services,
         timeZone: context.timeZone,
         manageUrl: await getManageUrl(),
       }),
+    validateBeforeDelivery: async () => {
+      await context.beforeDeliveryGuard();
+      const current = await isCurrentReminderCandidate({
+        candidate,
+        reminderType: 'same_day',
+        now: context.now,
+      });
+      if (!current) {
+        superseded = true;
+      }
+      return current;
+    },
   });
+  if (superseded) {
+    return { channel: null, attempted: false, superseded: true };
+  }
   const emailSent = emailDelivery.status === 'sent';
   const normalizedPhone = normalizeReminderPhone(candidate.clientPhone);
   if (!normalizedPhone) {
@@ -585,6 +717,22 @@ async function sendSameDayReminder(
     };
   }
 
+  const smsManageUrl = await getManageUrl();
+  await context.beforeDeliveryGuard();
+  if (!await isCurrentReminderCandidate({
+    candidate,
+    reminderType: 'same_day',
+    now: context.now,
+  })) {
+    await finishReminderSmsDelivery({
+      salonId: candidate.salonId,
+      deliveryId: smsClaim.deliveryId,
+      retryable: false,
+      sent: false,
+      errorCode: 'REMINDER_SUPERSEDED',
+    });
+    return { channel: null, attempted: false, superseded: true };
+  }
   const smsSent = await sendAppointmentReminder(candidate.salonId, {
     phone: normalizedPhone,
     clientName: candidate.clientName ?? undefined,
@@ -596,7 +744,7 @@ async function sendSameDayReminder(
     services: context.services,
     technicianName: candidate.technicianName,
     timeZone: context.timeZone,
-    manageUrl: await getManageUrl(),
+    manageUrl: smsManageUrl,
   }).catch(() => false);
   const smsRetryable = !smsSent && smsClaim.claimedAt
     ? await wasReminderSmsFailureRetryable({
@@ -712,9 +860,10 @@ async function markReminderSent(args: {
   reminderType: 'day_before' | 'same_day';
   channel: ReminderChannel;
   now: Date;
-}): Promise<void> {
+  startTime: Date;
+}): Promise<boolean> {
   if (args.reminderType === 'day_before') {
-    await db
+    const marked = await db
       .update(appointmentSchema)
       .set({
         dayBeforeReminderSentAt: args.now,
@@ -725,13 +874,17 @@ async function markReminderSent(args: {
         and(
           eq(appointmentSchema.id, args.appointmentId),
           eq(appointmentSchema.salonId, args.salonId),
+          eq(appointmentSchema.startTime, args.startTime),
+          inArray(appointmentSchema.status, ['pending', 'confirmed']),
+          isNull(appointmentSchema.deletedAt),
           isNull(appointmentSchema.dayBeforeReminderSentAt),
         ),
-      );
-    return;
+      )
+      .returning();
+    return marked.length === 1;
   }
 
-  await db
+  const marked = await db
     .update(appointmentSchema)
     .set({
       sameDayReminderSentAt: args.now,
@@ -742,9 +895,14 @@ async function markReminderSent(args: {
       and(
         eq(appointmentSchema.id, args.appointmentId),
         eq(appointmentSchema.salonId, args.salonId),
+        eq(appointmentSchema.startTime, args.startTime),
+        inArray(appointmentSchema.status, ['pending', 'confirmed']),
+        isNull(appointmentSchema.deletedAt),
         isNull(appointmentSchema.sameDayReminderSentAt),
       ),
-    );
+    )
+    .returning();
+  return marked.length === 1;
 }
 
 function normalizeReminderPhone(phone: string): string | null {

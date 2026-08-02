@@ -74,6 +74,7 @@ const holder = vi.hoisted(() => ({ db: null as unknown }));
 const {
   sendTransactionalEmail,
   sendTransactionalEmailDetailed,
+  sendAppointmentReminder,
   requireStaffSession,
   requireAdmin,
   requireAdminSalon,
@@ -85,6 +86,7 @@ const {
 } = vi.hoisted(() => ({
   sendTransactionalEmail: vi.fn(),
   sendTransactionalEmailDetailed: vi.fn(),
+  sendAppointmentReminder: vi.fn(),
   requireStaffSession: vi.fn(),
   requireAdmin: vi.fn(),
   requireAdminSalon: vi.fn(),
@@ -122,6 +124,7 @@ vi.mock('@/libs/SMS', () => ({
   sendBookingConfirmationToClient: vi.fn(),
   sendCancellationNotificationToTech: vi.fn(),
   sendRescheduleConfirmation: vi.fn(),
+  sendAppointmentReminder,
 }));
 vi.mock('@/libs/googleCalendar', async importOriginal => ({
   ...(await importOriginal<typeof import('@/libs/googleCalendar')>()),
@@ -136,6 +139,9 @@ const SALON_ID = 'salon_conc';
 const TECH_ID = 'tech_conc';
 const SECOND_TECH_ID = 'tech_conc_2';
 const SERVICE_ID = 'svc_conc';
+const SECOND_SERVICE_ID = 'svc_conc_2';
+const THIRD_SERVICE_ID = 'svc_conc_3';
+const ADD_ON_ID = 'addon_conc';
 const START_TIME = '2099-09-01T15:00:00.000Z';
 const POLICY_TITLE = 'Deposit and cancellation policy';
 const POLICY_TEXT
@@ -229,14 +235,51 @@ suite('POST /api/appointments — genuine concurrency', () => {
         ),
       },
     ]);
-    await db.insert(schema.serviceSchema).values({
-      id: SERVICE_ID,
+    await db.insert(schema.serviceSchema).values([
+      {
+        id: SERVICE_ID,
+        salonId: SALON_ID,
+        name: 'Concurrency Service',
+        category: 'manicure',
+        price: 6500,
+        durationMinutes: 60,
+        isActive: true,
+      },
+      {
+        id: SECOND_SERVICE_ID,
+        salonId: SALON_ID,
+        name: 'Concurrency Service 2',
+        category: 'manicure',
+        price: 8500,
+        durationMinutes: 75,
+        isActive: true,
+      },
+      {
+        id: THIRD_SERVICE_ID,
+        salonId: SALON_ID,
+        name: 'Concurrency Service 3',
+        category: 'manicure',
+        price: 9500,
+        durationMinutes: 90,
+        isActive: true,
+      },
+    ]);
+    await db.insert(schema.addOnSchema).values({
+      id: ADD_ON_ID,
       salonId: SALON_ID,
-      name: 'Concurrency Service',
-      category: 'manicure',
-      price: 6500,
-      durationMinutes: 60,
+      name: 'Concurrency Add-on',
+      slug: 'concurrency-add-on',
+      category: 'nail_art',
+      priceCents: 500,
+      durationMinutes: 15,
+      pricingType: 'fixed',
       isActive: true,
+    });
+    await db.insert(schema.serviceAddOnSchema).values({
+      id: 'service_addon_conc_2',
+      salonId: SALON_ID,
+      serviceId: SECOND_SERVICE_ID,
+      addOnId: ADD_ON_ID,
     });
     // The technician must be assigned the service, or the route rejects the
     // selection long before the race is reached.
@@ -251,6 +294,10 @@ suite('POST /api/appointments — genuine concurrency', () => {
         serviceId: SERVICE_ID,
         enabled: true,
       },
+      ...[SECOND_SERVICE_ID, THIRD_SERVICE_ID].flatMap(serviceId => [
+        { technicianId: TECH_ID, serviceId, enabled: true },
+        { technicianId: SECOND_TECH_ID, serviceId, enabled: true },
+      ]),
     ]);
   });
 
@@ -281,6 +328,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
     });
     sendTransactionalEmail.mockResolvedValue(true);
     sendTransactionalEmailDetailed.mockResolvedValue({ ok: true, errorCode: null, providerMessageId: 'm' });
+    sendAppointmentReminder.mockResolvedValue(true);
     recordGoogleEventReviewDecision.mockResolvedValue(undefined);
 
     await pool.query(`TRUNCATE TABLE
@@ -580,6 +628,21 @@ suite('POST /api/appointments — genuine concurrency', () => {
     }
   }
 
+  async function releaseMutationBarrier(
+    held: HeldLock,
+    expectedCount: number,
+    operations: Array<Promise<unknown>>,
+  ): Promise<void> {
+    try {
+      await waitForBlockedSessions(expectedCount, held.pid);
+    } catch (error) {
+      await held.release();
+      await Promise.allSettled(operations);
+      throw error;
+    }
+    await held.release();
+  }
+
   type HeldLock = {
     pid: number;
     release: () => Promise<void>;
@@ -623,6 +686,26 @@ suite('POST /api/appointments — genuine concurrency', () => {
         'SELECT pg_advisory_xact_lock(hashtextextended($1, 0))',
         [advisoryKey],
       );
+      return await registerHeldLock(connection);
+    } catch (error) {
+      await connection.query('ROLLBACK');
+      connection.release();
+      throw error;
+    }
+  }
+
+  async function holdTechnicianMutationLocks(
+    technicianIds: string[],
+  ): Promise<HeldLock> {
+    const connection = await pool.connect();
+    try {
+      await connection.query('BEGIN');
+      for (const technicianId of [...new Set(technicianIds)].sort()) {
+        await connection.query(
+          'SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))',
+          [SALON_ID, technicianId],
+        );
+      }
       return await registerHeldLock(connection);
     } catch (error) {
       await connection.query('ROLLBACK');
@@ -912,6 +995,119 @@ suite('POST /api/appointments — genuine concurrency', () => {
     }
 
     return appointment;
+  }
+
+  async function seedManagedAppointment(input: {
+    id: string;
+    startTime?: string;
+    technicianId?: string;
+    baseServiceId?: string;
+    withAddOn?: boolean;
+    reminderSent?: boolean;
+    clientEmail?: string;
+  }) {
+    const baseServiceId = input.baseServiceId ?? SERVICE_ID;
+    const [service] = await db
+      .select()
+      .from(schema.serviceSchema)
+      .where(eq(schema.serviceSchema.id, baseServiceId))
+      .limit(1);
+    if (!service) {
+      throw new Error('Managed-test service not found');
+    }
+    const withAddOn = input.withAddOn === true;
+    const totalPrice = service.price + (withAddOn ? 500 : 0);
+    const totalDurationMinutes = service.durationMinutes + (withAddOn ? 15 : 0);
+    const appointment = await seedAppointment({
+      id: input.id,
+      status: 'confirmed',
+      salonClientId: null,
+      clientPhone: '4165557777',
+      clientEmail: input.clientEmail ?? 'managed@example.invalid',
+      technicianId: input.technicianId,
+      startTime: input.startTime,
+    });
+    const reminderSentAt = input.reminderSent === false
+      ? null
+      : new Date('2099-08-01T12:00:00.000Z');
+    const [updated] = await db
+      .update(schema.appointmentSchema)
+      .set({
+        totalPrice,
+        totalDurationMinutes,
+        basePriceCents: service.price,
+        addOnsPriceCents: withAddOn ? 500 : 0,
+        baseDurationMinutes: service.durationMinutes,
+        addOnsDurationMinutes: withAddOn ? 15 : 0,
+        subtotalBeforeDiscountCents: totalPrice,
+        blockedDurationMinutes: totalDurationMinutes + 10,
+        endTime: new Date(appointment.startTime.getTime() + totalDurationMinutes * 60_000),
+        dayBeforeReminderSentAt: reminderSentAt,
+        dayBeforeReminderChannel: reminderSentAt ? 'email' : null,
+        sameDayReminderSentAt: reminderSentAt,
+        sameDayReminderChannel: reminderSentAt ? 'sms' : null,
+      })
+      .where(eq(schema.appointmentSchema.id, appointment.id))
+      .returning();
+    await db.insert(schema.appointmentServicesSchema).values({
+      id: `managed_service_${input.id}`,
+      appointmentId: appointment.id,
+      serviceId: service.id,
+      priceAtBooking: service.price,
+      durationAtBooking: service.durationMinutes,
+      nameSnapshot: service.name,
+      categorySnapshot: service.category,
+      priceCentsSnapshot: service.price,
+      durationMinutesSnapshot: service.durationMinutes,
+    });
+    if (withAddOn) {
+      await db.insert(schema.appointmentAddOnSchema).values({
+        id: `managed_addon_${input.id}`,
+        appointmentId: appointment.id,
+        addOnId: ADD_ON_ID,
+        quantitySnapshot: 1,
+        nameSnapshot: 'Concurrency Add-on',
+        categorySnapshot: 'nail_art',
+        pricingTypeSnapshot: 'fixed',
+        unitPriceCentsSnapshot: 500,
+        durationMinutesSnapshot: 15,
+        lineTotalCentsSnapshot: 500,
+        lineDurationMinutesSnapshot: 15,
+      });
+    }
+    if (!updated) {
+      throw new Error('Failed to seed managed appointment');
+    }
+    return updated;
+  }
+
+  async function runManagedMutation(input: {
+    appointmentId: string;
+    operation: 'move' | 'moveToNextAvailable' | 'changeService' | 'reassignTechnician';
+    startTime?: string;
+    technicianId?: string;
+    baseServiceId?: string;
+  }) {
+    const { runAppointmentManageMutation } = await import(
+      '@/libs/appointmentManage'
+    );
+    return runAppointmentManageMutation({
+      appointmentId: input.appointmentId,
+      salonId: SALON_ID,
+      operation: input.operation,
+      startTime: input.startTime ? new Date(input.startTime) : undefined,
+      technicianId: input.technicianId,
+      baseServiceId: input.baseServiceId,
+      canReassignTechnician: true,
+    });
+  }
+
+  function mutationOutcomeCodes(
+    results: PromiseSettledResult<unknown>[],
+  ): Array<string> {
+    return results.map(result => result.status === 'fulfilled'
+      ? 'OK'
+      : (result.reason as { code?: string }).code ?? 'UNKNOWN');
   }
 
   async function loadAppointment(appointmentId: string) {
@@ -3348,5 +3544,449 @@ suite('POST /api/appointments — genuine concurrency', () => {
 
     // The invariant holds no matter who won; which one wins is not asserted.
     expect(winners.size).toBeGreaterThanOrEqual(1);
+  });
+
+  it('serializes two real moves and leaves reminders aligned with the winner', async () => {
+    const appointment = await seedManagedAppointment({
+      id: 'managed_two_moves',
+      startTime: '2099-09-01T15:00:00.000Z',
+    });
+    const held = await holdTechnicianMutationLocks([TECH_ID]);
+    const operations = [
+      runManagedMutation({
+        appointmentId: appointment.id,
+        operation: 'move',
+        startTime: '2099-09-01T18:00:00.000Z',
+      }),
+      runManagedMutation({
+        appointmentId: appointment.id,
+        operation: 'move',
+        startTime: '2099-09-01T20:00:00.000Z',
+      }),
+    ];
+    await releaseMutationBarrier(held, 2, operations);
+    const outcomes = await Promise.allSettled(operations);
+
+    expect(mutationOutcomeCodes(outcomes).sort()).toEqual(['OK', 'STALE_STATE']);
+
+    const final = await loadAppointment(appointment.id);
+
+    expect([
+      '2099-09-01T18:00:00.000Z',
+      '2099-09-01T20:00:00.000Z',
+    ]).toContain(final.startTime.toISOString());
+    expect(final).toMatchObject({
+      dayBeforeReminderSentAt: null,
+      dayBeforeReminderChannel: null,
+      sameDayReminderSentAt: null,
+      sameDayReminderChannel: null,
+    });
+  });
+
+  it('serializes a move against next-available and revalidates the winning slot', async () => {
+    const appointment = await seedManagedAppointment({
+      id: 'managed_move_next',
+      startTime: '2099-09-02T15:00:00.000Z',
+    });
+    const held = await holdTechnicianMutationLocks([TECH_ID]);
+    const operations = [
+      runManagedMutation({
+        appointmentId: appointment.id,
+        operation: 'move',
+        startTime: '2099-09-02T19:00:00.000Z',
+      }),
+      runManagedMutation({
+        appointmentId: appointment.id,
+        operation: 'moveToNextAvailable',
+      }),
+    ];
+    await releaseMutationBarrier(held, 2, operations);
+    const outcomes = await Promise.allSettled(operations);
+
+    expect(mutationOutcomeCodes(outcomes).sort()).toEqual(['OK', 'STALE_STATE']);
+
+    const final = await loadAppointment(appointment.id);
+
+    expect(final.startTime.getTime()).toBeGreaterThan(appointment.startTime.getTime());
+    expect(final).toMatchObject({
+      dayBeforeReminderSentAt: null,
+      dayBeforeReminderChannel: null,
+      sameDayReminderSentAt: null,
+      sameDayReminderChannel: null,
+    });
+  });
+
+  it('serializes move versus reassign and preserves reminder state only for a reassign winner', async () => {
+    const appointment = await seedManagedAppointment({
+      id: 'managed_move_reassign',
+      startTime: '2099-09-03T15:00:00.000Z',
+    });
+    const held = await holdTechnicianMutationLocks([TECH_ID]);
+    const operations = [
+      runManagedMutation({
+        appointmentId: appointment.id,
+        operation: 'move',
+        startTime: '2099-09-03T19:00:00.000Z',
+      }),
+      runManagedMutation({
+        appointmentId: appointment.id,
+        operation: 'reassignTechnician',
+        technicianId: SECOND_TECH_ID,
+      }),
+    ];
+    await releaseMutationBarrier(held, 2, operations);
+    const outcomes = await Promise.allSettled(operations);
+
+    expect(mutationOutcomeCodes(outcomes).sort()).toEqual(['OK', 'STALE_STATE']);
+
+    const final = await loadAppointment(appointment.id);
+    if (final.technicianId === SECOND_TECH_ID) {
+      expect(final.startTime).toEqual(appointment.startTime);
+      expect(final.dayBeforeReminderSentAt?.toISOString())
+        .toBe('2099-08-01T12:00:00.000Z');
+      expect(final.sameDayReminderChannel).toBe('sms');
+    } else {
+      expect(final.startTime.toISOString()).toBe('2099-09-03T19:00:00.000Z');
+      expect(final.dayBeforeReminderSentAt).toBeNull();
+      expect(final.sameDayReminderSentAt).toBeNull();
+    }
+  });
+
+  it('serializes move versus service change without a mixed appointment/line-item state', async () => {
+    const appointment = await seedManagedAppointment({
+      id: 'managed_move_service',
+      startTime: '2099-09-04T15:00:00.000Z',
+    });
+    const held = await holdTechnicianMutationLocks([TECH_ID]);
+    const operations = [
+      runManagedMutation({
+        appointmentId: appointment.id,
+        operation: 'move',
+        startTime: '2099-09-04T19:00:00.000Z',
+      }),
+      runManagedMutation({
+        appointmentId: appointment.id,
+        operation: 'changeService',
+        baseServiceId: SECOND_SERVICE_ID,
+        startTime: '2099-09-04T20:00:00.000Z',
+      }),
+    ];
+    await releaseMutationBarrier(held, 2, operations);
+    const outcomes = await Promise.allSettled(operations);
+
+    expect(mutationOutcomeCodes(outcomes).sort()).toEqual(['OK', 'STALE_STATE']);
+
+    const final = await loadAppointment(appointment.id);
+    const lines = await db
+      .select()
+      .from(schema.appointmentServicesSchema)
+      .where(eq(schema.appointmentServicesSchema.appointmentId, appointment.id));
+
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.serviceId).toBe(
+      final.startTime.toISOString() === '2099-09-04T20:00:00.000Z'
+        ? SECOND_SERVICE_ID
+        : SERVICE_ID,
+    );
+    expect(final.dayBeforeReminderSentAt).toBeNull();
+    expect(final.sameDayReminderSentAt).toBeNull();
+  });
+
+  it('allows only one appointment to take the final slot', async () => {
+    const first = await seedManagedAppointment({
+      id: 'managed_final_slot_a',
+      startTime: '2099-09-05T15:00:00.000Z',
+    });
+    const second = await seedManagedAppointment({
+      id: 'managed_final_slot_b',
+      startTime: '2099-09-06T15:00:00.000Z',
+    });
+    const target = '2099-09-07T18:00:00.000Z';
+    const held = await holdTechnicianMutationLocks([TECH_ID]);
+    const operations = [first, second].map(appointment => runManagedMutation({
+      appointmentId: appointment.id,
+      operation: 'move',
+      startTime: target,
+    }));
+    await releaseMutationBarrier(held, 2, operations);
+    const outcomes = await Promise.allSettled(operations);
+
+    expect(mutationOutcomeCodes(outcomes).sort())
+      .toEqual(['APPOINTMENT_CONFLICT', 'OK']);
+
+    const finals = await Promise.all([
+      loadAppointment(first.id),
+      loadAppointment(second.id),
+    ]);
+    const winners = finals.filter(row => row.startTime.toISOString() === target);
+
+    expect(winners).toHaveLength(1);
+    expect(winners[0]).toMatchObject({
+      dayBeforeReminderSentAt: null,
+      dayBeforeReminderChannel: null,
+      sameDayReminderSentAt: null,
+      sameDayReminderChannel: null,
+    });
+
+    const loser = finals.find(row => row.id !== winners[0]?.id);
+
+    expect(loser?.dayBeforeReminderSentAt?.toISOString())
+      .toBe('2099-08-01T12:00:00.000Z');
+    expect(loser?.sameDayReminderChannel).toBe('sms');
+  });
+
+  it('rejects stale service/add-on state and keeps the winning line update atomic', async () => {
+    const appointment = await seedManagedAppointment({
+      id: 'managed_service_lines',
+      startTime: '2099-09-08T15:00:00.000Z',
+      withAddOn: true,
+    });
+    const held = await holdTechnicianMutationLocks([TECH_ID]);
+    const operations = [SECOND_SERVICE_ID, THIRD_SERVICE_ID].map(
+      baseServiceId => runManagedMutation({
+        appointmentId: appointment.id,
+        operation: 'changeService',
+        baseServiceId,
+      }),
+    );
+    await releaseMutationBarrier(held, 2, operations);
+    const outcomes = await Promise.allSettled(operations);
+
+    expect(mutationOutcomeCodes(outcomes).sort()).toEqual(['OK', 'STALE_STATE']);
+
+    const [final, services, addOns] = await Promise.all([
+      loadAppointment(appointment.id),
+      db.select().from(schema.appointmentServicesSchema).where(
+        eq(schema.appointmentServicesSchema.appointmentId, appointment.id),
+      ),
+      db.select().from(schema.appointmentAddOnSchema).where(
+        eq(schema.appointmentAddOnSchema.appointmentId, appointment.id),
+      ),
+    ]);
+
+    expect(services).toHaveLength(1);
+
+    if (services[0]?.serviceId === SECOND_SERVICE_ID) {
+      expect(addOns).toHaveLength(1);
+      expect(final).toMatchObject({
+        basePriceCents: 8500,
+        addOnsPriceCents: 500,
+        totalPrice: 9000,
+      });
+    } else {
+      expect(services[0]?.serviceId).toBe(THIRD_SERVICE_ID);
+      expect(addOns).toHaveLength(0);
+      expect(final).toMatchObject({
+        basePriceCents: 9500,
+        addOnsPriceCents: 0,
+        totalPrice: 9500,
+      });
+    }
+
+    expect(final.dayBeforeReminderSentAt?.toISOString())
+      .toBe('2099-08-01T12:00:00.000Z');
+    expect(final.sameDayReminderChannel).toBe('sms');
+  });
+
+  it('uses sorted technician locks so opposite reassignments do not deadlock', async () => {
+    const first = await seedManagedAppointment({
+      id: 'managed_lock_order_a',
+      startTime: '2099-09-09T15:00:00.000Z',
+      technicianId: TECH_ID,
+    });
+    const second = await seedManagedAppointment({
+      id: 'managed_lock_order_b',
+      startTime: '2099-09-10T15:00:00.000Z',
+      technicianId: SECOND_TECH_ID,
+    });
+    const held = await holdTechnicianMutationLocks([TECH_ID]);
+    const operations = [
+      runManagedMutation({
+        appointmentId: first.id,
+        operation: 'reassignTechnician',
+        technicianId: SECOND_TECH_ID,
+      }),
+      runManagedMutation({
+        appointmentId: second.id,
+        operation: 'reassignTechnician',
+        technicianId: TECH_ID,
+      }),
+    ];
+    await releaseMutationBarrier(held, 2, operations);
+    const outcomes = await Promise.allSettled(operations);
+
+    expect(mutationOutcomeCodes(outcomes)).toEqual(['OK', 'OK']);
+    expect((await loadAppointment(first.id)).technicianId).toBe(SECOND_TECH_ID);
+    expect((await loadAppointment(second.id)).technicianId).toBe(TECH_ID);
+  });
+
+  it('refuses an old reminder candidate after a real move and sends the new identity', async () => {
+    const now = new Date('2099-08-31T22:05:00.000Z');
+    const oldStart = '2099-09-01T15:00:00.000Z';
+    const newStart = '2099-09-01T16:00:00.000Z';
+    const appointment = await seedManagedAppointment({
+      id: 'managed_stale_reminder',
+      startTime: oldStart,
+      reminderSent: false,
+    });
+    const { processAppointmentReminders } = await import(
+      '@/libs/appointmentReminders'
+    );
+
+    const staleRun = await processAppointmentReminders({
+      now,
+      beforeDeliveryGuard: async () => {
+        await runManagedMutation({
+          appointmentId: appointment.id,
+          operation: 'move',
+          startTime: newStart,
+        });
+      },
+    });
+
+    expect(staleRun.skipped).toBe(1);
+    expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+    expect(sendAppointmentReminder).not.toHaveBeenCalled();
+
+    const afterMove = await loadAppointment(appointment.id);
+
+    expect(afterMove.startTime.toISOString()).toBe(newStart);
+    expect(afterMove.dayBeforeReminderSentAt).toBeNull();
+
+    const staleDeliveries = await db
+      .select()
+      .from(schema.notificationDeliverySchema)
+      .where(eq(
+        schema.notificationDeliverySchema.appointmentId,
+        appointment.id,
+      ));
+
+    expect(staleDeliveries).toHaveLength(1);
+    expect(staleDeliveries[0]).toMatchObject({
+      status: 'failed',
+      errorCode: 'REMINDER_SUPERSEDED',
+      retryable: false,
+    });
+    expect(staleDeliveries[0]?.dedupeKey).toContain(oldStart);
+
+    const currentRun = await processAppointmentReminders({ now });
+
+    expect(currentRun.dayBeforeSent).toBe(1);
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+
+    const final = await loadAppointment(appointment.id);
+
+    expect(final.dayBeforeReminderSentAt).toEqual(now);
+
+    const deliveries = await db
+      .select()
+      .from(schema.notificationDeliverySchema)
+      .where(eq(
+        schema.notificationDeliverySchema.appointmentId,
+        appointment.id,
+      ));
+
+    expect(deliveries).toHaveLength(2);
+    expect(deliveries.find(row => row.status === 'sent')?.dedupeKey)
+      .toContain(newStart);
+  });
+
+  it('sends an unchanged reminder candidate through the real processor', async () => {
+    const now = new Date('2099-08-31T22:05:00.000Z');
+    const startTime = '2099-09-01T15:00:00.000Z';
+    const appointment = await seedManagedAppointment({
+      id: 'managed_current_reminder',
+      startTime,
+      reminderSent: false,
+      clientEmail: 'resolved-before-guard@example.invalid',
+    });
+    const { processAppointmentReminders } = await import(
+      '@/libs/appointmentReminders'
+    );
+
+    const result = await processAppointmentReminders({
+      now,
+      beforeDeliveryGuard: async () => {
+        expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+
+        await db
+          .update(schema.appointmentSchema)
+          .set({ clientEmail: 'changed-after-resolution@example.invalid' })
+          .where(eq(schema.appointmentSchema.id, appointment.id));
+      },
+    });
+
+    expect(result.dayBeforeSent).toBe(1);
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: 'resolved-before-guard@example.invalid',
+      }),
+    );
+    expect((await loadAppointment(appointment.id)).dayBeforeReminderSentAt)
+      .toEqual(now);
+
+    const [delivery] = await db
+      .select()
+      .from(schema.notificationDeliverySchema)
+      .where(eq(
+        schema.notificationDeliverySchema.appointmentId,
+        appointment.id,
+      ));
+
+    expect(delivery).toMatchObject({ status: 'sent' });
+    expect(delivery?.dedupeKey).toContain(startTime);
+  });
+
+  it('allows only one of two reminder workers to call the provider', async () => {
+    const now = new Date('2099-08-31T22:05:00.000Z');
+    const startTime = '2099-09-01T15:00:00.000Z';
+    const appointment = await seedManagedAppointment({
+      id: 'managed_two_reminder_workers',
+      startTime,
+      reminderSent: false,
+    });
+    const { processAppointmentReminders } = await import(
+      '@/libs/appointmentReminders'
+    );
+    let releaseFirst!: () => void;
+    let markFirstAtGuard!: () => void;
+    const firstAtGuard = new Promise<void>((resolve) => {
+      markFirstAtGuard = resolve;
+    });
+    const firstMayContinue = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const firstWorker = processAppointmentReminders({
+      now,
+      beforeDeliveryGuard: async () => {
+        markFirstAtGuard();
+        await firstMayContinue;
+      },
+    });
+    await firstAtGuard;
+    const secondWorker = processAppointmentReminders({ now });
+    await secondWorker;
+    releaseFirst();
+    await firstWorker;
+
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+    expect(sendAppointmentReminder).not.toHaveBeenCalled();
+
+    const final = await loadAppointment(appointment.id);
+
+    expect(final.dayBeforeReminderSentAt).toEqual(now);
+
+    const deliveries = await db
+      .select()
+      .from(schema.notificationDeliverySchema)
+      .where(eq(
+        schema.notificationDeliverySchema.appointmentId,
+        appointment.id,
+      ));
+
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]).toMatchObject({ status: 'sent' });
+    expect(deliveries[0]?.dedupeKey).toContain(startTime);
   });
 });
