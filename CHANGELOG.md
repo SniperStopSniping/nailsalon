@@ -1,3 +1,11 @@
+## [1.44.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.44.0...v1.44.1) (2026-08-02)
+
+
+### Bug Fixes
+
+* harden public booking client IP ([33921fd](https://github.com/SniperStopSniping/nailsalon/commit/33921fd5618f84ef9111b3f964d96b6cd7590c78))
+* rate limit public bookings ([b8698ab](https://github.com/SniperStopSniping/nailsalon/commit/b8698abf48d23a698db6f6c947ff4c0617fa20be))
+
 # [1.44.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.43.1...v1.44.0) (2026-08-02)
 
 
