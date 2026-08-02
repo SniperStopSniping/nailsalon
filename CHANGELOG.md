@@ -1,3 +1,10 @@
+# [1.44.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.43.1...v1.44.0) (2026-08-02)
+
+
+### Features
+
+* add service image visibility setting ([831e1d2](https://github.com/SniperStopSniping/nailsalon/commit/831e1d27243516b9f0b7cd1da691572aae9654c4))
+
 ## [1.43.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.43.0...v1.43.1) (2026-08-01)
 
 
