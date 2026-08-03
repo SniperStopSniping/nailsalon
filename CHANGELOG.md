@@ -1,3 +1,10 @@
+# [1.45.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.44.3...v1.45.0) (2026-08-03)
+
+
+### Features
+
+* add calendar sync version database column ([ce662e4](https://github.com/SniperStopSniping/nailsalon/commit/ce662e4c79ce931b3af9805981e6c139fb2f61cf))
+
 ## [1.44.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.44.2...v1.44.3) (2026-08-02)
 
 
