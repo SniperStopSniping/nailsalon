@@ -449,6 +449,13 @@
       "when": 1785209465859,
       "tag": "0063_booking_policy_acknowledgments",
       "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1785719762932,
+      "tag": "0064_appointment_calendar_sync_version",
+      "breakpoints": true
     }
   ]
 }
