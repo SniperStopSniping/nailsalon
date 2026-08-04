@@ -2,11 +2,12 @@
 
 ## Primary Recommendation
 
-The real browser-confidence path is now staging-first.
+The real browser-confidence path is now Preview-first.
 
 Use local Playwright for debugging selectors, fixture helpers, and individual flows.
-Use a staging or staging-like environment for the default gate and the focused
-preview checks required by a release.
+Use the exact Preview deployment for the default external gate and the focused
+Preview checks required by a release. A separate staging-like environment is an
+explicit alternative, not the default target.
 
 Required journeys across those checks:
 - guest booking and editable contact collection
@@ -22,9 +23,9 @@ Important:
 - local runs still help with debugging, but they are not the final confidence path
 - the app uses default-locale paths without an `/en` prefix, and the helpers normalize that automatically
 
-## Staging Fixture Requirements
+## Preview Fixture Requirements
 
-The staging gate assumes stable seeded fixture data. The environment must provide:
+The Preview gate assumes stable seeded fixture data. The environment must provide:
 - one active salon matching `E2E_SALON_SLUG`
 - a matching display name `E2E_SALON_NAME`
 - online booking enabled for that salon
@@ -45,24 +46,24 @@ Recommended canonical fixture values:
 - `E2E_SUPER_ADMIN_PHONE=4165550101`
 - `E2E_OTP_CODE=123456`
 
-If the staging environment does not keep that fixture data stable, the gate will drift and become flaky.
+If the Preview environment does not keep that fixture data stable, the gate will drift and become flaky.
 
 ## Deterministic OTP Requirement
 
-The staging gate assumes deterministic OTP.
+The Preview gate assumes deterministic OTP.
 
 Preferred options:
-- Twilio Verify disabled in staging-like E2E environments so `123456` works
+- Twilio Verify disabled in the Preview E2E environment so `123456` works
 - an explicit OTP test path that makes the configured `E2E_OTP_CODE` valid for browser runs
 
-If staging uses live Twilio Verify without a deterministic test OTP path, this gate is not dependable.
+If Preview uses live Twilio Verify without a deterministic test OTP path, this gate is not dependable.
 
 ## Environment Variables
 
-Required staging inputs:
+Required Preview inputs:
 
 ```bash
-E2E_BASE_URL=https://your-staging-host
+E2E_BASE_URL=https://your-preview-host
 E2E_SALON_SLUG=nail-salon-no5
 E2E_SALON_NAME="Nail Salon No.5"
 E2E_SERVICE_ID=svc_biab-short
@@ -79,12 +80,16 @@ Optional overrides:
 - `E2E_SERVICE_NAME`
 - `E2E_STAFF_TECH_NAME`
 
+`islanailsalon.com` and `www.islanailsalon.com` are rejected at Playwright
+configuration load. `E2E_ALLOW_PRODUCTION=1` is reserved for a separately
+owner-authorized Production run and should be supplied only for that invocation.
+
 ## Commands
 
-### Recommended staging gate
+### Recommended Preview gate
 
 ```bash
-E2E_BASE_URL=https://your-staging-host \
+E2E_BASE_URL=https://your-preview-host \
 E2E_SALON_SLUG=nail-salon-no5 \
 E2E_SALON_NAME="Nail Salon No.5" \
 E2E_SERVICE_ID=svc_biab-short \
@@ -98,7 +103,7 @@ npm run test:e2e:gate
 ### Equivalent core-flow command
 
 ```bash
-E2E_BASE_URL=https://your-staging-host \
+E2E_BASE_URL=https://your-preview-host \
 E2E_SALON_SLUG=nail-salon-no5 \
 E2E_SALON_NAME="Nail Salon No.5" \
 E2E_SERVICE_ID=svc_biab-short \
@@ -128,7 +133,7 @@ without creating a real appointment.
 ### Local debug only
 
 ```bash
-npm run db:migrate:dev
+npm run db:migrate:development
 npm run db:seed
 npm run db:seed:e2e
 npm run dev:e2e:local

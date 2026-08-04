@@ -3,14 +3,22 @@ import { randomUUID } from 'node:crypto';
 
 import { Client } from 'pg';
 
+import {
+  requireDevelopmentDatabase,
+  requireNonProductionDatabaseTarget,
+} from '../src/libs/nonProductionDatabaseGuard';
+
 async function main() {
   if (!process.env.DATABASE_URL) {
     throw new Error('DATABASE_URL is required');
   }
 
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  const { connectionString } = requireNonProductionDatabaseTarget();
+  const client = new Client({ connectionString });
   await client.connect();
   try {
+    await requireDevelopmentDatabase(client);
+
     await client.query('begin');
     const salonResult = await client.query<{
       id: string;

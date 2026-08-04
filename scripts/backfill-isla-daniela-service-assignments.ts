@@ -10,6 +10,10 @@ import { drizzle as drizzlePglite, type PgliteDatabase } from 'drizzle-orm/pglit
 import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
 import { Client } from 'pg';
 
+import {
+  requireDevelopmentDatabase,
+  requireNonProductionDatabaseTarget,
+} from '../src/libs/nonProductionDatabaseGuard';
 import * as schema from '../src/models/Schema';
 
 type CliOptions = {
@@ -47,8 +51,15 @@ async function getDatabase() {
   const databaseUrl = process.env.DATABASE_URL;
 
   if (databaseUrl) {
-    const client = new Client({ connectionString: databaseUrl });
+    const { connectionString } = requireNonProductionDatabaseTarget();
+    const client = new Client({ connectionString });
     await client.connect();
+    try {
+      await requireDevelopmentDatabase(client);
+    } catch (error) {
+      await client.end().catch(() => {});
+      throw error;
+    }
     const db = drizzlePg(client, { schema });
     return { db, client };
   }

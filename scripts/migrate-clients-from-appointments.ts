@@ -1,3 +1,4 @@
+/* eslint-disable no-console */
 /**
  * Migration Script: Populate salon_client from appointment history
  *
@@ -15,6 +16,10 @@ import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
 import { Client } from 'pg';
 
+import {
+  requireDevelopmentDatabase,
+  requireNonProductionDatabaseTarget,
+} from '../src/libs/nonProductionDatabaseGuard';
 import * as schema from '../src/models/Schema';
 
 // Load in order of precedence (later files override earlier)
@@ -34,8 +39,15 @@ async function getDatabase() {
   }
 
   console.log('🔌 Connecting to PostgreSQL database...');
-  const client = new Client({ connectionString: databaseUrl });
+  const { connectionString } = requireNonProductionDatabaseTarget();
+  const client = new Client({ connectionString });
   await client.connect();
+  try {
+    await requireDevelopmentDatabase(client);
+  } catch (error) {
+    await client.end().catch(() => {});
+    throw error;
+  }
 
   const db = drizzle(client, { schema });
   return { db, client };

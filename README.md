@@ -49,10 +49,13 @@ The E2E runner requires its Clerk testing token, isolated test database, Redis, 
 Migrations are stored in [`migrations`](./migrations) and applied through Drizzle:
 
 ```bash
-npm run db:migrate:dev
+npm run db:migrate:development
 ```
 
-Production migrations must be executed with the production database secret loaded at runtime and only after a verified backup. Operational cleanup scripts default to dry-run.
+Production migrations use `npm run db:migrate:production`, with the production
+database secret loaded only for that invocation and
+`LUSTER_PRODUCTION_CONFIRM` set to the current local date. Run them only after a
+verified backup. Operational cleanup scripts default to dry-run.
 
 ## Production operations
 

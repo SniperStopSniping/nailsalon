@@ -4,6 +4,10 @@ import { writeFile } from 'node:fs/promises';
 import { Client } from 'pg';
 
 import { resolveEntitlement } from '../src/libs/featureEntitlements';
+import {
+  requireDevelopmentDatabase,
+  requireNonProductionDatabaseTarget,
+} from '../src/libs/nonProductionDatabaseGuard';
 import type { ModuleKey, SalonFeatures, SalonSettings } from '../src/types/salonPolicy';
 
 const MODULE_ENTITLEMENTS: Record<ModuleKey, [string, string]> = {
@@ -26,10 +30,13 @@ if (!process.env.DATABASE_URL) {
 }
 
 async function main() {
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  const { connectionString } = requireNonProductionDatabaseTarget();
+  const client = new Client({ connectionString });
   await client.connect();
 
   try {
+    await requireDevelopmentDatabase(client);
+
     const result = await client.query<{
       id: string;
       slug: string;

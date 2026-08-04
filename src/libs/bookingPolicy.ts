@@ -118,7 +118,7 @@ function isMissingRelationError(error: unknown, relationName: string): boolean {
 
 function warnMissingRelation(relationName: string) {
   console.warn(
-    `[BookingPolicy] Missing relation "${relationName}". Treating it as empty. Run \`npm run db:migrate:dev\` for the local database.`,
+    `[BookingPolicy] Missing relation "${relationName}". Treating it as empty. Run \`npm run db:migrate:development\` for the local database.`,
   );
 }
 
