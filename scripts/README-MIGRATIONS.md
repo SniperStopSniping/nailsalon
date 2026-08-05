@@ -1,168 +1,129 @@
-# Migration & Verification Scripts
+# Database Commands and Migrations
 
-## Migration Strategy: Raw SQL with Idempotent Guards
+Repository SQL migrations remain forward-only under `migrations/`, but every
+database-bearing Drizzle command must enter through a fixed package command.
+`drizzle.config.ts` intentionally ignores ambient `DATABASE_URL`; invoking
+`drizzle-kit migrate` or `drizzle-kit studio` directly therefore has no target.
 
-This project uses **raw SQL migrations** for schema changes, with the following principles:
+## Non-Production setup
 
-1. **All DDL statements are idempotent** (safe to re-run):
-   - `CREATE TABLE IF NOT EXISTS`
-   - `CREATE INDEX IF NOT EXISTS`
-   - `ADD COLUMN IF NOT EXISTS`
-   - `DO $$ BEGIN ... EXCEPTION WHEN duplicate_object THEN ... END $$;` for enums
+Development actions load only `.env.development.local`, then `.env.local`,
+without overriding values already exported by the invoking process. Preview
+actions load no dotenv file and require an explicit `APP_ENV=preview` process
+environment. No action loads `.env`, `.env.development`, `.env.preview`, or
+`.env.production`.
 
-2. **Drizzle migration state is not treated as sufficient proof of schema health.**
-   - Local/dev environments still use `drizzle-kit migrate`
-   - Verification scripts check the actual schema after migrations run
-   - Repair migrations should be forward-only and idempotent when drift is found
-
-3. **Migration files remain safe to re-run** because they use idempotent guards.
-
-## Scripts
-
-### 1. Run a Migration
+For an empty Development database:
 
 ```bash
-# Direct SQL execution (idempotent - safe to re-run)
-NODE_ENV=development npx dotenv -c development -- npx tsx -e "
-import pg from 'pg';
-import fs from 'fs';
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
-const sql = fs.readFileSync('./migrations/0034_add_fraud_signal_system.sql', 'utf8');
-await pool.query(sql);
-console.log('Migration complete');
-await pool.end();
-"
+npm run db:initialize:development
+npm run db:migrate:development
+npm run db:seed:development
+npm run db:verify:development
 ```
 
-### 2. Verify Schema
+For an empty Preview database, with its connection supplied by a one-process
+Keychain wrapper that also exports `APP_ENV=preview`:
 
 ```bash
-NODE_ENV=development npx dotenv -c development -- npx tsx scripts/verify-fraud-schema.ts
+npm run db:initialize:preview
+npm run db:migrate:preview
+npm run db:verify:preview
 ```
 
-This verifies:
-- All required columns exist
-- All required tables exist
-- All required indexes exist
-- No orphaned foreign keys
-- No cross-tenant data corruption
+Initialization is the only supported way to create
+`public.luster_environment`; direct SQL is neither needed nor supported. The
+initializer accepts an already-correct marker idempotently, and otherwise
+creates it only after catalog inspection proves the database is empty.
 
-**Exit code 0** = all checks pass, **1** = critical failure.
+Every later command performs two independent checks before mutation:
 
-Appointment discount snapshot schema verification:
+1. `DATABASE_URL` must use PostgreSQL and target loopback or an exact hostname
+   in `LUSTER_NONPROD_DB_HOSTS`.
+2. The connected database must have exactly one marker row equal to the fixed
+   command environment (`development` or `preview`).
+
+Hostnames, roles, connection strings, and credentials are never printed. After
+provider provisioning, run `npm run env:verify` in a process containing the
+complete application/provider environment to validate their mode without
+opening a database connection. Database initialization itself needs only its
+fixed application marker, URL, and exact host allowlist and performs independent
+static and live database checks.
+
+## Development data
+
+`npm run db:seed:development` is Development-only. It does not run migrations,
+does not fall back to PGlite, and creates only deterministic synthetic fixture
+data, including the `dev-super-admin` identity used by the local role switcher.
+The legacy `db:seed` name remains a Development-only alias for this same exact
+marker-attested seed; it never selects Preview or Production.
+
+To intentionally discard and rebuild Development data:
 
 ```bash
-NODE_ENV=development npx dotenv -c development -- npx tsx scripts/verify-appointment-discount-schema.ts
+LUSTER_DEVELOPMENT_RESET_CONFIRM=RESET_LUSTER_DEVELOPMENT_DATABASE \
+  npm run db:reset:development
 ```
 
-This verifies:
-- `appointment.subtotal_before_discount_cents`
-- `appointment.discount_amount_cents`
-- `appointment.discount_type`
-- `appointment.discount_label`
-- `appointment.discount_percent`
-- `appointment.discount_applied_at`
+The reset refuses a Preview marker. It attests Development first, transactionally
+recreates `public`, `drizzle`, and the Development marker, then launches only the
+fixed Development migrate and seed children. There is no generic Preview reset.
 
-Run `npm run db:migrate:development`, then run this verifier explicitly when the
-appointment-discount schema gate is required.
-
-### 3. Backfill Data
+Development Studio is similarly marker-attested:
 
 ```bash
-# Dry run first
-NODE_ENV=development npx dotenv -c development -- npx tsx scripts/backfill-appointment-salon-client-id.ts --dry-run
-
-# Live run
-NODE_ENV=development npx dotenv -c development -- npx tsx scripts/backfill-appointment-salon-client-id.ts
-
-# Strict mode (exit 1 if any unmatched)
-NODE_ENV=development npx dotenv -c development -- npx tsx scripts/backfill-appointment-salon-client-id.ts --strict
+npm run db:studio:dev
 ```
 
-The backfill script:
-- Only runs in `NODE_ENV=development`
-- Prints masked DATABASE_URL at start
-- Runs actual verification queries after completion
-- Checks for orphans and cross-tenant mismatches
+## Production commands
 
-### 4. Smoke Test Fraud System
+Production operations remain separate and deliberate:
 
 ```bash
-NODE_ENV=development npx dotenv -c development -- npx tsx scripts/smoke-test-fraud-system.ts
+LUSTER_PRODUCTION_CONFIRM=YYYY-MM-DD npm run db:migrate:production
+LUSTER_PRODUCTION_CONFIRM=YYYY-MM-DD npm run db:studio:production
 ```
 
-This is a **DB-based test** (not console.log based). It:
-- Queries actual fraud_signal rows
-- Checks for duplicate signals
-- Verifies FK integrity
-- Reports on unresolved vs resolved counts
+The confirmation must equal the current local date. After confirmation, the
+wrapper verifies that the live database does not carry a Development or Preview
+marker, then passes the connection to Drizzle through the internal guarded
+variable for that child process only. Production commands reject CI
+unconditionally. Never store Production credentials in a local env file or
+apply a Production migration as part of build or deploy.
 
-## Important Notes
+The historical client-lifecycle migration uses the same date confirmation and
+live Production marker exclusion outside CI:
 
-### Database URL
-
-All scripts print the masked DATABASE_URL at startup:
-```
-Database: postgresql://***:***@<your-neon-host>-pooler.<region>.aws.neon.tech/neondb?...
-```
-
-This prevents accidentally running against the wrong database.
-
-### Idempotency
-
-All operations are designed to be idempotent:
-- Migrations use `IF NOT EXISTS` / `EXCEPTION WHEN duplicate_object`
-- Backfill uses `WHERE salon_client_id IS NULL`
-- Fraud signal creation uses `ON CONFLICT (appointment_id, type) DO NOTHING`
-
-### Safety Checks
-
-1. **NODE_ENV check**: Backfill only runs in `development`
-2. **DATABASE_URL required**: Scripts fail fast if not set
-3. **Pre-flight checks**: Backfill verifies unique constraints exist
-4. **Post-run verification**: Backfill runs actual queries to verify data integrity
-
-## CI/CD Integration
-
-For CI/CD, use `--strict` flag on backfill:
-
-```yaml
-# Example GitHub Actions step
-- name: Run backfill
-  run: |
-    NODE_ENV=development npx dotenv -c development -- npx tsx scripts/backfill-appointment-salon-client-id.ts --strict
+```bash
+LUSTER_PRODUCTION_CONFIRM=YYYY-MM-DD npm run db:migrate:client-lifecycle
 ```
 
-This exits non-zero if any appointments couldn't be matched.
+In CI, that fixed alias accepts only a loopback PostgreSQL URL; a remote URL is
+rejected before the migration child can start.
 
-## Troubleshooting
+Do not invoke either Production command while performing PR-2 owner
+provisioning. They are documented only for a separate, explicitly authorized
+Production maintenance operation.
 
-### "Migration didn't apply"
+Special historical lifecycle migration and verification commands retain their
+own documented safeguards. They are not substitutes for the fixed environment
+commands above.
 
-If `verify-fraud-schema.ts` shows missing columns/tables:
-1. Check you're using the correct DATABASE_URL
-2. Run the migration SQL directly (it's idempotent)
-3. Re-run verification
+## Focused verification and repair tools
 
-If the appointment discount verifier shows missing columns:
-1. Run `npm run db:migrate:development`
-2. Re-run `npm run db:verify:appointment-discount-schema`
-3. Do not reset the dev database just to repair this drift
+Schema verifiers and backfills are specialized engineering tools, not owner
+provisioning steps. Run the relevant verifier after the guarded migration, use
+dry-run modes where available, and retain each script's independent
+non-Production marker checks. Do not bypass a guard with direct SQL.
 
-### "Cross-tenant mismatch found"
+If a verifier reports drift:
 
-This is a **critical** data integrity issue. Do not proceed until resolved.
-Query to find offending rows:
-```sql
-SELECT a.id, a.salon_id, sc.salon_id as sc_salon_id
-FROM appointment a
-JOIN salon_client sc ON sc.id = a.salon_client_id
-WHERE a.salon_id <> sc.salon_id;
-```
+1. stop and confirm the exact environment with `db:verify:development` or
+   `db:verify:preview`;
+2. run the appropriate guarded migration command;
+3. rerun the verifier;
+4. do not reset a database merely to hide unexplained drift.
 
-### "Orphaned salon_client_id"
-
-This shouldn't happen due to FK constraint. If it does:
-```sql
-UPDATE appointment SET salon_client_id = NULL WHERE salon_client_id NOT IN (SELECT id FROM salon_client);
-```
+The owner-facing provisioning sequence and Vercel, Neon, Clerk, Stripe, and
+Keychain scope tables are in
+[`docs/ENVIRONMENT_SEPARATION.md`](../docs/ENVIRONMENT_SEPARATION.md).

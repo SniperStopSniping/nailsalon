@@ -7,6 +7,8 @@ import withNextIntl from 'next-intl/plugin';
 
 const jiti = createJiti(fileURLToPath(import.meta.url));
 
+const { assertEnvironmentIsolation } = jiti('./src/libs/environmentIsolation.ts');
+assertEnvironmentIsolation(process.env);
 jiti('./src/libs/Env');
 const packageJson = jiti('./package.json');
 const {

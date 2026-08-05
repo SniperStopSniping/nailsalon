@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('server-only', () => ({}));
 
+const originalEnvironment = { ...process.env };
+
 /**
  * Database test-isolation contract.
  *
@@ -13,7 +15,7 @@ vi.mock('server-only', () => ({}));
  */
 describe('database test isolation', () => {
   afterEach(() => {
-    delete process.env.DATABASE_URL;
+    process.env = { ...originalEnvironment };
     vi.restoreAllMocks();
   });
 
@@ -31,10 +33,12 @@ describe('database test isolation', () => {
 
     const globals = globalThis as typeof globalThis & {
       pgPool?: unknown;
+      pgTargetFingerprint?: unknown;
       pgliteClient?: unknown;
     };
 
     expect(globals.pgPool).toBeUndefined();
+    expect(globals.pgTargetFingerprint).toBeUndefined();
     expect(globals.pgliteClient).toBeDefined();
   });
 
@@ -53,5 +57,57 @@ describe('database test isolation', () => {
     const globals = globalThis as typeof globalThis & { pgPool?: unknown };
 
     expect(globals.pgPool).toBeUndefined();
+  });
+
+  it.each(['preview', 'production'])(
+    'fails closed instead of selecting PGlite when hosted %s has no database',
+    async (environment) => {
+      vi.resetModules();
+      process.env = {
+        ...originalEnvironment,
+        APP_ENV: environment,
+        NODE_ENV: 'production',
+        VERCEL: '1',
+        VERCEL_ENV: environment,
+      };
+      delete process.env.DATABASE_URL;
+      delete process.env.CI;
+      delete process.env.GITHUB_ACTIONS;
+      delete process.env.VITEST;
+
+      await expect(import('./DB')).rejects.toMatchObject({
+        code: 'HOSTED_DATABASE_REQUIRED',
+      });
+    },
+  );
+
+  it('rejects a cached pool whose non-secret target fingerprint changed', async () => {
+    vi.resetModules();
+    const globals = globalThis as typeof globalThis & {
+      pgDrizzle?: unknown;
+      pgPool?: unknown;
+      pgTargetFingerprint?: string;
+    };
+    globals.pgPool = {};
+    globals.pgDrizzle = {};
+    globals.pgTargetFingerprint = 'different-target';
+
+    process.env = {
+      ...originalEnvironment,
+      APP_ENV: 'development',
+      DATABASE_URL: 'postgresql://127.0.0.1:5432/luster_development',
+    };
+    delete process.env.VERCEL_ENV;
+    delete process.env.VITEST;
+
+    try {
+      await expect(import('./DB')).rejects.toMatchObject({
+        code: 'CACHED_DATABASE_TARGET_MISMATCH',
+      });
+    } finally {
+      delete globals.pgPool;
+      delete globals.pgDrizzle;
+      delete globals.pgTargetFingerprint;
+    }
   });
 });

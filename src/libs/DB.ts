@@ -7,18 +7,34 @@ import { eq } from 'drizzle-orm';
 import { drizzle as drizzlePg, type NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { drizzle as drizzlePglite, type PgliteDatabase } from 'drizzle-orm/pglite';
 import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
-import { Pool } from 'pg';
+import { Pool, type PoolClient, type PoolConfig } from 'pg';
 
 import * as schema from '@/models/Schema';
 
 import { deriveBookingCategory } from './bookingCategory';
 import { Env } from './Env';
+import {
+  createRuntimeDatabasePoolVerifier,
+  requireMatchingCachedDatabaseTarget,
+  requireRuntimeDatabaseTarget,
+  RuntimeDatabaseGuardError,
+} from './runtimeDatabaseGuard';
+
+type VerifiedPoolConfig = PoolConfig & {
+  // pg-pool supports a per-client verifier, but @types/pg does not currently
+  // expose it. Keep this narrow local extension until those declarations do.
+  verify: (
+    client: PoolClient,
+    callback: (error?: Error) => void,
+  ) => void;
+};
 
 // Global type for caching database connections across hot reloads
 type GlobalWithDb = typeof globalThis & {
   // PostgreSQL pool
   pgPool?: Pool;
   pgDrizzle?: NodePgDatabase<typeof schema>;
+  pgTargetFingerprint?: string;
   // PGlite
   pgliteClient?: PGlite;
   pgliteDrizzle?: PgliteDatabase<typeof schema>;
@@ -154,9 +170,9 @@ async function initializeBusinessData(db: PgliteDatabase<typeof schema>) {
 // =============================================================================
 // DATABASE INITIALIZATION
 // =============================================================================
-// Priority: ALWAYS use real Postgres when DATABASE_URL is set.
-// Only fall back to PGlite in-memory when DATABASE_URL is completely absent.
-// Uses connection pooling for PostgreSQL to handle connection drops gracefully.
+// A configured PostgreSQL target is accepted only after static deployment
+// policy and live environment attestation. PGlite is local/test/CI-only;
+// hosted Preview and Production fail closed when DATABASE_URL is absent.
 // =============================================================================
 
 let drizzle: NodePgDatabase<typeof schema> | PgliteDatabase<typeof schema>;
@@ -171,12 +187,29 @@ if (process.env.VITEST && Env.DATABASE_URL) {
   );
 }
 
-if (Env.DATABASE_URL) {
-  // Use real PostgreSQL database - data persists across restarts
-  // Use Pool instead of Client for automatic connection management and reconnection
-  if (!globalForDb.pgPool) {
-    globalForDb.pgPool = new Pool({
-      connectionString: Env.DATABASE_URL,
+const runtimeTarget = requireRuntimeDatabaseTarget({
+  ...process.env,
+  DATABASE_URL: Env.DATABASE_URL,
+});
+
+if (runtimeTarget) {
+  const hasCachedPostgresState = Boolean(
+    globalForDb.pgPool
+    || globalForDb.pgDrizzle
+    || globalForDb.pgTargetFingerprint,
+  );
+  if (hasCachedPostgresState) {
+    if (!globalForDb.pgPool || !globalForDb.pgDrizzle) {
+      throw new RuntimeDatabaseGuardError('CACHED_DATABASE_TARGET_MISMATCH');
+    }
+    requireMatchingCachedDatabaseTarget(
+      globalForDb.pgTargetFingerprint,
+      runtimeTarget,
+    );
+  } else {
+    const poolVerifier = createRuntimeDatabasePoolVerifier(runtimeTarget);
+    const poolConfig: VerifiedPoolConfig = {
+      connectionString: runtimeTarget.connectionString,
       // Pool configuration for resilience
       max: getPoolMax(),
       idleTimeoutMillis: 10000,
@@ -187,20 +220,44 @@ if (Env.DATABASE_URL) {
       connectionTimeoutMillis: 15000,
       keepAlive: true,
       keepAliveInitialDelayMillis: 10000,
+      verify(client, callback) {
+        poolVerifier(client, callback);
+      },
+    };
+    const pool = new Pool(poolConfig);
+
+    // Runtime pool errors are intentionally fixed-text so connection metadata
+    // and provider diagnostics cannot reach application logs.
+    pool.on('error', () => {
+      console.error('[DB] Unexpected pool error.');
     });
 
-    // Handle pool errors gracefully
-    globalForDb.pgPool.on('error', (err) => {
-      console.error('[DB] Unexpected pool error:', err.message);
-    });
+    try {
+      // Forces initial connection plus the per-client verifier before the pool
+      // and Drizzle handle become globally reachable.
+      await pool.query('SELECT 1');
+    } catch {
+      await pool.end().catch(() => undefined);
+      throw new RuntimeDatabaseGuardError('DATABASE_ATTESTATION_REJECTED');
+    }
 
-    globalForDb.pgDrizzle = drizzlePg(globalForDb.pgPool, { schema });
+    globalForDb.pgPool = pool;
+    globalForDb.pgDrizzle = drizzlePg(pool, { schema });
+    globalForDb.pgTargetFingerprint = runtimeTarget.fingerprint;
   }
 
   drizzle = globalForDb.pgDrizzle!;
 } else {
+  if (
+    globalForDb.pgPool
+    || globalForDb.pgDrizzle
+    || globalForDb.pgTargetFingerprint
+  ) {
+    throw new RuntimeDatabaseGuardError('CACHED_DATABASE_TARGET_MISMATCH');
+  }
+
   // Fallback: PGlite in-memory database (data lost on restart)
-  // Only used when no DATABASE_URL is configured at all
+  // Only used when the resolved runtime policy explicitly permits it.
   console.warn('[DB] No DATABASE_URL found - using PGlite in-memory database. Data will not persist across restarts.');
 
   if (!globalForDb.pgliteClient) {

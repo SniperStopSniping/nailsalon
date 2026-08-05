@@ -20,11 +20,20 @@ Use Node.js 20 and install dependencies:
 
 ```bash
 npm ci
-cp .env.example .env.local
+cp .env.example .env.development.local
 npm run dev
 ```
 
-Runtime credentials belong only in ignored local environment files or deployment secret stores. Never commit real credentials.
+Replace the provider placeholders with Clerk Development-instance and Stripe
+test-mode credentials before starting. With `DATABASE_URL` blank, local
+Development uses isolated in-memory PGlite. Follow the guarded sequence below
+when persistent PostgreSQL is needed.
+
+Use only Clerk Development-instance and Stripe test-mode credentials locally.
+Runtime credentials belong only in ignored local environment files, macOS
+Keychain, or deployment secret stores. Never commit real credentials. See the
+[environment separation runbook](./docs/ENVIRONMENT_SEPARATION.md) before
+configuring a hosted Development or Preview database.
 
 ## Quality gates
 
@@ -49,8 +58,15 @@ The E2E runner requires its Clerk testing token, isolated test database, Redis, 
 Migrations are stored in [`migrations`](./migrations) and applied through Drizzle:
 
 ```bash
+npm run db:initialize:development
 npm run db:migrate:development
+npm run db:seed:development
 ```
+
+Initialization creates the guarded in-database Development marker without
+requiring direct SQL. The legacy `db:seed` name is a Development-only alias for
+the same exact-marker command. Direct database-bearing Drizzle commands are
+retired; use only the guarded package commands.
 
 Production migrations use `npm run db:migrate:production`, with the production
 database secret loaded only for that invocation and

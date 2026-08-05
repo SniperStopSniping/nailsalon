@@ -8,91 +8,48 @@
  * - 3 Technicians
  * - Technician-Service associations
  *
- * Run with: npm run db:seed
+ * Run with: npm run db:seed:development
  */
 
-// Load environment variables from .env and .env.local
-import 'dotenv/config';
-
-import path from 'node:path';
-
-import { PGlite } from '@electric-sql/pglite';
 import { eq } from 'drizzle-orm';
 import { drizzle as drizzlePg } from 'drizzle-orm/node-postgres';
-import { migrate as migratePg } from 'drizzle-orm/node-postgres/migrator';
-import { drizzle as drizzlePglite, type PgliteDatabase } from 'drizzle-orm/pglite';
-import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
 import { Client } from 'pg';
 
 import { deriveBookingCategory } from '../src/libs/bookingCategory';
+import { resolveRuntimeEnvironment } from '../src/libs/environmentIsolation';
 import {
-  requireDevelopmentDatabase,
+  NonProductionDatabaseGuardError,
+  requireExactNonProductionDatabaseEnvironment,
   requireNonProductionDatabaseTarget,
 } from '../src/libs/nonProductionDatabaseGuard';
 import * as schema from '../src/models/Schema';
 import { SALON, SERVICES, TECHNICIANS } from './fixtures/nail-salon-no5';
 
 // =============================================================================
-// DATABASE CONNECTION (mirrors src/libs/DB.ts logic)
+// DATABASE CONNECTION
 // =============================================================================
 
-function isLocalDatabase(databaseUrl: string): boolean {
-  try {
-    const { hostname } = new URL(databaseUrl);
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
-  } catch {
-    // An unparseable URL is not demonstrably local, so treat it as remote.
-    return false;
-  }
-}
+class DevelopmentSeedCommandError extends Error {}
 
 async function getDatabase() {
-  const databaseUrl = process.env.DATABASE_URL;
-
-  if (databaseUrl) {
-    // Production/real database
-    console.log('🔌 Connecting to PostgreSQL database...');
-    const { connectionString } = requireNonProductionDatabaseTarget();
-    const client = new Client({ connectionString });
+  const { connectionString } = requireNonProductionDatabaseTarget();
+  const client = new Client({ connectionString });
+  try {
     await client.connect();
-    try {
-      await requireDevelopmentDatabase(client);
-    } catch (error) {
-      await client.end().catch(() => {});
-      throw error;
-    }
-
-    const db = drizzlePg(client, { schema });
-
-    // Seeding used to migrate first, unconditionally. dev and production share
-    // one database here, so "seed the demo salon" quietly meant "apply every
-    // pending migration to live data" - including 0059's ~21 foreign key
-    // rewrites. Migrating is a deliberate act: `npm run db:migrate:development`.
-    if (isLocalDatabase(databaseUrl)) {
-      await migratePg(db, {
-        migrationsFolder: path.join(process.cwd(), 'migrations'),
-      });
-    } else {
-      console.log(
-        '⏭️  Remote database detected - skipping migrations.\n'
-        + '   Run `npm run db:migrate:development` explicitly if the schema is behind.',
-      );
-    }
-
-    return { db, client };
-  } else {
-    // Development: PGlite in-memory
-    console.log('🔌 Using PGlite in-memory database...');
-    const client = new PGlite();
-    await client.waitReady;
-
-    const db = drizzlePglite(client, { schema }) as PgliteDatabase<typeof schema>;
-    await migratePglite(db, {
-      migrationsFolder: path.join(process.cwd(), 'migrations'),
-    });
-
-    return { db, client: null };
+  } catch {
+    throw new DevelopmentSeedCommandError(
+      'Could not connect to the approved Development PostgreSQL target.',
+    );
   }
+
+  try {
+    await requireExactNonProductionDatabaseEnvironment(client, 'development');
+  } catch (error) {
+    await client.end().catch(() => undefined);
+    throw error;
+  }
+
+  return { db: drizzlePg(client, { schema }), client };
 }
 
 // =============================================================================
@@ -107,12 +64,47 @@ async function getDatabase() {
 // =============================================================================
 
 async function seed() {
+  if (process.argv.length !== 2) {
+    throw new DevelopmentSeedCommandError(
+      'Development seed rejected: arguments are not accepted.',
+    );
+  }
+  if (resolveRuntimeEnvironment(process.env) !== 'development') {
+    throw new DevelopmentSeedCommandError(
+      'Development seed rejected: the application environment is not Development.',
+    );
+  }
+
   console.log('🌱 Starting database seed...\n');
 
   const { db, client } = await getDatabase();
 
   try {
-    // 1. Insert Salon
+    // 1. Insert a deterministic synthetic Development super-admin. This is the
+    // FK-safe identity used by the local role switcher; no direct SQL is needed.
+    const devSuperAdminId
+      = process.env.DEV_SUPER_ADMIN_ID?.trim() || 'dev-super-admin';
+    await db
+      .insert(schema.adminUserSchema)
+      .values({
+        id: devSuperAdminId,
+        phoneE164: '+15555550001',
+        name: 'Development Super Admin',
+        email: 'dev-super@example.invalid',
+        isSuperAdmin: true,
+      })
+      .onConflictDoUpdate({
+        target: schema.adminUserSchema.id,
+        set: {
+          phoneE164: '+15555550001',
+          name: 'Development Super Admin',
+          email: 'dev-super@example.invalid',
+          isSuperAdmin: true,
+          updatedAt: new Date(),
+        },
+      });
+
+    // 2. Insert Salon
     console.log('📍 Creating salon...');
     await db
       .insert(schema.salonSchema)
@@ -138,7 +130,7 @@ async function seed() {
       });
     console.log(`   ✓ Salon "${SALON.name}" created/updated`);
 
-    // 2. Insert Services
+    // 3. Insert Services
     console.log('\n💅 Creating services...');
     for (const service of SERVICES) {
       await db
@@ -162,7 +154,7 @@ async function seed() {
       console.log(`   ✓ Service "${service.name}" ($${(service.price! / 100).toFixed(0)}, ${service.durationMinutes}min)`);
     }
 
-    // 3. Insert Technicians
+    // 4. Insert Technicians
     console.log('\n👩‍🎨 Creating technicians...');
     for (const tech of TECHNICIANS) {
       await db
@@ -188,7 +180,7 @@ async function seed() {
       console.log(`   ✓ Technician "${tech.name}" (${tech.specialties?.join(', ')})`);
     }
 
-    // 4. Link Technicians to Services
+    // 5. Link Technicians to Services
     console.log('\n🔗 Creating technician-service associations...');
     const techServiceLinks: schema.NewTechnicianService[] = [];
 
@@ -226,14 +218,12 @@ async function seed() {
     console.log(`   • ${SERVICES.length} Services`);
     console.log(`   • ${TECHNICIANS.length} Technicians`);
     console.log(`   • ${techServiceLinks.length} Technician-Service links`);
-  } catch (error) {
-    console.error('\n❌ Seed failed:', error);
-    throw error;
+  } catch {
+    throw new DevelopmentSeedCommandError(
+      'Development fixture seed failed on the attested database.',
+    );
   } finally {
-    // Close connection if using real PostgreSQL
-    if (client) {
-      await client.end();
-    }
+    await client.end().catch(() => undefined);
   }
 }
 
@@ -241,9 +231,12 @@ async function seed() {
 seed()
   .then(() => {
     console.log('\n🎉 Seed complete!');
-    process.exit(0);
   })
   .catch((error) => {
-    console.error('Fatal error:', error);
-    process.exit(1);
+    const message = error instanceof NonProductionDatabaseGuardError
+      || error instanceof DevelopmentSeedCommandError
+      ? error.message
+      : 'Development fixture seed failed safely.';
+    process.stderr.write(`${message}\n`);
+    process.exitCode = 1;
   });
