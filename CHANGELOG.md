@@ -1,3 +1,11 @@
+## [1.45.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.45.0...v1.45.1) (2026-08-05)
+
+
+### Bug Fixes
+
+* add fail-closed environment guards ([fabec49](https://github.com/SniperStopSniping/nailsalon/commit/fabec49b14c2cc36aadc7138db2db2450d65a56d))
+* close remaining environment guard gaps ([beed77c](https://github.com/SniperStopSniping/nailsalon/commit/beed77cc1e00ba305938780325b34562e2ea7527))
+
 # [1.45.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.44.3...v1.45.0) (2026-08-03)
 
 
