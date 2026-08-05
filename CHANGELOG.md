@@ -1,3 +1,11 @@
+## [1.45.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.45.1...v1.45.2) (2026-08-05)
+
+
+### Bug Fixes
+
+* close environment separation rollout gaps ([ad5ce52](https://github.com/SniperStopSniping/nailsalon/commit/ad5ce52738fe3903d4a8ccff85cf4917a42627c5))
+* complete non-production environment isolation ([1c52da9](https://github.com/SniperStopSniping/nailsalon/commit/1c52da962cd30f2255533406de2cde7548de1187))
+
 ## [1.45.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.45.0...v1.45.1) (2026-08-05)
 
 
