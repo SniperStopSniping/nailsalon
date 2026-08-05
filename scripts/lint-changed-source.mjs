@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 const lintPathspecs = ['*.js', '*.jsx', '*.ts', '*.tsx', '*.mjs', '*.cjs'];
-const ignoredPrefixes = ['docs/', 'public/', 'migrations/', 'tests/e2e/'];
+const ignoredPrefixes = ['docs/', 'public/', 'migrations/', 'scripts/archive/', 'tests/e2e/'];
 const zeroSha = /^0+$/;
 
 function writeLine(message) {

@@ -5,6 +5,11 @@ import path from 'node:path';
 import dotenv from 'dotenv';
 import { Client } from 'pg';
 
+import {
+  requireDevelopmentDatabase,
+  requireNonProductionDatabaseTarget,
+} from '../src/libs/nonProductionDatabaseGuard';
+
 dotenv.config({ path: path.resolve(process.cwd(), '.env.local') });
 
 const apply = process.argv.includes('--apply');
@@ -14,10 +19,13 @@ if (!process.env.DATABASE_URL) {
 }
 
 async function main() {
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  const { connectionString } = requireNonProductionDatabaseTarget();
+  const client = new Client({ connectionString });
   await client.connect();
 
   try {
+    await requireDevelopmentDatabase(client);
+
     const candidates = await client.query<{
       id: string;
       slug: string;

@@ -748,7 +748,7 @@ describe('GET /api/appointments/availability', () => {
     expect(response.status).toBe(200);
     expect(body.visibleSlots.length).toBeGreaterThan(0);
     expect(warnSpy).toHaveBeenCalledWith(
-      '[BookingPolicy] Missing relation "technician_time_off". Treating it as empty. Run `npm run db:migrate:dev` for the local database.',
+      '[BookingPolicy] Missing relation "technician_time_off". Treating it as empty. Run `npm run db:migrate:development` for the local database.',
     );
 
     warnSpy.mockRestore();
@@ -793,7 +793,7 @@ describe('GET /api/appointments/availability', () => {
     expect(response.status).toBe(200);
     expect(body.visibleSlots.length).toBeGreaterThan(0);
     expect(warnSpy).toHaveBeenCalledWith(
-      '[BookingPolicy] Missing relation "technician_blocked_slot". Treating it as empty. Run `npm run db:migrate:dev` for the local database.',
+      '[BookingPolicy] Missing relation "technician_blocked_slot". Treating it as empty. Run `npm run db:migrate:development` for the local database.',
     );
 
     warnSpy.mockRestore();

@@ -63,7 +63,8 @@ This verifies:
 - `appointment.discount_percent`
 - `appointment.discount_applied_at`
 
-`npm run db:migrate:dev` now runs both the Drizzle migrate step and this verifier.
+Run `npm run db:migrate:development`, then run this verifier explicitly when the
+appointment-discount schema gate is required.
 
 ### 3. Backfill Data
 
@@ -144,8 +145,8 @@ If `verify-fraud-schema.ts` shows missing columns/tables:
 3. Re-run verification
 
 If the appointment discount verifier shows missing columns:
-1. Run `npm run db:migrate:dev`
-2. This will apply the forward-only repair migration and re-run verification
+1. Run `npm run db:migrate:development`
+2. Re-run `npm run db:verify:appointment-discount-schema`
 3. Do not reset the dev database just to repair this drift
 
 ### "Cross-tenant mismatch found"

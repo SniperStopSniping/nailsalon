@@ -1,11 +1,21 @@
 import path from 'node:path';
 
+import { assertAllowedE2ETarget } from '../../../src/libs/e2eTargetGuard';
+
 const DEFAULT_LOCALE = process.env.E2E_LOCALE || 'en';
 const APP_DEFAULT_LOCALE = 'en';
 const DEFAULT_SALON_SLUG = process.env.E2E_SALON_SLUG || 'nail-salon-no5';
 const HOST = process.env.HOST || 'localhost';
 const PORT = process.env.PORT || '3000';
 const EXTERNAL_BASE_URL = process.env.E2E_BASE_URL?.trim();
+
+export const e2eBaseUrl = EXTERNAL_BASE_URL || `http://${HOST}:${PORT}`;
+
+assertAllowedE2ETarget(
+  e2eBaseUrl,
+  process.env.E2E_ALLOW_PRODUCTION,
+  process.env.LUSTER_E2E_BLOCKED_HOSTS,
+);
 
 export const e2eConfig = {
   freeSolo: process.env.E2E_FREE_SOLO !== 'false',
@@ -22,8 +32,6 @@ export const e2eConfig = {
   superAdminPassword: process.env.E2E_SUPER_ADMIN_PASSWORD || '',
   staffTechnicianName: process.env.E2E_STAFF_TECH_NAME || 'Daniela',
 };
-
-export const e2eBaseUrl = EXTERNAL_BASE_URL || `http://${HOST}:${PORT}`;
 
 export const authStatePaths = {
   staff: path.join(process.cwd(), 'tests/e2e/.auth/staff.json'),

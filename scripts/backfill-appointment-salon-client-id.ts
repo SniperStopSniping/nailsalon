@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+/* eslint-disable no-console, prefer-template, unicorn/prefer-number-properties, curly */
 /**
  * Backfill Script: appointment.salon_client_id
  *
@@ -34,6 +35,11 @@
  */
 
 import pg from 'pg';
+
+import {
+  requireDevelopmentDatabase,
+  requireNonProductionDatabaseTarget,
+} from '../src/libs/nonProductionDatabaseGuard';
 
 const { Pool } = pg;
 
@@ -178,7 +184,8 @@ type SalonClientRow = {
 // =============================================================================
 
 async function main(): Promise<void> {
-  const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+  const { connectionString } = requireNonProductionDatabaseTarget();
+  const pool = new Pool({ connectionString });
 
   console.log('\n' + '='.repeat(60));
   console.log('Backfill: appointment.salon_client_id');
@@ -193,6 +200,8 @@ async function main(): Promise<void> {
   let advisoryLockAcquired = false;
 
   try {
+    await requireDevelopmentDatabase(pool);
+
     // ==========================================================================
     // ADVISORY LOCK: Prevent concurrent runs
     // ==========================================================================

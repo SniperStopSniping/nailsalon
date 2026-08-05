@@ -11,6 +11,10 @@ import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
 import { Client } from 'pg';
 
 import { LUSTER_MANICURE_TEMPLATE_KEY, LUSTER_PEDICURE_TEMPLATE_KEY } from '../src/libs/bookingMerchandising';
+import {
+  requireDevelopmentDatabase,
+  requireNonProductionDatabaseTarget,
+} from '../src/libs/nonProductionDatabaseGuard';
 import { getTemplateByKey, SERVICE_TEMPLATES } from '../src/libs/serviceTemplateCatalog';
 import { serviceAddOnRowId } from '../src/libs/starterMenu';
 import * as schema from '../src/models/Schema';
@@ -64,8 +68,15 @@ const GENERIC_DESCRIPTIONS = [/^bookable base service$/i, /^service$/i];
 async function getDatabase() {
   const databaseUrl = process.env.DATABASE_URL;
   if (databaseUrl) {
-    const client = new Client({ connectionString: databaseUrl });
+    const { connectionString } = requireNonProductionDatabaseTarget();
+    const client = new Client({ connectionString });
     await client.connect();
+    try {
+      await requireDevelopmentDatabase(client);
+    } catch (error) {
+      await client.end().catch(() => {});
+      throw error;
+    }
     return { db: drizzlePg(client, { schema }), client };
   }
   const client = new PGlite();

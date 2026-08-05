@@ -22,6 +22,10 @@ import 'dotenv/config';
 
 import { Client } from 'pg';
 
+import {
+  requireDevelopmentDatabase,
+  requireNonProductionDatabaseTarget,
+} from '../src/libs/nonProductionDatabaseGuard';
 import { getTemplateByKey } from '../src/libs/serviceTemplateCatalog';
 
 type ServiceRow = {
@@ -49,10 +53,13 @@ async function main() {
     throw new Error('DATABASE_URL is not set');
   }
 
-  const client = new Client({ connectionString: process.env.DATABASE_URL });
+  const { connectionString } = requireNonProductionDatabaseTarget();
+  const client = new Client({ connectionString });
   await client.connect();
 
   try {
+    await requireDevelopmentDatabase(client);
+
     const salon = (await client.query<{ id: string; name: string }>(
       'SELECT id, name FROM salon WHERE slug = $1',
       [salonArg],

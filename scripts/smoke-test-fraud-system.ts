@@ -1,4 +1,5 @@
 #!/usr/bin/env tsx
+/* eslint-disable no-console, prefer-template, style/padded-blocks, test/padding-around-all, unicorn/prefer-number-properties -- Preserve the legacy smoke-report output while adding target guards. */
 /**
  * Smoke Test: Fraud Signal System
  *
@@ -24,23 +25,17 @@
  *   1 = One or more tests failed
  */
 
-import pg from 'pg';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import pg, { type PoolConfig } from 'pg';
+
+import {
+  requireDevelopmentDatabase,
+  requireNonProductionDatabaseTarget,
+} from '../src/libs/nonProductionDatabaseGuard';
 
 const { Pool } = pg;
-
-// =============================================================================
-// Environment validation
-// =============================================================================
-
-if (!process.env.DATABASE_URL) {
-  console.error('❌ ERROR: DATABASE_URL environment variable is required');
-  console.error('Run with: npx dotenv -c development -- npx tsx scripts/smoke-test-fraud-system.ts');
-  process.exit(1);
-}
-
-const dbUrl = process.env.DATABASE_URL;
-const maskedUrl = dbUrl.replace(/\/\/[^:]+:[^@]+@/, '//***:***@');
-console.log(`Database: ${maskedUrl}\n`);
 
 // =============================================================================
 // Test helpers
@@ -52,24 +47,37 @@ type TestResult = {
   details: string;
 };
 
-const results: TestResult[] = [];
+type FraudSmokeDatabase = Pick<pg.Pool, 'end' | 'query'>;
 
-function test(name: string, passed: boolean, details: string): void {
-  results.push({ name, passed, details });
-  const status = passed ? '✓' : '✗';
-  console.log(`${status} ${name}: ${details}`);
-}
+export type FraudSmokePoolFactory = (
+  configuration: PoolConfig,
+) => FraudSmokeDatabase;
 
 // =============================================================================
 // Main smoke tests
 // =============================================================================
 
-async function runSmokeTests(): Promise<void> {
-  const dbUrl = process.env.DATABASE_URL!; // Already validated at top of file
-  const pool = new Pool({
+export async function runFraudSmokeTests(
+  environment: Readonly<Record<string, string | undefined>> = process.env,
+  createPool: FraudSmokePoolFactory = configuration => new Pool(configuration),
+): Promise<number> {
+  const target = requireNonProductionDatabaseTarget(environment);
+  const dbUrl = target.connectionString;
+  console.log(`Database host: ${target.host}\n`);
+
+  const pool = createPool({
     connectionString: dbUrl,
-    ssl: dbUrl.includes('neon.tech') ? { rejectUnauthorized: false } : undefined,
+    ssl: target.host === 'neon.tech' || target.host.endsWith('.neon.tech')
+      ? { rejectUnauthorized: false }
+      : undefined,
   });
+  const results: TestResult[] = [];
+
+  function test(name: string, passed: boolean, details: string): void {
+    results.push({ name, passed, details });
+    const status = passed ? '✓' : '✗';
+    console.log(`${status} ${name}: ${details}`);
+  }
 
   console.log('='.repeat(60));
   console.log('FRAUD SIGNAL SYSTEM - SMOKE TESTS');
@@ -77,6 +85,8 @@ async function runSmokeTests(): Promise<void> {
   console.log('\nThese tests verify the DB state, not console logs.\n');
 
   try {
+    await requireDevelopmentDatabase(pool);
+
     // =========================================================================
     // Test 1: Check if fraud_signal table exists and is queryable
     // =========================================================================
@@ -300,15 +310,22 @@ async function runSmokeTests(): Promise<void> {
     console.log('6. Query: SELECT resolved_at, resolved_by FROM fraud_signal WHERE id = \'...\';');
     console.log('   → Both must be non-null');
 
-    // Exit
     await pool.end();
-    process.exit(failed > 0 ? 1 : 0);
+    return failed > 0 ? 1 : 0;
 
   } catch (err) {
     console.error('\n❌ Smoke tests failed with error:', err);
     await pool.end();
-    process.exit(1);
+    return 1;
   }
 }
 
-runSmokeTests();
+const entryPath = process.argv[1];
+if (entryPath && fileURLToPath(import.meta.url) === path.resolve(entryPath)) {
+  runFraudSmokeTests().then((exitCode) => {
+    process.exitCode = exitCode;
+  }).catch((error) => {
+    console.error('\n❌ Smoke tests failed with error:', error);
+    process.exitCode = 1;
+  });
+}

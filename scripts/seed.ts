@@ -25,6 +25,10 @@ import { migrate as migratePglite } from 'drizzle-orm/pglite/migrator';
 import { Client } from 'pg';
 
 import { deriveBookingCategory } from '../src/libs/bookingCategory';
+import {
+  requireDevelopmentDatabase,
+  requireNonProductionDatabaseTarget,
+} from '../src/libs/nonProductionDatabaseGuard';
 import * as schema from '../src/models/Schema';
 import { SALON, SERVICES, TECHNICIANS } from './fixtures/nail-salon-no5';
 
@@ -48,15 +52,22 @@ async function getDatabase() {
   if (databaseUrl) {
     // Production/real database
     console.log('🔌 Connecting to PostgreSQL database...');
-    const client = new Client({ connectionString: databaseUrl });
+    const { connectionString } = requireNonProductionDatabaseTarget();
+    const client = new Client({ connectionString });
     await client.connect();
+    try {
+      await requireDevelopmentDatabase(client);
+    } catch (error) {
+      await client.end().catch(() => {});
+      throw error;
+    }
 
     const db = drizzlePg(client, { schema });
 
     // Seeding used to migrate first, unconditionally. dev and production share
     // one database here, so "seed the demo salon" quietly meant "apply every
     // pending migration to live data" - including 0059's ~21 foreign key
-    // rewrites. Migrating is a deliberate act: `npm run db:migrate`.
+    // rewrites. Migrating is a deliberate act: `npm run db:migrate:development`.
     if (isLocalDatabase(databaseUrl)) {
       await migratePg(db, {
         migrationsFolder: path.join(process.cwd(), 'migrations'),
@@ -64,7 +75,7 @@ async function getDatabase() {
     } else {
       console.log(
         '⏭️  Remote database detected - skipping migrations.\n'
-        + '   Run `npm run db:migrate` explicitly if the schema is behind.',
+        + '   Run `npm run db:migrate:development` explicitly if the schema is behind.',
       );
     }
 

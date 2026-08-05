@@ -1,7 +1,9 @@
 import { defineConfig, devices } from '@playwright/test';
 import { config as loadEnv } from 'dotenv';
 
-loadEnv({ path: '.env.local' });
+import { assertAllowedE2ETarget } from './src/libs/e2eTargetGuard';
+
+loadEnv({ path: '.env.local', quiet: true });
 
 if (process.env.CI && !process.env.CLERK_SECRET_KEY) {
   process.env.CLERK_SECRET_KEY = 'test_clerk_secret_key';
@@ -13,6 +15,13 @@ const HOST = process.env.HOST || 'localhost';
 const PORT = process.env.PORT || 3000;
 const EXTERNAL_BASE_URL = process.env.E2E_BASE_URL?.trim();
 const usingExternalBaseUrl = Boolean(EXTERNAL_BASE_URL);
+const baseURL = EXTERNAL_BASE_URL || `http://${HOST}:${PORT}`;
+
+assertAllowedE2ETarget(
+  baseURL,
+  process.env.E2E_ALLOW_PRODUCTION,
+  process.env.LUSTER_E2E_BLOCKED_HOSTS,
+);
 
 process.env.HOST ||= HOST;
 process.env.PORT ||= String(PORT);
@@ -42,7 +51,6 @@ const chromiumUse = {
 };
 
 // Set webServer.url and use.baseURL with the location of the WebServer respecting the correct set port
-const baseURL = EXTERNAL_BASE_URL || `http://${HOST}:${PORT}`;
 // The deployment health endpoint intentionally returns 503 when required hosted
 // integrations are absent. CI only needs to know that Next.js is accepting
 // requests before tests start, so use a static liveness route for this probe.
