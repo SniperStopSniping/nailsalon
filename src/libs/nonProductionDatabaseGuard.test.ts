@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest';
 
 import {
   type DatabaseQueryable,
+  initializeNonProductionDatabaseMarker,
   NonProductionDatabaseGuardError,
+  rejectNonProductionMarkerForProduction,
   requireDevelopmentDatabase,
   requireDevelopmentMigrationDatabase,
+  requireExactNonProductionDatabaseEnvironment,
   requireNonProductionDatabaseTarget,
 } from './nonProductionDatabaseGuard';
 
@@ -179,16 +182,24 @@ describe('non-Production database target validation', () => {
 });
 
 describe('development database marker attestation', () => {
-  it.each(['development', 'preview'] as const)(
-    'accepts exactly one %s marker row',
-    async (environment) => {
-      await withDatabase(async (database) => {
-        await createMarker(database, [environment]);
+  it('accepts exactly one Development marker row', async () => {
+    await withDatabase(async (database) => {
+      await createMarker(database, ['development']);
 
-        await expect(requireDevelopmentDatabase(database)).resolves.toBe(environment);
-      });
-    },
-  );
+      await expect(requireDevelopmentDatabase(database)).resolves.toBe('development');
+    });
+  });
+
+  it('rejects a Preview marker for legacy Development tooling', async () => {
+    await withDatabase(async (database) => {
+      await createMarker(database, ['preview']);
+
+      await expectAsyncRejection(
+        () => requireDevelopmentDatabase(database),
+        'MARKER_ENVIRONMENT_MISMATCH',
+      );
+    });
+  });
 
   it('rejects a missing marker table', async () => {
     await withDatabase(async (database) => {
@@ -245,6 +256,80 @@ describe('development database marker attestation', () => {
 
     expect(error.message).not.toContain(secret);
   });
+
+  it('requires the exact expected non-Production environment', async () => {
+    await withDatabase(async (database) => {
+      await createMarker(database, ['preview']);
+
+      await expect(
+        requireExactNonProductionDatabaseEnvironment(database, 'preview'),
+      ).resolves.toBe('preview');
+
+      await expectAsyncRejection(
+        () => requireExactNonProductionDatabaseEnvironment(
+          database,
+          'development',
+        ),
+        'MARKER_ENVIRONMENT_MISMATCH',
+      );
+    });
+  });
+});
+
+describe('Production database marker exclusion', () => {
+  it('does not require a marker on Production', async () => {
+    await withDatabase(async (database) => {
+      await expect(
+        rejectNonProductionMarkerForProduction(database),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  it.each(['development', 'preview'])(
+    'rejects a %s marker on Production',
+    async (environment) => {
+      await withDatabase(async (database) => {
+        await createMarker(database, [environment]);
+        await expectAsyncRejection(
+          () => rejectNonProductionMarkerForProduction(database),
+          'PRODUCTION_MARKER_NONPRODUCTION',
+        );
+      });
+    },
+  );
+
+  it('accepts an optional exact Production marker and rejects malformed state', async () => {
+    await withDatabase(async (database) => {
+      await createMarker(database, ['production']);
+
+      await expect(
+        rejectNonProductionMarkerForProduction(database),
+      ).resolves.toBeUndefined();
+    });
+
+    await withDatabase(async (database) => {
+      await createMarker(database, []);
+      await expectAsyncRejection(
+        () => rejectNonProductionMarkerForProduction(database),
+        'PRODUCTION_MARKER_INVALID',
+      );
+    });
+  });
+
+  it('sanitizes Production marker inspection failures', async () => {
+    const secret = ['production', 'inspection', 'secret'].join('-');
+    const failingDatabase: DatabaseQueryable = {
+      async query() {
+        throw new Error(secret);
+      },
+    };
+    const error = await expectAsyncRejection(
+      () => rejectNonProductionMarkerForProduction(failingDatabase),
+      'PRODUCTION_MARKER_QUERY_FAILED',
+    );
+
+    expect(error.message).not.toContain(secret);
+  });
 });
 
 describe('development migration bootstrap attestation', () => {
@@ -288,7 +373,19 @@ describe('development migration bootstrap attestation', () => {
       await database.exec('CREATE TABLE public.existing_application_data (id text)');
       await createMarker(database, ['preview']);
 
-      await expect(requireDevelopmentMigrationDatabase(database)).resolves.toBe('preview');
+      await expectAsyncRejection(
+        () => requireDevelopmentMigrationDatabase(database),
+        'MARKER_ENVIRONMENT_MISMATCH',
+      );
+
+      await expect(
+        requireDevelopmentMigrationDatabase(database, 'preview'),
+      ).resolves.toBe('preview');
+
+      await expectAsyncRejection(
+        () => requireDevelopmentMigrationDatabase(database, 'development'),
+        'MARKER_ENVIRONMENT_MISMATCH',
+      );
     });
 
     await withDatabase(async (database) => {
@@ -318,6 +415,114 @@ describe('development migration bootstrap attestation', () => {
     );
 
     expect(queryCount).toBe(2);
+    expect(error.message).not.toContain(secret);
+  });
+});
+
+describe('non-Production marker initialization', () => {
+  it.each(['development', 'preview'] as const)(
+    'initializes an empty database as %s and is idempotent',
+    async (environment) => {
+      await withDatabase(async (database) => {
+        await expect(
+          initializeNonProductionDatabaseMarker(database, environment),
+        ).resolves.toBe(environment);
+        await expect(
+          initializeNonProductionDatabaseMarker(database, environment),
+        ).resolves.toBe(environment);
+
+        const marker = await database.query<{
+          environment: string;
+          singleton: boolean;
+        }>('SELECT singleton, environment FROM public.luster_environment');
+
+        expect(marker.rows).toEqual([{ singleton: true, environment }]);
+      });
+    },
+  );
+
+  it('rejects cross-environment reinitialization', async () => {
+    await withDatabase(async (database) => {
+      await initializeNonProductionDatabaseMarker(database, 'development');
+      await expectAsyncRejection(
+        () => initializeNonProductionDatabaseMarker(database, 'preview'),
+        'MARKER_ENVIRONMENT_MISMATCH',
+      );
+
+      await expect(
+        requireExactNonProductionDatabaseEnvironment(database, 'development'),
+      ).resolves.toBe('development');
+    });
+  });
+
+  it('never marks a nonempty unmarked database', async () => {
+    await withDatabase(async (database) => {
+      await database.exec('CREATE TABLE public.existing_data (id text)');
+      await expectAsyncRejection(
+        () => initializeNonProductionDatabaseMarker(database, 'development'),
+        'DATABASE_NOT_EMPTY',
+      );
+
+      const marker = await database.query<{ marker: string | null }>(
+        'SELECT to_regclass(\'public.luster_environment\')::text AS marker',
+      );
+
+      expect(marker.rows[0]?.marker).toBeNull();
+    });
+  });
+
+  it('can initialize inside a caller-owned transaction without controlling it', async () => {
+    await withDatabase(async (database) => {
+      const queries: string[] = [];
+      const queryable: DatabaseQueryable = {
+        async query(queryText, values) {
+          queries.push(queryText.trim());
+          return database.query(queryText, values);
+        },
+      };
+
+      await database.query('BEGIN');
+      await initializeNonProductionDatabaseMarker(
+        queryable,
+        'development',
+        { transaction: 'existing' },
+      );
+      await database.query('COMMIT');
+
+      expect(queries).not.toContain('BEGIN');
+      expect(queries).not.toContain('COMMIT');
+      expect(queries).not.toContain('ROLLBACK');
+    });
+  });
+
+  it('rolls back and sanitizes unexpected initialization failures', async () => {
+    const secret = ['marker', 'creation', 'secret'].join('-');
+    const queries: string[] = [];
+    const failingDatabase: DatabaseQueryable = {
+      async query(queryText) {
+        queries.push(queryText.trim());
+        if (queryText === 'BEGIN' || queryText === 'ROLLBACK') {
+          return { rows: [] };
+        }
+        if (queryText.includes('SELECT EXISTS')) {
+          return { rows: [{ marker_table_exists: false }] };
+        }
+        if (queryText.includes('user_object_count')) {
+          return { rows: [{ user_object_count: 0 }] };
+        }
+        throw new Error(secret);
+      },
+    };
+
+    const error = await expectAsyncRejection(
+      () => initializeNonProductionDatabaseMarker(
+        failingDatabase,
+        'development',
+      ),
+      'MARKER_INITIALIZATION_FAILED',
+    );
+
+    expect(queries.at(-1)).toBe('ROLLBACK');
     expect(error.message).not.toContain(secret);
   });
 });

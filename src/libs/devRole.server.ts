@@ -48,12 +48,9 @@ function getDevSuperAdminId(): string {
       '\n⚠️  DEV_SUPER_ADMIN_ID is not set!\n'
       + 'FK-dependent operations (salon creation, invites) will fail.\n'
       + 'To fix:\n'
-      + '1. Create a real admin_user row with isSuperAdmin=true:\n'
-      + '   INSERT INTO admin_user (id, phone_e164, name, is_super_admin)\n'
-      + '   VALUES (\'dev-sa-\' || gen_random_uuid(), \'+15555550001\', \'Dev Super Admin\', true)\n'
-      + '   RETURNING id;\n'
-      + '2. Add DEV_SUPER_ADMIN_ID=<that_id> to .env.local\n'
-      + '3. Restart the dev server\n',
+      + '1. Run `npm run db:seed:development`.\n'
+      + '2. Set DEV_SUPER_ADMIN_ID=dev-super-admin in .env.development.local.\n'
+      + '3. Restart the dev server. No direct SQL is required.\n',
     );
     devSuperAdminWarningLogged = true;
   }

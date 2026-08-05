@@ -71,6 +71,18 @@ const USER_OBJECT_COUNT_QUERY = `
   ) AS user_object
 `;
 
+const CREATE_MARKER_TABLE_QUERY = `
+  CREATE TABLE IF NOT EXISTS public.luster_environment (
+    singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+    environment text NOT NULL CHECK (environment IN ('development', 'preview'))
+  )
+`;
+const INSERT_MARKER_QUERY = `
+  INSERT INTO public.luster_environment (singleton, environment)
+  VALUES (true, $1)
+  ON CONFLICT (singleton) DO NOTHING
+`;
+
 export type DevelopmentDatabaseEnvironment = 'development' | 'preview';
 
 export type NonProductionDatabaseGuardErrorCode =
@@ -81,12 +93,17 @@ export type NonProductionDatabaseGuardErrorCode =
   | 'HOSTED_PROVIDER_NOT_ALLOWLISTED'
   | 'MALFORMED_URL'
   | 'MARKER_ENVIRONMENT_INVALID'
+  | 'MARKER_ENVIRONMENT_MISMATCH'
+  | 'MARKER_INITIALIZATION_FAILED'
   | 'MARKER_QUERY_FAILED'
   | 'MARKER_ROW_MISSING'
   | 'MARKER_ROW_MULTIPLE'
   | 'MARKER_TABLE_MISSING'
   | 'MIGRATION_INSPECTION_FAILED'
   | 'PROTOCOL_WRONG'
+  | 'PRODUCTION_MARKER_INVALID'
+  | 'PRODUCTION_MARKER_NONPRODUCTION'
+  | 'PRODUCTION_MARKER_QUERY_FAILED'
   | 'ROUTING_OVERRIDE_FORBIDDEN'
   | 'URL_REQUIRED'
   | 'WHITESPACE_FORBIDDEN';
@@ -106,6 +123,10 @@ const ERROR_MESSAGES: Record<NonProductionDatabaseGuardErrorCode, string> = {
     'Non-Production database target rejected: DATABASE_URL is malformed.',
   MARKER_ENVIRONMENT_INVALID:
     'Development database rejected: the environment marker must be exactly development or preview.',
+  MARKER_ENVIRONMENT_MISMATCH:
+    'Non-Production database rejected: the environment marker does not match the required runtime environment.',
+  MARKER_INITIALIZATION_FAILED:
+    'Non-Production database marker initialization failed safely.',
   MARKER_QUERY_FAILED:
     'Development database rejected: the environment marker could not be read.',
   MARKER_ROW_MISSING:
@@ -118,6 +139,12 @@ const ERROR_MESSAGES: Record<NonProductionDatabaseGuardErrorCode, string> = {
     'Development migration rejected: database state could not be safely inspected.',
   PROTOCOL_WRONG:
     'Non-Production database target rejected: only PostgreSQL URLs are allowed.',
+  PRODUCTION_MARKER_INVALID:
+    'Production database rejected: the environment marker is invalid.',
+  PRODUCTION_MARKER_NONPRODUCTION:
+    'Production database rejected: a non-Production environment marker is present.',
+  PRODUCTION_MARKER_QUERY_FAILED:
+    'Production database rejected: the environment marker could not be inspected safely.',
   ROUTING_OVERRIDE_FORBIDDEN:
     'Non-Production database target rejected: routing override query parameters are forbidden.',
   URL_REQUIRED:
@@ -145,7 +172,12 @@ export type NonProductionDatabaseTarget = {
 
 /** The common query surface exposed by pg Client, pg Pool, and PGlite. */
 export type DatabaseQueryable = {
-  query: (queryText: string) => Promise<unknown>;
+  query: (queryText: string, values?: unknown[]) => Promise<unknown>;
+};
+
+export type MarkerInitializationOptions = {
+  /** Use when the caller already owns the surrounding transaction. */
+  transaction?: 'existing' | 'managed';
 };
 
 type UnknownRow = Record<string, unknown>;
@@ -196,7 +228,7 @@ function allowedHosts(environment: Environment): Set<string> {
  * exact non-Production allowlist entry. The returned string is never logged by
  * this module and errors deliberately contain no parsed URL values.
  */
-export function requireNonProductionDatabaseTarget(
+export function requirePostgresDatabaseTarget(
   environment: Environment = process.env,
 ): NonProductionDatabaseTarget {
   const connectionString = environment.DATABASE_URL;
@@ -234,7 +266,17 @@ export function requireNonProductionDatabaseTarget(
     }
   }
 
-  const host = normalizeUrlHost(parsed.hostname);
+  return {
+    connectionString,
+    host: normalizeUrlHost(parsed.hostname),
+  };
+}
+
+export function requireNonProductionDatabaseTarget(
+  environment: Environment = process.env,
+): NonProductionDatabaseTarget {
+  const target = requirePostgresDatabaseTarget(environment);
+  const host = target.host;
   if (!allowedHosts(environment).has(host)) {
     reject(
       isHostedProviderHostname(host)
@@ -243,7 +285,7 @@ export function requireNonProductionDatabaseTarget(
     );
   }
 
-  return { connectionString, host };
+  return target;
 }
 
 function isUnknownRow(value: unknown): value is UnknownRow {
@@ -271,7 +313,7 @@ function postgresErrorCode(error: unknown): string | undefined {
  * Requires the authoritative in-database environment marker. Merely reaching
  * an allowlisted host is never enough to authorize mutation.
  */
-export async function requireDevelopmentDatabase(
+async function readNonProductionDatabaseEnvironment(
   queryable: DatabaseQueryable,
 ): Promise<DevelopmentDatabaseEnvironment> {
   let result: unknown;
@@ -300,6 +342,61 @@ export async function requireDevelopmentDatabase(
     reject('MARKER_ENVIRONMENT_INVALID');
   }
   return environment;
+}
+
+/** Legacy Development tooling is bound to Development, never Preview. */
+export async function requireDevelopmentDatabase(
+  queryable: DatabaseQueryable,
+): Promise<'development'> {
+  const environment = await readNonProductionDatabaseEnvironment(queryable);
+  if (environment !== 'development') {
+    reject('MARKER_ENVIRONMENT_MISMATCH');
+  }
+  return environment;
+}
+
+/** Requires an exact Development or Preview marker, never either one. */
+export async function requireExactNonProductionDatabaseEnvironment(
+  queryable: DatabaseQueryable,
+  expectedEnvironment: DevelopmentDatabaseEnvironment,
+): Promise<DevelopmentDatabaseEnvironment> {
+  const environment = await readNonProductionDatabaseEnvironment(queryable);
+  if (environment !== expectedEnvironment) {
+    reject('MARKER_ENVIRONMENT_MISMATCH');
+  }
+  return environment;
+}
+
+/**
+ * Production does not need a marker. If the operational marker exists, it may
+ * only contain the exact value `production`; Development/Preview or malformed
+ * marker state fails closed.
+ */
+export async function rejectNonProductionMarkerForProduction(
+  queryable: DatabaseQueryable,
+): Promise<void> {
+  let result: unknown;
+  try {
+    result = await queryable.query(MARKER_QUERY);
+  } catch (error) {
+    if (postgresErrorCode(error) === '42P01') {
+      return;
+    }
+    reject('PRODUCTION_MARKER_QUERY_FAILED');
+  }
+
+  const rows = rowsFromResult(result);
+  if (!rows || rows.length !== 1) {
+    reject('PRODUCTION_MARKER_INVALID');
+  }
+
+  const environment = rows[0]?.environment;
+  if (environment === 'development' || environment === 'preview') {
+    reject('PRODUCTION_MARKER_NONPRODUCTION');
+  }
+  if (environment !== 'production') {
+    reject('PRODUCTION_MARKER_INVALID');
+  }
 }
 
 function exactlyOneRow(result: unknown): UnknownRow | null {
@@ -343,13 +440,19 @@ function parseObjectCount(value: unknown): number | null {
  */
 export async function requireDevelopmentMigrationDatabase(
   queryable: DatabaseQueryable,
+  expectedEnvironment?: DevelopmentDatabaseEnvironment,
 ): Promise<DevelopmentDatabaseEnvironment | null> {
   const markerTable = await inspectMigrationDatabase(
     queryable,
     MARKER_TABLE_QUERY,
   );
   if (markerTable.marker_table_exists === true) {
-    return requireDevelopmentDatabase(queryable);
+    return expectedEnvironment
+      ? requireExactNonProductionDatabaseEnvironment(
+        queryable,
+        expectedEnvironment,
+      )
+      : requireDevelopmentDatabase(queryable);
   }
   if (markerTable.marker_table_exists !== false) {
     reject('MIGRATION_INSPECTION_FAILED');
@@ -368,4 +471,65 @@ export async function requireDevelopmentMigrationDatabase(
   }
 
   return null;
+}
+
+async function initializeMarkerInsideTransaction(
+  queryable: DatabaseQueryable,
+  expectedEnvironment: DevelopmentDatabaseEnvironment,
+): Promise<DevelopmentDatabaseEnvironment> {
+  const existingEnvironment = await requireDevelopmentMigrationDatabase(
+    queryable,
+    expectedEnvironment,
+  );
+  if (existingEnvironment) {
+    return existingEnvironment;
+  }
+
+  try {
+    await queryable.query(CREATE_MARKER_TABLE_QUERY);
+    await queryable.query(INSERT_MARKER_QUERY, [expectedEnvironment]);
+  } catch {
+    reject('MARKER_INITIALIZATION_FAILED');
+  }
+
+  return requireExactNonProductionDatabaseEnvironment(
+    queryable,
+    expectedEnvironment,
+  );
+}
+
+/**
+ * Creates the operational non-Production marker only when the catalog proves
+ * the database is empty. Re-running against the same exact marker is a no-op;
+ * a conflicting marker or any unmarked user object is always rejected.
+ */
+export async function initializeNonProductionDatabaseMarker(
+  queryable: DatabaseQueryable,
+  expectedEnvironment: DevelopmentDatabaseEnvironment,
+  options: MarkerInitializationOptions = {},
+): Promise<DevelopmentDatabaseEnvironment> {
+  if (options.transaction === 'existing') {
+    return initializeMarkerInsideTransaction(queryable, expectedEnvironment);
+  }
+
+  let transactionOpen = false;
+  try {
+    await queryable.query('BEGIN');
+    transactionOpen = true;
+    const environment = await initializeMarkerInsideTransaction(
+      queryable,
+      expectedEnvironment,
+    );
+    await queryable.query('COMMIT');
+    transactionOpen = false;
+    return environment;
+  } catch (error) {
+    if (transactionOpen) {
+      await queryable.query('ROLLBACK').catch(() => undefined);
+    }
+    if (error instanceof NonProductionDatabaseGuardError) {
+      throw error;
+    }
+    reject('MARKER_INITIALIZATION_FAILED');
+  }
 }

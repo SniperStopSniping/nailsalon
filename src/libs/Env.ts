@@ -42,7 +42,7 @@ export const Env = createEnv({
     TENANT_SUBDOMAINS_ENABLED: z.enum(['true', 'false']).optional(),
     TENANT_SUBDOMAIN_ALLOWLIST: z.string().optional(),
     CLERK_AUTHORIZED_PARTIES: z.string().optional(),
-    APP_ENV: z.enum(['development', 'staging', 'production']).optional(),
+    APP_ENV: z.enum(['development', 'preview', 'staging', 'production']).optional(),
     REDIS_URL: z.string().optional(),
     SUPER_ADMIN_AUTH_MODE: z.enum(['password', 'twilio']).optional(),
     SUPER_ADMIN_TEST_LOGIN_ENABLED: z.enum(['true', 'false']).optional(),

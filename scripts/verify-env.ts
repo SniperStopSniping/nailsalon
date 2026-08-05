@@ -16,6 +16,11 @@
  *   1 - One or more blocking checks failed
  */
 
+import {
+  assertEnvironmentIsolation,
+  EnvironmentIsolationError,
+} from '../src/libs/environmentIsolation';
+
 type EnvCheck = {
   name: string;
   required: boolean;
@@ -46,10 +51,28 @@ const isHttpsUrl = (value: string | undefined) => {
 
 const nonEmpty = (value: string | undefined) => !!value && value.length > 0;
 
+let environmentIsolationMessage
+  = 'The deployment and provider environment modes must agree.';
+let environmentIsolationPassed = false;
+try {
+  assertEnvironmentIsolation(process.env);
+  environmentIsolationPassed = true;
+} catch (error) {
+  environmentIsolationMessage = error instanceof EnvironmentIsolationError
+    ? error.message
+    : 'Environment isolation verification failed safely.';
+}
+
 const groups: CheckGroup[] = [
   {
     title: 'Blocking launch requirements',
     checks: [
+      {
+        name: 'ENVIRONMENT_ISOLATION',
+        required: true,
+        validate: () => environmentIsolationPassed,
+        message: environmentIsolationMessage,
+      },
       {
         name: 'NODE_ENV',
         required: true,

@@ -2,19 +2,21 @@
 
 ## Local App Boot
 
-### 1. Install and migrate
+### 1. Install, initialize, and migrate
 ```bash
-npm install
+npm ci
+npm run db:initialize:development
 npm run db:migrate:development
 ```
 
-`db:migrate:development` first attests the configured host and in-database
-environment marker, then runs the normal Drizzle migration step. Run the
-appointment-discount verifier separately when that focused schema gate is needed.
+Initialization creates the marker only when the approved target is catalog-empty,
+or verifies an existing exact `development` marker. Migration then independently
+attests the exact host and marker before running the repository migration chain.
+Neither command prints the connection string. No direct SQL is required.
 
 ### 2. Seed if needed
 ```bash
-npm run db:seed
+npm run db:seed:development
 ```
 
 Use this if:
@@ -101,7 +103,7 @@ E2E_BASE_URL=http://localhost:3101 npm run test:e2e:core:staging
 ```
 
 See:
-- [docs/E2E_STAGING.md](/Users/me/Desktop/nail-salon-copy2 copy 2/docs/E2E_STAGING.md)
+- [Browser E2E Gate](./E2E_STAGING.md)
 
 ### Default Playwright command
 ```bash
@@ -124,8 +126,23 @@ npm run db:migrate:development
 - Likely no active services for the current salon
 - Run:
 ```bash
-npm run db:seed
+npm run db:seed:development
 ```
+
+### Intentionally rebuild the Development database
+
+Preview and Production are never accepted by this command. After reviewing the
+target and accepting that all Development data will be removed, run:
+
+```bash
+LUSTER_DEVELOPMENT_RESET_CONFIRM=RESET_LUSTER_DEVELOPMENT_DATABASE \
+  npm run db:reset:development
+```
+
+The reset re-attests the exact Development marker, recreates the schemas and
+marker transactionally, then runs fixed migrate and synthetic-seed children.
+See [Environment Separation](./ENVIRONMENT_SEPARATION.md) for provisioning and
+credential handling.
 
 ### Playwright cannot start because port `3000` is busy
 - Use:
