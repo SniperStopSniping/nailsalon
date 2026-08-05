@@ -11,7 +11,11 @@ const EXTERNAL_BASE_URL = process.env.E2E_BASE_URL?.trim();
 
 export const e2eBaseUrl = EXTERNAL_BASE_URL || `http://${HOST}:${PORT}`;
 
-assertAllowedE2ETarget(e2eBaseUrl, process.env.E2E_ALLOW_PRODUCTION);
+assertAllowedE2ETarget(
+  e2eBaseUrl,
+  process.env.E2E_ALLOW_PRODUCTION,
+  process.env.LUSTER_E2E_BLOCKED_HOSTS,
+);
 
 export const e2eConfig = {
   freeSolo: process.env.E2E_FREE_SOLO !== 'false',

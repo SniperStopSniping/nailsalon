@@ -17,7 +17,11 @@ const EXTERNAL_BASE_URL = process.env.E2E_BASE_URL?.trim();
 const usingExternalBaseUrl = Boolean(EXTERNAL_BASE_URL);
 const baseURL = EXTERNAL_BASE_URL || `http://${HOST}:${PORT}`;
 
-assertAllowedE2ETarget(baseURL, process.env.E2E_ALLOW_PRODUCTION);
+assertAllowedE2ETarget(
+  baseURL,
+  process.env.E2E_ALLOW_PRODUCTION,
+  process.env.LUSTER_E2E_BLOCKED_HOSTS,
+);
 
 process.env.HOST ||= HOST;
 process.env.PORT ||= String(PORT);

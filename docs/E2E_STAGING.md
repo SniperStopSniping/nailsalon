@@ -84,6 +84,13 @@ Optional overrides:
 configuration load. `E2E_ALLOW_PRODUCTION=1` is reserved for a separately
 owner-authorized Production run and should be supplied only for that invocation.
 
+OPS provisioning must set `LUSTER_E2E_BLOCKED_HOSTS` to a comma-separated list
+containing every known Production alias, including every Vercel Production
+alias, used for manual E2E protection. Entries are exact hostnames: wildcards,
+URLs, ports, paths, and empty entries are rejected, and Preview siblings remain
+allowed. This list augments the built-in custom-domain blocklist. Do not commit
+private Production alias values to the repository.
+
 ## Commands
 
 ### Recommended Preview gate
