@@ -669,15 +669,21 @@ export async function PATCH(request: Request): Promise<Response> {
       touchedSettingsKeys.push('smartFit');
     }
 
-    let mergedMerchandising: ReturnType<typeof merchandisingSettingsSchema.parse> | null = null;
-    if (updates.merchandising) {
-      mergedMerchandising = merchandisingSettingsSchema.parse({
+    const requestedMerchandisingKeys = updates.merchandising
+      ? Object.keys(updates.merchandising) as Array<keyof typeof currentMerchandising>
+      : [];
+    if (updates.merchandising && requestedMerchandisingKeys.length > 0) {
+      const mergedMerchandising = merchandisingSettingsSchema.parse({
         ...currentMerchandising,
         ...updates.merchandising,
       });
 
-      before.merchandising = currentMerchandising;
-      after.merchandising = mergedMerchandising;
+      // Audit only fields owned by this request. Recording the entire
+      // request-start snapshot would misattribute a concurrently saved sibling
+      // preference that the targeted SQL below intentionally preserves.
+      before.merchandising = Object.fromEntries(
+        requestedMerchandisingKeys.map(key => [key, currentMerchandising[key]]),
+      );
       ensureNextSettings().merchandising = mergedMerchandising;
       touchedSettingsKeys.push('merchandising');
     }
@@ -810,8 +816,38 @@ export async function PATCH(request: Request): Promise<Response> {
       if (touchedSettingsKeys.includes('smartFit')) {
         settingsExpression = sql`jsonb_set(${settingsExpression}, '{smartFit}', ${JSON.stringify(settingsToPersist.smartFit)}::jsonb)`;
       }
-      if (touchedSettingsKeys.includes('merchandising')) {
-        settingsExpression = sql`jsonb_set(${settingsExpression}, '{merchandising}', ${JSON.stringify(settingsToPersist.merchandising)}::jsonb)`;
+      if (
+        touchedSettingsKeys.includes('merchandising')
+        && updates.merchandising
+      ) {
+        // Merchandising controls live in several independent admin surfaces.
+        // Normalize the live database value, then update only the keys this
+        // request owns so a concurrent sibling preference is never replaced
+        // by the request-start snapshot used for validation and audit data.
+        settingsExpression = sql`
+          jsonb_set(
+            ${settingsExpression},
+            '{merchandising}',
+            CASE
+              WHEN jsonb_typeof(${settingsExpression}->'merchandising') = 'object'
+                THEN ${settingsExpression}->'merchandising'
+              ELSE '{}'::jsonb
+            END
+          )
+        `;
+
+        if (updates.merchandising.featureLusterManicure !== undefined) {
+          settingsExpression = sql`jsonb_set(${settingsExpression}, '{merchandising,featureLusterManicure}', ${JSON.stringify(updates.merchandising.featureLusterManicure)}::jsonb)`;
+        }
+        if (updates.merchandising.showServiceImages !== undefined) {
+          settingsExpression = sql`jsonb_set(${settingsExpression}, '{merchandising,showServiceImages}', ${JSON.stringify(updates.merchandising.showServiceImages)}::jsonb)`;
+        }
+        if (updates.merchandising.lusterPromoDismissed !== undefined) {
+          settingsExpression = sql`jsonb_set(${settingsExpression}, '{merchandising,lusterPromoDismissed}', ${JSON.stringify(updates.merchandising.lusterPromoDismissed)}::jsonb)`;
+        }
+        if (updates.merchandising.serviceLibraryIntroDismissed !== undefined) {
+          settingsExpression = sql`jsonb_set(${settingsExpression}, '{merchandising,serviceLibraryIntroDismissed}', ${JSON.stringify(updates.merchandising.serviceLibraryIntroDismissed)}::jsonb)`;
+        }
       }
 
       dbUpdates.settings = settingsExpression;
@@ -868,6 +904,15 @@ export async function PATCH(request: Request): Promise<Response> {
       return Response.json(
         { error: 'Salon not found' },
         { status: 404 },
+      );
+    }
+
+    if (requestedMerchandisingKeys.length > 0) {
+      const authoritativeMerchandising = resolveMerchandisingSettings(
+        (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+      );
+      after.merchandising = Object.fromEntries(
+        requestedMerchandisingKeys.map(key => [key, authoritativeMerchandising[key]]),
       );
     }
 

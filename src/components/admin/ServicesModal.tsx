@@ -1916,6 +1916,11 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const [addDialogPrefill, setAddDialogPrefill] = useState<ServicePrefill | null>(null);
   const [lusterPromoDismissed, setLusterPromoDismissed] = useState<boolean | null>(null);
   const [libraryIntroDismissed, setLibraryIntroDismissed] = useState<boolean | null>(null);
+  const [showServiceImages, setShowServiceImages] = useState<boolean | null>(null);
+  const [showServiceImagesSaving, setShowServiceImagesSaving] = useState(false);
+  const [showServiceImagesError, setShowServiceImagesError] = useState<string | null>(null);
+  const showServiceImagesSaveInFlight = useRef(false);
+  const showServiceImagesSaveAbort = useRef<AbortController | null>(null);
   const [activeTab, setActiveTab] = useState<'menu' | 'library' | 'addons'>('menu');
   const [ownedTemplateKeys, setOwnedTemplateKeys] = useState<Set<string>>(new Set());
   const [bulkAddBusy, setBulkAddBusy] = useState(false);
@@ -2048,11 +2053,19 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
     void fetchAddOns();
   }, [fetchServices, fetchAddOns]);
 
-  // Load the promo-card dismissal state; stay hidden until it's known.
+  // Load the shared merchandising settings used throughout the owner UI.
   useEffect(() => {
+    showServiceImagesSaveAbort.current?.abort();
+    showServiceImagesSaveAbort.current = null;
+    showServiceImagesSaveInFlight.current = false;
+    setShowServiceImagesSaving(false);
+    setShowServiceImagesError(null);
+
     if (!salonSlug) {
+      setShowServiceImages(true);
       return;
     }
+    setShowServiceImages(null);
     let cancelled = false;
     const loadMerchandising = async () => {
       try {
@@ -2060,6 +2073,9 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           `/api/admin/salon/settings?salonSlug=${encodeURIComponent(salonSlug)}`,
         );
         if (!response.ok) {
+          if (!cancelled) {
+            setShowServiceImages(true);
+          }
           return;
         }
         const result = await response.json();
@@ -2070,14 +2086,24 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           setLibraryIntroDismissed(
             Boolean(result?.merchandising?.serviceLibraryIntroDismissed),
           );
+          setShowServiceImages(
+            result?.merchandising?.showServiceImages !== false,
+          );
         }
       } catch {
-        // Promo card simply stays hidden if settings can't be loaded.
+        // Visibility follows the existing fail-open behavior if settings
+        // cannot be loaded. Promo cards still stay hidden until known.
+        if (!cancelled) {
+          setShowServiceImages(true);
+        }
       }
     };
     void loadMerchandising();
     return () => {
       cancelled = true;
+      showServiceImagesSaveAbort.current?.abort();
+      showServiceImagesSaveAbort.current = null;
+      showServiceImagesSaveInFlight.current = false;
     };
   }, [salonSlug]);
 
@@ -2120,6 +2146,61 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
       // Dismissals are best-effort; the card is already hidden locally.
     }
   }, [salonSlug]);
+
+  const handleShowServiceImagesChange = useCallback(async () => {
+    if (
+      !salonSlug
+      || showServiceImages === null
+      || showServiceImagesSaveInFlight.current
+    ) {
+      return;
+    }
+
+    const nextValue = !showServiceImages;
+    showServiceImagesSaveInFlight.current = true;
+    setShowServiceImagesSaving(true);
+    setShowServiceImagesError(null);
+    const controller = new AbortController();
+    showServiceImagesSaveAbort.current = controller;
+    const timeoutId = window.setTimeout(() => controller.abort(), 12_000);
+
+    try {
+      const response = await fetch(
+        `/api/admin/salon/settings?salonSlug=${encodeURIComponent(salonSlug)}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          signal: controller.signal,
+          body: JSON.stringify({
+            merchandising: { showServiceImages: nextValue },
+          }),
+        },
+      );
+      const result = await response.json().catch(() => null);
+      const authoritativeValue = result?.merchandising?.showServiceImages;
+
+      if (!response.ok || typeof authoritativeValue !== 'boolean') {
+        throw new Error('Service-image visibility was not saved');
+      }
+
+      if (showServiceImagesSaveAbort.current === controller) {
+        setShowServiceImages(authoritativeValue);
+      }
+    } catch {
+      if (showServiceImagesSaveAbort.current === controller) {
+        setShowServiceImagesError(
+          'Service image visibility could not be saved. Try again.',
+        );
+      }
+    } finally {
+      window.clearTimeout(timeoutId);
+      if (showServiceImagesSaveAbort.current === controller) {
+        showServiceImagesSaveAbort.current = null;
+        showServiceImagesSaveInFlight.current = false;
+        setShowServiceImagesSaving(false);
+      }
+    }
+  }, [salonSlug, showServiceImages]);
 
   // One-tap Deactivate/Reactivate from the detail view: same PATCH contract as
   // the edit dialog, with every field unchanged except isActive.
@@ -2371,6 +2452,63 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               Library
             </button>
           </div>
+        </div>
+        <div
+          data-testid="service-images-visibility-row"
+          className="mx-4 mb-2 flex min-w-0 items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2"
+        >
+          <div className="min-w-0">
+            <p
+              id="service-images-visibility-label"
+              className="text-[14px] font-semibold leading-5 text-[#1C1C1E]"
+            >
+              Service images
+            </p>
+            <p
+              id="service-images-visibility-description"
+              className="text-[12px] leading-4 text-[#6B7280]"
+            >
+              {showServiceImages === false
+                ? 'Images are hidden from clients. Your uploaded images are saved.'
+                : 'Show images on your public booking page.'}
+            </p>
+            {showServiceImagesError && (
+              <p
+                role="alert"
+                data-testid="service-images-visibility-error"
+                className="mt-1 text-[12px] leading-4 text-red-700"
+              >
+                {showServiceImagesError}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={showServiceImages ?? true}
+            aria-busy={showServiceImagesSaving}
+            aria-labelledby="service-images-visibility-label"
+            aria-describedby="service-images-visibility-description"
+            disabled={showServiceImages === null || showServiceImagesSaving || !salonSlug}
+            data-testid="services-show-service-images-toggle"
+            onClick={() => void handleShowServiceImagesChange()}
+            className={`relative h-7 w-12 shrink-0 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-700 focus-visible:ring-offset-2 disabled:cursor-wait disabled:opacity-60 ${
+              showServiceImages !== false ? 'bg-rose-800' : 'bg-gray-300'
+            }`}
+          >
+            <span
+              aria-hidden="true"
+              className={`absolute left-1 top-1 size-5 rounded-full bg-white shadow-sm transition-transform ${
+                showServiceImages !== false ? 'translate-x-5' : 'translate-x-0'
+              }`}
+            />
+            <span className="sr-only">
+              Toggle service images
+            </span>
+          </button>
+          <span className="sr-only" role="status" aria-live="polite">
+            {showServiceImagesSaving ? 'Saving service image visibility' : ''}
+          </span>
         </div>
         {activeTab === 'menu' && (
           <CategoryTabs
