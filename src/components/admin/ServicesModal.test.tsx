@@ -2,11 +2,23 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { ServiceImageError } from '@/libs/serviceImageClient';
+
 import { ServicesModal } from './ServicesModal';
 
-const { fetchMock } = vi.hoisted(() => ({
+const { fetchMock, prepareServiceImageMock } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
+  prepareServiceImageMock: vi.fn(),
 }));
+
+vi.mock('@/libs/serviceImageClient', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/libs/serviceImageClient')>();
+
+  return {
+    ...original,
+    prepareServiceImage: prepareServiceImageMock,
+  };
+});
 
 vi.mock('framer-motion', () => {
   const makeMotionTag = (tag: string) =>
@@ -53,19 +65,47 @@ type MockRoutes = {
   imageStrategy?: 'cloudinary' | 'local';
   imageResultService?: Record<string, unknown>;
   imageFailureAt?: 'presign' | 'upload' | 'finalize' | 'delete';
+  imageFailure?: {
+    stage: 'presign' | 'upload' | 'finalize';
+    kind?: 'response' | 'network';
+    status?: number;
+    code?: string;
+    message?: string;
+  };
   imageDeleteFailure?: { status: number; message: string };
 };
 
-function mockRoutes({ services = [], merchandising = {}, settingsGetStatus = 200, settingsPatch, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageDeleteFailure }: MockRoutes) {
+function mockRoutes({ services = [], merchandising = {}, settingsGetStatus = 200, settingsPatch, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageFailure, imageDeleteFailure }: MockRoutes) {
   let addOnListCalls = 0;
   let serviceListCalls = 0;
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     if (url.endsWith('/image/presign') && init?.method === 'POST') {
+      if (imageFailure?.stage === 'presign' && imageFailure.kind === 'network') {
+        throw new TypeError('simulated presign connection failure');
+      }
+      if (imageFailure?.stage === 'presign') {
+        return new Response(JSON.stringify({
+          error: {
+            code: imageFailure.code,
+            message: imageFailure.message ?? 'Internal presign details',
+          },
+        }), { status: imageFailure.status ?? 500 });
+      }
       if (imageFailureAt === 'presign') {
         return new Response(JSON.stringify({ error: { message: 'Unable to prepare image' } }), { status: 500 });
       }
       if (imageStrategy === 'cloudinary') {
+        const presignBody = JSON.parse(String(init.body)) as {
+          contentType: string;
+        };
+        const format = presignBody.contentType === 'image/jpeg'
+          ? 'jpg'
+          : presignBody.contentType.split('/').at(-1);
+        const serviceId = decodeURIComponent(
+          url.match(/\/services\/([^/]+)\/image\/presign/)?.[1] ?? 'svc_new',
+        );
+
         return new Response(JSON.stringify({
           data: {
             strategy: 'cloudinary',
@@ -74,7 +114,7 @@ function mockRoutes({ services = [], merchandising = {}, settingsGetStatus = 200
             timestamp: 123456,
             signature: 'signed-value',
             uploadPreset: 'luster_service_images_v1',
-            publicId: 'salons/salon_1/services/service_svc_new_abcdefghijklmnop_webp',
+            publicId: `salons/salon_1/services/service_${serviceId}_abcdefghijklmnop_${format}`,
             overwrite: false,
             type: 'upload',
             tags: 'luster_service_image_pending_v1',
@@ -87,6 +127,17 @@ function mockRoutes({ services = [], merchandising = {}, settingsGetStatus = 200
       return new Response(JSON.stringify({ data: { strategy: 'local' } }), { status: 200 });
     }
     if (url === 'https://api.cloudinary.com/v1_1/demo/image/upload' && init?.method === 'POST') {
+      if (imageFailure?.stage === 'upload' && imageFailure.kind === 'network') {
+        throw new TypeError('simulated upload connection failure');
+      }
+      if (imageFailure?.stage === 'upload') {
+        return new Response(JSON.stringify({
+          error: {
+            code: imageFailure.code,
+            message: imageFailure.message ?? 'Internal provider details',
+          },
+        }), { status: imageFailure.status ?? 500 });
+      }
       if (imageFailureAt === 'upload') {
         return new Response(JSON.stringify({ error: { message: 'Cloud upload failed' } }), { status: 500 });
       }
@@ -110,6 +161,17 @@ function mockRoutes({ services = [], merchandising = {}, settingsGetStatus = 200
       }
       if (init?.method === 'POST' && imageFailureAt === 'finalize') {
         return new Response(JSON.stringify({ error: { message: 'Image finalization failed' } }), { status: 500 });
+      }
+      if (init?.method === 'POST' && imageFailure?.stage === 'finalize' && imageFailure.kind === 'network') {
+        throw new TypeError('simulated finalization connection failure');
+      }
+      if (init?.method === 'POST' && imageFailure?.stage === 'finalize') {
+        return new Response(JSON.stringify({
+          error: {
+            code: imageFailure.code,
+            message: imageFailure.message ?? 'Internal finalization details',
+          },
+        }), { status: imageFailure.status ?? 500 });
       }
       const serviceId = decodeURIComponent(url.match(/\/services\/([^/]+)\/image/)?.[1] ?? 'svc_new');
       const sourceService = (services as Record<string, unknown>[]).find(item => item.id === serviceId)
@@ -232,6 +294,8 @@ describe('ServicesModal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchMock.mockReset();
+    prepareServiceImageMock.mockReset();
+    prepareServiceImageMock.mockImplementation(async (file: File) => file);
     vi.stubGlobal('fetch', fetchMock);
   });
 
@@ -1406,6 +1470,8 @@ describe('ServicesModal — service image controls', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fetchMock.mockReset();
+    prepareServiceImageMock.mockReset();
+    prepareServiceImageMock.mockImplementation(async (file: File) => file);
     vi.stubGlobal('fetch', fetchMock);
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
@@ -1539,7 +1605,7 @@ describe('ServicesModal — service image controls', () => {
 
     expect(notice).toHaveAttribute('role', 'alert');
     expect(notice).toHaveTextContent(
-      'Service details were saved, but the image could not be updated. Open Edit Service to try the image again.',
+      'Service details were saved, but the service image changed elsewhere. Reopen Edit Service and try again.',
     );
 
     const deleteCall = findCall((url, init) =>
@@ -1589,6 +1655,11 @@ describe('ServicesModal — service image controls', () => {
     fireEvent.click(await screen.findByTestId('service-detail-edit'));
 
     const file = new File(['replacement'], 'replacement.png', { type: 'image/png' });
+    const preparedFile = new File(['compressed'], 'replacement.jpg', {
+      type: 'image/jpeg',
+    });
+
+    prepareServiceImageMock.mockResolvedValue(preparedFile);
 
     fireEvent.change(screen.getByLabelText('Service image'), { target: { files: [file] } });
     fireEvent.click(screen.getByRole('button', { name: 'Update Service' }));
@@ -1605,8 +1676,8 @@ describe('ServicesModal — service image controls', () => {
 
     expect(JSON.parse(String((presignCall[1] as RequestInit).body))).toEqual({
       salonSlug: 'isla-nail-studio',
-      contentType: 'image/png',
-      fileSize: file.size,
+      contentType: 'image/jpeg',
+      fileSize: preparedFile.size,
       expectedImageUrl: serviceWithImage.imageUrl,
     });
 
@@ -1615,7 +1686,8 @@ describe('ServicesModal — service image controls', () => {
       && init?.method === 'POST')!;
     const imageBody = (imageCall[1] as RequestInit).body as FormData;
 
-    expect(imageBody.get('file')).toBe(file);
+    expect(prepareServiceImageMock).toHaveBeenCalledWith(file);
+    expect(imageBody.get('file')).toBe(preparedFile);
     expect(imageBody.get('salonSlug')).toBe('isla-nail-studio');
     expect(imageBody.get('expectedImageUrl')).toBe(serviceWithImage.imageUrl);
 
@@ -1633,7 +1705,7 @@ describe('ServicesModal — service image controls', () => {
     expect(screen.getByTestId('service-image-preview')).toHaveAttribute('src', finalService.imageUrl);
   });
 
-  it('validates image type and the 5 MiB limit before saving', async () => {
+  it('rejects unsupported, HEIC, and empty files while staging oversized supported images for preparation', async () => {
     mockRoutes({ merchandising: { lusterPromoDismissed: true } });
 
     render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
@@ -1643,7 +1715,17 @@ describe('ServicesModal — service image controls', () => {
       target: { files: [new File(['svg'], 'unsafe.svg', { type: 'image/svg+xml' })] },
     });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Choose a JPEG, PNG, or WebP image.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Choose a JPG, PNG, or WebP image.');
+
+    fireEvent.change(screen.getByLabelText('Service image'), {
+      target: { files: [new File(['heic'], 'iphone.HEIC', { type: '' })] },
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'HEIC images are not supported yet. Please choose a screenshot, JPG, PNG, or WebP.',
+    );
+
+    vi.mocked(URL.createObjectURL).mockClear();
 
     fireEvent.change(screen.getByLabelText('Service image'), {
       target: {
@@ -1657,8 +1739,12 @@ describe('ServicesModal — service image controls', () => {
       },
     });
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Image must be 5 MB or smaller.');
-    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(URL.createObjectURL).toHaveBeenCalledOnce();
+    expect(screen.getByTestId('service-image-preview')).toHaveAttribute(
+      'src',
+      'blob:service-preview',
+    );
 
     fireEvent.change(screen.getByLabelText('Service image'), {
       target: { files: [new File([], 'empty.webp', { type: 'image/webp' })] },
@@ -1750,6 +1836,11 @@ describe('ServicesModal — service image controls', () => {
     await openAddDialog();
     fillRequiredAddFields();
     const file = new File(['image'], 'image.webp', { type: 'image/webp' });
+    const preparedFile = new File(['compressed-image'], 'image.jpg', {
+      type: 'image/jpeg',
+    });
+
+    prepareServiceImageMock.mockResolvedValue(preparedFile);
 
     fireEvent.change(screen.getByLabelText('Service image'), { target: { files: [file] } });
     fireEvent.click(screen.getByRole('button', { name: 'Save Service' }));
@@ -1766,8 +1857,8 @@ describe('ServicesModal — service image controls', () => {
 
     expect(JSON.parse(String((presignCall[1] as RequestInit).body))).toEqual({
       salonSlug: 'isla-nail-studio',
-      contentType: 'image/webp',
-      fileSize: file.size,
+      contentType: 'image/jpeg',
+      fileSize: preparedFile.size,
       expectedImageUrl: null,
     });
 
@@ -1775,12 +1866,13 @@ describe('ServicesModal — service image controls', () => {
       url === 'https://api.cloudinary.com/v1_1/demo/image/upload')!;
     const uploadBody = (uploadCall[1] as RequestInit).body as FormData;
 
-    expect(uploadBody.get('file')).toBe(file);
+    expect(prepareServiceImageMock).toHaveBeenCalledWith(file);
+    expect(uploadBody.get('file')).toBe(preparedFile);
     expect(uploadBody.get('api_key')).toBe('public-key');
     expect(uploadBody.get('timestamp')).toBe('123456');
     expect(uploadBody.get('signature')).toBe('signed-value');
     expect(uploadBody.get('upload_preset')).toBe('luster_service_images_v1');
-    expect(uploadBody.get('public_id')).toBe('salons/salon_1/services/service_svc_new_abcdefghijklmnop_webp');
+    expect(uploadBody.get('public_id')).toBe('salons/salon_1/services/service_svc_new_abcdefghijklmnop_jpg');
     expect(uploadBody.get('overwrite')).toBe('false');
     expect(uploadBody.get('type')).toBe('upload');
     expect(uploadBody.get('tags')).toBe('luster_service_image_pending_v1');
@@ -1806,7 +1898,7 @@ describe('ServicesModal — service image controls', () => {
     expect(JSON.parse(String((finalizeCall[1] as RequestInit).body))).toEqual({
       salonSlug: 'isla-nail-studio',
       assetId: 'asset_AbCdEfGhIjKlMnOp',
-      publicId: 'salons/salon_1/services/service_svc_new_abcdefghijklmnop_webp',
+      publicId: 'salons/salon_1/services/service_svc_new_abcdefghijklmnop_jpg',
       expectedImageUrl: null,
       timestamp: 123456,
       finalizeToken: 'a'.repeat(64),
@@ -1815,6 +1907,168 @@ describe('ServicesModal — service image controls', () => {
     fireEvent.click(await screen.findByTestId('service-detail-edit'));
 
     expect(screen.getByTestId('service-image-preview')).toHaveAttribute('src', finalService.imageUrl);
+  });
+
+  it.each([
+    {
+      label: 'an image still over the upload limit after resizing',
+      code: 'IMAGE_TOO_LARGE_AFTER_RESIZE',
+      expected:
+        'Service details were saved, but the image upload failed because the file was still too large after resizing. Try a smaller image.',
+    },
+    {
+      label: 'a browser decode or resize failure',
+      code: 'IMAGE_PROCESSING_FAILED',
+      expected:
+        'Service details were saved, but your browser could not read or resize that image. Try a JPG, PNG, or WebP.',
+    },
+  ] as const)('keeps saved details and explains $label', async ({ code, expected }) => {
+    mockRoutes({
+      createdService,
+      imageStrategy: 'cloudinary',
+      merchandising: { lusterPromoDismissed: true },
+    });
+    prepareServiceImageMock.mockRejectedValue(new ServiceImageError(code));
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+    await openAddDialog();
+    fillRequiredAddFields();
+    fireEvent.change(screen.getByLabelText('Service image'), {
+      target: { files: [new File(['image'], 'image.png', { type: 'image/png' })] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Service' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(expected);
+    expect(findCall(url => url.endsWith('/image/presign'))).toBeUndefined();
+    expect(findCall((_url, init) => init?.method === 'DELETE')).toBeUndefined();
+    expect(fetchMock.mock.calls.filter(([input, init]) =>
+      String(input) === '/api/salon/services'
+      && (init as RequestInit | undefined)?.method === 'POST')).toHaveLength(1);
+  });
+
+  it.each([
+    {
+      label: 'a presign rejection',
+      imageFailure: {
+        stage: 'presign',
+        status: 503,
+        code: 'IMAGE_STORAGE_UNAVAILABLE',
+        message: 'internal storage configuration',
+      },
+      expected:
+        'Service details were saved, but the image upload could not be prepared. Try again.',
+    },
+    {
+      label: 'an upload network failure',
+      imageFailure: { stage: 'upload', kind: 'network' },
+      expected:
+        'Service details were saved, but the image upload lost its connection. Check your internet and try again.',
+    },
+    {
+      label: 'a Cloudinary rejection',
+      imageFailure: {
+        stage: 'upload',
+        status: 400,
+        message: 'signature=raw-secret upload_token=raw-token',
+      },
+      expected:
+        'Service details were saved, but the image service rejected the upload. Try another JPG, PNG, or WebP.',
+    },
+    {
+      label: 'a stale finalization',
+      imageFailure: {
+        stage: 'finalize',
+        status: 409,
+        code: 'SERVICE_IMAGE_STALE',
+      },
+      expected:
+        'Service details were saved, but the service image changed elsewhere. Reopen Edit Service and try again.',
+    },
+    {
+      label: 'invalid finalized image metadata',
+      imageFailure: {
+        stage: 'finalize',
+        status: 400,
+        code: 'INVALID_IMAGE_CONTENT',
+      },
+      expected:
+        'Service details were saved, but the uploaded image could not be verified. Try another image.',
+    },
+    {
+      label: 'a permission or tenant rejection',
+      imageFailure: {
+        stage: 'presign',
+        status: 403,
+        code: 'NO_SALON_ACCESS',
+      },
+      expected:
+        'Service details were saved, but you no longer have permission to update this service image. Refresh and try again.',
+    },
+    {
+      label: 'an unknown image-service failure',
+      imageFailure: {
+        stage: 'finalize',
+        status: 502,
+        code: 'IMAGE_VERIFICATION_FAILED',
+      },
+      expected:
+        'Service details were saved, but the image service could not finish the update. Open Edit Service and try again.',
+    },
+  ] as const)('shows safe partial-success copy for $label', async ({ imageFailure, expected }) => {
+    mockRoutes({
+      createdService,
+      imageStrategy: 'cloudinary',
+      imageFailure,
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+    await openAddDialog();
+    fillRequiredAddFields();
+    fireEvent.change(screen.getByLabelText('Service image'), {
+      target: { files: [new File(['image'], 'image.webp', { type: 'image/webp' })] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Service' }));
+
+    const notice = await screen.findByRole('alert');
+
+    expect(notice).toHaveTextContent(expected);
+    expect(notice).not.toHaveTextContent('raw-secret');
+    expect(notice).not.toHaveTextContent('raw-token');
+  });
+
+  it('preserves the previous custom image and makes no delete request when replacement fails', async () => {
+    mockRoutes({
+      services: [serviceWithImage],
+      imageStrategy: 'cloudinary',
+      imageFailure: {
+        stage: 'finalize',
+        status: 409,
+        code: 'SERVICE_IMAGE_STALE',
+      },
+      merchandising: { lusterPromoDismissed: true },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+    fireEvent.click(await screen.findByText('Gel Manicure'));
+    fireEvent.click(await screen.findByTestId('service-detail-edit'));
+    fireEvent.change(screen.getByLabelText('Service image'), {
+      target: { files: [new File(['replacement'], 'replacement.png', { type: 'image/png' })] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Service' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Service details were saved, but the service image changed elsewhere.',
+    );
+    expect(findCall((_url, init) => init?.method === 'DELETE')).toBeUndefined();
+    expect(findCall(url => url === 'https://api.cloudinary.com/v1_1/demo/delete_by_token')).toBeUndefined();
+
+    fireEvent.click(await screen.findByTestId('service-detail-edit'));
+
+    expect(screen.getByTestId('service-image-preview')).toHaveAttribute(
+      'src',
+      serviceWithImage.imageUrl,
+    );
   });
 
   it('reports partial success, refreshes, and reopens the created service as PATCH rather than creating a duplicate', async () => {
@@ -1834,13 +2088,19 @@ describe('ServicesModal — service image controls', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save Service' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      'Service details were saved, but the image could not be updated. Open Edit Service to try the image again.',
+      'Service details were saved, but the image service could not finish the update. Open Edit Service and try again.',
     );
     // A failed/ambiguous finalization must not let the browser delete an image
     // that the server may already have committed.
     expect(findCall(url => url === 'https://api.cloudinary.com/v1_1/demo/delete_by_token')).toBeUndefined();
 
     fireEvent.click(await screen.findByTestId('service-detail-edit'));
+
+    expect(screen.getByTestId('service-image-preview')).toHaveAttribute(
+      'alt',
+      expect.stringContaining('Built-in booking artwork'),
+    );
+
     fireEvent.click(screen.getByRole('button', { name: 'Update Service' }));
 
     await waitFor(() => {
