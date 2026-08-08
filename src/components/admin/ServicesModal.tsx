@@ -37,6 +37,14 @@ import {
   isPublicServiceCustomImageUrl,
   resolveServiceCardImage,
 } from '@/libs/serviceImage';
+import {
+  normalizeServiceImageError,
+  prepareServiceImage,
+  ServiceImageError,
+  serviceImagePartialSuccessMessage,
+  serviceImageResponseError,
+  validateServiceImageFile,
+} from '@/libs/serviceImageClient';
 import { getTemplateByKey, type ServiceTemplate } from '@/libs/serviceTemplateCatalog';
 import { formatDuration } from '@/utils/Helpers';
 
@@ -106,15 +114,6 @@ type ServiceImagePresignData = {
   finalizeToken?: string;
   cloudName?: string;
 };
-
-const SERVICE_IMAGE_MAX_BYTES = 5 * 1024 * 1024;
-const SERVICE_IMAGE_ALLOWED_TYPES = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-]);
-const SERVICE_IMAGE_PARTIAL_SUCCESS_MESSAGE
-  = 'Service details were saved, but the image could not be updated. Open Edit Service to try the image again.';
 
 type AddOnData = {
   id: string;
@@ -378,7 +377,7 @@ function AddServiceDialog({
   onClose: () => void;
   onSaved: (
     service: ServiceData,
-    options?: { imageOperationFailed?: boolean },
+    options?: { imageOperationError?: ServiceImageError },
   ) => void;
 }) {
   const [name, setName] = useState('');
@@ -523,30 +522,28 @@ function AddServiceDialog({
     if (!file) {
       return;
     }
-    if (!SERVICE_IMAGE_ALLOWED_TYPES.has(file.type)) {
+    let validatedFile: File;
+    try {
+      validatedFile = validateServiceImageFile(file);
+    } catch (validationError) {
       clearStagedImage();
       setImageIntent('keep');
-      setImageError('Choose a JPEG, PNG, or WebP image.');
-      return;
-    }
-    if (file.size <= 0) {
-      clearStagedImage();
-      setImageIntent('keep');
-      setImageError('Choose a non-empty image.');
-      return;
-    }
-    if (file.size > SERVICE_IMAGE_MAX_BYTES) {
-      clearStagedImage();
-      setImageIntent('keep');
-      setImageError('Image must be 5 MB or smaller.');
+      setImageError(normalizeServiceImageError(validationError).message);
       return;
     }
 
     clearStagedImage();
-    const previewUrl = URL.createObjectURL(file);
+    let previewUrl: string;
+    try {
+      previewUrl = URL.createObjectURL(validatedFile);
+    } catch {
+      setImageIntent('keep');
+      setImageError(new ServiceImageError('IMAGE_PROCESSING_FAILED').message);
+      return;
+    }
 
     stagedPreviewUrlRef.current = previewUrl;
-    setStagedImageFile(file);
+    setStagedImageFile(validatedFile);
     setStagedPreviewUrl(previewUrl);
     setImageIntent('replace');
     setImageError(null);
@@ -575,34 +572,42 @@ function AddServiceDialog({
     file: File,
   ): Promise<ServiceData> => {
     if (!salonSlug) {
-      throw new Error('Select a salon before updating a service image.');
+      throw new ServiceImageError('IMAGE_PERMISSION_DENIED');
     }
     setSavePhase('preparing-image');
-    const presignResponse = await fetch(
-      `/api/salon/services/${encodeURIComponent(savedService.id)}/image/presign`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          salonSlug,
-          contentType: file.type,
-          fileSize: file.size,
-          expectedImageUrl,
-        }),
-      },
-    );
+    const preparedFile = await prepareServiceImage(file);
+    let presignResponse: Response;
+    try {
+      presignResponse = await fetch(
+        `/api/salon/services/${encodeURIComponent(savedService.id)}/image/presign`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            salonSlug,
+            contentType: preparedFile.type,
+            fileSize: preparedFile.size,
+            expectedImageUrl,
+          }),
+        },
+      );
+    } catch {
+      throw new ServiceImageError('PRESIGN_FAILED');
+    }
     const presignResult = await presignResponse.json().catch(() => null);
 
     if (!presignResponse.ok) {
-      throw new Error(
-        presignResult?.error?.message ?? 'Failed to prepare the service image',
+      throw serviceImageResponseError(
+        'presign',
+        presignResponse.status,
+        presignResult,
       );
     }
 
     const presign = presignResult?.data as ServiceImagePresignData | undefined;
 
     if (!presign || (presign.strategy !== 'cloudinary' && presign.strategy !== 'local')) {
-      throw new Error('Image upload preparation was missing from the response');
+      throw new ServiceImageError('PRESIGN_FAILED');
     }
 
     const imageUrl = `/api/salon/services/${encodeURIComponent(savedService.id)}/image`;
@@ -611,25 +616,32 @@ function AddServiceDialog({
       setSavePhase('uploading-image');
       const localForm = new FormData();
 
-      localForm.append('file', file);
+      localForm.append('file', preparedFile);
       localForm.append('salonSlug', salonSlug);
       localForm.append('expectedImageUrl', expectedImageUrl ?? '');
 
-      const imageResponse = await fetch(imageUrl, {
-        method: 'POST',
-        body: localForm,
-      });
+      let imageResponse: Response;
+      try {
+        imageResponse = await fetch(imageUrl, {
+          method: 'POST',
+          body: localForm,
+        });
+      } catch {
+        throw new ServiceImageError('UPLOAD_NETWORK_FAILED');
+      }
       const imageResult = await imageResponse.json().catch(() => null);
 
       if (!imageResponse.ok) {
-        throw new Error(
-          imageResult?.error?.message ?? 'Failed to update the service image',
+        throw serviceImageResponseError(
+          'finalize',
+          imageResponse.status,
+          imageResult,
         );
       }
       const updatedService = imageResult?.data?.service as ServiceData | undefined;
 
       if (!updatedService) {
-        throw new Error('Updated service was missing from the image response');
+        throw new ServiceImageError('IMAGE_SERVICE_FAILED');
       }
       return updatedService;
     }
@@ -661,13 +673,13 @@ function AddServiceDialog({
       || !context
       || !finalizeToken
     ) {
-      throw new Error('Cloud image upload parameters were incomplete');
+      throw new ServiceImageError('PRESIGN_FAILED');
     }
 
     setSavePhase('uploading-image');
     const cloudinaryForm = new FormData();
 
-    cloudinaryForm.append('file', file);
+    cloudinaryForm.append('file', preparedFile);
     cloudinaryForm.append('api_key', apiKey);
     cloudinaryForm.append('timestamp', String(timestamp));
     cloudinaryForm.append('signature', signature);
@@ -678,49 +690,59 @@ function AddServiceDialog({
     cloudinaryForm.append('tags', tags);
     cloudinaryForm.append('context', context);
 
-    const uploadResponse = await fetch(uploadUrl, {
-      method: 'POST',
-      body: cloudinaryForm,
-    });
+    let uploadResponse: Response;
+    try {
+      uploadResponse = await fetch(uploadUrl, {
+        method: 'POST',
+        body: cloudinaryForm,
+      });
+    } catch {
+      throw new ServiceImageError('UPLOAD_NETWORK_FAILED');
+    }
     const uploadResult = await uploadResponse.json().catch(() => null);
 
     if (!uploadResponse.ok) {
-      throw new Error(
-        uploadResult?.error?.message ?? 'Failed to upload the service image',
-      );
+      throw new ServiceImageError('PROVIDER_REJECTED_UPLOAD');
     }
     const assetId = uploadResult?.asset_id;
     if (
       typeof assetId !== 'string'
       || !/^[\w-]{8,128}$/.test(assetId)
     ) {
-      throw new Error('Cloud image upload metadata was incomplete');
+      throw new ServiceImageError('PROVIDER_REJECTED_UPLOAD');
     }
 
     setSavePhase('finalizing-image');
-    const imageResponse = await fetch(imageUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        salonSlug,
-        assetId,
-        publicId,
-        expectedImageUrl,
-        timestamp,
-        finalizeToken,
-      }),
-    });
+    let imageResponse: Response;
+    try {
+      imageResponse = await fetch(imageUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug,
+          assetId,
+          publicId,
+          expectedImageUrl,
+          timestamp,
+          finalizeToken,
+        }),
+      });
+    } catch {
+      throw new ServiceImageError('IMAGE_SERVICE_FAILED');
+    }
     const imageResult = await imageResponse.json().catch(() => null);
 
     if (!imageResponse.ok) {
-      throw new Error(
-        imageResult?.error?.message ?? 'Failed to update the service image',
+      throw serviceImageResponseError(
+        'finalize',
+        imageResponse.status,
+        imageResult,
       );
     }
     const updatedService = imageResult?.data?.service as ServiceData | undefined;
 
     if (!updatedService) {
-      throw new Error('Updated service was missing from the image response');
+      throw new ServiceImageError('IMAGE_SERVICE_FAILED');
     }
     return updatedService;
   };
@@ -730,28 +752,31 @@ function AddServiceDialog({
     expectedImageUrl: string | null,
   ): Promise<ServiceData> => {
     if (!salonSlug) {
-      throw new Error('Select a salon before removing a service image.');
+      throw new ServiceImageError('IMAGE_PERMISSION_DENIED');
     }
     setSavePhase('removing-image');
     const params = new URLSearchParams({
       salonSlug,
       expectedImageUrl: expectedImageUrl ?? '',
     });
-    const response = await fetch(
-      `/api/salon/services/${encodeURIComponent(savedService.id)}/image?${params.toString()}`,
-      { method: 'DELETE' },
-    );
+    let response: Response;
+    try {
+      response = await fetch(
+        `/api/salon/services/${encodeURIComponent(savedService.id)}/image?${params.toString()}`,
+        { method: 'DELETE' },
+      );
+    } catch {
+      throw new ServiceImageError('IMAGE_SERVICE_FAILED');
+    }
     const result = await response.json().catch(() => null);
 
     if (!response.ok) {
-      throw new Error(
-        result?.error?.message ?? 'Failed to remove the service image',
-      );
+      throw serviceImageResponseError('remove', response.status, result);
     }
     const updatedService = result?.data?.service as ServiceData | undefined;
 
     if (!updatedService) {
-      throw new Error('Updated service was missing from the image response');
+      throw new ServiceImageError('IMAGE_SERVICE_FAILED');
     }
     return updatedService;
   };
@@ -877,8 +902,10 @@ function AddServiceDialog({
         } else if (imageIntent === 'remove') {
           finalService = await removeSavedImage(savedService, expectedImageUrl);
         }
-      } catch {
-        onSaved(savedService, { imageOperationFailed: true });
+      } catch (imageOperationError) {
+        onSaved(savedService, {
+          imageOperationError: normalizeServiceImageError(imageOperationError),
+        });
         return;
       }
 
@@ -993,7 +1020,7 @@ function AddServiceDialog({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/jpeg,image/png,image/webp"
+            accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
             onChange={handleImageSelection}
             className="sr-only"
             aria-label="Service image"
@@ -2665,11 +2692,13 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           setSelectedService(savedService);
           setActiveTab('menu');
           setActiveCategory(savedService.category);
-          if (options?.imageOperationFailed) {
+          if (options?.imageOperationError) {
             setOperationNotice({
               tone: 'warning',
               assignmentRequired: false,
-              message: SERVICE_IMAGE_PARTIAL_SUCCESS_MESSAGE,
+              message: serviceImagePartialSuccessMessage(
+                options.imageOperationError,
+              ),
             });
           } else {
             setOperationNotice(null);
