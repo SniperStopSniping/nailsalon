@@ -1,3 +1,10 @@
+## [1.45.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.45.3...v1.45.4) (2026-08-08)
+
+
+### Bug Fixes
+
+* add safe service image visibility toggle ([f18a27e](https://github.com/SniperStopSniping/nailsalon/commit/f18a27e469983a1e23a2a3da3848eb0151330f8e))
+
 ## [1.45.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.45.2...v1.45.3) (2026-08-08)
 
 
