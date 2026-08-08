@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -38,8 +38,16 @@ type MockRoutes = {
   services?: unknown[];
   merchandising?: {
     featureLusterManicure?: boolean;
+    showServiceImages?: unknown;
     lusterPromoDismissed?: boolean;
     serviceLibraryIntroDismissed?: boolean;
+  };
+  settingsGetStatus?: number;
+  settingsPatch?: {
+    status?: number;
+    body?: unknown;
+    reject?: boolean;
+    response?: Promise<Response>;
   };
   createdService?: Record<string, unknown>;
   patchedService?: Record<string, unknown>;
@@ -67,7 +75,7 @@ type MockRoutes = {
   imageDeleteFailure?: { status: number; message: string };
 };
 
-function mockRoutes({ services = [], merchandising = {}, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageFailure, imageDeleteFailure }: MockRoutes) {
+function mockRoutes({ services = [], merchandising = {}, settingsGetStatus = 200, settingsPatch, createdService, patchedService, servicesAfterRefresh, ownedTemplateKeys = [], addOns = [], activeTechnicianCount = 0, templateAddResult, patchFailure, addOnsFailure, addOnsAfterRefresh, imageStrategy = 'local', imageResultService, imageFailureAt, imageFailure, imageDeleteFailure }: MockRoutes) {
   let addOnListCalls = 0;
   let serviceListCalls = 0;
   fetchMock.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -202,11 +210,30 @@ function mockRoutes({ services = [], merchandising = {}, createdService, patched
     }
     if (url.startsWith('/api/admin/salon/settings')) {
       if (init?.method === 'PATCH') {
-        return new Response(JSON.stringify({ merchandising: { lusterPromoDismissed: true } }), { status: 200 });
+        if (settingsPatch?.response) {
+          return settingsPatch.response;
+        }
+        if (settingsPatch?.reject) {
+          throw new TypeError('Network request failed');
+        }
+        const submitted = JSON.parse(String(init.body)) as {
+          merchandising?: Record<string, boolean>;
+        };
+        return new Response(JSON.stringify(
+          settingsPatch && 'body' in settingsPatch
+            ? settingsPatch.body
+            : {
+                merchandising: {
+                  serviceLibraryIntroDismissed: true,
+                  ...merchandising,
+                  ...submitted.merchandising,
+                },
+              },
+        ), { status: settingsPatch?.status ?? 200 });
       }
       return new Response(JSON.stringify({
         merchandising: { serviceLibraryIntroDismissed: true, ...merchandising },
-      }), { status: 200 });
+      }), { status: settingsGetStatus });
     }
     if (url.startsWith('/api/salon/services/from-templates')) {
       if (init?.method === 'POST') {
@@ -270,6 +297,259 @@ describe('ServicesModal', () => {
     prepareServiceImageMock.mockReset();
     prepareServiceImageMock.mockImplementation(async (file: File) => file);
     vi.stubGlobal('fetch', fetchMock);
+  });
+
+  it('renders the compact accessible service-images control between tabs and categories', async () => {
+    mockRoutes({
+      services: [],
+      merchandising: {
+        lusterPromoDismissed: true,
+        showServiceImages: true,
+      },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    const toggle = screen.getByRole('switch', { name: 'Service images' });
+    await waitFor(() => expect(toggle).toBeEnabled());
+
+    expect(toggle).toBeChecked();
+    expect(toggle).toHaveAccessibleDescription(
+      'Show images on your public booking page.',
+    );
+    expect(toggle).toHaveAttribute('aria-busy', 'false');
+
+    const row = screen.getByTestId('service-images-visibility-row');
+    const tablist = screen.getByRole('tablist');
+    const categoryButton = screen.getByText('All').closest('button');
+
+    expect(tablist.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(categoryButton).not.toBeNull();
+    expect(row.compareDocumentPosition(categoryButton!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(row).toHaveClass('min-w-0');
+    expect(row.firstElementChild).toHaveClass('min-w-0');
+    expect(toggle).toHaveClass('w-12', 'shrink-0');
+
+    fireEvent.click(screen.getByTestId('services-tab-addons'));
+
+    expect(screen.getByTestId('service-images-visibility-row')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('services-tab-library'));
+
+    expect(screen.getByTestId('service-images-visibility-row')).toBeInTheDocument();
+  });
+
+  it('renders an explicit service-images OFF state with upload-preservation copy', async () => {
+    mockRoutes({
+      services: [],
+      merchandising: {
+        lusterPromoDismissed: true,
+        showServiceImages: false,
+      },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    const toggle = screen.getByRole('switch', { name: 'Service images' });
+    await waitFor(() => expect(toggle).toBeEnabled());
+
+    expect(toggle).not.toBeChecked();
+    expect(toggle).toHaveAccessibleDescription(
+      'Images are hidden from clients. Your uploaded images are saved.',
+    );
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['null', null],
+    ['malformed string', 'false'],
+    ['malformed number', 0],
+  ])('fails open when showServiceImages is %s', async (_label, showServiceImages) => {
+    mockRoutes({
+      services: [],
+      merchandising: {
+        lusterPromoDismissed: true,
+        showServiceImages,
+      },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    const toggle = screen.getByRole('switch', { name: 'Service images' });
+    await waitFor(() => expect(toggle).toBeEnabled());
+
+    expect(toggle).toBeChecked();
+  });
+
+  it('fails open when merchandising settings cannot be loaded', async () => {
+    mockRoutes({
+      services: [],
+      merchandising: { lusterPromoDismissed: true },
+      settingsGetStatus: 503,
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    const toggle = screen.getByRole('switch', { name: 'Service images' });
+    await waitFor(() => expect(toggle).toBeEnabled());
+
+    expect(toggle).toBeChecked();
+  });
+
+  it('turns service images off through the shared setting without calling image endpoints', async () => {
+    mockRoutes({
+      services: [],
+      merchandising: {
+        lusterPromoDismissed: true,
+        showServiceImages: true,
+      },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    const toggle = screen.getByRole('switch', { name: 'Service images' });
+    await waitFor(() => expect(toggle).toBeEnabled());
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(toggle).not.toBeChecked());
+
+    expect(toggle).toHaveAccessibleDescription(
+      'Images are hidden from clients. Your uploaded images are saved.',
+    );
+
+    const patchCalls = fetchMock.mock.calls.filter(([input, init]) =>
+      String(input).startsWith('/api/admin/salon/settings')
+      && (init as RequestInit | undefined)?.method === 'PATCH');
+
+    expect(patchCalls).toHaveLength(1);
+    expect(JSON.parse(String((patchCalls[0]![1] as RequestInit).body))).toEqual({
+      merchandising: { showServiceImages: false },
+    });
+    expect(fetchMock.mock.calls.some(([input, init]) =>
+      String(input).includes('/image')
+      || (init as RequestInit | undefined)?.method === 'DELETE')).toBe(false);
+  });
+
+  it('turns service images back on through the same shared setting', async () => {
+    mockRoutes({
+      services: [],
+      merchandising: {
+        lusterPromoDismissed: true,
+        showServiceImages: false,
+      },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    const toggle = screen.getByRole('switch', { name: 'Service images' });
+    await waitFor(() => expect(toggle).toBeEnabled());
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(toggle).toBeChecked());
+
+    const patchCall = findCall((url, init) =>
+      url.startsWith('/api/admin/salon/settings') && init?.method === 'PATCH');
+
+    expect(JSON.parse(String((patchCall![1] as RequestInit).body))).toEqual({
+      merchandising: { showServiceImages: true },
+    });
+  });
+
+  it.each([
+    ['server failure', { status: 503 }],
+    ['network failure', { reject: true }],
+    ['malformed success', { body: { merchandising: {} } }],
+  ])('retains the prior state after a %s', async (_label, settingsPatch) => {
+    mockRoutes({
+      services: [],
+      merchandising: {
+        lusterPromoDismissed: true,
+        showServiceImages: true,
+      },
+      settingsPatch,
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    const toggle = screen.getByRole('switch', { name: 'Service images' });
+    await waitFor(() => expect(toggle).toBeEnabled());
+    fireEvent.click(toggle);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Service image visibility could not be saved. Try again.',
+    );
+    expect(toggle).toBeChecked();
+    expect(toggle).toHaveAccessibleDescription(
+      'Show images on your public booking page.',
+    );
+  });
+
+  it('uses the authoritative saved value returned by the settings route', async () => {
+    mockRoutes({
+      services: [],
+      merchandising: {
+        lusterPromoDismissed: true,
+        showServiceImages: true,
+      },
+      settingsPatch: {
+        body: { merchandising: { showServiceImages: true } },
+      },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    const toggle = screen.getByRole('switch', { name: 'Service images' });
+    await waitFor(() => expect(toggle).toBeEnabled());
+    fireEvent.click(toggle);
+
+    await waitFor(() => expect(toggle).toBeEnabled());
+
+    expect(toggle).toBeChecked();
+    expect(screen.queryByTestId('service-images-visibility-error')).not.toBeInTheDocument();
+  });
+
+  it('prevents duplicate settings writes while a save is pending', async () => {
+    let resolvePatch!: (response: Response) => void;
+    const response = new Promise<Response>((resolve) => {
+      resolvePatch = resolve;
+    });
+    mockRoutes({
+      services: [],
+      merchandising: {
+        lusterPromoDismissed: true,
+        showServiceImages: true,
+      },
+      settingsPatch: { response },
+    });
+
+    render(<ServicesModal onClose={() => {}} salonSlug="isla-nail-studio" />);
+
+    const toggle = screen.getByRole('switch', { name: 'Service images' });
+    await waitFor(() => expect(toggle).toBeEnabled());
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+
+    const patchCalls = () => fetchMock.mock.calls.filter(([input, init]) =>
+      String(input).startsWith('/api/admin/salon/settings')
+      && (init as RequestInit | undefined)?.method === 'PATCH');
+
+    await waitFor(() => expect(patchCalls()).toHaveLength(1));
+
+    expect(toggle).toBeDisabled();
+    expect(toggle).toHaveAttribute('aria-busy', 'true');
+    expect(screen.getByRole('status')).toHaveTextContent('Saving service image visibility');
+
+    await act(async () => {
+      resolvePatch(new Response(JSON.stringify({
+        merchandising: { showServiceImages: false },
+      }), { status: 200 }));
+      await response;
+    });
+
+    await waitFor(() => expect(toggle).toBeEnabled());
+
+    expect(toggle).not.toBeChecked();
+    expect(patchCalls()).toHaveLength(1);
   });
 
   it('shows add actions for an empty salon and creates combo services against the active admin salon slug', async () => {

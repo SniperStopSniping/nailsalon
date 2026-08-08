@@ -1,6 +1,8 @@
 import { createHash } from 'node:crypto';
 
 import { PGlite } from '@electric-sql/pglite';
+import type { SQL } from 'drizzle-orm';
+import { PgDialect } from 'drizzle-orm/pg-core';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
@@ -560,15 +562,13 @@ describe('/api/admin/salon/settings merchandising settings', () => {
     expect(setPayload.settings).toBeDefined();
     expect(setPayload.settings.merchandising).toBeUndefined();
 
-    const sqlChunks = (setPayload.settings as { queryChunks?: unknown[] }).queryChunks ?? [];
-    const paramValues = sqlChunks.filter(
-      (chunk): chunk is string => typeof chunk === 'string',
-    );
+    const rendered = new PgDialect().sqlToQuery(setPayload.settings as SQL);
 
-    expect(paramValues.some(value => value.includes('"showServiceImages":false'))).toBe(true);
-    expect(paramValues.some(value => value.includes('"featureLusterManicure":false'))).toBe(true);
-    expect(paramValues.some(value => value.includes('"lusterPromoDismissed":true'))).toBe(true);
-    expect(paramValues.some(value => value.includes('"serviceLibraryIntroDismissed":true'))).toBe(true);
+    expect(rendered.sql).toContain('{merchandising,showServiceImages}');
+    expect(rendered.sql).not.toContain('{merchandising,featureLusterManicure}');
+    expect(rendered.sql).not.toContain('{merchandising,lusterPromoDismissed}');
+    expect(rendered.sql).not.toContain('{merchandising,serviceLibraryIntroDismissed}');
+    expect(rendered.params).toContain('false');
     expect(logAuditEvent).toHaveBeenCalled();
   });
 
@@ -613,17 +613,177 @@ describe('/api/admin/salon/settings merchandising settings', () => {
     expect(setPayload.settings.booking).toBeUndefined();
     expect(setPayload.settings.merchandising).toBeUndefined();
 
-    const sqlChunks = (setPayload.settings as { queryChunks?: unknown[] }).queryChunks ?? [];
-    const paramValues = sqlChunks.filter(
-      (chunk): chunk is string => typeof chunk === 'string',
-    );
+    const rendered = new PgDialect().sqlToQuery(setPayload.settings as SQL);
 
-    expect(paramValues.some(value => value.includes('"featureLusterManicure":false'))).toBe(true);
-    expect(paramValues.some(value => value.includes('"showServiceImages":true'))).toBe(true);
+    expect(rendered.sql).toContain('{merchandising,featureLusterManicure}');
+    expect(rendered.sql).not.toContain('{merchandising,showServiceImages}');
+    expect(rendered.params).toContain('false');
     // The expression starts from the live settings column and never serializes
     // a stale bookingExperience value, so a concurrent customization save is
     // preserved.
-    expect(paramValues.some(value => value.includes('Keep this concurrent value'))).toBe(false);
+    expect(JSON.stringify(rendered.params)).not.toContain('Keep this concurrent value');
+  });
+
+  it('preserves concurrent sibling merchandising writes with the generated PostgreSQL expression', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        merchandising: {
+          featureLusterManicure: false,
+          showServiceImages: true,
+          lusterPromoDismissed: false,
+          serviceLibraryIntroDismissed: false,
+          futurePreference: 'keep',
+        },
+        unrelatedFutureKey: { keep: true },
+      },
+    });
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        merchandising: {
+          featureLusterManicure: false,
+          showServiceImages: false,
+          lusterPromoDismissed: true,
+          serviceLibraryIntroDismissed: true,
+          futurePreference: 'keep',
+        },
+        unrelatedFutureKey: { keep: true },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          merchandising: { showServiceImages: false },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+
+    const responseBody = await response.json();
+
+    expect(responseBody.merchandising).toEqual({
+      featureLusterManicure: false,
+      showServiceImages: false,
+      lusterPromoDismissed: true,
+      serviceLibraryIntroDismissed: true,
+    });
+    expect(logAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+      metadata: {
+        before: {
+          merchandising: { showServiceImages: true },
+        },
+        after: {
+          merchandising: { showServiceImages: false },
+        },
+      },
+    }));
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+    const rendered = new PgDialect().sqlToQuery(setPayload.settings as SQL);
+    const database = new PGlite();
+
+    try {
+      await database.exec(`
+        CREATE TABLE "salon" (
+          id text PRIMARY KEY,
+          settings jsonb
+        );
+        INSERT INTO "salon" (id, settings)
+        VALUES
+          (
+            'salon_1',
+            '{
+              "merchandising":{
+                "featureLusterManicure":false,
+                "showServiceImages":true,
+                "lusterPromoDismissed":false,
+                "serviceLibraryIntroDismissed":false,
+                "futurePreference":"keep"
+              },
+              "unrelatedFutureKey":{"keep":true}
+            }'::jsonb
+          ),
+          ('merchandising_null', '{"merchandising":null,"keep":true}'::jsonb),
+          ('merchandising_scalar', '{"merchandising":"legacy","keep":true}'::jsonb),
+          ('settings_null', NULL);
+
+        UPDATE "salon"
+        SET settings = jsonb_set(
+          jsonb_set(
+            settings,
+            '{merchandising,lusterPromoDismissed}',
+            'true'::jsonb
+          ),
+          '{merchandising,serviceLibraryIntroDismissed}',
+          'true'::jsonb
+        )
+        WHERE id = 'salon_1';
+      `);
+
+      await database.query(
+        `UPDATE "salon" SET settings = ${rendered.sql}`,
+        rendered.params,
+      );
+
+      const result = await database.query<{
+        id: string;
+        settings: Record<string, unknown>;
+      }>('SELECT id, settings FROM "salon" ORDER BY id');
+
+      expect(Object.fromEntries(result.rows.map(row => [row.id, row.settings]))).toEqual({
+        merchandising_null: {
+          keep: true,
+          merchandising: { showServiceImages: false },
+        },
+        merchandising_scalar: {
+          keep: true,
+          merchandising: { showServiceImages: false },
+        },
+        salon_1: {
+          merchandising: {
+            featureLusterManicure: false,
+            futurePreference: 'keep',
+            lusterPromoDismissed: true,
+            serviceLibraryIntroDismissed: true,
+            showServiceImages: false,
+          },
+          unrelatedFutureKey: { keep: true },
+        },
+        settings_null: {
+          merchandising: { showServiceImages: false },
+        },
+      });
+    } finally {
+      await database.close();
+    }
+  });
+
+  it('rejects a merchandising write when the trusted salon admin guard fails', async () => {
+    getSalonBySlug.mockResolvedValue(baseSalon);
+    requireAdmin.mockResolvedValue({
+      ok: false,
+      response: new Response(JSON.stringify({ error: 'Forbidden' }), { status: 403 }),
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          merchandising: { showServiceImages: false },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(403);
+    expect(requireAdmin).toHaveBeenCalledWith('salon_1');
+    expect(db.update).not.toHaveBeenCalled();
+    expect(logAuditEvent).not.toHaveBeenCalled();
   });
 
   it('rejects invalid merchandising payloads', async () => {
