@@ -1,3 +1,10 @@
+## [1.45.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.45.2...v1.45.3) (2026-08-08)
+
+
+### Bug Fixes
+
+* improve service image upload UX ([d315802](https://github.com/SniperStopSniping/nailsalon/commit/d31580229b9dec76e8be802e81581446d17c7b42))
+
 ## [1.45.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.45.1...v1.45.2) (2026-08-05)
 
 
