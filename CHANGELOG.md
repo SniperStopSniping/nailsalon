@@ -1,3 +1,10 @@
+# [1.46.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.45.4...v1.46.0) (2026-08-09)
+
+
+### Features
+
+* **deposits:** add D1 schema foundation ([8649eff](https://github.com/SniperStopSniping/nailsalon/commit/8649eff90bad34553dccdbcb15416c77c2772cda))
+
 ## [1.45.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.45.3...v1.45.4) (2026-08-08)
 
 
