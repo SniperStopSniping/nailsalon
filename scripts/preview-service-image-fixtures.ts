@@ -26,8 +26,8 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0064_appointment_calendar_sync_version';
-const MIGRATION_COUNT = 65;
+const FINAL_MIGRATION = '0065_deposits_foundation';
+const MIGRATION_COUNT = 66;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -349,6 +349,7 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'salon_retention_settings', 'salon_retention_settings_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'salon_signup_invite', 'salon_signup_invite_result_salon_id_salon_id_fk', ['result_salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
   ['public', 'salon_signup_invite', 'salon_signup_invite_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'salon_stripe_account', 'salon_stripe_account_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'salon_twilio_connection', 'salon_twilio_connection_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'service', 'service_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'service_add_on', 'service_add_on_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
