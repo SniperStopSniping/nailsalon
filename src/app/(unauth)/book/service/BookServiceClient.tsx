@@ -1338,8 +1338,13 @@ export function BookServiceClient({
                   : (
                       <>
                         {/* Featured is hidden while searching so matches sit directly under
-                    the search bar instead of below the carousel (mobile keyboard). */}
-                        {!isSearching && featuredServices.length > 0 && (
+                    the search bar instead of below the carousel (mobile keyboard). Also
+                    hidden entirely under the Editorial layout: `editorialRenderers`
+                    below renders its own dedicated "Signature services" section from
+                    this same underlying featured-services data, so this reused engine
+                    block must not render its copy too — see PR6 review finding on
+                    duplicate Featured services / Policies rendering. */}
+                        {!isSearching && !isEditorialLayout && featuredServices.length > 0 && (
                           <div
                             className="scrollbar-hide -mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
                             style={{
@@ -1813,7 +1818,12 @@ export function BookServiceClient({
                       </>
                     )}
 
-                {servicePagePolicyText && (
+                {/* Hidden entirely under the Editorial layout: `editorialRenderers`
+                    below renders its own dedicated "Policies" section from this same
+                    underlying policy content, so this reused engine block must not
+                    render its copy too — see PR6 review finding on duplicate Featured
+                    services / Policies rendering. */}
+                {!isEditorialLayout && servicePagePolicyText && (
                   <section
                     data-testid="booking-policy"
                     aria-labelledby={bookingExperience.policy.title ? 'booking-policy-title' : undefined}
@@ -1903,6 +1913,15 @@ export function BookServiceClient({
           // 4's registry already omits both via `canRender` (SalonContent's
           // proof groups are always empty until PR 10), so no placeholder
           // UI is built for them (Rev 3 plan section 6).
+          // Post-launch fix: the reused `quickBookRenderers.serviceMenu` block
+          // internally guards its "Featured services" carousel and its
+          // "booking-policy" section with `!isEditorialLayout` — Editorial has
+          // its own dedicated `featuredServices`/`policies` renderers below that
+          // render the same underlying content, so the shared engine block must
+          // not render its copies too when Editorial is active (they would
+          // otherwise appear twice on the page). `socialLinks`/`bookingCta`
+          // still stay embedded unconditionally in the shared block — Editorial
+          // has no dedicated renderer for either, so no duplication there.
           const editorialRenderers: SectionRenderers = {
             salonProfile: () => {
               const heroImageUrl = quickBookContent.identity.heroImageUrl;

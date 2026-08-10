@@ -28,6 +28,11 @@ const { navigationMock, salonContextMock } = vi.hoisted(() => ({
   salonContextMock: {
     bookingPage: null as unknown,
     salonContent: null as unknown,
+    // null falls back to BASE_BOOKING_EXPERIENCE below (declared after this
+    // hoisted block, so it cannot be referenced directly in here) — tests
+    // that need a non-default bookingExperience (e.g. policy.enabled) set
+    // this directly.
+    bookingExperience: null as unknown,
   },
 }));
 
@@ -140,7 +145,7 @@ vi.mock('@/libs/haptics', () => ({
 vi.mock('@/providers/SalonProvider', () => ({
   SalonProvider: ({ children }: { children: React.ReactNode }) => children,
   useSalon: () => ({
-    bookingExperience: BASE_BOOKING_EXPERIENCE,
+    bookingExperience: (salonContextMock.bookingExperience as BookingExperience | null) ?? BASE_BOOKING_EXPERIENCE,
     salonName: 'Isla Nail Studio',
     salonSlug: 'salon-a',
     bookingPage: salonContextMock.bookingPage,
@@ -220,6 +225,7 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
     navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a');
     salonContextMock.bookingPage = EDITORIAL_BOOKING_PAGE_SIDE;
     salonContextMock.salonContent = buildContent();
+    salonContextMock.bookingExperience = null;
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -422,5 +428,85 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
     expect(screen.queryByTestId('editorial-hero')).not.toBeInTheDocument();
     expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
     expect(screen.getByTestId('booking-step-header')).toBeInTheDocument();
+  });
+
+  describe('no duplicate content (regression guard — review finding, PR6)', () => {
+    it('renders Featured/Signature services exactly once when featured services are configured, not both the engine carousel and the editorial section', () => {
+      // `service` (the default fixture used across this file) already has
+      // featuredOrder: 1, so the reused quick-book engine block's own
+      // `featuredServices` (derived from the `services` prop) is non-empty
+      // here too — exactly the real-world shape (SalonContent.catalog.
+      // featuredServices is computed from the same services via the same
+      // getFeaturedServices helper, see src/libs/salonContent.ts).
+      salonContextMock.salonContent = buildContent({
+        catalog: {
+          ...EMPTY_SALON_CONTENT.catalog,
+          featuredServices: [
+            {
+              id: service.id,
+              name: service.name,
+              description: service.description,
+              durationMinutes: service.durationMinutes,
+              priceCents: service.priceCents,
+              priceDisplayText: service.priceDisplayText,
+              category: service.category,
+              bookingCategory: service.bookingCategory,
+              imageUrl: service.imageUrl,
+              featuredOrder: service.featuredOrder,
+            },
+          ],
+        },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      // Editorial's own dedicated section renders.
+      expect(screen.getByTestId('editorial-featured-services')).toBeInTheDocument();
+      expect(screen.getByText('Signature services')).toBeInTheDocument();
+
+      // The reused engine block's own carousel must NOT also render —
+      // exactly one "Featured services" heading/carousel on the page, not
+      // two independent sections built from the same underlying data.
+      expect(screen.queryByTestId('featured-services-scroll')).not.toBeInTheDocument();
+      expect(screen.queryByText('Featured services')).not.toBeInTheDocument();
+      expect(screen.queryAllByTestId(`featured-service-card-${service.id}`)).toHaveLength(0);
+    });
+
+    it('renders the Policies section exactly once when the policy is enabled and shown on the service page', () => {
+      salonContextMock.bookingExperience = {
+        ...BASE_BOOKING_EXPERIENCE,
+        policy: {
+          ...BASE_BOOKING_EXPERIENCE.policy,
+          enabled: true,
+          showOnServicePage: true,
+          text: '24h cancellation notice required.',
+        },
+      };
+      salonContextMock.salonContent = buildContent({
+        policies: {
+          ...EMPTY_SALON_CONTENT.policies,
+          policy: {
+            ...EMPTY_SALON_CONTENT.policies.policy,
+            enabled: true,
+            showOnServicePage: true,
+            text: '24h cancellation notice required.',
+          },
+        },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      // Editorial's own dedicated Policies section renders.
+      expect(screen.getByTestId('editorial-policies')).toHaveTextContent('24h cancellation notice required.');
+
+      // The reused engine block's own booking-policy card must NOT also
+      // render — exactly one policy notice on the page.
+      expect(screen.queryByTestId('booking-policy')).not.toBeInTheDocument();
+      expect(screen.getAllByText('24h cancellation notice required.')).toHaveLength(1);
+    });
   });
 });
