@@ -115,6 +115,16 @@ type BookServiceClientProps = {
 // links end up underneath the bar on short viewports.
 const STICKY_FOOTER_CLEARANCE = 'calc(4.75rem + env(safe-area-inset-bottom, 0px) + var(--ios-chrome-viewport-bottom, 0px))';
 
+// Editorial layout only (Rev 3 plan section 6, PR 6): the `#services`
+// anchor wrapper below carries `scroll-mt-4` (1rem = 16px) so an anchor-link
+// jump (Skip to services / the hero CTA) doesn't dock content flush to the
+// very top edge. Native `scrollIntoView` honours that same scroll-margin
+// and rests with the anchor's top a few px short of 0 (measured ~16.7px in
+// practice — sub-pixel layout rounding, not exactly 16) — a strict `<= 16`
+// check still misses it by a hair, so this is 16 plus a deliberate safety
+// margin rather than the bare CSS value.
+const SERVICES_ANCHOR_SCROLL_MARGIN_PX = 24;
+
 function formatMoney(cents: number, currency: string): string {
   return new Intl.NumberFormat('en-CA', {
     style: 'currency',
@@ -420,8 +430,14 @@ export function BookServiceClient({
         // "Scrolled to or past" the anchor: its top edge is at or above the
         // viewport's top edge. boundingClientRect (not isIntersecting) is
         // what distinguishes "not yet reached" from "already scrolled past"
-        // — both otherwise read as simply "not intersecting".
-        setHasReachedServicesAnchor(entry.boundingClientRect.top <= 0);
+        // — both otherwise read as simply "not intersecting". The threshold
+        // is SERVICES_ANCHOR_SCROLL_MARGIN_PX, not a strict 0: the anchor
+        // wrapper below carries `scroll-mt-4` (1rem) so an anchor-link jump
+        // (Skip to services / the hero CTA) doesn't dock content flush to
+        // the very top edge — native `scrollIntoView` honours that same
+        // scroll-margin and rests with the anchor's top a few px short of 0,
+        // which a strict `<= 0` check would never count as "reached".
+        setHasReachedServicesAnchor(entry.boundingClientRect.top <= SERVICES_ANCHOR_SCROLL_MARGIN_PX);
       },
       { threshold: [0, 1] },
     );

@@ -691,7 +691,27 @@ export async function updateBookingPageDraft(
   if (validatedPatch.startMode !== undefined) {
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,startMode}', ${JSON.stringify(validatedPatch.startMode)}::jsonb)`;
   }
-  if (validatedPatch.sectionOrder !== undefined || validatedPatch.hiddenSections !== undefined) {
+  // PR 6 finding: a stored `sectionOrder` from the PREVIOUS layout is a
+  // valid, non-empty array of real section IDs for the layout being
+  // switched AWAY from — so validateSectionOrder's "empty → layout default"
+  // fallback never triggers on a bare `{ layout }` patch, and an owner
+  // switching from Quick Book to Editorial (or any other layout) would
+  // silently keep Quick Book's section order forever. A layout change with
+  // no explicit sectionOrder/hiddenSections in THIS patch resets both to
+  // the new layout's own default instead — the one case a caller sending
+  // only `{ layout }` could not reasonably intend otherwise. A patch that
+  // explicitly sets sectionOrder/hiddenSections alongside layout keeps full
+  // control below and is never overridden by this reset.
+  const layoutChangedWithoutExplicitOrder = validatedPatch.layout !== undefined
+    && validatedPatch.layout !== currentConfig.draft.layout
+    && validatedPatch.sectionOrder === undefined
+    && validatedPatch.hiddenSections === undefined;
+
+  if (layoutChangedWithoutExplicitOrder) {
+    const { sectionOrder, hiddenSections } = validateSectionOrder([], [], validatedPatch.layout!);
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,sectionOrder}', ${JSON.stringify(sectionOrder)}::jsonb)`;
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,hiddenSections}', ${JSON.stringify(hiddenSections)}::jsonb)`;
+  } else if (validatedPatch.sectionOrder !== undefined || validatedPatch.hiddenSections !== undefined) {
     const layout = validatedPatch.layout ?? currentConfig.draft.layout;
     const nextOrderInput = validatedPatch.sectionOrder ?? currentConfig.draft.sectionOrder;
     const nextHiddenInput = validatedPatch.hiddenSections ?? currentConfig.draft.hiddenSections;
