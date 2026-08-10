@@ -3,6 +3,8 @@ import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { DraftSalonGateResult } from '@/libs/ownerPreview';
+
 const {
   buildTenantRedirectPath,
   checkFeatureEnabled,
@@ -24,11 +26,11 @@ const {
   buildTenantRedirectPath: vi.fn((path: string | null) => path),
   checkFeatureEnabled: vi.fn(),
   checkSalonStatus: vi.fn(),
-  resolveDraftSalonAccess: vi.fn(() => Promise.resolve({
+  resolveDraftSalonAccess: vi.fn((): Promise<DraftSalonGateResult> => Promise.resolve({
     allowed: true,
     isPreviewingDraftSalon: false,
     isPreviewingDraftConfig: false,
-    actorType: null as 'owner' | 'super_admin' | null,
+    actorType: null,
   })),
   getActiveAddOnsBySalonId: vi.fn(),
   getActiveLocationsBySalonId: vi.fn(),
@@ -45,7 +47,9 @@ const {
 }));
 
 vi.mock('next/navigation', () => ({
-  redirect: vi.fn(),
+  redirect: vi.fn((url: string) => {
+    throw new Error(`REDIRECT:${url}`);
+  }),
 }));
 
 vi.mock('@/components/PublicSalonPageShell', () => ({
@@ -569,5 +573,26 @@ describe('BookServicePage owner-preview wiring', () => {
       previewBannerVariant: 'draft-config',
       bookingPage: expect.objectContaining({ layout: 'quick_book' }),
     }));
+  });
+
+  it('redirects to not-found and renders no draft content when the preview gate denies access', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: false,
+      reason: 'no_session',
+    });
+    buildTenantRedirectPath.mockReturnValue('/en/salon-a/not-found');
+
+    await expect(BookServicePage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    })).rejects.toThrow('REDIRECT:/en/salon-a/not-found');
+
+    // Real deny-before-render proof: nothing past the gate ever ran —
+    // neither the draft-content queries nor PublicSalonPageShell/
+    // BookServiceClient were reached.
+    expect(checkSalonStatus).not.toHaveBeenCalled();
+    expect(getServicesBySalonId).not.toHaveBeenCalled();
+    expect(publicSalonPageShellSpy).not.toHaveBeenCalled();
+    expect(bookServiceClientSpy).not.toHaveBeenCalled();
   });
 });

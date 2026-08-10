@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
+import type { DraftSalonGateResult } from '@/libs/ownerPreview';
+
 import BookTechPage from './page';
 
 vi.mock('server-only', () => ({}));
@@ -32,7 +34,7 @@ const {
   redirectMock: vi.fn((url: string) => {
     throw new Error(`REDIRECT:${url}`);
   }),
-  resolveDraftSalonAccess: vi.fn(() => Promise.resolve({
+  resolveDraftSalonAccess: vi.fn((): Promise<DraftSalonGateResult> => Promise.resolve({
     allowed: true,
     isPreviewingDraftSalon: false,
     isPreviewingDraftConfig: false,
@@ -260,5 +262,90 @@ describe('BookTechPage', () => {
         baseServiceId: 'svc_1',
       },
     })).rejects.toThrow('REDIRECT:/book/time?salonSlug=isla-nail-studio&baseServiceId=svc_1&techId=tech_1');
+  });
+});
+
+describe('BookTechPage owner-preview gate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getPublicPageContext.mockResolvedValue({
+      appearance: null,
+      salon: {
+        id: 'salon_1',
+        slug: 'isla-nail-studio',
+        bookingFlow: ['service', 'tech', 'time', 'confirm'],
+        settings: null,
+        publicationStatus: 'published',
+        freeSoloEnabled: true,
+      },
+    });
+    checkSalonStatus.mockResolvedValue({});
+    checkFeatureEnabled.mockResolvedValue({});
+    getClientSession.mockResolvedValue(null);
+    getPrimaryLocation.mockResolvedValue(null);
+    buildTenantRedirectPath.mockImplementation((path: string | null) => path);
+  });
+
+  it('redirects to not-found and renders no draft content when the preview gate denies access', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: false,
+      reason: 'wrong_owner',
+    });
+    buildTenantRedirectPath.mockReturnValue('/en/isla-nail-studio/not-found');
+
+    await expect(BookTechPage({
+      searchParams: {
+        salonSlug: 'isla-nail-studio',
+        baseServiceId: 'svc_1',
+      },
+      params: { locale: 'en', slug: 'isla-nail-studio' },
+    })).rejects.toThrow('REDIRECT:/en/isla-nail-studio/not-found');
+
+    // Real deny-before-render proof: nothing past the gate ever ran.
+    expect(checkSalonStatus).not.toHaveBeenCalled();
+    expect(resolvePublicBookingTechnicianContext).not.toHaveBeenCalled();
+    expect(bookTechClientMock).not.toHaveBeenCalled();
+  });
+
+  it('allows an authorized owner previewing a draft salon through to the technician step', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: true,
+      isPreviewingDraftConfig: true,
+      actorType: 'owner',
+    });
+    resolvePublicBookingTechnicianContext.mockResolvedValue({
+      resolvedSelection: {
+        mode: 'base-service',
+        requestedServices: [{ id: 'svc_1', name: 'Gel Manicure', category: 'manicure' }],
+        services: [{ id: 'svc_1', name: 'Gel Manicure', priceCents: 4000, durationMinutes: 60 }],
+        addOns: [],
+        selectedAddOns: [],
+        totalPriceCents: 4000,
+        visibleDurationMinutes: 60,
+      },
+      activeTechnicians: [],
+      compatibleTechnicians: [],
+      compatibleCount: 0,
+      compatibleTechnicianIds: [],
+      soleCompatibleTechnician: null,
+      requestedTechnicianId: null,
+      hasValidExplicitTechnician: false,
+      validExplicitTechnician: null,
+      effectiveTechnicianId: null,
+      effectiveTechnician: null,
+      effectiveTechnicianSelectionSource: null,
+      shouldAutoSkipTech: false,
+    });
+
+    render(await BookTechPage({
+      searchParams: {
+        salonSlug: 'isla-nail-studio',
+        baseServiceId: 'svc_1',
+      },
+      params: { locale: 'en', slug: 'isla-nail-studio' },
+    }));
+
+    expect(bookTechClientMock).toHaveBeenCalled();
   });
 });
