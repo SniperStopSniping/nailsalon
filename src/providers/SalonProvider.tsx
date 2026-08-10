@@ -8,8 +8,20 @@ import {
 } from 'react';
 
 import { BOOKING_EXPERIENCE_DEFAULTS } from '@/libs/bookingExperience';
+import { BOOKING_PAGE_CONFIG_SIDE_DEFAULTS, type BookingPageConfigSide } from '@/libs/bookingPageConfig';
+import type { OwnerPreviewActorType } from '@/libs/ownerPreview';
 import type { SalonStatus } from '@/models/Schema';
 import type { BookingExperience } from '@/types/salonPolicy';
+
+export type SalonOwnerPreviewState = {
+  isPreviewing: boolean;
+  actorType: OwnerPreviewActorType;
+};
+
+const EMPTY_OWNER_PREVIEW: SalonOwnerPreviewState = {
+  isPreviewing: false,
+  actorType: null,
+};
 
 // Empty values force callers to resolve tenant context explicitly.
 const EMPTY_SALON = {
@@ -19,6 +31,13 @@ const EMPTY_SALON = {
   themeKey: '',
   status: null as SalonStatus | null,
   bookingExperience: BOOKING_EXPERIENCE_DEFAULTS,
+  // The resolved bookingPage side (draft or live — PR3 owns *which* side
+  // gets resolved, not what renders from it; nothing reads this yet, the
+  // section registry in PR4 is the first consumer). Defaults to the live
+  // shape's defaults so an un-provisioned context never accidentally
+  // implies "previewing".
+  bookingPage: BOOKING_PAGE_CONFIG_SIDE_DEFAULTS,
+  ownerPreview: EMPTY_OWNER_PREVIEW,
 };
 
 /**
@@ -37,6 +56,18 @@ export type SalonContextValue = {
   status: SalonStatus | null;
   /** Resolved public booking-page customization with safe defaults applied */
   bookingExperience: BookingExperience;
+  /**
+   * The resolved `bookingPage` draft/live side for this request, already
+   * chosen server-side by the owner-preview gate in
+   * `[locale]/[slug]/layout.tsx`: `.draft` only for an authorized owner or
+   * impersonating super admin, `.live` for everyone else. Nothing renders
+   * from this yet (PR4's section registry is the first consumer) — PR3's
+   * job is only to make sure the correct side is already resolved by the
+   * time a later PR reads it, so the security decision is never re-made.
+   */
+  bookingPage: BookingPageConfigSide;
+  /** Owner-preview state for this request, resolved by the same gate. */
+  ownerPreview: SalonOwnerPreviewState;
   /** Whether the salon is accessible (true for active/trial, false for suspended/cancelled) */
   isAccessible: boolean;
 };
@@ -48,6 +79,8 @@ const SalonContext = createContext<SalonContextValue>({
   themeKey: EMPTY_SALON.themeKey,
   status: EMPTY_SALON.status,
   bookingExperience: EMPTY_SALON.bookingExperience,
+  bookingPage: EMPTY_SALON.bookingPage,
+  ownerPreview: EMPTY_SALON.ownerPreview,
   isAccessible: false,
 });
 
@@ -65,6 +98,10 @@ export type SalonProviderProps = {
   status?: SalonStatus | null;
   /** Resolved public booking-page customization */
   bookingExperience?: BookingExperience;
+  /** The resolved bookingPage draft/live side, already gated server-side */
+  bookingPage?: BookingPageConfigSide;
+  /** Owner-preview state, already gated server-side */
+  ownerPreview?: SalonOwnerPreviewState;
 };
 
 /**
@@ -99,6 +136,8 @@ export function SalonProvider({
   themeKey,
   status,
   bookingExperience,
+  bookingPage,
+  ownerPreview,
 }: SalonProviderProps) {
   const value = useMemo<SalonContextValue>(() => {
     const currentStatus = status ?? EMPTY_SALON.status;
@@ -112,9 +151,11 @@ export function SalonProvider({
       themeKey: themeKey || EMPTY_SALON.themeKey,
       status: currentStatus,
       bookingExperience: bookingExperience ?? EMPTY_SALON.bookingExperience,
+      bookingPage: bookingPage ?? EMPTY_SALON.bookingPage,
+      ownerPreview: ownerPreview ?? EMPTY_SALON.ownerPreview,
       isAccessible,
     };
-  }, [bookingExperience, salonId, salonName, salonSlug, themeKey, status]);
+  }, [bookingExperience, bookingPage, ownerPreview, salonId, salonName, salonSlug, themeKey, status]);
 
   return (
     <SalonContext.Provider value={value}>{children}</SalonContext.Provider>
