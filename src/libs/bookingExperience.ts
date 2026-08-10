@@ -63,7 +63,9 @@ export const BOOKING_EXPERIENCE_DEFAULTS: BookingExperience = {
   confirmationMessage: null,
 };
 
-const CANONICAL_HEX_COLOR = /^#[0-9A-F]{6}$/u;
+// Exported so other config resolvers (e.g. src/libs/bookingPageConfig.ts) can
+// validate hex colours identically instead of re-deriving this pattern.
+export const CANONICAL_HEX_COLOR = /^#[0-9A-F]{6}$/u;
 
 type SocialPlatform = keyof BookingExperience['socialLinks'];
 
