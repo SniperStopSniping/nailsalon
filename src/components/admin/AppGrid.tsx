@@ -21,6 +21,7 @@ import {
   CalendarDays,
   ClipboardList,
   Gift,
+  LayoutTemplate,
   Plug,
   Scissors,
   Settings,
@@ -53,6 +54,20 @@ const APPS: AppItem[] = [
     icon: BookOpen,
     gradient: 'from-[#9f1239] to-[#fb7185]',
     shadowColor: '#be123c',
+  },
+  {
+    // Luster UI/UX plan rev 3, PR 5 / section 10: "Booking Page becomes a
+    // prominent destination inside More / the App Grid" — the one genuinely
+    // new destination this PR adds, because booking-page appearance
+    // currently lives inside the 5532-line SettingsModal. Navigates directly
+    // (see handleAppTap in [locale]/admin/page.tsx), same as 'luster', rather
+    // than opening as a ?app= modal.
+    id: 'booking-page',
+    name: 'Booking Page',
+    description: 'Layout, style and content',
+    icon: LayoutTemplate,
+    gradient: 'from-rose-600 to-amber-400',
+    shadowColor: '#e11d48',
   },
   {
     id: 'integrations',

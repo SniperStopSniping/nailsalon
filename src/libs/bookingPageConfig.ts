@@ -666,3 +666,110 @@ export async function updateBookingPageDraft(
 
   return resolveBookingPageConfig(updated.settings);
 }
+
+// =============================================================================
+// publishBookingPageConfig / revertBookingPageDraft (PR 5)
+// =============================================================================
+//
+// Owner-surface Publish/Revert on the draft/live pair. Deliberately NOT built
+// by refactoring updateBookingPageDraft's inline jsonb_set chain above — that
+// function is already relied upon (and, by the time this lands, may already
+// be exercised by callers) exactly as written, so this section duplicates its
+// small "ensure settings/bookingPage/version are objects" preamble rather
+// than risk changing its behaviour by extracting a shared helper.
+//
+// Documented semantics (Rev 3 plan PR 5 — "document exactly which semantics
+// you chose"):
+//   - Publish: the resolved `draft` side (already defaulted/validated by
+//     resolveBookingPageConfig) overwrites `live` entirely. `draft` itself is
+//     left untouched, so the owner keeps editing the same draft they just
+//     published — publishing again with no further edits is a safe no-op.
+//   - Revert: discards unpublished draft edits by overwriting `draft` with
+//     the current `live` value. This is "reset the draft to match live", the
+//     documented equivalent named in the PR spec — not a version history or
+//     an undo stack, just draft := live.
+//
+// Same accepted concurrency limitation as updateBookingPageDraft: the SELECT
+// used to read the current config happens before the UPDATE, so a
+// concurrent write landing in between is not serialized against this one.
+// Each write is still a single targeted jsonb_set against the live settings
+// column expression (never the JS snapshot), so it can never clobber any
+// sibling settings key.
+
+async function readCurrentBookingPageConfig(
+  salonId: string,
+): Promise<BookingPageConfig | null> {
+  const [existing] = await db
+    .select({ settings: salonSchema.settings })
+    .from(salonSchema)
+    .where(eq(salonSchema.id, salonId))
+    .limit(1);
+
+  if (!existing) {
+    return null;
+  }
+
+  return resolveBookingPageConfig(existing.settings);
+}
+
+async function writeBookingPageSide(
+  salonId: string,
+  targetSide: 'draft' | 'live',
+  value: BookingPageConfigSide,
+): Promise<BookingPageConfig | null> {
+  let settingsExpression = sql`
+    CASE
+      WHEN jsonb_typeof(${salonSchema.settings}) = 'object'
+        THEN ${salonSchema.settings}
+      ELSE '{}'::jsonb
+    END
+  `;
+
+  settingsExpression = sql`
+    jsonb_set(
+      ${settingsExpression},
+      '{bookingPage}',
+      CASE
+        WHEN jsonb_typeof(${settingsExpression}->'bookingPage') = 'object'
+          THEN ${settingsExpression}->'bookingPage'
+        ELSE '{}'::jsonb
+      END
+    )
+  `;
+  settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,version}', '1'::jsonb)`;
+
+  const targetPath = targetSide === 'draft'
+    ? sql.raw(`'{bookingPage,draft}'`)
+    : sql.raw(`'{bookingPage,live}'`);
+  settingsExpression = sql`jsonb_set(${settingsExpression}, ${targetPath}, ${JSON.stringify(value)}::jsonb)`;
+
+  const [updated] = await db
+    .update(salonSchema)
+    .set({ settings: settingsExpression })
+    .where(eq(salonSchema.id, salonId))
+    .returning();
+
+  if (!updated) {
+    return null;
+  }
+
+  return resolveBookingPageConfig(updated.settings);
+}
+
+/** Copies the resolved `draft` side into `live`. Returns null if the salon id does not exist. */
+export async function publishBookingPageConfig(salonId: string): Promise<BookingPageConfig | null> {
+  const current = await readCurrentBookingPageConfig(salonId);
+  if (!current) {
+    return null;
+  }
+  return writeBookingPageSide(salonId, 'live', current.draft);
+}
+
+/** Resets `draft` to match the current `live` side. Returns null if the salon id does not exist. */
+export async function revertBookingPageDraft(salonId: string): Promise<BookingPageConfig | null> {
+  const current = await readCurrentBookingPageConfig(salonId);
+  if (!current) {
+    return null;
+  }
+  return writeBookingPageSide(salonId, 'draft', current.live);
+}
