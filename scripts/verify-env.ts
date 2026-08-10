@@ -188,6 +188,12 @@ const groups: CheckGroup[] = [
         message: 'Required for Stripe subscription sync and billing enforcement.',
       },
       {
+        name: 'STRIPE_CONNECT_WEBHOOK_SECRET',
+        required: true,
+        validate: nonEmpty,
+        message: 'Required to authenticate connected-account lifecycle events.',
+      },
+      {
         name: 'NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY',
         required: true,
         validate: nonEmpty,

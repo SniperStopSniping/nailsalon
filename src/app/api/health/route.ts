@@ -4,6 +4,7 @@ import { isRedisAvailable, redis } from '@/core/redis/redisClient';
 import { isClientLifecycleSchemaReady } from '@/libs/clientLifecycleSchema';
 import type { LifecycleReadinessSqlHandle } from '@/libs/clientLifecycleSchemaCore';
 import { db } from '@/libs/DB';
+import { type DepositsReadinessSqlHandle, isDepositsSchemaReady } from '@/libs/depositsSchema';
 import { isResendSenderVerified } from '@/libs/resendHealth';
 
 // =============================================================================
@@ -40,6 +41,7 @@ type HealthCheck = {
   resendEnv: boolean;
   resendVerified: boolean;
   stripeEnv: boolean;
+  stripeConnectEnv: boolean;
   sentryEnv: boolean;
   googleCalendarEnv: boolean;
 };
@@ -48,6 +50,10 @@ type HealthResponse = {
   status: 'ok' | 'degraded';
   checks: HealthCheck;
   clientLifecycleSchema: 'ready' | 'not_ready' | 'unavailable';
+  // Sibling of clientLifecycleSchema, NOT a member of `checks` — that type holds
+  // booleans only. This is the proof the owner's manual production migration
+  // actually landed.
+  depositsSchema: 'ready' | 'not_ready' | 'unavailable';
   timestamp: string;
   gitSha?: string;
 };
@@ -67,6 +73,7 @@ export async function GET(): Promise<Response> {
     resendEnv: false,
     resendVerified: false,
     stripeEnv: false,
+    stripeConnectEnv: false,
     sentryEnv: false,
     googleCalendarEnv: false,
   };
@@ -94,6 +101,22 @@ export async function GET(): Promise<Response> {
       clientLifecycleSchema = schemaReady ? 'ready' : 'not_ready';
     } catch {
       clientLifecycleSchema = 'unavailable';
+    }
+  }
+
+  // Deposits foundation (migration 0065). This is the proof the owner's manual
+  // production migration landed — the deployment ordering rests on this probe,
+  // not on a claim. It is deliberately kept OUT of `criticalChecksPass` below:
+  // D2 must never be able to degrade production health.
+  let depositsSchema: HealthResponse['depositsSchema'] = 'unavailable';
+  if (checks.db) {
+    try {
+      const depositsReady = await isDepositsSchemaReady(
+        db as DepositsReadinessSqlHandle,
+      );
+      depositsSchema = depositsReady ? 'ready' : 'not_ready';
+    } catch {
+      depositsSchema = 'unavailable';
     }
   }
 
@@ -167,6 +190,11 @@ export async function GET(): Promise<Response> {
     && process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
   );
 
+  // Presence only, no external call. Expect this to read false for exactly the
+  // window between deploying D2 and the owner provisioning the Connect endpoint
+  // — that is the control working, not a regression.
+  checks.stripeConnectEnv = Boolean(process.env.STRIPE_CONNECT_WEBHOOK_SECRET);
+
   // ---------------------------------------------------------------------------
   // 9. Sentry env check (matches strict production build guard)
   // ---------------------------------------------------------------------------
@@ -225,6 +253,7 @@ export async function GET(): Promise<Response> {
     status,
     checks,
     clientLifecycleSchema,
+    depositsSchema,
     timestamp: new Date().toISOString(),
   };
 
