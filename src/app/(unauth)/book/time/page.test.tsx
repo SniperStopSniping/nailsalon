@@ -10,6 +10,7 @@ const {
   getLocationById,
   getPrimaryLocation,
   getPublicPageContext,
+  resolveDraftSalonAccess,
   resolvePublicBookingTechnicianContext,
   redirectMock,
 } = vi.hoisted(() => ({
@@ -20,6 +21,12 @@ const {
   getLocationById: vi.fn(),
   getPrimaryLocation: vi.fn(),
   getPublicPageContext: vi.fn(),
+  resolveDraftSalonAccess: vi.fn(() => Promise.resolve({
+    allowed: true,
+    isPreviewingDraftSalon: false,
+    isPreviewingDraftConfig: false,
+    actorType: null,
+  })),
   resolvePublicBookingTechnicianContext: vi.fn(),
   redirectMock: vi.fn((url: string) => {
     throw new Error(`REDIRECT:${url}`);
@@ -55,6 +62,10 @@ vi.mock('@/libs/salonStatus', () => ({
 
 vi.mock('@/libs/publicBookingTechnicians', () => ({
   resolvePublicBookingTechnicianContext,
+}));
+
+vi.mock('@/libs/ownerPreview', () => ({
+  resolveDraftSalonAccess,
 }));
 
 vi.mock('@/libs/tenant', () => ({

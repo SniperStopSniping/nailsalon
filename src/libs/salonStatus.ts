@@ -40,6 +40,28 @@ export type SalonStatusCheck = {
   redirectPath: string | null;
 };
 
+export type CheckSalonStatusOptions = {
+  /**
+   * When true, skip the "not published" -> /not-found redirect below.
+   *
+   * This exists so callers that sit inside `[locale]/[slug]/layout.tsx`'s
+   * tree (the booking-step pages) can defer to the SAME authorization
+   * decision the layout already made via
+   * `resolveDraftSalonAccess()`/`resolveOwnerPreviewContext()`
+   * (`@/libs/ownerPreview`) instead of running an independent, unaware
+   * publication check that would re-404 an authorized owner/impersonating
+   * super admin who the layout just let through. Deleted/suspended/
+   * cancelled checks below are NOT skipped by this flag — an owner
+   * previewing a draft salon still gets redirected if it's since been
+   * suspended or cancelled.
+   *
+   * Callers MUST derive this from `resolveDraftSalonAccess()` (or
+   * equivalent), never from an ad-hoc check, so there remains only one
+   * authorization matrix for the draft-salon 404 gate.
+   */
+  allowUnpublishedPreview?: boolean;
+};
+
 // =============================================================================
 // Check Salon Status
 // =============================================================================
@@ -48,7 +70,10 @@ export type SalonStatusCheck = {
  * Check if a salon is accessible (not suspended, cancelled, or deleted)
  * Returns status information and redirect path if needed
  */
-export async function checkSalonStatus(salonId: string): Promise<SalonStatusCheck> {
+export async function checkSalonStatus(
+  salonId: string,
+  options?: CheckSalonStatusOptions,
+): Promise<SalonStatusCheck> {
   const [salon] = await db
     .select({
       status: salonSchema.status,
@@ -74,7 +99,7 @@ export async function checkSalonStatus(salonId: string): Promise<SalonStatusChec
   const isDeleted = !!salon.deletedAt;
   const isPublished = salon.publicationStatus === 'published';
 
-  if (!isPublished) {
+  if (!isPublished && !options?.allowUnpublishedPreview) {
     return {
       exists: true,
       isActive: false,

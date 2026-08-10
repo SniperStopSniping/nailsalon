@@ -6,6 +6,7 @@ import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
+import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import {
   type ResolvedPublicBookingTechnicianContext,
   resolvePublicBookingTechnicianContext,
@@ -54,8 +55,27 @@ export default async function BookTimePage({
     locale: params?.locale,
   };
 
-  // Check salon status - redirect if suspended/cancelled
-  const statusCheck = await checkSalonStatus(salon.id);
+  // Owner-preview gate (Luster UI/UX plan rev 3, PR3): reuse the SAME
+  // authorization matrix `[locale]/[slug]/layout.tsx` already resolved for
+  // this request, rather than letting checkSalonStatus() below run an
+  // independent, unaware publication check that would re-404 an owner (or
+  // authorized impersonating super admin) the layout just let through.
+  const previewGate = await resolveDraftSalonAccess({
+    id: salon.id,
+    publicationStatus: salon.publicationStatus,
+    freeSoloEnabled: salon.freeSoloEnabled,
+  });
+  if (!previewGate.allowed) {
+    redirect(buildTenantRedirectPath('/not-found', tenantRoute) ?? '/not-found');
+  }
+
+  // Check salon status - redirect if suspended/cancelled. Deleted/
+  // suspended/cancelled checks still apply even when previewing a draft
+  // salon; only the "not published" branch is bypassed for an authorized
+  // previewer.
+  const statusCheck = await checkSalonStatus(salon.id, {
+    allowUnpublishedPreview: previewGate.isPreviewingDraftSalon,
+  });
   const statusRedirectPath = buildTenantRedirectPath(statusCheck.redirectPath, tenantRoute);
   if (statusRedirectPath) {
     redirect(statusRedirectPath);
