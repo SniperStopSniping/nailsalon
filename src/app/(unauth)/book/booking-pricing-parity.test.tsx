@@ -80,6 +80,32 @@ vi.mock('@/libs/ownerPreview', () => ({
   resolveDraftSalonAccess,
 }));
 
+vi.mock('@/libs/bookingPageConfig', () => ({
+  resolveBookingPageConfig: vi.fn(() => ({
+    version: 1,
+    draft: {
+      layout: 'quick_book',
+      stylePack: 'default',
+      tokenOverrides: null,
+      sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
+      sectionVariants: {},
+      hiddenSections: [],
+      businessMode: 'solo',
+      startMode: 'services_first',
+    },
+    live: {
+      layout: 'quick_book',
+      stylePack: 'default',
+      tokenOverrides: null,
+      sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
+      sectionVariants: {},
+      hiddenSections: [],
+      businessMode: 'solo',
+      startMode: 'services_first',
+    },
+  })),
+}));
+
 vi.mock('@/libs/queries', () => ({
   getLocationById,
   getPrimaryLocation,
