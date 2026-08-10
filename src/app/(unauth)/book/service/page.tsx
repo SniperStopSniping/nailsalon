@@ -1,9 +1,11 @@
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
+import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
+import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
@@ -15,6 +17,7 @@ import { getPublicBookableServiceIds } from '@/libs/serviceAssignments';
 import { resolveServiceCardImage } from '@/libs/serviceImage';
 import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
 import { getPublicPageContext } from '@/libs/tenant';
+import type { SalonOwnerPreviewState } from '@/providers/SalonProvider';
 import type { SalonSettings } from '@/types/salonPolicy';
 
 import { BookServiceClient } from './BookServiceClient';
@@ -74,6 +77,26 @@ export default async function BookServicePage({
   if (!previewGate.allowed) {
     redirect(buildTenantRedirectPath('/not-found', tenantRoute) ?? '/not-found');
   }
+
+  // Thread the same gate result into the SalonProvider PublicSalonPageShell
+  // mounts below (Luster UI/UX plan rev 3, PR3 fix: the canonical /book
+  // entry URL never passes through [locale]/[slug]/layout.tsx, so that
+  // layout's own SalonProvider/PreviewBanner never wrap this page — this is
+  // the only place an owner previewing a draft salon or draft config
+  // actually sees it during the real booking flow).
+  const bookingPageConfig = resolveBookingPageConfig(salon.settings);
+  const activeBookingPageSide = previewGate.isPreviewingDraftConfig
+    ? bookingPageConfig.draft
+    : bookingPageConfig.live;
+  const ownerPreviewState: SalonOwnerPreviewState = {
+    isPreviewing: previewGate.isPreviewingDraftSalon || previewGate.isPreviewingDraftConfig,
+    actorType: previewGate.actorType,
+  };
+  const previewBannerVariant: PreviewBannerVariant | null = previewGate.isPreviewingDraftSalon
+    ? 'draft-salon'
+    : previewGate.isPreviewingDraftConfig
+      ? 'draft-config'
+      : null;
 
   // Check salon status - redirect if suspended/cancelled. Deleted/
   // suspended/cancelled checks still apply even when previewing a draft
@@ -222,6 +245,9 @@ export default async function BookServicePage({
       appearance={context.appearance}
       pageName="book-service"
       salon={context.salon}
+      bookingPage={activeBookingPageSide}
+      ownerPreview={ownerPreviewState}
+      previewBannerVariant={previewBannerVariant}
     >
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookServiceClient

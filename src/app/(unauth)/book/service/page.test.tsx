@@ -19,6 +19,7 @@ const {
   isClientEligibleForFirstVisitDiscount,
   resolveDraftSalonAccess,
   bookServiceClientSpy,
+  publicSalonPageShellSpy,
 } = vi.hoisted(() => ({
   buildTenantRedirectPath: vi.fn((path: string | null) => path),
   checkFeatureEnabled: vi.fn(),
@@ -27,7 +28,7 @@ const {
     allowed: true,
     isPreviewingDraftSalon: false,
     isPreviewingDraftConfig: false,
-    actorType: null,
+    actorType: null as 'owner' | 'super_admin' | null,
   })),
   getActiveAddOnsBySalonId: vi.fn(),
   getActiveLocationsBySalonId: vi.fn(),
@@ -40,6 +41,7 @@ const {
   getTechniciansBySalonId: vi.fn(),
   isClientEligibleForFirstVisitDiscount: vi.fn(),
   bookServiceClientSpy: vi.fn(),
+  publicSalonPageShellSpy: vi.fn(),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -47,7 +49,10 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/components/PublicSalonPageShell', () => ({
-  PublicSalonPageShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  PublicSalonPageShell: (props: { children: React.ReactNode } & Record<string, unknown>) => {
+    publicSalonPageShellSpy(props);
+    return <div>{props.children}</div>;
+  },
 }));
 
 vi.mock('@/libs/bookingFlow', () => ({
@@ -69,6 +74,32 @@ vi.mock('@/libs/firstVisitDiscount', () => ({
 
 vi.mock('@/libs/ownerPreview', () => ({
   resolveDraftSalonAccess,
+}));
+
+vi.mock('@/libs/bookingPageConfig', () => ({
+  resolveBookingPageConfig: vi.fn(() => ({
+    version: 1,
+    draft: {
+      layout: 'quick_book',
+      stylePack: 'default',
+      tokenOverrides: null,
+      sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
+      sectionVariants: {},
+      hiddenSections: [],
+      businessMode: 'solo',
+      startMode: 'services_first',
+    },
+    live: {
+      layout: 'quick_book',
+      stylePack: 'default',
+      tokenOverrides: null,
+      sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
+      sectionVariants: {},
+      hiddenSections: [],
+      businessMode: 'solo',
+      startMode: 'services_first',
+    },
+  })),
 }));
 
 vi.mock('@/libs/queries', () => ({
@@ -440,6 +471,103 @@ describe('BookServicePage first-visit offer visibility', () => {
 
     expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
       services: [expect.objectContaining({ id: 'svc_bookable' })],
+    }));
+  });
+});
+
+describe('BookServicePage owner-preview wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getPublicPageContext.mockResolvedValue({
+      appearance: null,
+      salon: {
+        id: 'salon_1',
+        slug: 'salon-a',
+        bookingFlow: ['service', 'tech', 'time', 'confirm'],
+        settings: null,
+        publicationStatus: 'published',
+        freeSoloEnabled: true,
+      },
+    });
+    checkSalonStatus.mockResolvedValue({});
+    checkFeatureEnabled.mockResolvedValue({});
+    getBookingConfigForSalon.mockResolvedValue({
+      bufferMinutes: 10,
+      slotIntervalMinutes: 15,
+      currency: 'CAD',
+      timezone: 'America/Toronto',
+      introPriceDefaultLabel: null,
+      firstVisitDiscountEnabled: false,
+    });
+    getClientSession.mockResolvedValue(null);
+    getServicesBySalonId.mockResolvedValue([]);
+    getActiveAddOnsBySalonId.mockResolvedValue([]);
+    getServiceAddOnRulesBySalonId.mockResolvedValue([]);
+    getTechniciansBySalonId.mockResolvedValue([]);
+    getPublicBookableServiceIds.mockResolvedValue(null);
+    getActiveLocationsBySalonId.mockResolvedValue([]);
+  });
+
+  it('does not pass ownerPreview/bookingPage props indicating a preview for an ordinary visitor', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: false,
+      isPreviewingDraftConfig: false,
+      actorType: null,
+    });
+
+    const element = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(element);
+
+    expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+      ownerPreview: { isPreviewing: false, actorType: null },
+      previewBannerVariant: null,
+      bookingPage: expect.objectContaining({ layout: 'quick_book' }),
+    }));
+  });
+
+  it('threads ownerPreview/bookingPage/previewBannerVariant through to PublicSalonPageShell for an authorized owner previewing a draft salon', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: true,
+      isPreviewingDraftConfig: true,
+      actorType: 'owner',
+    });
+
+    const element = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(element);
+
+    expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+      ownerPreview: { isPreviewing: true, actorType: 'owner' },
+      previewBannerVariant: 'draft-salon',
+      bookingPage: expect.objectContaining({ layout: 'quick_book' }),
+    }));
+  });
+
+  it('threads a draft-config banner variant for an authorized previewer on an already-published salon', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: false,
+      isPreviewingDraftConfig: true,
+      actorType: 'super_admin',
+    });
+
+    const element = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(element);
+
+    expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+      ownerPreview: { isPreviewing: true, actorType: 'super_admin' },
+      previewBannerVariant: 'draft-config',
+      bookingPage: expect.objectContaining({ layout: 'quick_book' }),
     }));
   });
 });
