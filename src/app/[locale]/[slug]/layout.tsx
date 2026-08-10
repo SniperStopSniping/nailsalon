@@ -1,5 +1,8 @@
 import { notFound } from 'next/navigation';
 
+import { PreviewBanner } from '@/components/PreviewBanner';
+import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
+import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { getCanonicalAppOrigin } from '@/libs/publicUrl';
 import { getResolvedSalon } from '@/libs/tenant';
 import type { SalonStatus } from '@/models/Schema';
@@ -16,9 +19,31 @@ export default async function SlugTenantLayout({
   params: { locale: string; slug: string };
 }) {
   const salon = await getResolvedSalon(undefined, params);
-  if (!salon || (salon.freeSoloEnabled && salon.publicationStatus !== 'published')) {
+  if (!salon) {
     notFound();
   }
+
+  // Single owner-preview authorization matrix (Luster UI/UX plan rev 3, PR3;
+  // engineering risk 5: "the owner-preview bypass touches the public 404
+  // gate, a mistake publishes drafts to the world"). This one call decides
+  // both whether an unpublished salon 404s for everyone except its owner /
+  // an authorized impersonating super admin, AND which side of the PR2
+  // bookingPage draft/live pair gets resolved below — never two independent
+  // checks that could drift apart.
+  const previewGate = await resolveDraftSalonAccess({
+    id: salon.id,
+    publicationStatus: salon.publicationStatus,
+    freeSoloEnabled: salon.freeSoloEnabled,
+  });
+
+  if (!previewGate.allowed) {
+    notFound();
+  }
+
+  const bookingPageConfig = resolveBookingPageConfig(salon.settings);
+  const activeBookingPageSide = previewGate.isPreviewingDraftConfig
+    ? bookingPageConfig.draft
+    : bookingPageConfig.live;
 
   return (
     <ThemeProvider themeKey={salon?.themeKey ?? undefined}>
@@ -28,7 +53,16 @@ export default async function SlugTenantLayout({
         salonSlug={salon?.slug}
         themeKey={salon?.themeKey ?? undefined}
         status={(salon?.status ?? null) as SalonStatus | null}
+        bookingPage={activeBookingPageSide}
+        ownerPreview={{
+          isPreviewing: previewGate.isPreviewingDraftSalon || previewGate.isPreviewingDraftConfig,
+          actorType: previewGate.actorType,
+        }}
       >
+        {previewGate.isPreviewingDraftSalon && <PreviewBanner variant="draft-salon" />}
+        {!previewGate.isPreviewingDraftSalon && previewGate.isPreviewingDraftConfig && (
+          <PreviewBanner variant="draft-config" />
+        )}
         {children}
         {salon.freeSoloEnabled && (
           <footer
