@@ -1,7 +1,8 @@
-import React from 'react';
-
 import { render, screen } from '@testing-library/react';
+import React from 'react';
 import { describe, expect, it, vi } from 'vitest';
+
+import BookTechPage from './page';
 
 vi.mock('server-only', () => ({}));
 
@@ -78,8 +79,6 @@ vi.mock('@/libs/salonStatus', () => ({
 vi.mock('@/libs/tenant', () => ({
   getPublicPageContext,
 }));
-
-import BookTechPage from './page';
 
 describe('BookTechPage', () => {
   it('shows unassigned technicians as disabled for base-service booking instead of hiding them', async () => {
