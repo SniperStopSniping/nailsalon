@@ -23,9 +23,11 @@ type PublicSalonPageShellProps = {
    * gated server-side by `resolveDraftSalonAccess()` in the calling
    * page.tsx (mirrors what `[locale]/[slug]/layout.tsx` does for its own
    * nested SalonProvider). Forwarded into the SalonProvider mounted here so
-   * `useSalon().bookingPage` resolves correctly on the actual booking-flow
-   * pages (service/tech/time/confirm), not just on the tenant layout that
-   * never wraps these pages when reached via the canonical `/book` URL.
+   * `useSalon().bookingPage` resolves correctly on every actual
+   * booking-flow page (service/tech/time/confirm) — reached either via the
+   * canonical `/book` URL, which the tenant layout never wraps at all, or
+   * via `[locale]/[slug]/book/*`, which re-exports the same page.tsx and IS
+   * nested under that layout.
    */
   bookingPage?: BookingPageConfigSide;
   /** Owner-preview state for this request, already gated server-side. */
@@ -34,9 +36,13 @@ type PublicSalonPageShellProps = {
    * Which preview banner (if any) to render for this request, computed by
    * the caller from the same `resolveDraftSalonAccess()` result used for
    * `ownerPreview`/`bookingPage` above. Rendered here — not in
-   * `[locale]/[slug]/layout.tsx` — because that layout is bypassed
-   * entirely by the canonical `/book?salonSlug=...` entry URL, so it is
-   * never the only place an owner previewing their draft actually sees it.
+   * `[locale]/[slug]/layout.tsx`, which resolves the same gate but
+   * deliberately never renders a banner — so `PublicSalonPageShell` is the
+   * single place a banner mounts, regardless of which of the two real URL
+   * paths (canonical `/book`, or the nested `[locale]/[slug]/book/*`
+   * re-export) reached this page. Rendering it in both places would
+   * duplicate the banner on the nested path, since that path physically
+   * mounts this shell inside the tenant layout.
    */
   previewBannerVariant?: PreviewBannerVariant | null;
 };

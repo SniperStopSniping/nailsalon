@@ -116,11 +116,14 @@ export default async function BookConfirmPage({
   }
 
   // Thread the same gate result into the SalonProvider PublicSalonPageShell
-  // mounts below (Luster UI/UX plan rev 3, PR3 fix: the canonical /book
-  // entry URL never passes through [locale]/[slug]/layout.tsx, so that
-  // layout's own SalonProvider/PreviewBanner never wrap this page — this is
-  // the only place an owner previewing a draft salon or draft config
-  // actually sees it during the real booking flow).
+  // mounts below (Luster UI/UX plan rev 3, PR3). `[locale]/[slug]/layout.tsx`
+  // resolves this same gate and enforces its own notFound()/redirect above
+  // it, but never renders PreviewBanner — PublicSalonPageShell is the single
+  // owner of banner rendering for every public page reached through this
+  // page.tsx, whether via the canonical `/book?salonSlug=...` entry URL
+  // (outside the `[locale]/[slug]` tree, so the layout above never wraps it
+  // at all) or via `[locale]/[slug]/book/confirm`, which re-exports this
+  // exact page and IS nested under the layout.
   const bookingPageConfig = resolveBookingPageConfig(salon.settings);
   const activeBookingPageSide = previewGate.isPreviewingDraftConfig
     ? bookingPageConfig.draft

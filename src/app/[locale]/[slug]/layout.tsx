@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation';
 
-import { PreviewBanner } from '@/components/PreviewBanner';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { getCanonicalAppOrigin } from '@/libs/publicUrl';
@@ -30,6 +29,16 @@ export default async function SlugTenantLayout({
   // an authorized impersonating super admin, AND which side of the PR2
   // bookingPage draft/live pair gets resolved below — never two independent
   // checks that could drift apart.
+  //
+  // This layout only resolves the gate and threads its result into
+  // SalonProvider — it does NOT render PreviewBanner. `PublicSalonPageShell`
+  // is the single owner of banner rendering for every public page, because
+  // the real `[locale]/[slug]/book/*` routes are re-exports of the
+  // `(unauth)/book/*` page components and are physically nested under this
+  // layout, so a banner rendered here and a banner rendered by
+  // PublicSalonPageShell inside those pages would both mount for the same
+  // request. See `PublicSalonPageShell.tsx` for where the banner actually
+  // renders.
   const previewGate = await resolveDraftSalonAccess({
     id: salon.id,
     publicationStatus: salon.publicationStatus,
@@ -59,10 +68,6 @@ export default async function SlugTenantLayout({
           actorType: previewGate.actorType,
         }}
       >
-        {previewGate.isPreviewingDraftSalon && <PreviewBanner variant="draft-salon" />}
-        {!previewGate.isPreviewingDraftSalon && previewGate.isPreviewingDraftConfig && (
-          <PreviewBanner variant="draft-config" />
-        )}
         {children}
         {salon.freeSoloEnabled && (
           <footer

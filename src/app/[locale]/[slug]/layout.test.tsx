@@ -18,8 +18,15 @@
  * dev-role override, and the cookie jar are mocked. `resolveOwnerPreviewContext`
  * / `resolveDraftSalonAccess` and the layout's own conditionals are never
  * mocked, so deleting or inverting the `previewGate.allowed` check (or the
- * banner-variant / bookingPage-side selection below it) makes these tests
- * fail.
+ * bookingPage-side selection below it) makes these tests fail.
+ *
+ * The layout does NOT render `PreviewBanner` — that duplicated the banner
+ * PublicSalonPageShell already renders for every real booking page, because
+ * the real `[locale]/[slug]/book/*` routes are re-exports of
+ * `(unauth)/book/*` and are physically nested under this layout. This file
+ * asserts only on `notFound()`/`ownerPreview` context/`bookingPage` side
+ * selection; the one-banner regression is covered end to end, with the real
+ * nested page mounted, in `[locale]/[slug]/book/service/page.test.tsx`.
  */
 import path from 'node:path';
 
@@ -257,7 +264,7 @@ describe('SlugTenantLayout — draft salon 404 gate', () => {
     expect(notFound).toHaveBeenCalledTimes(1);
   });
 
-  it('4. correct owner sees the draft salon, with the draft-salon banner', async () => {
+  it('4. correct owner sees the draft salon, with ownerPreview context threaded through — no banner from the layout itself', async () => {
     setCookie(ADMIN_SESSION_COOKIE, OWNER_SESSION_ID);
 
     await renderLayout(DRAFT_SALON_SLUG);
@@ -265,10 +272,13 @@ describe('SlugTenantLayout — draft salon 404 gate', () => {
     expect(notFound).not.toHaveBeenCalled();
     expect(screen.getByTestId('layout-children')).toBeInTheDocument();
 
-    const banner = screen.getByTestId('owner-preview-banner');
-
-    expect(banner).toHaveAttribute('data-preview-variant', 'draft-salon');
-    expect(banner).toHaveTextContent('Draft — only you can see this');
+    // The layout resolves the gate but does not render PreviewBanner itself
+    // — PublicSalonPageShell is the single banner owner (see fix note in
+    // layout.tsx and the real-nested-route coverage in
+    // [locale]/[slug]/book/service/page.test.tsx). A stub child, as used
+    // here, never mounts PublicSalonPageShell, so no banner is expected in
+    // this test.
+    expect(screen.queryByTestId('owner-preview-banner')).not.toBeInTheDocument();
 
     const probe = JSON.parse(screen.getByTestId('context-probe').textContent ?? '{}');
 
@@ -285,10 +295,7 @@ describe('SlugTenantLayout — draft salon 404 gate', () => {
     await renderLayout(DRAFT_SALON_SLUG);
 
     expect(notFound).not.toHaveBeenCalled();
-
-    const banner = screen.getByTestId('owner-preview-banner');
-
-    expect(banner).toHaveAttribute('data-preview-variant', 'draft-salon');
+    expect(screen.queryByTestId('owner-preview-banner')).not.toBeInTheDocument();
 
     const probe = JSON.parse(screen.getByTestId('context-probe').textContent ?? '{}');
 
@@ -321,17 +328,13 @@ describe('SlugTenantLayout — draft bookingPage config on an already-published 
     expect(probe.ownerPreview).toEqual({ isPreviewing: false, actorType: null });
   });
 
-  it('the correct owner previewing a published salon sees the DRAFT config with the draft-config banner', async () => {
+  it('the correct owner previewing a published salon sees the DRAFT config, with ownerPreview context threaded through — no banner from the layout itself', async () => {
     setCookie(ADMIN_SESSION_COOKIE, OWNER_SESSION_ID);
 
     await renderLayout(PUBLISHED_SALON_SLUG);
 
     expect(notFound).not.toHaveBeenCalled();
-
-    const banner = screen.getByTestId('owner-preview-banner');
-
-    expect(banner).toHaveAttribute('data-preview-variant', 'draft-config');
-    expect(banner).toHaveTextContent('Previewing unpublished changes');
+    expect(screen.queryByTestId('owner-preview-banner')).not.toBeInTheDocument();
 
     const probe = JSON.parse(screen.getByTestId('context-probe').textContent ?? '{}');
 
