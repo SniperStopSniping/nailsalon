@@ -558,17 +558,12 @@ jobs:
           npx vitest run --no-file-parallelism
           src/app/api/appointments/route.concurrency.integration.test.ts
 
-      # Reuses this job's existing CONCURRENCY_TEST_DATABASE_URL and
-      # BOOKING_POLICY_ACKNOWLEDGMENT_DISPOSABLE_DATABASE_CONFIRMED marker, which
-      # the verbatim-copied guard already accepts. A deposits-specific marker
-      # would make the suite silently skip here.
-      - name: Run Stripe Connect bind concurrency tests
-        run: >-
-          npx vitest run --no-file-parallelism
-          src/libs/stripeConnect/stripeConnect.concurrency.integration.test.ts
-
       # PGlite is single-connection and cannot interleave transactions, so the
-      # concurrent-binding race can only be proved against a real server.
+      # concurrent-binding race can only be proved against a real server. This
+      # step reuses the job's existing CONCURRENCY_TEST_DATABASE_URL and
+      # BOOKING_POLICY_ACKNOWLEDGMENT_DISPOSABLE_DATABASE_CONFIRMED marker,
+      # which the verbatim-copied guard already accepts — a deposits-specific
+      # marker would make the suite silently skip here.
       - name: Run Stripe Connect binding concurrency tests
         run: >-
           npx vitest run --no-file-parallelism
