@@ -17,11 +17,18 @@ const {
   getServicesBySalonId,
   getTechniciansBySalonId,
   isClientEligibleForFirstVisitDiscount,
+  resolveDraftSalonAccess,
   bookServiceClientSpy,
 } = vi.hoisted(() => ({
   buildTenantRedirectPath: vi.fn((path: string | null) => path),
   checkFeatureEnabled: vi.fn(),
   checkSalonStatus: vi.fn(),
+  resolveDraftSalonAccess: vi.fn(() => Promise.resolve({
+    allowed: true,
+    isPreviewingDraftSalon: false,
+    isPreviewingDraftConfig: false,
+    actorType: null,
+  })),
   getActiveAddOnsBySalonId: vi.fn(),
   getActiveLocationsBySalonId: vi.fn(),
   getBookingConfigForSalon: vi.fn(),
@@ -58,6 +65,10 @@ vi.mock('@/libs/clientAuth', () => ({
 
 vi.mock('@/libs/firstVisitDiscount', () => ({
   isClientEligibleForFirstVisitDiscount,
+}));
+
+vi.mock('@/libs/ownerPreview', () => ({
+  resolveDraftSalonAccess,
 }));
 
 vi.mock('@/libs/queries', () => ({

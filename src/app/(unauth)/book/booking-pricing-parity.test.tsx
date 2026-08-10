@@ -23,6 +23,7 @@ const {
   getTechnicianById,
   isRewardsEnabled,
   isSmsEnabled,
+  resolveDraftSalonAccess,
   resolvePublicBookingTechnicianContext,
   resolvePublicBookingSelection,
   resolvePublicRetentionCampaignPreview,
@@ -40,6 +41,12 @@ const {
   getTechnicianById: vi.fn(),
   isRewardsEnabled: vi.fn(),
   isSmsEnabled: vi.fn(),
+  resolveDraftSalonAccess: vi.fn(() => Promise.resolve({
+    allowed: true,
+    isPreviewingDraftSalon: false,
+    isPreviewingDraftConfig: false,
+    actorType: null,
+  })),
   resolvePublicBookingTechnicianContext: vi.fn(),
   resolvePublicBookingSelection: vi.fn(),
   resolvePublicRetentionCampaignPreview: vi.fn(),
@@ -67,6 +74,10 @@ vi.mock('@/libs/publicBookingTechnicians', () => ({
 
 vi.mock('@/libs/publicRetentionCampaign', () => ({
   resolvePublicRetentionCampaignPreview,
+}));
+
+vi.mock('@/libs/ownerPreview', () => ({
+  resolveDraftSalonAccess,
 }));
 
 vi.mock('@/libs/queries', () => ({
