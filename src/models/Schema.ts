@@ -2986,6 +2986,11 @@ export const AUDIT_LOG_ACTIONS = [
   // Appointments
   'appointment_completed',
   'appointment_cancelled',
+  // Required-add-on enforcement rollout (observation stage, PR 1 stage b) —
+  // fired when a booking selection did not include a service_add_on row
+  // marked selectionMode: 'required'. Observation only: never blocks the
+  // booking. See evaluateRequiredAddOnRules in src/libs/bookingQuote.ts.
+  'required_add_on_rule_omitted',
   // Super-admin actions (merge from existing)
   'updated',
   'owner_changed',

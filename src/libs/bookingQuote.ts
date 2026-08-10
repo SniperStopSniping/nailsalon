@@ -22,7 +22,8 @@ import {
 export type BookingSelectionErrorCode
   = | 'invalid_service'
   | 'unsupported_technician'
-  | 'invalid_add_on';
+  | 'invalid_add_on'
+  | 'missing_required_add_on';
 
 export class BookingSelectionError extends Error {
   constructor(public readonly code: BookingSelectionErrorCode) {
@@ -37,6 +38,9 @@ export function getPublicBookingSelectionMessage(error: BookingSelectionError): 
   }
   if (error.code === 'invalid_add_on') {
     return 'One of the selected add-ons is no longer available. Please review your services.';
+  }
+  if (error.code === 'missing_required_add_on') {
+    return 'This service requires an additional add-on before it can be booked online. Please review the required add-ons for this service.';
   }
   return 'This service is no longer available for online booking. Please choose another service.';
 }
@@ -96,6 +100,12 @@ type ValidatedSelectionResult = {
     lineDurationMinutes: number;
   }>;
   quote: BookingQuote;
+  /**
+   * Required service_add_on rows (selectionMode: 'required') this selection
+   * did not satisfy. Observation-only (PR 1 stage b) — populated but never
+   * enforced; a non-empty array does not throw and does not block booking.
+   */
+  observedRequiredAddOnGaps: string[];
 };
 
 export function mergeSelectedAddOns(selectedAddOns: SelectedAddOnInput[]): SelectedAddOnInput[] {
@@ -107,6 +117,41 @@ export function mergeSelectedAddOns(selectedAddOns: SelectedAddOnInput[]): Selec
   }
 
   return Array.from(merged.entries()).map(([addOnId, quantity]) => ({ addOnId, quantity }));
+}
+
+export type RequiredAddOnRuleInput = {
+  addOnId: string;
+  selectionMode: 'optional' | 'required' | 'conditional';
+};
+
+export type RequiredAddOnEvaluation = {
+  satisfied: boolean;
+  missingRequiredAddOnIds: string[];
+};
+
+/**
+ * Pure check of whether a selection covers every `required` service_add_on
+ * rule for the service being booked. `conditional` rules have no evaluator
+ * yet (§11 gap 11 of the UI/UX plan) and are treated as satisfied — this
+ * function only ever reports the unconditional `required` case.
+ *
+ * Observation-only: this does not throw. Stage (e) of the required-add-on
+ * enforcement rollout is the PR that turns an unsatisfied result into a
+ * blocked booking.
+ */
+export function evaluateRequiredAddOnRules(args: {
+  rules: RequiredAddOnRuleInput[];
+  selectedAddOnIds: string[];
+}): RequiredAddOnEvaluation {
+  const selected = new Set(args.selectedAddOnIds);
+  const missingRequiredAddOnIds = args.rules
+    .filter(rule => rule.selectionMode === 'required' && !selected.has(rule.addOnId))
+    .map(rule => rule.addOnId);
+
+  return {
+    satisfied: missingRequiredAddOnIds.length === 0,
+    missingRequiredAddOnIds,
+  };
 }
 
 export function calculateAppointmentPrice(args: {
@@ -303,6 +348,19 @@ export async function validatePublicBookingSelection(args: {
 
   const rulesByAddOnId = new Map(rules.map(rule => [rule.addOnId, rule]));
 
+  // Observation-only (§4A, PR 1 stage b): computed against the full rule set
+  // before the zero-add-on early return below, which is exactly the path
+  // that used to skip `rules` entirely and is most likely to hide a missing
+  // required add-on. Never throws — see evaluateRequiredAddOnRules.
+  // Observation-only (§4A, PR 1 stage b): computed against the full rule set
+  // before the zero-add-on early return below, which is exactly the path
+  // that used to skip `rules` entirely and is most likely to hide a missing
+  // required add-on. Never throws — see evaluateRequiredAddOnRules.
+  const requiredAddOnEvaluation = evaluateRequiredAddOnRules({
+    rules,
+    selectedAddOnIds: normalizedAddOns.map(addOn => addOn.addOnId),
+  });
+
   if (normalizedAddOns.length === 0) {
     const bookingConfig = await getBookingConfigForSalon(args.salonId);
     const serviceSummary = mapServiceToCatalogSummary(baseService);
@@ -327,6 +385,7 @@ export async function validatePublicBookingSelection(args: {
       baseService: serviceSummary,
       addOns: [],
       quote,
+      observedRequiredAddOnGaps: requiredAddOnEvaluation.missingRequiredAddOnIds,
     };
   }
 
@@ -399,6 +458,7 @@ export async function validatePublicBookingSelection(args: {
     baseService: serviceSummary,
     addOns: resolvedAddOns,
     quote,
+    observedRequiredAddOnGaps: requiredAddOnEvaluation.missingRequiredAddOnIds,
   };
 }
 
