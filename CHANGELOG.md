@@ -1,3 +1,10 @@
+# [1.47.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.46.0...v1.47.0) (2026-08-10)
+
+
+### Features
+
+* **deposits:** add D2 Stripe Connect account plumbing ([4cce3ba](https://github.com/SniperStopSniping/nailsalon/commit/4cce3bab051dd73c2e636c31bd804251bdcfab99))
+
 # [1.46.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.45.4...v1.46.0) (2026-08-09)
 
 
