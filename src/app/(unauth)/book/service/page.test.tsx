@@ -30,7 +30,7 @@ const {
     allowed: true,
     isPreviewingDraftSalon: false,
     isPreviewingDraftConfig: false,
-    actorType: null,
+    actorType: null as 'owner' | 'super_admin' | null,
   })),
   getActiveAddOnsBySalonId: vi.fn(),
   getActiveLocationsBySalonId: vi.fn(),

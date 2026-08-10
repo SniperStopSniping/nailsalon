@@ -121,10 +121,6 @@ vi.mock('@/libs/publicRetentionCampaign', () => ({
   resolvePublicRetentionCampaignPreview,
 }));
 
-vi.mock('@/libs/ownerPreview', () => ({
-  resolveDraftSalonAccess,
-}));
-
 vi.mock('@/libs/queries', () => ({
   getPrimaryLocation,
   getLocationById,
