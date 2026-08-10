@@ -410,6 +410,22 @@ export function BookServiceClient({
   // (`typeof IntersectionObserver === 'undefined'`) — tests instead assert
   // the underlying `hasReachedServicesAnchor` state/rendering logic directly
   // by mocking the global constructor and invoking its captured callback.
+  //
+  // Review finding (PR6, High): on a short Editorial page — a small catalog,
+  // a brief bio, one address line, one policy sentence — the document may
+  // not have enough scrollable height below #services for its top edge to
+  // ever reach SERVICES_ANCHOR_SCROLL_MARGIN_PX, even scrolled all the way
+  // to the bottom (or via a native anchor jump, which is bounded by the same
+  // document height). The intersection-based check alone would then never
+  // flip `hasReachedServicesAnchor` to true, permanently trapping the user
+  // behind the dead "Book appointment" jump link with no way to reach the
+  // real Continue button. `isServicesAnchorGeometricallyReachable` detects
+  // that case up front (and again on resize/content-height change, since a
+  // filtered search or a newly-selected service can change the page's
+  // scrollable height) by computing whether scrolling to the document's
+  // absolute maximum could ever satisfy the threshold; if it can't, the
+  // geometry-driven handoff is skipped entirely and the Continue bar is
+  // shown immediately.
   useEffect(() => {
     if (!isEditorialLayout) {
       setHasReachedServicesAnchor(false);
@@ -417,32 +433,73 @@ export function BookServiceClient({
     }
 
     const node = servicesAnchorRef.current;
-    if (!node || typeof IntersectionObserver === 'undefined') {
+    if (!node) {
       return undefined;
     }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (!entry) {
-          return;
-        }
-        // "Scrolled to or past" the anchor: its top edge is at or above the
-        // viewport's top edge. boundingClientRect (not isIntersecting) is
-        // what distinguishes "not yet reached" from "already scrolled past"
-        // — both otherwise read as simply "not intersecting". The threshold
-        // is SERVICES_ANCHOR_SCROLL_MARGIN_PX, not a strict 0: the anchor
-        // wrapper below carries `scroll-mt-4` (1rem) so an anchor-link jump
-        // (Skip to services / the hero CTA) doesn't dock content flush to
-        // the very top edge — native `scrollIntoView` honours that same
-        // scroll-margin and rests with the anchor's top a few px short of 0,
-        // which a strict `<= 0` check would never count as "reached".
-        setHasReachedServicesAnchor(entry.boundingClientRect.top <= SERVICES_ANCHOR_SCROLL_MARGIN_PX);
-      },
-      { threshold: [0, 1] },
-    );
-    observer.observe(node);
-    return () => observer.disconnect();
+    const isServicesAnchorGeometricallyReachable = (): boolean => {
+      if (typeof window === 'undefined' || typeof document === 'undefined' || !document.documentElement) {
+        return true;
+      }
+      const maxScrollY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      const topAtMaxScroll = node.getBoundingClientRect().top + window.scrollY - maxScrollY;
+      return topAtMaxScroll <= SERVICES_ANCHOR_SCROLL_MARGIN_PX;
+    };
+
+    let unreachable = false;
+    const recomputeReachability = () => {
+      if (unreachable || !isServicesAnchorGeometricallyReachable()) {
+        unreachable = true;
+        setHasReachedServicesAnchor(true);
+      }
+    };
+    recomputeReachability();
+    if (unreachable) {
+      // Page is too short for the geometry check to ever succeed — no
+      // observer needed, the Continue bar is already showing.
+      return undefined;
+    }
+
+    window.addEventListener('resize', recomputeReachability);
+    let resizeObserver: ResizeObserver | undefined;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(recomputeReachability);
+      resizeObserver.observe(document.documentElement);
+    }
+
+    let observer: IntersectionObserver | undefined;
+    if (typeof IntersectionObserver !== 'undefined') {
+      observer = new IntersectionObserver(
+        (entries) => {
+          if (unreachable) {
+            return;
+          }
+          const entry = entries[0];
+          if (!entry) {
+            return;
+          }
+          // "Scrolled to or past" the anchor: its top edge is at or above the
+          // viewport's top edge. boundingClientRect (not isIntersecting) is
+          // what distinguishes "not yet reached" from "already scrolled past"
+          // — both otherwise read as simply "not intersecting". The threshold
+          // is SERVICES_ANCHOR_SCROLL_MARGIN_PX, not a strict 0: the anchor
+          // wrapper below carries `scroll-mt-4` (1rem) so an anchor-link jump
+          // (Skip to services / the hero CTA) doesn't dock content flush to
+          // the very top edge — native `scrollIntoView` honours that same
+          // scroll-margin and rests with the anchor's top a few px short of 0,
+          // which a strict `<= 0` check would never count as "reached".
+          setHasReachedServicesAnchor(entry.boundingClientRect.top <= SERVICES_ANCHOR_SCROLL_MARGIN_PX);
+        },
+        { threshold: [0, 1] },
+      );
+      observer.observe(node);
+    }
+
+    return () => {
+      window.removeEventListener('resize', recomputeReachability);
+      resizeObserver?.disconnect();
+      observer?.disconnect();
+    };
   }, [isEditorialLayout]);
 
   useEffect(() => {

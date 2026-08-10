@@ -416,6 +416,130 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
 
       expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
     });
+
+    // Review finding (PR6, High): on a short page (small catalog, brief
+    // bio, one address line, one policy sentence) the document may not have
+    // enough scrollable height below #services for its top edge to ever
+    // reach the threshold — not even by scrolling all the way to the
+    // bottom. `fireAnchorIntersection` (used by the tests above) drives the
+    // handoff via a synthetic IntersectionObserver entry and so cannot
+    // exercise that geometry constraint at all. These tests instead stub
+    // the real DOM geometry APIs the component reads
+    // (`Element.scrollHeight`, `window.innerHeight`, `window.scrollY`,
+    // `getBoundingClientRect`) to reproduce the actual failure mode: a real
+    // Chromium/Playwright render of this page (baseServiceId in the URL,
+    // scrolled to its absolute document bottom — scrollY 633 of a 633px
+    // scrollable range) measured `#services.getBoundingClientRect().top`
+    // at 215.75px, nowhere near the 24px threshold.
+    describe('unreachable anchor on a short page (real-geometry regression, review finding)', () => {
+      const SHORT_PAGE_INNER_HEIGHT = 667;
+      const SHORT_PAGE_MAX_SCROLL = 633;
+
+      function stubShortPageGeometry() {
+        const originalInnerHeight = window.innerHeight;
+        const originalScrollY = window.scrollY;
+        const scrollHeightSpy = vi
+          .spyOn(Element.prototype, 'scrollHeight', 'get')
+          .mockReturnValue(SHORT_PAGE_INNER_HEIGHT + SHORT_PAGE_MAX_SCROLL);
+        const rectSpy = vi
+          .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
+          .mockReturnValue({ top: 215.75 } as DOMRect);
+        Object.defineProperty(window, 'innerHeight', {
+          value: SHORT_PAGE_INNER_HEIGHT,
+          configurable: true,
+          writable: true,
+        });
+        Object.defineProperty(window, 'scrollY', {
+          value: SHORT_PAGE_MAX_SCROLL,
+          configurable: true,
+          writable: true,
+        });
+        return () => {
+          scrollHeightSpy.mockRestore();
+          rectSpy.mockRestore();
+          Object.defineProperty(window, 'innerHeight', {
+            value: originalInnerHeight,
+            configurable: true,
+            writable: true,
+          });
+          Object.defineProperty(window, 'scrollY', {
+            value: originalScrollY,
+            configurable: true,
+            writable: true,
+          });
+        };
+      }
+
+      it('shows the Continue bar immediately, never the dead jump link, when the anchor can never geometrically reach the threshold', () => {
+        const restore = stubShortPageGeometry();
+        navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+
+        try {
+          render(
+            <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+          );
+
+          // No `fireAnchorIntersection` call anywhere in this test — the
+          // handoff must happen from geometry alone, on mount, without ever
+          // needing a "reached" intersection entry.
+          expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+          expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
+        } finally {
+          restore();
+        }
+      });
+
+      it('ignores a stale "not reached" intersection entry once geometry has already forced the handoff', () => {
+        const restore = stubShortPageGeometry();
+        navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+
+        try {
+          render(
+            <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+          );
+
+          expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+
+          // On an unreachable page the component never subscribes an
+          // IntersectionObserver in the first place, so this is a no-op —
+          // asserting that explicitly guards against a regression where a
+          // late "not reached" observer callback could flip the handoff
+          // back off and re-trap the user.
+          expect(observerCallback).toBeNull();
+
+          fireAnchorIntersection(215.75);
+
+          expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+          expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
+        } finally {
+          restore();
+        }
+      });
+
+      it('does not affect the reachable case: a normal-length page still uses the geometry-driven intersection handoff', () => {
+        // window.innerHeight/scrollY are left at jsdom defaults (0) here —
+        // only scrollHeight/getBoundingClientRect are stubbed, to a page
+        // whose anchor top-at-max-scroll comfortably clears the threshold.
+        const scrollHeightSpy = vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(2000);
+        const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ top: 10 } as DOMRect);
+        navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+
+        try {
+          render(
+            <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+          );
+
+          // Reachable: the component still waits for the real
+          // intersection-observer-driven handoff rather than jumping
+          // straight to the Continue bar.
+          expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
+          expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+        } finally {
+          scrollHeightSpy.mockRestore();
+          rectSpy.mockRestore();
+        }
+      });
+    });
   });
 
   it('does not render the editorial sticky CTA or hero for the quick_book layout (regression guard)', () => {
