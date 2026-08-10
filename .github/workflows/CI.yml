@@ -54,6 +54,7 @@ jobs:
       NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
       STRIPE_SECRET_KEY: ci-placeholder-not-a-secret
       STRIPE_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+      STRIPE_CONNECT_WEBHOOK_SECRET: ci-placeholder-not-a-secret
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
 
     steps:
@@ -135,6 +136,7 @@ jobs:
       NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
       STRIPE_SECRET_KEY: ci-placeholder-not-a-secret
       STRIPE_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+      STRIPE_CONNECT_WEBHOOK_SECRET: ci-placeholder-not-a-secret
       NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
       SUPER_ADMIN_AUTH_MODE: password
       SUPER_ADMIN_TEST_LOGIN_ENABLED: 'true'
@@ -161,6 +163,20 @@ jobs:
           cache: npm
 
       - run: npm ci
+
+      # The deposits ladder is additive by construction. These paths carry the
+      # SaaS billing surface, the migration set and the salon-purge coverage
+      # pin, and no PR in that ladder may touch them. This step lives in the
+      # `test` job because only its checkout sets `fetch-depth: 0` — the shallow
+      # checkouts elsewhere cannot resolve `git merge-base`.
+      - name: Deposits ladder zero-diff surfaces
+        run: >-
+          git diff --exit-code "$(git merge-base origin/main HEAD)" --
+          src/app/api/webhooks/stripe/route.ts
+          src/app/api/billing
+          migrations
+          vercel.json
+          src/libs/salonPurge.ts
 
       - name: Create ephemeral synthetic E2E admin credentials
         shell: bash
@@ -366,6 +382,7 @@ jobs:
           CLERK_SECRET_KEY: ci-placeholder-not-a-secret
           STRIPE_SECRET_KEY: ci-placeholder-not-a-secret
           STRIPE_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+          STRIPE_CONNECT_WEBHOOK_SECRET: ci-placeholder-not-a-secret
           BILLING_PLAN_ENV: test
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
           NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
@@ -423,6 +440,7 @@ jobs:
           CLERK_SECRET_KEY: ci-placeholder-not-a-secret
           STRIPE_SECRET_KEY: ci-placeholder-not-a-secret
           STRIPE_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+          STRIPE_CONNECT_WEBHOOK_SECRET: ci-placeholder-not-a-secret
           BILLING_PLAN_ENV: test
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
           NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
@@ -539,6 +557,22 @@ jobs:
         run: >-
           npx vitest run --no-file-parallelism
           src/app/api/appointments/route.concurrency.integration.test.ts
+
+      # Reuses this job's existing CONCURRENCY_TEST_DATABASE_URL and
+      # BOOKING_POLICY_ACKNOWLEDGMENT_DISPOSABLE_DATABASE_CONFIRMED marker, which
+      # the verbatim-copied guard already accepts. A deposits-specific marker
+      # would make the suite silently skip here.
+      - name: Run Stripe Connect bind concurrency tests
+        run: >-
+          npx vitest run --no-file-parallelism
+          src/libs/stripeConnect/stripeConnect.concurrency.integration.test.ts
+
+      # PGlite is single-connection and cannot interleave transactions, so the
+      # concurrent-binding race can only be proved against a real server.
+      - name: Run Stripe Connect binding concurrency tests
+        run: >-
+          npx vitest run --no-file-parallelism
+          src/libs/stripeConnect/stripeConnect.concurrency.integration.test.ts
 
   synchronize-with-crowdin:
     name: Crowdin sync excluded from PR-head

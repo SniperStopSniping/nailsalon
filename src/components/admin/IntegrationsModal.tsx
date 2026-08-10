@@ -9,9 +9,14 @@
  * - Text messaging (manual native composer vs optional automatic Twilio)
  * - Email (transactional + owner/staff alerts; marketing email does not exist)
  *
- * Payments is intentionally absent: no client-payment integration exists, and
- * the Stripe billing routes are platform-subscription plumbing, not a salon
- * integration.
+ * - Payments (Stripe Connect account setup)
+ *
+ * The Payments card covers ACCOUNT SETUP ONLY. It connects a salon's own Stripe
+ * account so deposits can be turned on later; it takes no client payment, and no
+ * client-facing payment surface exists yet. It renders only for salons with
+ * binding history or in the deposits pilot, and is fed entirely from the cached
+ * binding row — opening this modal never calls Stripe. The separate Stripe
+ * billing routes remain platform-subscription plumbing, not a salon integration.
  */
 
 import {
@@ -20,6 +25,7 @@ import {
   CalendarDays,
   CheckCircle2,
   ChevronRight,
+  CreditCard,
   Mail,
   MessageSquareText,
   X,
@@ -57,7 +63,55 @@ type Health = {
     errorMessage?: string | null;
     createdAt: string;
   } | null;
+  stripeConnect?: {
+    salonId: string;
+    visible: boolean;
+    status: ConnectStatus;
+    chargeReady: boolean;
+    payoutsPending: boolean;
+    requirements?: { currentlyDue?: string[]; pastDue?: string[] } | null;
+    disabledReason?: string | null;
+    lastSyncedAt?: string | null;
+    hasBindingHistory: boolean;
+  } | null;
 };
+
+type ConnectStatus
+  = | 'not_connected'
+  | 'onboarding_incomplete'
+  | 'action_needed_soon'
+  | 'charge_ready'
+  | 'restricted'
+  | 'blocked_needs_support'
+  | 'revoked'
+  | 'mode_mismatch';
+
+/**
+ * Plain-language labels. Owners never see raw Stripe vocabulary.
+ */
+const CONNECT_STATUS_LABELS: Record<ConnectStatus, string> = {
+  not_connected: 'Not connected',
+  onboarding_incomplete: 'Continue setup',
+  action_needed_soon: 'Verification required',
+  charge_ready: 'Ready for deposits',
+  restricted: 'Action required',
+  blocked_needs_support: 'Needs support',
+  revoked: 'Disconnected',
+  mode_mismatch: 'Unavailable',
+};
+
+function connectStatusTone(status: ConnectStatus): StatusTone {
+  if (status === 'charge_ready') {
+    return 'good';
+  }
+  if (status === 'not_connected') {
+    return 'muted';
+  }
+  if (status === 'restricted' || status === 'blocked_needs_support' || status === 'mode_mismatch') {
+    return 'error';
+  }
+  return 'warn';
+}
 
 type CalendarOption = {
   id: string;
@@ -150,6 +204,7 @@ export function IntegrationsModal({
   } | null>(null);
 
   const [smsCapableDevice, setSmsCapableDevice] = useState(true);
+  const [paymentsBusy, setPaymentsBusy] = useState(false);
 
   useEffect(() => {
     setSmsCapableDevice(isNativeSmsCapableDevice(navigator.userAgent));
@@ -289,6 +344,38 @@ export function IntegrationsModal({
 
   const card = 'rounded-2xl border border-stone-200 bg-white p-4 shadow-sm';
 
+  const connect = health?.stripeConnect ?? null;
+  const showPaymentsCard = connect?.visible === true;
+
+  /**
+   * Starts or resumes Stripe-hosted onboarding. The server mints a single-use
+   * Account Link and we navigate straight to it — the URL is never stored.
+   */
+  const startPaymentsSetup = async () => {
+    if (!connect || paymentsBusy) {
+      return;
+    }
+    setPaymentsBusy(true);
+    setMessage(null);
+    try {
+      const response = await fetch('/api/integrations/stripe-connect/onboard', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salonId: connect.salonId }),
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.url) {
+        setMessage('Payment setup could not be started. Try again shortly.');
+        setPaymentsBusy(false);
+        return;
+      }
+      window.location.href = payload.url;
+    } catch {
+      setMessage('Payment setup could not be started. Try again shortly.');
+      setPaymentsBusy(false);
+    }
+  };
+
   const homeRows: Array<{
     id: IntegrationsView;
     icon: typeof CalendarDays;
@@ -413,9 +500,92 @@ export function IntegrationsModal({
                 </button>
               );
             })}
-            <p className="px-1 pt-2 text-[12px] text-stone-400">
-              Clients pay you in person (cash, card, or e-Transfer). Luster does not process client payments.
-            </p>
+            {showPaymentsCard && connect && (
+              <div className={card} data-testid="integration-card-payments">
+                <div className="flex items-center gap-3">
+                  <span className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-emerald-100 text-emerald-800">
+                    <CreditCard size={22} />
+                  </span>
+                  <span className="min-w-0 grow">
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-[15px] font-semibold text-stone-950">Payments</span>
+                      <StatusPill
+                        label={CONNECT_STATUS_LABELS[connect.status]}
+                        tone={connectStatusTone(connect.status)}
+                      />
+                    </span>
+                    <span className="mt-0.5 block text-[13px] text-stone-500">
+                      Connect your own Stripe account so you can take deposits later.
+                    </span>
+                  </span>
+                </div>
+
+                {connect.status === 'charge_ready' && connect.payoutsPending && (
+                  <p className="mt-3 rounded-xl bg-amber-50 p-3 text-[13px] text-amber-900">
+                    Payouts are not switched on yet. Stripe is still reviewing your
+                    bank details.
+                  </p>
+                )}
+
+                {(connect.status === 'restricted'
+                  || connect.status === 'action_needed_soon'
+                  || connect.status === 'onboarding_incomplete') && (
+                  <ul className="mt-3 list-disc space-y-1 pl-5 text-[13px] text-stone-600">
+                    {(connect.requirements?.pastDue ?? [])
+                      .concat(connect.requirements?.currentlyDue ?? [])
+                      .slice(0, 5)
+                      .map(item => <li key={item}>{item.replaceAll('_', ' ').replaceAll('.', ' → ')}</li>)}
+                  </ul>
+                )}
+
+                {connect.status === 'mode_mismatch' && (
+                  <p className="mt-3 rounded-xl bg-red-50 p-3 text-[13px] text-red-800">
+                    Payments are unavailable in this environment. Contact support.
+                  </p>
+                )}
+
+                {/* `blocked_needs_support` is a DEAD END: everything was submitted
+                    and nothing is outstanding, so "Resume onboarding" would loop. */}
+                {connect.status === 'blocked_needs_support' && (
+                  <p className="mt-3 rounded-xl bg-red-50 p-3 text-[13px] text-red-800">
+                    Stripe cannot finish verifying this account automatically.
+                    Contact support and we will take it from here.
+                  </p>
+                )}
+
+                {(connect.status === 'not_connected'
+                  || connect.status === 'onboarding_incomplete'
+                  || connect.status === 'action_needed_soon'
+                  || connect.status === 'restricted'
+                  || connect.status === 'revoked') && (
+                  <button
+                    type="button"
+                    data-testid="payments-setup-button"
+                    onClick={() => void startPaymentsSetup()}
+                    disabled={paymentsBusy}
+                    className="mt-3 w-full rounded-xl bg-stone-900 px-4 py-2.5 text-[14px] font-semibold text-white outline-none transition-colors focus-visible:ring-2 focus-visible:ring-rose-400 active:bg-stone-800 disabled:opacity-60"
+                  >
+                    {connect.status === 'not_connected'
+                      ? 'Set up payments'
+                      : connect.status === 'revoked'
+                        ? 'Reconnect'
+                        : 'Resume onboarding'}
+                  </button>
+                )}
+
+                {connect.lastSyncedAt === null && connect.hasBindingHistory && (
+                  <p className="mt-2 text-[12px] text-stone-400">
+                    Status not confirmed yet.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {!showPaymentsCard && (
+              <p className="px-1 pt-2 text-[12px] text-stone-400">
+                Clients pay you in person (cash, card, or e-Transfer). Luster does not process client payments.
+              </p>
+            )}
           </div>
         )}
 
