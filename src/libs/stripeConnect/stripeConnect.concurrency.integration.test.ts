@@ -165,16 +165,37 @@ describe.skipIf(!IS_LOCAL_THROWAWAY)('test 32 — two concurrent binds for one s
     // Distinct ids on purpose: this is what two genuinely concurrent creates
     // look like. A blind `onConflictDoUpdate` would leave the two callers
     // holding DIFFERENT account ids, one of which is bound to nothing.
-    let call = 0;
+    //
+    // The mock is also a BARRIER: neither create returns until both callers
+    // have arrived. Without it, this test is flaky by construction — on a fast
+    // runner the first bind can commit before the second call's initial
+    // bindings read, which sends the second caller down the (correct, but
+    // uncontended) resume path and the 23505 arm under test never executes.
+    // `accounts.create` is only reached AFTER an empty bindings read, so two
+    // arrivals prove both callers are inside the race window, and releasing
+    // them together forces the INSERTs to actually contend.
+    let arrivals = 0;
+    let release!: () => void;
+    const bothInCreateWindow = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     stripeMock.accountsCreate.mockImplementation(async () => {
-      call += 1;
-      return accountPayload(`acct_conc_${call}`);
+      arrivals += 1;
+      const id = `acct_conc_${arrivals}`;
+      if (arrivals === 2) {
+        release();
+      }
+      await bothInCreateWindow;
+      return accountPayload(id);
     });
 
     const [first, second] = await Promise.all([
       ensureConnectedAccount({ salonId: SALON, runtimeEnvironment: 'test', actor: ACTOR }),
       ensureConnectedAccount({ salonId: SALON, runtimeEnvironment: 'test', actor: ACTOR }),
     ]);
+
+    // Both callers entered the create window — the barrier saw two arrivals.
+    expect(stripeMock.accountsCreate).toHaveBeenCalledTimes(2);
 
     const rows = await db
       .select()
