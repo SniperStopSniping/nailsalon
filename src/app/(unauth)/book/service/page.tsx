@@ -250,6 +250,13 @@ export default async function BookServicePage({
       salon={context.salon}
       bookingPage={activeBookingPageSide}
       ownerPreview={ownerPreviewState}
+      salonContentInput={{
+        technicians: dbTechnicians,
+        services,
+        addOns,
+        locations: activeLocations,
+        lusterFeaturingEnabled: merchandising.featureLusterManicure,
+      }}
       previewBannerVariant={previewBannerVariant}
     >
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
