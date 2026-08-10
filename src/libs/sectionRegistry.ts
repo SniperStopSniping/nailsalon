@@ -40,16 +40,19 @@ function hasText(value: string | null | undefined): boolean {
 export const SECTION_REGISTRY: Record<SectionId, SectionRegistryEntry> = {
   salonProfile: {
     id: 'salonProfile',
-    // Future: hero, portrait.
-    variants: ['compact'],
+    // 'hero' added in PR 6 (Editorial's hero/profile band, with a
+    // documented fallback to the 'compact' identity band when no hero image
+    // is set). Future: portrait.
+    variants: ['compact', 'hero'],
     // "name (always satisfiable)" — a resolved salon always has a name.
     canRender: content => hasText(content.identity.name),
   },
 
   technicianProfile: {
     id: 'technicianProfile',
-    // Future: full.
-    variants: ['card'],
+    // 'full' added in PR 6 (Editorial's About section: avatar, name,
+    // specialties, languages, bio).
+    variants: ['card', 'full'],
     // "≥1 tech with bio or avatar".
     canRender: content =>
       content.people.technicians.some(
@@ -117,8 +120,9 @@ export const SECTION_REGISTRY: Record<SectionId, SectionRegistryEntry> = {
 
   hoursLocation: {
     id: 'hoursLocation',
-    // Future: full.
-    variants: ['compact'],
+    // 'full' added in PR 6 (Editorial's Visit section: location, hours, and
+    // entrance instructions when present).
+    variants: ['compact', 'full'],
     // "address or hours".
     canRender: content => content.place.locations.length > 0
       || content.place.address !== null

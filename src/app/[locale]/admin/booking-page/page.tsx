@@ -47,10 +47,16 @@ import type {
 // equivalent same-shape duplicates of the server enums.
 // =============================================================================
 
-/** Mirrors `BOOKING_PAGE_LAYOUTS` in `@/libs/bookingPageConfig`. Only `quick_book` is implemented today (Rev 3 plan PR 6 ships Editorial next). */
+/**
+ * Mirrors `BOOKING_PAGE_LAYOUTS` in `@/libs/bookingPageConfig`. `quick_book`
+ * and, as of PR 6, `editorial` are implemented — extended additively here
+ * (only the `editorial` entry's `implemented` flag flips; the array's shape
+ * and every other entry are unchanged) rather than restructuring this list.
+ * `tech_profile`/`portfolio`/`catalogue` remain PR 21/22/23's job.
+ */
 const LAYOUT_OPTIONS: Array<{ id: BookingPageLayout; label: string; implemented: boolean }> = [
   { id: 'quick_book', label: 'Quick Book', implemented: true },
-  { id: 'editorial', label: 'Editorial Luxury', implemented: false },
+  { id: 'editorial', label: 'Editorial Luxury', implemented: true },
   { id: 'tech_profile', label: 'Tech Profile', implemented: false },
   { id: 'portfolio', label: 'Portfolio', implemented: false },
   { id: 'catalogue', label: 'Catalogue', implemented: false },
@@ -487,7 +493,7 @@ export default function BookingPageOwnerSurface() {
         </div>
 
         <div className="mt-6 space-y-6">
-          <SectionCard title="Layout" description="Only Quick Book is available today. The rest are on the way.">
+          <SectionCard title="Layout" description="Quick Book and Editorial Luxury are available today. The rest are on the way.">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {LAYOUT_OPTIONS.map(option => (
                 <button

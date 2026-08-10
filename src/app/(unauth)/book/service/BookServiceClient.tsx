@@ -5,7 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { type CSSProperties, useEffect, useRef, useState } from 'react';
 
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
-import { SectionOrderRenderer } from '@/components/booking/SectionOrderRenderer';
+import { SectionOrderRenderer, type SectionRenderers } from '@/components/booking/SectionOrderRenderer';
 import { ServiceCardImage } from '@/components/booking/ServiceCardImage';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { Card } from '@/components/ui/card';
@@ -256,6 +256,13 @@ export function BookServiceClient({
   // yet.
   const quickBookContent = salonContent
     ?? { ...EMPTY_SALON_CONTENT, identity: { ...EMPTY_SALON_CONTENT.identity, name: salonName } };
+  // Luster UI/UX plan rev 3, PR 6: Editorial is a second section order +
+  // variant set on this SAME engine, selected here only to pick which
+  // `renderers` map SectionOrderRenderer reads below — never a branch on
+  // booking-engine behaviour (search/selection/quoting/availability/
+  // checkout are untouched and shared by both layouts).
+  const layout = bookingPage?.layout ?? 'quick_book';
+  const isEditorialLayout = layout === 'editorial';
   const hasBookingBrandColor = bookingExperience.primaryColor !== null;
   const bookingBrandForeground = hasBookingBrandColor
     ? 'var(--booking-brand-foreground, #000000)'
@@ -354,6 +361,14 @@ export function BookServiceClient({
   const hasUserChangedSelectionRef = useRef(false);
   const hasAppliedHydratedBookingStateRef = useRef(false);
   const searchCardRef = useRef<HTMLDivElement>(null);
+  // Editorial's sticky-CTA handoff (Rev 3 plan section 6): "the sticky Book
+  // CTA scrolls to #services then hands over to the sticky Continue bar —
+  // the two must never both be visible." `servicesAnchorRef` is the #services
+  // wrapper itself; `hasReachedServicesAnchor` flips true once its top edge
+  // has scrolled to or above the viewport's top edge. Defaults to false (the
+  // page always loads scrolled to the top, above #services).
+  const servicesAnchorRef = useRef<HTMLDivElement | null>(null);
+  const [hasReachedServicesAnchor, setHasReachedServicesAnchor] = useState(false);
 
   // On touch devices the on-screen keyboard eats the lower half of the viewport,
   // so the salon header above the search bar can push the first result row out of
@@ -379,6 +394,40 @@ export function BookServiceClient({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Editorial-only: drive the sticky-CTA handoff from real scroll position.
+  // jsdom has no IntersectionObserver, so this effect is a no-op under test
+  // (`typeof IntersectionObserver === 'undefined'`) — tests instead assert
+  // the underlying `hasReachedServicesAnchor` state/rendering logic directly
+  // by mocking the global constructor and invoking its captured callback.
+  useEffect(() => {
+    if (!isEditorialLayout) {
+      setHasReachedServicesAnchor(false);
+      return undefined;
+    }
+
+    const node = servicesAnchorRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      return undefined;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry) {
+          return;
+        }
+        // "Scrolled to or past" the anchor: its top edge is at or above the
+        // viewport's top edge. boundingClientRect (not isIntersecting) is
+        // what distinguishes "not yet reached" from "already scrolled past"
+        // — both otherwise read as simply "not intersecting".
+        setHasReachedServicesAnchor(entry.boundingClientRect.top <= 0);
+      },
+      { threshold: [0, 1] },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [isEditorialLayout]);
 
   useEffect(() => {
     if (!campaignToken || !salonSlug) {
@@ -918,10 +967,8 @@ export function BookServiceClient({
           wrapper, since it is a viewport-fixed element structurally
           independent of in-flow section order.
         */}
-        <SectionOrderRenderer
-          order={quickBookSectionOrder}
-          content={quickBookContent}
-          renderers={{
+        {(() => {
+          const quickBookRenderers: SectionRenderers = {
             salonProfile: () => (
               <BookingStepHeader
                 salonName={salonName}
@@ -1827,11 +1874,222 @@ export function BookServiceClient({
                 )}
               </>
             ),
-          }}
-        />
+          };
+
+          // Luster UI/UX plan rev 3, PR 6: Editorial's own renderers map for
+          // the SAME SectionOrderRenderer wrapper PR 4 built — a second
+          // section order + variant set, not a new component or a new
+          // booking engine. `serviceMenu` below calls
+          // `quickBookRenderers.serviceMenu` directly (never a copy) so both
+          // layouts share the exact same search/pills/cards/add-on-panel
+          // engine block; only the id="services" anchor wrapper is new.
+          // `portfolio`/`reviews` intentionally have no renderer here — PR
+          // 4's registry already omits both via `canRender` (SalonContent's
+          // proof groups are always empty until PR 10), so no placeholder
+          // UI is built for them (Rev 3 plan section 6).
+          const editorialRenderers: SectionRenderers = {
+            salonProfile: () => {
+              const heroImageUrl = quickBookContent.identity.heroImageUrl;
+              if (!heroImageUrl) {
+                // No hero image: degrade to the Quick Book identity band
+                // rather than an empty frame (Rev 3 plan section 6: "A
+                // salon with no hero image degrades to the Quick Book
+                // identity band").
+                return quickBookRenderers.salonProfile?.() ?? null;
+              }
+
+              return (
+                <section data-testid="editorial-hero" className="-mx-4 -mt-4 mb-4">
+                  <div className="relative aspect-[4/5] w-full overflow-hidden sm:aspect-video">
+                    <img
+                      src={heroImageUrl}
+                      alt={`${salonName} hero`}
+                      data-testid="editorial-hero-image"
+                      className="absolute inset-0 size-full object-cover"
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+                    <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-3 px-4 pb-6 text-center text-white">
+                      <h1 className="text-2xl font-semibold">{salonName}</h1>
+                      {quickBookContent.identity.specialtyLine && (
+                        <p data-testid="editorial-specialty-line" className="text-sm text-white/90">
+                          {quickBookContent.identity.specialtyLine}
+                        </p>
+                      )}
+                      <a
+                        href="#services"
+                        data-testid="editorial-hero-book-cta"
+                        className="rounded-full px-6 py-2.5 text-sm font-bold shadow-lg"
+                        style={{ background: themeVars.accent, color: '#1a1a1a' }}
+                      >
+                        Book appointment
+                      </a>
+                      <a
+                        href="#services"
+                        data-testid="editorial-skip-to-services"
+                        className="text-xs font-medium text-white/80 underline underline-offset-4"
+                      >
+                        Skip to services ↓
+                      </a>
+                    </div>
+                  </div>
+                </section>
+              );
+            },
+            featuredServices: () => {
+              if (quickBookContent.catalog.featuredServices.length === 0) {
+                return null;
+              }
+              return (
+                <section data-testid="editorial-featured-services" className="mb-6">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
+                    Signature services
+                  </div>
+                  <div className="scrollbar-hide -mx-4 flex min-w-max gap-2 overflow-x-auto px-4">
+                    {quickBookContent.catalog.featuredServices.map(service => (
+                      <div
+                        key={`editorial-featured-${service.id}`}
+                        data-testid={`editorial-featured-service-${service.id}`}
+                        className="w-[200px] shrink-0 overflow-hidden rounded-2xl border bg-white"
+                        style={{ borderColor: themeVars.cardBorder }}
+                      >
+                        <div className="relative h-24">
+                          <ServiceCardImage
+                            src={service.imageUrl}
+                            alt={`${service.name} nail service`}
+                            className="object-cover"
+                          />
+                        </div>
+                        <div className="p-2.5">
+                          <div className="line-clamp-1 text-[13px] font-semibold text-neutral-900">{service.name}</div>
+                          <div className="mt-0.5 flex items-center justify-between text-[11px] text-neutral-500">
+                            <span>{formatDuration(service.durationMinutes)}</span>
+                            <span className="font-semibold" style={{ color: themeVars.accent }}>
+                              {service.priceDisplayText || formatMoney(service.priceCents, currency)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            },
+            technicianProfile: () => {
+              const profiledTechnicians = quickBookContent.people.technicians.filter(
+                technician => Boolean(technician.bio?.trim()) || Boolean(technician.avatarUrl?.trim()),
+              );
+              if (profiledTechnicians.length === 0) {
+                return null;
+              }
+              return (
+                <section data-testid="editorial-about" className="mb-6">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
+                    About
+                  </div>
+                  <div className="space-y-4">
+                    {profiledTechnicians.map(technician => (
+                      <div key={technician.id} data-testid={`editorial-technician-${technician.id}`} className="flex gap-3">
+                        <TechnicianAvatar
+                          name={technician.name}
+                          imageUrl={technician.avatarUrl}
+                          className="size-16 shrink-0"
+                          sizes="64px"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="font-semibold text-neutral-900">{technician.name}</div>
+                          {(technician.specialties.length > 0 || technician.languages.length > 0) && (
+                            <div className="mt-0.5 text-[12px] text-neutral-500">
+                              {[...technician.specialties, ...technician.languages].join(' · ')}
+                            </div>
+                          )}
+                          {technician.bio && (
+                            <p className="mt-1.5 text-sm text-neutral-700">{technician.bio}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              );
+            },
+            // Same engine block as Quick Book — see the module-level doc
+            // comment above. `id="services"` is the Skip-to-services target;
+            // `servicesAnchorRef` drives the sticky-CTA handoff below.
+            serviceMenu: () => (
+              <div id="services" ref={servicesAnchorRef} className="scroll-mt-4">
+                {quickBookRenderers.serviceMenu?.()}
+              </div>
+            ),
+            hoursLocation: () => {
+              const { address, hours, entranceInstructions, locations } = quickBookContent.place;
+              const primaryLocation = locations.find(location => location.isPrimary) ?? locations[0] ?? null;
+              const resolvedAddress = address?.address ?? primaryLocation?.address ?? null;
+              const resolvedCity = address?.city ?? primaryLocation?.city ?? null;
+              const hasAddress = Boolean(resolvedAddress || resolvedCity);
+              if (!hasAddress && !hours && !entranceInstructions) {
+                return null;
+              }
+              return (
+                <section data-testid="editorial-visit" className="mb-6">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
+                    Visit
+                  </div>
+                  {hasAddress && (
+                    <p data-testid="editorial-visit-address" className="text-sm text-neutral-700">
+                      {[resolvedAddress, resolvedCity].filter(Boolean).join(' · ')}
+                    </p>
+                  )}
+                  {entranceInstructions && (
+                    <p data-testid="editorial-visit-entrance" className="mt-1 text-sm text-neutral-500">
+                      {entranceInstructions}
+                    </p>
+                  )}
+                </section>
+              );
+            },
+            policies: () => {
+              if (!quickBookContent.policies.policy.enabled || !quickBookContent.policies.policy.text) {
+                return null;
+              }
+              return (
+                <section data-testid="editorial-policies" className="mb-6">
+                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
+                    Policies
+                  </div>
+                  <p className="text-sm text-neutral-700">{quickBookContent.policies.policy.text}</p>
+                </section>
+              );
+            },
+          };
+
+          return (
+            <SectionOrderRenderer
+              order={quickBookSectionOrder}
+              content={quickBookContent}
+              renderers={isEditorialLayout ? editorialRenderers : quickBookRenderers}
+            />
+          );
+        })()}
       </div>
 
-      {selectedService && (
+      {isEditorialLayout && !hasReachedServicesAnchor && (
+        <a
+          href="#services"
+          data-testid="editorial-sticky-cta"
+          className="fixed inset-x-0 bottom-0 z-[60] block border-t bg-white/90 px-4 py-3 text-center text-[15px] font-bold shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg"
+          style={{
+            bottom: 'var(--ios-chrome-viewport-bottom, 0px)',
+            paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom, 0px))',
+            color: themeVars.accent,
+            borderColor: themeVars.cardBorder,
+          }}
+        >
+          Book appointment
+        </a>
+      )}
+
+      {selectedService && (!isEditorialLayout || hasReachedServicesAnchor) && (
         <div
           data-testid="service-sticky-bar"
           className="supports-[backdrop-filter]:bg-white/82 fixed inset-x-0 bottom-0 z-[60] border-t border-white/40 bg-white/85 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg"

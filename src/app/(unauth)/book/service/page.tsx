@@ -6,6 +6,7 @@ import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
+import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
@@ -91,6 +92,15 @@ export default async function BookServicePage({
   const activeBookingPageSide = previewGate.isPreviewingDraftConfig
     ? bookingPageConfig.draft
     : bookingPageConfig.live;
+  // PR 6: the same draft/live selection the bookingPage config above already
+  // makes, applied to its sibling bookingPageContent side (PR 5's
+  // heroImageUrl/specialtyLine/bio) — never a second, independently-decided
+  // gate, so a previewing owner sees their own draft hero/specialty/bio
+  // alongside their own draft layout/section config, never a mismatched pair.
+  const bookingPageContent = resolveBookingPageContent(salon.settings);
+  const activeBookingPageContentSide = previewGate.isPreviewingDraftConfig
+    ? bookingPageContent.draft
+    : bookingPageContent.live;
   const ownerPreviewState: SalonOwnerPreviewState = {
     isPreviewing: previewGate.isPreviewingDraftSalon || previewGate.isPreviewingDraftConfig,
     actorType: previewGate.actorType,
@@ -256,6 +266,11 @@ export default async function BookServicePage({
         addOns,
         locations: activeLocations,
         lusterFeaturingEnabled: merchandising.featureLusterManicure,
+        content: {
+          heroImageUrl: activeBookingPageContentSide.heroImageUrl,
+          specialtyLine: activeBookingPageContentSide.specialtyLine,
+          bio: activeBookingPageContentSide.bio,
+        },
       }}
       previewBannerVariant={previewBannerVariant}
     >

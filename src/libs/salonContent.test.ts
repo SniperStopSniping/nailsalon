@@ -112,6 +112,7 @@ describe('resolveSalonContent', () => {
       logoUrl: '/logo.png',
       specialtyLine: null,
       bio: null,
+      heroImageUrl: null,
       salonRating: { rating: 4.9, reviewCount: 42 },
     });
 
@@ -242,6 +243,35 @@ describe('resolveSalonContent', () => {
     expect(content.place.address).toBeNull();
     expect(content.place.hours).toBeNull();
     expect(content.social).toEqual({ instagram: null, facebook: null, tiktok: null });
+  });
+
+  it('folds in bookingPageContent (heroImageUrl/specialtyLine/bio) when the caller supplies it, and stays null when it does not (PR 6)', () => {
+    const withoutContent = resolveSalonContent({
+      salon: { name: 'Isla Nail Studio' },
+      technicians: [],
+      services: [],
+      bookingExperience: BASE_BOOKING_EXPERIENCE,
+    });
+
+    expect(withoutContent.identity.heroImageUrl).toBeNull();
+    expect(withoutContent.identity.specialtyLine).toBeNull();
+    expect(withoutContent.identity.bio).toBeNull();
+
+    const withContent = resolveSalonContent({
+      salon: { name: 'Isla Nail Studio' },
+      technicians: [],
+      services: [],
+      bookingExperience: BASE_BOOKING_EXPERIENCE,
+      content: {
+        heroImageUrl: 'https://example.com/hero.jpg',
+        specialtyLine: 'Russian manicure & BIAB · Toronto',
+        bio: 'A quiet, detail-first studio.',
+      },
+    });
+
+    expect(withContent.identity.heroImageUrl).toBe('https://example.com/hero.jpg');
+    expect(withContent.identity.specialtyLine).toBe('Russian manicure & BIAB · Toronto');
+    expect(withContent.identity.bio).toBe('A quiet, detail-first studio.');
   });
 });
 

@@ -39,18 +39,33 @@ export type SalonContentIdentity = {
   name: string;
   logoUrl: string | null;
   /**
-   * No salon-level tagline field exists yet (not in the rev 3 plan's data
-   * gaps table either — genuinely absent, same treatment as
-   * `place.entranceInstructions`). Always null until a field/settings key is
-   * added; documented as debt rather than guessed at.
+   * No salon-level tagline field exists on `salon`/`bookingExperience`
+   * itself — sourced from `bookingPageContent.{draft,live}.specialtyLine`
+   * (PR 5) via `ResolveSalonContentInput.content`, same as `heroImageUrl`
+   * below. Always `null` when the caller does not supply one.
    */
   specialtyLine: string | null;
   /**
-   * No salon-level bio field exists yet. Always null for the same reason as
+   * Sourced from `bookingPageContent.{draft,live}.bio` (PR 5), same path as
    * `specialtyLine` above — this is about the SALON's own bio, distinct from
-   * `people.technicians[].bio` which is real, existing data.
+   * `people.technicians[].bio` which is real, existing per-technician data
+   * resolved independently below. Always `null` when the caller does not
+   * supply one.
    */
   bio: string | null;
+  /**
+   * Hero/profile image for layouts that lead with one (Editorial — PR 6).
+   * Sourced from `bookingPageContent.{draft,live}.heroImageUrl` (PR 5's
+   * owner-editable field, documented there as "not yet read by
+   * resolveSalonContent — wiring a reader is a follow-up PR's job"). PR 6 is
+   * that follow-up: the caller resolves the active bookingPageContent side
+   * and passes it through `ResolveSalonContentInput.content`, below. Always
+   * `null` when the caller does not supply one (e.g. specialtyLine/bio),
+   * which a consuming section must treat as "no image" and degrade — never
+   * an empty frame (Rev 3 plan section 6: "A salon with no hero image
+   * degrades to the Quick Book identity band").
+   */
+  heroImageUrl: string | null;
   /**
    * Data gap 4 (plan section 11): "No salon-level rating. Only
    * technician.rating/reviewCount. Solo borrows the sole tech's; team needs
@@ -246,6 +261,22 @@ export type ResolveSalonContentInput = {
   };
   /** Forwarded verbatim to `getFeaturedServices`; see its own doc comment. */
   lusterFeaturingEnabled?: boolean;
+  /**
+   * PR 5's owner-editable `bookingPageContent` fields (heroImageUrl,
+   * specialtyLine, bio) — genuinely new content with no prior storage, kept
+   * as its own optional input rather than folded into `salon` above so a
+   * caller that has not resolved `bookingPageContent` yet (most call sites,
+   * until they thread it through) simply omits this and gets today's
+   * behaviour: all three stay `null`, unchanged from before this field
+   * existed. The one real caller (`book/service/page.tsx`, PR 6) resolves
+   * the active draft/live `bookingPageContent` side the same way it already
+   * resolves the active `bookingPage` side, and passes it here.
+   */
+  content?: {
+    heroImageUrl?: string | null;
+    specialtyLine?: string | null;
+    bio?: string | null;
+  };
 };
 
 function toNumberOrNull(value: number | string | null | undefined): number | null {
@@ -380,8 +411,9 @@ export function resolveSalonContent(input: ResolveSalonContentInput): SalonConte
     identity: {
       name: input.salon.name,
       logoUrl: input.salon.logoUrl ?? null,
-      specialtyLine: null,
-      bio: null,
+      specialtyLine: input.content?.specialtyLine ?? null,
+      bio: input.content?.bio ?? null,
+      heroImageUrl: input.content?.heroImageUrl ?? null,
       salonRating: resolveSalonRating(input.technicians),
     },
     people: {
@@ -427,6 +459,7 @@ export const EMPTY_SALON_CONTENT: SalonContent = {
     logoUrl: null,
     specialtyLine: null,
     bio: null,
+    heroImageUrl: null,
     salonRating: null,
   },
   people: {

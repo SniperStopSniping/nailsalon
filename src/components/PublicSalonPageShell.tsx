@@ -57,6 +57,18 @@ type PublicSalonPageShellProps = {
     addOns?: SalonContentAddOnInput[];
     locations?: SalonContentLocationInput[];
     lusterFeaturingEnabled?: boolean;
+    /**
+     * The active (draft/live-resolved) `bookingPageContent` side (PR 5's
+     * heroImageUrl/specialtyLine/bio), forwarded straight into
+     * `resolveSalonContent`'s own `content` input (PR 6). Optional so every
+     * existing caller that has not resolved `bookingPageContent` yet keeps
+     * today's behaviour unchanged.
+     */
+    content?: {
+      heroImageUrl?: string | null;
+      specialtyLine?: string | null;
+      bio?: string | null;
+    };
   };
   /**
    * Which preview banner (if any) to render for this request, computed by
@@ -120,6 +132,7 @@ export function PublicSalonPageShell({
     locations: salonContentInput?.locations,
     bookingExperience,
     lusterFeaturingEnabled: salonContentInput?.lusterFeaturingEnabled,
+    content: salonContentInput?.content,
   });
 
   return (

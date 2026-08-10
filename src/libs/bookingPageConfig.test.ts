@@ -183,6 +183,50 @@ describe('resolveBookingPageConfig', () => {
     expect(resolved.draft.hiddenSections).toContain('policies');
   });
 
+  it('resolves editorial to its own default section order when sectionOrder is absent', () => {
+    const resolved = resolveBookingPageConfig({
+      bookingPage: {
+        draft: { layout: 'editorial' },
+      },
+    });
+
+    expect(resolved.draft.sectionOrder).toEqual([
+      'salonProfile',
+      'featuredServices',
+      'technicianProfile',
+      'portfolio',
+      'reviews',
+      'serviceMenu',
+      'hoursLocation',
+      'policies',
+      'bookingCta',
+    ]);
+  });
+
+  it('falls back editorial + staff_first to services_first (PR 6: editorial requires services_first)', () => {
+    const resolved = resolveBookingPageConfig({
+      bookingPage: {
+        draft: { layout: 'editorial', startMode: 'staff_first' },
+        live: { layout: 'editorial', startMode: 'staff_first' },
+      },
+    });
+
+    expect(resolved.draft.layout).toBe('editorial');
+    expect(resolved.draft.startMode).toBe('services_first');
+    expect(resolved.live.layout).toBe('editorial');
+    expect(resolved.live.startMode).toBe('services_first');
+  });
+
+  it('leaves staff_first untouched for non-editorial layouts', () => {
+    const resolved = resolveBookingPageConfig({
+      bookingPage: {
+        draft: { layout: 'quick_book', startMode: 'staff_first' },
+      },
+    });
+
+    expect(resolved.draft.startMode).toBe('staff_first');
+  });
+
   it('dedupes duplicate IDs in sectionOrder, keeping the first occurrence', () => {
     const resolved = resolveBookingPageConfig({
       bookingPage: {
@@ -212,6 +256,22 @@ describe('validateSectionOrder', () => {
     const result = validateSectionOrder(['bogus', 'also_bogus'], [], 'quick_book');
 
     expect(result.sectionOrder).toEqual(BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.sectionOrder);
+  });
+
+  it('falls back entirely to editorial\'s own default order when the cleaned order is unusable for layout editorial', () => {
+    const result = validateSectionOrder(['bogus', 'also_bogus'], [], 'editorial');
+
+    expect(result.sectionOrder).toEqual([
+      'salonProfile',
+      'featuredServices',
+      'technicianProfile',
+      'portfolio',
+      'reviews',
+      'serviceMenu',
+      'hoursLocation',
+      'policies',
+      'bookingCta',
+    ]);
   });
 
   it('falls back entirely to the layout default order for non-array input', () => {

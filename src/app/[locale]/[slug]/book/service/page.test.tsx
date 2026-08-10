@@ -148,6 +148,14 @@ vi.mock('@/libs/bookingPageConfig', () => ({
   })),
 }));
 
+vi.mock('@/libs/bookingPageContent', () => ({
+  resolveBookingPageContent: vi.fn(() => ({
+    version: 1,
+    draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
+    live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
+  })),
+}));
+
 vi.mock('@/libs/salonStatus', () => ({
   buildTenantRedirectPath,
   checkFeatureEnabled,
