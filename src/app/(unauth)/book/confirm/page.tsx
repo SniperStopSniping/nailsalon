@@ -6,6 +6,14 @@ import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
+import {
+  buildDepositDisclosure,
+  buildDepositDisclosureFingerprint,
+  isDepositGovernedBySystem,
+  resolveDepositChargeForTotal,
+  resolveDisclosureTotalCents,
+} from '@/libs/depositPolicy';
+import { getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
 import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
 import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
 import { resolvePublicRetentionCampaignPreview } from '@/libs/publicRetentionCampaign';
@@ -41,6 +49,8 @@ export default async function BookConfirmPage({
     originalAppointmentId?: string;
     manageToken?: string;
     campaign?: string;
+    smartFitDiscountCents?: string | string[];
+    smartFitTotalCents?: string | string[];
   };
   params?: { locale?: string; slug?: string };
 }) {
@@ -54,6 +64,15 @@ export default async function BookConfirmPage({
   const timeStr = searchParams.time || '';
   const locationId = searchParams.locationId || '';
   const originalAppointmentId = searchParams.originalAppointmentId || null;
+  // The URL-repair helpers preserve every unrelated param and are typed for
+  // single-valued ones. A duplicated key arrives as an array; take the first
+  // value, exactly as `useSearchParams().get()` does on the client.
+  const repairableSearchParams: Record<string, string | undefined> = Object.fromEntries(
+    Object.entries(searchParams).map(([key, value]) => [
+      key,
+      Array.isArray(value) ? value[0] : value,
+    ]),
+  );
 
   const { salon } = context;
   const bookingConfig = await getBookingConfigForSalon(salon.id);
@@ -96,14 +115,14 @@ export default async function BookConfirmPage({
     const validLocation = await getLocationById(locationId, salon.id);
     if (!validLocation && shouldRepairBookingUrl(locationId, primaryLocation.id)) {
       // Invalid locationId - redirect with primary (preserves all other params)
-      redirect(repairBookingUrl('/book/confirm', searchParams, primaryLocation.id, {
+      redirect(repairBookingUrl('/book/confirm', repairableSearchParams, primaryLocation.id, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
       }));
     }
   } else if (primaryLocation && shouldRepairBookingUrl(locationId, primaryLocation.id)) {
     // Missing locationId - inject primary (preserves all other params)
-    redirect(repairBookingUrl('/book/confirm', searchParams, primaryLocation.id, {
+    redirect(repairBookingUrl('/book/confirm', repairableSearchParams, primaryLocation.id, {
       routeSalonSlug: params?.slug,
       locale: params?.locale,
     }));
@@ -250,6 +269,38 @@ export default async function BookConfirmPage({
   const totalPriceCents = campaignPreview
     ? Math.max(0, subtotalBeforeDiscountCents - campaignPreview.discountAmountCents)
     : resolvedTechnicianContext.resolvedSelection.totalPriceCents;
+  // Deposits (D3) — wired but DARK behind two independent gates. While either is
+  // off the three props below are constants and every public page renders
+  // identically to base.
+  //
+  // A duplicated query key yields an ARRAY, whose stringified form the cents
+  // parser rejects — the server would then fall back to the full server total and
+  // DISCLOSE MORE than the client's CTA shows, because `useSearchParams().get()`
+  // takes the first value on the client. Coerce to the first value here too.
+  const firstParam = (value: string | string[] | undefined): string | null =>
+    Array.isArray(value) ? (value[0] ?? null) : (value ?? null);
+
+  const depositPolicy = await getDepositPolicyForSalon({
+    salonId: salon.id,
+    salon: context.salon,
+  });
+  const disclosureTotalCents = resolveDisclosureTotalCents({
+    serverTotalCents: totalPriceCents,
+    subtotalBeforeDiscountCents,
+    smartFitDiscountCentsParam: firstParam(searchParams.smartFitDiscountCents),
+    smartFitTotalCentsParam: firstParam(searchParams.smartFitTotalCents),
+  });
+  const depositCharge = resolveDepositChargeForTotal(
+    depositPolicy,
+    disclosureTotalCents,
+    { mode: 'disclosure', isReschedule: Boolean(originalAppointmentId) },
+  );
+  const depositDisclosure = buildDepositDisclosure(depositCharge, {
+    locale: params?.locale === 'fr' ? 'fr-CA' : 'en-CA',
+  });
+  const depositFingerprint = buildDepositDisclosureFingerprint(depositCharge);
+  const depositNoticeSuppressed = isDepositGovernedBySystem(depositPolicy);
+
   // Rewards program state — points messaging is hidden when the program is off
   const rewardsEnabled = await isRewardsEnabled(salon.id);
   // SMS reminder state — "we'll text you" copy is hidden when reminders are off
@@ -299,6 +350,9 @@ export default async function BookConfirmPage({
           smsEnabled={smsEnabled}
           clientChangeCutoffHours={bookingConfig.clientChangeCutoffHours}
           salonPhone={salon.phone ?? null}
+          depositDisclosure={depositDisclosure}
+          depositNoticeSuppressed={depositNoticeSuppressed}
+          depositFingerprint={depositFingerprint}
         />
       </Suspense>
     </PublicSalonPageShell>

@@ -24,6 +24,7 @@ import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
 import type { BookingStep } from '@/libs/bookingFlow';
 import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
+import { DEPOSIT_FINGERPRINT_NONE } from '@/libs/depositPolicy';
 import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/directions';
 import { formatMoney } from '@/libs/formatMoney';
 import { triggerHaptic } from '@/libs/haptics';
@@ -126,6 +127,16 @@ type BookConfirmClientProps = {
   clientChangeCutoffHours?: number;
   /** Salon phone for the "Call the salon" escape hatch on the duplicate-booking screen */
   salonPhone?: string | null;
+  /** The system's deposit statement, or null when it is publishing none. */
+  depositDisclosure?: { label: string; amountCents: number } | null;
+  /** True only while the system is actually collecting — suppresses the owner's chip. */
+  depositNoticeSuppressed?: boolean;
+  /**
+   * MONEY-PATH FIELD, not a display prop. Echoed on EVERY booking POST so the
+   * downstream booking PR can tell, before its transaction, whether this client
+   * was shown a deposit at all — and refuse to charge an undisclosed amount.
+   */
+  depositFingerprint?: string;
 };
 
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
@@ -391,12 +402,22 @@ const PolicyCard = ({
 
 const QuickFactBadges = ({
   quickFacts,
+  suppressDepositNotice = false,
 }: {
   quickFacts: ConfirmationQuickFacts;
+  /**
+   * Suppressed ONLY while the system is actually collecting — never when the
+   * account is broken, the currency is wrong, or the policy could not be
+   * determined. In those states the system publishes nothing, and deleting the
+   * owner's own chip would leave the client with no deposit information at all.
+   */
+  suppressDepositNotice?: boolean;
 }) => {
   const enabledFacts = [
     { key: 'appointmentOnly', ...quickFacts.appointmentOnly },
-    { key: 'depositNotice', ...quickFacts.depositNotice },
+    ...(suppressDepositNotice
+      ? []
+      : [{ key: 'depositNotice', ...quickFacts.depositNotice }]),
     { key: 'cancellationNotice', ...quickFacts.cancellationNotice },
   ].filter(
     (fact): fact is { key: string; enabled: true; label: string } =>
@@ -888,6 +909,8 @@ const ConfirmContent = ({
   onDismissSmartFitSuggestion,
   policy,
   quickFacts,
+  depositDisclosure,
+  depositNoticeSuppressed,
   policyAcknowledged,
   onPolicyAcknowledgmentChange,
 }: {
@@ -927,6 +950,8 @@ const ConfirmContent = ({
   onDismissSmartFitSuggestion: () => void;
   policy: ConfirmationPolicy;
   quickFacts: ConfirmationQuickFacts;
+  depositDisclosure: { label: string; amountCents: number } | null;
+  depositNoticeSuppressed: boolean;
   policyAcknowledged: boolean;
   onPolicyAcknowledgmentChange: (value: boolean) => void;
 }) => {
@@ -1237,7 +1262,24 @@ const ConfirmContent = ({
             </div>
           )}
 
-          <QuickFactBadges quickFacts={quickFacts} />
+          <QuickFactBadges
+            quickFacts={quickFacts}
+            suppressDepositNotice={depositNoticeSuppressed}
+          />
+
+          {/*
+            The system's own deposit statement, rendered from its OWN element
+            rather than through `quickFacts` / `bookingExperience`: that path is
+            plan-entitlement-gated and returns null for free-plan salons.
+          */}
+          {depositDisclosure && (
+            <p
+              data-testid="booking-deposit-disclosure"
+              className="font-body rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-sm text-[var(--n5-ink-main)]"
+            >
+              {depositDisclosure.label}
+            </p>
+          )}
 
           {policy.enabled
           && (policy.showBeforeConfirmation || acknowledgmentRequired)
@@ -1640,6 +1682,9 @@ export function BookConfirmClient({
   smsEnabled = true,
   clientChangeCutoffHours = 24,
   salonPhone = null,
+  depositDisclosure = null,
+  depositNoticeSuppressed = false,
+  depositFingerprint = DEPOSIT_FINGERPRINT_NONE,
 }: BookConfirmClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -1668,6 +1713,12 @@ export function BookConfirmClient({
     = useState<ConfirmationPolicy>(() => upstreamPolicy);
   const [policyAcknowledged, setPolicyAcknowledged] = useState(false);
   const upstreamPolicyIdentityRef = useRef(upstreamPolicyIdentity);
+  // Adopted from a 409 DEPOSIT_CHANGED so the next POST carries the amount the
+  // client has now actually been shown. Dead until that PR ships the 409.
+  const [displayedDeposit, setDisplayedDeposit]
+    = useState<BookConfirmClientProps['depositDisclosure']>(() => depositDisclosure);
+  const [submittedDepositFingerprint, setSubmittedDepositFingerprint]
+    = useState<string>(() => depositFingerprint);
 
   useEffect(() => {
     if (upstreamPolicyIdentityRef.current === upstreamPolicyIdentity) {
@@ -1972,6 +2023,12 @@ export function BookConfirmClient({
         // stale expectation with 409 SMART_FIT_CHANGED instead of booking at
         // a different price than shown.
         ...(smartFitOffer && buildSmartFitExpectationFields(smartFitOffer)),
+        // ALWAYS sent, never conditional. This is a MONEY-PATH field: the
+        // downstream booking PR reads it BEFORE its transaction to decide
+        // whether a booking on a salon with no chargeable connected account is
+        // refused or committed free. Sending it only when a disclosure was
+        // rendered would silently route every such booking onto the free leg.
+        expectedDepositFingerprint: submittedDepositFingerprint,
       };
 
       const response = await fetch('/api/appointments', {
@@ -2040,6 +2097,36 @@ export function BookConfirmClient({
                   errorMessage
                   || 'Review and acknowledge the booking policy before confirming.'
                 ),
+          );
+          bookingInitiatedRef.current = false;
+          return;
+        }
+
+        // `details.deposit` is the ERROR envelope and is the correct container
+        // here; on any 2xx the corrected object is `data.deposit`.
+        // DELIBERATELY NO AUTO-RESUBMIT: the next POST must require a further
+        // user click, and it carries the fingerprint adopted below.
+        if (errorCode === 'DEPOSIT_CHANGED') {
+          const changed = errorData?.details?.deposit;
+          if (
+            changed
+            && changed.required === true
+            && typeof changed.amountCents === 'number'
+            && typeof changed.fingerprint === 'string'
+          ) {
+            setDisplayedDeposit({
+              label: changed.label ?? displayedDeposit?.label ?? '',
+              amountCents: changed.amountCents,
+            });
+            setSubmittedDepositFingerprint(changed.fingerprint);
+          }
+          if (acknowledgmentRequired) {
+            setPolicyAcknowledged(false);
+            acknowledgmentAttemptIdRef.current = crypto.randomUUID();
+          }
+          idempotencyKeyRef.current = crypto.randomUUID();
+          setBookingError(
+            'The deposit required for this booking changed. Please review it and confirm again.',
           );
           bookingInitiatedRef.current = false;
           return;
@@ -2116,7 +2203,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [acknowledgmentRequired, baseServiceId, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsEnabled, techId, timeStr]);
+  }, [acknowledgmentRequired, baseServiceId, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsEnabled, submittedDepositFingerprint, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);
@@ -2268,6 +2355,8 @@ export function BookConfirmClient({
       onDismissSmartFitSuggestion={handleDismissSmartFitSuggestion}
       policy={displayedPolicy}
       quickFacts={bookingExperience.quickFacts}
+      depositDisclosure={displayedDeposit ?? null}
+      depositNoticeSuppressed={depositNoticeSuppressed}
       policyAcknowledged={policyAcknowledged}
       onPolicyAcknowledgmentChange={setPolicyAcknowledged}
     />
