@@ -622,3 +622,185 @@ describe('27 — the fingerprint magnitude rule at an ACTIVE salon', () => {
     expect(await depositRows()).toHaveLength(0);
   });
 });
+
+/**
+ * §14 test 20 — PROVIDER-CALL PLACEMENT. Three legs, and all three are required.
+ *
+ * The readiness proof is hoisted ABOVE `runSerializedBookingTransaction`, not
+ * merely "before the transaction". That runner is a retry loop nested inside a
+ * 2-iteration identity loop, so a call placed within it re-issues per attempt —
+ * and a test written WITHOUT the ordering leg would then FLAKE instead of
+ * failing, which is the worst possible shape for a money-path test.
+ */
+describe('20 — provider-call placement', () => {
+  /**
+   * (a) NEGATIVE. Nothing may touch Stripe — or check out a SECOND pooled DB
+   * connection — while `db.transaction` is open. The advisory lock
+   * pg_advisory_xact_lock(salonId, technicianId) is held for the whole
+   * transaction, so a second pool checkout there deadlocks under load and reads
+   * outside the transaction snapshot.
+   */
+  it('(a) issues no provider call and no second pool checkout inside the transaction', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    setClientSession(freshPhone());
+
+    let insideTransaction = false;
+    const violations: string[] = [];
+
+    // Wrap the REAL transaction so the body still runs against PGlite; the flag
+    // just records the window during which nothing may reach out.
+    const originalTransaction = db.transaction.bind(db);
+    const transactionSpy = vi
+      .spyOn(db, 'transaction')
+      .mockImplementation((async (...args: Parameters<typeof originalTransaction>) => {
+        insideTransaction = true;
+        try {
+          return await originalTransaction(...args);
+        } finally {
+          insideTransaction = false;
+        }
+      }) as typeof db.transaction);
+
+    deposits.refreshAccountReadiness.mockImplementation(async () => {
+      if (insideTransaction) {
+        violations.push('refreshAccountReadiness called inside db.transaction');
+      }
+      return {
+        chargeReady: true,
+        status: 'charge_ready',
+        payoutsPending: false,
+        binding: {
+          stripeAccountId: 'acct_live',
+          chargesEnabled: true,
+          revokedAt: null,
+          lastSyncedAt: new Date('2099-01-01T00:00:00Z'),
+          livemode: false,
+        },
+      };
+    });
+    deposits.createDepositCheckoutSession.mockImplementation(async () => {
+      if (insideTransaction) {
+        violations.push('Stripe Checkout create called inside db.transaction');
+      }
+      return {
+        ok: true,
+        session: {
+          id: 'cs_place',
+          url: 'https://checkout.stripe.com/c/pay/cs_place',
+          expires_at: 0,
+          payment_intent: null,
+        },
+      };
+    });
+    // A second pooled checkout is exactly what calling getDepositPolicyForSalon
+    // inside the transaction would do — it holds no `tx` handle.
+    deposits.getDepositPolicyForSalon.mockImplementation(async () => {
+      if (insideTransaction) {
+        violations.push('getDepositPolicyForSalon called inside db.transaction');
+      }
+      return deposits.scopeRead;
+    });
+
+    const response = await postBooking({
+      startTime: at(futureDate(40), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+
+    transactionSpy.mockRestore();
+
+    expect(response.status).toBe(201);
+    expect(violations).toEqual([]);
+  });
+
+  /**
+   * (b) POSITIVE — call COUNT *and* invocation ORDER. The count alone is what
+   * flakes when the call migrates into the retry loop.
+   */
+  it('(b) calls readiness exactly once, BEFORE the first db.transaction', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    setClientSession(freshPhone());
+
+    const transactionSpy = vi.spyOn(db, 'transaction');
+
+    const response = await postBooking({
+      startTime: at(futureDate(41), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+
+    expect(response.status).toBe(201);
+    expect(deposits.refreshAccountReadiness).toHaveBeenCalledTimes(1);
+    expect(transactionSpy).toHaveBeenCalled();
+
+    const readinessOrder = deposits.refreshAccountReadiness.mock.invocationCallOrder[0]!;
+    const firstTransactionOrder = transactionSpy.mock.invocationCallOrder[0]!;
+
+    expect(readinessOrder).toBeLessThan(firstTransactionOrder);
+
+    transactionSpy.mockRestore();
+  });
+
+  /**
+   * (c) SCOPE. The ~100% traffic path must never acquire a Stripe round trip.
+   * Asserted on the readiness SPY, not on a retrieve count: D2 resolves
+   * not_connected / revoked / mode_mismatch LOCALLY with no provider call, so a
+   * retrieve count cannot distinguish SKIP from ENTER at 'account_not_connected'.
+   */
+  describe('(c) every outcome that does not reach the readiness proof', () => {
+    it.each([
+      ['collection_not_live'],
+      ['not_entitled'],
+      ['not_configured'],
+      ['disabled'],
+      ['currency_unsupported'],
+    ])('configuration-side %s issues zero readiness calls', async (reason) => {
+      seedPolicy({ active: false, reason, amountCents: 2500 });
+      setClientSession(freshPhone());
+
+      const response = await postBooking({
+        startTime: at(futureDate(42), '10:00').toISOString(),
+        expectedDepositFingerprint: 'deposit-v1:cad:2500',
+      });
+
+      expect(response.status).toBe(201);
+      expect(deposits.refreshAccountReadiness).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['account_not_charge_ready'],
+      ['account_not_connected'],
+      ['readiness_never_synced'],
+    ])('account-side %s with the none sentinel issues zero readiness calls', async (reason) => {
+      seedPolicy({ active: false, reason, amountCents: 2500 });
+      setClientSession(freshPhone());
+
+      const response = await postBooking({
+        startTime: at(futureDate(43), '10:00').toISOString(),
+        expectedDepositFingerprint: 'deposit-v1:none',
+      });
+
+      expect(response.status).toBe(201);
+      expect(deposits.refreshAccountReadiness).not.toHaveBeenCalled();
+    });
+
+    it('an undetermined pre-read refuses BEFORE the readiness call', async () => {
+      seedPolicy({ active: false, reason: 'undetermined', amountCents: 2500 });
+      setClientSession(freshPhone());
+
+      const response = await postBooking({
+        startTime: at(futureDate(44), '10:00').toISOString(),
+        expectedDepositFingerprint: 'deposit-v1:cad:2500',
+      });
+
+      expect(response.status).toBe(503);
+      expect(deposits.refreshAccountReadiness).not.toHaveBeenCalled();
+    });
+
+    // The remaining member of this leg set — `isNewPublicBooking === false` on a
+    // request that actually COMMITS — is covered by test 5(a) below, against a
+    // real reschedule. Asserting it here with an unauthenticated request would
+    // pass vacuously: that request 400s before the deposit branch is reached,
+    // so it proves nothing about the scope predicate.
+  });
+});
