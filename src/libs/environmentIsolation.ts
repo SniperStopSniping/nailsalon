@@ -19,6 +19,7 @@ export type EnvironmentIsolationErrorCode
   | 'STRIPE_KEY_MODE_INVALID'
   | 'STRIPE_KEY_MODE_MISMATCH'
   | 'STRIPE_KEYS_REQUIRED'
+  | 'STRIPE_WEBHOOK_SECRET_COLLISION'
   | 'VERCEL_APPLICATION_MARKER_REQUIRED'
   | 'VERCEL_ENV_INVALID';
 
@@ -47,6 +48,8 @@ const ERROR_MESSAGES: Record<EnvironmentIsolationErrorCode, string> = {
     'Environment isolation rejected: Stripe publishable and secret key modes do not match.',
   STRIPE_KEYS_REQUIRED:
     'Environment isolation rejected: the Stripe key pair or webhook secret is incomplete.',
+  STRIPE_WEBHOOK_SECRET_COLLISION:
+    'Environment isolation rejected: the billing and Connect webhook secrets must be distinct endpoint secrets.',
   VERCEL_APPLICATION_MARKER_REQUIRED:
     'Environment isolation rejected: the hosting platform deployment markers are incomplete.',
   VERCEL_ENV_INVALID:
@@ -76,6 +79,11 @@ const APPROVED_CI_PROVIDER_VALUES = {
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: new Set(['ci-placeholder-not-a-secret']),
   STRIPE_SECRET_KEY: new Set(['ci-placeholder-not-a-secret']),
   STRIPE_WEBHOOK_SECRET: new Set(['ci-placeholder-not-a-secret']),
+  // Deliberately the SAME literal as the billing webhook secret. The two
+  // secrets must differ in a deployment, but in CI/test they are both the
+  // approved placeholder — which is exactly why the collision check below sits
+  // in the deployment branch only.
+  STRIPE_CONNECT_WEBHOOK_SECRET: new Set(['ci-placeholder-not-a-secret']),
 } as const;
 
 function reject(code: EnvironmentIsolationErrorCode): never {
@@ -170,6 +178,52 @@ export function resolveRuntimeEnvironment(
   return 'unknown';
 }
 
+export type ExpectedLivemode
+  = | { ok: true; livemode: boolean }
+  | { ok: false; code: 'MODE_INDETERMINATE' };
+
+/**
+ * The programme's SINGLE PRODUCER of expected Stripe livemode.
+ *
+ * PURE. Reads only the passed environment record. Never throws, never calls
+ * `reject()`, never touches Stripe, and adds no member to
+ * `EnvironmentIsolationErrorCode` — `MODE_INDETERMINATE` is a *return* code that
+ * callers surface on their own error type, not an isolation rejection.
+ *
+ * Two agreeing offline legs, because `acct_…` ids carry no mode marker and this
+ * module already states that a webhook secret's mode cannot be inferred from its
+ * format. The key-prefix leg is the operationally meaningful one — an event we
+ * could not act on with the key we hold must not be processed — while the
+ * environment leg is what the deployment markers attest. A disagreement, or an
+ * environment that cannot be resolved at all, is indeterminate and callers must
+ * fail closed rather than guess a default.
+ *
+ * SITING IS A PUBLISHED INTERFACE. This function lives here, in a file with ZERO
+ * import statements, so that an unauthenticated public page graph can consume it
+ * without pulling in the Stripe SDK. Do not relocate it into the stripeConnect
+ * modules "where it belongs".
+ */
+export function computeExpectedLivemode(
+  environment: Record<string, string | undefined>,
+): ExpectedLivemode {
+  let runtimeEnvironment: RuntimeEnvironment;
+  try {
+    runtimeEnvironment = resolveRuntimeEnvironment(environment);
+  } catch {
+    // ENVIRONMENT_CONFLICT / APP_ENV_INVALID / VERCEL_ENV_INVALID etc.
+    return { ok: false, code: 'MODE_INDETERMINATE' };
+  }
+
+  const environmentSaysLive = runtimeEnvironment === 'production';
+  const keySaysLive = environment.STRIPE_SECRET_KEY?.startsWith('sk_live_') === true;
+
+  if (environmentSaysLive !== keySaysLive) {
+    return { ok: false, code: 'MODE_INDETERMINATE' };
+  }
+
+  return { ok: true, livemode: environmentSaysLive };
+}
+
 function providerMode(
   value: string,
   testPrefix: string,
@@ -232,6 +286,25 @@ function requireExactCiProviderPlaceholders(environment: Environment): void {
   }
 }
 
+/**
+ * The billing endpoint and the Connect endpoint are two distinct Stripe webhook
+ * endpoints, so they have two distinct signing secrets. Sharing one means either
+ * the Connect endpoint verifies billing deliveries or the reverse — and the
+ * billing handler resolves its tenant from `session.metadata.salonId` without
+ * ever reading `event.account`, so a Connect-scoped delivery reaching it is a
+ * cross-tenant billing takeover.
+ *
+ * Deployment branch ONLY. In ci/test both are the same approved placeholder by
+ * design, so evaluating this before the ci/test early return would reject every
+ * CI job and every vitest run.
+ */
+function requireDistinctStripeWebhookSecrets(environment: Environment): void {
+  const connectSecret = environment.STRIPE_CONNECT_WEBHOOK_SECRET;
+  if (connectSecret && connectSecret === environment.STRIPE_WEBHOOK_SECRET) {
+    reject('STRIPE_WEBHOOK_SECRET_COLLISION');
+  }
+}
+
 function requireBillingEnvironment(
   environment: Environment,
   expected: 'dev' | 'test' | 'prod',
@@ -262,6 +335,7 @@ export function assertProviderEnvironmentIsolation(
 
   const clerkMode = requireClerkMode(environment);
   const stripeMode = requireStripeMode(environment);
+  requireDistinctStripeWebhookSecrets(environment);
   const expectedProviderMode = runtimeEnvironment === 'production' ? 'live' : 'test';
   if (clerkMode !== expectedProviderMode) {
     reject('CLERK_KEY_MODE_INVALID');

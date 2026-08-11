@@ -26,6 +26,9 @@ process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'pk_test_Y2kubHVzdGVyLmludmFsaWQ
 process.env.NEXT_PUBLIC_CLERK_SIGN_IN_URL = '/sign-in';
 process.env.STRIPE_SECRET_KEY = 'ci-placeholder-not-a-secret';
 process.env.STRIPE_WEBHOOK_SECRET = 'ci-placeholder-not-a-secret';
+// Deliberately the same placeholder as the billing secret: the collision check
+// that forbids sharing them lives in the deployment branch only.
+process.env.STRIPE_CONNECT_WEBHOOK_SECRET = 'ci-placeholder-not-a-secret';
 process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = 'ci-placeholder-not-a-secret';
 process.env.BILLING_PLAN_ENV = 'test';
 

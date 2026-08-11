@@ -109,6 +109,7 @@ describe('GET /api/health', () => {
     process.env.RESEND_FROM_EMAIL = 'hello@example.com';
     process.env.STRIPE_SECRET_KEY = 'stripe-secret';
     process.env.STRIPE_WEBHOOK_SECRET = 'stripe-webhook';
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = 'stripe-connect-webhook';
     process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = 'stripe-public';
     process.env.NEXT_PUBLIC_SENTRY_DSN = 'https://dsn.example/1';
     process.env.SENTRY_ORG = 'acme';
@@ -146,13 +147,36 @@ describe('GET /api/health', () => {
         resendEnv: true,
         resendVerified: true,
         stripeEnv: true,
+        stripeConnectEnv: true,
         sentryEnv: true,
         googleCalendarEnv: true,
       },
       clientLifecycleSchema: 'ready',
+      // Reported but deliberately excluded from `criticalChecksPass`: the
+      // deposits foundation must never be able to degrade production health.
+      depositsSchema: expect.any(String),
       timestamp: expect.any(String),
       gitSha: 'abcdef1',
     });
+  });
+
+  // Charter test 26. Expect `stripeConnectEnv: false` for exactly the window
+  // between deploying D2 and the owner provisioning the Connect endpoint — that
+  // is the control working, not a regression, which is why the overall `status`
+  // must be identical either way.
+  it('reports the Connect secret as absent WITHOUT degrading overall status', async () => {
+    isResendSenderVerifiedMock.mockResolvedValue(true);
+
+    process.env.STRIPE_CONNECT_WEBHOOK_SECRET = 'stripe-connect-webhook';
+    const withSecret = await (await GET()).json();
+
+    delete process.env.STRIPE_CONNECT_WEBHOOK_SECRET;
+    const withoutSecret = await (await GET()).json();
+
+    expect(withSecret.checks.stripeConnectEnv).toBe(true);
+    expect(withoutSecret.checks.stripeConnectEnv).toBe(false);
+    // D2 must never be able to degrade production health.
+    expect(withoutSecret.status).toBe(withSecret.status);
   });
 
   it('returns degraded when the database is unreachable', async () => {

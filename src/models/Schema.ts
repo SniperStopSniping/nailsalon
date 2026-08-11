@@ -3022,6 +3022,13 @@ export const AUDIT_LOG_ACTIONS = [
   'impersonation_ended',
   'clerk_owner_linked',
   'clerk_owner_relinked',
+  // Stripe Connect account plumbing (D2). Appended, never reordered: two later
+  // PRs in this programme append to this same array.
+  'stripe_connect_account_created',
+  'stripe_connect_account_rebound',
+  'stripe_connect_account_revoked',
+  'stripe_connect_orphan_account',
+  'stripe_connect_account_shape_rejected',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 
@@ -3101,3 +3108,226 @@ export type FraudSignalSeverity = (typeof FRAUD_SIGNAL_SEVERITIES)[number];
 
 export type FraudSignal = typeof fraudSignalSchema.$inferSelect;
 export type NewFraudSignal = typeof fraudSignalSchema.$inferInsert;
+
+// =============================================================================
+// DEPOSITS FOUNDATION (migration 0065) — D2 mapping
+// =============================================================================
+// These three tables are created by `migrations/0065_deposits_foundation.sql`.
+// D2 authors no migration; this mapping mirrors 0065 column-for-column and is
+// proved by the set-equality census in
+// `src/models/depositsSchema.integration.test.ts` (test 1).
+//
+// Write boundary as of D2:
+//   salon_stripe_account  — D2 is the first and only writer.
+//   stripe_webhook_event  — D2 writes the bookkeeping columns; `salonId` and the
+//                           projection columns are mapped but written by nobody
+//                           here (a later PR owns them).
+//   appointment_deposit   — D2 writes NOTHING. It is read at exactly one
+//                           runtime site: the disconnect route's
+//                           DEPOSITS_IN_FLIGHT refusal.
+// -----------------------------------------------------------------------------
+
+/**
+ * Persisted shape of `salon_stripe_account.requirements_due`.
+ *
+ * Stored in Stripe's own snake_case wire vocabulary so the whole requirements
+ * object survives a transition without a remote lookup. Unresolved
+ * `currently_due` fields move OUT of `currently_due` and INTO `past_due` at the
+ * deadline, so storing only one array would show a restricted salon an empty
+ * requirement list at exactly the moment it needs one.
+ *
+ * The camelCase domain projection is `StripeAccountRequirements` in
+ * `src/libs/stripeConnect/readiness.ts`.
+ */
+export type StripeAccountRequirementsJson = {
+  currently_due?: string[];
+  eventually_due?: string[];
+  past_due?: string[];
+  pending_verification?: string[];
+  /** Unix seconds, exactly as Stripe reports them. */
+  current_deadline?: number | null;
+  future_current_deadline?: number | null;
+  disabled_reason?: string | null;
+};
+
+export type StripeConnectRevocationCause = 'revoked_local' | 'deauthorized';
+
+/**
+ * Append-only binding history. Nothing ever UPDATEs `stripe_account_id`; a
+ * re-bind INSERTs a new row and the superseded row is retained with
+ * `revoked_at` + `revocation_cause`. There is no DELETE path.
+ */
+export const salonStripeAccountSchema = pgTable(
+  'salon_stripe_account',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    stripeAccountId: text('stripe_account_id').notNull(),
+    livemode: boolean('livemode').notNull(),
+    chargesEnabled: boolean('charges_enabled').default(false).notNull(),
+    payoutsEnabled: boolean('payouts_enabled').default(false).notNull(),
+    detailsSubmitted: boolean('details_submitted').default(false).notNull(),
+    requirementsDue: jsonb('requirements_due')
+      .$type<StripeAccountRequirementsJson>()
+      .default({})
+      .notNull(),
+    disabledReason: text('disabled_reason'),
+    connectedAt: timestamp('connected_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    revokedAt: timestamp('revoked_at', { mode: 'date', withTimezone: true }),
+    revocationCause: text('revocation_cause').$type<StripeConnectRevocationCause>(),
+    lastSyncedAt: timestamp('last_synced_at', { mode: 'date', withTimezone: true }),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    // PARTIAL, not total: a retained revoked row must not permanently occupy
+    // either unique slot, or a salon could never re-bind after deauthorization.
+    liveSalonUniq: uniqueIndex('salon_stripe_account_live_salon_uniq')
+      .on(table.salonId)
+      .where(sql`${table.revokedAt} is null`),
+    liveAccountUniq: uniqueIndex('salon_stripe_account_live_account_uniq')
+      .on(table.stripeAccountId)
+      .where(sql`${table.revokedAt} is null`),
+    // Total lookup across live AND revoked rows: webhook resolution must find an
+    // old salon's genuine in-flight events, not classify them as foreign.
+    accountIdx: index('salon_stripe_account_account_idx').on(table.stripeAccountId),
+  }),
+);
+
+/**
+ * Terminal-history deposit record. **D2 writes no row here and updates none.**
+ * Mapped in full so the column census proves 0065 matches, and read at exactly
+ * one runtime site (the disconnect route's DEPOSITS_IN_FLIGHT count).
+ */
+export const appointmentDepositSchema = pgTable(
+  'appointment_deposit',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id').notNull(),
+    appointmentId: text('appointment_id').notNull(),
+    amountCents: integer('amount_cents').notNull(),
+    disclosedAmountCents: integer('disclosed_amount_cents'),
+    currency: text('currency').default('cad').notNull(),
+    status: text('status').notNull(),
+    stripeAccountId: text('stripe_account_id').notNull(),
+    stripeCheckoutSessionId: text('stripe_checkout_session_id'),
+    stripePaymentIntentId: text('stripe_payment_intent_id'),
+    stripeCheckoutUrl: text('stripe_checkout_url'),
+    checkoutSuccessUrl: text('checkout_success_url'),
+    checkoutCancelUrl: text('checkout_cancel_url'),
+    resolutionNote: text('resolution_note'),
+    stripeRefundId: text('stripe_refund_id'),
+    refundedAt: timestamp('refunded_at', { mode: 'date', withTimezone: true }),
+    lateCheckDoneAt: timestamp('late_check_done_at', { mode: 'date', withTimezone: true }),
+    pollRetrievals: integer('poll_retrievals').default(0).notNull(),
+    pollWindowRetrievals: integer('poll_window_retrievals').default(0).notNull(),
+    pollWindowStartedAt: timestamp('poll_window_started_at', {
+      mode: 'date',
+      withTimezone: true,
+    }),
+    refundTerminalFailureCount: integer('refund_terminal_failure_count')
+      .default(0)
+      .notNull(),
+    // Begins at ONE, not zero, so first-attempt idempotency keys stay stable.
+    refundKeyEpoch: integer('refund_key_epoch').default(1).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    appointmentFk: foreignKey({
+      name: 'appointment_deposit_appointment_fk',
+      columns: [table.salonId, table.appointmentId],
+      foreignColumns: [appointmentSchema.salonId, appointmentSchema.id],
+    }).onDelete('restrict'),
+    sessionUniq: uniqueIndex('appointment_deposit_session_uniq')
+      .on(table.stripeCheckoutSessionId),
+    piUniq: uniqueIndex('appointment_deposit_pi_uniq').on(table.stripePaymentIntentId),
+    refundUniq: uniqueIndex('appointment_deposit_refund_uniq').on(table.stripeRefundId),
+    // PARTIAL: terminal rows accumulate; only one active deposit per appointment.
+    oneActive: uniqueIndex('appointment_deposit_one_active')
+      .on(table.appointmentId)
+      .where(sql`${table.status} in ('checkout_created','paid')`),
+    salonStatusIdx: index('appointment_deposit_salon_status_idx')
+      .on(table.salonId, table.status),
+  }),
+);
+
+/**
+ * Durable webhook receipt/claim ledger, shared by the Connect route D2 builds
+ * and by a later PR's money route.
+ *
+ * `salon_id` deliberately carries NO foreign key — an FK would make it a
+ * salon-pointing FK and drag the table into the SALON_PURGE_PLAN coverage
+ * guard. D2 writes it nowhere.
+ */
+export const stripeWebhookEventSchema = pgTable(
+  'stripe_webhook_event',
+  {
+    id: text('id').primaryKey(),
+    eventId: text('event_id').notNull(),
+    type: text('type').notNull(),
+    account: text('account'),
+    livemode: boolean('livemode').notNull(),
+    // Context only, no FK. Written by nobody in D2.
+    salonId: text('salon_id'),
+    status: text('status').notNull(),
+    outcome: text('outcome'),
+    attempts: integer('attempts').default(0).notNull(),
+    availableAt: timestamp('available_at', { mode: 'date', withTimezone: true }),
+    lastError: text('last_error'),
+    receivedAt: timestamp('received_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    processedAt: timestamp('processed_at', { mode: 'date', withTimezone: true }),
+    // Normalized projection columns. Mapped so the census passes; a later PR
+    // owns every one of them. All nullable.
+    sessionId: text('session_id'),
+    paymentIntentId: text('payment_intent_id'),
+    paymentStatus: text('payment_status'),
+    amountTotal: integer('amount_total'),
+    currency: text('currency'),
+    metadataAppointmentId: text('metadata_appointment_id'),
+    metadataSalonId: text('metadata_salon_id'),
+    metadataDepositId: text('metadata_deposit_id'),
+    clientReferenceId: text('client_reference_id'),
+    projectionStatus: text('projection_status'),
+    rawPayload: jsonb('raw_payload'),
+    payloadPurgeAfter: timestamp('payload_purge_after', {
+      mode: 'date',
+      withTimezone: true,
+    }),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    eventIdUniq: uniqueIndex('stripe_webhook_event_event_id_uniq').on(table.eventId),
+    statusAvailableIdx: index('stripe_webhook_event_status_available_idx')
+      .on(table.status, table.availableAt),
+  }),
+);
+
+export type SalonStripeAccount = typeof salonStripeAccountSchema.$inferSelect;
+export type NewSalonStripeAccount = typeof salonStripeAccountSchema.$inferInsert;
+export type AppointmentDeposit = typeof appointmentDepositSchema.$inferSelect;
+export type NewAppointmentDeposit = typeof appointmentDepositSchema.$inferInsert;
+export type StripeWebhookEvent = typeof stripeWebhookEventSchema.$inferSelect;
+export type NewStripeWebhookEvent = typeof stripeWebhookEventSchema.$inferInsert;
