@@ -1,3 +1,10 @@
+# [1.49.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.48.0...v1.49.0) (2026-08-11)
+
+
+### Features
+
+* **booking:** hard-enforce required add-ons behind a default-off salon gate (PR1B) ([f75dddc](https://github.com/SniperStopSniping/nailsalon/commit/f75dddcb366eda99d8439db6380ad2d2cca6e6a2))
+
 # [1.48.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.47.0...v1.48.0) (2026-08-11)
 
 
