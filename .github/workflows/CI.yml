@@ -165,18 +165,86 @@ jobs:
       - run: npm ci
 
       # The deposits ladder is additive by construction. These paths carry the
-      # SaaS billing surface, the migration set and the salon-purge coverage
-      # pin, and no PR in that ladder may touch them. This step lives in the
-      # `test` job because only its checkout sets `fetch-depth: 0` — the shallow
-      # checkouts elsewhere cannot resolve `git merge-base`.
-      - name: Deposits ladder zero-diff surfaces
-        run: >-
-          git diff --exit-code "$(git merge-base origin/main HEAD)" --
-          src/app/api/webhooks/stripe/route.ts
-          src/app/api/billing
-          migrations
-          vercel.json
-          src/libs/salonPurge.ts
+      # SaaS billing surface, the migration set, the deploy manifest and the
+      # salon-purge coverage pin.
+      #
+      # THREE of them are pinned to a hard ZERO DIFF for every PR in the ladder:
+      # no packet may touch the billing webhook route, the SaaS billing surface
+      # or the salon-purge coverage pin.
+      #
+      # The other two — `migrations` and `vercel.json` — cannot be zero-diff,
+      # because the ladder is *defined* by packets that ship schema and crons:
+      # D1 landed 0065 before this step existed, and D4 ships 0066 plus the
+      # hold-reaper cron, both named in its frozen manifest. Pinning them to
+      # zero would make the guard contradict the charters it exists to protect.
+      # They are therefore held to an ADDITIVE ALLOWLIST, which is strictly
+      # stronger than "unpinned" and still catches the drift the original step
+      # was written to catch:
+      #   * only chartered paths may change at all — any other migration file,
+      #     or any other file under `migrations/`, still fails;
+      #   * nothing may be DELETED or REWRITTEN — an edit to an already-shipped
+      #     migration, or to an existing cron entry, still fails;
+      #   * the only new journal tag and the only new cron path permitted are
+      #     the ones the owning packet is chartered to add.
+      # A later packet EXTENDS the two allowlists below; it does not remove the
+      # check.
+      #
+      # This step lives in the `test` job because only its checkout sets
+      # `fetch-depth: 0` — the shallow checkouts elsewhere cannot resolve
+      # `git merge-base`.
+      - name: Deposits ladder protected surfaces
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="$(git merge-base origin/main HEAD)"
+
+          # 1. Hard zero-diff. Unchanged from the original step.
+          git diff --exit-code "$base" -- \
+            src/app/api/webhooks/stripe/route.ts \
+            src/app/api/billing \
+            src/libs/salonPurge.ts
+
+          # 2. Only chartered paths may change under the additive surfaces.
+          while read -r file; do
+            [ -n "$file" ] || continue
+            case "$file" in
+              migrations/0066_deposit_hold_awaiting_payment.sql) ;;
+              migrations/meta/_journal.json) ;;
+              vercel.json) ;;
+              *)
+                echo "::error::Unauthorized change to a protected ladder surface: $file"
+                exit 1
+                ;;
+            esac
+          done <<< "$(git diff --name-only "$base" -- migrations vercel.json)"
+
+          # 3. Additive by construction: no deletions, no rewrites. This is what
+          #    keeps an already-shipped migration or an existing cron immutable.
+          removed="$(git diff --unified=0 "$base" -- migrations vercel.json \
+            | grep -E '^-' | grep -vE '^--- ' || true)"
+          if [ -n "$removed" ]; then
+            echo "::error::The deposits ladder is additive by construction, but these lines were removed or rewritten:"
+            printf '%s\n' "$removed"
+            exit 1
+          fi
+
+          # 4. The additions themselves are allowlisted by content, so a packet
+          #    cannot smuggle an extra migration or an extra cron through.
+          new_tags="$(git diff --unified=0 "$base" -- migrations/meta/_journal.json \
+            | grep -E '^\+.*"tag"' | sed -E 's/.*"tag" *: *"([^"]+)".*/\1/' || true)"
+          if [ -n "$new_tags" ] && [ "$new_tags" != "0066_deposit_hold_awaiting_payment" ]; then
+            echo "::error::Unauthorized migration journal entries:"
+            printf '%s\n' "$new_tags"
+            exit 1
+          fi
+
+          new_crons="$(git diff --unified=0 "$base" -- vercel.json \
+            | grep -E '^\+.*"path"' | sed -E 's/.*"path" *: *"([^"]+)".*/\1/' || true)"
+          if [ -n "$new_crons" ] && [ "$new_crons" != "/api/deposits/holds/reap" ]; then
+            echo "::error::Unauthorized vercel.json cron entries:"
+            printf '%s\n' "$new_crons"
+            exit 1
+          fi
 
       - name: Create ephemeral synthetic E2E admin credentials
         shell: bash
