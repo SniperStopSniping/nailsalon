@@ -51,6 +51,13 @@ vi.mock('@/libs/clientApiGuards', () => ({
   requireClientSalonFromQuery: vi.fn(async () => ({ ok: true, salon: holder.salon })),
 }));
 
+const manage = vi.hoisted(() => ({ capability: null as unknown }));
+
+vi.mock('@/libs/appointmentAccess', () => ({
+  verifyAppointmentAccessToken: vi.fn(async () => manage.capability),
+  describeAppointmentAccessFailure: vi.fn(() => null),
+}));
+
 vi.mock('@/libs/bookingConfig', async importOriginal => ({
   ...await importOriginal<typeof import('@/libs/bookingConfig')>(),
   getBookingConfigForSalon: vi.fn(async () => ({
@@ -88,6 +95,7 @@ import {
 import { PUT as reassignPut } from '../admin/appointments/[id]/reassign/route';
 import { GET as adminAppointmentsGet } from '../admin/appointments/route';
 import { GET as adminTodayGet } from '../admin/today/route';
+import { PATCH as managePatch } from '../public/appointments/manage/[token]/route';
 import { GET as historyGet } from './history/route';
 /* eslint-enable import/first */
 
@@ -346,5 +354,81 @@ describe('18 — blocking-list consequences', () => {
     // 0066's double-booking backstop — or, worse, double-book.
     expect(response.status).toBe(409);
     expect(body.error.code).toBe('TECHNICIAN_UNAVAILABLE');
+  });
+});
+
+/**
+ * D4 §5.8 — the manage-token cancel refuses a hold (D4-REV-2).
+ *
+ * The charter leaves this guard as it already stood: the cancel CAS lists only
+ * `['pending','confirmed']`, so a hold matches zero rows and answers 409
+ * APPOINTMENT_NOT_ACTIVE. It was previously unasserted, so nothing stopped
+ * 'awaiting_payment' being added to that list by a future edit — which would let
+ * a client cancel their own unpaid hold out from under the reaper and D5,
+ * leaving the deposit row non-terminal with no appointment left to key on.
+ */
+describe('§5.8 — manage-token cancel refuses a hold', () => {
+  const TOKEN = 'manage-token-fixture';
+
+  function capabilityFor(status: string, appointmentId: string) {
+    return {
+      appointmentId,
+      salonId: SALON_ID,
+      salonSlug: 'surfaces-salon',
+      salonName: 'Surfaces Salon',
+      salonSettings: null,
+      expiresAt: new Date(Date.now() + 30 * 86_400_000),
+      appointment: {
+        id: appointmentId,
+        salonId: SALON_ID,
+        status,
+        startTime: new Date(Date.now() + 30 * 86_400_000),
+        endTime: new Date(Date.now() + 30 * 86_400_000 + 3_600_000),
+        clientName: 'Hold Client',
+        totalPrice: 4500,
+      },
+    };
+  }
+
+  function cancelRequest() {
+    return new Request(`http://localhost/api/public/appointments/manage/${TOKEN}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'cancel', reason: 'changed my mind' }),
+    });
+  }
+
+  it('a hold cannot be cancelled through the manage token', async () => {
+    const hold = await seedAppointment('awaiting_payment', 40);
+    manage.capability = capabilityFor('awaiting_payment', hold);
+
+    const response = await managePatch(cancelRequest(), { params: { token: TOKEN } });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('APPOINTMENT_NOT_ACTIVE');
+
+    const [row] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, hold));
+
+    expect(row!.status).toBe('awaiting_payment');
+  });
+
+  it('CONTROL: a confirmed appointment still cancels', async () => {
+    const confirmed = await seedAppointment('confirmed', 41);
+    manage.capability = capabilityFor('confirmed', confirmed);
+    // The successful path fans out to notification side effects this harness
+    // does not stub; their diagnostics are expected, so assert rather than mute.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await managePatch(cancelRequest(), { params: { token: TOKEN } });
+    consoleError.mockRestore();
+
+    expect(response.status).toBe(200);
+
+    const [row] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, confirmed));
+
+    expect(row!.status).toBe('cancelled');
   });
 });

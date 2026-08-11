@@ -9,7 +9,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import * as schema from '@/models/Schema';
 
-import { runAppointmentManageMutation } from './appointmentManage';
+import { getAppointmentManageDetail, runAppointmentManageMutation } from './appointmentManage';
 
 vi.mock('server-only', () => ({}));
 
@@ -724,5 +724,98 @@ describe('real appointment management mutations', () => {
 
     expect(row.startTime).toEqual(INITIAL_START);
     expect(reminders(row)).toEqual(REMINDER_STATE);
+  });
+});
+
+/**
+ * D4 §5.8 — THE HOLD GUARDS, made falsifiable (D4-REV-2).
+ *
+ * Fable's exact-head review deleted the `ensureEditable` hold refusal and this
+ * whole file stayed green. Every mutating manage-token handler funnels through
+ * that function, so its removal makes a hold editable — an unpaid slot
+ * reservation becomes movable, re-serviceable and cancellable.
+ */
+describe('§5.8 — a deposit hold is not manageable', () => {
+  const holdOperations: Array<[string, Partial<Parameters<typeof mutate>[0]>]> = [
+    ['move', { operation: 'move', startTime: new Date(INITIAL_START.getTime() + 3_600_000) }],
+    ['moveToNextAvailable', { operation: 'moveToNextAvailable' }],
+    ['changeService', { operation: 'changeService', baseServiceId: REPLACEMENT_SERVICE_ID }],
+    ['reassignTechnician', { operation: 'reassignTechnician', technicianId: OTHER_TECHNICIAN_ID }],
+  ];
+
+  it.each(holdOperations)(
+    'ensureEditable refuses operation %s with HOLD_LOCKED',
+    async (_label, args) => {
+      await db
+        .update(schema.appointmentSchema)
+        .set({ status: 'awaiting_payment' })
+        .where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+
+      await expectManageError(mutate(args), 'HOLD_LOCKED');
+
+      const row = await appointment();
+
+      // Untouched: the refusal happens before any write.
+      expect(row.status).toBe('awaiting_payment');
+      expect(row.startTime).toEqual(INITIAL_START);
+      expect(reminders(row)).toEqual(REMINDER_STATE);
+    },
+  );
+
+  it('the refusal precedes the terminal/locked checks, so the code is HOLD_LOCKED', async () => {
+    // A hold that is ALSO locked must still answer HOLD_LOCKED rather than
+    // APPOINTMENT_LOCKED — otherwise this test could pass for the wrong reason.
+    await db
+      .update(schema.appointmentSchema)
+      .set({ status: 'awaiting_payment', lockedAt: new Date() })
+      .where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+
+    await expectManageError(
+      mutate({ operation: 'move', startTime: new Date(INITIAL_START.getTime() + 3_600_000) }),
+      'HOLD_LOCKED',
+    );
+  });
+
+  it('buildPermissions denies every mutating action on a hold', async () => {
+    await db
+      .update(schema.appointmentSchema)
+      .set({ status: 'awaiting_payment' })
+      .where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+
+    const detail = await getAppointmentManageDetail({
+      appointmentId: APPOINTMENT_ID,
+      salonId: SALON_ID,
+      canReassignTechnician: true,
+      salonSlug: 'manage-mutator',
+    });
+
+    // buildPermissions is a DENY-LIST, so without an explicit hold arm a hold
+    // reports canMove/canCancel/canChangeService/canReassignTechnician = true:
+    // dead buttons whose handlers all 409, and a wrong canCancel waiting to
+    // seed D6's permission matrix.
+    expect(detail.permissions).toEqual({
+      canMove: false,
+      canChangeService: false,
+      canCancel: false,
+      canMarkCompleted: false,
+      canStart: false,
+      canConfirm: false,
+      canMarkNoShow: false,
+      canReassignTechnician: false,
+    });
+  });
+
+  it('CONTROL: the same appointment while confirmed is manageable', async () => {
+    // Without this the assertions above would pass against a permissions
+    // function that denied everything unconditionally.
+    const detail = await getAppointmentManageDetail({
+      appointmentId: APPOINTMENT_ID,
+      salonId: SALON_ID,
+      canReassignTechnician: true,
+      salonSlug: 'manage-mutator',
+    });
+
+    expect(detail.permissions.canMove).toBe(true);
+    expect(detail.permissions.canCancel).toBe(true);
   });
 });
