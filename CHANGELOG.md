@@ -1,3 +1,23 @@
+# [1.51.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.50.0...v1.51.0) (2026-08-11)
+
+
+### Bug Fixes
+
+* **ci:** re-base the preview-fixture migration ledger pin onto 0066 ([009fff4](https://github.com/SniperStopSniping/nailsalon/commit/009fff454d2c2d6fa5f547c74a8f76f230e500e6))
+* **deposits:** a required:false charge must still say so on the 201 (§14 test 27(d)) ([4619bad](https://github.com/SniperStopSniping/nailsalon/commit/4619badfad43fd500cebdb2b5e0d39efdb4a4d1e))
+* **deposits:** a reschedule must carry no deposit object (§14 tests 4, 5, 6, 27-outside) ([9f9f61e](https://github.com/SniperStopSniping/nailsalon/commit/9f9f61e74fe579bd4bd0413474645d63c99fd283))
+* **deposits:** maxDuration must be a LITERAL or Next silently drops it ([816fa46](https://github.com/SniperStopSniping/nailsalon/commit/816fa46259e16113bf0af4589b9176801100ccbe))
+* **deposits:** the DEPOSIT_CHANGED 409 never reached the client (§14 test 26) ([59504dc](https://github.com/SniperStopSniping/nailsalon/commit/59504dcf0574657045e5a3c023c431735051a54a))
+
+
+### Features
+
+* **deposits:** fence every writer that could move a hold (D4 §7.D) ([d7c1ac4](https://github.com/SniperStopSniping/nailsalon/commit/d7c1ac424fe57d057b1f85043b8166209cc2cebd))
+* **deposits:** hold reaper, cron, and the client surfaces (D4 §7.G, §7.H) ([a28b032](https://github.com/SniperStopSniping/nailsalon/commit/a28b032c20eb68730477b13f4c66b8c66a288fcc))
+* **deposits:** teach the status universe about awaiting_payment (D4 §7.B, §7.C) ([eb06a22](https://github.com/SniperStopSniping/nailsalon/commit/eb06a22cf8263d008917d2e053a3bf2f143fa716))
+* **deposits:** the booking-route deposit branch and its skip guards (D4 §7.E, §7.F) ([a344071](https://github.com/SniperStopSniping/nailsalon/commit/a34407182b96be5dfc55aed9824984a5cf6a238d))
+* **deposits:** widen the double-booking backstops for deposit holds (D4) ([581f4a6](https://github.com/SniperStopSniping/nailsalon/commit/581f4a6e1a6c75a5bd136fe6dd589e7f0d49a8f3))
+
 # [1.50.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.49.0...v1.50.0) (2026-08-11)
 
 
