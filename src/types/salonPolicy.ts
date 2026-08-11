@@ -378,6 +378,23 @@ export type SalonSettings = {
     introPriceDefaultLabel?: string | null;
     firstVisitDiscountEnabled?: boolean;
     clientChangeCutoffHours?: number;
+    /**
+     * Hard enforcement of service_add_on rows with selectionMode 'required'
+     * (PR 1 stage e). Default FALSE, for every salon, including salons whose
+     * settings predate this field.
+     *
+     * When false (the default) validatePublicBookingSelection only observes an
+     * unsatisfied required rule and reports it as observedRequiredAddOnGaps.
+     * When true it throws BookingSelectionError('missing_required_add_on') and
+     * the booking is refused.
+     *
+     * Turning this on for a salon is a per-salon decision that must be based on
+     * that salon's observation data (audit action required_add_on_rule_omitted
+     * plus `npm run db:report:required-addon-rules`). A required rule that
+     * points at a deactivated add-on makes the service unbookable online while
+     * this is true — see src/libs/bookingQuote.ts.
+     */
+    enforceRequiredAddOns?: boolean;
   };
 
   // Controlled public booking-page and confirmation-message customization.

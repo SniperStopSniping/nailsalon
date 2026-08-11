@@ -25,6 +25,9 @@ describe('bookingConfig', () => {
       introPriceDefaultLabel: 'Soft Opening Price',
       firstVisitDiscountEnabled: true,
       clientChangeCutoffHours: 24,
+      // Not set above, and therefore off: required-add-on enforcement is never
+      // inherited from an unrelated booking-settings edit (PR 1 stage e).
+      enforceRequiredAddOns: false,
     });
   });
 

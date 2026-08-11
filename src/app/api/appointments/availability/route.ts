@@ -78,10 +78,12 @@ function buildPublicAvailabilityError(args: {
     };
   }
 
-  // Not yet reachable: validatePublicBookingSelection only records this gap
-  // (PR 1 stage b), it does not throw it. Classified distinctly now so a
-  // future enforcement PR does not silently fall into the generic
-  // invalid_service bucket below.
+  // Reachable only for a salon that has opted into
+  // settings.booking.enforceRequiredAddOns (PR 1 stage e; default off, so no
+  // salon reaches this today). Classified distinctly rather than falling into
+  // the generic invalid_service bucket below, and not retryable: retrying the
+  // same selection cannot fix a missing required add-on — the client has to go
+  // back and add it.
   if (args.error.code === 'missing_required_add_on') {
     return {
       kind: 'missing_required_add_on',

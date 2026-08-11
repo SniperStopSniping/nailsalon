@@ -2991,6 +2991,11 @@ export const AUDIT_LOG_ACTIONS = [
   // marked selectionMode: 'required'. Observation only: never blocks the
   // booking. See evaluateRequiredAddOnRules in src/libs/bookingQuote.ts.
   'required_add_on_rule_omitted',
+  // Same rollout, enforcement stage (PR 1 stage e) — fired when the salon has
+  // opted in via settings.booking.enforceRequiredAddOns and the booking was
+  // actually refused. Kept distinct from required_add_on_rule_omitted so
+  // "would have blocked" and "did block" never blend into one number.
+  'required_add_on_booking_blocked',
   // Super-admin actions (merge from existing)
   'updated',
   'owner_changed',

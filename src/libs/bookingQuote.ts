@@ -26,7 +26,16 @@ export type BookingSelectionErrorCode
   | 'missing_required_add_on';
 
 export class BookingSelectionError extends Error {
-  constructor(public readonly code: BookingSelectionErrorCode) {
+  /**
+   * `missingRequiredAddOnIds` is only populated for the
+   * `missing_required_add_on` code, so a caller that blocks a booking can log
+   * which required add-ons were missing without re-running the evaluation.
+   * Add-on ids only — never client data.
+   */
+  constructor(
+    public readonly code: BookingSelectionErrorCode,
+    public readonly missingRequiredAddOnIds: string[] = [],
+  ) {
     super(code);
     this.name = 'BookingSelectionError';
   }
@@ -102,8 +111,14 @@ type ValidatedSelectionResult = {
   quote: BookingQuote;
   /**
    * Required service_add_on rows (selectionMode: 'required') this selection
-   * did not satisfy. Observation-only (PR 1 stage b) — populated but never
-   * enforced; a non-empty array does not throw and does not block booking.
+   * did not satisfy.
+   *
+   * Only ever non-empty when the salon has NOT enabled
+   * settings.booking.enforceRequiredAddOns (the default): with the gate off the
+   * gap is observed and the booking proceeds, and with the gate on the same gap
+   * throws `missing_required_add_on` instead of returning. Observation
+   * therefore keeps working exactly as before for every salon that has not
+   * opted in.
    */
   observedRequiredAddOnGaps: string[];
 };
@@ -135,9 +150,10 @@ export type RequiredAddOnEvaluation = {
  * yet (§11 gap 11 of the UI/UX plan) and are treated as satisfied — this
  * function only ever reports the unconditional `required` case.
  *
- * Observation-only: this does not throw. Stage (e) of the required-add-on
- * enforcement rollout is the PR that turns an unsatisfied result into a
- * blocked booking.
+ * This function itself never throws. Whether an unsatisfied result blocks the
+ * booking is decided by the caller: see assertRequiredAddOnsSatisfied, which
+ * only blocks for a salon that has opted in via
+ * settings.booking.enforceRequiredAddOns (default false).
  */
 export function evaluateRequiredAddOnRules(args: {
   rules: RequiredAddOnRuleInput[];
@@ -152,6 +168,35 @@ export function evaluateRequiredAddOnRules(args: {
     satisfied: missingRequiredAddOnIds.length === 0,
     missingRequiredAddOnIds,
   };
+}
+
+/**
+ * Stage (e) of the required-add-on rollout: turn an unsatisfied required rule
+ * into a blocked booking — but only for a salon that has explicitly opted in
+ * via settings.booking.enforceRequiredAddOns.
+ *
+ * The gate is default-off for every salon (see DEFAULT_BOOKING_CONFIG), because
+ * the plan only allows hard enforcement "after observation shows existing flows
+ * are compatible" and no observation data exists yet. With the gate off this is
+ * a no-op and the selection stays observation-only.
+ *
+ * Deliberate, documented consequence when the gate is ON: a required rule that
+ * points at a deactivated add-on cannot be satisfied by any client, because
+ * validatePublicBookingSelection refuses inactive add-ons with
+ * `invalid_add_on`. Such a service becomes unbookable online (blocked either
+ * way) until the owner reactivates the add-on or drops the rule. This is the
+ * exact condition `npm run db:report:required-addon-rules` exists to surface,
+ * and it is why the gate must stay off until a salon's inventory is clean.
+ */
+function assertRequiredAddOnsSatisfied(args: {
+  enforceRequiredAddOns: boolean;
+  evaluation: RequiredAddOnEvaluation;
+}): void {
+  if (!args.enforceRequiredAddOns || args.evaluation.satisfied) {
+    return;
+  }
+
+  throw new BookingSelectionError('missing_required_add_on', args.evaluation.missingRequiredAddOnIds);
 }
 
 export function calculateAppointmentPrice(args: {
@@ -348,14 +393,12 @@ export async function validatePublicBookingSelection(args: {
 
   const rulesByAddOnId = new Map(rules.map(rule => [rule.addOnId, rule]));
 
-  // Observation-only (§4A, PR 1 stage b): computed against the full rule set
-  // before the zero-add-on early return below, which is exactly the path
-  // that used to skip `rules` entirely and is most likely to hide a missing
-  // required add-on. Never throws — see evaluateRequiredAddOnRules.
-  // Observation-only (§4A, PR 1 stage b): computed against the full rule set
-  // before the zero-add-on early return below, which is exactly the path
-  // that used to skip `rules` entirely and is most likely to hide a missing
-  // required add-on. Never throws — see evaluateRequiredAddOnRules.
+  // Computed against the full rule set before the zero-add-on early return
+  // below, which is exactly the path that used to skip `rules` entirely and is
+  // most likely to hide a missing required add-on. evaluateRequiredAddOnRules
+  // never throws; it is reported as observedRequiredAddOnGaps on every path,
+  // and is additionally enforced below on both paths when the salon has opted
+  // in (assertRequiredAddOnsSatisfied).
   const requiredAddOnEvaluation = evaluateRequiredAddOnRules({
     rules,
     selectedAddOnIds: normalizedAddOns.map(addOn => addOn.addOnId),
@@ -363,6 +406,16 @@ export async function validatePublicBookingSelection(args: {
 
   if (normalizedAddOns.length === 0) {
     const bookingConfig = await getBookingConfigForSalon(args.salonId);
+
+    // Enforcement on the zero-add-on path. This is the path that matters most:
+    // before stage (b) it never looked at `rules` at all, so it is where a
+    // missing required add-on hides. The gate rides on the
+    // getBookingConfigForSalon call this path already makes — no extra query.
+    assertRequiredAddOnsSatisfied({
+      enforceRequiredAddOns: bookingConfig.enforceRequiredAddOns,
+      evaluation: requiredAddOnEvaluation,
+    });
+
     const serviceSummary = mapServiceToCatalogSummary(baseService);
     const quote = buildBookingQuote({
       baseService: serviceSummary,
@@ -436,6 +489,16 @@ export async function validatePublicBookingSelection(args: {
   });
 
   const bookingConfig = await getBookingConfigForSalon(args.salonId);
+
+  // Enforcement on the populated-add-on path: selecting some other add-on must
+  // not satisfy a required rule. Runs after the per-add-on validation above so
+  // an add-on that is itself invalid still reports `invalid_add_on`, and reuses
+  // the same getBookingConfigForSalon call this path already makes.
+  assertRequiredAddOnsSatisfied({
+    enforceRequiredAddOns: bookingConfig.enforceRequiredAddOns,
+    evaluation: requiredAddOnEvaluation,
+  });
+
   const serviceSummary = mapServiceToCatalogSummary(baseService);
   const quote = buildBookingQuote({
     baseService: serviceSummary,
