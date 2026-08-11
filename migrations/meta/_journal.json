@@ -463,6 +463,13 @@
       "when": 1786297234998,
       "tag": "0065_deposits_foundation",
       "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1786298234998,
+      "tag": "0066_deposit_hold_awaiting_payment",
+      "breakpoints": true
     }
   ]
 }
