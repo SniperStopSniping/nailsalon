@@ -32,6 +32,7 @@ import {
 import {
   appointmentAccessTokenSchema,
   appointmentAddOnSchema,
+  appointmentDepositSchema,
   appointmentSchema,
   appointmentServicesSchema,
   salonSchema,
@@ -187,6 +188,20 @@ export async function GET(_request: Request, context: { params: { token: string 
     return Response.json({ error: { code: 'MANAGE_LINK_INVALID', message: 'This appointment link is invalid or expired.' } }, { status: 404 });
   }
   const { appointment } = managed.capability;
+  // READ-ONLY deposit-hold state. Every MUTATING manage-token handler keeps
+  // rejecting holds; this only lets the client see that a deposit is owed and
+  // reach the payment page again.
+  const [depositForResume] = appointment.status === 'awaiting_payment'
+    ? await db
+      .select({ checkoutUrl: appointmentDepositSchema.stripeCheckoutUrl })
+      .from(appointmentDepositSchema)
+      .where(and(
+        eq(appointmentDepositSchema.salonId, appointment.salonId),
+        eq(appointmentDepositSchema.appointmentId, appointment.id),
+        eq(appointmentDepositSchema.status, 'checkout_created'),
+      ))
+      .limit(1)
+    : [];
   return Response.json({ data: {
     appointment: {
       id: appointment.id,
@@ -195,6 +210,12 @@ export async function GET(_request: Request, context: { params: { token: string 
       endTime: appointment.endTime,
       status: appointment.status,
       totalPrice: appointment.totalPrice,
+      ...(appointment.status === 'awaiting_payment'
+        ? {
+            depositHoldExpiresAt: appointment.depositHoldExpiresAt,
+            depositCheckoutUrl: depositForResume?.checkoutUrl ?? null,
+          }
+        : {}),
     },
     salon: { name: managed.details.salonName, slug: managed.details.salonSlug },
     technicianName: managed.details.technicianName,

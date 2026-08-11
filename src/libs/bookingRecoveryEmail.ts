@@ -9,7 +9,7 @@ import {
   salonSchema,
 } from '@/models/Schema';
 
-import { ACTIVE_APPOINTMENT_STATUSES } from './activeAppointments';
+import { SLOT_OCCUPYING_CLIENT_STATUSES } from './activeAppointments';
 import { buildAppointmentManageUrl } from './appointmentManageUrl';
 import { resolveAppointmentOperationalEmailRecipient } from './clientLifecycleStabilization';
 import { db } from './DB';
@@ -259,7 +259,11 @@ async function loadExactRecoveryAppointments(
   }).from(appointmentSchema).where(and(
     eq(appointmentSchema.salonId, salonId),
     inArray(appointmentSchema.id, appointmentIds),
-    inArray(appointmentSchema.status, [...ACTIVE_APPOINTMENT_STATUSES]),
+    // MUST match the selector that produced `requestedAppointmentIds`. This
+    // loader is all-or-nothing and returns `null` — meaning NO recovery email at
+    // all — if any requested id fails to load, so a selector that surfaces holds
+    // while this list excludes them silently suppresses the whole send.
+    inArray(appointmentSchema.status, [...SLOT_OCCUPYING_CLIENT_STATUSES]),
     gt(appointmentSchema.endTime, new Date()),
     isNull(appointmentSchema.deletedAt),
   )).orderBy(asc(appointmentSchema.startTime), asc(appointmentSchema.id));

@@ -95,7 +95,9 @@ describe('StaffAppointmentsPage', () => {
     const expectedDate = getLocalDateKey(new Date());
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(`/api/appointments?date=${expectedDate}&status=pending,confirmed,in_progress,completed`);
+      // 'awaiting_payment' (a deposit hold) is included deliberately: the slot
+      // really is occupied, so a staff member looking at the day must see it.
+      expect(fetchMock).toHaveBeenCalledWith(`/api/appointments?date=${expectedDate}&status=pending,confirmed,in_progress,awaiting_payment,completed`);
     });
 
     expect(await screen.findByText('Day view (1)')).toBeInTheDocument();

@@ -303,7 +303,9 @@ export async function GET(
         and(
           eq(appointmentSchema.technicianId, existingRequest.technicianId),
           eq(appointmentSchema.salonId, existingRequest.salonId),
-          inArray(appointmentSchema.status, ['pending', 'confirmed']),
+          // Deposit holds occupy the technician's slot, so they are genuine
+          // conflicts for a time-off window and must be counted here.
+          inArray(appointmentSchema.status, ['pending', 'confirmed', 'awaiting_payment']),
           gte(appointmentSchema.startTime, rangeStart),
           lt(appointmentSchema.startTime, rangeEnd),
         ),

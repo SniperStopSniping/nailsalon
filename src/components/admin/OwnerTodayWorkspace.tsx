@@ -424,7 +424,7 @@ export function OwnerTodayWorkspace({
   const todayUpcoming
     = today?.appointments.filter(
       appointment =>
-        ['pending', 'confirmed', 'in_progress'].includes(appointment.status)
+        ['pending', 'confirmed', 'in_progress', 'awaiting_payment'].includes(appointment.status)
         && new Date(appointment.endTime).getTime() >= Date.now(),
     ).length ?? appointments.upcoming;
 

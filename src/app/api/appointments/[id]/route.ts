@@ -172,8 +172,41 @@ export async function PATCH(
 
     const data = parsed.data;
 
+    // 1b. 'awaiting_payment' is not a status this route may WRITE. It is
+    // reachable only by the booking transaction that creates the hold; letting
+    // it in here would manufacture a hold on an already-committed appointment,
+    // with no deposit row behind it and nothing to reap it.
+    if (data.status === 'awaiting_payment') {
+      return Response.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'awaiting_payment cannot be set through this endpoint',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
+
     // 2. Verify appointment exists
     const existingAppointment = access.appointment;
+
+    // 2b. ...and a hold is not a status this route may write FROM, for any
+    // target. Evaluated against `access.appointment` deliberately: that is the
+    // same snapshot the blind `updateAppointmentStatus` writer below would act
+    // on, so checking it here forecloses the stale-read stomp rather than
+    // merely narrowing the window.
+    if (existingAppointment.status === 'awaiting_payment') {
+      return Response.json(
+        {
+          error: {
+            code: 'HOLD_LOCKED',
+            message: 'This appointment is awaiting a deposit payment and cannot be changed.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
 
     // 3. Validate the update makes sense
     if (!data.status && !data.cancelReason) {

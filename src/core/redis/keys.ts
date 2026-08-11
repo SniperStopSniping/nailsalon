@@ -58,10 +58,23 @@ export const TTL = {
   PRESIGN: 900, // 15 minutes
   IDEMPOTENCY: 86400, // 24 hours
   BOOKING_IDEMPOTENCY: 900, // 15 minutes - prevents double-submit during booking flow
-  // Lock TTL covers ONLY the critical DB path (no SMS/slow external calls)
-  // Critical path: cache check → lock → DB insert → cache write
-  // SMS and other slow work happens AFTER cache write (outside lock)
-  BOOKING_LOCK: 15, // 15 seconds - pure DB work only
+  // Lock TTL covers the critical path only. SMS, email and every other slow
+  // side effect happen AFTER the cache write, outside the lock.
+  //
+  // Critical path: cache check → lock → DB insert → [deposit Checkout create]
+  //                → cache write
+  //
+  // NO LONGER "pure DB work only": a booking on the deposit branch creates the
+  // Stripe Checkout Session inside this window — strictly post-commit, but
+  // pre-cache-write, because the checkout URL has to be part of the object that
+  // is both cached and returned or an idempotent replay answers 201 with
+  // nowhere to pay. That call is budgeted to fit: the deposit client pins
+  // timeout 6 s with maxNetworkRetries 0 and at most one manual retry, so two
+  // attempts are <= 12 s < BOOKING_POLL_WINDOW_MS (13 s) < this TTL (15 s).
+  // See DEPOSIT_STRIPE_TIMEOUT_MS in src/libs/depositCheckout.ts — raising
+  // either that timeout or the retry count without raising these breaks the
+  // guarantee that a polling duplicate tab resolves against a real result.
+  BOOKING_LOCK: 15, // 15 seconds
 } as const;
 
 // Derived constants for poll window (computed from TTL)

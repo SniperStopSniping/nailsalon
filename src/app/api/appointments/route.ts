@@ -73,6 +73,26 @@ import {
 } from '@/libs/clientLifecycleStabilization';
 import { sendCustomerBookingConfirmationEmail } from '@/libs/customerBookingEmail';
 import { db } from '@/libs/DB';
+import {
+  buildDepositCheckoutIdempotencyKey,
+  createDepositCheckoutSession,
+  DEPOSIT_HOLD_WINDOW_MINUTES,
+  type DepositCheckoutRow,
+  depositHoldExpiresAtEpochSeconds,
+  isCancellableCreateFailure,
+} from '@/libs/depositCheckout';
+import {
+  buildDepositDisclosureFingerprint,
+  DEPOSIT_CURRENCY,
+  type DepositAccountSnapshot,
+  type DepositPolicyInactiveReason,
+  MIN_DEPOSIT_CENTS,
+  parseDepositDisclosureFingerprint,
+  resolveDepositChargeForTotal,
+  resolveDepositPolicy,
+} from '@/libs/depositPolicy';
+import { EXPECTED_LIVEMODE, getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
+import { cancelHoldAfterDefiniteCheckoutFailure } from '@/libs/deposits/holdWriters';
 import { getEffectiveStaffVisibility } from '@/libs/featureGating';
 import {
   FIRST_VISIT_DISCOUNT_TYPE,
@@ -92,6 +112,7 @@ import {
   checkPublicBookingRateLimit,
   getPublicBookingClientIp,
 } from '@/libs/publicBookingRateLimit.server';
+import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import {
   getAppointmentById,
   getAppointmentServiceNames,
@@ -137,6 +158,10 @@ import {
   sendRescheduleConfirmation,
 } from '@/libs/SMS';
 import { requireStaffSession } from '@/libs/staffAuth';
+import {
+  type ReadinessDecision,
+  refreshAccountReadiness,
+} from '@/libs/stripeConnect/readiness';
 import { getDateKeyInTimeZone, getZonedDayBounds, zonedTimeToUtc } from '@/libs/timeZone';
 import {
   type Appointment,
@@ -145,6 +170,7 @@ import {
   appointmentAddOnSchema,
   appointmentAuditLogSchema,
   appointmentBookingPolicyAcknowledgmentSchema,
+  appointmentDepositSchema,
   appointmentPhotoSchema,
   appointmentSchema,
   type AppointmentService,
@@ -291,6 +317,12 @@ const createAppointmentSchema = z.object({
   // is never silently changed. Absent fields keep legacy behavior.
   expectedDiscountType: z.string().trim().max(50).nullable().optional(),
   expectedTotalCents: z.number().int().min(0).max(50_000_000).optional(),
+  // The deposit amount the confirm page DISPLAYED, as an opaque token
+  // ('deposit-v1:cad:<cents>', or 'deposit-v1:none' when nothing was shown).
+  // The .max(64) cap is load-bearing: it is why the parser is never handed an
+  // unbounded token. Always read via `data.expectedDepositFingerprint` — the
+  // zod-validated object — and never off the raw JSON body.
+  expectedDepositFingerprint: z.string().max(64).optional(),
   bookingPolicyAcknowledgment:
     bookingPolicyAcknowledgmentRequestSchema.optional(),
 });
@@ -329,8 +361,32 @@ type AppointmentResponse = {
   };
 };
 
+/**
+ * The 201's deposit object.
+ *
+ * `currency` is LOWERCASE 'cad' — the same literal the DB row and the Stripe
+ * call use. Do not write a comparison against 'CAD' anywhere.
+ *
+ * Present with `required: true` when a hold was created; present with
+ * `required: false` when the salon's policy resolved ACTIVE but this particular
+ * request was outside the charge predicate (an owner or staff member booking
+ * from the public confirm page: they were shown the deposit statement and will
+ * never be charged, and this clause is the only correction that screen gets).
+ * ABSENT entirely when the policy is not active.
+ */
+type DepositResponseObject
+  = | { required: false }
+  | {
+    required: true;
+    checkoutUrl: string;
+    amountCents: number;
+    currency: typeof DEPOSIT_CURRENCY;
+    fingerprint: string;
+    holdExpiresAt: string;
+  };
+
 type SuccessResponse = {
-  data: AppointmentResponse;
+  data: AppointmentResponse & { deposit?: DepositResponseObject };
   meta: {
     timestamp: string;
   };
@@ -387,6 +443,23 @@ class BookingActiveAppointmentError extends Error {
   constructor() {
     super('BOOKING_ACTIVE_APPOINTMENT');
     this.name = 'BookingActiveAppointmentError';
+  }
+}
+
+/**
+ * The original appointment of a reschedule carries a live deposit.
+ *
+ * The reschedule branch cancels the original and INSERTS A NEW APPOINTMENT ID
+ * with request-derived services and prices. A deposit is bolted to the original
+ * id by a composite FK, so without this fence one paid deposit would stay
+ * attached to a `cancelled` shell while buying an unbounded chain of
+ * re-bookings at arbitrary services and prices. The manage-flow move preserves
+ * the appointment id and is the correct route for this.
+ */
+class RescheduleRequiresManageFlowError extends Error {
+  constructor() {
+    super('RESCHEDULE_REQUIRES_MANAGE_FLOW');
+    this.name = 'RescheduleRequiresManageFlowError';
   }
 }
 
@@ -569,6 +642,161 @@ function bookingActiveAppointmentResponse(
         message: bookingSubjectMode === 'self'
           ? 'You already have an upcoming appointment. Use your appointment link to change or cancel it, or request a fresh link.'
           : 'An active appointment already exists for these contact details. Use the appointment-access email or contact the salon for help.',
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
+  );
+}
+
+// =============================================================================
+// DEPOSITS — scope predicate, refusals, and their responses
+// =============================================================================
+
+/**
+ * Fails CLOSED at runtime, and reddens `check-types` at build time.
+ *
+ * The scope predicate below is an exhaustive `switch` over
+ * `DepositPolicyInactiveReason` whose `default` arm calls this. A literal added
+ * by a future D3 PR therefore (a) fails to compile here, and (b) if it somehow
+ * reached runtime, throws — producing a 500 with NO committed row — instead of
+ * falling through to the surrounding non-deposit path, which is a silent FREE
+ * BOOKING for a whole salon population.
+ */
+function assertNever(value: never): never {
+  throw new Error(
+    `Unclassified deposit policy reason: ${String(value)}. A new reason is an owner election, not a default.`,
+  );
+}
+
+type DepositScopeDecision = 'enter' | 'refuse_undetermined' | 'skip';
+
+/** Everything the post-commit Checkout call needs from the committed rows. */
+type CommittedDepositPlan = {
+  depositId: string;
+  amountCents: number;
+  holdExpiresAt: Date;
+  stripeAccountId: string;
+  checkoutSuccessUrl: string;
+  checkoutCancelUrl: string;
+  fingerprint: string;
+};
+
+/**
+ * THE DEPOSIT-BRANCH SCOPE PREDICATE, DEFINED ON THE REASON PARTITION.
+ *
+ * It is emphatically NOT `if (!policy.active) skip`. A composite-verdict gate
+ * makes reason 'undetermined' SKIP the branch, so every refusal that lives
+ * inside the branch never runs and the booking commits FREE on a live deposits
+ * salon — with no deposit row, no audit row, no alert, and no test placed
+ * inside the branch able to observe it.
+ *
+ *   'undetermined'          -> REFUSE (503). Fail closed. This is the exact
+ *                              position at which a composite gate books free.
+ *                              It is narrowly scoped, not a booking outage:
+ *                              getDepositPolicyForSalon resolves locally first
+ *                              and only issues the binding read when the local
+ *                              reason is 'account_not_connected', so only a
+ *                              salon that is entitled AND enabled AND
+ *                              configured AND CAD can ever see it.
+ *   configuration-side (5)  -> SKIP. The salon decided, is not entitled, or its
+ *                              currency is unsupported. Nothing was disclosed
+ *                              and nothing is collectable. The fingerprint is
+ *                              deliberately INERT here: no disclosure can drag
+ *                              a decided-off salon into the branch.
+ *   account-side (3)        -> CONDITIONAL on whether a deposit was disclosed.
+ *                              A SET MEMBERSHIP TEST over all three literals:
+ *                              conditioning one and skipping the other two
+ *                              unconditionally silently commits free bookings
+ *                              for every client shown a deposit at a
+ *                              deauthorized or never-synced salon.
+ */
+function classifyDepositScope(
+  reason: DepositPolicyInactiveReason,
+  depositWasDisclosed: boolean,
+): DepositScopeDecision {
+  switch (reason) {
+    case 'undetermined':
+      return 'refuse_undetermined';
+
+    case 'collection_not_live':
+    case 'not_entitled':
+    case 'not_configured':
+    case 'disabled':
+    case 'currency_unsupported':
+      return 'skip';
+
+    case 'account_not_connected':
+    case 'account_not_charge_ready':
+    case 'readiness_never_synced':
+      return depositWasDisclosed ? 'enter' : 'skip';
+
+    default:
+      return assertNever(reason);
+  }
+}
+
+/** R0/R1/R2/R3/R4 all land here. Fail closed, never a silent free booking. */
+class DepositsUnavailableError extends Error {
+  constructor(public readonly stage: string) {
+    super('DEPOSITS_TEMPORARILY_UNAVAILABLE');
+    this.name = 'DepositsUnavailableError';
+  }
+}
+
+/** R5: the authoritative amount is HIGHER than what the client was shown. */
+class DepositChangedError extends Error {
+  constructor(
+    public readonly amountCents: number,
+    public readonly fingerprint: string,
+  ) {
+    super('DEPOSIT_CHANGED');
+    this.name = 'DepositChangedError';
+  }
+}
+
+/**
+ * A required charge below Stripe's floor. NOT a refusal class of its own in the
+ * policy sense — D3 already returns { required:false, reason:'below_minimum_charge' }
+ * for a capped amount under the floor, which means "proceed with no deposit".
+ * Reaching here means the resolver returned a required amount that is illegal,
+ * so fail closed rather than dispatch an illegal charge.
+ */
+class DepositAmountFloorError extends Error {
+  constructor(public readonly amountCents: number) {
+    super('DEPOSIT_AMOUNT_BELOW_FLOOR');
+    this.name = 'DepositAmountFloorError';
+  }
+}
+
+function depositsTemporarilyUnavailableResponse(): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'DEPOSITS_TEMPORARILY_UNAVAILABLE',
+        message: 'Deposits are temporarily unavailable for this salon. Please try again in a few minutes.',
+      },
+    } satisfies ErrorResponse,
+    { status: 503 },
+  );
+}
+
+function depositChangedResponse(error: DepositChangedError): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'DEPOSIT_CHANGED',
+        message: 'The deposit for this booking has changed. Please review the updated amount before continuing.',
+        // Reuses the smartFitStaleResponse SHAPE — `details.*` is the correct
+        // container here. These authoritative values are MANDATORY: without
+        // them a client re-rendering from the same URL reproduces the same
+        // fingerprint and 409s forever.
+        details: {
+          deposit: {
+            required: true,
+            amountCents: error.amountCents,
+            fingerprint: error.fingerprint,
+          },
+        },
       },
     } satisfies ErrorResponse,
     { status: 409 },
@@ -1096,6 +1324,11 @@ export async function POST(request: Request): Promise<Response> {
         ? null
         : (data.expectedDiscountType?.trim() || null),
       expectedTotalCents: data.expectedTotalCents ?? null,
+      // Registered here deliberately: without it, two requests differing ONLY
+      // in the amount the client was shown hash identically, which weakens both
+      // the Redis idempotency payload comparison and the acknowledgment-replay
+      // authority.
+      expectedDepositFingerprint: data.expectedDepositFingerprint ?? null,
       bookingPolicyAcknowledgment: requestedPolicyAcknowledgment
         ? {
             accepted: requestedPolicyAcknowledgment.accepted,
@@ -1614,6 +1847,30 @@ export async function POST(request: Request): Promise<Response> {
       }
 
       if (duplicate.decision === 'block') {
+        // If what is blocking them is THEIR OWN live deposit hold, say so, and
+        // give the expiry so the client knows how long the slot is theirs.
+        // Deliberately NO checkout URL and NO manage URL: this API
+        // authenticates by phone possession alone, so returning either would
+        // hand an in-flight payment session to anyone who types the victim's
+        // phone number. The client surfaces this through the existing
+        // EXISTING_APPOINTMENT presentation, not the generic error banner.
+        const blockingHold = [...eligiblePhoneMatches, ...eligibleEmailMatches]
+          .find(match => match.status === 'awaiting_payment');
+        if (blockingHold) {
+          return Response.json(
+            {
+              error: {
+                code: 'DEPOSIT_HOLD_ACTIVE',
+                message: 'You already have a booking waiting for its deposit. Finish that payment, or wait for the hold to expire.',
+                details: {
+                  holdExpiresAt: blockingHold.depositHoldExpiresAt?.toISOString() ?? null,
+                },
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          );
+        }
+
         return Response.json(
           {
             error: {
@@ -2779,6 +3036,113 @@ export async function POST(request: Request): Promise<Response> {
       throw new BookingClientConflictError();
     };
 
+    // =========================================================================
+    // DEPOSITS — E.0a (scope predicate) and E.0b (readiness proof)
+    //
+    // BOTH are strictly PRE-TRANSACTION, and E.0b is hoisted ABOVE
+    // runSerializedBookingTransaction rather than merely "before the
+    // transaction". That runner is a retry loop nested inside a 2-iteration
+    // identity loop: a retrieve placed inside it re-issues per attempt, and the
+    // required "exactly one accounts.retrieve per deposit booking" test would
+    // then FLAKE instead of failing — the worst possible shape for a money-path
+    // test.
+    // =========================================================================
+
+    // Read from the ZOD-VALIDATED object, never the raw JSON body: the raw body
+    // could carry a non-string or an over-long token straight into the parser,
+    // bypassing the z.string().max(64) cap.
+    const disclosedDepositCents = parseDepositDisclosureFingerprint(
+      data.expectedDepositFingerprint ?? null,
+    );
+    // NOTE the asymmetry with E.3, and do not "unify" it: Step 0 asks *"was a
+    // deposit disclosed at all?"*, so a null parse (absent, malformed, wrong
+    // version) means NO and SKIPS. E.3 asks *"does the disclosure match?"*,
+    // where a null parse is a HARD MISMATCH. Both are correct.
+    const depositWasDisclosed = disclosedDepositCents !== null && disclosedDepositCents > 0;
+
+    type DepositBranchContext = {
+      accountSnapshot: DepositAccountSnapshot;
+      stripeAccountId: string;
+    };
+    let depositBranch: DepositBranchContext | null = null;
+    // Set when the policy resolves ACTIVE but this request is outside the charge
+    // predicate, so the 201 must still carry `deposit: { required:false }`.
+    let respondDepositNotRequired = false;
+
+    // The scope read is issued for a public booking, and additionally for any
+    // request that carried a fingerprint (i.e. came from the public confirm
+    // page). An owner-entered phone booking or a walk-in never sends the field,
+    // so the admin surfaces keep exactly today's query profile.
+    if (isNewPublicBooking || data.expectedDepositFingerprint !== undefined) {
+      const depositScopeRead = await getDepositPolicyForSalon({
+        salonId: salon.id,
+        salon,
+      });
+
+      if (!isNewPublicBooking) {
+        // Outside the charge predicate BECAUSE OF THE ACTOR: an owner or staff
+        // member booking from the public confirm page. The disclosure predicate
+        // is WIDER than the charge predicate, so they were shown the deposit
+        // statement and will never be charged; this object is the only
+        // correction that screen ever receives, and it is never omitted when the
+        // policy is active.
+        //
+        // A RESCHEDULE is excluded deliberately. It is outside the branch for a
+        // different reason — a reschedule owes no deposit under ANY policy state
+        // — and its client was never shown a new-booking deposit statement, so
+        // there is nothing to correct. Emitting the object there would have the
+        // manage/reschedule screens render a deposit line for a booking that has
+        // no deposit semantics at all.
+        respondDepositNotRequired = depositScopeRead.active && !normalizedOriginalApptId;
+      } else {
+        const decision: DepositScopeDecision = depositScopeRead.active
+          ? 'enter'
+          : classifyDepositScope(depositScopeRead.reason, depositWasDisclosed);
+
+        if (decision === 'refuse_undetermined') {
+          // R0. No refreshAccountReadiness call, no transaction opened, no
+          // appointment row at all, no deposit row, no Stripe call.
+          return depositsTemporarilyUnavailableResponse();
+        }
+
+        if (decision === 'enter') {
+          // E.0b — the ONE Stripe call before the commit. It serves both the
+          // gate and the snapshot; there is no second readiness read anywhere.
+          let readiness: ReadinessDecision;
+          try {
+            readiness = await refreshAccountReadiness(salon.id);
+          } catch {
+            // R1: StripeConnectUnavailableError. Transaction never opened.
+            return depositsTemporarilyUnavailableResponse();
+          }
+          if (!readiness.chargeReady || !readiness.binding) {
+            // R1, fail closed. Reached by two distinct populations, kept
+            // separate by the tests: the stale-stored-row race (stored says
+            // ready, live says not), and every account-side-inactive salon on
+            // which the client WAS shown a deposit.
+            return depositsTemporarilyUnavailableResponse();
+          }
+          depositBranch = {
+            // Immutable from here on. stripe_account_id is carried separately
+            // because the snapshot type deliberately excludes it (it must never
+            // reach a browser).
+            accountSnapshot: {
+              chargesEnabled: readiness.binding.chargesEnabled,
+              revokedAt: readiness.binding.revokedAt,
+              lastSyncedAt: readiness.binding.lastSyncedAt,
+              livemode: readiness.binding.livemode,
+            },
+            stripeAccountId: readiness.binding.stripeAccountId,
+          };
+        }
+      }
+    }
+
+    // Returned BY the committing attempt of the booking transaction rather than
+    // assigned into from inside it: the runner retries the whole body, so a
+    // closure-assigned plan can name a deposit row that was rolled back.
+    let depositPlan: CommittedDepositPlan | null = null;
+
     let appointment: Appointment | null = null;
     let salonClient: OperationalSalonClientContact | null = null;
     let appointmentServices: AppointmentService[] = [];
@@ -2818,6 +3182,22 @@ export async function POST(request: Request): Promise<Response> {
               || !['pending', 'confirmed'].includes(lockedOriginal.status)
             ) {
               throw new Error('RESCHEDULE_CONFLICT');
+            }
+
+            // The original is locked; now refuse to strand a live deposit on it.
+            // Non-terminal means 'checkout_created' or 'paid': a session that
+            // may still settle, or money already taken.
+            const [liveDeposit] = await tx
+              .select({ id: appointmentDepositSchema.id })
+              .from(appointmentDepositSchema)
+              .where(and(
+                eq(appointmentDepositSchema.salonId, salon.id),
+                eq(appointmentDepositSchema.appointmentId, normalizedOriginalApptId),
+                inArray(appointmentDepositSchema.status, ['checkout_created', 'paid']),
+              ))
+              .limit(1);
+            if (liveDeposit) {
+              throw new RescheduleRequiresManageFlowError();
             }
             if (
               lockedOriginal.salonClientId !== originalAppointment.salonClientId
@@ -2997,6 +3377,17 @@ export async function POST(request: Request): Promise<Response> {
         if (error instanceof BookingActiveAppointmentError) {
           return bookingActiveAppointmentResponse(bookingSubjectMode);
         }
+        if (error instanceof RescheduleRequiresManageFlowError) {
+          return Response.json(
+            {
+              error: {
+                code: 'RESCHEDULE_REQUIRES_MANAGE_FLOW',
+                message: 'This appointment has a deposit. Please use the manage link to move it, so the deposit stays attached.',
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          );
+        }
         if (
           error instanceof BookingClientConflictError
           || error instanceof ClientLifecycleStabilizationError
@@ -3099,6 +3490,118 @@ export async function POST(request: Request): Promise<Response> {
 
             await finalizeBookingPricingInTx(tx, lockedSalonClient);
 
+            // =================================================================
+            // DEPOSITS — E.1 (pure in-transaction resolution) and E.2/E.3
+            //
+            // PURE: no provider call and no second pooled DB checkout. The
+            // advisory lock pg_advisory_xact_lock(salonId, technicianId) is held
+            // right now, so a helper that reaches @/libs/DB via await import()
+            // would check out a SECOND connection while holding it AND read
+            // outside this transaction's snapshot. getDepositPolicyForSalon is
+            // therefore never called here — only the pure resolver is.
+            // =================================================================
+            let depositCharge: { amountCents: number; fingerprint: string } | null = null;
+            let committedDepositPlan: CommittedDepositPlan | null = null;
+            // The branch ran and the policy was live, but this particular
+            // booking owes nothing (a reward dropped the total under the floor,
+            // say). The 201 must still SAY so — see the return value below.
+            let depositResolvedNotRequired = false;
+            if (depositBranch) {
+              const [inTxSalon] = await tx
+                .select({
+                  settings: salonSchema.settings,
+                  features: salonSchema.features,
+                })
+                .from(salonSchema)
+                .where(eq(salonSchema.id, salon.id))
+                .limit(1);
+
+              const depositPolicy = resolveDepositPolicy({
+                settings: (inTxSalon?.settings as SalonSettings | null | undefined) ?? null,
+                features: (inTxSalon?.features as SalonFeatures | null | undefined) ?? null,
+                stripeAccount: depositBranch.accountSnapshot,
+                // Imported from depositPolicy.server.ts. NEVER re-derived here:
+                // a locally recomputed livemode is exactly how a live Checkout
+                // gets created against a test-mode binding.
+                expectedLivemode: EXPECTED_LIVEMODE,
+              });
+
+              let charge;
+              try {
+                // `totalPrice` is read HERE, after finalize, because
+                // resetTransactionPricing() re-derives pricing on every attempt
+                // — an earlier capture is not well defined, and with a 50%-off
+                // retention campaign the subtotal would yield a CA$50 deposit
+                // against a CA$30 booking. This is the exact value bound into
+                // the INSERT below.
+                charge = resolveDepositChargeForTotal(depositPolicy, totalPrice, {
+                  mode: 'authoritative',
+                  isReschedule: false,
+                });
+              } catch {
+                // R3: a TypeError from a non-integer total. Defence in depth —
+                // what it fixes is that this failure previously had no SHAPE:
+                // the transaction is retried, so a deterministic corrupt total
+                // burned the retry budget and then 500'd with no client code.
+                throw new DepositsUnavailableError('charge_resolver_threw');
+              }
+
+              if (!charge.required && charge.reason === 'undetermined') {
+                // R2. NEVER treated as required:false. Without this, every
+                // active:false flattens to policy_inactive -> required:false and
+                // a transient failure books FREE. Distinct from R0: R0 refuses
+                // the pre-transaction SCOPE read, this refuses the
+                // in-transaction PURE resolution, whose reachable causes are
+                // different ones (EXPECTED_LIVEMODE === null, resolver throw).
+                throw new DepositsUnavailableError('charge_undetermined');
+              }
+
+              if (charge.required) {
+                // R4: a platform key-mode change is reachable, and would
+                // otherwise create a LIVE Checkout against a test-mode binding
+                // (or the reverse) — charging a client on an account Luster can
+                // neither confirm nor refund against. Two values already in
+                // scope; no new call, query or column.
+                if (depositBranch.accountSnapshot?.livemode !== EXPECTED_LIVEMODE) {
+                  throw new DepositsUnavailableError('livemode_mismatch');
+                }
+
+                const fingerprint = buildDepositDisclosureFingerprint(charge);
+
+                // R5 / E.3 — A MAGNITUDE RULE, NOT EQUALITY. Only an UPWARD
+                // surprise blocks; an equal-or-lower authoritative amount
+                // proceeds. Writing this as equality rejects a client who now
+                // owes LESS, and making an absent field an unconditional 409
+                // loops forever (a pre-D3 bundle sends nothing, a 100%-value
+                // reward makes required:false, and the client is told to adopt
+                // an amount that does not exist).
+                //
+                // A null parse is a HARD MISMATCH here — the opposite of Step 0
+                // — and 'deposit-v1:none' parses to 0, so a forged or stale
+                // sentinel at an ACTIVE salon blocks rather than manufacturing
+                // either a free booking or a silent charge.
+                if (
+                  disclosedDepositCents === null
+                  || charge.amountCents > disclosedDepositCents
+                ) {
+                  throw new DepositChangedError(charge.amountCents, fingerprint);
+                }
+
+                if (charge.amountCents < MIN_DEPOSIT_CENTS) {
+                  // A CAPPED amount below the floor is not a refusal — D3
+                  // already returns { required:false, reason:'below_minimum_charge' }
+                  // for that, meaning "proceed with no deposit". Reaching here
+                  // means an illegal required amount, so fail closed rather
+                  // than dispatch it.
+                  throw new DepositAmountFloorError(charge.amountCents);
+                }
+
+                depositCharge = { amountCents: charge.amountCents, fingerprint };
+              } else {
+                depositResolvedNotRequired = true;
+              }
+            }
+
             let lockedRetentionCampaign: typeof retentionCampaignSchema.$inferSelect | null = null;
             if (retentionCampaign) {
               const [lockedCampaign] = await tx
@@ -3129,6 +3632,14 @@ export async function POST(request: Request): Promise<Response> {
               lockedRetentionCampaign = lockedCampaign;
             }
 
+            // Derived per attempt, INSIDE the transaction body: the runner
+            // retries the whole body, so a holdNow captured outside would drift
+            // from the row it stamps.
+            const holdNow = new Date();
+            const holdExpiresAt = depositCharge
+              ? new Date(holdNow.getTime() + DEPOSIT_HOLD_WINDOW_MINUTES * 60_000)
+              : null;
+
             const [createdAppointment] = await tx
               .insert(appointmentSchema)
               .values({
@@ -3144,7 +3655,13 @@ export async function POST(request: Request): Promise<Response> {
                 googleCalendarEventId: googleReviewEvent?.googleEventId ?? null,
                 startTime,
                 endTime,
-                status: salon.freeSoloEnabled ? 'confirmed' : 'pending',
+                // THE APPOINTMENT ROW IS THE HOLD.
+                status: depositCharge
+                  ? 'awaiting_payment'
+                  : (salon.freeSoloEnabled ? 'confirmed' : 'pending'),
+                ...(depositCharge
+                  ? { createdAt: holdNow, depositHoldExpiresAt: holdExpiresAt }
+                  : {}),
                 totalPrice,
                 totalDurationMinutes,
                 basePriceCents,
@@ -3164,6 +3681,55 @@ export async function POST(request: Request): Promise<Response> {
 
             if (!createdAppointment) {
               throw new Error('Failed to create appointment');
+            }
+
+            if (depositCharge && depositBranch && holdExpiresAt) {
+              // Same transaction as the appointment, so the active-uniqueness
+              // rule (one non-terminal deposit per appointment) is claimed
+              // atomically with the slot.
+              const depositId = `dep_${crypto.randomUUID()}`;
+              // Computed NOW from the already-loaded salon row so the Checkout
+              // parameters can derive entirely from the committed deposit row —
+              // salon slug and customDomain are runtime-mutable, and Stripe
+              // errors if parameters differ under a replayed idempotency key.
+              const checkoutSuccessUrl = buildSalonTenantPublicUrl('/deposit/return', salon);
+              const checkoutCancelUrl = buildSalonTenantPublicUrl('/deposit/cancel', salon);
+
+              await tx.insert(appointmentDepositSchema).values({
+                id: depositId,
+                salonId: salon.id,
+                appointmentId: createdAppointment.id,
+                status: 'checkout_created',
+                amountCents: depositCharge.amountCents,
+                // THE IMPORTED LOWERCASE CONSTANT, never a literal and never
+                // 'CAD'. 0065 ships CHECK (currency = 'cad'); an uppercase
+                // insert raises a check violation INSIDE this retried
+                // transaction, burning the retry budget and 500ing — a total
+                // booking outage for the deposit branch of every deposit salon,
+                // caused by two characters, and invisible to any test that
+                // mocks the DB.
+                currency: DEPOSIT_CURRENCY,
+                // amount_cents <= disclosed_amount_cents is the invariant;
+                // EQUALITY IS NOT. A downward request persists both, unequal,
+                // deliberately — 0065 adds no equality CHECK.
+                disclosedAmountCents: disclosedDepositCents,
+                stripeAccountId: depositBranch.stripeAccountId,
+                checkoutSuccessUrl,
+                checkoutCancelUrl,
+                // Stays NULL until post-commit; unique constraints on nullable
+                // columns admit NULLs, so "unique Checkout Session id" holds.
+                stripeCheckoutSessionId: null,
+              });
+
+              committedDepositPlan = {
+                depositId,
+                amountCents: depositCharge.amountCents,
+                holdExpiresAt,
+                stripeAccountId: depositBranch.stripeAccountId,
+                checkoutSuccessUrl,
+                checkoutCancelUrl,
+                fingerprint: depositCharge.fingerprint,
+              };
             }
 
             if (currentRequiredPolicy && requestedPolicyAcknowledgment) {
@@ -3317,6 +3883,8 @@ export async function POST(request: Request): Promise<Response> {
               appointmentServices: insertedServices,
               appointmentAddOns: insertedAddOns,
               salonClient: lockedSalonClient,
+              depositPlan: committedDepositPlan,
+              depositResolvedNotRequired,
             };
           },
         );
@@ -3325,7 +3893,40 @@ export async function POST(request: Request): Promise<Response> {
         appointmentServices = transactionalResult.appointmentServices;
         appointmentAddOns = transactionalResult.appointmentAddOns;
         salonClient = transactionalResult.salonClient;
+        depositPlan = transactionalResult.depositPlan;
+        // An ENTERED branch whose authoritative charge came back `required:false`
+        // must still carry `deposit: { required:false }` on the 201. Omitting it
+        // tells the client to adopt `details.deposit.amountCents`, of which
+        // there is none — the exact loop the magnitude rule exists to prevent.
+        if (transactionalResult.depositResolvedNotRequired) {
+          respondDepositNotRequired = true;
+        }
       } catch (error) {
+        if (error instanceof DepositsUnavailableError) {
+          // R2/R3/R4. The transaction aborted, so there is NO appointment row
+          // and NO deposit row — which is the assertion the tests make, because
+          // "an appointment exists with no deposit" is precisely the free
+          // booking this refusal exists to prevent.
+          return depositsTemporarilyUnavailableResponse();
+        }
+        if (error instanceof DepositChangedError) {
+          return depositChangedResponse(error);
+        }
+        if (error instanceof DepositAmountFloorError) {
+          console.error('[deposits] resolver returned a required amount below the Stripe floor', {
+            salonId: salon.id,
+            amountCents: error.amountCents,
+          });
+          return Response.json(
+            {
+              error: {
+                code: 'DEPOSIT_AMOUNT_INVALID',
+                message: 'This booking could not be completed. Please contact the salon.',
+              },
+            } satisfies ErrorResponse,
+            { status: 500 },
+          );
+        }
         if (error instanceof BookingPolicyAcknowledgmentRequiredError) {
           return bookingPolicyAcknowledgmentRequiredResponse(
             error.bookingPolicy,
@@ -3376,6 +3977,11 @@ export async function POST(request: Request): Promise<Response> {
       throw new Error('BOOKING_TRANSACTION_DID_NOT_COMMIT');
     }
 
+    // §7.F — the ONLY new code on the non-deposit path is eight boolean
+    // conditions. No statement moves; the response build, the cache write and
+    // the return stay exactly where they are, in their current order.
+    const isDepositHold = depositPlan !== null;
+
     if (googleReviewEvent) {
       await recordGoogleEventReviewDecision({
         salonId: salon.id,
@@ -3384,12 +3990,21 @@ export async function POST(request: Request): Promise<Response> {
       });
     }
 
+    // GUARD 1/8. The one that must not be missed, and the reason it is listed
+    // first: `converted` is TERMINAL. Unguarded, an abandoned hold permanently
+    // and irreversibly marks a win-back message as converted against an
+    // appointment that never existed — corrupting attribution and silently
+    // dropping that client from all future outreach. The reaper cannot undo it.
+    // It also sits OUTSIDE the range downstream documents call "the post-commit
+    // block", which is exactly why it gets missed.
     try {
-      await markLatestRetentionOutreachConverted({
-        salonId: salon.id,
-        salonClientId: salonClient.id,
-        appointmentId: appointment.id,
-      });
+      if (!isDepositHold) {
+        await markLatestRetentionOutreachConverted({
+          salonId: salon.id,
+          salonClientId: salonClient.id,
+          appointmentId: appointment.id,
+        });
+      }
     } catch (conversionError) {
       // The appointment is already committed. Timeline enrichment must never
       // turn a successful booking into a 500 that encourages a duplicate retry.
@@ -3436,7 +4051,8 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // 9c. Link the applied reward to this appointment (mark as pending redemption)
-    if (appliedReward) {
+    // GUARD 2/8.
+    if (appliedReward && !isDepositHold) {
       await db
         .update(rewardSchema)
         .set({
@@ -3454,16 +4070,21 @@ export async function POST(request: Request): Promise<Response> {
       `+${salonClient.phone}`,
     ];
 
-    const claimedReferrals = await db
-      .select()
-      .from(referralSchema)
-      .where(
-        and(
-          eq(referralSchema.salonId, salon.id),
-          inArray(referralSchema.refereePhone, phoneVariants),
-          eq(referralSchema.status, 'claimed'),
-        ),
-      );
+    // GUARD 3/8. An inverted guard here would silently kill referral
+    // attribution for every salon, and nothing in the repository asserts this
+    // fires today.
+    const claimedReferrals = isDepositHold
+      ? []
+      : await db
+        .select()
+        .from(referralSchema)
+        .where(
+          and(
+            eq(referralSchema.salonId, salon.id),
+            inArray(referralSchema.refereePhone, phoneVariants),
+            eq(referralSchema.status, 'claimed'),
+          ),
+        );
 
     // Update claimed referrals based on expiry status
     for (const referral of claimedReferrals) {
@@ -3482,7 +4103,11 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
 
-    if (!googleReviewEvent || googleReviewEvent.syncMode === 'bidirectional') {
+    // GUARD 4/8.
+    if (
+      !isDepositHold
+      && (!googleReviewEvent || googleReviewEvent.syncMode === 'bidirectional')
+    ) {
       await enqueueGoogleCalendarUpsert({
         appointmentId: appointment.id,
         salonId: salon.id,
@@ -3501,6 +4126,151 @@ export async function POST(request: Request): Promise<Response> {
         notes: appointment.notes,
         googleCalendarEventId: appointment.googleCalendarEventId,
       });
+    }
+
+    // =========================================================================
+    // DEPOSITS — E.5: Checkout Session creation. POST-COMMIT, and never inside
+    // any DB transaction.
+    //
+    // It runs BEFORE the response build on purpose: the `deposit` object has to
+    // be part of the object that is both cached and returned, so an idempotent
+    // replay carries the checkout URL. Attaching it after the cache write would
+    // hand a replayed client a 201 with nowhere to pay.
+    // =========================================================================
+    let depositResponse: DepositResponseObject | undefined;
+    if (respondDepositNotRequired) {
+      depositResponse = { required: false };
+    }
+
+    if (depositPlan) {
+      const depositRow: DepositCheckoutRow = {
+        id: depositPlan.depositId,
+        salonId: salon.id,
+        appointmentId: appointment.id,
+        amountCents: depositPlan.amountCents,
+        stripeAccountId: depositPlan.stripeAccountId,
+        checkoutSuccessUrl: depositPlan.checkoutSuccessUrl,
+        checkoutCancelUrl: depositPlan.checkoutCancelUrl,
+        holdExpiresAt: depositPlan.holdExpiresAt,
+      };
+      const created = await createDepositCheckoutSession({ deposit: depositRow });
+      const checkoutUrl = created.ok ? created.session.url : null;
+
+      if (created.ok && checkoutUrl) {
+        const session = created.session;
+        const paymentIntentId = typeof session.payment_intent === 'string'
+          ? session.payment_intent
+          // May be NULL at creation under current API versions; store what the
+          // session actually returns rather than synthesising one.
+          : (session.payment_intent?.id ?? null);
+
+        // ONE statement, guarded on the session id still being NULL.
+        await db
+          .update(appointmentDepositSchema)
+          .set({
+            stripeCheckoutSessionId: session.id,
+            stripePaymentIntentId: paymentIntentId,
+            stripeCheckoutUrl: checkoutUrl,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(appointmentDepositSchema.id, depositPlan.depositId),
+            eq(appointmentDepositSchema.salonId, salon.id),
+            isNull(appointmentDepositSchema.stripeCheckoutSessionId),
+          ));
+
+        const expectedExpiry = depositHoldExpiresAtEpochSeconds(depositPlan.holdExpiresAt);
+        if (session.expires_at !== expectedExpiry) {
+          // The LOCAL deadline stays authoritative for the reaper; this is a
+          // divergence alarm, not a correction.
+          const Sentry = await import('@sentry/nextjs');
+          Sentry.captureMessage('Deposit Checkout expires_at diverged from the local hold deadline', {
+            level: 'warning',
+            tags: { scope: 'deposit_checkout_expiry_mismatch', salon_id: salon.id },
+            extra: { expected: expectedExpiry, received: session.expires_at },
+          });
+        }
+
+        depositResponse = {
+          required: true,
+          checkoutUrl,
+          amountCents: depositPlan.amountCents,
+          currency: DEPOSIT_CURRENCY,
+          fingerprint: depositPlan.fingerprint,
+          holdExpiresAt: depositPlan.holdExpiresAt.toISOString(),
+        };
+      } else if (created.ok) {
+        // A session exists but carries no hosted URL. A session id WAS learned,
+        // so the hold is never cancelled here; the reaper owns it.
+        await db
+          .update(appointmentDepositSchema)
+          .set({
+            stripeCheckoutSessionId: created.session.id,
+            updatedAt: new Date(),
+          })
+          .where(and(
+            eq(appointmentDepositSchema.id, depositPlan.depositId),
+            eq(appointmentDepositSchema.salonId, salon.id),
+            isNull(appointmentDepositSchema.stripeCheckoutSessionId),
+          ));
+        return Response.json(
+          {
+            error: {
+              code: 'DEPOSIT_CHECKOUT_UNAVAILABLE',
+              message: 'We could not open the payment page. Your slot is held briefly — please try again.',
+            },
+          } satisfies ErrorResponse,
+          { status: 503 },
+        );
+      } else if (isCancellableCreateFailure(created.failure)) {
+        // DEFINITE / PERMANENT, and no session id was learned: Stripe decoded
+        // the request and rejected it, so retrying is pointless and the slot
+        // should become re-bookable immediately.
+        //
+        // NEVER reached for a 429, a concurrent idempotency_error, or any 5xx:
+        // cancelling on a 429 destroys valid bookings during exactly the
+        // traffic spikes deposits exist for, and cancelling on a concurrent 409
+        // can strand a payable session created by the in-flight original with
+        // no local record at all. Those are classified 'ambiguous' and fall to
+        // the branch below.
+        await cancelHoldAfterDefiniteCheckoutFailure({
+          appointmentId: appointment.id,
+          salonId: salon.id,
+          depositId: depositPlan.depositId,
+        });
+        const Sentry = await import('@sentry/nextjs');
+        Sentry.captureException(created.error, {
+          tags: { scope: 'deposit_checkout_definite_failure', salon_id: salon.id },
+        });
+        return Response.json(
+          {
+            error: {
+              code: 'DEPOSIT_CHECKOUT_FAILED',
+              message: 'We could not start the deposit payment. Your slot was released — please try booking again.',
+            },
+          } satisfies ErrorResponse,
+          { status: 502 },
+        );
+      } else {
+        // AMBIGUOUS: a timeout, a reset, or a retryable failure that survived
+        // its one retry. We do not know whether a session exists — a saved
+        // result, including a saved 500, is replayed under the same key for
+        // >= 24 h. Leave the hold standing; the reaper resolves it.
+        console.error('[deposits] Checkout create was ambiguous; leaving the hold standing', {
+          salonId: salon.id,
+          appointmentId: appointment.id,
+          idempotencyKey: buildDepositCheckoutIdempotencyKey(appointment.id),
+        });
+        return Response.json(
+          {
+            error: {
+              code: 'DEPOSIT_CHECKOUT_UNAVAILABLE',
+              message: 'We could not reach the payment provider. Your slot is held briefly — please try again.',
+            },
+          } satisfies ErrorResponse,
+          { status: 503 },
+        );
+      }
     }
 
     // =========================================================================
@@ -3533,6 +4303,11 @@ export async function POST(request: Request): Promise<Response> {
           name: salon.name,
           slug: salon.slug,
         },
+        // Part of the object that is BOTH cached and returned, so a replay
+        // carries the checkout URL. Absent entirely when the policy is not
+        // active; `{ required: false }` when it is active but this request was
+        // outside the charge predicate.
+        ...(depositResponse ? { deposit: depositResponse } : {}),
       },
       meta: {
         timestamp: new Date().toISOString(),
@@ -3565,17 +4340,20 @@ export async function POST(request: Request): Promise<Response> {
     // 12. SLOW WORK - SMS notifications (OUTSIDE lock window, after cache write)
     // =========================================================================
     // Use salonClient.phone as source of truth for all SMS
+    // GUARD 5/8.
     try {
-      await sendCustomerBookingConfirmationEmail({
-        salonId: salon.id,
-        appointmentId: appointment.id,
-        salonName: salon.name,
-        clientName: clientName ?? 'Guest',
-        serviceNames: services.map(service => service.name),
-        startTime: startTime.toISOString(),
-        timeZone: bookingConfig.timezone,
-        manageUrl,
-      });
+      if (!isDepositHold) {
+        await sendCustomerBookingConfirmationEmail({
+          salonId: salon.id,
+          appointmentId: appointment.id,
+          salonName: salon.name,
+          clientName: clientName ?? 'Guest',
+          serviceNames: services.map(service => service.name),
+          startTime: startTime.toISOString(),
+          timeZone: bookingConfig.timezone,
+          manageUrl,
+        });
+      }
     } catch {
       console.error('[Booking] Customer confirmation failed after the appointment committed:', {
         salonId: salon.id,
@@ -3583,7 +4361,8 @@ export async function POST(request: Request): Promise<Response> {
       });
     }
 
-    if (data.smsConsent?.granted) {
+    // GUARD 6/8.
+    if (data.smsConsent?.granted && !isDepositHold) {
       await sendBookingConfirmationToClient(salon.id, {
         phone: salonClient.phone,
         clientName: clientName ?? undefined,
@@ -3602,42 +4381,48 @@ export async function POST(request: Request): Promise<Response> {
     // the response was cached, so abandoned sessions, holds, failed bookings
     // and idempotent replays never reach it. Failures are swallowed: a
     // notification must never undo a booking the client already saw succeed.
-    await notifySalonAboutBooking({
-      salonId: salon.id,
-      appointmentId: appointment.id,
-      actorRole,
-      originalAppointment,
-      newStartTime: startTime,
-      newEndTime: endTime,
-    });
+    // GUARD 7/8.
+    if (!isDepositHold) {
+      await notifySalonAboutBooking({
+        salonId: salon.id,
+        appointmentId: appointment.id,
+        actorRole,
+        originalAppointment,
+        newStartTime: startTime,
+        newEndTime: endTime,
+      });
+    }
 
-    await sendBookingNotificationsForNewBooking({
-      salon: {
-        id: salon.id,
-        name: salon.name,
-        ownerName: salon.ownerName,
-        ownerPhone: salon.ownerPhone,
-        ownerEmail: salon.ownerEmail,
-        features: (salon.features as SalonFeatures | null | undefined) ?? null,
-        settings: (salon.settings as SalonSettings | null | undefined) ?? null,
-      },
-      technician: technician
-        ? {
-            id: technician.id,
-            name: technician.name,
-            phone: technician.phone,
-            email: technician.email,
-          }
-        : null,
-      appointmentId: appointment.id,
-      clientName: clientName ?? 'Guest',
-      clientPhone: salonClient.phone,
-      services: services.map(s => s.name),
-      startTime: startTime.toISOString(),
-      totalDurationMinutes,
-      totalPrice,
-      timeZone: bookingConfig.timezone,
-    });
+    // GUARD 8/8.
+    if (!isDepositHold) {
+      await sendBookingNotificationsForNewBooking({
+        salon: {
+          id: salon.id,
+          name: salon.name,
+          ownerName: salon.ownerName,
+          ownerPhone: salon.ownerPhone,
+          ownerEmail: salon.ownerEmail,
+          features: (salon.features as SalonFeatures | null | undefined) ?? null,
+          settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+        },
+        technician: technician
+          ? {
+              id: technician.id,
+              name: technician.name,
+              phone: technician.phone,
+              email: technician.email,
+            }
+          : null,
+        appointmentId: appointment.id,
+        clientName: clientName ?? 'Guest',
+        clientPhone: salonClient.phone,
+        services: services.map(s => s.name),
+        startTime: startTime.toISOString(),
+        totalDurationMinutes,
+        totalPrice,
+        timeZone: bookingConfig.timezone,
+      });
+    }
 
     // 13. Return response (same object that was cached, if caching was enabled)
     bookingSucceeded = true;

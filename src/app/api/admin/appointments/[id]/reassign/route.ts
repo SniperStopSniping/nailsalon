@@ -13,8 +13,8 @@
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
-import { logAdminOverride, logTechReassignment } from '@/libs/appointmentAudit';
 import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
+import { logAdminOverride, logTechReassignment } from '@/libs/appointmentAudit';
 import { db } from '@/libs/DB';
 import {
   appointmentSchema,
@@ -190,7 +190,11 @@ export async function PUT(
         and(
           eq(appointmentSchema.salonId, salon.id),
           eq(appointmentSchema.technicianId, technicianId),
-          inArray(appointmentSchema.status, ['pending', 'confirmed']),
+          // 'awaiting_payment' is a deposit hold, and a hold occupies the
+          // technician's slot exactly as 'pending' does. Omitting it here would
+          // let an admin reassign a second appointment into a held window and
+          // trip the DB's double-booking backstop (or, worse, double-book).
+          inArray(appointmentSchema.status, ['pending', 'confirmed', 'awaiting_payment']),
         ),
       );
 

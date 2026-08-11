@@ -1,4 +1,4 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { and, eq, isNull, ne } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { canTransition, canvasStateToLegacyStatus } from '@/core/appointments/appointmentStateMachine';
@@ -164,6 +164,30 @@ export async function POST(
       salon: salonPolicy,
       superAdmin: superAdminPolicy,
     });
+
+    // 10b. A deposit hold is not transitionable by anyone. THIS IS THE PAYMENT
+    // BYPASS FENCE, and it is deliberately evaluated BEFORE canTransition:
+    // this route otherwise gates only on `canvas_state` and CASes against the
+    // row's own status, so the assigned technician could drive a hold
+    // waiting -> working (status becomes 'in_progress') in a single call and
+    // then complete it — serving an unpaid deposit booking, stranding the
+    // deposit row at 'checkout_created' forever (the reaper keys on
+    // status='awaiting_payment'), and mis-routing D5's confirm CAS to its
+    // late-payment branch. Placing it ahead of the policy check also means the
+    // refusal cannot be masked by a salon whose photo policy happens to block
+    // the same transition for an unrelated reason.
+    if (appointment.status === 'awaiting_payment') {
+      return Response.json(
+        {
+          error: {
+            code: 'HOLD_LOCKED',
+            message: 'This appointment is awaiting a deposit payment and cannot be changed.',
+            reason: 'hold_locked',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
 
     // 11. Check transition with state machine
     const transition = { from: currentCanvasState, to } as Transition;
@@ -340,6 +364,9 @@ export async function POST(
               eq(appointmentSchema.salonId, session.salonId),
               eq(appointmentSchema.technicianId, session.technicianId),
               eq(appointmentSchema.status, appointment.status),
+              // Belt and braces for the pre-read guard above: a row that became
+              // a hold between the pre-read and this CAS must not be moved.
+              ne(appointmentSchema.status, 'awaiting_payment'),
               appointment.canvasState == null
                 ? isNull(appointmentSchema.canvasState)
                 : eq(appointmentSchema.canvasState, appointment.canvasState),

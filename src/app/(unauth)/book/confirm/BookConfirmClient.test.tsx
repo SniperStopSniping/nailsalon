@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
@@ -47,8 +47,10 @@ const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpe
   },
 }));
 
+const { confettiMock } = vi.hoisted(() => ({ confettiMock: vi.fn() }));
+
 vi.mock('canvas-confetti', () => ({
-  default: vi.fn(),
+  default: confettiMock,
 }));
 
 vi.mock('next/navigation', () => ({
@@ -1885,5 +1887,154 @@ describe('BookConfirmClient deposit disclosure', () => {
 
     expect(fetchMock.mock.calls.length).toBe(1);
     expect(screen.queryByTestId('booking-deposit-disclosure')).not.toBeInTheDocument();
+  });
+
+  /**
+   * §14 test 26 — the client money path.
+   *
+   * The navigation seam is INJECTED. `window.location.href = url` would make
+   * these unwritable: jsdom does not implement navigation, failOnConsole turns
+   * that output into a failure, and nothing here stubs window.location.
+   */
+  describe('deposits — redirect, hold re-entry and DEPOSIT_CHANGED (§14 test 26)', () => {
+    const navigateToCheckout = vi.fn();
+
+    const renderDeposit = (
+      overrides: Partial<React.ComponentProps<typeof BookConfirmClient>> = {},
+    ) => render(
+      <BookConfirmClient
+        services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        salonSlug="salon-a"
+        dateStr="2026-03-20"
+        timeStr="11:00"
+        bookingFlow={[]}
+        location={null}
+        navigateToCheckout={navigateToCheckout}
+        {...overrides}
+      />,
+    );
+
+    const confirm = () =>
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    let consoleError: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      navigateToCheckout.mockClear();
+      // The component logs every non-ok booking response by design; two legs
+      // here are 409s, so failOnConsole would fail them for the diagnostic.
+      consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      consoleError.mockRestore();
+    });
+
+    it('a 201 carrying a checkout URL redirects and NEVER shows the success view', async () => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          appointmentId: 'appt_hold',
+          manageUrl: 'https://example.test/manage/tok',
+          deposit: {
+            required: true,
+            checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_1',
+            amountCents: 2500,
+            currency: 'cad',
+            fingerprint: 'deposit-v1:cad:2500',
+            holdExpiresAt: '2026-03-20T15:35:00.000Z',
+          },
+        },
+      }), { status: 201 }));
+
+      renderDeposit();
+      confirm();
+
+      await waitFor(() => expect(navigateToCheckout).toHaveBeenCalledWith(
+        'https://checkout.stripe.com/c/pay/cs_1',
+      ));
+
+      // A hold is NOT a completed booking: showing the success screen would be a
+      // lie, and clearing guest storage would cost the client their details if
+      // they came back from Checkout unpaid.
+      expect(screen.queryByText('Appointment confirmed')).not.toBeInTheDocument();
+
+      // Confetti is asserted as STABILITY rather than a zero count. The success
+      // path schedules it 300 ms after `setBookingComplete`, and a previous
+      // test's 1 200 ms requestAnimationFrame burst can still be decaying here —
+      // a raw "not called" would be measuring that leak, not this test. Letting
+      // it settle and then proving the count does not move across a window
+      // longer than the success delay is what actually shows this render
+      // scheduled nothing.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 1600);
+      });
+      const settled = confettiMock.mock.calls.length;
+      await new Promise((resolve) => {
+        setTimeout(resolve, 500);
+      });
+
+      expect(confettiMock.mock.calls.length).toBe(settled);
+    });
+
+    it('a 409 DEPOSIT_HOLD_ACTIVE renders the existing-appointment options, not the generic banner', async () => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        error: {
+          code: 'DEPOSIT_HOLD_ACTIVE',
+          message: 'You already have a booking waiting for its deposit.',
+          details: { holdExpiresAt: '2026-03-20T15:35:00.000Z' },
+        },
+      }), { status: 409 }));
+
+      renderDeposit();
+      confirm();
+
+      expect(await screen.findByTestId('existing-appointment-manage')).toBeInTheDocument();
+      expect(navigateToCheckout).not.toHaveBeenCalled();
+    });
+
+    it('a 409 DEPOSIT_CHANGED adopts the new amount and issues NO further POST', async () => {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        error: {
+          code: 'DEPOSIT_CHANGED',
+          message: 'The deposit changed.',
+          details: {
+            deposit: {
+              required: true,
+              amountCents: 5000,
+              fingerprint: 'deposit-v1:cad:5000',
+            },
+          },
+        },
+      }), { status: 409 }));
+
+      renderDeposit({
+        depositDisclosure: { label: 'A $25.00 deposit is required', amountCents: 2500 },
+        depositFingerprint: 'deposit-v1:cad:2500',
+      });
+      confirm();
+
+      await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      // DO NOT AUTO-RESUBMIT. A second POST happens only after a further user
+      // click, and it carries the adopted fingerprint — an auto-resubmit would
+      // commit the client to a raised amount on ONE click, and the success path
+      // redirects to Stripe before any success state exists to undo.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 50);
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(navigateToCheckout).not.toHaveBeenCalled();
+
+      // The adopted amount is what the client now sees.
+      // The adopted amount is what the client now sees. Asserting the RENDERED
+      // text, not component state: state alone corrects nothing the client can
+      // read, and the disclosure is the only place this figure ever appears.
+      expect(await screen.findByTestId('booking-deposit-disclosure')).toHaveTextContent('$50.00');
+    });
   });
 });

@@ -64,7 +64,9 @@ export async function GET(request: Request) {
         isNull(appointmentSchema.deletedAt),
         gte(appointmentSchema.startTime, bounds.startOfDay),
         lt(appointmentSchema.startTime, endExclusive),
-        inArray(appointmentSchema.status, ['pending', 'confirmed', 'in_progress', 'completed']),
+        // Holds are shown to the owner: the slot really is occupied, and hiding
+        // it would make the day look free when it is not.
+        inArray(appointmentSchema.status, ['pending', 'confirmed', 'in_progress', 'awaiting_payment', 'completed']),
       ))
       .orderBy(asc(appointmentSchema.startTime)),
     db

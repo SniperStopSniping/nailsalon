@@ -10,6 +10,11 @@ export type AppointmentDisplayStatus
   = | 'pending'
   | 'confirmed'
   | 'in_progress'
+  // A deposit hold: the slot is occupied but the booking is not paid for yet.
+  // This union is HAND-WRITTEN, so widening APPOINTMENT_STATUSES gives no type
+  // error here — the omission would be silent, and every hold would fall to the
+  // neutral-grey fallback that is visually identical to 'cancelled'.
+  | 'awaiting_payment'
   | 'completed'
   | 'cancelled'
   | 'no_show'
@@ -22,6 +27,7 @@ export const APPOINTMENT_STATUS_LABELS: Record<AppointmentDisplayStatus, string>
   pending: 'Unconfirmed',
   confirmed: 'Confirmed',
   in_progress: 'In progress',
+  awaiting_payment: 'Awaiting deposit',
   completed: 'Completed',
   cancelled: 'Cancelled',
   no_show: 'No-show',
@@ -39,6 +45,9 @@ export const APPOINTMENT_STATUS_CHIP_CLASSES: Record<AppointmentDisplayStatus, s
   pending: 'bg-amber-50 text-amber-800 border-amber-200',
   confirmed: 'bg-emerald-50 text-emerald-800 border-emerald-200',
   in_progress: 'bg-sky-50 text-sky-800 border-sky-200',
+  // Deliberately DISTINCT from the neutral fallback: a hold that reads as grey
+  // is indistinguishable from a cancellation at a glance.
+  awaiting_payment: 'bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200',
   completed: 'bg-neutral-100 text-neutral-600 border-neutral-200',
   cancelled: 'bg-neutral-100 text-neutral-500 border-neutral-200',
   no_show: 'bg-red-50 text-red-700 border-red-200',

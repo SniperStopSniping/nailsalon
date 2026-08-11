@@ -8,7 +8,7 @@
  * NEVER accepts salonId from query params.
  */
 
-import { and, asc, desc, eq, gte, inArray, isNull, lt } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNull, lt, ne } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireActiveAdminSalon } from '@/libs/adminAuth';
@@ -118,6 +118,13 @@ export async function GET(request: Request): Promise<Response> {
     ];
     if (statuses && statuses.length > 0) {
       whereClauses.push(inArray(appointmentSchema.status, statuses));
+    } else {
+      // No explicit status filter: exclude deposit holds. Callers that want to
+      // see holds (the calendar, the day list, the walk-in view) ask for
+      // 'awaiting_payment' by name. An unfiltered consumer — notifications
+      // being the one that matters — must not have unpaid holds appear in it as
+      // though they were bookings.
+      whereClauses.push(ne(appointmentSchema.status, 'awaiting_payment'));
     }
 
     const [appointments, technicians] = await Promise.all([

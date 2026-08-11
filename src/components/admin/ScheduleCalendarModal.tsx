@@ -646,7 +646,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
       };
       const [response, googleResponse] = await Promise.all([
         fetch(
-          `/api/admin/appointments?startDate=${startStr}&endDate=${endStr}&status=pending,confirmed,in_progress,completed`,
+          `/api/admin/appointments?startDate=${startStr}&endDate=${endStr}&status=pending,confirmed,in_progress,awaiting_payment,completed`,
         ),
         fetchGoogleEvents(),
       ]);

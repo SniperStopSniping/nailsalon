@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 
 import { requireClientApiSession, requireClientSalonFromQuery } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
@@ -21,7 +21,10 @@ type ErrorResponse = {
 /**
  * GET /api/appointments/history
  * Returns ALL appointments for a client, sorted newest to oldest.
- * Includes all statuses: pending, confirmed, cancelled, completed, no_show
+ * Includes all statuses: pending, confirmed, in_progress, cancelled,
+ * completed, no_show — but NOT 'awaiting_payment'. A deposit hold is an unpaid,
+ * lapsing reservation, not a booking the client has made; showing it in the
+ * history would present an appointment that may vanish minutes later.
  */
 export async function GET(request: Request): Promise<Response> {
   try {
@@ -44,6 +47,7 @@ export async function GET(request: Request): Promise<Response> {
         and(
           inArray(appointmentSchema.clientPhone, auth.phoneVariants),
           eq(appointmentSchema.salonId, salon.id),
+          ne(appointmentSchema.status, 'awaiting_payment'),
         ),
       )
       .orderBy(desc(appointmentSchema.startTime));

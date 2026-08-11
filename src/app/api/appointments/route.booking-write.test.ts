@@ -1851,6 +1851,16 @@ describe('POST /api/appointments booking policy', () => {
                 })),
               })),
             })),
+          }))
+          // The reschedule deposit fence probes appointment_deposit for a
+          // non-terminal row on the original. There is none here, so the
+          // reschedule proceeds exactly as it did before the fence existed.
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                limit: vi.fn(async () => []),
+              })),
+            })),
           })),
       };
 
@@ -2008,6 +2018,16 @@ describe('POST /api/appointments booking policy', () => {
                 })),
               })),
             })),
+          }))
+          // The reschedule deposit fence probes appointment_deposit for a
+          // non-terminal row on the original. There is none here, so the
+          // reschedule proceeds exactly as it did before the fence existed.
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                limit: vi.fn(async () => []),
+              })),
+            })),
           })),
       };
 
@@ -2140,6 +2160,16 @@ describe('POST /api/appointments booking policy', () => {
                     status: 'confirmed',
                   }]),
                 })),
+              })),
+            })),
+          }))
+          // The reschedule deposit fence probes appointment_deposit for a
+          // non-terminal row on the original. There is none here, so the
+          // reschedule proceeds exactly as it did before the fence existed.
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                limit: vi.fn(async () => []),
               })),
             })),
           })),

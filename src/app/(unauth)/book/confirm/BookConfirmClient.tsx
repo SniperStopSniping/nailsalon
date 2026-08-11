@@ -24,7 +24,7 @@ import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
 import type { BookingStep } from '@/libs/bookingFlow';
 import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
-import { DEPOSIT_FINGERPRINT_NONE } from '@/libs/depositPolicy';
+import { buildDepositDisclosure, DEPOSIT_CURRENCY, DEPOSIT_FINGERPRINT_NONE } from '@/libs/depositPolicy';
 import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/directions';
 import { formatMoney } from '@/libs/formatMoney';
 import { triggerHaptic } from '@/libs/haptics';
@@ -137,7 +137,21 @@ type BookConfirmClientProps = {
    * was shown a deposit at all — and refuse to charge an undisclosed amount.
    */
   depositFingerprint?: string;
+  /**
+   * Overridable for tests.
+   *
+   * MUST NOT be written as `window.location.href = url`: jsdom does not
+   * implement navigation, `failOnConsole` turns the resulting console output
+   * into a test failure, and no test in this repository stubs
+   * `window.location` — so a bare href assignment makes the required
+   * redirect test unwritable.
+   */
+  navigateToCheckout?: (url: string) => void;
 };
+
+function defaultNavigateToCheckout(url: string): void {
+  window.location.assign(url);
+}
 
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
 const EMPTY_SELECTED_ADD_ONS: NonNullable<BookConfirmClientProps['selectedAddOns']> = [];
@@ -1685,6 +1699,7 @@ export function BookConfirmClient({
   depositDisclosure = null,
   depositNoticeSuppressed = false,
   depositFingerprint = DEPOSIT_FINGERPRINT_NONE,
+  navigateToCheckout = defaultNavigateToCheckout,
 }: BookConfirmClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -2107,17 +2122,35 @@ export function BookConfirmClient({
         // DELIBERATELY NO AUTO-RESUBMIT: the next POST must require a further
         // user click, and it carries the fingerprint adopted below.
         if (errorCode === 'DEPOSIT_CHANGED') {
-          const changed = errorData?.details?.deposit;
+          // `details` lives on the ERROR envelope — `error.details.deposit` —
+          // exactly as the SMART_FIT_CHANGED branch below reads it. Reading
+          // `errorData.details` finds nothing, so the authoritative amount never
+          // reaches the client, the disclosure keeps showing the OLD figure, and
+          // the resubmit carries the same stale fingerprint: the forever-409
+          // loop the magnitude rule exists to prevent. The bare path is kept as
+          // a fallback so a flatter envelope would still be honoured.
+          const changed = errorData?.error?.details?.deposit ?? errorData?.details?.deposit;
           if (
             changed
             && changed.required === true
             && typeof changed.amountCents === 'number'
             && typeof changed.fingerprint === 'string'
           ) {
-            setDisplayedDeposit({
-              label: changed.label ?? displayedDeposit?.label ?? '',
-              amountCents: changed.amountCents,
-            });
+            // The RENDERED label has to be rebuilt from the adopted amount.
+            // Keeping the previous label would leave the client looking at the
+            // old figure while owing the new one — the disclosure is the only
+            // place that amount is ever shown, so adopting `amountCents` into
+            // state alone corrects nothing the client can see.
+            setDisplayedDeposit(
+              buildDepositDisclosure({
+                required: true,
+                amountCents: changed.amountCents,
+                currency: DEPOSIT_CURRENCY,
+              }) ?? {
+                label: changed.label ?? displayedDeposit?.label ?? '',
+                amountCents: changed.amountCents,
+              },
+            );
             setSubmittedDepositFingerprint(changed.fingerprint);
           }
           if (acknowledgmentRequired) {
@@ -2147,6 +2180,38 @@ export function BookConfirmClient({
         if (errorCode === 'EXISTING_APPOINTMENT') {
           setHasExistingAppointment(true);
           setBookingError(errorMessage || 'You already have an upcoming appointment.');
+          bookingInitiatedRef.current = false;
+          return;
+        }
+
+        // The client's own live deposit hold is what is blocking them. Routed
+        // through the SAME presentation as EXISTING_APPOINTMENT — that
+        // component needs no new props and already offers every path forward —
+        // rather than the generic error banner. The server deliberately sends
+        // no checkout URL and no manage URL here: this API authenticates by
+        // phone possession alone.
+        if (errorCode === 'DEPOSIT_HOLD_ACTIVE') {
+          setHasExistingAppointment(true);
+          setBookingError(
+            errorMessage
+            || 'You already have a booking waiting for its deposit. Finish that payment, or wait for the hold to expire.',
+          );
+          bookingInitiatedRef.current = false;
+          return;
+        }
+
+        // Without these three, every deposit-path failure falls into the
+        // generic throw at the bottom of this block and reads as a mystery.
+        if (
+          errorCode === 'DEPOSITS_TEMPORARILY_UNAVAILABLE'
+          || errorCode === 'DEPOSIT_CHECKOUT_UNAVAILABLE'
+          || errorCode === 'DEPOSIT_CHECKOUT_FAILED'
+        ) {
+          setBookingError(
+            errorCode === 'DEPOSIT_CHECKOUT_FAILED'
+              ? 'We could not start the deposit payment, so your slot was released. Please try booking again.'
+              : 'We could not reach the payment provider just now. Please try confirming again in a moment.',
+          );
           bookingInitiatedRef.current = false;
           return;
         }
@@ -2183,6 +2248,20 @@ export function BookConfirmClient({
       }
 
       const data = await response.json();
+
+      // A deposit hold is NOT a completed booking. Redirect BEFORE
+      // setBookingComplete / confetti / clearing the stored contact details:
+      // showing a success screen for an unpaid hold would be a lie, and
+      // clearing guest storage would cost the client their details if they came
+      // back from Checkout unpaid.
+      const depositCheckoutUrl = data?.data?.deposit?.required === true
+        ? data.data.deposit.checkoutUrl
+        : null;
+      if (typeof depositCheckoutUrl === 'string' && depositCheckoutUrl) {
+        navigateToCheckout(depositCheckoutUrl);
+        return;
+      }
+
       setManageUrl(data.data.manageUrl || null);
       setBookingComplete(true);
       try {
@@ -2203,7 +2282,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [acknowledgmentRequired, baseServiceId, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsEnabled, submittedDepositFingerprint, techId, timeStr]);
+  }, [acknowledgmentRequired, baseServiceId, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, navigateToCheckout, smartFitOffer, smsConsent, smsEnabled, submittedDepositFingerprint, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);

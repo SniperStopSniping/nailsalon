@@ -893,8 +893,12 @@ describe('client lifecycle stabilization', () => {
 
     expect(rendered.sql).toContain('appointment.salon_id =');
     expect(rendered.sql).toContain('appointment.salon_client_id is null');
-    expect(rendered.sql).toContain(
-      'appointment.status in (\'pending\', \'confirmed\', \'in_progress\')',
+    // The status list is now BOUND rather than inlined (it is sourced from
+    // SLOT_OCCUPYING_CLIENT_STATUSES instead of being retyped here), so assert
+    // on the bound values — which also pins that a deposit hold is selected.
+    expect(rendered.sql).toContain('appointment.status in (');
+    expect(rendered.params).toEqual(
+      expect.arrayContaining(['pending', 'confirmed', 'in_progress', 'awaiting_payment']),
     );
     expect(rendered.sql).toContain('appointment.deleted_at is null');
     expect(rendered.sql).toContain('appointment.end_time >');

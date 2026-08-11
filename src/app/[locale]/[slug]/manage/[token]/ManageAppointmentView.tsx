@@ -5,7 +5,7 @@ import { describeAppointmentAccessFailure, verifyAppointmentAccessToken } from '
 import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
-import { appointmentAddOnSchema, appointmentServicesSchema, technicianSchema } from '@/models/Schema';
+import { appointmentAddOnSchema, appointmentDepositSchema, appointmentServicesSchema, technicianSchema } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
 
 import { ManageAppointmentActions } from './ManageAppointmentActions';
@@ -114,13 +114,31 @@ export async function ManageAppointmentView({
   const technicianName = technician[0]?.name ?? 'Any available artist';
   const discountAmountCents = appointment.discountAmountCents ?? 0;
   const subtotalCents = appointment.subtotalBeforeDiscountCents ?? (appointment.totalPrice + discountAmountCents);
+  // A deposit hold is READ-ONLY here. Every mutating manage-token handler
+  // already rejects it (ensureEditable throws HOLD_LOCKED, the PATCH cancel CAS
+  // excludes it); this branch only makes the screen honest about WHY, and
+  // offers the one thing the client can still usefully do — resume paying.
+  const isAwaitingDeposit = appointment.status === 'awaiting_payment';
   const statusLabel = appointment.status === 'cancelled'
     ? 'Cancelled'
     : appointment.status === 'completed'
       ? 'Completed'
-      : appointment.status === 'confirmed'
-        ? 'Confirmed'
-        : 'Awaiting confirmation';
+      : isAwaitingDeposit
+        ? 'Awaiting deposit'
+        : appointment.status === 'confirmed'
+          ? 'Confirmed'
+          : 'Awaiting confirmation';
+  const [depositForResume] = isAwaitingDeposit
+    ? await db
+      .select({ checkoutUrl: appointmentDepositSchema.stripeCheckoutUrl })
+      .from(appointmentDepositSchema)
+      .where(and(
+        eq(appointmentDepositSchema.salonId, appointment.salonId),
+        eq(appointmentDepositSchema.appointmentId, appointment.id),
+        eq(appointmentDepositSchema.status, 'checkout_created'),
+      ))
+      .limit(1)
+    : [];
 
   const rescheduleUrl = `/${locale}/${resolvedSlug}/manage/${encodeURIComponent(token)}/reschedule`;
   const googleCalendarQuery = new URLSearchParams({
@@ -147,12 +165,36 @@ export async function ManageAppointmentView({
               className={`rounded-full px-3 py-1 text-xs font-semibold ${
                 appointment.status === 'cancelled'
                   ? 'bg-stone-200 text-stone-700'
-                  : 'bg-emerald-50 text-emerald-800'
+                  : isAwaitingDeposit
+                    ? 'bg-fuchsia-50 text-fuchsia-800'
+                    : 'bg-emerald-50 text-emerald-800'
               }`}
             >
               {statusLabel}
             </span>
           </div>
+
+          {isAwaitingDeposit
+            ? (
+                <div className="mt-5 rounded-2xl border border-fuchsia-200 bg-fuchsia-50 p-4">
+                  <p className="text-sm font-semibold text-fuchsia-900">Awaiting deposit</p>
+                  <p className="mt-1 text-sm leading-6 text-fuchsia-900/80">
+                    This booking is held while we wait for the deposit. It is not confirmed yet, and it
+                    cannot be changed or cancelled from here until the payment is settled.
+                  </p>
+                  {depositForResume?.checkoutUrl
+                    ? (
+                        <a
+                          className="mt-3 inline-flex rounded-full bg-stone-950 px-4 py-2 text-sm font-semibold text-white"
+                          href={depositForResume.checkoutUrl}
+                        >
+                          Resume payment
+                        </a>
+                      )
+                    : null}
+                </div>
+              )
+            : null}
 
           <div className="mt-6 space-y-4 text-sm text-stone-700">
             <div className="flex gap-3">
