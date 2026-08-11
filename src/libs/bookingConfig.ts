@@ -12,6 +12,10 @@ export const DEFAULT_BOOKING_CONFIG = {
   introPriceDefaultLabel: null,
   firstVisitDiscountEnabled: false,
   clientChangeCutoffHours: 24,
+  // Required-add-on hard enforcement is OFF by default (PR 1 stage e). Absent,
+  // null, or malformed settings must always resolve to false: a salon can only
+  // get enforcement by opting in explicitly.
+  enforceRequiredAddOns: false,
 } as const;
 
 export const bookingConfigSchema = z.object({
@@ -37,6 +41,7 @@ export const bookingConfigSchema = z.object({
   introPriceDefaultLabel: z.string().trim().max(120).nullable().default(DEFAULT_BOOKING_CONFIG.introPriceDefaultLabel),
   firstVisitDiscountEnabled: z.boolean().default(DEFAULT_BOOKING_CONFIG.firstVisitDiscountEnabled),
   clientChangeCutoffHours: z.number().int().min(0).max(168).default(DEFAULT_BOOKING_CONFIG.clientChangeCutoffHours),
+  enforceRequiredAddOns: z.boolean().default(DEFAULT_BOOKING_CONFIG.enforceRequiredAddOns),
 });
 
 export type BookingConfig = z.infer<typeof bookingConfigSchema>;

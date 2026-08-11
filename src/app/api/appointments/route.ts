@@ -1388,10 +1388,17 @@ export async function POST(request: Request): Promise<Response> {
         blockedDurationMinutes = validatedSelection.quote.blockedDurationMinutes;
         resolvedIntroPriceLabel = validatedSelection.quote.baseService.resolvedIntroPriceLabel;
 
-        // Observation only (PR 1 stage b) — this booking is not blocked, and
-        // this write can never make it fail: logAuditEvent is fire-and-forget
-        // by construction. Fires only on an actual booking attempt, not on
-        // every availability/quote preview, to keep volume meaningful.
+        // Observation (PR 1 stage b) — this booking is not blocked, and this
+        // write can never make it fail: logAuditEvent is fire-and-forget by
+        // construction. Fires only on an actual booking attempt, not on every
+        // availability/quote preview, to keep volume meaningful.
+        //
+        // Reachable only for a salon with enforcement OFF (the default): with
+        // the gate on, validatePublicBookingSelection throws instead of
+        // returning, and the blocked attempt is recorded by the
+        // required_add_on_booking_blocked branch in the catch below. Between
+        // the two, every booking attempt with a required-add-on gap stays
+        // measurable whichever side of the rollout the salon is on.
         if (validatedSelection.observedRequiredAddOnGaps.length > 0) {
           await logAuditEvent({
             salonId: salon.id,
@@ -1406,6 +1413,27 @@ export async function POST(request: Request): Promise<Response> {
           });
         }
       } catch (error) {
+        // Enforcement (PR 1 stage e) must not cost us the telemetry that
+        // justifies it. A blocked attempt never reaches the observation write
+        // above, so record it here under its own action instead: the two are
+        // deliberately distinct so a rollout can tell "would have blocked"
+        // (required_add_on_rule_omitted) from "did block"
+        // (required_add_on_booking_blocked). Still fire-and-forget, and it
+        // cannot change the 400 that is returned either way.
+        if (error instanceof BookingSelectionError && error.code === 'missing_required_add_on') {
+          await logAuditEvent({
+            salonId: salon.id,
+            actorType: 'client',
+            action: 'required_add_on_booking_blocked',
+            entityType: 'service',
+            entityId: normalizedBaseServiceId,
+            metadata: {
+              missingRequiredAddOnIds: error.missingRequiredAddOnIds,
+              technicianId: normalizedTechnicianId,
+            },
+          });
+        }
+
         return Response.json(
           {
             error: {
