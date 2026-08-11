@@ -36,6 +36,8 @@ const holder = vi.hoisted(() => ({
     normalizedPhone: string;
     phoneVariants: string[];
   },
+  /** Set for the one leg that books as STAFF from the public confirm page. */
+  staffSalonId: null as string | null,
 }));
 
 const { sendTransactionalEmailDetailed } = vi.hoisted(() => ({
@@ -59,10 +61,16 @@ vi.mock('@/core/redis/redisClient', () => ({
 }));
 
 vi.mock('@/libs/staffAuth', () => ({
-  requireStaffSession: vi.fn(async () => ({
-    ok: false,
-    response: new Response(null, { status: 401 }),
-  })),
+  requireStaffSession: vi.fn(async () => (holder.staffSalonId
+    ? {
+        ok: true as const,
+        session: {
+          salonId: holder.staffSalonId,
+          technicianId: 'tech_deposits_post',
+          technicianName: 'Daniela',
+        },
+      }
+    : { ok: false as const, response: new Response(null, { status: 401 }) })),
 }));
 
 vi.mock('@/libs/adminAuth', () => ({
@@ -322,6 +330,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   holder.clientSession = null;
+  holder.staffSalonId = null;
   vi.clearAllMocks();
   sendTransactionalEmailDetailed.mockResolvedValue({
     ok: true,
@@ -1016,5 +1025,247 @@ describe('27(d) — absent field, required:false', () => {
     expect(response.status).toBe(201);
     expect(body.data.deposit).toEqual({ required: false });
     expect(await depositRows()).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reschedule seeding, for §14 tests 5 and 6
+// ---------------------------------------------------------------------------
+
+/** Seed a committed appointment the client can later ask to reschedule. */
+async function seedExistingAppointment(args: {
+  phone: string;
+  startTime: Date;
+  endTime: Date;
+  status?: string;
+}): Promise<string> {
+  counter += 1;
+  const clientId = `sc_seed_${counter}`;
+  const appointmentId = `appt_seed_${counter}`;
+
+  await db.insert(schema.salonClientSchema).values({
+    id: clientId,
+    salonId: SALON_ID,
+    phone: args.phone,
+    fullName: 'Seeded Client',
+  });
+  await db.insert(schema.appointmentSchema).values({
+    id: appointmentId,
+    salonId: SALON_ID,
+    technicianId: TECH_ID,
+    salonClientId: clientId,
+    clientPhone: args.phone,
+    clientName: 'Seeded Client',
+    startTime: args.startTime,
+    endTime: args.endTime,
+    status: args.status ?? 'confirmed',
+    totalPrice: 4500,
+    totalDurationMinutes: 60,
+  });
+  await db.insert(schema.appointmentServicesSchema).values({
+    id: `apptSvc_seed_${counter}`,
+    appointmentId,
+    serviceId: SERVICE_ID,
+    priceAtBooking: 4500,
+    durationAtBooking: 60,
+  });
+  return appointmentId;
+}
+
+/** Attach a deposit row to a seeded appointment. */
+async function seedDepositFor(appointmentId: string, status: string): Promise<string> {
+  counter += 1;
+  const depositId = `dep_seed_${counter}`;
+  await db.insert(schema.appointmentDepositSchema).values({
+    id: depositId,
+    salonId: SALON_ID,
+    appointmentId,
+    status,
+    amountCents: 2500,
+    currency: 'cad',
+    stripeAccountId: 'acct_live',
+  });
+  return depositId;
+}
+
+/** §14 test 4 — the deposit booking happy path, asserted on committed rows. */
+describe('4 — deposit booking happy path', () => {
+  it('201 with a checkout URL; the row IS the hold and carries both URL snapshots', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    setClientSession(freshPhone());
+
+    const response = await postBooking({
+      startTime: at(futureDate(60), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.data.deposit).toEqual({
+      required: true,
+      checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_dep',
+      amountCents: 2500,
+      currency: 'cad',
+      fingerprint: 'deposit-v1:cad:2500',
+      holdExpiresAt: expect.any(String),
+    });
+
+    const [appointment] = await appointmentRows();
+
+    expect(appointment!.status).toBe('awaiting_payment');
+
+    const heldMinutes = (appointment!.depositHoldExpiresAt!.getTime()
+      - appointment!.createdAt.getTime()) / 60_000;
+
+    expect(Math.round(heldMinutes)).toBe(35);
+
+    const [deposit] = await depositRows();
+
+    expect(deposit!.status).toBe('checkout_created');
+    expect(deposit!.amountCents).toBe(2500);
+    expect(deposit!.currency).toBe('cad');
+    expect(deposit!.stripeCheckoutSessionId).toBe('cs_test_dep');
+    expect(deposit!.checkoutSuccessUrl).toBeTruthy();
+    expect(deposit!.checkoutCancelUrl).toBeTruthy();
+  });
+});
+
+/**
+ * §14 test 5 — NON-GOAL EXCLUSIONS. A reschedule owes no deposit under any
+ * policy state, and this is also the honest `isNewPublicBooking === false` scope
+ * leg for test 20(c): the request COMMITS, so zero readiness calls means the
+ * predicate really excluded it rather than the request failing early.
+ */
+describe('5 — non-goal exclusions', () => {
+  it('(a) a reschedule at a deposits-ACTIVE salon takes no deposit and calls no provider', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    const phone = freshPhone();
+    const original = await seedExistingAppointment({
+      phone,
+      startTime: at(futureDate(61), '09:00'),
+      endTime: at(futureDate(61), '10:00'),
+    });
+    setClientSession(phone);
+
+    const response = await postBooking({
+      startTime: at(futureDate(61), '14:00').toISOString(),
+      originalAppointmentId: original,
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.data.deposit).toBeUndefined();
+    // The replacement carries the NORMAL ternary, not a hold.
+    expect(body.data.appointment.status).toBe('pending');
+    expect(await depositRows()).toHaveLength(0);
+    expect(deposits.createDepositCheckoutSession).not.toHaveBeenCalled();
+    // The scope leg proper: isNewPublicBooking is false on a committing request.
+    expect(deposits.refreshAccountReadiness).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * §14 test 6 — THE RESCHEDULE FENCE.
+ *
+ * That branch inserts a NEW appointment id with request-derived services and
+ * prices while the deposit stays bolted to the original by a composite FK, so
+ * without the fence one paid deposit buys an unbounded chain of re-bookings at
+ * arbitrary services and prices.
+ */
+describe('6 — the reschedule fence', () => {
+  it.each([
+    ['checkout_created'],
+    ['paid'],
+  ])('a non-terminal deposit (%s) on the original -> 409, nothing moves', async (depositStatus) => {
+    seedPolicy(ACTIVE_POLICY);
+    const phone = freshPhone();
+    const original = await seedExistingAppointment({
+      phone,
+      startTime: at(futureDate(62), '09:00'),
+      endTime: at(futureDate(62), '10:00'),
+    });
+    const depositId = await seedDepositFor(original, depositStatus);
+    setClientSession(phone);
+
+    const response = await postBooking({
+      startTime: at(futureDate(62), '15:00').toISOString(),
+      originalAppointmentId: original,
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('RESCHEDULE_REQUIRES_MANAGE_FLOW');
+
+    // The original is untouched, no replacement row exists, deposit untouched.
+    const rows = await appointmentRows();
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.id).toBe(original);
+    expect(rows[0]!.status).toBe('confirmed');
+
+    const [deposit] = await depositRows();
+
+    expect(deposit!.id).toBe(depositId);
+    expect(deposit!.status).toBe(depositStatus);
+  });
+
+  it('CONTROL: the same reschedule with no deposit row succeeds exactly as today', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    const phone = freshPhone();
+    const original = await seedExistingAppointment({
+      phone,
+      startTime: at(futureDate(63), '09:00'),
+      endTime: at(futureDate(63), '10:00'),
+    });
+    setClientSession(phone);
+
+    const response = await postBooking({
+      startTime: at(futureDate(63), '15:00').toISOString(),
+      originalAppointmentId: original,
+    });
+
+    expect(response.status).toBe(201);
+
+    const rows = await appointmentRows();
+    const cancelled = rows.find(row => row.id === original);
+
+    expect(cancelled!.status).toBe('cancelled');
+    expect(cancelled!.cancelReason).toBe('rescheduled');
+    expect(rows).toHaveLength(2);
+  });
+});
+
+/**
+ * §14 test 27, the outside-the-branch leg.
+ *
+ * A STAFF member booking from the public confirm page at a deposits-ACTIVE
+ * salon. The disclosure predicate is wider than the charge predicate, so they
+ * were shown the deposit statement and will never be charged — this object is
+ * the only correction that screen ever receives, and it must NEVER be omitted.
+ */
+describe('27 — outside the branch, policy active', () => {
+  it('a staff booking carrying a fingerprint gets 201 with deposit { required:false }', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    holder.staffSalonId = SALON_ID;
+
+    const response = await postBooking({
+      startTime: at(futureDate(64), '10:00').toISOString(),
+      clientPhone: freshPhone(),
+      clientName: 'Phone Booking',
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await response.json();
+
+    // No 409: the fingerprint is ignored entirely outside the branch, or every
+    // owner-entered phone booking at a pilot salon would fail with a payments
+    // error code.
+    expect(response.status).toBe(201);
+    expect(body.data.deposit).toEqual({ required: false });
+    expect(await depositRows()).toHaveLength(0);
+    expect(deposits.refreshAccountReadiness).not.toHaveBeenCalled();
   });
 });

@@ -3080,11 +3080,20 @@ export async function POST(request: Request): Promise<Response> {
       });
 
       if (!isNewPublicBooking) {
-        // Outside the charge predicate. The disclosure predicate is WIDER than
-        // the charge predicate, so these callers were shown the deposit
+        // Outside the charge predicate BECAUSE OF THE ACTOR: an owner or staff
+        // member booking from the public confirm page. The disclosure predicate
+        // is WIDER than the charge predicate, so they were shown the deposit
         // statement and will never be charged; this object is the only
-        // correction that screen ever receives. Never omitted when active.
-        respondDepositNotRequired = depositScopeRead.active;
+        // correction that screen ever receives, and it is never omitted when the
+        // policy is active.
+        //
+        // A RESCHEDULE is excluded deliberately. It is outside the branch for a
+        // different reason — a reschedule owes no deposit under ANY policy state
+        // — and its client was never shown a new-booking deposit statement, so
+        // there is nothing to correct. Emitting the object there would have the
+        // manage/reschedule screens render a deposit line for a booking that has
+        // no deposit semantics at all.
+        respondDepositNotRequired = depositScopeRead.active && !normalizedOriginalApptId;
       } else {
         const decision: DepositScopeDecision = depositScopeRead.active
           ? 'enter'
