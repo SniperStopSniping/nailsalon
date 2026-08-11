@@ -7,10 +7,14 @@ const { reapExpiredDepositHolds } = vi.hoisted(() => ({
 vi.mock('@/libs/depositHoldReaper', () => ({
   reapExpiredDepositHolds,
   DEPOSIT_REAP_MAX_DURATION_SECONDS: 300,
+  DEPOSIT_REAP_BATCH: 16,
 }));
 
-// eslint-disable-next-line import/first
+/* eslint-disable import/first */
+import { DEPOSIT_REAP_BATCH, DEPOSIT_REAP_MAX_DURATION_SECONDS } from '@/libs/depositHoldReaper';
+
 import { GET, maxDuration, POST } from './route';
+/* eslint-enable import/first */
 
 function request(headers: Record<string, string> = {}) {
   return new Request('http://localhost/api/deposits/holds/reap', { method: 'POST', headers });
@@ -75,8 +79,13 @@ describe('reap route auth (§14 test 23)', () => {
     vi.unstubAllEnvs();
   });
 
-  it('declares a maxDuration derived from the batch, not copied from another route', () => {
+  it('declares a maxDuration that matches the reaper\'s own derivation', () => {
+    // Next.js evaluates `maxDuration` STATICALLY, so the route must spell it as
+    // a literal or the platform default is silently applied instead. This test
+    // is therefore the only thing keeping the literal and the derivation from
+    // drifting apart.
+    expect(maxDuration).toBe(DEPOSIT_REAP_MAX_DURATION_SECONDS);
     // batch x 3 worst-case Stripe round trips x the 6 s client timeout.
-    expect(maxDuration).toBe(300);
+    expect(DEPOSIT_REAP_BATCH * 3 * 6).toBeLessThanOrEqual(maxDuration);
   });
 });

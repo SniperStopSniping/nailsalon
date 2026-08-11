@@ -1,7 +1,4 @@
-import {
-  DEPOSIT_REAP_MAX_DURATION_SECONDS,
-  reapExpiredDepositHolds,
-} from '@/libs/depositHoldReaper';
+import { reapExpiredDepositHolds } from '@/libs/depositHoldReaper';
 
 /**
  * Cron entry point for the deposit hold reaper.
@@ -16,8 +13,15 @@ import {
  * DERIVED, not copied from another route. See DEPOSIT_REAP_BATCH for the
  * derivation: batch x 3 worst-case Stripe round trips x the 6 s client timeout.
  * The batch is sized against THIS number, so the two move together or not at all.
+ *
+ * IT MUST BE A LITERAL. Next.js evaluates this export STATICALLY at build time
+ * and cannot resolve an imported identifier: writing
+ * `export const maxDuration = DEPOSIT_REAP_MAX_DURATION_SECONDS` builds with only
+ * a warning and then SILENTLY APPLIES THE PLATFORM DEFAULT — so the reaper would
+ * be cut off mid-batch with no local evidence of why. The literal is kept honest
+ * by a test asserting it equals DEPOSIT_REAP_MAX_DURATION_SECONDS.
  */
-export const maxDuration = DEPOSIT_REAP_MAX_DURATION_SECONDS;
+export const maxDuration = 300;
 
 type ErrorResponse = {
   error: {
