@@ -190,6 +190,19 @@ vi.mock('@/libs/depositPolicy', async (importOriginal) => {
   };
 });
 
+const guards = vi.hoisted(() => ({ lockTechnicianAndAssertSlotFree: vi.fn() }));
+
+vi.mock('@/libs/bookingConflictGuard', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/bookingConflictGuard')>();
+  return {
+    ...actual,
+    // Spied, not replaced: the real guard still runs. Test 12 asserts the hold
+    // re-entry refuses BEFORE the technician advisory lock is taken.
+    lockTechnicianAndAssertSlotFree: guards.lockTechnicianAndAssertSlotFree
+      .mockImplementation(actual.lockTechnicianAndAssertSlotFree),
+  };
+});
+
 vi.mock('@/libs/depositCheckout', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/libs/depositCheckout')>();
   return { ...actual, createDepositCheckoutSession: deposits.createDepositCheckoutSession };
@@ -1367,5 +1380,61 @@ describe('13 — create-failure taxonomy', () => {
     const [deposit] = await depositRows();
 
     expect(deposit!.status).toBe('checkout_created');
+  });
+});
+
+/**
+ * §14 test 12 — LINEAGE / HOLD RE-ENTRY.
+ *
+ * A client sitting on a live hold already occupies a slot. The second booking
+ * must be refused with the hold's own code, and refused EARLY — before the
+ * technician advisory lock is taken — because that lock is transaction-scoped
+ * and serialises every other booking for that technician behind it.
+ *
+ * The response carries the expiry and NOTHING else: no checkout URL and no
+ * manage URL. This API authenticates by phone possession alone, so returning
+ * either would hand an in-flight payment session to anyone who types the
+ * victim's phone number.
+ */
+describe('12 — hold re-entry', () => {
+  it('a second booking during a live hold is 409 DEPOSIT_HOLD_ACTIVE, before any advisory lock', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    const phone = freshPhone();
+    setClientSession(phone);
+
+    const first = await postBooking({
+      startTime: at(futureDate(80), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+
+    expect(first.status).toBe(201);
+
+    guards.lockTechnicianAndAssertSlotFree.mockClear();
+
+    // Same client, a DIFFERENT slot: the refusal is about the client's own live
+    // hold, not about the technician's availability.
+    const second = await postBooking({
+      startTime: at(futureDate(81), '14:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await second.json();
+
+    expect(second.status).toBe(409);
+    expect(body.error.code).toBe('DEPOSIT_HOLD_ACTIVE');
+    expect(body.error.details.holdExpiresAt).toEqual(expect.any(String));
+
+    // No payment session and no manage link are handed out on a phone-only gate.
+    expect(JSON.stringify(body)).not.toContain('checkout.stripe.com');
+    expect(JSON.stringify(body)).not.toContain('manage');
+
+    // Refused before the transaction-scoped advisory lock was ever taken.
+    expect(guards.lockTechnicianAndAssertSlotFree).not.toHaveBeenCalled();
+
+    // Exactly one hold exists; the second attempt created nothing.
+    const holds = (await appointmentRows()).filter(row => row.status === 'awaiting_payment');
+
+    expect(holds).toHaveLength(1);
+    expect(await depositRows()).toHaveLength(1);
   });
 });

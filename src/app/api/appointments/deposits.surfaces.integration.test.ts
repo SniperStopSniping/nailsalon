@@ -33,6 +33,13 @@ vi.mock('@/libs/DB', () => ({
 
 vi.mock('@/libs/adminAuth', () => ({
   requireActiveAdminSalon: vi.fn(async () => ({ salon: holder.salon, error: null })),
+  requireAdminSalon: vi.fn(async () => ({ salon: holder.salon, error: null })),
+  getAdminSession: vi.fn(async () => ({ id: 'admin_1', name: 'Owner' })),
+}));
+
+vi.mock('@/libs/appointmentAudit', () => ({
+  logAdminOverride: vi.fn(async () => {}),
+  logTechReassignment: vi.fn(async () => {}),
 }));
 
 vi.mock('@/libs/clientApiGuards', () => ({
@@ -78,7 +85,9 @@ import {
   formatAppointmentStatus,
 } from '@/libs/appointmentStatusDisplay';
 
+import { PUT as reassignPut } from '../admin/appointments/[id]/reassign/route';
 import { GET as adminAppointmentsGet } from '../admin/appointments/route';
+import { GET as adminTodayGet } from '../admin/today/route';
 import { GET as historyGet } from './history/route';
 /* eslint-enable import/first */
 
@@ -264,5 +273,78 @@ describe('22 — hold presentation', () => {
     expect(source).toMatch(/if \(appointment\.status === 'awaiting_payment'\) \{[\t\v\f\r \xA0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF]*\n\s*return null;/);
     expect(source).toContain('ACTIVITY_STATUSES');
     expect(source).not.toContain('ACTIVITY_STATUSES = \'pending,confirmed,in_progress,awaiting_payment');
+  });
+});
+
+/**
+ * §14 test 18 — the blocking-list additions that carry money or double-booking
+ * consequences. A hold occupies the technician's slot exactly as 'pending' does.
+ */
+describe('18 — blocking-list consequences', () => {
+  it('the owner day view SHOWS the hold', async () => {
+    const hold = await seedAppointment('awaiting_payment', 1);
+    // /api/admin/today reads "today"; place the hold in that window.
+    await db.update(schema.appointmentSchema)
+      .set({
+        startTime: new Date(Date.now() + 3_600_000),
+        endTime: new Date(Date.now() + 7_200_000),
+      })
+      .where(eq(schema.appointmentSchema.id, hold));
+
+    const response = await adminTodayGet(
+      new Request('http://localhost/api/admin/today?salonSlug=surfaces-salon'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    // The slot really is occupied; hiding it would make the day look free.
+    expect(JSON.stringify(body)).toContain(hold);
+  });
+
+  it('an admin reassign INTO a held window is rejected', async () => {
+    const hold = await seedAppointment('awaiting_payment', 1);
+    // A second appointment on a DIFFERENT technician, overlapping the hold.
+    counter += 1;
+    const moving = `appt_move_${counter}`;
+    const [holdRow] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, hold));
+
+    await db.insert(schema.technicianSchema).values({
+      id: 'tech_other',
+      salonId: SALON_ID,
+      name: 'Other',
+      isActive: true,
+    });
+    await db.insert(schema.appointmentSchema).values({
+      id: moving,
+      salonId: SALON_ID,
+      technicianId: 'tech_other',
+      clientPhone: holder.clientPhone,
+      clientName: 'Mover',
+      startTime: holdRow!.startTime,
+      endTime: holdRow!.endTime,
+      status: 'confirmed',
+      totalPrice: 4500,
+      totalDurationMinutes: 60,
+    });
+
+    const response = await reassignPut(
+      new Request('http://localhost/api/admin/appointments/x/reassign', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'surfaces-salon',
+          technicianId: TECH_ID,
+          reason: 'covering a shift',
+        }),
+      }),
+      { params: Promise.resolve({ id: moving }) },
+    );
+    const body = await response.json();
+
+    // Without the hold in the overlap scan this would succeed and then trip
+    // 0066's double-booking backstop — or, worse, double-book.
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('TECHNICIAN_UNAVAILABLE');
   });
 });
