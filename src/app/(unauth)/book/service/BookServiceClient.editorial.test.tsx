@@ -174,10 +174,46 @@ class MockIntersectionObserver implements IntersectionObserver {
 
 function fireAnchorIntersection(top: number) {
   act(() => {
+    // The second (observer) argument is passed only to satisfy
+    // IntersectionObserverCallback's signature — the component's callback
+    // never reads it. Deliberately NOT `new MockIntersectionObserver(...)`
+    // here: that constructor's whole job is capturing whatever callback it
+    // is given into the shared `observerCallback` variable above, so
+    // passing one as an argument here would silently overwrite
+    // `observerCallback` with a no-op immediately after this call reads it
+    // — turning every subsequent `fireAnchorIntersection` in the same test
+    // into a silent no-op. A plain stub sidesteps that entirely.
     observerCallback?.(
       [{ boundingClientRect: { top } } as IntersectionObserverEntry],
-      new MockIntersectionObserver(() => {}),
+      {} as IntersectionObserver,
     );
+  });
+}
+
+// jsdom also has no ResizeObserver. Same capture-and-invoke pattern as
+// MockIntersectionObserver above, used by the mount-time geometry race
+// regression tests below (PR6 fix round: the ResizeObserver must now be
+// attached unconditionally, and re-trigger the reachability check whenever
+// it fires — not just once at mount).
+let resizeObserverCallback: ResizeObserverCallback | null = null;
+
+class MockResizeObserver implements ResizeObserver {
+  constructor(callback: ResizeObserverCallback) {
+    resizeObserverCallback = callback;
+  }
+
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+
+function fireResizeObserverCallback() {
+  act(() => {
+    // Plain stub, not `new MockResizeObserver(...)` — see the matching note
+    // in `fireAnchorIntersection` above; the same constructor-capture
+    // pattern would silently turn a second call in the same test into a
+    // no-op.
+    resizeObserverCallback?.([], {} as ResizeObserver);
   });
 }
 
@@ -222,11 +258,13 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     observerCallback = null;
+    resizeObserverCallback = null;
     navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a');
     salonContextMock.bookingPage = EDITORIAL_BOOKING_PAGE_SIDE;
     salonContextMock.salonContent = buildContent();
     salonContextMock.bookingExperience = null;
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
+    vi.stubGlobal('ResizeObserver', MockResizeObserver);
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -489,7 +527,7 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
         }
       });
 
-      it('ignores a stale "not reached" intersection entry once geometry has already forced the handoff', () => {
+      it('ignores a stale "not reached" intersection entry while geometry still forces the handoff, but stays subscribed so a later geometry change can still be observed', () => {
         const restore = stubShortPageGeometry();
         navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
 
@@ -500,13 +538,19 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
 
           expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
 
-          // On an unreachable page the component never subscribes an
-          // IntersectionObserver in the first place, so this is a no-op —
-          // asserting that explicitly guards against a regression where a
-          // late "not reached" observer callback could flip the handoff
-          // back off and re-trap the user.
-          expect(observerCallback).toBeNull();
+          // Fixed behaviour (PR6 High finding): the IntersectionObserver is
+          // now ALWAYS attached, even when the very first geometry
+          // measurement says "unreachable" — attaching it independently of
+          // that first measurement is exactly what lets a later geometry
+          // change (the page growing enough to become reachable) still be
+          // observed, instead of a one-way flag permanently skipping
+          // observer setup the moment the first read comes back negative.
+          expect(observerCallback).not.toBeNull();
 
+          // A stale "not reached" entry must not matter either way here:
+          // geometry (stubbed unreachable throughout this test) still wins,
+          // so the Continue bar stays up and never flips back to the dead
+          // jump link.
           fireAnchorIntersection(215.75);
 
           expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
@@ -538,6 +582,224 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
           scrollHeightSpy.mockRestore();
           rectSpy.mockRestore();
         }
+      });
+    });
+
+    // PR6 fix round regression: the live, 3-times-reproduced High bug. Real
+    // Playwright numbers — a page measured 1773px tall at mount (before its
+    // hero image had finished loading) and 1849px once the layout settled.
+    // The bug was not the geometry formula itself (already covered above);
+    // it was that the FIRST measurement, taken before layout settles, used
+    // to set a one-way `unreachable` flag that skipped observer setup
+    // entirely, so the later 1849px measurement was never taken at all.
+    describe('mount-time geometry race and post-mount recalculation (PR6 fix round regression)', () => {
+      const VIEWPORT_INNER_HEIGHT = 812;
+
+      function stubGeometry({
+        scrollHeight,
+        rectTop,
+        innerHeight = VIEWPORT_INNER_HEIGHT,
+        scrollY = 0,
+      }: {
+        scrollHeight: number;
+        rectTop: number;
+        innerHeight?: number;
+        scrollY?: number;
+      }) {
+        const scrollHeightSpy = vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(scrollHeight);
+        const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ top: rectTop } as DOMRect);
+        const originalInnerHeight = window.innerHeight;
+        const originalScrollY = window.scrollY;
+        Object.defineProperty(window, 'innerHeight', { value: innerHeight, configurable: true, writable: true });
+        Object.defineProperty(window, 'scrollY', { value: scrollY, configurable: true, writable: true });
+
+        return {
+          setScrollHeight: (value: number) => scrollHeightSpy.mockReturnValue(value),
+          setInnerHeight: (value: number) => {
+            Object.defineProperty(window, 'innerHeight', { value, configurable: true, writable: true });
+          },
+          restore: () => {
+            scrollHeightSpy.mockRestore();
+            rectSpy.mockRestore();
+            Object.defineProperty(window, 'innerHeight', { value: originalInnerHeight, configurable: true, writable: true });
+            Object.defineProperty(window, 'scrollY', { value: originalScrollY, configurable: true, writable: true });
+          },
+        };
+      }
+
+      const assertExactlyOneStickyCtaVisible = () => {
+        const editorialCta = screen.queryByTestId('editorial-sticky-cta');
+        const continueBar = screen.queryByTestId('service-sticky-bar');
+
+        // Never zero, never two.
+        expect([editorialCta, continueBar].filter(Boolean)).toHaveLength(1);
+      };
+
+      it('recovers from a false-negative mount measurement once the page grows enough (real repro: 1773px -> 1849px)', () => {
+        navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+        const geometry = stubGeometry({ scrollHeight: 1773, rectTop: 1000 });
+
+        try {
+          render(
+            <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+          );
+
+          // Mount-time measurement, matching the real repro's pre-settle
+          // 1773px: the anchor is not yet geometrically reachable, so the
+          // Continue bar shows immediately as the fallback.
+          expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+          expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
+
+          // The ResizeObserver must already be attached at this point — the
+          // fix requirement is that it is attached independently of the
+          // first measurement's result, not only when that first
+          // measurement happens to succeed.
+          expect(resizeObserverCallback).not.toBeNull();
+
+          // The page settles (hero image finishes loading / fonts swap in /
+          // content reflows) and grows to the real repro's 1849px. The
+          // ResizeObserver callback is triggered explicitly here, not just
+          // the underlying value changed silently.
+          geometry.setScrollHeight(1849);
+          fireResizeObserverCallback();
+
+          // Corrected: the anchor is now geometrically reachable, and the
+          // user has not scrolled to it yet, so the persistent Editorial
+          // CTA is what should show.
+          expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
+          expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+
+          // And the ordinary intersection-driven handoff resumes correctly
+          // from there, exactly as on any normal-length page.
+          fireAnchorIntersection(-10);
+
+          expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
+          expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+        } finally {
+          geometry.restore();
+        }
+      });
+
+      it('stays in the Continue-bar fallback when a resize-triggered recheck still finds the page too short (genuinely unreachable page)', () => {
+        navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+        const geometry = stubGeometry({ scrollHeight: 1773, rectTop: 1200 });
+
+        try {
+          render(
+            <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+          );
+
+          expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+          expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
+
+          // Modest growth, still nowhere near enough to make the anchor
+          // reachable — the fallback must correctly stay put rather than
+          // flipping just because a recheck happened.
+          geometry.setScrollHeight(1800);
+          fireResizeObserverCallback();
+
+          expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+          expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
+        } finally {
+          geometry.restore();
+        }
+      });
+
+      it('recalculates on a viewport resize occurring after mount (window "resize" event, not just content growth)', () => {
+        navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+        // A short page (700px) that already fits within a tall 812px
+        // viewport — there is no room to scroll at all, so the anchor
+        // (100px down) is genuinely unreachable.
+        const geometry = stubGeometry({ scrollHeight: 700, rectTop: 100, innerHeight: 812 });
+
+        try {
+          render(
+            <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+          );
+
+          expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+          expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
+
+          // The viewport shrinks after mount (on-screen keyboard opening,
+          // browser chrome changing, or an actual window resize) — the page
+          // now has scrollable room below the anchor, so it becomes
+          // reachable. Driven through `window.addEventListener('resize', ...)`
+          // specifically, not the ResizeObserver.
+          geometry.setInnerHeight(400);
+          act(() => {
+            window.dispatchEvent(new Event('resize'));
+          });
+
+          expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
+          expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+        } finally {
+          geometry.restore();
+        }
+      });
+
+      it('never shows both sticky elements at once, and never shows neither while a service is selected, across the full mount -> grow -> scroll sequence', () => {
+        navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+        const geometry = stubGeometry({ scrollHeight: 1773, rectTop: 1000 });
+
+        try {
+          render(
+            <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+          );
+
+          assertExactlyOneStickyCtaVisible(); // mount: forced Continue bar (short page)
+
+          geometry.setScrollHeight(1849);
+          fireResizeObserverCallback();
+          assertExactlyOneStickyCtaVisible(); // corrected: Editorial CTA
+
+          fireAnchorIntersection(-10);
+          assertExactlyOneStickyCtaVisible(); // scrolled past: Continue bar
+        } finally {
+          geometry.restore();
+        }
+      });
+
+      // Real-Chromium finding from this fix round's own verification pass
+      // (not reproducible with a synthetic entry alone, so documented here
+      // as the reasoning + the piece that IS unit-testable): a plain
+      // `threshold: [0, 1]` IntersectionObserver only notifies at the
+      // anchor's full enter/exit of the viewport. #services is frequently
+      // SHORTER than the viewport (a search bar plus a handful of cards),
+      // so once fully visible it can keep scrolling — top edge moving from
+      // e.g. 135px to 16px — without ever crossing another threshold,
+      // silently skipping the exact crossing this feature needs to detect.
+      // The fix uses a `rootMargin`-shrunk observer instead (verified live
+      // against a real Chromium render); what a jsdom unit test CAN verify
+      // is the arithmetic this relies on once a reading arrives: `<=
+      // SERVICES_ANCHOR_SCROLL_MARGIN_PX`, not `isIntersecting`, is what
+      // keeps "reached" correctly persisting after scrolling further past
+      // the anchor (its top only gets more negative) while still correctly
+      // reverting if the user scrolls back up above it.
+      it('keeps reporting reached after scrolling further past the anchor, and correctly reverts if scrolled back above it', () => {
+        navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+
+        render(
+          <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+        );
+
+        // Scrolled to the anchor: reached.
+        fireAnchorIntersection(16);
+
+        expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+        expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
+
+        // Scrolled well past it (its top is now far above the viewport,
+        // deep negative) — must still read as reached, not revert.
+        fireAnchorIntersection(-900);
+
+        expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+        expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
+
+        // Scrolled back up above the anchor — correctly reverts.
+        fireAnchorIntersection(300);
+
+        expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
+        expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
       });
     });
   });
