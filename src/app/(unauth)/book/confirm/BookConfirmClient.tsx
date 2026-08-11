@@ -24,7 +24,7 @@ import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
 import type { BookingStep } from '@/libs/bookingFlow';
 import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
-import { DEPOSIT_FINGERPRINT_NONE } from '@/libs/depositPolicy';
+import { buildDepositDisclosure, DEPOSIT_CURRENCY, DEPOSIT_FINGERPRINT_NONE } from '@/libs/depositPolicy';
 import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/directions';
 import { formatMoney } from '@/libs/formatMoney';
 import { triggerHaptic } from '@/libs/haptics';
@@ -2122,17 +2122,35 @@ export function BookConfirmClient({
         // DELIBERATELY NO AUTO-RESUBMIT: the next POST must require a further
         // user click, and it carries the fingerprint adopted below.
         if (errorCode === 'DEPOSIT_CHANGED') {
-          const changed = errorData?.details?.deposit;
+          // `details` lives on the ERROR envelope — `error.details.deposit` —
+          // exactly as the SMART_FIT_CHANGED branch below reads it. Reading
+          // `errorData.details` finds nothing, so the authoritative amount never
+          // reaches the client, the disclosure keeps showing the OLD figure, and
+          // the resubmit carries the same stale fingerprint: the forever-409
+          // loop the magnitude rule exists to prevent. The bare path is kept as
+          // a fallback so a flatter envelope would still be honoured.
+          const changed = errorData?.error?.details?.deposit ?? errorData?.details?.deposit;
           if (
             changed
             && changed.required === true
             && typeof changed.amountCents === 'number'
             && typeof changed.fingerprint === 'string'
           ) {
-            setDisplayedDeposit({
-              label: changed.label ?? displayedDeposit?.label ?? '',
-              amountCents: changed.amountCents,
-            });
+            // The RENDERED label has to be rebuilt from the adopted amount.
+            // Keeping the previous label would leave the client looking at the
+            // old figure while owing the new one — the disclosure is the only
+            // place that amount is ever shown, so adopting `amountCents` into
+            // state alone corrects nothing the client can see.
+            setDisplayedDeposit(
+              buildDepositDisclosure({
+                required: true,
+                amountCents: changed.amountCents,
+                currency: DEPOSIT_CURRENCY,
+              }) ?? {
+                label: changed.label ?? displayedDeposit?.label ?? '',
+                amountCents: changed.amountCents,
+              },
+            );
             setSubmittedDepositFingerprint(changed.fingerprint);
           }
           if (acknowledgmentRequired) {
