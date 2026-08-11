@@ -1,3 +1,13 @@
+# [1.50.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.49.0...v1.50.0) (2026-08-11)
+
+
+### Features
+
+* **deposits:** add the deposit policy module and its storage schema ([49d70de](https://github.com/SniperStopSniping/nailsalon/commit/49d70de423426e3704c037307a8ac5836dca9137))
+* **deposits:** add the sanctioned super-admin entitlement writer ([6d09776](https://github.com/SniperStopSniping/nailsalon/commit/6d0977683095b759407e54d2670ba6c290df7ef4))
+* **deposits:** gate deposit enablement on the admin settings route ([8831897](https://github.com/SniperStopSniping/nailsalon/commit/8831897fc1ae9f0c46d40627a0e59d4367a8a24d))
+* **deposits:** wire the dark client disclosure and the Deposits card ([ddee7a5](https://github.com/SniperStopSniping/nailsalon/commit/ddee7a544c89f5663697ba74764ed8c0be3704ba))
+
 # [1.49.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.48.0...v1.49.0) (2026-08-11)
 
 
