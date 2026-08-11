@@ -418,11 +418,16 @@ describe('§5.8 — manage-token cancel refuses a hold', () => {
     const confirmed = await seedAppointment('confirmed', 41);
     manage.capability = capabilityFor('confirmed', confirmed);
     // The successful path fans out to notification side effects this harness
-    // does not stub; their diagnostics are expected, so assert rather than mute.
+    // does not stub. WHICH diagnostic they emit is environment-dependent —
+    // locally it is console.error, in CI (different provider env) it is
+    // console.warn — so both are captured rather than only the one that happened
+    // to fire on this machine.
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
     const response = await managePatch(cancelRequest(), { params: { token: TOKEN } });
     consoleError.mockRestore();
+    consoleWarn.mockRestore();
 
     expect(response.status).toBe(200);
 
