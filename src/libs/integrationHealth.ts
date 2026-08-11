@@ -3,7 +3,7 @@ import 'server-only';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
-import { Env } from '@/libs/Env';
+import { resolveEntitlement } from '@/libs/featureEntitlements';
 import {
   deriveConnectStatus,
   EXPECTED_LIVEMODE,
@@ -13,25 +13,11 @@ import {
   integrationOutboxSchema,
   notificationDeliverySchema,
   salonGoogleCalendarConnectionSchema,
+  salonSchema,
   salonStripeAccountSchema,
   salonTwilioConnectionSchema,
 } from '@/models/Schema';
-
-/**
- * Temporary deposits pilot allowlist. This is the SECOND of exactly two read
- * sites in D2 — the other is the onboard route's exposure gate. They are not
- * redundant: this one controls VISIBILITY of the Payments card, that one
- * controls EXPOSURE of the endpoint, and an unrendered card does not make the
- * endpoint unreachable. A later PR replaces both with one entitlement call and
- * deletes the env var.
- */
-function isPilotSalon(salonId: string): boolean {
-  return (Env.LUSTER_DEPOSITS_PILOT_SALON_IDS ?? '')
-    .split(',')
-    .map(value => value.trim())
-    .filter(Boolean)
-    .includes(salonId);
-}
+import type { SalonFeatures } from '@/types/salonPolicy';
 
 /**
  * Google Calendar readiness for a salon:
@@ -76,6 +62,7 @@ export async function getSalonIntegrationHealth(salonId: string) {
     [pending],
     [failed],
     stripeBindingRows,
+    [salonFeatureRow],
   ] = await Promise.all([
     db
       .select({
@@ -151,6 +138,18 @@ export async function getSalonIntegrationHealth(salonId: string) {
         return [];
       }
     })(),
+    // The per-salon deposits entitlement replaced the env allowlist that used to
+    // decide Payments-card visibility. Guarded for the same reason as above.
+    (async () => {
+      try {
+        return await db
+          .select({ features: salonSchema.features })
+          .from(salonSchema)
+          .where(eq(salonSchema.id, salonId));
+      } catch {
+        return [];
+      }
+    })(),
   ]);
 
   return {
@@ -215,7 +214,11 @@ export async function getSalonIntegrationHealth(salonId: string) {
       pending: Number(pending?.count ?? 0),
       failed: Number(failed?.count ?? 0),
     },
-    stripeConnect: buildStripeConnectBlock(salonId, stripeBindingRows),
+    stripeConnect: buildStripeConnectBlock(
+      salonId,
+      stripeBindingRows,
+      (salonFeatureRow?.features as SalonFeatures | null | undefined) ?? null,
+    ),
   };
 }
 
@@ -230,13 +233,14 @@ export async function getSalonIntegrationHealth(salonId: string) {
 function buildStripeConnectBlock(
   salonId: string,
   rows: (typeof salonStripeAccountSchema.$inferSelect)[],
+  features: SalonFeatures | null,
 ) {
   const live = rows.find(row => row.revokedAt === null) ?? null;
   const binding = live ? toBinding(live) : null;
 
-  // Render the card when the salon has any binding history at all, or when it is
-  // named in the pilot allowlist.
-  const visible = rows.length > 0 || isPilotSalon(salonId);
+  // Render the card when the salon has any binding history at all, or when it
+  // holds the deposits entitlement.
+  const visible = rows.length > 0 || resolveEntitlement(features, 'money', 'deposits');
 
   if (!EXPECTED_LIVEMODE.ok) {
     return {

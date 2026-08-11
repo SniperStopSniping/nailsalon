@@ -17,6 +17,7 @@ import { db } from '@/libs/DB';
 import { type DepositsReadinessSqlHandle, isDepositsSchemaReady } from '@/libs/depositsSchema';
 import { Env } from '@/libs/Env';
 import { resolveRuntimeEnvironment } from '@/libs/environmentIsolation';
+import { resolveEntitlement } from '@/libs/featureEntitlements';
 import { getCanonicalAppOrigin } from '@/libs/publicUrl';
 import { getSalonById } from '@/libs/queries';
 import { checkEndpointRateLimit, getClientIp, rateLimitResponse } from '@/libs/rateLimit';
@@ -29,28 +30,13 @@ import {
   expectedLivemode,
   StripeConnectUnavailableError,
 } from '@/libs/stripeConnect/readiness';
+import type { SalonFeatures } from '@/types/salonPolicy';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
 
 function errorResponse(code: string, message: string, status: number): NextResponse {
   return NextResponse.json({ error: { code, message } }, { status });
-}
-
-/**
- * Temporary pilot allowlist. This is ONE OF EXACTLY TWO read sites in D2 — the
- * other is the Payments card in `IntegrationsModal.tsx`. They are not redundant:
- * the card gate is a VISIBILITY control and this one is the EXPOSURE control, and
- * an unrendered card does not make this endpoint unreachable. A later PR replaces
- * both reads with a real per-salon entitlement and deletes the env var.
- */
-function isPilotSalon(salonId: string): boolean {
-  const raw = Env.LUSTER_DEPOSITS_PILOT_SALON_IDS ?? '';
-  return raw
-    .split(',')
-    .map(value => value.trim())
-    .filter(Boolean)
-    .includes(salonId);
 }
 
 export async function POST(request: NextRequest) {
@@ -106,13 +92,19 @@ export async function POST(request: NextRequest) {
     return errorResponse('SALON_NOT_FOUND', 'Salon not found', 404);
   }
 
-  // 5. Exposure gate. Refused with the SAME shape as step 4 on purpose, so the
-  //    endpoint does not confirm to a prober which salons are in the pilot.
-  //    The second clause is load-bearing: it keeps the gate from stranding a
-  //    salon that was removed from the allowlist mid-onboarding — an
-  //    already-bound salon can always resume, revoke and re-bind.
+  // 5. Exposure gate, now the per-salon entitlement rather than the retired env
+  //    allowlist: it is per-salon, super-admin-only, audited, transactional and
+  //    protected from stale whole-object saves — strictly stronger on every axis
+  //    the allowlist was chosen for. Refused with the SAME shape as step 4 on
+  //    purpose, so the endpoint does not confirm to a prober which salons are
+  //    entitled. The second clause is load-bearing: it keeps the gate from
+  //    stranding a salon that was de-entitled mid-onboarding — an already-bound
+  //    salon can always resume, revoke and re-bind.
   const bindings = await getSalonBindings(salonId);
-  if (!isPilotSalon(salonId) && bindings.length === 0) {
+  if (
+    !resolveEntitlement(salon.features as SalonFeatures | null | undefined, 'money', 'deposits')
+    && bindings.length === 0
+  ) {
     return errorResponse('SALON_NOT_FOUND', 'Salon not found', 404);
   }
 
