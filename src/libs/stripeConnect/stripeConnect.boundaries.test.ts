@@ -112,17 +112,34 @@ describe('test 31 — module boundaries', () => {
     expect(billingSource).not.toContain('STRIPE_CONNECT_WEBHOOK_SECRET');
   });
 
-  it('appointmentDepositSchema has exactly ONE sanctioned runtime import site', () => {
+  it('appointmentDepositSchema is imported only at sanctioned sites', () => {
     // Deliberately NOT "no import outside Schema.ts": that form is unsatisfiable
     // against a correct build, because the DEPOSITS_IN_FLIGHT refusal is a real
     // runtime read. Test files import the symbol by design and are excluded.
+    //
+    // D2 wrote NOTHING to this table, so at D2's head there was exactly one
+    // sanctioned site. D4 is the PR that creates and resolves deposit rows, so
+    // the allowlist below is enumerated rather than counted: each entry is a
+    // deliberate site, and an unlisted importer still fails.
     const importers = runtimeSourceFiles().filter((file) => {
       const source = readFileSync(file, 'utf8');
       return /\bappointmentDepositSchema\b/.test(source);
     });
 
     expect(importers.sort()).toEqual([
+      // D2: the disconnect route's DEPOSITS_IN_FLIGHT refusal (read-only).
       path.join(ROOT, 'src/app/api/integrations/stripe-connect/disconnect/route.ts'),
+      // D4: creates the deposit row in the booking transaction, and fences a
+      // reschedule that would strand a live deposit.
+      path.join(ROOT, 'src/app/api/appointments/route.ts'),
+      // D4: the read-only manage-token hold state and its server view.
+      path.join(ROOT, 'src/app/[locale]/[slug]/manage/[token]/ManageAppointmentView.tsx'),
+      path.join(ROOT, 'src/app/api/public/appointments/manage/[token]/route.ts'),
+      // D4: the public session-status poll surface (read-only, no writes).
+      path.join(ROOT, 'src/app/api/public/deposits/session-status/route.ts'),
+      // D4: the reaper and THE module boundary that owns every hold-moving CAS.
+      path.join(ROOT, 'src/libs/depositHoldReaper.ts'),
+      path.join(ROOT, 'src/libs/deposits/holdWriters.ts'),
       path.join(ROOT, 'src/models/Schema.ts'),
     ].sort());
   });
