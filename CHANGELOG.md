@@ -1,3 +1,10 @@
+# [1.48.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.47.0...v1.48.0) (2026-08-11)
+
+
+### Features
+
+* **booking:** observe required-add-on rule gaps without enforcing them (PR1A) ([4856b32](https://github.com/SniperStopSniping/nailsalon/commit/4856b3258cc1e7e9e984f3e481e1459245060e5d))
+
 # [1.47.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.46.0...v1.47.0) (2026-08-10)
 
 
