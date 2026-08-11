@@ -1269,3 +1269,103 @@ describe('27 — outside the branch, policy active', () => {
     expect(deposits.refreshAccountReadiness).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * §14 test 13 — CREATE-FAILURE TAXONOMY, through the route, on real rows.
+ *
+ * The asymmetry is the point. A DEFINITE rejection means Stripe decoded the
+ * request and refused it, so the slot should come back immediately. A 429, a
+ * concurrent idempotency_error or any 5xx must NEVER cancel: cancelling on a 429
+ * destroys valid bookings during exactly the traffic spikes deposits exist for,
+ * and a saved result — including a saved 500 — is replayed under the same key
+ * for >= 24 h, so a payable session may exist that we cannot see.
+ */
+describe('13 — create-failure taxonomy', () => {
+  beforeEach(() => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+  });
+
+  it('a DEFINITE rejection compensating-cancels and frees the slot immediately', async () => {
+    deposits.createDepositCheckoutSession.mockResolvedValue({
+      ok: false,
+      failure: 'definite',
+      error: new Error('expires_at is too soon'),
+    });
+    const slot = at(futureDate(65), '10:00').toISOString();
+    setClientSession(freshPhone());
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failed = await postBooking({
+      startTime: slot,
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const failedBody = await failed.json();
+    consoleError.mockRestore();
+
+    expect(failed.status).toBe(502);
+    expect(failedBody.error.code).toBe('DEPOSIT_CHECKOUT_FAILED');
+
+    const [appointment] = await appointmentRows();
+
+    expect(appointment!.status).toBe('cancelled');
+    expect(appointment!.cancelReason).toBe('deposit_not_paid');
+    expect(appointment!.canvasState).toBe('cancelled');
+
+    const [deposit] = await depositRows();
+
+    expect(deposit!.status).toBe('canceled');
+
+    // ...and the slot really is re-bookable: the cancelled row no longer blocks.
+    deposits.createDepositCheckoutSession.mockResolvedValue({
+      ok: true,
+      session: {
+        id: 'cs_after_cancel',
+        url: 'https://checkout.stripe.com/c/pay/cs_after_cancel',
+        expires_at: 0,
+        payment_intent: null,
+      },
+    });
+    setClientSession(freshPhone());
+
+    const rebooked = await postBooking({
+      startTime: slot,
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+
+    expect(rebooked.status).toBe(201);
+  });
+
+  it.each([
+    ['a 429 rate limit', 'ambiguous'],
+    ['a concurrent idempotency_error', 'ambiguous'],
+    ['a 500 from Stripe', 'ambiguous'],
+  ])('%s leaves the hold STANDING and answers 503', async (_label, failure) => {
+    deposits.createDepositCheckoutSession.mockResolvedValue({
+      ok: false,
+      failure,
+      error: new Error(_label),
+    });
+    setClientSession(freshPhone());
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const response = await postBooking({
+      startTime: at(futureDate(66), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await response.json();
+    consoleError.mockRestore();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe('DEPOSIT_CHECKOUT_UNAVAILABLE');
+
+    // The hold SURVIVES. The reaper owns it from here.
+    const [appointment] = await appointmentRows();
+
+    expect(appointment!.status).toBe('awaiting_payment');
+
+    const [deposit] = await depositRows();
+
+    expect(deposit!.status).toBe('checkout_created');
+  });
+});
