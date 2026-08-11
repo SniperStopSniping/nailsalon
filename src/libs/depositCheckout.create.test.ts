@@ -166,7 +166,7 @@ describe('deposit Checkout — the provider contract (§14 test 2)', () => {
 
 describe('deposit Checkout — the retry and failure contract', () => {
   it('retries a retryable failure ONCE with the same key, then reports ambiguous', async () => {
-    const rateLimited = new Stripe.errors.StripeRateLimitError({ message: 'slow down' });
+    const rateLimited = new Stripe.errors.StripeRateLimitError({ type: 'rate_limit_error', message: 'slow down' });
     const { client, create } = buildStubClient({
       create: vi.fn(async () => {
         throw rateLimited;
@@ -184,7 +184,7 @@ describe('deposit Checkout — the retry and failure contract', () => {
   });
 
   it('does not retry a definite rejection', async () => {
-    const invalid = new Stripe.errors.StripeInvalidRequestError({ message: 'expires_at too soon' });
+    const invalid = new Stripe.errors.StripeInvalidRequestError({ type: 'invalid_request_error', message: 'expires_at too soon' });
     const { client, create } = buildStubClient({
       create: vi.fn(async () => {
         throw invalid;
@@ -201,23 +201,21 @@ describe('deposit Checkout — the retry and failure contract', () => {
 /** §14 test 14 — the taxonomy, unit-tested against real Stripe error instances. */
 describe('classifyStripeFailure (§14 test 14)', () => {
   it.each([
-    ['StripeConnectionError', new Stripe.errors.StripeConnectionError({ message: 'reset' }), 'ambiguous'],
-    ['StripeAPIError', new Stripe.errors.StripeAPIError({ message: 'boom' }), 'retryable'],
-    ['StripeRateLimitError', new Stripe.errors.StripeRateLimitError({ message: '429' }), 'retryable'],
-    ['StripeIdempotencyError', new Stripe.errors.StripeIdempotencyError({ message: 'concurrent' }), 'retryable'],
-    ['StripeInvalidRequestError (generic)', new Stripe.errors.StripeInvalidRequestError({ message: 'bad param' }), 'definite'],
-    ['StripeInvalidRequestError (not open)', new Stripe.errors.StripeInvalidRequestError({ message: 'You cannot expire a Checkout Session that is not open' }), 'session_not_open'],
-    ['StripeAuthenticationError', new Stripe.errors.StripeAuthenticationError({ message: 'bad key' }), 'permanent'],
-    ['StripePermissionError', new Stripe.errors.StripePermissionError({ message: 'no access' }), 'permanent'],
+    ['StripeConnectionError', new Stripe.errors.StripeConnectionError({ type: 'api_error', message: 'reset' }), 'ambiguous'],
+    ['StripeAPIError', new Stripe.errors.StripeAPIError({ type: 'api_error', message: 'boom' }), 'retryable'],
+    ['StripeRateLimitError', new Stripe.errors.StripeRateLimitError({ type: 'rate_limit_error', message: '429' }), 'retryable'],
+    ['StripeIdempotencyError', new Stripe.errors.StripeIdempotencyError({ type: 'idempotency_error', message: 'concurrent' }), 'retryable'],
+    ['StripeInvalidRequestError (generic)', new Stripe.errors.StripeInvalidRequestError({ type: 'invalid_request_error', message: 'bad param' }), 'definite'],
+    ['StripeInvalidRequestError (not open)', new Stripe.errors.StripeInvalidRequestError({ type: 'invalid_request_error', message: 'You cannot expire a Checkout Session that is not open' }), 'session_not_open'],
+    ['StripeAuthenticationError', new Stripe.errors.StripeAuthenticationError({ type: 'authentication_error', message: 'bad key' }), 'permanent'],
+    ['StripePermissionError', new Stripe.errors.StripePermissionError({ type: 'invalid_request_error', message: 'no access' }), 'permanent'],
     ['raw AbortError', Object.assign(new Error('aborted'), { name: 'AbortError' }), 'ambiguous'],
   ])('%s -> %s', (_label, error, expected) => {
     expect(classifyStripeFailure(error)).toBe(expected);
   });
 
   it('classifies a deauthorized connected account as permanent', () => {
-    const deauthorized = new Stripe.errors.StripeInvalidRequestError({
-      message: 'The provided key does not have access to account acct_x (deauthorized).',
-    });
+    const deauthorized = new Stripe.errors.StripeInvalidRequestError({ type: 'invalid_request_error', message: 'The provided key does not have access to account acct_x (deauthorized).' });
 
     expect(classifyStripeFailure(deauthorized)).toBe('permanent');
   });

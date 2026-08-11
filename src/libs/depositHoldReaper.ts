@@ -203,8 +203,8 @@ async function reapOneHold(args: {
 
 type SessionVerdict
   = | { kind: 'paid' }
-    | { kind: 'finalize'; note: string | null }
-    | { kind: 'retry'; error: string | null };
+  | { kind: 'finalize'; note: string | null }
+  | { kind: 'retry'; error: string | null };
 
 async function resolveSessionVerdict(args: {
   client: DepositStripeClient;

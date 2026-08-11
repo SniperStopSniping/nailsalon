@@ -95,6 +95,7 @@ describe('BLOCKING_APPOINTMENT_STATUSES ↔ the effective double-booking predica
     // Derived, NOT hardcoded: a hardcoded literal here has to be edited by the
     // same change that widens the constant, so it can never detect drift.
     const documented = [...BLOCKING_APPOINTMENT_STATUSES].sort();
+
     expect(documented).toEqual([...new Set(documented)]);
 
     // The one membership claim this file is entitled to make on its own:
