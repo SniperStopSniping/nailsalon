@@ -3029,6 +3029,9 @@ export const AUDIT_LOG_ACTIONS = [
   'stripe_connect_account_revoked',
   'stripe_connect_orphan_account',
   'stripe_connect_account_shape_rejected',
+  // Per-salon deposits entitlement (D3). The `action` COLUMN is free text; this
+  // array is the app-level union the audit helper validates against.
+  'deposits_entitlement_changed',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 

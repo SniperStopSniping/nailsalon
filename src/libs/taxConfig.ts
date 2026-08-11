@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { ResolvedTaxConfig } from '@/libs/checkoutTotals';
+import { salonDepositSettingsSchema, storedDepositSettingsSchema } from '@/libs/depositPolicy';
 import type { SalonSettings } from '@/types/salonPolicy';
 
 /**
@@ -49,41 +50,93 @@ export const salonEtransferSettingsSchema = z.object({
   qrPageEnabled: z.boolean().optional(),
 });
 
+/**
+ * STORED-READ shape. Deliberately permissive on `deposit`: privileged
+ * whole-column `settings` writers never run the write validator below, so an
+ * out-of-window stored amount must stay READABLE — and be rejected by the
+ * deposit read-time gate — rather than collapsing the block.
+ */
 export const salonPaymentsSettingsSchema = z.object({
   tax: salonTaxSettingsSchema.optional(),
   etransfer: salonEtransferSettingsSchema.optional(),
+  deposit: storedDepositSettingsSchema.optional(),
+});
+
+/**
+ * WRITE shape for the admin PATCH. Distinct from the stored shape because the
+ * deposit amount is bounded on both sides here; pointing the route's validator
+ * at the stored schema would accept `amountCents: 0 / 49 / 99_999_999`.
+ */
+export const salonPaymentsSettingsWriteSchema = z.object({
+  tax: salonTaxSettingsSchema.optional(),
+  etransfer: salonEtransferSettingsSchema.optional(),
+  deposit: salonDepositSettingsSchema.optional(),
 });
 
 export type SalonTaxSettings = z.infer<typeof salonTaxSettingsSchema>;
 export type SalonEtransferSettings = z.infer<typeof salonEtransferSettingsSchema>;
 export type SalonPaymentsSettings = z.infer<typeof salonPaymentsSettingsSchema>;
+export type SalonPaymentsSettingsWrite = z.infer<typeof salonPaymentsSettingsWriteSchema>;
 
 /**
- * Read the stored payments settings for editing surfaces. Malformed legacy
- * shapes collapse to `{}` (tax-off) rather than erroring.
+ * Read the stored payments settings for editing surfaces. Each sub-object is
+ * parsed INDEPENDENTLY so one malformed block collapses only itself and never
+ * its siblings — a legacy `tax` value must not be able to hide a stored
+ * e-Transfer recipient or deposit amount.
  */
 export function readStoredPaymentsSettings(
   settings: SalonSettings | null | undefined,
 ): SalonPaymentsSettings {
-  const parsed = salonPaymentsSettingsSchema.safeParse(settings?.payments ?? {});
-  return parsed.success ? parsed.data : {};
+  const raw = (settings as { payments?: unknown } | null | undefined)?.payments;
+  const container = raw !== null && typeof raw === 'object' && !Array.isArray(raw)
+    ? raw as Record<string, unknown>
+    : {};
+
+  const result: SalonPaymentsSettings = {};
+
+  if (container.tax !== undefined) {
+    const parsed = salonTaxSettingsSchema.safeParse(container.tax);
+    if (parsed.success) {
+      result.tax = parsed.data;
+    }
+  }
+  if (container.etransfer !== undefined) {
+    const parsed = salonEtransferSettingsSchema.safeParse(container.etransfer);
+    if (parsed.success) {
+      result.etransfer = parsed.data;
+    }
+  }
+  if (container.deposit !== undefined) {
+    const parsed = storedDepositSettingsSchema.safeParse(container.deposit);
+    if (parsed.success) {
+      result.deposit = parsed.data;
+    }
+  }
+
+  return result;
 }
 
 /**
  * Merge a payments-settings update into the stored value. Each sub-object
- * (tax / etransfer) merges field-by-field so a partial save never drops the
- * other card's values; `scheduledChange: null` explicitly clears a scheduled
- * rate change.
+ * (tax / etransfer / deposit) merges field-by-field so a partial save never
+ * drops the other card's values; `scheduledChange: null` explicitly clears a
+ * scheduled rate change.
+ *
+ * The `deposit` arm is NOT cosmetic. It is the only source of "the value this
+ * request merged" that the settings route's `jsonb_set` chain writes, and
+ * `jsonb_set` is STRICT: an `undefined` amount stringifies to `undefined`,
+ * binds as NULL, and turns the whole `settings` column NULL with a 200.
  */
 export function mergePaymentsSettings(
   current: SalonPaymentsSettings,
-  update: SalonPaymentsSettings,
+  update: SalonPaymentsSettingsWrite,
 ): SalonPaymentsSettings {
   return {
     tax: update.tax ? { ...current.tax, ...update.tax } : current.tax,
     etransfer: update.etransfer
       ? { ...current.etransfer, ...update.etransfer }
       : current.etransfer,
+    deposit: update.deposit ? { ...current.deposit, ...update.deposit } : current.deposit,
   };
 }
 

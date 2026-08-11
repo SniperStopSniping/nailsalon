@@ -286,7 +286,7 @@ export const FEATURE_DEFAULTS: {
   clients: { clientProfiles: boolean; clientHistory: boolean };
   social: { photoUploads: boolean };
   marketing: { smsReminders: boolean; referrals: boolean; rewards: boolean };
-  money: { staffEarnings: boolean };
+  money: { staffEarnings: boolean; deposits: boolean };
   analytics: { dashboard: boolean; utilization: boolean };
   controls: { clientBlocking: boolean; clientFlags: boolean };
   visibility: {
@@ -303,7 +303,7 @@ export const FEATURE_DEFAULTS: {
   clients: { clientProfiles: true, clientHistory: true },
   social: { photoUploads: true },
   marketing: { smsReminders: false, referrals: false, rewards: false },
-  money: { staffEarnings: false },
+  money: { staffEarnings: false, deposits: false },
   analytics: { dashboard: false, utilization: false },
   controls: { clientBlocking: false, clientFlags: false },
   visibility: {
