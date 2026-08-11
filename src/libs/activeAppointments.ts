@@ -11,11 +11,38 @@ import { type Appointment, appointmentSchema } from '@/models/Schema';
 import { db } from './DB';
 
 /**
- * Statuses that count as an "active" reservation everywhere an appointment
- * can block a new booking or be recovered by the client.
- * Mirrors the partial unique index in migrations/0054_prevent_double_booking.sql.
+ * TWO CONSTANTS, TWO DIFFERENT QUESTIONS. Read this before widening either.
+ *
+ * `ACTIVE_APPOINTMENT_STATUSES` answers **"which statuses may a row be
+ * reactivated TO?"** — it is an allowed-transition-TARGET list, consumed by the
+ * PATCH reactivation route. A deposit hold must NEVER be a member: widening
+ * this constant would make holds owner-confirmable and let an unpaid booking be
+ * promoted straight to `confirmed`, bypassing payment entirely.
+ *
+ * `SLOT_OCCUPYING_CLIENT_STATUSES` answers **"which statuses OCCUPY the
+ * client?"** — which rows count as a live reservation the client already holds,
+ * for the duplicate-booking gate, recovery and lifecycle selectors. A hold IS
+ * such a reservation, so it is a member here.
+ *
+ * (A third question — "which statuses occupy the TECHNICIAN's slot?" — is
+ * `BLOCKING_APPOINTMENT_STATUSES` in bookingConflictGuard.ts, pinned to the
+ * migrations' double-booking predicates.)
  */
 export const ACTIVE_APPOINTMENT_STATUSES = ['pending', 'confirmed', 'in_progress'] as const;
+
+/**
+ * The client-facing occupancy set: everything in
+ * `ACTIVE_APPOINTMENT_STATUSES` plus a live deposit hold.
+ *
+ * The appointment row IS the hold, so a client sitting on one already has a
+ * live reservation: the duplicate-booking gate must see it (otherwise one
+ * client can hold N slots by abandoning checkout), and the recovery/lifecycle
+ * selectors must see it or they return an id whose loader then cannot load it.
+ */
+export const SLOT_OCCUPYING_CLIENT_STATUSES = [
+  ...ACTIVE_APPOINTMENT_STATUSES,
+  'awaiting_payment',
+] as const;
 
 /**
  * Build the phone formats an appointment row may have been stored with.
@@ -148,7 +175,9 @@ export async function getActiveAppointmentsForCanonicalClientWithHandle(
       appointment.end_time
     from appointment
     where appointment.salon_id = ${args.salonId}
-      and appointment.status in ('pending', 'confirmed', 'in_progress')
+      and appointment.status in (
+        ${sql.join(SLOT_OCCUPYING_CLIENT_STATUSES.map(status => sql`${status}`), sql`, `)}
+      )
       and appointment.deleted_at is null
       and (
         appointment.salon_client_id in (
@@ -202,9 +231,11 @@ export function getActiveAppointmentsForCanonicalClient(args: {
  * public recovery endpoint (email and/or phone) so the two flows can never
  * disagree about which appointments exist.
  *
- * Matches only non-deleted CRM appointments in ACTIVE_APPOINTMENT_STATUSES —
+ * Matches only non-deleted CRM appointments in SLOT_OCCUPYING_CLIENT_STATUSES —
  * cancelled/completed/no-show/soft-deleted rows and Google Calendar events
- * (separate tables) can never match.
+ * (separate tables) can never match. Live deposit holds DO match: a client
+ * holding one already occupies a slot, so the duplicate-booking gate must see
+ * it rather than let them accumulate holds by abandoning checkout.
  */
 export async function getActiveAppointmentsForContact(args: {
   salonId: string;
@@ -233,7 +264,7 @@ export async function getActiveAppointmentsForContact(args: {
     .where(
       and(
         eq(appointmentSchema.salonId, salonId),
-        inArray(appointmentSchema.status, [...ACTIVE_APPOINTMENT_STATUSES]),
+        inArray(appointmentSchema.status, [...SLOT_OCCUPYING_CLIENT_STATUSES]),
         horizon === 'booking-gate'
           ? gte(appointmentSchema.startTime, now)
           : horizon === 'recovery'

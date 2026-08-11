@@ -129,7 +129,7 @@ export function AppointmentsModal({
 
       const dateStr = selectedDate.toISOString().split('T')[0];
       const response = await fetch(
-        `/api/admin/appointments?date=${dateStr}&status=pending,confirmed,in_progress,completed`,
+        `/api/admin/appointments?date=${dateStr}&status=pending,confirmed,in_progress,awaiting_payment,completed`,
       );
 
       if (!response.ok) {

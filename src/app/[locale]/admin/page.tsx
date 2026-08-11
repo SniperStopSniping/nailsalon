@@ -893,7 +893,7 @@ function AdminDashboardContent() {
     const now = new Date();
     const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     fetch(
-      `/api/admin/appointments?date=${date}&status=pending,confirmed,in_progress,completed,no_show`,
+      `/api/admin/appointments?date=${date}&status=pending,confirmed,in_progress,awaiting_payment,completed,no_show`,
       { signal: controller.signal },
     )
       .then(async response =>

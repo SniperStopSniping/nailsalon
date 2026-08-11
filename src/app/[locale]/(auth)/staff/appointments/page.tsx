@@ -140,7 +140,7 @@ function StaffAppointmentsContent() {
       setLoading(true);
       setError(null);
       const dateStr = getLocalDateKey(selectedDate);
-      const response = await fetch(`/api/appointments?date=${dateStr}&status=pending,confirmed,in_progress,completed`);
+      const response = await fetch(`/api/appointments?date=${dateStr}&status=pending,confirmed,in_progress,awaiting_payment,completed`);
       if (!response.ok) {
         throw new Error('Failed to fetch appointments');
       }

@@ -3,6 +3,7 @@ import 'server-only';
 import { and, eq, type SQL, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { SLOT_OCCUPYING_CLIENT_STATUSES } from '@/libs/activeAppointments';
 import { db } from '@/libs/DB';
 import { normalizePhone } from '@/libs/phone';
 import { notificationDeliverySchema } from '@/models/Schema';
@@ -978,7 +979,9 @@ export async function getZeroCandidateOrphanRecoveryAppointmentsWithHandle(
     from appointment
     where appointment.salon_id = ${salonId}
       and appointment.salon_client_id is null
-      and appointment.status in ('pending', 'confirmed', 'in_progress')
+      and appointment.status in (
+        ${sql.join(SLOT_OCCUPYING_CLIENT_STATUSES.map(status => sql`${status}`), sql`, `)}
+      )
       and appointment.deleted_at is null
       and appointment.end_time > ${now}
       and (

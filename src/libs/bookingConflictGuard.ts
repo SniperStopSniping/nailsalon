@@ -6,9 +6,23 @@ import { appointmentSchema } from '@/models/Schema';
 
 /**
  * Appointment statuses that occupy a technician's time. Must stay in sync with
- * the partial-index predicate in migrations/0054_prevent_double_booking.sql.
+ * the double-booking backstops in the migrations — originally
+ * 0054_prevent_double_booking.sql, widened for deposit holds by
+ * 0066_deposit_hold_awaiting_payment.sql, which drops and recreates BOTH the
+ * partial unique index and the gist exclusion constraint with the predicate
+ * below. `src/libs/bookingBlockingStatuses.test.ts` resolves the LATEST such
+ * migration and machine-checks it against this constant, so the two cannot
+ * drift silently.
+ *
+ * 'awaiting_payment' is a deposit hold: the appointment row IS the hold, so it
+ * must occupy the slot exactly as 'pending' does for as long as it lives.
  */
-export const BLOCKING_APPOINTMENT_STATUSES = ['pending', 'confirmed', 'in_progress'] as const;
+export const BLOCKING_APPOINTMENT_STATUSES = [
+  'pending',
+  'confirmed',
+  'in_progress',
+  'awaiting_payment',
+] as const;
 
 export class SlotConflictError extends Error {
   constructor() {

@@ -316,7 +316,7 @@ export function WalkInModal({ isOpen, onClose, onSuccess }: WalkInModalProps) {
       const [techRes, servicesRes, apptsRes] = await Promise.all([
         fetch(`/api/admin/technicians?salonSlug=${salonSlug}&status=active`),
         fetch(`/api/salon/services?salonSlug=${salonSlug}`),
-        fetch(`/api/admin/appointments?date=${today}&status=pending,confirmed,in_progress`),
+        fetch(`/api/admin/appointments?date=${today}&status=pending,confirmed,in_progress,awaiting_payment`),
       ]);
 
       if (!techRes.ok || !servicesRes.ok) {

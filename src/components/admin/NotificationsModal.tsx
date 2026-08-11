@@ -225,7 +225,16 @@ function EmptyState() {
   );
 }
 
-// Convert appointment to notification
+/**
+ * Statuses this activity feed is willing to render, sent explicitly on the
+ * fetch. The endpoint already excludes holds when no status filter is given;
+ * naming the set here means a future change to that default cannot silently
+ * start surfacing unpaid deposit holds as "New Booking" activity.
+ */
+const ACTIVITY_STATUSES = 'pending,confirmed,in_progress,completed,cancelled,no_show';
+
+// Convert appointment to notification. Returns null for rows this feed must
+// not render at all.
 function appointmentToNotification(appointment: {
   id: string;
   status: string;
@@ -233,7 +242,13 @@ function appointmentToNotification(appointment: {
   startTime: string;
   createdAt: string;
   services?: { name: string }[];
-}): Notification {
+}): Notification | null {
+  // A deposit hold is not activity: nobody booked anything yet, and the row
+  // lapses on its own. Refused BEFORE anything is built, so no "New Booking"
+  // notification can be constructed from it even if the fetch changes.
+  if (appointment.status === 'awaiting_payment') {
+    return null;
+  }
   const serviceName = appointment.services?.[0]?.name || 'Appointment';
   const clientName = appointment.clientName || 'Guest';
   const appointmentTime = new Date(appointment.startTime).toLocaleTimeString('en-US', {
@@ -312,7 +327,7 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
       const dateStr = sevenDaysAgo.toISOString().split('T')[0];
 
       const response = await fetch(
-        `/api/admin/appointments?startDate=${dateStr}`,
+        `/api/admin/appointments?startDate=${dateStr}&status=${ACTIVITY_STATUSES}`,
       );
 
       if (!response.ok) {
@@ -326,6 +341,7 @@ export function NotificationsModal({ onClose }: NotificationsModalProps) {
       const activityNotifications: Notification[] = appointments
         .slice(0, 20) // Limit to 20 most recent
         .map(appointmentToNotification)
+        .filter((notification: Notification | null): notification is Notification => notification !== null)
         .sort((a: Notification, b: Notification) => b.timestamp.getTime() - a.timestamp.getTime());
 
       setNotifications(activityNotifications);

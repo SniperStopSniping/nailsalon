@@ -516,15 +516,22 @@ export const appointmentSchema = pgTable(
     startTime: timestamp('start_time', { mode: 'date', withTimezone: true }).notNull(),
     endTime: timestamp('end_time', { mode: 'date', withTimezone: true }).notNull(),
 
-    // Status
+    // Status — see APPOINTMENT_STATUSES for the authoritative list.
     status: text('status').notNull().default('confirmed'),
-    // 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no_show'
+    // 'pending' | 'confirmed' | 'in_progress' | 'awaiting_payment'
+    //   | 'cancelled' | 'completed' | 'no_show'
     cancelReason: text('cancel_reason'),
-    // 'rescheduled' | 'client_request' | 'no_show' | null
+    // 'rescheduled' | 'client_request' | 'no_show' | 'deposit_not_paid' | null
 
     // Canvas Flow OS state (parallel to legacy status)
     canvasState: canvasStateEnum('canvas_state').default('waiting'),
     canvasStateUpdatedAt: timestamp('canvas_state_updated_at', { mode: 'date', withTimezone: true }),
+
+    // Deposit hold deadline (migration 0066). Set ONLY on 'awaiting_payment'
+    // rows: the appointment row IS the hold, and this is when it lapses. The
+    // reaper keys on it; the Stripe Checkout Session expires at the same
+    // instant. NULL on every other status.
+    depositHoldExpiresAt: timestamp('deposit_hold_expires_at', { mode: 'date', withTimezone: true }),
 
     // Soft delete
     deletedAt: timestamp('deleted_at', { mode: 'date', withTimezone: true }),
@@ -2443,6 +2450,11 @@ export const APPOINTMENT_STATUSES = [
   'pending',
   'confirmed',
   'in_progress',
+  // A deposit hold. The appointment row IS the hold: the slot is occupied but
+  // the booking is not yet paid for, and it lapses at `deposit_hold_expires_at`.
+  // It is NOT a member of ACTIVE_APPOINTMENT_STATUSES (which is an
+  // allowed-transition-target list) — see src/libs/activeAppointments.ts.
+  'awaiting_payment',
   'cancelled',
   'completed',
   'no_show',
@@ -2465,6 +2477,11 @@ export const CANCEL_REASONS = [
   'rescheduled',
   'client_request',
   'no_show',
+  // Written by the deposit-checkout compensating cancel and by the hold reaper.
+  // Note the intended side effect: CANCEL_REASONS also types the PATCH body, so
+  // this becomes a legal PATCH cancel reason. Harmless — the CAS lists exclude
+  // holds, so the reason is cosmetic on an ordinary cancel.
+  'deposit_not_paid',
 ] as const;
 export type CancelReason = (typeof CANCEL_REASONS)[number];
 
