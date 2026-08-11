@@ -104,6 +104,7 @@ describe('test 12 — a throwing binding read is undetermined, not a throw', () 
     });
 
     expect(result).toMatchObject({ active: false, reason: 'undetermined', amountCents: null });
+
     consoleError.mockRestore();
   });
 });
@@ -163,8 +164,8 @@ describe('test 13 — zero provider calls on the read path', () => {
 
   it('reaches the database only through dynamic imports', () => {
     expect(SERVER_SOURCE).not.toMatch(/^\s*import\s+\{[^}]*\}\s+from\s+'@\/libs\/DB'/m);
-    expect(SERVER_SOURCE).toContain("await import('@/libs/queries')");
-    expect(SERVER_SOURCE).toContain("await import('@/libs/depositAccountSnapshot.server')");
+    expect(SERVER_SOURCE).toContain('await import(\'@/libs/queries\')');
+    expect(SERVER_SOURCE).toContain('await import(\'@/libs/depositAccountSnapshot.server\')');
   });
 });
 
@@ -206,11 +207,11 @@ describe('test 13b — EXPECTED_LIVEMODE provenance', () => {
       computeExpectedLivemode: () => ({ ok: false, code: 'MODE_INDETERMINATE' }),
     }));
 
-    const module = await import('@/libs/depositPolicy.server');
+    const reloaded = await import('@/libs/depositPolicy.server');
 
-    expect(module.EXPECTED_LIVEMODE).toBeNull();
+    expect(reloaded.EXPECTED_LIVEMODE).toBeNull();
 
-    const result = await module.getDepositPolicyForSalon({
+    const result = await reloaded.getDepositPolicyForSalon({
       salonId: 'salon_1',
       salon: salon({ enabled: true, amountCents: 2500 }),
       collectionLive: true,

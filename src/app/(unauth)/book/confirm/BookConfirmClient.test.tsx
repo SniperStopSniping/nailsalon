@@ -1759,6 +1759,7 @@ describe('BookConfirmClient deposit disclosure', () => {
     const notSuppressed = renderClient({ depositNoticeSuppressed: false });
 
     expect(screen.getByText('A deposit may be required')).toBeInTheDocument();
+
     notSuppressed.unmount();
 
     renderClient({ depositNoticeSuppressed: true, depositDisclosure: DISCLOSURE });

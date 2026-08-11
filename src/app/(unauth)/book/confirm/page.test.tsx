@@ -524,6 +524,7 @@ describe('BookConfirmPage deposit disclosure — dark', () => {
     });
 
     expect(policy).toMatchObject({ active: false, reason: 'undetermined' });
+
     consoleError.mockRestore();
   });
 

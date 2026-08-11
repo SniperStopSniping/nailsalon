@@ -4284,6 +4284,7 @@ describe('/api/admin/salon/settings deposits', () => {
     const response = await patch({ payments: { deposit: { amountCents: 4000 } } });
 
     expect(response.status).toBe(500);
+
     consoleError.mockRestore();
   });
 });

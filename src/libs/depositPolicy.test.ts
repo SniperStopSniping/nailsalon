@@ -93,6 +93,7 @@ describe('test 1 — write schema bounds, stored schema permissiveness', () => {
     for (const value of [-1, 0, 49, 1_000_001, 25.5, Number.NaN, Number.POSITIVE_INFINITY]) {
       expect(salonDepositSettingsSchema.safeParse({ amountCents: value }).success).toBe(false);
     }
+
     expect(salonDepositSettingsSchema.safeParse({ amountCents: '50' }).success).toBe(false);
     expect(salonDepositSettingsSchema.safeParse({ amountCents: 50 }).success).toBe(true);
     expect(salonDepositSettingsSchema.safeParse({ amountCents: 1_000_000 }).success).toBe(true);

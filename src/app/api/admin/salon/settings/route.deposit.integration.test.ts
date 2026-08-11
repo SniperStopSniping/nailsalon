@@ -81,8 +81,10 @@ async function readSettings(id = SALON) {
   return row?.settings as Record<string, any> | null;
 }
 
-/** `slug` is resolved through the mocked `getSalonBySlug`, so the snapshot it
- *  returns is exactly the request-start view a stale tab would have had. */
+/**
+ * `slug` is resolved through the mocked `getSalonBySlug`, so the snapshot it
+ *  returns is exactly the request-start view a stale tab would have had.
+ */
 function patchWith(snapshot: unknown, body: unknown, slug = SALON.replace(/_/g, '-')) {
   mocks.getSalonBySlug.mockResolvedValueOnce(snapshot);
   return PATCH(
