@@ -1438,3 +1438,43 @@ describe('12 — hold re-entry', () => {
     expect(await depositRows()).toHaveLength(1);
   });
 });
+
+/**
+ * §14 test 10, the [P] COMPANION.
+ *
+ * The true [PG] concurrency leg needs CONCURRENCY_TEST_DATABASE_URL and is not
+ * runnable here. What IS runnable — and is the property that matters for every
+ * other salon on the platform — is that a hold OCCUPIES the slot: a later
+ * booking against it is refused exactly as it would be against a 'pending' row.
+ */
+describe('10 [P] — a hold occupies the slot', () => {
+  it('a NON-deposit booking against a held slot is refused', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    const slot = at(futureDate(85), '10:00').toISOString();
+    setClientSession(freshPhone());
+
+    const held = await postBooking({
+      startTime: slot,
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+
+    expect(held.status).toBe(201);
+
+    // A different client, deposits now configuration-side OFF, same slot.
+    seedPolicy({ active: false, reason: 'disabled', amountCents: 2500 });
+    setClientSession(freshPhone());
+
+    const blocked = await postBooking({ startTime: slot });
+    const body = await blocked.json();
+
+    expect(blocked.status).toBe(409);
+    // Whether the in-transaction recheck or 0066's unique index wins the race,
+    // the answer the client sees is the same.
+    expect(body.error.code).toBe('TIME_CONFLICT');
+
+    const holds = (await appointmentRows()).filter(row => row.status === 'awaiting_payment');
+
+    expect(holds).toHaveLength(1);
+  });
+});
