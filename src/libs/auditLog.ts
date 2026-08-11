@@ -96,6 +96,37 @@ export async function logAuditEvent(entry: AuditLogEntry): Promise<void> {
   }
 }
 
+/**
+ * Blocking variant of {@link logAuditEvent}: identical row, no try/catch.
+ *
+ * `logAuditEvent` swallows its own failures and always resolves, so a caller can
+ * never make a request fail when the audit write fails — which makes any
+ * "awaited; failure → 500" requirement unimplementable with it. Recovery-
+ * critical audits (the ones a human needs in order to reconstruct which Stripe
+ * account a salon was bound to, and when) use this instead, so a lost audit row
+ * surfaces as a failed request rather than as silence.
+ *
+ * Use sparingly. Everything that is merely useful stays on the fire-and-forget
+ * helper.
+ */
+export async function logAuditEventOrThrow(entry: AuditLogEntry): Promise<void> {
+  await db.insert(auditLogSchema).values({
+    id: `audit_${crypto.randomUUID()}`,
+    salonId: entry.salonId ?? null,
+    actorType: entry.actorType,
+    actorId: entry.actorId ?? null,
+    actorPhone: null, // Intentionally not stored - use actorId for correlation
+    action: entry.action,
+    entityType: entry.entityType ?? null,
+    entityId: entry.entityId ?? null,
+    metadata: entry.metadata
+      ? sanitizeAuditMetadata(entry.metadata) as Record<string, unknown>
+      : null,
+    ip: entry.ip ?? null,
+    userAgent: entry.userAgent ?? null,
+  });
+}
+
 // =============================================================================
 // CONVENIENCE HELPERS
 // =============================================================================

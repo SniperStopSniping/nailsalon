@@ -3,12 +3,35 @@ import 'server-only';
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
+import { Env } from '@/libs/Env';
+import {
+  deriveConnectStatus,
+  EXPECTED_LIVEMODE,
+  toBinding,
+} from '@/libs/stripeConnect/readiness';
 import {
   integrationOutboxSchema,
   notificationDeliverySchema,
   salonGoogleCalendarConnectionSchema,
+  salonStripeAccountSchema,
   salonTwilioConnectionSchema,
 } from '@/models/Schema';
+
+/**
+ * Temporary deposits pilot allowlist. This is the SECOND of exactly two read
+ * sites in D2 — the other is the onboard route's exposure gate. They are not
+ * redundant: this one controls VISIBILITY of the Payments card, that one
+ * controls EXPOSURE of the endpoint, and an unrendered card does not make the
+ * endpoint unreachable. A later PR replaces both with one entitlement call and
+ * deletes the env var.
+ */
+function isPilotSalon(salonId: string): boolean {
+  return (Env.LUSTER_DEPOSITS_PILOT_SALON_IDS ?? '')
+    .split(',')
+    .map(value => value.trim())
+    .filter(Boolean)
+    .includes(salonId);
+}
 
 /**
  * Google Calendar readiness for a salon:
@@ -46,7 +69,14 @@ export function resolveGoogleReadiness(
 }
 
 export async function getSalonIntegrationHealth(salonId: string) {
-  const [[google], [twilio], [latestSmsFailure], [pending], [failed]] = await Promise.all([
+  const [
+    [google],
+    [twilio],
+    [latestSmsFailure],
+    [pending],
+    [failed],
+    stripeBindingRows,
+  ] = await Promise.all([
     db
       .select({
         status: salonGoogleCalendarConnectionSchema.status,
@@ -106,6 +136,21 @@ export async function getSalonIntegrationHealth(salonId: string) {
           eq(integrationOutboxSchema.status, 'failed'),
         ),
       ),
+    // CACHED ROW ONLY — no provider call on page load. Guarded so a
+    // not-yet-applied 0065 degrades the Payments card alone instead of
+    // rejecting the whole batch and blanking every other integration card.
+    // The try/catch (rather than `.catch()`) also keeps this tolerant of the
+    // many suites that mock `@/libs/DB` with a partial query builder.
+    (async () => {
+      try {
+        return await db
+          .select()
+          .from(salonStripeAccountSchema)
+          .where(eq(salonStripeAccountSchema.salonId, salonId));
+      } catch {
+        return [];
+      }
+    })(),
   ]);
 
   return {
@@ -170,5 +215,56 @@ export async function getSalonIntegrationHealth(salonId: string) {
       pending: Number(pending?.count ?? 0),
       failed: Number(failed?.count ?? 0),
     },
+    stripeConnect: buildStripeConnectBlock(salonId, stripeBindingRows),
+  };
+}
+
+/**
+ * The Payments card's data, derived from the CACHED binding row only.
+ *
+ * `lastSyncedAt` is surfaced rather than hidden: D2 ships no scheduled refresher
+ * on purpose, so this row may be arbitrarily stale. That is acceptable precisely
+ * because it gates nothing — the money path takes its own live proof at the
+ * decision — and the owner can always force a refresh explicitly.
+ */
+function buildStripeConnectBlock(
+  salonId: string,
+  rows: (typeof salonStripeAccountSchema.$inferSelect)[],
+) {
+  const live = rows.find(row => row.revokedAt === null) ?? null;
+  const binding = live ? toBinding(live) : null;
+
+  // Render the card when the salon has any binding history at all, or when it is
+  // named in the pilot allowlist.
+  const visible = rows.length > 0 || isPilotSalon(salonId);
+
+  if (!EXPECTED_LIVEMODE.ok) {
+    return {
+      salonId,
+      visible,
+      status: 'mode_mismatch' as const,
+      chargeReady: false,
+      payoutsPending: false,
+      requirements: null,
+      disabledReason: null,
+      lastSyncedAt: null,
+      hasBindingHistory: rows.length > 0,
+    };
+  }
+
+  const status = deriveConnectStatus(binding, EXPECTED_LIVEMODE.livemode);
+
+  return {
+    // The client needs the server-authoritative id to call the onboard endpoint;
+    // that endpoint re-authorizes it with `requireAdmin` regardless.
+    salonId,
+    visible,
+    status,
+    chargeReady: status === 'charge_ready' || status === 'action_needed_soon',
+    payoutsPending: Boolean(binding && !binding.payoutsEnabled),
+    requirements: binding?.requirements ?? null,
+    disabledReason: binding?.disabledReason ?? null,
+    lastSyncedAt: binding?.lastSyncedAt ?? null,
+    hasBindingHistory: rows.length > 0,
   };
 }

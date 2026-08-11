@@ -14,6 +14,9 @@ const CI_PROVIDER_ENV = {
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: 'ci-placeholder-not-a-secret',
   STRIPE_SECRET_KEY: 'ci-placeholder-not-a-secret',
   STRIPE_WEBHOOK_SECRET: 'ci-placeholder-not-a-secret',
+  // Deliberately the SAME literal as the billing secret. The rule forbidding a
+  // shared secret is evaluated in the deployment branch only.
+  STRIPE_CONNECT_WEBHOOK_SECRET: 'ci-placeholder-not-a-secret',
 };
 
 const TEST_PROVIDER_ENV = {
