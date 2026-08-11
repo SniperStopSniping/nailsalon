@@ -7,7 +7,7 @@
  * Step 16.3 - Admin can enable/disable modules (only if entitled)
  */
 
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
@@ -214,20 +214,37 @@ export async function PUT(request: Request): Promise<Response> {
       ...moduleUpdates,
     };
 
-    // Update salon settings (merge, don't overwrite other settings)
-    const updatedSettings: SalonSettings = {
-      ...existingSettings,
-      modules: mergedModules,
-    };
-
-    await db
+    // Write ONLY `{modules}`, against the LIVE column value. The whole-object
+    // `.set({ settings })` this replaced was a read-modify-write from a
+    // request-start snapshot, so any setting saved concurrently by another admin
+    // surface — including a deposit amount — was silently reverted.
+    const [updatedSalon] = await db
       .update(salonSchema)
-      .set({ settings: updatedSettings })
-      .where(eq(salonSchema.id, salon.id));
+      .set({
+        settings: sql`
+          jsonb_set(
+            CASE
+              WHEN jsonb_typeof(${salonSchema.settings}) = 'object'
+                THEN ${salonSchema.settings}
+              ELSE '{}'::jsonb
+            END,
+            '{modules}',
+            ${JSON.stringify(mergedModules)}::jsonb
+          )
+        `,
+      })
+      .where(eq(salonSchema.id, salon.id))
+      .returning();
+
+    // Derive the response from the PERSISTED row, not from the in-memory merge:
+    // after the conversion above the persisted value can differ from what this
+    // request intended to write in every key except `modules`.
+    const persistedSettings = (updatedSalon?.settings as SalonSettings | null | undefined)
+      ?? ({ ...existingSettings, modules: mergedModules } satisfies SalonSettings);
 
     // Return updated state
     const entitledModules = getEntitledModules(features);
-    const modules = getResolvedModules(updatedSettings);
+    const modules = getResolvedModules(persistedSettings);
 
     // Compute module reasons for cleaner UI logic (aligned with error codes)
     const moduleReasons: Record<ModuleKey, ModuleReason> = {} as Record<ModuleKey, ModuleReason>;

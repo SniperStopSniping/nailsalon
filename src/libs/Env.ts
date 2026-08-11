@@ -12,10 +12,6 @@ export const Env = createEnv({
     // app boots before the owner provisions the endpoint; every D2 surface fails
     // closed while it is unset.
     STRIPE_CONNECT_WEBHOOK_SECRET: z.string().optional(),
-    // Comma-separated salon ids. Temporary pilot allowlist read at exactly two
-    // sites (the onboard route's exposure gate and the Payments card); a later
-    // PR replaces both with a real entitlement and deletes this var.
-    LUSTER_DEPOSITS_PILOT_SALON_IDS: z.string().optional(),
     // ABSENT MEANS ENABLED. Read as `!== 'false'`, never as a truthiness test:
     // the receipt layer must not be switchable off by omission.
     DEPOSITS_CONNECT_WEBHOOK_PROCESSING_ENABLED: z.enum(['true', 'false']).optional(),
@@ -89,7 +85,6 @@ export const Env = createEnv({
     STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
     STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET,
     STRIPE_CONNECT_WEBHOOK_SECRET: process.env.STRIPE_CONNECT_WEBHOOK_SECRET,
-    LUSTER_DEPOSITS_PILOT_SALON_IDS: process.env.LUSTER_DEPOSITS_PILOT_SALON_IDS,
     DEPOSITS_CONNECT_WEBHOOK_PROCESSING_ENABLED:
       process.env.DEPOSITS_CONNECT_WEBHOOK_PROCESSING_ENABLED,
     BILLING_PLAN_ENV: process.env.BILLING_PLAN_ENV,

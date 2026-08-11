@@ -30,9 +30,17 @@ import {
   resolveBookingNotificationSettingsFromSettings,
 } from '@/libs/bookingNotificationSettings';
 import { db } from '@/libs/DB';
+import {
+  DEPOSIT_COLLECTION_LIVE,
+  DEPOSIT_ISO_CURRENCY,
+  readStoredDepositSettings,
+  resolveDepositEntitlement,
+} from '@/libs/depositPolicy';
+import { getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
 import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import { getDefaultLoyaltyPoints, resolveSalonLoyaltyPoints } from '@/libs/loyalty';
 import { getSalonBySlug } from '@/libs/queries';
+import { checkEndpointRateLimit, rateLimitResponse } from '@/libs/rateLimit';
 import {
   merchandisingSettingsSchema,
   merchandisingSettingsUpdateSchema,
@@ -49,13 +57,14 @@ import {
   readStoredSmartFitSettings,
   smartFitSettingsUpdateSchema,
 } from '@/libs/smartFitConfig';
+import { refreshAccountReadiness } from '@/libs/stripeConnect/readiness';
 import {
   mergePaymentsSettings,
   readStoredPaymentsSettings,
-  salonPaymentsSettingsSchema,
+  salonPaymentsSettingsWriteSchema,
 } from '@/libs/taxConfig';
 import { salonSchema, serviceSchema, technicianSchema } from '@/models/Schema';
-import type { SalonSettings } from '@/types/salonPolicy';
+import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,7 +80,10 @@ const adminUpdateSchema = z.object({
   bookingNotifications: bookingNotificationSettingsUpdateSchema.optional(),
   salonEmailNotifications: salonEmailNotificationSettingsUpdateSchema.optional(),
   merchandising: merchandisingSettingsUpdateSchema.optional(),
-  payments: salonPaymentsSettingsSchema.optional(),
+  // The WRITE schema, not the stored one: the stored parser is deliberately
+  // permissive about the deposit amount, and pointing this at it would accept
+  // `amountCents: 0 / 49 / 99_999_999`.
+  payments: salonPaymentsSettingsWriteSchema.optional(),
   smartFit: smartFitSettingsUpdateSchema.optional(),
   bookingExperienceAppearance:
     bookingExperienceAppearanceUpdateSchema.optional(),
@@ -238,11 +250,37 @@ export async function GET(request: Request): Promise<Response> {
         features: salon.features,
       });
 
+    // Deposits: the two launch gates as their OWN booleans, plus a DIAGNOSTIC
+    // reason computed with both gates forced on — "what would still be wrong if
+    // they were?". Both overrides are required: without them the reason would be
+    // the constant `collection_not_live` for the whole of this PR and then the
+    // constant `not_entitled` after the flag flips, i.e. the owner would never
+    // see the reason this block exists to show. `reason` therefore never carries
+    // either gate; they are reported separately. No readiness/account fields.
+    const depositDiagnosis = await getDepositPolicyForSalon({
+      salonId: salon.id,
+      salon,
+      collectionLive: true,
+      entitled: true,
+    });
+    const depositCollectionLive = DEPOSIT_COLLECTION_LIVE;
+    const depositEntitled = resolveDepositEntitlement(
+      salon.features as SalonFeatures | null | undefined,
+    );
+
     // 4. Return settings
     return Response.json({
       reviewsEnabled: salon.reviewsEnabled ?? true,
       rewardsEnabled: salon.rewardsEnabled ?? true,
       bookingConfig,
+      depositPolicy: {
+        collectionLive: depositCollectionLive,
+        entitled: depositEntitled,
+        active: depositCollectionLive && depositEntitled && depositDiagnosis.active,
+        reason: depositDiagnosis.active ? null : depositDiagnosis.reason,
+        readinessStale: depositDiagnosis.readinessStale,
+        readinessAgeMs: depositDiagnosis.readinessAgeMs,
+      },
       bookingExperience: resolveBookingExperience(
         (salon.settings as SalonSettings | null | undefined) ?? null,
         { includeAcknowledgmentConfiguration: true },
@@ -589,6 +627,8 @@ export async function PATCH(request: Request): Promise<Response> {
     }
 
     const currentPayments = readStoredPaymentsSettings(currentSettings);
+    const storedDeposit = readStoredDepositSettings(currentSettings);
+    const depositRequested = updates.payments?.deposit !== undefined;
     let mergedPayments: ReturnType<typeof mergePaymentsSettings> | null = null;
     if (updates.payments) {
       mergedPayments = mergePaymentsSettings(currentPayments, updates.payments);
@@ -687,6 +727,157 @@ export async function PATCH(request: Request): Promise<Response> {
       ensureNextSettings().merchandising = mergedMerchandising;
       touchedSettingsKeys.push('merchandising');
     }
+
+    // =========================================================================
+    // DEPOSITS (D3)
+    //
+    // Everything below runs BEFORE the single atomic UPDATE and OUTSIDE any
+    // database transaction: provider I/O must never sit inside a row-lock
+    // window. It is placed after every cheap validation so a request that was
+    // going to be refused anyway never reaches Stripe.
+    // =========================================================================
+
+    // The RAW request-start snapshot value, NOT the parsed `storedDeposit`: on a
+    // legacy non-boolean stored value the parsed read collapses to `{}` (so the
+    // gate fires) while the raw comparand still matches the live row.
+    const rawSnapshotDepositEnabled = (
+      currentSettings as { payments?: { deposit?: { enabled?: unknown } } } | undefined
+    )?.payments?.deposit?.enabled;
+
+    // The effective currency is the RAW STORED value overridden by THIS
+    // REQUEST'S OWN field, and nothing else. Never `resolveBookingConfigFromSettings`
+    // (CAD defaults on a failed safeParse) and never `nextSettings?.booking`
+    // (built from that same resolver), either of which would smuggle a non-CAD
+    // salon through this gate.
+    const rawStoredCurrency = (
+      currentSettings as { booking?: { currency?: unknown } } | undefined
+    )?.booking?.currency;
+    const effectiveCurrency = updates.bookingConfig?.currency ?? rawStoredCurrency;
+    const depositCurrencyOk = effectiveCurrency === undefined
+      || effectiveCurrency === DEPOSIT_ISO_CURRENCY;
+
+    const depositCurrencyUnsupportedResponse = () => Response.json(
+      {
+        error: 'DEPOSIT_CURRENCY_UNSUPPORTED',
+        message: 'Deposits are only supported in Canadian dollars. Disable deposits first.',
+      },
+      { status: 409 },
+    );
+
+    // The one additional, PROVIDER-FREE refusal: a currency change that would
+    // strand an already-enabled deposit policy on a non-supported currency.
+    // With stored `enabled: false` this stays a 200.
+    if (
+      updates.bookingConfig?.currency !== undefined
+      && !depositCurrencyOk
+      && storedDeposit.enabled === true
+    ) {
+      return depositCurrencyUnsupportedResponse();
+    }
+
+    // TRANSITION-scoped: the body carried `payments.deposit`, the merged value
+    // enables, and the stored value did not. Disabling and amount edits are
+    // NEVER gated, and a PATCH without a `deposit` key makes ZERO provider calls.
+    const depositEnableTransition = depositRequested
+      && mergedPayments?.deposit?.enabled === true
+      && storedDeposit.enabled !== true;
+    let depositGateFired = false;
+
+    if (depositEnableTransition) {
+      if (typeof mergedPayments?.deposit?.amountCents !== 'number') {
+        return Response.json(
+          {
+            error: 'DEPOSIT_AMOUNT_REQUIRED',
+            message: 'Set a deposit amount before switching deposits on.',
+          },
+          { status: 400 },
+        );
+      }
+      if (!depositCurrencyOk) {
+        return depositCurrencyUnsupportedResponse();
+      }
+
+      const depositRateLimit = checkEndpointRateLimit(
+        'admin/salon/settings/deposit-enable',
+        salon.id,
+        'BILLING',
+      );
+      if (!depositRateLimit.allowed) {
+        return rateLimitResponse(depositRateLimit.retryAfterMs);
+      }
+
+      let readiness: Awaited<ReturnType<typeof refreshAccountReadiness>>;
+      try {
+        readiness = await refreshAccountReadiness(salon.id);
+      } catch {
+        // "We could not learn the truth" — retryable, and nothing is persisted.
+        return Response.json(
+          {
+            error: 'DEPOSIT_ENABLE_RETRY',
+            message: 'Could not confirm the payment account right now. Try again.',
+          },
+          { status: 503 },
+        );
+      }
+
+      if (
+        !readiness.binding
+        || readiness.binding.revokedAt !== null
+        || readiness.status === 'not_connected'
+        || readiness.status === 'revoked'
+      ) {
+        return Response.json(
+          {
+            error: 'STRIPE_ACCOUNT_NOT_CONNECTED',
+            message: 'Connect a payment account before switching deposits on.',
+          },
+          { status: 409 },
+        );
+      }
+      if (!readiness.chargeReady) {
+        return Response.json(
+          {
+            error: 'STRIPE_ACCOUNT_NOT_CHARGE_READY',
+            message: 'The payment account cannot accept charges yet.',
+            details: {
+              disabledReason: readiness.binding.disabledReason,
+              requirements: readiness.binding.requirements,
+            },
+          },
+          { status: 409 },
+        );
+      }
+
+      depositGateFired = true;
+    }
+
+    // A non-blocking warning whenever the post-merge settings enable deposits
+    // and ANY of the seven owner-authored strings mentions one. Computed
+    // server-side so it fires no matter which card saved. The acknowledgment
+    // text is deliberately in the set: it is the checkbox the CLIENT ticks, it
+    // is snapshotted as evidence and re-quoted in the confirmation email, so an
+    // owner "$50 deposit, non-refundable" there would otherwise sit directly
+    // above the system's own disclosure with no warning at all.
+    const effectiveDepositEnabled = mergedPayments
+      ? mergedPayments.deposit?.enabled === true
+      : storedDeposit.enabled === true;
+    const warningPolicy = effectiveBookingPolicyUpdate?.policy
+      ?? currentBookingExperience.policy;
+    const warningQuickFacts = effectiveBookingPolicyUpdate?.quickFacts
+      ?? currentBookingExperience.quickFacts;
+    const depositCopyWarning = effectiveDepositEnabled
+      && [
+        warningPolicy.title,
+        warningPolicy.text,
+        warningPolicy.acknowledgment?.text ?? null,
+        updates.bookingExperienceAppearance?.confirmationMessage
+        ?? currentBookingExperience.confirmationMessage,
+        warningQuickFacts.appointmentOnly?.label ?? null,
+        warningQuickFacts.depositNotice?.label ?? null,
+        warningQuickFacts.cancellationNotice?.label ?? null,
+      ].some(value => typeof value === 'string' && /deposit/i.test(value))
+      ? 'Your own booking-page copy mentions a deposit. Check it against the amount the system will collect.'
+      : null;
 
     if (touchedSettingsKeys.length > 0) {
       // The helper above initializes this before recording a touched key.
@@ -810,8 +1001,88 @@ export async function PATCH(request: Request): Promise<Response> {
       if (touchedSettingsKeys.includes('notifications')) {
         settingsExpression = sql`jsonb_set(${settingsExpression}, '{notifications}', ${JSON.stringify(settingsToPersist.notifications)}::jsonb)`;
       }
-      if (touchedSettingsKeys.includes('payments')) {
-        settingsExpression = sql`jsonb_set(${settingsExpression}, '{payments}', ${JSON.stringify(settingsToPersist.payments)}::jsonb)`;
+      if (touchedSettingsKeys.includes('payments') && updates.payments) {
+        // Payments is written at SUB-PATH granularity, and `deposit` at FIELD
+        // granularity. Object granularity is not sufficient: a merged deposit
+        // object carries a stale sibling field forward, so a concurrent amount
+        // edit would resurrect `enabled: true` over the owner's disable.
+        //
+        // Every `<…>::jsonb` value below is emitted only when it is provably not
+        // `undefined`. `jsonb_set` is STRICT — a NULL value expression returns
+        // NULL, and because the expression is assigned to the whole `settings`
+        // column that would blank the tenant's entire settings object with a 200.
+        settingsExpression = sql`
+          jsonb_set(
+            ${settingsExpression},
+            '{payments}',
+            CASE
+              WHEN jsonb_typeof(${settingsExpression}->'payments') = 'object'
+                THEN ${settingsExpression}->'payments'
+              ELSE '{}'::jsonb
+            END
+          )
+        `;
+
+        // ONLY for sub-objects present in THIS request. An unconditional write
+        // re-persists them from a possibly stale snapshot and silently reverts a
+        // concurrent tax or e-Transfer save.
+        if (updates.payments.tax !== undefined && mergedPayments?.tax !== undefined) {
+          settingsExpression = sql`jsonb_set(${settingsExpression}, '{payments,tax}', ${JSON.stringify(mergedPayments.tax)}::jsonb)`;
+        }
+        if (updates.payments.etransfer !== undefined && mergedPayments?.etransfer !== undefined) {
+          settingsExpression = sql`jsonb_set(${settingsExpression}, '{payments,etransfer}', ${JSON.stringify(mergedPayments.etransfer)}::jsonb)`;
+        }
+
+        // The deposit object guard is ALSO conditional on the body carrying
+        // `payments.deposit`. Emitting it whenever `payments` was touched would
+        // materialise `payments.deposit: {}` into every tenant's settings column
+        // on every tax-only and e-Transfer-only save, during the dark window,
+        // for a feature the salon is not entitled to.
+        if (updates.payments.deposit !== undefined) {
+          settingsExpression = sql`
+            jsonb_set(
+              ${settingsExpression},
+              '{payments,deposit}',
+              CASE
+                WHEN jsonb_typeof(${settingsExpression}#>'{payments,deposit}') = 'object'
+                  THEN ${settingsExpression}#>'{payments,deposit}'
+                ELSE '{}'::jsonb
+              END
+            )
+          `;
+
+          const mergedDepositEnabled = mergedPayments?.deposit?.enabled;
+          if (
+            updates.payments.deposit.enabled !== undefined
+            && mergedDepositEnabled !== undefined
+          ) {
+            // MONOTONICITY. When the gate did not fire, the write is a
+            // LIVE-ROW-EVALUATED expression that can only PRESERVE or LOWER
+            // `enabled`, never RAISE it. The "no gate" decision was made against
+            // the request-start SNAPSHOT, so a stale tab posting
+            // `{"enabled":true,"amountCents":4000}` — the Deposits card's natural
+            // body — would otherwise write `true` with no gate, no readiness
+            // proof and no CAS, reverting a disable that committed in between.
+            const depositEnabledValue = depositGateFired
+              ? sql`${JSON.stringify(mergedDepositEnabled)}::jsonb`
+              : sql`
+                  CASE
+                    WHEN ${settingsExpression}#>'{payments,deposit,enabled}' = 'true'::jsonb
+                      THEN ${JSON.stringify(mergedDepositEnabled)}::jsonb
+                    ELSE 'false'::jsonb
+                  END
+                `;
+            settingsExpression = sql`jsonb_set(${settingsExpression}, '{payments,deposit,enabled}', ${depositEnabledValue})`;
+          }
+
+          const mergedDepositAmount = mergedPayments?.deposit?.amountCents;
+          if (
+            updates.payments.deposit.amountCents !== undefined
+            && mergedDepositAmount !== undefined
+          ) {
+            settingsExpression = sql`jsonb_set(${settingsExpression}, '{payments,deposit,amountCents}', ${JSON.stringify(mergedDepositAmount)}::jsonb)`;
+          }
+        }
       }
       if (touchedSettingsKeys.includes('smartFit')) {
         settingsExpression = sql`jsonb_set(${settingsExpression}, '{smartFit}', ${JSON.stringify(settingsToPersist.smartFit)}::jsonb)`;
@@ -893,14 +1164,52 @@ export async function PATCH(request: Request): Promise<Response> {
     }
 
     // 8. Update salon
+    //
+    // On the enable EDGE only, a compare-and-set on the stored value. Snapshot
+    // EQUALITY, not `IS DISTINCT FROM 'true'::jsonb`: the latter only asserts
+    // "not currently enabled", which passes after a concurrent enable-then-disable
+    // and lets a slow enable overwrite a committed disable.
+    //
+    // `jsonb #> <missing path>` is SQL NULL and `NULL IS NOT DISTINCT FROM
+    // 'null'::jsonb` is FALSE, so an absent path must be emitted as a real SQL
+    // NULL — not as the quoted `'null'::jsonb`, which would make the predicate
+    // false for exactly the state every salon is in before its first enable.
+    // (A *stored* jsonb null is a distinct state and does compare as `'null'::jsonb`.)
+    const depositCasComparand = depositGateFired
+      ? (rawSnapshotDepositEnabled === undefined
+          ? sql`null::jsonb`
+          : sql`${JSON.stringify(rawSnapshotDepositEnabled)}::jsonb`)
+      : null;
+
     const [updatedSalon] = await db
       .update(salonSchema)
       .set(dbUpdates)
-      .where(eq(salonSchema.id, salon.id))
+      .where(depositCasComparand
+        ? and(
+          eq(salonSchema.id, salon.id),
+          sql`(${salonSchema.settings} #> '{payments,deposit,enabled}') IS NOT DISTINCT FROM ${depositCasComparand}`,
+        )
+        : eq(salonSchema.id, salon.id))
       .returning();
 
-    // If update returns no row, the salon was deleted between validation and update
+    // Zero rows means "salon deleted" on every other PATCH shape, but on the
+    // gated enable edge it also means "the stored value moved under us".
     if (!updatedSalon) {
+      if (depositCasComparand) {
+        const [existing] = await db
+          .select({ id: salonSchema.id })
+          .from(salonSchema)
+          .where(eq(salonSchema.id, salon.id));
+        if (existing) {
+          return Response.json(
+            {
+              error: 'DEPOSIT_STATE_CHANGED',
+              message: 'Deposits changed in another tab. Refresh and try again.',
+            },
+            { status: 409 },
+          );
+        }
+      }
       return Response.json(
         { error: 'Salon not found' },
         { status: 404 },
@@ -925,16 +1234,45 @@ export async function PATCH(request: Request): Promise<Response> {
       );
     }
 
+    // AUDIT THE PERSISTED VALUE, NOT THE MERGE. `after.payments = mergedPayments`
+    // is the in-memory merge, and the monotonicity rule above deliberately makes
+    // the persisted `enabled` differ from it. Without this re-derivation the
+    // `settings_updated` row asserts a re-enable the database refused — on the
+    // one setting that moves client money — and a deposit-only save asserts a
+    // tax rate and an e-Transfer recipient it did not write.
+    if (updates.payments) {
+      const persistedPayments = readStoredPaymentsSettings(
+        (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+      );
+      after.payments = persistedPayments;
+      if (
+        mergedPayments?.deposit?.enabled === true
+        && persistedPayments.deposit?.enabled !== true
+      ) {
+        after.depositEnableSuppressed = true;
+      }
+    }
+
     // 9. Write audit log
-    void logAuditEvent({
+    //
+    // This does NOT make the change atomically audited: the UPDATE has already
+    // committed and this call sits outside any transaction. The deposit branch
+    // AWAITS it so a rejection surfaces as a 500 rather than being swallowed,
+    // which makes the gap alertable — it does not close it.
+    const auditEvent = {
       salonId: salon.id,
-      actorType: 'admin',
+      actorType: 'admin' as const,
       actorId: guard.admin.id,
-      action: 'settings_updated',
+      action: 'settings_updated' as const,
       entityType: 'salon',
       entityId: salon.id,
       metadata: { before, after },
-    });
+    };
+    if (depositRequested) {
+      await logAuditEvent(auditEvent);
+    } else {
+      void logAuditEvent(auditEvent);
+    }
 
     // 10. Return updated settings
     const effectivePoints = resolveSalonLoyaltyPoints(updatedSalon);
@@ -959,6 +1297,7 @@ export async function PATCH(request: Request): Promise<Response> {
       reviewsEnabled: updatedSalon.reviewsEnabled ?? true,
       rewardsEnabled: updatedSalon.rewardsEnabled ?? true,
       bookingConfig,
+      ...(depositCopyWarning ? { depositCopyWarning } : {}),
       bookingExperience: resolveBookingExperience(
         (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
         { includeAcknowledgmentConfiguration: true },

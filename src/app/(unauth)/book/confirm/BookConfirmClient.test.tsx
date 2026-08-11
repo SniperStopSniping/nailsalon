@@ -1654,3 +1654,236 @@ describe('BookConfirmClient', () => {
     });
   });
 });
+
+// =============================================================================
+// D3 — deposit disclosure, chip suppression, and the money-path field
+// =============================================================================
+
+describe('BookConfirmClient deposit disclosure', () => {
+  const DISCLOSURE = {
+    label: '$25.00 deposit required to book — applied to your service total.',
+    amountCents: 2500,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock.mockReset();
+    navigationMock.searchParams = new URLSearchParams('techId=tech_1');
+    vi.stubGlobal('fetch', fetchMock);
+    window.open = windowOpen;
+    sessionStorage.clear();
+    sessionStorage.setItem('luster_booking_contact', JSON.stringify({
+      name: 'Ava',
+      email: 'ava@example.com',
+      phone: '4165550101',
+    }));
+    bookingExperienceMock.confirmationMessage = null;
+    Object.assign(bookingExperienceMock.policy, {
+      enabled: false,
+      title: null,
+      text: null,
+      showOnServicePage: true,
+      showBeforeConfirmation: true,
+      showAfterConfirmation: true,
+      showInConfirmationEmail: true,
+      acknowledgment: { required: false, text: null },
+      version: null,
+    });
+    Object.assign(bookingExperienceMock.quickFacts.appointmentOnly, {
+      enabled: false,
+      label: null,
+    });
+    Object.assign(bookingExperienceMock.quickFacts.depositNotice, {
+      enabled: false,
+      label: null,
+    });
+    Object.assign(bookingExperienceMock.quickFacts.cancellationNotice, {
+      enabled: false,
+      label: null,
+    });
+  });
+
+  function renderClient(props: Record<string, unknown> = {}) {
+    return render(
+      <BookConfirmClient
+        services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+        subtotalBeforeDiscount={65}
+        discountAmount={0}
+        totalPrice={65}
+        totalDuration={75}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        salonSlug="salon-a"
+        dateStr="2026-03-20"
+        timeStr="10:00"
+        bookingFlow={[]}
+        location={null}
+        {...props}
+      />,
+    );
+  }
+
+  function lastRequestBody() {
+    const call = fetchMock.mock.calls.at(-1)!;
+    return JSON.parse((call[1] as RequestInit).body as string);
+  }
+
+  it('test 34 — a non-entitled salon renders no disclosure', () => {
+    // The disclosure has its OWN element and does NOT flow through
+    // `quickFacts` / `bookingExperience`, which is plan-entitlement-gated and
+    // returns null for free-plan salons.
+    renderClient({ depositDisclosure: null });
+
+    expect(screen.queryByTestId('booking-deposit-disclosure')).not.toBeInTheDocument();
+  });
+
+  it('test 35 — the disclosed deposit can never exceed the displayed total', () => {
+    navigationMock.searchParams = new URLSearchParams(
+      'techId=tech_1&smartFitDiscountCents=6000&smartFitTotalCents=500',
+    );
+
+    renderClient({ depositDisclosure: { label: '$5.00 deposit required to book — applied to your service total.', amountCents: 500 } });
+
+    const disclosure = screen.getByTestId('booking-deposit-disclosure');
+
+    // The server clamps to the disclosure total; the client renders what it was
+    // given and performs no cents arithmetic of its own.
+    expect(disclosure).toHaveTextContent('$5.00');
+  });
+
+  it('test 36 — chip suppression, BOTH directions, keyed on the system predicate', () => {
+    Object.assign(bookingExperienceMock.quickFacts.depositNotice, {
+      enabled: true,
+      label: 'A deposit may be required',
+    });
+
+    const notSuppressed = renderClient({ depositNoticeSuppressed: false });
+
+    expect(screen.getByText('A deposit may be required')).toBeInTheDocument();
+
+    notSuppressed.unmount();
+
+    renderClient({ depositNoticeSuppressed: true, depositDisclosure: DISCLOSURE });
+
+    expect(screen.queryByText('A deposit may be required')).not.toBeInTheDocument();
+    expect(screen.getByTestId('booking-deposit-disclosure')).toBeInTheDocument();
+  });
+
+  function okResponse() {
+    return new Response(JSON.stringify({
+      data: { appointment: { id: 'appt_1' }, manageUrl: 'https://x.test/m' },
+    }), { status: 200 });
+  }
+
+  // Tests 37 and 37b are the SAME requirement in its two states, split so each
+  // gets a fresh component and a fresh Response body.
+  //
+  // The `null`-disclosure case is the one that fails against a conditional send,
+  // and it is LOAD-BEARING ON MONEY: it is the only thing that pins the PRESENCE
+  // of the field the booking PR's pre-transaction entry predicate reads. A
+  // conditional send silently routes every account-side-inactive booking onto
+  // the free-booking leg.
+  it('test 37 — the POST body carries expectedDepositFingerprint when NOTHING was disclosed', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse());
+
+    renderClient({ depositDisclosure: null, depositFingerprint: 'deposit-v1:none' });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    expect(lastRequestBody().expectedDepositFingerprint).toBe('deposit-v1:none');
+  });
+
+  it('test 37b — and it carries the real token when a disclosure WAS rendered', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse());
+
+    renderClient({ depositDisclosure: DISCLOSURE, depositFingerprint: 'deposit-v1:cad:2500' });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    expect(lastRequestBody().expectedDepositFingerprint).toBe('deposit-v1:cad:2500');
+  });
+
+  it('test 37 (darkness companion) — the body gains that field and nothing else new', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      data: { appointment: { id: 'appt_1' }, manageUrl: 'https://x.test/m' },
+    }), { status: 200 }));
+
+    renderClient({ depositDisclosure: null, depositFingerprint: 'deposit-v1:none' });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    const body = lastRequestBody();
+    const depositKeys = Object.keys(body).filter(key => /deposit/i.test(key));
+
+    expect(depositKeys).toEqual(['expectedDepositFingerprint']);
+    expect(body.expectedDepositFingerprint).toBe('deposit-v1:none');
+  });
+
+  it('test 38 — a 409 DEPOSIT_CHANGED returns control to the user, with NO auto-resubmit', async () => {
+    // The component logs every non-ok booking response; that is pre-existing
+    // behaviour and not what this test is about.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      error: 'DEPOSIT_CHANGED',
+      details: {
+        deposit: {
+          required: true,
+          amountCents: 4000,
+          fingerprint: 'deposit-v1:cad:4000',
+          label: '$40.00 deposit required to book — applied to your service total.',
+        },
+      },
+    }), { status: 409 }));
+
+    renderClient({ depositDisclosure: DISCLOSURE, depositFingerprint: 'deposit-v1:cad:2500' });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    await screen.findByText(/the deposit required for this booking changed/i);
+
+    // An automatic re-POST must fail this assertion.
+    expect(fetchMock.mock.calls.length).toBe(1);
+    expect(screen.getByTestId('booking-deposit-disclosure')).toHaveTextContent('$40.00');
+
+    // The next attempt carries the ADOPTED fingerprint, and needs a further click.
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      data: { appointment: { id: 'appt_1' }, manageUrl: 'https://x.test/m' },
+    }), { status: 200 }));
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+    await waitFor(() => expect(fetchMock.mock.calls.length).toBe(2));
+
+    expect(lastRequestBody().expectedDepositFingerprint).toBe('deposit-v1:cad:4000');
+
+    consoleError.mockRestore();
+  });
+
+  // The magnitude rule is directional: only an UPWARD surprise blocks. Both the
+  // drop-to-zero case and the reduced-but-non-zero case must complete in exactly
+  // one POST, with the stale deposit line gone from the success screen.
+  it('test 38b — the DOWNWARD direction does not block: drop to zero', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse());
+
+    renderClient({ depositDisclosure: null, depositFingerprint: 'deposit-v1:none' });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+    await screen.findByText('Appointment summary');
+
+    expect(fetchMock.mock.calls.length).toBe(1);
+    expect(screen.queryByTestId('booking-deposit-disclosure')).not.toBeInTheDocument();
+  });
+
+  it('test 38b — the DOWNWARD direction does not block: reduced but non-zero (2500 to 1800)', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse());
+
+    renderClient({
+      depositDisclosure: {
+        label: '$18.00 deposit required to book — applied to your service total.',
+        amountCents: 1800,
+      },
+      depositFingerprint: 'deposit-v1:cad:1800',
+    });
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+    await screen.findByText('Appointment summary');
+
+    expect(fetchMock.mock.calls.length).toBe(1);
+    expect(screen.queryByTestId('booking-deposit-disclosure')).not.toBeInTheDocument();
+  });
+});

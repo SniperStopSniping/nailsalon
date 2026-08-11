@@ -47,7 +47,6 @@ vi.mock('@/libs/Env', () => ({
     STRIPE_WEBHOOK_SECRET: 'whsec_billing_unrelated',
     OAUTH_STATE_SECRET: 'test-oauth-state-secret-at-least-32-characters',
     DEPOSITS_CONNECT_WEBHOOK_PROCESSING_ENABLED: 'true',
-    LUSTER_DEPOSITS_PILOT_SALON_IDS: undefined,
   },
 }));
 

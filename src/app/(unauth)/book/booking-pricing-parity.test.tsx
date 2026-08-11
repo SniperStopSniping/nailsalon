@@ -400,3 +400,31 @@ describe('booking pricing parity', () => {
     expect(compact.confirmProps.totalPrice).toBe(37.5);
   });
 });
+
+// =============================================================================
+// D3 — I6: the no-deposit flow is unchanged, with TWO named exceptions
+// =============================================================================
+
+describe('deposit props while both dark gates are off', () => {
+  it('adds exactly three CONSTANT client-component props and nothing salon-derived', async () => {
+    // React serialises `null`/`false` props rather than eliding them, so the
+    // served payload genuinely grows by these three — and only these three.
+    const element = await BookConfirmPage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        serviceIds: 'srv_1',
+        techId: 'any',
+        date: '2026-03-20',
+        time: '10:00',
+      },
+    });
+
+    render(element);
+
+    const props = bookConfirmClientSpy.mock.calls.at(-1)![0] as Record<string, unknown>;
+
+    expect(props.depositDisclosure).toBeNull();
+    expect(props.depositNoticeSuppressed).toBe(false);
+    expect(props.depositFingerprint).toBe('deposit-v1:none');
+  });
+});

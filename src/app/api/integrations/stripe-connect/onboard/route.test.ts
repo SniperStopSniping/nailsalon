@@ -5,6 +5,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import type { NextRequest } from 'next/server';
@@ -84,8 +85,22 @@ function request(body: unknown): NextRequest {
   }) as unknown as NextRequest;
 }
 
-function allowlist(value: string | undefined) {
-  return vi.spyOn(Env, 'LUSTER_DEPOSITS_PILOT_SALON_IDS', 'get').mockReturnValue(value);
+/**
+ * The exposure gate is the per-salon `features.money.deposits` entitlement now
+ * that the env allowlist is retired, so "who may onboard" is set on the salon
+ * row rather than on an environment variable. The comma-separated argument is
+ * kept so each case below still reads as the allowlist it is standing in for.
+ */
+async function allowlist(value: string | undefined) {
+  const entitled = new Set(
+    (value ?? '').split(',').map(id => id.trim()).filter(Boolean),
+  );
+  for (const id of [SALON_A, SALON_B]) {
+    await db
+      .update(schema.salonSchema)
+      .set({ features: entitled.has(id) ? { money: { deposits: true } } : {} })
+      .where(eq(schema.salonSchema.id, id));
+  }
 }
 
 function accountPayload(id = 'acct_onboard') {
@@ -147,7 +162,7 @@ beforeEach(async () => {
 
 describe('test 33 — TENANT-1 on the id-bearing route', () => {
   it('an admin of salon A cannot act on salon B', async () => {
-    allowlist(`${SALON_A},${SALON_B}`);
+    await allowlist(`${SALON_A},${SALON_B}`);
 
     const response = await POST(request({ salonId: SALON_B }));
 
@@ -159,7 +174,7 @@ describe('test 33 — TENANT-1 on the id-bearing route', () => {
   it('(a) a non-pilot salon with no binding is refused as SALON_NOT_FOUND', async () => {
     // Deliberately the same shape as a genuinely missing salon, so the endpoint
     // does not confirm to a prober which salons are in the pilot.
-    allowlist(undefined);
+    await allowlist(undefined);
 
     const response = await POST(request({ salonId: SALON_A }));
 
@@ -173,7 +188,7 @@ describe('test 33 — TENANT-1 on the id-bearing route', () => {
   it('(b) a non-pilot salon WITH a revoked binding is not stranded', async () => {
     // Clause (ii) of the predicate: an already-bound salon can always resume,
     // revoke and re-bind even after being removed from the allowlist.
-    allowlist(undefined);
+    await allowlist(undefined);
     await db.insert(schema.salonStripeAccountSchema).values({
       id: 'sacct_old',
       salonId: SALON_A,
@@ -191,7 +206,7 @@ describe('test 33 — TENANT-1 on the id-bearing route', () => {
   });
 
   it('(c) an allowlisted salon proceeds normally', async () => {
-    allowlist(`${SALON_A}`);
+    await allowlist(`${SALON_A}`);
     stripeMock.accountsCreate.mockResolvedValue(accountPayload());
 
     const response = await POST(request({ salonId: SALON_A }));
@@ -208,7 +223,7 @@ describe('test 33 — TENANT-1 on the id-bearing route', () => {
 
 describe('test 9 — BIND-1: a forged account id in the body is ignored', () => {
   it('persists the SERVER-created id, never the caller\'s', async () => {
-    allowlist(SALON_A);
+    await allowlist(SALON_A);
     stripeMock.accountsCreate.mockResolvedValue(accountPayload('acct_SERVER'));
 
     const response = await POST(request({
@@ -234,7 +249,7 @@ describe('test 22 — ENV-1 fail closed on missing config', () => {
   it('refuses with 503 when the Connect webhook secret is unset', async () => {
     // A binding created while the Connect endpoint is dead has no lifecycle
     // signal at all: the deauthorization event is one-shot.
-    allowlist(SALON_A);
+    await allowlist(SALON_A);
     vi.spyOn(Env, 'STRIPE_CONNECT_WEBHOOK_SECRET', 'get').mockReturnValue(undefined);
 
     const response = await POST(request({ salonId: SALON_A }));
@@ -248,7 +263,7 @@ describe('test 22 — ENV-1 fail closed on missing config', () => {
   });
 
   it('refuses with 503 when the OAuth state secret is unset', async () => {
-    allowlist(SALON_A);
+    await allowlist(SALON_A);
     vi.spyOn(Env, 'STRIPE_CONNECT_WEBHOOK_SECRET', 'get').mockReturnValue('whsec_connect');
     vi.spyOn(Env, 'OAUTH_STATE_SECRET', 'get').mockReturnValue(undefined);
 
@@ -260,7 +275,7 @@ describe('test 22 — ENV-1 fail closed on missing config', () => {
   });
 
   it('never leaks provider detail when the create fails', async () => {
-    allowlist(SALON_A);
+    await allowlist(SALON_A);
     stripeMock.accountsCreate.mockRejectedValue(
       Object.assign(new Error('acct_secret_leak for jane@example.com'), {
         type: 'StripeAPIError',

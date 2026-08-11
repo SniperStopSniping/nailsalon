@@ -17,6 +17,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import type { NextRequest } from 'next/server';
@@ -116,7 +117,12 @@ beforeEach(async () => {
   vi.spyOn(Env, 'STRIPE_CONNECT_WEBHOOK_SECRET', 'get').mockReturnValue('whsec_connect_test');
   vi.spyOn(Env, 'OAUTH_STATE_SECRET', 'get')
     .mockReturnValue('test-oauth-state-secret-at-least-32-characters');
-  vi.spyOn(Env, 'LUSTER_DEPOSITS_PILOT_SALON_IDS', 'get').mockReturnValue(SALON_A);
+  // The exposure gate now reads the per-salon entitlement, not the retired
+  // env allowlist.
+  await db
+    .update(schema.salonSchema)
+    .set({ features: { money: { deposits: true } } })
+    .where(eq(schema.salonSchema.id, SALON_A));
   stripeMock.accountLinksCreate.mockResolvedValue({ url: 'https://connect.stripe.com/setup/x' });
 });
 

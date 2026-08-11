@@ -48,9 +48,22 @@ vi.mock('./BookingFlowEditor', () => ({
 type PaymentsPayload = {
   tax?: Record<string, unknown>;
   etransfer?: Record<string, unknown>;
+  deposit?: Record<string, unknown>;
 };
 
-function mockEndpoints(options: { payments?: PaymentsPayload } = {}) {
+type DepositPolicyPayload = {
+  collectionLive: boolean;
+  entitled: boolean;
+  active: boolean;
+  reason: string | null;
+  readinessStale: boolean;
+  readinessAgeMs: number | null;
+};
+
+function mockEndpoints(options: {
+  payments?: PaymentsPayload;
+  depositPolicy?: DepositPolicyPayload;
+} = {}) {
   fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
     const url = typeof input === 'string' ? input : input.toString();
 
@@ -111,6 +124,14 @@ function mockEndpoints(options: { payments?: PaymentsPayload } = {}) {
         merchandising: { featureLusterManicure: true },
         bookingNotifications: {},
         payments: options.payments ?? {},
+        depositPolicy: options.depositPolicy ?? {
+          collectionLive: false,
+          entitled: false,
+          active: false,
+          reason: 'not_configured',
+          readinessStale: false,
+          readinessAgeMs: null,
+        },
         ownerPhonePresent: true,
         ownerEmailPresent: true,
         smsChannelAvailable: true,
@@ -261,5 +282,151 @@ describe('SettingsModal Payments & taxes', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Discard' }));
 
     expect(await screen.findByText('Payments & taxes')).toBeInTheDocument();
+  });
+});
+
+// =============================================================================
+// D3 — the Deposits card (Group G)
+// =============================================================================
+
+describe('SettingsModal Deposits card', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchMock.mockReset();
+    vi.stubGlobal('fetch', fetchMock);
+    mockEndpoints();
+  });
+
+  async function openDeposits(options: Parameters<typeof mockEndpoints>[0] = {}) {
+    mockEndpoints(options);
+    render(
+      <SettingsModal
+        onClose={vi.fn()}
+        salonSlug="salon-a"
+        userName="Daniela"
+        onOpenApp={vi.fn()}
+      />,
+    );
+    fireEvent.click(await screen.findByText('Payments & taxes'));
+    await screen.findByText('Charge tax');
+  }
+
+  function lastPatchBody() {
+    const patchCall = fetchMock.mock.calls
+      .filter(call => (call[1] as RequestInit | undefined)?.method === 'PATCH')
+      .at(-1)!;
+    return JSON.parse(String((patchCall[1] as RequestInit).body));
+  }
+
+  it('renders the launch-gate status line off its OWN boolean, not off the reason', async () => {
+    await openDeposits();
+
+    expect(screen.getByTestId('deposits-status'))
+      .toHaveTextContent('Deposit payments are not switched on yet.');
+  });
+
+  it('renders the entitlement gate once collection is live', async () => {
+    await openDeposits({
+      depositPolicy: {
+        collectionLive: true,
+        entitled: false,
+        active: false,
+        reason: 'not_configured',
+        readinessStale: false,
+        readinessAgeMs: null,
+      },
+    });
+
+    expect(screen.getByTestId('deposits-status'))
+      .toHaveTextContent('Deposits are not enabled for your salon yet.');
+  });
+
+  it('renders the DIAGNOSTIC reason in plain language when both gates are open', async () => {
+    await openDeposits({
+      depositPolicy: {
+        collectionLive: true,
+        entitled: true,
+        active: false,
+        reason: 'account_not_charge_ready',
+        readinessStale: true,
+        readinessAgeMs: 90_000_000,
+      },
+    });
+
+    expect(screen.getByTestId('deposits-status'))
+      .toHaveTextContent('Your payment account cannot accept charges yet.');
+    // A NEUTRAL informational line, never a warning affordance: its expected
+    // steady-state value is `true` for every enabled salon.
+    expect(screen.getByTestId('deposits-readiness-age'))
+      .toHaveTextContent('Stripe status last confirmed');
+  });
+
+  it('renders both money-bearing sentences from the policy module', async () => {
+    await openDeposits({ payments: { deposit: { enabled: false, amountCents: 200_000 } } });
+
+    expect(screen.getByTestId('deposits-clamp-notice'))
+      .toHaveTextContent('Bookings under $0.50 are not charged.');
+    expect(screen.getByTestId('deposits-recommended-max'))
+      .toHaveTextContent('$1,000.00');
+  });
+
+  it('DIRTY-FIELD SAVE — an untouched amount is OMITTED from the body entirely', async () => {
+    await openDeposits({ payments: { deposit: { enabled: false, amountCents: 50_000 } } });
+
+    // Touch only the toggle.
+    fireEvent.click(screen.getByTestId('deposits-enabled'));
+    fireEvent.click(screen.getByTestId('deposits-save'));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(
+      call => (call[1] as RequestInit | undefined)?.method === 'PATCH',
+    )).toBe(true));
+
+    const body = lastPatchBody();
+
+    // `not.toHaveProperty`, NOT `toBeUndefined()` — the latter passes for a sent
+    // `undefined`, and a sent `undefined` is what silently reverts a deliberate
+    // correction made in another tab.
+    expect(body.payments.deposit).not.toHaveProperty('amountCents');
+    expect(body.payments.deposit.enabled).toBe(true);
+  });
+
+  it('DIRTY-FIELD SAVE — and the symmetric case for the toggle', async () => {
+    await openDeposits({ payments: { deposit: { enabled: true, amountCents: 50_000 } } });
+
+    fireEvent.change(screen.getByTestId('deposits-amount'), { target: { value: '25.00' } });
+    fireEvent.click(screen.getByTestId('deposits-save'));
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(
+      call => (call[1] as RequestInit | undefined)?.method === 'PATCH',
+    )).toBe(true));
+
+    const body = lastPatchBody();
+
+    expect(body.payments.deposit).not.toHaveProperty('enabled');
+    expect(body.payments.deposit.amountCents).toBe(2500);
+    // Its OWN save action: a deposit save must carry neither tax nor e-Transfer.
+    expect(body.payments).not.toHaveProperty('tax');
+    expect(body.payments).not.toHaveProperty('etransfer');
+  });
+
+  it('disables Save when neither field was touched in this session', async () => {
+    await openDeposits({ payments: { deposit: { enabled: false, amountCents: 50_000 } } });
+
+    expect(screen.getByTestId('deposits-save')).toBeDisabled();
+  });
+
+  it('SURFACES the refusal body instead of discarding it', async () => {
+    await openDeposits({ payments: { deposit: { enabled: false, amountCents: 2500 } } });
+
+    fetchMock.mockImplementationOnce(() => Promise.resolve(new Response(JSON.stringify({
+      error: 'STRIPE_ACCOUNT_NOT_CHARGE_READY',
+      message: 'The payment account cannot accept charges yet.',
+    }), { status: 409 })));
+
+    fireEvent.click(screen.getByTestId('deposits-enabled'));
+    fireEvent.click(screen.getByTestId('deposits-save'));
+
+    expect(await screen.findByTestId('deposits-error'))
+      .toHaveTextContent('The payment account cannot accept charges yet.');
   });
 });

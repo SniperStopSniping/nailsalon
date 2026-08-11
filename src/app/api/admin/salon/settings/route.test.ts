@@ -30,6 +30,8 @@ const {
   getDefaultLoyaltyPoints,
   resolveSalonLoyaltyPoints,
   getSalonBySlug,
+  refreshAccountReadiness,
+  getDepositPolicyForSalon,
   updatedRows,
   selectResults,
   db,
@@ -46,6 +48,16 @@ const {
     getDefaultLoyaltyPoints: vi.fn(),
     resolveSalonLoyaltyPoints: vi.fn(),
     getSalonBySlug: vi.fn(),
+    refreshAccountReadiness: vi.fn(),
+    // A safe default so every OTHER describe block's GET keeps working: this
+    // mock stands in for a module the settings GET always calls.
+    getDepositPolicyForSalon: vi.fn(async (): Promise<Record<string, unknown>> => ({
+      active: false,
+      reason: 'not_configured',
+      amountCents: null,
+      readinessStale: false,
+      readinessAgeMs: null,
+    })),
     updatedRows,
     selectResults,
     db: {
@@ -111,6 +123,18 @@ vi.mock('@/libs/featureGating', () => ({
 
 vi.mock('@/libs/DB', () => ({
   db,
+}));
+
+// D3: the decision-time readiness gate and the deposit policy reader are
+// module-mocked here. The real readiness module imports the Stripe SDK, and the
+// real policy reader would need a database.
+vi.mock('@/libs/stripeConnect/readiness', () => ({
+  refreshAccountReadiness,
+}));
+
+vi.mock('@/libs/depositPolicy.server', () => ({
+  getDepositPolicyForSalon,
+  EXPECTED_LIVEMODE: false,
 }));
 
 describe('/api/admin/salon/settings notification settings', () => {
@@ -879,9 +903,12 @@ describe('/api/admin/salon/settings payments settings', () => {
 
     const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
 
-    // Payments-only updates use the same single-key jsonb_set pattern as
-    // merchandising so a concurrent booking/notification save is never
-    // clobbered — and the merge preserves the untouched etransfer sub-object.
+    // Payments is now written at SUB-PATH granularity, so a tax-only save emits
+    // `{payments,tax}` and NOTHING for e-Transfer. Re-persisting the untouched
+    // sibling from the request-start snapshot is exactly the lost update this
+    // change closes: it would silently revert a concurrent e-Transfer save.
+    // The stored sibling still survives — it is preserved by the database, not
+    // by being rewritten. (See the deposit-vs-tax integration cases.)
     expect(setPayload.settings).toBeDefined();
     expect(setPayload.settings.payments).toBeUndefined();
 
@@ -891,7 +918,7 @@ describe('/api/admin/salon/settings payments settings', () => {
     );
 
     expect(paramValues.some(value => value.includes('"rateBps":1300'))).toBe(true);
-    expect(paramValues.some(value => value.includes('"recipient":"pay@salon.ca"'))).toBe(true);
+    expect(paramValues.some(value => value.includes('"recipient":"pay@salon.ca"'))).toBe(false);
     expect(logAuditEvent).toHaveBeenCalled();
   });
 
@@ -3625,5 +3652,639 @@ describe('/api/admin/salon/settings booking experience', () => {
     } finally {
       await database.close();
     }
+  });
+});
+
+// =============================================================================
+// D3 — deposits (Group C)
+// =============================================================================
+
+describe('/api/admin/salon/settings deposits', () => {
+  const baseSalon = {
+    id: 'salon_1',
+    slug: 'salon-a',
+    ownerPhone: '4169021427',
+    ownerEmail: 'owner@example.com',
+    reviewsEnabled: true,
+    rewardsEnabled: true,
+    billingMode: 'NONE',
+    stripeSubscriptionStatus: null,
+    features: { money: { deposits: true } },
+    settings: {},
+  };
+
+  const chargeReadyBinding = {
+    id: 'ssa_1',
+    salonId: 'salon_1',
+    stripeAccountId: 'acct_1',
+    livemode: false,
+    chargesEnabled: true,
+    payoutsEnabled: true,
+    detailsSubmitted: true,
+    requirements: {
+      currentlyDue: [],
+      eventuallyDue: [],
+      pastDue: [],
+      pendingVerification: [],
+      currentDeadline: null,
+      futureCurrentDeadline: null,
+    },
+    disabledReason: null,
+    connectedAt: new Date(),
+    revokedAt: null,
+    revocationCause: null,
+    lastSyncedAt: new Date(),
+  };
+
+  function patch(body: unknown) {
+    return PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+    );
+  }
+
+  function settingsSqlFor(callIndex = 0) {
+    const setPayload = db.update.mock.results[callIndex]!.value.set.mock.calls[0]![0];
+    // MUST be `collectSqlStringChunks`: the `queryChunks.filter(typeof ===
+    // 'string')` idiom keeps only interpolated JSON parameter VALUES, so a
+    // `'{payments,deposit,…}'` assertion would fail against correct code and a
+    // `.not.toContain` assertion would pass vacuously.
+    return collectSqlStringChunks(setPayload.settings).join(' ');
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    updatedRows.length = 0;
+    selectResults.length = 0;
+
+    requireAdmin.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
+    getBookingConfigForSalon.mockResolvedValue({});
+    resolveBookingConfigFromSettings.mockReturnValue({ currency: 'CAD' });
+    getDefaultLoyaltyPoints.mockReturnValue({});
+    resolveSalonLoyaltyPoints.mockReturnValue({});
+    getSalonBySlug.mockResolvedValue(baseSalon);
+    refreshAccountReadiness.mockResolvedValue({
+      chargeReady: true,
+      status: 'charge_ready',
+      payoutsPending: false,
+      binding: chargeReadyBinding,
+    });
+    getDepositPolicyForSalon.mockResolvedValue({
+      active: false,
+      reason: 'not_configured',
+      amountCents: null,
+      readinessStale: false,
+      readinessAgeMs: null,
+    });
+    updatedRows.push({ ...baseSalon });
+  });
+
+  // ---------------------------------------------------------------------------
+  // 1c — the route validates against the WRITE schema
+  // ---------------------------------------------------------------------------
+  it('test 1c — rejects every out-of-window amount with a 400 and never writes', async () => {
+    for (const amountCents of [0, 49, 25.5, 99_999_999]) {
+      vi.clearAllMocks();
+      getSalonBySlug.mockResolvedValue(baseSalon);
+      requireAdmin.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
+
+      const response = await patch({ payments: { deposit: { enabled: false, amountCents } } });
+
+      expect(response.status).toBe(400);
+      expect((await response.json()).details).toBeDefined();
+      expect(db.update).not.toHaveBeenCalled();
+    }
+
+    vi.clearAllMocks();
+    getSalonBySlug.mockResolvedValue(baseSalon);
+    requireAdmin.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
+    const stringAmount = await patch({ payments: { deposit: { amountCents: '50' } } });
+
+    expect(stringAmount.status).toBe(400);
+  });
+
+  it('test 1c — accepts the minimum', async () => {
+    const response = await patch({ payments: { deposit: { amountCents: 50 } } });
+
+    expect(response.status).toBe(200);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 14 / 15 / 16 / 16b — the enable gate
+  // ---------------------------------------------------------------------------
+  it('test 14 — no binding row refuses STRIPE_ACCOUNT_NOT_CONNECTED and never writes', async () => {
+    refreshAccountReadiness.mockResolvedValue({
+      chargeReady: false,
+      status: 'not_connected',
+      binding: null,
+    });
+
+    const response = await patch({ payments: { deposit: { enabled: true, amountCents: 2500 } } });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toBe('STRIPE_ACCOUNT_NOT_CONNECTED');
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('test 15 — a non-charge-ready account refuses with the disabled reason', async () => {
+    refreshAccountReadiness.mockResolvedValue({
+      chargeReady: false,
+      status: 'restricted',
+      binding: { ...chargeReadyBinding, chargesEnabled: false, disabledReason: 'requirements.past_due' },
+    });
+
+    const response = await patch({ payments: { deposit: { enabled: true, amountCents: 2500 } } });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error).toBe('STRIPE_ACCOUNT_NOT_CHARGE_READY');
+    expect(body.details.disabledReason).toBe('requirements.past_due');
+    expect(body.details.requirements).toBeDefined();
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('test 16 — a throwing readiness proof is a retryable 503 with nothing persisted', async () => {
+    refreshAccountReadiness.mockRejectedValue(new Error('PROVIDER_UNREACHABLE'));
+
+    const response = await patch({ payments: { deposit: { enabled: true, amountCents: 2500 } } });
+
+    expect(response.status).toBe(503);
+    expect((await response.json()).error).toBe('DEPOSIT_ENABLE_RETRY');
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('test 16b — the readiness proof is called with EXACTLY ONE argument', async () => {
+    await patch({ payments: { deposit: { enabled: true, amountCents: 2500 } } });
+
+    expect(refreshAccountReadiness).toHaveBeenCalledTimes(1);
+    expect(refreshAccountReadiness.mock.calls[0]).toEqual(['salon_1']);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 17 / 17b / 17c / 17d — currency, and the fail-open resolver it must not use
+  // ---------------------------------------------------------------------------
+  it('test 17 / 17b — setting a foreign currency and enabling together is refused', async () => {
+    const response = await patch({
+      bookingConfig: { currency: 'USD' },
+      payments: { deposit: { enabled: true, amountCents: 2500 } },
+    });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toBe('DEPOSIT_CURRENCY_UNSUPPORTED');
+    expect(refreshAccountReadiness).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('test 17c — a currency-only PATCH is refused when deposits are ENABLED, with zero provider calls', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+    });
+
+    const response = await patch({ bookingConfig: { currency: 'USD' } });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toBe('DEPOSIT_CURRENCY_UNSUPPORTED');
+    expect(refreshAccountReadiness).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  it('test 17c — and it stays 200 when deposits are stored DISABLED', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: { payments: { deposit: { enabled: false, amountCents: 2500 } } },
+    });
+
+    const response = await patch({ bookingConfig: { currency: 'USD' } });
+
+    expect(response.status).toBe(200);
+    expect(refreshAccountReadiness).not.toHaveBeenCalled();
+  });
+
+  it('test 17d — a corrupt stored booking block must NOT pass by falling back to CAD defaults', async () => {
+    // This, not the pure-resolver test, is what makes the fail-open mutation
+    // detectable: the resolver would return CAD defaults for this settings blob.
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        booking: { currency: 'USD', slotIntervalMinutes: 7 },
+        payments: { deposit: { enabled: false, amountCents: 2500 } },
+      },
+    });
+    resolveBookingConfigFromSettings.mockReturnValue({ currency: 'CAD' });
+
+    // The body carries a bookingConfig key but NOT a currency, which is exactly
+    // when the route builds `nextSettings.booking` from the fail-open resolver.
+    // Reading the gate's currency from either that or the resolver directly
+    // would hand back CAD defaults and let this enable through.
+    const response = await patch({
+      bookingConfig: { bufferMinutes: 15 },
+      payments: { deposit: { enabled: true, amountCents: 2500 } },
+    });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error).toBe('DEPOSIT_CURRENCY_UNSUPPORTED');
+    expect(refreshAccountReadiness).not.toHaveBeenCalled();
+    expect(db.update).not.toHaveBeenCalled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // 18 / 18b / 18c / 18d — the write
+  // ---------------------------------------------------------------------------
+  it('test 18 / 18b — a happy enable writes FIELD-granular sub-paths', async () => {
+    const response = await patch({ payments: { deposit: { enabled: true, amountCents: 2500 } } });
+
+    expect(response.status).toBe(200);
+
+    const sql = settingsSqlFor();
+
+    expect(sql).toContain('{payments}');
+    expect(sql).toContain('{payments,deposit}');
+    // Field granularity. Reverting to a whole-object value write at
+    // `{payments,deposit}` deletes both of these.
+    expect(sql).toContain('{payments,deposit,enabled}');
+    expect(sql).toContain('{payments,deposit,amountCents}');
+  });
+
+  it('test 18c — the enable edge carries a NULL-safe CAS, and both zero-row branches resolve', async () => {
+    updatedRows.length = 0;
+    selectResults.push([{ id: 'salon_1' }]);
+
+    const conflict = await patch({ payments: { deposit: { enabled: true, amountCents: 2500 } } });
+
+    expect(conflict.status).toBe(409);
+    expect((await conflict.json()).error).toBe('DEPOSIT_STATE_CHANGED');
+
+    const wherePayload = db.update.mock.results[0]!.value.set.mock.results[0]!.value.where.mock.calls[0]![0];
+
+    // Snapshot EQUALITY, not `IS DISTINCT FROM 'true'::jsonb`: the latter only
+    // asserts "not currently enabled", which passes after a concurrent
+    // enable-then-disable and lets a slow enable overwrite a committed disable.
+    expect(collectSqlStringChunks(wherePayload).join(' ')).toContain('IS NOT DISTINCT FROM');
+
+    vi.clearAllMocks();
+    getSalonBySlug.mockResolvedValue(baseSalon);
+    requireAdmin.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
+    refreshAccountReadiness.mockResolvedValue({
+      chargeReady: true,
+      status: 'charge_ready',
+      payoutsPending: false,
+      binding: chargeReadyBinding,
+    });
+    updatedRows.length = 0;
+    selectResults.length = 0;
+    selectResults.push([]);
+
+    const deleted = await patch({ payments: { deposit: { enabled: true, amountCents: 2500 } } });
+
+    expect(deleted.status).toBe(404);
+  });
+
+  it('test 18c — a snapshot of stored FALSE compares against that value, not against NULL', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: { payments: { deposit: { enabled: false, amountCents: 2500 } } },
+    });
+
+    const response = await patch({ payments: { deposit: { enabled: true } } });
+
+    expect(response.status).toBe(200);
+
+    const wherePayload = db.update.mock.results[0]!.value.set.mock.results[0]!.value.where.mock.calls[0]![0];
+    const chunks = collectSqlStringChunks(wherePayload).join(' ');
+
+    expect(chunks).toContain('IS NOT DISTINCT FROM');
+    expect(chunks).toContain('false');
+  });
+
+  it('test 18d — an UNGATED patch may not RAISE enabled', async () => {
+    // Stored `true`, so no transition, so no gate — and the write must be a
+    // live-row-evaluated CASE that can only preserve or lower.
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+    });
+
+    const response = await patch({ payments: { deposit: { enabled: true, amountCents: 4000 } } });
+
+    expect(response.status).toBe(200);
+
+    const sql = settingsSqlFor();
+
+    expect(sql).toContain('CASE');
+    expect(sql).toContain(`#>'{payments,deposit,enabled}' = 'true'::jsonb`);
+    expect(sql).toContain(`ELSE 'false'::jsonb`);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 19 / 20 / 20b / 22 — the remaining gate cases
+  // ---------------------------------------------------------------------------
+  it('test 19 — enabling without an amount is a 400', async () => {
+    const response = await patch({ payments: { deposit: { enabled: true } } });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe('DEPOSIT_AMOUNT_REQUIRED');
+    expect(refreshAccountReadiness).not.toHaveBeenCalled();
+  });
+
+  it('test 20 — disabling is NEVER gated, even with no account row', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+    });
+
+    const response = await patch({ payments: { deposit: { enabled: false } } });
+
+    expect(response.status).toBe(200);
+    expect(refreshAccountReadiness).not.toHaveBeenCalled();
+  });
+
+  it('test 20b — ROLE SCOPE PINNED: a plain admin membership may enable deposits today', async () => {
+    // `requireAdmin` does not distinguish owner from admin, and super admins
+    // short-circuit it. Pinned so a later decision has a test to flip.
+    requireAdmin.mockResolvedValue({ ok: true, admin: { id: 'admin_1', role: 'admin' } });
+
+    const response = await patch({ payments: { deposit: { enabled: true, amountCents: 2500 } } });
+
+    expect(response.status).toBe(200);
+  });
+
+  it('test 22 — an idempotent re-save of an identical enabled body makes ZERO provider calls', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+    });
+
+    const response = await patch({ payments: { deposit: { enabled: true, amountCents: 2500 } } });
+
+    expect(response.status).toBe(200);
+    expect(refreshAccountReadiness).toHaveBeenCalledTimes(0);
+  });
+
+  // ---------------------------------------------------------------------------
+  // 21 / 21b — sub-path isolation
+  // ---------------------------------------------------------------------------
+  it('test 21 — a tax-only save makes zero provider calls and emits NO deposit path', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+    });
+
+    const response = await patch({ payments: { tax: { rateBps: 500 } } });
+
+    expect(response.status).toBe(200);
+    expect(refreshAccountReadiness).toHaveBeenCalledTimes(0);
+    // No trailing comma in the needle: it also catches an unconditional deposit
+    // object guard, which would materialise `payments.deposit: {}` into every
+    // tenant's settings column on every tax-only save.
+    expect(settingsSqlFor()).not.toContain(`'{payments,deposit`);
+  });
+
+  it('test 21b — a deposit-only save emits neither the tax nor the e-Transfer path', async () => {
+    const response = await patch({ payments: { deposit: { amountCents: 4000 } } });
+
+    expect(response.status).toBe(200);
+
+    const sql = settingsSqlFor();
+
+    expect(sql).not.toContain('{payments,tax}');
+    expect(sql).not.toContain('{payments,etransfer}');
+    expect(sql).toContain('{payments,deposit,amountCents}');
+  });
+
+  // ---------------------------------------------------------------------------
+  // 21c / 21d — proved by EXECUTING the generated SQL
+  // ---------------------------------------------------------------------------
+  it('test 21c — the deposit write preserves merchandising and every unrelated subtree', async () => {
+    await patch({ payments: { deposit: { enabled: false, amountCents: 4000 } } });
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+    const rendered = new PgDialect().sqlToQuery(setPayload.settings as SQL);
+    const database = new PGlite();
+
+    try {
+      await database.exec(`
+        CREATE TABLE "salon" (id text PRIMARY KEY, settings jsonb);
+        INSERT INTO "salon" (id, settings) VALUES
+          ('full', '{"merchandising":{"featureLusterManicure":false,"showServiceImages":true,"lusterPromoDismissed":false,"serviceLibraryIntroDismissed":false,"futurePreference":"keep"},"payments":{"tax":{"rateBps":1300},"etransfer":{"recipient":"pay@salon.test"},"deposit":{"enabled":true,"amountCents":2500}},"booking":{"currency":"CAD"},"bookingExperience":{"policy":{"enabled":true}},"notifications":{"x":1},"smartFit":{"y":2},"modules":{"z":3},"unrelatedFutureKey":{"keep":true}}'::jsonb),
+          ('merchandising_null', '{"merchandising":null,"keep":true}'::jsonb),
+          ('merchandising_scalar', '{"merchandising":"legacy","keep":true}'::jsonb),
+          ('payments_scalar', '{"payments":"legacy","merchandising":{"showServiceImages":true}}'::jsonb),
+          ('settings_null', NULL);
+      `);
+      await database.query(`UPDATE "salon" SET settings = ${rendered.sql}`, rendered.params);
+
+      const result = await database.query<{ id: string; settings: Record<string, unknown> }>(
+        'SELECT id, settings FROM "salon" ORDER BY id',
+      );
+      const rows = Object.fromEntries(result.rows.map(row => [row.id, row.settings]));
+
+      // `settings` is a non-null OBJECT on every row — the jsonb_set-STRICT
+      // guard, proved against real SQL rather than asserted.
+      for (const row of result.rows) {
+        expect(row.settings).toBeTypeOf('object');
+        expect(row.settings).not.toBeNull();
+      }
+
+      expect(rows.full).toEqual({
+        merchandising: {
+          featureLusterManicure: false,
+          showServiceImages: true,
+          lusterPromoDismissed: false,
+          serviceLibraryIntroDismissed: false,
+          // A key no schema in this repo knows about, byte-identical.
+          futurePreference: 'keep',
+        },
+        payments: {
+          tax: { rateBps: 1300 },
+          etransfer: { recipient: 'pay@salon.test' },
+          deposit: { enabled: false, amountCents: 4000 },
+        },
+        booking: { currency: 'CAD' },
+        bookingExperience: { policy: { enabled: true } },
+        notifications: { x: 1 },
+        smartFit: { y: 2 },
+        modules: { z: 3 },
+        unrelatedFutureKey: { keep: true },
+      });
+      expect(rows.merchandising_null).toEqual({
+        merchandising: null,
+        keep: true,
+        payments: { deposit: { enabled: false, amountCents: 4000 } },
+      });
+      expect(rows.merchandising_scalar).toEqual({
+        merchandising: 'legacy',
+        keep: true,
+        payments: { deposit: { enabled: false, amountCents: 4000 } },
+      });
+      expect(rows.payments_scalar).toEqual({
+        merchandising: { showServiceImages: true },
+        payments: { deposit: { enabled: false, amountCents: 4000 } },
+      });
+      expect(rows.settings_null).toEqual({
+        payments: { deposit: { enabled: false, amountCents: 4000 } },
+      });
+    } finally {
+      await database.close();
+    }
+  });
+
+  it('test 21d — the REVERSE: the untouched merchandising write still preserves payments.deposit', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+    });
+
+    await patch({ merchandising: { showServiceImages: false } });
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+    const sql = collectSqlStringChunks(setPayload.settings).join(' ');
+
+    expect(sql).toContain('{merchandising,showServiceImages}');
+    // Nothing under `payments` may be touched by the merchandising path.
+    expect(sql).not.toContain(`'{payments`);
+    // The untouched sibling assertions of the service-image PR still hold.
+    expect(sql).not.toContain('{merchandising,featureLusterManicure}');
+    expect(sql).not.toContain('{merchandising,lusterPromoDismissed}');
+    expect(sql).not.toContain('{merchandising,serviceLibraryIntroDismissed}');
+
+    const rendered = new PgDialect().sqlToQuery(setPayload.settings as SQL);
+    const database = new PGlite();
+
+    try {
+      await database.exec(`
+        CREATE TABLE "salon" (id text PRIMARY KEY, settings jsonb);
+        INSERT INTO "salon" (id, settings) VALUES
+          ('salon_1', '{"merchandising":{"showServiceImages":true,"futurePreference":"keep"},"payments":{"tax":{"rateBps":1300},"deposit":{"enabled":true,"amountCents":2500}}}'::jsonb);
+      `);
+      await database.query(`UPDATE "salon" SET settings = ${rendered.sql}`, rendered.params);
+
+      const result = await database.query<{ settings: Record<string, any> }>(
+        'SELECT settings FROM "salon"',
+      );
+      const settings = result.rows[0]!.settings;
+
+      expect(settings.merchandising.showServiceImages).toBe(false);
+      expect(settings.merchandising.futurePreference).toBe('keep');
+      expect(settings.payments.deposit).toEqual({ enabled: true, amountCents: 2500 });
+      expect(settings.payments.tax).toEqual({ rateBps: 1300 });
+    } finally {
+      await database.close();
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // 23 / 23b / 23d / 23e — the GET block and the copy warning
+  // ---------------------------------------------------------------------------
+  it('test 23 / 23b — the GET returns the stored block plus the two gates and the reason', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+    });
+    getDepositPolicyForSalon.mockResolvedValue({
+      active: false,
+      reason: 'account_not_charge_ready',
+      amountCents: 2500,
+      readinessStale: true,
+      readinessAgeMs: 90_000_000,
+    });
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a'),
+    );
+    const body = await response.json();
+
+    expect(body.payments.deposit).toEqual({ enabled: true, amountCents: 2500 });
+    expect(body.depositPolicy).toEqual({
+      collectionLive: false,
+      entitled: true,
+      active: false,
+      reason: 'account_not_charge_ready',
+      readinessStale: true,
+      readinessAgeMs: 90_000_000,
+    });
+    // BOTH overrides are required, or the reason would be the constant
+    // `collection_not_live` for the whole of this PR.
+    expect(getDepositPolicyForSalon).toHaveBeenCalledWith(
+      expect.objectContaining({ collectionLive: true, entitled: true }),
+    );
+    // No readiness/account fields, and NEVER the Stripe account id.
+    expect(JSON.stringify(body)).not.toContain('acct_');
+    expect(body.depositPolicy.chargesEnabled).toBeUndefined();
+    expect(body.depositPolicy.disabledReason).toBeUndefined();
+  });
+
+  it('test 23e — readinessStale is decoupled from the verdict', async () => {
+    getDepositPolicyForSalon.mockResolvedValue({
+      active: true,
+      amountCents: 2500,
+      currency: 'cad',
+      readinessStale: true,
+      readinessAgeMs: 90_000_000,
+    });
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+    });
+
+    const response = await GET(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a'),
+    );
+    const body = await response.json();
+
+    expect(body.depositPolicy.reason).toBeNull();
+    expect(body.depositPolicy.readinessStale).toBe(true);
+  });
+
+  it('test 23d — the /deposit/i warning sees the acknowledgment text and the confirmation message', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: {
+        payments: { deposit: { enabled: true, amountCents: 2500 } },
+        bookingExperience: {
+          confirmationMessage: 'Your $50 deposit is non-refundable.',
+          policy: {
+            enabled: true,
+            title: 'Booking policy',
+            text: 'Please arrive early.',
+            acknowledgment: { required: true, text: 'I agree to the $50 deposit terms.' },
+          },
+        },
+      },
+    });
+
+    const response = await patch({ payments: { deposit: { amountCents: 2500 } } });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.depositCopyWarning).toMatch(/mentions a deposit/i);
+  });
+
+  it('test 23d — and it stays silent when no owner copy mentions one', async () => {
+    getSalonBySlug.mockResolvedValue({
+      ...baseSalon,
+      settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+    });
+
+    const response = await patch({ payments: { deposit: { amountCents: 2500 } } });
+
+    expect((await response.json()).depositCopyWarning).toBeUndefined();
+  });
+
+  // ---------------------------------------------------------------------------
+  // 24 — the deposit branch AWAITS the audit write
+  // ---------------------------------------------------------------------------
+  it('test 24 — a rejected audit write on a deposit change surfaces as a 500', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    logAuditEvent.mockRejectedValue(new Error('audit sink down'));
+
+    const response = await patch({ payments: { deposit: { amountCents: 4000 } } });
+
+    expect(response.status).toBe(500);
+
+    consoleError.mockRestore();
   });
 });

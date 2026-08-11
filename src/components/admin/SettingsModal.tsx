@@ -60,6 +60,13 @@ import {
   getBookingExperienceCssVariables,
 } from '@/libs/bookingExperience';
 import type { BookingStep } from '@/libs/bookingFlow';
+import {
+  buildDepositCardNotices,
+  DEPOSIT_RECOMMENDED_MAX_CENTS,
+  type DepositPolicyInactiveReason,
+  formatDepositCentsForInput,
+  parseDepositDollarsToCents,
+} from '@/libs/depositPolicy';
 import type { ResolvedLoyaltyPoints } from '@/libs/loyalty';
 import { useSalon } from '@/providers/SalonProvider';
 import type {
@@ -2335,6 +2342,34 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'visibility': 'Staff visibility',
 };
 
+/** The settings GET's deposits block. Two launch gates plus a DIAGNOSTIC reason. */
+type DepositPolicyStatus = {
+  collectionLive: boolean;
+  entitled: boolean;
+  active: boolean;
+  reason: DepositPolicyInactiveReason | null;
+  readinessStale: boolean;
+  readinessAgeMs: number | null;
+};
+
+/**
+ * The diagnostic reason in plain language. `collection_not_live` and
+ * `not_entitled` are deliberately absent: by construction the diagnostic reason
+ * never carries either gate, and reading a gate off the reason would show the
+ * owner nothing while both are off.
+ */
+const DEPOSIT_REASON_COPY: Record<DepositPolicyInactiveReason, string | null> = {
+  collection_not_live: null,
+  not_entitled: null,
+  currency_unsupported: 'Deposits are only supported when this salon bills in Canadian dollars.',
+  not_configured: 'Set a deposit amount to finish setting this up.',
+  disabled: 'Deposits are set up but switched off.',
+  readiness_never_synced: 'We have not confirmed your payment account yet.',
+  account_not_connected: 'Connect a payment account before switching deposits on.',
+  account_not_charge_ready: 'Your payment account cannot accept charges yet.',
+  undetermined: 'We could not check your deposit setup just now. Try again shortly.',
+};
+
 type PaymentsFormState = {
   taxEnabled: boolean;
   taxName: string;
@@ -2435,6 +2470,24 @@ export function SettingsModal({
   const [paymentsSaving, setPaymentsSaving] = useState(false);
   const [paymentsSaved, setPaymentsSaved] = useState(false);
   const [paymentsForm, setPaymentsForm] = useState<PaymentsFormState>(DEFAULT_PAYMENTS_FORM);
+
+  // Deposits (D3) — its OWN save action, posting only `{ payments: { deposit } }`.
+  // The card does NO arithmetic: dollars/cents conversion in both directions and
+  // both money-bearing sentences come from `depositPolicy.ts`.
+  const [depositEnabled, setDepositEnabled] = useState(false);
+  const [depositAmountInput, setDepositAmountInput] = useState('');
+  // DIRTY-FIELD SAVE: a field the owner did not touch in THIS session is omitted
+  // from the body entirely rather than re-sent at its rendered value. Without it
+  // a stale tab pressing Save silently reverts a deliberate correction made
+  // elsewhere, both requests 200, and every later client is charged the old
+  // amount clamped to their booking total.
+  const [depositEnabledDirty, setDepositEnabledDirty] = useState(false);
+  const [depositAmountDirty, setDepositAmountDirty] = useState(false);
+  const [depositSaving, setDepositSaving] = useState(false);
+  const [depositSaved, setDepositSaved] = useState(false);
+  const [depositError, setDepositError] = useState<string | null>(null);
+  const [depositCopyWarning, setDepositCopyWarning] = useState<string | null>(null);
+  const [depositPolicy, setDepositPolicy] = useState<DepositPolicyStatus | null>(null);
 
   // Booking flow state
   const [bookingFlowEnabled, setBookingFlowEnabled] = useState(false);
@@ -2816,6 +2869,15 @@ export function SettingsModal({
           etransferQrEnabled: data.payments?.etransfer?.qrPageEnabled ?? false,
         });
         setPaymentsDirty(false);
+        setDepositEnabled(data.payments?.deposit?.enabled ?? false);
+        setDepositAmountInput(
+          typeof data.payments?.deposit?.amountCents === 'number'
+            ? formatDepositCentsForInput(data.payments.deposit.amountCents)
+            : '',
+        );
+        setDepositEnabledDirty(false);
+        setDepositAmountDirty(false);
+        setDepositPolicy(data.depositPolicy ?? null);
       } else {
         const body = await response.json().catch(() => null);
         setBookingExperienceError(
@@ -3029,6 +3091,92 @@ export function SettingsModal({
       setPaymentsSaving(false);
     }
   }, [paymentsForm, paymentsSaving, router, salonSlug]);
+
+  // BOTH money-bearing sentences come from the policy module, so this file holds
+  // no money literal at all and no cents/dollars arithmetic of its own.
+  const depositCardNotices = buildDepositCardNotices();
+  const depositAmountCentsPreview = parseDepositDollarsToCents(depositAmountInput);
+  const depositAmountExceedsRecommended
+    = depositAmountCentsPreview !== null
+    && depositAmountCentsPreview > DEPOSIT_RECOMMENDED_MAX_CENTS;
+
+  /**
+   * Its OWN save action: the payments handler above sends tax and e-Transfer
+   * together, and a deposit save must not carry either of them.
+   */
+  const saveDeposit = useCallback(async () => {
+    if (!salonSlug || depositSaving) {
+      return;
+    }
+
+    const deposit: { enabled?: boolean; amountCents?: number } = {};
+    if (depositEnabledDirty) {
+      deposit.enabled = depositEnabled;
+    }
+    if (depositAmountDirty) {
+      const cents = parseDepositDollarsToCents(depositAmountInput);
+      if (cents === null) {
+        setDepositError('Enter a deposit amount.');
+        return;
+      }
+      deposit.amountCents = cents;
+    }
+
+    try {
+      setDepositSaving(true);
+      setDepositSaved(false);
+      setDepositError(null);
+      setDepositCopyWarning(null);
+
+      const response = await fetch(
+        `/api/admin/salon/settings?salonSlug=${salonSlug}`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ payments: { deposit } }),
+        },
+      );
+
+      const body = await response.json().catch(() => null);
+
+      // SURFACE the 400/409/429/503 bodies rather than discarding them: every
+      // one of them tells the owner something they can act on.
+      if (!response.ok) {
+        setDepositError(
+          body?.message
+          || body?.error?.message
+          || (typeof body?.error === 'string' ? body.error : null)
+          || 'Could not save deposits. Try again.',
+        );
+        return;
+      }
+
+      if (typeof body?.depositCopyWarning === 'string') {
+        setDepositCopyWarning(body.depositCopyWarning);
+      }
+      setDepositEnabled(body?.payments?.deposit?.enabled ?? depositEnabled);
+      if (typeof body?.payments?.deposit?.amountCents === 'number') {
+        setDepositAmountInput(formatDepositCentsForInput(body.payments.deposit.amountCents));
+      }
+      setDepositEnabledDirty(false);
+      setDepositAmountDirty(false);
+      setDepositSaved(true);
+      router.refresh();
+    } catch (error) {
+      console.error('Failed to save deposit settings:', error);
+      setDepositError('Could not save deposits. Try again.');
+    } finally {
+      setDepositSaving(false);
+    }
+  }, [
+    depositAmountDirty,
+    depositAmountInput,
+    depositEnabled,
+    depositEnabledDirty,
+    depositSaving,
+    router,
+    salonSlug,
+  ]);
 
   const saveBookingNotifications = useCallback(async () => {
     if (!salonSlug || bookingNotificationsSaving) {
@@ -4682,6 +4830,141 @@ export function SettingsModal({
                       {paymentsSaved && (
                         <div className="text-right text-xs font-medium text-green-600">
                           Payments & taxes saved.
+                        </div>
+                      )}
+                    </div>
+                  )}
+            </Section>
+
+            <Section
+              title="Deposits"
+              footer="Deposits are salon-wide and a fixed amount. They are collected in Canadian dollars only."
+            >
+              {programsLoading
+                ? (
+                    <div className="flex items-center justify-center py-8">
+                      <div className="size-6 animate-spin rounded-full border-2 border-rose-800 border-t-transparent" />
+                    </div>
+                  )
+                : (
+                    <div className="space-y-4 p-4">
+                      {/*
+                        TWO LAYERS. The launch gates are read off their OWN
+                        booleans; the diagnostic reason is read off `reason`,
+                        which by construction never carries either gate.
+                      */}
+                      <p
+                        data-testid="deposits-status"
+                        className="rounded-[10px] border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700"
+                      >
+                        {depositPolicy === null
+                          ? 'Checking your deposit setup...'
+                          : depositPolicy.collectionLive === false
+                            ? 'Deposit payments are not switched on yet.'
+                            : !depositPolicy.entitled
+                                ? 'Deposits are not enabled for your salon yet.'
+                                : depositPolicy.active
+                                  ? 'Deposits are being collected on new bookings.'
+                                  : (depositPolicy.reason
+                                    && DEPOSIT_REASON_COPY[depositPolicy.reason])
+                                    || 'Deposits are not being collected yet.'}
+                      </p>
+
+                      {depositPolicy?.readinessStale && (
+                        <p
+                          data-testid="deposits-readiness-age"
+                          className="text-xs text-gray-500"
+                        >
+                          {depositPolicy.readinessAgeMs === null
+                            ? 'Stripe status has not been confirmed yet.'
+                            : `Stripe status last confirmed ${Math.max(1, Math.round(depositPolicy.readinessAgeMs / 3_600_000))} hours ago.`}
+                        </p>
+                      )}
+
+                      <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3">
+                        <div className="space-y-1">
+                          <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                            Require a deposit
+                          </span>
+                          <p className="text-sm text-gray-700">
+                            Saved. Deposits will be collected once deposit payments are
+                            switched on for your salon.
+                          </p>
+                        </div>
+                        <input
+                          type="checkbox"
+                          data-testid="deposits-enabled"
+                          checked={depositEnabled}
+                          onChange={(event) => {
+                            setDepositEnabled(event.target.checked);
+                            setDepositEnabledDirty(true);
+                            setDepositSaved(false);
+                          }}
+                          className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                        />
+                      </label>
+
+                      <label className="flex flex-col gap-1">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                          Deposit amount
+                        </span>
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          data-testid="deposits-amount"
+                          value={depositAmountInput}
+                          onChange={(event) => {
+                            setDepositAmountInput(event.target.value);
+                            setDepositAmountDirty(true);
+                            setDepositSaved(false);
+                          }}
+                          className="rounded-[10px] border border-gray-200 px-3 py-2 text-sm"
+                        />
+                      </label>
+
+                      {depositAmountInput.trim() !== '' && (
+                        <p data-testid="deposits-clamp-notice" className="text-xs text-gray-500">
+                          {depositCardNotices.clampNotice}
+                        </p>
+                      )}
+
+                      {depositAmountExceedsRecommended && (
+                        <p data-testid="deposits-recommended-max" className="text-xs text-amber-700">
+                          {depositCardNotices.recommendedMaxNotice}
+                        </p>
+                      )}
+
+                      {depositCopyWarning && (
+                        <p data-testid="deposits-copy-warning" className="text-xs text-amber-700">
+                          {depositCopyWarning}
+                        </p>
+                      )}
+
+                      {depositError && (
+                        <p data-testid="deposits-error" role="alert" className="text-xs text-red-600">
+                          {depositError}
+                        </p>
+                      )}
+
+                      <div className="flex items-center justify-end gap-3 border-t border-gray-100 pt-3">
+                        <button
+                          type="button"
+                          data-testid="deposits-save"
+                          onClick={() => void saveDeposit()}
+                          disabled={
+                            depositSaving
+                            || (!depositEnabledDirty && !depositAmountDirty)
+                          }
+                          className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <Save className="size-4" />
+                          <span>{depositSaving ? 'Saving...' : 'Save deposits'}</span>
+                        </button>
+                      </div>
+
+                      {depositSaved && (
+                        <div className="text-right text-xs font-medium text-green-600">
+                          Deposits saved.
                         </div>
                       )}
                     </div>

@@ -126,10 +126,34 @@ async function buildBookingExperienceInspection(
   }, provenance);
 }
 
-function protectBookingExperienceOverride(
+/**
+ * This route writes the WHOLE `features` object verbatim from the request body,
+ * in the same statement as a whole-`settings` write, so a stale super-admin save
+ * can both de-entitle a live salon and re-entitle one after a deliberate kill.
+ *
+ * The mechanism does NOT reject a stale value: it DISCARDS the requested value
+ * and RESTORES the live one, evaluated from the current database row at UPDATE
+ * time. A key in the protected set is therefore IMMUTABLE THROUGH THIS ROUTE IN
+ * BOTH DIRECTIONS — which is exactly why each protected key must have a
+ * dedicated, audited writer of its own.
+ *
+ * Protected: `booking.customization` (+ its audit pointer),
+ * `money.deposits`, and the LEGACY top-level `deposits` boolean. Both deposit
+ * keys are needed because `resolveEntitlement` honours the legacy flat key as
+ * its second branch, so protecting only the grouped one would leave a
+ * de-entitlement path open.
+ */
+function protectFeatureOverrides(
   requestedFeatures: SalonFeatures,
 ) {
   const requestedJson = JSON.stringify(requestedFeatures);
+  const currentFeatures = sql`
+    CASE
+      WHEN jsonb_typeof(${salonSchema.features}) = 'object'
+        THEN ${salonSchema.features}
+      ELSE '{}'::jsonb
+    END
+  `;
   const requestedBooking = sql`
     (
       CASE
@@ -173,13 +197,68 @@ function protectBookingExperienceOverride(
     END
   `;
 
-  return sql`
+  const requestedMoney = sql`
+    (
+      CASE
+        WHEN jsonb_typeof(${requestedJson}::jsonb -> 'money') = 'object'
+          THEN ${requestedJson}::jsonb -> 'money'
+        ELSE '{}'::jsonb
+      END
+      - 'deposits'
+    )
+  `;
+  const currentMoney = sql`
+    CASE
+      WHEN jsonb_typeof(${currentFeatures} -> 'money') = 'object'
+        THEN ${currentFeatures} -> 'money'
+      ELSE '{}'::jsonb
+    END
+  `;
+  const withDeposits = sql`
+    CASE
+      WHEN ${currentMoney} ? 'deposits'
+        THEN jsonb_set(
+          ${requestedMoney},
+          '{deposits}',
+          ${currentMoney} -> 'deposits',
+          true
+        )
+      ELSE ${requestedMoney}
+    END
+  `;
+
+  const withBooking = sql`
     jsonb_set(
       ${requestedJson}::jsonb,
       '{booking}',
       ${withAuditPointer},
       true
     )
+  `;
+  const withMoney = sql`
+    jsonb_set(
+      ${withBooking},
+      '{money}',
+      ${withDeposits},
+      true
+    )
+  `;
+
+  // The legacy flat key, stripped from the request and restored iff the live row
+  // carries it.
+  const withoutLegacyDeposits = sql`(${withMoney} - 'deposits')`;
+
+  return sql`
+    CASE
+      WHEN ${currentFeatures} ? 'deposits'
+        THEN jsonb_set(
+          ${withoutLegacyDeposits},
+          '{deposits}',
+          ${currentFeatures} -> 'deposits',
+          true
+        )
+      ELSE ${withoutLegacyDeposits}
+    END
   `;
 }
 
@@ -433,11 +512,11 @@ export async function PUT(
     }
 
     if (requestedFeatures) {
-      // Booking Experience overrides are mutated only by the dedicated,
-      // reasoned, audited endpoint. Evaluate these protected values from the
-      // current database row at UPDATE time so a stale full-feature save
-      // cannot create, change, or remove either value.
-      updates.features = protectBookingExperienceOverride(
+      // Booking Experience overrides and the deposits entitlement are mutated
+      // only by dedicated, reasoned, audited endpoints. Evaluate these protected
+      // values from the current database row at UPDATE time so a stale
+      // full-feature save cannot create, change, or remove any of them.
+      updates.features = protectFeatureOverrides(
         requestedFeatures,
       ) as unknown as SalonFeatures;
     }

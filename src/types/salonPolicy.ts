@@ -82,6 +82,9 @@ export type SalonFeatures = {
   };
   money?: {
     staffEarnings?: boolean; // default: false
+    // Per-salon deposits entitlement. Written ONLY by the dedicated, audited
+    // super-admin entitlement route; protected from stale whole-object saves.
+    deposits?: boolean; // default: false
   };
   analytics?: {
     dashboard?: boolean; // default: false
@@ -429,6 +432,13 @@ export type SalonSettings = {
       instructions?: string;
       requireReference?: boolean;
       qrPageEnabled?: boolean;
+    };
+    // Salon-wide fixed-amount deposit policy. Canonical zod shapes, bounds and
+    // the read-time gate live in src/libs/depositPolicy.ts. Stored `enabled`
+    // is inert unless every conjunct of that gate holds.
+    deposit?: {
+      enabled?: boolean;
+      amountCents?: number; // integer cents
     };
   };
 
