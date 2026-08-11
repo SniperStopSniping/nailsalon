@@ -145,6 +145,7 @@ import {
   appointmentAddOnSchema,
   appointmentAuditLogSchema,
   appointmentBookingPolicyAcknowledgmentSchema,
+  appointmentDepositSchema,
   appointmentPhotoSchema,
   appointmentSchema,
   type AppointmentService,
@@ -387,6 +388,23 @@ class BookingActiveAppointmentError extends Error {
   constructor() {
     super('BOOKING_ACTIVE_APPOINTMENT');
     this.name = 'BookingActiveAppointmentError';
+  }
+}
+
+/**
+ * The original appointment of a reschedule carries a live deposit.
+ *
+ * The reschedule branch cancels the original and INSERTS A NEW APPOINTMENT ID
+ * with request-derived services and prices. A deposit is bolted to the original
+ * id by a composite FK, so without this fence one paid deposit would stay
+ * attached to a `cancelled` shell while buying an unbounded chain of
+ * re-bookings at arbitrary services and prices. The manage-flow move preserves
+ * the appointment id and is the correct route for this.
+ */
+class RescheduleRequiresManageFlowError extends Error {
+  constructor() {
+    super('RESCHEDULE_REQUIRES_MANAGE_FLOW');
+    this.name = 'RescheduleRequiresManageFlowError';
   }
 }
 
@@ -2819,6 +2837,22 @@ export async function POST(request: Request): Promise<Response> {
             ) {
               throw new Error('RESCHEDULE_CONFLICT');
             }
+
+            // The original is locked; now refuse to strand a live deposit on it.
+            // Non-terminal means 'checkout_created' or 'paid': a session that
+            // may still settle, or money already taken.
+            const [liveDeposit] = await tx
+              .select({ id: appointmentDepositSchema.id })
+              .from(appointmentDepositSchema)
+              .where(and(
+                eq(appointmentDepositSchema.salonId, salon.id),
+                eq(appointmentDepositSchema.appointmentId, normalizedOriginalApptId),
+                inArray(appointmentDepositSchema.status, ['checkout_created', 'paid']),
+              ))
+              .limit(1);
+            if (liveDeposit) {
+              throw new RescheduleRequiresManageFlowError();
+            }
             if (
               lockedOriginal.salonClientId !== originalAppointment.salonClientId
               || (
@@ -2996,6 +3030,17 @@ export async function POST(request: Request): Promise<Response> {
       } catch (error) {
         if (error instanceof BookingActiveAppointmentError) {
           return bookingActiveAppointmentResponse(bookingSubjectMode);
+        }
+        if (error instanceof RescheduleRequiresManageFlowError) {
+          return Response.json(
+            {
+              error: {
+                code: 'RESCHEDULE_REQUIRES_MANAGE_FLOW',
+                message: 'This appointment has a deposit. Please use the manage link to move it, so the deposit stays attached.',
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          );
         }
         if (
           error instanceof BookingClientConflictError

@@ -271,6 +271,23 @@ function buildPermissions(
   const terminal = ['completed', 'cancelled', 'no_show'].includes(appointment.status);
   const isLocked = Boolean(appointment.lockedAt) || appointment.status === 'in_progress';
 
+  // A deposit hold offers NO mutations at all. This function is a deny-list, so
+  // without this arm a hold reports canMove / canCancel / canChangeService /
+  // canReassignTechnician = true: it renders dead buttons whose handlers all
+  // 409, and it would seed D6's permission matrix with a wrong canCancel.
+  if (appointment.status === 'awaiting_payment') {
+    return {
+      canMove: false,
+      canChangeService: false,
+      canCancel: false,
+      canMarkCompleted: false,
+      canStart: false,
+      canConfirm: false,
+      canMarkNoShow: false,
+      canReassignTechnician: false,
+    };
+  }
+
   return {
     canMove: !terminal && !isLocked,
     canChangeService: !terminal && !isLocked,
@@ -487,6 +504,17 @@ async function loadManagedAppointment(
 }
 
 function ensureEditable(appointment: Appointment) {
+  // Refused ahead of the terminal/locked checks: a hold is not "editable but
+  // busy", it is a slot reservation that has not been paid for. Every mutating
+  // manage-token handler funnels through here.
+  if (appointment.status === 'awaiting_payment') {
+    throw new AppointmentManageError(
+      'HOLD_LOCKED',
+      'This appointment is awaiting a deposit payment and cannot be changed.',
+      409,
+    );
+  }
+
   if (['completed', 'cancelled', 'no_show'].includes(appointment.status)) {
     throw new AppointmentManageError(
       'APPOINTMENT_NOT_EDITABLE',
