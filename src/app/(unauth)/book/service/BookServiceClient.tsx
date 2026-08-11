@@ -379,6 +379,21 @@ export function BookServiceClient({
   // page always loads scrolled to the top, above #services).
   const servicesAnchorRef = useRef<HTMLDivElement | null>(null);
   const [hasReachedServicesAnchor, setHasReachedServicesAnchor] = useState(false);
+  // Review finding (PR6, High, fixed): tracked separately from
+  // `hasReachedServicesAnchor` above. That flag used to double as BOTH "the
+  // user has actually scrolled the anchor to the top of the viewport" AND
+  // "the anchor can never geometrically reach that threshold, so hand off
+  // to the Continue bar anyway" — collapsing them into one boolean meant
+  // the editorial "Book appointment" jump CTA's render gate
+  // (`!hasReachedServicesAnchor`) went false the instant a short page was
+  // detected as unreachable, EVEN BEFORE any service was selected. Since
+  // the Continue bar itself is separately gated on `selectedService` (there
+  // is nothing to "continue" until a service is chosen), that left a
+  // genuinely-unreachable page with literally no visible sticky CTA at all
+  // for every first-time visitor, from the very first paint. Keeping this
+  // as its own signal lets the render logic below require a real selection
+  // before treating "unreachable" as license to hide the jump link.
+  const [isServicesAnchorUnreachable, setIsServicesAnchorUnreachable] = useState(false);
 
   // On touch devices the on-screen keyboard eats the lower half of the viewport,
   // so the salon header above the search bar can push the first result row out of
@@ -452,6 +467,7 @@ export function BookServiceClient({
   useEffect(() => {
     if (!isEditorialLayout) {
       setHasReachedServicesAnchor(false);
+      setIsServicesAnchorUnreachable(false);
       return undefined;
     }
 
@@ -485,17 +501,21 @@ export function BookServiceClient({
     // known intersection reading from scratch, so the state can flip in
     // EITHER direction as the page changes after mount.
     const applyReachability = () => {
-      if (!isServicesAnchorGeometricallyReachable()) {
-        // Even scrolled to the document's current absolute maximum, the
-        // anchor's top edge could never cross the threshold — show the
-        // Continue bar fallback so the CTA is never a dead end, regardless
-        // of what the last intersection reading said.
-        setHasReachedServicesAnchor(true);
-        return;
-      }
-      // Reachable: defer to the last known intersection reading (if the
-      // IntersectionObserver has already fired at least once) instead of
-      // guessing at the user's current scroll position.
+      // Review finding (PR6, High, fixed): this used to fold "geometrically
+      // unreachable" into `hasReachedServicesAnchor` itself (setting it
+      // `true` as a fallback signal). That collapsed two different meanings
+      // into one flag and, downstream, hid the editorial jump CTA any time
+      // the page was short — even before the visitor had selected a
+      // service, when the Continue bar (gated on `selectedService`) has
+      // nothing to show either, leaving zero sticky CTAs visible. The two
+      // signals are now tracked independently; the render logic below is
+      // responsible for combining them so a real selection is required
+      // before "unreachable" hides the jump link.
+      setIsServicesAnchorUnreachable(!isServicesAnchorGeometricallyReachable());
+      // Always derived purely from the last real intersection reading (if
+      // the IntersectionObserver has already fired at least once) — never
+      // forced by geometry — so it reflects only "has the user actually
+      // scrolled the anchor to/past the viewport's top edge".
       setHasReachedServicesAnchor(
         lastIntersectionTop !== null && lastIntersectionTop <= SERVICES_ANCHOR_SCROLL_MARGIN_PX,
       );
@@ -2313,7 +2333,7 @@ export function BookServiceClient({
         })()}
       </div>
 
-      {isEditorialLayout && !hasReachedServicesAnchor && (
+      {isEditorialLayout && !hasReachedServicesAnchor && !(selectedService && isServicesAnchorUnreachable) && (
         <a
           href="#services"
           data-testid="editorial-sticky-cta"
@@ -2329,7 +2349,7 @@ export function BookServiceClient({
         </a>
       )}
 
-      {selectedService && (!isEditorialLayout || hasReachedServicesAnchor) && (
+      {selectedService && (!isEditorialLayout || hasReachedServicesAnchor || isServicesAnchorUnreachable) && (
         <div
           data-testid="service-sticky-bar"
           className="supports-[backdrop-filter]:bg-white/82 fixed inset-x-0 bottom-0 z-[60] border-t border-white/40 bg-white/85 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg"

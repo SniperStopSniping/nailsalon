@@ -527,6 +527,43 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
         }
       });
 
+      // Review finding (PR6, High, fixed): reproduced against a real
+      // disposable Postgres + real Chromium (Playwright) on the seeded
+      // fixture salon at 375x812 — on fresh page load (scrollY 0) and again
+      // after scrolling to #services, BOTH `editorial-sticky-cta` and
+      // `service-sticky-bar` were null. Root cause: the geometry-unreachable
+      // fallback used to force `hasReachedServicesAnchor` true unconditionally,
+      // which hid the jump-link CTA, but the Continue bar it was supposed to
+      // hand off to is separately gated on `selectedService` — and every
+      // first-time visitor starts with no service selected. Unlike the test
+      // above, this one deliberately omits `baseServiceId` from the URL, so
+      // `selectedService` is null throughout — the exact "nothing to tap"
+      // path the invariant promises a fallback for.
+      it('keeps the editorial jump CTA visible (never zero sticky CTAs) when the anchor is geometrically unreachable and no service is selected yet', () => {
+        const restore = stubShortPageGeometry();
+
+        try {
+          render(
+            <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+          );
+
+          // The Continue bar has nothing to continue — no service is
+          // selected — so it must not render, but the jump-link CTA must
+          // fill in rather than leaving zero sticky CTAs visible.
+          expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+          expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
+
+          // Even a stale/absent intersection reading must not clear it —
+          // there is still no selection, so the jump link must persist.
+          fireAnchorIntersection(215.75);
+
+          expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
+          expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+        } finally {
+          restore();
+        }
+      });
+
       it('ignores a stale "not reached" intersection entry while geometry still forces the handoff, but stays subscribed so a later geometry change can still be observed', () => {
         const restore = stubShortPageGeometry();
         navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
