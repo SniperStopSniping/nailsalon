@@ -150,6 +150,8 @@ const deposits = vi.hoisted(() => ({
   getDepositPolicyForSalon: vi.fn(),
   refreshAccountReadiness: vi.fn(),
   createDepositCheckoutSession: vi.fn(),
+  /** Per-leg override for the charge resolver; null = use D3's real one. */
+  chargeOverride: null as null | ((...args: unknown[]) => unknown),
 }));
 
 vi.mock('@/libs/depositPolicy.server', () => ({
@@ -166,10 +168,17 @@ vi.mock('@/libs/depositPolicy', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@/libs/depositPolicy')>();
   return {
     ...actual,
-    // The ONLY stub. The fingerprint parser/builder, DEPOSIT_CURRENCY,
-    // MIN_DEPOSIT_CENTS and resolveDepositChargeForTotal all stay REAL, so the
-    // magnitude rule and the currency literal are genuinely exercised.
+    // The fingerprint parser/builder, DEPOSIT_CURRENCY and MIN_DEPOSIT_CENTS all
+    // stay REAL, so the magnitude rule and the currency literal are genuinely
+    // exercised. resolveDepositChargeForTotal is real too UNLESS a leg installs
+    // an override — two legs need a charge shape D3's resolver will never
+    // produce on its own (a thrown TypeError, and a required amount below the
+    // floor), and both are refusals that must be reachable.
     resolveDepositPolicy: vi.fn(() => deposits.inTxPolicy),
+    resolveDepositChargeForTotal: vi.fn((...args: unknown[]) =>
+      (deposits.chargeOverride
+        ? deposits.chargeOverride(...args)
+        : (actual.resolveDepositChargeForTotal as (...a: unknown[]) => unknown)(...args))),
   };
 });
 
@@ -322,6 +331,7 @@ beforeEach(async () => {
   await db.delete(schema.appointmentDepositSchema);
   await db.delete(schema.appointmentSchema);
   seedChargeReady(false);
+  deposits.chargeOverride = null;
   deposits.createDepositCheckoutSession.mockResolvedValue({
     ok: true,
     session: {
@@ -802,5 +812,209 @@ describe('20 — provider-call placement', () => {
     // real reschedule. Asserting it here with an unauthenticated request would
     // pass vacuously: that request 400s before the deposit branch is reached,
     // so it proves nothing about the scope predicate.
+  });
+});
+
+/**
+ * §14 test 28, legs (a)–(e) — the remaining money-path refusals.
+ *
+ * Every leg asserts NO appointment row, NO appointment_deposit row and no Stripe
+ * call after the refusal. "An appointment row exists with no deposit" is exactly
+ * the free booking these refusals exist to prevent, so asserting the absence of
+ * the DEPOSIT row alone would not be enough.
+ */
+describe('28(a)–(e) — the remaining refusals', () => {
+  it('(a) readiness THROWS -> 503, and db.transaction was never called', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    deposits.refreshAccountReadiness.mockRejectedValue(new Error('Stripe Connect unavailable'));
+    setClientSession(freshPhone());
+
+    const transactionSpy = vi.spyOn(db, 'transaction');
+    const response = await postBooking({
+      startTime: at(futureDate(50), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe('DEPOSITS_TEMPORARILY_UNAVAILABLE');
+    // Proves the proof really is pre-transaction.
+    expect(transactionSpy).not.toHaveBeenCalled();
+    expect(await appointmentRows()).toHaveLength(0);
+    expect(await depositRows()).toHaveLength(0);
+
+    transactionSpy.mockRestore();
+  });
+
+  it('(b) the STALE-STORED-ROW race: pre-read active, live retrieve not ready -> 503', async () => {
+    // Distinct from (g-*): this leg is entered from a verdict-`active` pre-read
+    // and proves nothing about the stored-unready steady state.
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(false);
+    setClientSession(freshPhone());
+
+    const response = await postBooking({
+      startTime: at(futureDate(51), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+
+    expect(response.status).toBe(503);
+    expect(await appointmentRows()).toHaveLength(0);
+    expect(await depositRows()).toHaveLength(0);
+    expect(deposits.refreshAccountReadiness).toHaveBeenCalledTimes(1);
+  });
+
+  it('(c) the IN-TRANSACTION resolution yields undetermined -> 503, no appointment row', async () => {
+    // The pre-transaction read stays `active` — that is leg (f), not this one.
+    // Reachable causes here are different: EXPECTED_LIVEMODE === null, or a
+    // resolver-internal throw.
+    seedPolicy(ACTIVE_POLICY, { active: false, reason: 'undetermined', amountCents: 2500 });
+    seedChargeReady(true);
+    setClientSession(freshPhone());
+
+    const response = await postBooking({
+      startTime: at(futureDate(52), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe('DEPOSITS_TEMPORARILY_UNAVAILABLE');
+    // Mapping 'undetermined' to required:false would leave an appointment row
+    // with no deposit — so the assertion must be "no appointment row at all".
+    expect(await appointmentRows()).toHaveLength(0);
+    expect(await depositRows()).toHaveLength(0);
+  });
+
+  it('(d) a TypeError from the charge resolver -> 503, NOT an unhandled 500', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    deposits.chargeOverride = () => {
+      throw new TypeError('postDiscountTotalCents must be a non-negative integer');
+    };
+    setClientSession(freshPhone());
+
+    const response = await postBooking({
+      startTime: at(futureDate(53), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe('DEPOSITS_TEMPORARILY_UNAVAILABLE');
+    expect(await appointmentRows()).toHaveLength(0);
+  });
+
+  it('(e) livemode mismatch -> 503, no Checkout on a mismatched-mode account', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    // chargeReady TRUE but the binding is live-mode while EXPECTED_LIVEMODE is
+    // false under Vitest: R4 is a comparison of two values already in scope.
+    deposits.refreshAccountReadiness.mockResolvedValue({
+      chargeReady: true,
+      status: 'charge_ready',
+      payoutsPending: false,
+      binding: {
+        stripeAccountId: 'acct_live',
+        chargesEnabled: true,
+        revokedAt: null,
+        lastSyncedAt: new Date('2099-01-01T00:00:00Z'),
+        livemode: true,
+      },
+    });
+    setClientSession(freshPhone());
+
+    const response = await postBooking({
+      startTime: at(futureDate(54), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe('DEPOSITS_TEMPORARILY_UNAVAILABLE');
+    expect(await appointmentRows()).toHaveLength(0);
+    expect(deposits.createDepositCheckoutSession).not.toHaveBeenCalled();
+  });
+});
+
+/** §14 test 25 — amount rules. */
+describe('25 — amount rules', () => {
+  it('the resolver\'s CAPPED amount is what lands in the row and the Stripe params', async () => {
+    // Policy asks 5000 but the booking total is 4500, so D3 caps to 4500.
+    seedPolicy({ active: true, amountCents: 5000, currency: 'cad' });
+    seedChargeReady(true);
+    setClientSession(freshPhone());
+
+    const response = await postBooking({
+      startTime: at(futureDate(55), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:4500',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.data.deposit.amountCents).toBe(4500);
+
+    const [deposit] = await depositRows();
+
+    expect(deposit!.amountCents).toBe(4500);
+
+    // The same figure reaches the provider call.
+    const passed = deposits.createDepositCheckoutSession.mock.calls[0]![0] as {
+      deposit: { amountCents: number };
+    };
+
+    expect(passed.deposit.amountCents).toBe(4500);
+  });
+
+  it('a required amount BELOW the Stripe floor fails closed, with no rows', async () => {
+    // D3 returns { required:false, reason:'below_minimum_charge' } for a CAPPED
+    // amount under the floor — that means "proceed with no deposit". Reaching
+    // the floor guard means a required amount that is illegal to dispatch.
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    deposits.chargeOverride = () => ({ required: true, amountCents: 25, currency: 'cad' });
+    setClientSession(freshPhone());
+    // The refusal deliberately logs; failOnConsole would otherwise turn the
+    // intended diagnostic into a failure, so assert it instead of muting it.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    const response = await postBooking({
+      startTime: at(futureDate(56), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+
+    expect(consoleError).toHaveBeenCalled();
+
+    consoleError.mockRestore();
+
+    expect(response.status).toBe(500);
+    expect(await appointmentRows()).toHaveLength(0);
+    expect(await depositRows()).toHaveLength(0);
+    expect(deposits.createDepositCheckoutSession).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * §14 test 27(d) — an absent field on a request whose authoritative charge is
+ * required:false PROCEEDS, and the 201 carries `data.deposit = { required:false }`.
+ *
+ * Without the object the client is told to adopt `details.deposit.amountCents`,
+ * of which there is none — the loop the magnitude rule exists to prevent.
+ */
+describe('27(d) — absent field, required:false', () => {
+  it('201 with data.deposit = { required:false } and NO deposit row', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    // A 100%-value reward drops the authoritative total under 50c.
+    deposits.chargeOverride = () => ({ required: false, reason: 'below_minimum_charge' });
+    setClientSession(freshPhone());
+
+    const response = await postBooking({
+      startTime: at(futureDate(57), '10:00').toISOString(),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.data.deposit).toEqual({ required: false });
+    expect(await depositRows()).toHaveLength(0);
   });
 });

@@ -3493,6 +3493,10 @@ export async function POST(request: Request): Promise<Response> {
             // =================================================================
             let depositCharge: { amountCents: number; fingerprint: string } | null = null;
             let committedDepositPlan: CommittedDepositPlan | null = null;
+            // The branch ran and the policy was live, but this particular
+            // booking owes nothing (a reward dropped the total under the floor,
+            // say). The 201 must still SAY so — see the return value below.
+            let depositResolvedNotRequired = false;
             if (depositBranch) {
               const [inTxSalon] = await tx
                 .select({
@@ -3584,6 +3588,8 @@ export async function POST(request: Request): Promise<Response> {
                 }
 
                 depositCharge = { amountCents: charge.amountCents, fingerprint };
+              } else {
+                depositResolvedNotRequired = true;
               }
             }
 
@@ -3869,6 +3875,7 @@ export async function POST(request: Request): Promise<Response> {
               appointmentAddOns: insertedAddOns,
               salonClient: lockedSalonClient,
               depositPlan: committedDepositPlan,
+              depositResolvedNotRequired,
             };
           },
         );
@@ -3878,6 +3885,13 @@ export async function POST(request: Request): Promise<Response> {
         appointmentAddOns = transactionalResult.appointmentAddOns;
         salonClient = transactionalResult.salonClient;
         depositPlan = transactionalResult.depositPlan;
+        // An ENTERED branch whose authoritative charge came back `required:false`
+        // must still carry `deposit: { required:false }` on the 201. Omitting it
+        // tells the client to adopt `details.deposit.amountCents`, of which
+        // there is none — the exact loop the magnitude rule exists to prevent.
+        if (transactionalResult.depositResolvedNotRequired) {
+          respondDepositNotRequired = true;
+        }
       } catch (error) {
         if (error instanceof DepositsUnavailableError) {
           // R2/R3/R4. The transaction aborted, so there is NO appointment row
