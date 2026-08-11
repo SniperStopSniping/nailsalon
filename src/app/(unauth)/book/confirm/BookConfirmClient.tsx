@@ -137,7 +137,21 @@ type BookConfirmClientProps = {
    * was shown a deposit at all — and refuse to charge an undisclosed amount.
    */
   depositFingerprint?: string;
+  /**
+   * Overridable for tests.
+   *
+   * MUST NOT be written as `window.location.href = url`: jsdom does not
+   * implement navigation, `failOnConsole` turns the resulting console output
+   * into a test failure, and no test in this repository stubs
+   * `window.location` — so a bare href assignment makes the required
+   * redirect test unwritable.
+   */
+  navigateToCheckout?: (url: string) => void;
 };
+
+function defaultNavigateToCheckout(url: string): void {
+  window.location.assign(url);
+}
 
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
 const EMPTY_SELECTED_ADD_ONS: NonNullable<BookConfirmClientProps['selectedAddOns']> = [];
@@ -1685,6 +1699,7 @@ export function BookConfirmClient({
   depositDisclosure = null,
   depositNoticeSuppressed = false,
   depositFingerprint = DEPOSIT_FINGERPRINT_NONE,
+  navigateToCheckout = defaultNavigateToCheckout,
 }: BookConfirmClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -2151,6 +2166,38 @@ export function BookConfirmClient({
           return;
         }
 
+        // The client's own live deposit hold is what is blocking them. Routed
+        // through the SAME presentation as EXISTING_APPOINTMENT — that
+        // component needs no new props and already offers every path forward —
+        // rather than the generic error banner. The server deliberately sends
+        // no checkout URL and no manage URL here: this API authenticates by
+        // phone possession alone.
+        if (errorCode === 'DEPOSIT_HOLD_ACTIVE') {
+          setHasExistingAppointment(true);
+          setBookingError(
+            errorMessage
+            || 'You already have a booking waiting for its deposit. Finish that payment, or wait for the hold to expire.',
+          );
+          bookingInitiatedRef.current = false;
+          return;
+        }
+
+        // Without these three, every deposit-path failure falls into the
+        // generic throw at the bottom of this block and reads as a mystery.
+        if (
+          errorCode === 'DEPOSITS_TEMPORARILY_UNAVAILABLE'
+          || errorCode === 'DEPOSIT_CHECKOUT_UNAVAILABLE'
+          || errorCode === 'DEPOSIT_CHECKOUT_FAILED'
+        ) {
+          setBookingError(
+            errorCode === 'DEPOSIT_CHECKOUT_FAILED'
+              ? 'We could not start the deposit payment, so your slot was released. Please try booking again.'
+              : 'We could not reach the payment provider just now. Please try confirming again in a moment.',
+          );
+          bookingInitiatedRef.current = false;
+          return;
+        }
+
         if (errorCode === 'TIME_CONFLICT' || errorCode === 'NO_AVAILABLE_TECHNICIAN') {
           setSlotTaken(true);
           bookingInitiatedRef.current = false;
@@ -2183,6 +2230,20 @@ export function BookConfirmClient({
       }
 
       const data = await response.json();
+
+      // A deposit hold is NOT a completed booking. Redirect BEFORE
+      // setBookingComplete / confetti / clearing the stored contact details:
+      // showing a success screen for an unpaid hold would be a lie, and
+      // clearing guest storage would cost the client their details if they came
+      // back from Checkout unpaid.
+      const depositCheckoutUrl = data?.data?.deposit?.required === true
+        ? data.data.deposit.checkoutUrl
+        : null;
+      if (typeof depositCheckoutUrl === 'string' && depositCheckoutUrl) {
+        navigateToCheckout(depositCheckoutUrl);
+        return;
+      }
+
       setManageUrl(data.data.manageUrl || null);
       setBookingComplete(true);
       try {
@@ -2203,7 +2264,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [acknowledgmentRequired, baseServiceId, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, smartFitOffer, smsConsent, smsEnabled, submittedDepositFingerprint, techId, timeStr]);
+  }, [acknowledgmentRequired, baseServiceId, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, navigateToCheckout, smartFitOffer, smsConsent, smsEnabled, submittedDepositFingerprint, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);

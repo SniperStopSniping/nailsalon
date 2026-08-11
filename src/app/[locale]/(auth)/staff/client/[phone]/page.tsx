@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
+import { appointmentStatusChipClasses, formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -446,13 +447,9 @@ export default function StaffClientProfilePage() {
                                           {formatPrice(appt.totalPrice)}
                                         </div>
                                         <div
-                                          className="mt-1 inline-block rounded-full px-2 py-0.5 text-xs font-medium"
-                                          style={{
-                                            backgroundColor: appt.status === 'completed' ? '#dcfce7' : themeVars.selectedBackground,
-                                            color: appt.status === 'completed' ? '#166534' : themeVars.titleText,
-                                          }}
+                                          className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-xs font-medium ${appointmentStatusChipClasses(appt.status)}`}
                                         >
-                                          {appt.status}
+                                          {formatAppointmentStatus(appt.status)}
                                         </div>
                                       </div>
                                     </div>
