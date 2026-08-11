@@ -19,6 +19,7 @@ import { requireAdmin, requireAdminSalon } from '@/libs/adminAuth';
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
+import { logAuditEvent } from '@/libs/auditLog';
 import { getBookingConfigForSalon, getClientChangePolicy, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import {
   BLOCKING_APPOINTMENT_STATUSES,
@@ -1386,6 +1387,24 @@ export async function POST(request: Request): Promise<Response> {
         bufferMinutes = validatedSelection.quote.bufferMinutes;
         blockedDurationMinutes = validatedSelection.quote.blockedDurationMinutes;
         resolvedIntroPriceLabel = validatedSelection.quote.baseService.resolvedIntroPriceLabel;
+
+        // Observation only (PR 1 stage b) — this booking is not blocked, and
+        // this write can never make it fail: logAuditEvent is fire-and-forget
+        // by construction. Fires only on an actual booking attempt, not on
+        // every availability/quote preview, to keep volume meaningful.
+        if (validatedSelection.observedRequiredAddOnGaps.length > 0) {
+          await logAuditEvent({
+            salonId: salon.id,
+            actorType: 'client',
+            action: 'required_add_on_rule_omitted',
+            entityType: 'service',
+            entityId: validatedSelection.baseServiceRecord.id,
+            metadata: {
+              missingRequiredAddOnIds: validatedSelection.observedRequiredAddOnGaps,
+              technicianId: normalizedTechnicianId,
+            },
+          });
+        }
       } catch (error) {
         return Response.json(
           {

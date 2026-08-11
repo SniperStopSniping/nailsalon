@@ -76,7 +76,7 @@ type AvailabilitySlot = {
 };
 
 type AvailabilityError = {
-  kind: 'unsupported_technician' | 'invalid_service' | 'temporary_failure';
+  kind: 'unsupported_technician' | 'invalid_service' | 'missing_required_add_on' | 'temporary_failure';
   message: string;
   canRetry: boolean;
   canReselectTechnician: boolean;
@@ -426,7 +426,9 @@ export function BookTimeClient({
         const data = await response.json().catch(() => null);
         const publicError = data?.error;
         setAvailabilityError({
-          kind: publicError?.kind === 'unsupported_technician' || publicError?.kind === 'invalid_service'
+          kind: publicError?.kind === 'unsupported_technician'
+            || publicError?.kind === 'invalid_service'
+            || publicError?.kind === 'missing_required_add_on'
             ? publicError.kind
             : 'temporary_failure',
           message: typeof publicError?.message === 'string'

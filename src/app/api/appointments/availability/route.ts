@@ -55,7 +55,7 @@ const DEFAULT_DURATION_MINUTES = 30;
 const MIN_LEAD_TIME_MINUTES = 120;
 
 type PublicAvailabilityError = {
-  kind: 'unsupported_technician' | 'invalid_service' | 'temporary_failure';
+  kind: 'unsupported_technician' | 'invalid_service' | 'missing_required_add_on' | 'temporary_failure';
   message: string;
   canRetry: boolean;
   canReselectTechnician: boolean;
@@ -75,6 +75,19 @@ function buildPublicAvailabilityError(args: {
       message: getPublicBookingSelectionMessage(args.error),
       canRetry: false,
       canReselectTechnician: Boolean(args.canReselectTechnician),
+    };
+  }
+
+  // Not yet reachable: validatePublicBookingSelection only records this gap
+  // (PR 1 stage b), it does not throw it. Classified distinctly now so a
+  // future enforcement PR does not silently fall into the generic
+  // invalid_service bucket below.
+  if (args.error.code === 'missing_required_add_on') {
+    return {
+      kind: 'missing_required_add_on',
+      message: getPublicBookingSelectionMessage(args.error),
+      canRetry: false,
+      canReselectTechnician: false,
     };
   }
 

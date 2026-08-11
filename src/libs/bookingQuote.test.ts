@@ -1,14 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { vi } from 'vitest';
-
-vi.mock('server-only', () => ({}));
 
 import {
   buildBookingQuote,
   calculateAppointmentDuration,
   calculateAppointmentPrice,
-  getPublicTechnicianCompatibility,
+  evaluateRequiredAddOnRules,
   getBlockedEndTimeWithBuffer,
+  getPublicTechnicianCompatibility,
   mergeSelectedAddOns,
 } from '@/libs/bookingQuote';
 
@@ -122,6 +120,66 @@ describe('bookingQuote helpers', () => {
     })).toEqual({
       bookable: true,
       reason: null,
+    });
+  });
+});
+
+describe('evaluateRequiredAddOnRules', () => {
+  it('is satisfied when there are no rules for the service', () => {
+    expect(evaluateRequiredAddOnRules({ rules: [], selectedAddOnIds: [] })).toEqual({
+      satisfied: true,
+      missingRequiredAddOnIds: [],
+    });
+  });
+
+  it('is satisfied when every required add-on was selected', () => {
+    expect(evaluateRequiredAddOnRules({
+      rules: [
+        { addOnId: 'removal', selectionMode: 'required' },
+        { addOnId: 'chrome', selectionMode: 'optional' },
+      ],
+      selectedAddOnIds: ['removal', 'chrome'],
+    })).toEqual({
+      satisfied: true,
+      missingRequiredAddOnIds: [],
+    });
+  });
+
+  it('reports a required add-on that was not selected', () => {
+    expect(evaluateRequiredAddOnRules({
+      rules: [{ addOnId: 'removal', selectionMode: 'required' }],
+      selectedAddOnIds: [],
+    })).toEqual({
+      satisfied: false,
+      missingRequiredAddOnIds: ['removal'],
+    });
+  });
+
+  it('reports only the required add-ons that are missing, not optional or conditional ones', () => {
+    expect(evaluateRequiredAddOnRules({
+      rules: [
+        { addOnId: 'removal', selectionMode: 'required' },
+        { addOnId: 'long_length', selectionMode: 'required' },
+        { addOnId: 'chrome', selectionMode: 'optional' },
+        { addOnId: 'inspiration_photo', selectionMode: 'conditional' },
+      ],
+      selectedAddOnIds: ['long_length'],
+    })).toEqual({
+      satisfied: false,
+      missingRequiredAddOnIds: ['removal'],
+    });
+  });
+
+  it('never reports an optional or conditional rule as missing, however unselected', () => {
+    expect(evaluateRequiredAddOnRules({
+      rules: [
+        { addOnId: 'chrome', selectionMode: 'optional' },
+        { addOnId: 'inspiration_photo', selectionMode: 'conditional' },
+      ],
+      selectedAddOnIds: [],
+    })).toEqual({
+      satisfied: true,
+      missingRequiredAddOnIds: [],
     });
   });
 });
