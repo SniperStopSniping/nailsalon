@@ -290,23 +290,30 @@ describe('22 — hold presentation', () => {
  */
 describe('18 — blocking-list consequences', () => {
   it('the owner day view SHOWS the hold', async () => {
-    const hold = await seedAppointment('awaiting_payment', 1);
-    // /api/admin/today reads "today"; place the hold in that window.
-    await db.update(schema.appointmentSchema)
-      .set({
-        startTime: new Date(Date.now() + 3_600_000),
-        endTime: new Date(Date.now() + 7_200_000),
-      })
-      .where(eq(schema.appointmentSchema.id, hold));
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-08-11T16:00:00.000Z'));
 
-    const response = await adminTodayGet(
-      new Request('http://localhost/api/admin/today?salonSlug=surfaces-salon'),
-    );
-    const body = await response.json();
+    try {
+      const hold = await seedAppointment('awaiting_payment', 1);
+      // /api/admin/today reads "today"; place the hold in that window.
+      await db.update(schema.appointmentSchema)
+        .set({
+          startTime: new Date(Date.now() + 3_600_000),
+          endTime: new Date(Date.now() + 7_200_000),
+        })
+        .where(eq(schema.appointmentSchema.id, hold));
 
-    expect(response.status).toBe(200);
-    // The slot really is occupied; hiding it would make the day look free.
-    expect(JSON.stringify(body)).toContain(hold);
+      const response = await adminTodayGet(
+        new Request('http://localhost/api/admin/today?salonSlug=surfaces-salon'),
+      );
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      // The slot really is occupied; hiding it would make the day look free.
+      expect(JSON.stringify(body)).toContain(hold);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('an admin reassign INTO a held window is rejected', async () => {
