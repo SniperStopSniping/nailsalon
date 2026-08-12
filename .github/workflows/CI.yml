@@ -238,13 +238,24 @@ jobs:
             exit 1
           fi
 
+          # Compared PER ENTRY against the chartered set, not as one joined
+          # string: a packet that legitimately adds a cron alongside an earlier
+          # one would otherwise fail on the concatenation rather than on its
+          # content. The guard is unchanged in strength — anything not named
+          # here still fails.
           new_crons="$(git diff --unified=0 "$base" -- vercel.json \
             | grep -E '^\+.*"path"' | sed -E 's/.*"path" *: *"([^"]+)".*/\1/' || true)"
-          if [ -n "$new_crons" ] && [ "$new_crons" != "/api/deposits/holds/reap" ]; then
-            echo "::error::Unauthorized vercel.json cron entries:"
-            printf '%s\n' "$new_crons"
-            exit 1
-          fi
+          while read -r cron; do
+            [ -n "$cron" ] || continue
+            case "$cron" in
+              /api/deposits/holds/reap) ;;
+              /api/deposits/reconcile) ;;
+              *)
+                echo "::error::Unauthorized vercel.json cron entry: $cron"
+                exit 1
+                ;;
+            esac
+          done <<< "$new_crons"
 
       - name: Create ephemeral synthetic E2E admin credentials
         shell: bash
@@ -567,6 +578,79 @@ jobs:
 
           cleanup_v133
           trap - EXIT
+
+  deposits-postgres-concurrency:
+    name: D5 deposits PostgreSQL concurrency (zero skips)
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    # The suite refuses every hosted/private-network target. These constants
+    # identify only this job's loopback-published PostgreSQL service, and the
+    # live server address is independently attested against Docker metadata.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: luster_e2e_ci_disposable
+          POSTGRES_USER: luster_e2e_ci
+          POSTGRES_PASSWORD: luster-e2e-ci-only-password
+        ports:
+          - '127.0.0.1:55432:5432'
+        options: >-
+          --health-cmd "pg_isready -U luster_e2e_ci -d luster_e2e_ci_disposable"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
+      CONCURRENCY_TEST_DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
+      LUSTER_DISPOSABLE_DATABASE: 'true'
+      D5_CONCURRENCY_REQUIRED: 'true'
+      BILLING_PLAN_ENV: test
+      CLERK_SECRET_KEY: ci-placeholder-not-a-secret
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2kubHVzdGVyLmludmFsaWQk
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+      STRIPE_SECRET_KEY: ci-placeholder-not-a-secret
+      STRIPE_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+      STRIPE_CONNECT_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Exercise the reviewed PR commit, never GitHub's synthetic merge ref.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: HUSKY=0 npm ci
+
+      - name: Prepare the guarded disposable PostgreSQL target
+        run: npm run db:prepare:e2e:ci
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+
+      - name: Run all D5 real-PostgreSQL races and prove zero skips
+        shell: bash
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+        run: |
+          set -euo pipefail
+          npm run test:deposits:pg | tee d5-postgres-concurrency.log
+          grep -Fqx \
+            'D5_REAL_POSTGRES_TESTS_EXECUTED=5 D5_REAL_POSTGRES_TESTS_SKIPPED=0' \
+            d5-postgres-concurrency.log
 
   booking-entitlement-override-postgres:
     name: Booking entitlement override PostgreSQL concurrency

@@ -34,7 +34,7 @@ if (
   throw new Error('ENVIRONMENT_URL must not contain credentials or a fragment.');
 }
 
-const emailChannel = new EmailAlertChannel('email-channel-1', {
+export const emailChannel = new EmailAlertChannel('email-channel-1', {
   address: process.env.CHECKLY_ALERT_EMAIL || 'support@islanailsalon.com',
   ...sendDefaults,
 });

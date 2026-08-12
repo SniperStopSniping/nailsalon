@@ -5,6 +5,8 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { appointmentDepositSchema, appointmentSchema } from '@/models/Schema';
 
+import { depositsTransaction } from './depositsTransaction';
+
 /**
  * THE MODULE BOUNDARY (invariant I3).
  *
@@ -74,7 +76,12 @@ async function applyHoldTransition(args: HoldTransition & {
   depositStatus: 'canceled' | 'expired';
   resolutionNote: string | null;
 }): Promise<HoldWriteOutcome> {
-  return db.transaction(async (tx) => {
+  // Routed through the deposits seam rather than `db.transaction` directly: the
+  // seam raises the in-transaction flag the instrumented Stripe mock reads, so
+  // "no provider call while these two row locks are held" is machine-checked
+  // here exactly as it is for D5's confirm and refund writers. Behaviour is
+  // otherwise unchanged — the seam only wraps the callback.
+  return depositsTransaction(db, async (tx) => {
     const [releasedAppointment] = await tx
       .update(appointmentSchema)
       .set({

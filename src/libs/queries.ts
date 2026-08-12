@@ -564,9 +564,11 @@ export async function getAppointmentServiceNames(appointmentId: string): Promise
 /**
  * Update an appointment's status and optionally cancel reason
  * @param appointmentId - The appointment's unique ID
+ * @param salonId - The salon's unique ID (required for multi-tenant scoping)
  * @param status - The new status
  * @param cancelReason - Optional cancel reason (only for cancelled appointments)
- * @returns The updated appointment or null if not found
+ * @returns The updated appointment, or null when no row matched — which now
+ *   also covers a deposit hold, because this function refuses to move one.
  */
 export async function updateAppointmentStatus(
   appointmentId: string,
@@ -585,6 +587,18 @@ export async function updateAppointmentStatus(
       and(
         eq(appointmentSchema.id, appointmentId),
         eq(appointmentSchema.salonId, salonId),
+        // D5 FENCE. This function takes no transaction, no lock and no expected
+        // current status, so it is a blind writer: whatever it is handed wins.
+        // A deposit hold is the one row where that is a money bug — flipping
+        // 'awaiting_payment' to 'confirmed' here would confirm a booking whose
+        // deposit was never paid, outside the single-writer boundary of
+        // `src/libs/deposits/**` (invariant I1).
+        //
+        // D4 already fences the route that calls this. This is the
+        // FUNCTION-level belt: a future caller inherits the guard without
+        // having to know the rule. Zero rows updated ⇒ `null` ⇒ the caller's
+        // existing not-found/conflict branch.
+        ne(appointmentSchema.status, 'awaiting_payment'),
       ),
     )
     .returning();

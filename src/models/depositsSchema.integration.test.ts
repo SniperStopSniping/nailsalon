@@ -477,13 +477,41 @@ describe('test 2 — 0065 constraint pins', () => {
 // =============================================================================
 
 describe('test 34 — every literal D2 declares is accepted by the landed 0065', () => {
-  it('34(c) the exported sets are exactly the charter vocabulary', () => {
-    // Driven from the exported consts, never from literals retyped into the
+  it('34(c) the exported status set is EXACTLY 0065\'s CHECK vocabulary', () => {
+    // Driven from the exported const, never from literals retyped into the
     // test — retyping is how a vocabulary drifts to a third list.
-    expect([...STRIPE_WEBHOOK_EVENT_STATUSES].sort()).toEqual(
-      ['failed_retryable', 'poisoned', 'processed', 'processing'],
-    );
-    expect([...STRIPE_WEBHOOK_EVENT_OUTCOMES].sort()).toEqual([
+    //
+    // WIDENED BY THE PAYMENT-CONFIRMATION PR, which is the writer of the
+    // remaining eleven terminals. The constant was always a SUBSET of 0065's
+    // CHECK — the constraint is the union of both writers' vocabularies — and
+    // now equals it, so this assertion pins the constant to the DDL rather than
+    // to one packet's slice of it. `received` stays deliberately absent.
+    expect([...STRIPE_WEBHOOK_EVENT_STATUSES].sort()).toEqual([
+      'account_mismatch',
+      'failed_retryable',
+      'held_duplicate_session',
+      'held_mismatch',
+      'ignored_foreign_session',
+      'ignored_livemode',
+      'ignored_non_connect_scope',
+      'ignored_over_cap',
+      'ignored_unhandled',
+      'ignored_unpaid',
+      'orphan_unresolved',
+      'poisoned',
+      'processed',
+      'processing',
+      'unbound_unresolved',
+    ]);
+    expect([...STRIPE_WEBHOOK_EVENT_STATUSES]).not.toContain('received');
+  });
+
+  it('34(c2) the outcome set still contains every literal this route writes', () => {
+    // `outcome` carries NO CHECK, so this array is an app-level union rather
+    // than a DDL contract and it GROWS as writers are added. What must not
+    // change is that the Connect account-lifecycle arms keep theirs: those are
+    // the literals the cross-route runbook queries key on.
+    for (const outcome of [
       'disabled_by_flag',
       'ignored_livemode',
       'ignored_non_connect_scope',
@@ -494,7 +522,9 @@ describe('test 34 — every literal D2 declares is accepted by the landed 0065',
       'processed',
       'unbound_account',
       'unbound_unresolved',
-    ]);
+    ]) {
+      expect(STRIPE_WEBHOOK_EVENT_OUTCOMES).toContain(outcome);
+    }
   });
 
   it('34(a) every declared status inserts without a CHECK violation', async () => {

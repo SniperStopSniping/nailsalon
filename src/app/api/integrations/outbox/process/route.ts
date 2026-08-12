@@ -1,3 +1,4 @@
+import { pingCronHeartbeat } from '@/libs/cronHeartbeat';
 import { withTransientDatabaseRetry } from '@/libs/databaseRetry';
 import { processGoogleCalendarInboundSync } from '@/libs/googleCalendarInbound';
 import { processIntegrationOutbox } from '@/libs/integrationOutbox';
@@ -27,6 +28,7 @@ async function handleProcess(request: Request) {
     withTransientDatabaseRetry(() => processIntegrationOutbox()),
     withTransientDatabaseRetry(() => processGoogleCalendarInboundSync()),
   ]);
+  await pingCronHeartbeat('integration_outbox');
   return Response.json({ data: { outbound, inbound } });
 }
 

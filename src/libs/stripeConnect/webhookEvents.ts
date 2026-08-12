@@ -41,6 +41,22 @@ export const STRIPE_WEBHOOK_EVENT_STATUSES = [
   'failed_retryable',
   'processed',
   'poisoned',
+  // D5's eleven terminal statuses. They were always admitted by 0065's CHECK —
+  // the constraint is the union of both writers' vocabularies — and are listed
+  // here now that a writer emits them, so this constant IS the CHECK rather
+  // than a subset of it. The Connect account-lifecycle handlers above still
+  // emit only the first four; widening this array does not widen them.
+  'held_mismatch',
+  'held_duplicate_session',
+  'account_mismatch',
+  'unbound_unresolved',
+  'orphan_unresolved',
+  'ignored_non_connect_scope',
+  'ignored_livemode',
+  'ignored_unhandled',
+  'ignored_foreign_session',
+  'ignored_unpaid',
+  'ignored_over_cap',
 ] as const;
 
 /**
@@ -65,6 +81,33 @@ export const STRIPE_WEBHOOK_EVENT_OUTCOMES = [
   'disabled_by_flag',
   'processed',
   'poisoned',
+  // D5's business dispositions. `outcome` carries NO CHECK, so this array is an
+  // app-level union rather than a DDL contract — but every terminal row must
+  // carry a non-null value from it, because `outcome` is the only column both
+  // routes agree on.
+  'confirmed',
+  'already_confirmed',
+  'already_confirmed_late_refund',
+  'healed_deposit',
+  'healed_deposit_late',
+  'restored',
+  'refunded',
+  'deferred_no_deposit',
+  'session_expired',
+  'awaiting_async_payment',
+  'refund_failed_unreconciled',
+  'payment_failed',
+  // D5 mirrors each of its terminal STATUSES into `outcome` as well. That
+  // mirror is what keeps a cross-route disposition query complete: this route's
+  // handlers land every disposition on `status='processed'`, so a query keyed
+  // on `status` would return none of them.
+  'held_mismatch',
+  'held_duplicate_session',
+  'account_mismatch',
+  'orphan_unresolved',
+  'ignored_foreign_session',
+  'ignored_unpaid',
+  'ignored_over_cap',
 ] as const;
 
 export type StripeWebhookEventStatus = (typeof STRIPE_WEBHOOK_EVENT_STATUSES)[number];
@@ -96,6 +139,30 @@ export type ClaimResult =
   | { claimed: false };
 
 /**
+ * The normalized projection columns, EVERY ONE NULLABLE.
+ *
+ * Nullability is the contract, not an oversight: a `mode=setup` or
+ * `mode=subscription` Checkout Session legitimately carries no `amount_total`,
+ * no `currency` and no `payment_intent`, and treating an absent optional field
+ * as a failure would poison — with a retained payload — every card-saving
+ * session a full-Dashboard salon generates.
+ */
+export type WebhookEventProjection = {
+  sessionId: string | null;
+  paymentIntentId: string | null;
+  paymentStatus: string | null;
+  amountTotal: number | null;
+  currency: string | null;
+  metadataAppointmentId: string | null;
+  metadataSalonId: string | null;
+  metadataDepositId: string | null;
+  clientReferenceId: string | null;
+  projectionStatus: 'ok' | 'failed';
+  rawPayload: unknown | null;
+  payloadPurgeAfter: Date | null;
+};
+
+/**
  * FUSED CLAIM — the single insert path for every recorded outcome.
  *
  * The row is born CLAIMED (`status='processing'`, `attempts=1`). Scope and
@@ -111,7 +178,18 @@ export async function claimWebhookEvent(input: {
   type: string;
   account: string | null;
   livemode: boolean;
+  /**
+   * The normalized Checkout-Session projection, for the types that carry one.
+   *
+   * Passed IN rather than derived here so this module keeps no knowledge of
+   * Stripe payload shapes, and so the extraction stays TYPE-SCOPED at its call
+   * site: `account.*` deliveries store a NULL projection and never a payload.
+   * Omit it entirely and the row is exactly what it was before D5.
+   */
+  projection?: WebhookEventProjection | null;
+  salonId?: string | null;
 }): Promise<ClaimResult> {
+  const projection = input.projection ?? null;
   const rows = await db
     .insert(stripeWebhookEventSchema)
     .values({
@@ -123,6 +201,23 @@ export async function claimWebhookEvent(input: {
       status: 'processing',
       attempts: 1,
       receivedAt: sql`now()`,
+      salonId: input.salonId ?? null,
+      ...(projection
+        ? {
+            sessionId: projection.sessionId,
+            paymentIntentId: projection.paymentIntentId,
+            paymentStatus: projection.paymentStatus,
+            amountTotal: projection.amountTotal,
+            currency: projection.currency,
+            metadataAppointmentId: projection.metadataAppointmentId,
+            metadataSalonId: projection.metadataSalonId,
+            metadataDepositId: projection.metadataDepositId,
+            clientReferenceId: projection.clientReferenceId,
+            projectionStatus: projection.projectionStatus,
+            rawPayload: projection.rawPayload,
+            payloadPurgeAfter: projection.payloadPurgeAfter,
+          }
+        : {}),
     })
     .onConflictDoNothing({ target: stripeWebhookEventSchema.eventId })
     .returning();

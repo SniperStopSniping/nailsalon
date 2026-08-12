@@ -3049,6 +3049,12 @@ export const AUDIT_LOG_ACTIONS = [
   // Per-salon deposits entitlement (D3). The `action` COLUMN is free text; this
   // array is the app-level union the audit helper validates against.
   'deposits_entitlement_changed',
+  // Deposit money movement (D5). `logAuditEvent` types its `action` against this
+  // union, so without these three entries the post-commit audit calls on the
+  // confirm, refund and restore paths do not compile. Appended, never reordered.
+  'deposit_payment_confirmed',
+  'deposit_refunded',
+  'deposit_hold_restored',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 

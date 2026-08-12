@@ -20,16 +20,23 @@ import * as Sentry from '@sentry/nextjs';
 import type { NextRequest } from 'next/server';
 import type Stripe from 'stripe';
 
-import { Env } from '@/libs/Env';
-import { stripe } from '@/libs/stripe';
+import type { ConfirmDisposition } from '@/libs/deposits/confirmDepositPayment';
+import { confirmDepositPayment } from '@/libs/deposits/confirmDepositPayment';
 import {
-  getBindingsByStripeAccountId,
-  revokeBinding,
-} from '@/libs/stripeConnect/binding';
+  evaluateProvenance,
+  isOverAdmissionCap,
+  projectStripeEvent,
+} from '@/libs/deposits/depositWebhookEvents';
+import {
+  isSweepRetryableRecoveryResult,
+  type RecoveryResult,
+  runLateDepositRecovery,
+} from '@/libs/deposits/lateDepositRecovery';
+import { Env } from '@/libs/Env';
+import { EXPECTED_STRIPE_API_VERSION, stripe } from '@/libs/stripe';
+import { dispatchAccountWebhook } from '@/libs/stripeConnect/accountWebhookDispatch';
 import {
   expectedLivemode,
-  StripeConnectUnavailableError,
-  syncAccountReadiness,
 } from '@/libs/stripeConnect/readiness';
 import {
   CLAIM_STALE_AFTER_MS,
@@ -67,6 +74,18 @@ function retryLater(): Response {
 }
 
 type Claim = { id: string; attempts: number };
+
+/**
+ * `refund.failed` / `refund.updated` postdate the pinned SDK's event union, so
+ * they are matched as strings rather than through it. The pin is deliberate:
+ * a webhook endpoint's `api_version` is fixed at creation and not updatable.
+ */
+const REFUND_FAILED_EVENT = 'refund.failed';
+const REFUND_UPDATED_EVENT = 'refund.updated';
+
+function isRefundEventType(type: string): boolean {
+  return type === REFUND_FAILED_EVENT || type === REFUND_UPDATED_EVENT;
+}
 
 export async function POST(request: NextRequest) {
   // 1. No secret → 503 and nothing is read. Stripe retries for up to 3 days, so
@@ -113,6 +132,10 @@ export async function POST(request: NextRequest) {
     type: event.type,
     account: event.account ?? null,
     livemode: event.livemode,
+    // TYPE-SCOPED and total by construction: `account.*` deliveries store a
+    // NULL projection and never a payload, `checkout.session.*` and `luster.*`
+    // store the normalized columns the deposit processors read.
+    projection: projectStripeEvent(event, new Date()),
   });
 
   let claim: Claim;
@@ -243,12 +266,43 @@ async function dispatch(
     return ok();
   }
 
-  if (event.type === 'account.updated') {
-    return handleAccountUpdated(event, claim, account, expected);
+  // API VERSION — warn only, never reject. A drifted endpoint version is an
+  // operational finding; refusing the event would lose real money over it.
+  if (event.api_version && event.api_version !== EXPECTED_STRIPE_API_VERSION) {
+    Sentry.captureMessage('stripe_connect_api_version_drift', {
+      level: 'warning',
+      tags: { webhook: 'stripe-connect' },
+      extra: { eventId: event.id, observed: event.api_version },
+    });
   }
 
-  if (event.type === 'account.application.deauthorized') {
-    return handleDeauthorized(event, claim, account);
+  if (event.type === 'checkout.session.completed') {
+    return handleCheckoutSession(event, claim, account, { expiredEvent: false });
+  }
+
+  if (event.type === 'checkout.session.expired') {
+    // ONLY a paid payload is evidence here. `no_payment_required` is what a
+    // salon's own expired setup, trial and Payment-Link sessions carry, and
+    // they must never enter the retry pipeline.
+    return handleCheckoutSession(event, claim, account, { expiredEvent: true });
+  }
+
+  // Compared as strings: `refund.*` postdates the SDK version this programme
+  // pins, and the pin is deliberate (a webhook endpoint's `api_version` is
+  // fixed at creation and not updatable), so the union does not name them yet.
+  if (isRefundEventType(event.type)) {
+    return handleRefundEvent(event, claim);
+  }
+
+  const accountDispatch = await dispatchAccountWebhook({
+    type: event.type,
+    eventId: event.id,
+    account,
+    claim,
+    expectedLivemode: expected,
+  });
+  if (accountDispatch !== 'unhandled') {
+    return accountDispatch === 'retry' ? retryLater() : ok();
   }
 
   await finalizeTerminal({
@@ -259,178 +313,284 @@ async function dispatch(
   return ok();
 }
 
-async function handleAccountUpdated(
+/**
+ * The deposit money path: provenance gate, then routine A, then a fenced
+ * finalize carrying the disposition into BOTH `status` and `outcome`.
+ *
+ * The gate that runs first is ADMISSION, not authorization. It answers "is this
+ * event plausibly about a Luster deposit on an account we know", and nothing it
+ * returns can reach a refund: only a resolved `appointment_deposit` row
+ * authorizes an outflow.
+ */
+async function handleCheckoutSession(
   event: Stripe.Event,
   claim: Claim,
   account: string,
-  expected: boolean,
+  options: { expiredEvent: boolean },
 ): Promise<Response> {
-  const bindings = await getBindingsByStripeAccountId(account);
+  const session = event.data.object as Stripe.Checkout.Session;
+  const metadata = session.metadata ?? {};
 
-  if (bindings.length === 0) {
-    // A REAL window inside D2: `accounts.create` returns at t0 and the binding
-    // INSERT lands at t0+Δ. Never terminal-ignore this on the first delivery.
-    if (claim.attempts >= UNBOUND_MAX_ATTEMPTS) {
-      Sentry.captureMessage('stripe_connect_unbound_unresolved', {
-        level: 'error',
-        tags: { webhook: 'stripe-connect' },
-        extra: { eventId: event.id, account },
-      });
-      await finalizeTerminal({
-        id: claim.id,
-        attempts: claim.attempts,
-        outcome: 'unbound_unresolved',
-      });
-      return ok();
-    }
-    await finalizeRetryable({
-      id: claim.id,
-      attempts: claim.attempts,
-      outcome: 'unbound_account',
-      availableAt: new Date(Date.now() + unboundBackoffMs(claim.attempts)),
-    });
-    return retryLater();
-  }
-
-  const live = bindings.find(binding => binding.revokedAt === null);
-
-  if (!live) {
-    // Without this arm an `account.updated` arriving after a deauthorization
-    // would drive `accounts.retrieve` against an account we can no longer read →
-    // exception → 500 → three days of retries with no cap and no alert.
-    await finalizeTerminal({
-      id: claim.id,
-      attempts: claim.attempts,
-      outcome: 'ignored_revoked_binding',
-    });
-    return ok();
-  }
-
-  if (live.livemode !== expected) {
-    // ROW-level discriminator. The event-level gate above compares
-    // `event.livemode` and has already passed. `failed_retryable` is the one
-    // wrong answer here: a retry cannot change a stored column, so it would buy
-    // three days of pointless redeliveries on an event that can never converge.
-    // The literal is REUSED, not minted; `last_error` is what lets a runbook
-    // separate this population from the event-level gate.
-    Sentry.captureMessage('stripe_connect_mode_mismatch', {
-      level: 'error',
-      tags: { webhook: 'stripe-connect' },
-      extra: { eventId: event.id, bindingId: live.id },
-    });
-    await finalizeTerminal({
-      id: claim.id,
-      attempts: claim.attempts,
-      outcome: 'ignored_livemode',
-      lastError: 'binding_livemode_mismatch',
-    });
-    return ok();
-  }
-
-  try {
-    await syncAccountReadiness(live);
-  } catch (error) {
-    if (
-      error instanceof StripeConnectUnavailableError
-      && error.code === 'PROVIDER_PERMANENT'
-    ) {
-      // Retrying cannot help: we can no longer act on this account. The audit
-      // row and the owner alert fire inside `revokeBinding`, and only when its
-      // CAS affects exactly one row (rule W-SE), so a redelivery cannot re-emit
-      // them.
-      await revokeBinding(live.id, 'deauthorized', {
-        actorId: 'system:stripe-connect-webhook',
-        viaSuperAdminWithoutMembership: false,
-        salonId: live.salonId,
-        stripeAccountId: live.stripeAccountId,
-        matchStripeAccountId: account,
-      });
-      await finalizeTerminal({
-        id: claim.id,
-        attempts: claim.attempts,
-        outcome: 'permanent_provider_error',
-      });
-      return ok();
-    }
-    // Transient. No cap: bounded by Stripe's retry horizon, not by D2.
+  // A projection we could not read is RETRYABLE, never foreign. The sweep
+  // re-extracts it before anything is allowed to classify it, so a payload we
+  // failed to parse is never mistaken for a payload that was not ours.
+  const projection = projectStripeEvent(event, new Date());
+  if (projection?.projectionStatus === 'failed') {
     await finalizeRetryable({
       id: claim.id,
       attempts: claim.attempts,
       outcome: null,
-      lastError: 'provider_unreachable',
-      availableAt: new Date(Date.now() + unboundBackoffMs(claim.attempts)),
+      lastError: 'projection_failed',
+      availableAt: new Date(Date.now() + 60_000),
     });
     return retryLater();
   }
 
-  await finalizeWebhookEvent({
-    id: claim.id,
-    attempts: claim.attempts,
-    status: 'processed',
-    outcome: 'processed',
-    processedAt: new Date(),
+  if (options.expiredEvent && session.payment_status !== 'paid') {
+    // Informational. An expired session nobody paid for is the normal end of a
+    // lapsed hold, and D4's reaper — not this route — releases the slot.
+    await finalizeD5Terminal(claim, 'processed', 'session_expired');
+    return ok();
+  }
+
+  const provenance = await evaluateProvenance({
+    account,
+    metadataSalonId: typeof metadata.salon_id === 'string' ? metadata.salon_id : null,
+    clientReferenceId: session.client_reference_id ?? null,
   });
+
+  if (!provenance.admitted) {
+    // Not ours. Terminal on the FIRST delivery, no retry, no alert, and above
+    // all NO REFUND: `client_reference_id` is a documented Payment-Link URL
+    // parameter and session metadata is tenant-writable, so anything reachable
+    // from here is remotely triggerable by a stranger.
+    await finalizeD5Terminal(claim, 'ignored_foreign_session', 'ignored_foreign_session');
+    return ok();
+  }
+
+  const result = await confirmDepositPayment({
+    source: 'webhook',
+    connectedAccountId: account,
+    sessionId: session.id,
+    paymentIntentId: typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : session.payment_intent?.id ?? null,
+    paymentStatus: session.payment_status ?? null,
+    amountTotal: session.amount_total ?? null,
+    currency: session.currency ?? null,
+    metadataAppointmentId: typeof metadata.appointment_id === 'string' ? metadata.appointment_id : null,
+    metadataSalonId: typeof metadata.salon_id === 'string' ? metadata.salon_id : null,
+    metadataDepositId: typeof metadata.deposit_id === 'string' ? metadata.deposit_id : null,
+  });
+
+  if (result.disposition === 'late_recovery_required' && result.depositId && result.salonId) {
+    // OUTSIDE the confirm transaction, by construction: recovery takes the
+    // technician advisory lock and may call Stripe.
+    const recovery = await runLateDepositRecovery({
+      depositId: result.depositId,
+      salonId: result.salonId,
+    });
+    if (isSweepRetryableRecoveryResult(recovery)) {
+      await finalizeRetryable({
+        id: claim.id,
+        attempts: claim.attempts,
+        outcome: 'deferred_no_deposit',
+        lastError: recovery.note,
+        availableAt: new Date(Date.now() + 60_000),
+      });
+      return retryLater();
+    }
+    await finalizeD5Terminal(claim, 'processed', recoveryOutcome(recovery));
+    return ok();
+  }
+
+  return finalizeConfirmResult(claim, result.disposition, account);
+}
+
+/**
+ * OBSERVABILITY ONLY, and deliberately so. A refund that reached `failed`
+ * against a deposit we already marked `refunded` is money that did not go back;
+ * naming it as a terminal makes it queryable, while changing state from here
+ * would be guessing at a reconciliation a later packet owns.
+ *
+ * A later packet REPLACES this handler with its own — two handlers on one event
+ * type is a collision, so that packet deletes this one in the same change.
+ */
+async function handleRefundEvent(event: Stripe.Event, claim: Claim): Promise<Response> {
+  const refund = event.data.object as Stripe.Refund;
+  const paymentIntentId = typeof refund.payment_intent === 'string'
+    ? refund.payment_intent
+    : refund.payment_intent?.id ?? null;
+
+  const matched = await findDepositForRefund({ refundId: refund.id, paymentIntentId });
+
+  if (!matched) {
+    // A refund on a payment intent that is not ours. Not an incident.
+    await finalizeD5Terminal(claim, 'processed', 'ignored_unhandled');
+    return ok();
+  }
+
+  // `event.type` is widened here for the same reason as above: the pinned
+  // SDK's union names `refund.updated` but not yet `refund.failed`.
+  if ((event.type as string) === REFUND_FAILED_EVENT || refund.status === 'failed') {
+    Sentry.captureMessage('deposit_refund_failed_unreconciled', {
+      level: 'error',
+      tags: { webhook: 'stripe-connect' },
+      extra: { eventId: event.id, depositId: matched },
+    });
+    await finalizeD5Terminal(claim, 'processed', 'refund_failed_unreconciled');
+    return ok();
+  }
+
+  await finalizeD5Terminal(claim, 'processed', 'ignored_unhandled');
   return ok();
 }
 
-async function handleDeauthorized(
-  event: Stripe.Event,
+async function findDepositForRefund(input: {
+  refundId: string;
+  paymentIntentId: string | null;
+}): Promise<string | null> {
+  const { db } = await import('@/libs/DB');
+  const { appointmentDepositSchema } = await import('@/models/Schema');
+  const { eq, or } = await import('drizzle-orm');
+
+  const [row] = await db
+    .select({ id: appointmentDepositSchema.id })
+    .from(appointmentDepositSchema)
+    .where(or(
+      eq(appointmentDepositSchema.stripeRefundId, input.refundId),
+      input.paymentIntentId
+        ? eq(appointmentDepositSchema.stripePaymentIntentId, input.paymentIntentId)
+        : undefined,
+    ))
+    .limit(1);
+
+  return row?.id ?? null;
+}
+
+/**
+ * Maps a confirm disposition onto the event row and the HTTP answer.
+ *
+ * The two retryable dispositions get DIFFERENT schedules because they are
+ * different waits: an unbound account is waiting on a human re-authorizing,
+ * measured in hours; a missing deposit row is waiting on a write that is
+ * probably already in flight, measured in minutes.
+ */
+async function finalizeConfirmResult(
   claim: Claim,
+  disposition: ConfirmDisposition,
   account: string,
 ): Promise<Response> {
-  // Resolve ALL rows first, then branch THREE ways. Do not collapse the last two.
-  const bindings = await getBindingsByStripeAccountId(account);
+  switch (disposition) {
+    case 'confirmed':
+    case 'already_confirmed':
+    case 'healed_deposit':
+    case 'healed_deposit_late':
+      await finalizeD5Terminal(claim, 'processed', disposition);
+      return ok();
 
-  if (bindings.length === 0) {
-    // No binding — revoked or otherwise — exists. Terminal, and deliberately NOT
-    // `ignored_revoked_binding`: conflating the two populations poisons exactly
-    // the runbook query the tenant-anomaly hunt cares about, "events for accounts
-    // we have no record of". The asymmetry with `account.updated` is intended:
-    // that event's payload becomes applicable the moment a binding INSERT lands,
-    // whereas a deauthorization has nothing to apply and nothing to recover.
-    Sentry.captureMessage('stripe_connect_unbound_unresolved', {
-      level: 'error',
-      tags: { webhook: 'stripe-connect' },
-      extra: { eventId: event.id, account },
-    });
-    await finalizeTerminal({
-      id: claim.id,
-      attempts: claim.attempts,
-      outcome: 'unbound_unresolved',
-    });
-    return ok();
+    case 'unbound_account':
+      if (claim.attempts >= UNBOUND_MAX_ATTEMPTS) {
+        await finalizeD5Terminal(claim, 'unbound_unresolved', 'unbound_unresolved');
+        return ok();
+      }
+      await finalizeRetryable({
+        id: claim.id,
+        attempts: claim.attempts,
+        outcome: 'unbound_account',
+        availableAt: new Date(Date.now() + unboundBackoffMs(claim.attempts)),
+      });
+      return retryLater();
+
+    case 'deferred_no_deposit': {
+      // THE ADMISSION CAP, applied before this account is allowed one more live
+      // deposit-less row. Without it one account's flood of unresolvable
+      // sessions fills every sweep batch and starves every other tenant.
+      if (await isOverAdmissionCap(account)) {
+        await finalizeD5Terminal(claim, 'ignored_over_cap', 'ignored_over_cap');
+        return ok();
+      }
+      await finalizeRetryable({
+        id: claim.id,
+        attempts: claim.attempts,
+        outcome: 'deferred_no_deposit',
+        availableAt: new Date(Date.now() + 60_000),
+      });
+      return retryLater();
+    }
+
+    case 'account_mismatch':
+    case 'held_mismatch':
+    case 'held_duplicate_session':
+    case 'ignored_unpaid':
+      // The three manual money terminals plus the unpaid ignore. Each mirrors
+      // its literal into BOTH columns, because a cross-route disposition query
+      // reads `outcome` and this route's siblings land theirs on `processed`.
+      await finalizeD5Terminal(claim, disposition, disposition);
+      return ok();
+
+    case 'poisoned':
+      await finalizeD5Terminal(claim, 'poisoned', 'poisoned');
+      return ok();
+
+    case 'late_recovery_required':
+      // Handled by the caller before reaching here.
+      await finalizeD5Terminal(claim, 'processed', 'refunded');
+      return ok();
+
+    default: {
+      const exhaustive: never = disposition;
+      throw new Error(`unhandled confirm disposition: ${String(exhaustive)}`);
+    }
   }
+}
 
-  const live = bindings.find(binding => binding.revokedAt === null);
-
-  if (!live) {
-    // There IS a binding and it is already revoked. Nothing to revoke, nothing
-    // to retry toward.
-    await finalizeTerminal({
-      id: claim.id,
-      attempts: claim.attempts,
-      outcome: 'ignored_revoked_binding',
-    });
-    return ok();
+function recoveryOutcome(recovery: RecoveryResult): string {
+  switch (recovery.disposition) {
+    case 'restored':
+      return 'restored';
+    case 'refunded':
+      return 'refunded';
+    case 'already_confirmed':
+      return 'already_confirmed';
+    case 'already_confirmed_late_refund':
+      return 'already_confirmed_late_refund';
+    case 'refund_failed_unreconciled':
+      return 'refund_failed_unreconciled';
+    case 'orphan_unresolved':
+      return 'orphan_unresolved';
+    case 'noop':
+      // The only retryable noop was handled above using its exact note. Every
+      // remaining noop is a terminal/idempotent recovery observation; retain
+      // the pre-existing refund-intent terminal semantics without writing a
+      // retry-lane outcome on a processed row.
+      return 'refunded';
+    default: {
+      const exhaustive: never = recovery.disposition;
+      throw new Error(`unexpected recovery disposition: ${String(exhaustive)}`);
+    }
   }
+}
 
-  // Rule W-SE: `revokeBinding` writes the audit row and emits the owner alert
-  // ONLY when the CAS affects exactly one row, so every Stripe retry and
-  // duplicate delivery after the first is side-effect-free.
-  await revokeBinding(live.id, 'deauthorized', {
-    actorId: 'system:stripe-connect-webhook',
-    viaSuperAdminWithoutMembership: false,
-    salonId: live.salonId,
-    stripeAccountId: live.stripeAccountId,
-    matchStripeAccountId: account,
-  });
-
+/**
+ * A fenced finalize that writes the SAME literal into `status` and `outcome`
+ * for D5's terminals, and the business outcome on a `processed` row.
+ *
+ * EVERY TERMINAL ROW CARRIES A NON-NULL `outcome`. That mirror is the only
+ * reason the disposition vocabulary is complete across both writers of this
+ * table: this route's account handlers land every disposition on
+ * `status='processed'`, so a query keyed on `status` returns none of them.
+ */
+async function finalizeD5Terminal(
+  claim: Claim,
+  status: string,
+  outcome: string,
+): Promise<void> {
   await finalizeWebhookEvent({
     id: claim.id,
     attempts: claim.attempts,
-    status: 'processed',
-    outcome: 'processed',
+    status: status as Parameters<typeof finalizeWebhookEvent>[0]['status'],
+    outcome: outcome as Parameters<typeof finalizeWebhookEvent>[0]['outcome'],
     processedAt: new Date(),
   });
-  return ok();
 }
