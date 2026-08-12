@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/nextjs';
 import { and, asc, desc, eq, gte, inArray, isNotNull, isNull, lt, lte, ne } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
@@ -35,6 +36,15 @@ type StaffRescheduleNotificationInput<T extends Date | string>
   = Record<'appointmentId' | 'salonId' | 'timeZone', string>
   & Record<'previousStartTime' | 'previousEndTime' | 'newStartTime' | 'newEndTime' | 'mutationVersion', T>;
 type OutboxTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+/**
+ * The two D5-owned operations whose exhaustion is a money-visible event.
+ * Runbook query 5b selects exactly these rows in `status='failed'`.
+ */
+const DEPOSIT_OUTBOX_OPERATIONS = new Set([
+  'booking_confirmed_side_effects',
+  'deposit_refund_notices',
+]);
 
 function parseStaffRescheduleNotificationPayload(
   value: unknown,
@@ -125,6 +135,143 @@ export async function enqueueGoogleCalendarUpsert(
         eq(appointmentSchema.salonId, input.salonId),
       ),
     );
+}
+
+/**
+ * Transaction-handle variant of `enqueueGoogleCalendarUpsert`.
+ *
+ * The module-level version above is hard-bound to the global `db`, and its
+ * follow-up appointment UPDATE would deadlock at application level if it were
+ * called from inside a transaction that already holds that appointment's row
+ * lock — which is exactly the situation D5's confirm is in. Calling it "with
+ * the tx handle" was therefore not implementable without this variant.
+ *
+ * Enqueuing with the handle also makes the job commit ATOMICALLY with the state
+ * change: a crash after the confirm CAS but before the enqueue cannot leave a
+ * paid deposit whose calendar event was never scheduled.
+ *
+ * Same dedupe key as the module-level version, deliberately: a hold that later
+ * confirms must not enqueue a second upsert for the same appointment and start
+ * time.
+ */
+export async function enqueueGoogleCalendarUpsertWithHandle(
+  database: OutboxTransaction,
+  input: GoogleCalendarAppointmentEventInput,
+  options?: { dedupeSuffix?: string },
+) {
+  const dedupeKey = `google:${input.appointmentId}:upsert:${input.startTime.toISOString()}${options?.dedupeSuffix ? `:${options.dedupeSuffix}` : ''}`;
+  await database
+    .insert(integrationOutboxSchema)
+    .values({
+      id: crypto.randomUUID(),
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      provider: 'google_calendar',
+      operation: 'upsert_event',
+      dedupeKey,
+      payload: {
+        ...input,
+        startTime: input.startTime.toISOString(),
+        endTime: input.endTime.toISOString(),
+      },
+    })
+    .onConflictDoNothing();
+  await database
+    .update(appointmentSchema)
+    .set({ googleCalendarSyncStatus: 'pending', googleCalendarSyncError: null })
+    .where(
+      and(
+        eq(appointmentSchema.id, input.appointmentId),
+        eq(appointmentSchema.salonId, input.salonId),
+      ),
+    );
+}
+
+/**
+ * The durable confirmation side-effect batch for a paid deposit (D5, TX-B).
+ *
+ * The eight post-commit effects a deposit hold skipped at booking time are not
+ * run inline at confirmation: the confirm may be driven by a Stripe webhook,
+ * whose response budget is a retry decision, not a send budget. They run from
+ * here instead — at-least-once, on the outbox's own failure axis, so a bounced
+ * email can never mark the webhook event row retryable or roll the money write
+ * back (invariant I10).
+ *
+ * Enqueued INSIDE TX-B with the handle, so the job and the `paid` transition
+ * commit together.
+ */
+export async function enqueueDepositConfirmationSideEffects(
+  database: OutboxTransaction,
+  input: {
+    salonId: string;
+    appointmentId: string;
+    depositId: string;
+    manageUrl: string;
+    smsConsentGranted: boolean;
+    googleCalendarSyncEligible: boolean;
+    appliedRewardId: string | null;
+  },
+) {
+  await database
+    .insert(integrationOutboxSchema)
+    .values({
+      id: crypto.randomUUID(),
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      provider: 'email',
+      operation: 'booking_confirmed_side_effects',
+      // Keyed on the DEPOSIT, not the appointment: one deposit confirms once,
+      // and a redelivery of the same session must not enqueue a second batch.
+      dedupeKey: `deposit:${input.depositId}:confirmed-side-effects`,
+      payload: {
+        depositId: input.depositId,
+        manageUrl: input.manageUrl,
+        smsConsentGranted: input.smsConsentGranted,
+        googleCalendarSyncEligible: input.googleCalendarSyncEligible,
+        appliedRewardId: input.appliedRewardId,
+      },
+    })
+    .onConflictDoNothing();
+}
+
+/**
+ * The client and owner notices for a refunded deposit (D5, TX-D).
+ *
+ * Enqueued INSIDE TX-D rather than after commit: a crash between the refund
+ * landing and the notice being scheduled would otherwise return the client's
+ * money silently.
+ *
+ * `variant` selects the client copy. The fixed "the time is no longer
+ * available" wording is FALSE for a waiver — there the salon waived the deposit
+ * requirement and the booking still stands — and sending it would talk a client
+ * out of an appointment they still have.
+ */
+export async function enqueueDepositRefundNotices(
+  database: OutboxTransaction,
+  input: {
+    salonId: string;
+    appointmentId: string;
+    depositId: string;
+    refundId: string;
+    variant: 'slot_lost' | 'waiver';
+  },
+) {
+  await database
+    .insert(integrationOutboxSchema)
+    .values({
+      id: crypto.randomUUID(),
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      provider: 'email',
+      operation: 'deposit_refund_notices',
+      dedupeKey: `deposit:${input.depositId}:refund-notices:${input.refundId}`,
+      payload: {
+        depositId: input.depositId,
+        refundId: input.refundId,
+        variant: input.variant,
+      },
+    })
+    .onConflictDoNothing();
 }
 
 export async function enqueueGoogleCalendarDelete(input: {
@@ -293,6 +440,44 @@ export async function processIntegrationOutbox(limit = 50) {
           appointmentIds: payload.appointmentIds,
         });
         result = { status: 'synced' as const };
+      } else if (
+        job.provider === 'email'
+        && job.operation === 'booking_confirmed_side_effects'
+      ) {
+        // The confirmation batch for a paid deposit. The handler catches each
+        // send individually and THROWS if any leg failed, so the job retries;
+        // legs that already succeeded do not re-fire on the re-run, because
+        // each carries its own dedupe key.
+        const payload = job.payload as { depositId?: string };
+        if (!job.appointmentId || !payload.depositId) {
+          throw new Error('INVALID_DEPOSIT_SIDE_EFFECTS');
+        }
+        const { runDepositConfirmationSideEffects } = await import(
+          '@/libs/deposits/depositOutboxHandlers'
+        );
+        await runDepositConfirmationSideEffects({
+          salonId: job.salonId,
+          appointmentId: job.appointmentId,
+          payload: job.payload,
+        });
+        result = { status: 'synced' as const };
+      } else if (
+        job.provider === 'email'
+        && job.operation === 'deposit_refund_notices'
+      ) {
+        const payload = job.payload as { depositId?: string };
+        if (!job.appointmentId || !payload.depositId) {
+          throw new Error('INVALID_DEPOSIT_REFUND_NOTICES');
+        }
+        const { runDepositRefundNotices } = await import(
+          '@/libs/deposits/depositOutboxHandlers'
+        );
+        await runDepositRefundNotices({
+          salonId: job.salonId,
+          appointmentId: job.appointmentId,
+          payload: job.payload,
+        });
+        result = { status: 'synced' as const };
       } else if (job.provider === 'email' && job.operation === 'staff_reschedule_notification') {
         const payload = parseStaffRescheduleNotificationPayload(job.payload);
         const loadCurrent = async () => {
@@ -458,6 +643,24 @@ export async function processIntegrationOutbox(limit = 50) {
         );
       if (final) {
         summary.failed += 1;
+        if (DEPOSIT_OUTBOX_OPERATIONS.has(job.operation)) {
+          // The worker's own terminal is SILENT — it emails the salon owner and
+          // stops. That is the right posture for a bounced confirmation, and the
+          // wrong one for a deposit: these two jobs are the only notice a client
+          // gets that their money moved, so their exhaustion needs an operator
+          // signal, not just an owner email. Exactly one alert, ids only
+          // (Sentry never receives payloads on this programme's money paths),
+          // fired here because `final` is reached once per job by construction.
+          Sentry.captureMessage('deposit_outbox_job_failed', {
+            level: 'error',
+            tags: { outbox_operation: job.operation },
+            extra: {
+              jobId: job.id,
+              appointmentId: job.appointmentId,
+              depositId: (job.payload as { depositId?: string }).depositId,
+            },
+          });
+        }
         if (job.provider === 'email') {
           const deliveryId = (job.payload as { deliveryId?: string })
             .deliveryId;
