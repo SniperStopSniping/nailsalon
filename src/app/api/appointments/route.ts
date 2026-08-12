@@ -20,6 +20,12 @@ import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
 import { logAuditEvent } from '@/libs/auditLog';
+import type { BookingCommitEffectsContext } from '@/libs/bookingCommitEffects';
+import {
+  formatLocationAddress,
+  mintAppointmentManageCapability,
+  runBookingCommitSideEffects,
+} from '@/libs/bookingCommitEffects';
 import { getBookingConfigForSalon, getClientChangePolicy, resolveIntroPriceLabel } from '@/libs/bookingConfig';
 import {
   BLOCKING_APPOINTMENT_STATUSES,
@@ -32,7 +38,6 @@ import {
   classifyDuplicateBooking,
   resolveBookingSubject,
 } from '@/libs/bookingIdentity';
-import { sendBookingNotificationsForNewBooking } from '@/libs/bookingNotifications';
 import {
   canTechnicianTakeAppointment,
   getTorontoDateString,
@@ -71,7 +76,6 @@ import {
   resolveOperationalSalonClientContact,
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
-import { sendCustomerBookingConfirmationEmail } from '@/libs/customerBookingEmail';
 import { db } from '@/libs/DB';
 import {
   buildDepositCheckoutIdempotencyKey,
@@ -106,7 +110,7 @@ import {
   isBusyWindowConflict,
 } from '@/libs/googleCalendar';
 import { recordGoogleEventReviewDecision } from '@/libs/googleEventReview';
-import { enqueueGoogleCalendarDelete, enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
+import { enqueueGoogleCalendarDelete } from '@/libs/integrationOutbox';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import {
   checkPublicBookingRateLimit,
@@ -115,7 +119,6 @@ import {
 import { buildSalonTenantPublicUrl } from '@/libs/publicUrl';
 import {
   getAppointmentById,
-  getAppointmentServiceNames,
   getClientByPhone,
   getLocationById,
   getPrimaryLocation,
@@ -132,7 +135,6 @@ import {
   hashRetentionCampaignToken,
   validateRetentionCampaign,
 } from '@/libs/retentionCampaigns';
-import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
 import { guardFeatureEntitlement, guardSalonApiRoute } from '@/libs/salonStatus';
 import {
   applySmartFitOverlay,
@@ -153,7 +155,6 @@ import {
   resolveSmartFitRescheduleDiscount,
 } from '@/libs/smartFitReschedulePolicy';
 import {
-  sendBookingConfirmationToClient,
   sendCancellationNotificationToTech,
   sendRescheduleConfirmation,
 } from '@/libs/SMS';
@@ -178,10 +179,8 @@ import {
   clientCommunicationSchema,
   communicationConsentSchema,
   googleCalendarEventSchema,
-  referralSchema,
   retentionCampaignRedemptionSchema,
   retentionCampaignSchema,
-  rewardSchema,
   salonClientSchema,
   salonSchema,
   type Service,
@@ -241,22 +240,6 @@ function resolveAppointmentDateRange(args: {
     : dateParam;
 
   return getZonedDayBounds(dateKey, timeZone);
-}
-
-function formatLocationAddress(location: {
-  address?: string | null;
-  city?: string | null;
-  state?: string | null;
-  zipCode?: string | null;
-} | null): string | null {
-  if (!location) {
-    return null;
-  }
-
-  return [location.address, location.city, location.state, location.zipCode]
-    .map(part => part?.trim())
-    .filter(Boolean)
-    .join(', ') || null;
 }
 
 // =============================================================================
@@ -811,112 +794,6 @@ function isCampaignFailureCode(value: string): value is CampaignValidationFailur
     'NO_ELIGIBLE_SERVICE',
     'PROMOTION_DISABLED',
   ].includes(value);
-}
-
-async function markLatestRetentionOutreachConverted(args: {
-  salonId: string;
-  salonClientId: string;
-  appointmentId: string;
-}): Promise<void> {
-  const convertedAt = new Date();
-  await db.execute(sql`
-    WITH latest_eligible AS (
-      SELECT id
-      FROM ${clientCommunicationSchema}
-      WHERE ${clientCommunicationSchema.salonId} = ${args.salonId}
-        AND ${clientCommunicationSchema.salonClientId} = ${args.salonClientId}
-        AND ${clientCommunicationSchema.kind} IN ('rebook', 'promo_6w', 'promo_8w')
-        AND ${clientCommunicationSchema.status} IN ('prepared', 'marked_sent', 'snoozed')
-      ORDER BY ${clientCommunicationSchema.createdAt} DESC
-      LIMIT 1
-    )
-    UPDATE ${clientCommunicationSchema}
-    SET status = 'converted',
-        converted_at = ${convertedAt},
-        updated_at = ${convertedAt},
-        metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ resultingAppointmentId: args.appointmentId })}::jsonb
-    WHERE ${clientCommunicationSchema.id} IN (SELECT id FROM latest_eligible)
-      AND ${clientCommunicationSchema.salonId} = ${args.salonId}
-  `);
-}
-
-/**
- * Salon-facing "new booking" / "rescheduled" alert.
- *
- * A reschedule in this codebase creates a brand new appointment and cancels the
- * original with cancelReason='rescheduled', so the two events are mutually
- * exclusive: a reschedule must never also announce itself as a new booking.
- *
- * Only customer-initiated reschedules notify — an owner moving an appointment
- * in their own dashboard does not need an email about their own action.
- *
- * Never throws: the booking is already committed and the client has already
- * been shown a confirmation.
- */
-async function notifySalonAboutBooking(args: {
-  salonId: string;
-  appointmentId: string;
-  actorRole: 'guest' | 'client' | 'staff' | 'admin';
-  originalAppointment: Appointment | null;
-  newStartTime: Date;
-  newEndTime: Date;
-}): Promise<void> {
-  try {
-    const customerInitiated = args.actorRole === 'guest' || args.actorRole === 'client';
-
-    if (!args.originalAppointment) {
-      await sendSalonNotificationEmail({
-        salonId: args.salonId,
-        appointmentId: args.appointmentId,
-        event: 'newBooking',
-        source: customerInitiated ? 'online_booking' : 'dashboard',
-      });
-      return;
-    }
-
-    if (!customerInitiated) {
-      return;
-    }
-
-    const original = args.originalAppointment;
-    const scheduleChanged
-      = original.startTime.getTime() !== args.newStartTime.getTime()
-      || original.endTime.getTime() !== args.newEndTime.getTime();
-
-    if (!scheduleChanged) {
-      return;
-    }
-
-    const [previousTechnician, previousServiceNames] = await Promise.all([
-      original.technicianId
-        ? getTechnicianById(original.technicianId, args.salonId)
-        : Promise.resolve(null),
-      getAppointmentServiceNames(original.id),
-    ]);
-
-    await sendSalonNotificationEmail({
-      salonId: args.salonId,
-      appointmentId: args.appointmentId,
-      event: 'rescheduled',
-      source: 'client_manage_link',
-      previous: {
-        appointmentId: original.id,
-        startTime: original.startTime.toISOString(),
-        endTime: original.endTime.toISOString(),
-        technicianName: previousTechnician?.name ?? null,
-        serviceSummary: previousServiceNames.join(', ') || 'Appointment',
-        discountLabel: original.discountLabel,
-        discountAmountCents: original.discountAmountCents ?? 0,
-        totalPriceCents: original.totalPrice,
-      },
-    });
-  } catch (error) {
-    console.error('[SALON NOTIFICATION] Booking alert failed after the booking committed:', {
-      salonId: args.salonId,
-      appointmentId: args.appointmentId,
-      error,
-    });
-  }
 }
 
 type AppointmentDetailMaps = {
@@ -2887,7 +2764,6 @@ export async function POST(request: Request): Promise<Response> {
     // 7c. Generate appointment ID
     const appointmentId = `appt_${crypto.randomUUID()}`;
     const managementCapability = createOpaqueToken();
-    const capabilityExpiresAt = new Date(endTime.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     const pricingBeforeTransaction = {
       appliedReward,
@@ -3290,12 +3166,11 @@ export async function POST(request: Request): Promise<Response> {
               throw new Error('FAILED_TO_CREATE_RESCHEDULE_APPOINTMENT');
             }
 
-            await tx.insert(appointmentAccessTokenSchema).values({
-              id: crypto.randomUUID(),
+            await mintAppointmentManageCapability(tx, {
               salonId: salon.id,
               appointmentId: createdAppointment.id,
-              tokenHash: managementCapability.tokenHash,
-              expiresAt: capabilityExpiresAt,
+              appointmentEndTime: endTime,
+              capability: managementCapability,
             });
             await tx.update(appointmentAccessTokenSchema)
               .set({ revokedAt: new Date() })
@@ -3747,12 +3622,11 @@ export async function POST(request: Request): Promise<Response> {
                 }));
             }
 
-            await tx.insert(appointmentAccessTokenSchema).values({
-              id: crypto.randomUUID(),
+            await mintAppointmentManageCapability(tx, {
               salonId: salon.id,
               appointmentId: createdAppointment.id,
-              tokenHash: managementCapability.tokenHash,
-              expiresAt: capabilityExpiresAt,
+              appointmentEndTime: endTime,
+              capability: managementCapability,
             });
             if (data.smsConsent?.granted) {
               await tx.insert(communicationConsentSchema).values({
@@ -3978,8 +3852,10 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // §7.F — the ONLY new code on the non-deposit path is eight boolean
-    // conditions. No statement moves; the response build, the cache write and
-    // the return stay exactly where they are, in their current order.
+    // conditions. D4.5 replaced those eight conditions with ONE: the eight
+    // effects they guarded now live in `runBookingCommitSideEffects`, which is
+    // called only when this is not a hold. The response build, the cache write
+    // and the return stay exactly where they are, in their current order.
     const isDepositHold = depositPlan !== null;
 
     if (googleReviewEvent) {
@@ -3988,27 +3864,6 @@ export async function POST(request: Request): Promise<Response> {
         title: googleReviewEvent.title,
         decision: 'appointment',
       });
-    }
-
-    // GUARD 1/8. The one that must not be missed, and the reason it is listed
-    // first: `converted` is TERMINAL. Unguarded, an abandoned hold permanently
-    // and irreversibly marks a win-back message as converted against an
-    // appointment that never existed — corrupting attribution and silently
-    // dropping that client from all future outreach. The reaper cannot undo it.
-    // It also sits OUTSIDE the range downstream documents call "the post-commit
-    // block", which is exactly why it gets missed.
-    try {
-      if (!isDepositHold) {
-        await markLatestRetentionOutreachConverted({
-          salonId: salon.id,
-          salonClientId: salonClient.id,
-          appointmentId: appointment.id,
-        });
-      }
-    } catch (conversionError) {
-      // The appointment is already committed. Timeline enrichment must never
-      // turn a successful booking into a 500 that encourages a duplicate retry.
-      console.error('[Retention] Failed to convert latest outreach after booking:', conversionError);
     }
 
     // 9b. If this is a reschedule, cancel the original appointment and send SMS
@@ -4048,84 +3903,6 @@ export async function POST(request: Request): Promise<Response> {
           });
         }
       }
-    }
-
-    // 9c. Link the applied reward to this appointment (mark as pending redemption)
-    // GUARD 2/8.
-    if (appliedReward && !isDepositHold) {
-      await db
-        .update(rewardSchema)
-        .set({
-          usedInAppointmentId: appointment.id,
-        })
-        .where(eq(rewardSchema.id, appliedReward.id));
-    }
-
-    // 9d. Check for claimed referrals for this client and update status to 'booked'
-    // This handles the case where a referee (person who claimed a referral) books their first appointment
-    // Use salonClient.phone and variants for lookup (source of truth)
-    const phoneVariants = [
-      salonClient.phone,
-      `+1${salonClient.phone}`,
-      `+${salonClient.phone}`,
-    ];
-
-    // GUARD 3/8. An inverted guard here would silently kill referral
-    // attribution for every salon, and nothing in the repository asserts this
-    // fires today.
-    const claimedReferrals = isDepositHold
-      ? []
-      : await db
-        .select()
-        .from(referralSchema)
-        .where(
-          and(
-            eq(referralSchema.salonId, salon.id),
-            inArray(referralSchema.refereePhone, phoneVariants),
-            eq(referralSchema.status, 'claimed'),
-          ),
-        );
-
-    // Update claimed referrals based on expiry status
-    for (const referral of claimedReferrals) {
-      if (referral.expiresAt && new Date(referral.expiresAt) < new Date()) {
-        // Referral has expired - mark as expired
-        await db
-          .update(referralSchema)
-          .set({ status: 'expired' })
-          .where(eq(referralSchema.id, referral.id));
-      } else {
-        // Within expiry window - update to 'booked'
-        await db
-          .update(referralSchema)
-          .set({ status: 'booked' })
-          .where(eq(referralSchema.id, referral.id));
-      }
-    }
-
-    // GUARD 4/8.
-    if (
-      !isDepositHold
-      && (!googleReviewEvent || googleReviewEvent.syncMode === 'bidirectional')
-    ) {
-      await enqueueGoogleCalendarUpsert({
-        appointmentId: appointment.id,
-        salonId: salon.id,
-        salonName: salon.name,
-        clientName,
-        clientPhone: salonClient.phone,
-        serviceNames: services.map(s => s.name),
-        technicianName: technician?.name ?? null,
-        startTime,
-        endTime,
-        totalPrice,
-        totalDurationMinutes,
-        timeZone: bookingConfig.timezone,
-        locationName: validatedLocation?.name ?? null,
-        locationAddress: formatLocationAddress(validatedLocation),
-        notes: appointment.notes,
-        googleCalendarEventId: appointment.googleCalendarEventId,
-      });
     }
 
     // =========================================================================
@@ -4281,6 +4058,55 @@ export async function POST(request: Request): Promise<Response> {
       { slug: salon.slug, customDomain: salon.customDomain },
       managementCapability.token,
     );
+
+    // The post-commit effects context is assembled HERE, before the cache
+    // write, because it shares `manageUrl` with the response body — and it is
+    // built from values already in memory, so it costs no queries. The effects
+    // themselves run AFTER the cache write (§12 below). That straddle is
+    // deliberate: the client's 201 must not wait on notification work.
+    const bookingCommitEffectsContext: BookingCommitEffectsContext = {
+      salon: {
+        id: salon.id,
+        name: salon.name,
+        ownerName: salon.ownerName,
+        ownerPhone: salon.ownerPhone,
+        ownerEmail: salon.ownerEmail,
+        features: (salon.features as SalonFeatures | null | undefined) ?? null,
+        settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+      },
+      salonClientId: salonClient.id,
+      clientPhone: salonClient.phone,
+      clientName,
+      appointment: {
+        id: appointment.id,
+        notes: appointment.notes,
+        googleCalendarEventId: appointment.googleCalendarEventId,
+      },
+      serviceNames: services.map(s => s.name),
+      technician: technician
+        ? {
+            id: technician.id,
+            name: technician.name,
+            phone: technician.phone,
+            email: technician.email,
+          }
+        : null,
+      startTime,
+      endTime,
+      totalPrice,
+      totalDurationMinutes,
+      timeZone: bookingConfig.timezone,
+      manageUrl,
+      smsConsentGranted: data.smsConsent?.granted === true,
+      appliedRewardId: appliedReward?.id ?? null,
+      actorRole,
+      originalAppointment,
+      googleCalendarSyncEligible:
+        !googleReviewEvent || googleReviewEvent.syncMode === 'bidirectional',
+      locationName: validatedLocation?.name ?? null,
+      locationAddress: formatLocationAddress(validatedLocation),
+    };
+
     const response: SuccessResponse = {
       data: {
         appointmentId: appointment.id,
@@ -4337,91 +4163,16 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // =========================================================================
-    // 12. SLOW WORK - SMS notifications (OUTSIDE lock window, after cache write)
+    // 12. SLOW WORK — the post-commit side effects (OUTSIDE lock window, after
+    // cache write).
+    //
+    // These are the eight effects a deposit hold skips: nobody has paid yet,
+    // and the booking may never become real. When the deposit is confirmed,
+    // exactly this runner fires for exactly this appointment. That is the whole
+    // reason it is one named function and not eight inline blocks.
     // =========================================================================
-    // Use salonClient.phone as source of truth for all SMS
-    // GUARD 5/8.
-    try {
-      if (!isDepositHold) {
-        await sendCustomerBookingConfirmationEmail({
-          salonId: salon.id,
-          appointmentId: appointment.id,
-          salonName: salon.name,
-          clientName: clientName ?? 'Guest',
-          serviceNames: services.map(service => service.name),
-          startTime: startTime.toISOString(),
-          timeZone: bookingConfig.timezone,
-          manageUrl,
-        });
-      }
-    } catch {
-      console.error('[Booking] Customer confirmation failed after the appointment committed:', {
-        salonId: salon.id,
-        appointmentId: appointment.id,
-      });
-    }
-
-    // GUARD 6/8.
-    if (data.smsConsent?.granted && !isDepositHold) {
-      await sendBookingConfirmationToClient(salon.id, {
-        phone: salonClient.phone,
-        clientName: clientName ?? undefined,
-        appointmentId: appointment.id,
-        salonName: salon.name,
-        services: services.map(s => s.name),
-        technicianName: technician?.name ?? 'Any available artist',
-        startTime: startTime.toISOString(),
-        totalPrice,
-        timeZone: bookingConfig.timezone,
-        manageUrl,
-      });
-    }
-
-    // Salon-facing appointment alert. Runs only after the insert committed and
-    // the response was cached, so abandoned sessions, holds, failed bookings
-    // and idempotent replays never reach it. Failures are swallowed: a
-    // notification must never undo a booking the client already saw succeed.
-    // GUARD 7/8.
     if (!isDepositHold) {
-      await notifySalonAboutBooking({
-        salonId: salon.id,
-        appointmentId: appointment.id,
-        actorRole,
-        originalAppointment,
-        newStartTime: startTime,
-        newEndTime: endTime,
-      });
-    }
-
-    // GUARD 8/8.
-    if (!isDepositHold) {
-      await sendBookingNotificationsForNewBooking({
-        salon: {
-          id: salon.id,
-          name: salon.name,
-          ownerName: salon.ownerName,
-          ownerPhone: salon.ownerPhone,
-          ownerEmail: salon.ownerEmail,
-          features: (salon.features as SalonFeatures | null | undefined) ?? null,
-          settings: (salon.settings as SalonSettings | null | undefined) ?? null,
-        },
-        technician: technician
-          ? {
-              id: technician.id,
-              name: technician.name,
-              phone: technician.phone,
-              email: technician.email,
-            }
-          : null,
-        appointmentId: appointment.id,
-        clientName: clientName ?? 'Guest',
-        clientPhone: salonClient.phone,
-        services: services.map(s => s.name),
-        startTime: startTime.toISOString(),
-        totalDurationMinutes,
-        totalPrice,
-        timeZone: bookingConfig.timezone,
-      });
+      await runBookingCommitSideEffects(bookingCommitEffectsContext);
     }
 
     // 13. Return response (same object that was cached, if caching was enabled)
