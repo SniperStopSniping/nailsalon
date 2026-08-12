@@ -15,6 +15,10 @@
     {
       "path": "/api/deposits/holds/reap",
       "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/deposits/reconcile",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

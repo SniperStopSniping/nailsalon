@@ -55,8 +55,21 @@ export const DEPOSIT_READINESS_MAX_AGE_MS = 24 * 60 * 60 * 1000;
  * The build-time collection gate. Typed `boolean` rather than `as const` so the
  * downstream payment-confirmation PR can flip it without a type error. That PR
  * is the sanctioned second writer of this file; nothing else may flip it.
+ *
+ * FLIPPED BY THE PAYMENT-CONFIRMATION PR — the sanctioned second writer, and
+ * the only line it changes in this file.
+ *
+ * THIS TAKES NOBODY LIVE. It is gate 1 of two. Gate 2 is the per-salon
+ * `features.money.deposits` entitlement, which is an owner action, so a salon
+ * without it still resolves inactive with this constant `true`.
+ *
+ * ITS DEPLOY POSITION IS FIXED: after the post-deploy verification of the
+ * Connect endpoint, never in the same deploy as that endpoint's FIRST
+ * registration, and before any salon is entitled. The reason it ships in this
+ * PR at all is that leaving it `false` would let the whole ladder merge with
+ * deposits silently dead — nothing else in the programme flips it.
  */
-export const DEPOSIT_COLLECTION_LIVE: boolean = false;
+export const DEPOSIT_COLLECTION_LIVE: boolean = true;
 
 /**
  * The "nothing was disclosed" sentinel, and a MONEY-PATH WIRE CONSTANT rather
