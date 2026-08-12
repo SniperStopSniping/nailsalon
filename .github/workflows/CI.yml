@@ -208,7 +208,7 @@ jobs:
           while read -r file; do
             [ -n "$file" ] || continue
             case "$file" in
-              migrations/0066_deposit_hold_awaiting_payment.sql) ;;
+              migrations/0067_deposit_reward_attribution.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -232,10 +232,16 @@ jobs:
           #    cannot smuggle an extra migration or an extra cron through.
           new_tags="$(git diff --unified=0 "$base" -- migrations/meta/_journal.json \
             | grep -E '^\+.*"tag"' | sed -E 's/.*"tag" *: *"([^"]+)".*/\1/' || true)"
-          if [ -n "$new_tags" ] && [ "$new_tags" != "0066_deposit_hold_awaiting_payment" ]; then
-            echo "::error::Unauthorized migration journal entries:"
-            printf '%s\n' "$new_tags"
-            exit 1
+          new_migration="$(git diff --diff-filter=A --name-only "$base" -- \
+            migrations/0067_deposit_reward_attribution.sql)"
+          if [ -n "$new_migration" ] || [ -n "$new_tags" ]; then
+            if [ "$new_migration" != "migrations/0067_deposit_reward_attribution.sql" ] \
+              || [ "$new_tags" != "0067_deposit_reward_attribution" ]; then
+              echo "::error::0067 migration and journal entry must be added as one exact pair"
+              printf 'migration=%s\ntags=%s\n' \
+                "${new_migration:-<none>}" "${new_tags:-<none>}"
+              exit 1
+            fi
           fi
 
           # Compared PER ENTRY against the chartered set, not as one joined
@@ -649,7 +655,7 @@ jobs:
           set -euo pipefail
           npm run test:deposits:pg | tee d5-postgres-concurrency.log
           grep -Fqx \
-            'D5_REAL_POSTGRES_TESTS_EXECUTED=5 D5_REAL_POSTGRES_TESTS_SKIPPED=0' \
+            'D5_REAL_POSTGRES_TESTS_EXECUTED=8 D5_REAL_POSTGRES_TESTS_SKIPPED=0' \
             d5-postgres-concurrency.log
 
   booking-entitlement-override-postgres:
