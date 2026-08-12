@@ -28,6 +28,7 @@ vi.mock('@/libs/DB', () => ({ db: null }));
 const SALON_ID = 'salon_deposits_fixture';
 const OTHER_SALON_ID = 'salon_deposits_other';
 const APPOINTMENT_ID = 'appt_deposits_fixture';
+const SECOND_APPOINTMENT_ID = 'appt_deposits_fixture_2';
 const OTHER_APPOINTMENT_ID = 'appt_deposits_other';
 
 let client: PGlite;
@@ -80,6 +81,7 @@ beforeAll(async () => {
 
   for (const [id, salonId] of [
     [APPOINTMENT_ID, SALON_ID],
+    [SECOND_APPOINTMENT_ID, SALON_ID],
     [OTHER_APPOINTMENT_ID, OTHER_SALON_ID],
   ]) {
     await db.insert(schema.appointmentSchema).values({
@@ -220,6 +222,9 @@ describe('test 1 — mapped tables round-trip and match the landed DDL', () => {
       checkoutSuccessUrl: 'https://app.example/ok',
       checkoutCancelUrl: 'https://app.example/no',
       resolutionNote: 'note',
+      appliedRewardId: 'reward_roundtrip',
+      appliedRewardClientId: 'client_reward_roundtrip',
+      appliedRewardClientPhone: '4165550101',
       stripeRefundId: 're_roundtrip',
       refundedAt: new Date('2026-08-05T00:00:00Z'),
       lateCheckDoneAt: new Date('2026-08-06T00:00:00Z'),
@@ -445,6 +450,94 @@ describe('test 2 — 0065 constraint pins', () => {
     // Two rows with NULL in each of the three admit fine.
     await insertDeposit({ id: 'dep_nulls_1', status: 'expired' });
     await insertDeposit({ id: 'dep_nulls_2', status: 'canceled' });
+
+    await db.delete(schema.appointmentDepositSchema);
+  });
+
+  it('D5-RWD-1 reserves one active deposit attribution per exact reward', async () => {
+    await insertDeposit({
+      id: 'dep_reward_active_1',
+      appliedRewardId: 'reward_exact',
+      appliedRewardClientId: 'client_reward_exact',
+      appliedRewardClientPhone: '4165550102',
+    });
+
+    // Tenant-scoped uniqueness: a malformed foreign-salon row carrying the
+    // same opaque id cannot block this salon's attribution namespace.
+    await insertDeposit({
+      id: 'dep_reward_other_salon',
+      salonId: OTHER_SALON_ID,
+      appointmentId: OTHER_APPOINTMENT_ID,
+      appliedRewardId: 'reward_exact',
+      appliedRewardClientId: 'client_reward_exact_other',
+      appliedRewardClientPhone: '4165550102',
+    });
+
+    await expectSqlState(
+      insertDeposit({
+        id: 'dep_reward_active_2',
+        appointmentId: SECOND_APPOINTMENT_ID,
+        appliedRewardId: 'reward_exact',
+        appliedRewardClientId: 'client_reward_exact_second',
+        appliedRewardClientPhone: '4165550102',
+      }),
+      UNIQUE_VIOLATION,
+    );
+
+    // Terminalization releases the reservation without marking the reward.
+    await db.update(schema.appointmentDepositSchema)
+      .set({ status: 'expired' })
+      .where(sql`${schema.appointmentDepositSchema.id} = 'dep_reward_active_1'`);
+    await insertDeposit({
+      id: 'dep_reward_reused_after_expiry',
+      appointmentId: SECOND_APPOINTMENT_ID,
+      appliedRewardId: 'reward_exact',
+      appliedRewardClientId: 'client_reward_exact_reused',
+      appliedRewardClientPhone: '4165550102',
+    });
+
+    await db.delete(schema.appointmentDepositSchema);
+  });
+
+  it('D5-RWD-1 requires the exact reward and canonical owner identity as a pair', async () => {
+    await expectSqlState(insertDeposit({
+      id: 'dep_reward_pair_missing_owner',
+      appliedRewardId: 'reward_pair',
+    }), CHECK_VIOLATION);
+    await expectSqlState(insertDeposit({
+      id: 'dep_reward_pair_missing_reward',
+      appliedRewardClientId: 'client_pair',
+    }), CHECK_VIOLATION);
+    await expectSqlState(insertDeposit({
+      id: 'dep_reward_pair_missing_phone',
+      appliedRewardId: 'reward_pair_phone',
+      appliedRewardClientId: 'client_pair_phone',
+    }), CHECK_VIOLATION);
+    await expectSqlState(insertDeposit({
+      id: 'dep_reward_pair_phone_only',
+      appliedRewardClientPhone: '4165550104',
+    }), CHECK_VIOLATION);
+  });
+
+  it('D5-RWD-1 releases uniqueness after payment because consumption is atomic', async () => {
+    await insertDeposit({
+      id: 'dep_reward_paid_history',
+      status: 'paid',
+      appliedRewardId: 'reward_paid_history',
+      appliedRewardClientId: 'client_paid_history',
+      appliedRewardClientPhone: '4165550103',
+    });
+    await insertDeposit({
+      id: 'dep_reward_reused_after_paid_cancel',
+      appointmentId: SECOND_APPOINTMENT_ID,
+      appliedRewardId: 'reward_paid_history',
+      appliedRewardClientId: 'client_paid_history',
+      appliedRewardClientPhone: '4165550103',
+    });
+
+    expect(await db.select().from(schema.appointmentDepositSchema)
+      .where(sql`${schema.appointmentDepositSchema.appliedRewardId} = 'reward_paid_history'`))
+      .toHaveLength(2);
 
     await db.delete(schema.appointmentDepositSchema);
   });

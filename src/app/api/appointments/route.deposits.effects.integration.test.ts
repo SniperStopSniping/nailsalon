@@ -278,6 +278,7 @@ async function seedEffectFixtures(phone: string) {
   counter += 1;
   const clientId = `sc_fx_${counter}`;
   const rewardId = `rwd_fx_${counter}`;
+  const decoyRewardId = `rwd_fx_decoy_${counter}`;
   const referralId = `ref_fx_${counter}`;
   const communicationId = `comm_fx_${counter}`;
 
@@ -302,6 +303,16 @@ async function seedEffectFixtures(phone: string) {
     status: 'claimed',
     expiresAt: new Date(Date.now() + 30 * 86_400_000),
   });
+  // Insert an indistinguishable decoy first. Persisting the expected id must
+  // come from the resolver's exact selection, never a first-row/type/amount
+  // reconstruction inside the hold transaction.
+  await db.insert(schema.rewardSchema).values({
+    id: decoyRewardId,
+    salonId: SALON_ID,
+    clientPhone: phone,
+    type: 'referral_referee',
+    discountAmountCents: 500,
+  });
   await db.insert(schema.rewardSchema).values({
     id: rewardId,
     salonId: SALON_ID,
@@ -320,7 +331,7 @@ async function seedEffectFixtures(phone: string) {
     firstVisit: null,
   };
 
-  return { clientId, rewardId, referralId, communicationId };
+  return { clientId, rewardId, decoyRewardId, referralId, communicationId };
 }
 
 async function postBooking(body: Record<string, unknown>): Promise<Response> {
@@ -477,10 +488,18 @@ describe('8 — a deposit booking leaks nothing', () => {
     expect(body.data.deposit.required).toBe(true);
 
     const after = await readEffects(ids);
+    const [persistedDeposit] = await db.select().from(schema.appointmentDepositSchema);
 
     // The one the reaper could never undo.
     expect(after.communication!.status).toBe('prepared');
     expect(after.reward!.usedInAppointmentId).toBeFalsy();
+    // D5-RWD-1: persist the resolver's exact id before returning the hold. The
+    // same-client decoy proves this is not reconstructed from ownership,
+    // discount amount or another plausible reward.
+    expect(persistedDeposit?.appliedRewardId).toBe(ids.rewardId);
+    expect(persistedDeposit?.appliedRewardId).not.toBe(ids.decoyRewardId);
+    expect(persistedDeposit?.appliedRewardClientId).toBe(ids.clientId);
+    expect(persistedDeposit?.appliedRewardClientPhone).toBe(phone);
     expect(after.referral!.status).toBe('claimed');
     expect(effects.enqueueGoogleCalendarUpsert).not.toHaveBeenCalled();
     expect(effects.sendCustomerBookingConfirmationEmail).not.toHaveBeenCalled();
@@ -488,4 +507,93 @@ describe('8 — a deposit booking leaks nothing', () => {
     expect(after.deliveries).toHaveLength(0);
     expect(effects.sendBookingNotificationsForNewBooking).not.toHaveBeenCalled();
   });
+
+  it('rejects a stale foreign-client reward without substituting another reward', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    const phone = freshPhone();
+    const ids = await seedEffectFixtures(phone);
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+
+    await db.update(schema.rewardSchema)
+      .set({ clientPhone: '4165550009' })
+      .where(eq(schema.rewardSchema.id, ids.rewardId));
+
+    const response = await postBooking({
+      startTime: at(futureDate(72), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('REWARD_UNAVAILABLE');
+    expect(await db.select().from(schema.appointmentDepositSchema)).toHaveLength(0);
+    expect(await db.select().from(schema.appointmentSchema)).toHaveLength(0);
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, ids.decoyRewardId)))[0]?.usedInAppointmentId)
+      .toBeNull();
+  });
+
+  it.each(['used_status', 'already_linked', 'expired', 'foreign_salon'])(
+    'revalidates an exact reward that became %s before the hold transaction',
+    async (mutation) => {
+      seedPolicy(ACTIVE_POLICY);
+      seedChargeReady(true);
+      const phone = freshPhone();
+      const ids = await seedEffectFixtures(phone);
+      holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone, `+1${phone}`] };
+
+      if (mutation === 'used_status') {
+        await db.update(schema.rewardSchema)
+          .set({ status: 'used' })
+          .where(eq(schema.rewardSchema.id, ids.rewardId));
+      } else if (mutation === 'already_linked') {
+        const linkedAppointmentId = `appt_linked_reward_${counter}`;
+        const start = at(futureDate(110 + counter), '09:00');
+        await db.insert(schema.appointmentSchema).values({
+          id: linkedAppointmentId,
+          salonId: SALON_ID,
+          clientPhone: '4165559991',
+          startTime: start,
+          endTime: new Date(start.getTime() + 3_600_000),
+          status: 'completed',
+          totalPrice: 5000,
+          totalDurationMinutes: 60,
+        });
+        await db.update(schema.rewardSchema)
+          .set({ usedInAppointmentId: linkedAppointmentId })
+          .where(eq(schema.rewardSchema.id, ids.rewardId));
+      } else if (mutation === 'expired') {
+        await db.update(schema.rewardSchema)
+          .set({ expiresAt: new Date('2000-01-01T00:00:00.000Z') })
+          .where(eq(schema.rewardSchema.id, ids.rewardId));
+      } else {
+        const foreignSalonId = `salon_reward_foreign_${counter}`;
+        await db.insert(schema.salonSchema).values({
+          id: foreignSalonId,
+          name: 'Foreign Reward Salon',
+          slug: `foreign-reward-salon-${counter}`,
+          ownerEmail: `foreign-${counter}@example.invalid`,
+        });
+        await db.update(schema.rewardSchema)
+          .set({ salonId: foreignSalonId })
+          .where(eq(schema.rewardSchema.id, ids.rewardId));
+      }
+
+      const response = await postBooking({
+        startTime: at(futureDate(80 + counter), '10:00').toISOString(),
+        expectedDepositFingerprint: 'deposit-v1:cad:2500',
+      });
+      const body = await response.json();
+
+      expect(response.status).toBe(409);
+      expect(body.error.code).toBe('REWARD_UNAVAILABLE');
+      expect(await db.select().from(schema.appointmentDepositSchema)).toHaveLength(0);
+      expect((await db.select().from(schema.appointmentSchema)
+        .where(eq(schema.appointmentSchema.clientPhone, phone)))).toHaveLength(0);
+      expect((await db.select().from(schema.rewardSchema)
+        .where(eq(schema.rewardSchema.id, ids.decoyRewardId)))[0]?.usedInAppointmentId)
+        .toBeNull();
+    },
+  );
 });

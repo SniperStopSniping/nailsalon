@@ -159,6 +159,7 @@ beforeEach(async () => {
   // otherwise turn that intended diagnostic into a blanket failure.
   consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
   await db.delete(schema.appointmentDepositSchema);
+  await db.delete(schema.rewardSchema);
   await db.delete(schema.appointmentSchema);
 });
 
@@ -183,6 +184,35 @@ describe('15 — the reaper matrix', () => {
     expect(after.appointment!.cancelReason).toBe('deposit_not_paid');
     expect(after.appointment!.canvasState).toBe('cancelled');
     expect(after.deposit!.status).toBe('expired');
+  });
+
+  it('an abandoned attributed hold releases the reservation without marking the reward', async () => {
+    const ids = await seedHold({ holdExpiresAt: minutesAgo(10) });
+    const [appointment] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, ids.appointmentId));
+    await db.insert(schema.rewardSchema).values({
+      id: 'reward_abandoned_hold',
+      salonId: SALON_ID,
+      clientPhone: appointment!.clientPhone,
+      type: 'referral_referee',
+    });
+    await db.update(schema.appointmentDepositSchema)
+      .set({
+        appliedRewardId: 'reward_abandoned_hold',
+        appliedRewardClientId: 'client_abandoned_hold',
+        appliedRewardClientPhone: appointment!.clientPhone,
+      })
+      .where(eq(schema.appointmentDepositSchema.id, ids.depositId));
+
+    await reapExpiredDepositHolds({ client: stubClient({}).client, now: NOW });
+
+    const after = await readBack(ids);
+    const [reward] = await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_abandoned_hold'));
+
+    expect(after.deposit?.status).toBe('expired');
+    expect(after.deposit?.appliedRewardId).toBe('reward_abandoned_hold');
+    expect(reward?.usedInAppointmentId).toBeNull();
   });
 
   it('(b) expire OK but retrieve says COMPLETE -> untouched (payment landed)', async () => {
@@ -434,5 +464,57 @@ describe('15(i) — finalize atomicity', () => {
 
     expect(afterRetry.appointment!.status).toBe('cancelled');
     expect(afterRetry.deposit!.status).toBe('expired');
+  });
+
+  it('rolls the appointment back when the paired deposit CAS returns zero rows', async () => {
+    const ids = await seedHold({ holdExpiresAt: minutesAgo(10) });
+    const realTransaction = db.transaction.bind(db);
+    let emptyNextDepositReturning = true;
+    const transactionSpy = vi.spyOn(db, 'transaction').mockImplementation((async (
+      callback: (tx: unknown) => Promise<unknown>,
+      ...rest: unknown[]
+    ) => realTransaction((async (tx: Record<string, unknown>) => {
+      const patched = new Proxy(tx, {
+        get(target, prop, receiver) {
+          if (prop !== 'update') {
+            return Reflect.get(target, prop, receiver);
+          }
+          return (table: unknown) => {
+            const builder = (target.update as (t: unknown) => {
+              set: (values: unknown) => { where: (condition: unknown) => { returning: () => unknown } };
+            })(table);
+            if (!emptyNextDepositReturning || table !== schema.appointmentDepositSchema) {
+              return builder;
+            }
+            emptyNextDepositReturning = false;
+            return {
+              set: (values: unknown) => {
+                const setBuilder = builder.set(values);
+                return {
+                  where: (condition: unknown) => {
+                    // Build the real predicate so this proxy still exercises
+                    // the production query shape; only its returned rows are
+                    // replaced to simulate a lost CAS.
+                    setBuilder.where(condition);
+                    return { returning: vi.fn(async () => []) };
+                  },
+                };
+              },
+            };
+          };
+        },
+      });
+      return callback(patched);
+    }) as never, ...(rest as []))) as typeof db.transaction);
+
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    await reapExpiredDepositHolds({ client: stubClient({}).client, now: NOW });
+    consoleError.mockRestore();
+    transactionSpy.mockRestore();
+
+    const after = await readBack(ids);
+
+    expect(after.appointment!.status).toBe('awaiting_payment');
+    expect(after.deposit!.status).toBe('checkout_created');
   });
 });

@@ -37,7 +37,10 @@ vi.mock('@/libs/DB', () => ({
 import {
   formatLocationAddress,
   loadBookingCommitEffectsContext,
+  markAppliedRewardForBooking,
+  markExactAttributedRewardForPaidDepositInTx,
   mintAppointmentManageCapability,
+  RewardConsumptionConflictError,
 } from './bookingCommitEffects';
 /* eslint-enable import/first */
 
@@ -64,7 +67,10 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await db.delete(schema.appointmentAccessTokenSchema);
+  await db.delete(schema.appointmentDepositSchema);
   await db.delete(schema.appointmentServicesSchema);
+  await db.delete(schema.rewardSchema);
+  await db.delete(schema.referralSchema);
   await db.delete(schema.appointmentSchema);
   await db.delete(schema.salonClientSchema);
   await db.delete(schema.technicianServicesSchema);
@@ -234,6 +240,7 @@ describe('loadBookingCommitEffectsContext', () => {
       id: APPOINTMENT_ID,
       notes: 'Please use the ramp entrance',
       googleCalendarEventId: null,
+      status: 'confirmed',
     });
     expect(context!.serviceNames).toEqual(['Gel Manicure']);
     expect(context!.technician).toEqual({
@@ -290,6 +297,316 @@ describe('loadBookingCommitEffectsContext', () => {
     expect(context!.technician).toBeNull();
     expect(context!.locationName).toBeNull();
     expect(context!.locationAddress).toBeNull();
+  });
+});
+
+describe('D5-RWD-1 reward consumption CAS', () => {
+  async function contextFor(rewardId: string, depositId: string | null) {
+    const context = await loadBookingCommitEffectsContext({
+      salonId: SALON_ID,
+      appointmentId: APPOINTMENT_ID,
+      manageUrl: 'https://salon.example/manage/reward-cas',
+      smsConsentGranted: false,
+      appliedRewardId: rewardId,
+      rewardAttributionDepositId: depositId,
+    });
+
+    expect(context).not.toBeNull();
+
+    return context!;
+  }
+
+  async function seedReward(
+    id: string,
+    clientPhone = '4165551234',
+    salonId = SALON_ID,
+  ) {
+    await db.insert(schema.rewardSchema).values({
+      id,
+      salonId,
+      clientPhone,
+      type: 'referral_referee',
+      updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+    });
+  }
+
+  async function seedAttributedDeposit(
+    id: string,
+    rewardId: string,
+    status = 'paid',
+    appointmentId = APPOINTMENT_ID,
+    salonId = SALON_ID,
+    attributedClientId = CLIENT_ID,
+    attributedClientPhone = '4165551234',
+  ) {
+    await db.insert(schema.appointmentDepositSchema).values({
+      id,
+      salonId,
+      appointmentId,
+      amountCents: 2500,
+      status,
+      stripeAccountId: 'acct_reward_cas',
+      appliedRewardId: rewardId,
+      appliedRewardClientId: attributedClientId,
+      appliedRewardClientPhone: attributedClientPhone,
+    });
+  }
+
+  it('marks the paid deposit\'s exact reward once, then replays without a write', async () => {
+    await seedReward('reward_cas_exact');
+    await seedReward('reward_cas_decoy');
+    await seedAttributedDeposit('dep_reward_cas', 'reward_cas_exact');
+    const context = await contextFor('reward_cas_exact', 'dep_reward_cas');
+
+    await expect(db.transaction(tx => markExactAttributedRewardForPaidDepositInTx(tx, {
+      salonId: SALON_ID,
+      appointmentId: APPOINTMENT_ID,
+      depositId: 'dep_reward_cas',
+      rewardId: 'reward_cas_exact',
+    }))).resolves.toBe('marked');
+
+    const [afterFirst] = await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_cas_exact'));
+
+    await expect(markAppliedRewardForBooking(context)).resolves.toBe('already_marked');
+
+    const [afterReplay] = await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_cas_exact'));
+    const [decoy] = await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_cas_decoy'));
+
+    expect(afterFirst?.usedInAppointmentId).toBe(APPOINTMENT_ID);
+    expect(afterReplay?.updatedAt.getTime()).toBe(afterFirst?.updatedAt.getTime());
+    expect(decoy?.usedInAppointmentId).toBeNull();
+  });
+
+  it('rejects foreign client ownership even when a paid deposit names that id', async () => {
+    await seedReward('reward_cas_foreign_client', '4165559999');
+    await seedAttributedDeposit(
+      'dep_reward_foreign',
+      'reward_cas_foreign_client',
+      'paid',
+      APPOINTMENT_ID,
+      SALON_ID,
+      'client_foreign_reward_owner',
+      '4165559999',
+    );
+
+    await expect(markAppliedRewardForBooking(
+      await contextFor('reward_cas_foreign_client', 'dep_reward_foreign'),
+    )).rejects.toBeInstanceOf(RewardConsumptionConflictError);
+
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_cas_foreign_client')))[0]?.usedInAppointmentId)
+      .toBeNull();
+  });
+
+  it('rejects foreign salon ownership even when a paid local deposit names that id', async () => {
+    await db.insert(schema.salonSchema).values({
+      id: 'salon_bce_foreign',
+      name: 'Foreign Context Salon',
+      slug: 'foreign-context-salon',
+      ownerEmail: 'foreign-owner@example.com',
+    });
+    await seedReward('reward_cas_foreign_salon', '4165551234', 'salon_bce_foreign');
+    await seedAttributedDeposit('dep_reward_foreign_salon', 'reward_cas_foreign_salon');
+
+    await expect(markAppliedRewardForBooking(
+      await contextFor('reward_cas_foreign_salon', 'dep_reward_foreign_salon'),
+    )).rejects.toBeInstanceOf(RewardConsumptionConflictError);
+
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_cas_foreign_salon')))[0]?.usedInAppointmentId)
+      .toBeNull();
+  });
+
+  it('rejects a paid attribution that belongs to a different appointment', async () => {
+    const otherAppointmentId = 'appt_bce_other_reward';
+    await db.insert(schema.appointmentSchema).values({
+      id: otherAppointmentId,
+      salonId: SALON_ID,
+      salonClientId: CLIENT_ID,
+      clientPhone: '4165551234',
+      startTime: new Date('2099-03-02T15:00:00.000Z'),
+      endTime: new Date('2099-03-02T16:00:00.000Z'),
+      status: 'confirmed',
+      totalPrice: 4500,
+      totalDurationMinutes: 60,
+    });
+    await seedReward('reward_cas_wrong_appointment');
+    await seedAttributedDeposit(
+      'dep_reward_wrong_appointment',
+      'reward_cas_wrong_appointment',
+      'paid',
+      otherAppointmentId,
+    );
+
+    await expect(markAppliedRewardForBooking(
+      await contextFor('reward_cas_wrong_appointment', 'dep_reward_wrong_appointment'),
+    )).rejects.toBeInstanceOf(RewardConsumptionConflictError);
+
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_cas_wrong_appointment')))[0]?.usedInAppointmentId)
+      .toBeNull();
+  });
+
+  it('ignores a foreign salon deposit carrying the same opaque reward id', async () => {
+    const otherSalonId = 'salon_bce_reservation_foreign';
+    const otherAppointmentId = 'appt_bce_reservation_foreign';
+    await db.insert(schema.salonSchema).values({
+      id: otherSalonId,
+      name: 'Foreign Reservation Salon',
+      slug: 'foreign-reservation-salon',
+      ownerEmail: 'reservation-owner@example.com',
+    });
+    await db.insert(schema.appointmentSchema).values({
+      id: otherAppointmentId,
+      salonId: otherSalonId,
+      clientPhone: '4165559998',
+      startTime: new Date('2099-03-03T15:00:00.000Z'),
+      endTime: new Date('2099-03-03T16:00:00.000Z'),
+      status: 'awaiting_payment',
+      totalPrice: 4500,
+      totalDurationMinutes: 60,
+    });
+    await seedReward('reward_cas_tenant_local');
+    await seedAttributedDeposit(
+      'dep_reward_reservation_foreign',
+      'reward_cas_tenant_local',
+      'checkout_created',
+      otherAppointmentId,
+      otherSalonId,
+    );
+
+    await expect(markAppliedRewardForBooking(
+      await contextFor('reward_cas_tenant_local', null),
+    )).resolves.toBe('marked');
+
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_cas_tenant_local')))[0]?.usedInAppointmentId)
+      .toBe(APPOINTMENT_ID);
+  });
+
+  it('blocks an ordinary booking from consuming a reward reserved by an unpaid hold', async () => {
+    await seedReward('reward_cas_reserved');
+    await seedAttributedDeposit('dep_reward_reserved', 'reward_cas_reserved', 'checkout_created');
+
+    await expect(markAppliedRewardForBooking(
+      await contextFor('reward_cas_reserved', null),
+    )).rejects.toBeInstanceOf(RewardConsumptionConflictError);
+
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_cas_reserved')))[0]?.usedInAppointmentId)
+      .toBeNull();
+  });
+
+  it('preserves ordinary reward marking through a proven historical phone alias', async () => {
+    await seedReward('reward_cas_historical_alias', '4165551212');
+    const context = await contextFor('reward_cas_historical_alias', null);
+
+    await expect(markAppliedRewardForBooking({
+      ...context,
+      // Notifications use the current terminal contact, while rewardOwnerPhone
+      // is the booking-request alias already proven to belong to that client.
+      clientPhone: '6475553434',
+      rewardOwnerPhone: '4165551212',
+    })).resolves.toBe('marked');
+
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_cas_historical_alias')))[0]?.usedInAppointmentId)
+      .toBe(APPOINTMENT_ID);
+  });
+
+  it('elects exactly one referrer bonus for a completed attributed booking', async () => {
+    const referralId = 'referral_completed_attribution';
+    const rewardId = 'reward_completed_attribution';
+    await db.update(schema.appointmentSchema)
+      .set({ status: 'completed' })
+      .where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+    await db.insert(schema.referralSchema).values({
+      id: referralId,
+      salonId: SALON_ID,
+      referrerPhone: '4165557777',
+      refereePhone: '4165551234',
+      status: 'claimed',
+      expiresAt: new Date('2099-12-01T00:00:00.000Z'),
+    });
+    await db.insert(schema.rewardSchema).values({
+      id: rewardId,
+      salonId: SALON_ID,
+      clientPhone: '4165551234',
+      referralId,
+      type: 'referral_referee',
+    });
+    await seedAttributedDeposit('dep_completed_attribution', rewardId);
+
+    const run = () => db.transaction(tx => markExactAttributedRewardForPaidDepositInTx(tx, {
+      salonId: SALON_ID,
+      appointmentId: APPOINTMENT_ID,
+      depositId: 'dep_completed_attribution',
+      rewardId,
+    }));
+
+    await expect(run()).resolves.toBe('marked');
+    await expect(run()).resolves.toBe('already_marked');
+
+    const rewards = await db.select().from(schema.rewardSchema);
+    const [referral] = await db.select().from(schema.referralSchema)
+      .where(eq(schema.referralSchema.id, referralId));
+
+    expect(referral?.status).toBe('reward_earned');
+    expect(rewards.filter(row => (
+      row.referralId === referralId && row.type === 'referral_referrer'
+    ))).toHaveLength(1);
+  });
+
+  it('never advances a foreign-tenant referral named by a local attribution', async () => {
+    const foreignSalonId = 'salon_bce_foreign_referral';
+    const referralId = 'referral_foreign_attribution';
+    const rewardId = 'reward_foreign_referral_attribution';
+    await db.insert(schema.salonSchema).values({
+      id: foreignSalonId,
+      name: 'Foreign Referral Salon',
+      slug: 'foreign-referral-salon',
+      ownerEmail: 'foreign-referral@example.invalid',
+    });
+    await db.insert(schema.referralSchema).values({
+      id: referralId,
+      salonId: foreignSalonId,
+      referrerPhone: '6475557777',
+      refereePhone: '4165551234',
+      status: 'claimed',
+      expiresAt: new Date('2099-12-01T00:00:00.000Z'),
+    });
+    await db.update(schema.appointmentSchema)
+      .set({ status: 'completed' })
+      .where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+    await db.insert(schema.rewardSchema).values({
+      id: rewardId,
+      salonId: SALON_ID,
+      clientPhone: '4165551234',
+      referralId,
+      type: 'referral_referee',
+    });
+    await seedAttributedDeposit('dep_foreign_referral_attribution', rewardId);
+
+    await expect(db.transaction(tx => markExactAttributedRewardForPaidDepositInTx(tx, {
+      salonId: SALON_ID,
+      appointmentId: APPOINTMENT_ID,
+      depositId: 'dep_foreign_referral_attribution',
+      rewardId,
+    }))).resolves.toBe('marked');
+
+    const [foreignReferral] = await db.select().from(schema.referralSchema)
+      .where(eq(schema.referralSchema.id, referralId));
+    const foreignBonuses = (await db.select().from(schema.rewardSchema)).filter(row => (
+      row.salonId === foreignSalonId
+      && row.referralId === referralId
+      && row.type === 'referral_referrer'
+    ));
+
+    expect(foreignReferral?.status).toBe('claimed');
+    expect(foreignBonuses).toHaveLength(0);
   });
 });
 

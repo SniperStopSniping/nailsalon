@@ -153,6 +153,14 @@ describe('test 31 — module boundaries', () => {
       path.join(ROOT, 'src/libs/deposits/depositOutboxHandlers.ts'),
       path.join(ROOT, 'src/libs/deposits/depositWebhookEvents.ts'),
       path.join(ROOT, 'src/libs/deposits/lateDepositRecovery.ts'),
+      // D5-RWD-1: the exact-reward reservation owner, paid-deposit effects
+      // validator, and the two non-deposit reward paths that must refuse an
+      // active hold attribution. These are deliberate attribution reads; none
+      // owns a deposit lifecycle transition.
+      path.join(ROOT, 'src/app/api/rewards/redeem/route.ts'),
+      path.join(ROOT, 'src/libs/bookingCommitEffects.ts'),
+      path.join(ROOT, 'src/libs/deposits/rewardAttribution.ts'),
+      path.join(ROOT, 'src/libs/firstVisitDiscount.ts'),
     ].sort());
   });
 

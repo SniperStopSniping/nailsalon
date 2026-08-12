@@ -172,8 +172,12 @@ vi.mock('@/libs/googleEventReview', () => ({
 }));
 
 const { POST: createAppointment } = await import('@/app/api/appointments/route');
+const { markAppliedRewardForBooking } = await import('@/libs/bookingCommitEffects');
 const { confirmDepositPayment } = await import('./confirmDepositPayment');
 const { runLateDepositRecovery } = await import('./lateDepositRecovery');
+const {
+  lockExactRewardForDepositAttribution,
+} = await import('./rewardAttribution');
 const {
   claimWebhookEvent,
   finalizeWebhookEvent,
@@ -189,7 +193,7 @@ const ACCOUNT_ID = 'acct_d5_concurrency';
 const BOOKING_START = '2099-09-01T15:00:00.000Z';
 const LINEAGE_PHONE = '4165553030';
 const LINEAGE_EMAIL = 'lineage.d5@example.invalid';
-const EXPECTED_EXECUTED_TESTS = 5;
+const EXPECTED_EXECUTED_TESTS = 8;
 
 const BASE_SETTINGS: SalonSettings = {
   booking: {
@@ -307,6 +311,7 @@ suite('D5 — genuine PostgreSQL concurrency', () => {
       integration_outbox,
       google_calendar_event,
       appointment_deposit,
+      reward,
       stripe_webhook_event,
       appointment,
       salon_client_contact_alias,
@@ -524,6 +529,241 @@ suite('D5 — genuine PostgreSQL concurrency', () => {
       stripeAccountId: ACCOUNT_ID,
     });
     expect(mocks.checkoutCreate).toHaveBeenCalledTimes(1);
+
+    executedTests += 1;
+  }, 45_000);
+
+  it('serializes two hold-time claims of the same exact reward to one attribution', async () => {
+    const rewardId = 'reward_d5_rwd1_race';
+    const clientPhone = '4165553299';
+    await db.insert(schema.rewardSchema).values({
+      id: rewardId,
+      salonId: SALON_ID,
+      clientPhone,
+      type: 'referral_referee',
+    });
+
+    const appointmentIds = ['appt_d5_rwd1_a', 'appt_d5_rwd1_b'];
+    for (const [index, appointmentId] of appointmentIds.entries()) {
+      const startTime = new Date(`2099-11-0${index + 1}T15:00:00.000Z`);
+      await db.insert(schema.appointmentSchema).values({
+        id: appointmentId,
+        salonId: SALON_ID,
+        clientPhone,
+        startTime,
+        endTime: new Date(startTime.getTime() + 60 * 60_000),
+        status: 'awaiting_payment',
+        totalPrice: 6000,
+        totalDurationMinutes: 60,
+      });
+    }
+
+    const held = await holdRewardRow(rewardId);
+    const claims = appointmentIds.map((appointmentId, index) => db.transaction(async (tx) => {
+      const attributedReward = await lockExactRewardForDepositAttribution(tx, {
+        rewardId,
+        salonId: SALON_ID,
+        clientPhones: [clientPhone],
+      });
+      await tx.insert(schema.appointmentDepositSchema).values({
+        id: `dep_d5_rwd1_${index}`,
+        salonId: SALON_ID,
+        appointmentId,
+        amountCents: 2500,
+        status: 'checkout_created',
+        stripeAccountId: ACCOUNT_ID,
+        appliedRewardId: attributedReward.id,
+        appliedRewardClientId: 'client_d5_rwd1_claims',
+        appliedRewardClientPhone: attributedReward.clientPhone,
+      });
+      return appointmentId;
+    }));
+
+    await releaseAfterBlocked(held, 2, claims);
+    const results = await Promise.allSettled(claims);
+
+    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter(result => result.status === 'rejected')).toHaveLength(1);
+
+    const attributed = await db.select().from(schema.appointmentDepositSchema)
+      .where(eq(schema.appointmentDepositSchema.appliedRewardId, rewardId));
+
+    expect(attributed).toHaveLength(1);
+
+    executedTests += 1;
+  }, 30_000);
+
+  it('confirms an attributed hold without deadlocking a competing new claim', async () => {
+    await seedBinding();
+    const rewardId = 'reward_d5_rwd1_confirm_claim_race';
+    const clientId = 'client_d5_rwd1_confirm_claim_race';
+    const clientPhone = '4165553296';
+    await seedClient(clientId, clientPhone, 'confirm.claim@example.invalid');
+    const original = await seedDepositPair({
+      suffix: 'rwd1_confirm_claim_race',
+      appointmentStatus: 'awaiting_payment',
+      depositStatus: 'checkout_created',
+      clientId,
+      clientPhone,
+      clientEmail: 'confirm.claim@example.invalid',
+      appliedRewardId: rewardId,
+    });
+    const competingAppointmentId = 'appt_d5_rwd1_competing_claim';
+    await db.insert(schema.appointmentSchema).values({
+      id: competingAppointmentId,
+      salonId: SALON_ID,
+      clientPhone,
+      startTime: new Date('2099-11-20T15:00:00.000Z'),
+      endTime: new Date('2099-11-20T16:00:00.000Z'),
+      status: 'awaiting_payment',
+      totalPrice: 6000,
+      totalDurationMinutes: 60,
+    });
+    await db.insert(schema.rewardSchema).values({
+      id: rewardId,
+      salonId: SALON_ID,
+      clientPhone,
+      type: 'referral_referee',
+    });
+
+    const held = await holdRewardRow(rewardId);
+    const confirmation = confirmDepositPayment(paidEvidence({
+      sessionId: original.sessionId,
+      appointmentId: original.appointmentId,
+      depositId: original.depositId,
+      paymentIntentId: 'pi_d5_rwd1_confirm_claim_race',
+    }));
+    const competingClaim = db.transaction(async (tx) => {
+      const attributedReward = await lockExactRewardForDepositAttribution(tx, {
+        rewardId,
+        salonId: SALON_ID,
+        clientPhones: [clientPhone],
+      });
+      await tx.insert(schema.appointmentDepositSchema).values({
+        id: 'dep_d5_rwd1_competing_claim',
+        salonId: SALON_ID,
+        appointmentId: competingAppointmentId,
+        amountCents: 2500,
+        status: 'checkout_created',
+        stripeAccountId: ACCOUNT_ID,
+        appliedRewardId: attributedReward.id,
+        appliedRewardClientId: clientId,
+        appliedRewardClientPhone: attributedReward.clientPhone,
+      });
+    });
+
+    await releaseAfterBlocked(held, 2, [confirmation, competingClaim]);
+    const [confirmResult, claimResult] = await Promise.allSettled([
+      confirmation,
+      competingClaim,
+    ] as const);
+
+    expect(confirmResult.status).toBe('fulfilled');
+
+    if (confirmResult.status !== 'fulfilled') {
+      throw confirmResult.reason;
+    }
+
+    expect(confirmResult.value.disposition).toBe('confirmed');
+    expect(claimResult.status).toBe('rejected');
+    expect((await db.select().from(schema.appointmentDepositSchema)
+      .where(eq(schema.appointmentDepositSchema.id, original.depositId)))[0]?.status)
+      .toBe('paid');
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, rewardId)))[0]?.usedInAppointmentId)
+      .toBe(original.appointmentId);
+
+    executedTests += 1;
+  }, 45_000);
+
+  it('serializes late restore against ordinary consumption of its expired attribution', async () => {
+    await seedBinding();
+    const rewardId = 'reward_d5_rwd1_restore_consume_race';
+    const clientId = 'client_d5_rwd1_restore_consume';
+    const clientPhone = '4165553297';
+    const consumingAppointmentId = 'appt_d5_rwd1_consuming';
+    await seedClient(clientId, clientPhone, 'restore.consume@example.invalid');
+    const pair = await seedDepositPair({
+      suffix: 'rwd1_restore_consume',
+      appointmentStatus: 'cancelled',
+      depositStatus: 'expired',
+      clientId,
+      clientPhone,
+      clientEmail: 'restore.consume@example.invalid',
+      appliedRewardId: rewardId,
+    });
+    await db.insert(schema.appointmentSchema).values({
+      id: consumingAppointmentId,
+      salonId: SALON_ID,
+      salonClientId: clientId,
+      clientPhone,
+      startTime: new Date('2099-08-01T15:00:00.000Z'),
+      endTime: new Date('2099-08-01T16:00:00.000Z'),
+      status: 'completed',
+      totalPrice: 6000,
+      totalDurationMinutes: 60,
+    });
+    await db.insert(schema.rewardSchema).values({
+      id: rewardId,
+      salonId: SALON_ID,
+      clientPhone,
+      type: 'referral_referee',
+    });
+
+    const held = await holdRewardRow(rewardId);
+    const consumption = markAppliedRewardForBooking({
+      appliedRewardId: rewardId,
+      appointment: {
+        id: consumingAppointmentId,
+        notes: null,
+        googleCalendarEventId: null,
+      },
+      clientPhone,
+      rewardAttributionDepositId: null,
+      salon: {
+        id: SALON_ID,
+        name: 'D5 Concurrency Salon',
+        ownerName: null,
+        ownerPhone: null,
+        ownerEmail: null,
+        features: null,
+        settings: null,
+      },
+    });
+    const recovery = runLateDepositRecovery({
+      depositId: pair.depositId,
+      salonId: SALON_ID,
+    });
+    const operations = [consumption, recovery];
+
+    await releaseAfterBlocked(held, 2, operations);
+    const [consumptionResult, recoveryResult] = await Promise.allSettled([
+      consumption,
+      recovery,
+    ] as const);
+
+    expect(recoveryResult.status).toBe('fulfilled');
+
+    if (recoveryResult.status !== 'fulfilled') {
+      throw recoveryResult.reason;
+    }
+
+    const [reward] = await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, rewardId));
+    const [deposit] = await db.select().from(schema.appointmentDepositSchema)
+      .where(eq(schema.appointmentDepositSchema.id, pair.depositId));
+
+    if (consumptionResult.status === 'fulfilled') {
+      expect(recoveryResult.value.disposition).toBe('refunded');
+      expect(deposit?.status).toBe('refunded');
+      expect(reward?.usedInAppointmentId).toBe(consumingAppointmentId);
+      expect(mocks.refundsCreate).toHaveBeenCalledTimes(1);
+    } else {
+      expect(recoveryResult.value.disposition).toBe('restored');
+      expect(deposit?.status).toBe('paid');
+      expect(reward?.usedInAppointmentId).toBe(pair.appointmentId);
+      expect(mocks.refundsCreate).not.toHaveBeenCalled();
+    }
 
     executedTests += 1;
   }, 45_000);
@@ -752,6 +992,7 @@ async function seedDepositPair(input: {
   clientEmail?: string | null;
   technicianId?: string;
   startTime?: string;
+  appliedRewardId?: string | null;
 }) {
   const appointmentId = `appt_d5_${input.suffix}`;
   const depositId = `dep_d5_${input.suffix}`;
@@ -792,6 +1033,9 @@ async function seedDepositPair(input: {
     stripeAccountId: ACCOUNT_ID,
     stripeCheckoutSessionId: sessionId,
     stripePaymentIntentId: `pi_d5_${input.suffix}`,
+    appliedRewardId: input.appliedRewardId ?? null,
+    appliedRewardClientId: input.appliedRewardId ? (input.clientId ?? null) : null,
+    appliedRewardClientPhone: input.appliedRewardId ? (input.clientPhone ?? '4165553999') : null,
   });
   return { appointmentId, depositId, sessionId };
 }
@@ -907,6 +1151,22 @@ async function holdEventRow(eventRowId: string): Promise<HeldLock> {
     await connection.query(
       'SELECT id FROM stripe_webhook_event WHERE id = $1 FOR UPDATE',
       [eventRowId],
+    );
+    return await registerHeldLock(connection);
+  } catch (error) {
+    await connection.query('ROLLBACK');
+    connection.release();
+    throw error;
+  }
+}
+
+async function holdRewardRow(rewardId: string): Promise<HeldLock> {
+  const connection = await pool.connect();
+  try {
+    await connection.query('BEGIN');
+    await connection.query(
+      'SELECT id FROM reward WHERE salon_id = $1 AND id = $2 FOR UPDATE',
+      [SALON_ID, rewardId],
     );
     return await registerHeldLock(connection);
   } catch (error) {

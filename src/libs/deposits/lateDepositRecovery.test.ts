@@ -94,6 +94,7 @@ async function seedDeposit(input: {
   refundKeyEpoch?: number;
   refundTerminalFailureCount?: number;
   startTimeOffsetMs?: number;
+  appliedRewardId?: string | null;
 }) {
   seq += 1;
   const appointmentId = `appt_r_${seq}`;
@@ -128,6 +129,9 @@ async function seedDeposit(input: {
     stripeRefundId: input.refundId ?? null,
     refundKeyEpoch: input.refundKeyEpoch ?? 1,
     refundTerminalFailureCount: input.refundTerminalFailureCount ?? 0,
+    appliedRewardId: input.appliedRewardId ?? null,
+    appliedRewardClientId: input.appliedRewardId ? SALON_CLIENT : null,
+    appliedRewardClientPhone: input.appliedRewardId ? '4165559999' : null,
   });
 
   return { appointmentId, depositId };
@@ -157,6 +161,7 @@ beforeEach(async () => {
   await db.delete(schema.integrationOutboxSchema);
   await db.delete(schema.stripeWebhookEventSchema);
   await db.delete(schema.appointmentDepositSchema);
+  await db.delete(schema.rewardSchema);
   await db.delete(schema.appointmentSchema);
   await db.delete(schema.salonClientSchema);
   await db.delete(schema.salonSchema);
@@ -340,6 +345,113 @@ describe('runLateDepositRecovery dispatch', () => {
     expect(appointment?.status).toBe('pending');
     expect(appointment?.cancelReason).toBeNull();
     expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+  });
+
+  it('carries the exact reward attribution through a successful late restore', async () => {
+    await db.insert(schema.rewardSchema).values({
+      id: 'reward_restore_exact',
+      salonId: SALON,
+      clientPhone: '4165559999',
+      type: 'referral_referee',
+    });
+    const seeded = await seedDeposit({
+      status: 'expired',
+      appliedRewardId: 'reward_restore_exact',
+    });
+
+    const result = await runLateDepositRecovery({
+      depositId: seeded.depositId,
+      salonId: SALON,
+    });
+
+    expect(result.disposition).toBe('restored');
+
+    const [job] = await db.select().from(schema.integrationOutboxSchema)
+      .where(eq(schema.integrationOutboxSchema.operation, 'booking_confirmed_side_effects'));
+
+    expect(job?.payload).toEqual(expect.objectContaining({
+      depositId: seeded.depositId,
+      appliedRewardId: 'reward_restore_exact',
+    }));
+    // The exact mark is atomic with the paid transition; the outbox only
+    // verifies it on replay.
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_restore_exact')))[0]?.usedInAppointmentId)
+      .toBe(seeded.appointmentId);
+  });
+
+  it('refunds instead of stealing a reward re-attributed after hold expiry', async () => {
+    await db.insert(schema.rewardSchema).values({
+      id: 'reward_restore_reassigned',
+      salonId: SALON,
+      clientPhone: '4165559999',
+      type: 'referral_referee',
+    });
+    const original = await seedDeposit({
+      status: 'expired',
+      appliedRewardId: 'reward_restore_reassigned',
+    });
+    const competing = await seedDeposit({
+      status: 'checkout_created',
+      appointmentStatus: 'awaiting_payment',
+      cancelReason: null,
+      paymentIntentId: null,
+      appliedRewardId: 'reward_restore_reassigned',
+    });
+
+    const result = await runLateDepositRecovery({
+      depositId: original.depositId,
+      salonId: SALON,
+    });
+
+    expect(result.disposition).toBe('refunded');
+    expect((await readDeposit(original.depositId))?.status).toBe('refunded');
+    expect((await readDeposit(competing.depositId))?.status).toBe('checkout_created');
+    expect(await db.select().from(schema.integrationOutboxSchema)
+      .where(eq(schema.integrationOutboxSchema.operation, 'booking_confirmed_side_effects')))
+      .toHaveLength(0);
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_restore_reassigned')))[0]?.usedInAppointmentId)
+      .toBeNull();
+  });
+
+  it('refunds when an ordinary booking consumed the reward after hold expiry', async () => {
+    const consumingAppointmentId = 'appt_reward_consumed_after_expiry';
+    await db.insert(schema.appointmentSchema).values({
+      id: consumingAppointmentId,
+      salonId: SALON,
+      clientPhone: '4165559999',
+      startTime: new Date('2026-01-01T10:00:00.000Z'),
+      endTime: new Date('2026-01-01T11:00:00.000Z'),
+      status: 'completed',
+      totalPrice: 4000,
+      totalDurationMinutes: 60,
+    });
+    await db.insert(schema.rewardSchema).values({
+      id: 'reward_restore_consumed',
+      salonId: SALON,
+      clientPhone: '4165559999',
+      type: 'referral_referee',
+      usedInAppointmentId: consumingAppointmentId,
+    });
+    const original = await seedDeposit({
+      status: 'expired',
+      appliedRewardId: 'reward_restore_consumed',
+    });
+
+    const result = await runLateDepositRecovery({
+      depositId: original.depositId,
+      salonId: SALON,
+    });
+
+    expect(result.disposition).toBe('refunded');
+    expect((await readDeposit(original.depositId))?.status).toBe('refunded');
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_restore_consumed')))[0]?.usedInAppointmentId)
+      .toBe(consumingAppointmentId);
+    expect(await db.select().from(schema.integrationOutboxSchema)
+      .where(eq(schema.integrationOutboxSchema.operation, 'booking_confirmed_side_effects')))
+      .toHaveLength(0);
   });
 });
 

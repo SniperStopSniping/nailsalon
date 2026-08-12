@@ -92,17 +92,27 @@ async function seedHold(input: {
   sessionId?: string;
   amountCents?: number;
   paymentIntentId?: string | null;
+  appliedRewardId?: string | null;
 } = {}) {
   seq += 1;
   const salonId = input.salonId ?? SALON;
   const appointmentId = `appt_${seq}`;
   const depositId = `dep_${seq}`;
+  const salonClientId = `client_confirm_${seq}`;
+  const clientPhone = `41655${String(seq).padStart(5, '0')}`;
   const startTime = new Date(Date.now() + 86_400_000 + seq * 3_600_000);
+
+  await db.insert(schema.salonClientSchema).values({
+    id: salonClientId,
+    salonId,
+    phone: clientPhone,
+  });
 
   await db.insert(schema.appointmentSchema).values({
     id: appointmentId,
     salonId,
-    clientPhone: '4165551234',
+    salonClientId,
+    clientPhone,
     clientName: 'Confirm Client',
     startTime,
     endTime: new Date(startTime.getTime() + 3_600_000),
@@ -121,9 +131,32 @@ async function seedHold(input: {
     stripeAccountId: input.account ?? ACCOUNT,
     stripeCheckoutSessionId: input.sessionId ?? `cs_${seq}`,
     stripePaymentIntentId: input.paymentIntentId ?? null,
+    appliedRewardId: input.appliedRewardId ?? null,
+    appliedRewardClientId: input.appliedRewardId ? salonClientId : null,
+    appliedRewardClientPhone: input.appliedRewardId ? clientPhone : null,
   });
 
-  return { appointmentId, depositId, sessionId: input.sessionId ?? `cs_${seq}` };
+  return {
+    appointmentId,
+    depositId,
+    sessionId: input.sessionId ?? `cs_${seq}`,
+    salonClientId,
+    clientPhone,
+  };
+}
+
+async function seedRewardForHold(
+  hold: Awaited<ReturnType<typeof seedHold>>,
+  rewardId: string,
+  overrides: Partial<typeof schema.rewardSchema.$inferInsert> = {},
+) {
+  await db.insert(schema.rewardSchema).values({
+    id: rewardId,
+    salonId: SALON,
+    clientPhone: hold.clientPhone,
+    type: 'referral_referee',
+    ...overrides,
+  });
 }
 
 async function readDeposit(id: string) {
@@ -162,7 +195,9 @@ beforeEach(async () => {
   await db.delete(schema.integrationOutboxSchema);
   await db.delete(schema.appointmentAccessTokenSchema);
   await db.delete(schema.appointmentDepositSchema);
+  await db.delete(schema.rewardSchema);
   await db.delete(schema.appointmentSchema);
+  await db.delete(schema.salonClientSchema);
   await db.delete(schema.salonStripeAccountSchema);
   await db.delete(schema.salonSchema);
 
@@ -404,6 +439,72 @@ describe('TX-B hold arm', () => {
     expect(jobs[0]?.dedupeKey).toBe(`deposit:${hold.depositId}:confirmed-side-effects`);
   });
 
+  it('copies the exact persisted reward attribution into the confirmation job', async () => {
+    const hold = await seedHold({
+      salonId: SALON,
+      appliedRewardId: 'reward_exact_at_hold',
+    });
+    await seedRewardForHold(hold, 'reward_exact_at_hold');
+
+    await confirmDepositPayment(evidence({ sessionId: hold.sessionId }));
+
+    const [job] = await outboxRows(hold.appointmentId);
+
+    expect(job?.payload).toEqual(expect.objectContaining({
+      appliedRewardId: 'reward_exact_at_hold',
+      depositId: hold.depositId,
+    }));
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_exact_at_hold')))[0]?.usedInAppointmentId)
+      .toBe(hold.appointmentId);
+  });
+
+  it('rolls the exact reward mark back if a later confirmation write fails', async () => {
+    const rewardId = 'reward_atomic_confirm_rollback';
+    const hold = await seedHold({ salonId: SALON, appliedRewardId: rewardId });
+    await seedRewardForHold(hold, rewardId);
+
+    // Reward consumption happens before capability/outbox creation inside the
+    // same TX-B transaction. A deliberately impossible capability constraint
+    // proves that no earlier write can escape when a later write aborts.
+    await client.exec(`
+      ALTER TABLE appointment_access_token
+      ADD CONSTRAINT rwd_force_confirmation_rollback CHECK (false)
+    `);
+    try {
+      await expect(confirmDepositPayment(evidence({ sessionId: hold.sessionId })))
+        .rejects.toBeTruthy();
+    } finally {
+      await client.exec(`
+        ALTER TABLE appointment_access_token
+        DROP CONSTRAINT rwd_force_confirmation_rollback
+      `);
+    }
+
+    expect((await readAppointment(hold.appointmentId))?.status).toBe('awaiting_payment');
+    expect((await readDeposit(hold.depositId))?.status).toBe('checkout_created');
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, rewardId)))[0]?.usedInAppointmentId).toBeNull();
+    expect(await auditRows(hold.appointmentId)).toHaveLength(0);
+    expect(await outboxRows(hold.appointmentId)).toHaveLength(0);
+    expect(await db.select().from(schema.appointmentAccessTokenSchema)
+      .where(eq(schema.appointmentAccessTokenSchema.appointmentId, hold.appointmentId)))
+      .toHaveLength(0);
+  });
+
+  it('never enqueues reward consumption for an unpaid hold', async () => {
+    const hold = await seedHold({ appliedRewardId: 'reward_unpaid' });
+
+    const result = await confirmDepositPayment(evidence({
+      sessionId: hold.sessionId,
+      paymentStatus: 'unpaid',
+    }));
+
+    expect(result.disposition).toBe('ignored_unpaid');
+    expect(await outboxRows(hold.appointmentId)).toHaveLength(0);
+    expect((await readDeposit(hold.depositId))?.status).toBe('checkout_created');
+  });
+
   it('mints a FRESH manage capability rather than recovering the booking-time one', async () => {
     // Only the booking-time token's hash is persisted, so its URL is not
     // reconstructible. Lookups are by hash, so the new row is additive and the
@@ -502,6 +603,162 @@ describe('TX-B settled arms', () => {
       );
     },
   );
+
+  it.each(['checkout_created', 'expired', 'canceled'])(
+    'keeps a confirmed %s no-show deposit without consuming its attribution',
+    async (depositStatus) => {
+      const rewardId = `reward_no_show_${depositStatus}`;
+      const hold = await seedHold({
+        appointmentStatus: 'no_show',
+        depositStatus,
+        appliedRewardId: rewardId,
+      });
+      await seedRewardForHold(hold, rewardId);
+
+      const result = await confirmDepositPayment(evidence({ sessionId: hold.sessionId }));
+      const [reward] = await db.select().from(schema.rewardSchema)
+        .where(eq(schema.rewardSchema.id, rewardId));
+
+      expect(result.disposition).toBe(
+        depositStatus === 'checkout_created' ? 'healed_deposit' : 'healed_deposit_late',
+      );
+      expect((await readDeposit(hold.depositId))?.status).toBe('paid');
+      expect((await readAppointment(hold.appointmentId))?.status).toBe('no_show');
+      expect(reward?.usedInAppointmentId).toBeNull();
+    },
+  );
+
+  it.each(['consumed', 'reserved'])(
+    'keeps a late no-show deposit when its released reward was %s elsewhere',
+    async (reuseKind) => {
+      const rewardId = `reward_no_show_reused_${reuseKind}`;
+      const original = await seedHold({
+        appointmentStatus: 'no_show',
+        depositStatus: 'expired',
+        appliedRewardId: rewardId,
+      });
+      await seedRewardForHold(original, rewardId);
+
+      if (reuseKind === 'consumed') {
+        const otherAppointmentId = `appt_no_show_consumer_${seq}`;
+        await db.insert(schema.appointmentSchema).values({
+          id: otherAppointmentId,
+          salonId: SALON,
+          clientPhone: original.clientPhone,
+          startTime: new Date(Date.now() + 172_800_000),
+          endTime: new Date(Date.now() + 176_400_000),
+          status: 'completed',
+          totalPrice: 4000,
+          totalDurationMinutes: 60,
+        });
+        await db.update(schema.rewardSchema)
+          .set({ usedInAppointmentId: otherAppointmentId, status: 'used' })
+          .where(eq(schema.rewardSchema.id, rewardId));
+      } else {
+        const competing = await seedHold({ appliedRewardId: rewardId });
+        await db.update(schema.appointmentDepositSchema)
+          .set({
+            appliedRewardClientId: original.salonClientId,
+            appliedRewardClientPhone: original.clientPhone,
+          })
+          .where(eq(schema.appointmentDepositSchema.id, competing.depositId));
+      }
+
+      const result = await confirmDepositPayment(evidence({ sessionId: original.sessionId }));
+
+      expect(result.disposition).toBe('healed_deposit_late');
+      expect((await readDeposit(original.depositId))?.status).toBe('paid');
+      expect((await readAppointment(original.appointmentId))?.status).toBe('no_show');
+    },
+  );
+
+  it('atomically consumes a completed late-heal attribution as used', async () => {
+    const hold = await seedHold({
+      appointmentStatus: 'completed',
+      depositStatus: 'expired',
+      appliedRewardId: 'reward_completed_late_heal',
+    });
+    await seedRewardForHold(hold, 'reward_completed_late_heal');
+
+    const result = await confirmDepositPayment(evidence({ sessionId: hold.sessionId }));
+    const [reward] = await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_completed_late_heal'));
+
+    expect(result.disposition).toBe('healed_deposit_late');
+    expect(reward).toMatchObject({
+      status: 'used',
+      usedInAppointmentId: hold.appointmentId,
+    });
+    expect(reward?.usedAt).toBeInstanceOf(Date);
+  });
+
+  it('uses the durable canonical client identity after a contact edit', async () => {
+    const hold = await seedHold({ appliedRewardId: 'reward_phone_edit' });
+    await seedRewardForHold(hold, 'reward_phone_edit');
+    await db.update(schema.salonClientSchema)
+      .set({ phone: '6475550199' })
+      .where(eq(schema.salonClientSchema.id, hold.salonClientId));
+
+    const result = await confirmDepositPayment(evidence({ sessionId: hold.sessionId }));
+    const [reward] = await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_phone_edit'));
+
+    expect(result.disposition).toBe('confirmed');
+    expect(reward?.usedInAppointmentId).toBe(hold.appointmentId);
+  });
+
+  it('routes a terminal heal to recovery when another booking consumed its exact reward', async () => {
+    const hold = await seedHold({
+      appointmentStatus: 'pending',
+      depositStatus: 'expired',
+      appliedRewardId: 'reward_stale_consumed',
+    });
+    const otherAppointmentId = 'appt_stale_reward_consumer';
+    await db.insert(schema.appointmentSchema).values({
+      id: otherAppointmentId,
+      salonId: SALON,
+      clientPhone: hold.clientPhone,
+      startTime: new Date(Date.now() + 172_800_000),
+      endTime: new Date(Date.now() + 176_400_000),
+      status: 'completed',
+      totalPrice: 4000,
+      totalDurationMinutes: 60,
+    });
+    await seedRewardForHold(hold, 'reward_stale_consumed', {
+      usedInAppointmentId: otherAppointmentId,
+    });
+
+    const result = await confirmDepositPayment(evidence({ sessionId: hold.sessionId }));
+
+    expect(result.disposition).toBe('late_recovery_required');
+    expect((await readDeposit(hold.depositId))?.status).toBe('expired');
+    expect(await outboxRows(hold.appointmentId)).toHaveLength(0);
+  });
+
+  it('routes a terminal heal to recovery when another hold reserved its exact reward', async () => {
+    const original = await seedHold({
+      appointmentStatus: 'pending',
+      depositStatus: 'expired',
+      appliedRewardId: 'reward_stale_reserved',
+    });
+    await seedRewardForHold(original, 'reward_stale_reserved');
+    const competing = await seedHold({
+      appliedRewardId: 'reward_stale_reserved',
+    });
+    await db.update(schema.appointmentDepositSchema)
+      .set({
+        appliedRewardClientId: original.salonClientId,
+        appliedRewardClientPhone: original.clientPhone,
+      })
+      .where(eq(schema.appointmentDepositSchema.id, competing.depositId));
+
+    const result = await confirmDepositPayment(evidence({ sessionId: original.sessionId }));
+
+    expect(result.disposition).toBe('late_recovery_required');
+    expect((await readDeposit(original.depositId))?.status).toBe('expired');
+    expect((await readDeposit(competing.depositId))?.status).toBe('checkout_created');
+    expect(await outboxRows(original.appointmentId)).toHaveLength(0);
+  });
 
   it('acks a redelivery against a paid deposit under a no_show appointment', async () => {
     // Ordinary idempotent redelivery after the owner no-showed a confirmed
