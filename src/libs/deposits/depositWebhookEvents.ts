@@ -1,10 +1,13 @@
 import 'server-only';
 
-import { and, count, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, isNull, lt, lte, or, sql } from 'drizzle-orm';
 import type Stripe from 'stripe';
 
 import { db } from '@/libs/DB';
-import type { WebhookEventProjection } from '@/libs/stripeConnect/webhookEvents';
+import {
+  CLAIM_STALE_AFTER_MS,
+  type WebhookEventProjection,
+} from '@/libs/stripeConnect/webhookEvents';
 import {
   appointmentDepositSchema,
   appointmentSchema,
@@ -323,6 +326,47 @@ export async function evaluateProvenance(input: {
   return { admitted: false };
 }
 
+/**
+ * Resolve an orphan's metadata-nominated deposit for operator context only.
+ *
+ * The candidate is never adopted as the session-addressed deposit and never
+ * reaches confirmation or refund code. Both tenant legs are required before
+ * even its id may appear in a money-dark alert; otherwise an attacker-controlled
+ * metadata id could make another salon's deposit look related to this event.
+ */
+export async function resolveVerifiedOrphanCandidate(input: {
+  metadataDepositId: string | null;
+  provenanceSalonId: string | null;
+  account: string;
+}): Promise<{ depositId: string } | null> {
+  if (!input.metadataDepositId || !input.provenanceSalonId) {
+    return null;
+  }
+
+  const [candidate] = await db
+    .select({
+      id: appointmentDepositSchema.id,
+      salonId: appointmentDepositSchema.salonId,
+      account: appointmentDepositSchema.stripeAccountId,
+    })
+    .from(appointmentDepositSchema)
+    .where(and(
+      eq(appointmentDepositSchema.id, input.metadataDepositId),
+      eq(appointmentDepositSchema.salonId, input.provenanceSalonId),
+      eq(appointmentDepositSchema.stripeAccountId, input.account),
+    ))
+    .limit(1);
+
+  if (
+    !candidate
+    || candidate.salonId !== input.provenanceSalonId
+    || candidate.account !== input.account
+  ) {
+    return null;
+  }
+  return { depositId: candidate.id };
+}
+
 // =============================================================================
 // PER-ACCOUNT ADMISSION CAP
 // =============================================================================
@@ -464,6 +508,99 @@ export async function claimLusterWorkRow(input: {
     return { claimed: false, id: existing?.id ?? null };
   }
   return { claimed: true, id: row.id, attempts: row.attempts };
+}
+
+/**
+ * Claim the stable per-deposit poll lease, re-arming it when a prior buggy or
+ * interrupted run left the same one-shot identity safely claimable.
+ *
+ * A plain `ON CONFLICT DO NOTHING` permanently consumes
+ * `luster:poll_evidence:<deposit>` once a run finalizes it `processed`. The
+ * discovery scan then sees no excluding row, tries to park again every five
+ * minutes, loses the conflict forever, and repeatedly calls the provider. This
+ * CAS admits only the same states as ordinary duplicate/reclaim handling plus a
+ * `processed` poll lease. Manual money terminals and poison remain absorbing.
+ */
+export async function claimOrRearmPollEvidenceWorkRow(input: {
+  eventId: string;
+  account: string;
+  livemode: boolean;
+  salonId: string;
+  sessionId: string;
+  depositId: string;
+  projection?: Partial<WebhookEventProjection>;
+}): Promise<LusterWorkRowClaim> {
+  const inserted = await claimLusterWorkRow({
+    ...input,
+    type: 'luster.poll_evidence',
+  });
+  if (inserted.claimed || !inserted.id) {
+    return inserted;
+  }
+
+  const now = new Date();
+  const staleCutoff = new Date(now.getTime() - CLAIM_STALE_AFTER_MS);
+  const projection = input.projection;
+  const rows = await db
+    .update(stripeWebhookEventSchema)
+    .set({
+      status: 'processing',
+      outcome: null,
+      attempts: sql`${stripeWebhookEventSchema.attempts} + 1`,
+      availableAt: null,
+      lastError: null,
+      processedAt: null,
+      account: input.account,
+      livemode: input.livemode,
+      salonId: input.salonId,
+      sessionId: input.sessionId,
+      metadataDepositId: input.depositId,
+      paymentIntentId: projection?.paymentIntentId ?? null,
+      paymentStatus: projection?.paymentStatus ?? null,
+      amountTotal: projection?.amountTotal ?? null,
+      currency: projection?.currency ?? null,
+      metadataAppointmentId: projection?.metadataAppointmentId ?? null,
+      metadataSalonId: projection?.metadataSalonId ?? null,
+      clientReferenceId: projection?.clientReferenceId ?? null,
+      projectionStatus: 'ok',
+      updatedAt: sql`now()`,
+    })
+    .where(and(
+      eq(stripeWebhookEventSchema.id, inserted.id),
+      eq(stripeWebhookEventSchema.eventId, input.eventId),
+      eq(stripeWebhookEventSchema.type, 'luster.poll_evidence'),
+      eq(stripeWebhookEventSchema.salonId, input.salonId),
+      eq(stripeWebhookEventSchema.account, input.account),
+      or(
+        and(
+          eq(stripeWebhookEventSchema.status, 'processed'),
+          // The reviewed build finalized a poll lease as ignored_unpaid; the
+          // same run's retention pass then stripped its deposit projection.
+          // Recover that exact stable internal identity without weakening the
+          // account/salon/type fences used for every other conflict.
+          or(
+            eq(stripeWebhookEventSchema.metadataDepositId, input.depositId),
+            isNull(stripeWebhookEventSchema.metadataDepositId),
+          ),
+        ),
+        and(
+          eq(stripeWebhookEventSchema.status, 'failed_retryable'),
+          eq(stripeWebhookEventSchema.metadataDepositId, input.depositId),
+          lte(stripeWebhookEventSchema.availableAt, now),
+        ),
+        and(
+          eq(stripeWebhookEventSchema.status, 'processing'),
+          eq(stripeWebhookEventSchema.metadataDepositId, input.depositId),
+          lt(stripeWebhookEventSchema.updatedAt, staleCutoff),
+        ),
+      ),
+    ))
+    .returning();
+
+  const row = rows[0];
+  return row
+    ? { claimed: true, id: row.id, attempts: row.attempts }
+    : { claimed: false, id: inserted.id };
 }
 
 /** Stable identity for the once-per-deposit stuck alert. */

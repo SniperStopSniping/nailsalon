@@ -1,3 +1,4 @@
+import { pingCronHeartbeat } from '@/libs/cronHeartbeat';
 import { runDepositReconcile } from '@/libs/depositReconcile';
 
 /**
@@ -10,9 +11,10 @@ import { runDepositReconcile } from '@/libs/depositReconcile';
  *
  * THE GUARD RETURNS A RESPONSE RATHER THAN THROWING, so a rotated secret or a
  * route regression produces 401s and 500s that reach no error pipeline. Every
- * alarm this sweep owns lives inside the process that would have stalled, which
- * is precisely why cron liveness has to be monitored OUT OF BAND. That monitor
- * is a deployment requirement, not something this file can provide.
+ * alarm this sweep owns lives inside the process that would have stalled. A
+ * Checkly heartbeat therefore runs OUT OF BAND and this route reports to it
+ * only after the authenticated sweep completes successfully. Its generated
+ * ping URL still requires the owner activation step recorded in the PR.
  *
  * THIS ROUTE IS SHARED. A later packet adds refund passes here and adds no cron
  * entry of its own, so the per-invocation budget below is shared with it.
@@ -55,6 +57,7 @@ async function handleReconcile(request: Request): Promise<Response> {
     }
 
     const result = await runDepositReconcile();
+    await pingCronHeartbeat('deposit_reconcile');
     return Response.json({ data: result });
   } catch (error) {
     console.error('[deposits] Reconcile sweep failed:', error);

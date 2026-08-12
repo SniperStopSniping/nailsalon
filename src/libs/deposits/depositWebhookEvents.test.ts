@@ -10,6 +10,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -30,6 +31,7 @@ vi.mock('@/libs/DB', () => ({
 import {
   ADMISSION_CAP_ABSOLUTE,
   ADMISSION_CAP_BASE,
+  claimOrRearmPollEvidenceWorkRow,
   countLiveNoDepositRows,
   depositIdsWithExcludingEventRows,
   evaluateProvenance,
@@ -39,6 +41,7 @@ import {
   PAYLOAD_PURGE_AFTER_MS,
   resolveAdmissionCap,
   resolveProvenanceSalonForAdmission,
+  resolveVerifiedOrphanCandidate,
   shouldStripProjection,
 } from './depositWebhookEvents';
 /* eslint-enable import/first */
@@ -593,5 +596,108 @@ describe('isPastOrphanHorizon', () => {
 
     expect(isPastOrphanHorizon(new Date(now.getTime() - 89 * 60_000), now)).toBe(false);
     expect(isPastOrphanHorizon(new Date(now.getTime() - 91 * 60_000), now)).toBe(true);
+  });
+});
+
+describe('poll-evidence lease rearm', () => {
+  const input = {
+    eventId: 'luster:poll_evidence:dep_poll_rearm',
+    account: 'acct_poll_rearm',
+    livemode: false,
+    salonId: 'salon_poll_rearm',
+    sessionId: 'cs_poll_rearm',
+    depositId: 'dep_poll_rearm',
+  };
+
+  it('reuses a safely processed stable identity with a fresh fencing token', async () => {
+    const first = await claimOrRearmPollEvidenceWorkRow(input);
+
+    expect(first.claimed).toBe(true);
+
+    if (!first.claimed) {
+      throw new Error('initial poll claim failed');
+    }
+    await db.update(schema.stripeWebhookEventSchema)
+      // Reproduce the reviewed build after its same-run retention pass: the
+      // consumed poll identity remains, but its deposit/session projection was
+      // stripped because the terminal outcome was `ignored_unpaid`.
+      .set({
+        status: 'processed',
+        outcome: 'ignored_unpaid',
+        processedAt: new Date(),
+        sessionId: null,
+        metadataDepositId: null,
+      })
+      .where(eq(schema.stripeWebhookEventSchema.id, first.id));
+
+    const second = await claimOrRearmPollEvidenceWorkRow({
+      ...input,
+      projection: { paymentStatus: 'paid', paymentIntentId: 'pi_fresh' },
+    });
+
+    expect(second).toMatchObject({ claimed: true, id: first.id, attempts: 2 });
+
+    const [row] = await db.select().from(schema.stripeWebhookEventSchema)
+      .where(eq(schema.stripeWebhookEventSchema.id, first.id));
+
+    expect(row?.status).toBe('processing');
+    expect(row?.outcome).toBeNull();
+    expect(row?.processedAt).toBeNull();
+    expect(row?.paymentStatus).toBe('paid');
+    expect(row?.paymentIntentId).toBe('pi_fresh');
+  });
+
+  it('never re-arms a manual money terminal', async () => {
+    const first = await claimOrRearmPollEvidenceWorkRow(input);
+
+    expect(first.claimed).toBe(true);
+
+    if (!first.claimed) {
+      throw new Error('initial poll claim failed');
+    }
+    await db.update(schema.stripeWebhookEventSchema)
+      .set({ status: 'held_mismatch', outcome: 'held_mismatch', processedAt: new Date() })
+      .where(eq(schema.stripeWebhookEventSchema.id, first.id));
+
+    const second = await claimOrRearmPollEvidenceWorkRow(input);
+
+    expect(second).toEqual({ claimed: false, id: first.id });
+
+    const [row] = await db.select().from(schema.stripeWebhookEventSchema)
+      .where(eq(schema.stripeWebhookEventSchema.id, first.id));
+
+    expect(row?.status).toBe('held_mismatch');
+    expect(row?.attempts).toBe(1);
+  });
+});
+
+describe('orphan candidate verification', () => {
+  it('requires both provenance-salon and stored-account legs and never cross-adopts', async () => {
+    await seedSalon('salon_candidate');
+    await seedAppointment({ id: 'appt_candidate', salonId: 'salon_candidate' });
+    await seedDeposit({
+      id: 'dep_candidate',
+      salonId: 'salon_candidate',
+      appointmentId: 'appt_candidate',
+      account: 'acct_candidate',
+      status: 'checkout_created',
+      sessionId: 'cs_candidate',
+    });
+
+    await expect(resolveVerifiedOrphanCandidate({
+      metadataDepositId: 'dep_candidate',
+      provenanceSalonId: 'salon_candidate',
+      account: 'acct_candidate',
+    })).resolves.toEqual({ depositId: 'dep_candidate' });
+    await expect(resolveVerifiedOrphanCandidate({
+      metadataDepositId: 'dep_candidate',
+      provenanceSalonId: 'salon_other',
+      account: 'acct_candidate',
+    })).resolves.toBeNull();
+    await expect(resolveVerifiedOrphanCandidate({
+      metadataDepositId: 'dep_candidate',
+      provenanceSalonId: 'salon_candidate',
+      account: 'acct_other',
+    })).resolves.toBeNull();
   });
 });

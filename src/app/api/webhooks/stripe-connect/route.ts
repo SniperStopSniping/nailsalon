@@ -27,17 +27,16 @@ import {
   isOverAdmissionCap,
   projectStripeEvent,
 } from '@/libs/deposits/depositWebhookEvents';
-import { runLateDepositRecovery } from '@/libs/deposits/lateDepositRecovery';
+import {
+  isSweepRetryableRecoveryResult,
+  type RecoveryResult,
+  runLateDepositRecovery,
+} from '@/libs/deposits/lateDepositRecovery';
 import { Env } from '@/libs/Env';
 import { EXPECTED_STRIPE_API_VERSION, stripe } from '@/libs/stripe';
-import {
-  getBindingsByStripeAccountId,
-  revokeBinding,
-} from '@/libs/stripeConnect/binding';
+import { dispatchAccountWebhook } from '@/libs/stripeConnect/accountWebhookDispatch';
 import {
   expectedLivemode,
-  StripeConnectUnavailableError,
-  syncAccountReadiness,
 } from '@/libs/stripeConnect/readiness';
 import {
   CLAIM_STALE_AFTER_MS,
@@ -295,12 +294,15 @@ async function dispatch(
     return handleRefundEvent(event, claim);
   }
 
-  if (event.type === 'account.updated') {
-    return handleAccountUpdated(event, claim, account, expected);
-  }
-
-  if (event.type === 'account.application.deauthorized') {
-    return handleDeauthorized(event, claim, account);
+  const accountDispatch = await dispatchAccountWebhook({
+    type: event.type,
+    eventId: event.id,
+    account,
+    claim,
+    expectedLivemode: expected,
+  });
+  if (accountDispatch !== 'unhandled') {
+    return accountDispatch === 'retry' ? retryLater() : ok();
   }
 
   await finalizeTerminal({
@@ -388,7 +390,17 @@ async function handleCheckoutSession(
       depositId: result.depositId,
       salonId: result.salonId,
     });
-    await finalizeD5Terminal(claim, 'processed', recoveryOutcome(recovery.disposition));
+    if (isSweepRetryableRecoveryResult(recovery)) {
+      await finalizeRetryable({
+        id: claim.id,
+        attempts: claim.attempts,
+        outcome: 'deferred_no_deposit',
+        lastError: recovery.note,
+        availableAt: new Date(Date.now() + 60_000),
+      });
+      return retryLater();
+    }
+    await finalizeD5Terminal(claim, 'processed', recoveryOutcome(recovery));
     return ok();
   }
 
@@ -533,8 +545,8 @@ async function finalizeConfirmResult(
   }
 }
 
-function recoveryOutcome(disposition: string): string {
-  switch (disposition) {
+function recoveryOutcome(recovery: RecoveryResult): string {
+  switch (recovery.disposition) {
     case 'restored':
       return 'restored';
     case 'refunded':
@@ -543,8 +555,20 @@ function recoveryOutcome(disposition: string): string {
       return 'already_confirmed';
     case 'already_confirmed_late_refund':
       return 'already_confirmed_late_refund';
-    default:
-      return 'deferred_no_deposit';
+    case 'refund_failed_unreconciled':
+      return 'refund_failed_unreconciled';
+    case 'orphan_unresolved':
+      return 'orphan_unresolved';
+    case 'noop':
+      // The only retryable noop was handled above using its exact note. Every
+      // remaining noop is a terminal/idempotent recovery observation; retain
+      // the pre-existing refund-intent terminal semantics without writing a
+      // retry-lane outcome on a processed row.
+      return 'refunded';
+    default: {
+      const exhaustive: never = recovery.disposition;
+      throw new Error(`unexpected recovery disposition: ${String(exhaustive)}`);
+    }
   }
 }
 
@@ -569,180 +593,4 @@ async function finalizeD5Terminal(
     outcome: outcome as Parameters<typeof finalizeWebhookEvent>[0]['outcome'],
     processedAt: new Date(),
   });
-}
-
-async function handleAccountUpdated(
-  event: Stripe.Event,
-  claim: Claim,
-  account: string,
-  expected: boolean,
-): Promise<Response> {
-  const bindings = await getBindingsByStripeAccountId(account);
-
-  if (bindings.length === 0) {
-    // A REAL window inside D2: `accounts.create` returns at t0 and the binding
-    // INSERT lands at t0+Δ. Never terminal-ignore this on the first delivery.
-    if (claim.attempts >= UNBOUND_MAX_ATTEMPTS) {
-      Sentry.captureMessage('stripe_connect_unbound_unresolved', {
-        level: 'error',
-        tags: { webhook: 'stripe-connect' },
-        extra: { eventId: event.id, account },
-      });
-      await finalizeTerminal({
-        id: claim.id,
-        attempts: claim.attempts,
-        outcome: 'unbound_unresolved',
-      });
-      return ok();
-    }
-    await finalizeRetryable({
-      id: claim.id,
-      attempts: claim.attempts,
-      outcome: 'unbound_account',
-      availableAt: new Date(Date.now() + unboundBackoffMs(claim.attempts)),
-    });
-    return retryLater();
-  }
-
-  const live = bindings.find(binding => binding.revokedAt === null);
-
-  if (!live) {
-    // Without this arm an `account.updated` arriving after a deauthorization
-    // would drive `accounts.retrieve` against an account we can no longer read →
-    // exception → 500 → three days of retries with no cap and no alert.
-    await finalizeTerminal({
-      id: claim.id,
-      attempts: claim.attempts,
-      outcome: 'ignored_revoked_binding',
-    });
-    return ok();
-  }
-
-  if (live.livemode !== expected) {
-    // ROW-level discriminator. The event-level gate above compares
-    // `event.livemode` and has already passed. `failed_retryable` is the one
-    // wrong answer here: a retry cannot change a stored column, so it would buy
-    // three days of pointless redeliveries on an event that can never converge.
-    // The literal is REUSED, not minted; `last_error` is what lets a runbook
-    // separate this population from the event-level gate.
-    Sentry.captureMessage('stripe_connect_mode_mismatch', {
-      level: 'error',
-      tags: { webhook: 'stripe-connect' },
-      extra: { eventId: event.id, bindingId: live.id },
-    });
-    await finalizeTerminal({
-      id: claim.id,
-      attempts: claim.attempts,
-      outcome: 'ignored_livemode',
-      lastError: 'binding_livemode_mismatch',
-    });
-    return ok();
-  }
-
-  try {
-    await syncAccountReadiness(live);
-  } catch (error) {
-    if (
-      error instanceof StripeConnectUnavailableError
-      && error.code === 'PROVIDER_PERMANENT'
-    ) {
-      // Retrying cannot help: we can no longer act on this account. The audit
-      // row and the owner alert fire inside `revokeBinding`, and only when its
-      // CAS affects exactly one row (rule W-SE), so a redelivery cannot re-emit
-      // them.
-      await revokeBinding(live.id, 'deauthorized', {
-        actorId: 'system:stripe-connect-webhook',
-        viaSuperAdminWithoutMembership: false,
-        salonId: live.salonId,
-        stripeAccountId: live.stripeAccountId,
-        matchStripeAccountId: account,
-      });
-      await finalizeTerminal({
-        id: claim.id,
-        attempts: claim.attempts,
-        outcome: 'permanent_provider_error',
-      });
-      return ok();
-    }
-    // Transient. No cap: bounded by Stripe's retry horizon, not by D2.
-    await finalizeRetryable({
-      id: claim.id,
-      attempts: claim.attempts,
-      outcome: null,
-      lastError: 'provider_unreachable',
-      availableAt: new Date(Date.now() + unboundBackoffMs(claim.attempts)),
-    });
-    return retryLater();
-  }
-
-  await finalizeWebhookEvent({
-    id: claim.id,
-    attempts: claim.attempts,
-    status: 'processed',
-    outcome: 'processed',
-    processedAt: new Date(),
-  });
-  return ok();
-}
-
-async function handleDeauthorized(
-  event: Stripe.Event,
-  claim: Claim,
-  account: string,
-): Promise<Response> {
-  // Resolve ALL rows first, then branch THREE ways. Do not collapse the last two.
-  const bindings = await getBindingsByStripeAccountId(account);
-
-  if (bindings.length === 0) {
-    // No binding — revoked or otherwise — exists. Terminal, and deliberately NOT
-    // `ignored_revoked_binding`: conflating the two populations poisons exactly
-    // the runbook query the tenant-anomaly hunt cares about, "events for accounts
-    // we have no record of". The asymmetry with `account.updated` is intended:
-    // that event's payload becomes applicable the moment a binding INSERT lands,
-    // whereas a deauthorization has nothing to apply and nothing to recover.
-    Sentry.captureMessage('stripe_connect_unbound_unresolved', {
-      level: 'error',
-      tags: { webhook: 'stripe-connect' },
-      extra: { eventId: event.id, account },
-    });
-    await finalizeTerminal({
-      id: claim.id,
-      attempts: claim.attempts,
-      outcome: 'unbound_unresolved',
-    });
-    return ok();
-  }
-
-  const live = bindings.find(binding => binding.revokedAt === null);
-
-  if (!live) {
-    // There IS a binding and it is already revoked. Nothing to revoke, nothing
-    // to retry toward.
-    await finalizeTerminal({
-      id: claim.id,
-      attempts: claim.attempts,
-      outcome: 'ignored_revoked_binding',
-    });
-    return ok();
-  }
-
-  // Rule W-SE: `revokeBinding` writes the audit row and emits the owner alert
-  // ONLY when the CAS affects exactly one row, so every Stripe retry and
-  // duplicate delivery after the first is side-effect-free.
-  await revokeBinding(live.id, 'deauthorized', {
-    actorId: 'system:stripe-connect-webhook',
-    viaSuperAdminWithoutMembership: false,
-    salonId: live.salonId,
-    stripeAccountId: live.stripeAccountId,
-    matchStripeAccountId: account,
-  });
-
-  await finalizeWebhookEvent({
-    id: claim.id,
-    attempts: claim.attempts,
-    status: 'processed',
-    outcome: 'processed',
-    processedAt: new Date(),
-  });
-  return ok();
 }

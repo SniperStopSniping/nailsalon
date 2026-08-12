@@ -7,17 +7,26 @@ import { db } from '@/libs/DB';
 import { confirmDepositPayment, type ConfirmDisposition } from '@/libs/deposits/confirmDepositPayment';
 import {
   claimLusterWorkRow,
+  claimOrRearmPollEvidenceWorkRow,
   depositIdsWithExcludingEventRows,
+  evaluateProvenance,
+  isPastOrphanHorizon,
   isStuckPastExpiry,
   pollEvidenceEventId,
+  resolveVerifiedOrphanCandidate,
   shouldStripProjection,
   stuckAlertEventId,
 } from '@/libs/deposits/depositWebhookEvents';
 import {
   DEPOSIT_STRIPE_CALL_TIMEOUT_MS,
+  isSweepRetryableRecoveryResult,
+  type RecoveryResult,
   runLateDepositRecovery,
 } from '@/libs/deposits/lateDepositRecovery';
+import { Env } from '@/libs/Env';
 import { stripe } from '@/libs/stripe';
+import { dispatchAccountWebhook } from '@/libs/stripeConnect/accountWebhookDispatch';
+import { expectedLivemode } from '@/libs/stripeConnect/readiness';
 import { finalizeRetryable, finalizeWebhookEvent } from '@/libs/stripeConnect/webhookEvents';
 import {
   appointmentDepositSchema,
@@ -64,8 +73,15 @@ const CLAIM_STALE_MS = 15 * 60_000;
 /** Retry exhaustion. */
 const POISON_ATTEMPTS = 8;
 
+/** Human re-authorization gets the chartered roughly-three-day hourly lane. */
+const UNBOUND_WORK_MAX_ATTEMPTS = 72;
+
 /** Payload retention horizon. */
 const PURGE_HORIZON_MS = 14 * 24 * 60 * 60_000;
+
+/** Stored wrong-mode rows are expected occasionally; warn at most hourly. */
+const LIVEMODE_ALERT_INTERVAL_MS = 60 * 60_000;
+let storedLivemodeAlertedAt = 0;
 
 export type ReconcileSummary = {
   step0Scanned: number;
@@ -223,32 +239,29 @@ async function reconcileOneDeposit(
       await parkWorkRow(candidate, {
         outcome: 'awaiting_async_payment',
         availableAt: new Date(Date.now() + 60 * 60_000),
-      });
+      }, sessionProjection(session));
       summary.step0Parked += 1;
     }
     // `open` and `expired` sessions are D4's reaper's business, not ours.
     return;
   }
 
-  const metadata = session.metadata ?? {};
+  const projection = sessionProjection(session);
   const result = await confirmDepositPayment({
     source: 'sweep_deposit',
     connectedAccountId: candidate.account,
     sessionId: candidate.sessionId,
-    paymentIntentId: typeof session.payment_intent === 'string'
-      ? session.payment_intent
-      : session.payment_intent?.id ?? null,
-    paymentStatus: session.payment_status ?? null,
-    amountTotal: session.amount_total ?? null,
-    currency: session.currency ?? null,
-    metadataAppointmentId: metadata.appointment_id ?? null,
-    metadataSalonId: metadata.salon_id ?? null,
-    metadataDepositId: metadata.deposit_id ?? null,
+    ...projection,
   });
 
   if (result.disposition === 'late_recovery_required' && result.depositId && result.salonId) {
-    await runLateDepositRecovery({ depositId: result.depositId, salonId: result.salonId });
-    summary.step0Confirmed += 1;
+    const recovery = await runLateDepositRecovery({ depositId: result.depositId, salonId: result.salonId });
+    if (isSweepRetryableRecoveryResult(recovery)) {
+      await parkWorkRow(candidate, recoveryRetrySchedule(recovery), projection);
+      summary.step0Parked += 1;
+    } else {
+      summary.step0Confirmed += 1;
+    }
     return;
   }
 
@@ -259,8 +272,26 @@ async function reconcileOneDeposit(
 
   // NON-CONVERGING. Park it on a durable work row so it does not re-drive at
   // cron frequency, on the schedule its class deserves.
-  await parkWorkRow(candidate, dispositionSchedule(result.disposition));
+  await parkWorkRow(candidate, dispositionSchedule(result.disposition), projection);
   summary.step0Parked += 1;
+}
+
+function sessionProjection(
+  session: Awaited<ReturnType<typeof stripe.checkout.sessions.retrieve>>,
+) {
+  const metadata = session.metadata ?? {};
+  return {
+    paymentIntentId: typeof session.payment_intent === 'string'
+      ? session.payment_intent
+      : session.payment_intent?.id ?? null,
+    paymentStatus: session.payment_status ?? null,
+    amountTotal: session.amount_total ?? null,
+    currency: session.currency ?? null,
+    metadataAppointmentId: metadata.appointment_id ?? null,
+    metadataSalonId: metadata.salon_id ?? null,
+    metadataDepositId: metadata.deposit_id ?? null,
+    clientReferenceId: session.client_reference_id ?? null,
+  };
 }
 
 function isConvergedDisposition(disposition: ConfirmDisposition): boolean {
@@ -291,28 +322,41 @@ function dispositionSchedule(disposition: ConfirmDisposition): {
   }
 }
 
+function recoveryRetrySchedule(recovery: RecoveryResult): {
+  outcome: string;
+  availableAt: Date;
+  lastError: string;
+} {
+  return {
+    outcome: 'deferred_no_deposit',
+    availableAt: new Date(Date.now() + 60_000),
+    lastError: recovery.note ?? 'recovery_retryable',
+  };
+}
+
 /**
- * Classifies a retrieval failure. A transient failure gets NO work row — a
- * network blip must not consume the escalation ladder that exists for real,
- * permanent problems.
+ * Classifies every retrieval failure onto a durable lane. Leaving transient
+ * failures rowless would return the deposit to Step 0 on every cron run and
+ * create an unbounded provider loop; the poll row instead supplies backoff,
+ * fencing and the ordinary poison ceiling.
  */
 async function parkRetrievalFailure(
   candidate: { id: string; salonId: string; sessionId: string | null; account: string },
   error: unknown,
   summary: ReconcileSummary,
 ): Promise<void> {
-  const code = (error as { code?: string })?.code;
-  const statusCode = (error as { statusCode?: number })?.statusCode ?? 0;
-
-  if (statusCode === 429 || statusCode >= 500 || !code) {
-    // Transient. Skip and retry on the next run.
-    return;
-  }
-
-  const deauthClass = code === 'account_invalid' || code === 'application_not_authorized';
-  await parkWorkRow(candidate, deauthClass
-    ? { outcome: 'unbound_account', availableAt: new Date(Date.now() + 60 * 60_000) }
-    : { outcome: 'deferred_no_deposit', availableAt: new Date(Date.now() + 60_000) });
+  const failure = classifyRetrievalFailure(error);
+  await parkWorkRow(candidate, failure === 'unbound_account'
+    ? {
+        outcome: 'unbound_account',
+        lastError: failure,
+        availableAt: new Date(Date.now() + 60 * 60_000),
+      }
+    : {
+        outcome: 'deferred_no_deposit',
+        lastError: failure,
+        availableAt: new Date(Date.now() + 60_000),
+      });
   summary.step0Parked += 1;
 }
 
@@ -324,16 +368,21 @@ async function parkRetrievalFailure(
  */
 async function parkWorkRow(
   candidate: { id: string; salonId: string; sessionId: string | null; account: string },
-  schedule: { outcome: string; availableAt?: Date; terminalStatus?: string },
+  schedule: { outcome: string; availableAt?: Date; terminalStatus?: string; lastError?: string },
+  projection?: ReturnType<typeof sessionProjection>,
 ): Promise<void> {
-  const claim = await claimLusterWorkRow({
+  if (!candidate.sessionId) {
+    return;
+  }
+
+  const claim = await claimOrRearmPollEvidenceWorkRow({
     eventId: pollEvidenceEventId(candidate.id),
-    type: 'luster.poll_evidence',
     account: candidate.account,
     livemode: false,
     salonId: candidate.salonId,
     sessionId: candidate.sessionId,
     depositId: candidate.id,
+    projection,
   });
 
   if (!claim.claimed) {
@@ -356,6 +405,7 @@ async function parkWorkRow(
     id: claim.id,
     attempts: claim.attempts,
     outcome: schedule.outcome as Parameters<typeof finalizeRetryable>[0]['outcome'],
+    lastError: schedule.lastError,
     availableAt: schedule.availableAt ?? new Date(Date.now() + 60_000),
   });
 }
@@ -401,20 +451,29 @@ async function runLateCheck(summary: ReconcileSummary): Promise<void> {
     summary.step0bScanned += 1;
 
     let paid = false;
+    let retrievedSession: Awaited<ReturnType<typeof stripe.checkout.sessions.retrieve>> | null = null;
     try {
-      const session = await stripe.checkout.sessions.retrieve(candidate.sessionId, {
+      retrievedSession = await stripe.checkout.sessions.retrieve(candidate.sessionId, {
         stripeAccount: candidate.account,
         timeout: DEPOSIT_STRIPE_CALL_TIMEOUT_MS,
       });
-      paid = session.payment_status === 'paid';
+      paid = retrievedSession.payment_status === 'paid';
     } catch (error) {
       await parkRetrievalFailure(candidate, error, summary);
       continue;
     }
 
     if (paid) {
-      await runLateDepositRecovery({ depositId: candidate.id, salonId: candidate.salonId });
-      summary.step0bRecovered += 1;
+      const recovery = await runLateDepositRecovery({ depositId: candidate.id, salonId: candidate.salonId });
+      if (isSweepRetryableRecoveryResult(recovery)) {
+        await parkWorkRow(
+          candidate,
+          recoveryRetrySchedule(recovery),
+          retrievedSession ? sessionProjection(retrievedSession) : undefined,
+        );
+      } else {
+        summary.step0bRecovered += 1;
+      }
       continue;
     }
 
@@ -578,8 +637,95 @@ async function redispatch(
     return;
   }
 
-  if (claim.attempts >= POISON_ATTEMPTS) {
-    Sentry.captureMessage('deposit_event_poisoned', {
+  // D2 owns `account.*` for its entire lifetime, including retries driven by
+  // this sweep. It deliberately has no generic poison cap; sending its NULL
+  // Checkout projection into routine A changes both the owner and the backoff.
+  if (row.type.startsWith('account.')) {
+    // Preserve D2's receipt-layer safe disable. A disabled account event stays
+    // owned by its original retry lane and is not reclassified by routine A.
+    if (Env.DEPOSITS_CONNECT_WEBHOOK_PROCESSING_ENABLED === 'false') {
+      await finalizeRetryable({
+        id: row.id,
+        attempts: claim.attempts,
+        outcome: 'disabled_by_flag',
+        availableAt: new Date(Date.now() + 60 * 60_000),
+      });
+      return;
+    }
+    let expected: boolean;
+    try {
+      expected = expectedLivemode();
+    } catch {
+      await finalizeRetryable({
+        id: row.id,
+        attempts: claim.attempts,
+        outcome: row.outcome as Parameters<typeof finalizeRetryable>[0]['outcome'],
+        lastError: 'mode_indeterminate',
+        availableAt: new Date(Date.now() + 60_000),
+      });
+      return;
+    }
+    // This is the stored equivalent of D2's event-level mode gate. It must run
+    // before the row-level binding discriminator and before any provider call.
+    if (row.livemode !== expected) {
+      const now = Date.now();
+      if (now - storedLivemodeAlertedAt >= LIVEMODE_ALERT_INTERVAL_MS) {
+        storedLivemodeAlertedAt = now;
+        Sentry.captureMessage('stripe_connect_ignored_livemode', {
+          level: 'warning',
+          tags: { webhook: 'stripe-connect', source: 'reconcile' },
+          extra: { eventId: row.eventId },
+        });
+      }
+      await finalizeWebhookEvent({
+        id: row.id,
+        attempts: claim.attempts,
+        status: 'processed',
+        outcome: 'ignored_livemode',
+        processedAt: new Date(),
+      });
+      return;
+    }
+    if (!row.account) {
+      Sentry.captureMessage('stripe_connect_non_connect_scope', {
+        level: 'error',
+        tags: { webhook: 'stripe-connect', source: 'reconcile' },
+        extra: { eventId: row.eventId, eventType: row.type },
+      });
+      await finalizeWebhookEvent({
+        id: row.id,
+        attempts: claim.attempts,
+        status: 'processed',
+        outcome: 'ignored_non_connect_scope',
+        processedAt: new Date(),
+      });
+      return;
+    }
+    const result = await dispatchAccountWebhook({
+      type: row.type,
+      eventId: row.eventId,
+      account: row.account,
+      claim: { id: row.id, attempts: claim.attempts },
+      expectedLivemode: expected,
+    });
+    if (result === 'ok') {
+      summary.eventsRedispatched += 1;
+    } else if (result === 'unhandled') {
+      await finalizeWebhookEvent({
+        id: row.id,
+        attempts: claim.attempts,
+        status: 'processed',
+        outcome: 'ignored_unhandled',
+        processedAt: new Date(),
+      });
+      summary.eventsRedispatched += 1;
+    }
+    return;
+  }
+
+  const longUnboundLane = row.outcome === 'unbound_account';
+  if (longUnboundLane && claim.attempts >= UNBOUND_WORK_MAX_ATTEMPTS) {
+    Sentry.captureMessage('deposit_event_unbound_unresolved', {
       level: 'error',
       tags: { deposits: 'reconcile' },
       extra: { eventId: row.eventId, attempts: claim.attempts },
@@ -587,11 +733,18 @@ async function redispatch(
     await finalizeWebhookEvent({
       id: row.id,
       attempts: claim.attempts,
-      status: 'poisoned',
-      outcome: 'poisoned',
+      status: 'unbound_unresolved',
+      outcome: 'unbound_unresolved',
       processedAt: new Date(),
     });
-    summary.eventsPoisoned += 1;
+    return;
+  }
+
+  if (!longUnboundLane && claim.attempts >= POISON_ATTEMPTS) {
+    if (await finalizeExhaustedDeferredOrphan(row, claim.attempts, summary)) {
+      return;
+    }
+    await poisonEvent(row, claim.attempts, summary);
     return;
   }
 
@@ -601,17 +754,26 @@ async function redispatch(
   // `already_confirmed`, and PERMANENTLY consume its event id — after which
   // that refund can never be retried.
   if (row.type === 'luster.refund_intent' || row.type === 'luster.owner_refund_intent') {
-    if (row.metadataDepositId && row.salonId) {
-      await runLateDepositRecovery({ depositId: row.metadataDepositId, salonId: row.salonId });
+    if (!row.metadataDepositId || !row.salonId) {
+      await finalizeRetryable({
+        id: row.id,
+        attempts: claim.attempts,
+        outcome: 'deferred_no_deposit',
+        lastError: 'refund_intent_context_missing',
+        availableAt: new Date(Date.now() + 60_000),
+      });
+      return;
     }
-    await finalizeWebhookEvent({
-      id: row.id,
-      attempts: claim.attempts,
-      status: 'processed',
-      outcome: 'refunded',
-      processedAt: new Date(),
+    const recovery = await runLateDepositRecovery({
+      depositId: row.metadataDepositId,
+      salonId: row.salonId,
     });
-    summary.eventsRedispatched += 1;
+    await finalizeRecoveryWorkResult(row, claim.attempts, recovery, summary);
+    return;
+  }
+
+  if (row.type === 'luster.poll_evidence') {
+    await redispatchPollEvidence(row, claim.attempts, summary);
     return;
   }
 
@@ -625,10 +787,21 @@ async function redispatch(
     return;
   }
 
-  const result = await confirmDepositPayment({
+  await finalizeConfirmWorkResult(
+    row,
+    claim.attempts,
+    await confirmFromStoredEvent(row),
+    summary,
+  );
+}
+
+async function confirmFromStoredEvent(row: typeof stripeWebhookEventSchema.$inferSelect) {
+  if (!row.sessionId || !row.account) {
+    return { disposition: 'deferred_no_deposit' as const };
+  }
+  return confirmDepositPayment({
     // The STORED account column, never the deposit snapshot: sourcing it from
-    // the snapshot collapses the four-leg match into a self-comparison, and an
-    // event from another account would confirm this deposit.
+    // the snapshot collapses the four-leg match into a self-comparison.
     source: 'sweep_event',
     connectedAccountId: row.account,
     sessionId: row.sessionId,
@@ -640,24 +813,203 @@ async function redispatch(
     metadataSalonId: row.metadataSalonId,
     metadataDepositId: row.metadataDepositId,
   });
+}
 
-  if (result.disposition === 'late_recovery_required' && result.depositId && result.salonId) {
-    await runLateDepositRecovery({ depositId: result.depositId, salonId: result.salonId });
+async function finalizeExhaustedDeferredOrphan(
+  row: typeof stripeWebhookEventSchema.$inferSelect,
+  attempts: number,
+  summary: ReconcileSummary,
+): Promise<boolean> {
+  if (
+    !row.type.startsWith('checkout.session.')
+    || row.outcome !== 'deferred_no_deposit'
+    || row.projectionStatus !== 'ok'
+    || !row.account
+  ) {
+    return false;
+  }
+
+  const provenance = await evaluateProvenance({
+    account: row.account,
+    metadataSalonId: row.metadataSalonId,
+    clientReferenceId: row.clientReferenceId,
+  });
+
+  if (!provenance.admitted) {
+    // Admission is re-evaluated at the money-dark boundary. A foreign Session
+    // is not a poisoned Luster payment and must not fire a critical.
     await finalizeWebhookEvent({
       id: row.id,
-      attempts: claim.attempts,
-      status: 'processed',
-      outcome: 'refunded',
+      attempts,
+      status: 'ignored_foreign_session',
+      outcome: 'ignored_foreign_session',
       processedAt: new Date(),
     });
-    summary.eventsRedispatched += 1;
+    return true;
+  }
+
+  if (!isPastOrphanHorizon(row.receivedAt)) {
+    await finalizeRetryable({
+      id: row.id,
+      attempts,
+      outcome: 'deferred_no_deposit',
+      lastError: 'orphan_horizon_pending',
+      availableAt: new Date(Math.max(
+        Date.now() + 60_000,
+        row.receivedAt.getTime() + 90 * 60_000 + 1,
+      )),
+    });
+    return true;
+  }
+
+  // One final ordinary dispatch: a deposit that appeared at the boundary must
+  // converge normally rather than being labelled an orphan.
+  const result = await confirmFromStoredEvent(row);
+  if (result.disposition !== 'deferred_no_deposit') {
+    await finalizeConfirmWorkResult(row, attempts, result, summary);
+    return true;
+  }
+
+  const candidate = await resolveVerifiedOrphanCandidate({
+    metadataDepositId: row.metadataDepositId,
+    provenanceSalonId: provenance.salonId,
+    account: row.account,
+  });
+  Sentry.captureMessage('deposit_orphan_unresolved', {
+    level: 'error',
+    tags: { deposits: 'reconcile' },
+    extra: {
+      eventId: row.eventId,
+      sessionId: row.sessionId,
+      ...(candidate ? { candidateDepositId: candidate.depositId } : {}),
+    },
+  });
+  await finalizeWebhookEvent({
+    id: row.id,
+    attempts,
+    status: 'orphan_unresolved',
+    outcome: 'orphan_unresolved',
+    processedAt: new Date(),
+  });
+  summary.eventsRedispatched += 1;
+  return true;
+}
+
+async function redispatchPollEvidence(
+  row: typeof stripeWebhookEventSchema.$inferSelect,
+  attempts: number,
+  summary: ReconcileSummary,
+): Promise<void> {
+  if (!row.metadataDepositId || !row.salonId) {
+    await finalizeRetryable({
+      id: row.id,
+      attempts,
+      outcome: 'deferred_no_deposit',
+      lastError: 'poll_deposit_context_missing',
+      availableAt: new Date(Date.now() + 60_000),
+    });
+    return;
+  }
+
+  const [deposit] = await db
+    .select({
+      id: appointmentDepositSchema.id,
+      salonId: appointmentDepositSchema.salonId,
+      account: appointmentDepositSchema.stripeAccountId,
+      sessionId: appointmentDepositSchema.stripeCheckoutSessionId,
+    })
+    .from(appointmentDepositSchema)
+    .where(and(
+      eq(appointmentDepositSchema.id, row.metadataDepositId),
+      eq(appointmentDepositSchema.salonId, row.salonId),
+    ))
+    .limit(1);
+
+  if (!deposit?.sessionId) {
+    await finalizeRetryable({
+      id: row.id,
+      attempts,
+      outcome: 'deferred_no_deposit',
+      lastError: 'poll_deposit_absent',
+      availableAt: new Date(Date.now() + 60_000),
+    });
+    return;
+  }
+
+  let session: Awaited<ReturnType<typeof stripe.checkout.sessions.retrieve>>;
+  try {
+    session = await stripe.checkout.sessions.retrieve(deposit.sessionId, {
+      stripeAccount: deposit.account,
+      timeout: DEPOSIT_STRIPE_CALL_TIMEOUT_MS,
+    });
+  } catch (error) {
+    const failure = classifyRetrievalFailure(error);
+    await finalizeRetryable({
+      id: row.id,
+      attempts,
+      outcome: failure === 'unbound_account' ? 'unbound_account' : 'deferred_no_deposit',
+      lastError: failure,
+      availableAt: new Date(Date.now() + (
+        failure === 'unbound_account' ? 60 * 60_000 : 60_000
+      )),
+    });
+    return;
+  }
+
+  if (session.payment_status !== 'paid') {
+    // Keep ownership on the durable hourly lane. Finalizing this `processed`
+    // would return the deposit to Step 0 and recreate a five-minute loop while
+    // the stable event id prevents a new lease from being inserted.
+    await finalizeRetryable({
+      id: row.id,
+      attempts,
+      outcome: 'awaiting_async_payment',
+      availableAt: new Date(Date.now() + 60 * 60_000),
+    });
+    return;
+  }
+
+  const projection = sessionProjection(session);
+  const result = await confirmDepositPayment({
+    source: 'sweep_deposit',
+    connectedAccountId: deposit.account,
+    sessionId: deposit.sessionId,
+    ...projection,
+  });
+  await finalizeConfirmWorkResult(row, attempts, result, summary);
+}
+
+function classifyRetrievalFailure(error: unknown): 'provider_transient' | 'unbound_account' | 'provider_permanent' {
+  const code = (error as { code?: string })?.code;
+  const statusCode = (error as { statusCode?: number })?.statusCode ?? 0;
+  if (statusCode === 429 || statusCode >= 500 || !code) {
+    return 'provider_transient';
+  }
+  if (code === 'account_invalid' || code === 'application_not_authorized') {
+    return 'unbound_account';
+  }
+  return 'provider_permanent';
+}
+
+async function finalizeConfirmWorkResult(
+  row: typeof stripeWebhookEventSchema.$inferSelect,
+  attempts: number,
+  result: Awaited<ReturnType<typeof confirmDepositPayment>>,
+  summary: ReconcileSummary,
+): Promise<void> {
+  if (result.disposition === 'late_recovery_required' && result.depositId && result.salonId) {
+    const recovery = await runLateDepositRecovery({
+      depositId: result.depositId,
+      salonId: result.salonId,
+    });
+    await finalizeRecoveryWorkResult(row, attempts, recovery, summary);
     return;
   }
 
   if (isConvergedDisposition(result.disposition)) {
     await finalizeWebhookEvent({
       id: row.id,
-      attempts: claim.attempts,
+      attempts,
       status: 'processed',
       outcome: result.disposition as Parameters<typeof finalizeWebhookEvent>[0]['outcome'],
       processedAt: new Date(),
@@ -670,7 +1022,7 @@ async function redispatch(
   if (schedule.terminalStatus) {
     await finalizeWebhookEvent({
       id: row.id,
-      attempts: claim.attempts,
+      attempts,
       status: schedule.terminalStatus as Parameters<typeof finalizeWebhookEvent>[0]['status'],
       outcome: schedule.outcome as Parameters<typeof finalizeWebhookEvent>[0]['outcome'],
       processedAt: new Date(),
@@ -680,10 +1032,81 @@ async function redispatch(
 
   await finalizeRetryable({
     id: row.id,
-    attempts: claim.attempts,
+    attempts,
     outcome: schedule.outcome as Parameters<typeof finalizeRetryable>[0]['outcome'],
     availableAt: schedule.availableAt ?? new Date(Date.now() + 60_000),
   });
+}
+
+async function finalizeRecoveryWorkResult(
+  row: typeof stripeWebhookEventSchema.$inferSelect,
+  attempts: number,
+  recovery: RecoveryResult,
+  summary: ReconcileSummary,
+): Promise<void> {
+  if (isSweepRetryableRecoveryResult(recovery)) {
+    const schedule = recoveryRetrySchedule(recovery);
+    await finalizeRetryable({
+      id: row.id,
+      attempts,
+      outcome: 'deferred_no_deposit',
+      lastError: schedule.lastError,
+      availableAt: schedule.availableAt,
+    });
+    return;
+  }
+
+  let outcome: Parameters<typeof finalizeWebhookEvent>[0]['outcome'];
+  switch (recovery.disposition) {
+    case 'restored':
+    case 'refunded':
+    case 'already_confirmed':
+    case 'already_confirmed_late_refund':
+    case 'refund_failed_unreconciled':
+    case 'orphan_unresolved':
+      outcome = recovery.disposition;
+      break;
+    case 'noop':
+      // Preserve the pre-existing idempotent refund-intent behaviour for the
+      // terminal noop notes; only `payment_intent_unresolved` is retryable.
+      outcome = 'refunded';
+      break;
+    default: {
+      const exhaustive: never = recovery.disposition;
+      throw new Error(`unhandled recovery disposition: ${String(exhaustive)}`);
+    }
+  }
+
+  await finalizeWebhookEvent({
+    id: row.id,
+    attempts,
+    status: recovery.disposition === 'orphan_unresolved' ? 'orphan_unresolved' : 'processed',
+    outcome,
+    processedAt: new Date(),
+  });
+  summary.eventsRedispatched += 1;
+}
+
+async function poisonEvent(
+  row: typeof stripeWebhookEventSchema.$inferSelect,
+  attempts: number,
+  summary: ReconcileSummary,
+  lastError?: string,
+): Promise<void> {
+  Sentry.captureMessage('deposit_event_poisoned', {
+    level: 'error',
+    tags: { deposits: 'reconcile' },
+    extra: { eventId: row.eventId, attempts },
+  });
+  await finalizeWebhookEvent({
+    id: row.id,
+    attempts,
+    status: 'poisoned',
+    outcome: 'poisoned',
+    lastError,
+    processedAt: new Date(),
+  });
+  summary.eventsPoisoned += 1;
 }
 
 // =============================================================================

@@ -16,6 +16,7 @@
     "check-types": "tsc --noEmit --pretty",
     "test": "node scripts/test-changed-source.mjs",
     "test:all": "vitest run",
+    "test:deposits:pg": "vitest run --no-file-parallelism src/libs/deposits/deposits.concurrency.integration.test.ts",
     "test:client-lifecycle:pg": "vitest run --no-file-parallelism src/libs/clientLifecycle.migration.integration.test.ts src/libs/clientLifecycle.concurrency.integration.test.ts src/libs/queries.clientLifecycle.integration.test.ts",
     "test:client-lifecycle:regression": "vitest run --no-file-parallelism src/libs/clientLifecycleMigrationRetry.test.ts src/libs/clientLifecycleStabilization.test.ts src/app/api/health/route.test.ts src/app/api/admin/retention/route.test.ts src/app/api/admin/retention/campaigns/route.test.ts 'src/app/api/appointments/[id]/communication/route.test.ts' 'src/app/api/appointments/[id]/review-followup/route.test.ts' 'src/app/api/admin/clients/[id]/flag/route.test.ts' src/libs/clientInsights.test.ts src/app/api/admin/client-hub/route.integration.test.ts src/libs/financialReportingServer.test.ts",
     "test:appointment-regression": "vitest run 'src/app/api/appointments/[id]/send-reminder/route.test.ts' 'src/app/api/appointments/[id]/communication/route.test.ts' 'src/app/api/appointments/[id]/manage/route.test.ts' src/libs/SMS.smart-reminder.test.ts src/libs/appointmentReminders.test.ts src/components/appointments/UpcomingAppointmentActions.test.tsx src/components/appointments/AppointmentQuickEditSheet.test.tsx src/components/admin/ClientCommunicationActions.test.tsx",

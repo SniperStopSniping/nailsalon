@@ -75,6 +75,18 @@ export type RecoveryResult = {
   note?: string;
 };
 
+/**
+ * The one recovery no-op that intentionally remains owned by the sweep.
+ *
+ * Other `noop` notes describe terminal/idempotent observations. Widening this
+ * predicate to every noop would keep already-refunded or vanished work alive
+ * forever; omitting this exact note permanently consumes the only retry driver
+ * while an asynchronously-settling Session still has no PaymentIntent.
+ */
+export function isSweepRetryableRecoveryResult(result: RecoveryResult): boolean {
+  return result.disposition === 'noop' && result.note === 'payment_intent_unresolved';
+}
+
 // =============================================================================
 // THE ENTRY SET — ONE PRODUCER
 // =============================================================================

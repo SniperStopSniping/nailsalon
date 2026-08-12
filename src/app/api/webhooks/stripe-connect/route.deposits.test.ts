@@ -463,6 +463,51 @@ describe('terminals', () => {
     expect(row?.outcome).toBe('account_mismatch');
     expect((await readDeposit(hold.depositId))?.status).toBe('checkout_created');
   });
+
+  it('keeps the event retryable when late recovery cannot resolve a PaymentIntent yet', async () => {
+    await seedBinding();
+    await seedHold({ depositStatus: 'canceled', appointmentStatus: 'cancelled' });
+    stripeMock.sessionsRetrieve.mockResolvedValue({ payment_intent: null });
+    const event = makeEvent({
+      data: { object: sessionPayload({ metadata: { salon_id: SALON_ID } }) },
+    });
+
+    const response = await POST(signedRequest(event));
+    const row = await readEvent(event.id);
+
+    expect(response.status).toBe(500);
+    expect(row?.status).toBe('failed_retryable');
+    expect(row?.outcome).toBe('deferred_no_deposit');
+    expect(row?.lastError).toBe('payment_intent_unresolved');
+    expect(row?.processedAt).toBeNull();
+    expect(row?.availableAt).not.toBeNull();
+    expect(stripeMock.refundsCreate).not.toHaveBeenCalled();
+  });
+
+  it('terminalizes a non-retryable recovery noop without storing a retry-lane outcome', async () => {
+    await seedBinding();
+    await seedHold({ depositStatus: 'refunded', appointmentStatus: 'confirmed' });
+    const event = makeEvent({
+      data: { object: sessionPayload({ metadata: { salon_id: SALON_ID } }) },
+    });
+
+    const response = await POST(signedRequest(event));
+    const row = await readEvent(event.id);
+
+    expect(response.status).toBe(200);
+    expect(row?.status).toBe('processed');
+    expect(row?.outcome).toBe('refunded');
+    expect(row?.processedAt).not.toBeNull();
+    expect(row?.availableAt).toBeNull();
+    expect(stripeMock.refundsCreate).not.toHaveBeenCalled();
+
+    const redelivery = await POST(signedRequest(event));
+    const rows = await db.select().from(schema.stripeWebhookEventSchema)
+      .where(eq(schema.stripeWebhookEventSchema.eventId, event.id));
+
+    expect(redelivery.status).toBe(200);
+    expect(rows).toHaveLength(1);
+  });
 });
 
 // ===========================================================================

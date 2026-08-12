@@ -9,6 +9,10 @@ const workflow = readFileSync(
   'utf8',
 );
 const config = readFileSync(join(process.cwd(), 'checkly.config.ts'), 'utf8');
+const depositCronHeartbeats = readFileSync(
+  join(process.cwd(), 'checks/depositCronHeartbeats.check.ts'),
+  'utf8',
+);
 
 function workflowStep(name: string): string {
   const marker = `      - name: ${name}`;
@@ -49,5 +53,29 @@ describe('Checkly environment targets', () => {
     );
     expect(config).toContain('baseURL: parsedEnvironmentURL.toString()');
     expect(config).not.toContain(PRODUCTION_URL);
+  });
+
+  it('declares one five-minute heartbeat plus five-minute grace for each money cron', () => {
+    expect(depositCronHeartbeats.match(/new HeartbeatCheck\(/g)).toHaveLength(2);
+    expect(depositCronHeartbeats).toContain(
+      '\'deposit-reconcile-cron-heartbeat\'',
+    );
+    expect(depositCronHeartbeats).toContain(
+      '\'integration-outbox-cron-heartbeat\'',
+    );
+    expect(depositCronHeartbeats).toContain('period: 5');
+    expect(depositCronHeartbeats).toContain('periodUnit: \'minutes\'');
+    expect(depositCronHeartbeats).toContain('grace: 5');
+    expect(depositCronHeartbeats).toContain('graceUnit: \'minutes\'');
+    expect(depositCronHeartbeats).toContain('alertChannels: [emailChannel]');
+  });
+
+  it('shares the existing email failure-and-recovery escalation channel', () => {
+    expect(config).toContain('new EmailAlertChannel(\'email-channel-1\'');
+    expect(config).toContain('sendFailure: true');
+    expect(config).toContain('sendRecovery: true');
+    expect(config).toContain(
+      'process.env.CHECKLY_ALERT_EMAIL || \'support@islanailsalon.com\'',
+    );
   });
 });

@@ -221,13 +221,20 @@ describe('test 31 — module boundaries', () => {
     }
 
     const routeSource = readFileSync(CONNECT_WEBHOOK_ROUTE, 'utf8');
+    const dispatcherSource = readFileSync(
+      path.join(CONNECT_LIB_DIR, 'accountWebhookDispatch.ts'),
+      'utf8',
+    );
+
+    expect(routeSource).toContain('dispatchAccountWebhook({');
+
     for (const handler of ['handleAccountUpdated', 'handleDeauthorized']) {
-      const start = routeSource.indexOf(`async function ${handler}(`);
+      const start = dispatcherSource.indexOf(`async function ${handler}(`);
 
       expect(start).toBeGreaterThan(-1);
 
       // Up to the next top-level function declaration.
-      const rest = routeSource.slice(start + 1);
+      const rest = dispatcherSource.slice(start + 1);
       const nextFunction = rest.search(/\nasync function |\nfunction /);
       const body = nextFunction === -1 ? rest : rest.slice(0, nextFunction);
 
