@@ -97,6 +97,11 @@ import {
 } from '@/libs/depositPolicy';
 import { EXPECTED_LIVEMODE, getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
 import { cancelHoldAfterDefiniteCheckoutFailure } from '@/libs/deposits/holdWriters';
+import {
+  isRewardAttributionConstraintViolation,
+  lockExactRewardForDepositAttribution,
+  RewardAttributionConflictError,
+} from '@/libs/deposits/rewardAttribution';
 import { getEffectiveStaffVisibility } from '@/libs/featureGating';
 import {
   FIRST_VISIT_DISCOUNT_TYPE,
@@ -3515,6 +3520,23 @@ export async function POST(request: Request): Promise<Response> {
               ? new Date(holdNow.getTime() + DEPOSIT_HOLD_WINDOW_MINUTES * 60_000)
               : null;
 
+            // D5-RWD-1. The pre-transaction resolver selected a concrete
+            // reward, but its answer can be stale by the time this serialized
+            // transaction begins. Lock and revalidate THAT id only; never
+            // resolve or substitute another reward. The deposit INSERT below
+            // persists the returned id before any hold response can succeed.
+            const attributedReward = depositCharge && appliedReward
+              ? await lockExactRewardForDepositAttribution(tx, {
+                rewardId: appliedReward.id,
+                salonId: salon.id,
+                // Automatic resolution may have matched a historical alias.
+                // The current terminal contact and request identity are both
+                // already proven to belong to this locked canonical client.
+                clientPhones: [lockedSalonClient.phone, normalizedPhone],
+                now: holdNow,
+              })
+              : null;
+
             const [createdAppointment] = await tx
               .insert(appointmentSchema)
               .values({
@@ -3591,6 +3613,9 @@ export async function POST(request: Request): Promise<Response> {
                 stripeAccountId: depositBranch.stripeAccountId,
                 checkoutSuccessUrl,
                 checkoutCancelUrl,
+                appliedRewardId: attributedReward?.id ?? null,
+                appliedRewardClientId: attributedReward ? lockedSalonClient.id : null,
+                appliedRewardClientPhone: attributedReward?.clientPhone ?? null,
                 // Stays NULL until post-commit; unique constraints on nullable
                 // columns admit NULLs, so "unique Checkout Session id" holds.
                 stripeCheckoutSessionId: null,
@@ -3829,6 +3854,21 @@ export async function POST(request: Request): Promise<Response> {
         }
         if (error instanceof SmartFitStaleError) {
           return smartFitStaleResponse(error);
+        }
+
+        if (
+          error instanceof RewardAttributionConflictError
+          || isRewardAttributionConstraintViolation(error)
+        ) {
+          return Response.json(
+            {
+              error: {
+                code: 'REWARD_UNAVAILABLE',
+                message: 'This reward is no longer available. Refresh your booking details and try again.',
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          );
         }
 
         if (error instanceof SlotConflictError || isSlotConstraintViolation(error)) {
@@ -4076,6 +4116,7 @@ export async function POST(request: Request): Promise<Response> {
       },
       salonClientId: salonClient.id,
       clientPhone: salonClient.phone,
+      rewardOwnerPhone: normalizedPhone,
       clientName,
       appointment: {
         id: appointment.id,
@@ -4099,6 +4140,7 @@ export async function POST(request: Request): Promise<Response> {
       manageUrl,
       smsConsentGranted: data.smsConsent?.granted === true,
       appliedRewardId: appliedReward?.id ?? null,
+      rewardAttributionDepositId: null,
       actorRole,
       originalAppointment,
       googleCalendarSyncEligible:

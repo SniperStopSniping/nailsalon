@@ -831,45 +831,71 @@ export async function PATCH(
 
         // If this is a referee reward, update the referral status and create referrer reward
         if (reward.type === 'referral_referee' && reward.referralId) {
-          // Update referral status to reward_earned
-          await db
+          // The claimed/booked -> earned CAS elects exactly one issuer of the
+          // referrer bonus. It also coordinates with deposit late-confirmation,
+          // which can complete the same reward after appointment completion.
+          const earned = await db
             .update(referralSchema)
             .set({ status: 'reward_earned' })
-            .where(eq(referralSchema.id, reward.referralId));
+            .where(and(
+              eq(referralSchema.id, reward.referralId),
+              eq(referralSchema.salonId, existingAppointment.salonId),
+              inArray(referralSchema.status, ['claimed', 'booked']),
+            ))
+            .returning();
 
-          // Get the referral to find the referrer info
-          const [referral] = await db
-            .select()
-            .from(referralSchema)
-            .where(eq(referralSchema.id, reward.referralId))
-            .limit(1);
+          const [earnedReferral] = earned.length > 0
+            ? earned
+            : await db
+              .select()
+              .from(referralSchema)
+              .where(and(
+                eq(referralSchema.id, reward.referralId),
+                eq(referralSchema.salonId, existingAppointment.salonId),
+                eq(referralSchema.status, 'reward_earned'),
+              ))
+              .limit(1);
 
-          if (referral) {
+          if (earnedReferral) {
             // Fetch salon to resolve loyalty points
             const [referralSalon] = await db
               .select()
               .from(salonSchema)
-              .where(eq(salonSchema.id, referral.salonId))
+              .where(eq(salonSchema.id, earnedReferral.salonId))
               .limit(1);
 
             // Skip referrer bonus if salon no longer exists (FK allows orphaned referrals)
             if (referralSalon) {
-              // Create a reward for the referrer (uses salon-resolved points)
-              await db.insert(rewardSchema).values({
-                id: `reward_${crypto.randomUUID()}`,
-                salonId: referral.salonId,
-                clientPhone: referral.referrerPhone,
-                clientName: referral.referrerName,
-                referralId: referral.id,
-                type: 'referral_referrer',
-                points: 0,
-                discountType: 'fixed_amount',
-                discountAmountCents: REFERRAL_REFERRER_AMOUNT_CENTS,
-                eligibleServiceName: null,
-                status: 'active',
-                // Referrer reward expires in 1 year
-                expiresAt: new Date(Date.now() + REFERRAL_REFERRER_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
-              });
+              const [existingReferrerReward] = await db
+                .select({ id: rewardSchema.id })
+                .from(rewardSchema)
+                .where(and(
+                  eq(rewardSchema.salonId, earnedReferral.salonId),
+                  eq(rewardSchema.referralId, earnedReferral.id),
+                  eq(rewardSchema.type, 'referral_referrer'),
+                ))
+                .limit(1);
+
+              if (!existingReferrerReward) {
+                // Deterministic PK + conflict-ignore closes both the
+                // completion/confirmation race and a crash between referral
+                // status advancement and bonus insertion.
+                await db.insert(rewardSchema).values({
+                  id: `reward_referrer_${earnedReferral.id}`,
+                  salonId: earnedReferral.salonId,
+                  clientPhone: earnedReferral.referrerPhone,
+                  clientName: earnedReferral.referrerName,
+                  referralId: earnedReferral.id,
+                  type: 'referral_referrer',
+                  points: 0,
+                  discountType: 'fixed_amount',
+                  discountAmountCents: REFERRAL_REFERRER_AMOUNT_CENTS,
+                  eligibleServiceName: null,
+                  status: 'active',
+                  // Referrer reward expires in 1 year
+                  expiresAt: new Date(Date.now() + REFERRAL_REFERRER_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
+                }).onConflictDoNothing();
+              }
             }
           }
         }

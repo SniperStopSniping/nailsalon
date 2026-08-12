@@ -7,6 +7,7 @@ import {
   getActiveAppointmentsForCanonicalClientWithHandle,
 } from '@/libs/activeAppointments';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
+import { RewardConsumptionConflictError } from '@/libs/bookingCommitEffects';
 import {
   isSlotConstraintViolation,
   lockTechnicianAndAssertSlotFree,
@@ -27,7 +28,13 @@ import {
   stripeWebhookEventSchema,
 } from '@/models/Schema';
 
+import { enqueueDepositConfirmationEffectsInTx } from './confirmDepositPayment';
 import { depositsTransaction } from './depositsTransaction';
+import {
+  isRewardAttributionConstraintViolation,
+  lockExactRewardForDepositRestoreInTx,
+  RewardAttributionConflictError,
+} from './rewardAttribution';
 
 /**
  * ROUTINE B — what happens when a deposit payment arrives after the hold is gone.
@@ -288,7 +295,13 @@ async function attemptRestoreThenRefund(deposit: DepositRow): Promise<RecoveryRe
     // somebody took the slot (the advisory-lock guard, the 0054-successor
     // partial unique, or the gist exclusion), or the one-active partial unique
     // fired because a second deposit already claims this appointment.
-    if (!isSlotConstraintViolation(error) && !(error instanceof RestoreLostError)) {
+    if (
+      !isSlotConstraintViolation(error)
+      && !isRewardAttributionConstraintViolation(error)
+      && !(error instanceof RewardAttributionConflictError)
+      && !(error instanceof RewardConsumptionConflictError)
+      && !(error instanceof RestoreLostError)
+    ) {
       throw error;
     }
   }
@@ -410,6 +423,43 @@ async function restoreReleasedHold(deposit: DepositRow): Promise<boolean> {
         return false;
       }
 
+      const [lockedDeposit] = await tx
+        .select()
+        .from(appointmentDepositSchema)
+        .where(and(
+          eq(appointmentDepositSchema.id, deposit.id),
+          eq(appointmentDepositSchema.salonId, deposit.salonId),
+          eq(appointmentDepositSchema.status, 'expired'),
+        ))
+        .for('update')
+        .limit(1);
+
+      if (!lockedDeposit) {
+        return false;
+      }
+
+      if (
+        lockedDeposit.appliedRewardId
+        && lockedDeposit.appliedRewardClientId
+        && lockedDeposit.appliedRewardClientPhone
+      ) {
+        await lockExactRewardForDepositRestoreInTx(tx, {
+          rewardId: lockedDeposit.appliedRewardId,
+          salonId: deposit.salonId,
+          attributedClientId: lockedDeposit.appliedRewardClientId,
+          appointmentClientId: locked.salonClientId,
+          rewardClientPhone: lockedDeposit.appliedRewardClientPhone,
+          appointmentId: locked.id,
+          depositId: lockedDeposit.id,
+        });
+      } else if (
+        lockedDeposit.appliedRewardId
+        || lockedDeposit.appliedRewardClientId
+        || lockedDeposit.appliedRewardClientPhone
+      ) {
+        throw new RewardAttributionConflictError('identity_mismatch');
+      }
+
       const movedAppointment = await tx
         .update(appointmentSchema)
         .set({
@@ -457,6 +507,20 @@ async function restoreReleasedHold(deposit: DepositRow): Promise<boolean> {
         newValue: { status: target, depositStatus: 'paid' },
         reason: 'deposit_hold_restored',
       }));
+
+      // A successful late restore is a paid confirmation, not a special
+      // side-effect-free booking. Enqueue the same durable batch as TX-B while
+      // this transaction still owns the restored pair. If the active reward
+      // attribution was legitimately claimed by another hold after expiry,
+      // the paid-deposit CAS above loses its unique-index race, this whole
+      // transaction rolls back, and the outer routine refunds instead.
+      await enqueueDepositConfirmationEffectsInTx({
+        tx,
+        appointment: locked,
+        deposit: paidDeposit[0]!,
+        salonId: deposit.salonId,
+        clientPhone: locked.clientPhone,
+      });
 
       return true;
     }));

@@ -1,13 +1,19 @@
 import 'server-only';
 
-import { and, eq, inArray, isNull, ne, or } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm';
 
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
-import { getSalonClientByPhone } from '@/libs/queries';
+import { ACTIVE_REWARD_ATTRIBUTION_DEPOSIT_STATUSES } from '@/libs/deposits/rewardAttribution';
 import { normalizePhone } from '@/libs/phone';
+import { getSalonClientByPhone } from '@/libs/queries';
 import { calculateRewardDiscountCents } from '@/libs/rewardRules';
-import { appointmentSchema, rewardSchema, type Service } from '@/models/Schema';
+import {
+  appointmentDepositSchema,
+  appointmentSchema,
+  rewardSchema,
+  type Service,
+} from '@/models/Schema';
 
 export const FIRST_VISIT_DISCOUNT_TYPE = 'first_visit_25';
 export const FIRST_VISIT_DISCOUNT_LABEL = 'First visit discount';
@@ -32,33 +38,33 @@ export type FirstVisitDiscountSnapshot = {
 
 export type AutomaticBookingDiscountResult =
   | {
-      kind: 'none';
-      subtotalBeforeDiscountCents: number;
-      discountAmountCents: 0;
-      finalTotalCents: number;
-      reward: null;
-      firstVisit: null;
-    }
+    kind: 'none';
+    subtotalBeforeDiscountCents: number;
+    discountAmountCents: 0;
+    finalTotalCents: number;
+    reward: null;
+    firstVisit: null;
+  }
   | {
-      kind: 'reward';
-      subtotalBeforeDiscountCents: number;
+    kind: 'reward';
+    subtotalBeforeDiscountCents: number;
+    discountAmountCents: number;
+    finalTotalCents: number;
+    reward: {
+      id: string;
       discountAmountCents: number;
-      finalTotalCents: number;
-      reward: {
-        id: string;
-        discountAmountCents: number;
-        discountedServiceId: string | null;
-      };
-      firstVisit: null;
-    }
-  | {
-      kind: 'first_visit';
-      subtotalBeforeDiscountCents: number;
-      discountAmountCents: number;
-      finalTotalCents: number;
-      reward: null;
-      firstVisit: FirstVisitDiscountSnapshot;
+      discountedServiceId: string | null;
     };
+    firstVisit: null;
+  }
+  | {
+    kind: 'first_visit';
+    subtotalBeforeDiscountCents: number;
+    discountAmountCents: number;
+    finalTotalCents: number;
+    reward: null;
+    firstVisit: FirstVisitDiscountSnapshot;
+  };
 
 function buildClientPhoneVariants(phone: string | null | undefined): string[] {
   const normalized = normalizePhone(phone ?? '');
@@ -257,6 +263,20 @@ export async function resolveAutomaticBookingDiscount(args: {
           inArray(rewardSchema.clientPhone, phoneVariants),
           eq(rewardSchema.status, 'active'),
           isNull(rewardSchema.usedInAppointmentId),
+          // D5-RWD-1: a checkout-created hold has durably reserved this exact
+          // reward while its row remains intentionally unmarked. Confirmation
+          // atomically links it as the deposit leaves this reservation state.
+          sql`NOT EXISTS (
+            SELECT 1 FROM ${appointmentDepositSchema} AS attributed_deposit
+            WHERE attributed_deposit.salon_id = ${args.salonId}
+              AND attributed_deposit.applied_reward_id = ${rewardSchema.id}
+              AND attributed_deposit.status IN (
+                ${sql.join(
+                  ACTIVE_REWARD_ATTRIBUTION_DEPOSIT_STATUSES.map(status => sql`${status}`),
+                  sql`, `,
+                )}
+              )
+          )`,
         ),
       );
 

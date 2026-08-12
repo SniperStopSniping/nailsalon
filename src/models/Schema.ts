@@ -3251,6 +3251,16 @@ export const appointmentDepositSchema = pgTable(
     checkoutSuccessUrl: text('checkout_success_url'),
     checkoutCancelUrl: text('checkout_cancel_url'),
     resolutionNote: text('resolution_note'),
+    // D5-RWD-1: exact reward selected while this deposit hold was created.
+    // Null means no reward was applied; it is never reconstructed later from
+    // the appointment's discount label or amount.
+    appliedRewardId: text('applied_reward_id'),
+    // Canonical reward-owner identity validated with appliedRewardId at hold
+    // time. This remains stable when the salon later edits live contact data.
+    appliedRewardClientId: text('applied_reward_client_id'),
+    // Exact reward-row owner phone observed while the canonical client was
+    // locked. Unlike salon_client.phone, this attribution evidence is stable.
+    appliedRewardClientPhone: text('applied_reward_client_phone'),
     stripeRefundId: text('stripe_refund_id'),
     refundedAt: timestamp('refunded_at', { mode: 'date', withTimezone: true }),
     lateCheckDoneAt: timestamp('late_check_done_at', { mode: 'date', withTimezone: true }),
@@ -3283,6 +3293,14 @@ export const appointmentDepositSchema = pgTable(
       .on(table.stripeCheckoutSessionId),
     piUniq: uniqueIndex('appointment_deposit_pi_uniq').on(table.stripePaymentIntentId),
     refundUniq: uniqueIndex('appointment_deposit_refund_uniq').on(table.stripeRefundId),
+    activeRewardUniq: uniqueIndex('appointment_deposit_active_reward_uniq')
+      .on(table.salonId, table.appliedRewardId)
+      .where(sql`${table.appliedRewardId} is not null and ${table.status} = 'checkout_created'`),
+    rewardAttributionPairValid: check(
+      'appointment_deposit_reward_attribution_pair_chk',
+      sql`((${table.appliedRewardId} is null) = (${table.appliedRewardClientId} is null))
+        and ((${table.appliedRewardId} is null) = (${table.appliedRewardClientPhone} is null))`,
+    ),
     // PARTIAL: terminal rows accumulate; only one active deposit per appointment.
     oneActive: uniqueIndex('appointment_deposit_one_active')
       .on(table.appointmentId)

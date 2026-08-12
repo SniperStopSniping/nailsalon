@@ -106,7 +106,7 @@ async function applyHoldTransition(args: HoldTransition & {
       return { applied: false, reason: 'appointment_not_a_hold' } as const;
     }
 
-    await tx
+    const releasedDeposit = await tx
       .update(appointmentDepositSchema)
       .set({
         status: args.depositStatus,
@@ -117,7 +117,15 @@ async function applyHoldTransition(args: HoldTransition & {
         eq(appointmentDepositSchema.id, args.depositId),
         eq(appointmentDepositSchema.salonId, args.salonId),
         eq(appointmentDepositSchema.status, 'checkout_created'),
-      ));
+      ))
+      .returning();
+
+    if (releasedDeposit.length !== 1) {
+      // The appointment and deposit are one hold aggregate. A concurrent paid
+      // transition that wins the deposit row must roll this appointment write
+      // back, never leave a live payment behind a cancelled booking.
+      throw new Error('DEPOSIT_HOLD_RELEASE_PAIR_TORN');
+    }
 
     return { applied: true } as const;
   });

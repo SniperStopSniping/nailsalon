@@ -2,7 +2,11 @@ import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
 
-import { loadBookingCommitEffectsContext, runBookingCommitSideEffects } from '@/libs/bookingCommitEffects';
+import {
+  loadBookingCommitEffectsContext,
+  markAppliedRewardForBooking,
+  runBookingCommitSideEffects,
+} from '@/libs/bookingCommitEffects';
 import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
@@ -91,13 +95,44 @@ function readRefundNoticePayload(value: unknown): RefundNoticePayload {
 export async function runDepositConfirmationSideEffects(args: HandlerArgs): Promise<void> {
   const payload = readConfirmationPayload(args.payload);
 
+  // The outbox payload is a duplicated integrity assertion, not the source of
+  // truth. Reload the paid deposit by the complete tenant/appointment identity
+  // and require its durable attribution to match before any booking effect can
+  // run. A forged or stale payload can therefore never select a reward.
+  const [confirmedDeposit] = await db
+    .select({
+      appliedRewardId: appointmentDepositSchema.appliedRewardId,
+      status: appointmentDepositSchema.status,
+    })
+    .from(appointmentDepositSchema)
+    .where(and(
+      eq(appointmentDepositSchema.id, payload.depositId),
+      eq(appointmentDepositSchema.salonId, args.salonId),
+      eq(appointmentDepositSchema.appointmentId, args.appointmentId),
+    ))
+    .limit(1);
+
+  if (!confirmedDeposit) {
+    throw new Error('DEPOSIT_SIDE_EFFECTS_DEPOSIT_UNAVAILABLE');
+  }
+  if (['canceled', 'expired', 'refunded', 'waived'].includes(confirmedDeposit.status)) {
+    return;
+  }
+  if (confirmedDeposit.status !== 'paid') {
+    throw new Error('DEPOSIT_SIDE_EFFECTS_DEPOSIT_UNAVAILABLE');
+  }
+  if (payload.appliedRewardId !== confirmedDeposit.appliedRewardId) {
+    throw new Error('DEPOSIT_REWARD_ATTRIBUTION_MISMATCH');
+  }
+
   const context = await loadBookingCommitEffectsContext({
     salonId: args.salonId,
     appointmentId: args.appointmentId,
     manageUrl: payload.manageUrl,
     smsConsentGranted: payload.smsConsentGranted,
     googleCalendarSyncEligible: payload.googleCalendarSyncEligible,
-    appliedRewardId: payload.appliedRewardId,
+    appliedRewardId: confirmedDeposit.appliedRewardId,
+    rewardAttributionDepositId: payload.depositId,
   });
 
   if (!context) {
@@ -105,6 +140,20 @@ export async function runDepositConfirmationSideEffects(args: HandlerArgs): Prom
     // retryable, not terminal: the row exists — TX-B committed it — so this is
     // a transient read failure, and the outbox's own attempt cap bounds it.
     throw new Error('DEPOSIT_SIDE_EFFECTS_CONTEXT_UNAVAILABLE');
+  }
+
+  if (['cancelled', 'no_show'].includes(context.appointment.status ?? '')) {
+    return;
+  }
+
+  // Validate the exact already-consumed attribution before effect 1. This is a
+  // no-write replay of TX-B/TX-C, and prevents malformed/stale attribution from
+  // partially executing retention or notification work before it fails.
+  if (context.appliedRewardId) {
+    const rewardResult = await markAppliedRewardForBooking(context);
+    if (rewardResult === 'terminal_noop') {
+      return;
+    }
   }
 
   await runBookingCommitSideEffects(context, { includeGoogleCalendarUpsert: false });

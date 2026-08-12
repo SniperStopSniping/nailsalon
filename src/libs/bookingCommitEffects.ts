@@ -25,8 +25,9 @@
  * with the response body. The two halves straddling the cache write are
  * deliberate and pinned by test, not incidental.
  */
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 
+import { buildClientPhoneVariants } from '@/libs/activeAppointments';
 import { sendBookingNotificationsForNewBooking } from '@/libs/bookingNotifications';
 import { sendCustomerBookingConfirmationEmail } from '@/libs/customerBookingEmail';
 import { db } from '@/libs/DB';
@@ -36,11 +37,16 @@ import {
   getAppointmentServiceNames,
   getTechnicianById,
 } from '@/libs/queries';
+import {
+  REFERRAL_REFERRER_AMOUNT_CENTS,
+  REFERRAL_REFERRER_EXPIRY_DAYS,
+} from '@/libs/rewardRules';
 import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
 import { sendBookingConfirmationToClient } from '@/libs/SMS';
 import type { Appointment } from '@/models/Schema';
 import {
   appointmentAccessTokenSchema,
+  appointmentDepositSchema,
   appointmentSchema,
   appointmentServicesSchema,
   clientCommunicationSchema,
@@ -103,12 +109,15 @@ export type BookingCommitEffectsContext = {
   };
   salonClientId: string;
   clientPhone: string;
+  /** Booking-request phone proven to belong to this canonical client. */
+  rewardOwnerPhone?: string | null;
   /** Null renders as 'Guest' at the sites that require a name. Preserved. */
   clientName: string | null;
   appointment: {
     id: string;
     notes: string | null;
     googleCalendarEventId: string | null;
+    status?: string;
   };
   serviceNames: string[];
   technician: {
@@ -126,6 +135,11 @@ export type BookingCommitEffectsContext = {
   smsConsentGranted: boolean;
   /** The reward to mark used, or null when no automatic discount applied. */
   appliedRewardId: string | null;
+  /**
+   * The paid deposit that durably attributed the reward. Null/absent is the
+   * ordinary non-deposit booking path.
+   */
+  rewardAttributionDepositId?: string | null;
   actorRole: 'guest' | 'client' | 'staff' | 'admin';
   originalAppointment: Appointment | null;
   /**
@@ -292,14 +306,14 @@ export async function runBookingCommitSideEffects(
     console.error('[Retention] Failed to convert latest outreach after booking:', conversionError);
   }
 
-  // 2/8. Link the applied reward to this appointment (mark as pending redemption).
+  // 2/8. Link the applied reward to this appointment (mark as pending
+  // redemption). The helper is a compare-and-set: replay is a no-write
+  // success, while a foreign/stale attribution fails closed.
   if (context.appliedRewardId) {
-    await db
-      .update(rewardSchema)
-      .set({
-        usedInAppointmentId: context.appointment.id,
-      })
-      .where(eq(rewardSchema.id, context.appliedRewardId));
+    const rewardResult = await markAppliedRewardForBooking(context);
+    if (context.rewardAttributionDepositId && rewardResult === 'terminal_noop') {
+      return;
+    }
   }
 
   // 3/8. Check for claimed referrals for this client and update status to 'booked'.
@@ -460,6 +474,7 @@ export type LoadBookingCommitEffectsContextArgs = {
   originalAppointment?: Appointment | null;
   googleCalendarSyncEligible?: boolean;
   appliedRewardId?: string | null;
+  rewardAttributionDepositId?: string | null;
 };
 
 /**
@@ -564,6 +579,7 @@ export async function loadBookingCommitEffectsContext(
       id: appointment.id,
       notes: appointment.notes,
       googleCalendarEventId: appointment.googleCalendarEventId,
+      status: appointment.status,
     },
     serviceNames: serviceRows.map(row => row.name),
     technician: technician
@@ -582,12 +598,438 @@ export async function loadBookingCommitEffectsContext(
     manageUrl: args.manageUrl,
     smsConsentGranted: args.smsConsentGranted,
     appliedRewardId: args.appliedRewardId ?? null,
+    rewardAttributionDepositId: args.rewardAttributionDepositId ?? null,
     actorRole: args.actorRole ?? 'guest',
     originalAppointment: args.originalAppointment ?? null,
     googleCalendarSyncEligible: args.googleCalendarSyncEligible ?? true,
     locationName: location?.name ?? null,
     locationAddress: formatLocationAddress(location ?? null),
   };
+}
+
+export class RewardConsumptionConflictError extends Error {
+  constructor() {
+    super('REWARD_CONSUMPTION_CONFLICT');
+    this.name = 'RewardConsumptionConflictError';
+  }
+}
+
+type RewardConsumptionTx = {
+  insert: typeof db.insert;
+  select: typeof db.select;
+  update: typeof db.update;
+};
+
+export type RewardConsumptionResult = 'marked' | 'already_marked' | 'terminal_noop';
+
+/**
+ * Consumes the exact persisted deposit attribution on the caller's transaction
+ * handle. TX-B/TX-C call this only after their paid CAS, so the reward link and
+ * the money/appointment state become visible atomically. The outbox later
+ * verifies the link as an idempotent no-write replay.
+ */
+export async function markExactAttributedRewardForPaidDepositInTx(
+  tx: RewardConsumptionTx,
+  args: {
+    salonId: string;
+    appointmentId: string;
+    depositId: string;
+    rewardId: string;
+  },
+): Promise<RewardConsumptionResult> {
+  const [appointment] = await tx
+    .select({
+      status: appointmentSchema.status,
+      salonClientId: appointmentSchema.salonClientId,
+    })
+    .from(appointmentSchema)
+    .where(and(
+      eq(appointmentSchema.id, args.appointmentId),
+      eq(appointmentSchema.salonId, args.salonId),
+    ))
+    .for('update')
+    .limit(1);
+
+  const [attribution] = await tx
+    .select({
+      appliedRewardId: appointmentDepositSchema.appliedRewardId,
+      appliedRewardClientId: appointmentDepositSchema.appliedRewardClientId,
+      appliedRewardClientPhone: appointmentDepositSchema.appliedRewardClientPhone,
+    })
+    .from(appointmentDepositSchema)
+    .where(and(
+      eq(appointmentDepositSchema.id, args.depositId),
+      eq(appointmentDepositSchema.salonId, args.salonId),
+      eq(appointmentDepositSchema.appointmentId, args.appointmentId),
+      eq(appointmentDepositSchema.status, 'paid'),
+    ))
+    .for('update')
+    .limit(1);
+
+  if (
+    !appointment
+    || appointment.status === 'cancelled'
+    || !attribution
+    || attribution.appliedRewardId !== args.rewardId
+    || !attribution.appliedRewardClientId
+    || !attribution.appliedRewardClientPhone
+    || attribution.appliedRewardClientId !== appointment.salonClientId
+  ) {
+    throw new RewardConsumptionConflictError();
+  }
+
+  // A no-show is the canonical "salon keeps the deposit" terminal state. The
+  // payment transition still commits, but the appointment lifecycle has
+  // already released any reward and must not be reversed by confirmation or
+  // an outbox retry.
+  if (appointment.status === 'no_show') {
+    return 'terminal_noop';
+  }
+
+  const [competingReward] = await tx
+    .select({ id: rewardSchema.id })
+    .from(rewardSchema)
+    .where(and(
+      eq(rewardSchema.salonId, args.salonId),
+      eq(rewardSchema.usedInAppointmentId, args.appointmentId),
+      sql`${rewardSchema.id} <> ${args.rewardId}`,
+    ))
+    .limit(1);
+  if (competingReward) {
+    throw new RewardConsumptionConflictError();
+  }
+
+  const [lockedReward] = await tx
+    .select({
+      salonId: rewardSchema.salonId,
+      clientPhone: rewardSchema.clientPhone,
+      status: rewardSchema.status,
+      referralId: rewardSchema.referralId,
+      type: rewardSchema.type,
+      usedInAppointmentId: rewardSchema.usedInAppointmentId,
+    })
+    .from(rewardSchema)
+    .where(eq(rewardSchema.id, args.rewardId))
+    .for('update')
+    .limit(1);
+
+  if (
+    !lockedReward
+    || lockedReward.salonId !== args.salonId
+    || lockedReward.clientPhone !== attribution.appliedRewardClientPhone
+  ) {
+    throw new RewardConsumptionConflictError();
+  }
+
+  if (lockedReward.usedInAppointmentId === args.appointmentId) {
+    if (appointment.status === 'completed' && lockedReward.status !== 'used') {
+      const completed = await tx
+        .update(rewardSchema)
+        .set({ status: 'used', usedAt: new Date() })
+        .where(and(
+          eq(rewardSchema.id, args.rewardId),
+          eq(rewardSchema.salonId, args.salonId),
+          eq(rewardSchema.usedInAppointmentId, args.appointmentId),
+          inArray(rewardSchema.status, ['active', 'expired']),
+        ))
+        .returning();
+      if (completed.length !== 1) {
+        throw new RewardConsumptionConflictError();
+      }
+      await completeReferralRewardInTx(tx, args.salonId, lockedReward);
+      return 'marked';
+    }
+    return 'already_marked';
+  }
+  if (
+    lockedReward.usedInAppointmentId !== null
+    || !['active', 'expired'].includes(lockedReward.status)
+  ) {
+    throw new RewardConsumptionConflictError();
+  }
+
+  const completed = appointment.status === 'completed';
+  const updated = await tx
+    .update(rewardSchema)
+    .set({
+      usedInAppointmentId: args.appointmentId,
+      ...(completed ? { status: 'used', usedAt: new Date() } : {}),
+    })
+    .where(and(
+      eq(rewardSchema.id, args.rewardId),
+      eq(rewardSchema.salonId, args.salonId),
+      eq(rewardSchema.clientPhone, attribution.appliedRewardClientPhone),
+      inArray(rewardSchema.status, ['active', 'expired']),
+      isNull(rewardSchema.usedInAppointmentId),
+    ))
+    .returning();
+
+  if (updated.length !== 1) {
+    throw new RewardConsumptionConflictError();
+  }
+  if (completed) {
+    await completeReferralRewardInTx(tx, args.salonId, lockedReward);
+  }
+  return 'marked';
+}
+
+async function completeReferralRewardInTx(
+  tx: RewardConsumptionTx,
+  salonId: string,
+  reward: { referralId: string | null; type: string },
+): Promise<void> {
+  if (reward.type !== 'referral_referee' || !reward.referralId) {
+    return;
+  }
+
+  const earned = await tx
+    .update(referralSchema)
+    .set({ status: 'reward_earned' })
+    .where(and(
+      eq(referralSchema.id, reward.referralId),
+      eq(referralSchema.salonId, salonId),
+      inArray(referralSchema.status, ['claimed', 'booked']),
+    ))
+    .returning();
+
+  // A prior completion may have advanced the referral and crashed before
+  // issuing its bonus. Every replay therefore ensures the deterministic bonus
+  // exists after the tenant-scoped status transition, while the reward PK
+  // makes concurrent issuers converge on one row.
+  const [referral] = earned.length > 0
+    ? earned
+    : await tx
+      .select()
+      .from(referralSchema)
+      .where(and(
+        eq(referralSchema.id, reward.referralId),
+        eq(referralSchema.salonId, salonId),
+        eq(referralSchema.status, 'reward_earned'),
+      ))
+      .limit(1);
+  if (!referral) {
+    return;
+  }
+  const [salon] = await tx
+    .select({ id: salonSchema.id })
+    .from(salonSchema)
+    .where(eq(salonSchema.id, referral.salonId))
+    .limit(1);
+  if (!salon) {
+    return;
+  }
+
+  const [existingReferrerReward] = await tx
+    .select({ id: rewardSchema.id })
+    .from(rewardSchema)
+    .where(and(
+      eq(rewardSchema.salonId, referral.salonId),
+      eq(rewardSchema.referralId, referral.id),
+      eq(rewardSchema.type, 'referral_referrer'),
+    ))
+    .limit(1);
+  if (existingReferrerReward) {
+    return;
+  }
+
+  await tx.insert(rewardSchema).values({
+    id: `reward_referrer_${referral.id}`,
+    salonId: referral.salonId,
+    clientPhone: referral.referrerPhone,
+    clientName: referral.referrerName,
+    referralId: referral.id,
+    type: 'referral_referrer',
+    points: 0,
+    discountType: 'fixed_amount',
+    discountAmountCents: REFERRAL_REFERRER_AMOUNT_CENTS,
+    eligibleServiceName: null,
+    status: 'active',
+    expiresAt: new Date(Date.now() + REFERRAL_REFERRER_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
+  }).onConflictDoNothing();
+}
+
+/**
+ * Marks one exact reward for one exact booking.
+ *
+ * Deposit confirmations must prove the id came from this appointment's paid
+ * deposit. Ordinary bookings retain their existing post-commit boundary but
+ * cannot consume a reward currently reserved by a deposit hold. In both arms,
+ * salon/client ownership and the set-once appointment link are part of the
+ * UPDATE predicate. A replay that already carries the exact appointment id is
+ * accepted without issuing another UPDATE.
+ */
+export async function markAppliedRewardForBooking(
+  context: Pick<
+    BookingCommitEffectsContext,
+    | 'appliedRewardId'
+    | 'appointment'
+    | 'clientPhone'
+    | 'rewardOwnerPhone'
+    | 'rewardAttributionDepositId'
+    | 'salon'
+  >,
+): Promise<RewardConsumptionResult> {
+  const rewardId = context.appliedRewardId;
+  if (!rewardId) {
+    return 'already_marked';
+  }
+
+  return db.transaction(async (tx) => {
+    const depositId = context.rewardAttributionDepositId ?? null;
+    if (depositId) {
+      const [appointment] = await tx
+        .select({ status: appointmentSchema.status })
+        .from(appointmentSchema)
+        .where(and(
+          eq(appointmentSchema.id, context.appointment.id),
+          eq(appointmentSchema.salonId, context.salon.id),
+        ))
+        .for('update')
+        .limit(1);
+      if (!appointment) {
+        throw new RewardConsumptionConflictError();
+      }
+      // Cancellation owns release. A confirmation job that runs, or retries,
+      // after that transition must never re-attach the reward.
+      if (['cancelled', 'no_show'].includes(appointment.status)) {
+        return 'terminal_noop';
+      }
+
+      const [deposit] = await tx
+        .select({
+          appliedRewardId: appointmentDepositSchema.appliedRewardId,
+          status: appointmentDepositSchema.status,
+        })
+        .from(appointmentDepositSchema)
+        .where(and(
+          eq(appointmentDepositSchema.id, depositId),
+          eq(appointmentDepositSchema.salonId, context.salon.id),
+          eq(appointmentDepositSchema.appointmentId, context.appointment.id),
+        ))
+        .for('update')
+        .limit(1);
+      if (!deposit || deposit.appliedRewardId !== rewardId) {
+        throw new RewardConsumptionConflictError();
+      }
+      if (['canceled', 'expired', 'refunded', 'waived'].includes(deposit.status)) {
+        return 'terminal_noop';
+      }
+      if (deposit.status !== 'paid') {
+        throw new RewardConsumptionConflictError();
+      }
+
+      // Production confirmations consume in TX-B/TX-C. The side-effect batch
+      // only verifies the exact link and therefore cannot perform a late first
+      // mark after cancellation/completion/refund races.
+      const result = await markExactAttributedRewardForPaidDepositInTx(tx, {
+        salonId: context.salon.id,
+        appointmentId: context.appointment.id,
+        depositId,
+        rewardId,
+      });
+      // `marked` is permitted only as completion repair: TX-B/TX-C already
+      // linked the exact reward, but appointment completion can commit before
+      // its later reward-finalization statements. The helper's locked
+      // exact-link branch advances active/expired -> used without ever first-
+      // linking an outbox reward. All other late first-mark shapes still fail.
+      if (result !== 'already_marked' && result !== 'marked') {
+        throw new RewardConsumptionConflictError();
+      }
+      return result;
+    }
+
+    const phoneVariants = [...new Set([
+      ...buildClientPhoneVariants(context.clientPhone),
+      ...buildClientPhoneVariants(context.rewardOwnerPhone ?? ''),
+    ])];
+    if (phoneVariants.length === 0) {
+      throw new RewardConsumptionConflictError();
+    }
+
+    // Preserve the ordinary booking's D4.5 post-cache timing while giving all
+    // RWD writers the same appointment-before-reward lock order.
+    const [appointment] = await tx
+      .select({ status: appointmentSchema.status })
+      .from(appointmentSchema)
+      .where(and(
+        eq(appointmentSchema.id, context.appointment.id),
+        eq(appointmentSchema.salonId, context.salon.id),
+      ))
+      .for('update')
+      .limit(1);
+    if (!appointment) {
+      throw new RewardConsumptionConflictError();
+    }
+    if (['cancelled', 'no_show'].includes(appointment.status)) {
+      return 'terminal_noop';
+    }
+
+    const [lockedReward] = await tx
+      .select({
+        salonId: rewardSchema.salonId,
+        clientPhone: rewardSchema.clientPhone,
+        status: rewardSchema.status,
+        usedInAppointmentId: rewardSchema.usedInAppointmentId,
+      })
+      .from(rewardSchema)
+      .where(eq(rewardSchema.id, rewardId))
+      .for('update')
+      .limit(1);
+
+    if (
+      !lockedReward
+      || lockedReward.salonId !== context.salon.id
+      || !phoneVariants.includes(lockedReward.clientPhone)
+    ) {
+      throw new RewardConsumptionConflictError();
+    }
+
+    const [reservation] = await tx
+      .select({ id: appointmentDepositSchema.id })
+      .from(appointmentDepositSchema)
+      .where(and(
+        eq(appointmentDepositSchema.salonId, context.salon.id),
+        eq(appointmentDepositSchema.appliedRewardId, rewardId),
+        eq(appointmentDepositSchema.status, 'checkout_created'),
+      ))
+      .limit(1);
+    if (reservation) {
+      throw new RewardConsumptionConflictError();
+    }
+
+    if (lockedReward.usedInAppointmentId === context.appointment.id) {
+      return 'already_marked';
+    }
+    if (lockedReward.usedInAppointmentId !== null) {
+      throw new RewardConsumptionConflictError();
+    }
+
+    // A reward valid at hold creation may reach its expiry timestamp while the
+    // client is paying. The exact paid attribution remains authoritative, so
+    // that arm may link an `expired` row; ordinary bookings still require
+    // `active` exactly as before.
+    const allowedStatuses = ['active'];
+    if (!allowedStatuses.includes(lockedReward.status)) {
+      throw new RewardConsumptionConflictError();
+    }
+
+    const updated = await tx
+      .update(rewardSchema)
+      .set({ usedInAppointmentId: context.appointment.id })
+      .where(and(
+        eq(rewardSchema.id, rewardId),
+        eq(rewardSchema.salonId, context.salon.id),
+        inArray(rewardSchema.clientPhone, phoneVariants),
+        inArray(rewardSchema.status, allowedStatuses),
+        isNull(rewardSchema.usedInAppointmentId),
+      ))
+      .returning();
+
+    if (updated.length !== 1) {
+      throw new RewardConsumptionConflictError();
+    }
+    return 'marked';
+  });
 }
 
 /**

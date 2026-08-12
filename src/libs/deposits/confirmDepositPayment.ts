@@ -5,7 +5,11 @@ import { and, desc, eq, sql } from 'drizzle-orm';
 
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
-import { mintAppointmentManageCapability } from '@/libs/bookingCommitEffects';
+import {
+  markExactAttributedRewardForPaidDepositInTx,
+  mintAppointmentManageCapability,
+  RewardConsumptionConflictError,
+} from '@/libs/bookingCommitEffects';
 import { db } from '@/libs/DB';
 import { DEPOSIT_CURRENCY } from '@/libs/depositPolicy';
 import { enqueueDepositConfirmationSideEffects } from '@/libs/integrationOutbox';
@@ -20,6 +24,10 @@ import {
 } from '@/models/Schema';
 
 import { depositsTransaction } from './depositsTransaction';
+import {
+  lockExactRewardForDepositRestoreInTx,
+  RewardAttributionConflictError,
+} from './rewardAttribution';
 
 /**
  * THE ONLY CODE PATH ALLOWED TO SET A DEPOSIT `paid` OR MOVE AN APPOINTMENT OUT
@@ -309,6 +317,7 @@ async function applyConfirmTransaction(args: ConfirmTransactionArgs): Promise<Co
           endTime: appointmentSchema.endTime,
           startTime: appointmentSchema.startTime,
           clientPhone: appointmentSchema.clientPhone,
+          salonClientId: appointmentSchema.salonClientId,
         })
         .from(appointmentSchema)
         .where(and(
@@ -378,6 +387,31 @@ async function applyConfirmTransaction(args: ConfirmTransactionArgs): Promise<Co
       }
     });
   } catch (error) {
+    if (
+      error instanceof RewardConsumptionConflictError
+      || error instanceof RewardAttributionConflictError
+    ) {
+      // A terminal hold may have legitimately released its reward before this
+      // paid evidence arrived. Roll TX-B back and let routine B choose the
+      // restore-or-refund outcome outside all database locks/provider calls.
+      const [fresh] = await db
+        .select({ status: appointmentDepositSchema.status })
+        .from(appointmentDepositSchema)
+        .where(and(
+          eq(appointmentDepositSchema.id, depositId),
+          eq(appointmentDepositSchema.salonId, salonId),
+        ))
+        .limit(1);
+      if (fresh && ['expired', 'canceled'].includes(fresh.status)) {
+        return { disposition: 'late_recovery_required', depositId, salonId };
+      }
+      Sentry.captureMessage('deposit_reward_attribution_conflict', {
+        level: 'error',
+        tags: { deposits: 'confirm' },
+        extra: { depositId, salonId, sessionId: evidence.sessionId },
+      });
+      return { disposition: 'poisoned', depositId, salonId };
+    }
     if (error instanceof TornConfirmPairError) {
       // The whole transaction rolled back, so nothing was written — the
       // appointment is still a hold and the deposit is still unpaid. POISON the
@@ -408,7 +442,14 @@ async function applyConfirmTransaction(args: ConfirmTransactionArgs): Promise<Co
 type ArmArgs = {
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0];
   evidence: DepositEvidence;
-  appointment: { id: string; status: string; startTime: Date; endTime: Date; clientPhone: string };
+  appointment: {
+    id: string;
+    status: string;
+    startTime: Date;
+    endTime: Date;
+    clientPhone: string;
+    salonClientId: string | null;
+  };
   deposit: typeof appointmentDepositSchema.$inferSelect;
   salonId: string;
 };
@@ -416,6 +457,12 @@ type ArmArgs = {
 /** The hold arm: an unpaid reservation becomes a booking. */
 async function holdArm(args: ArmArgs & { onWarn?: (message: string) => void }): Promise<ConfirmResult> {
   const { tx, evidence, appointment, deposit, salonId } = args;
+
+  await lockPersistedRewardAttributionForPaidTransition(tx, {
+    appointment,
+    deposit,
+    salonId,
+  });
 
   const [salon] = await tx
     .select({ freeSoloEnabled: salonSchema.freeSoloEnabled })
@@ -489,7 +536,13 @@ async function holdArm(args: ArmArgs & { onWarn?: (message: string) => void }): 
     reason: 'deposit_payment_confirmed',
   }));
 
-  await enqueueConfirmationEffects({ tx, appointment, deposit, salonId, clientPhone: appointment.clientPhone });
+  await enqueueDepositConfirmationEffectsInTx({
+    tx,
+    appointment,
+    deposit: paidDeposit[0]!,
+    salonId,
+    clientPhone: appointment.clientPhone,
+  });
 
   return { disposition: 'confirmed', depositId: deposit.id, salonId };
 }
@@ -522,6 +575,17 @@ async function settledArm(args: ArmArgs & { onWarn: (message: string) => void })
 
   const late = deposit.status !== 'checkout_created';
 
+  // A no-show is terminal reward-wise: the appointment lifecycle releases
+  // rewards while the salon still keeps captured deposit money. Do not let a
+  // legitimately reused reward turn that money disposition into a refund.
+  if (appointment.status !== 'no_show') {
+    await lockPersistedRewardAttributionForPaidTransition(tx, {
+      appointment,
+      deposit,
+      salonId,
+    });
+  }
+
   const healed = await tx
     .update(appointmentDepositSchema)
     .set({
@@ -553,7 +617,13 @@ async function settledArm(args: ArmArgs & { onWarn: (message: string) => void })
     reason: late ? 'healed_deposit_late' : 'healed_deposit',
   }));
 
-  await enqueueConfirmationEffects({ tx, appointment, deposit, salonId, clientPhone: appointment.clientPhone });
+  await enqueueDepositConfirmationEffectsInTx({
+    tx,
+    appointment,
+    deposit: healed[0]!,
+    salonId,
+    clientPhone: appointment.clientPhone,
+  });
 
   if (late) {
     // The owner reactivated a reaper-released hold and the client then paid,
@@ -574,7 +644,7 @@ async function settledArm(args: ArmArgs & { onWarn: (message: string) => void })
  * job commits with the money write and a crash between the two cannot lose the
  * client's confirmation.
  */
-async function enqueueConfirmationEffects(args: {
+export async function enqueueDepositConfirmationEffectsInTx(args: {
   tx: ArmArgs['tx'];
   appointment: { id: string; endTime: Date };
   deposit: typeof appointmentDepositSchema.$inferSelect;
@@ -582,6 +652,17 @@ async function enqueueConfirmationEffects(args: {
   clientPhone: string;
 }): Promise<void> {
   const { tx, appointment, deposit, salonId } = args;
+
+  if (deposit.appliedRewardId) {
+    await markExactAttributedRewardForPaidDepositInTx(tx, {
+      salonId,
+      appointmentId: appointment.id,
+      depositId: deposit.id,
+      rewardId: deposit.appliedRewardId,
+    });
+  } else if (deposit.appliedRewardClientId || deposit.appliedRewardClientPhone) {
+    throw new RewardConsumptionConflictError();
+  }
 
   // A FRESHLY MINTED capability, not a recovered one. Only the booking-time
   // token's HASH is persisted, so the original URL is not reconstructible.
@@ -623,15 +704,47 @@ async function enqueueConfirmationEffects(args: {
     // is enqueued in-tx: the calendar upsert then rides that job\'s
     // at-least-once retry rather than a second in-tx enqueue.
     googleCalendarSyncEligible: true,
-    // NOT RECOVERABLE AT D5, and deliberately not guessed.
-    //
-    // The booking route holds the applied reward in memory and the deposit
-    // branch skips the marking, so nothing persists WHICH reward was applied to
-    // a hold — the link is the marking. Matching one heuristically by discount
-    // label and amount could mark the wrong client\'s reward, which is a worse
-    // money error than not marking one. Named as a gap that needs a hold-time
-    // persistence change in a sibling packet, not closed by improvisation here.
-    appliedRewardId: null,
+    // D5-RWD-1: copied from the locked, paid deposit row. Never reconstructed
+    // from appointment labels, prices or payload/client input.
+    appliedRewardId: deposit.appliedRewardId,
+  });
+}
+
+async function lockPersistedRewardAttributionForPaidTransition(
+  tx: ArmArgs['tx'],
+  args: {
+    appointment: { id: string; salonClientId: string | null };
+    deposit: typeof appointmentDepositSchema.$inferSelect;
+    salonId: string;
+  },
+): Promise<void> {
+  const { deposit } = args;
+  if (
+    !deposit.appliedRewardId
+    && !deposit.appliedRewardClientId
+    && !deposit.appliedRewardClientPhone
+  ) {
+    return;
+  }
+  if (
+    !deposit.appliedRewardId
+    || !deposit.appliedRewardClientId
+    || !deposit.appliedRewardClientPhone
+  ) {
+    throw new RewardAttributionConflictError('identity_mismatch');
+  }
+
+  // Lock order is appointment → deposit → reward. This happens before a
+  // checkout_created row leaves the partial reservation index, preventing a
+  // new hold from acquiring the reward while confirmation waits to consume it.
+  await lockExactRewardForDepositRestoreInTx(tx, {
+    rewardId: deposit.appliedRewardId,
+    salonId: args.salonId,
+    attributedClientId: deposit.appliedRewardClientId,
+    appointmentClientId: args.appointment.salonClientId,
+    rewardClientPhone: deposit.appliedRewardClientPhone,
+    appointmentId: args.appointment.id,
+    depositId: deposit.id,
   });
 }
 
