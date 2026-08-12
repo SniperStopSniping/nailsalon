@@ -1,3 +1,22 @@
+# [1.52.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.51.0...v1.52.0) (2026-08-12)
+
+
+### Bug Fixes
+
+* **deposits:** close D5 review blockers ([1470656](https://github.com/SniperStopSniping/nailsalon/commit/1470656f41d5b4e2a7830c97dba702c8893e07bd))
+
+
+### Features
+
+* **deposits:** add durable confirmation and refund side-effect jobs ([decc7aa](https://github.com/SniperStopSniping/nailsalon/commit/decc7aad122cad33e74995d67dfc23d78acc69dc))
+* **deposits:** add late-payment recovery and the refund core ([b5078bc](https://github.com/SniperStopSniping/nailsalon/commit/b5078bcc1eb8e55fa1b3218bcabf183ee5988f58))
+* **deposits:** add projection, provenance gate and admission cap ([0f1cf0a](https://github.com/SniperStopSniping/nailsalon/commit/0f1cf0ad1071b7eabea951adde8e06c134211a32))
+* **deposits:** add the reconcile sweep and flip the collection gate ([4984912](https://github.com/SniperStopSniping/nailsalon/commit/49849128bcaac7a557c740ff3710dc9169a79ff1))
+* **deposits:** add the single deposit confirmation writer ([88a537e](https://github.com/SniperStopSniping/nailsalon/commit/88a537ee3358b2078e5f70b829503ccea8ef45c7))
+* **deposits:** add transaction seam, audit actions and hold fence ([4d638fb](https://github.com/SniperStopSniping/nailsalon/commit/4d638fbc7d908d338b9577a737d6635290106399))
+* **deposits:** make session-status a reconciliation driver ([196030e](https://github.com/SniperStopSniping/nailsalon/commit/196030ec735b1c4e7b8e27bd19224f5609e1a98f))
+* **deposits:** route deposit money events on the Connect endpoint ([65c3319](https://github.com/SniperStopSniping/nailsalon/commit/65c3319d63c23f2b79f19e6b97bddab49a78dd2a))
+
 # [1.51.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.50.0...v1.51.0) (2026-08-11)
 
 
