@@ -564,9 +564,11 @@ export async function getAppointmentServiceNames(appointmentId: string): Promise
 /**
  * Update an appointment's status and optionally cancel reason
  * @param appointmentId - The appointment's unique ID
+ * @param salonId - The salon's unique ID (required for multi-tenant scoping)
  * @param status - The new status
  * @param cancelReason - Optional cancel reason (only for cancelled appointments)
- * @returns The updated appointment or null if not found
+ * @returns The updated appointment, or null when no row matched — which now
+ *   also covers a deposit hold, because this function refuses to move one.
  */
 export async function updateAppointmentStatus(
   appointmentId: string,

@@ -4198,16 +4198,20 @@ describe('/api/admin/salon/settings deposits', () => {
     const body = await response.json();
 
     expect(body.payments.deposit).toEqual({ enabled: true, amountCents: 2500 });
+    // `collectionLive` mirrors the SHIPPED constant, which the
+    // payment-confirmation PR flipped. The owner-facing surface still reports
+    // `active: false` for the account reason, which is the point of exposing
+    // both gates separately: an owner can see which one is closed.
     expect(body.depositPolicy).toEqual({
-      collectionLive: false,
+      collectionLive: true,
       entitled: true,
       active: false,
       reason: 'account_not_charge_ready',
       readinessStale: true,
       readinessAgeMs: 90_000_000,
     });
-    // BOTH overrides are required, or the reason would be the constant
-    // `collection_not_live` for the whole of this PR.
+    // The overrides are passed explicitly rather than left to the constant, so
+    // this assertion keeps meaning the same thing after the flip.
     expect(getDepositPolicyForSalon).toHaveBeenCalledWith(
       expect.objectContaining({ collectionLive: true, entitled: true }),
     );

@@ -388,6 +388,16 @@ describe('BookConfirmPage directions fallback', () => {
 // D3 — the dark disclosure (tests 30, 30a, 30b, 32, 33, 35b, 35c)
 // =============================================================================
 
+/**
+ * WHAT KEEPS A SALON DARK CHANGED, AND THESE LEGS FOLLOW IT.
+ *
+ * These tests were written when gate 1 — the build-time collection flag — was
+ * the thing holding every salon dark, so the fixture below was entitled and
+ * configured and still resolved inactive. The payment-confirmation PR flips
+ * gate 1, so the remaining gate is the PER-SALON entitlement, and the fixture
+ * is unentitled to match. Both gates still get an explicit leg: nothing about
+ * the two-gate launch is asserted by accident.
+ */
 describe('BookConfirmPage deposit disclosure — dark', () => {
   const baseSearchParams = {
     salonSlug: 'salon-a',
@@ -410,7 +420,11 @@ describe('BookConfirmPage deposit disclosure — dark', () => {
         state: 'CA',
         zipCode: '90001',
         bookingFlow: ['service', 'tech', 'time', 'confirm'],
-        features: { money: { deposits: true } },
+        // UNENTITLED: gate 2 is what holds this salon dark now that gate 1 is
+        // flipped. Configured and charge-ready in every other respect, so the
+        // legs below still prove the disclosure is suppressed by the gate and
+        // not by a missing amount or a broken account.
+        features: {},
         settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
       },
     });
@@ -489,13 +503,31 @@ describe('BookConfirmPage deposit disclosure — dark', () => {
     const props = await renderPage();
 
     // A salon-derived value among these three IS a bug: this fixture would
-    // resolve ACTIVE if the collection flag were on.
+    // resolve ACTIVE if it carried the per-salon entitlement.
     expect(props.depositDisclosure).toBeNull();
     expect(props.depositNoticeSuppressed).toBe(false);
     expect(props.depositFingerprint).toBe('deposit-v1:none');
   });
 
-  it('test 30a — the resolved reason while dark is collection_not_live', async () => {
+  it('test 30a — an UNENTITLED salon resolves not_entitled with gate 1 open', async () => {
+    // The live shape of "dark". Gate 1 being flipped takes nobody live on its
+    // own, and this is the assertion that says so at the page surface.
+    const { getDepositPolicyForSalon } = await import('@/libs/depositPolicy.server');
+    const policy = await getDepositPolicyForSalon({
+      salonId: 'salon_1',
+      salon: {
+        features: {},
+        settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
+      },
+    });
+
+    expect(policy).toMatchObject({ active: false, reason: 'not_entitled' });
+  });
+
+  it('test 30a2 — gate 1 still short-circuits ahead of the entitlement', async () => {
+    // Conjunct ORDER is load-bearing: `collection_not_live` must be reachable
+    // without any salon-local answer, so a rollback of the flip resolves every
+    // salon dark for one reason rather than a per-salon assortment.
     const { getDepositPolicyForSalon } = await import('@/libs/depositPolicy.server');
     const policy = await getDepositPolicyForSalon({
       salonId: 'salon_1',
@@ -503,6 +535,7 @@ describe('BookConfirmPage deposit disclosure — dark', () => {
         features: { money: { deposits: true } },
         settings: { payments: { deposit: { enabled: true, amountCents: 2500 } } },
       },
+      collectionLive: false,
     });
 
     expect(policy).toMatchObject({ active: false, reason: 'collection_not_live' });

@@ -141,6 +141,18 @@ describe('test 31 — module boundaries', () => {
       path.join(ROOT, 'src/libs/depositHoldReaper.ts'),
       path.join(ROOT, 'src/libs/deposits/holdWriters.ts'),
       path.join(ROOT, 'src/models/Schema.ts'),
+      // D5: the payment-confirmation layer. Each entry is a deliberate site.
+      // The Connect route reads the table only to match a `refund.*` event to a
+      // deposit; the two libs under `deposits/` are the single confirm writer
+      // and the refund core; `depositWebhookEvents` reads it for the admission
+      // cap; `depositReconcile` is the sweep; `depositOutboxHandlers` reads it
+      // to build the refund notice.
+      path.join(ROOT, 'src/app/api/webhooks/stripe-connect/route.ts'),
+      path.join(ROOT, 'src/libs/depositReconcile.ts'),
+      path.join(ROOT, 'src/libs/deposits/confirmDepositPayment.ts'),
+      path.join(ROOT, 'src/libs/deposits/depositOutboxHandlers.ts'),
+      path.join(ROOT, 'src/libs/deposits/depositWebhookEvents.ts'),
+      path.join(ROOT, 'src/libs/deposits/lateDepositRecovery.ts'),
     ].sort());
   });
 
@@ -184,19 +196,21 @@ describe('test 31 — module boundaries', () => {
     }
   });
 
-  it('the literal \'poisoned\' appears at NO write site in D2', () => {
-    // §9G6c: `poisoned` is declared-and-reserved. A later PR's reconcile sweep
-    // owns the generic escalation; D2 inventing an `attempts >= 8 → poisoned`
-    // branch would fork the lifecycle in the very PR that pins it.
-    const files = [
-      ...walk(CONNECT_LIB_DIR).filter(f => !isTestFile(f)),
-      ...d2RouteFiles,
-    ];
-
-    for (const file of files) {
+  it('the account-lifecycle handlers invent NO escalation of their own', () => {
+    // `poisoned` is declared-and-reserved for the reconcile sweep, which owns
+    // the generic escalation. An `attempts >= 8 -> poisoned` branch grown here
+    // would fork the lifecycle across two writers.
+    //
+    // The Connect ROUTE is now a shared file: the payment-confirmation layer
+    // added its own dispatch to it, and that layer legitimately maps a torn
+    // confirm onto `poisoned`. So the assertion is scoped to the account
+    // handlers rather than to the file — which is the property that was always
+    // meant, and which a whole-file grep only approximated while this route had
+    // one owner.
+    for (const file of walk(CONNECT_LIB_DIR).filter(f => !isTestFile(f))) {
       const occurrences = codeLines(readFileSync(file, 'utf8'))
         .filter(({ line }) => line.includes('poisoned'))
-        // The ONLY permitted occurrences are the two entries in the exported
+        // The ONLY permitted occurrences are the entries in the exported
         // vocabulary arrays in webhookEvents.ts.
         .filter(({ line }) => !(
           file.endsWith('webhookEvents.ts') && /^\s*'poisoned',\s*$/.test(line)
@@ -204,6 +218,21 @@ describe('test 31 — module boundaries', () => {
         .map(({ line, number }) => `${number}: ${line.trim()}`);
 
       expect({ file, occurrences }).toEqual({ file, occurrences: [] });
+    }
+
+    const routeSource = readFileSync(CONNECT_WEBHOOK_ROUTE, 'utf8');
+    for (const handler of ['handleAccountUpdated', 'handleDeauthorized']) {
+      const start = routeSource.indexOf(`async function ${handler}(`);
+
+      expect(start).toBeGreaterThan(-1);
+
+      // Up to the next top-level function declaration.
+      const rest = routeSource.slice(start + 1);
+      const nextFunction = rest.search(/\nasync function |\nfunction /);
+      const body = nextFunction === -1 ? rest : rest.slice(0, nextFunction);
+
+      expect({ handler, escalates: codeOnly(body).includes('poisoned') })
+        .toEqual({ handler, escalates: false });
     }
   });
 });
