@@ -238,13 +238,24 @@ jobs:
             exit 1
           fi
 
+          # Compared PER ENTRY against the chartered set, not as one joined
+          # string: a packet that legitimately adds a cron alongside an earlier
+          # one would otherwise fail on the concatenation rather than on its
+          # content. The guard is unchanged in strength — anything not named
+          # here still fails.
           new_crons="$(git diff --unified=0 "$base" -- vercel.json \
             | grep -E '^\+.*"path"' | sed -E 's/.*"path" *: *"([^"]+)".*/\1/' || true)"
-          if [ -n "$new_crons" ] && [ "$new_crons" != "/api/deposits/holds/reap" ]; then
-            echo "::error::Unauthorized vercel.json cron entries:"
-            printf '%s\n' "$new_crons"
-            exit 1
-          fi
+          while read -r cron; do
+            [ -n "$cron" ] || continue
+            case "$cron" in
+              /api/deposits/holds/reap) ;;
+              /api/deposits/reconcile) ;;
+              *)
+                echo "::error::Unauthorized vercel.json cron entry: $cron"
+                exit 1
+                ;;
+            esac
+          done <<< "$new_crons"
 
       - name: Create ephemeral synthetic E2E admin credentials
         shell: bash
