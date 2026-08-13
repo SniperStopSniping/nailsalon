@@ -21,6 +21,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -121,6 +122,8 @@ vi.mock('@/libs/googleCalendar', () => ({
 vi.mock('@/libs/integrationOutbox', () => ({
   enqueueGoogleCalendarUpsert: vi.fn(async () => {}),
   enqueueGoogleCalendarDelete: vi.fn(async () => {}),
+  enqueueGoogleCalendarAppointmentMutation: vi.fn(async () => ({ inserted: true })),
+  enqueueGoogleCalendarDeleteInTx: vi.fn(async () => ({ inserted: true })),
 }));
 
 vi.mock('@/libs/googleEventReview', () => ({
@@ -351,6 +354,7 @@ beforeEach(async () => {
     providerMessageId: 'msg_deposits',
   });
   await db.delete(schema.appointmentDepositSchema);
+  await db.delete(schema.rewardSchema);
   await db.delete(schema.appointmentSchema);
   seedChargeReady(false);
   deposits.chargeOverride = null;
@@ -1233,6 +1237,26 @@ describe('6 — the reschedule fence', () => {
       startTime: at(futureDate(63), '09:00'),
       endTime: at(futureDate(63), '10:00'),
     });
+    await db.insert(schema.rewardSchema).values([
+      {
+        id: `reward_reschedule_decoy_${original}`,
+        salonId: SALON_ID,
+        clientPhone: phone,
+        type: 'referral_referee',
+        status: 'expired',
+        discountType: 'fixed_amount',
+        discountAmountCents: 1000,
+      },
+      {
+        id: `reward_reschedule_exact_${original}`,
+        salonId: SALON_ID,
+        clientPhone: phone,
+        type: 'referral_referee',
+        discountType: 'fixed_amount',
+        discountAmountCents: 1000,
+        usedInAppointmentId: original,
+      },
+    ]);
     setClientSession(phone);
 
     const response = await postBooking({
@@ -1248,6 +1272,15 @@ describe('6 — the reschedule fence', () => {
     expect(cancelled!.status).toBe('cancelled');
     expect(cancelled!.cancelReason).toBe('rescheduled');
     expect(rows).toHaveLength(2);
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, `reward_reschedule_exact_${original}`)))[0]?.usedInAppointmentId)
+      .toBeNull();
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, `reward_reschedule_decoy_${original}`)))[0]?.usedInAppointmentId)
+      .toBeNull();
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, `reward_reschedule_decoy_${original}`)))[0]?.status)
+      .toBe('expired');
   });
 });
 

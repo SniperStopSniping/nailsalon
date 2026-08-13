@@ -110,7 +110,11 @@ import {
   isBusyWindowConflict,
 } from '@/libs/googleCalendar';
 import { recordGoogleEventReviewDecision } from '@/libs/googleEventReview';
-import { enqueueGoogleCalendarDelete } from '@/libs/integrationOutbox';
+import {
+  acquireGoogleCalendarEventPairMutationBarrierInTx,
+  enqueueGoogleCalendarAppointmentMutation,
+  enqueueGoogleCalendarDeleteInTx,
+} from '@/libs/integrationOutbox';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import {
   checkPublicBookingRateLimit,
@@ -181,6 +185,7 @@ import {
   googleCalendarEventSchema,
   retentionCampaignRedemptionSchema,
   retentionCampaignSchema,
+  rewardSchema,
   salonClientSchema,
   salonSchema,
   type Service,
@@ -3099,6 +3104,10 @@ export async function POST(request: Request): Promise<Response> {
               throw new BookingActiveAppointmentError();
             }
 
+            const originalMutationVersion = new Date(Math.max(
+              Date.now(),
+              lockedOriginal.updatedAt.getTime() + 1,
+            ));
             const [cancelledOriginal] = await tx
               .update(appointmentSchema)
               .set({
@@ -3112,7 +3121,7 @@ export async function POST(request: Request): Promise<Response> {
                 // cancel and transition routes already perform.
                 canvasState: 'cancelled',
                 canvasStateUpdatedAt: new Date(),
-                updatedAt: new Date(),
+                updatedAt: originalMutationVersion,
               })
               .where(
                 and(
@@ -3126,6 +3135,41 @@ export async function POST(request: Request): Promise<Response> {
             if (!cancelledOriginal) {
               throw new Error('RESCHEDULE_CONFLICT');
             }
+
+            // Preserve the candidate-base terminal lifecycle behavior without
+            // importing deferred reward machinery: an ordinary reward linked
+            // to the rescheduled-away appointment is released by the same
+            // transaction that cancels that appointment.
+            const [linkedReward] = await tx
+              .select()
+              .from(rewardSchema)
+              .where(and(
+                eq(rewardSchema.usedInAppointmentId, cancelledOriginal.id),
+                eq(rewardSchema.salonId, cancelledOriginal.salonId),
+              ))
+              .limit(1);
+
+            if (linkedReward && linkedReward.status !== 'used') {
+              await tx
+                .update(rewardSchema)
+                .set({
+                  usedInAppointmentId: null,
+                  status: 'active',
+                })
+                .where(and(
+                  eq(rewardSchema.id, linkedReward.id),
+                  eq(rewardSchema.salonId, cancelledOriginal.salonId),
+                  eq(rewardSchema.usedInAppointmentId, cancelledOriginal.id),
+                  ne(rewardSchema.status, 'used'),
+                ));
+            }
+
+            await enqueueGoogleCalendarDeleteInTx(tx, {
+              appointmentId: cancelledOriginal.id,
+              salonId: cancelledOriginal.salonId,
+              mutationVersion: cancelledOriginal.updatedAt,
+              googleCalendarEventId: cancelledOriginal.googleCalendarEventId,
+            });
 
             await finalizeBookingPricingInTx(tx, lockedSalonClient);
 
@@ -3232,6 +3276,14 @@ export async function POST(request: Request): Promise<Response> {
                 quantity: addOn.quantity,
                 lineTotalCents: addOn.lineTotalCents,
                 lineDurationMinutes: addOn.lineDurationMinutes,
+              });
+            }
+
+            if (!googleReviewEvent || googleReviewEvent.syncMode === 'bidirectional') {
+              await enqueueGoogleCalendarAppointmentMutation(tx, {
+                appointmentId: createdAppointment.id,
+                salonId: createdAppointment.salonId,
+                mutationVersion: createdAppointment.updatedAt,
               });
             }
 
@@ -3695,6 +3747,25 @@ export async function POST(request: Request): Promise<Response> {
             }
 
             if (googleReviewEvent) {
+              // The review row was loaded before this transaction so the form
+              // can be validated without holding locks through the rest of the
+              // request. Before transferring its remote-event ownership, join
+              // the same exact-pair ordering domain as reconciliation workers,
+              // then compare every provider/review version that made the row
+              // eligible. A tombstone, owner review, inbound refresh or copy
+              // transition that won since the read therefore aborts this whole
+              // booking transaction instead of being overwritten by a stale
+              // claim.
+              const pairIsIdle
+                = await acquireGoogleCalendarEventPairMutationBarrierInTx(tx, {
+                  expectedMirrorId: googleReviewEvent.id,
+                  expectedSalonId: salon.id,
+                  targetCalendarId: googleReviewEvent.calendarId,
+                  googleCalendarEventId: googleReviewEvent.googleEventId,
+                });
+              if (!pairIsIdle) {
+                throw new Error('GOOGLE_EVENT_ALREADY_CONVERTED');
+              }
               const [claimedEvent] = await tx.update(googleCalendarEventSchema).set({
                 appointmentId: createdAppointment.id,
                 reviewStatus: 'appointment',
@@ -3702,7 +3773,18 @@ export async function POST(request: Request): Promise<Response> {
               }).where(and(
                 eq(googleCalendarEventSchema.id, googleReviewEvent.id),
                 eq(googleCalendarEventSchema.salonId, salon.id),
+                eq(googleCalendarEventSchema.calendarId, googleReviewEvent.calendarId),
+                eq(googleCalendarEventSchema.googleEventId, googleReviewEvent.googleEventId),
                 isNull(googleCalendarEventSchema.appointmentId),
+                isNull(googleCalendarEventSchema.deletedAt),
+                eq(googleCalendarEventSchema.reviewStatus, googleReviewEvent.reviewStatus),
+                eq(googleCalendarEventSchema.syncMode, googleReviewEvent.syncMode),
+                googleReviewEvent.googleUpdatedAt
+                  ? eq(
+                    googleCalendarEventSchema.googleUpdatedAt,
+                    googleReviewEvent.googleUpdatedAt,
+                  )
+                  : isNull(googleCalendarEventSchema.googleUpdatedAt),
               )).returning();
               if (!claimedEvent) {
                 throw new Error('GOOGLE_EVENT_ALREADY_CONVERTED');
@@ -3750,6 +3832,17 @@ export async function POST(request: Request): Promise<Response> {
                     eq(clientCommunicationSchema.salonId, salon.id),
                   ));
               }
+            }
+
+            if (
+              !depositCharge
+              && (!googleReviewEvent || googleReviewEvent.syncMode === 'bidirectional')
+            ) {
+              await enqueueGoogleCalendarAppointmentMutation(tx, {
+                appointmentId: createdAppointment.id,
+                salonId: createdAppointment.salonId,
+                mutationVersion: createdAppointment.updatedAt,
+              });
             }
 
             return {
@@ -3868,12 +3961,6 @@ export async function POST(request: Request): Promise<Response> {
 
     // 9b. If this is a reschedule, cancel the original appointment and send SMS
     if (originalAppointment && normalizedOriginalApptId) {
-      await enqueueGoogleCalendarDelete({
-        appointmentId: normalizedOriginalApptId,
-        salonId: salon.id,
-        googleCalendarEventId: originalAppointment.googleCalendarEventId,
-      });
-
       // Send reschedule confirmation SMS to client (gated by smsRemindersEnabled toggle)
       // Use salonClient.phone as source of truth
       await sendRescheduleConfirmation(salon.id, {
@@ -4081,6 +4168,7 @@ export async function POST(request: Request): Promise<Response> {
         id: appointment.id,
         notes: appointment.notes,
         googleCalendarEventId: appointment.googleCalendarEventId,
+        updatedAt: appointment.updatedAt,
       },
       serviceNames: services.map(s => s.name),
       technician: technician
@@ -4168,11 +4256,14 @@ export async function POST(request: Request): Promise<Response> {
     //
     // These are the eight effects a deposit hold skips: nobody has paid yet,
     // and the booking may never become real. When the deposit is confirmed,
-    // exactly this runner fires for exactly this appointment. That is the whole
-    // reason it is one named function and not eight inline blocks.
+    // this same runner becomes eligible for that appointment through its durable,
+    // at-least-once confirmation aggregate. That is the whole reason it is one
+    // named function and not eight inline blocks.
     // =========================================================================
     if (!isDepositHold) {
-      await runBookingCommitSideEffects(bookingCommitEffectsContext);
+      await runBookingCommitSideEffects(bookingCommitEffectsContext, {
+        calendarAlreadyEnqueued: true,
+      });
     }
 
     // 13. Return response (same object that was cached, if caching was enabled)

@@ -82,6 +82,9 @@ describe('SMS templates', () => {
     });
 
     expect(sent).toBe(true);
+    expect(twilio).toHaveBeenCalledWith('twilio_sid', 'twilio_token', {
+      timeout: 30_000,
+    });
     expect(create).toHaveBeenCalledWith(expect.objectContaining({
       body: [
         'New booking at Isla Nail Studio',

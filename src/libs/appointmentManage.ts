@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
@@ -27,6 +27,8 @@ import {
   appointmentSchema,
   type AppointmentService,
   appointmentServicesSchema,
+  googleCalendarEventSchema,
+  integrationOutboxSchema,
   notificationDeliverySchema,
   salonClientSchema,
   type SalonLocation,
@@ -195,6 +197,7 @@ export type AppointmentManageDetail = {
 export type AppointmentCalendarEvent = {
   id: string;
   clientName: string | null;
+  notes: string | null;
   startTime: string;
   endTime: string;
   status: string;
@@ -209,6 +212,15 @@ export type AppointmentCalendarEvent = {
   locationName: string | null;
   locationAddress: string | null;
   isLocked: boolean;
+  updatedAt: string;
+};
+
+export type AppointmentManageSourceEventFence = {
+  rowId: string;
+  calendarId: string;
+  googleEventId: string;
+  googleUpdatedAt: Date | null;
+  remoteMutationVersion?: Date | null;
 };
 
 type MoveArgs = {
@@ -218,6 +230,7 @@ type MoveArgs = {
   technicianId?: string | null;
   canReassignTechnician: boolean;
   notifyCustomerOnReschedule?: boolean;
+  sourceEventFence?: AppointmentManageSourceEventFence;
 };
 
 type ChangeServiceArgs = {
@@ -247,6 +260,63 @@ type MutationResult = {
   mutationApplied?: boolean;
 };
 type ManageTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+const AUTHORITATIVE_GOOGLE_INTENT_STATUSES = [
+  'pending',
+  'retry',
+  'processing',
+  'completed',
+  'failed',
+  'cancelled',
+] as const;
+const RUNNABLE_GOOGLE_INTENT_STATUSES = ['pending', 'retry', 'processing'] as const;
+
+export async function inboundGoogleFeedbackIsSupersededInTx(
+  database: ManageTransaction,
+  input: {
+    appointmentId: string;
+    salonId: string;
+    remoteMutationVersion?: Date | null;
+  },
+): Promise<boolean> {
+  const intents = await database.select({
+    mutationVersion: sql<string | null>`${integrationOutboxSchema.payload}->>'mutationVersion'`,
+    status: integrationOutboxSchema.status,
+  }).from(integrationOutboxSchema).where(and(
+    eq(integrationOutboxSchema.salonId, input.salonId),
+    eq(integrationOutboxSchema.appointmentId, input.appointmentId),
+    eq(integrationOutboxSchema.provider, 'google_calendar'),
+    inArray(integrationOutboxSchema.operation, ['sync_appointment', 'upsert_event']),
+    inArray(integrationOutboxSchema.status, [...AUTHORITATIVE_GOOGLE_INTENT_STATUSES]),
+  ));
+  const runnable = intents.some(intent => (
+    RUNNABLE_GOOGLE_INTENT_STATUSES.includes(
+      intent.status as typeof RUNNABLE_GOOGLE_INTENT_STATUSES[number],
+    )
+  ));
+  if (!input.remoteMutationVersion) {
+    return runnable;
+  }
+  const remoteRevision = input.remoteMutationVersion.getTime();
+  return intents.some((intent) => {
+    if (!intent.mutationVersion) {
+      return false;
+    }
+    const parsed = new Date(intent.mutationVersion);
+    if (
+      Number.isNaN(parsed.getTime())
+      || parsed.toISOString() !== intent.mutationVersion
+    ) {
+      return false;
+    }
+    return parsed.getTime() > remoteRevision
+      || (
+        parsed.getTime() === remoteRevision
+        && RUNNABLE_GOOGLE_INTENT_STATUSES.includes(
+          intent.status as typeof RUNNABLE_GOOGLE_INTENT_STATUSES[number],
+        )
+      );
+  });
+}
 const SEARCH_DAYS_AHEAD = 14;
 const MANAGE_VISIBLE_START_HOUR = 8;
 const MANAGE_VISIBLE_END_HOUR = 20;
@@ -398,6 +468,7 @@ function buildCalendarEvent(loaded: LoadedManagedAppointment): AppointmentCalend
   return {
     id: loaded.appointment.id,
     clientName: loaded.appointment.clientName,
+    notes: loaded.appointment.notes,
     clientPhone: loaded.appointment.clientPhone,
     googleCalendarEventId: loaded.appointment.googleCalendarEventId,
     startTime: loaded.appointment.startTime.toISOString(),
@@ -417,6 +488,7 @@ function buildCalendarEvent(loaded: LoadedManagedAppointment): AppointmentCalend
           .join(', ') || null
       : null,
     isLocked: Boolean(loaded.appointment.lockedAt) || loaded.appointment.status === 'in_progress',
+    updatedAt: loaded.appointment.updatedAt.toISOString(),
   };
 }
 
@@ -676,6 +748,7 @@ async function withLockedManagedAppointment(
     startTime?: Date;
     durationMinutes?: number;
     allowIdempotentMove?: boolean;
+    sourceEventFence?: AppointmentManageSourceEventFence;
   },
   apply: (tx: ManageTransaction, loaded: LoadedManagedAppointment) => Promise<MutationResult>,
 ): Promise<MutationResult> {
@@ -708,19 +781,63 @@ async function withLockedManagedAppointment(
       }
       ensureEditable(lockedAppointment);
 
+      if (args.sourceEventFence) {
+        const [lockedSourceEvent] = await tx.select({
+          appointmentId: googleCalendarEventSchema.appointmentId,
+          calendarId: googleCalendarEventSchema.calendarId,
+          googleEventId: googleCalendarEventSchema.googleEventId,
+          googleUpdatedAt: googleCalendarEventSchema.googleUpdatedAt,
+          reviewStatus: googleCalendarEventSchema.reviewStatus,
+          syncMode: googleCalendarEventSchema.syncMode,
+          deletedAt: googleCalendarEventSchema.deletedAt,
+        }).from(googleCalendarEventSchema).where(and(
+          eq(googleCalendarEventSchema.id, args.sourceEventFence.rowId),
+          eq(googleCalendarEventSchema.salonId, expected.salonId),
+        )).for('update').limit(1);
+        if (
+          !lockedSourceEvent
+          || lockedSourceEvent.appointmentId !== lockedAppointment.id
+          || lockedSourceEvent.calendarId !== args.sourceEventFence.calendarId
+          || lockedSourceEvent.googleEventId !== args.sourceEventFence.googleEventId
+          || lockedSourceEvent.reviewStatus !== 'appointment'
+          || lockedSourceEvent.syncMode === 'superseded'
+          || lockedSourceEvent.deletedAt !== null
+          || lockedSourceEvent.googleUpdatedAt?.getTime()
+          !== args.sourceEventFence.googleUpdatedAt?.getTime()
+        ) {
+          throw new AppointmentManageError(
+            'STALE_GOOGLE_EVENT',
+            'The linked Google Calendar event changed while it was being synchronized.',
+            409,
+          );
+        }
+        if (await inboundGoogleFeedbackIsSupersededInTx(tx, {
+          appointmentId: lockedAppointment.id,
+          salonId: lockedAppointment.salonId,
+          remoteMutationVersion: args.sourceEventFence.remoteMutationVersion,
+        })) {
+          throw new AppointmentManageError(
+            'STALE_GOOGLE_FEEDBACK',
+            'A newer local Google Calendar operation owns this appointment.',
+            409,
+          );
+        }
+      }
+
       const authoritative = await loadManagedAppointment(
         lockedAppointment.id,
         lockedAppointment.salonId,
         tx,
       );
       const stale = managedWriteVersion(authoritative) !== managedWriteVersion(args.loaded);
-      const idempotentMove = stale
-        && args.allowIdempotentMove
+      const idempotentMove = args.allowIdempotentMove
         && args.startTime
-        && args.durationMinutes == null
-        && args.technicianId == null
         && roundDownToSlot(args.startTime, authoritative.slotIntervalMinutes).getTime()
-        === lockedAppointment.startTime.getTime();
+        === lockedAppointment.startTime.getTime()
+        && (args.durationMinutes ?? lockedAppointment.totalDurationMinutes)
+        === lockedAppointment.totalDurationMinutes
+        && (args.technicianId ?? lockedAppointment.technicianId)
+        === lockedAppointment.technicianId;
       if (stale && !idempotentMove) {
         throw new AppointmentManageError(
           'STALE_STATE',
@@ -738,9 +855,18 @@ async function withLockedManagedAppointment(
           403,
         );
       }
-      return idempotentMove
-        ? { appointment: lockedAppointment, warnings: [], mutationApplied: false }
-        : apply(tx, authoritative);
+      if (idempotentMove) {
+        return { appointment: lockedAppointment, warnings: [], mutationApplied: false };
+      }
+
+      const result = await apply(tx, authoritative);
+      const { enqueueGoogleCalendarAppointmentMutation } = await import('@/libs/integrationOutbox');
+      await enqueueGoogleCalendarAppointmentMutation(tx, {
+        appointmentId: result.appointment.id,
+        salonId: result.appointment.salonId,
+        mutationVersion: result.appointment.updatedAt,
+      });
+      return result;
     });
   } catch (error) {
     if (error instanceof SlotConflictError || isSlotConstraintViolation(error)) {
@@ -1315,6 +1441,7 @@ export async function runAppointmentManageMutation(args: {
   canReassignTechnician: boolean;
   notifyCustomerOnReschedule?: boolean;
   includeMutationApplied?: boolean;
+  sourceEventFence?: AppointmentManageSourceEventFence;
 }): Promise<{
     detail: AppointmentManageDetail;
     calendarEvent: AppointmentCalendarEvent;
@@ -1337,6 +1464,7 @@ export async function runAppointmentManageMutation(args: {
         technicianId: args.technicianId,
         canReassignTechnician: args.canReassignTechnician,
         notifyCustomerOnReschedule,
+        ...(args.sourceEventFence ? { sourceEventFence: args.sourceEventFence } : {}),
       });
       break;
     case 'moveToNextAvailable':

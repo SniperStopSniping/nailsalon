@@ -706,6 +706,21 @@ describe('retryBookingRecoveryEmail', () => {
     state.sendTransactionalEmailDetailed.mockResolvedValue({ ok: true, providerMessageId: 'msg_2', errorCode: null });
   });
 
+  it('does not inspect state or dispatch after its worker budget is already lost', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('WORKER_BUDGET_EXCEEDED'));
+
+    await expect(retryBookingRecoveryEmail({
+      salonId: 'salon_1',
+      deliveryId: 'delivery_1',
+      appointmentIds: ['appt_1'],
+      signal: controller.signal,
+    })).rejects.toThrow('WORKER_BUDGET_EXCEEDED');
+
+    expect(dbMock.select).not.toHaveBeenCalled();
+    expect(state.sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+  });
+
   it('marks the delivery terminal when canonical resolution is unavailable', async () => {
     state.selectQueue.push([{ status: 'failed', retryable: true }]); // delivery lookup
     state.selectQueue.push([SALON]); // salon lookup

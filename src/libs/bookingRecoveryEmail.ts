@@ -45,7 +45,20 @@ type RecoveryAppointment = {
 class RecoveryProviderError extends Error {}
 
 function isAmbiguousProviderFailure(errorCode: string | null): boolean {
-  return errorCode === 'RESEND_NETWORK_ERROR';
+  return [
+    'RESEND_ABORTED',
+    'RESEND_NETWORK_ERROR',
+    'RESEND_TIMEOUT',
+  ].includes(errorCode ?? '');
+}
+
+function throwIfRecoveryEmailAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new Error('BOOKING_RECOVERY_EMAIL_ABORTED');
 }
 
 function escapeHtml(value: string): string {
@@ -601,7 +614,9 @@ export async function retryBookingRecoveryEmail(input: {
   salonId: string;
   deliveryId: string;
   appointmentIds: string[];
+  signal?: AbortSignal;
 }): Promise<{ ok: boolean; errorCode?: string }> {
+  throwIfRecoveryEmailAborted(input.signal);
   const [delivery] = await db.select({
     status: notificationDeliverySchema.status,
     errorCode: notificationDeliverySchema.errorCode,
@@ -632,6 +647,7 @@ export async function retryBookingRecoveryEmail(input: {
       errorCode: delivery.errorCode ?? 'RECOVERY_EMAIL_NOT_RETRYABLE',
     };
   }
+  throwIfRecoveryEmailAborted(input.signal);
 
   const appointmentIds = [...new Set(input.appointmentIds)].sort();
   let salon: RecoverySalon;
@@ -658,6 +674,7 @@ export async function retryBookingRecoveryEmail(input: {
       return { ok: false, errorCode: 'OPERATIONAL_EMAIL_UNAVAILABLE' };
     }
     appointments = loadedAppointments;
+    throwIfRecoveryEmailAborted(input.signal);
 
     const initialRecipient = await resolveRecoveryRecipient(
       input.salonId,
@@ -729,14 +746,27 @@ export async function retryBookingRecoveryEmail(input: {
     throw error;
   }
 
+  if (input.signal?.aborted) {
+    await restoreRecoveryRetryAfterCapabilityCleanup({
+      salonId: input.salonId,
+      deliveryId: input.deliveryId,
+      tokenHashes: issuedTokenHashes,
+      errorCode: 'RECOVERY_EMAIL_ABORTED_BEFORE_DISPATCH',
+    });
+    throwIfRecoveryEmailAborted(input.signal);
+  }
+
   let result;
   try {
-    result = await sendTransactionalEmailDetailed({
+    const message = {
       to: recipientEmail,
       subject: content.subject,
       text: content.text,
       html: content.html,
-    });
+    };
+    result = input.signal
+      ? await sendTransactionalEmailDetailed(message, { signal: input.signal })
+      : await sendTransactionalEmailDetailed(message);
   } catch {
     await markRecoveryAmbiguousFailure({
       salonId: input.salonId,

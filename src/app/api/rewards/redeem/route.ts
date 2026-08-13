@@ -5,7 +5,7 @@
  * Redeems a reward by applying it to an existing appointment
  */
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
 import {
@@ -15,6 +15,7 @@ import {
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
+import { enqueueGoogleCalendarAppointmentMutation } from '@/libs/integrationOutbox';
 import { calculateRewardDiscountCents, getRewardDisplayContent } from '@/libs/rewardRules';
 import { appointmentSchema, appointmentServicesSchema, rewardSchema, serviceSchema } from '@/models/Schema';
 
@@ -54,6 +55,13 @@ type ErrorResponse = {
     details?: unknown;
   };
 };
+
+class RewardRedemptionConflictError extends Error {
+  constructor() {
+    super('REWARD_REDEMPTION_CONFLICT');
+    this.name = 'RewardRedemptionConflictError';
+  }
+}
 
 // =============================================================================
 // POST /api/rewards/redeem - Apply a reward to an appointment
@@ -251,10 +259,7 @@ export async function POST(request: Request): Promise<Response> {
       );
     }
 
-    // 5. Calculate the discount based on the reward type and appointment services
-    let discountApplied = 0;
-
-    // Get services for this appointment
+    // 5. Load the appointment services used by the locked pricing calculation.
     const appointmentServices = await db
       .select({
         serviceId: appointmentServicesSchema.serviceId,
@@ -262,64 +267,152 @@ export async function POST(request: Request): Promise<Response> {
       })
       .from(appointmentServicesSchema)
       .where(eq(appointmentServicesSchema.appointmentId, appointmentId));
+    let rewardServices: Array<typeof serviceSchema.$inferSelect> = [];
 
     if (appointmentServices.length > 0) {
       const serviceIds = appointmentServices.map(as => as.serviceId);
-      const services = await db
+      rewardServices = await db
         .select()
         .from(serviceSchema)
         .where(inArray(serviceSchema.id, serviceIds));
-
-      discountApplied = calculateRewardDiscountCents({
-        reward,
-        subtotalBeforeDiscountCents: appointment.totalPrice,
-        services: services.map(service => ({
-          id: service.id,
-          name: service.name,
-          price: appointmentServices.find(item => item.serviceId === service.id)?.priceAtBooking ?? service.price,
-        })),
-      }).discountAmountCents;
     }
 
-    // 6. Apply the discount - update appointment and reward
-    // All prices are in cents
-    const newTotalPrice = Math.max(0, appointment.totalPrice - discountApplied);
+    // 6. Apply the discount and publish the matching Calendar revision atomically.
+    const redemption = await db.transaction(async (tx) => {
+      // Appointment before reward is the shared reward-writer lock order. Every
+      // mutable eligibility and pricing value below comes from these locked
+      // rows, never from the advisory reads above.
+      const [lockedAppointment] = await tx
+        .select()
+        .from(appointmentSchema)
+        .where(and(
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, salon.id),
+          inArray(appointmentSchema.clientPhone, phoneVariants),
+        ))
+        .for('update')
+        .limit(1);
+      if (
+        !lockedAppointment
+        || !['pending', 'confirmed'].includes(lockedAppointment.status)
+        || lockedAppointment.discountType === FIRST_VISIT_DISCOUNT_TYPE
+      ) {
+        throw new RewardRedemptionConflictError();
+      }
 
-    // Format for display (convert cents to dollars)
-    const discountDollars = (discountApplied / 100).toFixed(2);
-    const rewardDisplay = getRewardDisplayContent(reward);
+      const [linkedReward] = await tx
+        .select({ id: rewardSchema.id })
+        .from(rewardSchema)
+        .where(and(
+          eq(rewardSchema.usedInAppointmentId, appointmentId),
+          eq(rewardSchema.salonId, salon.id),
+        ))
+        .limit(1);
+      if (linkedReward) {
+        throw new RewardRedemptionConflictError();
+      }
 
-    await db.transaction(async (tx) => {
+      const [lockedReward] = await tx
+        .select()
+        .from(rewardSchema)
+        .where(and(
+          eq(rewardSchema.id, rewardId),
+          eq(rewardSchema.salonId, salon.id),
+          inArray(rewardSchema.clientPhone, phoneVariants),
+        ))
+        .for('update')
+        .limit(1);
+      if (
+        !lockedReward
+        || lockedReward.status !== 'active'
+        || lockedReward.usedInAppointmentId !== null
+        || (lockedReward.expiresAt !== null && lockedReward.expiresAt < new Date())
+      ) {
+        throw new RewardRedemptionConflictError();
+      }
+
+      const lockedDiscountApplied = appointmentServices.length > 0
+        ? calculateRewardDiscountCents({
+          reward: lockedReward,
+          subtotalBeforeDiscountCents: lockedAppointment.totalPrice,
+          services: appointmentServices.map(item => ({
+            id: item.serviceId,
+            name: rewardServices.find(service => service.id === item.serviceId)?.name ?? '',
+            price: item.priceAtBooking
+              ?? rewardServices.find(service => service.id === item.serviceId)?.price
+              ?? 0,
+          })),
+        }).discountAmountCents
+        : 0;
+      const lockedNewTotalPrice = Math.max(
+        0,
+        lockedAppointment.totalPrice - lockedDiscountApplied,
+      );
+      const lockedDiscountDollars = (lockedDiscountApplied / 100).toFixed(2);
+      const lockedRewardDisplay = getRewardDisplayContent(lockedReward);
+
       // Update the appointment price
-      await tx
+      const [pricedAppointment] = await tx
         .update(appointmentSchema)
         .set({
-          totalPrice: newTotalPrice,
-          notes: appointment.notes
-            ? `${appointment.notes}\n[Reward applied: ${rewardDisplay.title} - $${discountDollars} off]`
-            : `[Reward applied: ${rewardDisplay.title} - $${discountDollars} off]`,
+          totalPrice: lockedNewTotalPrice,
+          notes: lockedAppointment.notes
+            ? `${lockedAppointment.notes}\n[Reward applied: ${lockedRewardDisplay.title} - $${lockedDiscountDollars} off]`
+            : `[Reward applied: ${lockedRewardDisplay.title} - $${lockedDiscountDollars} off]`,
+          updatedAt: new Date(Math.max(
+            Date.now(),
+            lockedAppointment.updatedAt.getTime() + 1,
+          )),
         })
         .where(
           and(
             eq(appointmentSchema.id, appointmentId),
             eq(appointmentSchema.salonId, salon.id),
+            inArray(appointmentSchema.status, ['pending', 'confirmed']),
           ),
-        );
+        )
+        .returning();
+      if (!pricedAppointment) {
+        throw new RewardRedemptionConflictError();
+      }
 
       // Mark the reward as pending (will be marked as 'used' when appointment completes)
-      await tx
+      const claimedReward = await tx
         .update(rewardSchema)
         .set({
           usedInAppointmentId: appointmentId,
           // Keep status as 'active' until appointment completes, then it becomes 'used'
         })
-        .where(eq(rewardSchema.id, rewardId));
+        .where(and(
+          eq(rewardSchema.id, rewardId),
+          eq(rewardSchema.salonId, salon.id),
+          inArray(rewardSchema.clientPhone, phoneVariants),
+          eq(rewardSchema.status, 'active'),
+          isNull(rewardSchema.usedInAppointmentId),
+        ))
+        .returning();
+      if (claimedReward.length !== 1) {
+        // This rolls the appointment price change back with the failed claim.
+        throw new RewardRedemptionConflictError();
+      }
+
+      await enqueueGoogleCalendarAppointmentMutation(tx, {
+        appointmentId: pricedAppointment.id,
+        salonId: pricedAppointment.salonId,
+        mutationVersion: pricedAppointment.updatedAt,
+      });
+
+      return {
+        discountApplied: lockedDiscountApplied,
+        newTotalPrice: lockedNewTotalPrice,
+        rewardTitle: lockedRewardDisplay.title,
+      };
     });
 
     // 7. Return success response
     // Convert cents to dollars for display
-    const discountAppliedDollars = discountApplied / 100;
-    const newTotalPriceDollars = newTotalPrice / 100;
+    const discountAppliedDollars = redemption.discountApplied / 100;
+    const newTotalPriceDollars = redemption.newTotalPrice / 100;
 
     const response: SuccessResponse = {
       data: {
@@ -327,7 +420,7 @@ export async function POST(request: Request): Promise<Response> {
         appointmentId,
         discountApplied: discountAppliedDollars,
         newTotalPrice: newTotalPriceDollars,
-        message: `Reward applied! ${rewardDisplay.title} saved you $${discountAppliedDollars.toFixed(2)} on your appointment.`,
+        message: `Reward applied! ${redemption.rewardTitle} saved you $${discountAppliedDollars.toFixed(2)} on your appointment.`,
       },
       meta: {
         timestamp: new Date().toISOString(),
@@ -336,6 +429,17 @@ export async function POST(request: Request): Promise<Response> {
 
     return Response.json(response, { status: 200 });
   } catch (error) {
+    if (error instanceof RewardRedemptionConflictError) {
+      return Response.json(
+        {
+          error: {
+            code: 'REWARD_NOT_ACTIVE',
+            message: 'This reward is already reserved or has been redeemed.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
     console.error('Error redeeming reward:', error);
 
     return Response.json(

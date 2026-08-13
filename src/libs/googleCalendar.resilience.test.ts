@@ -18,6 +18,8 @@ const {
   sendGoogleCalendarDisconnectedEmail,
   encryptIntegrationSecret,
   decryptIntegrationSecret,
+  resetConnectionRevision,
+  txStatus,
 } = vi.hoisted(() => {
   const updateReturning = vi.fn(async () => [{ salonId: 'salon_1' }]);
   const updateWhere = vi.fn(() => {
@@ -32,8 +34,32 @@ const {
     where: () => query,
     limit: async () => selectRows.shift() ?? [],
   };
+  let connectionRevision = 1;
+  const txStatus = { value: 'active' };
+  const resetConnectionRevision = () => {
+    connectionRevision = 1;
+    txStatus.value = 'active';
+  };
+  const transaction = vi.fn(async (work: (tx: unknown) => unknown) => {
+    let revisionRead = 0;
+    const txQuery = {
+      from: () => txQuery,
+      where: () => txQuery,
+      for: () => txQuery,
+      limit: async () => [{
+        revision: `rev_${revisionRead++ === 0 ? connectionRevision : connectionRevision + 1}`,
+        status: txStatus.value,
+      }],
+    };
+    const txUpdate = {
+      set: updateSet,
+    };
+    const result = await work({ select: () => txQuery, update: () => txUpdate });
+    connectionRevision += 1;
+    return result;
+  });
   return {
-    db: { select: () => query, update: () => ({ set: updateSet }) },
+    db: { select: () => query, transaction, update: () => ({ set: updateSet }) },
     fetchMock: vi.fn(),
     updateSet,
     updateReturning,
@@ -41,6 +67,8 @@ const {
     sendGoogleCalendarDisconnectedEmail: vi.fn(async () => true),
     encryptIntegrationSecret: vi.fn((plain: string) => ({ ciphertext: `enc(${plain})`, keyVersion: 7 })),
     decryptIntegrationSecret: vi.fn(() => 'stored-refresh-token'),
+    resetConnectionRevision,
+    txStatus,
   };
 });
 
@@ -68,6 +96,7 @@ function connectionRow(status = 'active') {
     encryptionKeyVersion: 1,
     destinationCalendarId: 'primary',
     busyCalendarIds: ['primary'],
+    revision: 'rev_1',
   };
 }
 
@@ -96,6 +125,7 @@ function allSetPayloads() {
 describe('refresh token rotation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetConnectionRevision();
     selectRows.length = 0;
     updateReturning.mockResolvedValue([{ salonId: SALON_ID }]);
     vi.stubGlobal('fetch', fetchMock);
@@ -139,6 +169,7 @@ describe('refresh token rotation', () => {
 describe('failure classification and latching', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetConnectionRevision();
     selectRows.length = 0;
     updateReturning.mockResolvedValue([{ salonId: SALON_ID }]);
     vi.stubGlobal('fetch', fetchMock);
@@ -230,6 +261,7 @@ describe('failure classification and latching', () => {
 describe('owner notification', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetConnectionRevision();
     selectRows.length = 0;
     vi.stubGlobal('fetch', fetchMock);
     vi.spyOn(console, 'warn').mockImplementation(() => {});
@@ -247,16 +279,21 @@ describe('owner notification', () => {
     await expect(runBusyWindows()).rejects.toThrow();
 
     expect(sendGoogleCalendarDisconnectedEmail).toHaveBeenCalledTimes(1);
-    expect(sendGoogleCalendarDisconnectedEmail).toHaveBeenCalledWith(expect.objectContaining({
-      salonId: SALON_ID,
-      classification: expect.objectContaining({ kind: 'invalid_grant' }),
-    }));
+    expect(sendGoogleCalendarDisconnectedEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        salonId: SALON_ID,
+        classification: expect.objectContaining({ kind: 'invalid_grant' }),
+      }),
+      expect.objectContaining({
+        signal: undefined,
+        timeoutMs: 5_000,
+      }),
+    );
   });
 
   it('does not email again on later requests while already disconnected', async () => {
     selectRows.push([connectionRow()]);
-    // No rows returned = the row was already reconnect_required.
-    updateReturning.mockResolvedValue([]);
+    txStatus.value = 'reconnect_required';
 
     await expect(runBusyWindows()).rejects.toThrow();
 
@@ -278,6 +315,7 @@ describe('owner notification', () => {
 describe('customer-facing availability while disconnected', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    resetConnectionRevision();
     selectRows.length = 0;
     vi.stubGlobal('fetch', fetchMock);
     vi.spyOn(console, 'warn').mockImplementation(() => {});

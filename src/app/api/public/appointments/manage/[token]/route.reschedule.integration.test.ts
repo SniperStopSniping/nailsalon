@@ -26,13 +26,13 @@ const {
   sendTransactionalEmail,
   sendTransactionalEmailDetailed,
   getGoogleCalendarBusyWindows,
-  enqueueGoogleCalendarUpsert,
+  enqueueGoogleCalendarAppointmentMutation,
   enqueueGoogleCalendarDelete,
 } = vi.hoisted(() => ({
   sendTransactionalEmail: vi.fn(),
   sendTransactionalEmailDetailed: vi.fn(),
   getGoogleCalendarBusyWindows: vi.fn(),
-  enqueueGoogleCalendarUpsert: vi.fn(),
+  enqueueGoogleCalendarAppointmentMutation: vi.fn(),
   enqueueGoogleCalendarDelete: vi.fn(),
 }));
 
@@ -57,7 +57,7 @@ vi.mock('@/libs/googleCalendar', async (importOriginal) => {
 });
 
 vi.mock('@/libs/integrationOutbox', () => ({
-  enqueueGoogleCalendarUpsert,
+  enqueueGoogleCalendarAppointmentMutation,
   enqueueGoogleCalendarDelete,
 }));
 
@@ -204,7 +204,7 @@ beforeEach(async () => {
     providerMessageId: 'msg_resched',
   });
   getGoogleCalendarBusyWindows.mockResolvedValue([]);
-  enqueueGoogleCalendarUpsert.mockResolvedValue(undefined);
+  enqueueGoogleCalendarAppointmentMutation.mockResolvedValue(undefined);
   enqueueGoogleCalendarDelete.mockResolvedValue(undefined);
   await db.delete(schema.appointmentAccessTokenSchema);
   await db.delete(schema.appointmentServicesSchema);
@@ -264,7 +264,7 @@ describe('customer manage-link reschedule', () => {
     // No notification of any kind for a non-change.
     expect(sendTransactionalEmail).not.toHaveBeenCalled();
     expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
-    expect(enqueueGoogleCalendarUpsert).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
     expect(await db
       .select()
       .from(schema.notificationDeliverySchema)
@@ -294,8 +294,8 @@ describe('customer manage-link reschedule', () => {
       appointmentId,
       'client_appointment_rescheduled',
     )).toHaveLength(1);
-    expect(enqueueGoogleCalendarUpsert).toHaveBeenCalledTimes(1);
-    expect(enqueueGoogleCalendarUpsert.mock.invocationCallOrder[0])
+    expect(enqueueGoogleCalendarAppointmentMutation).toHaveBeenCalledTimes(1);
+    expect(enqueueGoogleCalendarAppointmentMutation.mock.invocationCallOrder[0])
       .toBeLessThan(sendTransactionalEmailDetailed.mock.invocationCallOrder[0]!);
   });
 
@@ -388,9 +388,9 @@ describe('customer manage-link reschedule', () => {
       .where(eq(schema.salonClientSchema.id, CLIENT_ID));
   });
 
-  it('keeps the customer notice when calendar queueing fails after the move', async () => {
+  it('rolls the move back and sends no notice when calendar queueing fails', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    enqueueGoogleCalendarUpsert.mockRejectedValueOnce(
+    enqueueGoogleCalendarAppointmentMutation.mockRejectedValueOnce(
       new Error('calendar queue unavailable'),
     );
     const { appointmentId, token } = await seedAppointmentWithToken();
@@ -400,14 +400,14 @@ describe('customer manage-link reschedule', () => {
       { params: { token } },
     );
 
-    expect(response.status).toBe(200);
+    expect(response.status).toBe(500);
+    expect((await appointmentRows())[0]!.startTime.toISOString())
+      .toBe(CURRENT_START.toISOString());
     expect(await deliveriesFor(
       appointmentId,
       'client_appointment_rescheduled',
-    )).toEqual([
-      expect.objectContaining({ status: 'sent' }),
-    ]);
-    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+    )).toEqual([]);
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(0);
 
     vi.restoreAllMocks();
   });

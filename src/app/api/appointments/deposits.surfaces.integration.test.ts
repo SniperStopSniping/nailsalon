@@ -26,6 +26,7 @@ const holder = vi.hoisted(() => ({
 }));
 
 vi.mock('@/libs/DB', () => ({
+  usesRuntimePostgres: false,
   get db() {
     return holder.db;
   },

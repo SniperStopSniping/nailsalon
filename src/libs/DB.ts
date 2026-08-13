@@ -281,3 +281,47 @@ if (runtimeTarget) {
 }
 
 export const db = drizzle;
+
+export type DatabaseSessionHandle = typeof db;
+export const usesRuntimePostgres = Boolean(runtimeTarget);
+
+/**
+ * Run work on one dedicated database session. PostgreSQL advisory locks are
+ * session-scoped, so callers that fence external I/O must acquire, validate,
+ * and release through the same physical connection. PGlite has one in-process
+ * session already; its tests use the existing database handle.
+ */
+export async function withDedicatedDatabaseSession<T>(
+  work: (database: DatabaseSessionHandle) => Promise<T>,
+): Promise<T> {
+  if (!runtimeTarget) {
+    return work(db);
+  }
+  const pool = globalForDb.pgPool;
+  if (!pool) {
+    throw new RuntimeDatabaseGuardError('CACHED_DATABASE_TARGET_MISMATCH');
+  }
+  const client = await pool.connect();
+  let destroyClient = false;
+  try {
+    return await work(drizzlePg(client, { schema }) as DatabaseSessionHandle);
+  } catch (error) {
+    // A caller may reject because it could not release a session-scoped lock.
+    // Destroying the physical connection is the only safe way to guarantee a
+    // lock cannot leak into the next pooled request.
+    destroyClient = error instanceof DatabaseSessionReleaseError;
+    throw error;
+  } finally {
+    client.release(destroyClient);
+  }
+}
+
+export class DatabaseSessionReleaseError extends Error {
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super('DATABASE_SESSION_RELEASE_FAILED');
+    this.name = 'DatabaseSessionReleaseError';
+    this.cause = cause;
+  }
+}

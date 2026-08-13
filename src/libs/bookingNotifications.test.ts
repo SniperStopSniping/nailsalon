@@ -100,6 +100,38 @@ describe('bookingNotifications', () => {
     expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
   });
 
+  it('does not dispatch a later internal recipient after the worker aborts during an earlier leg', async () => {
+    const controller = new AbortController();
+    sendInternalBookingNotificationSms.mockImplementationOnce(async () => {
+      controller.abort(new Error('WORKER_BUDGET_EXPIRED'));
+      return true;
+    });
+
+    await expect(sendBookingNotificationsForNewBooking({
+      salon: baseSalon,
+      technician: {
+        id: 'tech_1',
+        name: 'Daniela',
+        phone: '4169021427',
+        email: 'artist@example.com',
+      },
+      appointmentId: 'appt_1',
+      clientName: 'Ava',
+      clientPhone: '1111111111',
+      services: ['BIAB Fill'],
+      startTime: '2099-03-13T15:00:00.000Z',
+      totalDurationMinutes: 90,
+      totalPrice: 8500,
+    }, { signal: controller.signal })).rejects.toThrow('WORKER_BUDGET_EXPIRED');
+
+    expect(sendInternalBookingNotificationSms).toHaveBeenCalledWith(
+      'salon_1',
+      expect.objectContaining({ phone: '4169021427' }),
+      { signal: controller.signal },
+    );
+    expect(sendTransactionalEmail).not.toHaveBeenCalled();
+  });
+
   it('deduplicates identical owner and technician destinations per channel for cancellations', async () => {
     await sendBookingNotificationsForAppointmentCancelled({
       salon: baseSalon,

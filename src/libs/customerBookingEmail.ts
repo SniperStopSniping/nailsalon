@@ -385,7 +385,11 @@ async function buildBookingEmailCustomization(input: {
 function isAmbiguousProviderFailure(
   result: TransactionalEmailResult,
 ): boolean {
-  return result.errorCode === 'RESEND_NETWORK_ERROR';
+  return [
+    'RESEND_ABORTED',
+    'RESEND_NETWORK_ERROR',
+    'RESEND_TIMEOUT',
+  ].includes(result.errorCode ?? '');
 }
 
 async function markBookingRecipientUnavailable(input: {
@@ -539,7 +543,13 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   manageUrl: string;
   salonId: string;
   appointmentId: string;
+  signal?: AbortSignal;
 }) {
+  if (input.signal?.aborted) {
+    throw input.signal.reason instanceof Error
+      ? input.signal.reason
+      : new Error('BOOKING_CONFIRMATION_EMAIL_ABORTED');
+  }
   const { sendTransactionalEmailDetailed } = await import('@/libs/email');
   const date = formatDateInTimeZone(input.startTime, { weekday: 'long', month: 'long', day: 'numeric' }, input.timeZone);
   const time = formatTimeInTimeZone(input.startTime, {}, input.timeZone);
@@ -609,7 +619,24 @@ export async function sendCustomerBookingConfirmationEmail(input: {
     });
     return false;
   }
-  const result = await sendTransactionalEmailDetailed({
+  if (input.signal?.aborted) {
+    // The local claim exists but no provider request has started. Leave a
+    // durable retry instead of misclassifying this known no-send as remote
+    // ambiguity; the aggregate caller will observe the same abort and stop.
+    await markBookingRetryableFailure({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      deliveryId,
+      errorCode: 'BOOKING_EMAIL_ABORTED_BEFORE_DISPATCH',
+    }).catch(() => undefined);
+    await enqueueBookingConfirmationRetry({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      deliveryId,
+    }).catch(() => undefined);
+    return false;
+  }
+  const emailInput = {
     to: recipient.email,
     subject,
     text: composeBookingConfirmationText({
@@ -622,7 +649,10 @@ export async function sendCustomerBookingConfirmationEmail(input: {
       manageContent: manageHtml,
       customization,
     }),
-  });
+  };
+  const result = input.signal
+    ? await sendTransactionalEmailDetailed(emailInput, { signal: input.signal })
+    : await sendTransactionalEmailDetailed(emailInput);
   if (result.ok) {
     // The provider has accepted the message. A ledger outage must not turn the
     // acknowledged business event into a duplicate send on a later retry.
@@ -666,7 +696,17 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   return false;
 }
 
-export async function retryCustomerBookingConfirmationEmail(input: { salonId: string; appointmentId: string; deliveryId: string }) {
+export async function retryCustomerBookingConfirmationEmail(input: {
+  salonId: string;
+  appointmentId: string;
+  deliveryId: string;
+  signal?: AbortSignal;
+}) {
+  if (input.signal?.aborted) {
+    throw input.signal.reason instanceof Error
+      ? input.signal.reason
+      : new Error('BOOKING_CONFIRMATION_EMAIL_ABORTED');
+  }
   const [delivery] = await db.select({
     status: notificationDeliverySchema.status,
     errorCode: notificationDeliverySchema.errorCode,
@@ -811,9 +851,22 @@ export async function retryCustomerBookingConfirmationEmail(input: { salonId: st
     throw error;
   }
 
+  if (input.signal?.aborted) {
+    await restoreBookingRetryAfterCapabilityCleanup({
+      ...input,
+      tokenHash: capabilityTokenHash,
+      errorCode: 'BOOKING_EMAIL_ABORTED_BEFORE_DISPATCH',
+    });
+    throw input.signal.reason instanceof Error
+      ? input.signal.reason
+      : new Error('BOOKING_CONFIRMATION_EMAIL_ABORTED');
+  }
+
   let result: TransactionalEmailResult;
   try {
-    result = await sendTransactionalEmailDetailed(emailInput);
+    result = input.signal
+      ? await sendTransactionalEmailDetailed(emailInput, { signal: input.signal })
+      : await sendTransactionalEmailDetailed(emailInput);
   } catch {
     await markBookingAmbiguousFailure({
       ...input,

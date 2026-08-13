@@ -17,6 +17,8 @@ const {
   sendSalonNotificationEmail,
   deleteGoogleCalendarEventForAppointment,
   enqueueGoogleCalendarDelete,
+  enqueueGoogleCalendarDeleteInTx,
+  enqueueGoogleCalendarAppointmentMutation,
   lockOperationalSalonClientContactWithHandle,
   resolveCanonicalSalonClientIdentityWithHandle,
   resolveOperationalSalonClientByPhoneWithHandle,
@@ -197,6 +199,8 @@ const {
     sendSalonNotificationEmail: vi.fn(async () => ({ status: 'sent', deliveryId: 'delivery_1' })),
     deleteGoogleCalendarEventForAppointment: vi.fn(),
     enqueueGoogleCalendarDelete: vi.fn(),
+    enqueueGoogleCalendarDeleteInTx: vi.fn(async () => ({ inserted: true })),
+    enqueueGoogleCalendarAppointmentMutation: vi.fn(async () => ({ inserted: true })),
     lockOperationalSalonClientContactWithHandle: vi.fn(),
     resolveCanonicalSalonClientIdentityWithHandle: vi.fn(),
     resolveOperationalSalonClientByPhoneWithHandle: vi.fn(),
@@ -276,10 +280,13 @@ vi.mock('@/libs/googleCalendar', () => ({
   deleteGoogleCalendarEventForAppointment,
 }));
 
-vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarDelete }));
+vi.mock('@/libs/integrationOutbox', () => ({
+  enqueueGoogleCalendarDelete,
+  enqueueGoogleCalendarDeleteInTx,
+  enqueueGoogleCalendarAppointmentMutation,
+}));
 
 vi.mock('@/libs/salonNotificationEmail', () => ({ sendSalonNotificationEmail }));
-
 import { POST as redeemPointsPOST } from '../../rewards/redeem-points/route';
 import { GET, PATCH } from './route';
 
@@ -552,6 +559,15 @@ describe('appointment detail route auth', () => {
       status: 'confirmed',
       cancelReason: null,
     }));
+    expect(enqueueGoogleCalendarAppointmentMutation).toHaveBeenCalledTimes(1);
+    expect(enqueueGoogleCalendarAppointmentMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        appointmentId: 'appt_1',
+        salonId: 'salon_1',
+        mutationVersion: expect.any(Date),
+      }),
+    );
     expect(
       lockOperationalSalonClientContactWithHandle.mock.invocationCallOrder[0],
     ).toBeLessThan(transactionExecute.mock.invocationCallOrder[0]!);
@@ -1211,7 +1227,7 @@ describe('appointment detail route auth', () => {
       expect.objectContaining({ clientPhone: '4165550100' }),
     );
     expect(sendSalonNotificationEmail).toHaveBeenCalledTimes(1);
-    expect(enqueueGoogleCalendarDelete).toHaveBeenCalledTimes(1);
+    expect(enqueueGoogleCalendarDeleteInTx).toHaveBeenCalledTimes(1);
     expect(withClientLifecycleTransactionRetry).toHaveBeenCalledTimes(2);
     expect({
       clientPhone: historicalAppointment.clientPhone,
@@ -1279,6 +1295,15 @@ describe('appointment detail route auth', () => {
     expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({
       loyaltyPoints: expect.anything(),
     }));
+    expect(enqueueGoogleCalendarAppointmentMutation).toHaveBeenCalledTimes(1);
+    expect(enqueueGoogleCalendarAppointmentMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        appointmentId: 'appt_1',
+        salonId: 'salon_1',
+        mutationVersion: expect.any(Date),
+      }),
+    );
     expect(withClientLifecycleTransactionRetry).toHaveBeenCalledTimes(1);
   });
 
@@ -1319,7 +1344,7 @@ describe('appointment detail route auth', () => {
     expect(updateSet).not.toHaveBeenCalled();
   });
 
-  it('keeps the committed cancellation successful when post-commit delivery fails', async () => {
+  it('rolls back cancellation when its atomic calendar intent fails', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     requireAppointmentAccess.mockResolvedValue({
       ok: true,
@@ -1336,6 +1361,7 @@ describe('appointment detail route auth', () => {
         startTime: new Date('2099-03-13T15:00:00.000Z'),
         notes: null,
         googleCalendarEventId: 'calendar_event_1',
+        updatedAt: new Date('2026-07-17T15:00:00.000Z'),
       },
     });
     getSalonById.mockResolvedValue({
@@ -1347,7 +1373,7 @@ describe('appointment detail route auth', () => {
       features: null,
       settings: null,
     });
-    enqueueGoogleCalendarDelete.mockRejectedValueOnce(new Error('outbox unavailable'));
+    enqueueGoogleCalendarDeleteInTx.mockRejectedValueOnce(new Error('outbox unavailable'));
     sendCancellationConfirmation.mockRejectedValueOnce(new Error('sms unavailable'));
     sendBookingNotificationsForAppointmentCancelled.mockRejectedValueOnce(
       new Error('booking notification unavailable'),
@@ -1366,12 +1392,11 @@ describe('appointment detail route auth', () => {
       { params: { id: 'appt_1' } },
     );
 
-    expect(response.status).toBe(200);
-    expect(mockDbState.transitionWins).toBe(1);
-    expect(enqueueGoogleCalendarDelete).toHaveBeenCalledTimes(1);
-    expect(sendCancellationConfirmation).toHaveBeenCalledTimes(1);
-    expect(sendBookingNotificationsForAppointmentCancelled).toHaveBeenCalledTimes(1);
-    expect(sendSalonNotificationEmail).toHaveBeenCalledTimes(1);
+    expect(response.status).toBe(500);
+    expect(enqueueGoogleCalendarDeleteInTx).toHaveBeenCalledTimes(1);
+    expect(sendCancellationConfirmation).not.toHaveBeenCalled();
+    expect(sendBookingNotificationsForAppointmentCancelled).not.toHaveBeenCalled();
+    expect(sendSalonNotificationEmail).not.toHaveBeenCalled();
 
     consoleError.mockRestore();
   });

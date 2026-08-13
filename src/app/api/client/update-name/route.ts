@@ -2,18 +2,20 @@
  * Update Client Name API Route
  *
  * Upserts a client record with their first name.
- * Also updates any pending appointments for this phone number.
+ * Also updates the client's appointment name history and atomically schedules
+ * Calendar refreshes for live appointments.
  *
  * POST /api/client/update-name
  * Body: { phone: string, firstName: string }
  */
 
-import { eq } from 'drizzle-orm';
+import { and, asc, eq, or } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
 
 import { requireClientApiSession } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
+import { enqueueGoogleCalendarAppointmentMutation } from '@/libs/integrationOutbox';
 import { upsertClient } from '@/libs/queries';
 import { appointmentSchema } from '@/models/Schema';
 
@@ -60,17 +62,44 @@ export async function POST(request: Request) {
     // 1. Upsert the client record
     const client = await upsertClient(phoneForDb, firstName);
 
-    // 2. Update any pending/confirmed appointments for this phone
+    // 2. Preserve the existing all-history name update for this phone. Only a
+    // live Calendar-represented appointment needs a durable provider mutation.
     // We check multiple phone formats since appointments might store phone differently
-    await db
-      .update(appointmentSchema)
-      .set({ clientName: firstName })
-      .where(eq(appointmentSchema.clientPhone, normalizedPhone));
-
-    await db
-      .update(appointmentSchema)
-      .set({ clientName: firstName })
-      .where(eq(appointmentSchema.clientPhone, phoneForDb));
+    await db.transaction(async (tx) => {
+      const appointments = await tx.select().from(appointmentSchema).where(
+        or(
+          eq(appointmentSchema.clientPhone, normalizedPhone),
+          eq(appointmentSchema.clientPhone, phoneForDb),
+        ),
+      ).orderBy(asc(appointmentSchema.id)).for('update');
+      for (const appointment of appointments) {
+        if (appointment.clientName === firstName) {
+          continue;
+        }
+        const [updated] = await tx.update(appointmentSchema).set({
+          clientName: firstName,
+          updatedAt: new Date(Math.max(
+            Date.now(),
+            appointment.updatedAt.getTime() + 1,
+          )),
+        }).where(and(
+          eq(appointmentSchema.id, appointment.id),
+          eq(appointmentSchema.salonId, appointment.salonId),
+          eq(appointmentSchema.updatedAt, appointment.updatedAt),
+        )).returning();
+        if (
+          updated
+          && !updated.deletedAt
+          && ['pending', 'confirmed', 'in_progress'].includes(updated.status)
+        ) {
+          await enqueueGoogleCalendarAppointmentMutation(tx, {
+            appointmentId: updated.id,
+            salonId: updated.salonId,
+            mutationVersion: updated.updatedAt,
+          });
+        }
+      }
+    });
 
     console.warn(`[Client] Updated name for ${phoneForDb}: ${firstName}`);
 

@@ -234,6 +234,8 @@ describe('loadBookingCommitEffectsContext', () => {
       id: APPOINTMENT_ID,
       notes: 'Please use the ramp entrance',
       googleCalendarEventId: null,
+      status: 'confirmed',
+      updatedAt: expect.any(Date),
     });
     expect(context!.serviceNames).toEqual(['Gel Manicure']);
     expect(context!.technician).toEqual({

@@ -173,6 +173,7 @@ vi.mock('@/libs/depositCheckout', async (importOriginal) => {
 
 const effects = vi.hoisted(() => ({
   enqueueGoogleCalendarUpsert: vi.fn(async () => {}),
+  enqueueGoogleCalendarAppointmentMutation: vi.fn(async () => ({ inserted: true })),
   sendCustomerBookingConfirmationEmail: vi.fn(async () => ({ delivered: false })),
   sendBookingConfirmationToClient: vi.fn(async () => ({ success: true })),
   sendBookingNotificationsForNewBooking: vi.fn(async () => {}),
@@ -182,6 +183,8 @@ const effects = vi.hoisted(() => ({
 vi.mock('@/libs/integrationOutbox', () => ({
   enqueueGoogleCalendarUpsert: effects.enqueueGoogleCalendarUpsert,
   enqueueGoogleCalendarDelete: vi.fn(async () => {}),
+  enqueueGoogleCalendarAppointmentMutation: effects.enqueueGoogleCalendarAppointmentMutation,
+  enqueueGoogleCalendarDeleteInTx: vi.fn(async () => ({ inserted: true })),
 }));
 
 vi.mock('@/libs/customerBookingEmail', () => ({
@@ -382,6 +385,7 @@ beforeEach(async () => {
     providerMessageId: 'msg_fx',
   });
   effects.enqueueGoogleCalendarUpsert.mockResolvedValue(undefined);
+  effects.enqueueGoogleCalendarAppointmentMutation.mockResolvedValue({ inserted: true });
   effects.sendCustomerBookingConfirmationEmail.mockResolvedValue({ delivered: false });
   effects.sendBookingConfirmationToClient.mockResolvedValue({ success: true });
   effects.sendBookingNotificationsForNewBooking.mockResolvedValue(undefined);
@@ -445,8 +449,8 @@ describe('7 — the skip guards disabled nothing for real bookings', () => {
     expect(after.reward!.usedInAppointmentId).toBeTruthy();
     // 3/8 referral flipped claimed -> booked.
     expect(after.referral!.status).toBe('booked');
-    // 4/8 Google Calendar upsert enqueued.
-    expect(effects.enqueueGoogleCalendarUpsert).toHaveBeenCalledTimes(1);
+    // 4/8 Google Calendar intent is durable in the booking transaction.
+    expect(effects.enqueueGoogleCalendarAppointmentMutation).toHaveBeenCalledTimes(1);
     // 5/8 customer confirmation email.
     expect(effects.sendCustomerBookingConfirmationEmail).toHaveBeenCalledTimes(1);
     // 6/8 client SMS.
@@ -482,7 +486,7 @@ describe('8 — a deposit booking leaks nothing', () => {
     expect(after.communication!.status).toBe('prepared');
     expect(after.reward!.usedInAppointmentId).toBeFalsy();
     expect(after.referral!.status).toBe('claimed');
-    expect(effects.enqueueGoogleCalendarUpsert).not.toHaveBeenCalled();
+    expect(effects.enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
     expect(effects.sendCustomerBookingConfirmationEmail).not.toHaveBeenCalled();
     expect(effects.sendBookingConfirmationToClient).not.toHaveBeenCalled();
     expect(after.deliveries).toHaveLength(0);

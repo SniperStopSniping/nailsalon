@@ -48,12 +48,23 @@ vi.mock('@/libs/appointmentAudit', () => ({
 vi.mock('@/libs/integrationOutbox', () => ({
   enqueueGoogleCalendarDelete: vi.fn(async () => {}),
   enqueueGoogleCalendarUpsert: vi.fn(async () => {}),
+  enqueueGoogleCalendarDeleteInTx: vi.fn(async () => ({ inserted: true })),
+  enqueueGoogleCalendarAppointmentMutation: vi.fn(async () => ({ inserted: true })),
 }));
 
 vi.mock('@/libs/SMS', () => ({
   sendCancellationNotificationToTech: vi.fn(async () => ({ success: true })),
+  sendCancellationConfirmation: vi.fn(async () => ({ success: true })),
   sendBookingConfirmationToClient: vi.fn(async () => ({ success: true })),
   sendRescheduleConfirmation: vi.fn(async () => ({ success: true })),
+}));
+
+vi.mock('@/libs/bookingNotifications', () => ({
+  sendBookingNotificationsForAppointmentCancelled: vi.fn(async () => {}),
+}));
+
+vi.mock('@/libs/salonNotificationEmail', () => ({
+  sendSalonNotificationEmail: vi.fn(async () => ({ status: 'skipped' })),
 }));
 
 /* eslint-disable import/first */
@@ -62,6 +73,7 @@ import { PATCH } from './route';
 
 const SALON_ID = 'salon_patch_guard';
 const TECH_ID = 'tech_patch_guard';
+const CLIENT_ID = 'client_patch_guard';
 const APPT_ID = 'appt_patch_guard';
 const DEPOSIT_ID = 'dep_patch_guard';
 
@@ -80,6 +92,7 @@ function accessFor(status: string) {
       id: APPT_ID,
       salonId: SALON_ID,
       technicianId: TECH_ID,
+      salonClientId: CLIENT_ID,
       clientPhone: '4165550000',
       clientName: 'Hold Client',
       clientEmail: null,
@@ -107,6 +120,7 @@ async function seedAppointment(status: string) {
     id: APPT_ID,
     salonId: SALON_ID,
     technicianId: TECH_ID,
+    salonClientId: CLIENT_ID,
     clientPhone: '4165550000',
     clientName: 'Hold Client',
     startTime: START,
@@ -156,11 +170,17 @@ beforeAll(async () => {
     salonId: SALON_ID,
     name: 'Daniela',
   });
+  await db.insert(schema.salonClientSchema).values({
+    id: CLIENT_ID,
+    salonId: SALON_ID,
+    phone: '4165550000',
+  });
 }, 60_000);
 
 beforeEach(async () => {
   vi.clearAllMocks();
   await db.delete(schema.appointmentDepositSchema);
+  await db.delete(schema.rewardSchema);
   await db.delete(schema.appointmentSchema);
 });
 
@@ -219,5 +239,86 @@ describe('§5.8 — PATCH /api/appointments/:id refuses holds', () => {
 
     expect(response.status).toBe(200);
     expect((await readBack()).appointment!.status).toBe('completed');
+  });
+
+  it('atomically releases the generic owner no-show\'s exact reward link', async () => {
+    await seedAppointment('confirmed');
+    holder.access = accessFor('confirmed');
+    await db.insert(schema.rewardSchema).values([
+      {
+        id: 'reward_generic_no_show_decoy',
+        salonId: SALON_ID,
+        clientPhone: '4165550000',
+        type: 'referral_referee',
+        discountType: 'fixed_amount',
+        discountAmountCents: 1000,
+      },
+      {
+        id: 'reward_generic_no_show_exact',
+        salonId: SALON_ID,
+        clientPhone: '4165550000',
+        type: 'referral_referee',
+        discountType: 'fixed_amount',
+        discountAmountCents: 1000,
+        usedInAppointmentId: APPT_ID,
+      },
+    ]);
+
+    const response = await PATCH(patchRequest({ status: 'no_show' }), {
+      params: { id: APPT_ID },
+    });
+
+    expect(response.status).toBe(200);
+    expect((await readBack()).appointment).toMatchObject({
+      status: 'no_show',
+      cancelReason: 'no_show',
+    });
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_generic_no_show_exact')))[0]?.usedInAppointmentId)
+      .toBeNull();
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_generic_no_show_decoy')))[0]?.usedInAppointmentId)
+      .toBeNull();
+  });
+
+  it('atomically releases the generic owner cancellation\'s exact reward link', async () => {
+    await seedAppointment('confirmed');
+    holder.access = accessFor('confirmed');
+    await db.insert(schema.rewardSchema).values([
+      {
+        id: 'reward_generic_cancel_decoy',
+        salonId: SALON_ID,
+        clientPhone: '4165550000',
+        type: 'referral_referee',
+        discountType: 'fixed_amount',
+        discountAmountCents: 1000,
+      },
+      {
+        id: 'reward_generic_cancel_exact',
+        salonId: SALON_ID,
+        clientPhone: '4165550000',
+        type: 'referral_referee',
+        discountType: 'fixed_amount',
+        discountAmountCents: 1000,
+        usedInAppointmentId: APPT_ID,
+      },
+    ]);
+
+    const response = await PATCH(patchRequest({
+      status: 'cancelled',
+      cancelReason: 'client_request',
+    }), { params: { id: APPT_ID } });
+
+    expect(response.status).toBe(200);
+    expect((await readBack()).appointment).toMatchObject({
+      status: 'cancelled',
+      cancelReason: 'client_request',
+    });
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_generic_cancel_exact')))[0]?.usedInAppointmentId)
+      .toBeNull();
+    expect((await db.select().from(schema.rewardSchema)
+      .where(eq(schema.rewardSchema.id, 'reward_generic_cancel_decoy')))[0]?.usedInAppointmentId)
+      .toBeNull();
   });
 });

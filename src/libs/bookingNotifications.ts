@@ -79,9 +79,24 @@ type NotificationEventSettings = {
   ownerChannel: NotificationChannelSetting;
 };
 
+type InternalNotificationDeliveryOptions = {
+  signal?: AbortSignal;
+};
+
+function throwIfInternalNotificationAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new Error('BOOKING_NOTIFICATION_ABORTED');
+}
+
 export async function sendBookingNotificationsForNewBooking(
   context: NewBookingNotificationContext,
+  options: InternalNotificationDeliveryOptions = {},
 ): Promise<void> {
+  throwIfInternalNotificationAborted(options.signal);
   const settings = resolveBookingNotificationSettingsFromSettings(context.salon.settings);
   const capabilities = resolveBookingNotificationCapabilities({
     features: context.salon.features,
@@ -109,18 +124,28 @@ export async function sendBookingNotificationsForNewBooking(
     salonId: context.salon.id,
     recipients,
     emailPayload: buildNewBookingEmailPayload(context),
-    sendSms: recipient => sendInternalBookingNotificationSms(context.salon.id, {
-      phone: recipient.destination,
-      salonName: context.salon.name,
-      clientName: context.clientName,
-      clientPhone: context.clientPhone,
-      services: context.services,
-      startTime: context.startTime,
-      totalDurationMinutes: context.totalDurationMinutes,
-      totalPrice: context.totalPrice,
-      technicianName: context.technician?.name ?? null,
-      timeZone: context.timeZone,
-    }),
+    signal: options.signal,
+    sendSms: (recipient) => {
+      const smsInput = {
+        phone: recipient.destination,
+        salonName: context.salon.name,
+        clientName: context.clientName,
+        clientPhone: context.clientPhone,
+        services: context.services,
+        startTime: context.startTime,
+        totalDurationMinutes: context.totalDurationMinutes,
+        totalPrice: context.totalPrice,
+        technicianName: context.technician?.name ?? null,
+        timeZone: context.timeZone,
+      };
+      return options.signal
+        ? sendInternalBookingNotificationSms(
+          context.salon.id,
+          smsInput,
+          { signal: options.signal },
+        )
+        : sendInternalBookingNotificationSms(context.salon.id, smsInput);
+    },
   });
 }
 
@@ -231,10 +256,18 @@ async function deliverInternalNotifications(args: {
   recipients: Recipient[];
   emailPayload: EmailPayload;
   sendSms: (recipient: Recipient) => Promise<boolean>;
+  signal?: AbortSignal;
 }): Promise<void> {
-  const sends = args.recipients.map(async (recipient) => {
-    if (recipient.channel === 'sms') {
-      const sent = await args.sendSms(recipient);
+  if (!args.signal) {
+    const sends = args.recipients.map(async (recipient) => {
+      const sent = recipient.channel === 'sms'
+        ? await args.sendSms(recipient)
+        : await sendTransactionalEmail({
+          to: recipient.destination,
+          subject: args.emailPayload.subject,
+          text: args.emailPayload.text,
+          html: args.emailPayload.html,
+        });
       if (!sent) {
         logDeliveryFailure({
           eventType: args.eventType,
@@ -244,40 +277,59 @@ async function deliverInternalNotifications(args: {
           reason: 'send_returned_false',
         });
       }
-      return;
-    }
-
-    const sent = await sendTransactionalEmail({
-      to: recipient.destination,
-      subject: args.emailPayload.subject,
-      text: args.emailPayload.text,
-      html: args.emailPayload.html,
     });
+    const results = await Promise.allSettled(sends);
+    results.forEach((result, index) => {
+      if (result.status === 'rejected') {
+        logDeliveryFailure({
+          eventType: args.eventType,
+          appointmentId: args.appointmentId,
+          salonId: args.salonId,
+          recipient: args.recipients[index]!,
+          reason: 'rejected',
+          error: result.reason,
+        });
+      }
+    });
+    return;
+  }
 
-    if (!sent) {
+  // Sequential delivery is deliberate when a parent budget exists: once one
+  // provider await observes expiry, this attempt must not dispatch any later
+  // destination. Individual ordinary failures remain best-effort.
+  for (const recipient of args.recipients) {
+    throwIfInternalNotificationAborted(args.signal);
+    try {
+      const sent = recipient.channel === 'sms'
+        ? await args.sendSms(recipient)
+        : await sendTransactionalEmail({
+          to: recipient.destination,
+          subject: args.emailPayload.subject,
+          text: args.emailPayload.text,
+          html: args.emailPayload.html,
+        }, { signal: args.signal });
+      if (!sent) {
+        logDeliveryFailure({
+          eventType: args.eventType,
+          appointmentId: args.appointmentId,
+          salonId: args.salonId,
+          recipient,
+          reason: 'send_returned_false',
+        });
+      }
+    } catch (error) {
+      throwIfInternalNotificationAborted(args.signal);
       logDeliveryFailure({
         eventType: args.eventType,
         appointmentId: args.appointmentId,
         salonId: args.salonId,
         recipient,
-        reason: 'send_returned_false',
-      });
-    }
-  });
-
-  const results = await Promise.allSettled(sends);
-  results.forEach((result, index) => {
-    if (result.status === 'rejected') {
-      logDeliveryFailure({
-        eventType: args.eventType,
-        appointmentId: args.appointmentId,
-        salonId: args.salonId,
-        recipient: args.recipients[index]!,
         reason: 'rejected',
-        error: result.reason,
+        error,
       });
     }
-  });
+    throwIfInternalNotificationAborted(args.signal);
+  }
 }
 
 function addRecipientChannels(args: {

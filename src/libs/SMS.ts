@@ -22,6 +22,8 @@ import { isSmsEnabled } from '@/libs/salonStatus';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 import { communicationConsentSchema, notificationDeliverySchema, salonSchema, salonTwilioConnectionSchema } from '@/models/Schema';
 
+const TWILIO_REQUEST_TIMEOUT_MS = 30_000;
+
 // =============================================================================
 // TYPES
 // =============================================================================
@@ -37,6 +39,10 @@ export type BookingConfirmationParams = {
   totalPrice: number;
   timeZone?: string | null;
   manageUrl?: string;
+};
+
+export type SmsSendOptions = {
+  signal?: AbortSignal;
 };
 
 export type TechNotificationParams = {
@@ -163,7 +169,9 @@ function getLegacyTwilioClient() {
   if (!Env.TWILIO_ACCOUNT_SID || !Env.TWILIO_AUTH_TOKEN || !Env.TWILIO_PHONE_NUMBER) {
     return null;
   }
-  return twilio(Env.TWILIO_ACCOUNT_SID, Env.TWILIO_AUTH_TOKEN);
+  return twilio(Env.TWILIO_ACCOUNT_SID, Env.TWILIO_AUTH_TOKEN, {
+    timeout: TWILIO_REQUEST_TIMEOUT_MS,
+  });
 }
 
 /**
@@ -181,7 +189,9 @@ async function getSalonTwilioSender(
     .limit(1);
   if (connection && Env.TWILIO_AUTH_TOKEN && (connection.messagingServiceSid || connection.phoneNumber)) {
     return {
-      client: twilio(connection.connectAccountSid, Env.TWILIO_AUTH_TOKEN),
+      client: twilio(connection.connectAccountSid, Env.TWILIO_AUTH_TOKEN, {
+        timeout: TWILIO_REQUEST_TIMEOUT_MS,
+      }),
       messagingServiceSid: connection.messagingServiceSid,
       phoneNumber: connection.phoneNumber,
     };
@@ -431,7 +441,37 @@ function normalizeSmsRecipient(phone: string): string | null {
 type SmsDeliveryContext = {
   appointmentId?: string;
   purpose?: string;
+  signal?: AbortSignal;
 };
+
+function throwIfSmsAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new Error('SMS_DELIVERY_ABORTED');
+}
+
+async function stopQueuedSmsBeforeDispatch(
+  salonId: string,
+  deliveryId: string,
+  signal?: AbortSignal,
+): Promise<void> {
+  if (!signal?.aborted) {
+    return;
+  }
+  await db.update(notificationDeliverySchema).set({
+    status: 'failed',
+    errorCode: 'SMS_ABORTED_BEFORE_DISPATCH',
+    errorMessage: 'Worker budget expired before provider dispatch',
+    retryable: true,
+  }).where(and(
+    eq(notificationDeliverySchema.id, deliveryId),
+    eq(notificationDeliverySchema.salonId, salonId),
+  )).catch(() => undefined);
+  throwIfSmsAborted(signal);
+}
 
 async function sendSMS(
   salonId: string,
@@ -439,6 +479,7 @@ async function sendSMS(
   body: string,
   context: SmsDeliveryContext = {},
 ): Promise<boolean> {
+  throwIfSmsAborted(context.signal);
   const deliveryId = crypto.randomUUID();
   await db.insert(notificationDeliverySchema).values({
     id: deliveryId,
@@ -449,7 +490,9 @@ async function sendSMS(
     dedupeKey: `sms:${deliveryId}`,
     status: 'queued',
   }).catch(() => undefined);
+  await stopQueuedSmsBeforeDispatch(salonId, deliveryId, context.signal);
   const sender = await getSalonTwilioSender(salonId);
+  await stopQueuedSmsBeforeDispatch(salonId, deliveryId, context.signal);
 
   if (!sender) {
     console.warn('[SMS DEV MODE] Would send to:', to);
@@ -496,12 +539,15 @@ async function sendSMS(
 export async function sendBookingConfirmationToClient(
   salonId: string,
   params: BookingConfirmationParams,
+  options: SmsSendOptions = {},
 ): Promise<void> {
+  throwIfSmsAborted(options.signal);
   // Check if SMS is enabled for this salon
   if (!await isSmsEnabled(salonId)) {
     console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return;
   }
+  throwIfSmsAborted(options.signal);
 
   const { phone, clientName, salonName, services, technicianName, startTime, totalPrice, timeZone } = params;
 
@@ -511,6 +557,7 @@ export async function sendBookingConfirmationToClient(
     console.warn('[SMS CONSENT MISSING] Booking confirmation skipped:', salonId);
     return;
   }
+  throwIfSmsAborted(options.signal);
 
   const message = `${salonName}
 Appointment confirmed
@@ -523,7 +570,11 @@ Total: ${formatPrice(totalPrice)}
 
 ${params.manageUrl ? `Manage: ${params.manageUrl}\n` : ''}Reply STOP to opt out. Reply to this text if you need help.`;
 
-  await sendSMS(salonId, phone, message, { appointmentId: params.appointmentId, purpose: 'booking_confirmation' });
+  await sendSMS(salonId, phone, message, {
+    appointmentId: params.appointmentId,
+    purpose: 'booking_confirmation',
+    signal: options.signal,
+  });
 }
 
 /**
@@ -567,11 +618,14 @@ export async function sendBookingNotificationToTech(
 export async function sendInternalBookingNotificationSms(
   salonId: string,
   params: InternalBookingNotificationSmsParams,
+  options: SmsSendOptions = {},
 ): Promise<boolean> {
+  throwIfSmsAborted(options.signal);
   if (!await isSmsEnabled(salonId)) {
     console.warn('[SMS DISABLED] SMS reminders not enabled for salon:', salonId);
     return false;
   }
+  throwIfSmsAborted(options.signal);
 
   const {
     phone,
@@ -601,7 +655,9 @@ export async function sendInternalBookingNotificationSms(
     `Total: ${formatPrice(totalPrice)}`,
   ];
 
-  return sendSMS(salonId, phone, messageLines.join('\n'));
+  return sendSMS(salonId, phone, messageLines.join('\n'), {
+    signal: options.signal,
+  });
 }
 
 export async function sendInternalCancellationNotificationSms(

@@ -1,17 +1,14 @@
 /**
- * D4.5 — THE EXTRACTION IS BEHAVIOUR-FREE, AND THE STRADDLE IS PINNED.
+ * D4.5 — THE COMMIT BOUNDARY AND SIDE-EFFECT ORDER ARE PINNED.
  *
  * D4's `route.deposits.effects.integration.test.ts` already asserts WHAT fires
  * (all eight for a real booking, none for a hold). Those legs pass unchanged
  * across this extraction and are the primary characterization; this file adds
  * the two properties the extraction newly makes falsifiable:
  *
- *   1. WHERE the effects run relative to the idempotency cache write. The
- *      context is assembled before that write (it shares `manageUrl` with the
- *      response body); the effects run after it. Four DB-write effects used to
- *      sit just AHEAD of the write, so "after" is the claim a reviewer cannot
- *      check by eye — and the reward used-marking is the one D5 depends on
- *      being inside the runner.
+ *   1. The Calendar intent commits atomically with the appointment, before the
+ *      idempotency cache write. The remaining post-commit effects run after the
+ *      cache. No provider call is performed by the transaction-aware enqueue.
  *
  *   2. That the idempotency contract itself did not move: a replay still
  *      returns the cached 201, and the effects still fire exactly once.
@@ -155,6 +152,7 @@ vi.mock('@/libs/depositCheckout', async (importOriginal) => {
 
 const effects = vi.hoisted(() => ({
   enqueueGoogleCalendarUpsert: vi.fn(),
+  enqueueGoogleCalendarAppointmentMutation: vi.fn(),
   sendCustomerBookingConfirmationEmail: vi.fn(),
   sendBookingConfirmationToClient: vi.fn(),
   sendBookingNotificationsForNewBooking: vi.fn(),
@@ -164,6 +162,8 @@ const effects = vi.hoisted(() => ({
 vi.mock('@/libs/integrationOutbox', () => ({
   enqueueGoogleCalendarUpsert: effects.enqueueGoogleCalendarUpsert,
   enqueueGoogleCalendarDelete: vi.fn(async () => {}),
+  enqueueGoogleCalendarAppointmentMutation: effects.enqueueGoogleCalendarAppointmentMutation,
+  enqueueGoogleCalendarDeleteInTx: vi.fn(async () => ({ inserted: true })),
 }));
 
 vi.mock('@/libs/customerBookingEmail', () => ({
@@ -345,6 +345,10 @@ beforeEach(async () => {
   effects.enqueueGoogleCalendarUpsert.mockImplementation(async () => {
     timeline.entries.push('google-upsert');
   });
+  effects.enqueueGoogleCalendarAppointmentMutation.mockImplementation(async () => {
+    timeline.entries.push('calendar-intent');
+    return { inserted: true };
+  });
   effects.sendCustomerBookingConfirmationEmail.mockImplementation(async () => {
     timeline.entries.push('customer-email');
     return { delivered: false };
@@ -383,9 +387,9 @@ afterAll(async () => {
 describe('D4.5 — the effects straddle the idempotency cache write', () => {
   /**
    * The load-bearing one. If the runner call is deleted, NOTHING after
-   * 'cache-write' is ever logged and the first assertion fails. If any effect
-   * is hoisted back ahead of the write, its entry precedes 'cache-write' and
-   * the ordering assertion fails.
+   * 'cache-write' is ever followed by those delivery effects. The Calendar
+   * intent is deliberately the one entry before the cache because it belongs
+   * to the appointment transaction.
    */
   it('the cache write lands FIRST, then every post-commit effect', async () => {
     const phone = freshPhone();
@@ -401,22 +405,23 @@ describe('D4.5 — the effects straddle the idempotency cache write', () => {
 
     // Every effect ran...
     expect(timeline.entries).toContain('cache-write');
-    expect(timeline.entries).toContain('google-upsert');
+    expect(timeline.entries).toContain('calendar-intent');
     expect(timeline.entries).toContain('customer-email');
     expect(timeline.entries).toContain('client-sms');
     expect(timeline.entries).toContain('staff-notifications');
 
-    // ...and the cache write came before all of them.
-    expect(timeline.entries[0]).toBe('cache-write');
-    expect(timeline.entries.indexOf('cache-write'))
-      .toBeLessThan(timeline.entries.indexOf('google-upsert'));
+    // The durable intent precedes the cache; provider-independent deliveries
+    // remain post-commit and follow the cache.
+    expect(timeline.entries[0]).toBe('calendar-intent');
+    expect(timeline.entries.indexOf('calendar-intent'))
+      .toBeLessThan(timeline.entries.indexOf('cache-write'));
     expect(timeline.entries.indexOf('cache-write'))
       .toBeLessThan(timeline.entries.indexOf('customer-email'));
 
     // The effects kept their original relative order.
     expect(timeline.entries).toEqual([
+      'calendar-intent',
       'cache-write',
-      'google-upsert',
       'customer-email',
       'client-sms',
       'staff-notifications',
@@ -487,6 +492,7 @@ describe('D4.5 — the idempotency contract is unchanged', () => {
     expect(redisState.set.mock.calls.some(isCacheWrite)).toBe(true);
 
     effects.enqueueGoogleCalendarUpsert.mockClear();
+    effects.enqueueGoogleCalendarAppointmentMutation.mockClear();
     effects.sendCustomerBookingConfirmationEmail.mockClear();
     effects.sendBookingConfirmationToClient.mockClear();
     effects.sendBookingNotificationsForNewBooking.mockClear();
@@ -504,7 +510,7 @@ describe('D4.5 — the idempotency contract is unchanged', () => {
     expect(firstBody.meta.cached).toBeUndefined();
 
     // The replay is answered from cache: no second batch of effects.
-    expect(effects.enqueueGoogleCalendarUpsert).not.toHaveBeenCalled();
+    expect(effects.enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
     expect(effects.sendCustomerBookingConfirmationEmail).not.toHaveBeenCalled();
     expect(effects.sendBookingConfirmationToClient).not.toHaveBeenCalled();
     expect(effects.sendBookingNotificationsForNewBooking).not.toHaveBeenCalled();

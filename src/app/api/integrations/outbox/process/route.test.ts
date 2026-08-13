@@ -38,6 +38,7 @@ describe('integration outbox cron heartbeat', () => {
 
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.useRealTimers();
   });
 
   it.each([
@@ -62,6 +63,12 @@ describe('integration outbox cron heartbeat', () => {
     expect(response.status).toBe(200);
     expect(processIntegrationOutbox).toHaveBeenCalledTimes(1);
     expect(processGoogleCalendarInboundSync).toHaveBeenCalledTimes(1);
+    expect(processIntegrationOutbox).toHaveBeenCalledWith(2, {
+      signal: expect.any(AbortSignal),
+    });
+    expect(processGoogleCalendarInboundSync).toHaveBeenCalledWith(2, undefined, {
+      signal: expect.any(AbortSignal),
+    });
     expect(pingCronHeartbeat).toHaveBeenCalledTimes(1);
     expect(pingCronHeartbeat).toHaveBeenCalledWith('integration_outbox');
     expect(processIntegrationOutbox.mock.invocationCallOrder[0])
@@ -76,6 +83,55 @@ describe('integration outbox cron heartbeat', () => {
 
     await expect(POST(request({ 'x-cron-secret': 'right' })))
       .rejects.toThrow('worker failed');
+    expect(pingCronHeartbeat).not.toHaveBeenCalled();
+  });
+
+  it('aborts both workers and stops waiting for non-cooperative work', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('CRON_SECRET', 'right');
+    let outboundSignal: AbortSignal | undefined;
+    let inboundSignal: AbortSignal | undefined;
+    processIntegrationOutbox.mockImplementation((_limit, options) => {
+      outboundSignal = options?.signal;
+      return new Promise(() => undefined);
+    });
+    processGoogleCalendarInboundSync.mockImplementation((_limit, _salonId, options) => {
+      inboundSignal = options?.signal;
+      return new Promise(() => undefined);
+    });
+
+    const operation = POST(request({ 'x-cron-secret': 'right' }));
+    const rejection = expect(operation).rejects.toThrow(
+      'INTEGRATION_WORKER_BUDGET_EXCEEDED',
+    );
+    await vi.advanceTimersByTimeAsync(240_001);
+
+    expect(outboundSignal?.aborted).toBe(true);
+    expect(inboundSignal?.aborted).toBe(true);
+    expect(pingCronHeartbeat).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await rejection;
+  });
+
+  it('cannot report a late worker completion after the cooperative budget expires', async () => {
+    vi.useFakeTimers();
+    vi.stubEnv('CRON_SECRET', 'right');
+    let finishOutbound!: (value: { scanned: number }) => void;
+    const outbound = new Promise<{ scanned: number }>((resolve) => {
+      finishOutbound = resolve;
+    });
+    processIntegrationOutbox.mockReturnValue(outbound);
+
+    const operation = POST(request({ 'x-cron-secret': 'right' }));
+    const rejection = expect(operation).rejects.toThrow(
+      'INTEGRATION_WORKER_BUDGET_EXCEEDED',
+    );
+    await vi.advanceTimersByTimeAsync(240_001);
+    finishOutbound({ scanned: 1 });
+    await rejection;
+
     expect(pingCronHeartbeat).not.toHaveBeenCalled();
   });
 });

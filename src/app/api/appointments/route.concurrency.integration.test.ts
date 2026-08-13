@@ -71,7 +71,12 @@ vi.mock('@/core/redis/redisClient', () => ({
   isRedisAvailable: vi.fn(async () => false),
 }));
 
-const holder = vi.hoisted(() => ({ db: null as unknown }));
+const holder = vi.hoisted(() => ({
+  db: null as unknown,
+  withSession: null as unknown as (
+    work: (database: unknown) => Promise<unknown>,
+  ) => Promise<unknown>,
+}));
 const {
   sendTransactionalEmail,
   sendTransactionalEmailDetailed,
@@ -102,6 +107,11 @@ vi.mock('@/libs/DB', () => ({
   get db() {
     return holder.db;
   },
+  usesRuntimePostgres: true,
+  DatabaseSessionReleaseError: class DatabaseSessionReleaseError extends Error {},
+  withDedicatedDatabaseSession: <T>(
+    work: (database: unknown) => Promise<T>,
+  ) => holder.withSession(work) as Promise<T>,
 }));
 
 vi.mock('@/libs/email', () => ({ sendTransactionalEmail, sendTransactionalEmailDetailed }));
@@ -192,6 +202,14 @@ suite('POST /api/appointments — genuine concurrency', () => {
     }
     db = drizzle(pool, { schema });
     holder.db = db;
+    holder.withSession = async (work) => {
+      const client = await pool.connect();
+      try {
+        return await work(drizzle(client, { schema }));
+      } finally {
+        client.release();
+      }
+    };
 
     await migrate(db, { migrationsFolder: path.join(process.cwd(), 'migrations') });
 
@@ -512,6 +530,58 @@ suite('POST /api/appointments — genuine concurrency', () => {
 
   async function activeAppointments() {
     return db.select().from(schema.appointmentSchema);
+  }
+
+  const GOOGLE_REVIEW_CALENDAR_ID = 'review_calendar_conc';
+  const GOOGLE_REVIEW_REMOTE_EVENT_ID = 'provider_review_event_conc';
+  const GOOGLE_REVIEW_INITIAL_VERSION
+    = new Date('2099-08-31T12:00:00.000Z');
+
+  async function seedGoogleReviewEvent(
+    overrides: Partial<typeof schema.googleCalendarEventSchema.$inferInsert> = {},
+  ) {
+    const [event] = await db.insert(schema.googleCalendarEventSchema).values({
+      id: 'google_review_event_conc',
+      salonId: SALON_ID,
+      calendarId: GOOGLE_REVIEW_CALENDAR_ID,
+      googleEventId: GOOGLE_REVIEW_REMOTE_EVENT_ID,
+      appointmentId: null,
+      sourceAccessRole: 'reader',
+      syncMode: 'inbound_only',
+      title: 'Imported review event',
+      attendeeName: 'Imported Client',
+      attendeePhone: '4165551111',
+      attendeeEmail: 'racer.one@example.invalid',
+      startTime: new Date(START_TIME),
+      endTime: new Date('2099-09-01T16:00:00.000Z'),
+      durationMinutes: 60,
+      googleStatus: 'confirmed',
+      reviewStatus: 'needs_review',
+      googleUpdatedAt: GOOGLE_REVIEW_INITIAL_VERSION,
+      deletedAt: null,
+      ...overrides,
+    }).returning();
+    return event!;
+  }
+
+  async function assertGoogleReviewClaimRolledBack(
+    eventId: string,
+    expectedEvent: Partial<typeof schema.googleCalendarEventSchema.$inferSelect>,
+  ): Promise<void> {
+    expect(await activeAppointments()).toEqual([]);
+    expect(await db.select().from(schema.appointmentServicesSchema)).toEqual([]);
+    expect(await db.select().from(schema.appointmentAccessTokenSchema)).toEqual([]);
+    expect(await db.select().from(schema.salonClientSchema)).toEqual([]);
+    expect(await db.select().from(schema.notificationDeliverySchema)).toEqual([]);
+
+    const [event] = await db.select().from(schema.googleCalendarEventSchema)
+      .where(eq(schema.googleCalendarEventSchema.id, eventId));
+
+    expect(event).toEqual(expect.objectContaining({
+      appointmentId: null,
+      ...expectedEvent,
+    }));
+    expect(recordGoogleEventReviewDecision).not.toHaveBeenCalled();
   }
 
   async function loadExactClientUpdatedAtVersion(
@@ -1243,6 +1313,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
     bookingResponse?: Response;
     expectedAppointmentCount?: number;
     expectedAuditActions?: string[];
+    expectedReactivationCalendarJob?: boolean;
   }) {
     const clients = await db.select().from(schema.salonClientSchema);
     const aliases = await db
@@ -1346,7 +1417,28 @@ suite('POST /api/appointments — genuine concurrency', () => {
       expect(appointmentAddOns).toHaveLength(0);
       expect(accessTokens).toHaveLength(0);
       expect(deliveries).toHaveLength(0);
-      expect(outbox).toHaveLength(0);
+
+      if (input.expectedReactivationCalendarJob) {
+        const mutationVersion = original.updatedAt.toISOString();
+
+        expect(outbox).toHaveLength(1);
+        expect(outbox[0]).toMatchObject({
+          salonId: SALON_ID,
+          appointmentId: original.id,
+          provider: 'google_calendar',
+          operation: 'sync_appointment',
+          dedupeKey: `google:${SALON_ID}:${original.id}:sync:appointment-mutation:${mutationVersion}`,
+          status: 'pending',
+          payload: {
+            appointmentId: original.id,
+            salonId: SALON_ID,
+            mutationVersion,
+          },
+        });
+      } else {
+        expect(outbox).toHaveLength(0);
+      }
+
       expect(sendTransactionalEmail).not.toHaveBeenCalled();
       expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
     } else if (input.bookingResponse?.status === 201) {
@@ -1391,8 +1483,14 @@ suite('POST /api/appointments — genuine concurrency', () => {
         salonId: SALON_ID,
         appointmentId: booking?.id,
         provider: 'google_calendar',
-        operation: 'upsert_event',
+        operation: 'sync_appointment',
+        dedupeKey: `google:${SALON_ID}:${booking?.id}:sync:appointment-mutation:${booking?.updatedAt.toISOString()}`,
         status: 'pending',
+        payload: {
+          appointmentId: booking?.id,
+          salonId: SALON_ID,
+          mutationVersion: booking?.updatedAt.toISOString(),
+        },
       });
       expect(sendTransactionalEmail).not.toHaveBeenCalled();
       expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(2);
@@ -1533,8 +1631,14 @@ suite('POST /api/appointments — genuine concurrency', () => {
       salonId: SALON_ID,
       appointmentId: appointment.id,
       provider: 'google_calendar',
-      operation: 'upsert_event',
+      operation: 'sync_appointment',
+      dedupeKey: `google:${SALON_ID}:${appointment.id}:sync:appointment-mutation:${appointment.updatedAt.toISOString()}`,
       status: 'pending',
+      payload: {
+        appointmentId: appointment.id,
+        salonId: SALON_ID,
+        mutationVersion: appointment.updatedAt.toISOString(),
+      },
     });
     expect(sendTransactionalEmail).not.toHaveBeenCalled();
     expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(2);
@@ -2596,6 +2700,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
       historicalPhone,
       historicalEmail,
       bookingResponse: responses[0],
+      expectedReactivationCalendarJob: true,
     });
   });
 
@@ -3518,6 +3623,119 @@ suite('POST /api/appointments — genuine concurrency', () => {
     expect(await policyAcknowledgments()).toHaveLength(0);
   });
 
+  it.each([
+    {
+      name: 'an inbound tombstone',
+      seed: {},
+      mutation: {
+        deletedAt: new Date('2099-08-31T12:01:00.000Z'),
+      },
+    },
+    {
+      name: 'an admin review decision',
+      seed: {},
+      mutation: {
+        reviewStatus: 'reviewed' as const,
+        reviewedAt: new Date('2099-08-31T12:01:00.000Z'),
+      },
+    },
+    {
+      name: 'an inbound ownership-mode change',
+      seed: {},
+      mutation: {
+        syncMode: 'bidirectional' as const,
+      },
+    },
+    {
+      name: 'a newer non-null provider version',
+      seed: {},
+      mutation: {
+        googleUpdatedAt: new Date('2099-08-31T12:01:00.000Z'),
+      },
+    },
+    {
+      name: 'a provider version populated after a null read',
+      seed: { googleUpdatedAt: null },
+      mutation: {
+        googleUpdatedAt: new Date('2099-08-31T12:01:00.000Z'),
+      },
+    },
+  ])('rolls the entire conversion back when $name wins after the source read', async ({
+    seed,
+    mutation,
+  }) => {
+    requireAdmin.mockResolvedValue({ ok: true });
+    const event = await seedGoogleReviewEvent(seed);
+    const heldTechnician = await holdTechnicianMutationLocks([TECH_ID]);
+    const { POST } = await import('./route');
+    const conversion = POST(bookingRequest({ googleEventReviewId: event.id }));
+
+    await waitForBlockedSessions(1, heldTechnician.pid);
+    await db.update(schema.googleCalendarEventSchema).set(mutation)
+      .where(and(
+        eq(schema.googleCalendarEventSchema.id, event.id),
+        eq(schema.googleCalendarEventSchema.salonId, SALON_ID),
+      ));
+    await heldTechnician.release();
+
+    const response = await conversion;
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error).toEqual({
+      code: 'GOOGLE_EVENT_ALREADY_CONVERTED',
+      message: 'This Google event is already an appointment.',
+    });
+
+    await assertGoogleReviewClaimRolledBack(event.id, mutation);
+
+    expect(await db.select().from(schema.integrationOutboxSchema)).toEqual([]);
+  });
+
+  it('refuses and rolls back conversion while an exact-pair provider delete is processing', async () => {
+    requireAdmin.mockResolvedValue({ ok: true });
+    const event = await seedGoogleReviewEvent();
+    await db.insert(schema.integrationOutboxSchema).values({
+      id: 'google_review_processing_delete',
+      salonId: SALON_ID,
+      appointmentId: null,
+      provider: 'google_calendar',
+      operation: 'delete_event',
+      dedupeKey: 'google-review-processing-delete',
+      payload: {
+        appointmentId: 'detached_previous_owner',
+        salonId: SALON_ID,
+        mutationVersion: null,
+        targetCalendarId: GOOGLE_REVIEW_CALENDAR_ID,
+        googleCalendarEventId: GOOGLE_REVIEW_REMOTE_EVENT_ID,
+        reconciliation: true,
+      },
+      status: 'processing',
+      attempts: 1,
+    });
+    const { POST } = await import('./route');
+
+    const response = await POST(bookingRequest({ googleEventReviewId: event.id }));
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('GOOGLE_EVENT_ALREADY_CONVERTED');
+
+    await assertGoogleReviewClaimRolledBack(event.id, {
+      reviewStatus: 'needs_review',
+      syncMode: 'inbound_only',
+      googleUpdatedAt: GOOGLE_REVIEW_INITIAL_VERSION,
+      deletedAt: null,
+    });
+
+    expect(await db.select().from(schema.integrationOutboxSchema))
+      .toEqual([expect.objectContaining({
+        id: 'google_review_processing_delete',
+        status: 'processing',
+        attempts: 1,
+      })]);
+  });
+
   it('lets exactly one of two simultaneous identical bookings win', async () => {
     const { POST } = await import('./route');
 
@@ -4186,6 +4404,7 @@ suite('POST /api/appointments — genuine concurrency', () => {
       expect.objectContaining({
         to: 'resolved-before-guard@example.invalid',
       }),
+      { signal: undefined },
     );
     expect((await loadAppointment(appointment.id)).dayBeforeReminderSentAt)
       .toEqual(now);

@@ -7,6 +7,7 @@ const {
   logAppointmentChange,
   logAppointmentLocked,
   enqueueGoogleCalendarDelete,
+  enqueueGoogleCalendarDeleteInTx,
   resolveTerminalSalonClientWithHandle,
   resolveCanonicalSalonClientIdentityWithHandle,
   lockOperationalSalonClientContactWithHandle,
@@ -24,6 +25,7 @@ const {
   const logAppointmentChange = vi.fn(async () => undefined);
   const logAppointmentLocked = vi.fn(async () => undefined);
   const enqueueGoogleCalendarDelete = vi.fn(async () => undefined);
+  const enqueueGoogleCalendarDeleteInTx = vi.fn(async () => ({ inserted: true }));
   const resolveTerminalSalonClientWithHandle = vi.fn(async () => {
     callOrder.push('resolve');
     return {
@@ -64,6 +66,7 @@ const {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
         where: vi.fn(() => ({
+          limit: vi.fn(async () => []),
           for: vi.fn(() => ({
             limit: vi.fn(async () => {
               callOrder.push('appointment-lock');
@@ -102,6 +105,7 @@ const {
     logAppointmentChange,
     logAppointmentLocked,
     enqueueGoogleCalendarDelete,
+    enqueueGoogleCalendarDeleteInTx,
     resolveTerminalSalonClientWithHandle,
     resolveCanonicalSalonClientIdentityWithHandle,
     lockOperationalSalonClientContactWithHandle,
@@ -121,7 +125,10 @@ vi.mock('@/libs/appointmentAudit', () => ({
   logAppointmentChange,
   logAppointmentLocked,
 }));
-vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarDelete }));
+vi.mock('@/libs/integrationOutbox', () => ({
+  enqueueGoogleCalendarDelete,
+  enqueueGoogleCalendarDeleteInTx,
+}));
 vi.mock('@/libs/clientLifecycleStabilization', () => ({
   ClientLifecycleStabilizationError: class extends Error {},
   resolveTerminalSalonClientWithHandle,
@@ -139,7 +146,6 @@ vi.mock('@/libs/bookingConflictGuard', () => ({
   lockTechnicianAndAssertSlotFree,
 }));
 vi.mock('@/libs/DB', () => ({ db }));
-
 import { POST } from './route';
 
 const appointment = {
@@ -160,6 +166,7 @@ const appointment = {
   completedAt: null,
   lockedAt: null,
   googleCalendarEventId: 'gevent_1',
+  updatedAt: new Date('2026-07-01T00:00:00.000Z'),
 };
 
 function makeAccess(overrides: Record<string, unknown> = {}) {
@@ -324,11 +331,15 @@ describe('POST /api/appointments/:id/transition', () => {
       status: 'no_show',
       cancelReason: 'no_show',
     });
-    expect(enqueueGoogleCalendarDelete).toHaveBeenCalledWith({
-      appointmentId: 'appt_1',
-      salonId: 'salon_1',
-      googleCalendarEventId: 'gevent_1',
-    });
+    expect(enqueueGoogleCalendarDeleteInTx).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        appointmentId: 'appt_1',
+        salonId: 'salon_1',
+        googleCalendarEventId: 'gevent_1',
+        mutationVersion: expect.any(Date),
+      }),
+    );
   });
 
   it('rejects transitions on already-terminal appointments before transaction work', async () => {

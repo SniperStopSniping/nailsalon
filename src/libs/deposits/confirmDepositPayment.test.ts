@@ -402,6 +402,10 @@ describe('TX-B hold arm', () => {
 
     expect(jobs.map(job => job.operation)).toEqual(['booking_confirmed_side_effects']);
     expect(jobs[0]?.dedupeKey).toBe(`deposit:${hold.depositId}:confirmed-side-effects`);
+    expect(jobs[0]?.payload).toEqual(expect.objectContaining({
+      depositId: hold.depositId,
+      googleCalendarSyncEligible: true,
+    }));
   });
 
   it('mints a FRESH manage capability rather than recovering the booking-time one', async () => {

@@ -1,10 +1,12 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
-import { getAppointmentCalendarEventForSync } from '@/libs/appointmentManage';
 import { db } from '@/libs/DB';
-import { syncGoogleCalendarEventForAppointment } from '@/libs/googleCalendar';
+import {
+  enqueueGoogleCalendarAppointmentMutation,
+  isGoogleCalendarDispatchBusyError,
+} from '@/libs/integrationOutbox';
 import { appointmentSchema, googleCalendarEventSchema, salonGoogleCalendarConnectionSchema } from '@/models/Schema';
 
 const bodySchema = z.object({ salonSlug: z.string().min(1) });
@@ -18,68 +20,95 @@ export async function POST(request: Request, context: { params: { id: string } }
   if (error || !salon) {
     return error || Response.json({ error: 'Salon not found' }, { status: 404 });
   }
-  const [event] = await db.select().from(googleCalendarEventSchema).where(and(
-    eq(googleCalendarEventSchema.id, context.params.id),
-    eq(googleCalendarEventSchema.salonId, salon.id),
+  const [connection] = await db.select({ destinationCalendarId: salonGoogleCalendarConnectionSchema.destinationCalendarId }).from(salonGoogleCalendarConnectionSchema).where(and(
+    eq(salonGoogleCalendarConnectionSchema.salonId, salon.id),
+    inArray(salonGoogleCalendarConnectionSchema.status, ['active', 'degraded']),
   )).limit(1);
-  if (!event?.appointmentId || event.reviewStatus !== 'appointment') {
-    return Response.json({ error: 'Convert this event to an appointment before copying it' }, { status: 409 });
-  }
-  if (event.syncMode !== 'inbound_only') {
-    return Response.json({ error: 'This event already supports two-way synchronization' }, { status: 409 });
-  }
-  const [connection] = await db.select({ destinationCalendarId: salonGoogleCalendarConnectionSchema.destinationCalendarId }).from(salonGoogleCalendarConnectionSchema).where(eq(salonGoogleCalendarConnectionSchema.salonId, salon.id)).limit(1);
   if (!connection) {
     return Response.json({ error: 'Google Calendar is not connected' }, { status: 409 });
   }
-  const appointment = await getAppointmentCalendarEventForSync(event.appointmentId, salon.id);
-  await db.transaction(async (tx) => {
-    await tx.update(googleCalendarEventSchema).set({ appointmentId: null, syncMode: 'superseded' }).where(eq(googleCalendarEventSchema.id, event.id));
-    await tx.update(appointmentSchema).set({ googleCalendarEventId: null }).where(and(eq(appointmentSchema.id, appointment.id), eq(appointmentSchema.salonId, salon.id)));
-  });
-  const result = await syncGoogleCalendarEventForAppointment({
-    appointmentId: appointment.id,
-    salonId: salon.id,
-    salonName: salon.name,
-    clientName: appointment.clientName,
-    clientPhone: appointment.clientPhone,
-    serviceNames: [appointment.serviceLabel],
-    technicianName: appointment.technicianName,
-    startTime: new Date(appointment.startTime),
-    endTime: new Date(appointment.endTime),
-    totalPrice: appointment.totalPrice,
-    totalDurationMinutes: appointment.totalDurationMinutes,
-    timeZone: appointment.timeZone,
-    locationName: appointment.locationName,
-    locationAddress: appointment.locationAddress,
-    googleCalendarEventId: null,
-  });
-  if (result.status !== 'synced') {
-    await db.transaction(async (tx) => {
-      await tx.update(googleCalendarEventSchema).set({ appointmentId: appointment.id, syncMode: 'inbound_only' }).where(eq(googleCalendarEventSchema.id, event.id));
-      await tx.update(appointmentSchema).set({ googleCalendarEventId: event.googleEventId }).where(and(eq(appointmentSchema.id, appointment.id), eq(appointmentSchema.salonId, salon.id)));
+  let queued;
+  try {
+    queued = await db.transaction(async (tx) => {
+      // These reads only resolve the candidate aggregate. The enqueue helper then
+      // takes every write lock in the worker's canonical outbox -> appointment ->
+      // source order and revalidates this snapshot before committing any job.
+      const [event] = await tx.select().from(googleCalendarEventSchema).where(and(
+        eq(googleCalendarEventSchema.id, context.params.id),
+        eq(googleCalendarEventSchema.salonId, salon.id),
+      )).limit(1);
+      if (!event || event.reviewStatus !== 'appointment') {
+        return { error: 'Convert this event to an appointment before copying it' } as const;
+      }
+      let appointmentId = event.appointmentId;
+      if (event.syncMode === 'superseded' && event.supersededByEventId) {
+        const destinationMirrors = await tx.select({
+          appointmentId: googleCalendarEventSchema.appointmentId,
+          calendarId: googleCalendarEventSchema.calendarId,
+        }).from(googleCalendarEventSchema).where(and(
+          eq(googleCalendarEventSchema.salonId, salon.id),
+          eq(googleCalendarEventSchema.googleEventId, event.supersededByEventId),
+          eq(googleCalendarEventSchema.syncMode, 'bidirectional'),
+          isNull(googleCalendarEventSchema.deletedAt),
+          inArray(googleCalendarEventSchema.sourceAccessRole, ['owner', 'writer']),
+        ));
+        if (destinationMirrors.length !== 1 || !destinationMirrors[0]?.appointmentId) {
+          return { error: 'The completed Google copy state is inconsistent' } as const;
+        }
+        appointmentId = destinationMirrors[0].appointmentId;
+      } else if (event.syncMode !== 'inbound_only') {
+        return { error: 'This event already supports two-way synchronization' } as const;
+      }
+      if (!appointmentId) {
+        return { error: 'Convert this event to an appointment before copying it' } as const;
+      }
+      const [appointment] = await tx.select().from(appointmentSchema).where(and(
+        eq(appointmentSchema.id, appointmentId),
+        eq(appointmentSchema.salonId, salon.id),
+      )).limit(1);
+      if (!appointment || appointment.deletedAt || ['cancelled', 'no_show'].includes(appointment.status)) {
+        return { error: 'The linked appointment is no longer active' } as const;
+      }
+      if (appointment.status === 'awaiting_payment') {
+        return { error: 'Awaiting-payment deposit holds cannot be copied to Google Calendar', code: 'HOLD_LOCKED' } as const;
+      }
+      const result = await enqueueGoogleCalendarAppointmentMutation(tx, {
+        appointmentId: appointment.id,
+        salonId: salon.id,
+        mutationVersion: appointment.updatedAt,
+        adminCopySourceEventId: event.id,
+      });
+      return { result } as const;
     });
-    return Response.json({ error: result.status === 'failed' ? result.error : 'The event could not be copied' }, { status: 503 });
+  } catch (error) {
+    if (isGoogleCalendarDispatchBusyError(error)) {
+      return Response.json({
+        error: {
+          code: 'GOOGLE_CALENDAR_WRITE_IN_PROGRESS',
+          message: 'Google Calendar is updating this appointment. Try again shortly.',
+        },
+      }, { status: 409 });
+    }
+    throw error;
   }
-  await db.insert(googleCalendarEventSchema).values({
-    id: `gce_${crypto.randomUUID()}`,
-    salonId: salon.id,
-    calendarId: connection.destinationCalendarId,
-    googleEventId: result.eventId,
-    appointmentId: appointment.id,
-    sourceAccessRole: 'writer',
-    syncMode: 'bidirectional',
-    title: event.title,
-    description: event.description,
-    location: event.location,
-    startTime: new Date(appointment.startTime),
-    endTime: new Date(appointment.endTime),
-    durationMinutes: appointment.totalDurationMinutes,
-    isAllDay: false,
-    transparency: 'busy',
-    reviewStatus: 'appointment',
-    reviewedAt: new Date(),
-  }).onConflictDoNothing();
-  await db.update(googleCalendarEventSchema).set({ supersededByEventId: result.eventId }).where(eq(googleCalendarEventSchema.id, event.id));
-  return Response.json({ data: { eventId: result.eventId, syncMode: 'bidirectional' } });
+  if ('error' in queued) {
+    return Response.json({
+      error: queued.code
+        ? { code: queued.code, message: queued.error }
+        : queued.error,
+    }, { status: 409 });
+  }
+  const status = queued.result.inserted || queued.result.rearmed
+    ? 'queued'
+    : queued.result.status === 'completed'
+      ? 'already_completed'
+      : ['failed', 'cancelled', 'inconsistent'].includes(queued.result.status)
+          ? 'failed'
+          : 'already_queued';
+  return Response.json({
+    data: {
+      jobId: queued.result.jobId,
+      status,
+    },
+  }, { status: status === 'already_completed' ? 200 : status === 'failed' ? 409 : 202 });
 }

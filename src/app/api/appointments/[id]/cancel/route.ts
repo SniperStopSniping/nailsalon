@@ -8,7 +8,7 @@ import {
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
-import { enqueueGoogleCalendarDelete } from '@/libs/integrationOutbox';
+import { enqueueGoogleCalendarDeleteInTx } from '@/libs/integrationOutbox';
 import {
   getAppointmentServiceNames,
   getSalonById,
@@ -227,6 +227,10 @@ export async function PATCH(
           const pointsToRefund = pointsRedeemedFromNotes(
             lockedAppointment.notes,
           );
+          const mutationVersion = new Date(Math.max(
+            now.getTime(),
+            lockedAppointment.updatedAt.getTime() + 1,
+          ));
           const [cancelledAppointment] = await tx
             .update(appointmentSchema)
             .set({
@@ -235,7 +239,7 @@ export async function PATCH(
               canvasStateUpdatedAt: now,
               cancelReason: validated.data.cancelReason,
               notes: validated.data.notes || lockedAppointment.notes,
-              updatedAt: now,
+              updatedAt: mutationVersion,
             })
             .where(
               and(
@@ -303,6 +307,13 @@ export async function PATCH(
               ));
           }
 
+          await enqueueGoogleCalendarDeleteInTx(tx, {
+            appointmentId: cancelledAppointment.id,
+            salonId: cancelledAppointment.salonId,
+            mutationVersion: cancelledAppointment.updatedAt,
+            googleCalendarEventId: cancelledAppointment.googleCalendarEventId,
+          });
+
           if (pointsToRefund > 0 && operationalClient) {
             await tx
               .update(salonClientSchema)
@@ -326,18 +337,6 @@ export async function PATCH(
 
     if (transition.conflictStatus) {
       return invalidStateResponse(transition.conflictStatus);
-    }
-
-    // The calendar outbox is deduplicated, so an idempotent retry may safely
-    // repair a rare enqueue failure without duplicating the external deletion.
-    try {
-      await enqueueGoogleCalendarDelete({
-        appointmentId,
-        salonId: appointment.salonId,
-        googleCalendarEventId: appointment.googleCalendarEventId,
-      });
-    } catch (calendarError) {
-      console.error('Failed to enqueue Google Calendar deletion after cancellation:', calendarError);
     }
 
     // No-show statistics and outbound notifications only belong to the request

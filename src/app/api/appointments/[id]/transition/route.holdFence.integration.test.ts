@@ -48,6 +48,7 @@ vi.mock('@/libs/appointmentAudit', () => ({
 
 vi.mock('@/libs/integrationOutbox', () => ({
   enqueueGoogleCalendarDelete: vi.fn(async () => {}),
+  enqueueGoogleCalendarDeleteInTx: vi.fn(async () => ({ inserted: true })),
 }));
 
 /* eslint-disable import/first */
@@ -160,6 +161,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   vi.clearAllMocks();
   await db.delete(schema.appointmentDepositSchema);
+  await db.delete(schema.rewardSchema);
   await db.delete(schema.appointmentSchema);
 });
 
@@ -229,6 +231,43 @@ describe('§5.2 — the staff transition route refuses a hold', () => {
     expect(after.appointment!.status).toBe('cancelled');
     expect(after.appointment!.canvasState).toBe('cancelled');
   });
+
+  it.each([['cancelled'], ['no_show']])(
+    'to:%s releases only the exact ordinary reward link in the transition transaction',
+    async (to) => {
+      await seedAppointment('confirmed');
+      holder.access = accessFor('confirmed');
+      await db.insert(schema.rewardSchema).values([
+        {
+          id: `reward_staff_decoy_${to}`,
+          salonId: SALON_ID,
+          clientPhone: '4165550000',
+          type: 'referral_referee',
+          discountType: 'fixed_amount',
+          discountAmountCents: 1000,
+        },
+        {
+          id: `reward_staff_exact_${to}`,
+          salonId: SALON_ID,
+          clientPhone: '4165550000',
+          type: 'referral_referee',
+          discountType: 'fixed_amount',
+          discountAmountCents: 1000,
+          usedInAppointmentId: APPT_ID,
+        },
+      ]);
+
+      const response = await POST(transitionRequest(to), { params: { id: APPT_ID } });
+
+      expect(response.status).toBe(200);
+      expect((await db.select().from(schema.rewardSchema)
+        .where(eq(schema.rewardSchema.id, `reward_staff_exact_${to}`)))[0]?.usedInAppointmentId)
+        .toBeNull();
+      expect((await db.select().from(schema.rewardSchema)
+        .where(eq(schema.rewardSchema.id, `reward_staff_decoy_${to}`)))[0]?.usedInAppointmentId)
+        .toBeNull();
+    },
+  );
 });
 
 /**

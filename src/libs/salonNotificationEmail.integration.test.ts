@@ -719,6 +719,7 @@ describe('provider failure handling', () => {
       purpose: 'salon_new_booking',
       dedupeKey: `appointment:${appointmentId}:salon:new-booking`,
       status: 'failed',
+      retryable: true,
     });
     sendTransactionalEmailDetailed.mockResolvedValue({
       ok: false,
@@ -743,5 +744,7 @@ describe('provider failure handling', () => {
       ));
 
     expect(delivery!.status).toBe('failed');
+    expect(delivery!.errorCode).toBe('RESEND_HTTP_500');
+    expect(delivery!.retryable).toBe(true);
   });
 });

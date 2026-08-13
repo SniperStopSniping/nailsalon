@@ -19,6 +19,7 @@ import {
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
+import { enqueueGoogleCalendarAppointmentMutation } from '@/libs/integrationOutbox';
 import { appointmentSchema, salonClientSchema } from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
@@ -320,13 +321,17 @@ export async function POST(request: Request): Promise<Response> {
         const newPointsBalance = lockedPoints - rewardPoints;
         const discountDollars = (discountApplied / 100).toFixed(2);
 
-        await tx
+        const [pricedAppointment] = await tx
           .update(appointmentSchema)
           .set({
             totalPrice: newTotalPrice,
             notes: lockedAppointment.notes
               ? `${lockedAppointment.notes}\n[Points redeemed: ${rewardTitle} - ${rewardPoints.toLocaleString()} pts for $${discountDollars} off]`
               : `[Points redeemed: ${rewardTitle} - ${rewardPoints.toLocaleString()} pts for $${discountDollars} off]`,
+            updatedAt: new Date(Math.max(
+              Date.now(),
+              lockedAppointment.updatedAt.getTime() + 1,
+            )),
           })
           .where(
             and(
@@ -334,7 +339,16 @@ export async function POST(request: Request): Promise<Response> {
               eq(appointmentSchema.salonId, salon.id),
               eq(appointmentSchema.status, lockedAppointment.status),
             ),
-          );
+          )
+          .returning();
+        if (!pricedAppointment) {
+          return {
+            ok: false,
+            code: 'INVALID_APPOINTMENT_STATUS',
+            message: 'This appointment changed before the reward was applied.',
+            status: 400,
+          };
+        }
 
         await tx
           .update(salonClientSchema)
@@ -347,6 +361,12 @@ export async function POST(request: Request): Promise<Response> {
               eq(salonClientSchema.id, operationalClient.id),
             ),
           );
+
+        await enqueueGoogleCalendarAppointmentMutation(tx, {
+          appointmentId: pricedAppointment.id,
+          salonId: pricedAppointment.salonId,
+          mutationVersion: pricedAppointment.updatedAt,
+        });
 
         return {
           ok: true,

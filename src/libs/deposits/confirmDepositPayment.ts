@@ -489,7 +489,7 @@ async function holdArm(args: ArmArgs & { onWarn?: (message: string) => void }): 
     reason: 'deposit_payment_confirmed',
   }));
 
-  await enqueueConfirmationEffects({ tx, appointment, deposit, salonId, clientPhone: appointment.clientPhone });
+  await enqueueDepositConfirmationEffectsInTx({ tx, appointment, deposit, salonId, clientPhone: appointment.clientPhone });
 
   return { disposition: 'confirmed', depositId: deposit.id, salonId };
 }
@@ -553,7 +553,7 @@ async function settledArm(args: ArmArgs & { onWarn: (message: string) => void })
     reason: late ? 'healed_deposit_late' : 'healed_deposit',
   }));
 
-  await enqueueConfirmationEffects({ tx, appointment, deposit, salonId, clientPhone: appointment.clientPhone });
+  await enqueueDepositConfirmationEffectsInTx({ tx, appointment, deposit, salonId, clientPhone: appointment.clientPhone });
 
   if (late) {
     // The owner reactivated a reaper-released hold and the client then paid,
@@ -574,7 +574,7 @@ async function settledArm(args: ArmArgs & { onWarn: (message: string) => void })
  * job commits with the money write and a crash between the two cannot lose the
  * client's confirmation.
  */
-async function enqueueConfirmationEffects(args: {
+export async function enqueueDepositConfirmationEffectsInTx(args: {
   tx: ArmArgs['tx'];
   appointment: { id: string; endTime: Date };
   deposit: typeof appointmentDepositSchema.$inferSelect;

@@ -19,11 +19,12 @@ import {
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
-import { enqueueGoogleCalendarDelete } from '@/libs/integrationOutbox';
+import { enqueueGoogleCalendarDeleteInTx } from '@/libs/integrationOutbox';
 import { requireStaffAppointmentAccess } from '@/libs/staffApiGuards';
 import {
   appointmentArtifactsSchema,
   appointmentSchema,
+  rewardSchema,
   salonPoliciesSchema,
   superAdminPoliciesSchema,
 } from '@/models/Schema';
@@ -313,6 +314,11 @@ export async function POST(
           return null;
         }
 
+        updateData.updatedAt = new Date(Math.max(
+          now.getTime(),
+          lockedAppointment.updatedAt.getTime() + 1,
+        ));
+
         if (activatesAppointment) {
           if (
             !terminalClientId
@@ -374,6 +380,42 @@ export async function POST(
             ),
           )
           .returning();
+        if (winner && (legacyStatus === 'cancelled' || legacyStatus === 'no_show')) {
+          const [linkedReward] = await tx
+            .select()
+            .from(rewardSchema)
+            .where(
+              and(
+                eq(rewardSchema.usedInAppointmentId, appointmentId),
+                eq(rewardSchema.salonId, session.salonId),
+              ),
+            )
+            .limit(1);
+
+          if (linkedReward && linkedReward.status !== 'used') {
+            await tx
+              .update(rewardSchema)
+              .set({
+                usedInAppointmentId: null,
+                status: 'active',
+              })
+              .where(
+                and(
+                  eq(rewardSchema.id, linkedReward.id),
+                  eq(rewardSchema.salonId, session.salonId),
+                  eq(rewardSchema.usedInAppointmentId, appointmentId),
+                  ne(rewardSchema.status, 'used'),
+                ),
+              );
+          }
+
+          await enqueueGoogleCalendarDeleteInTx(tx, {
+            appointmentId: winner.id,
+            salonId: winner.salonId,
+            mutationVersion: winner.updatedAt,
+            googleCalendarEventId: winner.googleCalendarEventId,
+          });
+        }
         return winner ?? null;
       }));
 
@@ -388,16 +430,6 @@ export async function POST(
         } satisfies ErrorResponse,
         { status: 409 },
       );
-    }
-
-    // Staff cancellations and no-shows release the technician's time; the
-    // linked Google Calendar event must be removed like the owner cancel path.
-    if (legacyStatus === 'cancelled' || legacyStatus === 'no_show') {
-      await enqueueGoogleCalendarDelete({
-        appointmentId,
-        salonId: session.salonId,
-        googleCalendarEventId: appointment.googleCalendarEventId,
-      });
     }
 
     // 14. Audit logging (Step 16A)

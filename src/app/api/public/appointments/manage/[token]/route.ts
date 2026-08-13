@@ -11,7 +11,10 @@ import { loadBookingPolicy } from '@/libs/bookingPolicy';
 import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import type { GoogleCalendarBusyWindow } from '@/libs/googleCalendar';
-import { enqueueGoogleCalendarDelete, enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
+import {
+  enqueueGoogleCalendarAppointmentMutation,
+  enqueueGoogleCalendarDeleteInTx,
+} from '@/libs/integrationOutbox';
 import { getLocationById, getTechnicianById } from '@/libs/queries';
 import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
 import { evaluateSmartFitSlot, type SmartFitEvaluation } from '@/libs/smartFit';
@@ -410,22 +413,43 @@ export async function POST(request: Request, context: { params: { token: string 
     if (decision.outcome === 'granted') {
       // Guarded on the discount still being absent, so a retried request can
       // never stack a second discount onto the same appointment.
-      await db.update(appointmentSchema)
-        .set({
-          discountType: decision.discountType,
-          discountLabel: decision.discountLabel,
-          discountPercent: decision.discountPercent,
-          discountAmountCents: decision.discountAmountCents,
-          subtotalBeforeDiscountCents: pricingInputs.subtotalBeforeDiscountCents,
-          totalPrice: decision.finalTotalCents,
-          discountAppliedAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .where(and(
+      await db.transaction(async (tx) => {
+        const [locked] = await tx.select().from(appointmentSchema).where(and(
           eq(appointmentSchema.id, managed.capability.appointmentId),
           eq(appointmentSchema.salonId, managed.capability.salonId),
-          isNull(appointmentSchema.discountType),
+        )).for('update').limit(1);
+        if (!locked || locked.discountType) {
+          return;
+        }
+        const mutationVersion = new Date(Math.max(
+          Date.now(),
+          locked.updatedAt.getTime() + 1,
         ));
+        const [discounted] = await tx.update(appointmentSchema)
+          .set({
+            discountType: decision.discountType,
+            discountLabel: decision.discountLabel,
+            discountPercent: decision.discountPercent,
+            discountAmountCents: decision.discountAmountCents,
+            subtotalBeforeDiscountCents: pricingInputs.subtotalBeforeDiscountCents,
+            totalPrice: decision.finalTotalCents,
+            discountAppliedAt: new Date(),
+            updatedAt: mutationVersion,
+          })
+          .where(and(
+            eq(appointmentSchema.id, managed.capability.appointmentId),
+            eq(appointmentSchema.salonId, managed.capability.salonId),
+            isNull(appointmentSchema.discountType),
+          ))
+          .returning();
+        if (discounted) {
+          await enqueueGoogleCalendarAppointmentMutation(tx, {
+            appointmentId: discounted.id,
+            salonId: discounted.salonId,
+            mutationVersion: discounted.updatedAt,
+          });
+        }
+      });
     }
   } catch (smartFitError) {
     // Pricing is a bonus here; never fail a committed move over it.
@@ -436,37 +460,8 @@ export async function POST(request: Request, context: { params: { token: string 
     });
   }
 
-  // The capability is bound to the appointment id, which did not change — the
-  // customer keeps the same private link across the move. Calendar delivery is
-  // independent from the already-committed move and customer notification.
-  try {
-    await enqueueGoogleCalendarUpsert({
-      appointmentId: result.calendarEvent.id,
-      salonId: managed.capability.salonId,
-      salonName: managed.details.salonName,
-      clientName: result.calendarEvent.clientName,
-      clientPhone: result.calendarEvent.clientPhone,
-      serviceNames: [result.calendarEvent.serviceLabel],
-      technicianName: result.calendarEvent.technicianName,
-      startTime: new Date(result.calendarEvent.startTime),
-      endTime: new Date(result.calendarEvent.endTime),
-      totalPrice: result.calendarEvent.totalPrice,
-      totalDurationMinutes: result.calendarEvent.totalDurationMinutes,
-      timeZone: result.calendarEvent.timeZone,
-      locationName: result.calendarEvent.locationName,
-      locationAddress: result.calendarEvent.locationAddress,
-      googleCalendarEventId: result.calendarEvent.googleCalendarEventId,
-    });
-  } catch {
-    console.error('[AppointmentManageLink] Calendar update could not be queued after the move committed:', {
-      salonId: managed.capability.salonId,
-      appointmentId: managed.capability.appointmentId,
-    });
-  }
-
-  // All appointment, pricing, and calendar-outbox writes finish before the
-  // external provider is called. The customer event is independently deduped,
-  // so a delivery failure cannot roll back or duplicate the committed move.
+  // The calendar mutation was durably queued in the same transaction as the
+  // move. Provider delivery remains asynchronous and outside this request.
   if (result.mutationApplied) {
     try {
       const timeZone = bookingConfig.timezone;
@@ -543,30 +538,45 @@ export async function PATCH(request: Request, context: { params: { token: string
     return Response.json({ error: { code: 'CHANGE_WINDOW_CLOSED', message: `Online changes close ${bookingConfig.clientChangeCutoffHours} hours before the appointment. Please contact the salon.` } }, { status: 409 });
   }
 
-  const [cancelled] = await db
-    .update(appointmentSchema)
-    .set({ status: 'cancelled', cancelReason: body.reason?.trim() || 'client_request', updatedAt: new Date() })
-    .where(and(
+  const cancelled = await db.transaction(async (tx) => {
+    const [locked] = await tx.select().from(appointmentSchema).where(and(
       eq(appointmentSchema.id, managed.capability.appointmentId),
       eq(appointmentSchema.salonId, managed.capability.salonId),
-      inArray(appointmentSchema.status, ['pending', 'confirmed']),
-    ))
-    .returning();
+    )).for('update').limit(1);
+    if (!locked || !['pending', 'confirmed'].includes(locked.status)) {
+      return null;
+    }
+    const mutationVersion = new Date(Math.max(
+      Date.now(),
+      locked.updatedAt.getTime() + 1,
+    ));
+    const [terminalAppointment] = await tx
+      .update(appointmentSchema)
+      .set({
+        status: 'cancelled',
+        cancelReason: body.reason?.trim() || 'client_request',
+        updatedAt: mutationVersion,
+      })
+      .where(and(
+        eq(appointmentSchema.id, managed.capability.appointmentId),
+        eq(appointmentSchema.salonId, managed.capability.salonId),
+        inArray(appointmentSchema.status, ['pending', 'confirmed']),
+      ))
+      .returning();
+    if (!terminalAppointment) {
+      return null;
+    }
+
+    await enqueueGoogleCalendarDeleteInTx(tx, {
+      appointmentId: terminalAppointment.id,
+      salonId: terminalAppointment.salonId,
+      mutationVersion: terminalAppointment.updatedAt,
+      googleCalendarEventId: terminalAppointment.googleCalendarEventId,
+    });
+    return terminalAppointment;
+  });
   if (!cancelled) {
     return Response.json({ error: { code: 'APPOINTMENT_NOT_ACTIVE', message: 'This appointment is no longer active.' } }, { status: 409 });
-  }
-
-  try {
-    await enqueueGoogleCalendarDelete({
-      appointmentId: cancelled.id,
-      salonId: cancelled.salonId,
-      googleCalendarEventId: cancelled.googleCalendarEventId,
-    });
-  } catch {
-    console.error('[AppointmentManageLink] Calendar deletion could not be queued after cancellation:', {
-      salonId: cancelled.salonId,
-      appointmentId: cancelled.id,
-    });
   }
 
   // The capability remains valid so the customer can see the cancellation.

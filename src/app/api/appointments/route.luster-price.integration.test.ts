@@ -98,6 +98,8 @@ vi.mock('@/libs/googleCalendar', () => ({
 vi.mock('@/libs/integrationOutbox', () => ({
   enqueueGoogleCalendarUpsert: vi.fn(async () => {}),
   enqueueGoogleCalendarDelete: vi.fn(async () => {}),
+  enqueueGoogleCalendarAppointmentMutation: vi.fn(async () => ({ inserted: true })),
+  enqueueGoogleCalendarDeleteInTx: vi.fn(async () => ({ inserted: true })),
 }));
 
 vi.mock('@/libs/googleEventReview', () => ({

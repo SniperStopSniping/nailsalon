@@ -1255,6 +1255,38 @@ export function resolveAppointmentOperationalEmailRecipient(input: {
   );
 }
 
+function throwIfOperationalEmailAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new Error('OPERATIONAL_EMAIL_ABORTED');
+}
+
+async function stopOperationalEmailBeforeDispatch(input: {
+  salonId: string;
+  deliveryId: string;
+  signal?: AbortSignal;
+}): Promise<void> {
+  if (!input.signal?.aborted) {
+    return;
+  }
+  // This is a known no-send: the provider boundary has not been entered yet.
+  // Preserve a reclaimable local claim instead of classifying it with the
+  // accepted-but-unacknowledged ambiguity that can exist after dispatch.
+  await db.update(notificationDeliverySchema).set({
+    status: 'failed',
+    errorCode: 'OPERATIONAL_EMAIL_ABORTED_BEFORE_DISPATCH',
+    retryable: true,
+  }).where(and(
+    eq(notificationDeliverySchema.id, input.deliveryId),
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.status, 'queued'),
+  ));
+  throwIfOperationalEmailAborted(input.signal);
+}
+
 /**
  * Claims one appointment-scoped customer email business event before doing
  * any delivery work. The recipient is resolved only after content and private
@@ -1272,7 +1304,9 @@ export async function sendAppointmentOperationalEmailOnce(input: {
   validateBeforeDelivery?: () => Promise<boolean> | boolean;
   validationErrorCode?: string;
   retryFailed?: boolean;
+  signal?: AbortSignal;
 }): Promise<OperationalEmailDeliveryResult> {
+  throwIfOperationalEmailAborted(input.signal);
   const salonId = requireInput(input.salonId, 'salonId');
   const appointmentId = requireInput(input.appointmentId, 'appointmentId');
   const purpose = requireInput(input.purpose, 'purpose');
@@ -1289,7 +1323,7 @@ export async function sendAppointmentOperationalEmailOnce(input: {
     status: 'queued',
   }).onConflictDoNothing().returning();
 
-  if (!inserted.length && input.retryFailed) {
+  if (!inserted.length) {
     const [reclaimed] = await db.update(notificationDeliverySchema).set({
       status: 'queued',
       errorCode: null,
@@ -1302,6 +1336,16 @@ export async function sendAppointmentOperationalEmailOnce(input: {
       eq(notificationDeliverySchema.dedupeKey, dedupeKey),
       eq(notificationDeliverySchema.status, 'failed'),
       eq(notificationDeliverySchema.retryable, true),
+      // A known pre-dispatch abort is intrinsically safe to resume even for a
+      // caller that normally treats provider failures as best-effort. No remote
+      // request began, so requiring `retryFailed` here would strand the durable
+      // claim if that same business event is safely replayed.
+      ...(input.retryFailed === true
+        ? []
+        : [eq(
+            notificationDeliverySchema.errorCode,
+            'OPERATIONAL_EMAIL_ABORTED_BEFORE_DISPATCH',
+          )]),
     )).returning();
     if (reclaimed) {
       deliveryId = reclaimed.id;
@@ -1322,28 +1366,23 @@ export async function sendAppointmentOperationalEmailOnce(input: {
             claimed: false,
           };
     }
-  } else if (!inserted.length) {
-    const [existing] = await db.select({
-      id: notificationDeliverySchema.id,
-      status: notificationDeliverySchema.status,
-    }).from(notificationDeliverySchema).where(and(
-      eq(notificationDeliverySchema.salonId, salonId),
-      eq(notificationDeliverySchema.appointmentId, appointmentId),
-      eq(notificationDeliverySchema.dedupeKey, dedupeKey),
-    )).limit(1);
-    return existing?.status === 'sent'
-      ? { status: 'sent', deliveryId: existing.id, claimed: false }
-      : {
-          status: 'duplicate',
-          deliveryId: existing?.id ?? null,
-          claimed: false,
-        };
   }
+
+  await stopOperationalEmailBeforeDispatch({
+    salonId,
+    deliveryId,
+    signal: input.signal,
+  });
 
   let content: OperationalEmailContent;
   try {
     content = await input.prepare();
   } catch {
+    await stopOperationalEmailBeforeDispatch({
+      salonId,
+      deliveryId,
+      signal: input.signal,
+    });
     await db.update(notificationDeliverySchema).set({
       status: 'failed',
       errorCode: 'OPERATIONAL_EMAIL_PREPARATION_FAILED',
@@ -1356,6 +1395,12 @@ export async function sendAppointmentOperationalEmailOnce(input: {
     return { status: 'failed', deliveryId, claimed: true };
   }
 
+  await stopOperationalEmailBeforeDispatch({
+    salonId,
+    deliveryId,
+    signal: input.signal,
+  });
+
   const { sendTransactionalEmailDetailed } = await import('@/libs/email');
   let recipient: OperationalEmailRecipientResolution;
   try {
@@ -1364,6 +1409,11 @@ export async function sendAppointmentOperationalEmailOnce(input: {
       appointmentId,
     });
   } catch {
+    await stopOperationalEmailBeforeDispatch({
+      salonId,
+      deliveryId,
+      signal: input.signal,
+    });
     await db.update(notificationDeliverySchema).set({
       status: 'failed',
       errorCode: 'OPERATIONAL_EMAIL_RESOLUTION_FAILED',
@@ -1375,6 +1425,11 @@ export async function sendAppointmentOperationalEmailOnce(input: {
     ));
     return { status: 'failed', deliveryId, claimed: true };
   }
+  await stopOperationalEmailBeforeDispatch({
+    salonId,
+    deliveryId,
+    signal: input.signal,
+  });
   if (recipient.status === 'unavailable') {
     await db.update(notificationDeliverySchema).set({
       status: 'failed',
@@ -1393,6 +1448,11 @@ export async function sendAppointmentOperationalEmailOnce(input: {
     try {
       valid = await input.validateBeforeDelivery();
     } catch {
+      await stopOperationalEmailBeforeDispatch({
+        salonId,
+        deliveryId,
+        signal: input.signal,
+      });
       await db.update(notificationDeliverySchema).set({
         status: 'failed',
         errorCode: 'OPERATIONAL_EMAIL_PRE_DELIVERY_VALIDATION_FAILED',
@@ -1404,6 +1464,11 @@ export async function sendAppointmentOperationalEmailOnce(input: {
       ));
       return { status: 'failed', deliveryId, claimed: true };
     }
+    await stopOperationalEmailBeforeDispatch({
+      salonId,
+      deliveryId,
+      signal: input.signal,
+    });
     if (!valid) {
       await db.update(notificationDeliverySchema).set({
         status: 'failed',
@@ -1418,6 +1483,14 @@ export async function sendAppointmentOperationalEmailOnce(input: {
     }
   }
 
+  if (input.signal?.aborted) {
+    await stopOperationalEmailBeforeDispatch({
+      salonId,
+      deliveryId,
+      signal: input.signal,
+    });
+  }
+
   let providerResult;
   try {
     providerResult = await sendTransactionalEmailDetailed({
@@ -1425,7 +1498,7 @@ export async function sendAppointmentOperationalEmailOnce(input: {
       subject: content.subject,
       text: content.text,
       html: content.html,
-    });
+    }, { signal: input.signal });
   } catch {
     await db.update(notificationDeliverySchema).set({
       status: 'failed',
@@ -1439,8 +1512,11 @@ export async function sendAppointmentOperationalEmailOnce(input: {
     return { status: 'failed', deliveryId, claimed: true };
   }
 
-  const providerOutcomeIsAmbiguous
-    = !providerResult.ok && providerResult.errorCode === 'RESEND_NETWORK_ERROR';
+  const providerOutcomeIsAmbiguous = !providerResult.ok && [
+    'RESEND_ABORTED',
+    'RESEND_NETWORK_ERROR',
+    'RESEND_TIMEOUT',
+  ].includes(providerResult.errorCode ?? '');
   try {
     await db.update(notificationDeliverySchema).set({
       status: providerResult.ok ? 'sent' : 'failed',

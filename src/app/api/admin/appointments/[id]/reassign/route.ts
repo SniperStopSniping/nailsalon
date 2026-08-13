@@ -10,12 +10,13 @@
  * - Full audit logging
  */
 
-import { and, eq, inArray } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { getAdminSession, requireAdminSalon } from '@/libs/adminAuth';
 import { logAdminOverride, logTechReassignment } from '@/libs/appointmentAudit';
 import { db } from '@/libs/DB';
+import { enqueueGoogleCalendarAppointmentMutation } from '@/libs/integrationOutbox';
 import {
   appointmentSchema,
   technicianSchema,
@@ -121,10 +122,26 @@ export async function PUT(
       );
     }
 
+    // An awaiting-payment appointment is a reservation hold, not a provider-
+    // visible booking. Only the deposit confirmation path may make it active
+    // and enqueue its first Calendar representation.
+    if (appointment.status === 'awaiting_payment') {
+      return Response.json(
+        {
+          error: {
+            code: 'HOLD_LOCKED',
+            message: 'Awaiting-payment deposit holds cannot be reassigned',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+
     // 4. Check if appointment is in a terminal state
-    const terminalStates = ['complete', 'cancelled', 'no_show'];
-    if (terminalStates.includes(appointment.status)
-      || (appointment.canvasState && terminalStates.includes(appointment.canvasState))) {
+    const terminalStatuses = ['completed', 'cancelled', 'no_show'];
+    const terminalCanvasStates = ['complete', 'cancelled', 'no_show'];
+    if (terminalStatuses.includes(appointment.status)
+      || (appointment.canvasState && terminalCanvasStates.includes(appointment.canvasState))) {
       return Response.json(
         {
           error: {
@@ -237,19 +254,89 @@ export async function PUT(
     }
 
     // 9. Update the appointment
-    const [updated] = await db
-      .update(appointmentSchema)
-      .set({
-        technicianId,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
+    const reassignment = await db.transaction(async (tx) => {
+      const [locked] = await tx.select().from(appointmentSchema).where(and(
+        eq(appointmentSchema.id, appointmentId),
+        eq(appointmentSchema.salonId, salon.id),
+      )).for('update').limit(1);
+      if (!locked) {
+        return { kind: 'stale' as const };
+      }
+      if (locked.status === 'awaiting_payment') {
+        return { kind: 'hold' as const };
+      }
+      if (terminalStatuses.includes(locked.status)
+        || (locked.canvasState && terminalCanvasStates.includes(locked.canvasState))) {
+        return { kind: 'terminal' as const };
+      }
+      if (locked.lockedAt && !overrideLock) {
+        return { kind: 'locked' as const };
+      }
+      const [winner] = await tx
+        .update(appointmentSchema)
+        .set({
+          technicianId,
+          updatedAt: new Date(Math.max(
+            Date.now(),
+            locked.updatedAt.getTime() + 1,
+          )),
+        })
+        .where(and(
           eq(appointmentSchema.id, appointmentId),
           eq(appointmentSchema.salonId, salon.id),
-        ),
-      )
-      .returning();
+          eq(appointmentSchema.updatedAt, locked.updatedAt),
+          eq(appointmentSchema.status, locked.status),
+          ne(appointmentSchema.status, 'awaiting_payment'),
+        ))
+        .returning();
+      if (winner) {
+        await enqueueGoogleCalendarAppointmentMutation(tx, {
+          appointmentId: winner.id,
+          salonId: winner.salonId,
+          mutationVersion: winner.updatedAt,
+        });
+      }
+      return winner
+        ? { kind: 'updated' as const, appointment: winner }
+        : { kind: 'stale' as const };
+    });
+    if (reassignment.kind === 'hold') {
+      return Response.json(
+        {
+          error: {
+            code: 'HOLD_LOCKED',
+            message: 'Awaiting-payment deposit holds cannot be reassigned',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+    if (reassignment.kind === 'terminal') {
+      return Response.json(
+        {
+          error: {
+            code: 'APPOINTMENT_TERMINAL',
+            message: 'Cannot reassign a completed, cancelled, or no-show appointment',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+    if (reassignment.kind === 'locked') {
+      return Response.json(
+        {
+          error: {
+            code: 'APPOINTMENT_LOCKED',
+            message: 'Appointment is locked (service in progress). Set overrideLock=true to force reassignment.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+    if (reassignment.kind !== 'updated') {
+      throw new Error('APPOINTMENT_REASSIGNMENT_STALE');
+    }
+    const updated = reassignment.appointment;
 
     // 10. Audit logging
     await logTechReassignment(

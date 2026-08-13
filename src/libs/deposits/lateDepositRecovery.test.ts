@@ -339,6 +339,16 @@ describe('runLateDepositRecovery dispatch', () => {
 
     expect(appointment?.status).toBe('pending');
     expect(appointment?.cancelReason).toBeNull();
+
+    const confirmationJobs = await db.select().from(schema.integrationOutboxSchema)
+      .where(eq(schema.integrationOutboxSchema.operation, 'booking_confirmed_side_effects'));
+
+    expect(confirmationJobs).toHaveLength(1);
+    expect(confirmationJobs[0]?.appointmentId).toBe(seeded.appointmentId);
+    expect(confirmationJobs[0]?.payload).toEqual(expect.objectContaining({
+      depositId: seeded.depositId,
+      googleCalendarSyncEligible: true,
+    }));
     expect(stripeMock.refunds.create).not.toHaveBeenCalled();
   });
 });

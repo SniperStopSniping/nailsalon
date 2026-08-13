@@ -7,18 +7,14 @@ const {
   requireAppointmentManagerAccess,
   getAppointmentManageDetail,
   runAppointmentManageMutation,
-  syncGoogleCalendarEventForAppointment,
   db,
-  enqueueGoogleCalendarUpsert,
 } = vi.hoisted(() => ({
   requireAppointmentManagerAccess: vi.fn(),
   getAppointmentManageDetail: vi.fn(),
   runAppointmentManageMutation: vi.fn(),
-  syncGoogleCalendarEventForAppointment: vi.fn(),
   db: {
     select: vi.fn(),
   },
-  enqueueGoogleCalendarUpsert: vi.fn(),
 }));
 
 vi.mock('@/libs/routeAccessGuards', () => ({
@@ -46,12 +42,6 @@ vi.mock('@/libs/DB', () => ({
   db,
 }));
 
-vi.mock('@/libs/googleCalendar', () => ({
-  syncGoogleCalendarEventForAppointment,
-}));
-
-vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarUpsert }));
-
 import { GET, PATCH } from './route';
 
 function makeSalonSelect(slug: string, name = 'Salon A') {
@@ -67,7 +57,6 @@ function makeSalonSelect(slug: string, name = 'Salon A') {
 describe('appointment manage route', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    syncGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
     db.select.mockReturnValue(makeSalonSelect('salon-a'));
   });
 

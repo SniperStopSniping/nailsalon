@@ -27,6 +27,7 @@ import {
   stripeWebhookEventSchema,
 } from '@/models/Schema';
 
+import { enqueueDepositConfirmationEffectsInTx } from './confirmDepositPayment';
 import { depositsTransaction } from './depositsTransaction';
 
 /**
@@ -418,7 +419,10 @@ async function restoreReleasedHold(deposit: DepositRow): Promise<boolean> {
           canvasState: 'waiting',
           canvasStateUpdatedAt: new Date(),
           depositHoldExpiresAt: null,
-          updatedAt: new Date(),
+          updatedAt: new Date(Math.max(
+            Date.now(),
+            locked.updatedAt.getTime() + 1,
+          )),
         })
         .where(and(
           eq(appointmentSchema.id, locked.id),
@@ -457,6 +461,17 @@ async function restoreReleasedHold(deposit: DepositRow): Promise<boolean> {
         newValue: { status: target, depositStatus: 'paid' },
         reason: 'deposit_hold_restored',
       }));
+
+      // A successful late restore is a paid confirmation, not a special
+      // side-effect-free booking. Enqueue the same durable batch as TX-B while
+      // this transaction still owns the restored appointment/deposit pair.
+      await enqueueDepositConfirmationEffectsInTx({
+        tx,
+        appointment: locked,
+        deposit: paidDeposit[0]!,
+        salonId: deposit.salonId,
+        clientPhone: locked.clientPhone,
+      });
 
       return true;
     }));

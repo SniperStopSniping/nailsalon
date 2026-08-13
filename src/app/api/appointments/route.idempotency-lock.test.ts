@@ -39,6 +39,8 @@ const {
   recordGoogleEventReviewDecision,
   enqueueGoogleCalendarUpsert,
   enqueueGoogleCalendarDelete,
+  enqueueGoogleCalendarAppointmentMutation,
+  enqueueGoogleCalendarDeleteInTx,
   sendCustomerBookingConfirmationEmail,
   db,
 } = vi.hoisted(() => ({
@@ -81,6 +83,8 @@ const {
   recordGoogleEventReviewDecision: vi.fn(),
   enqueueGoogleCalendarUpsert: vi.fn(),
   enqueueGoogleCalendarDelete: vi.fn(),
+  enqueueGoogleCalendarAppointmentMutation: vi.fn(),
+  enqueueGoogleCalendarDeleteInTx: vi.fn(),
   sendCustomerBookingConfirmationEmail: vi.fn(),
   db: {
     select: vi.fn(() => ({
@@ -179,6 +183,8 @@ vi.mock('@/libs/googleEventReview', () => ({
 vi.mock('@/libs/integrationOutbox', () => ({
   enqueueGoogleCalendarUpsert,
   enqueueGoogleCalendarDelete,
+  enqueueGoogleCalendarAppointmentMutation,
+  enqueueGoogleCalendarDeleteInTx,
 }));
 
 vi.mock('@/libs/customerBookingEmail', () => ({

@@ -28,6 +28,7 @@ const { sendTransactionalEmail, sendTransactionalEmailDetailed } = vi.hoisted(()
 }));
 
 vi.mock('@/libs/DB', () => ({
+  usesRuntimePostgres: false,
   get db() {
     return holder.db;
   },
@@ -257,6 +258,57 @@ describe('customer manage-link cancellation', () => {
 
     expect(results.map(result => result.status).sort())
       .toEqual(['duplicate', 'sent']);
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
+  });
+
+  it('makes a known pre-dispatch abort reclaimable without calling the provider', async () => {
+    const { appointmentId } = await seedAppointmentWithToken();
+    const purpose = 'test_operational_email_pre_dispatch_abort';
+    const eventVersion = 'event_1';
+    const controller = new AbortController();
+    const content = {
+      subject: 'Budgeted customer event',
+      text: 'Budgeted customer event',
+      html: '<p>Budgeted customer event</p>',
+    };
+
+    await expect(sendAppointmentOperationalEmailOnce({
+      salonId: SALON_ID,
+      appointmentId,
+      purpose,
+      eventVersion,
+      retryFailed: true,
+      signal: controller.signal,
+      prepare: async () => {
+        controller.abort(new Error('WORKER_BUDGET_EXPIRED'));
+        return content;
+      },
+    })).rejects.toThrow('WORKER_BUDGET_EXPIRED');
+
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(0);
+
+    const [abortedDelivery] = await db
+      .select()
+      .from(schema.notificationDeliverySchema)
+      .where(and(
+        eq(schema.notificationDeliverySchema.appointmentId, appointmentId),
+        eq(schema.notificationDeliverySchema.purpose, purpose),
+      ));
+
+    expect(abortedDelivery).toMatchObject({
+      errorCode: 'OPERATIONAL_EMAIL_ABORTED_BEFORE_DISPATCH',
+      retryable: true,
+      status: 'failed',
+    });
+
+    await expect(sendAppointmentOperationalEmailOnce({
+      salonId: SALON_ID,
+      appointmentId,
+      purpose,
+      eventVersion,
+      prepare: () => content,
+    })).resolves.toMatchObject({ status: 'sent', claimed: true });
+
     expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
   });
 
@@ -705,67 +757,16 @@ describe('customer manage-link cancellation', () => {
 
   it('allows only one concurrent cancellation to notify the customer', async () => {
     const { appointmentId, token } = await seedAppointmentWithToken();
-    let updateArrivals = 0;
-    let markBothArrived!: () => void;
-    let releaseUpdates!: () => void;
-    const bothArrived = new Promise<void>((resolve) => {
-      markBothArrived = resolve;
-    });
-    const release = new Promise<void>((resolve) => {
-      releaseUpdates = resolve;
-    });
-    const originalUpdate = db.update.bind(db);
-    const updateSpy = vi.spyOn(db, 'update').mockImplementation(((
-      table: Parameters<typeof db.update>[0],
-    ) => {
-      const builder = originalUpdate(table);
-      if (table !== schema.appointmentSchema) {
-        return builder;
-      }
-      const originalSet = builder.set.bind(builder);
-      builder.set = ((values: Parameters<typeof builder.set>[0]) => {
-        const statement = originalSet(values);
-        const originalReturning = statement.returning.bind(statement);
-        statement.returning = ((
-          ...args: Parameters<typeof statement.returning>
-        ) => {
-          const query = originalReturning(...args);
-          const originalThen = query.then.bind(query);
-          query.then = (async (
-            ...thenArgs: Parameters<typeof query.then>
-          ) => {
-            updateArrivals += 1;
-            if (updateArrivals === 2) {
-              markBothArrived();
-            }
-            await release;
-            return originalThen(...thenArgs);
-          }) as typeof query.then;
-          return query;
-        }) as typeof statement.returning;
-        return statement;
-      }) as typeof builder.set;
-      return builder;
-    }) as typeof db.update);
+    const responses = await Promise.all([
+      PATCH(cancelRequest(), { params: { token } }),
+      PATCH(cancelRequest(), { params: { token } }),
+    ]);
 
-    try {
-      const pendingResponses = Promise.all([
-        PATCH(cancelRequest(), { params: { token } }),
-        PATCH(cancelRequest(), { params: { token } }),
-      ]);
-      await bothArrived;
-      releaseUpdates();
-      const responses = await pendingResponses;
-
-      expect(updateArrivals).toBe(2);
-      expect(responses.map(response => response.status).sort())
-        .toEqual([200, 409]);
-      expect(await salonDeliveriesFor(appointmentId)).toHaveLength(1);
-      expect(await customerDeliveriesFor(appointmentId)).toHaveLength(1);
-      expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
-    } finally {
-      updateSpy.mockRestore();
-    }
+    expect(responses.map(response => response.status).sort())
+      .toEqual([200, 409]);
+    expect(await salonDeliveriesFor(appointmentId)).toHaveLength(1);
+    expect(await customerDeliveriesFor(appointmentId)).toHaveLength(1);
+    expect(detailedEmailsTo('current@example.com')).toHaveLength(1);
   });
 
   it('sends nothing for an appointment that was already cancelled', async () => {

@@ -68,6 +68,7 @@ export type SendSalonNotificationEmailInput = {
   source: SalonNotificationSource;
   previous?: SalonNotificationPreviousSchedule;
   cancellation?: SalonNotificationCancellation;
+  signal?: AbortSignal;
 };
 
 export type SendSalonNotificationEmailResult =
@@ -124,11 +125,10 @@ const SOURCE_LABEL: Record<SalonNotificationSource, string> = {
 // =============================================================================
 
 /**
- * A reschedule mints a *new* appointment row, so the appointment id alone
- * already separates two legitimate reschedules. The schedule hash is the
- * belt-and-braces guarantee: an endpoint/queue/webhook retry of one confirmed
- * reschedule reproduces the exact same key and is rejected by the unique index,
- * while a genuinely different move produces a different one.
+ * Both same-row moves and replacement-row reschedules are supported. The key
+ * names the exact appointment plus its previous -> new schedule transition:
+ * an exact retry reproduces one key, while any different boundary produces a
+ * distinct durable notification identity.
  */
 export function buildRescheduleEventVersion(input: {
   previousAppointmentId: string;
@@ -700,10 +700,56 @@ function logSalonNotification(
   console.error(line, meta);
 }
 
+function throwIfSalonNotificationAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new Error('SALON_NOTIFICATION_ABORTED');
+}
+
+function isAmbiguousSalonEmailFailure(errorCode: string | null): boolean {
+  return [
+    'RESEND_ABORTED',
+    'RESEND_NETWORK_ERROR',
+    'RESEND_TIMEOUT',
+  ].includes(errorCode ?? '');
+}
+
+async function enqueueSalonNotificationRetry(input: {
+  salonId: string;
+  appointmentId: string;
+  deliveryId: string;
+  dedupeKey: string;
+  event: SalonNotificationEventKey;
+  source: SalonNotificationSource;
+  previous?: SalonNotificationPreviousSchedule;
+  cancellation?: SalonNotificationCancellation;
+}): Promise<void> {
+  await db.insert(integrationOutboxSchema).values({
+    id: crypto.randomUUID(),
+    salonId: input.salonId,
+    appointmentId: input.appointmentId,
+    provider: 'email',
+    operation: 'retry_salon_notification',
+    dedupeKey: `${input.dedupeKey}:retry`,
+    payload: {
+      deliveryId: input.deliveryId,
+      event: input.event,
+      source: input.source,
+      previous: input.previous ?? null,
+      cancellation: input.cancellation ?? null,
+    },
+  }).onConflictDoNothing();
+}
+
 export async function sendSalonNotificationEmail(
   input: SendSalonNotificationEmailInput,
 ): Promise<SendSalonNotificationEmailResult> {
+  throwIfSalonNotificationAborted(input.signal);
   const context = await loadSalonNotificationContext(input.salonId, input.appointmentId);
+  throwIfSalonNotificationAborted(input.signal);
   if (!context) {
     logSalonNotification('warn', 'Appointment not found for notification', {
       salonId: input.salonId,
@@ -781,40 +827,60 @@ export async function sendSalonNotificationEmail(
   }
 
   const payload = buildSalonNotificationEmailPayload(context, input);
-  const result = await sendTransactionalEmailDetailed({
+  if (input.signal?.aborted) {
+    await db.update(notificationDeliverySchema).set({
+      status: 'failed',
+      errorCode: 'SALON_NOTIFICATION_ABORTED_BEFORE_DISPATCH',
+      retryable: true,
+    }).where(and(
+      eq(notificationDeliverySchema.id, deliveryId),
+      eq(notificationDeliverySchema.salonId, input.salonId),
+    ));
+    await enqueueSalonNotificationRetry({
+      ...input,
+      deliveryId,
+      dedupeKey,
+    });
+    return {
+      status: 'failed',
+      reason: 'SALON_NOTIFICATION_ABORTED_BEFORE_DISPATCH',
+      deliveryId,
+    };
+  }
+  const emailInput = {
     to: recipient.email,
     subject: payload.subject,
     html: payload.html,
     text: payload.text,
-  });
+  };
+  const result = input.signal
+    ? await sendTransactionalEmailDetailed(emailInput, { signal: input.signal })
+    : await sendTransactionalEmailDetailed(emailInput);
+
+  const retryable = !result.ok
+    && !isAmbiguousSalonEmailFailure(result.errorCode);
 
   await db.update(notificationDeliverySchema).set({
     status: result.ok ? 'sent' : 'failed',
     providerMessageId: result.providerMessageId,
     errorCode: result.errorCode,
-    retryable: !result.ok,
+    retryable,
   }).where(and(
     eq(notificationDeliverySchema.id, deliveryId),
     eq(notificationDeliverySchema.salonId, input.salonId),
   ));
 
   if (!result.ok) {
-    await db.insert(integrationOutboxSchema).values({
-      id: crypto.randomUUID(),
-      salonId: input.salonId,
-      appointmentId: input.appointmentId,
-      provider: 'email',
-      operation: 'retry_salon_notification',
-      dedupeKey: `${dedupeKey}:retry`,
-      payload: {
+    if (retryable) {
+      await enqueueSalonNotificationRetry({
+        ...input,
         deliveryId,
-        event: input.event,
-        source: input.source,
-        previous: input.previous ?? null,
-        cancellation: input.cancellation ?? null,
-      },
-    }).onConflictDoNothing();
-    logSalonNotification('error', 'Salon notification email failed, queued for retry', {
+        dedupeKey,
+      });
+    }
+    logSalonNotification('error', retryable
+      ? 'Salon notification email failed, queued for retry'
+      : 'Salon notification email outcome is ambiguous; automatic retry suppressed', {
       salonId: input.salonId,
       appointmentId: input.appointmentId,
       event: input.event,
@@ -827,8 +893,11 @@ export async function sendSalonNotificationEmail(
 }
 
 /**
- * Outbox retry. Re-renders from live data and re-sends against the *same*
- * delivery row, so a retry can never produce a second notification.
+ * Outbox retry. Re-renders from live data and re-sends against the same local
+ * delivery row, preventing a second local claim. Provider delivery remains
+ * at-least-once: an accepted response that is lost or otherwise ambiguous can
+ * still duplicate. Known ambiguous outcomes are not retried automatically,
+ * reducing that risk without claiming exactly-once delivery.
  */
 export async function retrySalonNotificationEmail(input: {
   salonId: string;
@@ -838,8 +907,26 @@ export async function retrySalonNotificationEmail(input: {
   source: SalonNotificationSource;
   previous?: SalonNotificationPreviousSchedule;
   cancellation?: SalonNotificationCancellation;
+  signal?: AbortSignal;
 }): Promise<void> {
+  throwIfSalonNotificationAborted(input.signal);
+  const [delivery] = await db.select({
+    status: notificationDeliverySchema.status,
+    retryable: notificationDeliverySchema.retryable,
+  }).from(notificationDeliverySchema).where(and(
+    eq(notificationDeliverySchema.id, input.deliveryId),
+    eq(notificationDeliverySchema.salonId, input.salonId),
+    eq(notificationDeliverySchema.appointmentId, input.appointmentId),
+  )).limit(1);
+  if (!delivery) {
+    throw new Error('SALON_NOTIFICATION_DELIVERY_MISSING');
+  }
+  if (delivery.status === 'sent' || delivery.retryable !== true) {
+    return;
+  }
+
   const context = await loadSalonNotificationContext(input.salonId, input.appointmentId);
+  throwIfSalonNotificationAborted(input.signal);
   if (!context) {
     throw new Error('SALON_NOTIFICATION_APPOINTMENT_MISSING');
   }
@@ -864,24 +951,32 @@ export async function retrySalonNotificationEmail(input: {
     cancellation: input.cancellation,
   });
 
-  const result = await sendTransactionalEmailDetailed({
+  throwIfSalonNotificationAborted(input.signal);
+
+  const emailInput = {
     to: recipient.email,
     subject: payload.subject,
     html: payload.html,
     text: payload.text,
-  });
+  };
+  const result = input.signal
+    ? await sendTransactionalEmailDetailed(emailInput, { signal: input.signal })
+    : await sendTransactionalEmailDetailed(emailInput);
+
+  const retryable = !result.ok
+    && !isAmbiguousSalonEmailFailure(result.errorCode);
 
   await db.update(notificationDeliverySchema).set({
     status: result.ok ? 'sent' : 'failed',
     providerMessageId: result.providerMessageId,
     errorCode: result.errorCode,
-    retryable: !result.ok,
+    retryable,
   }).where(and(
     eq(notificationDeliverySchema.id, input.deliveryId),
     eq(notificationDeliverySchema.salonId, input.salonId),
   ));
 
-  if (!result.ok) {
+  if (!result.ok && retryable) {
     throw new Error(result.errorCode || 'SALON_NOTIFICATION_RETRY_FAILED');
   }
 }

@@ -19,7 +19,10 @@ import {
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
-import { enqueueGoogleCalendarDelete } from '@/libs/integrationOutbox';
+import {
+  enqueueGoogleCalendarAppointmentMutation,
+  enqueueGoogleCalendarDeleteInTx,
+} from '@/libs/integrationOutbox';
 import {
   getAppointmentServiceNames,
   getSalonById,
@@ -354,7 +357,10 @@ export async function PATCH(
             const pointsToRefund = pointsRedeemedFromNotes(
               lockedAppointment.notes,
             );
-            const now = new Date();
+            const now = new Date(Math.max(
+              Date.now(),
+              lockedAppointment.updatedAt.getTime() + 1,
+            ));
             const [cancelledAppointment] = await tx
               .update(appointmentSchema)
               .set({
@@ -439,6 +445,13 @@ export async function PATCH(
                 );
             }
 
+            await enqueueGoogleCalendarDeleteInTx(tx, {
+              appointmentId: cancelledAppointment.id,
+              salonId: cancelledAppointment.salonId,
+              mutationVersion: cancelledAppointment.updatedAt,
+              googleCalendarEventId: cancelledAppointment.googleCalendarEventId,
+            });
+
             if (pointsToRefund > 0 && operationalClient) {
               await tx
                 .update(salonClientSchema)
@@ -470,22 +483,115 @@ export async function PATCH(
         operationalClientPhone = transition.operationalClientPhone;
         updatedAppointment = transition.appointment;
       }
+    } else if (data.status === 'no_show') {
+      const transition = await withClientLifecycleTransactionRetry(() =>
+        db.transaction(async (tx): Promise<ReactivationTransition> => {
+          const [lockedAppointment] = await tx
+            .select()
+            .from(appointmentSchema)
+            .where(and(
+              eq(appointmentSchema.id, appointmentId),
+              eq(appointmentSchema.salonId, existingAppointment.salonId),
+            ))
+            .for('update')
+            .limit(1);
 
-      if (cancellationApplied) {
-        try {
-          await enqueueGoogleCalendarDelete({
-            appointmentId,
-            salonId: existingAppointment.salonId,
-            googleCalendarEventId: existingAppointment.googleCalendarEventId,
+          if (!lockedAppointment) {
+            return {
+              applied: false,
+              appointment: existingAppointment,
+              conflictStatus: 'missing',
+            };
+          }
+          if (lockedAppointment.status === 'no_show') {
+            return {
+              applied: false,
+              appointment: lockedAppointment,
+              conflictStatus: null,
+            };
+          }
+          if (!CANCELLABLE_STATUSES.includes(
+            lockedAppointment.status as (typeof APPOINTMENT_STATUSES)[number],
+          )) {
+            return {
+              applied: false,
+              appointment: lockedAppointment,
+              conflictStatus: lockedAppointment.status,
+            };
+          }
+
+          const [noShowAppointment] = await tx
+            .update(appointmentSchema)
+            .set({
+              status: 'no_show',
+              cancelReason: 'no_show',
+              updatedAt: new Date(Math.max(
+                Date.now(),
+                lockedAppointment.updatedAt.getTime() + 1,
+              )),
+            })
+            .where(and(
+              eq(appointmentSchema.id, appointmentId),
+              eq(appointmentSchema.salonId, existingAppointment.salonId),
+              eq(appointmentSchema.status, lockedAppointment.status),
+              inArray(appointmentSchema.status, CANCELLABLE_STATUSES),
+            ))
+            .returning();
+
+          if (!noShowAppointment) {
+            return {
+              applied: false,
+              appointment: lockedAppointment,
+              conflictStatus: 'stale',
+            };
+          }
+
+          const [linkedReward] = await tx
+            .select()
+            .from(rewardSchema)
+            .where(
+              and(
+                eq(rewardSchema.usedInAppointmentId, appointmentId),
+                eq(rewardSchema.salonId, existingAppointment.salonId),
+              ),
+            )
+            .limit(1);
+
+          if (linkedReward && linkedReward.status !== 'used') {
+            await tx
+              .update(rewardSchema)
+              .set({
+                usedInAppointmentId: null,
+                status: 'active',
+              })
+              .where(
+                and(
+                  eq(rewardSchema.id, linkedReward.id),
+                  eq(rewardSchema.salonId, existingAppointment.salonId),
+                  eq(rewardSchema.usedInAppointmentId, appointmentId),
+                  ne(rewardSchema.status, 'used'),
+                ),
+              );
+          }
+
+          await enqueueGoogleCalendarDeleteInTx(tx, {
+            appointmentId: noShowAppointment.id,
+            salonId: noShowAppointment.salonId,
+            mutationVersion: noShowAppointment.updatedAt,
+            googleCalendarEventId: noShowAppointment.googleCalendarEventId,
           });
-        } catch (calendarError) {
-          console.error('Failed to enqueue Google Calendar deletion after cancellation:', {
-            salonId: existingAppointment.salonId,
-            appointmentId,
-            error: calendarError,
-          });
-        }
+
+          return {
+            applied: true,
+            appointment: noShowAppointment,
+            conflictStatus: null,
+          };
+        }),
+      );
+      if (transition.conflictStatus) {
+        return cancellationConflictResponse(transition.conflictStatus);
       }
+      updatedAppointment = transition.appointment;
     } else if (
       data.status
       && ACTIVE_APPOINTMENT_STATUSES.includes(
@@ -666,7 +772,10 @@ export async function PATCH(
             .set({
               status: data.status,
               cancelReason: null,
-              updatedAt: new Date(),
+              updatedAt: new Date(Math.max(
+                Date.now(),
+                lockedAppointment.updatedAt.getTime() + 1,
+              )),
             })
             .where(
               and(
@@ -702,6 +811,12 @@ export async function PATCH(
               conflictStatus: currentAppointment?.status ?? 'missing',
             };
           }
+
+          await enqueueGoogleCalendarAppointmentMutation(tx, {
+            appointmentId: reactivatedAppointment.id,
+            salonId: reactivatedAppointment.salonId,
+            mutationVersion: reactivatedAppointment.updatedAt,
+          });
 
           return {
             applied: true,

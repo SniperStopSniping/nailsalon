@@ -19,6 +19,7 @@ const requireAppointmentManagerAccess = vi.hoisted(() => vi.fn());
 const getGoogleCalendarBusyWindows = vi.hoisted(() => vi.fn(async () => []));
 const sendSalonNotificationEmail = vi.hoisted(() => vi.fn(async () => undefined));
 vi.mock('@/libs/DB', () => ({
+  usesRuntimePostgres: false,
   get db() {
     return holder.db;
   },
@@ -139,6 +140,14 @@ async function staffRescheduleJobs() {
     .from(schema.integrationOutboxSchema)
     .where(eq(schema.integrationOutboxSchema.appointmentId, APPOINTMENT_ID));
   return rows.filter(row => row.operation === 'staff_reschedule_notification');
+}
+
+async function calendarMutationJobs() {
+  const rows = await db
+    .select()
+    .from(schema.integrationOutboxSchema)
+    .where(eq(schema.integrationOutboxSchema.appointmentId, APPOINTMENT_ID));
+  return rows.filter(row => row.operation === 'sync_appointment');
 }
 
 function expectedJob(
@@ -289,6 +298,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   vi.clearAllMocks();
+  await db.delete(schema.googleCalendarEventSchema);
   await db.delete(schema.appointmentSchema);
   await seedAppointment();
 });
@@ -320,8 +330,63 @@ describe('real appointment management mutations', () => {
       paymentStatus: 'paid',
       notes: 'keep appointment metadata',
       reviewFollowupSentAt: new Date('2026-12-31T15:00:00.000Z'),
+      googleCalendarSyncStatus: 'pending',
     });
     expect(await staffRescheduleJobs()).toEqual([]);
+    expect(await calendarMutationJobs()).toEqual([
+      expect.objectContaining({
+        salonId: SALON_ID,
+        appointmentId: APPOINTMENT_ID,
+        provider: 'google_calendar',
+        operation: 'sync_appointment',
+        dedupeKey: `google:${SALON_ID}:${APPOINTMENT_ID}:sync:appointment-mutation:${row.updatedAt.toISOString()}`,
+        payload: {
+          appointmentId: APPOINTMENT_ID,
+          salonId: SALON_ID,
+          mutationVersion: row.updatedAt.toISOString(),
+          providerEventLane: 'initial',
+        },
+      }),
+    ]);
+  });
+
+  it('keeps one provider event lane across revisions of a linked Google event', async () => {
+    const googleEventId = 'linked_google_event_lane';
+    await db.update(schema.appointmentSchema).set({
+      googleCalendarEventId: googleEventId,
+    }).where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+    await db.insert(schema.googleCalendarEventSchema).values({
+      id: 'linked_google_event_lane_mirror',
+      salonId: SALON_ID,
+      calendarId: 'linked_google_calendar',
+      googleEventId,
+      appointmentId: APPOINTMENT_ID,
+      sourceAccessRole: 'writer',
+      syncMode: 'bidirectional',
+      startTime: INITIAL_START,
+      endTime: INITIAL_END,
+      durationMinutes: 70,
+      reviewStatus: 'appointment',
+    });
+
+    await mutate({ startTime: new Date('2027-01-04T16:00:00.000Z') });
+    await mutate({ startTime: new Date('2027-01-04T18:00:00.000Z') });
+
+    const jobs = await calendarMutationJobs();
+
+    expect(jobs).toHaveLength(2);
+    expect(jobs.map(job => job.payload)).toEqual([
+      expect.objectContaining({
+        googleCalendarEventId: googleEventId,
+        providerEventLane: 'initial',
+        targetCalendarId: 'linked_google_calendar',
+      }),
+      expect.objectContaining({
+        googleCalendarEventId: googleEventId,
+        providerEventLane: 'initial',
+        targetCalendarId: 'linked_google_calendar',
+      }),
+    ]);
   });
 
   it('keeps every A-to-B-to-A-to-B intent distinct while deduping an identical replay', async () => {
@@ -392,15 +457,31 @@ describe('real appointment management mutations', () => {
       job.payload as { mutationVersion: string }
     ).mutationVersion)).size).toBe(3);
     expect(jobs.find(job => job.id === firstJob?.id)).toEqual(firstJob);
+
+    const calendarJobs = await calendarMutationJobs();
+
+    expect(calendarJobs).toHaveLength(3);
+    expect(new Set(calendarJobs.map(job => job.dedupeKey)).size).toBe(3);
+    expect(new Set(calendarJobs.map(job => (
+      job.payload as { mutationVersion: string }
+    ).mutationVersion))).toEqual(new Set([
+      firstCommitted.updatedAt.toISOString(),
+      secondCommitted.updatedAt.toISOString(),
+      thirdCommitted.updatedAt.toISOString(),
+    ]));
   });
 
   it('does not enqueue a same-time move', async () => {
+    const before = await appointment();
+
     await mutate({
       startTime: INITIAL_START,
       notifyCustomerOnReschedule: true,
     });
 
     expect(await staffRescheduleJobs()).toEqual([]);
+    expect(await calendarMutationJobs()).toEqual([]);
+    expect((await appointment()).updatedAt).toEqual(before.updatedAt);
   });
 
   it('keeps one durable notification when the staff route retries the same move', async () => {
@@ -481,6 +562,30 @@ describe('real appointment management mutations', () => {
 
     expect((await appointment()).startTime).toEqual(INITIAL_START);
     expect(await staffRescheduleJobs()).toEqual([]);
+    expect(await calendarMutationJobs()).toEqual([]);
+  });
+
+  it('durably orders a provider-originated move behind any older provider work', async () => {
+    const nextStart = new Date('2027-01-04T16:00:00.000Z');
+
+    await mutate({ startTime: nextStart });
+
+    expect((await appointment()).startTime).toEqual(nextStart);
+
+    const [job] = await calendarMutationJobs();
+    const stored = await appointment();
+
+    expect(job).toMatchObject({
+      appointmentId: APPOINTMENT_ID,
+      operation: 'sync_appointment',
+      provider: 'google_calendar',
+      status: 'pending',
+    });
+    expect(job?.payload).toEqual(expect.objectContaining({
+      appointmentId: APPOINTMENT_ID,
+      mutationVersion: stored.updatedAt.toISOString(),
+      salonId: SALON_ID,
+    }));
   });
 
   it('directly moves to next available through the protected move and re-arms reminders', async () => {
@@ -507,6 +612,11 @@ describe('real appointment management mutations', () => {
         row.updatedAt,
       )),
     ]);
+    expect(await calendarMutationJobs()).toEqual([
+      expect.objectContaining({
+        dedupeKey: `google:${SALON_ID}:${APPOINTMENT_ID}:sync:appointment-mutation:${row.updatedAt.toISOString()}`,
+      }),
+    ]);
   });
 
   it('preserves every reminder field when technician reassignment keeps the start time', async () => {
@@ -522,6 +632,11 @@ describe('real appointment management mutations', () => {
     expect(row.startTime).toEqual(INITIAL_START);
     expect(reminders(row)).toEqual(REMINDER_STATE);
     expect(await staffRescheduleJobs()).toEqual([]);
+    expect(await calendarMutationJobs()).toEqual([
+      expect.objectContaining({
+        dedupeKey: `google:${SALON_ID}:${APPOINTMENT_ID}:sync:appointment-mutation:${row.updatedAt.toISOString()}`,
+      }),
+    ]);
   });
 
   it('preserves reminder state for a same-start service change', async () => {
@@ -536,6 +651,61 @@ describe('real appointment management mutations', () => {
     expect(row.startTime).toEqual(INITIAL_START);
     expect(reminders(row)).toEqual(REMINDER_STATE);
     expect(await staffRescheduleJobs()).toEqual([]);
+    expect(await calendarMutationJobs()).toEqual([
+      expect.objectContaining({
+        dedupeKey: `google:${SALON_ID}:${APPOINTMENT_ID}:sync:appointment-mutation:${row.updatedAt.toISOString()}`,
+      }),
+    ]);
+  });
+
+  it('persists distinct revisions for sequential provider changes at one start time', async () => {
+    await mutate({
+      operation: 'reassignTechnician',
+      technicianId: OTHER_TECHNICIAN_ID,
+    });
+    const technicianRevision = await appointment();
+
+    await mutate({
+      operation: 'changeService',
+      baseServiceId: REPLACEMENT_SERVICE_ID,
+    });
+    const serviceRevision = await appointment();
+    const serviceRows = await db
+      .select()
+      .from(schema.appointmentServicesSchema)
+      .where(eq(schema.appointmentServicesSchema.appointmentId, APPOINTMENT_ID));
+    const jobs = await calendarMutationJobs();
+
+    expect(technicianRevision).toMatchObject({
+      startTime: INITIAL_START,
+      technicianId: OTHER_TECHNICIAN_ID,
+    });
+    expect(serviceRevision).toMatchObject({
+      startTime: INITIAL_START,
+      endTime: new Date(INITIAL_START.getTime() + 100 * 60_000),
+      technicianId: OTHER_TECHNICIAN_ID,
+      totalDurationMinutes: 100,
+      totalPrice: 8000,
+    });
+    expect(serviceRows).toEqual([
+      expect.objectContaining({
+        serviceId: REPLACEMENT_SERVICE_ID,
+        durationAtBooking: 90,
+        priceAtBooking: 7000,
+      }),
+    ]);
+    expect(technicianRevision.updatedAt).not.toEqual(serviceRevision.updatedAt);
+    expect(jobs).toHaveLength(2);
+    expect(new Set(jobs.map(job => job.dedupeKey))).toEqual(new Set([
+      `google:${SALON_ID}:${APPOINTMENT_ID}:sync:appointment-mutation:${technicianRevision.updatedAt.toISOString()}`,
+      `google:${SALON_ID}:${APPOINTMENT_ID}:sync:appointment-mutation:${serviceRevision.updatedAt.toISOString()}`,
+    ]));
+    expect(new Set(jobs.map(job => (
+      job.payload as { mutationVersion: string }
+    ).mutationVersion))).toEqual(new Set([
+      technicianRevision.updatedAt.toISOString(),
+      serviceRevision.updatedAt.toISOString(),
+    ]));
   });
 
   it('atomically changes service lines and re-arms reminders for a time-changing service change', async () => {

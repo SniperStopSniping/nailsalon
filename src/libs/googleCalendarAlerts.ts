@@ -19,7 +19,10 @@ import { salonSchema } from '@/models/Schema';
 export async function sendGoogleCalendarDisconnectedEmail(args: {
   salonId: string;
   classification: GoogleFailureClassification;
-}): Promise<boolean> {
+}, options: {
+  signal?: AbortSignal;
+  timeoutMs?: number;
+} = {}): Promise<boolean> {
   const [salon] = await db
     .select({
       name: salonSchema.name,
@@ -64,7 +67,7 @@ export async function sendGoogleCalendarDisconnectedEmail(args: {
     subject: `Action needed: Google Calendar disconnected for ${salonName}`,
     text,
     html,
-  });
+  }, options);
 }
 
 function escapeHtml(value: string): string {

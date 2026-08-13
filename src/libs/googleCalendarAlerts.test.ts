@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { selectRows, sendTransactionalEmail } = vi.hoisted(() => ({
   selectRows: [] as unknown[][],
-  sendTransactionalEmail: vi.fn(async (_payload: { to: string; subject: string; text: string; html: string }) => true),
+  sendTransactionalEmail: vi.fn(async (
+    _payload: { to: string; subject: string; text: string; html: string },
+    _options?: { signal?: AbortSignal; timeoutMs?: number },
+  ) => true),
 }));
 
 vi.mock('server-only', () => ({}));
@@ -38,8 +41,12 @@ describe('sendGoogleCalendarDisconnectedEmail', () => {
 
   it('emails the owner with a direct reconnect link', async () => {
     selectRows.push([{ name: 'Isla Nail Studio', slug: 'isla', ownerEmail: 'owner@example.invalid', email: null }]);
+    const signal = new AbortController().signal;
 
-    await expect(sendGoogleCalendarDisconnectedEmail({ salonId: 's1', classification: CLASSIFICATION }))
+    await expect(sendGoogleCalendarDisconnectedEmail(
+      { salonId: 's1', classification: CLASSIFICATION },
+      { signal, timeoutMs: 5_000 },
+    ))
       .resolves.toBe(true);
 
     const payload = sendTransactionalEmail.mock.calls[0]![0];
@@ -48,6 +55,7 @@ describe('sendGoogleCalendarDisconnectedEmail', () => {
     expect(payload.subject).toContain('Google Calendar disconnected');
     expect(payload.text).toContain('https://app.luster.test/admin/integrations');
     expect(payload.html).toContain('Reconnect Google Calendar');
+    expect(sendTransactionalEmail.mock.calls[0]![1]).toEqual({ signal, timeoutMs: 5_000 });
   });
 
   it('explains the cause so the owner knows what to do', async () => {

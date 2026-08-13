@@ -10,6 +10,7 @@ const {
   sendSalonNotificationEmail,
   deleteGoogleCalendarEventForAppointment,
   enqueueGoogleCalendarDelete,
+  enqueueGoogleCalendarDeleteInTx,
   lockOperationalSalonClientContactWithHandle,
   resolveOperationalSalonClientByPhoneWithHandle,
   withClientLifecycleTransactionRetry,
@@ -86,6 +87,7 @@ const {
     sendSalonNotificationEmail: vi.fn(async () => ({ status: 'sent', deliveryId: 'delivery_1' })),
     deleteGoogleCalendarEventForAppointment: vi.fn(),
     enqueueGoogleCalendarDelete: vi.fn(),
+    enqueueGoogleCalendarDeleteInTx: vi.fn(async () => ({ inserted: true })),
     lockOperationalSalonClientContactWithHandle: vi.fn(),
     resolveOperationalSalonClientByPhoneWithHandle: vi.fn(),
     withClientLifecycleTransactionRetry: vi.fn(async (
@@ -138,7 +140,10 @@ vi.mock('@/libs/googleCalendar', () => ({
   deleteGoogleCalendarEventForAppointment,
 }));
 
-vi.mock('@/libs/integrationOutbox', () => ({ enqueueGoogleCalendarDelete }));
+vi.mock('@/libs/integrationOutbox', () => ({
+  enqueueGoogleCalendarDelete,
+  enqueueGoogleCalendarDeleteInTx,
+}));
 
 vi.mock('@/libs/salonNotificationEmail', () => ({ sendSalonNotificationEmail }));
 
@@ -334,7 +339,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     expect(vi.mocked(sendCancellationConfirmation)).not.toHaveBeenCalled();
     expect(sendBookingNotificationsForAppointmentCancelled).not.toHaveBeenCalled();
     expect(updateSalonClientStats).toHaveBeenCalledWith('salon_1', '+15551234567');
-    expect(enqueueGoogleCalendarDelete).toHaveBeenCalled();
+    expect(enqueueGoogleCalendarDeleteInTx).toHaveBeenCalled();
   });
 
   it('marks the legacy status cancelled together with the canvas state for normal cancellations', async () => {
@@ -553,7 +558,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
     expect(withClientLifecycleTransactionRetry).toHaveBeenCalledTimes(1);
   });
 
-  it('returns success after commit when calendar or notification delivery fails', async () => {
+  it('rolls back when the atomic calendar intent cannot be persisted', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     requireAppointmentManagerAccess.mockResolvedValue({
       ok: true,
@@ -573,7 +578,7 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
         updatedAt: new Date('2026-07-17T15:00:00.000Z'),
       },
     });
-    enqueueGoogleCalendarDelete.mockRejectedValueOnce(new Error('outbox unavailable'));
+    enqueueGoogleCalendarDeleteInTx.mockRejectedValueOnce(new Error('outbox unavailable'));
     vi.mocked(sendCancellationConfirmation).mockRejectedValueOnce(new Error('sms unavailable'));
     sendBookingNotificationsForAppointmentCancelled.mockRejectedValueOnce(new Error('email unavailable'));
 
@@ -585,11 +590,12 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
       }),
       { params: { id: 'appt_1' } },
     );
-    const body = await response.json();
+    await response.json();
 
-    expect(response.status).toBe(200);
-    expect(body.data.appointment.status).toBe('cancelled');
+    expect(response.status).toBe(500);
     expect(consoleError).toHaveBeenCalled();
+    expect(vi.mocked(sendCancellationConfirmation)).not.toHaveBeenCalled();
+    expect(sendBookingNotificationsForAppointmentCancelled).not.toHaveBeenCalled();
 
     consoleError.mockRestore();
   });

@@ -40,8 +40,11 @@ const {
   syncGoogleCalendarEventForAppointment,
   deleteGoogleCalendarEventForAppointment,
   recordGoogleEventReviewDecision,
+  acquireGoogleCalendarEventPairMutationBarrierInTx,
   enqueueGoogleCalendarUpsert,
   enqueueGoogleCalendarDelete,
+  enqueueGoogleCalendarAppointmentMutation,
+  enqueueGoogleCalendarDeleteInTx,
   sendCustomerBookingConfirmationEmail,
   lockOperationalSalonClientContactWithHandle,
   lockSalonClientIdentityKeysWithHandle,
@@ -92,8 +95,11 @@ const {
   syncGoogleCalendarEventForAppointment: vi.fn(),
   deleteGoogleCalendarEventForAppointment: vi.fn(),
   recordGoogleEventReviewDecision: vi.fn(),
+  acquireGoogleCalendarEventPairMutationBarrierInTx: vi.fn(),
   enqueueGoogleCalendarUpsert: vi.fn(),
   enqueueGoogleCalendarDelete: vi.fn(),
+  enqueueGoogleCalendarAppointmentMutation: vi.fn(),
+  enqueueGoogleCalendarDeleteInTx: vi.fn(),
   sendCustomerBookingConfirmationEmail: vi.fn(),
   lockOperationalSalonClientContactWithHandle: vi.fn(),
   lockSalonClientIdentityKeysWithHandle: vi.fn(),
@@ -206,8 +212,11 @@ vi.mock('@/libs/googleEventReview', () => ({
 }));
 
 vi.mock('@/libs/integrationOutbox', () => ({
+  acquireGoogleCalendarEventPairMutationBarrierInTx,
   enqueueGoogleCalendarUpsert,
   enqueueGoogleCalendarDelete,
+  enqueueGoogleCalendarAppointmentMutation,
+  enqueueGoogleCalendarDeleteInTx,
 }));
 
 vi.mock('@/libs/customerBookingEmail', () => ({
@@ -328,8 +337,11 @@ describe('POST /api/appointments booking policy', () => {
     syncGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
     deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'disabled' });
     recordGoogleEventReviewDecision.mockResolvedValue(undefined);
+    acquireGoogleCalendarEventPairMutationBarrierInTx.mockResolvedValue(true);
     enqueueGoogleCalendarUpsert.mockResolvedValue(undefined);
     enqueueGoogleCalendarDelete.mockResolvedValue(undefined);
+    enqueueGoogleCalendarAppointmentMutation.mockResolvedValue({ inserted: true });
+    enqueueGoogleCalendarDeleteInTx.mockResolvedValue({ inserted: true });
     sendCustomerBookingConfirmationEmail.mockResolvedValue(true);
     getServicesByIds.mockResolvedValue([{
       id: 'srv_1',
@@ -1172,6 +1184,7 @@ describe('POST /api/appointments booking policy', () => {
       status: 'pending',
       totalPrice: 6500,
       totalDurationMinutes: 90,
+      updatedAt: new Date('2099-03-01T00:00:00.000Z'),
     }]);
     const appointmentServicesReturning = vi.fn(async () => [{
       id: 'apptSvc_1',
@@ -1214,15 +1227,14 @@ describe('POST /api/appointments booking policy', () => {
       services: ['BIAB'],
       totalPrice: 6500,
     }));
-    expect(enqueueGoogleCalendarUpsert).toHaveBeenCalledWith(expect.objectContaining({
-      appointmentId: 'appt_1',
-      salonId: 'salon_1',
-      salonName: 'Salon A',
-      clientPhone: '9999999999',
-      serviceNames: ['BIAB'],
-      technicianName: 'Supported',
-      timeZone: 'America/Toronto',
-    }));
+    expect(enqueueGoogleCalendarAppointmentMutation).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        appointmentId: 'appt_1',
+        salonId: 'salon_1',
+        mutationVersion: new Date('2099-03-01T00:00:00.000Z'),
+      }),
+    );
   });
 
   it('rejects booking writes when Google Calendar is busy', async () => {
@@ -1432,6 +1444,15 @@ describe('POST /api/appointments booking policy', () => {
       blockedDurationMinutes: 85,
       notes: 'Controlled conversion note',
     }));
+    expect(acquireGoogleCalendarEventPairMutationBarrierInTx).toHaveBeenCalledWith(
+      expect.anything(),
+      {
+        expectedMirrorId: 'google_event_1',
+        expectedSalonId: 'salon_1',
+        targetCalendarId: 'primary',
+        googleCalendarEventId: 'provider_event_1',
+      },
+    );
     expect(claimReturning).toHaveBeenCalledTimes(1);
     expect(recordGoogleEventReviewDecision).toHaveBeenCalledWith({
       salonId: 'salon_1',
@@ -1789,6 +1810,7 @@ describe('POST /api/appointments booking policy', () => {
                   status: 'pending',
                   totalPrice: 6500,
                   totalDurationMinutes: 90,
+                  updatedAt: new Date('2099-03-01T00:00:00.000Z'),
                 }];
               }),
             })),
@@ -1818,6 +1840,7 @@ describe('POST /api/appointments booking policy', () => {
                     staged.cancelledAppointmentId = 'appt_original';
                     return [{
                       id: 'appt_original',
+                      salonId: 'salon_1',
                       status: 'cancelled',
                       cancelReason: 'rescheduled',
                     }];
@@ -1847,6 +1870,7 @@ describe('POST /api/appointments booking policy', () => {
                     salonId: 'salon_1',
                     salonClientId: undefined,
                     status: 'confirmed',
+                    updatedAt: new Date('2099-02-28T00:00:00.000Z'),
                   }]),
                 })),
               })),
@@ -1855,6 +1879,15 @@ describe('POST /api/appointments booking policy', () => {
           // The reschedule deposit fence probes appointment_deposit for a
           // non-terminal row on the original. There is none here, so the
           // reschedule proceeds exactly as it did before the fence existed.
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                limit: vi.fn(async () => []),
+              })),
+            })),
+          }))
+          // Candidate-base reschedule behavior checks for an ordinary reward
+          // linked to the cancelled appointment. This fixture has none.
           .mockImplementationOnce(() => ({
             from: vi.fn(() => ({
               where: vi.fn(() => ({
@@ -2014,6 +2047,7 @@ describe('POST /api/appointments booking policy', () => {
                     salonId: 'salon_1',
                     salonClientId: undefined,
                     status: 'confirmed',
+                    updatedAt: new Date('2099-02-28T00:00:00.000Z'),
                   }]),
                 })),
               })),
@@ -2022,6 +2056,15 @@ describe('POST /api/appointments booking policy', () => {
           // The reschedule deposit fence probes appointment_deposit for a
           // non-terminal row on the original. There is none here, so the
           // reschedule proceeds exactly as it did before the fence existed.
+          .mockImplementationOnce(() => ({
+            from: vi.fn(() => ({
+              where: vi.fn(() => ({
+                limit: vi.fn(async () => []),
+              })),
+            })),
+          }))
+          // Candidate-base reschedule behavior checks for an ordinary reward
+          // linked to the cancelled appointment. This fixture has none.
           .mockImplementationOnce(() => ({
             from: vi.fn(() => ({
               where: vi.fn(() => ({

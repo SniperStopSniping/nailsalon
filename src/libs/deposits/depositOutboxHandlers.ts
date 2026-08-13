@@ -2,7 +2,10 @@ import 'server-only';
 
 import { and, eq } from 'drizzle-orm';
 
-import { loadBookingCommitEffectsContext, runBookingCommitSideEffects } from '@/libs/bookingCommitEffects';
+import {
+  loadBookingCommitEffectsContext,
+  runBookingCommitSideEffects,
+} from '@/libs/bookingCommitEffects';
 import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
@@ -24,19 +27,27 @@ import {
  * side-effect failure can never mark the event row retryable, and can never
  * roll back the state transition.
  *
- * THE FAILURE CONTRACT BOTH HANDLERS SHARE: catch each send individually,
- * collect the failures, and THROW if any leg failed. Throwing is what makes the
- * outbox re-run the job; catching per leg is what stops one dead leg from
- * hiding the others. On the re-run, legs that already succeeded do NOT re-fire,
- * because each carries its own dedupe key — `sendAppointmentOperationalEmailOnce`
- * for email, a `notification_delivery` row for SMS, and an idempotent update
- * for the referral flip inside the shared runner.
+ * REPLAY CONTRACT. These aggregate jobs are at-least-once, and each effect
+ * keeps its own failure and replay posture. Confirmation does not catch and
+ * retry every notification leg: DB mutations are idempotent, and the calendar
+ * child plus customer and salon email have stable local identities. Client SMS
+ * and internal owner/staff delivery are best-effort and may run again after an
+ * interrupted attempt or another propagated failure; their ordinary provider
+ * failures are absorbed by their helpers. Refund notices do collect leg
+ * failures and throw, but only the client email has a stable per-refund claim;
+ * the direct owner email may be sent again on replay. None of these local
+ * claims eliminates a remote provider's accepted-but-unacknowledged ambiguity.
  */
 
 type HandlerArgs = {
   salonId: string;
   appointmentId: string;
   payload: unknown;
+  signal?: AbortSignal;
+};
+
+type ConfirmationHandlerArgs = HandlerArgs & {
+  parentJobId: string;
 };
 
 type ConfirmationPayload = {
@@ -79,17 +90,57 @@ function readRefundNoticePayload(value: unknown): RefundNoticePayload {
   };
 }
 
+function throwIfDepositOutboxAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new Error('DEPOSIT_OUTBOX_ABORTED');
+}
+
 /**
  * Runs D4.5's extracted booking-commit effects for a deposit that has just been
  * confirmed.
  *
- * `includeGoogleCalendarUpsert: false` is deliberate and load-bearing: TX-B
- * already enqueued the calendar upsert WITH ITS TRANSACTION HANDLE, so the
- * enqueue commits with the money write. Letting the runner enqueue a second one
- * here would move that guarantee back outside the transaction for no gain.
+ * TX-B/TX-C atomically enqueue this aggregate confirmation job with the paid
+ * transition. After this handler verifies that durable state, the shared
+ * runner owns the DB-only, deduplicated calendar enqueue. A later calendar
+ * worker pass owns the provider call, outside the payment transaction.
  */
-export async function runDepositConfirmationSideEffects(args: HandlerArgs): Promise<void> {
+export async function runDepositConfirmationSideEffects(
+  args: ConfirmationHandlerArgs,
+): Promise<void> {
+  throwIfDepositOutboxAborted(args.signal);
   const payload = readConfirmationPayload(args.payload);
+
+  // Reload the paid deposit by its complete tenant/appointment identity before
+  // any booking effect can run. The scope-clean base does not persist a reward
+  // identity on deposit rows; the aggregate payload retains the established
+  // reward field and its producer continues to emit null.
+  const [confirmedDeposit] = await db
+    .select({
+      status: appointmentDepositSchema.status,
+    })
+    .from(appointmentDepositSchema)
+    .where(and(
+      eq(appointmentDepositSchema.id, payload.depositId),
+      eq(appointmentDepositSchema.salonId, args.salonId),
+      eq(appointmentDepositSchema.appointmentId, args.appointmentId),
+    ))
+    .limit(1);
+
+  throwIfDepositOutboxAborted(args.signal);
+
+  if (!confirmedDeposit) {
+    throw new Error('DEPOSIT_SIDE_EFFECTS_DEPOSIT_UNAVAILABLE');
+  }
+  if (['canceled', 'expired', 'refunded', 'waived'].includes(confirmedDeposit.status)) {
+    return;
+  }
+  if (confirmedDeposit.status !== 'paid') {
+    throw new Error('DEPOSIT_SIDE_EFFECTS_DEPOSIT_UNAVAILABLE');
+  }
 
   const context = await loadBookingCommitEffectsContext({
     salonId: args.salonId,
@@ -100,6 +151,8 @@ export async function runDepositConfirmationSideEffects(args: HandlerArgs): Prom
     appliedRewardId: payload.appliedRewardId,
   });
 
+  throwIfDepositOutboxAborted(args.signal);
+
   if (!context) {
     // The appointment, its salon or its client could not be read. That is
     // retryable, not terminal: the row exists — TX-B committed it — so this is
@@ -107,7 +160,17 @@ export async function runDepositConfirmationSideEffects(args: HandlerArgs): Prom
     throw new Error('DEPOSIT_SIDE_EFFECTS_CONTEXT_UNAVAILABLE');
   }
 
-  await runBookingCommitSideEffects(context, { includeGoogleCalendarUpsert: false });
+  if (['cancelled', 'no_show'].includes(context.appointment.status ?? '')) {
+    return;
+  }
+
+  await runBookingCommitSideEffects(context, {
+    calendarCause: {
+      kind: 'deposit_confirmation',
+      parentJobId: args.parentJobId,
+    },
+    signal: args.signal,
+  });
 }
 
 /**
@@ -121,6 +184,7 @@ export async function runDepositConfirmationSideEffects(args: HandlerArgs): Prom
  * they still have.
  */
 export async function runDepositRefundNotices(args: HandlerArgs): Promise<void> {
+  throwIfDepositOutboxAborted(args.signal);
   const payload = readRefundNoticePayload(args.payload);
 
   const [row] = await db
@@ -143,6 +207,8 @@ export async function runDepositRefundNotices(args: HandlerArgs): Promise<void> 
       eq(appointmentDepositSchema.salonId, args.salonId),
     ))
     .limit(1);
+
+  throwIfDepositOutboxAborted(args.signal);
 
   if (!row) {
     throw new Error('DEPOSIT_REFUND_NOTICE_CONTEXT_UNAVAILABLE');
@@ -181,27 +247,36 @@ export async function runDepositRefundNotices(args: HandlerArgs): Promise<void> 
       // is a second money event and deserves its own notice.
       eventVersion: `${payload.depositId}:${payload.refundId}`,
       retryFailed: true,
+      signal: args.signal,
       prepare: () => ({
         subject: clientCopy.subject,
         text: clientCopy.body,
         html: `<p>${escapeHtml(clientCopy.body)}</p>`,
       }),
     });
+    throwIfDepositOutboxAborted(args.signal);
     if (delivery.status === 'failed') {
       failures.push('client_email');
     }
   } catch {
+    throwIfDepositOutboxAborted(args.signal);
     failures.push('client_email');
   }
+  // The operational-email helper completes its local delivery bookkeeping
+  // after a provider await. Only then may an expired worker budget stop this
+  // aggregate; no later owner dispatch is allowed from the obsolete attempt.
+  throwIfDepositOutboxAborted(args.signal);
 
   // ---- Owner leg. Always email; the owner needs the money record. ----------
   const ownerRecipient = row.ownerEmail || row.salonEmail;
   if (ownerRecipient) {
+    throwIfDepositOutboxAborted(args.signal);
     // The salon's own configured zone, never a hardcoded one: an owner reading
     // "3pm" for a booking their salon holds at noon cannot reconcile the refund
     // against their calendar.
     const { getBookingConfigForSalon } = await import('@/libs/bookingConfig');
     const { timezone } = await getBookingConfigForSalon(args.salonId);
+    throwIfDepositOutboxAborted(args.signal);
     const when = `${formatDateInTimeZone(row.startTime.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, timezone)} at ${formatTimeInTimeZone(row.startTime.toISOString(), {}, timezone)}`;
     const ownerText = payload.variant === 'waiver'
       ? `A deposit of ${amount} for ${row.clientName || 'a client'} (${when}) was refunded because the deposit was waived after the client had already paid. No action is needed.`
@@ -213,18 +288,25 @@ export async function runDepositRefundNotices(args: HandlerArgs): Promise<void> 
         subject: `${row.salonName}: a client deposit was refunded`,
         text: ownerText,
         html: `<p>${escapeHtml(ownerText)}</p>`,
-      });
+      }, { signal: args.signal });
+      throwIfDepositOutboxAborted(args.signal);
       if (!sent) {
         failures.push('owner_email');
       }
     } catch {
+      throwIfDepositOutboxAborted(args.signal);
       failures.push('owner_email');
     }
+    // A timeout after dispatch is an unavoidable provider ambiguity. Preserve
+    // the direct owner's documented at-least-once replay posture, but never
+    // begin another leg from this expired attempt.
+    throwIfDepositOutboxAborted(args.signal);
   }
 
   if (failures.length > 0) {
-    // Throwing is what schedules the retry. The succeeded legs above are
-    // individually dedupe-keyed, so the re-run resends only what failed.
+    // Throwing schedules the aggregate retry. The client leg reuses its stable
+    // per-refund claim, but the direct owner leg has no claim; if it succeeded
+    // before another leg failed, a later attempt may send it again.
     throw new Error(`DEPOSIT_REFUND_NOTICE_FAILED:${failures.join(',')}`);
   }
 }

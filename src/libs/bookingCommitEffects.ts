@@ -1,18 +1,20 @@
 /**
  * Post-commit booking side effects (D4.5).
  *
- * BEHAVIOUR-FREE EXTRACTION. Every statement in `runBookingCommitSideEffects`
- * was moved verbatim out of the POST handler in
- * `src/app/api/appointments/route.ts`; none of it was rewritten. The extraction
- * exists so a SECOND caller can run the same effects for a booking whose
- * effects were deliberately skipped at commit time.
+ * SHARED SIDE-EFFECT RUNNER. This began as an extraction from the POST handler
+ * in `src/app/api/appointments/route.ts`; it now also carries the replay,
+ * cancellation, and durable-calendar ownership needed by the confirmation
+ * worker. A SECOND caller can therefore run the same effect set for a booking
+ * whose effects were deliberately skipped at commit time.
  *
  * WHY A SECOND CALLER EXISTS. A deposit hold (D4) commits an appointment in
  * `awaiting_payment` and skips all eight of these effects, because at that
  * moment nobody has paid and the booking may never become real. When the
- * deposit is later confirmed, exactly those eight effects must fire — once.
- * Re-deriving them at the confirmation site would be a second copy of the
- * highest-traffic money path in the repository, so they live here instead.
+ * deposit is later confirmed, exactly those eight effect sites become eligible.
+ * The durable confirmation aggregate is at-least-once, so this runner may be
+ * entered more than once and every effect keeps its own replay posture.
+ * Re-deriving the effects at the confirmation site would be a second copy of
+ * the highest-traffic money path in the repository, so they live here instead.
  *
  * THE SET IS NOT ARBITRARY. It is exactly D4's eight `!isDepositHold` guards in
  * `route.ts` — i.e. exactly "the effects a hold skips" — kept in their original
@@ -30,7 +32,10 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { sendBookingNotificationsForNewBooking } from '@/libs/bookingNotifications';
 import { sendCustomerBookingConfirmationEmail } from '@/libs/customerBookingEmail';
 import { db } from '@/libs/DB';
-import { enqueueGoogleCalendarUpsert } from '@/libs/integrationOutbox';
+import {
+  enqueueGoogleCalendarAppointmentMutation,
+  enqueueGoogleCalendarUpsert,
+} from '@/libs/integrationOutbox';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import {
   getAppointmentServiceNames,
@@ -109,6 +114,8 @@ export type BookingCommitEffectsContext = {
     id: string;
     notes: string | null;
     googleCalendarEventId: string | null;
+    updatedAt: Date;
+    status?: string;
   };
   serviceNames: string[];
   technician: {
@@ -140,13 +147,30 @@ export type BookingCommitEffectsContext = {
 
 export type RunBookingCommitSideEffectsOptions = {
   /**
-   * The Google Calendar upsert is the one effect a confirmation-time caller may
-   * need to own itself (it enqueues with its own transaction handle so the
-   * enqueue commits with the state change). Defaults to `true`, which is the
-   * route's behaviour and keeps every existing caller byte-unchanged.
+   * Paid confirmation passes the durable aggregate job identity so its child
+   * calendar operation has one immutable cause across aggregate retries and
+   * appointment moves. Ordinary booking callers omit it and retain the normal
+   * immutable mutation-version identity used by independent create/reschedule
+   * work.
    */
-  includeGoogleCalendarUpsert?: boolean;
+  calendarCause?: { kind: 'deposit_confirmation'; parentJobId: string };
+  /** The booking transaction already committed the matching Calendar intent. */
+  calendarAlreadyEnqueued?: boolean;
+  /**
+   * Parent worker budget. Provider helpers finish any already-dispatched
+   * provider bookkeeping, then this runner stops before starting another leg.
+   */
+  signal?: AbortSignal;
 };
+
+function throwIfBookingEffectsAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) {
+    return;
+  }
+  throw signal.reason instanceof Error
+    ? signal.reason
+    : new Error('BOOKING_COMMIT_EFFECTS_ABORTED');
+}
 
 /**
  * Marks the most recent eligible retention outreach as converted.
@@ -187,15 +211,18 @@ async function markLatestRetentionOutreachConverted(args: {
  *
  * Moved verbatim from `route.ts`.
  *
- * A reschedule in this codebase creates a brand new appointment and cancels the
- * original with cancelReason='rescheduled', so the two events are mutually
- * exclusive: a reschedule must never also announce itself as a new booking.
+ * `originalAppointment` is this helper's explicit discriminator: absent means
+ * a new booking; present plus a customer-visible schedule change means a
+ * reschedule. That classification is independent of whether another flow
+ * mutates one row in place or replaces and cancels an earlier row.
  *
  * Only customer-initiated reschedules notify — an owner moving an appointment
  * in their own dashboard does not need an email about their own action.
  *
- * Never throws: the booking is already committed and the client has already
- * been shown a confirmation.
+ * Ordinary notification failures never throw: the booking is already
+ * committed and the client has already been shown a confirmation. A supplied
+ * parent-worker abort is different; it propagates so the durable aggregate can
+ * retry the undispatched later legs.
  */
 async function notifySalonAboutBooking(args: {
   salonId: string;
@@ -204,8 +231,10 @@ async function notifySalonAboutBooking(args: {
   originalAppointment: Appointment | null;
   newStartTime: Date;
   newEndTime: Date;
+  signal?: AbortSignal;
 }): Promise<void> {
   try {
+    throwIfBookingEffectsAborted(args.signal);
     const customerInitiated = args.actorRole === 'guest' || args.actorRole === 'client';
 
     if (!args.originalAppointment) {
@@ -214,6 +243,7 @@ async function notifySalonAboutBooking(args: {
         appointmentId: args.appointmentId,
         event: 'newBooking',
         source: customerInitiated ? 'online_booking' : 'dashboard',
+        ...(args.signal ? { signal: args.signal } : {}),
       });
       return;
     }
@@ -237,12 +267,14 @@ async function notifySalonAboutBooking(args: {
         : Promise.resolve(null),
       getAppointmentServiceNames(original.id),
     ]);
+    throwIfBookingEffectsAborted(args.signal);
 
     await sendSalonNotificationEmail({
       salonId: args.salonId,
       appointmentId: args.appointmentId,
       event: 'rescheduled',
       source: 'client_manage_link',
+      ...(args.signal ? { signal: args.signal } : {}),
       previous: {
         appointmentId: original.id,
         startTime: original.startTime.toISOString(),
@@ -255,6 +287,10 @@ async function notifySalonAboutBooking(args: {
       },
     });
   } catch (error) {
+    // Ordinary notification failures remain best-effort, but a parent-budget
+    // abort must reach the aggregate worker so it can retry the unfinished
+    // later legs instead of falsely completing the batch.
+    throwIfBookingEffectsAborted(args.signal);
     console.error('[SALON NOTIFICATION] Booking alert failed after the booking committed:', {
       salonId: args.salonId,
       appointmentId: args.appointmentId,
@@ -267,18 +303,19 @@ async function notifySalonAboutBooking(args: {
  * Runs the eight post-commit effects a deposit hold skips, in the order the
  * booking route ran them.
  *
- * Each effect keeps the exact failure posture it had in the route: the
- * outreach conversion and the customer email swallow their own errors (the
- * appointment is already committed, and a 500 here would encourage a duplicate
- * retry); `notifySalonAboutBooking` swallows internally; the rest propagate, as
- * they did before.
+ * Each effect keeps the failure posture it had in the route. Retention,
+ * customer email, salon email and owner/staff delivery absorb their ordinary
+ * delivery failures; reward/referral/calendar work and unexpected dependency
+ * failures may still propagate. This function is not a once-only delivery
+ * boundary: customer and salon email own stable local claims, while client SMS
+ * and owner/staff delivery are best-effort and may be invoked again when the
+ * aggregate is replayed after a crash or another propagated failure.
  */
 export async function runBookingCommitSideEffects(
   context: BookingCommitEffectsContext,
   options: RunBookingCommitSideEffectsOptions = {},
 ): Promise<void> {
-  const includeGoogleCalendarUpsert = options.includeGoogleCalendarUpsert ?? true;
-
+  throwIfBookingEffectsAborted(options.signal);
   // 1/8. `converted` is TERMINAL — see the guard comment in the route history.
   try {
     await markLatestRetentionOutreachConverted({
@@ -291,6 +328,7 @@ export async function runBookingCommitSideEffects(
     // turn a successful booking into a 500 that encourages a duplicate retry.
     console.error('[Retention] Failed to convert latest outreach after booking:', conversionError);
   }
+  throwIfBookingEffectsAborted(options.signal);
 
   // 2/8. Link the applied reward to this appointment (mark as pending redemption).
   if (context.appliedRewardId) {
@@ -300,6 +338,7 @@ export async function runBookingCommitSideEffects(
         usedInAppointmentId: context.appointment.id,
       })
       .where(eq(rewardSchema.id, context.appliedRewardId));
+    throwIfBookingEffectsAborted(options.signal);
   }
 
   // 3/8. Check for claimed referrals for this client and update status to 'booked'.
@@ -311,6 +350,8 @@ export async function runBookingCommitSideEffects(
     `+${context.clientPhone}`,
   ];
 
+  throwIfBookingEffectsAborted(options.signal);
+
   const claimedReferrals = await db
     .select()
     .from(referralSchema)
@@ -321,9 +362,11 @@ export async function runBookingCommitSideEffects(
         eq(referralSchema.status, 'claimed'),
       ),
     );
+  throwIfBookingEffectsAborted(options.signal);
 
   // Update claimed referrals based on expiry status
   for (const referral of claimedReferrals) {
+    throwIfBookingEffectsAborted(options.signal);
     if (referral.expiresAt && new Date(referral.expiresAt) < new Date()) {
       // Referral has expired - mark as expired
       await db
@@ -337,11 +380,13 @@ export async function runBookingCommitSideEffects(
         .set({ status: 'booked' })
         .where(eq(referralSchema.id, referral.id));
     }
+    throwIfBookingEffectsAborted(options.signal);
   }
 
   // 4/8. Google Calendar upsert.
-  if (includeGoogleCalendarUpsert && context.googleCalendarSyncEligible) {
-    await enqueueGoogleCalendarUpsert({
+  throwIfBookingEffectsAborted(options.signal);
+  if (context.googleCalendarSyncEligible) {
+    const calendarInput = {
       appointmentId: context.appointment.id,
       salonId: context.salon.id,
       salonName: context.salon.name,
@@ -358,8 +403,23 @@ export async function runBookingCommitSideEffects(
       locationAddress: context.locationAddress,
       notes: context.appointment.notes,
       googleCalendarEventId: context.appointment.googleCalendarEventId,
-    });
+    };
+    if (options.calendarAlreadyEnqueued) {
+      // The booking transaction owns this intent; never enqueue it again here.
+    } else if (options.calendarCause) {
+      await enqueueGoogleCalendarUpsert(calendarInput, {
+        cause: options.calendarCause,
+        mutationVersion: context.appointment.updatedAt,
+      });
+    } else {
+      await db.transaction(tx => enqueueGoogleCalendarAppointmentMutation(tx, {
+        appointmentId: context.appointment.id,
+        salonId: context.salon.id,
+        mutationVersion: context.appointment.updatedAt,
+      }));
+    }
   }
+  throwIfBookingEffectsAborted(options.signal);
 
   // 5/8. Customer confirmation email.
   try {
@@ -372,6 +432,7 @@ export async function runBookingCommitSideEffects(
       startTime: context.startTime.toISOString(),
       timeZone: context.timeZone,
       manageUrl: context.manageUrl,
+      ...(options.signal ? { signal: options.signal } : {}),
     });
   } catch {
     console.error('[Booking] Customer confirmation failed after the appointment committed:', {
@@ -379,10 +440,13 @@ export async function runBookingCommitSideEffects(
       appointmentId: context.appointment.id,
     });
   }
+  throwIfBookingEffectsAborted(options.signal);
 
-  // 6/8. Client confirmation SMS, gated on consent exactly as before.
+  // 6/8. Client confirmation SMS, gated on consent exactly as before. Its
+  // delivery identity is per attempt, so an aggregate replay may invoke it
+  // again; ordinary provider failures are absorbed by the SMS helper.
   if (context.smsConsentGranted) {
-    await sendBookingConfirmationToClient(context.salon.id, {
+    const smsParams = {
       phone: context.clientPhone,
       clientName: context.clientName ?? undefined,
       appointmentId: context.appointment.id,
@@ -393,8 +457,18 @@ export async function runBookingCommitSideEffects(
       totalPrice: context.totalPrice,
       timeZone: context.timeZone,
       manageUrl: context.manageUrl,
-    });
+    };
+    if (options.signal) {
+      await sendBookingConfirmationToClient(
+        context.salon.id,
+        smsParams,
+        { signal: options.signal },
+      );
+    } else {
+      await sendBookingConfirmationToClient(context.salon.id, smsParams);
+    }
   }
+  throwIfBookingEffectsAborted(options.signal);
 
   // 7/8. Salon-facing appointment alert. Failures are swallowed inside the
   // helper: a notification must never undo a booking the client already saw
@@ -406,10 +480,13 @@ export async function runBookingCommitSideEffects(
     originalAppointment: context.originalAppointment,
     newStartTime: context.startTime,
     newEndTime: context.endTime,
+    signal: options.signal,
   });
+  throwIfBookingEffectsAborted(options.signal);
 
-  // 8/8. Owner/staff notifications.
-  await sendBookingNotificationsForNewBooking({
+  // 8/8. Owner/staff notifications. The helper deduplicates matching
+  // destinations within this invocation, but not across aggregate attempts.
+  const notificationContext = {
     salon: {
       id: context.salon.id,
       name: context.salon.name,
@@ -435,7 +512,16 @@ export async function runBookingCommitSideEffects(
     totalDurationMinutes: context.totalDurationMinutes,
     totalPrice: context.totalPrice,
     timeZone: context.timeZone,
-  });
+  };
+  if (options.signal) {
+    await sendBookingNotificationsForNewBooking(
+      notificationContext,
+      { signal: options.signal },
+    );
+  } else {
+    await sendBookingNotificationsForNewBooking(notificationContext);
+  }
+  throwIfBookingEffectsAborted(options.signal);
 }
 
 export type LoadBookingCommitEffectsContextArgs = {
@@ -564,6 +650,8 @@ export async function loadBookingCommitEffectsContext(
       id: appointment.id,
       notes: appointment.notes,
       googleCalendarEventId: appointment.googleCalendarEventId,
+      updatedAt: appointment.updatedAt,
+      status: appointment.status,
     },
     serviceNames: serviceRows.map(row => row.name),
     technician: technician

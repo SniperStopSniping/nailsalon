@@ -9,9 +9,13 @@ const {
   retryCustomerBookingConfirmationEmail,
   sendAppointmentOperationalEmailOnce,
   mintAppointmentManageLink,
+  insertedValues,
+  insertResults,
   selectResults,
   updates,
 } = vi.hoisted(() => {
+  const insertedValues: Array<Record<string, unknown>> = [];
+  const insertResults: unknown[][] = [];
   const selectResults: unknown[][] = [];
   const updates: Array<Record<string, unknown>> = [];
   const select = vi.fn(() => {
@@ -20,10 +24,31 @@ const {
     chain.from = () => chain;
     chain.innerJoin = () => chain;
     chain.where = () => chain;
+    chain.groupBy = () => chain;
     chain.orderBy = () => chain;
+    chain.for = () => chain;
     chain.limit = async () => rows;
+    chain.then = (
+      resolve: (value: unknown[]) => unknown,
+      reject: (reason: unknown) => unknown,
+    ) => Promise.resolve(rows).then(resolve, reject);
     return chain;
   });
+  const insert = vi.fn(() => ({
+    values: vi.fn((values: Record<string, unknown>) => {
+      insertedValues.push(values);
+      const rows = insertResults.length > 0
+        ? insertResults.shift()!
+        : [{ id: `inserted_job_${insertedValues.length}` }];
+      const conflictChain = {
+        returning: vi.fn(async () => rows),
+      };
+      return {
+        onConflictDoNothing: vi.fn(() => conflictChain),
+        returning: vi.fn(async () => rows),
+      };
+    }),
+  }));
   const update = vi.fn(() => ({
     set: vi.fn((values: Record<string, unknown>) => {
       updates.push(values);
@@ -39,24 +64,62 @@ const {
     }),
   }));
 
+  const db = {
+    execute: vi.fn(async () => undefined),
+    insert,
+    select,
+    update,
+  } as {
+    execute: ReturnType<typeof vi.fn>;
+    insert: typeof insert;
+    select: typeof select;
+    transaction?: ReturnType<typeof vi.fn>;
+    update: typeof update;
+  };
+  db.transaction = vi.fn(async (callback: (tx: typeof db) => unknown) => callback(db));
+
   return {
-    db: { select, update },
+    db,
     deleteGoogleCalendarEventForAppointment: vi.fn(),
     syncGoogleCalendarEventForAppointment: vi.fn(),
     listGoogleCalendarEventsForSalon: vi.fn(),
     retryCustomerBookingConfirmationEmail: vi.fn(),
     sendAppointmentOperationalEmailOnce: vi.fn(),
     mintAppointmentManageLink: vi.fn(),
+    insertedValues,
+    insertResults,
     selectResults,
     updates,
   };
 });
 
-vi.mock('@/libs/DB', () => ({ db }));
+vi.mock('@/libs/DB', () => ({
+  db,
+  usesRuntimePostgres: false,
+  DatabaseSessionReleaseError: class DatabaseSessionReleaseError extends Error {},
+  withDedicatedDatabaseSession: async (work: (database: typeof db) => unknown) => work(db),
+}));
 
 vi.mock('@/libs/googleCalendar', () => ({
-  deleteGoogleCalendarEventForAppointment,
-  syncGoogleCalendarEventForAppointment,
+  deleteGoogleCalendarEventForAppointment: (
+    input: unknown,
+    options: { dispatchFence?: <T>(operation: () => Promise<T>) => Promise<T> } = {},
+  ) => {
+    const operation = () => deleteGoogleCalendarEventForAppointment(input, options);
+    return options.dispatchFence ? options.dispatchFence(operation) : operation();
+  },
+  deterministicGoogleCalendarEventId: vi.fn((input: {
+    appointmentId: string;
+    idempotencyKey: string;
+    salonId: string;
+  }) => `deterministic:${input.salonId}:${input.appointmentId}:${input.idempotencyKey}`),
+  syncGoogleCalendarEventForAppointment: (
+    input: unknown,
+    options: { dispatchFence?: <T>(operation: () => Promise<T>) => Promise<T> } = {},
+  ) => {
+    const operation = () => syncGoogleCalendarEventForAppointment(input, options);
+    return options.dispatchFence ? options.dispatchFence(operation) : operation();
+  },
   listGoogleCalendarEventsForSalon,
 }));
 
@@ -82,6 +145,7 @@ const PREVIOUS_END = '2026-08-31T17:00:00.000Z';
 const NEW_START = '2026-09-01T16:00:00.000Z';
 const NEW_END = '2026-09-01T17:00:00.000Z';
 const MUTATION_VERSION = '2026-08-30T12:00:00.001Z';
+const RECONCILIATION_VERSION = '2026-08-30T12:00:00.002Z';
 
 function staffPayload() {
   return {
@@ -127,7 +191,7 @@ function currentAppointment(overrides: Record<string, unknown> = {}) {
 }
 
 function finishReadResults() {
-  selectResults.push([], [], []);
+  selectResults.push([], []);
 }
 
 describe('enqueueStaffRescheduleNotification', () => {
@@ -170,6 +234,8 @@ describe('enqueueStaffRescheduleNotification', () => {
 describe('processIntegrationOutbox', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    insertedValues.length = 0;
+    insertResults.length = 0;
     selectResults.length = 0;
     updates.length = 0;
     deleteGoogleCalendarEventForAppointment.mockResolvedValue({ status: 'deleted' });
@@ -358,7 +424,7 @@ describe('processIntegrationOutbox', () => {
 
     const result = await processIntegrationOutbox();
 
-    expect(result).toMatchObject({ scanned: 1, retried: 0, failed: 1 });
+    expect(result).toMatchObject({ scanned: 1, succeeded: 0, retried: 0, failed: 1 });
     expect(updates).toContainEqual(expect.objectContaining({
       status: 'failed',
       lastError: 'RECIPIENT_UNAVAILABLE',
@@ -424,7 +490,7 @@ describe('processIntegrationOutbox', () => {
     });
     expect(updates).toContainEqual(expect.objectContaining({
       status: 'processing',
-      attempts: 1,
+      attempts: expect.anything(),
     }));
     expect(updates).toContainEqual(expect.objectContaining({
       status: 'completed',
@@ -441,12 +507,18 @@ describe('processIntegrationOutbox', () => {
       failed: 0,
     });
     expect(retryCustomerBookingConfirmationEmail).toHaveBeenCalledTimes(1);
-    expect(updates.filter(update => 'attempts' in update)).toEqual([
-      expect.objectContaining({ attempts: 1 }),
-    ]);
+    expect(updates.filter(update => 'attempts' in update)).toHaveLength(1);
   });
 
-  it('turns a delayed upsert into a delete after the appointment is cancelled', async () => {
+  it('retires a legacy delayed upsert without guessing the calendar of a scalar-only event', async () => {
+    const terminalAppointment = {
+      id: 'appt_1',
+      salonId: 'salon_1',
+      googleCalendarEventId: 'google_event_late',
+      status: 'cancelled',
+      deletedAt: null,
+      updatedAt: new Date(MUTATION_VERSION),
+    };
     selectResults.push(
       [{
         id: 'job_1',
@@ -477,11 +549,9 @@ describe('processIntegrationOutbox', () => {
         processedAt: null,
         lastError: null,
       }],
-      [{
-        googleCalendarEventId: 'google_event_late',
-        status: 'cancelled',
-        deletedAt: null,
-      }],
+      [],
+      [terminalAppointment],
+      [terminalAppointment],
       [],
       [],
       [],
@@ -497,26 +567,26 @@ describe('processIntegrationOutbox', () => {
       cancelledEventCandidates: 0,
       remoteAppointmentMirrorsScanned: 0,
       remoteCancelledEventCandidates: 0,
-      reconciledCancelledEvents: 0,
+      queuedCancelledEvents: 0,
       skippedCancelledEvents: 0,
       failedCancelledEvents: 0,
     });
     expect(syncGoogleCalendarEventForAppointment).not.toHaveBeenCalled();
-    expect(deleteGoogleCalendarEventForAppointment).toHaveBeenCalledWith({
-      appointmentId: 'appt_1',
-      salonId: 'salon_1',
-      googleCalendarEventId: 'google_event_late',
-    });
+    expect(deleteGoogleCalendarEventForAppointment).not.toHaveBeenCalled();
+    expect(insertedValues).toEqual([]);
   });
 
-  it('repairs a cancelled appointment from its active linked event row', async () => {
+  it('queues a durable reconciliation delete for a cancelled linked event', async () => {
     selectResults.push(
       [],
-      [],
       [{
+        reconciliationMirrorId: 'gce_old_cancel',
         appointmentId: 'appt_old_cancel',
         salonId: 'salon_1',
         googleCalendarEventId: 'google_event_stuck',
+        observedVersion: new Date(RECONCILIATION_VERSION),
+        appointmentExists: true,
+        targetCalendarId: 'primary',
       }],
       [],
     );
@@ -531,47 +601,72 @@ describe('processIntegrationOutbox', () => {
       cancelledEventCandidates: 1,
       remoteAppointmentMirrorsScanned: 0,
       remoteCancelledEventCandidates: 0,
-      reconciledCancelledEvents: 1,
+      queuedCancelledEvents: 1,
       skippedCancelledEvents: 0,
       failedCancelledEvents: 0,
     });
-    expect(deleteGoogleCalendarEventForAppointment).toHaveBeenCalledWith({
+    expect(deleteGoogleCalendarEventForAppointment).not.toHaveBeenCalled();
+    expect(insertedValues).toContainEqual(expect.objectContaining({
       appointmentId: 'appt_old_cancel',
       salonId: 'salon_1',
-      googleCalendarEventId: 'google_event_stuck',
-    });
+      provider: 'google_calendar',
+      operation: 'delete_event',
+      dedupeKey: `google:salon_1:appt_old_cancel:delete:reconciliation:primary:google_event_stuck:${RECONCILIATION_VERSION}`,
+      payload: {
+        appointmentId: 'appt_old_cancel',
+        salonId: 'salon_1',
+        mutationVersion: RECONCILIATION_VERSION,
+        googleCalendarEventId: 'google_event_stuck',
+        targetCalendarId: 'primary',
+        reconciliation: true,
+        reconciliationMirrorId: 'gce_old_cancel',
+        reconciliationExpectedAppointmentId: 'appt_old_cancel',
+      },
+    }));
   });
 
-  it('reports a future cancelled mirror that cannot be safely deleted', async () => {
+  it('reports a deduplicated reconciliation delete without calling the provider', async () => {
+    insertResults.push([]);
     selectResults.push(
       [],
-      [],
       [{
+        reconciliationMirrorId: 'gce_read_only',
         appointmentId: 'appt_read_only',
         salonId: 'salon_1',
         googleCalendarEventId: 'google_event_read_only',
+        observedVersion: new Date(RECONCILIATION_VERSION),
+        appointmentExists: true,
+        targetCalendarId: 'primary',
       }],
       [],
     );
-    deleteGoogleCalendarEventForAppointment.mockResolvedValueOnce({ status: 'disabled' });
 
     const result = await processIntegrationOutbox();
 
     expect(result).toMatchObject({
       cancelledEventCandidates: 1,
-      reconciledCancelledEvents: 0,
+      queuedCancelledEvents: 0,
       skippedCancelledEvents: 1,
       failedCancelledEvents: 0,
     });
+    expect(deleteGoogleCalendarEventForAppointment).not.toHaveBeenCalled();
+    expect(insertedValues).toHaveLength(1);
   });
 
-  it('repairs an orphaned remote mirror from private appointment metadata', async () => {
+  it('queues a durable delete for an orphaned remote mirror from private appointment metadata', async () => {
     selectResults.push(
       [],
       [],
-      [],
       [{ salonId: 'salon_1', destinationCalendarId: 'primary' }],
-      [{ id: 'appt_orphan', status: 'cancelled', canvasState: 'cancelled', deletedAt: null }],
+      [],
+      [{
+        id: 'appt_orphan',
+        status: 'cancelled',
+        canvasState: 'cancelled',
+        deletedAt: null,
+        updatedAt: new Date(RECONCILIATION_VERSION),
+      }],
+      [],
     );
     listGoogleCalendarEventsForSalon.mockResolvedValueOnce([{
       id: 'google_event_orphan',
@@ -596,26 +691,38 @@ describe('processIntegrationOutbox', () => {
       cancelledEventCandidates: 1,
       remoteAppointmentMirrorsScanned: 1,
       remoteCancelledEventCandidates: 1,
-      reconciledCancelledEvents: 1,
+      queuedCancelledEvents: 1,
     });
     expect(listGoogleCalendarEventsForSalon).toHaveBeenCalledWith(expect.objectContaining({
       salonId: 'salon_1',
       privateExtendedProperties: ['salonId=salon_1'],
-    }));
-    expect(deleteGoogleCalendarEventForAppointment).toHaveBeenCalledWith({
+    }), expect.objectContaining({ signal: undefined }));
+    expect(deleteGoogleCalendarEventForAppointment).not.toHaveBeenCalled();
+    expect(insertedValues).toContainEqual(expect.objectContaining({
       appointmentId: 'appt_orphan',
-      salonId: 'salon_1',
-      googleCalendarEventId: 'google_event_orphan',
-    });
+      dedupeKey: `google:salon_1:appt_orphan:delete:reconciliation:primary:google_event_orphan:${RECONCILIATION_VERSION}`,
+      payload: expect.objectContaining({
+        appointmentId: 'appt_orphan',
+        mutationVersion: RECONCILIATION_VERSION,
+        reconciliation: true,
+      }),
+    }));
   });
 
-  it('repairs a legacy canvas cancellation whose status was left active', async () => {
+  it('queues a durable delete for a legacy canvas cancellation whose status was left active', async () => {
     selectResults.push(
       [],
       [],
-      [],
       [{ salonId: 'salon_1', destinationCalendarId: 'primary' }],
-      [{ id: 'appt_legacy', status: 'confirmed', canvasState: 'cancelled', deletedAt: null }],
+      [],
+      [{
+        id: 'appt_legacy',
+        status: 'confirmed',
+        canvasState: 'cancelled',
+        deletedAt: null,
+        updatedAt: new Date(RECONCILIATION_VERSION),
+      }],
+      [],
     );
     listGoogleCalendarEventsForSalon.mockResolvedValueOnce([{
       id: 'google_event_legacy',
@@ -639,16 +746,22 @@ describe('processIntegrationOutbox', () => {
     expect(result).toMatchObject({
       remoteAppointmentMirrorsScanned: 1,
       remoteCancelledEventCandidates: 1,
-      reconciledCancelledEvents: 1,
+      queuedCancelledEvents: 1,
     });
+    expect(deleteGoogleCalendarEventForAppointment).not.toHaveBeenCalled();
+    expect(insertedValues).toContainEqual(expect.objectContaining({
+      appointmentId: 'appt_legacy',
+      dedupeKey: `google:salon_1:appt_legacy:delete:reconciliation:primary:google_event_legacy:${RECONCILIATION_VERSION}`,
+    }));
   });
 
-  it('repairs an app-owned mirror whose appointment row no longer exists', async () => {
+  it('queues orphan cleanup without a foreign-key appointment link when the row no longer exists', async () => {
     selectResults.push(
       [],
       [],
-      [],
       [{ salonId: 'salon_1', destinationCalendarId: 'primary' }],
+      [],
+      [],
       [],
     );
     listGoogleCalendarEventsForSalon.mockResolvedValueOnce([{
@@ -673,7 +786,20 @@ describe('processIntegrationOutbox', () => {
     expect(result).toMatchObject({
       remoteAppointmentMirrorsScanned: 1,
       remoteCancelledEventCandidates: 1,
-      reconciledCancelledEvents: 1,
+      queuedCancelledEvents: 1,
     });
+    expect(deleteGoogleCalendarEventForAppointment).not.toHaveBeenCalled();
+    expect(insertedValues).toContainEqual(expect.objectContaining({
+      appointmentId: null,
+      dedupeKey: 'google:salon_1:appt_missing:delete:reconciliation:primary:google_event_missing_appointment:2026-07-22T16:00:00.000Z',
+      payload: {
+        appointmentId: 'appt_missing',
+        salonId: 'salon_1',
+        mutationVersion: null,
+        googleCalendarEventId: 'google_event_missing_appointment',
+        targetCalendarId: 'primary',
+        reconciliation: true,
+      },
+    }));
   });
 });

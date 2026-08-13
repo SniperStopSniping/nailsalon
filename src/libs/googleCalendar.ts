@@ -1,8 +1,8 @@
 import 'server-only';
 
-import { createSign } from 'node:crypto';
+import { createHash, createSign } from 'node:crypto';
 
-import { and, eq, gt, inArray, isNotNull, isNull, lt, ne } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, lt, ne, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
@@ -18,12 +18,20 @@ import {
 } from '@/libs/googleCalendarFailure';
 import type { GoogleCalendarAttendee } from '@/libs/googleEventAutofill';
 import { decryptIntegrationSecret, encryptIntegrationSecret } from '@/libs/lusterSecurity';
-import { appointmentSchema, googleCalendarEventSchema, salonGoogleCalendarConnectionSchema } from '@/models/Schema';
+import {
+  appointmentSchema,
+  googleCalendarEventSchema,
+  integrationOutboxSchema,
+  salonGoogleCalendarConnectionSchema,
+} from '@/models/Schema';
 
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_CALENDAR_API_BASE = 'https://www.googleapis.com/calendar/v3';
 const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar';
 const TOKEN_REFRESH_SAFETY_SECONDS = 60;
+const GOOGLE_PROVIDER_REQUEST_TIMEOUT_MS = 30_000;
+const GOOGLE_EVENT_LIST_TIMEOUT_MS = 45_000;
+const GOOGLE_EVENT_LIST_MAX_PAGES = 10;
 
 type GoogleCalendarConfig = {
   calendarId: string;
@@ -36,7 +44,11 @@ type GoogleCalendarRequestContext = {
   calendarId: string;
   busyCalendarIds: string[];
   connectionType: 'oauth' | 'legacy';
+  connectionRevision?: string;
 };
+
+type GoogleCalendarConnectionUpdate
+  = Partial<typeof salonGoogleCalendarConnectionSchema.$inferInsert>;
 
 export type GoogleCalendarBusyWindow = {
   startTime: Date;
@@ -60,13 +72,87 @@ export type GoogleCalendarAppointmentEventInput = {
   locationAddress?: string | null;
   notes?: string | null;
   googleCalendarEventId?: string | null;
+  /** Immutable local appointment revision represented by this provider write. */
+  mutationVersion?: string;
 };
 
-type GoogleCalendarSyncResult =
+export type GoogleCalendarSyncResult =
   | { status: 'disabled' }
-  | { status: 'synced'; eventId: string }
-  | { status: 'deleted' }
-  | { status: 'failed'; error: string };
+  | { status: 'synced'; eventId: string; calendarId?: string }
+  | { status: 'deleted'; eventId?: string; calendarId?: string }
+  | {
+    status: 'failed';
+    error: string;
+    eventId?: string | null;
+    calendarId?: string;
+    /** True once this invocation entered deterministic create dispatch. */
+    createAttempted?: boolean;
+  };
+
+export type GoogleCalendarProviderOptions = {
+  /** Aborts token acquisition and the Calendar request for this operation. */
+  signal?: AbortSignal;
+  /**
+   * The outbox worker owns attempt-fenced bookkeeping, so it disables the
+   * legacy appointment/event writes while retaining the provider result.
+   */
+  persistResult?: boolean;
+  /** May shorten, but never extend, the 30-second request ceiling. */
+  requestTimeoutMs?: number;
+  /** Admin copy intentionally creates in the configured destination calendar. */
+  useDestinationCalendar?: boolean;
+  /** Stable appointment/calendar lifecycle lane used for an idempotent event id. */
+  idempotencyKey?: string;
+  /** Durable destination captured by the claiming outbox attempt. */
+  targetCalendarId?: string;
+  /** Immutable local-mirror proof captured by reconciliation discovery. */
+  reconciliationMirrorId?: string;
+  reconciliationExpectedAppointmentId?: string | null;
+  /** Inbound deletion barrier for an exact same-owner mirror already marked deleted. */
+  authoritativeTerminalDelete?: boolean;
+  /**
+   * Outbox-only final request gate. It must perform the synchronized current
+   * intent/attempt checks and retain provider-attempt liveness until the
+   * concrete Calendar transport promise settles.
+   */
+  dispatchFence?: <T>(operation: () => Promise<T>) => Promise<T>;
+  /** Exact durable attempt allowed to publish shared connection state. */
+  attemptFence?: { jobId: string; claimedAttempt: number };
+  /** Durable appointment revision represented by a conditional delete. */
+  mutationVersion?: string;
+};
+
+export class GoogleCalendarDispatchFenceError extends Error {
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super('Google Calendar dispatch fence rejected the request');
+    this.name = 'GoogleCalendarDispatchFenceError';
+    this.cause = cause;
+  }
+}
+
+export class GoogleCalendarConnectionWriteFenceError extends Error {
+  constructor() {
+    super('GOOGLE_CALENDAR_CONNECTION_WRITE_FENCE_LOST');
+    this.name = 'GoogleCalendarConnectionWriteFenceError';
+  }
+}
+
+export type GoogleCalendarListOptions = Pick<
+  GoogleCalendarProviderOptions,
+  'requestTimeoutMs' | 'signal'
+> & {
+  /** Aggregate ceiling for context acquisition and every events.list page. */
+  timeoutMs?: number;
+  /** May shorten, but never extend, the ten-page ceiling per selected calendar. */
+  maxPages?: number;
+};
+
+type GoogleCalendarRequestOptions = Pick<
+  GoogleCalendarProviderOptions,
+  'attemptFence' | 'dispatchFence' | 'requestTimeoutMs' | 'signal'
+>;
 
 type GoogleTokenResponse = {
   access_token?: string;
@@ -85,6 +171,8 @@ type GoogleFreeBusyResponse = {
 };
 
 type GoogleCalendarEventResponse = {
+  etag?: string;
+  extendedProperties?: { private?: Record<string, string> };
   id?: string;
 };
 
@@ -103,6 +191,7 @@ export type GoogleCalendarRemoteEvent = {
   updatedAt: Date | null;
   appointmentId: string | null;
   salonId: string | null;
+  mutationVersion?: string | null;
   attendees?: GoogleCalendarAttendee[];
 };
 
@@ -138,6 +227,27 @@ class GoogleCalendarApiError extends Error {
   }
 }
 
+class GoogleCalendarRequestAbortedError extends Error {
+  constructor(message = 'Google provider request was aborted') {
+    super(message);
+    this.name = 'GoogleCalendarRequestAbortedError';
+  }
+}
+
+class GoogleCalendarRequestTimeoutError extends Error {
+  constructor() {
+    super('Google provider request timed out');
+    this.name = 'GoogleCalendarRequestTimeoutError';
+  }
+}
+
+class GoogleCalendarListLimitError extends Error {
+  constructor() {
+    super('Google Calendar event list page limit exceeded');
+    this.name = 'GoogleCalendarListLimitError';
+  }
+}
+
 class GoogleCalendarConnectionError extends Error {
   reconnectRequired: boolean;
 
@@ -163,6 +273,63 @@ export class GoogleCalendarAvailabilityError extends Error {
 }
 
 let cachedToken: { token: string; expiresAtSeconds: number } | null = null;
+
+function throwIfGoogleRequestAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new GoogleCalendarRequestAbortedError();
+  }
+}
+
+async function fetchGoogleProvider(
+  input: string | URL,
+  init: RequestInit,
+  options: GoogleCalendarRequestOptions = {},
+): Promise<Response> {
+  const requestedTimeoutMs = options.requestTimeoutMs
+    ?? GOOGLE_PROVIDER_REQUEST_TIMEOUT_MS;
+  const requestTimeoutMs = Number.isFinite(requestedTimeoutMs)
+    ? Math.max(1, Math.min(requestedTimeoutMs, GOOGLE_PROVIDER_REQUEST_TIMEOUT_MS))
+    : GOOGLE_PROVIDER_REQUEST_TIMEOUT_MS;
+  const controller = new AbortController();
+  const sourceSignal = options.signal ?? init.signal ?? undefined;
+  let timedOut = false;
+
+  const abortFromSource = () => {
+    controller.abort(sourceSignal?.reason);
+  };
+  throwIfGoogleRequestAborted(sourceSignal);
+  sourceSignal?.addEventListener('abort', abortFromSource, { once: true });
+
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, requestTimeoutMs);
+  timeout.unref?.();
+
+  try {
+    const response = await fetch(input, { ...init, signal: controller.signal });
+    // Buffer the small Google API response before releasing the timeout. Fetch
+    // resolves when headers arrive; without this read, a stalled response body
+    // could otherwise keep the worker alive indefinitely after that point.
+    const body = response.body ? await response.arrayBuffer() : null;
+    return new Response(body && body.byteLength > 0 ? body : null, {
+      headers: response.headers,
+      status: response.status,
+      statusText: response.statusText,
+    });
+  } catch (error) {
+    if (timedOut) {
+      throw new GoogleCalendarRequestTimeoutError();
+    }
+    if (sourceSignal?.aborted) {
+      throw new GoogleCalendarRequestAbortedError();
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    sourceSignal?.removeEventListener('abort', abortFromSource);
+  }
+}
 
 function getGoogleCalendarConfig(): GoogleCalendarConfig | null {
   const enabled = Env.GOOGLE_CALENDAR_ENABLED === 'true' || Env.GOOGLE_CALENDAR_ENABLED === '1';
@@ -214,7 +381,11 @@ function buildServiceAccountAssertion(config: GoogleCalendarConfig, nowSeconds: 
   return `${unsignedAssertion}.${base64UrlEncode(signature)}`;
 }
 
-async function getGoogleAccessToken(config: GoogleCalendarConfig): Promise<string> {
+async function getGoogleAccessToken(
+  config: GoogleCalendarConfig,
+  options: GoogleCalendarRequestOptions = {},
+): Promise<string> {
+  throwIfGoogleRequestAborted(options.signal);
   const nowSeconds = Math.floor(Date.now() / 1000);
   if (cachedToken && cachedToken.expiresAtSeconds > nowSeconds + TOKEN_REFRESH_SAFETY_SECONDS) {
     return cachedToken.token;
@@ -223,7 +394,7 @@ async function getGoogleAccessToken(config: GoogleCalendarConfig): Promise<strin
   const assertion = buildServiceAccountAssertion(config, nowSeconds);
   let response: Response;
   try {
-    response = await fetch(GOOGLE_TOKEN_URL, {
+    response = await fetchGoogleProvider(GOOGLE_TOKEN_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -232,8 +403,14 @@ async function getGoogleAccessToken(config: GoogleCalendarConfig): Promise<strin
         grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
         assertion,
       }),
-    });
-  } catch {
+    }, options);
+  } catch (error) {
+    if (error instanceof GoogleCalendarRequestAbortedError) {
+      throw error;
+    }
+    if (error instanceof GoogleCalendarRequestTimeoutError) {
+      throw new GoogleCalendarApiError(504, 'Google OAuth token request timed out');
+    }
     throw new GoogleCalendarApiError(503, 'Google OAuth token request failed');
   }
 
@@ -263,18 +440,38 @@ async function googleCalendarFetchWithContext<T>(
   context: GoogleCalendarRequestContext,
   path: string,
   init: RequestInit,
+  options: GoogleCalendarRequestOptions = {},
 ): Promise<T> {
+  throwIfGoogleRequestAborted(options.signal);
   let response: Response;
   try {
-    response = await fetch(`${GOOGLE_CALENDAR_API_BASE}${path}`, {
+    const dispatch = () => fetchGoogleProvider(`${GOOGLE_CALENDAR_API_BASE}${path}`, {
       ...init,
       headers: {
         'Authorization': `Bearer ${context.accessToken}`,
         'Content-Type': 'application/json',
         ...init.headers,
       },
-    });
-  } catch {
+    }, options);
+    if (options.dispatchFence) {
+      try {
+        response = await options.dispatchFence(dispatch);
+      } catch (error) {
+        throw new GoogleCalendarDispatchFenceError(error);
+      }
+    } else {
+      response = await dispatch();
+    }
+  } catch (error) {
+    if (error instanceof GoogleCalendarDispatchFenceError) {
+      throw error;
+    }
+    if (error instanceof GoogleCalendarRequestAbortedError) {
+      throw error;
+    }
+    if (error instanceof GoogleCalendarRequestTimeoutError) {
+      throw new GoogleCalendarApiError(504, 'Google Calendar request timed out');
+    }
     throw new GoogleCalendarApiError(503, 'Google Calendar request failed');
   }
   if (response.status === 204) {
@@ -287,6 +484,97 @@ async function googleCalendarFetchWithContext<T>(
     return await response.json() as T;
   } catch {
     throw new GoogleCalendarApiError(502, 'Google Calendar response was invalid');
+  }
+}
+
+async function runGoogleCalendarMutationDispatch<T>(
+  options: GoogleCalendarProviderOptions,
+  operation: (requestOptions: GoogleCalendarRequestOptions) => Promise<T>,
+): Promise<T> {
+  const requestOptions = { ...options, dispatchFence: undefined };
+  if (!options.dispatchFence) {
+    return operation(requestOptions);
+  }
+  try {
+    return await options.dispatchFence(() => operation(requestOptions));
+  } catch (error) {
+    if (error instanceof GoogleCalendarDispatchFenceError) {
+      throw error;
+    }
+    throw new GoogleCalendarDispatchFenceError(error);
+  }
+}
+
+function remoteMutationVersion(event: GoogleCalendarEventResponse) {
+  return event.extendedProperties?.private?.mutationVersion;
+}
+
+function remoteEventIsAtLeastRevision(
+  event: GoogleCalendarEventResponse,
+  mutationVersion: string | undefined,
+) {
+  const remoteVersion = remoteMutationVersion(event);
+  return Boolean(remoteVersion && mutationVersion && remoteVersion >= mutationVersion);
+}
+
+async function getGoogleCalendarEventForMutation(
+  context: GoogleCalendarRequestContext,
+  eventId: string,
+  options: GoogleCalendarRequestOptions,
+): Promise<GoogleCalendarEventResponse | null> {
+  try {
+    return await googleCalendarFetchWithContext<GoogleCalendarEventResponse>(
+      context,
+      `/calendars/${encodeURIComponent(context.calendarId)}/events/${encodeURIComponent(eventId)}`,
+      { method: 'GET' },
+      options,
+    );
+  } catch (error) {
+    if (error instanceof GoogleCalendarApiError && error.status === 404) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function patchGoogleCalendarEventConditionally(
+  context: GoogleCalendarRequestContext,
+  eventId: string,
+  current: GoogleCalendarEventResponse,
+  body: ReturnType<typeof buildGoogleCalendarEventBody>,
+  mutationVersion: string | undefined,
+  options: GoogleCalendarRequestOptions,
+) {
+  if (!current.etag) {
+    throw new GoogleCalendarApiError(409, 'Google Calendar event did not include an ETag');
+  }
+  try {
+    return await googleCalendarFetchWithContext<GoogleCalendarEventResponse>(
+      context,
+      `/calendars/${encodeURIComponent(context.calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=none`,
+      {
+        method: 'PATCH',
+        headers: { 'If-Match': current.etag },
+        body: JSON.stringify(body),
+      },
+      options,
+    );
+  } catch (error) {
+    if (!(error instanceof GoogleCalendarApiError) || error.status !== 412) {
+      throw error;
+    }
+    // A newer revision may win after our GET but before the conditional PATCH.
+    // Resolve that obsolete attempt by reading the winner instead of retrying A
+    // indefinitely. If the remote state is absent or older, retain the failure.
+    const refreshed = await getGoogleCalendarEventForMutation(
+      context,
+      eventId,
+      options,
+    );
+    if (refreshed && remoteEventIsAtLeastRevision(refreshed, mutationVersion)) {
+      return refreshed;
+    }
+    throw error;
   }
 }
 
@@ -314,11 +602,15 @@ type TokenRequestOutcome =
   | { ok: true; data: VerifiedTokenResponse }
   | { ok: false; failure: GoogleFailureClassification };
 
-/** One token-endpoint round trip, classified. Never throws. */
-async function requestAccessToken(refreshToken: string): Promise<TokenRequestOutcome> {
+/** One token-endpoint round trip; provider failures are classified, caller aborts throw. */
+async function requestAccessToken(
+  refreshToken: string,
+  options: GoogleCalendarRequestOptions = {},
+): Promise<TokenRequestOutcome> {
+  throwIfGoogleRequestAborted(options.signal);
   let response: Response;
   try {
-    response = await fetch(GOOGLE_TOKEN_URL, {
+    response = await fetchGoogleProvider(GOOGLE_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
@@ -327,8 +619,11 @@ async function requestAccessToken(refreshToken: string): Promise<TokenRequestOut
         refresh_token: refreshToken,
         grant_type: 'refresh_token',
       }),
-    });
+    }, options);
   } catch (error) {
+    if (error instanceof GoogleCalendarRequestAbortedError) {
+      throw error;
+    }
     return {
       ok: false,
       failure: classifyNetworkFailure(error instanceof Error ? error.message : undefined),
@@ -356,55 +651,124 @@ async function requestAccessToken(refreshToken: string): Promise<TokenRequestOut
 }
 
 /**
- * Persist a classified failure, and alert the owner exactly once — on the
- * transition INTO `reconnect_required`.
+ * Persist a classified failure, and attempt the owner alert once — on the
+ * transition INTO `reconnect_required`. Provider delivery is not exactly-once.
  *
  * Availability runs on every page view, so notifying from the failure path
  * itself would email the salon on every visit. Gating on the previous status
  * means one alert per outage, not one per request.
  */
+async function writeGoogleConnectionResult(
+  salonId: string,
+  expectedRevision: string | undefined,
+  options: GoogleCalendarRequestOptions,
+  buildUpdate: (currentStatus: string) => {
+    transitioned?: boolean;
+    values: GoogleCalendarConnectionUpdate;
+  },
+): Promise<{ applied: boolean; revision?: string; transitioned: boolean }> {
+  throwIfGoogleRequestAborted(options.signal);
+  if (!expectedRevision) {
+    return { applied: false, transitioned: false };
+  }
+  return db.transaction(async (tx) => {
+    if (options.attemptFence) {
+      const [owned] = await tx.select({ id: integrationOutboxSchema.id })
+        .from(integrationOutboxSchema)
+        .where(and(
+          eq(integrationOutboxSchema.id, options.attemptFence.jobId),
+          eq(integrationOutboxSchema.salonId, salonId),
+          eq(integrationOutboxSchema.provider, 'google_calendar'),
+          eq(integrationOutboxSchema.status, 'processing'),
+          eq(integrationOutboxSchema.attempts, options.attemptFence.claimedAttempt),
+        ))
+        .for('update')
+        .limit(1);
+      if (!owned) {
+        throw new GoogleCalendarConnectionWriteFenceError();
+      }
+    }
+
+    const [current] = await tx.select({
+      revision: sql<string>`xmin::text`,
+      status: salonGoogleCalendarConnectionSchema.status,
+    }).from(salonGoogleCalendarConnectionSchema).where(
+      eq(salonGoogleCalendarConnectionSchema.salonId, salonId),
+    ).for('update').limit(1);
+    if (!current || current.revision !== expectedRevision) {
+      if (options.attemptFence) {
+        throw new GoogleCalendarConnectionWriteFenceError();
+      }
+      return { applied: false, transitioned: false };
+    }
+
+    const update = buildUpdate(current.status);
+    const written = await tx.update(salonGoogleCalendarConnectionSchema)
+      .set(update.values)
+      .where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId))
+      .returning();
+    if (written.length !== 1) {
+      if (options.attemptFence) {
+        throw new GoogleCalendarConnectionWriteFenceError();
+      }
+      return { applied: false, transitioned: false };
+    }
+    const [advanced] = await tx.select({ revision: sql<string>`xmin::text` })
+      .from(salonGoogleCalendarConnectionSchema)
+      .where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId))
+      .limit(1);
+    return {
+      applied: true,
+      revision: advanced?.revision,
+      transitioned: update.transitioned === true,
+    };
+  });
+}
+
 async function recordConnectionFailure(
   salonId: string,
   classification: GoogleFailureClassification,
+  expectedRevision: string | undefined,
+  options: GoogleCalendarRequestOptions = {},
 ): Promise<void> {
+  throwIfGoogleRequestAborted(options.signal);
   const status = statusForClassification(classification);
   const lastError = formatPersistedError(classification);
   const lastCheckedAt = new Date();
+  const result = await writeGoogleConnectionResult(
+    salonId,
+    expectedRevision,
+    options,
+    currentStatus => ({
+      transitioned: status === 'reconnect_required'
+        && currentStatus !== 'reconnect_required',
+      values: status === 'reconnect_required'
+        && currentStatus === 'reconnect_required'
+        ? { lastError, lastCheckedAt }
+        : { status, lastError, lastCheckedAt },
+    }),
+  ).catch((error) => {
+    if (error instanceof GoogleCalendarConnectionWriteFenceError) {
+      throw error;
+    }
+    return { applied: false, transitioned: false };
+  });
 
-  if (status !== 'reconnect_required') {
-    await db.update(salonGoogleCalendarConnectionSchema)
-      .set({ status, lastError, lastCheckedAt })
-      .where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId))
-      .catch(() => undefined);
+  if (status !== 'reconnect_required' || !result.transitioned) {
     return;
   }
 
-  // The transition is detected by the UPDATE itself: it only matches rows that
-  // are not already latched, so exactly one concurrent request can observe the
-  // change. Availability runs on every page view, so a read-then-write here
-  // would race and email the salon repeatedly during one outage.
-  const transitioned = await db.update(salonGoogleCalendarConnectionSchema)
-    .set({ status, lastError, lastCheckedAt })
-    .where(and(
-      eq(salonGoogleCalendarConnectionSchema.salonId, salonId),
-      ne(salonGoogleCalendarConnectionSchema.status, 'reconnect_required'),
-    ))
-    .returning()
-    // A failed write must not double-alert: treat it as "already latched".
-    .catch(() => [] as unknown[]);
-
-  if (!transitioned.length) {
-    // Already latched: keep the diagnosis fresh, but do not alert again.
-    await db.update(salonGoogleCalendarConnectionSchema)
-      .set({ lastError, lastCheckedAt })
-      .where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId))
-      .catch(() => undefined);
-    return;
-  }
-
+  // Once the latch commits, this invocation owns the one best-effort outage
+  // alert. Bound and cancel its provider request with the parent operation so
+  // it cannot defeat Calendar-list or route execution ceilings. A timeout can
+  // lose this alert; it must never reopen the durable outage latch or block
+  // fail-closed availability.
   try {
     const { sendGoogleCalendarDisconnectedEmail } = await import('@/libs/googleCalendarAlerts');
-    await sendGoogleCalendarDisconnectedEmail({ salonId, classification });
+    await sendGoogleCalendarDisconnectedEmail(
+      { salonId, classification },
+      { signal: options.signal, timeoutMs: 5_000 },
+    );
   } catch (error) {
     // An alert failure must never take down the caller — availability has
     // already failed closed by this point and that is the safety-critical part.
@@ -416,19 +780,35 @@ async function recordConnectionFailure(
   }
 }
 
-async function getGoogleCalendarRequestContext(salonId?: string): Promise<GoogleCalendarRequestContext | null> {
+async function getGoogleCalendarRequestContext(
+  salonId?: string,
+  options: GoogleCalendarRequestOptions = {},
+): Promise<GoogleCalendarRequestContext | null> {
+  throwIfGoogleRequestAborted(options.signal);
   if (salonId) {
     const [connection] = await db
-      .select()
+      .select({
+        busyCalendarIds: salonGoogleCalendarConnectionSchema.busyCalendarIds,
+        destinationCalendarId: salonGoogleCalendarConnectionSchema.destinationCalendarId,
+        encryptedRefreshToken: salonGoogleCalendarConnectionSchema.encryptedRefreshToken,
+        revision: sql<string>`xmin::text`,
+        status: salonGoogleCalendarConnectionSchema.status,
+      })
       .from(salonGoogleCalendarConnectionSchema)
       .where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId))
       .limit(1);
+    throwIfGoogleRequestAborted(options.signal);
     if (connection) {
       if (!['active', 'degraded'].includes(connection.status)) {
         throw new GoogleCalendarConnectionError(true);
       }
       if (!Env.GOOGLE_OAUTH_CLIENT_ID || !Env.GOOGLE_OAUTH_CLIENT_SECRET) {
-        await recordConnectionFailure(salonId, classifyMissingClientConfig());
+        await recordConnectionFailure(
+          salonId,
+          classifyMissingClientConfig(),
+          connection.revision,
+          options,
+        );
         throw new GoogleCalendarConnectionError(false);
       }
 
@@ -439,7 +819,12 @@ async function getGoogleCalendarRequestContext(salonId?: string): Promise<Google
         // Never reported as "reconnect" — a decrypt failure means the stored
         // secret cannot be read at all, which points at key configuration
         // rather than at the salon's authorization.
-        await recordConnectionFailure(salonId, classifyDecryptFailure());
+        await recordConnectionFailure(
+          salonId,
+          classifyDecryptFailure(),
+          connection.revision,
+          options,
+        );
         throw new GoogleCalendarConnectionError(false);
       }
 
@@ -449,7 +834,9 @@ async function getGoogleCalendarRequestContext(salonId?: string): Promise<Google
       let data: VerifiedTokenResponse | null = null;
       let failure: GoogleFailureClassification | null = null;
       for (let attempt = 0; attempt < 2; attempt++) {
-        const outcome = await requestAccessToken(refreshToken);
+        throwIfGoogleRequestAborted(options.signal);
+        const outcome = await requestAccessToken(refreshToken, options);
+        throwIfGoogleRequestAborted(options.signal);
         if (outcome.ok) {
           data = outcome.data;
           failure = null;
@@ -463,20 +850,36 @@ async function getGoogleCalendarRequestContext(salonId?: string): Promise<Google
 
       if (!data) {
         const classification = failure ?? classifyNetworkFailure();
-        await recordConnectionFailure(salonId, classification);
+        await recordConnectionFailure(
+          salonId,
+          classification,
+          connection.revision,
+          options,
+        );
         throw new GoogleCalendarConnectionError(classification.requiresReconnect);
       }
 
-      await db.update(salonGoogleCalendarConnectionSchema).set({
-        status: 'active',
-        lastError: null,
-        lastCheckedAt: new Date(),
-        tokenExpiresAt: new Date(Date.now() + (data.expires_in ?? 3600) * 1000),
-        // Google only returns a refresh token when it rotates one. Writing the
-        // absent case would blank the credential and permanently break the
-        // connection, so the existing token is preserved untouched.
-        ...buildRotatedTokenUpdate(data.refresh_token),
-      }).where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId));
+      throwIfGoogleRequestAborted(options.signal);
+      const connectionWrite = await writeGoogleConnectionResult(
+        salonId,
+        connection.revision,
+        options,
+        () => ({
+          values: {
+            status: 'active',
+            lastError: null,
+            lastCheckedAt: new Date(),
+            tokenExpiresAt: new Date(Date.now() + (data.expires_in ?? 3600) * 1000),
+            // Google only returns a refresh token when it rotates one. Writing
+            // the absent case would blank the credential permanently.
+            ...buildRotatedTokenUpdate(data.refresh_token),
+          },
+        }),
+      );
+      if (!connectionWrite.applied) {
+        throw new GoogleCalendarConnectionWriteFenceError();
+      }
+      throwIfGoogleRequestAborted(options.signal);
       return {
         accessToken: data.access_token,
         calendarId: connection.destinationCalendarId,
@@ -486,6 +889,7 @@ async function getGoogleCalendarRequestContext(salonId?: string): Promise<Google
         // reporting (integrationHealth) treats this state as setup_incomplete.
         busyCalendarIds: connection.busyCalendarIds.length ? connection.busyCalendarIds : ['primary'],
         connectionType: 'oauth',
+        connectionRevision: connectionWrite.revision,
       };
     }
   }
@@ -495,26 +899,29 @@ async function getGoogleCalendarRequestContext(salonId?: string): Promise<Google
     return null;
   }
   return {
-    accessToken: await getGoogleAccessToken(legacy),
+    accessToken: await getGoogleAccessToken(legacy, options),
     calendarId: legacy.calendarId,
     busyCalendarIds: [legacy.calendarId],
     connectionType: 'legacy',
   };
 }
 
-export async function listGoogleCalendarsForSalon(salonId: string): Promise<Array<{
-  id: string;
-  summary: string;
-  primary: boolean;
-  accessRole: string;
-}>> {
-  const context = await getGoogleCalendarRequestContext(salonId);
+export async function listGoogleCalendarsForSalon(
+  salonId: string,
+  options: GoogleCalendarRequestOptions = {},
+): Promise<Array<{
+    id: string;
+    summary: string;
+    primary: boolean;
+    accessRole: string;
+  }>> {
+  const context = await getGoogleCalendarRequestContext(salonId, options);
   if (!context) {
     return [];
   }
   const data = await googleCalendarFetchWithContext<{
     items?: Array<{ id?: string; summary?: string; primary?: boolean; accessRole?: string }>;
-  }>(context, '/users/me/calendarList?minAccessRole=reader', { method: 'GET' });
+  }>(context, '/users/me/calendarList?minAccessRole=reader', { method: 'GET' }, options);
   return (data.items ?? []).flatMap(item => item.id
     ? [{
         id: item.id,
@@ -546,12 +953,23 @@ type GoogleCalendarEventListArgs = {
 async function listGoogleCalendarEventsWithContext(
   context: GoogleCalendarRequestContext,
   args: GoogleCalendarEventListArgs,
+  options: GoogleCalendarRequestOptions & { maxPages: number },
 ): Promise<GoogleCalendarRemoteEvent[]> {
   const events: GoogleCalendarRemoteEvent[] = [];
   const calendarIds = [...new Set(args.calendarIds?.length ? args.calendarIds : [context.calendarId])];
   for (const calendarId of calendarIds) {
+    throwIfGoogleRequestAborted(options.signal);
+    // The configured limit is per selected calendar. A salon may legitimately
+    // select up to 20 calendars, each of which requires at least one page.
+    // The aggregate wall-clock deadline independently bounds the whole scan.
+    let pagesFetched = 0;
     let pageToken: string | undefined;
     do {
+      throwIfGoogleRequestAborted(options.signal);
+      if (pagesFetched >= options.maxPages) {
+        throw new GoogleCalendarListLimitError();
+      }
+      pagesFetched += 1;
       const search = new URLSearchParams({
         singleEvents: 'true',
         showDeleted: args.includeDeleted ? 'true' : 'false',
@@ -578,6 +996,7 @@ async function listGoogleCalendarEventsWithContext(
         context,
         `/calendars/${encodeURIComponent(calendarId)}/events?${search.toString()}`,
         { method: 'GET' },
+        options,
       );
       for (const item of data.items ?? []) {
         if (!item.id) {
@@ -599,6 +1018,7 @@ async function listGoogleCalendarEventsWithContext(
           updatedAt: item.updated ? new Date(item.updated) : null,
           appointmentId: privateProperties?.appointmentId || null,
           salonId: privateProperties?.salonId || null,
+          mutationVersion: privateProperties?.mutationVersion || null,
           attendees: (item.attendees ?? []).flatMap(attendee => attendee.email
             ? [{
                 email: attendee.email,
@@ -613,18 +1033,52 @@ async function listGoogleCalendarEventsWithContext(
     } while (pageToken);
   }
 
+  throwIfGoogleRequestAborted(options.signal);
   return events;
 }
 
 export async function listGoogleCalendarEventsForSalon(args: GoogleCalendarEventListArgs & {
   salonId: string;
-}): Promise<GoogleCalendarRemoteEvent[]> {
-  const context = await getGoogleCalendarRequestContext(args.salonId);
-  if (!context || context.connectionType !== 'oauth') {
-    return [];
-  }
+}, options: GoogleCalendarListOptions = {}): Promise<GoogleCalendarRemoteEvent[]> {
+  const requestedTimeoutMs = options.timeoutMs ?? GOOGLE_EVENT_LIST_TIMEOUT_MS;
+  const timeoutMs = Number.isFinite(requestedTimeoutMs)
+    ? Math.max(1, Math.min(requestedTimeoutMs, GOOGLE_EVENT_LIST_TIMEOUT_MS))
+    : GOOGLE_EVENT_LIST_TIMEOUT_MS;
+  const requestedMaxPages = options.maxPages ?? GOOGLE_EVENT_LIST_MAX_PAGES;
+  const maxPages = Number.isFinite(requestedMaxPages)
+    ? Math.max(1, Math.min(Math.floor(requestedMaxPages), GOOGLE_EVENT_LIST_MAX_PAGES))
+    : GOOGLE_EVENT_LIST_MAX_PAGES;
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromParent = () => controller.abort(options.signal?.reason);
+  throwIfGoogleRequestAborted(options.signal);
+  options.signal?.addEventListener('abort', abortFromParent, { once: true });
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort(new GoogleCalendarRequestTimeoutError());
+  }, timeoutMs);
+  timeout.unref?.();
 
-  return listGoogleCalendarEventsWithContext(context, args);
+  try {
+    const requestOptions = {
+      maxPages,
+      requestTimeoutMs: options.requestTimeoutMs,
+      signal: controller.signal,
+    };
+    const context = await getGoogleCalendarRequestContext(args.salonId, requestOptions);
+    if (!context || context.connectionType !== 'oauth') {
+      return [];
+    }
+    return await listGoogleCalendarEventsWithContext(context, args, requestOptions);
+  } catch (error) {
+    if (timedOut && error instanceof GoogleCalendarRequestAbortedError) {
+      throw new GoogleCalendarRequestTimeoutError();
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    options.signal?.removeEventListener('abort', abortFromParent);
+  }
 }
 
 export async function listExternalGoogleCalendarEvents(args: {
@@ -722,6 +1176,7 @@ function buildGoogleCalendarEventBody(input: GoogleCalendarAppointmentEventInput
       private: {
         appointmentId: input.appointmentId,
         salonId: input.salonId,
+        ...(input.mutationVersion ? { mutationVersion: input.mutationVersion } : {}),
       },
     },
   };
@@ -759,12 +1214,29 @@ async function recordCalendarSyncResult(args: {
   }
 }
 
-async function markGoogleConnectionDegraded(salonId: string, message: string) {
-  await db
-    .update(salonGoogleCalendarConnectionSchema)
-    .set({ status: 'degraded', lastError: message, lastCheckedAt: new Date() })
-    .where(eq(salonGoogleCalendarConnectionSchema.salonId, salonId))
-    .catch(() => undefined);
+async function markGoogleConnectionDegraded(
+  salonId: string,
+  message: string,
+  context: GoogleCalendarRequestContext,
+  options: GoogleCalendarRequestOptions,
+) {
+  await writeGoogleConnectionResult(
+    salonId,
+    context.connectionRevision,
+    options,
+    () => ({
+      values: {
+        status: 'degraded',
+        lastError: message,
+        lastCheckedAt: new Date(),
+      },
+    }),
+  ).catch((error) => {
+    if (error instanceof GoogleCalendarConnectionWriteFenceError) {
+      throw error;
+    }
+    return { applied: false, transitioned: false };
+  });
 }
 
 function isGoogleCalendarReconnectRequired(
@@ -778,6 +1250,7 @@ function isGoogleCalendarReconnectRequired(
 async function markGoogleAvailabilityFailure(
   salonId: string,
   error: GoogleCalendarApiError | GoogleCalendarConnectionError,
+  context?: GoogleCalendarRequestContext,
 ) {
   // A GoogleCalendarConnectionError already travelled through the token path,
   // which recorded the precise classification (and alerted if it was a new
@@ -788,7 +1261,11 @@ async function markGoogleAvailabilityFailure(
     return;
   }
 
-  await recordConnectionFailure(salonId, classifyApiFailure(error.status, error.message));
+  await recordConnectionFailure(
+    salonId,
+    classifyApiFailure(error.status, error.message),
+    context?.connectionRevision,
+  );
 }
 
 export function isBusyWindowConflict(
@@ -915,7 +1392,7 @@ async function suppressCancelledMirrorFreeBusyGhosts(args: {
     calendarIds,
     startTime: args.startTime,
     endTime: args.endTime,
-  });
+  }, { maxPages: GOOGLE_EVENT_LIST_MAX_PAGES });
   const liveBusyWindows = liveEvents.flatMap(event => (
     event.status !== 'cancelled'
     && event.transparency === 'busy'
@@ -951,11 +1428,13 @@ export async function getGoogleCalendarBusyWindows(args: {
    */
   excludeAppointmentId?: string | null;
 }): Promise<GoogleCalendarBusyWindow[]> {
+  let requestContext: GoogleCalendarRequestContext | undefined;
   try {
     const context = await getGoogleCalendarRequestContext(args.salonId);
     if (!context) {
       return [];
     }
+    requestContext = context;
     const ownMirrorWindow = args.salonId && args.excludeAppointmentId
       ? await resolveOwnMirrorWindow(args.salonId, args.excludeAppointmentId)
       : null;
@@ -1003,7 +1482,7 @@ export async function getGoogleCalendarBusyWindows(args: {
     }
     const reconnectRequired = isGoogleCalendarReconnectRequired(error);
     if (args.salonId) {
-      await markGoogleAvailabilityFailure(args.salonId, error);
+      await markGoogleAvailabilityFailure(args.salonId, error, requestContext);
     }
     throw new GoogleCalendarAvailabilityError(reconnectRequired);
   }
@@ -1022,8 +1501,12 @@ export async function hasGoogleCalendarConflict(args: {
 
 type LinkedGoogleCalendarEvent = {
   id: string;
+  appointmentId: string | null;
   calendarId: string;
+  deletedAt: Date | null;
   googleEventId: string;
+  googleStatus: string;
+  reviewStatus: string;
   sourceAccessRole: string;
   syncMode: 'inbound_only' | 'bidirectional' | 'superseded';
 };
@@ -1032,7 +1515,58 @@ async function getLinkedGoogleCalendarEvent(
   salonId: string,
   appointmentId: string,
   googleCalendarEventId?: string | null,
+  targetCalendarId?: string,
+  reconciliationMirrorId?: string,
+  reconciliationExpectedAppointmentId?: string | null,
 ): Promise<LinkedGoogleCalendarEvent | null> {
+  if (googleCalendarEventId && targetCalendarId) {
+    const exactPairs = await db.select({
+      id: googleCalendarEventSchema.id,
+      salonId: googleCalendarEventSchema.salonId,
+      appointmentId: googleCalendarEventSchema.appointmentId,
+      calendarId: googleCalendarEventSchema.calendarId,
+      deletedAt: googleCalendarEventSchema.deletedAt,
+      googleEventId: googleCalendarEventSchema.googleEventId,
+      googleStatus: googleCalendarEventSchema.googleStatus,
+      reviewStatus: googleCalendarEventSchema.reviewStatus,
+      sourceAccessRole: googleCalendarEventSchema.sourceAccessRole,
+      syncMode: googleCalendarEventSchema.syncMode,
+    }).from(googleCalendarEventSchema).where(and(
+      eq(googleCalendarEventSchema.calendarId, targetCalendarId),
+      eq(googleCalendarEventSchema.googleEventId, googleCalendarEventId),
+    ));
+    if (exactPairs.length > 1) {
+      throw new Error('GOOGLE_CALENDAR_MIRROR_AMBIGUOUS');
+    }
+    const exactPair = exactPairs[0];
+    if (reconciliationMirrorId) {
+      if (
+        !exactPair
+        || exactPair.id !== reconciliationMirrorId
+        || exactPair.salonId !== salonId
+        || exactPair.appointmentId !== (reconciliationExpectedAppointmentId ?? null)
+        || exactPair.reviewStatus !== 'appointment'
+        || exactPair.syncMode !== 'bidirectional'
+        || !['owner', 'writer'].includes(exactPair.sourceAccessRole)
+      ) {
+        throw new Error('GOOGLE_CALENDAR_MIRROR_OWNERSHIP_CONFLICT');
+      }
+      return exactPair;
+    }
+    if (exactPair?.salonId === salonId && exactPair.appointmentId === null) {
+      throw new Error('GOOGLE_CALENDAR_MIRROR_OWNERSHIP_CONFLICT');
+    }
+    if (
+      exactPair
+      && (
+        exactPair.salonId !== salonId
+        || exactPair.appointmentId !== appointmentId
+      )
+    ) {
+      throw new Error('GOOGLE_CALENDAR_MIRROR_OWNERSHIP_CONFLICT');
+    }
+    return exactPair ?? null;
+  }
   const conditions = [
     eq(googleCalendarEventSchema.salonId, salonId),
     eq(googleCalendarEventSchema.appointmentId, appointmentId),
@@ -1042,23 +1576,62 @@ async function getLinkedGoogleCalendarEvent(
   if (googleCalendarEventId) {
     conditions.push(eq(googleCalendarEventSchema.googleEventId, googleCalendarEventId));
   }
-  const [event] = await db.select({
+  if (targetCalendarId) {
+    conditions.push(eq(googleCalendarEventSchema.calendarId, targetCalendarId));
+  }
+  const events = await db.select({
     id: googleCalendarEventSchema.id,
+    appointmentId: googleCalendarEventSchema.appointmentId,
     calendarId: googleCalendarEventSchema.calendarId,
+    deletedAt: googleCalendarEventSchema.deletedAt,
     googleEventId: googleCalendarEventSchema.googleEventId,
+    googleStatus: googleCalendarEventSchema.googleStatus,
+    reviewStatus: googleCalendarEventSchema.reviewStatus,
     sourceAccessRole: googleCalendarEventSchema.sourceAccessRole,
     syncMode: googleCalendarEventSchema.syncMode,
-  }).from(googleCalendarEventSchema).where(and(...conditions)).limit(1);
-  return event ?? null;
+  }).from(googleCalendarEventSchema).where(and(...conditions));
+  if (events.length > 1) {
+    throw new Error('GOOGLE_CALENDAR_MIRROR_AMBIGUOUS');
+  }
+  return events[0] ?? null;
 }
 
 function canWriteLinkedGoogleEvent(event: LinkedGoogleCalendarEvent): boolean {
-  return event.syncMode === 'bidirectional'
+  return event.deletedAt == null
+    && event.syncMode === 'bidirectional'
     && ['owner', 'writer'].includes(event.sourceAccessRole);
 }
 
-async function applyLinkedEventCalendar(context: GoogleCalendarRequestContext, salonId: string, appointmentId: string): Promise<boolean> {
-  const event = await getLinkedGoogleCalendarEvent(salonId, appointmentId);
+/**
+ * Google accepts caller-supplied event ids. Keeping the derivation public lets
+ * the outbox enqueue a cleanup even when a create response was lost: remote
+ * acceptance is ambiguous, but the possible remote identity is not.
+ */
+export function deterministicGoogleCalendarEventId(input: {
+  appointmentId: string;
+  idempotencyKey: string;
+  salonId: string;
+}): string {
+  return `luster${createHash('sha256').update(JSON.stringify([
+    input.salonId,
+    input.appointmentId,
+    input.idempotencyKey,
+  ])).digest('hex').slice(0, 48)}`;
+}
+
+async function applyLinkedEventCalendar(
+  context: GoogleCalendarRequestContext,
+  salonId: string,
+  appointmentId: string,
+  googleCalendarEventId?: string | null,
+  targetCalendarId?: string,
+): Promise<boolean> {
+  const event = await getLinkedGoogleCalendarEvent(
+    salonId,
+    appointmentId,
+    googleCalendarEventId,
+    targetCalendarId,
+  );
   if (!event) {
     return true;
   }
@@ -1071,79 +1644,169 @@ async function applyLinkedEventCalendar(context: GoogleCalendarRequestContext, s
 
 export async function syncGoogleCalendarEventForAppointment(
   input: GoogleCalendarAppointmentEventInput,
+  options: GoogleCalendarProviderOptions = {},
 ): Promise<GoogleCalendarSyncResult> {
-  const context = await getGoogleCalendarRequestContext(input.salonId);
+  const context = await getGoogleCalendarRequestContext(input.salonId, options);
   if (!context) {
     return { status: 'disabled' };
   }
-  if (!await applyLinkedEventCalendar(context, input.salonId, input.appointmentId)) {
+  if (
+    !options.useDestinationCalendar
+    && !await applyLinkedEventCalendar(
+      context,
+      input.salonId,
+      input.appointmentId,
+      input.googleCalendarEventId,
+      options.targetCalendarId,
+    )
+  ) {
     return { status: 'disabled' };
   }
+  if (options.targetCalendarId) {
+    context.calendarId = options.targetCalendarId;
+  }
 
+  let createAttempted = false;
   try {
     const body = buildGoogleCalendarEventBody(input);
-    let event: GoogleCalendarEventResponse;
+    const deterministicEventId = options.idempotencyKey
+      ? deterministicGoogleCalendarEventId({
+        salonId: input.salonId,
+        appointmentId: input.appointmentId,
+        idempotencyKey: options.idempotencyKey,
+      })
+      : null;
+    if (deterministicEventId) {
+      await getLinkedGoogleCalendarEvent(
+        input.salonId,
+        input.appointmentId,
+        deterministicEventId,
+        context.calendarId,
+      );
+    }
+    const event = await runGoogleCalendarMutationDispatch(options, async (requestOptions) => {
+      const createEvent = async () => {
+        createAttempted = true;
+        try {
+          return await googleCalendarFetchWithContext<GoogleCalendarEventResponse>(
+            context,
+            `/calendars/${encodeURIComponent(context.calendarId)}/events?sendUpdates=none`,
+            {
+              method: 'POST',
+              body: JSON.stringify(deterministicEventId
+                ? { ...body, id: deterministicEventId }
+                : body),
+            },
+            requestOptions,
+          );
+        } catch (error) {
+          if (
+            !deterministicEventId
+            || !(error instanceof GoogleCalendarApiError)
+            || error.status !== 409
+          ) {
+            throw error;
+          }
+          const existing = await getGoogleCalendarEventForMutation(
+            context,
+            deterministicEventId,
+            requestOptions,
+          );
+          if (!existing) {
+            throw new GoogleCalendarApiError(
+              409,
+              'Google Calendar deterministic event conflicted but could not be read',
+            );
+          }
+          if (remoteEventIsAtLeastRevision(existing, input.mutationVersion)) {
+            return { ...existing, id: existing.id ?? deterministicEventId };
+          }
+          return patchGoogleCalendarEventConditionally(
+            context,
+            deterministicEventId,
+            existing,
+            body,
+            input.mutationVersion,
+            requestOptions,
+          );
+        }
+      };
 
-    if (input.googleCalendarEventId) {
+      if (!input.googleCalendarEventId) {
+        return createEvent();
+      }
+      const existing = await getGoogleCalendarEventForMutation(
+        context,
+        input.googleCalendarEventId,
+        requestOptions,
+      );
+      if (!existing) {
+        return createEvent();
+      }
+      if (remoteEventIsAtLeastRevision(existing, input.mutationVersion)) {
+        return { ...existing, id: existing.id ?? input.googleCalendarEventId };
+      }
       try {
-        event = await googleCalendarFetchWithContext<GoogleCalendarEventResponse>(
+        return await patchGoogleCalendarEventConditionally(
           context,
-          `/calendars/${encodeURIComponent(context.calendarId)}/events/${encodeURIComponent(input.googleCalendarEventId)}?sendUpdates=none`,
-          {
-            method: 'PATCH',
-            body: JSON.stringify(body),
-          },
+          input.googleCalendarEventId,
+          existing,
+          body,
+          input.mutationVersion,
+          requestOptions,
         );
       } catch (error) {
         if (!(error instanceof GoogleCalendarApiError) || error.status !== 404) {
           throw error;
         }
-
-        event = await googleCalendarFetchWithContext<GoogleCalendarEventResponse>(
-          context,
-          `/calendars/${encodeURIComponent(context.calendarId)}/events?sendUpdates=none`,
-          {
-            method: 'POST',
-            body: JSON.stringify(body),
-          },
-        );
+        return createEvent();
       }
-    } else {
-      event = await googleCalendarFetchWithContext<GoogleCalendarEventResponse>(
-        context,
-        `/calendars/${encodeURIComponent(context.calendarId)}/events?sendUpdates=none`,
-        {
-          method: 'POST',
-          body: JSON.stringify(body),
-        },
-      );
-    }
+    });
 
     if (!event.id) {
       throw new Error('Google Calendar event response did not include an event id');
     }
 
-    await recordCalendarSyncResult({
-      appointmentId: input.appointmentId,
-      salonId: input.salonId,
-      status: 'synced',
-      eventId: event.id,
-      error: null,
-    });
+    if (options.persistResult !== false) {
+      await recordCalendarSyncResult({
+        appointmentId: input.appointmentId,
+        salonId: input.salonId,
+        status: 'synced',
+        eventId: event.id,
+        error: null,
+      });
+    }
 
-    return { status: 'synced', eventId: event.id };
+    return options.persistResult === false
+      ? { status: 'synced', eventId: event.id, calendarId: context.calendarId }
+      : { status: 'synced', eventId: event.id };
   } catch (error) {
+    if (error instanceof GoogleCalendarDispatchFenceError) {
+      throw error;
+    }
     const message = toErrorMessage(error);
-    await markGoogleConnectionDegraded(input.salonId, message);
-    await recordCalendarSyncResult({
-      appointmentId: input.appointmentId,
-      salonId: input.salonId,
-      status: 'failed',
-      eventId: input.googleCalendarEventId ?? null,
-      error: message,
-    });
+    if (!(error instanceof GoogleCalendarRequestAbortedError)) {
+      await markGoogleConnectionDegraded(input.salonId, message, context, options);
+    }
+    if (options.persistResult !== false) {
+      await recordCalendarSyncResult({
+        appointmentId: input.appointmentId,
+        salonId: input.salonId,
+        status: 'failed',
+        eventId: input.googleCalendarEventId ?? null,
+        error: message,
+      });
+    }
 
-    return { status: 'failed', error: message };
+    return options.persistResult === false
+      ? {
+          status: 'failed',
+          error: message,
+          eventId: input.googleCalendarEventId ?? null,
+          calendarId: context.calendarId,
+          createAttempted,
+        }
+      : { status: 'failed', error: message };
   }
 }
 
@@ -1151,8 +1814,8 @@ export async function deleteGoogleCalendarEventForAppointment(args: {
   appointmentId: string;
   salonId: string;
   googleCalendarEventId?: string | null;
-}): Promise<GoogleCalendarSyncResult> {
-  const context = await getGoogleCalendarRequestContext(args.salonId);
+}, options: GoogleCalendarProviderOptions = {}): Promise<GoogleCalendarSyncResult> {
+  const context = await getGoogleCalendarRequestContext(args.salonId, options);
   if (!context) {
     return { status: 'disabled' };
   }
@@ -1162,6 +1825,9 @@ export async function deleteGoogleCalendarEventForAppointment(args: {
     args.salonId,
     args.appointmentId,
     googleCalendarEventId,
+    options.targetCalendarId,
+    options.reconciliationMirrorId,
+    options.reconciliationExpectedAppointmentId,
   );
   if (!googleCalendarEventId && linkedEvent) {
     googleCalendarEventId = linkedEvent.googleEventId;
@@ -1181,6 +1847,9 @@ export async function deleteGoogleCalendarEventForAppointment(args: {
         args.salonId,
         args.appointmentId,
         googleCalendarEventId,
+        options.targetCalendarId,
+        options.reconciliationMirrorId,
+        options.reconciliationExpectedAppointmentId,
       );
     }
   }
@@ -1188,26 +1857,73 @@ export async function deleteGoogleCalendarEventForAppointment(args: {
     return { status: 'disabled' };
   }
   if (linkedEvent) {
-    if (!canWriteLinkedGoogleEvent(linkedEvent)) {
+    if (
+      !canWriteLinkedGoogleEvent(linkedEvent)
+      && !(
+        options.reconciliationMirrorId === linkedEvent.id
+        && linkedEvent.appointmentId === (options.reconciliationExpectedAppointmentId ?? null)
+        && linkedEvent.reviewStatus === 'appointment'
+        && linkedEvent.syncMode === 'bidirectional'
+        && ['owner', 'writer'].includes(linkedEvent.sourceAccessRole)
+      )
+      && !(
+        options.authoritativeTerminalDelete
+        && linkedEvent.appointmentId === args.appointmentId
+        && linkedEvent.reviewStatus === 'appointment'
+        && linkedEvent.syncMode === 'bidirectional'
+        && ['owner', 'writer'].includes(linkedEvent.sourceAccessRole)
+        && (
+          linkedEvent.deletedAt !== null
+          || linkedEvent.googleStatus === 'cancelled'
+        )
+      )
+    ) {
       return { status: 'disabled' };
     }
     context.calendarId = linkedEvent.calendarId;
   }
+  if (options.targetCalendarId) {
+    context.calendarId = options.targetCalendarId;
+  }
 
   try {
-    try {
-      await googleCalendarFetchWithContext<Record<string, never>>(
+    await runGoogleCalendarMutationDispatch(options, async (requestOptions) => {
+      const existing = await getGoogleCalendarEventForMutation(
         context,
-        `/calendars/${encodeURIComponent(context.calendarId)}/events/${encodeURIComponent(googleCalendarEventId)}?sendUpdates=none`,
-        { method: 'DELETE' },
+        googleCalendarEventId,
+        requestOptions,
       );
-    } catch (error) {
-      if (!(error instanceof GoogleCalendarApiError) || error.status !== 404) {
-        throw error;
+      if (!existing) {
+        return;
       }
-    }
+      if (
+        options.mutationVersion
+        && remoteMutationVersion(existing)
+        && remoteMutationVersion(existing)! > options.mutationVersion
+      ) {
+        throw new GoogleCalendarApiError(
+          409,
+          'Google Calendar event is newer than the requested deletion',
+        );
+      }
+      if (!existing.etag) {
+        throw new GoogleCalendarApiError(409, 'Google Calendar event did not include an ETag');
+      }
+      try {
+        await googleCalendarFetchWithContext<Record<string, never>>(
+          context,
+          `/calendars/${encodeURIComponent(context.calendarId)}/events/${encodeURIComponent(googleCalendarEventId)}?sendUpdates=none`,
+          { method: 'DELETE', headers: { 'If-Match': existing.etag } },
+          requestOptions,
+        );
+      } catch (error) {
+        if (!(error instanceof GoogleCalendarApiError) || error.status !== 404) {
+          throw error;
+        }
+      }
+    });
 
-    if (linkedEvent) {
+    if (linkedEvent && options.persistResult !== false) {
       const deletedAt = new Date();
       await db
         .update(googleCalendarEventSchema)
@@ -1222,26 +1938,44 @@ export async function deleteGoogleCalendarEventForAppointment(args: {
         ));
     }
 
-    await recordCalendarSyncResult({
-      appointmentId: args.appointmentId,
-      salonId: args.salonId,
-      status: 'deleted',
-      eventId: null,
-      error: null,
-    });
+    if (options.persistResult !== false) {
+      await recordCalendarSyncResult({
+        appointmentId: args.appointmentId,
+        salonId: args.salonId,
+        status: 'deleted',
+        eventId: null,
+        error: null,
+      });
+    }
 
-    return { status: 'deleted' };
+    return options.persistResult === false
+      ? { status: 'deleted', eventId: googleCalendarEventId, calendarId: context.calendarId }
+      : { status: 'deleted' };
   } catch (error) {
+    if (error instanceof GoogleCalendarDispatchFenceError) {
+      throw error;
+    }
     const message = toErrorMessage(error);
-    await markGoogleConnectionDegraded(args.salonId, message);
-    await recordCalendarSyncResult({
-      appointmentId: args.appointmentId,
-      salonId: args.salonId,
-      status: 'failed',
-      eventId: googleCalendarEventId,
-      error: message,
-    });
+    if (!(error instanceof GoogleCalendarRequestAbortedError)) {
+      await markGoogleConnectionDegraded(args.salonId, message, context, options);
+    }
+    if (options.persistResult !== false) {
+      await recordCalendarSyncResult({
+        appointmentId: args.appointmentId,
+        salonId: args.salonId,
+        status: 'failed',
+        eventId: googleCalendarEventId,
+        error: message,
+      });
+    }
 
-    return { status: 'failed', error: message };
+    return options.persistResult === false
+      ? {
+          status: 'failed',
+          error: message,
+          eventId: googleCalendarEventId,
+          calendarId: context.calendarId,
+        }
+      : { status: 'failed', error: message };
   }
 }
