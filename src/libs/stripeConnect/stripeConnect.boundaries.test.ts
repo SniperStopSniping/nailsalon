@@ -153,6 +153,14 @@ describe('test 31 — module boundaries', () => {
       path.join(ROOT, 'src/libs/deposits/depositOutboxHandlers.ts'),
       path.join(ROOT, 'src/libs/deposits/depositWebhookEvents.ts'),
       path.join(ROOT, 'src/libs/deposits/lateDepositRecovery.ts'),
+      // D6: admin read/mutation surfaces, refund lifecycle and money guards,
+      // plus the purge predicate's deposit-state exclusions.
+      path.join(ROOT, 'src/app/api/admin/appointments/[id]/deposit/route.ts'),
+      path.join(ROOT, 'src/app/api/admin/deposits/route.ts'),
+      path.join(ROOT, 'src/libs/deposits/depositLifecycle.ts'),
+      path.join(ROOT, 'src/libs/deposits/depositMoneyGuard.ts'),
+      path.join(ROOT, 'src/libs/deposits/depositRefund.ts'),
+      path.join(ROOT, 'src/libs/salonPurge.ts'),
     ].sort());
   });
 

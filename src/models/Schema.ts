@@ -2764,6 +2764,17 @@ export type AutopostPlatform = (typeof AUTOPOST_PLATFORMS)[number];
 // STEP 16A - APPOINTMENT AUDIT LOG
 // =============================================================================
 
+export const DEPOSIT_AUDIT_ACTIONS = [
+  'deposit_refund_requested',
+  'deposit_refund_retried',
+  'deposit_refund_updated',
+  'deposit_refund_succeeded',
+  'deposit_refund_failed',
+  'deposit_external_refund_observed',
+  'deposit_waived',
+  'deposit_hold_released',
+] as const;
+
 export const APPOINTMENT_AUDIT_ACTIONS = [
   'created',
   'status_changed',
@@ -2789,6 +2800,8 @@ export const APPOINTMENT_AUDIT_ACTIONS = [
   'photo_uploaded',
   'photo_removed',
   'reopened',
+  // Deposit refund and waiver lifecycle (D6).
+  ...DEPOSIT_AUDIT_ACTIONS,
 ] as const;
 export type AppointmentAuditAction = (typeof APPOINTMENT_AUDIT_ACTIONS)[number];
 
@@ -3055,6 +3068,10 @@ export const AUDIT_LOG_ACTIONS = [
   'deposit_payment_confirmed',
   'deposit_refunded',
   'deposit_hold_restored',
+  // Deposit refund/waiver operations and sensitive payment-health reads (D6).
+  ...DEPOSIT_AUDIT_ACTIONS,
+  'payment_health_viewed',
+  'deposit_records_viewed',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 
@@ -3136,11 +3153,12 @@ export type FraudSignal = typeof fraudSignalSchema.$inferSelect;
 export type NewFraudSignal = typeof fraudSignalSchema.$inferInsert;
 
 // =============================================================================
-// DEPOSITS FOUNDATION (migration 0065) — D2 mapping
+// DEPOSITS FOUNDATION (migrations 0065 and 0067)
 // =============================================================================
-// These three tables are created by `migrations/0065_deposits_foundation.sql`.
-// D2 authors no migration; this mapping mirrors 0065 column-for-column and is
-// proved by the set-equality census in
+// These three tables are created by `migrations/0065_deposits_foundation.sql`;
+// migration 0067 extends appointment_deposit with the D6 refund/waiver state.
+// This mapping mirrors the landed DDL column-for-column and is proved by the
+// set-equality census in
 // `src/models/depositsSchema.integration.test.ts` (test 1).
 //
 // Write boundary as of D2:
@@ -3265,6 +3283,37 @@ export const appointmentDepositSchema = pgTable(
       .notNull(),
     // Begins at ONE, not zero, so first-attempt idempotency keys stay stable.
     refundKeyEpoch: integer('refund_key_epoch').default(1).notNull(),
+    refundStatus: text('refund_status'),
+    refundStatusChangedAt: timestamp('refund_status_changed_at', {
+      mode: 'date',
+      withTimezone: true,
+    }),
+    refundAmountCents: integer('refund_amount_cents'),
+    priorRefundIds: text('prior_refund_ids').array().default([]).notNull(),
+    refundReconcileAttempts: integer('refund_reconcile_attempts').default(0).notNull(),
+    refundReconcileClaimedAt: timestamp('refund_reconcile_claimed_at', {
+      mode: 'date',
+      withTimezone: true,
+    }),
+    refundRequestedAt: timestamp('refund_requested_at', {
+      mode: 'date',
+      withTimezone: true,
+    }),
+    refundRequestedBy: text('refund_requested_by'),
+    refundRequestedByRole: text('refund_requested_by_role'),
+    refundTrigger: text('refund_trigger')
+      .$type<'owner' | 'system_late_payment' | 'external'>(),
+    refundRequestedEnv: text('refund_requested_env'),
+    refundLastErrorCode: text('refund_last_error_code'),
+    refundFailureReason: text('refund_failure_reason'),
+    externalRefundObservedCents: integer('external_refund_observed_cents'),
+    refundConflictFlag: boolean('refund_conflict_flag').default(false).notNull(),
+    refundRequestedImpersonated: boolean('refund_requested_impersonated')
+      .default(false)
+      .notNull(),
+    waivedAt: timestamp('waived_at', { mode: 'date', withTimezone: true }),
+    waivedBy: text('waived_by'),
+    waiverReason: text('waiver_reason'),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
       .defaultNow()
       .notNull(),

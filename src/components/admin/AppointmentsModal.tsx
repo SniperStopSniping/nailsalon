@@ -3,6 +3,7 @@
 import { Plus } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { DepositPanel } from '@/components/admin/DepositPanel';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import {
   AppointmentsDayView,
@@ -251,6 +252,9 @@ export function AppointmentsModal({
         onViewReceipt={actions.openReceipt}
         onRetryLoad={() => void actions.refreshDetail()}
         onReminderSent={() => actions.refreshDetail()}
+        adminDepositPanelSlot={actions.selectedAppointmentId
+          ? <DepositPanel appointmentId={actions.selectedAppointmentId} salonSlug={salonSlug} />
+          : null}
         onRebook={() => {
           const prefill = actions.buildRebookPrefill();
           if (!prefill) {

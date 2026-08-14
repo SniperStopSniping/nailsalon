@@ -1090,7 +1090,16 @@ async function seedExistingAppointment(args: {
 }
 
 /** Attach a deposit row to a seeded appointment. */
-async function seedDepositFor(appointmentId: string, status: string): Promise<string> {
+async function seedDepositFor(
+  appointmentId: string,
+  status: string,
+  refund: {
+    stripePaymentIntentId?: string | null;
+    refundStatus?: string | null;
+    refundedAt?: Date | null;
+    refundStatusChangedAt?: Date | null;
+  } = {},
+): Promise<string> {
   counter += 1;
   const depositId = `dep_seed_${counter}`;
   await db.insert(schema.appointmentDepositSchema).values({
@@ -1101,6 +1110,7 @@ async function seedDepositFor(appointmentId: string, status: string): Promise<st
     amountCents: 2500,
     currency: 'cad',
     stripeAccountId: 'acct_live',
+    ...refund,
   });
   return depositId;
 }
@@ -1194,9 +1204,34 @@ describe('5 — non-goal exclusions', () => {
  */
 describe('6 — the reschedule fence', () => {
   it.each([
-    ['checkout_created'],
-    ['paid'],
-  ])('a non-terminal deposit (%s) on the original -> 409, nothing moves', async (depositStatus) => {
+    { label: 'paid', status: 'paid', refund: {} },
+    {
+      label: 'refunded after a failed refund',
+      status: 'refunded',
+      refund: {
+        refundStatus: 'failed',
+        refundStatusChangedAt: new Date(),
+      },
+    },
+    {
+      label: 'recently refunded inside the 30-day window',
+      status: 'refunded',
+      refund: {
+        refundStatus: 'succeeded',
+        refundedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+        refundStatusChangedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
+      },
+    },
+    {
+      label: 'waived after a payment landed and refund failed',
+      status: 'waived',
+      refund: {
+        stripePaymentIntentId: 'pi_waived_failed',
+        refundStatus: 'failed',
+        refundStatusChangedAt: new Date(),
+      },
+    },
+  ] as const)('$label on the original -> 409, nothing moves', async ({ status, refund }) => {
     seedPolicy(ACTIVE_POLICY);
     const phone = freshPhone();
     const original = await seedExistingAppointment({
@@ -1204,7 +1239,7 @@ describe('6 — the reschedule fence', () => {
       startTime: at(futureDate(62), '09:00'),
       endTime: at(futureDate(62), '10:00'),
     });
-    const depositId = await seedDepositFor(original, depositStatus);
+    const depositId = await seedDepositFor(original, status, refund);
     setClientSession(phone);
 
     const response = await postBooking({
@@ -1214,7 +1249,7 @@ describe('6 — the reschedule fence', () => {
     const body = await response.json();
 
     expect(response.status).toBe(409);
-    expect(body.error.code).toBe('RESCHEDULE_REQUIRES_MANAGE_FLOW');
+    expect(body.error.code).toBe('DEPOSIT_LOCKED_RESCHEDULE');
 
     // The original is untouched, no replacement row exists, deposit untouched.
     const rows = await appointmentRows();
@@ -1226,7 +1261,43 @@ describe('6 — the reschedule fence', () => {
     const [deposit] = await depositRows();
 
     expect(deposit!.id).toBe(depositId);
-    expect(deposit!.status).toBe(depositStatus);
+    expect(deposit!.status).toBe(status);
+  });
+
+  it.each([
+    ['refund outside the 30-day window', 'refunded', {
+      refundStatus: 'succeeded',
+      refundedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
+      refundStatusChangedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
+    }],
+    ['waiver refunded outside the 30-day window', 'waived', {
+      stripePaymentIntentId: 'pi_waived_settled',
+      refundStatus: 'succeeded',
+      refundedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
+      refundStatusChangedAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000),
+    }],
+  ] as const)('allows a reschedule for a settled %s', async (_label, status, refund) => {
+    seedPolicy(ACTIVE_POLICY);
+    const phone = freshPhone();
+    const original = await seedExistingAppointment({
+      phone,
+      startTime: at(futureDate(64), '09:00'),
+      endTime: at(futureDate(64), '10:00'),
+    });
+    await seedDepositFor(original, status, refund);
+    setClientSession(phone);
+
+    const response = await postBooking({
+      startTime: at(futureDate(64), '15:00').toISOString(),
+      originalAppointmentId: original,
+    });
+
+    expect(response.status).toBe(201);
+
+    const rows = await appointmentRows();
+
+    expect(rows.find(row => row.id === original)?.status).toBe('cancelled');
+    expect(rows).toHaveLength(2);
   });
 
   it('CONTROL: the same reschedule with no deposit row succeeds exactly as today', async () => {

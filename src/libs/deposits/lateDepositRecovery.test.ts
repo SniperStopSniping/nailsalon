@@ -62,8 +62,8 @@ import {
   DEPOSIT_STRIPE_CALL_TIMEOUT_MS,
   deriveRefundIntentIdentity,
   resolveAllowedSourceStatuses,
-  runLateDepositRecovery,
-} from './lateDepositRecovery';
+} from './depositRefund';
+import { runLateDepositRecovery } from './lateDepositRecovery';
 /* eslint-enable import/first */
 
 const SALON = 'salon_recovery';
@@ -166,6 +166,14 @@ beforeEach(async () => {
     name: 'Recovery Salon',
     slug: 'recovery-salon',
     ownerEmail: 'owner@example.com',
+  });
+  // D6's provider-target preflight requires the deposit snapshot to remain
+  // attributable to this salon before any Stripe call is made.
+  await db.insert(schema.salonStripeAccountSchema).values({
+    id: 'ssa_recovery',
+    salonId: SALON,
+    stripeAccountId: ACCOUNT,
+    livemode: false,
   });
 
   await db.insert(schema.salonClientSchema).values({
@@ -368,7 +376,13 @@ describe('refund core', () => {
     await runLateDepositRecovery({ depositId: seeded.depositId, salonId: SALON });
 
     expect(stripeMock.refunds.create).toHaveBeenCalledWith(
-      { payment_intent: 'pi_r' },
+      expect.objectContaining({
+        payment_intent: 'pi_r',
+        metadata: {
+          luster_deposit_id: seeded.depositId,
+          luster_key_epoch: '1',
+        },
+      }),
       expect.objectContaining({
         stripeAccount: ACCOUNT,
         timeout: DEPOSIT_STRIPE_CALL_TIMEOUT_MS,
@@ -419,14 +433,21 @@ describe('refund core', () => {
     expect(stripeMock.refunds.create).not.toHaveBeenCalled();
   });
 
-  it('does NOT adopt a partial refund on the same payment intent', async () => {
-    // A salon's own CA$5 goodwill refund must never discharge a CA$25 deposit.
+  it('does NOT adopt or top up a partial refund on the same payment intent', async () => {
+    // A salon's own CA$5 goodwill refund closes Luster's action. Creating the
+    // default full refund here would attempt CA$25 on top of the CA$5 already
+    // returned, rather than refunding only the remainder.
     stripeMock.refunds.list.mockResolvedValue({ data: [refund({ id: 'ref_partial', amount: 500 })] });
     const seeded = await seedDeposit({ status: 'canceled' });
 
-    await runLateDepositRecovery({ depositId: seeded.depositId, salonId: SALON });
+    const result = await runLateDepositRecovery({ depositId: seeded.depositId, salonId: SALON });
 
-    expect(stripeMock.refunds.create).toHaveBeenCalled();
+    expect(result).toMatchObject({
+      disposition: 'noop',
+      note: 'DEPOSIT_PARTIALLY_REFUNDED_EXTERNALLY',
+    });
+    expect(stripeMock.refunds.create).not.toHaveBeenCalled();
+    expect((await readDeposit(seeded.depositId))?.externalRefundObservedCents).toBe(500);
   });
 
   it('does NOT adopt a refund in a different currency', async () => {
@@ -527,7 +548,7 @@ describe('refund core', () => {
     expect((await readDeposit(seeded.depositId))?.refundedAt?.getTime()).toBe(firstStamp?.getTime());
   });
 
-  it('writes one audit row and enqueues the notices INSIDE the refund transaction', async () => {
+  it('audits intent and settlement and enqueues notices INSIDE the refund transaction', async () => {
     const seeded = await seedDeposit({ status: 'canceled' });
 
     await runLateDepositRecovery({ depositId: seeded.depositId, salonId: SALON });
@@ -535,8 +556,18 @@ describe('refund core', () => {
     const audits = await db.select().from(schema.appointmentAuditLogSchema)
       .where(eq(schema.appointmentAuditLogSchema.appointmentId, seeded.appointmentId));
 
-    expect(audits).toHaveLength(1);
-    expect(audits[0]?.reason).toBe('deposit_refunded');
+    expect(audits).toHaveLength(2);
+    expect(audits.map(row => ({ action: row.action, reason: row.reason })))
+      .toEqual(expect.arrayContaining([
+        {
+          action: 'deposit_refund_requested',
+          reason: 'system_late_payment',
+        },
+        {
+          action: 'deposit_refund_succeeded',
+          reason: 'luster_recovered',
+        },
+      ]));
 
     const jobs = await db.select().from(schema.integrationOutboxSchema)
       .where(eq(schema.integrationOutboxSchema.operation, 'deposit_refund_notices'));
@@ -556,7 +587,13 @@ describe('refund core', () => {
       expect.objectContaining({ stripeAccount: ACCOUNT, timeout: DEPOSIT_STRIPE_CALL_TIMEOUT_MS }),
     );
     expect(stripeMock.refunds.create).toHaveBeenCalledWith(
-      { payment_intent: 'pi_from_session' },
+      expect.objectContaining({
+        payment_intent: 'pi_from_session',
+        metadata: {
+          luster_deposit_id: seeded.depositId,
+          luster_key_epoch: '1',
+        },
+      }),
       expect.anything(),
     );
   });

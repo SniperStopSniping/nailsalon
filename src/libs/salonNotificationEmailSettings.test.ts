@@ -15,6 +15,8 @@ describe('resolveSalonEmailNotificationSettings', () => {
       newBooking: true,
       rescheduled: true,
       cancelled: true,
+      refundFailed: true,
+      refundAccountDisconnected: true,
       recipientEmail: null,
     });
   });
@@ -45,6 +47,8 @@ describe('resolveSalonEmailNotificationSettings', () => {
       newBooking: true,
       rescheduled: true,
       cancelled: true,
+      refundFailed: true,
+      refundAccountDisconnected: true,
       recipientEmail: null,
     });
   });
@@ -84,6 +88,8 @@ describe('mergeSalonEmailNotificationSettings', () => {
       newBooking: true,
       rescheduled: false,
       cancelled: false,
+      refundFailed: true,
+      refundAccountDisconnected: true,
       recipientEmail: 'alerts@example.com',
     });
   });

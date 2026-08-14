@@ -91,6 +91,51 @@ const baseDetail: AppointmentManageDetail = {
 };
 
 describe('AppointmentQuickEditSheet', () => {
+  it('does not expose D6 deposit controls on the default staff surface', () => {
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    for (const name of ['Refund', 'Retry', 'Waive', 'Release']) {
+      expect(screen.queryByRole('button', { name })).not.toBeInTheDocument();
+    }
+
+    expect(screen.queryByTestId('admin-deposit-panel')).not.toBeInTheDocument();
+  });
+
+  it('renders an admin extension only when its optional slot is supplied', () => {
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+        adminDepositPanelSlot={<div data-testid="admin-deposit-panel">Admin deposit controls</div>}
+      />,
+    );
+
+    expect(screen.getByTestId('admin-deposit-panel')).toBeInTheDocument();
+  });
+
   it('keeps one bounded mobile scroll region between a fixed header and footer', () => {
     render(
       <AppointmentQuickEditSheet

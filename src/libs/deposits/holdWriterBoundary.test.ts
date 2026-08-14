@@ -111,7 +111,7 @@ describe('the deposit hold-writer module boundary (§14 test 21, closing leg)', 
     expect(appointmentUpdateChains(code).some(movesAHold)).toBe(false);
   });
 
-  it('the boundary\'s writers are all status-guarded and transactional', () => {
+  it('the boundary\'s writers are all status-guarded and use depositsTransaction', () => {
     const writerSources = walk(BOUNDARY)
       .filter(file => !isTestFile(file))
       .map(file => readFileSync(file, 'utf8'))
@@ -122,10 +122,74 @@ describe('the deposit hold-writer module boundary (§14 test 21, closing leg)', 
       // statements would leave a permanently non-terminal deposit row attached
       // to a cancelled appointment that no sweep could ever find, because every
       // eligibility scan keys on the APPOINTMENT status.
-      expect(source).toContain('db.transaction');
+      expect(source).toContain('depositsTransaction(');
       // The deposit CAS is guarded on 'checkout_created', so a deposit that has
       // become 'paid' is never overwritten.
       expect(source).toContain('\'checkout_created\'');
     }
+  });
+
+  it('no runtime file bypasses depositsTransaction with a bare db.transaction call', () => {
+    const offenders = walk(BOUNDARY)
+      .filter(file => !isTestFile(file))
+      .filter(file => path.basename(file) !== 'depositsTransaction.ts')
+      .filter((file) => {
+        const code = codeOnly(readFileSync(file, 'utf8'));
+        return /\bdb\s*\.\s*transaction\s*\(/.test(code);
+      })
+      .map(file => path.relative(ROOT, file).split(path.sep).join('/'));
+
+    expect(offenders).toEqual([]);
+  });
+
+  it('transaction openers and Stripe importers are exact and disjoint', () => {
+    const runtimeFiles = walk(BOUNDARY).filter(file => !isTestFile(file));
+    const normalize = (file: string) => path.relative(ROOT, file).split(path.sep).join('/');
+    const transactionOpeners = runtimeFiles
+      .filter(file => /\bdepositsTransaction\s*\(/.test(codeOnly(readFileSync(file, 'utf8'))))
+      .map(normalize)
+      .sort();
+    const stripeImporters = runtimeFiles
+      .filter(file => /\bfrom\s+['"]@\/libs\/stripe['"]/.test(codeOnly(readFileSync(file, 'utf8'))))
+      .map(normalize)
+      .sort();
+
+    expect(transactionOpeners).toEqual([
+      'src/libs/deposits/confirmDepositPayment.ts',
+      'src/libs/deposits/depositLifecycle.ts',
+      'src/libs/deposits/holdWriters.ts',
+      'src/libs/deposits/lateDepositRecovery.ts',
+    ]);
+    expect(stripeImporters).toEqual([
+      'src/libs/deposits/depositRefund.ts',
+    ]);
+    expect(transactionOpeners.filter(file => stripeImporters.includes(file))).toEqual([]);
+  });
+
+  it('the retry wrapper remains limited to the exact approved-base recovery use', () => {
+    const symbol = 'withClientLifecycleTransactionRetry';
+    const runtimeFiles = walk(BOUNDARY).filter(file => !isTestFile(file));
+    const normalize = (file: string) => path.relative(ROOT, file).split(path.sep).join('/');
+    const referenceFiles = runtimeFiles
+      .filter(file => readFileSync(file, 'utf8').includes(symbol))
+      .map(normalize)
+      .sort();
+    const grandfatheredPath = 'src/libs/deposits/lateDepositRecovery.ts';
+    const grandfatheredSource = readFileSync(path.join(ROOT, grandfatheredPath), 'utf8');
+
+    expect(referenceFiles).toEqual([grandfatheredPath]);
+    expect(referenceFiles.filter(file => file !== grandfatheredPath)).toEqual([]);
+    expect(grandfatheredSource.match(/^\s*withClientLifecycleTransactionRetry,\s*$/gm) ?? [])
+      .toHaveLength(1);
+    expect(grandfatheredSource.match(/\bwithClientLifecycleTransactionRetry\s*\(/g) ?? [])
+      .toHaveLength(1);
+    expect(grandfatheredSource).toContain(
+      'async function restoreReleasedHold(deposit: DepositRow): Promise<boolean> {\n'
+      + '  return withClientLifecycleTransactionRetry(async () =>\n'
+      + '    depositsTransaction(',
+    );
+    expect(readFileSync(path.join(BOUNDARY, 'depositLifecycle.ts'), 'utf8')).not.toContain(symbol);
+    expect(readFileSync(path.join(BOUNDARY, 'depositRefund.ts'), 'utf8')).not.toContain(symbol);
+    expect(readFileSync(path.join(BOUNDARY, 'depositMoneyGuard.ts'), 'utf8')).not.toContain(symbol);
   });
 });

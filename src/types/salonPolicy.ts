@@ -475,14 +475,18 @@ export type SalonSettings = {
       technicianChannel?: 'sms' | 'email' | 'both';
       ownerChannel?: 'sms' | 'email' | 'both';
     };
-    // Salon-facing appointment emails (new booking / reschedule / cancellation).
-    // Separate from the client-facing confirmation and reminder settings, and
-    // the only place salon email alerts are configured. Canonical zod shape
-    // lives in src/libs/salonNotificationEmailSettings.ts.
+    // Salon-facing appointment emails plus D6's two deposit money alerts.
+    // Separate from the client-facing confirmation and reminder settings.
+    // Canonical zod shape lives in salonNotificationEmailSettings.ts; only the
+    // booking alerts and recipient are owner-editable in v1.
     salonEmail?: {
       newBooking?: boolean;
       rescheduled?: boolean;
       cancelled?: boolean;
+      // Money alerts default on and are intentionally absent from the owner
+      // update schema in salonNotificationEmailSettings.ts.
+      refundFailed?: boolean;
+      refundAccountDisconnected?: boolean;
       // null/absent = fall back to the owner email, then the account email.
       recipientEmail?: string | null;
     };

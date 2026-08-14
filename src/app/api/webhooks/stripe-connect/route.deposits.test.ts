@@ -90,6 +90,20 @@ function sessionPayload(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function refundPayload(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 're_dep_1',
+    object: 'refund',
+    amount: AMOUNT,
+    currency: 'cad',
+    status: 'pending',
+    payment_intent: 'pi_dep_refund',
+    failure_reason: null,
+    metadata: {},
+    ...overrides,
+  };
+}
+
 function makeEvent(overrides: Record<string, unknown> = {}) {
   seq += 1;
   return {
@@ -184,6 +198,37 @@ async function readDeposit(id: string) {
   const [row] = await db.select().from(schema.appointmentDepositSchema)
     .where(eq(schema.appointmentDepositSchema.id, id));
   return row;
+}
+
+async function primeRefundDeposit(input: {
+  paymentIntentId?: string;
+  sessionId?: string;
+  refundId?: string | null;
+  refundStatus?: 'requested' | 'pending' | 'succeeded' | 'failed' | null;
+  depositStatus?: string;
+  trigger?: 'owner' | 'system_late_payment' | 'external' | null;
+} = {}) {
+  const refundStatus = input.refundStatus === undefined ? 'requested' : input.refundStatus;
+  const hold = await seedHold({
+    depositStatus: input.depositStatus ?? 'paid',
+    appointmentStatus: 'confirmed',
+    ...(input.sessionId ? { sessionId: input.sessionId } : {}),
+  });
+  await db
+    .update(schema.appointmentDepositSchema)
+    .set({
+      stripePaymentIntentId: input.paymentIntentId ?? 'pi_dep_refund',
+      stripeRefundId: input.refundId ?? null,
+      refundStatus,
+      refundStatusChangedAt: refundStatus === null ? null : new Date(),
+      refundTrigger: input.trigger === undefined ? 'owner' : input.trigger,
+      refundRequestedAt: new Date(),
+      refundRequestedBy: 'owner_webhook_test',
+      refundRequestedByRole: 'admin',
+      refundRequestedEnv: 'test',
+    })
+    .where(eq(schema.appointmentDepositSchema.id, hold.depositId));
+  return hold;
 }
 
 beforeAll(async () => {
@@ -507,6 +552,386 @@ describe('terminals', () => {
 
     expect(redelivery.status).toBe(200);
     expect(rows).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// REFUND EVENT STATE MACHINE
+// ===========================================================================
+
+describe('refund event dispatch', () => {
+  it('routes refund.created through the state machine and preserves owner attribution', async () => {
+    await seedBinding();
+    const hold = await primeRefundDeposit();
+    const event = makeEvent({
+      type: 'refund.created',
+      data: {
+        object: refundPayload({
+          id: 're_created',
+          metadata: { luster_deposit_id: hold.depositId },
+        }),
+      },
+    });
+
+    const response = await POST(signedRequest(event));
+    const deposit = await readDeposit(hold.depositId);
+    const storedEvent = await readEvent(event.id);
+
+    expect(response.status).toBe(200);
+    expect(storedEvent?.status).toBe('processed');
+    expect(storedEvent?.outcome).toBe('refunded');
+    expect(storedEvent?.paymentIntentId).toBe('pi_dep_refund');
+    expect(deposit?.stripeRefundId).toBe('re_created');
+    expect(deposit?.refundStatus).toBe('pending');
+    expect(deposit?.status).toBe('refunded');
+    expect(deposit?.refundTrigger).toBe('owner');
+    expect(deposit?.priorRefundIds).toEqual([]);
+    expect(stripeMock.refundsCreate).not.toHaveBeenCalled();
+    expect(stripeMock.refundsList).not.toHaveBeenCalled();
+  });
+
+  it('routes refund.updated through the state machine to succeeded', async () => {
+    await seedBinding();
+    const hold = await primeRefundDeposit({
+      refundId: 're_updated',
+      refundStatus: 'pending',
+      depositStatus: 'refunded',
+      trigger: 'external',
+    });
+    const event = makeEvent({
+      type: 'refund.updated',
+      data: {
+        object: refundPayload({ id: 're_updated', status: 'succeeded' }),
+      },
+    });
+
+    const response = await POST(signedRequest(event));
+    const deposit = await readDeposit(hold.depositId);
+    const storedEvent = await readEvent(event.id);
+
+    expect(response.status).toBe(200);
+    expect(storedEvent?.outcome).toBe('refunded');
+    expect(storedEvent?.paymentIntentId).toBe('pi_dep_refund');
+    expect(deposit?.stripeRefundId).toBe('re_updated');
+    expect(deposit?.refundStatus).toBe('succeeded');
+    expect(deposit?.status).toBe('refunded');
+    expect(sentry.captureMessage).not.toHaveBeenCalledWith(
+      'deposit_refund_failed_unreconciled',
+      expect.anything(),
+    );
+  });
+
+  it('routes refund.failed through the state machine and proves succeeded is not absorbing', async () => {
+    await seedBinding();
+    const hold = await primeRefundDeposit({
+      refundId: 're_failed',
+      refundStatus: 'succeeded',
+      depositStatus: 'refunded',
+      trigger: 'external',
+    });
+    const event = makeEvent({
+      type: 'refund.failed',
+      data: {
+        object: refundPayload({
+          id: 're_failed',
+          status: 'failed',
+          failure_reason: 'declined',
+        }),
+      },
+    });
+
+    const response = await POST(signedRequest(event));
+    const deposit = await readDeposit(hold.depositId);
+    const storedEvent = await readEvent(event.id);
+
+    expect(response.status).toBe(200);
+    expect(storedEvent?.outcome).toBe('refunded');
+    expect(storedEvent?.paymentIntentId).toBe('pi_dep_refund');
+    expect(deposit?.refundStatus).toBe('failed');
+    expect(deposit?.refundFailureReason).toBe('declined');
+    expect(deposit?.status).toBe('refunded');
+    expect(sentry.captureMessage).not.toHaveBeenCalledWith(
+      'deposit_refund_failed_unreconciled',
+      expect.anything(),
+    );
+  });
+
+  it('converges when refund.updated{failed} and refund.failed arrive in either order', async () => {
+    await seedBinding();
+    const first = await primeRefundDeposit({
+      paymentIntentId: 'pi_failure_order_a',
+      sessionId: 'cs_failure_order_a',
+      refundId: 're_failure_order_a',
+      refundStatus: 'pending',
+      depositStatus: 'refunded',
+      trigger: 'external',
+    });
+    const second = await primeRefundDeposit({
+      paymentIntentId: 'pi_failure_order_b',
+      sessionId: 'cs_failure_order_b',
+      refundId: 're_failure_order_b',
+      refundStatus: 'pending',
+      depositStatus: 'refunded',
+      trigger: 'external',
+    });
+
+    const firstUpdated = makeEvent({
+      type: 'refund.updated',
+      data: {
+        object: refundPayload({
+          id: 're_failure_order_a',
+          payment_intent: 'pi_failure_order_a',
+          status: 'failed',
+          failure_reason: 'declined',
+        }),
+      },
+    });
+    const firstFailed = makeEvent({
+      type: 'refund.failed',
+      data: {
+        object: refundPayload({
+          id: 're_failure_order_a',
+          payment_intent: 'pi_failure_order_a',
+          status: 'failed',
+          failure_reason: 'declined',
+        }),
+      },
+    });
+    const secondUpdated = makeEvent({
+      type: 'refund.updated',
+      data: {
+        object: refundPayload({
+          id: 're_failure_order_b',
+          payment_intent: 'pi_failure_order_b',
+          status: 'failed',
+          failure_reason: 'declined',
+        }),
+      },
+    });
+    const secondFailed = makeEvent({
+      type: 'refund.failed',
+      data: {
+        object: refundPayload({
+          id: 're_failure_order_b',
+          payment_intent: 'pi_failure_order_b',
+          status: 'failed',
+          failure_reason: 'declined',
+        }),
+      },
+    });
+
+    for (const event of [firstUpdated, firstFailed, secondFailed, secondUpdated]) {
+      expect((await POST(signedRequest(event))).status).toBe(200);
+      expect((await readEvent(event.id))?.outcome).toBe('refunded');
+    }
+
+    const firstDeposit = await readDeposit(first.depositId);
+    const secondDeposit = await readDeposit(second.depositId);
+
+    expect(firstDeposit?.refundStatus).toBe('failed');
+    expect(secondDeposit?.refundStatus).toBe('failed');
+    expect(firstDeposit?.refundTerminalFailureCount).toBe(1);
+    expect(secondDeposit?.refundTerminalFailureCount).toBe(1);
+    expect(firstDeposit?.priorRefundIds).toEqual([]);
+    expect(secondDeposit?.priorRefundIds).toEqual([]);
+
+    const firstAlerts = await db
+      .select()
+      .from(schema.integrationOutboxSchema)
+      .where(eq(schema.integrationOutboxSchema.appointmentId, first.appointmentId));
+    const secondAlerts = await db
+      .select()
+      .from(schema.integrationOutboxSchema)
+      .where(eq(schema.integrationOutboxSchema.appointmentId, second.appointmentId));
+
+    expect(firstAlerts).toHaveLength(1);
+    expect(secondAlerts).toHaveLength(1);
+    expect(sentry.captureMessage).not.toHaveBeenCalledWith(
+      'deposit_refund_failed_unreconciled',
+      expect.anything(),
+    );
+  });
+
+  it('treats an id-bearing event for a retired refund as a benign no-op without re-binding it', async () => {
+    await seedBinding();
+    const hold = await primeRefundDeposit();
+    await db
+      .update(schema.appointmentDepositSchema)
+      .set({ priorRefundIds: ['re_retired'] })
+      .where(eq(schema.appointmentDepositSchema.id, hold.depositId));
+    const event = makeEvent({
+      type: 'refund.created',
+      data: {
+        object: refundPayload({ id: 're_retired', status: 'succeeded' }),
+      },
+    });
+
+    const response = await POST(signedRequest(event));
+    const deposit = await readDeposit(hold.depositId);
+
+    expect(response.status).toBe(200);
+    expect((await readEvent(event.id))?.outcome).toBe('refunded');
+    expect(deposit?.stripeRefundId).toBeNull();
+    expect(deposit?.refundStatus).toBe('requested');
+    expect(deposit?.status).toBe('paid');
+    expect(deposit?.priorRefundIds).toEqual(['re_retired']);
+    expect(sentry.captureMessage).not.toHaveBeenCalled();
+  });
+
+  it('keeps an unmatched refund ignored_unhandled with no alert', async () => {
+    await seedBinding();
+    const event = makeEvent({
+      type: 'refund.updated',
+      data: {
+        object: refundPayload({
+          id: 're_foreign',
+          payment_intent: 'pi_not_a_luster_deposit',
+          status: 'succeeded',
+        }),
+      },
+    });
+
+    const response = await POST(signedRequest(event));
+    const storedEvent = await readEvent(event.id);
+
+    expect(response.status).toBe(200);
+    expect(storedEvent?.status).toBe('processed');
+    expect(storedEvent?.outcome).toBe('ignored_unhandled');
+    expect(sentry.captureMessage).not.toHaveBeenCalled();
+    expect(sentry.captureException).not.toHaveBeenCalled();
+    expect(stripeMock.refundsCreate).not.toHaveBeenCalled();
+    expect(stripeMock.refundsList).not.toHaveBeenCalled();
+  });
+
+  it('retains the money-dark terminal and emits exactly one alert when a matched event is unappliable', async () => {
+    await seedBinding();
+    const hold = await primeRefundDeposit({
+      refundId: 're_bound',
+      refundStatus: 'pending',
+      depositStatus: 'refunded',
+      trigger: 'external',
+    });
+    const event = makeEvent({
+      type: 'refund.updated',
+      data: {
+        object: refundPayload({ id: 're_other', status: 'succeeded' }),
+      },
+    });
+
+    const response = await POST(signedRequest(event));
+    const storedEvent = await readEvent(event.id);
+    const deposit = await readDeposit(hold.depositId);
+
+    expect(response.status).toBe(200);
+    expect(storedEvent?.status).toBe('processed');
+    expect(storedEvent?.outcome).toBe('refund_failed_unreconciled');
+    expect(storedEvent?.paymentIntentId).toBe('pi_dep_refund');
+    expect(deposit?.stripeRefundId).toBe('re_bound');
+    expect(deposit?.refundStatus).toBe('pending');
+    expect(sentry.captureMessage).toHaveBeenCalledTimes(1);
+    expect(sentry.captureMessage).toHaveBeenCalledWith(
+      'deposit_refund_failed_unreconciled',
+      expect.objectContaining({
+        level: 'error',
+        extra: expect.objectContaining({
+          eventId: event.id,
+          depositId: hold.depositId,
+        }),
+      }),
+    );
+    expect(sentry.captureException).not.toHaveBeenCalled();
+    expect(stripeMock.refundsCreate).not.toHaveBeenCalled();
+    expect(stripeMock.refundsList).not.toHaveBeenCalled();
+    expect(stripeMock.refundsRetrieve).not.toHaveBeenCalled();
+  });
+});
+
+describe('charge.refunded configuration-drift fallback', () => {
+  it('lists to adopt without creating and retains the money-dark terminal when discovery cannot adopt', async () => {
+    await seedBinding();
+    const hold = await primeRefundDeposit({
+      paymentIntentId: 'pi_charge_refunded',
+      refundStatus: null,
+      trigger: null,
+    });
+    stripeMock.refundsList.mockResolvedValue({
+      data: [{
+        id: 're_charge_refunded',
+        object: 'refund',
+        amount: AMOUNT,
+        currency: 'cad',
+        status: 'succeeded',
+        failure_reason: null,
+        metadata: {},
+      }],
+      has_more: false,
+    });
+    const event = makeEvent({
+      type: 'charge.refunded',
+      data: {
+        object: {
+          id: 'ch_refunded',
+          object: 'charge',
+          payment_intent: 'pi_charge_refunded',
+        },
+      },
+    });
+
+    const response = await POST(signedRequest(event));
+    const deposit = await readDeposit(hold.depositId);
+    const storedEvent = await readEvent(event.id);
+
+    expect(response.status).toBe(200);
+    expect(storedEvent?.outcome).toBe('refunded');
+    expect(storedEvent?.paymentIntentId).toBe('pi_charge_refunded');
+    expect(stripeMock.refundsList).toHaveBeenCalledTimes(1);
+    expect(stripeMock.refundsList).toHaveBeenCalledWith(
+      { payment_intent: 'pi_charge_refunded', limit: 100 },
+      { stripeAccount: ACCOUNT_ID, timeout: 10_000 },
+    );
+    expect(stripeMock.refundsRetrieve).not.toHaveBeenCalled();
+    expect(stripeMock.refundsCreate).not.toHaveBeenCalled();
+    expect(deposit?.stripeRefundId).toBe('re_charge_refunded');
+    expect(deposit?.refundStatus).toBe('succeeded');
+    expect(deposit?.status).toBe('refunded');
+    expect(deposit?.refundTrigger).toBe('external');
+
+    const moneyDarkHold = await primeRefundDeposit({
+      paymentIntentId: 'pi_charge_refunded_money_dark',
+      sessionId: 'cs_charge_refunded_money_dark',
+      refundStatus: null,
+      trigger: null,
+    });
+    stripeMock.refundsList.mockResolvedValue({ data: [], has_more: false });
+    const moneyDarkEvent = makeEvent({
+      type: 'charge.refunded',
+      data: {
+        object: {
+          id: 'ch_refunded_money_dark',
+          object: 'charge',
+          payment_intent: 'pi_charge_refunded_money_dark',
+        },
+      },
+    });
+
+    const moneyDarkResponse = await POST(signedRequest(moneyDarkEvent));
+    const moneyDarkStoredEvent = await readEvent(moneyDarkEvent.id);
+    const moneyDarkDeposit = await readDeposit(moneyDarkHold.depositId);
+
+    expect(moneyDarkResponse.status).toBe(200);
+    expect(moneyDarkStoredEvent?.outcome).toBe('refund_failed_unreconciled');
+    expect(moneyDarkStoredEvent?.paymentIntentId).toBe('pi_charge_refunded_money_dark');
+    expect(moneyDarkDeposit?.stripeRefundId).toBeNull();
+    expect(moneyDarkDeposit?.refundStatus).toBeNull();
+    expect(moneyDarkDeposit?.status).toBe('paid');
+    expect(stripeMock.refundsList).toHaveBeenCalledTimes(2);
+    expect(stripeMock.refundsList).toHaveBeenNthCalledWith(
+      2,
+      { payment_intent: 'pi_charge_refunded_money_dark', limit: 100 },
+      { stripeAccount: ACCOUNT_ID, timeout: 10_000 },
+    );
+    expect(stripeMock.refundsRetrieve).not.toHaveBeenCalled();
+    expect(stripeMock.refundsCreate).not.toHaveBeenCalled();
   });
 });
 

@@ -228,9 +228,28 @@ describe('test 1 — mapped tables round-trip and match the landed DDL', () => {
       pollWindowStartedAt: new Date('2026-08-07T00:00:00Z'),
       refundTerminalFailureCount: 1,
       refundKeyEpoch: 2,
+      refundStatus: 'failed',
+      refundStatusChangedAt: new Date('2026-08-08T00:00:00Z'),
+      refundAmountCents: 2500,
+      priorRefundIds: ['re_prior_roundtrip'],
+      refundReconcileAttempts: 2,
+      refundReconcileClaimedAt: new Date('2026-08-08T01:00:00Z'),
+      refundRequestedAt: new Date('2026-08-08T00:30:00Z'),
+      refundRequestedBy: 'admin_roundtrip',
+      refundRequestedByRole: 'admin',
+      refundTrigger: 'owner',
+      refundRequestedEnv: 'test',
+      refundLastErrorCode: 'UNKNOWN_PROVIDER_ERROR',
+      refundFailureReason: 'unknown',
+      externalRefundObservedCents: 500,
+      refundConflictFlag: true,
+      refundRequestedImpersonated: true,
+      waivedAt: new Date('2026-08-08T02:00:00Z'),
+      waivedBy: 'admin_roundtrip',
+      waiverReason: 'round-trip fixture',
       createdAt: new Date('2026-08-01T00:00:00Z'),
       updatedAt: new Date('2026-08-01T00:00:00Z'),
-    };
+    } satisfies typeof schema.appointmentDepositSchema.$inferInsert;
 
     await db.insert(schema.appointmentDepositSchema).values(row);
     const [stored] = await db

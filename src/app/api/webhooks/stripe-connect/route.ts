@@ -17,13 +17,20 @@
  * chain. Payload metadata is never an authority.
  */
 import * as Sentry from '@sentry/nextjs';
+import { and, eq } from 'drizzle-orm';
 import type { NextRequest } from 'next/server';
 import type Stripe from 'stripe';
 
+import { db } from '@/libs/DB';
 import type { ConfirmDisposition } from '@/libs/deposits/confirmDepositPayment';
 import { confirmDepositPayment } from '@/libs/deposits/confirmDepositPayment';
 import {
+  applyRefundEvent,
+} from '@/libs/deposits/depositLifecycle';
+import { discoverAndAdoptDepositRefunds } from '@/libs/deposits/depositRefund';
+import {
   evaluateProvenance,
+  getBindingSalonIds,
   isOverAdmissionCap,
   projectStripeEvent,
 } from '@/libs/deposits/depositWebhookEvents';
@@ -50,6 +57,7 @@ import {
   UNBOUND_MAX_ATTEMPTS,
   unboundBackoffMs,
 } from '@/libs/stripeConnect/webhookEvents';
+import { appointmentDepositSchema } from '@/models/Schema';
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -76,15 +84,18 @@ function retryLater(): Response {
 type Claim = { id: string; attempts: number };
 
 /**
- * `refund.failed` / `refund.updated` postdate the pinned SDK's event union, so
+ * The refund event strings postdate the pinned SDK's event union, so
  * they are matched as strings rather than through it. The pin is deliberate:
  * a webhook endpoint's `api_version` is fixed at creation and not updatable.
  */
 const REFUND_FAILED_EVENT = 'refund.failed';
 const REFUND_UPDATED_EVENT = 'refund.updated';
+const REFUND_CREATED_EVENT = 'refund.created';
 
 function isRefundEventType(type: string): boolean {
-  return type === REFUND_FAILED_EVENT || type === REFUND_UPDATED_EVENT;
+  return type === REFUND_CREATED_EVENT
+    || type === REFUND_FAILED_EVENT
+    || type === REFUND_UPDATED_EVENT;
 }
 
 export async function POST(request: NextRequest) {
@@ -125,6 +136,52 @@ export async function POST(request: NextRequest) {
     return new Response('Signature verification failed', { status: 400 });
   }
 
+  const projection = (() => {
+    if (isRefundEventType(event.type)) {
+      const refund = event.data.object as Stripe.Refund;
+      const paymentIntentId = typeof refund.payment_intent === 'string'
+        ? refund.payment_intent
+        : refund.payment_intent?.id ?? null;
+      return {
+        sessionId: null,
+        paymentIntentId,
+        paymentStatus: null,
+        amountTotal: null,
+        currency: null,
+        metadataAppointmentId: null,
+        metadataSalonId: null,
+        metadataDepositId: null,
+        clientReferenceId: null,
+        projectionStatus: 'ok' as const,
+        rawPayload: null,
+        payloadPurgeAfter: null,
+      };
+    }
+
+    if (event.type === 'charge.refunded') {
+      const charge = event.data.object as Stripe.Charge;
+      const paymentIntentId = typeof charge.payment_intent === 'string'
+        ? charge.payment_intent
+        : charge.payment_intent?.id ?? null;
+      return {
+        sessionId: null,
+        paymentIntentId,
+        paymentStatus: null,
+        amountTotal: null,
+        currency: null,
+        metadataAppointmentId: null,
+        metadataSalonId: null,
+        metadataDepositId: null,
+        clientReferenceId: null,
+        projectionStatus: 'ok' as const,
+        rawPayload: null,
+        payloadPurgeAfter: null,
+      };
+    }
+
+    return projectStripeEvent(event, new Date());
+  })();
+
   // 4. Fused claim. The row is born CLAIMED, so "recorded before any state
   //    mutation" holds literally on every path below.
   const claimResult = await claimWebhookEvent({
@@ -132,10 +189,10 @@ export async function POST(request: NextRequest) {
     type: event.type,
     account: event.account ?? null,
     livemode: event.livemode,
-    // TYPE-SCOPED and total by construction: `account.*` deliveries store a
-    // NULL projection and never a payload, `checkout.session.*` and `luster.*`
-    // store the normalized columns the deposit processors read.
-    projection: projectStripeEvent(event, new Date()),
+    // TYPE-SCOPED and total by construction: refund terminals retain only the
+    // PaymentIntent needed by health reconciliation; all other event families
+    // retain the existing normalized projection behavior.
+    projection,
   });
 
   let claim: Claim;
@@ -294,6 +351,12 @@ async function dispatch(
     return handleRefundEvent(event, claim);
   }
 
+  // Not selected on the canonical endpoint. Keep the route total if endpoint
+  // configuration drifts, and keep this path structurally list-only.
+  if (event.type === 'charge.refunded') {
+    return handleChargeRefunded(event, claim, account);
+  }
+
   const accountDispatch = await dispatchAccountWebhook({
     type: event.type,
     eventId: event.id,
@@ -407,65 +470,93 @@ async function handleCheckoutSession(
   return finalizeConfirmResult(claim, result.disposition, account);
 }
 
-/**
- * OBSERVABILITY ONLY, and deliberately so. A refund that reached `failed`
- * against a deposit we already marked `refunded` is money that did not go back;
- * naming it as a terminal makes it queryable, while changing state from here
- * would be guessing at a reconciliation a later packet owns.
- *
- * A later packet REPLACES this handler with its own — two handlers on one event
- * type is a collision, so that packet deletes this one in the same change.
- */
+/** D6's stateful replacement for D5's deposit-matched observation arm. */
 async function handleRefundEvent(event: Stripe.Event, claim: Claim): Promise<Response> {
-  const refund = event.data.object as Stripe.Refund;
-  const paymentIntentId = typeof refund.payment_intent === 'string'
-    ? refund.payment_intent
-    : refund.payment_intent?.id ?? null;
+  const result = await applyRefundEvent(event, {
+    id: claim.id,
+    attempts: claim.attempts,
+  });
 
-  const matched = await findDepositForRefund({ refundId: refund.id, paymentIntentId });
-
-  if (!matched) {
+  if (!result.deposit) {
     // A refund on a payment intent that is not ours. Not an incident.
     await finalizeD5Terminal(claim, 'processed', 'ignored_unhandled');
     return ok();
   }
 
-  // `event.type` is widened here for the same reason as above: the pinned
-  // SDK's union names `refund.updated` but not yet `refund.failed`.
-  if ((event.type as string) === REFUND_FAILED_EVENT || refund.status === 'failed') {
-    Sentry.captureMessage('deposit_refund_failed_unreconciled', {
-      level: 'error',
-      tags: { webhook: 'stripe-connect' },
-      extra: { eventId: event.id, depositId: matched },
-    });
-    await finalizeD5Terminal(claim, 'processed', 'refund_failed_unreconciled');
+  if (
+    result.applied
+    || result.outcome === 'ignored_same_state'
+    || result.outcome === 'ignored_retired_refund'
+  ) {
+    if (!result.eventFinalized) {
+      await finalizeD5Terminal(claim, 'processed', 'refunded');
+    }
     return ok();
   }
 
-  await finalizeD5Terminal(claim, 'processed', 'ignored_unhandled');
+  // Preserve D5's money-dark terminal for a deposit-matched event that could
+  // not be safely applied. This is the alert/runbook bridge, not an excuse to
+  // weaken object identity or tenant/account matching.
+  Sentry.captureMessage('deposit_refund_failed_unreconciled', {
+    level: 'error',
+    tags: { webhook: 'stripe-connect' },
+    extra: { eventId: event.id, depositId: result.deposit.id },
+  });
+  await finalizeD5Terminal(claim, 'processed', 'refund_failed_unreconciled');
   return ok();
 }
 
-async function findDepositForRefund(input: {
-  refundId: string;
-  paymentIntentId: string | null;
-}): Promise<string | null> {
-  const { db } = await import('@/libs/DB');
-  const { appointmentDepositSchema } = await import('@/models/Schema');
-  const { eq, or } = await import('drizzle-orm');
+/** Configuration-drift fallback: Charge has no refund id, so list and adopt. */
+async function handleChargeRefunded(
+  event: Stripe.Event,
+  claim: Claim,
+  account: string,
+): Promise<Response> {
+  const charge = event.data.object as Stripe.Charge;
+  const paymentIntentId = typeof charge.payment_intent === 'string'
+    ? charge.payment_intent
+    : charge.payment_intent?.id ?? null;
+  if (!paymentIntentId) {
+    await finalizeD5Terminal(claim, 'processed', 'ignored_unhandled');
+    return ok();
+  }
 
-  const [row] = await db
-    .select({ id: appointmentDepositSchema.id })
-    .from(appointmentDepositSchema)
-    .where(or(
-      eq(appointmentDepositSchema.stripeRefundId, input.refundId),
-      input.paymentIntentId
-        ? eq(appointmentDepositSchema.stripePaymentIntentId, input.paymentIntentId)
-        : undefined,
-    ))
-    .limit(1);
+  const bindingSalonIds = await getBindingSalonIds(account);
+  let deposit: typeof appointmentDepositSchema.$inferSelect | null = null;
+  for (const salonId of bindingSalonIds) {
+    const [candidate] = await db
+      .select()
+      .from(appointmentDepositSchema)
+      .where(and(
+        eq(appointmentDepositSchema.salonId, salonId),
+        eq(appointmentDepositSchema.stripePaymentIntentId, paymentIntentId),
+        eq(appointmentDepositSchema.stripeAccountId, account),
+      ))
+      .limit(1);
+    if (candidate) {
+      deposit = candidate;
+      break;
+    }
+  }
 
-  return row?.id ?? null;
+  if (!deposit) {
+    await finalizeD5Terminal(claim, 'processed', 'ignored_unhandled');
+    return ok();
+  }
+
+  const discovery = await discoverAndAdoptDepositRefunds(deposit);
+  if (discovery.disposition === 'refunded') {
+    await finalizeD5Terminal(claim, 'processed', 'refunded');
+    return ok();
+  }
+
+  Sentry.captureMessage('deposit_refund_failed_unreconciled', {
+    level: 'error',
+    tags: { webhook: 'stripe-connect' },
+    extra: { eventId: event.id, depositId: deposit.id },
+  });
+  await finalizeD5Terminal(claim, 'processed', 'refund_failed_unreconciled');
+  return ok();
 }
 
 /**

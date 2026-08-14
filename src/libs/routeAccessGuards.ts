@@ -78,7 +78,7 @@ function errorResponse(
   );
 }
 
-async function loadAppointmentForSalon(
+export async function loadAppointmentForSalon(
   appointmentId: string,
   salonId: string,
 ): Promise<Appointment | null> {

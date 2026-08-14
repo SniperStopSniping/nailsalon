@@ -6,6 +6,18 @@ import { and, asc, eq, inArray, isNotNull, isNull, lt, lte, or, sql } from 'driz
 import { db } from '@/libs/DB';
 import { confirmDepositPayment, type ConfirmDisposition } from '@/libs/deposits/confirmDepositPayment';
 import {
+  applyRefundObservation,
+  checkDepositSnapshotAccount,
+  claimRefundReconcileLease,
+} from '@/libs/deposits/depositLifecycle';
+import {
+  createOrAdoptDepositRefund,
+  type DepositRow,
+  discoverAndAdoptDepositRefunds,
+  type RefundTrigger,
+  resolveAllowedSourceStatuses,
+} from '@/libs/deposits/depositRefund';
+import {
   claimLusterWorkRow,
   claimOrRearmPollEvidenceWorkRow,
   depositIdsWithExcludingEventRows,
@@ -24,6 +36,7 @@ import {
   runLateDepositRecovery,
 } from '@/libs/deposits/lateDepositRecovery';
 import { Env } from '@/libs/Env';
+import { resolveRuntimeEnvironment } from '@/libs/environmentIsolation';
 import { stripe } from '@/libs/stripe';
 import { dispatchAccountWebhook } from '@/libs/stripeConnect/accountWebhookDispatch';
 import { expectedLivemode } from '@/libs/stripeConnect/readiness';
@@ -83,6 +96,14 @@ const PURGE_HORIZON_MS = 14 * 24 * 60 * 60_000;
 const LIVEMODE_ALERT_INTERVAL_MS = 60 * 60_000;
 let storedLivemodeAlertedAt = 0;
 
+/** D6 refund-pass maxima. The invocation deadline is the hard shared budget. */
+const REFUND_PASS_1_BATCH = 25;
+const REFUND_PASS_2_BATCH = 25;
+const REFUND_PASS_3_BATCH = 10;
+const REFUND_PASS_5_BATCH = 10;
+const REFUND_PASS_LEASE_MS = 15 * 60_000;
+const REFUND_PASS_PROVIDER_BUDGET_MS = 285 * 1000;
+
 export type ReconcileSummary = {
   step0Scanned: number;
   step0Confirmed: number;
@@ -94,6 +115,10 @@ export type ReconcileSummary = {
   eventsRedispatched: number;
   eventsPoisoned: number;
   projectionsPurged: number;
+  refundPass1Processed: number;
+  refundPass2Processed: number;
+  refundPass3Processed: number;
+  refundPass5Processed: number;
 };
 
 /**
@@ -104,6 +129,7 @@ export type ReconcileSummary = {
  * how a backlog becomes permanent.
  */
 export async function runDepositReconcile(): Promise<ReconcileSummary> {
+  const invocationStartedAt = Date.now();
   const summary: ReconcileSummary = {
     step0Scanned: 0,
     step0Confirmed: 0,
@@ -115,12 +141,20 @@ export async function runDepositReconcile(): Promise<ReconcileSummary> {
     eventsRedispatched: 0,
     eventsPoisoned: 0,
     projectionsPurged: 0,
+    refundPass1Processed: 0,
+    refundPass2Processed: 0,
+    refundPass3Processed: 0,
+    refundPass5Processed: 0,
   };
 
   await isolate('step0', () => runDepositSideReconcile(summary));
   await isolate('step0b', () => runLateCheck(summary));
   await isolate('stuck', () => alertStuckDeposits(summary));
   await isolate('events', () => runEventRowSteps(summary));
+  await runRefundPasses(
+    summary,
+    invocationStartedAt + REFUND_PASS_PROVIDER_BUDGET_MS,
+  );
   await isolate('retention', () => applyRetention(summary));
 
   // EXACTLY ONE liveness check-in per run, through a mockable seam. The cron
@@ -764,11 +798,39 @@ async function redispatch(
       });
       return;
     }
-    const recovery = await runLateDepositRecovery({
-      depositId: row.metadataDepositId,
-      salonId: row.salonId,
-    });
-    await finalizeRecoveryWorkResult(row, claim.attempts, recovery, summary);
+    const [deposit] = await db
+      .select()
+      .from(appointmentDepositSchema)
+      .where(and(
+        eq(appointmentDepositSchema.id, row.metadataDepositId),
+        eq(appointmentDepositSchema.salonId, row.salonId),
+      ))
+      .limit(1);
+    if (!deposit) {
+      await finalizeRetryable({
+        id: row.id,
+        attempts: claim.attempts,
+        outcome: 'deferred_no_deposit',
+        lastError: 'refund_intent_deposit_missing',
+        availableAt: new Date(Date.now() + 60_000),
+      });
+      return;
+    }
+    const trigger = normalizeRefundTrigger(deposit.refundTrigger);
+    await createOrAdoptDepositRefund(
+      deposit,
+      trigger === 'owner' ? 'owner' : 'slot_lost',
+      {
+        trigger,
+        allowedSourceStatuses: resolveAllowedSourceStatuses(deposit),
+        workClaim: {
+          id: row.id,
+          eventId: row.eventId,
+          attempts: claim.attempts,
+        },
+      },
+    );
+    summary.eventsRedispatched += 1;
     return;
   }
 
@@ -1107,6 +1169,352 @@ async function poisonEvent(
     processedAt: new Date(),
   });
   summary.eventsPoisoned += 1;
+}
+
+// =============================================================================
+// D6 REFUND CONVERGENCE PASSES — ORDINAL 4 IS DELIBERATELY RETIRED
+// =============================================================================
+
+type RefundPass = {
+  ordinal: 1 | 2 | 3 | 5;
+  run: (summary: ReconcileSummary, deadline: number) => Promise<void>;
+};
+
+/**
+ * Rotate the first pass every five-minute epoch, isolate each pass, and stop
+ * admitting provider work before the shared invocation budget is exhausted.
+ * A call admitted immediately before the 285 s deadline still has the shared
+ * 10 s Stripe timeout, leaving 5 s beneath the route's 300 s ceiling.
+ */
+async function runRefundPasses(
+  summary: ReconcileSummary,
+  deadline: number,
+): Promise<void> {
+  const passes: readonly RefundPass[] = [
+    { ordinal: 1, run: runRefundPass1 },
+    { ordinal: 2, run: runRefundPass2 },
+    { ordinal: 3, run: runRefundPass3 },
+    { ordinal: 5, run: runRefundPass5 },
+  ];
+  const first = Math.floor(Date.now() / (5 * 60_000)) % passes.length;
+
+  for (let offset = 0; offset < passes.length; offset += 1) {
+    if (Date.now() >= deadline) {
+      break;
+    }
+    const pass = passes[(first + offset) % passes.length];
+    if (!pass) {
+      continue;
+    }
+    await isolate(`refund-pass-${pass.ordinal}`, () => pass.run(summary, deadline));
+  }
+}
+
+/** Pass 1: stale requested intents. This is the only pass that may create. */
+async function runRefundPass1(
+  summary: ReconcileSummary,
+  deadline: number,
+): Promise<void> {
+  if (Date.now() >= deadline) {
+    return;
+  }
+  const runtimeEnvironment = resolveRuntimeEnvironment();
+  const candidates = await db
+    .select({
+      id: appointmentDepositSchema.id,
+      salonId: appointmentDepositSchema.salonId,
+    })
+    .from(appointmentDepositSchema)
+    .where(and(
+      eq(appointmentDepositSchema.refundStatus, 'requested'),
+      lt(
+        appointmentDepositSchema.refundStatusChangedAt,
+        new Date(Date.now() - REFUND_PASS_LEASE_MS),
+      ),
+      or(
+        isNull(appointmentDepositSchema.refundRequestedEnv),
+        eq(appointmentDepositSchema.refundRequestedEnv, runtimeEnvironment),
+      ),
+      sql`${appointmentDepositSchema.refundReconcileAttempts} < 3`,
+      sql`NOT (
+        ${appointmentDepositSchema.refundStatusChangedAt} < now() - interval '14 days'
+        AND COALESCE(${appointmentDepositSchema.refundLastErrorCode}, '')
+          IN ('ACCOUNT_DISCONNECTED', 'ACCOUNT_REBOUND')
+      )`,
+    ))
+    .orderBy(asc(appointmentDepositSchema.refundStatusChangedAt))
+    .limit(REFUND_PASS_1_BATCH);
+
+  for (const candidate of candidates) {
+    if (Date.now() >= deadline) {
+      break;
+    }
+    const claimed = await claimRefundReconcileLease({
+      depositId: candidate.id,
+      salonId: candidate.salonId,
+      expectedStatus: 'requested',
+    });
+    if (!claimed) {
+      continue;
+    }
+
+    summary.refundPass1Processed += 1;
+    const trigger = normalizeRefundTrigger(claimed.refundTrigger);
+    await createOrAdoptDepositRefund(
+      claimed,
+      trigger === 'owner' ? 'owner' : 'slot_lost',
+      {
+        trigger,
+        allowedSourceStatuses: resolveAllowedSourceStatuses(claimed),
+      },
+    );
+  }
+}
+
+/** Pass 2: pending refunds, including every D5 backfill row. */
+async function runRefundPass2(
+  summary: ReconcileSummary,
+  deadline: number,
+): Promise<void> {
+  if (Date.now() >= deadline) {
+    return;
+  }
+  const runtimeEnvironment = resolveRuntimeEnvironment();
+  const candidates = await db
+    .select({
+      id: appointmentDepositSchema.id,
+      salonId: appointmentDepositSchema.salonId,
+    })
+    .from(appointmentDepositSchema)
+    .where(and(
+      eq(appointmentDepositSchema.refundStatus, 'pending'),
+      lt(
+        appointmentDepositSchema.refundStatusChangedAt,
+        new Date(Date.now() - REFUND_PASS_LEASE_MS),
+      ),
+      or(
+        isNull(appointmentDepositSchema.refundRequestedEnv),
+        eq(appointmentDepositSchema.refundRequestedEnv, runtimeEnvironment),
+      ),
+    ))
+    .orderBy(asc(appointmentDepositSchema.refundStatusChangedAt))
+    .limit(REFUND_PASS_2_BATCH);
+
+  for (const candidate of candidates) {
+    if (Date.now() >= deadline) {
+      break;
+    }
+    const claimed = await claimRefundReconcileLease({
+      depositId: candidate.id,
+      salonId: candidate.salonId,
+      expectedStatus: 'pending',
+    });
+    if (!claimed) {
+      continue;
+    }
+    summary.refundPass2Processed += 1;
+    await retrieveAndApplyRefund(claimed);
+  }
+}
+
+/** Pass 3: monitor succeeded refunds for reversals during Stripe's 30-day horizon. */
+async function runRefundPass3(
+  summary: ReconcileSummary,
+  deadline: number,
+): Promise<void> {
+  if (Date.now() >= deadline) {
+    return;
+  }
+  const runtimeEnvironment = resolveRuntimeEnvironment();
+  const candidates = await db
+    .select({
+      id: appointmentDepositSchema.id,
+      salonId: appointmentDepositSchema.salonId,
+    })
+    .from(appointmentDepositSchema)
+    .where(and(
+      eq(appointmentDepositSchema.refundStatus, 'succeeded'),
+      or(
+        isNull(appointmentDepositSchema.refundRequestedEnv),
+        eq(appointmentDepositSchema.refundRequestedEnv, runtimeEnvironment),
+      ),
+      sql`COALESCE(
+        ${appointmentDepositSchema.refundedAt},
+        ${appointmentDepositSchema.refundStatusChangedAt}
+      ) > now() - interval '30 days'`,
+      or(
+        isNull(appointmentDepositSchema.refundReconcileClaimedAt),
+        lt(
+          appointmentDepositSchema.refundReconcileClaimedAt,
+          new Date(Date.now() - 6 * 60 * 60_000),
+        ),
+      ),
+    ))
+    .orderBy(asc(sql`COALESCE(
+      ${appointmentDepositSchema.refundedAt},
+      ${appointmentDepositSchema.refundStatusChangedAt}
+    )`))
+    .limit(REFUND_PASS_3_BATCH);
+
+  for (const candidate of candidates) {
+    if (Date.now() >= deadline) {
+      break;
+    }
+    const claimed = await claimRefundReconcileLease({
+      depositId: candidate.id,
+      salonId: candidate.salonId,
+      expectedStatus: 'succeeded',
+      leaseBefore: new Date(Date.now() - 6 * 60 * 60_000),
+    });
+    if (!claimed) {
+      continue;
+    }
+    summary.refundPass3Processed += 1;
+    await retrieveAndApplyRefund(claimed);
+  }
+}
+
+/** Pass 5: webhook-independent, list-only discovery. It cannot reach create. */
+async function runRefundPass5(
+  summary: ReconcileSummary,
+  deadline: number,
+): Promise<void> {
+  if (Date.now() >= deadline) {
+    return;
+  }
+  const runtimeEnvironment = resolveRuntimeEnvironment();
+  const candidates = await db
+    .select({
+      id: appointmentDepositSchema.id,
+      salonId: appointmentDepositSchema.salonId,
+      refundStatus: appointmentDepositSchema.refundStatus,
+    })
+    .from(appointmentDepositSchema)
+    .innerJoin(appointmentSchema, and(
+      eq(appointmentSchema.id, appointmentDepositSchema.appointmentId),
+      eq(appointmentSchema.salonId, appointmentDepositSchema.salonId),
+    ))
+    .where(and(
+      or(
+        isNull(appointmentDepositSchema.refundRequestedEnv),
+        eq(appointmentDepositSchema.refundRequestedEnv, runtimeEnvironment),
+      ),
+      sql`COALESCE(
+        ${appointmentDepositSchema.updatedAt},
+        ${appointmentDepositSchema.createdAt}
+      ) < now() - interval '6 hours'`,
+      or(
+        and(
+          inArray(appointmentDepositSchema.status, ['paid', 'refunded']),
+          or(
+            isNull(appointmentDepositSchema.refundStatus),
+            and(
+              eq(appointmentDepositSchema.refundStatus, 'requested'),
+              isNull(appointmentDepositSchema.stripeRefundId),
+            ),
+          ),
+        ),
+        eq(appointmentDepositSchema.refundStatus, 'failed'),
+        and(
+          eq(appointmentDepositSchema.refundStatus, 'requested'),
+          or(
+            sql`${appointmentDepositSchema.refundReconcileAttempts} >= 3`,
+            lt(
+              appointmentDepositSchema.refundStatusChangedAt,
+              new Date(Date.now() - 6 * 60 * 60_000),
+            ),
+          ),
+        ),
+      ),
+    ))
+    .orderBy(
+      sql`CASE WHEN ${appointmentSchema.status} IN ('cancelled', 'no_show') THEN 0 ELSE 1 END`,
+      asc(sql`COALESCE(
+        ${appointmentDepositSchema.updatedAt},
+        ${appointmentDepositSchema.createdAt}
+      )`),
+    )
+    .limit(REFUND_PASS_5_BATCH);
+
+  for (const candidate of candidates) {
+    if (Date.now() >= deadline) {
+      break;
+    }
+    const expectedStatus = candidate.refundStatus === null
+      ? null
+      : candidate.refundStatus === 'requested'
+        || candidate.refundStatus === 'pending'
+        || candidate.refundStatus === 'succeeded'
+        || candidate.refundStatus === 'failed'
+        ? candidate.refundStatus
+        : undefined;
+    const claimed = await claimRefundReconcileLease({
+      depositId: candidate.id,
+      salonId: candidate.salonId,
+      expectedStatus,
+    });
+    if (!claimed) {
+      continue;
+    }
+    summary.refundPass5Processed += 1;
+    await discoverAndAdoptDepositRefunds(claimed);
+  }
+}
+
+async function retrieveAndApplyRefund(deposit: DepositRow): Promise<void> {
+  if (!deposit.stripeRefundId) {
+    return;
+  }
+  const accountState = await checkDepositSnapshotAccount(deposit);
+  if (accountState !== 'ready') {
+    await applyRefundObservation({
+      deposit,
+      refund: null,
+      origin: 'reconciler',
+      errorCode: accountState,
+      accountRefusal: accountState,
+    });
+    return;
+  }
+
+  try {
+    const refund = await stripe.refunds.retrieve(deposit.stripeRefundId, {
+      stripeAccount: deposit.stripeAccountId,
+      timeout: DEPOSIT_STRIPE_CALL_TIMEOUT_MS,
+    });
+    await applyRefundObservation({
+      deposit,
+      refund: {
+        id: refund.id,
+        status: refund.status,
+        amount: refund.amount,
+        currency: refund.currency,
+        failure_reason: refund.failure_reason,
+        metadata: refund.metadata,
+        payment_intent: refund.payment_intent,
+      },
+      origin: 'reconciler',
+      eventMetadataDepositId: refund.metadata?.luster_deposit_id ?? null,
+    });
+  } catch (error) {
+    Sentry.captureException(error, {
+      tags: { surface: 'deposit-refund', operation: 'reconcile-retrieve' },
+      extra: { depositId: deposit.id },
+    });
+  }
+}
+
+function normalizeRefundTrigger(value: string | null): RefundTrigger {
+  switch (value) {
+    case 'owner':
+    case 'external':
+      return value;
+    case 'system_late_payment':
+    case null:
+      return 'system';
+    default:
+      return 'system';
+  }
 }
 
 // =============================================================================

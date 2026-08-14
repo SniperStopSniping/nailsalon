@@ -470,6 +470,13 @@
       "when": 1786298234998,
       "tag": "0066_deposit_hold_awaiting_payment",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1786299234999,
+      "tag": "0067_deposit_refund_waiver_columns",
+      "breakpoints": true
     }
   ]
 }

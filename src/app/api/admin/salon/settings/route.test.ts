@@ -378,6 +378,8 @@ describe('/api/admin/salon/settings salon appointment email notifications', () =
       newBooking: true,
       rescheduled: true,
       cancelled: true,
+      refundFailed: true,
+      refundAccountDisconnected: true,
       recipientEmail: null,
     });
     expect(body.salonNotificationRecipient).toEqual({
@@ -456,6 +458,8 @@ describe('/api/admin/salon/settings salon appointment email notifications', () =
       newBooking: true,
       rescheduled: true,
       cancelled: false,
+      refundFailed: true,
+      refundAccountDisconnected: true,
       recipientEmail: 'frontdesk@example.com',
     });
     expect(body.salonNotificationRecipient).toEqual({

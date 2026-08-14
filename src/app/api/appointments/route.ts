@@ -139,6 +139,7 @@ import {
   hashRetentionCampaignToken,
   validateRetentionCampaign,
 } from '@/libs/retentionCampaigns';
+import { isUnsettledForReschedule } from '@/libs/salonPurge';
 import { guardFeatureEntitlement, guardSalonApiRoute } from '@/libs/salonStatus';
 import {
   applySmartFitOverlay,
@@ -446,7 +447,7 @@ class BookingActiveAppointmentError extends Error {
  */
 class RescheduleRequiresManageFlowError extends Error {
   constructor() {
-    super('RESCHEDULE_REQUIRES_MANAGE_FLOW');
+    super('DEPOSIT_LOCKED_RESCHEDULE');
     this.name = 'RescheduleRequiresManageFlowError';
   }
 }
@@ -3065,16 +3066,16 @@ export async function POST(request: Request): Promise<Response> {
               throw new Error('RESCHEDULE_CONFLICT');
             }
 
-            // The original is locked; now refuse to strand a live deposit on it.
-            // Non-terminal means 'checkout_created' or 'paid': a session that
-            // may still settle, or money already taken.
+            // The original is locked; now refuse to strand client money on it.
+            // The shared predicate deliberately differs from salon purge for
+            // canceled deposits, while retaining successful refunds for 30 days.
             const [liveDeposit] = await tx
               .select({ id: appointmentDepositSchema.id })
               .from(appointmentDepositSchema)
               .where(and(
                 eq(appointmentDepositSchema.salonId, salon.id),
                 eq(appointmentDepositSchema.appointmentId, normalizedOriginalApptId),
-                inArray(appointmentDepositSchema.status, ['checkout_created', 'paid']),
+                isUnsettledForReschedule(),
               ))
               .limit(1);
             if (liveDeposit) {
@@ -3308,8 +3309,8 @@ export async function POST(request: Request): Promise<Response> {
           return Response.json(
             {
               error: {
-                code: 'RESCHEDULE_REQUIRES_MANAGE_FLOW',
-                message: 'This appointment has a deposit. Please use the manage link to move it, so the deposit stays attached.',
+                code: 'DEPOSIT_LOCKED_RESCHEDULE',
+                message: 'This appointment has unsettled deposit activity. Please use the manage link so the deposit stays attached.',
               },
             } satisfies ErrorResponse,
             { status: 409 },

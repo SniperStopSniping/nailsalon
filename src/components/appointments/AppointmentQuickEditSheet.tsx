@@ -2,7 +2,7 @@
 
 import { CalendarPlus, Clock3, Mail, MapPin, UserRound } from 'lucide-react';
 import Image from 'next/image';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 
 import { UpcomingAppointmentActions } from '@/components/appointments/UpcomingAppointmentActions';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -50,6 +50,8 @@ type AppointmentQuickEditSheetProps = {
   onReminderSent?: () => void | Promise<void>;
   /** Opens the given confirmation as soon as detail loads (e.g. a Cancel button on an appointment card). */
   initialPendingAction?: 'cancel' | null;
+  /** Admin-only extension point. Staff callers deliberately leave it absent. */
+  adminDepositPanelSlot?: ReactNode;
 };
 
 const EMPTY_WARNINGS: ManageWarning[] = [];
@@ -105,6 +107,7 @@ export function AppointmentQuickEditSheet({
   onRetryLoad,
   onReminderSent,
   initialPendingAction = null,
+  adminDepositPanelSlot,
 }: AppointmentQuickEditSheetProps) {
   const [baseServiceId, setBaseServiceId] = useState('');
   const [technicianId, setTechnicianId] = useState<string | null>(null);
@@ -604,6 +607,8 @@ export function AppointmentQuickEditSheet({
                           )}
                         </div>
                       )}
+
+                      {adminDepositPanelSlot}
 
                       <div className="rounded-2xl border border-neutral-200 p-4">
                         <div className="mb-3 text-sm font-semibold text-neutral-900">Quick actions</div>

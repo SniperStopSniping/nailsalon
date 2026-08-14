@@ -13,6 +13,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import {
   buildRescheduleEventVersion,
+  buildSalonNotificationDedupeKey,
   retrySalonNotificationEmail,
   sendSalonNotificationEmail,
 } from '@/libs/salonNotificationEmail';
@@ -636,6 +637,104 @@ describe('cancellation notifications', () => {
 
     expect(result).toEqual({ status: 'skipped', reason: 'disabled' });
     expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+  });
+});
+
+describe('D6 money-alert notifications', () => {
+  it.each([
+    {
+      event: 'refundFailed' as const,
+      purpose: 'salon_refund_failed',
+      refund: {
+        errorCode: 'rate_limit',
+        failureReason: 'declined',
+        keyEpoch: 4,
+        terminalFailureCount: 3,
+      },
+      suffix: 'refund-failed:4:3',
+      expectedError: 'rate_limit',
+      expectedReason: 'declined',
+    },
+    {
+      event: 'refundAccountDisconnected' as const,
+      purpose: 'salon_refund_account_disconnected',
+      refund: {
+        errorCode: 'ACCOUNT_DISCONNECTED',
+        failureReason: null,
+        keyEpoch: 5,
+        terminalFailureCount: 0,
+      },
+      suffix: 'refund-account-disconnected:5',
+      expectedError: 'ACCOUNT_DISCONNECTED',
+      expectedReason: 'unknown',
+    },
+  ])('sends $event with its exact durable identity', async ({
+    event,
+    purpose,
+    refund,
+    suffix,
+    expectedError,
+    expectedReason,
+  }) => {
+    const appointmentId = await seedAppointment();
+
+    expect(buildSalonNotificationDedupeKey({
+      appointmentId,
+      event,
+      refund,
+    })).toBe(`appointment:${appointmentId}:salon:${suffix}`);
+
+    const result = await sendSalonNotificationEmail({
+      salonId: SALON_ID,
+      appointmentId,
+      event,
+      source: 'unknown',
+      refund,
+    });
+
+    expect(result.status).toBe('sent');
+    expect(sendTransactionalEmailDetailed).toHaveBeenCalledTimes(1);
+    expect(lastEmail().text).toContain(`Error code: ${expectedError}`);
+    expect(lastEmail().text).toContain(`Failure reason: ${expectedReason}`);
+
+    const [delivery] = await deliveriesFor(appointmentId);
+
+    expect(delivery!.purpose).toBe(purpose);
+    expect(delivery!.dedupeKey).toBe(
+      `appointment:${appointmentId}:salon:${suffix}`,
+    );
+  });
+
+  it.each([
+    'refundFailed' as const,
+    'refundAccountDisconnected' as const,
+  ])('keeps raw provider prose and Stripe ids out of the $event renderer', async (event) => {
+    const appointmentId = await seedAppointment();
+    const rawProviderError = 'provider declined refund re_secret_123 on acct_secret_456';
+    const rawFailureReason = 'cardholder prose from pi_secret_789';
+
+    await sendSalonNotificationEmail({
+      salonId: SALON_ID,
+      appointmentId,
+      event,
+      source: 'unknown',
+      refund: {
+        errorCode: rawProviderError,
+        failureReason: rawFailureReason,
+        keyEpoch: 8,
+        terminalFailureCount: 2,
+      },
+    });
+
+    const rendered = `${lastEmail().subject}\n${lastEmail().text}\n${lastEmail().html}`;
+
+    expect(rendered).not.toContain(rawProviderError);
+    expect(rendered).not.toContain(rawFailureReason);
+    expect(rendered).not.toContain('re_secret_123');
+    expect(rendered).not.toContain('acct_secret_456');
+    expect(rendered).not.toContain('pi_secret_789');
+    expect(rendered).toContain('UNKNOWN_PROVIDER_ERROR');
+    expect(rendered).toContain('unknown');
   });
 });
 

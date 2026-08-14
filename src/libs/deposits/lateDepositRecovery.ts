@@ -1,7 +1,7 @@
 import 'server-only';
 
 import * as Sentry from '@sentry/nextjs';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import {
   getActiveAppointmentsForCanonicalClientWithHandle,
@@ -17,18 +17,31 @@ import {
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
-import { enqueueDepositRefundNotices } from '@/libs/integrationOutbox';
-import { stripe } from '@/libs/stripe';
 import {
   appointmentAuditLogSchema,
   appointmentDepositSchema,
   appointmentSchema,
   salonSchema,
-  stripeWebhookEventSchema,
 } from '@/models/Schema';
 
 import { enqueueDepositConfirmationEffectsInTx } from './confirmDepositPayment';
+import {
+  type DepositRow,
+  type RecoveryResult,
+  runRefundCore,
+} from './depositRefund';
 import { depositsTransaction } from './depositsTransaction';
+
+export {
+  buildRefundIdempotencyKey,
+  DEPOSIT_STRIPE_CALL_TIMEOUT_MS,
+  type DepositRow,
+  deriveRefundIntentIdentity,
+  type RecoveryDisposition,
+  type RecoveryResult,
+  type RefundTrigger,
+  resolveAllowedSourceStatuses,
+} from './depositRefund';
 
 /**
  * ROUTINE B — what happens when a deposit payment arrives after the hold is gone.
@@ -44,39 +57,6 @@ import { depositsTransaction } from './depositsTransaction';
  */
 
 /**
- * THE EXPLICIT PER-CALL TIMEOUT (verify item (n)).
- *
- * The SHARED Stripe client at `src/libs/stripe.ts` deliberately sets none —
- * that is an unsigned owner decision recorded in that file, and it is D2-owned
- * and shared with SaaS billing, so this packet must not add one there. Without
- * a bound the reconcile sweep's budget arithmetic
- * `(batch × stripe_timeout) < maxDuration` has no finite term and the sweep is
- * limited only by the platform function timeout. Every Stripe call D5 makes
- * therefore carries this value explicitly.
- */
-export const DEPOSIT_STRIPE_CALL_TIMEOUT_MS = 10_000;
-
-export type RefundTrigger = 'system' | 'owner' | 'external';
-
-export type DepositRow = typeof appointmentDepositSchema.$inferSelect;
-
-export type RecoveryDisposition
-  = | 'restored'
-  | 'refunded'
-  | 'already_confirmed'
-  | 'already_confirmed_late_refund'
-  | 'refund_failed_unreconciled'
-  | 'orphan_unresolved'
-  | 'noop';
-
-export type RecoveryResult = {
-  disposition: RecoveryDisposition;
-  depositId: string;
-  refundId?: string;
-  note?: string;
-};
-
-/**
  * The one recovery no-op that intentionally remains owned by the sweep.
  *
  * Other `noop` notes describe terminal/idempotent observations. Widening this
@@ -88,100 +68,6 @@ export function isSweepRetryableRecoveryResult(result: RecoveryResult): boolean 
   return result.disposition === 'noop' && result.note === 'payment_intent_unresolved';
 }
 
-// =============================================================================
-// THE ENTRY SET — ONE PRODUCER
-// =============================================================================
-
-/**
- * The deposit statuses a refund may be entered from.
- *
- * ONE PRODUCER for two consumers: the step-0 entry gate and TX-D's CAS
- * predicate. Writing the list as a literal in either place is how they drift,
- * and a drift here means the gate admits a refund that the CAS then refuses —
- * money left with no arrow and a sweep that re-drives forever.
- *
- * TOTAL BY CONSTRUCTION: an exhaustive `switch` over `refund_trigger` with a
- * `never` check and NO widening default.
- *
- * WHY THE STATUS DISJUNCTS AND NOT A TRIGGER SWITCH ALONE:
- * `refund_trigger='external'` is written on every adopted salon-Dashboard
- * refund, and those rows carry `status='refunded'`. An `otherwise` arm handing
- * back the system four rejects them, the sweep re-drives forever, and an
- * owner's Retry becomes a no-op with zero provider calls.
- *
- * `'waived'` MUST stay in the default set and in TX-D's CAS, or the waived-plus-
- * paid branch loops back to the top forever and its promised refund never runs.
- *
- * `refund_trigger` is a later packet's column, so the field is absent today and
- * only the status disjuncts fire. Typing it optional keeps that packet's arm
- * purely additive.
- */
-export function resolveAllowedSourceStatuses(deposit: {
-  status: string;
-  refundTrigger?: RefundTrigger;
-}): string[] {
-  const trigger: RefundTrigger = deposit.refundTrigger ?? 'system';
-
-  if (deposit.status === 'paid' || deposit.status === 'refunded') {
-    return ['paid', 'refunded'];
-  }
-
-  switch (trigger) {
-    case 'owner':
-      return ['paid', 'refunded'];
-    case 'system':
-    case 'external':
-      return ['expired', 'canceled', 'checkout_created', 'waived'];
-    default: {
-      const exhaustive: never = trigger;
-      throw new Error(`unhandled refund trigger: ${String(exhaustive)}`);
-    }
-  }
-}
-
-/**
- * THE SINGLE PRODUCER of the refund-intent type literal and its `event_id`.
- *
- * The unique `event_id` IS the dedupe, so one literal spelled at two call sites
- * is two dedupe namespaces and two concurrent refunds. Nothing anywhere may
- * hand-write `'luster.refund_intent'` or `'luster.owner_refund_intent'`.
- */
-export function deriveRefundIntentIdentity(
-  trigger: RefundTrigger,
-  depositId: string,
-  epoch: number,
-): { type: 'luster.refund_intent' | 'luster.owner_refund_intent'; eventId: string } {
-  const type = trigger === 'owner' ? 'luster.owner_refund_intent' : 'luster.refund_intent';
-  return { type, eventId: `luster:${type}:${depositId}:e${epoch}` };
-}
-
-/**
- * The refund idempotency key, from PERSISTED COLUMNS ONLY.
- *
- * BOTH variable components are read from `appointment_deposit`, NEVER counted
- * from a `refunds.list` result: a listing is paginated and lossy, so two
- * attempts that observe different pages mint different keys and Stripe issues
- * two refunds. With `refund_key_epoch` defaulting to 1, a first attempt's key
- * is byte-identical to the pre-amendment form, so nothing breaks across the
- * deploy that introduces the epoch.
- *
- * The epoch exists because Stripe saves and REPLAYS errors — including 500s —
- * for at least 24 hours against one key. With a constant `v1` every retry
- * receives the saved 500 and the deposit is wedged with no operator escape.
- * D5 READS the epoch and never increments it.
- */
-export function buildRefundIdempotencyKey(deposit: {
-  id: string;
-  refundKeyEpoch: number;
-  refundTerminalFailureCount: number;
-}): string {
-  return `deposit:${deposit.id}:auto-refund:v${deposit.refundKeyEpoch}:${deposit.refundTerminalFailureCount}`;
-}
-
-/** Refund states that discharge a deposit. `failed`/`canceled` are corpses. */
-const LIVE_REFUND_STATUSES = new Set(['pending', 'succeeded', 'requires_action']);
-
-// =============================================================================
 // ROUTINE B
 // =============================================================================
 
@@ -520,314 +406,4 @@ class RestoreLostError extends Error {
     super('restore lost to a concurrent writer');
     this.name = 'RestoreLostError';
   }
-}
-
-// =============================================================================
-// THE REFUND CORE
-// =============================================================================
-
-/**
- * Full refund of a deposit whose booking cannot be honoured.
- *
- * PARAMETERISED AND COLUMN-WRITING here so a later packet can MOVE it without
- * changing behaviour. The literal defaults keep every current caller
- * byte-identical.
- *
- * NEVER REACHABLE WITHOUT A RESOLVED DEPOSIT ROW (S15). Provenance admits an
- * event for processing; only a row Luster owns authorizes an outflow. That is
- * why this function takes a `DepositRow` and not an id or a session.
- */
-export async function runRefundCore(
-  deposit: DepositRow,
-  variant: 'slot_lost' | 'waiver',
-  options: { trigger?: RefundTrigger } = {},
-): Promise<RecoveryResult> {
-  const trigger = options.trigger ?? 'system';
-  const allowedSourceStatuses = resolveAllowedSourceStatuses({
-    status: deposit.status,
-    refundTrigger: trigger,
-  });
-
-  // (0) ENTRY GATE, from the shared producer.
-  if (!allowedSourceStatuses.includes(deposit.status)) {
-    return { disposition: 'noop', depositId: deposit.id, note: `outside_entry_set:${deposit.status}` };
-  }
-
-  // (0b) WRITE-AHEAD INTENT ROW, before ANY provider call. Without it a crash
-  // between `refunds.create` and TX-D leaves a live refund with nothing local
-  // pointing at it, and no sweep able to find it.
-  const identity = deriveRefundIntentIdentity(trigger, deposit.id, deposit.refundKeyEpoch);
-  await db
-    .insert(stripeWebhookEventSchema)
-    .values({
-      id: `swe_${crypto.randomUUID()}`,
-      eventId: identity.eventId,
-      type: identity.type,
-      account: deposit.stripeAccountId,
-      livemode: false,
-      salonId: deposit.salonId,
-      status: 'processing',
-      attempts: 1,
-      sessionId: deposit.stripeCheckoutSessionId,
-      metadataDepositId: deposit.id,
-      projectionStatus: 'ok',
-    })
-    .onConflictDoNothing({ target: stripeWebhookEventSchema.eventId });
-
-  // (0c) The system-intent CAS on `refund_status` is NOT implementable at D5:
-  // that column belongs to a later packet and is not in 0065, and this packet
-  // ships no migration for columns 0065 was not asked to carry. The write-ahead
-  // row above is the finder in the meantime.
-
-  const stripeAccount = requireSnapshotAccount(deposit);
-  let corpsesObserved = 0;
-
-  // (1) A STORED refund id is adopted ONLY if it still passes step 3's filter.
-  // Unconditional adoption is a permanent trap: a refund that reached `failed`
-  // discharges nothing, and re-adopting it every run means the money never goes
-  // back and nothing ever escalates.
-  if (deposit.stripeRefundId) {
-    const stored = await retrieveRefund(deposit.stripeRefundId, stripeAccount);
-    if (stored && isAdoptableRefund(stored, deposit)) {
-      return finalizeRefund(deposit, stored.id, allowedSourceStatuses, variant);
-    }
-    corpsesObserved += 1;
-  }
-
-  // (2) Establish the payment intent.
-  const paymentIntentId = deposit.stripePaymentIntentId
-    ?? await retrieveSessionPaymentIntent(deposit, stripeAccount);
-
-  if (!paymentIntentId) {
-    // Nothing to refund against. Retryable by the sweep rather than terminal:
-    // the session may simply not have settled yet.
-    return { disposition: 'noop', depositId: deposit.id, note: 'payment_intent_unresolved' };
-  }
-
-  // (3) Adopt an existing LIVE refund of the FULL amount and currency. The
-  // amount and currency legs are what stop a salon's own CA$5 goodwill refund
-  // on the same payment intent from discharging a CA$25 deposit.
-  const existing = await listRefunds(paymentIntentId, stripeAccount);
-  const adoptable = existing.find(refund => isAdoptableRefund(refund, deposit));
-  corpsesObserved += existing.filter(refund => isCorpse(refund)).length;
-
-  if (adoptable) {
-    return finalizeRefund(deposit, adoptable.id, allowedSourceStatuses, variant);
-  }
-
-  // (3b) PERSIST THE COUNT AS ITS OWN COMMITTED STATEMENT, before step 4 reads
-  // it. `GREATEST` makes it monotone, so a re-run that sees a shorter listing
-  // (pagination drops older refunds) cannot lower it and mint a key an earlier
-  // attempt already used.
-  const [counted] = await db
-    .update(appointmentDepositSchema)
-    .set({
-      refundTerminalFailureCount: sql`GREATEST(${appointmentDepositSchema.refundTerminalFailureCount}, ${corpsesObserved})`,
-      updatedAt: new Date(),
-    })
-    .where(and(
-      eq(appointmentDepositSchema.id, deposit.id),
-      eq(appointmentDepositSchema.salonId, deposit.salonId),
-    ))
-    .returning();
-
-  if (!counted) {
-    return { disposition: 'noop', depositId: deposit.id, note: 'deposit_vanished' };
-  }
-
-  // (4) Create the refund. BOTH variable components of the key come from the
-  // columns we just committed — never from the listing above.
-  const idempotencyKey = buildRefundIdempotencyKey({
-    id: counted.id,
-    refundKeyEpoch: counted.refundKeyEpoch,
-    refundTerminalFailureCount: counted.refundTerminalFailureCount,
-  });
-
-  let refundId: string;
-  try {
-    const created = await stripe.refunds.create(
-      // No `amount`: full refund only.
-      { payment_intent: paymentIntentId },
-      { stripeAccount, idempotencyKey, timeout: DEPOSIT_STRIPE_CALL_TIMEOUT_MS },
-    );
-    refundId = created.id;
-  } catch (error) {
-    if (isChargeAlreadyRefunded(error)) {
-      // Re-list and adopt under the same filter. Somebody refunded it out of
-      // band, and that discharges the deposit only if it is a full refund.
-      const relisted = await listRefunds(paymentIntentId, stripeAccount);
-      const adopted = relisted.find(refund => isAdoptableRefund(refund, deposit));
-      if (adopted) {
-        return finalizeRefund(counted, adopted.id, allowedSourceStatuses, variant);
-      }
-    }
-    throw error;
-  }
-
-  return finalizeRefund(counted, refundId, allowedSourceStatuses, variant);
-}
-
-/**
- * TX-D. The status CAS consumes THE SAME resolved `allowedSourceStatuses` the
- * entry gate used — not a second literal list.
- */
-async function finalizeRefund(
-  deposit: DepositRow,
-  refundId: string,
-  allowedSourceStatuses: string[],
-  variant: 'slot_lost' | 'waiver',
-): Promise<RecoveryResult> {
-  return depositsTransaction(db, async (tx) => {
-    const updated = await tx
-      .update(appointmentDepositSchema)
-      .set({
-        status: 'refunded',
-        stripeRefundId: refundId,
-        // COALESCE, not now(): a re-stamp must not overwrite the FIRST
-        // settlement instant, which is the number a dispute is argued from.
-        refundedAt: sql`COALESCE(${appointmentDepositSchema.refundedAt}, now())`,
-        updatedAt: new Date(),
-      })
-      .where(and(
-        eq(appointmentDepositSchema.id, deposit.id),
-        eq(appointmentDepositSchema.salonId, deposit.salonId),
-        inArray(appointmentDepositSchema.status, allowedSourceStatuses),
-        sql`(${appointmentDepositSchema.stripeRefundId} IS NULL
-          OR ${appointmentDepositSchema.stripeRefundId} = ${refundId})`,
-      ))
-      .returning();
-
-    if (updated.length === 0) {
-      const [fresh] = await tx
-        .select()
-        .from(appointmentDepositSchema)
-        .where(and(
-          eq(appointmentDepositSchema.id, deposit.id),
-          eq(appointmentDepositSchema.salonId, deposit.salonId),
-        ))
-        .limit(1);
-
-      if (fresh?.stripeRefundId === refundId) {
-        return { disposition: 'noop' as const, depositId: deposit.id, refundId, note: 'already_finalized' };
-      }
-      if (fresh?.stripeRefundId) {
-        Sentry.captureMessage('deposit_refund_id_conflict', {
-          level: 'error',
-          tags: { deposits: 'refund' },
-          extra: { depositId: deposit.id, storedRefundId: fresh.stripeRefundId, observedRefundId: refundId },
-        });
-        return { disposition: 'noop' as const, depositId: deposit.id, note: 'refund_id_conflict' };
-      }
-      if (fresh?.status === 'paid') {
-        // A live refund exists against a deposit that has since confirmed. Both
-        // halves are real; only a person can decide which one stands.
-        Sentry.captureMessage('deposit_already_confirmed_late_refund', {
-          level: 'error',
-          tags: { deposits: 'refund' },
-          extra: { depositId: deposit.id, refundId },
-        });
-        return { disposition: 'already_confirmed_late_refund' as const, depositId: deposit.id, refundId };
-      }
-      return { disposition: 'noop' as const, depositId: deposit.id, note: 'refund_cas_lost' };
-    }
-
-    await tx.insert(appointmentAuditLogSchema).values(buildAppointmentAuditRow({
-      appointmentId: deposit.appointmentId,
-      salonId: deposit.salonId,
-      action: 'payment_status_changed',
-      performedBy: 'system:deposits',
-      performedByRole: 'system',
-      previousValue: { depositStatus: deposit.status },
-      newValue: { depositStatus: 'refunded', stripeRefundId: refundId },
-      reason: 'deposit_refunded',
-    }));
-
-    // IN-TX, not post-commit: a crash between the refund landing and the notice
-    // being scheduled would return the client's money silently.
-    await enqueueDepositRefundNotices(tx, {
-      salonId: deposit.salonId,
-      appointmentId: deposit.appointmentId,
-      depositId: deposit.id,
-      refundId,
-      variant,
-    });
-
-    return { disposition: 'refunded' as const, depositId: deposit.id, refundId };
-  });
-}
-
-// =============================================================================
-// PROVIDER HELPERS — every one on the SNAPSHOT account, every one with a timeout
-// =============================================================================
-
-/**
- * The connected account a deposit's money lives on, from its SNAPSHOT.
- *
- * THROWS rather than returning undefined. A Stripe call with
- * `stripeAccount: undefined` executes on the PLATFORM account, which for a
- * refund means returning Luster's money instead of the salon's.
- */
-function requireSnapshotAccount(deposit: DepositRow): string {
-  if (!deposit.stripeAccountId) {
-    throw new Error(`deposit ${deposit.id} has no connected-account snapshot`);
-  }
-  return deposit.stripeAccountId;
-}
-
-function isCorpse(refund: { status?: string | null }): boolean {
-  return refund.status === 'failed' || refund.status === 'canceled';
-}
-
-function isAdoptableRefund(
-  refund: { status?: string | null; amount?: number | null; currency?: string | null },
-  deposit: DepositRow,
-): boolean {
-  return LIVE_REFUND_STATUSES.has(refund.status ?? '')
-    && refund.amount === deposit.amountCents
-    && refund.currency === deposit.currency;
-}
-
-async function retrieveRefund(refundId: string, stripeAccount: string) {
-  try {
-    return await stripe.refunds.retrieve(refundId, {
-      stripeAccount,
-      timeout: DEPOSIT_STRIPE_CALL_TIMEOUT_MS,
-    });
-  } catch {
-    return null;
-  }
-}
-
-async function listRefunds(paymentIntentId: string, stripeAccount: string) {
-  const listed = await stripe.refunds.list(
-    { payment_intent: paymentIntentId, limit: 100 },
-    { stripeAccount, timeout: DEPOSIT_STRIPE_CALL_TIMEOUT_MS },
-  );
-  return listed.data;
-}
-
-async function retrieveSessionPaymentIntent(
-  deposit: DepositRow,
-  stripeAccount: string,
-): Promise<string | null> {
-  if (!deposit.stripeCheckoutSessionId) {
-    return null;
-  }
-  const session = await stripe.checkout.sessions.retrieve(
-    deposit.stripeCheckoutSessionId,
-    { stripeAccount, timeout: DEPOSIT_STRIPE_CALL_TIMEOUT_MS },
-  );
-  const paymentIntent = session.payment_intent;
-  if (typeof paymentIntent === 'string') {
-    return paymentIntent;
-  }
-  return paymentIntent?.id ?? null;
-}
-
-function isChargeAlreadyRefunded(error: unknown): boolean {
-  return Boolean(
-    error
-    && typeof error === 'object'
-    && (error as { code?: string }).code === 'charge_already_refunded',
-  );
 }

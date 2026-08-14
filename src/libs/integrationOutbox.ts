@@ -20,6 +20,7 @@ import type {
   SalonNotificationCancellation,
   SalonNotificationEventKey,
   SalonNotificationPreviousSchedule,
+  SalonNotificationRefundMetadata,
   SalonNotificationSource,
 } from '@/libs/salonNotificationEmail';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
@@ -857,6 +858,40 @@ export async function enqueueDepositRefundNotices(
         depositId: input.depositId,
         refundId: input.refundId,
         variant: input.variant,
+      },
+    })
+    .onConflictDoNothing();
+}
+
+/**
+ * Durable salon money alert, written in the same transaction as the refund
+ * state change and delivered by the outbox only after that transaction commits.
+ */
+export async function enqueueDepositRefundAlertInTx(
+  database: OutboxTransaction,
+  input: {
+    salonId: string;
+    appointmentId: string;
+    event: 'refundFailed' | 'refundAccountDisconnected';
+    refund: SalonNotificationRefundMetadata;
+  },
+) {
+  const eventKey = input.event === 'refundFailed'
+    ? `refund-failed:${input.refund.keyEpoch}:${input.refund.terminalFailureCount}`
+    : `refund-account-disconnected:${input.refund.keyEpoch}`;
+
+  await database
+    .insert(integrationOutboxSchema)
+    .values({
+      id: crypto.randomUUID(),
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      provider: 'email',
+      operation: 'deposit_refund_alert',
+      dedupeKey: `appointment:${input.appointmentId}:salon:${eventKey}`,
+      payload: {
+        event: input.event,
+        refund: input.refund,
       },
     })
     .onConflictDoNothing();
@@ -3771,6 +3806,7 @@ export async function processIntegrationOutbox(
           source?: SalonNotificationSource;
           previous?: SalonNotificationPreviousSchedule | null;
           cancellation?: SalonNotificationCancellation | null;
+          refund?: SalonNotificationRefundMetadata | null;
         };
         if (!job.appointmentId || !payload.deliveryId || !payload.event) {
           throw new Error('INVALID_SALON_NOTIFICATION_RETRY');
@@ -3786,6 +3822,7 @@ export async function processIntegrationOutbox(
           source: payload.source ?? 'unknown',
           previous: payload.previous ?? undefined,
           cancellation: payload.cancellation ?? undefined,
+          refund: payload.refund ?? undefined,
           ...(options.signal ? { signal: options.signal } : {}),
         });
         result = { status: 'synced' as const };
@@ -3846,6 +3883,23 @@ export async function processIntegrationOutbox(
           '@/libs/deposits/depositOutboxHandlers'
         );
         await runDepositRefundNotices({
+          salonId: job.salonId,
+          appointmentId: job.appointmentId,
+          payload: job.payload,
+          ...(options.signal ? { signal: options.signal } : {}),
+        });
+        result = { status: 'synced' as const };
+      } else if (
+        job.provider === 'email'
+        && job.operation === 'deposit_refund_alert'
+      ) {
+        if (!job.appointmentId) {
+          throw new Error('INVALID_DEPOSIT_REFUND_ALERT');
+        }
+        const { runDepositRefundAlert } = await import(
+          '@/libs/deposits/depositOutboxHandlers'
+        );
+        await runDepositRefundAlert({
           salonId: job.salonId,
           appointmentId: job.appointmentId,
           payload: job.payload,
@@ -4043,7 +4097,8 @@ export async function processIntegrationOutbox(
           const { sendTransactionalEmail } = await import('@/libs/email');
           const isEmail = job.provider === 'email';
           const isSalonNotification
-            = job.operation === 'retry_salon_notification';
+            = job.operation === 'retry_salon_notification'
+            || job.operation === 'deposit_refund_alert';
           const notice = isSalonNotification
             ? {
                 subject: `${salon?.name || 'Your salon'} appointment alerts need attention`,

@@ -165,12 +165,14 @@ jobs:
       - run: npm ci
 
       # The deposits ladder is additive by construction. These paths carry the
-      # SaaS billing surface, the migration set, the deploy manifest and the
-      # salon-purge coverage pin.
+      # SaaS billing surface, dependency manifests, migration set, deploy
+      # manifest, and salon-purge coverage contract.
       #
-      # THREE of them are pinned to a hard ZERO DIFF for every PR in the ladder:
-      # no packet may touch the billing webhook route, the SaaS billing surface
-      # or the salon-purge coverage pin.
+      # The billing webhook route, SaaS billing surface, and dependency
+      # manifests are pinned to a hard ZERO DIFF for every PR in the ladder.
+      # D6's salon-purge extension is separately pinned to an exact additive
+      # postimage: its reviewed registration and preflight may be added, while
+      # no existing line may be removed or rewritten.
       #
       # The other two — `migrations` and `vercel.json` — cannot be zero-diff,
       # because the ladder is *defined* by packets that ship schema and crons:
@@ -198,17 +200,39 @@ jobs:
           set -euo pipefail
           base="$(git merge-base origin/main HEAD)"
 
-          # 1. Hard zero-diff. Unchanged from the original step.
+          # 1. Hard zero-diff. D6 adds dependency manifests to the protected set.
           git diff --exit-code "$base" -- \
             src/app/api/webhooks/stripe/route.ts \
             src/app/api/billing \
-            src/libs/salonPurge.ts
+            package.json \
+            package-lock.json
 
-          # 2. Only chartered paths may change under the additive surfaces.
+          # 2. D6's salon-purge edit is additive and byte-exact. The postimage
+          #    contains only the appointment_deposit registration, the two
+          #    named unsettled predicates, and the common purge preflight.
+          if ! git diff --quiet "$base" -- src/libs/salonPurge.ts; then
+            salon_purge_removed="$(git diff --unified=0 "$base" -- src/libs/salonPurge.ts \
+              | grep -E '^-' | grep -vE '^--- ' || true)"
+            if [ -n "$salon_purge_removed" ]; then
+              echo "::error::The D6 salon-purge allowlist is additive; existing lines may not be removed or rewritten."
+              printf '%s\n' "$salon_purge_removed"
+              exit 1
+            fi
+
+            salon_purge_blob="$(git hash-object src/libs/salonPurge.ts)"
+            if [ "$salon_purge_blob" != "ba5eaf44ce96b6f217d94c71268d8261bc5bfe24" ]; then
+              echo "::error::Unauthorized change outside the reviewed D6 salon-purge postimage."
+              printf 'actual blob: %s\n' "$salon_purge_blob"
+              exit 1
+            fi
+          fi
+
+          # 3. Only chartered paths may change under the additive surfaces.
           while read -r file; do
             [ -n "$file" ] || continue
             case "$file" in
               migrations/0066_deposit_hold_awaiting_payment.sql) ;;
+              migrations/0067_deposit_refund_waiver_columns.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -218,7 +242,7 @@ jobs:
             esac
           done <<< "$(git diff --name-only "$base" -- migrations vercel.json)"
 
-          # 3. Additive by construction: no deletions, no rewrites. This is what
+          # 4. Additive by construction: no deletions, no rewrites. This is what
           #    keeps an already-shipped migration or an existing cron immutable.
           removed="$(git diff --unified=0 "$base" -- migrations vercel.json \
             | grep -E '^-' | grep -vE '^--- ' || true)"
@@ -228,11 +252,13 @@ jobs:
             exit 1
           fi
 
-          # 4. The additions themselves are allowlisted by content, so a packet
+          # 5. The additions themselves are allowlisted by content, so a packet
           #    cannot smuggle an extra migration or an extra cron through.
           new_tags="$(git diff --unified=0 "$base" -- migrations/meta/_journal.json \
             | grep -E '^\+.*"tag"' | sed -E 's/.*"tag" *: *"([^"]+)".*/\1/' || true)"
-          if [ -n "$new_tags" ] && [ "$new_tags" != "0066_deposit_hold_awaiting_payment" ]; then
+          if [ -n "$new_tags" ] \
+             && [ "$new_tags" != "0066_deposit_hold_awaiting_payment" ] \
+             && [ "$new_tags" != "0067_deposit_refund_waiver_columns" ]; then
             echo "::error::Unauthorized migration journal entries:"
             printf '%s\n' "$new_tags"
             exit 1
@@ -382,12 +408,12 @@ jobs:
       CLIENT_LIFECYCLE_TEST_DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
       CONCURRENCY_TEST_DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
       CLIENT_LIFECYCLE_DISPOSABLE_DATABASE_CONFIRMED: 'true'
-      V133_COMMIT: 759b645ceb75d33c09fcc529450825e3781cfe79
+      V133_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
 
     steps:
       - uses: actions/checkout@v4
         with:
-          # The conditional v1.33 smoke uses the exact immutable Production
+          # The conditional compatibility smoke uses the exact reviewed head
           # commit in a detached temporary worktree.
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
@@ -401,7 +427,7 @@ jobs:
       - name: Install dependencies
         run: HUSKY=0 npm ci
 
-      - name: Verify the exercised staff reset is exact v1.33 code
+      - name: Verify the exercised staff reset matches the reviewed head
         run: git diff --exit-code "$V133_COMMIT" -- src/libs/salonPurge.ts
 
       - name: Run real migration, concurrency, and directory suites
@@ -513,7 +539,7 @@ jobs:
           cleanup_health
           trap - EXIT
 
-      - name: Smoke exact v1.33 conditional DB compatibility
+      - name: Smoke reviewed-head conditional DB compatibility
         env:
           DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
           CLERK_SECRET_KEY: ci-placeholder-not-a-secret
@@ -610,6 +636,7 @@ jobs:
       CONCURRENCY_TEST_DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
       LUSTER_DISPOSABLE_DATABASE: 'true'
       D5_CONCURRENCY_REQUIRED: 'true'
+      D6_CONCURRENCY_REQUIRED: 'true'
       BILLING_PLAN_ENV: test
       CLERK_SECRET_KEY: ci-placeholder-not-a-secret
       NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2kubHVzdGVyLmludmFsaWQk
@@ -651,6 +678,20 @@ jobs:
           grep -Fqx \
             'D5_REAL_POSTGRES_TESTS_EXECUTED=5 D5_REAL_POSTGRES_TESTS_SKIPPED=0' \
             d5-postgres-concurrency.log
+
+      - name: Run all D6 real-PostgreSQL refund races and prove zero skips
+        shell: bash
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism \
+            src/libs/deposits/depositRefund.concurrency.integration.test.ts \
+            | tee d6-postgres-concurrency.log
+          grep -Fqx \
+            'D6_REAL_POSTGRES_TESTS_EXECUTED=7 D6_REAL_POSTGRES_TESTS_SKIPPED=0' \
+            d6-postgres-concurrency.log
 
   booking-entitlement-override-postgres:
     name: Booking entitlement override PostgreSQL concurrency

@@ -13,7 +13,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -22,7 +22,10 @@ import * as schema from '@/models/Schema';
 
 import {
   countSalonImpact,
+  isUnsettledForPurge,
+  isUnsettledForReschedule,
   purgeSalonData,
+  purgeSalonGroups,
   type PurgeTx,
   SALON_PURGE_PLAN,
   SalonPurgeBlockedError,
@@ -127,6 +130,18 @@ async function seedSalon(salonId: string, suffix: string, dayOffset: number): Pr
     endTime: end,
     totalPrice: 60,
     totalDurationMinutes: 60,
+  });
+  // Every plan table must be populated, but the default fixture must remain
+  // safely purgeable. Individual tests promote this expired row into the
+  // money-bearing states covered by the D6 preflight.
+  await db.insert(schema.appointmentDepositSchema).values({
+    id: id('deposit'),
+    salonId,
+    appointmentId: id('appt'),
+    amountCents: 3000,
+    currency: 'cad',
+    status: 'expired',
+    stripeAccountId: `acct_${suffix}`,
   });
   await db.insert(schema.appointmentServicesSchema).values({
     id: id('apptsvc'),
@@ -349,6 +364,115 @@ describe('purgeSalonData', () => {
     ).rejects.toThrow(SalonPurgeBlockedError);
 
     expect(await snapshot(SALON)).toEqual(before);
+  });
+
+  it.each([
+    {
+      entrypoint: 'full hard delete',
+      run: (tx: PurgeTx) => purgeSalonData(tx, SALON),
+    },
+    {
+      entrypoint: 'appointments group reset',
+      run: (tx: PurgeTx) => purgeSalonGroups(tx, SALON, ['appointments']),
+    },
+  ])('blocks the $entrypoint before deleting any row when a refund failed', async ({ run }) => {
+    await db
+      .update(schema.appointmentDepositSchema)
+      .set({
+        status: 'refunded',
+        refundStatus: 'failed',
+        refundStatusChangedAt: new Date(),
+      })
+      .where(eq(schema.appointmentDepositSchema.id, 'deposit_target'));
+
+    const before = await snapshot(SALON);
+
+    await expect(
+      db.transaction(async tx => run(tx as unknown as PurgeTx)),
+    ).rejects.toThrow(SalonPurgeBlockedError);
+
+    expect(await snapshot(SALON)).toEqual(before);
+  });
+
+  it.each([
+    ['refunded with no refund result', 'refunded', null],
+    ['waived after payment landed', 'waived', 'pi_waived'],
+    ['canceled after payment landed', 'canceled', 'pi_canceled'],
+  ] as const)('blocks generalized money-bearing state: %s', async (_label, status, paymentIntentId) => {
+    await db
+      .update(schema.appointmentDepositSchema)
+      .set({
+        status,
+        stripePaymentIntentId: paymentIntentId,
+        refundStatus: null,
+        refundStatusChangedAt: null,
+      })
+      .where(eq(schema.appointmentDepositSchema.id, 'deposit_target'));
+
+    await expect(
+      db.transaction(async tx => purgeSalonData(tx as unknown as PurgeTx, SALON)),
+    ).rejects.toThrow(SalonPurgeBlockedError);
+  });
+
+  it('retains a recently succeeded refund but permits purge after the 30-day horizon', async () => {
+    const recentlySucceededAt = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
+    await db
+      .update(schema.appointmentDepositSchema)
+      .set({
+        status: 'refunded',
+        refundStatus: 'succeeded',
+        refundedAt: recentlySucceededAt,
+        refundStatusChangedAt: recentlySucceededAt,
+      })
+      .where(eq(schema.appointmentDepositSchema.id, 'deposit_target'));
+
+    await expect(
+      db.transaction(async tx => purgeSalonData(tx as unknown as PurgeTx, SALON)),
+    ).rejects.toThrow(SalonPurgeBlockedError);
+
+    const outsideRetentionAt = new Date(Date.now() - 31 * 24 * 60 * 60 * 1000);
+    await db
+      .update(schema.appointmentDepositSchema)
+      .set({
+        refundedAt: outsideRetentionAt,
+        refundStatusChangedAt: outsideRetentionAt,
+      })
+      .where(eq(schema.appointmentDepositSchema.id, 'deposit_target'));
+
+    await expect(
+      db.transaction(async tx => purgeSalonData(tx as unknown as PurgeTx, SALON)),
+    ).resolves.toMatchObject({ totalRows: expect.any(Number) });
+  });
+
+  it('keeps separately named purge and reschedule predicates with the intentional canceled-state difference', async () => {
+    await db
+      .update(schema.appointmentDepositSchema)
+      .set({
+        status: 'canceled',
+        stripePaymentIntentId: 'pi_canceled_structural',
+        refundStatus: 'failed',
+        refundStatusChangedAt: new Date(),
+      })
+      .where(eq(schema.appointmentDepositSchema.id, 'deposit_target'));
+
+    const [purgeMatch] = await db
+      .select({ id: schema.appointmentDepositSchema.id })
+      .from(schema.appointmentDepositSchema)
+      .where(and(
+        eq(schema.appointmentDepositSchema.id, 'deposit_target'),
+        isUnsettledForPurge(),
+      ));
+    const [rescheduleMatch] = await db
+      .select({ id: schema.appointmentDepositSchema.id })
+      .from(schema.appointmentDepositSchema)
+      .where(and(
+        eq(schema.appointmentDepositSchema.id, 'deposit_target'),
+        isUnsettledForReschedule(),
+      ));
+
+    expect(isUnsettledForPurge).not.toBe(isUnsettledForReschedule);
+    expect(purgeMatch?.id).toBe('deposit_target');
+    expect(rescheduleMatch).toBeUndefined();
   });
 });
 

@@ -61,6 +61,13 @@ export type SalonNotificationCancellation = {
   cancelledAt: string;
 };
 
+export type SalonNotificationRefundMetadata = {
+  errorCode: string | null;
+  failureReason: string | null;
+  keyEpoch: number;
+  terminalFailureCount: number;
+};
+
 export type SendSalonNotificationEmailInput = {
   salonId: string;
   appointmentId: string;
@@ -68,6 +75,7 @@ export type SendSalonNotificationEmailInput = {
   source: SalonNotificationSource;
   previous?: SalonNotificationPreviousSchedule;
   cancellation?: SalonNotificationCancellation;
+  refund?: SalonNotificationRefundMetadata;
   signal?: AbortSignal;
 };
 
@@ -99,18 +107,24 @@ const EVENT_PURPOSE: Record<SalonNotificationEventKey, string> = {
   newBooking: 'salon_new_booking',
   rescheduled: 'salon_rescheduled',
   cancelled: 'salon_cancelled',
+  refundFailed: 'salon_refund_failed',
+  refundAccountDisconnected: 'salon_refund_account_disconnected',
 };
 
 const EVENT_LABEL: Record<SalonNotificationEventKey, string> = {
   newBooking: 'New booking',
   rescheduled: 'Rescheduled',
   cancelled: 'Cancelled',
+  refundFailed: 'Refund failed',
+  refundAccountDisconnected: 'Account disconnected',
 };
 
 const EVENT_ACCENT: Record<SalonNotificationEventKey, { bg: string; fg: string }> = {
   newBooking: { bg: '#E7F6EC', fg: '#1B6B39' },
   rescheduled: { bg: '#FDF1DC', fg: '#8A5A08' },
   cancelled: { bg: '#FCE9E9', fg: '#9B1C1C' },
+  refundFailed: { bg: '#FCE9E9', fg: '#9B1C1C' },
+  refundAccountDisconnected: { bg: '#FCE9E9', fg: '#9B1C1C' },
 };
 
 const SOURCE_LABEL: Record<SalonNotificationSource, string> = {
@@ -153,6 +167,7 @@ export function buildSalonNotificationDedupeKey(input: {
   appointmentId: string;
   event: SalonNotificationEventKey;
   eventVersion?: string;
+  refund?: SalonNotificationRefundMetadata;
 }): string {
   switch (input.event) {
     case 'newBooking':
@@ -161,6 +176,10 @@ export function buildSalonNotificationDedupeKey(input: {
       return `appointment:${input.appointmentId}:salon:cancelled`;
     case 'rescheduled':
       return `appointment:${input.appointmentId}:salon:rescheduled:${input.eventVersion ?? 'unknown'}`;
+    case 'refundFailed':
+      return `appointment:${input.appointmentId}:salon:refund-failed:${input.refund?.keyEpoch ?? 'unknown'}:${input.refund?.terminalFailureCount ?? 'unknown'}`;
+    case 'refundAccountDisconnected':
+      return `appointment:${input.appointmentId}:salon:refund-account-disconnected:${input.refund?.keyEpoch ?? 'unknown'}`;
   }
 }
 
@@ -292,6 +311,46 @@ function formatTimeZoneLabel(value: string | Date, timeZone: string): string {
 /** Short, human-quotable reference. The full id stays in the dashboard link. */
 function formatAppointmentReference(appointmentId: string): string {
   return appointmentId.slice(-8).toUpperCase();
+}
+
+const REFUND_ALERT_ERROR_CODES = new Set([
+  'charge_disputed',
+  'refund_disputed_payment',
+  'charge_already_refunded',
+  'rate_limit',
+  'lock_timeout',
+  'idempotency_key_in_use',
+  'platform_api_key_expired',
+  'account_invalid',
+  'livemode_mismatch',
+  'ACCOUNT_DISCONNECTED',
+  'ACCOUNT_REBOUND',
+  'UNKNOWN_PROVIDER_ERROR',
+]);
+
+const REFUND_ALERT_FAILURE_REASONS = new Set([
+  'charge_for_pending_refund_disputed',
+  'declined',
+  'expired_or_canceled_card',
+  'insufficient_funds',
+  'lost_or_stolen_card',
+  'merchant_request',
+  'unknown',
+]);
+
+/** Never permit raw provider prose or identifiers into a money-alert email. */
+function resolveRefundAlertMetadata(
+  refund: SalonNotificationRefundMetadata | undefined,
+): { errorCode: string; failureReason: string } {
+  return {
+    errorCode: refund?.errorCode && REFUND_ALERT_ERROR_CODES.has(refund.errorCode)
+      ? refund.errorCode
+      : 'UNKNOWN_PROVIDER_ERROR',
+    failureReason: refund?.failureReason
+      && REFUND_ALERT_FAILURE_REASONS.has(refund.failureReason)
+      ? refund.failureReason
+      : 'unknown',
+  };
 }
 
 function buildDashboardUrl(context: SalonNotificationContext): string | null {
@@ -570,6 +629,52 @@ export function buildSalonNotificationEmailPayload(
     },
   ];
 
+  if (
+    input.event === 'refundFailed'
+    || input.event === 'refundAccountDisconnected'
+  ) {
+    const refund = resolveRefundAlertMetadata(input.refund);
+    const referenceLines: Line[] = [
+      { label: 'Appointment', value: reference },
+      { label: 'Error code', value: refund.errorCode },
+      { label: 'Failure reason', value: refund.failureReason },
+    ];
+
+    if (input.event === 'refundFailed') {
+      return renderEmail({
+        event: 'refundFailed',
+        subject: `${context.salon.name}: a deposit refund needs attention`,
+        salonName: context.salon.name,
+        headline: 'A deposit refund failed',
+        dashboardUrl,
+        blocks: [
+          {
+            kind: 'text',
+            title: 'Action required',
+            body: 'Open the appointment in Luster, review the refund status, and use Retry when the issue is resolved.',
+          },
+          { kind: 'lines', title: 'Refund status', lines: referenceLines },
+        ],
+      });
+    }
+
+    return renderEmail({
+      event: 'refundAccountDisconnected',
+      subject: `${context.salon.name}: Stripe connection needs attention`,
+      salonName: context.salon.name,
+      headline: 'A deposit refund is waiting for account access',
+      dashboardUrl,
+      blocks: [
+        {
+          kind: 'text',
+          title: 'Action required',
+          body: 'Check the salon Stripe connection, reconnect it if needed, then return to this appointment and retry the refund.',
+        },
+        { kind: 'lines', title: 'Refund status', lines: referenceLines },
+      ],
+    });
+  }
+
   if (input.event === 'newBooking') {
     return renderEmail({
       event: 'newBooking',
@@ -726,6 +831,7 @@ async function enqueueSalonNotificationRetry(input: {
   source: SalonNotificationSource;
   previous?: SalonNotificationPreviousSchedule;
   cancellation?: SalonNotificationCancellation;
+  refund?: SalonNotificationRefundMetadata;
 }): Promise<void> {
   await db.insert(integrationOutboxSchema).values({
     id: crypto.randomUUID(),
@@ -740,6 +846,7 @@ async function enqueueSalonNotificationRetry(input: {
       source: input.source,
       previous: input.previous ?? null,
       cancellation: input.cancellation ?? null,
+      refund: input.refund ?? null,
     },
   }).onConflictDoNothing();
 }
@@ -776,6 +883,7 @@ export async function sendSalonNotificationEmail(
         newEndTime: context.appointment.endTime.toISOString(),
       })
       : undefined,
+    refund: input.refund,
   });
 
   const recipient = resolveSalonNotificationRecipient({
@@ -907,6 +1015,7 @@ export async function retrySalonNotificationEmail(input: {
   source: SalonNotificationSource;
   previous?: SalonNotificationPreviousSchedule;
   cancellation?: SalonNotificationCancellation;
+  refund?: SalonNotificationRefundMetadata;
   signal?: AbortSignal;
 }): Promise<void> {
   throwIfSalonNotificationAborted(input.signal);
@@ -949,6 +1058,7 @@ export async function retrySalonNotificationEmail(input: {
     source: input.source,
     previous: input.previous,
     cancellation: input.cancellation,
+    refund: input.refund,
   });
 
   throwIfSalonNotificationAborted(input.signal);

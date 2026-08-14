@@ -25,6 +25,7 @@ import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
 import { AdminSearchField } from '@/components/admin/AdminSearchField';
 import { ClientCommunicationActions } from '@/components/admin/ClientCommunicationActions';
 import { ClientInsightsPanel } from '@/components/admin/ClientHubPanel';
+import { DepositPanel } from '@/components/admin/DepositPanel';
 import {
   EditClientDialog,
   type EditClientValue,
@@ -2255,6 +2256,9 @@ function ClientDetail({
         onViewReceipt={appointmentActions.openReceipt}
         onRetryLoad={() => void appointmentActions.refreshDetail()}
         onReminderSent={() => appointmentActions.refreshDetail()}
+        adminDepositPanelSlot={appointmentActions.selectedAppointmentId
+          ? <DepositPanel appointmentId={appointmentActions.selectedAppointmentId} salonSlug={salonSlug} />
+          : null}
         initialPendingAction={cancelIntent ? 'cancel' : null}
         onRebook={() => {
           const prefill = appointmentActions.buildRebookPrefill();

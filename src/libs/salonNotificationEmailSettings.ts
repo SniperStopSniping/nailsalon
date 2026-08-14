@@ -5,18 +5,20 @@ import { z } from 'zod';
 import type { SalonSettings } from '@/types/salonPolicy';
 
 /**
- * Salon-facing appointment notification emails.
+ * Salon-facing appointment and deposit-money notification emails.
  *
  * Deliberately separate from the client-facing confirmation/reminder settings
  * and from `settings.notifications.newBooking|appointmentCancelled` (which now
  * only drives SMS to the owner and the assigned technician). The salon's own
- * "someone booked / moved / cancelled" alerts live here and nowhere else.
+ * Booking alerts and the two non-disableable D6 money alerts live here.
  */
 
 export const SALON_EMAIL_NOTIFICATION_EVENTS = [
   'newBooking',
   'rescheduled',
   'cancelled',
+  'refundFailed',
+  'refundAccountDisconnected',
 ] as const;
 
 export type SalonEmailNotificationEvent
@@ -26,6 +28,8 @@ export const DEFAULT_SALON_EMAIL_NOTIFICATION_SETTINGS = {
   newBooking: true,
   rescheduled: true,
   cancelled: true,
+  refundFailed: true,
+  refundAccountDisconnected: true,
   recipientEmail: null,
 } as const;
 
@@ -35,6 +39,10 @@ export const salonEmailNotificationSettingsSchema = z.object({
   newBooking: z.boolean().default(DEFAULT_SALON_EMAIL_NOTIFICATION_SETTINGS.newBooking),
   rescheduled: z.boolean().default(DEFAULT_SALON_EMAIL_NOTIFICATION_SETTINGS.rescheduled),
   cancelled: z.boolean().default(DEFAULT_SALON_EMAIL_NOTIFICATION_SETTINGS.cancelled),
+  refundFailed: z.boolean().default(DEFAULT_SALON_EMAIL_NOTIFICATION_SETTINGS.refundFailed),
+  refundAccountDisconnected: z.boolean().default(
+    DEFAULT_SALON_EMAIL_NOTIFICATION_SETTINGS.refundAccountDisconnected,
+  ),
   // Stored lowercase; `null` means "fall back to the owner / account email".
   recipientEmail: emailSchema.nullable().default(null),
 });
@@ -71,7 +79,7 @@ export function resolveSalonEmailNotificationSettings(
 }
 
 export function mergeSalonEmailNotificationSettings(
-  current: SalonEmailNotificationSettings,
+  current: Partial<SalonEmailNotificationSettings>,
   updates: SalonEmailNotificationSettingsUpdate,
 ): SalonEmailNotificationSettings {
   return salonEmailNotificationSettingsSchema.parse({

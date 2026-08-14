@@ -8,6 +8,10 @@ import {
 } from '@/libs/bookingCommitEffects';
 import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
+import {
+  type SalonNotificationRefundMetadata,
+  sendSalonNotificationEmail,
+} from '@/libs/salonNotificationEmail';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 import {
   appointmentDepositSchema,
@@ -64,6 +68,11 @@ type RefundNoticePayload = {
   variant: 'slot_lost' | 'waiver';
 };
 
+type RefundAlertPayload = {
+  event: 'refundFailed' | 'refundAccountDisconnected';
+  refund: SalonNotificationRefundMetadata;
+};
+
 function readConfirmationPayload(value: unknown): ConfirmationPayload {
   const payload = (value ?? {}) as Partial<ConfirmationPayload>;
   if (typeof payload.depositId !== 'string' || typeof payload.manageUrl !== 'string') {
@@ -87,6 +96,26 @@ function readRefundNoticePayload(value: unknown): RefundNoticePayload {
     depositId: payload.depositId,
     refundId: payload.refundId,
     variant: payload.variant === 'waiver' ? 'waiver' : 'slot_lost',
+  };
+}
+
+function readRefundAlertPayload(value: unknown): RefundAlertPayload {
+  const payload = (value ?? {}) as Partial<RefundAlertPayload>;
+  const refund = (payload.refund ?? {}) as Partial<SalonNotificationRefundMetadata>;
+  if (
+    !['refundFailed', 'refundAccountDisconnected'].includes(payload.event ?? '')
+    || (refund.errorCode !== null && typeof refund.errorCode !== 'string')
+    || (refund.failureReason !== null && typeof refund.failureReason !== 'string')
+    || !Number.isInteger(refund.keyEpoch)
+    || (refund.keyEpoch ?? 0) < 1
+    || !Number.isInteger(refund.terminalFailureCount)
+    || (refund.terminalFailureCount ?? -1) < 0
+  ) {
+    throw new TypeError('INVALID_DEPOSIT_REFUND_ALERT');
+  }
+  return {
+    event: payload.event as RefundAlertPayload['event'],
+    refund: refund as SalonNotificationRefundMetadata,
   };
 }
 
@@ -309,6 +338,21 @@ export async function runDepositRefundNotices(args: HandlerArgs): Promise<void> 
     // before another leg failed, a later attempt may send it again.
     throw new Error(`DEPOSIT_REFUND_NOTICE_FAILED:${failures.join(',')}`);
   }
+}
+
+/** Deliver one of D6's two allowlisted salon money alerts after commit. */
+export async function runDepositRefundAlert(args: HandlerArgs): Promise<void> {
+  throwIfDepositOutboxAborted(args.signal);
+  const payload = readRefundAlertPayload(args.payload);
+
+  await sendSalonNotificationEmail({
+    salonId: args.salonId,
+    appointmentId: args.appointmentId,
+    event: payload.event,
+    source: 'unknown',
+    refund: payload.refund,
+    ...(args.signal ? { signal: args.signal } : {}),
+  });
 }
 
 function escapeHtml(value: string): string {

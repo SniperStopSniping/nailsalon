@@ -31,6 +31,7 @@ import {
   adminInviteSchema,
   appointmentAddOnSchema,
   appointmentAuditLogSchema,
+  appointmentDepositSchema,
   appointmentFinalItemSchema,
   appointmentPaymentSchema,
   appointmentPhotoSchema,
@@ -109,6 +110,48 @@ const addOnIdsOf = (tx: PurgeTx, salonId: string) =>
 
 const salonClientIdsOf = (tx: PurgeTx, salonId: string) =>
   tx.select({ id: salonClientSchema.id }).from(salonClientSchema).where(eq(salonClientSchema.salonId, salonId));
+
+/**
+ * A succeeded refund remains operationally significant for 30 days. Keep the
+ * boundary in one expression so purge and reschedule cannot quietly acquire
+ * different retention windows.
+ */
+const isInsideRefundRetentionWindow = () => sql<boolean>`(
+  ${appointmentDepositSchema.refundStatus} is distinct from 'succeeded'
+  or coalesce(
+    ${appointmentDepositSchema.refundedAt},
+    ${appointmentDepositSchema.refundStatusChangedAt}
+  ) > now() - interval '30 days'
+)`;
+
+/** Money-bearing deposit rows that make destructive salon purge unsafe. */
+export const isUnsettledForPurge = () => or(
+  and(
+    or(
+      inArray(appointmentDepositSchema.status, ['paid', 'refunded']),
+      and(
+        inArray(appointmentDepositSchema.status, ['waived', 'canceled']),
+        isNotNull(appointmentDepositSchema.stripePaymentIntentId),
+      ),
+    ),
+    isInsideRefundRetentionWindow(),
+  ),
+  inArray(appointmentDepositSchema.refundStatus, ['requested', 'pending']),
+);
+
+/** Deposit rows that cannot be detached by the appointment-first reschedule. */
+export const isUnsettledForReschedule = () => or(
+  eq(appointmentDepositSchema.status, 'paid'),
+  and(
+    eq(appointmentDepositSchema.status, 'refunded'),
+    isInsideRefundRetentionWindow(),
+  ),
+  and(
+    eq(appointmentDepositSchema.status, 'waived'),
+    isNotNull(appointmentDepositSchema.stripePaymentIntentId),
+    isInsideRefundRetentionWindow(),
+  ),
+);
 
 const referralIdsOf = (tx: PurgeTx, salonId: string) =>
   tx.select({ id: referralSchema.id }).from(referralSchema).where(eq(referralSchema.salonId, salonId));
@@ -368,6 +411,14 @@ export const SALON_PURGE_PLAN: PurgeStep[] = [
     parentTable: 'appointment',
   }),
   deleteStep({
+    table: 'appointment_deposit',
+    group: 'appointments',
+    target: appointmentDepositSchema,
+    reason:
+      'The tenant-ordered appointment foreign key is ON DELETE RESTRICT. The common purge preflight proves every deposit is settled before these rows are deleted ahead of appointment.',
+    where: (_tx, salonId) => eq(appointmentDepositSchema.salonId, salonId),
+  }),
+  deleteStep({
     table: 'appointment',
     group: 'appointments',
     target: appointmentSchema,
@@ -540,6 +591,8 @@ export const SALON_PURGE_PLAN: PurgeStep[] = [
  * transaction, before the first delete, so it aborts harmlessly.
  */
 export async function assertNoCrossTenantReferences(tx: PurgeTx, salonId: string): Promise<void> {
+  await assertNoUnsettledDeposits(tx, salonId);
+
   const techIds = technicianIdsOf(tx, salonId);
   const svcIds = serviceIdsOf(tx, salonId);
   const addOnIds = addOnIdsOf(tx, salonId);
@@ -619,6 +672,27 @@ export async function assertNoCrossTenantReferences(tx: PurgeTx, salonId: string
 
   if (blockers.length > 0) {
     throw new SalonPurgeBlockedError(blockers);
+  }
+}
+
+/**
+ * Refuse both full and grouped purges while client money is unresolved or a
+ * successful refund is still inside the 30-day operational retention window.
+ */
+export async function assertNoUnsettledDeposits(tx: PurgeTx, salonId: string): Promise<void> {
+  const count = await countWhere(
+    tx,
+    appointmentDepositSchema,
+    and(
+      eq(appointmentDepositSchema.salonId, salonId),
+      isUnsettledForPurge(),
+    ),
+  );
+
+  if (count > 0) {
+    throw new SalonPurgeBlockedError([
+      { table: 'appointment_deposit', column: 'refund_status', count },
+    ]);
   }
 }
 

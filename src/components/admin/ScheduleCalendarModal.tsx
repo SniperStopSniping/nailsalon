@@ -23,6 +23,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 
+import { DepositPanel } from '@/components/admin/DepositPanel';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
 import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
@@ -1130,6 +1131,9 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
         onViewReceipt={actions.openReceipt}
         onRetryLoad={() => void actions.refreshDetail()}
         onReminderSent={() => actions.refreshDetail()}
+        adminDepositPanelSlot={actions.selectedAppointmentId
+          ? <DepositPanel appointmentId={actions.selectedAppointmentId} salonSlug={salonSlug} />
+          : null}
         onRebook={() => {
           const prefill = actions.buildRebookPrefill();
           if (!prefill) {
