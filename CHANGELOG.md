@@ -1,3 +1,10 @@
+## [1.52.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.52.0...v1.52.1) (2026-08-14)
+
+
+### Bug Fixes
+
+* **integrations:** reimplement scope-clean D5 calendar ordering ([5558078](https://github.com/SniperStopSniping/nailsalon/commit/555807873ff4cdff1435c7761da1ae1463cf6cb5))
+
 # [1.52.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.51.0...v1.52.0) (2026-08-12)
 
 
