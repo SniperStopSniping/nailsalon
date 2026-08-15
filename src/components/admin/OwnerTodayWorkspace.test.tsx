@@ -454,7 +454,11 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
 
     const revenue = await screen.findByTestId('owner-revenue-summary');
 
-    expect(revenue).toHaveTextContent('Forfeiture tax estimate$2.88');
+    // The card mounts before the financial summary's later state update
+    // renders the forfeiture lines; wait for that content like the
+    // 'Incomplete history' test below does.
+    await waitFor(() => expect(revenue).toHaveTextContent('Forfeiture tax estimate$2.88'));
+
     expect(revenue).toHaveTextContent('Forfeiture net estimate$22.12');
     expect(revenue).toHaveTextContent('Forfeiture refund reversals$25.00');
     expect(screen.getByTestId('owner-forfeiture-tax-identities')).toHaveTextContent(
