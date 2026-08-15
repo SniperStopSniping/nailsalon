@@ -1,3 +1,17 @@
+# [1.53.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.52.1...v1.53.0) (2026-08-15)
+
+
+### Bug Fixes
+
+* **deposits:** restore d6 regression gates ([72a4494](https://github.com/SniperStopSniping/nailsalon/commit/72a44946e9402ac668674e6a82932e6e539ff606))
+* repair D6.1 independent-review blockers H1-H4 ([a99010a](https://github.com/SniperStopSniping/nailsalon/commit/a99010a1f2b6c274ac64d10be47ba1724e5a4744))
+
+
+### Features
+
+* apply deposit credit across appointment financials ([ea8d4e8](https://github.com/SniperStopSniping/nailsalon/commit/ea8d4e8a0eb2d0b8b09345db718dab84be031899))
+* **deposits:** d6 refunds, waivers, hold release, audit, payment health ([c357c42](https://github.com/SniperStopSniping/nailsalon/commit/c357c429cac10687bdd39c7cc064a252e18f55a6))
+
 ## [1.52.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.52.0...v1.52.1) (2026-08-14)
 
 
