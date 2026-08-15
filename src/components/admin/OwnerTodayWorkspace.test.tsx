@@ -402,7 +402,10 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
 
     const revenue = await screen.findByTestId('owner-revenue-summary');
 
-    expect(revenue).toHaveTextContent('Deposits collected$25.00');
+    // Same timing contract as the forfeiture test below: the card mounts
+    // before the financial summary's state update renders the deposit lines.
+    await waitFor(() => expect(revenue).toHaveTextContent('Deposits collected$25.00'));
+
     expect(revenue).toHaveTextContent('Deposit refunds$5.00');
     expect(revenue).toHaveTextContent('Deposits applied$20.00');
     expect(revenue).toHaveTextContent('Deposits forfeited (gross)$3.00');
