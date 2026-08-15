@@ -201,9 +201,9 @@ export default function AppointmentHistoryContent({
     : null;
   const totalSpentCents = totalSpentCurrency
     ? completedAppointments.reduce(
-        (sum, appointment) => sum + appointment.financial!.amountAlreadyPaidCents,
-        0,
-      )
+      (sum, appointment) => sum + appointment.financial!.amountAlreadyPaidCents,
+      0,
+    )
     : 0;
   const totalSpent = totalSpentCurrency
     ? formatMoney(totalSpentCents, totalSpentCurrency)
@@ -354,9 +354,9 @@ export default function AppointmentHistoryContent({
                               <span className="font-semibold text-neutral-700">
                                 {appointment.currency
                                   ? formatMoney(
-                                      appointment.financial.collectedDepositCents,
-                                      appointment.currency,
-                                    )
+                                    appointment.financial.collectedDepositCents,
+                                    appointment.currency,
+                                  )
                                   : 'Unavailable'}
                               </span>
                             </div>
@@ -376,9 +376,9 @@ export default function AppointmentHistoryContent({
                                 <span className="font-semibold">
                                   {appointment.currency
                                     ? formatMoney(
-                                        appointment.financial.refundedDepositCents,
-                                        appointment.currency,
-                                      )
+                                      appointment.financial.refundedDepositCents,
+                                      appointment.currency,
+                                    )
                                     : 'Unavailable'}
                                 </span>
                               </div>
@@ -389,9 +389,9 @@ export default function AppointmentHistoryContent({
                                 <span className="font-semibold">
                                   {appointment.currency
                                     ? formatMoney(
-                                        appointment.financial.forfeitedDepositCents,
-                                        appointment.currency,
-                                      )
+                                      appointment.financial.forfeitedDepositCents,
+                                      appointment.currency,
+                                    )
                                     : 'Unavailable'}
                                 </span>
                               </div>
@@ -415,9 +415,9 @@ export default function AppointmentHistoryContent({
                           <span className="text-base font-semibold text-neutral-700">
                             {appointment.currency && appointment.financial
                               ? formatMoney(
-                                  appointment.financial.totalCents,
-                                  appointment.currency,
-                                )
+                                appointment.financial.totalCents,
+                                appointment.currency,
+                              )
                               : 'Unavailable'}
                           </span>
                         </div>
@@ -437,9 +437,9 @@ export default function AppointmentHistoryContent({
                                         −
                                         {appointment.currency
                                           ? formatMoney(
-                                              appointment.financial.depositCreditCents,
-                                              appointment.currency,
-                                            )
+                                            appointment.financial.depositCreditCents,
+                                            appointment.currency,
+                                          )
                                           : 'Unavailable'}
                                       </span>
                                     </div>
@@ -450,9 +450,9 @@ export default function AppointmentHistoryContent({
                                       <span className="font-semibold text-neutral-700">
                                         {appointment.currency
                                           ? formatMoney(
-                                              appointment.financial.appointmentPaymentsCents,
-                                              appointment.currency,
-                                            )
+                                            appointment.financial.appointmentPaymentsCents,
+                                            appointment.currency,
+                                          )
                                           : 'Unavailable'}
                                       </span>
                                     </div>
@@ -464,11 +464,11 @@ export default function AppointmentHistoryContent({
                                     <span className="font-body text-xl font-bold text-[var(--n5-accent)]">
                                       {appointment.currency
                                         ? formatMoney(
-                                            appointment.financial.balanceCents === 0
-                                              ? appointment.financial.amountAlreadyPaidCents
-                                              : appointment.financial.balanceCents,
-                                            appointment.currency,
-                                          )
+                                          appointment.financial.balanceCents === 0
+                                            ? appointment.financial.amountAlreadyPaidCents
+                                            : appointment.financial.balanceCents,
+                                          appointment.currency,
+                                        )
                                         : 'Unavailable'}
                                     </span>
                                   </div>

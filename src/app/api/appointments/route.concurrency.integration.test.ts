@@ -53,11 +53,11 @@ const parsedDatabaseUser = parsedConcurrencyUrl
   : '';
 const disposableDatabaseConfirmed
   = process.env.CLIENT_LIFECYCLE_DISPOSABLE_DATABASE_CONFIRMED === 'true'
-    || process.env.BOOKING_POLICY_ACKNOWLEDGMENT_DISPOSABLE_DATABASE_CONFIRMED === 'true'
-    || (
-      parsedDatabaseName === 'luster_qa'
-      && parsedConcurrencyUrl?.username === 'qa'
-    );
+  || process.env.BOOKING_POLICY_ACKNOWLEDGMENT_DISPOSABLE_DATABASE_CONFIRMED === 'true'
+  || (
+    parsedDatabaseName === 'luster_qa'
+    && parsedConcurrencyUrl?.username === 'qa'
+  );
 const IS_LOCAL_THROWAWAY = parsedConcurrencyUrl != null
   && ['127.0.0.1', 'localhost'].includes(parsedConcurrencyUrl.hostname)
   && parsedDatabaseName.length > 0

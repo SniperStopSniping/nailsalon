@@ -381,14 +381,14 @@ type AppointmentResponse = {
  */
 type DepositResponseObject
   = | { required: false }
-    | {
-      required: true;
-      checkoutUrl: string;
-      amountCents: number;
-      currency: typeof DEPOSIT_CURRENCY;
-      fingerprint: string;
-      holdExpiresAt: string;
-    };
+  | {
+    required: true;
+    checkoutUrl: string;
+    amountCents: number;
+    currency: typeof DEPOSIT_CURRENCY;
+    fingerprint: string;
+    holdExpiresAt: string;
+  };
 
 type SuccessResponse = {
   data: AppointmentResponse & { deposit?: DepositResponseObject };
@@ -1067,10 +1067,10 @@ export async function POST(request: Request): Promise<Response> {
     const requestedTime = data.appointmentTime?.trim() || null;
     const parsedStartTime = requestedDate && requestedTime
       ? zonedTimeToUtc({
-          date: requestedDate,
-          time: requestedTime,
-          timeZone: bookingConfig.timezone,
-        })
+        date: requestedDate,
+        time: requestedTime,
+        timeZone: bookingConfig.timezone,
+      })
       : rawParsedStartTime;
     const canonicalStartTime = parsedStartTime.toISOString();
 
@@ -1434,10 +1434,10 @@ export async function POST(request: Request): Promise<Response> {
 
     const preliminaryRequiredPolicy = isNewPublicBooking
       ? resolveRequiredBookingPolicy({
-          storedPlan: salon.plan,
-          features: (salon.features as SalonFeatures | null | undefined) ?? null,
-          settings: (salon.settings as SalonSettings | null | undefined) ?? null,
-        })
+        storedPlan: salon.plan,
+        features: (salon.features as SalonFeatures | null | undefined) ?? null,
+        settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+      })
       : null;
 
     if (preliminaryRequiredPolicy) {
@@ -1737,10 +1737,10 @@ export async function POST(request: Request): Promise<Response> {
         }),
         normalizedClientEmail
           ? getActiveAppointmentsForContact({
-              salonId: salon.id,
-              email: normalizedClientEmail,
-              horizon: 'booking-gate',
-            })
+            salonId: salon.id,
+            email: normalizedClientEmail,
+            horizon: 'booking-gate',
+          })
           : Promise.resolve([]),
       ]);
 
@@ -1886,9 +1886,9 @@ export async function POST(request: Request): Promise<Response> {
 
       const guestOwnsOriginal = actorRole === 'guest' && data.manageToken
         ? Boolean(await verifyAppointmentAccessToken(data.manageToken, {
-            appointmentId: originalAppointment.id,
-            salonId: salon.id,
-          }))
+          appointmentId: originalAppointment.id,
+          salonId: salon.id,
+        }))
         : false;
 
       if ((actorRole === 'client' && !clientOwnsOriginal) || (actorRole === 'guest' && !guestOwnsOriginal)) {
@@ -1985,16 +1985,16 @@ export async function POST(request: Request): Promise<Response> {
     }
     const preservedSmartFitDecision = originalAppointment
       ? resolveSmartFitRescheduleDiscount({
-          base: automaticDiscount,
-          config: smartFitConfig,
-          committed: originalAppointment,
-          originalPricing: originalPricingInputs,
-          nextPricing: nextPricingInputs,
-          // Preservation must never depend on the new slot re-qualifying. When
-          // nothing is preserved, the in-transaction overlay below does the
-          // honest evaluation for this slot.
-          newSlotEvaluation: null,
-        })
+        base: automaticDiscount,
+        config: smartFitConfig,
+        committed: originalAppointment,
+        originalPricing: originalPricingInputs,
+        nextPricing: nextPricingInputs,
+        // Preservation must never depend on the new slot re-qualifying. When
+        // nothing is preserved, the in-transaction overlay below does the
+        // honest evaluation for this slot.
+        newSlotEvaluation: null,
+      })
       : null;
     const preservesCommittedSmartFit = preservedSmartFitDecision?.preservesCommittedDiscount === true;
 
@@ -2283,23 +2283,23 @@ export async function POST(request: Request): Promise<Response> {
       const decision = bypassAvailabilityGate
         ? null
         : canTechnicianTakeAppointment({
-            startTime,
-            endTime: blockedEndTime,
-            weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
-            override: initialPolicy.overridesByTechnician.get(technician.id),
-            isOnTimeOff: initialPolicy.timeOffTechnicianIds.has(technician.id),
-            blockedSlots: initialPolicy.blockedSlotsByTechnician.get(technician.id) ?? [],
-            requestedServices: services,
-            capabilityMode,
-            enabledServiceIds: technician.enabledServiceIds ?? [],
-            specialties: technician.specialties ?? [],
-            locationId: validatedLocationId,
-            primaryLocationId: technician.primaryLocationId ?? null,
-            locationBusinessHours: validatedLocation?.businessHours ?? null,
-            existingAppointments: initialPolicy.appointmentsByTechnician.get(technician.id) ?? [],
-            excludedAppointmentId: normalizedOriginalApptId,
-            bufferMinutes: 0,
-          });
+          startTime,
+          endTime: blockedEndTime,
+          weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
+          override: initialPolicy.overridesByTechnician.get(technician.id),
+          isOnTimeOff: initialPolicy.timeOffTechnicianIds.has(technician.id),
+          blockedSlots: initialPolicy.blockedSlotsByTechnician.get(technician.id) ?? [],
+          requestedServices: services,
+          capabilityMode,
+          enabledServiceIds: technician.enabledServiceIds ?? [],
+          specialties: technician.specialties ?? [],
+          locationId: validatedLocationId,
+          primaryLocationId: technician.primaryLocationId ?? null,
+          locationBusinessHours: validatedLocation?.businessHours ?? null,
+          existingAppointments: initialPolicy.appointmentsByTechnician.get(technician.id) ?? [],
+          excludedAppointmentId: normalizedOriginalApptId,
+          bufferMinutes: 0,
+        });
 
       if (decision && !decision.available) {
         const message = decision.reason === 'time_conflict'
@@ -2698,10 +2698,10 @@ export async function POST(request: Request): Promise<Response> {
         features,
         requiredPolicy: isNewPublicBooking
           ? resolveRequiredBookingPolicy({
-              storedPlan: lockedSalon.plan,
-              features,
-              settings,
-            })
+            storedPlan: lockedSalon.plan,
+            features,
+            settings,
+          })
           : null,
         taxConfig: resolveTaxConfig(settings, capturedAt),
         invoiceCurrency: resolveBookingConfigFromSettings(settings)
@@ -2786,12 +2786,12 @@ export async function POST(request: Request): Promise<Response> {
 
         const evaluation = dayContext
           ? evaluateSmartFitSlot({
-              config: smartFitConfig,
-              candidate: buildSmartFitCandidate(
-                finalClientKeys.length > 0 ? finalClientKeys : undefined,
-              ),
-              day: dayContext,
-            })
+            config: smartFitConfig,
+            candidate: buildSmartFitCandidate(
+              finalClientKeys.length > 0 ? finalClientKeys : undefined,
+            ),
+            day: dayContext,
+          })
           : null;
 
         // Overlay base = this request's automatic-discount resolution (the
@@ -3918,9 +3918,9 @@ export async function POST(request: Request): Promise<Response> {
                 eq(googleCalendarEventSchema.syncMode, googleReviewEvent.syncMode),
                 googleReviewEvent.googleUpdatedAt
                   ? eq(
-                      googleCalendarEventSchema.googleUpdatedAt,
-                      googleReviewEvent.googleUpdatedAt,
-                    )
+                    googleCalendarEventSchema.googleUpdatedAt,
+                    googleReviewEvent.googleUpdatedAt,
+                  )
                   : isNull(googleCalendarEventSchema.googleUpdatedAt),
               )).returning();
               if (!claimedEvent) {

@@ -1709,10 +1709,10 @@ export async function syncGoogleCalendarEventForAppointment(
     const body = buildGoogleCalendarEventBody(input);
     const deterministicEventId = options.idempotencyKey
       ? deterministicGoogleCalendarEventId({
-          salonId: input.salonId,
-          appointmentId: input.appointmentId,
-          idempotencyKey: options.idempotencyKey,
-        })
+        salonId: input.salonId,
+        appointmentId: input.appointmentId,
+        idempotencyKey: options.idempotencyKey,
+      })
       : null;
     if (deterministicEventId) {
       await getLinkedGoogleCalendarEvent(

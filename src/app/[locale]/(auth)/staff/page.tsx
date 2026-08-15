@@ -692,9 +692,9 @@ export default function StaffDashboardPage() {
                 <div className="font-semibold" style={{ color: themeVars.titleText }}>
                   {selectedAppointment.invoiceCurrency
                     ? formatMoney(
-                        selectedAppointment.totalPrice,
-                        selectedAppointment.invoiceCurrency,
-                      )
+                      selectedAppointment.totalPrice,
+                      selectedAppointment.invoiceCurrency,
+                    )
                     : 'Unavailable'}
                 </div>
               </SectionCard>

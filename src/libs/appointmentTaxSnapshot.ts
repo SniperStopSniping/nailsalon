@@ -103,12 +103,12 @@ export function validateAppointmentTaxSnapshotChain(
   const bookingValidation = input.bookingTaxSnapshot === null
     ? null
     : validateInvoiceTaxSnapshot(input.bookingTaxSnapshot, {
-        expectedKind: 'booking_estimate',
-        expectedCurrency: invoiceCurrency,
-        ...(input.rescheduleTaxSnapshot === null
-          ? { expectedScalars: { bookingTotalPriceCents: input.totalPrice } }
-          : {}),
-      });
+      expectedKind: 'booking_estimate',
+      expectedCurrency: invoiceCurrency,
+      ...(input.rescheduleTaxSnapshot === null
+        ? { expectedScalars: { bookingTotalPriceCents: input.totalPrice } }
+        : {}),
+    });
   if (bookingValidation && !bookingValidation.ok) {
     return bookingValidation;
   }
@@ -116,10 +116,10 @@ export function validateAppointmentTaxSnapshotChain(
   const rescheduleValidation = input.rescheduleTaxSnapshot === null
     ? null
     : validateInvoiceTaxSnapshot(input.rescheduleTaxSnapshot, {
-        expectedKind: 'booking_estimate',
-        expectedCurrency: invoiceCurrency,
-        expectedScalars: { bookingTotalPriceCents: input.totalPrice },
-      });
+      expectedKind: 'booking_estimate',
+      expectedCurrency: invoiceCurrency,
+      expectedScalars: { bookingTotalPriceCents: input.totalPrice },
+    });
   if (rescheduleValidation && !rescheduleValidation.ok) {
     return rescheduleValidation;
   }
@@ -127,16 +127,16 @@ export function validateAppointmentTaxSnapshotChain(
   const finalValidation = input.finalTaxSnapshot === null
     ? null
     : validateInvoiceTaxSnapshot(input.finalTaxSnapshot, {
-        expectedKind: 'final_actual',
-        expectedCurrency: invoiceCurrency,
-        expectedScalars: {
-          finalPriceCents: input.finalPriceCents,
-          taxableSubtotalCents: input.taxableSubtotalCents,
-          taxAmountCents: input.taxAmountCents,
-          taxExempt: input.taxExempt,
-          taxExemptReason: input.taxExemptReason,
-        },
-      });
+      expectedKind: 'final_actual',
+      expectedCurrency: invoiceCurrency,
+      expectedScalars: {
+        finalPriceCents: input.finalPriceCents,
+        taxableSubtotalCents: input.taxableSubtotalCents,
+        taxAmountCents: input.taxAmountCents,
+        taxExempt: input.taxExempt,
+        taxExemptReason: input.taxExemptReason,
+      },
+    });
   if (finalValidation && !finalValidation.ok) {
     return finalValidation;
   }

@@ -350,9 +350,9 @@ export default function StaffClientProfilePage() {
                             value={profile.stats.spendState === 'under_review'
                               ? 'Under review'
                               : formatPrice(
-                                  profile.stats.totalSpent,
-                                  profile.stats.currency,
-                                )}
+                                profile.stats.totalSpent,
+                                profile.stats.currency,
+                              )}
                           />
                           <StatCard
                             icon="📆"
@@ -471,11 +471,11 @@ export default function StaffClientProfilePage() {
                                           <div className="font-bold" style={{ color: themeVars.primary }}>
                                             {!financialUnderReview && appt.financial
                                               ? formatPrice(
-                                                  ['cancelled', 'no_show'].includes(appt.status)
-                                                    ? appt.financial.serviceInvoiceTotalCents
-                                                    : appt.financial.totalDueCents,
-                                                  appt.currency,
-                                                )
+                                                ['cancelled', 'no_show'].includes(appt.status)
+                                                  ? appt.financial.serviceInvoiceTotalCents
+                                                  : appt.financial.totalDueCents,
+                                                appt.currency,
+                                              )
                                               : financialUnderReview
                                                 ? 'Under review'
                                                 : 'Unavailable'}

@@ -43,7 +43,7 @@ type SerializedGoogleEvent = Omit<
 
 type StaffRescheduleNotificationInput<T extends Date | string>
   = Record<'appointmentId' | 'salonId' | 'timeZone', string>
-    & Record<'previousStartTime' | 'previousEndTime' | 'newStartTime' | 'newEndTime' | 'mutationVersion', T>;
+  & Record<'previousStartTime' | 'previousEndTime' | 'newStartTime' | 'newEndTime' | 'mutationVersion', T>;
 type OutboxTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type OutboxDatabase = OutboxTransaction | DatabaseSessionHandle;
 type IntegrationOutboxRow = typeof integrationOutboxSchema.$inferSelect;
@@ -1849,7 +1849,7 @@ function parseGoogleMutationPayload(job: IntegrationOutboxRow): GoogleCalendarMu
     || (
       (payload.reconciliationMirrorId !== undefined
         || payload.reconciliationExpectedAppointmentId !== undefined)
-      && (job.operation !== 'delete_event' || payload.reconciliation !== true)
+        && (job.operation !== 'delete_event' || payload.reconciliation !== true)
     )
     || (
       (payload.reconciliationMirrorId === undefined)
@@ -2533,18 +2533,18 @@ async function finishGoogleJobSuccess(
         }
         const exactMirrorOwnership = payload.reconciliationMirrorId
           ? and(
-              eq(googleCalendarEventSchema.id, payload.reconciliationMirrorId),
-              payload.reconciliationExpectedAppointmentId === null
-                ? isNull(googleCalendarEventSchema.appointmentId)
-                : eq(
-                    googleCalendarEventSchema.appointmentId,
-                    payload.reconciliationExpectedAppointmentId
-                    ?? payload.appointmentId,
-                  ),
-              eq(googleCalendarEventSchema.reviewStatus, 'appointment'),
-              eq(googleCalendarEventSchema.syncMode, 'bidirectional'),
-              inArray(googleCalendarEventSchema.sourceAccessRole, ['owner', 'writer']),
-            )
+            eq(googleCalendarEventSchema.id, payload.reconciliationMirrorId),
+            payload.reconciliationExpectedAppointmentId === null
+              ? isNull(googleCalendarEventSchema.appointmentId)
+              : eq(
+                googleCalendarEventSchema.appointmentId,
+                payload.reconciliationExpectedAppointmentId
+                ?? payload.appointmentId,
+              ),
+            eq(googleCalendarEventSchema.reviewStatus, 'appointment'),
+            eq(googleCalendarEventSchema.syncMode, 'bidirectional'),
+            inArray(googleCalendarEventSchema.sourceAccessRole, ['owner', 'writer']),
+          )
           : eq(googleCalendarEventSchema.appointmentId, payload.appointmentId);
         const newerRunnableUpserts = await lockNewerRunnableGoogleUpsertIntents(
           tx,
@@ -3234,10 +3234,10 @@ async function pinGoogleCalendarProviderEventLane(
     }
     const adoptedLegacyEventId = providerEventIdentity.startsWith('appointment-revision:')
       ? deterministicGoogleCalendarEventId({
-          appointmentId: payload.appointmentId,
-          idempotencyKey: providerEventIdentity,
-          salonId: job.salonId,
-        })
+        appointmentId: payload.appointmentId,
+        idempotencyKey: providerEventIdentity,
+        salonId: job.salonId,
+      })
       : null;
 
     for (const candidate of sameLifecycleRows) {
@@ -4170,7 +4170,7 @@ export async function processIntegrationOutbox(
           const isEmail = job.provider === 'email';
           const isSalonNotification
             = job.operation === 'retry_salon_notification'
-              || job.operation === 'deposit_refund_alert';
+            || job.operation === 'deposit_refund_alert';
           const notice = isSalonNotification
             ? {
                 subject: `${salon?.name || 'Your salon'} appointment alerts need attention`,

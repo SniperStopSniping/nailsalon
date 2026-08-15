@@ -268,9 +268,9 @@ export async function GET(
     const totalSpent = completedFinancialResolution.unresolvedRows.length > 0
       ? null
       : settledCompletedFinancialRows.reduce(
-          (sum, row) => sum + row.serviceValueCents,
-          0,
-        );
+        (sum, row) => sum + row.serviceValueCents,
+        0,
+      );
 
     // ==========================================================================
     // REDACTION: Apply visibility policy for staff requests

@@ -109,10 +109,10 @@ function buildFinancialSummary(options?: {
       : 0,
     appointmentPaymentsCollectedCents: includeTodayDetails
       ? Math.max(
-          0,
-          (options?.cashCollectedCents ?? 0)
-          - (options?.depositCollectedCents ?? 0),
-        )
+        0,
+        (options?.cashCollectedCents ?? 0)
+        - (options?.depositCollectedCents ?? 0),
+      )
       : 0,
     depositCollectedCents: includeTodayDetails
       ? (options?.depositCollectedCents ?? 0)

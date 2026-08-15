@@ -256,7 +256,7 @@ async function notifySalonAboutBooking(args: {
     const original = args.originalAppointment;
     const scheduleChanged
       = original.startTime.getTime() !== args.newStartTime.getTime()
-        || original.endTime.getTime() !== args.newEndTime.getTime();
+      || original.endTime.getTime() !== args.newEndTime.getTime();
 
     if (!scheduleChanged) {
       return;

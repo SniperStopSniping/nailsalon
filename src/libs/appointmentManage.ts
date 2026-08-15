@@ -667,14 +667,14 @@ async function loadManagedAppointment(
       .where(eq(appointmentAddOnSchema.appointmentId, appointmentId)),
     appointment.locationId
       ? database
-          .select()
-          .from(salonLocationSchema)
-          .where(and(
-            eq(salonLocationSchema.id, appointment.locationId),
-            eq(salonLocationSchema.salonId, appointment.salonId),
-          ))
-          .limit(1)
-          .then(rows => rows[0] ?? null)
+        .select()
+        .from(salonLocationSchema)
+        .where(and(
+          eq(salonLocationSchema.id, appointment.locationId),
+          eq(salonLocationSchema.salonId, appointment.salonId),
+        ))
+        .limit(1)
+        .then(rows => rows[0] ?? null)
       : Promise.resolve(null),
     database
       .select()
@@ -1168,19 +1168,19 @@ export async function getAppointmentManageDetail(args: {
       .then(rows => rows[0] ?? null),
     loaded.appointment.salonClientId
       ? db
-          .select({
-            id: salonClientSchema.id,
-            notes: salonClientSchema.notes,
-            sensitivities: salonClientSchema.sensitivities,
-            nailPreferences: salonClientSchema.nailPreferences,
-          })
-          .from(salonClientSchema)
-          .where(and(
-            eq(salonClientSchema.id, loaded.appointment.salonClientId),
-            eq(salonClientSchema.salonId, args.salonId),
-          ))
-          .limit(1)
-          .then(rows => rows[0] ?? null)
+        .select({
+          id: salonClientSchema.id,
+          notes: salonClientSchema.notes,
+          sensitivities: salonClientSchema.sensitivities,
+          nailPreferences: salonClientSchema.nailPreferences,
+        })
+        .from(salonClientSchema)
+        .where(and(
+          eq(salonClientSchema.id, loaded.appointment.salonClientId),
+          eq(salonClientSchema.salonId, args.salonId),
+        ))
+        .limit(1)
+        .then(rows => rows[0] ?? null)
       : Promise.resolve(null),
     getRetentionSettingsForSalon(args.salonId),
     loadManagedFinancialSummary(loaded),

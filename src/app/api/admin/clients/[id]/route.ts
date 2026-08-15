@@ -831,10 +831,10 @@ export async function GET(
       const deposits = appointmentDepositsMap.get(appt.id) ?? [];
       const canonicalSummary = paymentLedger.ok
         ? buildBookingEmailFinancialSummary({
-            appointment: appt,
-            deposits,
-            appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
-          })
+          appointment: appt,
+          deposits,
+          appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
+        })
         : null;
       const depositBlocked = canonicalSummary !== null
         && canonicalSummary.depositBlockedCode !== null;

@@ -142,10 +142,10 @@ export async function sendBookingNotificationsForNewBooking(
       };
       return options.signal
         ? sendInternalBookingNotificationSms(
-            context.salon.id,
-            smsInput,
-            { signal: options.signal },
-          )
+          context.salon.id,
+          smsInput,
+          { signal: options.signal },
+        )
         : sendInternalBookingNotificationSms(context.salon.id, smsInput);
     },
   });

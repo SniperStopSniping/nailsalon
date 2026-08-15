@@ -911,10 +911,10 @@ export async function PATCH(
           if (lockedAppointment.technicianId) {
             const blockedDurationMinutes
               = lockedAppointment.blockedDurationMinutes
-                ?? (
-                  lockedAppointment.totalDurationMinutes
-                  + (lockedAppointment.bufferMinutes ?? 0)
-                );
+              ?? (
+                lockedAppointment.totalDurationMinutes
+                + (lockedAppointment.bufferMinutes ?? 0)
+              );
             const blockedEndTime = new Date(Math.max(
               lockedAppointment.endTime.getTime(),
               lockedAppointment.startTime.getTime()
@@ -1032,30 +1032,30 @@ export async function PATCH(
           }),
           salon
             ? sendBookingNotificationsForAppointmentCancelled({
-                salon: {
-                  id: salon.id,
-                  name: salon.name,
-                  ownerName: salon.ownerName,
-                  ownerPhone: salon.ownerPhone,
-                  ownerEmail: salon.ownerEmail,
-                  features: (salon.features as SalonFeatures | null | undefined) ?? null,
-                  settings: (salon.settings as SalonSettings | null | undefined) ?? null,
-                },
-                technician: technician
-                  ? {
-                      id: technician.id,
-                      name: technician.name,
-                      phone: technician.phone,
-                      email: technician.email,
-                    }
-                  : null,
-                appointmentId,
-                clientName: existingAppointment.clientName || 'Guest',
-                clientPhone: existingAppointment.clientPhone,
-                services: serviceNames,
-                startTime: existingAppointment.startTime.toISOString(),
-                cancelReason: data.cancelReason ?? 'cancelled',
-              })
+              salon: {
+                id: salon.id,
+                name: salon.name,
+                ownerName: salon.ownerName,
+                ownerPhone: salon.ownerPhone,
+                ownerEmail: salon.ownerEmail,
+                features: (salon.features as SalonFeatures | null | undefined) ?? null,
+                settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+              },
+              technician: technician
+                ? {
+                    id: technician.id,
+                    name: technician.name,
+                    phone: technician.phone,
+                    email: technician.email,
+                  }
+                : null,
+              appointmentId,
+              clientName: existingAppointment.clientName || 'Guest',
+              clientPhone: existingAppointment.clientPhone,
+              services: serviceNames,
+              startTime: existingAppointment.startTime.toISOString(),
+              cancelReason: data.cancelReason ?? 'cancelled',
+            })
             : Promise.resolve(null),
           sendSalonNotificationEmail({
             salonId: existingAppointment.salonId,

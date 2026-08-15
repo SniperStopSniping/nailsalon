@@ -337,9 +337,9 @@ async function completedReplayResponse(
       ? 'comp'
       : replayFinancials.depositResolution.ok && replayFinancials.financials.ok
         ? derivePaymentStatus(
-            replayFinancials.financials.totalDueCents,
-            replayFinancials.financials.amountAlreadyPaidCents,
-          )
+          replayFinancials.financials.totalDueCents,
+          replayFinancials.financials.amountAlreadyPaidCents,
+        )
         : completedAppointment.paymentStatus ?? 'pending';
   return Response.json({
     data: {
@@ -783,9 +783,9 @@ export async function PATCH(
         totals = computeCheckoutTotals({
           items: pricedFromItems
             ? finalItems!.map(item => ({
-                lineTotalCents: item.lineTotalCents,
-                taxable: item.taxable,
-              }))
+              lineTotalCents: item.lineTotalCents,
+              taxable: item.taxable,
+            }))
             : [{
                 lineTotalCents: legacyFinalPrice,
                 taxable: defaultTaxableFor('service', taxConfig),
@@ -1050,9 +1050,9 @@ export async function PATCH(
         ? 'comp'
         : !legacyImplicitPaid
             ? derivePaymentStatus(
-                completionFinancials.financials.totalDueCents,
-                completionFinancials.financials.amountAlreadyPaidCents,
-              )
+              completionFinancials.financials.totalDueCents,
+              completionFinancials.financials.amountAlreadyPaidCents,
+            )
             : 'paid';
       const amountPaidCents = paymentsProvided
         ? (payload.paymentStatusIntent === 'comp' ? 0 : combinedPaidCents)

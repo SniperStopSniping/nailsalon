@@ -218,9 +218,9 @@ export async function GET(
           ? appointment.paymentStatus === 'comp'
             ? 'comp'
             : derivePaymentStatus(
-                depositFinancials.financials.totalDueCents,
-                depositFinancials.financials.amountAlreadyPaidCents,
-              )
+              depositFinancials.financials.totalDueCents,
+              depositFinancials.financials.amountAlreadyPaidCents,
+            )
           : appointment.paymentStatus;
 
     const bookedItems = [

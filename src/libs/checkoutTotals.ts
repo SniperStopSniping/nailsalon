@@ -302,8 +302,8 @@ export function computeBalance(input: BalanceInput): {
 } {
   const totalDueCents
     = (input.finalPriceCents ?? 0)
-      + (input.taxAmountCents ?? 0)
-      + (input.tipCents ?? 0);
+    + (input.taxAmountCents ?? 0)
+    + (input.tipCents ?? 0);
   const amountPaidCents = input.amountPaidCents ?? 0;
   const balanceCents = input.paymentStatus === 'comp'
     ? 0

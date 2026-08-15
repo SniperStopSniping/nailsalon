@@ -473,10 +473,10 @@ export function ClientCommunicationActions({
           return href ? { href, body: serverDraft.body } : null;
         })()
       : composeClientSmsDraft({
-          kind,
-          context: { ...baseContext, appointment },
-          platform,
-        });
+        kind,
+        context: { ...baseContext, appointment },
+        platform,
+      });
 
     if (!draft) {
       setActionError(

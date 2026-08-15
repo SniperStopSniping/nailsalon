@@ -223,10 +223,10 @@ export async function GET(_request: Request, context: { params: { token: string 
     : [null, []];
   const depositCheckout = appointment.status === 'awaiting_payment'
     ? resolveManageDepositCheckout({
-        invoiceCurrency: appointment.invoiceCurrency,
-        financialSummary,
-        deposit: depositForResumeRows[0] ?? null,
-      })
+      invoiceCurrency: appointment.invoiceCurrency,
+      financialSummary,
+      deposit: depositForResumeRows[0] ?? null,
+    })
     : null;
   return Response.json({ data: {
     appointment: {
@@ -469,13 +469,13 @@ export async function POST(request: Request, context: { params: { token: string 
         const addOnLineTotalCents = locked.addOnsPriceCents ?? 0;
         const rescheduleTaxSnapshot = locked.invoiceCurrency
           ? buildRescheduleTaxSnapshot({
-              settings: (lockedSalonFinancials.settings as SalonSettings | null | undefined) ?? null,
-              capturedAt: mutationVersion,
-              currency: locked.invoiceCurrency,
-              serviceLineTotalCents,
-              addOnLineTotalCents,
-              discountCents: decision.discountAmountCents,
-            })
+            settings: (lockedSalonFinancials.settings as SalonSettings | null | undefined) ?? null,
+            capturedAt: mutationVersion,
+            currency: locked.invoiceCurrency,
+            serviceLineTotalCents,
+            addOnLineTotalCents,
+            discountCents: decision.discountAmountCents,
+          })
           : null;
         if (rescheduleTaxSnapshot) {
           const validation = validateInvoiceTaxSnapshot(rescheduleTaxSnapshot, {

@@ -97,23 +97,23 @@ export async function GET(request: Request): Promise<Response> {
       : limit;
     const directoryPromise = segment
       ? getClientInsightsDirectoryPage({
-          salonId: salon.id,
-          currency: bookingConfig.currency,
-          timeZone: bookingConfig.timezone,
-          segment,
-          search,
-          sortBy,
-          sortOrder,
-          page: directoryPage,
-          limit: directoryLimit,
-        })
+        salonId: salon.id,
+        currency: bookingConfig.currency,
+        timeZone: bookingConfig.timezone,
+        segment,
+        search,
+        sortBy,
+        sortOrder,
+        page: directoryPage,
+        limit: directoryLimit,
+      })
       : getSalonClients(salon.id, {
-          search,
-          sortBy: canonicalSpendSort ? 'recent' : sortBy,
-          sortOrder,
-          page: directoryPage,
-          limit: directoryLimit,
-        });
+        search,
+        sortBy: canonicalSpendSort ? 'recent' : sortBy,
+        sortOrder,
+        page: directoryPage,
+        limit: directoryLimit,
+      });
 
     const [directory, completedFinancialResolution] = await Promise.all([
       directoryPromise,
@@ -196,15 +196,15 @@ export async function GET(request: Request): Promise<Response> {
     });
     const orderedClients = canonicalSpendSort
       ? allFormattedClients.toSorted((left, right) => {
-          if (left.spendState !== right.spendState) {
-            return left.spendState === 'under_review' ? 1 : -1;
-          }
-          const moneyOrder = sortOrder === 'asc'
-            ? left.totalSpent - right.totalSpent
-            : right.totalSpent - left.totalSpent;
-          return moneyOrder || (left.fullName ?? '').localeCompare(right.fullName ?? '')
-            || left.id.localeCompare(right.id);
-        })
+        if (left.spendState !== right.spendState) {
+          return left.spendState === 'under_review' ? 1 : -1;
+        }
+        const moneyOrder = sortOrder === 'asc'
+          ? left.totalSpent - right.totalSpent
+          : right.totalSpent - left.totalSpent;
+        return moneyOrder || (left.fullName ?? '').localeCompare(right.fullName ?? '')
+          || left.id.localeCompare(right.id);
+      })
       : allFormattedClients;
     const formattedClients = canonicalSpendSort
       ? orderedClients.slice((page - 1) * limit, page * limit)

@@ -70,13 +70,13 @@ export type AppointmentDepositFinancialResolution = {
 
 export type AppointmentDepositPresentationState
   = | 'none'
-    | 'creditable'
-    | 'refund_candidate'
-    | 'refund_in_flight'
-    | 'refund_review'
-    | 'refunded'
-    | 'forfeited'
-    | 'blocked';
+  | 'creditable'
+  | 'refund_candidate'
+  | 'refund_in_flight'
+  | 'refund_review'
+  | 'refunded'
+  | 'forfeited'
+  | 'blocked';
 
 /** Project canonical money evidence into a terminal-safe display state. */
 export function resolveAppointmentDepositPresentation(input: {
@@ -173,11 +173,11 @@ export function resolveAppointmentDepositFinancials(input: {
           detail: 'The historical appointment has no frozen invoice currency.',
         }
       : resolveDepositCredit({
-          deposits: input.deposits,
-          // Currency has no financial effect when there are no deposit rows;
-          // this sentinel only satisfies the pure resolver's ISO boundary.
-          invoiceCurrency: input.invoiceCurrency ?? 'CAD',
-        });
+        deposits: input.deposits,
+        // Currency has no financial effect when there are no deposit rows;
+        // this sentinel only satisfies the pure resolver's ISO boundary.
+        invoiceCurrency: input.invoiceCurrency ?? 'CAD',
+      });
   const mayUseLegacyPaidInference = depositResolution.ok
     && (depositResolution.state === 'none' || depositResolution.state === 'creditable');
   // A paid deposit on an ordinary cancellation remains collected money and an

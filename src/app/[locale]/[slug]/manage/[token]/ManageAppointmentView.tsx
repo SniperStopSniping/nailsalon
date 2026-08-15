@@ -112,33 +112,33 @@ export async function ManageAppointmentView({
       .where(eq(appointmentAddOnSchema.appointmentId, appointment.id)),
     appointment.technicianId
       ? db.select({ name: technicianSchema.name })
-          .from(technicianSchema)
-          .where(and(
-            eq(technicianSchema.id, appointment.technicianId),
-            eq(technicianSchema.salonId, appointment.salonId),
-          ))
-          .limit(1)
+        .from(technicianSchema)
+        .where(and(
+          eq(technicianSchema.id, appointment.technicianId),
+          eq(technicianSchema.salonId, appointment.salonId),
+        ))
+        .limit(1)
       : Promise.resolve([]),
     financialSummaryEligible
       ? loadBookingEmailFinancialSummary({
-          salonId: appointment.salonId,
-          appointmentId: appointment.id,
-        })
+        salonId: appointment.salonId,
+        appointmentId: appointment.id,
+      })
       : Promise.resolve(null),
     isAwaitingDeposit
       ? db
-          .select({
-            amountCents: appointmentDepositSchema.amountCents,
-            currency: appointmentDepositSchema.currency,
-            checkoutUrl: appointmentDepositSchema.stripeCheckoutUrl,
-          })
-          .from(appointmentDepositSchema)
-          .where(and(
-            eq(appointmentDepositSchema.salonId, appointment.salonId),
-            eq(appointmentDepositSchema.appointmentId, appointment.id),
-            eq(appointmentDepositSchema.status, 'checkout_created'),
-          ))
-          .limit(1)
+        .select({
+          amountCents: appointmentDepositSchema.amountCents,
+          currency: appointmentDepositSchema.currency,
+          checkoutUrl: appointmentDepositSchema.stripeCheckoutUrl,
+        })
+        .from(appointmentDepositSchema)
+        .where(and(
+          eq(appointmentDepositSchema.salonId, appointment.salonId),
+          eq(appointmentDepositSchema.appointmentId, appointment.id),
+          eq(appointmentDepositSchema.status, 'checkout_created'),
+        ))
+        .limit(1)
       : Promise.resolve([]),
   ]);
 
@@ -152,10 +152,10 @@ export async function ManageAppointmentView({
   const depositForResume = depositForResumeRows[0] ?? null;
   const depositCheckout = isAwaitingDeposit
     ? resolveManageDepositCheckout({
-        invoiceCurrency: appointment.invoiceCurrency,
-        financialSummary,
-        deposit: depositForResume,
-      })
+      invoiceCurrency: appointment.invoiceCurrency,
+      financialSummary,
+      deposit: depositForResume,
+    })
     : null;
   const depositDueCents = depositCheckout?.amountCents ?? null;
   const financialDetailsUnavailable = financialSummaryEligible
@@ -302,10 +302,10 @@ export async function ManageAppointmentView({
               <span>
                 {!financialDetailsUnavailable && financialSummary
                   ? displayMoney(
-                      isTerminal
-                        ? financialSummary.serviceInvoiceTotalCents
-                        : financialSummary.totalDueCents,
-                    )
+                    isTerminal
+                      ? financialSummary.serviceInvoiceTotalCents
+                      : financialSummary.totalDueCents,
+                  )
                   : financialSummaryEligible
                     ? 'Unavailable'
                     : displayMoney(appointment.totalPrice)}

@@ -1155,15 +1155,15 @@ export async function retryFailedDepositRefund(args: {
         failedBranch
           ? eq(appointmentDepositSchema.refundStatus, 'failed')
           : and(
-              eq(appointmentDepositSchema.refundStatus, 'requested'),
-              or(
-                sql`${appointmentDepositSchema.refundReconcileAttempts} >= 3`,
-                lt(
-                  appointmentDepositSchema.refundStatusChangedAt,
-                  sql`now() - interval '1 hour'`,
-                ),
+            eq(appointmentDepositSchema.refundStatus, 'requested'),
+            or(
+              sql`${appointmentDepositSchema.refundReconcileAttempts} >= 3`,
+              lt(
+                appointmentDepositSchema.refundStatusChangedAt,
+                sql`now() - interval '1 hour'`,
               ),
             ),
+          ),
       ))
       .returning();
     if (!updated) {
@@ -1515,11 +1515,11 @@ export async function applyRefundObservation(args: {
 
     const legal
       = (source === null && ((firstStamp && target !== 'failed') || idMatches))
-        || (source === 'requested' && (idMatches || firstStamp))
-        || (source === 'pending' && idMatches)
-        || (source === 'succeeded'
-          && idMatches
-          && (target === 'failed' || target === 'pending'))
+      || (source === 'requested' && (idMatches || firstStamp))
+      || (source === 'pending' && idMatches)
+      || (source === 'succeeded'
+        && idMatches
+        && (target === 'failed' || target === 'pending'))
         || adoptsAfterFailure;
     if (!legal) {
       return {
@@ -1582,13 +1582,13 @@ export async function applyRefundObservation(args: {
     const identityPredicate = idMatches
       ? eq(appointmentDepositSchema.stripeRefundId, refund.id)
       : and(
-          firstStamp
-            ? isNull(appointmentDepositSchema.stripeRefundId)
-            : sql`${appointmentDepositSchema.stripeRefundId} IS DISTINCT FROM ${refund.id}`,
-          eq(appointmentDepositSchema.amountCents, refund.amount),
-          eq(appointmentDepositSchema.currency, refund.currency),
-          sql`${refund.id} <> ALL(COALESCE(${appointmentDepositSchema.priorRefundIds}, '{}'))`,
-        );
+        firstStamp
+          ? isNull(appointmentDepositSchema.stripeRefundId)
+          : sql`${appointmentDepositSchema.stripeRefundId} IS DISTINCT FROM ${refund.id}`,
+        eq(appointmentDepositSchema.amountCents, refund.amount),
+        eq(appointmentDepositSchema.currency, refund.currency),
+        sql`${refund.id} <> ALL(COALESCE(${appointmentDepositSchema.priorRefundIds}, '{}'))`,
+      );
 
     const [updated] = await tx
       .update(appointmentDepositSchema)
@@ -1608,9 +1608,9 @@ export async function applyRefundObservation(args: {
         ),
         firstStamp && args.allowedSourceStatuses
           ? inArray(
-              appointmentDepositSchema.status,
-              [...args.allowedSourceStatuses],
-            )
+            appointmentDepositSchema.status,
+            [...args.allowedSourceStatuses],
+          )
           : undefined,
       ))
       .returning();

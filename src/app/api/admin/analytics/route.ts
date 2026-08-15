@@ -153,19 +153,19 @@ export async function GET(request: Request): Promise<Response> {
     const selectedFinancialSummaryPromise
       = isCurrentPeriod && period !== 'yearly'
         ? currentFinancialsPromise.then((summaries) => {
-            if (period === 'daily') {
-              return summaries.today;
-            }
-            return period === 'weekly'
-              ? summaries.weekToDate
-              : summaries.monthToDate;
-          })
+          if (period === 'daily') {
+            return summaries.today;
+          }
+          return period === 'weekly'
+            ? summaries.weekToDate
+            : summaries.monthToDate;
+        })
         : getFinancialReportingRangeSummary({
-            salonId: salon.id,
-            currency: bookingConfig.currency,
-            start,
-            end,
-          });
+          salonId: salon.id,
+          currency: bookingConfig.currency,
+          start,
+          end,
+        });
     const previousFinancialSummaryPromise
       = getFinancialReportingRangeSummary({
         salonId: salon.id,

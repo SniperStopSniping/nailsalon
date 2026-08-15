@@ -175,18 +175,18 @@ export async function POST(
       const previousStatus = appointment.paymentStatus === 'comp'
         ? 'comp'
         : derivePaymentStatus(
-            beforeFinancials.financials.totalDueCents,
-            beforeFinancials.financials.amountAlreadyPaidCents,
-          );
+          beforeFinancials.financials.totalDueCents,
+          beforeFinancials.financials.amountAlreadyPaidCents,
+        );
       // 'comp' is an explicit state, never derived — leave it untouched.
       const nextStatus = previousStatus === 'comp'
         ? 'comp'
         : appointmentFinancialOverpayment(depositFinancials)
           ? 'pending'
           : derivePaymentStatus(
-              depositFinancials.financials.totalDueCents,
-              depositFinancials.financials.amountAlreadyPaidCents,
-            );
+            depositFinancials.financials.totalDueCents,
+            depositFinancials.financials.amountAlreadyPaidCents,
+          );
 
       await tx
         .update(appointmentPaymentSchema)

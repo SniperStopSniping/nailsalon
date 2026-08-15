@@ -1915,11 +1915,11 @@ export function BookConfirmClient({
     : null;
   const smartFitSuggestedOffer = smartFitSuggestionTimeDifference
     ? resolveSmartFitReviewOffer({
-        subtotalCents,
-        discountCentsParam: smartFitSuggestDiscountCentsParam,
-        totalCentsParam: smartFitSuggestTotalCentsParam,
-        hasOtherDiscount,
-      })
+      subtotalCents,
+      discountCentsParam: smartFitSuggestDiscountCentsParam,
+      totalCentsParam: smartFitSuggestTotalCentsParam,
+      hasOtherDiscount,
+    })
     : null;
 
   // Dismissal is scoped to the exact booking context; a material change
@@ -1966,20 +1966,20 @@ export function BookConfirmClient({
   const serviceSubtotalCents = Math.max(0, subtotalCents - addOnSubtotalCents);
   const bookingTotals = taxConfig
     ? computeCheckoutTotals({
-        items: [
-          {
-            lineTotalCents: serviceSubtotalCents,
-            taxable: taxConfig.taxServicesByDefault,
-          },
-          {
-            lineTotalCents: addOnSubtotalCents,
-            taxable: taxConfig.taxAddOnsByDefault,
-          },
-        ].filter(item => item.lineTotalCents > 0),
-        discountCents: Math.max(0, subtotalCents - resolvedTotalPriceCents),
-        taxConfig,
-        tipCents: 0,
-      })
+      items: [
+        {
+          lineTotalCents: serviceSubtotalCents,
+          taxable: taxConfig.taxServicesByDefault,
+        },
+        {
+          lineTotalCents: addOnSubtotalCents,
+          taxable: taxConfig.taxAddOnsByDefault,
+        },
+      ].filter(item => item.lineTotalCents > 0),
+      discountCents: Math.max(0, subtotalCents - resolvedTotalPriceCents),
+      taxConfig,
+      tipCents: 0,
+    })
     : null;
   const totalPriceDisplay = bookingTotals
     ? formatMoney(bookingTotals.totalDueCents, currency)

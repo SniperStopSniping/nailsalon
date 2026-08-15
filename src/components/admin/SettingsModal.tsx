@@ -350,11 +350,11 @@ function ProfileCard({
 }: ProfileCardProps) {
   const displayInitials
     = initials
-      || name
-        .split(' ')
-        .map(n => n[0])
-        .join('')
-        .toUpperCase();
+    || name
+      .split(' ')
+      .map(n => n[0])
+      .join('')
+      .toUpperCase();
 
   return (
     <button
@@ -1083,8 +1083,8 @@ function getBookingExperienceSaveError(responseBody: unknown): string {
     && !Array.isArray(response.error)
   )
     ? normalizeBookingExperienceSaveError(
-        (response.error as { message?: unknown }).message,
-      )
+      (response.error as { message?: unknown }).message,
+    )
     : null;
 
   return (
@@ -2317,17 +2317,17 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
 
 type SettingsView
   = | 'index'
-    | 'account'
-    | 'location'
-    | 'branding'
-    | 'booking'
-    | 'booking-policy'
-    | 'booking-flow'
-    | 'smart-fit'
-    | 'payments'
-    | 'notifications'
-    | 'features'
-    | 'visibility';
+  | 'account'
+  | 'location'
+  | 'branding'
+  | 'booking'
+  | 'booking-policy'
+  | 'booking-flow'
+  | 'smart-fit'
+  | 'payments'
+  | 'notifications'
+  | 'features'
+  | 'visibility';
 
 const VIEW_TITLES: Record<SettingsView, string> = {
   'index': 'Settings',
@@ -3083,7 +3083,7 @@ export function SettingsModal({
       const scheduledBps = percentStringToBps(paymentsForm.scheduledRatePercent);
       const hasScheduledChange
         = paymentsForm.scheduledRatePercent.trim() !== ''
-          && paymentsForm.scheduledEffectiveFrom.trim() !== '';
+        && paymentsForm.scheduledEffectiveFrom.trim() !== '';
       const response = await fetch(
         `/api/admin/salon/settings?salonSlug=${salonSlug}`,
         {
@@ -3147,7 +3147,7 @@ export function SettingsModal({
   const depositAmountCentsPreview = parseDepositDollarsToCents(depositAmountInput);
   const depositAmountExceedsRecommended
     = depositAmountCentsPreview !== null
-      && depositAmountCentsPreview > DEPOSIT_RECOMMENDED_MAX_CENTS;
+    && depositAmountCentsPreview > DEPOSIT_RECOMMENDED_MAX_CENTS;
 
   /**
    * Its OWN save action: the payments handler above sends tax and e-Transfer
@@ -3824,8 +3824,8 @@ export function SettingsModal({
     = entitledModules.rewards || entitledModules.referrals;
   const staffToolsAvailable
     = !isFreeSolo
-      || entitledModules.scheduleOverrides
-      || entitledModules.staffEarnings;
+    || entitledModules.scheduleOverrides
+    || entitledModules.staffEarnings;
 
   const viewDirty: Partial<Record<SettingsView, boolean>> = {
     'location': locationDirty || parkingDirty,
@@ -5009,7 +5009,7 @@ export function SettingsModal({
                                   ? 'Deposits are being collected on new bookings.'
                                   : (depositPolicy.reason
                                     && DEPOSIT_REASON_COPY[depositPolicy.reason])
-                                  || 'Deposits are not being collected yet.'}
+                                    || 'Deposits are not being collected yet.'}
                       </p>
 
                       {depositPolicy?.readinessStale && (
@@ -5215,12 +5215,12 @@ export function SettingsModal({
                                   (option) => {
                                     const smsUnavailable
                                   = option.value === 'sms'
-                                    || option.value === 'both'
+                                  || option.value === 'both'
                                     ? !bookingNotificationCapabilities.smsChannelAvailable
                                     : false;
                                     const emailUnavailable
                                   = option.value === 'email'
-                                    || option.value === 'both'
+                                  || option.value === 'both'
                                     ? !bookingNotificationCapabilities.emailChannelAvailable
                                     : false;
                                     const disabled
@@ -5296,7 +5296,7 @@ export function SettingsModal({
                                 {OWNER_NOTIFICATION_CHANNEL_OPTIONS.map((option) => {
                                   const disabled
                                     = !bookingNotificationCapabilities.smsChannelAvailable
-                                      || !bookingNotificationCapabilities.ownerPhonePresent;
+                                    || !bookingNotificationCapabilities.ownerPhonePresent;
 
                                   return (
                                     <option

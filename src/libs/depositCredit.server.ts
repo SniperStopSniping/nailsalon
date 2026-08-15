@@ -30,7 +30,7 @@ type LockDepositCreditRowsArgs = {
 
 export type LoadAppointmentDepositCreditRowsArgs
   = | ReadDepositCreditRowsArgs
-    | LockDepositCreditRowsArgs;
+  | LockDepositCreditRowsArgs;
 
 /**
  * Tenant-scoped loader for every deposit row belonging to one appointment.

@@ -92,17 +92,17 @@ export type DepositEvidence = {
  */
 export type ConfirmDisposition
   = | 'confirmed'
-    | 'already_confirmed'
-    | 'healed_deposit'
-    | 'healed_deposit_late'
-    | 'unbound_account'
-    | 'deferred_no_deposit'
-    | 'account_mismatch'
-    | 'held_mismatch'
-    | 'held_duplicate_session'
-    | 'ignored_unpaid'
-    | 'late_recovery_required'
-    | 'poisoned';
+  | 'already_confirmed'
+  | 'healed_deposit'
+  | 'healed_deposit_late'
+  | 'unbound_account'
+  | 'deferred_no_deposit'
+  | 'account_mismatch'
+  | 'held_mismatch'
+  | 'held_duplicate_session'
+  | 'ignored_unpaid'
+  | 'late_recovery_required'
+  | 'poisoned';
 
 export type ConfirmResult = {
   disposition: ConfirmDisposition;

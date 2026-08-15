@@ -557,10 +557,10 @@ export function CheckoutSheet({
   const liveFinancials = useMemo(() => (
     context && totals
       ? financialBreakdownForTotal(
-          context,
-          totals.totalDueCents,
-          totals.finalPriceCents + totals.taxAmountCents,
-        )
+        context,
+        totals.totalDueCents,
+        totals.finalPriceCents + totals.taxAmountCents,
+      )
       : null
   ), [context, totals]);
 
@@ -615,9 +615,9 @@ export function CheckoutSheet({
   );
   const excessDepositCents = comp
     ? Math.max(
-        liveFinancials?.excessDepositCents ?? 0,
-        liveFinancials?.depositEligibleCents ?? 0,
-      )
+      liveFinancials?.excessDepositCents ?? 0,
+      liveFinancials?.depositEligibleCents ?? 0,
+    )
     : liveFinancials?.excessDepositCents ?? 0;
   const financialBlockReason = context && !currency
     ? 'This historical appointment has no frozen invoice currency. Reconcile it before taking payment or completing the appointment.'

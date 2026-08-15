@@ -1207,9 +1207,9 @@ export async function PATCH(request: Request): Promise<Response> {
       .set(dbUpdates)
       .where(depositCasComparand
         ? and(
-            eq(salonSchema.id, salon.id),
-            sql`(${salonSchema.settings} #> '{payments,deposit,enabled}') IS NOT DISTINCT FROM ${depositCasComparand}`,
-          )
+          eq(salonSchema.id, salon.id),
+          sql`(${salonSchema.settings} #> '{payments,deposit,enabled}') IS NOT DISTINCT FROM ${depositCasComparand}`,
+        )
         : eq(salonSchema.id, salon.id))
       .returning();
 

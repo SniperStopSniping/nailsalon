@@ -41,9 +41,9 @@ export type SalonNotificationEventKey = SalonEmailNotificationEvent;
 /** Where the customer action came from. Never a client identifier. */
 export type SalonNotificationSource
   = | 'online_booking'
-    | 'client_manage_link'
-    | 'dashboard'
-    | 'unknown';
+  | 'client_manage_link'
+  | 'dashboard'
+  | 'unknown';
 
 /**
  * The confirmed pre-reschedule schedule. Every field is read from the original
@@ -878,12 +878,12 @@ export async function sendSalonNotificationEmail(
     event: input.event,
     eventVersion: input.previous
       ? buildRescheduleEventVersion({
-          previousAppointmentId: input.previous.appointmentId,
-          previousStartTime: input.previous.startTime,
-          previousEndTime: input.previous.endTime,
-          newStartTime: context.appointment.startTime.toISOString(),
-          newEndTime: context.appointment.endTime.toISOString(),
-        })
+        previousAppointmentId: input.previous.appointmentId,
+        previousStartTime: input.previous.startTime,
+        previousEndTime: input.previous.endTime,
+        newStartTime: context.appointment.startTime.toISOString(),
+        newEndTime: context.appointment.endTime.toISOString(),
+      })
       : undefined,
     refund: input.refund,
   });

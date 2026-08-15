@@ -960,9 +960,9 @@ function AppointmentCard({
               ? 'Under review'
               : appointmentCurrency && displayedAppointmentValue != null
                 ? formatCurrency(
-                    displayedAppointmentValue,
-                    appointmentCurrency,
-                  )
+                  displayedAppointmentValue,
+                  appointmentCurrency,
+                )
                 : 'Unavailable'}
           </div>
           <span className={`mt-1 inline-flex rounded-full px-2 py-1 text-[11px] font-semibold capitalize ${getAppointmentStatusStyles(appointment.status)}`}>
@@ -1017,9 +1017,9 @@ function AppointmentCard({
                   <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-900">
                     {appointmentCurrency
                       ? formatCurrency(
-                          appointment.financial.completedOutstandingCents,
-                          appointmentCurrency,
-                        )
+                        appointment.financial.completedOutstandingCents,
+                        appointmentCurrency,
+                      )
                       : 'Unavailable'}
                     {' '}
                     outstanding
@@ -1458,14 +1458,14 @@ function ClientDetail({
 
   const profileDirty
     = notesDraft !== (profile?.notes ?? '')
-      || preferredTechnicianIdDraft !== (profile?.preferredTechnician?.id ?? '')
-      || sensitivitiesDraft !== (profile?.sensitivities ?? '')
-      || shapeDraft !== (profile?.nailPreferences?.shape ?? '')
-      || lengthDraft !== (profile?.nailPreferences?.length ?? '')
-      || colorsDraft !== (profile?.nailPreferences?.favoriteColors ?? '')
-      || productsDraft !== (profile?.nailPreferences?.productsUsed ?? '')
-      || tagsDraft !== (profile?.tags?.join(', ') ?? '')
-      || rebookDaysDraft !== (profile?.rebookIntervalDays?.toString() ?? '');
+    || preferredTechnicianIdDraft !== (profile?.preferredTechnician?.id ?? '')
+    || sensitivitiesDraft !== (profile?.sensitivities ?? '')
+    || shapeDraft !== (profile?.nailPreferences?.shape ?? '')
+    || lengthDraft !== (profile?.nailPreferences?.length ?? '')
+    || colorsDraft !== (profile?.nailPreferences?.favoriteColors ?? '')
+    || productsDraft !== (profile?.nailPreferences?.productsUsed ?? '')
+    || tagsDraft !== (profile?.tags?.join(', ') ?? '')
+    || rebookDaysDraft !== (profile?.rebookIntervalDays?.toString() ?? '');
 
   const flagsDirty = useMemo(() => {
     if (!flagsState) {
@@ -2280,9 +2280,9 @@ function ClientDetail({
                                                 ?? financial.completedOutstandingCents) == null
                                                 ? 'Unavailable'
                                                 : appointmentMoney(
-                                                    financial.balanceCents
-                                                    ?? financial.completedOutstandingCents!,
-                                                  )}
+                                                  financial.balanceCents
+                                                  ?? financial.completedOutstandingCents!,
+                                                )}
                                             </strong>
                                           </span>
                                           {financial.paymentLedgerState === 'blocked' && (

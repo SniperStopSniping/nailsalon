@@ -104,12 +104,12 @@ export default async function RescheduleAppointmentPage({
       .where(eq(appointmentAddOnSchema.appointmentId, appointment.id)),
     appointment.technicianId
       ? db.select({ name: technicianSchema.name })
-          .from(technicianSchema)
-          .where(and(
-            eq(technicianSchema.id, appointment.technicianId),
-            eq(technicianSchema.salonId, appointment.salonId),
-          ))
-          .limit(1)
+        .from(technicianSchema)
+        .where(and(
+          eq(technicianSchema.id, appointment.technicianId),
+          eq(technicianSchema.salonId, appointment.salonId),
+        ))
+        .limit(1)
       : Promise.resolve([]),
   ]);
 

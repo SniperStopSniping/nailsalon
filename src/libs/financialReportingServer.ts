@@ -1252,7 +1252,7 @@ export async function getFinancialReportingRangeSummary(
   // The dedicated unknown/foreign counters remain the itemized disclosure.
   const currencyExcludedCompletedCount
     = numberValue(currencyCounts?.unknownCurrencyAppointmentCount)
-      + numberValue(currencyCounts?.excludedForeignCurrencyAppointmentCount);
+    + numberValue(currencyCounts?.excludedForeignCurrencyAppointmentCount);
   const provenance = buildReportingProvenance({
     finalizedAppointmentCount,
     legacyAppointmentCount,
@@ -1452,24 +1452,24 @@ export async function getFinancialReportingRangeSummary(
       snapshotResolved = false;
     } else {
       serviceSubtotalCents = appointment.appointmentFinalPriceCents
-        ?? appointment.appointmentTotalPrice;
+      ?? appointment.appointmentTotalPrice;
       taxAmountCents = appointment.appointmentTaxAmountCents ?? 0;
       tipCents = appointment.appointmentTipCents ?? 0;
       snapshotResolved = isMinorUnits(serviceSubtotalCents)
-        && isMinorUnits(taxAmountCents)
-        && isMinorUnits(tipCents);
+      && isMinorUnits(taxAmountCents)
+      && isMinorUnits(tipCents);
     }
     const financial = snapshotResolved && paymentLedger.ok
       ? resolveAppointmentDepositFinancials({
-          deposits: rows,
-          invoiceCurrency: appointment.appointmentInvoiceCurrency,
-          finalPriceCents: serviceSubtotalCents,
-          taxAmountCents,
-          tipCents,
-          appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
-          appointmentStatus: appointment.appointmentStatus,
-          paymentStatus: appointment.appointmentPaymentStatus,
-        })
+        deposits: rows,
+        invoiceCurrency: appointment.appointmentInvoiceCurrency,
+        finalPriceCents: serviceSubtotalCents,
+        taxAmountCents,
+        tipCents,
+        appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
+        appointmentStatus: appointment.appointmentStatus,
+        paymentStatus: appointment.appointmentPaymentStatus,
+      })
       : null;
     if (
       financial === null
@@ -1752,8 +1752,8 @@ async function loadResolvedBalanceRows(input: {
         finalPriceCents = appointment.finalPriceCents ?? appointment.totalPrice;
         taxAmountCents = appointment.taxAmountCents ?? 0;
         taxSnapshotResolved = isMinorUnits(finalPriceCents)
-          && isMinorUnits(taxAmountCents)
-          && isMinorUnits(appointment.tipCents ?? 0);
+        && isMinorUnits(taxAmountCents)
+        && isMinorUnits(appointment.tipCents ?? 0);
       }
     } else {
       const snapshotChain = validateAppointmentTaxSnapshotChain({
@@ -1806,15 +1806,15 @@ async function loadResolvedBalanceRows(input: {
     });
     const financial = taxSnapshotResolved && paymentLedger.ok
       ? resolveAppointmentDepositFinancials({
-          deposits: depositsByAppointment.get(appointment.id) ?? [],
-          invoiceCurrency: normalizedCurrency,
-          finalPriceCents: finalPriceCents ?? appointment.totalPrice,
-          taxAmountCents,
-          tipCents: isCompleted ? appointment.tipCents : 0,
-          appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
-          appointmentStatus: appointment.status,
-          paymentStatus: appointment.paymentStatus,
-        })
+        deposits: depositsByAppointment.get(appointment.id) ?? [],
+        invoiceCurrency: normalizedCurrency,
+        finalPriceCents: finalPriceCents ?? appointment.totalPrice,
+        taxAmountCents,
+        tipCents: isCompleted ? appointment.tipCents : 0,
+        appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
+        appointmentStatus: appointment.status,
+        paymentStatus: appointment.paymentStatus,
+      })
       : null;
     if (
       financial === null

@@ -909,8 +909,8 @@ export function MarketingModal({
   );
   const markedSent30d = overview
     ? overview.results.outreach
-        .filter(row => row.status === 'marked_sent')
-        .reduce((sum, row) => sum + row.count, 0)
+      .filter(row => row.status === 'marked_sent')
+      .reduce((sum, row) => sum + row.count, 0)
     : null;
   const redeemedTotal = overview
     ? overview.results.campaigns.reduce((sum, row) => sum + row.redeemed, 0)

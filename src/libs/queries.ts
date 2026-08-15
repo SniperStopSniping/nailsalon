@@ -548,9 +548,9 @@ export async function getAppointmentById(
     .where(
       salonId
         ? and(
-            eq(appointmentSchema.id, appointmentId),
-            eq(appointmentSchema.salonId, salonId),
-          )
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, salonId),
+        )
         : eq(appointmentSchema.id, appointmentId),
     )
     .limit(1);
@@ -1177,12 +1177,12 @@ export async function hasCanonicalAppliedDepositCreditForClient(input: {
   const database = input.database ?? db;
   const contactScope = input.clientPhoneVariants?.length
     ? or(
-        inArray(appointmentSchema.salonClientId, [...input.salonClientIds]),
-        and(
-          isNull(appointmentSchema.salonClientId),
-          inArray(appointmentSchema.clientPhone, [...input.clientPhoneVariants]),
-        ),
-      )
+      inArray(appointmentSchema.salonClientId, [...input.salonClientIds]),
+      and(
+        isNull(appointmentSchema.salonClientId),
+        inArray(appointmentSchema.clientPhone, [...input.clientPhoneVariants]),
+      ),
+    )
     : inArray(appointmentSchema.salonClientId, [...input.salonClientIds]);
   const depositHistoryAppointments = await database
     .select({
@@ -1463,10 +1463,10 @@ export async function updateSalonClientStats(
     // retains the established behavior.
     const reconciledLoyaltyPoints = lineageIds.length === 1 && !loyaltyAttributionDeferred
       ? reconcileLoyaltyPointsBalance({
-          currentBalance: terminalClient.loyaltyPoints,
-          previousCompletedSpendCents: terminalClient.totalSpent,
-          nextCompletedSpendCents: totalSpentCents,
-        })
+        currentBalance: terminalClient.loyaltyPoints,
+        previousCompletedSpendCents: terminalClient.totalSpent,
+        nextCompletedSpendCents: totalSpentCents,
+      })
       : null;
     // Raw-SQL aggregates return strings on some drivers (PGlite) and Dates on
     // others (pg) — normalize before doing Date math or writing back.

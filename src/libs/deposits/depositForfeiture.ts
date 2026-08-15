@@ -91,7 +91,7 @@ type PrelockedForfeitureArgs = BaseForfeitureArgs & {
 
 export type ForfeitAppointmentDepositArgs
   = | LoadAndLockForfeitureArgs
-    | PrelockedForfeitureArgs;
+  | PrelockedForfeitureArgs;
 
 export type ForfeitCancelledAppointmentDepositForOwnerArgs
   = LoadAndLockForfeitureArgs & {
