@@ -42,7 +42,18 @@ vi.mock('@/libs/routeAccessGuards', () => ({
 vi.mock('@/libs/appointmentAudit', () => ({
   logAppointmentChange: vi.fn(async () => {}),
   logAppointmentLocked: vi.fn(async () => {}),
-  buildAppointmentAuditRow: vi.fn(() => ({})),
+  buildAppointmentAuditRow: vi.fn((input: Record<string, unknown>) => ({
+    id: `audit_${crypto.randomUUID()}`,
+    appointmentId: input.appointmentId,
+    salonId: input.salonId,
+    action: input.action,
+    performedBy: input.performedBy,
+    performedByRole: input.performedByRole,
+    performedByName: input.performedByName ?? null,
+    previousValue: input.previousValue ?? null,
+    newValue: input.newValue ?? null,
+    reason: input.reason ?? null,
+  })),
 }));
 
 vi.mock('@/libs/integrationOutbox', () => ({
@@ -129,6 +140,7 @@ async function seedAppointment(status: string) {
     canvasState: 'waiting',
     totalPrice: 4500,
     totalDurationMinutes: 60,
+    invoiceCurrency: 'CAD',
     ...(status === 'awaiting_payment'
       ? { depositHoldExpiresAt: new Date(Date.now() + 30 * 60_000) }
       : {}),
@@ -228,17 +240,20 @@ describe('§5.8 — PATCH /api/appointments/:id refuses holds', () => {
     expect((await readBack()).appointment!.status).toBe('confirmed');
   });
 
-  it('CONTROL: a normal status change on a non-hold still commits', async () => {
+  it('CONTROL: a normal cancellation on a non-hold still commits', async () => {
     // Without this the suite would pass against a PATCH that refused everything.
     await seedAppointment('confirmed');
     holder.access = accessFor('confirmed');
 
-    const response = await PATCH(patchRequest({ status: 'completed' }), {
+    const response = await PATCH(patchRequest({
+      status: 'cancelled',
+      cancelReason: 'client_request',
+    }), {
       params: { id: APPT_ID },
     });
 
     expect(response.status).toBe(200);
-    expect((await readBack()).appointment!.status).toBe('completed');
+    expect((await readBack()).appointment!.status).toBe('cancelled');
   });
 
   it('atomically releases the generic owner no-show\'s exact reward link', async () => {
@@ -279,6 +294,66 @@ describe('§5.8 — PATCH /api/appointments/:id refuses holds', () => {
     expect((await db.select().from(schema.rewardSchema)
       .where(eq(schema.rewardSchema.id, 'reward_generic_no_show_decoy')))[0]?.usedInAppointmentId)
       .toBeNull();
+  });
+
+  it('atomically freezes a collected deposit when the generic owner marks no-show', async () => {
+    await seedAppointment('confirmed');
+    holder.access = accessFor('confirmed');
+    await db
+      .update(schema.appointmentDepositSchema)
+      .set({
+        status: 'paid',
+        stripeCheckoutSessionId: 'cs_patch_guard',
+        stripePaymentIntentId: 'pi_patch_guard',
+        collectedAt: new Date('2099-09-01T13:00:00.000Z'),
+      })
+      .where(eq(schema.appointmentDepositSchema.id, DEPOSIT_ID));
+
+    const response = await PATCH(patchRequest({ status: 'no_show' }), {
+      params: { id: APPT_ID },
+    });
+
+    expect(response.status).toBe(200);
+
+    const { deposit } = await readBack();
+
+    expect(deposit?.forfeitedAt).toBeInstanceOf(Date);
+    expect(deposit?.forfeitureTaxSnapshot).toMatchObject({
+      currency: 'CAD',
+      grossForfeitedCents: 2_500,
+      kind: 'forfeiture_estimate',
+    });
+  });
+
+  it('rolls back the no-show and returns the typed refund block for an in-flight refund', async () => {
+    await seedAppointment('confirmed');
+    holder.access = accessFor('confirmed');
+    const refundRequestedAt = new Date('2099-09-01T13:30:00.000Z');
+    await db
+      .update(schema.appointmentDepositSchema)
+      .set({
+        status: 'paid',
+        stripeCheckoutSessionId: 'cs_patch_guard_pending',
+        stripePaymentIntentId: 'pi_patch_guard_pending',
+        collectedAt: new Date('2099-09-01T13:00:00.000Z'),
+        refundStatus: 'pending',
+        refundRequestedAt,
+        refundStatusChangedAt: refundRequestedAt,
+      })
+      .where(eq(schema.appointmentDepositSchema.id, DEPOSIT_ID));
+
+    const response = await PATCH(patchRequest({ status: 'no_show' }), {
+      params: { id: APPT_ID },
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('DEPOSIT_REFUND_IN_FLIGHT');
+
+    const state = await readBack();
+
+    expect(state.appointment?.status).toBe('confirmed');
+    expect(state.deposit?.forfeitedAt).toBeNull();
   });
 
   it('atomically releases the generic owner cancellation\'s exact reward link', async () => {

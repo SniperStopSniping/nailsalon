@@ -5,6 +5,7 @@ import {
   ACTIVE_APPOINTMENT_STATUSES,
   getActiveAppointmentsForCanonicalClientWithHandle,
 } from '@/libs/activeAppointments';
+import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import {
   lockTechnicianAndAssertSlotFree,
   SlotConflictError,
@@ -19,6 +20,12 @@ import {
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
+import { resolveDepositCredit } from '@/libs/depositCredit';
+import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
+import {
+  DepositForfeitureBlockedError,
+  forfeitAppointmentDepositInTx,
+} from '@/libs/deposits/depositForfeiture';
 import {
   enqueueGoogleCalendarAppointmentMutation,
   enqueueGoogleCalendarDeleteInTx,
@@ -29,7 +36,6 @@ import {
   getTechnicianById,
   updateAppointmentStatus,
 } from '@/libs/queries';
-import { REFERRAL_REFERRER_AMOUNT_CENTS, REFERRAL_REFERRER_EXPIRY_DAYS } from '@/libs/rewardRules';
 import { requireAppointmentAccess } from '@/libs/routeAccessGuards';
 import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
 import { sendCancellationConfirmation } from '@/libs/SMS';
@@ -37,10 +43,8 @@ import {
   APPOINTMENT_STATUSES,
   appointmentSchema,
   CANCEL_REASONS,
-  referralSchema,
   rewardSchema,
   salonClientSchema,
-  salonSchema,
 } from '@/models/Schema';
 import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
@@ -113,7 +117,67 @@ function cancellationConflictResponse(status: string): Response {
   );
 }
 
+function depositForfeitureBlockedResponse(error: DepositForfeitureBlockedError): Response {
+  return Response.json(
+    {
+      error: {
+        code: error.code,
+        message: 'Deposit state must be reconciled before this appointment can be marked no-show.',
+        details: {
+          depositIds: error.depositIds,
+          reason: error.detail,
+        },
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
+  );
+}
+
 function reactivationConflictResponse(status?: string | null): Response {
+  if (status === 'completed_requires_admin_reopen') {
+    return Response.json(
+      {
+        error: {
+          code: 'ADMIN_REOPEN_REQUIRED',
+          message: 'Completed appointments can only be reopened through the dedicated admin reopen flow.',
+        },
+      } satisfies ErrorResponse,
+      { status: 409 },
+    );
+  }
+  if (status === 'final_invoice_revision_required') {
+    return Response.json(
+      {
+        error: {
+          code: 'INVOICE_REVISION_UNSUPPORTED',
+          message: 'This finalized invoice cannot be reactivated without immutable invoice revision history.',
+        },
+      } satisfies ErrorResponse,
+      { status: 409 },
+    );
+  }
+  if (status === 'financial_reconciliation_required') {
+    return Response.json(
+      {
+        error: {
+          code: 'APPOINTMENT_FINANCIAL_RECONCILIATION_REQUIRED',
+          message: 'The appointment financial history must be reconciled before it can be reactivated.',
+        },
+      } satisfies ErrorResponse,
+      { status: 409 },
+    );
+  }
+  if (status === 'deposit_forfeited') {
+    return Response.json(
+      {
+        error: {
+          code: 'DEPOSIT_FORFEITURE_REACTIVATION_BLOCKED',
+          message: 'This no-show retained a deposit. Refund and reconcile it before reactivating the appointment.',
+        },
+      } satisfies ErrorResponse,
+      { status: 409 },
+    );
+  }
   return Response.json(
     {
       error: {
@@ -209,6 +273,34 @@ export async function PATCH(
         } satisfies ErrorResponse,
         { status: 409 },
       );
+    }
+
+    // Completion is a financial write, not a generic status toggle. The
+    // canonical checkout endpoint locks tax configuration, deposit history,
+    // and payment ledger before issuing the final invoice. Keeping this path
+    // status-only would bypass every D6.1 invariant (and legacy reward hooks).
+    // The source hold guard remains first so an unpaid hold always reports its
+    // stronger immutable-state error regardless of the requested target.
+    if (data.status === 'completed') {
+      return Response.json(
+        {
+          error: {
+            code: 'CHECKOUT_COMPLETION_REQUIRED',
+            message: 'Use the appointment checkout to finalize the invoice and complete this appointment.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
+
+    if (
+      existingAppointment.status === 'completed'
+      && data.status
+      && ACTIVE_APPOINTMENT_STATUSES.includes(
+        data.status as (typeof ACTIVE_APPOINTMENT_STATUSES)[number],
+      )
+    ) {
+      return reactivationConflictResponse('completed_requires_admin_reopen');
     }
 
     // 3. Validate the update makes sense
@@ -504,6 +596,14 @@ export async function PATCH(
             };
           }
           if (lockedAppointment.status === 'no_show') {
+            await forfeitAppointmentDepositInTx({
+              tx,
+              salonId: existingAppointment.salonId,
+              appointmentId,
+              invoiceCurrency: lockedAppointment.invoiceCurrency,
+              forfeitedAt: new Date(),
+              appointmentLockHeld: true,
+            });
             return {
               applied: false,
               appointment: lockedAppointment,
@@ -545,6 +645,15 @@ export async function PATCH(
               conflictStatus: 'stale',
             };
           }
+
+          await forfeitAppointmentDepositInTx({
+            tx,
+            salonId: existingAppointment.salonId,
+            appointmentId,
+            invoiceCurrency: noShowAppointment.invoiceCurrency,
+            forfeitedAt: noShowAppointment.updatedAt,
+            appointmentLockHeld: true,
+          });
 
           const [linkedReward] = await tx
             .select()
@@ -677,6 +786,20 @@ export async function PATCH(
               conflictStatus: lockedAppointment.status,
             };
           }
+          if (lockedAppointment.status === 'completed') {
+            return {
+              applied: false,
+              appointment: lockedAppointment,
+              conflictStatus: 'completed_requires_admin_reopen',
+            };
+          }
+          if (lockedAppointment.finalTaxSnapshot) {
+            return {
+              applied: false,
+              appointment: lockedAppointment,
+              conflictStatus: 'final_invoice_revision_required',
+            };
+          }
 
           let lockedTerminalClientId: string | null = null;
           if (lockedAppointment.salonClientId) {
@@ -723,6 +846,45 @@ export async function PATCH(
             };
           }
 
+          if (lockedAppointment.status === 'no_show') {
+            const depositRows = await loadAppointmentDepositCreditRows({
+              salonId: lockedAppointment.salonId,
+              appointmentId,
+              database: tx,
+              forUpdate: true,
+              appointmentLockHeld: true,
+            });
+            const taxChain = validateAppointmentTaxSnapshotChain(lockedAppointment);
+            const invoiceCurrency = taxChain.ok ? taxChain.invoiceCurrency : null;
+            const depositResolution = depositRows.length === 0
+              ? taxChain.ok
+                ? resolveDepositCredit({ deposits: depositRows, invoiceCurrency: 'CAD' })
+                : null
+              : invoiceCurrency
+                ? resolveDepositCredit({ deposits: depositRows, invoiceCurrency })
+                : null;
+            // Immutable forfeiture evidence remains after a later refund. A
+            // coherent full refund therefore permits reactivation; retained
+            // money and every unresolved history remain fail-closed.
+            if (
+              depositResolution === null
+              || !depositResolution.ok
+            ) {
+              return {
+                applied: false,
+                appointment: lockedAppointment,
+                conflictStatus: 'financial_reconciliation_required',
+              };
+            }
+            if (depositResolution.state === 'forfeited') {
+              return {
+                applied: false,
+                appointment: lockedAppointment,
+                conflictStatus: 'deposit_forfeited',
+              };
+            }
+          }
+
           if (
             lockedAppointment.technicianId
             !== existingAppointment.technicianId
@@ -749,10 +911,10 @@ export async function PATCH(
           if (lockedAppointment.technicianId) {
             const blockedDurationMinutes
               = lockedAppointment.blockedDurationMinutes
-              ?? (
-                lockedAppointment.totalDurationMinutes
-                + (lockedAppointment.bufferMinutes ?? 0)
-              );
+                ?? (
+                  lockedAppointment.totalDurationMinutes
+                  + (lockedAppointment.bufferMinutes ?? 0)
+                );
             const blockedEndTime = new Date(Math.max(
               lockedAppointment.endTime.getTime(),
               lockedAppointment.startTime.getTime()
@@ -767,15 +929,19 @@ export async function PATCH(
             });
           }
 
+          const reactivatedAt = new Date(Math.max(
+            Date.now(),
+            lockedAppointment.updatedAt.getTime() + 1,
+          ));
           const [reactivatedAppointment] = await tx
             .update(appointmentSchema)
             .set({
               status: data.status,
               cancelReason: null,
-              updatedAt: new Date(Math.max(
-                Date.now(),
-                lockedAppointment.updatedAt.getTime() + 1,
-              )),
+              canvasState: data.status === 'in_progress' ? 'working' : 'waiting',
+              canvasStateUpdatedAt: reactivatedAt,
+              completedAt: null,
+              updatedAt: reactivatedAt,
             })
             .where(
               and(
@@ -866,30 +1032,30 @@ export async function PATCH(
           }),
           salon
             ? sendBookingNotificationsForAppointmentCancelled({
-              salon: {
-                id: salon.id,
-                name: salon.name,
-                ownerName: salon.ownerName,
-                ownerPhone: salon.ownerPhone,
-                ownerEmail: salon.ownerEmail,
-                features: (salon.features as SalonFeatures | null | undefined) ?? null,
-                settings: (salon.settings as SalonSettings | null | undefined) ?? null,
-              },
-              technician: technician
-                ? {
-                    id: technician.id,
-                    name: technician.name,
-                    phone: technician.phone,
-                    email: technician.email,
-                  }
-                : null,
-              appointmentId,
-              clientName: existingAppointment.clientName || 'Guest',
-              clientPhone: existingAppointment.clientPhone,
-              services: serviceNames,
-              startTime: existingAppointment.startTime.toISOString(),
-              cancelReason: data.cancelReason ?? 'cancelled',
-            })
+                salon: {
+                  id: salon.id,
+                  name: salon.name,
+                  ownerName: salon.ownerName,
+                  ownerPhone: salon.ownerPhone,
+                  ownerEmail: salon.ownerEmail,
+                  features: (salon.features as SalonFeatures | null | undefined) ?? null,
+                  settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+                },
+                technician: technician
+                  ? {
+                      id: technician.id,
+                      name: technician.name,
+                      phone: technician.phone,
+                      email: technician.email,
+                    }
+                  : null,
+                appointmentId,
+                clientName: existingAppointment.clientName || 'Guest',
+                clientPhone: existingAppointment.clientPhone,
+                services: serviceNames,
+                startTime: existingAppointment.startTime.toISOString(),
+                cancelReason: data.cancelReason ?? 'cancelled',
+              })
             : Promise.resolve(null),
           sendSalonNotificationEmail({
             salonId: existingAppointment.salonId,
@@ -920,82 +1086,14 @@ export async function PATCH(
       }
     }
 
-    // 7. If status changed to 'completed', handle reward completion
-    if (data.status === 'completed') {
-      // Mark any reward linked to this appointment as 'used'
-      const linkedReward = await db
-        .select()
-        .from(rewardSchema)
-        .where(
-          and(
-            eq(rewardSchema.usedInAppointmentId, appointmentId),
-            eq(rewardSchema.salonId, existingAppointment.salonId),
-          ),
-        )
-        .limit(1);
-
-      if (linkedReward.length > 0) {
-        const reward = linkedReward[0]!;
-        await db
-          .update(rewardSchema)
-          .set({
-            status: 'used',
-            usedAt: new Date(),
-          })
-          .where(eq(rewardSchema.id, reward.id));
-
-        // If this is a referee reward, update the referral status and create referrer reward
-        if (reward.type === 'referral_referee' && reward.referralId) {
-          // Update referral status to reward_earned
-          await db
-            .update(referralSchema)
-            .set({ status: 'reward_earned' })
-            .where(eq(referralSchema.id, reward.referralId));
-
-          // Get the referral to find the referrer info
-          const [referral] = await db
-            .select()
-            .from(referralSchema)
-            .where(eq(referralSchema.id, reward.referralId))
-            .limit(1);
-
-          if (referral) {
-            // Fetch salon to resolve loyalty points
-            const [referralSalon] = await db
-              .select()
-              .from(salonSchema)
-              .where(eq(salonSchema.id, referral.salonId))
-              .limit(1);
-
-            // Skip referrer bonus if salon no longer exists (FK allows orphaned referrals)
-            if (referralSalon) {
-              // Create a reward for the referrer (uses salon-resolved points)
-              await db.insert(rewardSchema).values({
-                id: `reward_${crypto.randomUUID()}`,
-                salonId: referral.salonId,
-                clientPhone: referral.referrerPhone,
-                clientName: referral.referrerName,
-                referralId: referral.id,
-                type: 'referral_referrer',
-                points: 0,
-                discountType: 'fixed_amount',
-                discountAmountCents: REFERRAL_REFERRER_AMOUNT_CENTS,
-                eligibleServiceName: null,
-                status: 'active',
-                // Referrer reward expires in 1 year
-                expiresAt: new Date(Date.now() + REFERRAL_REFERRER_EXPIRY_DAYS * 24 * 60 * 60 * 1000),
-              });
-            }
-          }
-        }
-      }
-    }
-
     return Response.json({
       data: { appointment: updatedAppointment },
       meta: { timestamp: new Date().toISOString() },
     });
   } catch (error) {
+    if (error instanceof DepositForfeitureBlockedError) {
+      return depositForfeitureBlockedResponse(error);
+    }
     if (
       error instanceof ActiveAppointmentConflictError
       || error instanceof SlotConflictError

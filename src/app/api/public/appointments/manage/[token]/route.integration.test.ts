@@ -15,9 +15,10 @@ import { retryBookingRecoveryEmail } from '@/libs/bookingRecoveryEmail';
 import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
 import { retryCustomerBookingConfirmationEmail } from '@/libs/customerBookingEmail';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
+import { buildBookingTaxSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
-import { PATCH } from './route';
+import { GET, PATCH } from './route';
 
 vi.mock('server-only', () => ({}));
 
@@ -99,6 +100,46 @@ function cancelRequest() {
   });
 }
 
+async function seedAwaitingDepositManageLink(input: {
+  amountCents: number;
+  currency: string;
+  invoiceCurrency?: 'CAD' | 'USD';
+}) {
+  const capturedAt = new Date('2026-08-15T12:00:00.000Z');
+  const totalPrice = 4500;
+  const invoiceCurrency = input.invoiceCurrency ?? 'CAD';
+  const bookingTaxSnapshot = buildBookingTaxSnapshot({
+    taxConfig: resolveTaxConfig(null, capturedAt),
+    totals: {
+      taxApplied: false,
+      taxableSubtotalCents: 0,
+      taxAmountCents: 0,
+      finalPriceCents: totalPrice,
+    },
+    capturedAt,
+    currency: invoiceCurrency,
+  });
+  const seeded = await seedAppointmentWithToken({
+    status: 'awaiting_payment',
+    invoiceCurrency,
+    bookingTaxSnapshot,
+    depositHoldExpiresAt: new Date('2026-09-01T19:00:00.000Z'),
+  });
+  await db.insert(schema.appointmentDepositSchema).values({
+    id: `deposit_${seeded.appointmentId}`,
+    salonId: SALON_ID,
+    appointmentId: seeded.appointmentId,
+    amountCents: input.amountCents,
+    disclosedAmountCents: input.amountCents,
+    currency: input.currency,
+    status: 'checkout_created',
+    stripeAccountId: 'acct_manage',
+    stripeCheckoutSessionId: `cs_${seeded.appointmentId}`,
+    stripeCheckoutUrl: 'https://checkout.example/manage-hold',
+  });
+  return seeded;
+}
+
 async function salonDeliveriesFor(appointmentId: string) {
   return db
     .select()
@@ -178,6 +219,56 @@ beforeEach(() => {
     ok: true,
     errorCode: null,
     providerMessageId: 'msg_manage',
+  });
+});
+
+describe('customer manage-link deposit checkout', () => {
+  it('returns the live URL when hold money agrees with the canonical balance', async () => {
+    const { token } = await seedAwaitingDepositManageLink({
+      amountCents: 2500,
+      currency: 'cad',
+    });
+
+    const response = await GET(
+      new Request('http://localhost/api/public/appointments/manage/x'),
+      { params: { token } },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.appointment.depositCheckoutUrl)
+      .toBe('https://checkout.example/manage-hold');
+  });
+
+  it.each([
+    {
+      name: 'its currency differs from the frozen invoice',
+      amountCents: 2500,
+      currency: 'cad',
+      invoiceCurrency: 'USD' as const,
+    },
+    {
+      name: 'its amount exceeds the canonical balance',
+      amountCents: 4501,
+      currency: 'cad',
+      invoiceCurrency: 'CAD' as const,
+    },
+  ])('returns no URL when $name', async ({ amountCents, currency, invoiceCurrency }) => {
+    const { token } = await seedAwaitingDepositManageLink({
+      amountCents,
+      currency,
+      invoiceCurrency,
+    });
+
+    const response = await GET(
+      new Request('http://localhost/api/public/appointments/manage/x'),
+      { params: { token } },
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.appointment.depositCheckoutUrl).toBeNull();
+    expect(JSON.stringify(body)).not.toContain('https://checkout.example/manage-hold');
   });
 });
 

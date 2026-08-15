@@ -9,6 +9,7 @@ const {
   retryCustomerBookingConfirmationEmail,
   sendAppointmentOperationalEmailOnce,
   mintAppointmentManageLink,
+  updateSalonClientStats,
   insertedValues,
   insertResults,
   selectResults,
@@ -86,6 +87,7 @@ const {
     retryCustomerBookingConfirmationEmail: vi.fn(),
     sendAppointmentOperationalEmailOnce: vi.fn(),
     mintAppointmentManageLink: vi.fn(),
+    updateSalonClientStats: vi.fn(async () => undefined),
     insertedValues,
     insertResults,
     selectResults,
@@ -135,7 +137,12 @@ vi.mock('@/libs/appointmentManageLink', () => ({
   mintAppointmentManageLink,
 }));
 
+vi.mock('@/libs/queries', () => ({
+  updateSalonClientStats,
+}));
+
 import {
+  enqueueClientStatsRefreshInTx,
   enqueueStaffRescheduleNotification,
   processIntegrationOutbox,
 } from './integrationOutbox';
@@ -231,6 +238,32 @@ describe('enqueueStaffRescheduleNotification', () => {
   });
 });
 
+describe('enqueueClientStatsRefreshInTx', () => {
+  it('coalesces an exact deposit state version on the caller transaction', async () => {
+    const onConflictDoNothing = vi.fn(async () => undefined);
+    const values = vi.fn(() => ({ onConflictDoNothing }));
+    const database = { insert: vi.fn(() => ({ values })) };
+
+    await enqueueClientStatsRefreshInTx(database as never, {
+      salonId: 'salon_1',
+      appointmentId: 'appt_1',
+      depositId: 'dep_1',
+      stateVersion: '2026-08-30T12:00:00.000Z:refunded:succeeded',
+    });
+
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({
+      provider: 'internal',
+      operation: 'refresh_client_stats',
+      dedupeKey: 'deposit:dep_1:client-stats:2026-08-30T12:00:00.000Z:refunded:succeeded',
+      payload: {
+        depositId: 'dep_1',
+        stateVersion: '2026-08-30T12:00:00.000Z:refunded:succeeded',
+      },
+    }));
+    expect(onConflictDoNothing).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('processIntegrationOutbox', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -255,6 +288,75 @@ describe('processIntegrationOutbox', () => {
       deliveryId: 'delivery_staff_1',
       claimed: true,
     });
+  });
+
+  it('runs a durable internal client-stats refresh and completes the job', async () => {
+    selectResults.push(
+      [staffJob({
+        provider: 'internal',
+        operation: 'refresh_client_stats',
+        payload: { depositId: 'dep_1', stateVersion: 'v1' },
+      })],
+      [{ clientPhone: '+14165550123' }],
+    );
+    finishReadResults();
+
+    const result = await processIntegrationOutbox();
+
+    expect(result).toMatchObject({ scanned: 1, succeeded: 1, retried: 0 });
+    expect(updateSalonClientStats).toHaveBeenCalledWith('salon_1', '+14165550123');
+    expect(updates).toContainEqual(expect.objectContaining({
+      status: 'completed',
+      processedAt: expect.any(Date),
+    }));
+  });
+
+  it('retains a failed client-stats refresh for retry and completes the same durable job later', async () => {
+    const pending = staffJob({
+      provider: 'internal',
+      operation: 'refresh_client_stats',
+      payload: { depositId: 'dep_1', stateVersion: 'v1' },
+    });
+    updateSalonClientStats
+      .mockRejectedValueOnce(new Error('CLIENT_STATS_TRANSIENT_FAILURE'))
+      .mockResolvedValueOnce(undefined);
+    selectResults.push([pending], [{ clientPhone: '+14165550123' }]);
+    finishReadResults();
+
+    const first = await processIntegrationOutbox();
+
+    expect(first).toMatchObject({ scanned: 1, succeeded: 0, retried: 1, failed: 0 });
+    expect(updates).toContainEqual(expect.objectContaining({
+      status: 'retry',
+      lastError: 'CLIENT_STATS_TRANSIENT_FAILURE',
+      availableAt: expect.any(Date),
+    }));
+
+    selectResults.push(
+      [staffJob({
+        ...pending,
+        status: 'retry',
+        attempts: 1,
+        lastError: 'CLIENT_STATS_TRANSIENT_FAILURE',
+      })],
+      [{ clientPhone: '+14165550123' }],
+    );
+    finishReadResults();
+
+    const second = await processIntegrationOutbox();
+
+    expect(second).toMatchObject({ scanned: 1, succeeded: 1, retried: 0, failed: 0 });
+    expect(updateSalonClientStats).toHaveBeenCalledTimes(2);
+    expect(updateSalonClientStats).toHaveBeenNthCalledWith(
+      2,
+      'salon_1',
+      '+14165550123',
+    );
+    expect(updates).toContainEqual(expect.objectContaining({
+      status: 'completed',
+      processedAt: expect.any(Date),
+      lastError: null,
+    }));
   });
 
   it('cancels a superseded event without preparing or sending it', async () => {

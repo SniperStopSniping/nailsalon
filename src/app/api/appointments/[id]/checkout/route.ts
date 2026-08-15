@@ -3,14 +3,25 @@ import { and, asc, eq } from 'drizzle-orm';
 import { getSalonPolicy, getSuperAdminPolicy } from '@/core/appointments/policyRepo';
 import {
   listPayments,
-  sumNonVoidedPayments,
 } from '@/libs/appointmentCheckoutServer';
+import {
+  resolveAppointmentDepositFinancials,
+} from '@/libs/appointmentDepositFinancials';
+import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
+import {
+  resolveCheckoutCurrencyProjection,
+  validateAppointmentTaxSnapshotChain,
+} from '@/libs/appointmentTaxSnapshot';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
-import { buildPaymentReference, computeBalance } from '@/libs/checkoutTotals';
+import { buildPaymentReference, derivePaymentStatus } from '@/libs/checkoutTotals';
 import { db } from '@/libs/DB';
+import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { getSalonById } from '@/libs/queries';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
-import { resolveEtransferSettings, resolveTaxConfig } from '@/libs/taxConfig';
+import {
+  resolveEtransferSettings,
+  resolveTaxConfig,
+} from '@/libs/taxConfig';
 import {
   addOnSchema,
   appointmentAddOnSchema,
@@ -57,7 +68,7 @@ export async function GET(
       finalItems,
       photos,
       payments,
-      amountPaidCents,
+      depositRows,
       catalogServices,
       catalogAddOns,
       salonPolicy,
@@ -94,7 +105,10 @@ export async function GET(
         )
         .orderBy(asc(appointmentPhotoSchema.createdAt)),
       listPayments(db, appointmentId),
-      sumNonVoidedPayments(db, appointmentId),
+      loadAppointmentDepositCreditRows({
+        salonId: appointment.salonId,
+        appointmentId,
+      }),
       db
         .select({
           id: serviceSchema.id,
@@ -132,13 +146,82 @@ export async function GET(
     const bookingConfig = resolveBookingConfigFromSettings(settings);
     const taxConfig = resolveTaxConfig(settings, new Date());
     const etransfer = resolveEtransferSettings(settings);
-    const balance = computeBalance({
-      finalPriceCents: appointment.finalPriceCents,
-      taxAmountCents: appointment.taxAmountCents,
-      tipCents: appointment.tipCents,
-      amountPaidCents,
+    const taxChain = validateAppointmentTaxSnapshotChain(appointment);
+    if (!taxChain.ok) {
+      return Response.json(
+        {
+          error: {
+            code: 'TAX_SNAPSHOT_INVALID',
+            reason: taxChain.code,
+            message: taxChain.detail,
+          },
+        },
+        { status: 409 },
+      );
+    }
+    const frozenInvoiceCurrency = taxChain.invoiceCurrency;
+    const checkoutCurrency = resolveCheckoutCurrencyProjection({
+      frozenCurrency: frozenInvoiceCurrency,
+      currentCurrency: bookingConfig.currency,
+      appointmentStatus: appointment.status,
+      hasDepositHistory: depositRows.length > 0,
+      hasSnapshotEvidence: appointment.bookingTaxSnapshot !== null
+        || appointment.rescheduleTaxSnapshot !== null
+        || appointment.finalTaxSnapshot !== null,
+    });
+    const paymentLedger = resolveAppointmentPaymentLedger({
+      cachedAmountPaidCents: appointment.amountPaidCents,
+      paymentRows: payments,
+      expectedSalonId: appointment.salonId,
+      appointmentStatus: appointment.status,
       paymentStatus: appointment.paymentStatus,
     });
+    if (!paymentLedger.ok) {
+      return Response.json(
+        { error: { code: paymentLedger.code, message: paymentLedger.detail } },
+        { status: 409 },
+      );
+    }
+    const hasFinalInvoice = appointment.finalPriceCents !== null;
+    const activeTaxSnapshot = taxChain.active.snapshot;
+    const depositFinancials = resolveAppointmentDepositFinancials({
+      deposits: depositRows,
+      invoiceCurrency: checkoutCurrency,
+      finalPriceCents: hasFinalInvoice
+        ? appointment.finalPriceCents
+        : activeTaxSnapshot?.serviceSubtotalCents ?? appointment.totalPrice,
+      taxAmountCents: hasFinalInvoice
+        ? appointment.taxAmountCents
+        : activeTaxSnapshot?.taxAmountCents ?? 0,
+      tipCents: hasFinalInvoice ? appointment.tipCents : 0,
+      appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
+      appointmentStatus: appointment.status,
+      paymentStatus: appointment.paymentStatus,
+    });
+    const tenderOverpayment = depositFinancials.financials.ok
+      && depositFinancials.financials.tenderExcessCents > 0;
+    const balance = depositFinancials.balance ?? {
+      serviceInvoiceTotalCents: 0,
+      totalDueCents: 0,
+      appointmentPaymentsCents: 0,
+      depositCreditAppliedCents: 0,
+      amountAlreadyPaidCents: 0,
+      balanceCents: 0,
+      excessDepositCents: 0,
+      tenderExcessCents: 0,
+      legacyPaidAssumed: false,
+    };
+    const canonicalPaymentStatus
+      = tenderOverpayment
+        ? (appointment.paymentStatus === 'comp' ? 'comp' : 'pending')
+        : depositFinancials.depositResolution.ok && depositFinancials.financials.ok
+          ? appointment.paymentStatus === 'comp'
+            ? 'comp'
+            : derivePaymentStatus(
+                depositFinancials.financials.totalDueCents,
+                depositFinancials.financials.amountAlreadyPaidCents,
+              )
+          : appointment.paymentStatus;
 
     const bookedItems = [
       ...bookedServices.map(row => ({
@@ -168,7 +251,7 @@ export async function GET(
         appointment: {
           id: appointment.id,
           status: appointment.status,
-          paymentStatus: appointment.paymentStatus,
+          paymentStatus: canonicalPaymentStatus,
           clientName: appointment.clientName,
           startTime: appointment.startTime,
           endTime: appointment.endTime,
@@ -195,6 +278,10 @@ export async function GET(
           taxableSubtotalCents: appointment.taxableSubtotalCents,
           taxExempt: appointment.taxExempt,
           taxExemptReason: appointment.taxExemptReason,
+          invoiceCurrency: appointment.invoiceCurrency,
+          bookingTaxSnapshot: appointment.bookingTaxSnapshot,
+          rescheduleTaxSnapshot: appointment.rescheduleTaxSnapshot,
+          finalTaxSnapshot: appointment.finalTaxSnapshot,
         },
         bookedItems,
         finalItems: finalItems.map(item => ({
@@ -214,7 +301,7 @@ export async function GET(
           addOns: catalogAddOns,
         },
         taxConfig,
-        currency: bookingConfig.currency,
+        currency: checkoutCurrency,
         timeZone: bookingConfig.timezone,
         photoPolicy: {
           requireAfterPhotoToFinish:
@@ -233,6 +320,7 @@ export async function GET(
           recordedByName: payment.recordedByName,
           voidedAt: payment.voidedAt,
         })),
+        depositCredit: depositFinancials.depositCredit,
         balance,
         etransfer,
         paymentReference: buildPaymentReference(appointment.id),

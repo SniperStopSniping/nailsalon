@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 
 import { useClientSession } from '@/hooks/useClientSession';
 import { appendSalonSlug, buildChangeAppointmentUrl } from '@/libs/bookingParams';
+import { formatMoney } from '@/libs/formatMoney';
 
 type AppointmentStatus = 'pending' | 'confirmed' | 'cancelled' | 'completed' | 'no_show';
 
@@ -30,7 +31,30 @@ type Appointment = {
   status: AppointmentStatus;
   cancelReason: string | null;
   totalPrice: number;
+  currency: string | null;
   totalDurationMinutes: number;
+  financial: {
+    serviceInvoiceTotalCents: number;
+    totalCents: number;
+    depositCreditCents: number;
+    appointmentPaymentsCents: number;
+    amountAlreadyPaidCents: number;
+    balanceCents: number;
+    depositState: 'resolved' | 'blocked';
+    depositBlockCode: string | null;
+    depositPresentationState:
+      | 'none'
+      | 'creditable'
+      | 'refund_candidate'
+      | 'refund_in_flight'
+      | 'refund_review'
+      | 'refunded'
+      | 'forfeited'
+      | 'blocked';
+    collectedDepositCents: number;
+    refundedDepositCents: number;
+    forfeitedDepositCents: number;
+  } | null;
   locationId: string | null;
   services: ServiceData[];
   technician: TechnicianData | null;
@@ -164,7 +188,26 @@ export default function AppointmentHistoryContent({
   };
 
   const completedAppointments = appointments.filter(a => a.status === 'completed');
-  const totalSpent = completedAppointments.reduce((sum, a) => sum + (a.totalPrice / 100), 0);
+  const completedCurrencies = new Set(
+    completedAppointments.map(appointment => appointment.currency).filter(Boolean),
+  );
+  const completedAggregateResolved = completedAppointments.every(appointment =>
+    appointment.currency !== null
+    && appointment.financial !== null
+    && appointment.financial.depositState === 'resolved');
+  const totalSpentCurrency = completedAggregateResolved
+    && completedCurrencies.size === 1
+    ? [...completedCurrencies][0]!
+    : null;
+  const totalSpentCents = totalSpentCurrency
+    ? completedAppointments.reduce(
+        (sum, appointment) => sum + appointment.financial!.amountAlreadyPaidCents,
+        0,
+      )
+    : 0;
+  const totalSpent = totalSpentCurrency
+    ? formatMoney(totalSpentCents, totalSpentCurrency)
+    : 'Unavailable';
   const requiresSession = !isCheckingSession && !isLoggedIn;
 
   return (
@@ -232,8 +275,7 @@ export default function AppointmentHistoryContent({
                 <div className="bg-[var(--n5-ink-inverse)]/20 h-12 w-px" />
                 <div className="flex-1 text-center">
                   <div className="font-body text-3xl font-bold text-[var(--n5-accent)]">
-                    $
-                    {totalSpent.toFixed(0)}
+                    {totalSpent}
                   </div>
                   <div className="font-body text-[var(--n5-ink-inverse)]/70 mt-0.5 text-sm">Total Spent</div>
                 </div>
@@ -275,24 +317,168 @@ export default function AppointmentHistoryContent({
                         </div>
                       </div>
                     </div>
+                    {['cancelled', 'no_show'].includes(appointment.status)
+                    && appointment.financial === null
+                      ? (
+                          <div className="border-t border-neutral-100 pt-4">
+                            <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                              Financial details are under review. Contact the salon for confirmed amounts.
+                            </div>
+                          </div>
+                        )
+                      : null}
+                    {['cancelled', 'no_show'].includes(appointment.status)
+                    && appointment.financial !== null
+                    && (
+                      appointment.financial.depositState === 'blocked'
+                      || ['refund_in_flight', 'refund_review', 'blocked'].includes(
+                        appointment.financial.depositPresentationState,
+                      )
+                    )
+                    && appointment.financial.collectedDepositCents === 0
+                      ? (
+                          <div className="border-t border-neutral-100 pt-4">
+                            <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                              Deposit handling is under review. Contact the salon for confirmed refund details.
+                            </div>
+                          </div>
+                        )
+                      : null}
+                    {['cancelled', 'no_show'].includes(appointment.status)
+                    && appointment.financial
+                    && appointment.financial.collectedDepositCents > 0
+                      ? (
+                          <div className="space-y-2 border-t border-neutral-100 pt-4 text-sm">
+                            <div className="flex items-center justify-between">
+                              <span className="text-neutral-500">Deposit collected</span>
+                              <span className="font-semibold text-neutral-700">
+                                {appointment.currency
+                                  ? formatMoney(
+                                      appointment.financial.collectedDepositCents,
+                                      appointment.currency,
+                                    )
+                                  : 'Unavailable'}
+                              </span>
+                            </div>
+                            {appointment.financial.depositPresentationState === 'refund_candidate' && (
+                              <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
+                                Refund due for owner review. This deposit is not appointment credit.
+                              </div>
+                            )}
+                            {appointment.financial.depositPresentationState === 'refund_in_flight' && (
+                              <div className="rounded-lg bg-blue-50 px-3 py-2 text-blue-900">
+                                Deposit refund in progress.
+                              </div>
+                            )}
+                            {appointment.financial.depositPresentationState === 'refunded' && (
+                              <div className="flex items-center justify-between text-emerald-700">
+                                <span>Deposit refunded</span>
+                                <span className="font-semibold">
+                                  {appointment.currency
+                                    ? formatMoney(
+                                        appointment.financial.refundedDepositCents,
+                                        appointment.currency,
+                                      )
+                                    : 'Unavailable'}
+                                </span>
+                              </div>
+                            )}
+                            {appointment.financial.depositPresentationState === 'forfeited' && (
+                              <div className="flex items-center justify-between text-amber-800">
+                                <span>Deposit retained after no-show</span>
+                                <span className="font-semibold">
+                                  {appointment.currency
+                                    ? formatMoney(
+                                        appointment.financial.forfeitedDepositCents,
+                                        appointment.currency,
+                                      )
+                                    : 'Unavailable'}
+                                </span>
+                              </div>
+                            )}
+                            {['refund_review', 'blocked'].includes(
+                              appointment.financial.depositPresentationState,
+                            ) && (
+                              <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
+                                Deposit handling is under review. Contact the salon for details.
+                              </div>
+                            )}
+                          </div>
+                        )
+                      : null}
                     {['completed', 'confirmed', 'pending'].includes(appointment.status) && (
                       <div className="space-y-2.5 border-t border-neutral-100 pt-4">
                         <div className="flex items-center justify-between">
-                          <span className="text-base font-medium text-neutral-500">Price</span>
+                          <span className="text-base font-medium text-neutral-500">
+                            {appointment.status === 'completed' ? 'Final total' : 'Estimated total'}
+                          </span>
                           <span className="text-base font-semibold text-neutral-700">
-                            $
-                            {(appointment.totalPrice / 100).toFixed(0)}
+                            {appointment.currency && appointment.financial
+                              ? formatMoney(
+                                  appointment.financial.totalCents,
+                                  appointment.currency,
+                                )
+                              : 'Unavailable'}
                           </span>
                         </div>
-                        {appointment.status === 'completed' && (
-                          <div className="flex items-center justify-between border-t border-[var(--n5-border)] pt-2.5">
-                            <span className="font-body text-lg font-bold text-[var(--n5-ink-main)]">Total Paid</span>
-                            <span className="font-body text-xl font-bold text-[var(--n5-accent)]">
-                              $
-                              {(appointment.totalPrice / 100).toFixed(0)}
-                            </span>
-                          </div>
-                        )}
+                        {appointment.financial?.depositState === 'blocked'
+                          ? (
+                              <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                Deposit and balance are under review. Contact the salon before sending payment.
+                              </div>
+                            )
+                          : appointment.financial
+                            ? (
+                                <>
+                                  {appointment.financial.depositCreditCents > 0 && (
+                                    <div className="flex items-center justify-between text-sm">
+                                      <span className="text-neutral-500">Deposit paid</span>
+                                      <span className="font-semibold text-neutral-700">
+                                        −
+                                        {appointment.currency
+                                          ? formatMoney(
+                                              appointment.financial.depositCreditCents,
+                                              appointment.currency,
+                                            )
+                                          : 'Unavailable'}
+                                      </span>
+                                    </div>
+                                  )}
+                                  {appointment.financial.appointmentPaymentsCents > 0 && (
+                                    <div className="flex items-center justify-between text-sm">
+                                      <span className="text-neutral-500">Other payments</span>
+                                      <span className="font-semibold text-neutral-700">
+                                        {appointment.currency
+                                          ? formatMoney(
+                                              appointment.financial.appointmentPaymentsCents,
+                                              appointment.currency,
+                                            )
+                                          : 'Unavailable'}
+                                      </span>
+                                    </div>
+                                  )}
+                                  <div className="flex items-center justify-between border-t border-[var(--n5-border)] pt-2.5">
+                                    <span className="font-body text-base font-bold text-[var(--n5-ink-main)]">
+                                      {appointment.financial.balanceCents === 0 ? 'Amount paid' : 'Balance'}
+                                    </span>
+                                    <span className="font-body text-xl font-bold text-[var(--n5-accent)]">
+                                      {appointment.currency
+                                        ? formatMoney(
+                                            appointment.financial.balanceCents === 0
+                                              ? appointment.financial.amountAlreadyPaidCents
+                                              : appointment.financial.balanceCents,
+                                            appointment.currency,
+                                          )
+                                        : 'Unavailable'}
+                                    </span>
+                                  </div>
+                                </>
+                              )
+                            : (
+                                <div className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                                  Financial details are under review. Contact the salon before sending payment.
+                                </div>
+                              )}
                       </div>
                     )}
                     {isUpcoming(appointment) && (

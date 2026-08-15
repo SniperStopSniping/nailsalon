@@ -3,6 +3,7 @@
 import { useState } from 'react';
 
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
+import { formatMoney } from '@/libs/formatMoney';
 
 import { ReviewFollowupModal } from './ReviewFollowupModal';
 import type { AppointmentData } from './StaffAppointmentCard';
@@ -63,7 +64,7 @@ export function ActionBar({
   // Transition Handler
   // =============================================================================
 
-  const handleTransition = async (to: 'working' | 'complete' | 'cancelled' | 'no_show') => {
+  const handleTransition = async (to: 'working' | 'cancelled' | 'no_show') => {
     if (isTransitioning) {
       return;
     }
@@ -72,17 +73,11 @@ export function ActionBar({
     setError(null);
 
     try {
-      const response = to === 'complete'
-        ? await fetch(`/api/appointments/${appointment.id}/complete`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({}),
-        })
-        : await fetch(`/api/appointments/${appointment.id}/transition`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ to }),
-        });
+      const response = await fetch(`/api/appointments/${appointment.id}/transition`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ to }),
+      });
 
       if (!response.ok) {
         const data = await response.json();
@@ -123,7 +118,9 @@ export function ActionBar({
     });
   };
 
-  const formatPrice = (cents: number) => `$${(cents / 100).toFixed(0)}`;
+  const formatPrice = (cents: number) => appointment.invoiceCurrency
+    ? formatMoney(cents, appointment.invoiceCurrency)
+    : 'Unavailable';
 
   // Completion checkout overlay (sits above the action bar) — the same
   // Complete-appointment flow every other surface uses.

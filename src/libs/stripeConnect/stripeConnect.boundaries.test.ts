@@ -161,6 +161,20 @@ describe('test 31 — module boundaries', () => {
       path.join(ROOT, 'src/libs/deposits/depositMoneyGuard.ts'),
       path.join(ROOT, 'src/libs/deposits/depositRefund.ts'),
       path.join(ROOT, 'src/libs/salonPurge.ts'),
+      // D6.1: canonical read-time credit, refund/forfeiture presentation,
+      // reporting/export, historical consumer guards, and reward repricing
+      // fences. These are tenant-scoped readers except for the forfeiture
+      // lifecycle writer, which preserves the existing appointment->deposit
+      // lock order.
+      path.join(ROOT, 'src/app/api/admin/clients/[id]/route.ts'),
+      path.join(ROOT, 'src/app/api/appointments/history/route.ts'),
+      path.join(ROOT, 'src/app/api/rewards/redeem/route.ts'),
+      path.join(ROOT, 'src/app/api/rewards/redeem-points/route.ts'),
+      path.join(ROOT, 'src/app/api/super-admin/organizations/[id]/export/route.ts'),
+      path.join(ROOT, 'src/libs/depositCredit.server.ts'),
+      path.join(ROOT, 'src/libs/deposits/depositForfeiture.ts'),
+      path.join(ROOT, 'src/libs/financialReportingServer.ts'),
+      path.join(ROOT, 'src/libs/queries.ts'),
     ].sort());
   });
 

@@ -2,15 +2,19 @@ import { and, eq, gt, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { buildActiveTerminalSalonClientMap } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
+import {
+  getFinancialBalanceSummary,
+  getFinancialReportingRangeSummary,
+} from '@/libs/financialReportingServer';
 import { normalizePhone } from '@/libs/phone';
 import {
   buildRetentionQueue,
   type RetentionClientSnapshot,
 } from '@/libs/retentionAssistant';
 import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
-import { revenueCentsSql } from '@/libs/revenueSql';
 import {
   appointmentSchema,
   appointmentServicesSchema,
@@ -65,6 +69,9 @@ export async function GET(request: Request): Promise<Response> {
 
   try {
     const now = new Date();
+    const reportingCurrency = resolveBookingConfigFromSettings(
+      (salon.settings as Parameters<typeof resolveBookingConfigFromSettings>[0]) ?? null,
+    ).currency;
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
     const [
@@ -73,7 +80,8 @@ export async function GET(request: Request): Promise<Response> {
       aliasRows,
       futureRows,
       apptStats,
-      moneyStats,
+      canonicalRange,
+      canonicalBalances,
       topServices,
       categoryRows,
       consentRows,
@@ -147,60 +155,17 @@ export async function GET(request: Request): Promise<Response> {
           eq(appointmentSchema.salonId, salon.id),
           isNull(appointmentSchema.deletedAt),
         )),
-      db
-        .select({
-          serviceRevenueCents: sql<number>`COALESCE(
-            sum(${revenueCentsSql()}) FILTER (
-              WHERE ${appointmentSchema.status} = 'completed'
-            ),
-            0
-          )::int`,
-          discountCents: sql<number>`COALESCE(
-            sum(COALESCE(
-              ${appointmentSchema.finalDiscountCents},
-              ${appointmentSchema.discountAmountCents},
-              0
-            )) FILTER (WHERE ${appointmentSchema.status} = 'completed'),
-            0
-          )::int`,
-          taxCents: sql<number>`COALESCE(
-            sum(${appointmentSchema.taxAmountCents}) FILTER (
-              WHERE ${appointmentSchema.status} = 'completed'
-            ),
-            0
-          )::int`,
-          tipCents: sql<number>`COALESCE(
-            sum(${appointmentSchema.tipCents}) FILTER (
-              WHERE ${appointmentSchema.status} = 'completed'
-            ),
-            0
-          )::int`,
-          amountPaidCents: sql<number>`COALESCE(
-            sum(${appointmentSchema.amountPaidCents}) FILTER (
-              WHERE ${appointmentSchema.status} = 'completed'
-            ),
-            0
-          )::int`,
-          outstandingCents: sql<number>`COALESCE(
-            sum(GREATEST(
-              COALESCE(
-                ${appointmentSchema.finalPriceCents},
-                ${appointmentSchema.totalPrice}
-              )
-                + COALESCE(${appointmentSchema.taxAmountCents}, 0)
-                + COALESCE(${appointmentSchema.tipCents}, 0)
-                - ${appointmentSchema.amountPaidCents},
-              0
-            )) FILTER (
-              WHERE ${appointmentSchema.status} = 'completed'
-                AND ${appointmentSchema.amountPaidCents} IS NOT NULL
-                AND ${appointmentSchema.paymentStatus} != 'comp'
-            ),
-            0
-          )::int`,
-        })
-        .from(appointmentSchema)
-        .where(eq(appointmentSchema.salonId, salon.id)),
+      getFinancialReportingRangeSummary({
+        salonId: salon.id,
+        currency: reportingCurrency,
+        start: new Date(0),
+        end: now,
+      }),
+      getFinancialBalanceSummary({
+        salonId: salon.id,
+        currency: reportingCurrency,
+        asOf: now,
+      }),
       db
         .select({
           name: appointmentServicesSchema.nameSnapshot,
@@ -380,7 +345,35 @@ export async function GET(request: Request): Promise<Response> {
         .map(row => row.recipient),
     ).size;
     const stats = apptStats[0]!;
-    const money = moneyStats[0]!;
+    const money = {
+      serviceRevenueCents: canonicalRange.completedAppointmentRevenueCents,
+      discountCents: canonicalRange.discountsCents,
+      taxCents: canonicalRange.taxCents,
+      tipCents: canonicalRange.tipsCents,
+      amountPaidCents:
+        canonicalRange.appointmentPaymentsCollectedCents
+        + canonicalRange.depositAppliedCents,
+      outstandingCents: canonicalBalances.completedOutstandingCents,
+      depositCreditAppliedCents: canonicalRange.depositAppliedCents,
+      unresolvedFinancialAppointmentCount: Math.max(
+        canonicalRange.provenance.unresolvedAppointmentCount,
+        canonicalBalances.completedOutstandingProvenance
+          .unresolvedAppointmentCount,
+        canonicalRange.unresolvedDepositApplicationCount,
+      ),
+      settledByLegacyPaymentStatusCount:
+        canonicalBalances.settledByLegacyPaymentStatusCount,
+    };
+    const currency = {
+      unknownCurrencyAppointmentCount: Math.max(
+        canonicalRange.unknownCurrencyAppointmentCount,
+        canonicalBalances.unknownCurrencyAppointmentCount,
+      ),
+      excludedForeignCurrencyAppointmentCount: Math.max(
+        canonicalRange.excludedForeignCurrencyAppointmentCount,
+        canonicalBalances.excludedForeignCurrencyAppointmentCount,
+      ),
+    };
     const finishedTotal = stats.completed + stats.cancelled + stats.noShows;
     const returningCount = activeClientRows.filter(
       client => (client.totalVisits ?? 0) >= 2,
@@ -414,6 +407,12 @@ export async function GET(request: Request): Promise<Response> {
           topServices,
           serviceRevenueCents: money.serviceRevenueCents,
           outstandingCents: money.outstandingCents,
+          unresolvedFinancialAppointmentCount:
+            money.unresolvedFinancialAppointmentCount,
+          unknownCurrencyAppointmentCount:
+            currency.unknownCurrencyAppointmentCount,
+          excludedForeignCurrencyAppointmentCount:
+            currency.excludedForeignCurrencyAppointmentCount,
         },
         segments: [
           { id: 'new_this_month', label: 'New this month', count: activeClientRows.filter(client => client.createdAt >= monthStart).length },
@@ -445,6 +444,15 @@ export async function GET(request: Request): Promise<Response> {
           tipsCents: money.tipCents,
           amountPaidCents: money.amountPaidCents,
           outstandingCents: money.outstandingCents,
+          depositCreditAppliedCents: money.depositCreditAppliedCents,
+          unresolvedFinancialAppointmentCount:
+            money.unresolvedFinancialAppointmentCount,
+          settledByLegacyPaymentStatusCount:
+            money.settledByLegacyPaymentStatusCount,
+          unknownCurrencyAppointmentCount:
+            currency.unknownCurrencyAppointmentCount,
+          excludedForeignCurrencyAppointmentCount:
+            currency.excludedForeignCurrencyAppointmentCount,
           promotionsMinted: redemptionStats[0]?.minted ?? 0,
           promotionsRedeemed: redemptionStats[0]?.redeemed ?? 0,
           topServices,

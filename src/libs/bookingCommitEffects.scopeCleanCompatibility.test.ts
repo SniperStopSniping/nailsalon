@@ -17,6 +17,26 @@ const boundaries = vi.hoisted(() => ({
   sendBookingNotificationsForNewBooking: vi.fn(async () => {}),
   sendCustomerBookingConfirmationEmail: vi.fn(async () => ({ delivered: true })),
   sendSalonNotificationEmail: vi.fn(async () => ({ status: 'sent', deliveryId: 'delivery_1' })),
+  financialSummary: {
+    currency: 'CAD',
+    serviceInvoiceTotalCents: 5000,
+    totalDueCents: 5000,
+    taxAmountCents: 0,
+    taxLabel: 'HST',
+    taxMode: 'added',
+    taxClassification: 'estimate',
+    taxApplied: false,
+    collectedDepositCents: 0,
+    refundedDepositCents: 0,
+    forfeitedDepositCents: 0,
+    depositCreditAppliedCents: 0,
+    appointmentPaymentsCents: 0,
+    amountAlreadyPaidCents: 0,
+    balanceCents: 5000,
+    depositBlockedCode: null,
+    depositPresentationState: 'none',
+  },
+  loadBookingEmailFinancialSummary: vi.fn(),
 }));
 
 vi.mock('@/libs/DB', () => ({ db: boundaries.db }));
@@ -26,6 +46,9 @@ vi.mock('@/libs/integrationOutbox', () => ({
 }));
 vi.mock('@/libs/customerBookingEmail', () => ({
   sendCustomerBookingConfirmationEmail: boundaries.sendCustomerBookingConfirmationEmail,
+}));
+vi.mock('@/libs/bookingEmailFinancialSummary.server', () => ({
+  loadBookingEmailFinancialSummary: boundaries.loadBookingEmailFinancialSummary,
 }));
 vi.mock('@/libs/SMS', () => ({
   sendBookingConfirmationToClient: boundaries.sendBookingConfirmationToClient,
@@ -87,6 +110,7 @@ const context = {
 describe('scope-clean booking-effect compatibility', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    boundaries.loadBookingEmailFinancialSummary.mockResolvedValue(boundaries.financialSummary);
   });
 
   afterEach(() => {
@@ -102,6 +126,17 @@ describe('scope-clean booking-effect compatibility', () => {
       .toBeLessThan(boundaries.sendBookingConfirmationToClient.mock.invocationCallOrder[0]!);
     expect(boundaries.sendBookingConfirmationToClient.mock.invocationCallOrder[0])
       .toBeLessThan(boundaries.sendSalonNotificationEmail.mock.invocationCallOrder[0]!);
+    expect(boundaries.loadBookingEmailFinancialSummary).toHaveBeenCalledWith({
+      salonId: context.salon.id,
+      appointmentId: context.appointment.id,
+    });
+    expect(boundaries.sendBookingConfirmationToClient).toHaveBeenCalledWith(
+      context.salon.id,
+      expect.objectContaining({ financialSummary: boundaries.financialSummary }),
+    );
+    expect(boundaries.sendBookingNotificationsForNewBooking).toHaveBeenCalledWith(
+      expect.objectContaining({ financialSummary: boundaries.financialSummary }),
+    );
   });
 
   it('preserves calendarCause identity behavior', async () => {

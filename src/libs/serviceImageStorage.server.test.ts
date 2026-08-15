@@ -844,7 +844,7 @@ describe('service image storage', () => {
     })
       .png()
       .toBuffer();
-    const file = new File([png], 'service.png', { type: 'image/png' });
+    const file = new File([new Uint8Array(png)], 'service.png', { type: 'image/png' });
 
     const result = await saveLocalServiceImage({
       file,
@@ -884,7 +884,7 @@ describe('service image storage', () => {
 
     await expect(
       saveLocalServiceImage({
-        file: new File([png], 'spoof.jpg', { type: 'image/jpeg' }),
+        file: new File([new Uint8Array(png)], 'spoof.jpg', { type: 'image/jpeg' }),
         salonId,
         serviceId,
       }),

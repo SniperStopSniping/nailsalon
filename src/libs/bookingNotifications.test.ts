@@ -68,6 +68,26 @@ const baseSalon = {
   },
 } as const;
 
+const canonicalFinancialSummary = {
+  currency: 'CAD',
+  serviceInvoiceTotalCents: 9605,
+  totalDueCents: 9605,
+  taxAmountCents: 1105,
+  taxLabel: 'HST',
+  taxMode: 'added',
+  taxClassification: 'estimate',
+  taxApplied: true,
+  collectedDepositCents: 2000,
+  refundedDepositCents: 0,
+  forfeitedDepositCents: 0,
+  depositCreditAppliedCents: 2000,
+  appointmentPaymentsCents: 0,
+  amountAlreadyPaidCents: 2000,
+  balanceCents: 7605,
+  depositBlockedCode: null,
+  depositPresentationState: 'creditable',
+} as const;
+
 describe('bookingNotifications', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -93,11 +113,25 @@ describe('bookingNotifications', () => {
       services: ['BIAB Fill'],
       startTime: '2099-03-13T15:00:00.000Z',
       totalDurationMinutes: 90,
-      totalPrice: 8500,
+      financialSummary: canonicalFinancialSummary,
     });
 
     expect(sendInternalBookingNotificationSms).toHaveBeenCalledTimes(1);
+    expect(sendInternalBookingNotificationSms).toHaveBeenCalledWith(
+      'salon_1',
+      expect.objectContaining({ financialSummary: canonicalFinancialSummary }),
+    );
     expect(sendTransactionalEmail).toHaveBeenCalledTimes(1);
+    expect(sendTransactionalEmail).toHaveBeenCalledWith(expect.objectContaining({
+      text: expect.stringContaining([
+        'Estimated HST (added): $11.05',
+        'Estimated appointment total: $96.05',
+        'Deposit collected: $20.00',
+        'Deposit credit applied: -$20.00',
+        'Amount already paid: $20.00',
+        'Estimated remaining balance: $76.05',
+      ].join('\n')),
+    }));
   });
 
   it('does not dispatch a later internal recipient after the worker aborts during an earlier leg', async () => {
@@ -121,7 +155,7 @@ describe('bookingNotifications', () => {
       services: ['BIAB Fill'],
       startTime: '2099-03-13T15:00:00.000Z',
       totalDurationMinutes: 90,
-      totalPrice: 8500,
+      financialSummary: canonicalFinancialSummary,
     }, { signal: controller.signal })).rejects.toThrow('WORKER_BUDGET_EXPIRED');
 
     expect(sendInternalBookingNotificationSms).toHaveBeenCalledWith(
@@ -170,7 +204,7 @@ describe('bookingNotifications', () => {
       services: ['BIAB Fill'],
       startTime: '2099-03-13T15:00:00.000Z',
       totalDurationMinutes: 90,
-      totalPrice: 8500,
+      financialSummary: canonicalFinancialSummary,
     });
 
     expect(console.error).toHaveBeenCalledWith(
@@ -211,7 +245,7 @@ describe('bookingNotifications', () => {
       services: ['BIAB Fill'],
       startTime: '2099-03-13T15:00:00.000Z',
       totalDurationMinutes: 90,
-      totalPrice: 8500,
+      financialSummary: canonicalFinancialSummary,
     });
 
     expect(sendTransactionalEmail).not.toHaveBeenCalled();
@@ -242,11 +276,40 @@ describe('bookingNotifications', () => {
       services: ['BIAB Fill'],
       startTime: '2099-03-13T15:00:00.000Z',
       totalDurationMinutes: 90,
-      totalPrice: 8500,
+      financialSummary: canonicalFinancialSummary,
     });
 
     expect(sendInternalBookingNotificationSms).toHaveBeenCalledTimes(1);
     expect(sendTransactionalEmail).not.toHaveBeenCalled();
+  });
+
+  it('keeps technician email money-free when canonical evidence is blocked', async () => {
+    await sendBookingNotificationsForNewBooking({
+      salon: baseSalon,
+      technician: {
+        id: 'tech_1',
+        name: 'Daniela',
+        phone: '4169021428',
+        email: 'artist@example.com',
+      },
+      appointmentId: 'appt_1',
+      clientName: 'Ava',
+      clientPhone: '1111111111',
+      services: ['BIAB Fill'],
+      startTime: '2099-03-13T15:00:00.000Z',
+      totalDurationMinutes: 90,
+      financialSummary: null,
+    });
+
+    expect(sendTransactionalEmail).toHaveBeenCalledWith(expect.objectContaining({
+      text: expect.stringContaining(
+        'Payment details: Under review\nPayment update: The salon will confirm the final payment or refund status before any further action.',
+      ),
+    }));
+
+    const email = sendTransactionalEmail.mock.calls[0]![0];
+
+    expect(email.text).not.toMatch(/\$|Total:|Balance due:/u);
   });
 
   it('skips cancellation notifications for reschedules', async () => {

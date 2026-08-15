@@ -1143,6 +1143,17 @@ describe('D6 owner retry bounds', () => {
       refundTrigger: 'owner',
     });
 
+    const ownerNotices = await db
+      .select({ payload: schema.integrationOutboxSchema.payload })
+      .from(schema.integrationOutboxSchema)
+      .where(eq(schema.integrationOutboxSchema.operation, 'deposit_refund_notices'));
+    const ownerNotice = ownerNotices.find((notice) => {
+      const payload = notice.payload as { depositId?: string } | null;
+      return payload?.depositId === ownerDeposit.id;
+    });
+
+    expect(ownerNotice?.payload).toMatchObject({ variant: 'owner' });
+
     transport.requests.length = 0;
     transport.steps.length = 0;
     const abandonedRequestedAt = new Date(Date.now() - 2 * 60 * 60_000);
@@ -1477,6 +1488,167 @@ describe('D6 list-only discovery and state ordering', () => {
       'deposit_already_confirmed_late_refund',
       expect.anything(),
     );
+  });
+
+  it('repairs completed payment status when a credited deposit is refunded', async () => {
+    const depositOnly = await seedDeposit();
+    await db.insert(schema.salonClientSchema).values({
+      id: 'client_deposit_refund_stats',
+      salonId: SALON,
+      phone: '4165550101',
+      fullName: 'Refund Client',
+      totalSpent: 9000,
+      loyaltyPoints: 777,
+    });
+    await db
+      .update(schema.appointmentSchema)
+      .set({
+        salonClientId: 'client_deposit_refund_stats',
+        status: 'completed',
+        finalPriceCents: 9000,
+        taxAmountCents: 1170,
+        tipCents: 500,
+        amountPaidCents: 0,
+        paymentStatus: 'paid',
+      })
+      .where(eq(schema.appointmentSchema.id, depositOnly.appointmentId));
+
+    await applyRefundObservation({
+      deposit: depositOnly,
+      refund: {
+        id: 're_deposit_only',
+        status: 'succeeded',
+        amount: AMOUNT,
+        currency: CURRENCY,
+        metadata: {},
+      },
+      origin: 'webhook',
+    });
+
+    const [depositOnlyAppointment] = await db
+      .select({ paymentStatus: schema.appointmentSchema.paymentStatus })
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, depositOnly.appointmentId));
+
+    expect(depositOnlyAppointment?.paymentStatus).toBe('pending');
+
+    const [refreshedClient] = await db
+      .select({
+        totalSpent: schema.salonClientSchema.totalSpent,
+        loyaltyPoints: schema.salonClientSchema.loyaltyPoints,
+      })
+      .from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, 'client_deposit_refund_stats'));
+
+    expect(refreshedClient).toEqual({ totalSpent: 0, loyaltyPoints: 777 });
+
+    const independentlyPaid = await seedDeposit();
+    const invoiceCents = 10_670;
+    await db
+      .update(schema.appointmentSchema)
+      .set({
+        status: 'completed',
+        finalPriceCents: 9000,
+        taxAmountCents: 1170,
+        tipCents: 500,
+        amountPaidCents: invoiceCents,
+        paymentStatus: 'paid',
+      })
+      .where(eq(schema.appointmentSchema.id, independentlyPaid.appointmentId));
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: 'pay_independent_after_refund',
+      salonId: SALON,
+      appointmentId: independentlyPaid.appointmentId,
+      amountCents: invoiceCents,
+      method: 'cash',
+      recordedByType: 'admin',
+      recordedById: 'admin_refund',
+    });
+
+    await applyRefundObservation({
+      deposit: independentlyPaid,
+      refund: {
+        id: 're_independently_paid',
+        status: 'succeeded',
+        amount: AMOUNT,
+        currency: CURRENCY,
+        metadata: {},
+      },
+      origin: 'webhook',
+    });
+
+    const [independentlyPaidAppointment] = await db
+      .select({ paymentStatus: schema.appointmentSchema.paymentStatus })
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, independentlyPaid.appointmentId));
+
+    expect(independentlyPaidAppointment?.paymentStatus).toBe('paid');
+  });
+
+  it('never lets a historical cross-tenant payment keep a refunded invoice paid', async () => {
+    const deposit = await seedDeposit();
+    const invoiceCents = 10_670;
+    await db
+      .update(schema.appointmentSchema)
+      .set({
+        status: 'completed',
+        finalPriceCents: 9000,
+        taxAmountCents: 1170,
+        tipCents: 500,
+        amountPaidCents: invoiceCents,
+        paymentStatus: 'paid',
+      })
+      .where(eq(schema.appointmentSchema.id, deposit.appointmentId));
+
+    // 0068 protects every new row with a composite tenant FK, but deliberately
+    // leaves a dirty historical cohort possible via NOT VALID. Recreate that
+    // pre-constraint row locally and prove refund synchronization scopes the
+    // ledger itself rather than relying on the migration being clean.
+    await client.exec(`
+      ALTER TABLE "appointment_payment"
+      DROP CONSTRAINT "appointment_payment_appointment_tenant_fk"
+    `);
+    try {
+      await db.insert(schema.appointmentPaymentSchema).values({
+        id: 'pay_cross_tenant_after_refund',
+        salonId: OTHER_SALON,
+        appointmentId: deposit.appointmentId,
+        amountCents: invoiceCents,
+        method: 'cash',
+        recordedByType: 'admin',
+        recordedById: 'admin_other',
+      });
+
+      await applyRefundObservation({
+        deposit,
+        refund: {
+          id: 're_cross_tenant',
+          status: 'succeeded',
+          amount: AMOUNT,
+          currency: CURRENCY,
+          metadata: {},
+        },
+        origin: 'webhook',
+      });
+
+      const [appointment] = await db
+        .select({ paymentStatus: schema.appointmentSchema.paymentStatus })
+        .from(schema.appointmentSchema)
+        .where(eq(schema.appointmentSchema.id, deposit.appointmentId));
+
+      expect(appointment?.paymentStatus).toBe('pending');
+    } finally {
+      await db
+        .delete(schema.appointmentPaymentSchema)
+        .where(eq(schema.appointmentPaymentSchema.id, 'pay_cross_tenant_after_refund'));
+      await client.exec(`
+        ALTER TABLE "appointment_payment"
+        ADD CONSTRAINT "appointment_payment_appointment_tenant_fk"
+        FOREIGN KEY ("salon_id", "appointment_id")
+        REFERENCES "appointment"("salon_id", "id")
+        ON DELETE CASCADE
+      `);
+    }
   });
 
   it('T9/T10 permits succeeded→pending→failed for the same object without rebinding', async () => {

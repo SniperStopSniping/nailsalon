@@ -8,6 +8,10 @@ import {
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
+import {
+  DepositForfeitureBlockedError,
+  forfeitAppointmentDepositInTx,
+} from '@/libs/deposits/depositForfeiture';
 import { enqueueGoogleCalendarDeleteInTx } from '@/libs/integrationOutbox';
 import {
   getAppointmentServiceNames,
@@ -78,6 +82,22 @@ function invalidStateResponse(status: string): Response {
       },
     } satisfies ErrorResponse,
     { status: 400 },
+  );
+}
+
+function depositForfeitureBlockedResponse(error: DepositForfeitureBlockedError): Response {
+  return Response.json(
+    {
+      error: {
+        code: error.code,
+        message: 'Deposit state must be reconciled before this appointment can be marked no-show.',
+        details: {
+          depositIds: error.depositIds,
+          reason: error.detail,
+        },
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
   );
 }
 
@@ -154,11 +174,41 @@ export async function PATCH(
     let transition: CancellationTransition;
     let operationalClientPhone = appointment.clientPhone;
     if (alreadyCancelled) {
-      transition = {
-        applied: false,
-        conflictStatus: null,
-        cancelledAt: appointment.updatedAt ?? now,
-      };
+      if (resolvedStatus === 'no_show') {
+        transition = await db.transaction(async (tx): Promise<CancellationTransition> => {
+          const [lockedAppointment] = await tx
+            .select()
+            .from(appointmentSchema)
+            .where(and(
+              eq(appointmentSchema.id, appointmentId),
+              eq(appointmentSchema.salonId, appointment.salonId),
+            ))
+            .for('update')
+            .limit(1);
+          if (!lockedAppointment) {
+            return { applied: false, conflictStatus: 'missing', cancelledAt: now };
+          }
+          await forfeitAppointmentDepositInTx({
+            tx,
+            salonId: appointment.salonId,
+            appointmentId,
+            invoiceCurrency: lockedAppointment.invoiceCurrency,
+            forfeitedAt: now,
+            appointmentLockHeld: true,
+          });
+          return {
+            applied: false,
+            conflictStatus: null,
+            cancelledAt: lockedAppointment.updatedAt,
+          };
+        });
+      } else {
+        transition = {
+          applied: false,
+          conflictStatus: null,
+          cancelledAt: appointment.updatedAt ?? now,
+        };
+      }
     } else {
       transition = await withClientLifecycleTransactionRetry(() =>
         db.transaction(async (tx): Promise<CancellationTransition> => {
@@ -209,6 +259,16 @@ export async function PATCH(
             resolvedStatus,
             validated.data.cancelReason,
           )) {
+            if (resolvedStatus === 'no_show') {
+              await forfeitAppointmentDepositInTx({
+                tx,
+                salonId: appointment.salonId,
+                appointmentId,
+                invoiceCurrency: lockedAppointment.invoiceCurrency,
+                forfeitedAt: now,
+                appointmentLockHeld: true,
+              });
+            }
             return {
               applied: false,
               conflictStatus: null,
@@ -281,6 +341,17 @@ export async function PATCH(
               conflictStatus: currentAppointment?.status ?? 'missing',
               cancelledAt: now,
             };
+          }
+
+          if (resolvedStatus === 'no_show') {
+            await forfeitAppointmentDepositInTx({
+              tx,
+              salonId: appointment.salonId,
+              appointmentId,
+              invoiceCurrency: cancelledAppointment.invoiceCurrency,
+              forfeitedAt: now,
+              appointmentLockHeld: true,
+            });
           }
 
           // Return pending rewards to active inside the same transaction.
@@ -373,30 +444,30 @@ export async function PATCH(
           }),
           salon
             ? sendBookingNotificationsForAppointmentCancelled({
-              salon: {
-                id: salon.id,
-                name: salon.name,
-                ownerName: salon.ownerName,
-                ownerPhone: salon.ownerPhone,
-                ownerEmail: salon.ownerEmail,
-                features: (salon.features as SalonFeatures | null | undefined) ?? null,
-                settings: (salon.settings as SalonSettings | null | undefined) ?? null,
-              },
-              technician: technician
-                ? {
-                    id: technician.id,
-                    name: technician.name,
-                    phone: technician.phone,
-                    email: technician.email,
-                  }
-                : null,
-              appointmentId,
-              clientName: appointment.clientName || 'Guest',
-              clientPhone: appointment.clientPhone,
-              services: serviceNames,
-              startTime: appointment.startTime.toISOString(),
-              cancelReason: validated.data.cancelReason,
-            })
+                salon: {
+                  id: salon.id,
+                  name: salon.name,
+                  ownerName: salon.ownerName,
+                  ownerPhone: salon.ownerPhone,
+                  ownerEmail: salon.ownerEmail,
+                  features: (salon.features as SalonFeatures | null | undefined) ?? null,
+                  settings: (salon.settings as SalonSettings | null | undefined) ?? null,
+                },
+                technician: technician
+                  ? {
+                      id: technician.id,
+                      name: technician.name,
+                      phone: technician.phone,
+                      email: technician.email,
+                    }
+                  : null,
+                appointmentId,
+                clientName: appointment.clientName || 'Guest',
+                clientPhone: appointment.clientPhone,
+                services: serviceNames,
+                startTime: appointment.startTime.toISOString(),
+                cancelReason: validated.data.cancelReason,
+              })
             : Promise.resolve(),
           sendSalonNotificationEmail({
             salonId: appointment.salonId,
@@ -434,6 +505,9 @@ export async function PATCH(
 
     return Response.json(response);
   } catch (error) {
+    if (error instanceof DepositForfeitureBlockedError) {
+      return depositForfeitureBlockedResponse(error);
+    }
     console.error('Error cancelling appointment:', error);
     return Response.json(
       {

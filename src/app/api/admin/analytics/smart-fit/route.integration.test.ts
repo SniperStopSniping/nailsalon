@@ -100,6 +100,7 @@ async function seedAppointment(args: {
   serviceId?: string | null;
   serviceNameSnapshot?: string | null;
   clientName?: string;
+  invoiceCurrency?: string | null;
 }): Promise<string> {
   appointmentCounter += 1;
   const id = `appt_sfr_${appointmentCounter}`;
@@ -128,6 +129,7 @@ async function seedAppointment(args: {
     finalPriceCents: args.finalPriceCents ?? null,
     finalDiscountCents: args.finalDiscountCents ?? null,
     paymentStatus: args.paymentStatus ?? 'pending',
+    invoiceCurrency: args.invoiceCurrency === undefined ? 'CAD' : args.invoiceCurrency,
   });
 
   const serviceId = args.serviceId === undefined ? SVC_BIAB : args.serviceId;
@@ -433,7 +435,8 @@ describe('smart fit report — authorization and tenancy', () => {
     const data = await reportData(WEEK);
 
     expect(data.metrics.discountGivenCents).toBe(3100); // 999-cent foreign row absent
-    expect(JSON.stringify(data)).not.toContain('Foreign');
+    expect(JSON.stringify(data)).not.toContain('Foreign Service');
+    expect(JSON.stringify(data)).not.toContain('Foreign Tech');
   });
 
   it('returns 403 UPGRADE_REQUIRED when the salon lacks the analytics entitlement', async () => {
@@ -521,6 +524,46 @@ describe('smart fit report — attribution from persisted metadata only', () => 
     expect(data.metrics.bookedRevenueCents).toBe(22200);
     expect(data.metrics.completedCount).toBe(3);
     expect(data.metrics.upcomingCount).toBe(2);
+  });
+
+  it('excludes unknown and foreign currencies from CAD money while preserving appointment provenance', async () => {
+    await seedAppointment({
+      date: '2026-03-03',
+      time: '09:00',
+      discountType: 'smart_fit',
+      discountAmountCents: 100,
+      totalPrice: 1000,
+      invoiceCurrency: 'CAD',
+    });
+    await seedAppointment({
+      date: '2026-03-03',
+      time: '10:00',
+      discountType: 'smart_fit',
+      discountAmountCents: 200,
+      totalPrice: 2000,
+      invoiceCurrency: 'USD',
+    });
+    await seedAppointment({
+      date: '2026-03-03',
+      time: '11:00',
+      discountType: 'smart_fit',
+      discountAmountCents: 300,
+      totalPrice: 3000,
+      invoiceCurrency: null,
+    });
+
+    const data = await reportData({ period: 'daily', anchor: '2026-03-03' });
+
+    expect(data.metrics).toMatchObject({
+      appointments: 3,
+      resolvedFinancialCount: 1,
+      unknownCurrencyCount: 1,
+      excludedForeignCurrencyCount: 1,
+      invalidFinancialCount: 0,
+      discountGivenCents: 100,
+      bookedRevenueCents: 1000,
+    });
+    expect(data.recent.filter((row: any) => row.financialState === 'unavailable')).toHaveLength(2);
   });
 
   it('computes the average discount from the primary totals', async () => {
@@ -671,6 +714,10 @@ describe('smart fit report — historical results are settings-independent', () 
       upcomingCount: 0,
       cancelledCount: 0,
       noShowCount: 0,
+      resolvedFinancialCount: 0,
+      unknownCurrencyCount: 0,
+      excludedForeignCurrencyCount: 0,
+      invalidFinancialCount: 0,
     });
     expect(data.services).toEqual([]);
     expect(data.technicians).toEqual([]);

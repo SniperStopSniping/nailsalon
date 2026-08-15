@@ -12,6 +12,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { buildBookingTaxSnapshot, DISABLED_TAX_CONFIG } from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
 import { POST as voidPayment } from '../payments/[paymentId]/void/route';
@@ -151,6 +152,23 @@ async function loadAppointment(id: string) {
   return row!;
 }
 
+async function addPaidDeposit(
+  appointmentId: string,
+  overrides: Partial<typeof schema.appointmentDepositSchema.$inferInsert> = {},
+) {
+  await db.insert(schema.appointmentDepositSchema).values({
+    id: `dep_${appointmentId}`,
+    salonId: SALON_ID,
+    appointmentId,
+    amountCents: 2500,
+    currency: 'cad',
+    status: 'paid',
+    stripeAccountId: 'acct_checkout_test',
+    stripePaymentIntentId: `pi_${appointmentId}`,
+    ...overrides,
+  });
+}
+
 beforeAll(async () => {
   client = new PGlite();
   await client.waitReady;
@@ -204,6 +222,7 @@ beforeAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
+  await db.delete(schema.appointmentDepositSchema);
   await db.delete(schema.appointmentSchema);
   evaluateAndFlagIfNeeded.mockClear();
   holder.access = { actorRole: 'admin', salonId: SALON_ID };
@@ -215,6 +234,76 @@ afterAll(async () => {
 });
 
 describe('PATCH /complete — checkout integration', () => {
+  it('applies deposit plus tender exactly once with tip separately due', async () => {
+    const id = await seedAppointment({ invoiceCurrency: 'CAD' });
+    await addPaidDeposit(id);
+    await addAfterPhoto(id);
+
+    const response = await completePatch(patchRequest({
+      finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 10000 }],
+      tipCents: 1000,
+      payments: [{ amountCents: 8500, method: 'cash' }],
+    }), { params: { id } });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.totals).toMatchObject({
+      totalDueCents: 11000,
+      appointmentPaymentsCents: 8500,
+      depositCreditAppliedCents: 2500,
+      amountAlreadyPaidCents: 11000,
+      balanceCents: 0,
+    });
+    expect(body.data.depositCredit).toMatchObject({
+      state: 'resolved',
+      collectedCents: 2500,
+      refundedCents: 0,
+      forfeitedCents: 0,
+      eligibleCents: 2500,
+    });
+
+    const appointment = await loadAppointment(id);
+    const payments = await db.select().from(schema.appointmentPaymentSchema)
+      .where(eq(schema.appointmentPaymentSchema.appointmentId, id));
+
+    expect(appointment).toMatchObject({
+      invoiceCurrency: 'CAD',
+      amountPaidCents: 8500,
+      paymentStatus: 'paid',
+    });
+    expect(payments).toHaveLength(1);
+    expect(payments[0]!.amountCents).toBe(8500);
+    expect(evaluateAndFlagIfNeeded).not.toHaveBeenCalled();
+  });
+
+  it('preserves a non-null booked currency instead of overwriting it from mutable settings', async () => {
+    const id = await seedAppointment({ invoiceCurrency: 'USD' });
+    await addAfterPhoto(id);
+
+    const response = await completePatch(patchRequest({
+      finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 5000 }],
+      payments: [],
+    }), { params: { id } });
+
+    expect(response.status).toBe(200);
+    expect((await loadAppointment(id)).invoiceCurrency).toBe('USD');
+  });
+
+  it('fails closed instead of guessing currency for a historical deposit appointment', async () => {
+    const id = await seedAppointment({ invoiceCurrency: null });
+    await addPaidDeposit(id);
+    await addAfterPhoto(id);
+
+    const response = await completePatch(patchRequest({
+      finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 5000 }],
+      payments: [],
+    }), { params: { id } });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('DEPOSIT_CURRENCY_MISMATCH');
+    expect((await loadAppointment(id)).status).toBe('confirmed');
+  });
+
   it('legacy empty-ish body completes exactly as before this phase', async () => {
     const id = await seedAppointment();
     await addAfterPhoto(id);
@@ -232,7 +321,14 @@ describe('PATCH /complete — checkout integration', () => {
     expect(appointment.finalPriceCents).toBe(4500);
     expect(appointment.tipCents).toBe(0);
     expect(appointment.taxEnabledSnapshot).toBe(false);
-    expect(appointment.taxAmountCents).toBeNull();
+    expect(appointment.taxAmountCents).toBe(0);
+    expect(appointment.finalTaxSnapshot).toMatchObject({
+      kind: 'final_actual',
+      classification: 'actual',
+      taxApplied: false,
+      taxAmountCents: 0,
+      invoiceTotalCents: 4500,
+    });
     expect(appointment.amountPaidCents).toBeNull();
 
     const finalItems = await db.select().from(schema.appointmentFinalItemSchema)
@@ -242,6 +338,132 @@ describe('PATCH /complete — checkout integration', () => {
 
     expect(finalItems).toHaveLength(0);
     expect(payments).toHaveLength(0);
+  });
+
+  it.each(['waived', 'expired', 'canceled'] as const)(
+    'preserves legacy paid inference for clean %s deposit history without inventing deposit credit',
+    async (status) => {
+      const id = await seedAppointment({ invoiceCurrency: 'CAD' });
+      await addPaidDeposit(id, {
+        status,
+        stripePaymentIntentId: null,
+      });
+      await addAfterPhoto(id);
+
+      const response = await completePatch(patchRequest({}), { params: { id } });
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.data.appointment.paymentStatus).toBe('paid');
+      expect(body.data.depositCredit).toMatchObject({
+        state: 'resolved',
+        collectedCents: 0,
+        refundedCents: 0,
+        forfeitedCents: 0,
+        eligibleCents: 0,
+      });
+      expect(body.data.totals).toMatchObject({
+        totalDueCents: 4500,
+        appointmentPaymentsCents: 4500,
+        depositCreditAppliedCents: 0,
+        amountAlreadyPaidCents: 4500,
+        balanceCents: 0,
+      });
+
+      const stored = await loadAppointment(id);
+      const payments = await db.select().from(schema.appointmentPaymentSchema)
+        .where(eq(schema.appointmentPaymentSchema.appointmentId, id));
+
+      expect(stored).toMatchObject({
+        status: 'completed',
+        paymentStatus: 'paid',
+        amountPaidCents: null,
+      });
+      expect(payments).toHaveLength(0);
+
+      const replay = await completePatch(patchRequest({}), { params: { id } });
+      const replayBody = await replay.json();
+
+      expect(replay.status).toBe(200);
+      expect(replayBody.data.appointment.paymentStatus).toBe('paid');
+      expect(replayBody.data.totals).toMatchObject({
+        appointmentPaymentsCents: 4500,
+        depositCreditAppliedCents: 0,
+        amountAlreadyPaidCents: 4500,
+        balanceCents: 0,
+      });
+    },
+  );
+
+  it('does not let legacy completion imply that an unpaid post-deposit balance was collected', async () => {
+    const id = await seedAppointment({ invoiceCurrency: 'CAD' });
+    await addPaidDeposit(id);
+    await addAfterPhoto(id);
+
+    const response = await completePatch(patchRequest({}), { params: { id } });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.appointment.paymentStatus).toBe('partially_paid');
+    expect(body.data.totals).toMatchObject({
+      totalDueCents: 4500,
+      appointmentPaymentsCents: 0,
+      depositCreditAppliedCents: 2500,
+      amountAlreadyPaidCents: 2500,
+      balanceCents: 2000,
+    });
+
+    const stored = await loadAppointment(id);
+
+    expect(stored.paymentStatus).toBe('partially_paid');
+    expect(stored.amountPaidCents).toBe(0);
+
+    const replay = await completePatch(patchRequest({}), { params: { id } });
+    const replayBody = await replay.json();
+
+    expect(replay.status).toBe(200);
+    expect(replayBody.data.appointment.paymentStatus).toBe('partially_paid');
+    expect(replayBody.data.totals).toMatchObject({
+      appointmentPaymentsCents: 0,
+      depositCreditAppliedCents: 2500,
+      amountAlreadyPaidCents: 2500,
+      balanceCents: 2000,
+    });
+  });
+
+  it('blocks fresh completion and completion replay when a positive paid cache has no ledger rows', async () => {
+    const freshId = await seedAppointment({
+      invoiceCurrency: 'CAD',
+      amountPaidCents: 2500,
+    });
+    await addAfterPhoto(freshId);
+
+    const freshResponse = await completePatch(patchRequest({
+      finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 4500 }],
+      payments: [{ amountCents: 2000, method: 'cash' }],
+    }), { params: { id: freshId } });
+
+    expect(freshResponse.status).toBe(409);
+    await expect(freshResponse.json()).resolves.toMatchObject({
+      error: { code: 'PAYMENT_LEDGER_RECONCILIATION_REQUIRED' },
+    });
+    expect((await loadAppointment(freshId)).status).toBe('confirmed');
+
+    const replayId = await seedAppointment({
+      status: 'completed',
+      completedAt: new Date('2026-08-01T15:00:00Z'),
+      invoiceCurrency: 'CAD',
+      finalPriceCents: 4500,
+      taxAmountCents: 0,
+      amountPaidCents: 2500,
+      paymentStatus: 'partially_paid',
+    });
+    const replayResponse = await completePatch(patchRequest({}), { params: { id: replayId } });
+
+    expect(replayResponse.status).toBe(409);
+    await expect(replayResponse.json()).resolves.toMatchObject({
+      error: { code: 'PAYMENT_LEDGER_RECONCILIATION_REQUIRED' },
+    });
   });
 
   it('full checkout payload writes items, tax snapshot, payments, and times atomically — booked junctions untouched', async () => {
@@ -286,6 +508,14 @@ describe('PATCH /complete — checkout integration', () => {
     expect(appointment.taxRateBps).toBe(1300);
     expect(appointment.taxInclusive).toBe(false);
     expect(appointment.taxAmountCents).toBe(780);
+    expect(appointment.finalTaxSnapshot).toMatchObject({
+      kind: 'final_actual',
+      classification: 'actual',
+      currency: 'CAD',
+      taxableSubtotalCents: 6000,
+      taxAmountCents: 780,
+      invoiceTotalCents: 6780,
+    });
     expect(appointment.amountPaidCents).toBe(3000);
     expect(appointment.actualStartAt?.toISOString()).toBe('2026-07-18T14:05:00.000Z');
     expect(appointment.actualEndAt?.toISOString()).toBe('2026-07-18T15:10:00.000Z');
@@ -335,12 +565,19 @@ describe('PATCH /complete — checkout integration', () => {
 
     expect(first.status).toBe(200);
 
+    const firstBody = await first.json();
+
     const replay = await completePatch(patchRequest({
       finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 5000 }],
       payments: [{ amountCents: 5000, method: 'cash' }],
     }), { params: { id } });
 
     expect(replay.status).toBe(200);
+
+    const replayBody = await replay.json();
+
+    expect(replayBody.data.totals).toEqual(firstBody.data.totals);
+    expect(replayBody.data.depositCredit).toEqual(firstBody.data.depositCredit);
 
     const payments = await db.select().from(schema.appointmentPaymentSchema)
       .where(eq(schema.appointmentPaymentSchema.appointmentId, id));
@@ -349,6 +586,96 @@ describe('PATCH /complete — checkout integration', () => {
 
     expect(payments).toHaveLength(1);
     expect(finalItems).toHaveLength(1);
+  });
+
+  it('blocks completed replay when D6.1 booking evidence survives final-snapshot deletion', async () => {
+    const bookingTaxSnapshot = buildBookingTaxSnapshot({
+      taxConfig: DISABLED_TAX_CONFIG,
+      totals: {
+        taxApplied: false,
+        taxableSubtotalCents: 0,
+        taxAmountCents: 0,
+        finalPriceCents: 4500,
+      },
+      capturedAt: new Date('2026-07-01T12:00:00.000Z'),
+      currency: 'CAD',
+    });
+    const id = await seedAppointment({
+      status: 'completed',
+      completedAt: new Date('2026-07-01T15:00:00.000Z'),
+      paymentStatus: 'paid',
+      invoiceCurrency: 'CAD',
+      bookingTaxSnapshot,
+      finalTaxSnapshot: null,
+      finalPriceCents: 4500,
+      taxableSubtotalCents: 0,
+      taxAmountCents: 0,
+    });
+
+    const response = await completePatch(patchRequest({}), { params: { id } });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: 'TAX_SNAPSHOT_INVALID',
+        details: { reason: 'TAX_SNAPSHOT_INVALID_SHAPE' },
+      },
+    });
+  });
+
+  it('blocks completed replay while a deposit refund is unresolved', async () => {
+    const id = await seedAppointment({
+      status: 'completed',
+      completedAt: new Date('2026-07-01T15:00:00.000Z'),
+      paymentStatus: 'partially_paid',
+      invoiceCurrency: 'CAD',
+      finalPriceCents: 4500,
+      taxableSubtotalCents: 0,
+      taxAmountCents: 0,
+      amountPaidCents: 0,
+    });
+    await addPaidDeposit(id, {
+      refundStatus: 'pending',
+      refundStatusChangedAt: new Date('2026-07-01T16:00:00.000Z'),
+    });
+
+    const response = await completePatch(patchRequest({}), { params: { id } });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'DEPOSIT_REFUND_IN_FLIGHT' },
+    });
+  });
+
+  it('blocks completed replay when a late deposit creates tender excess', async () => {
+    const id = await seedAppointment({
+      status: 'completed',
+      completedAt: new Date('2026-07-01T15:00:00.000Z'),
+      paymentStatus: 'pending',
+      invoiceCurrency: 'CAD',
+      finalPriceCents: 4500,
+      taxableSubtotalCents: 0,
+      taxAmountCents: 0,
+      amountPaidCents: 4500,
+    });
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: `pay_${id}_full`,
+      appointmentId: id,
+      salonId: SALON_ID,
+      amountCents: 4500,
+      recordedByType: 'staff',
+      recordedById: TECH_ID,
+    });
+    await addPaidDeposit(id);
+
+    const response = await completePatch(patchRequest({}), { params: { id } });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: 'APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED',
+      },
+    });
   });
 
   it('fully-paid checkout completion triggers fraud/points exactly once', async () => {
@@ -443,6 +770,44 @@ describe('PATCH /complete — checkout integration', () => {
     expect(body.error.details.totals.totalDueCents).toBe(5000);
   });
 
+  it('recomputes expected totals from the salon configuration locked at invoice issue', async () => {
+    const id = await seedAppointment({ salonId: TAX_SALON_ID, totalPrice: 10000 });
+
+    const response = await completePatch(patchRequest({
+      skipPhotoValidation: true,
+      expectedTotalDueCents: 10000,
+    }), { params: { id } });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: 'TOTALS_MISMATCH',
+        details: { totals: { totalDueCents: 11300, taxAmountCents: 1300 } },
+      },
+    });
+    expect((await loadAppointment(id)).status).toBe('confirmed');
+  });
+
+  it('rejects checkout arithmetic outside the supported minor-unit range', async () => {
+    const id = await seedAppointment();
+    await addAfterPhoto(id);
+
+    const response = await completePatch(patchRequest({
+      finalItems: [{
+        kind: 'custom',
+        name: 'Out-of-range set',
+        quantity: 99,
+        unitPriceCents: 1_000_000,
+      }],
+    }), { params: { id } });
+
+    expect(response.status).toBe(422);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'CHECKOUT_MONEY_OUT_OF_RANGE' },
+    });
+    expect((await loadAppointment(id)).status).toBe('confirmed');
+  });
+
   it('admin comp completion counts zero balance and skips fraud', async () => {
     const id = await seedAppointment();
     await addAfterPhoto(id);
@@ -479,10 +844,13 @@ describe('POST /payments + void + reopen — integration', () => {
   }
 
   function paymentRequest(body: unknown) {
+    const payload = body && typeof body === 'object' && !Array.isArray(body)
+      ? { idempotencyKey: `test-payment-${crypto.randomUUID()}`, ...body }
+      : body;
     return new Request('http://localhost/api/appointments/x/payments', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+      body: JSON.stringify(payload),
     });
   }
 
@@ -507,6 +875,331 @@ describe('POST /payments + void + reopen — integration', () => {
     expect(evaluateAndFlagIfNeeded).toHaveBeenCalledTimes(1);
 
     expect((await loadAppointment(id)).amountPaidCents).toBe(11000);
+  });
+
+  it('does not attribute a deposit-funded paid transition to fraud', async () => {
+    const id = await seedAppointment({ invoiceCurrency: 'CAD' });
+
+    await addPaidDeposit(id);
+    await addAfterPhoto(id);
+
+    const completed = await completePatch(patchRequest({
+      finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 10000 }],
+    }), { params: { id } });
+
+    expect(completed.status).toBe(200);
+    expect((await completed.json()).data.appointment.paymentStatus).toBe('partially_paid');
+    expect(evaluateAndFlagIfNeeded).not.toHaveBeenCalled();
+
+    const settled = await recordPayment(paymentRequest({
+      amountCents: 7500,
+      method: 'cash',
+    }), { params: { id } });
+
+    expect(settled.status).toBe(200);
+    expect((await settled.json()).data.paymentStatus).toBe('paid');
+    expect(evaluateAndFlagIfNeeded).not.toHaveBeenCalled();
+  });
+
+  it('deduplicates a keyed payment retry and rejects key reuse with different money', async () => {
+    const id = await completeWithBalance();
+    const request = {
+      amountCents: 3000,
+      method: 'cash',
+      idempotencyKey: 'checkout-retry-key-1',
+    } as const;
+
+    const first = await recordPayment(paymentRequest(request), { params: { id } });
+    const replay = await recordPayment(paymentRequest(request), { params: { id } });
+    const conflict = await recordPayment(paymentRequest({
+      ...request,
+      amountCents: 3001,
+    }), { params: { id } });
+
+    expect(first.status).toBe(200);
+    expect(replay.status).toBe(200);
+    expect((await replay.json()).data.idempotentReplay).toBe(true);
+    expect(conflict.status).toBe(409);
+    expect((await conflict.json()).error.code).toBe('IDEMPOTENCY_KEY_REUSED');
+
+    const payments = await db.select().from(schema.appointmentPaymentSchema)
+      .where(and(
+        eq(schema.appointmentPaymentSchema.appointmentId, id),
+        isNull(schema.appointmentPaymentSchema.voidedAt),
+      ));
+
+    expect(payments).toHaveLength(2);
+    expect(payments.reduce((sum, payment) => sum + payment.amountCents, 0)).toBe(7000);
+    expect((await loadAppointment(id)).amountPaidCents).toBe(7000);
+  });
+
+  it('replays the original keyed response before mutable refund-state validation', async () => {
+    const id = await seedAppointment({ invoiceCurrency: 'CAD' });
+    await addPaidDeposit(id);
+    await addAfterPhoto(id);
+    const completed = await completePatch(patchRequest({
+      finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 10000 }],
+      payments: [{ amountCents: 4000, method: 'cash' }],
+    }), { params: { id } });
+
+    expect(completed.status).toBe(200);
+
+    const request = {
+      amountCents: 1000,
+      method: 'cash',
+      idempotencyKey: 'refund-drift-retry-key',
+    } as const;
+    const first = await recordPayment(paymentRequest(request), { params: { id } });
+    const firstBody = await first.json();
+
+    expect(first.status).toBe(200);
+
+    await db.update(schema.appointmentDepositSchema).set({
+      refundStatus: 'pending',
+      refundStatusChangedAt: new Date('2026-08-15T12:00:00.000Z'),
+    }).where(eq(schema.appointmentDepositSchema.appointmentId, id));
+    const completedAppointment = await loadAppointment(id);
+    const bookingTaxSnapshot = buildBookingTaxSnapshot({
+      taxConfig: DISABLED_TAX_CONFIG,
+      totals: {
+        taxApplied: false,
+        taxableSubtotalCents: 0,
+        taxAmountCents: 0,
+        finalPriceCents: completedAppointment.totalPrice,
+      },
+      capturedAt: new Date('2026-07-01T12:00:00.000Z'),
+      currency: 'CAD',
+    });
+    await db.update(schema.appointmentSchema).set({
+      // The durable retry must also precede current snapshot validation. This
+      // simulates scalar drift plus deletion of required final evidence after
+      // the original payment commit.
+      bookingTaxSnapshot,
+      finalTaxSnapshot: null,
+      taxableSubtotalCents: (completedAppointment.taxableSubtotalCents ?? 0) + 1,
+    }).where(eq(schema.appointmentSchema.id, id));
+
+    const replay = await recordPayment(paymentRequest(request), { params: { id } });
+    const replayBody = await replay.json();
+
+    expect(replay.status).toBe(200);
+    expect(replayBody.data).toEqual({
+      ...firstBody.data,
+      idempotentReplay: true,
+    });
+
+    const keyedRows = (await db.select().from(schema.appointmentPaymentSchema)
+      .where(eq(schema.appointmentPaymentSchema.appointmentId, id)))
+      .filter(row => row.idempotencyKey === request.idempotencyKey);
+
+    expect(keyedRows).toHaveLength(1);
+  });
+
+  it('blocks new payment and void mutations when final snapshot scalars drift', async () => {
+    const id = await completeWithBalance();
+    const before = await loadAppointment(id);
+
+    expect(before.finalTaxSnapshot).not.toBeNull();
+
+    const [existingPayment] = await db.select().from(schema.appointmentPaymentSchema)
+      .where(and(
+        eq(schema.appointmentPaymentSchema.appointmentId, id),
+        isNull(schema.appointmentPaymentSchema.voidedAt),
+      ));
+
+    expect(existingPayment).toBeDefined();
+
+    await db.update(schema.appointmentSchema).set({
+      taxableSubtotalCents: (before.taxableSubtotalCents ?? 0) + 1,
+    }).where(eq(schema.appointmentSchema.id, id));
+
+    const paymentResponse = await recordPayment(
+      paymentRequest({ amountCents: 1000, method: 'cash' }),
+      { params: { id } },
+    );
+
+    expect(paymentResponse.status).toBe(409);
+    await expect(paymentResponse.json()).resolves.toMatchObject({
+      error: {
+        code: 'TAX_SNAPSHOT_INVALID',
+        details: { reason: 'TAX_SNAPSHOT_ARITHMETIC_MISMATCH' },
+      },
+    });
+
+    const voidResponse = await voidPayment(
+      new Request('http://localhost/void', { method: 'POST' }),
+      { params: { id, paymentId: existingPayment!.id } },
+    );
+
+    expect(voidResponse.status).toBe(409);
+    await expect(voidResponse.json()).resolves.toMatchObject({
+      error: {
+        code: 'TAX_SNAPSHOT_INVALID',
+        details: { reason: 'TAX_SNAPSHOT_ARITHMETIC_MISMATCH' },
+      },
+    });
+
+    const [unchangedPayment] = await db.select().from(schema.appointmentPaymentSchema)
+      .where(eq(schema.appointmentPaymentSchema.id, existingPayment!.id));
+    const allPayments = await db.select().from(schema.appointmentPaymentSchema)
+      .where(eq(schema.appointmentPaymentSchema.appointmentId, id));
+
+    expect(unchangedPayment!.voidedAt).toBeNull();
+    expect(allPayments).toHaveLength(1);
+    expect((await loadAppointment(id)).amountPaidCents).toBe(before.amountPaidCents);
+  });
+
+  it('blocks payment and void when booking evidence survives final-snapshot deletion', async () => {
+    const bookingTaxSnapshot = buildBookingTaxSnapshot({
+      taxConfig: DISABLED_TAX_CONFIG,
+      totals: {
+        taxApplied: false,
+        taxableSubtotalCents: 0,
+        taxAmountCents: 0,
+        finalPriceCents: 4500,
+      },
+      capturedAt: new Date('2026-07-01T12:00:00.000Z'),
+      currency: 'CAD',
+    });
+    const id = await seedAppointment({
+      status: 'completed',
+      completedAt: new Date('2026-07-01T15:00:00.000Z'),
+      invoiceCurrency: 'CAD',
+      bookingTaxSnapshot,
+      finalTaxSnapshot: null,
+      finalPriceCents: 10000,
+      taxableSubtotalCents: 0,
+      taxAmountCents: 0,
+      taxExempt: false,
+      taxExemptReason: null,
+      tipCents: 1000,
+      amountPaidCents: 4000,
+      paymentStatus: 'partially_paid',
+    });
+    const paymentId = `pay_${id}`;
+    const replayKey = 'deleted-final-snapshot-replay-key';
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: paymentId,
+      appointmentId: id,
+      salonId: SALON_ID,
+      amountCents: 4000,
+      method: 'cash',
+      idempotencyKey: replayKey,
+      recordedByType: 'admin',
+      recordedById: 'admin_checkout',
+      recordedAt: new Date('2026-07-01T15:00:00.000Z'),
+    });
+    await db.insert(schema.appointmentAuditLogSchema).values({
+      id: `audit_${id}`,
+      appointmentId: id,
+      salonId: SALON_ID,
+      action: 'payment_recorded',
+      performedBy: 'admin_checkout',
+      performedByRole: 'admin',
+      newValue: {
+        paymentId,
+        idempotencyKey: replayKey,
+        paymentStatus: 'partially_paid',
+        amountPaidCents: 4000,
+        depositCreditAppliedCents: 0,
+        amountAlreadyPaidCents: 4000,
+        totalDueCents: 11000,
+        balanceCents: 7000,
+      },
+    });
+
+    const replayResponse = await recordPayment(
+      paymentRequest({ amountCents: 4000, method: 'cash', idempotencyKey: replayKey }),
+      { params: { id } },
+    );
+
+    expect(replayResponse.status).toBe(200);
+    await expect(replayResponse.json()).resolves.toMatchObject({
+      data: {
+        idempotentReplay: true,
+        amountPaidCents: 4000,
+        balanceCents: 7000,
+      },
+    });
+
+    const paymentResponse = await recordPayment(
+      paymentRequest({ amountCents: 1000, method: 'cash' }),
+      { params: { id } },
+    );
+
+    expect(paymentResponse.status).toBe(409);
+    await expect(paymentResponse.json()).resolves.toMatchObject({
+      error: {
+        code: 'TAX_SNAPSHOT_INVALID',
+        details: { reason: 'TAX_SNAPSHOT_INVALID_SHAPE' },
+      },
+    });
+
+    const voidResponse = await voidPayment(
+      new Request('http://localhost/void', { method: 'POST' }),
+      { params: { id, paymentId } },
+    );
+
+    expect(voidResponse.status).toBe(409);
+    await expect(voidResponse.json()).resolves.toMatchObject({
+      error: {
+        code: 'TAX_SNAPSHOT_INVALID',
+        details: { reason: 'TAX_SNAPSHOT_INVALID_SHAPE' },
+      },
+    });
+
+    const payments = await db.select().from(schema.appointmentPaymentSchema)
+      .where(eq(schema.appointmentPaymentSchema.appointmentId, id));
+
+    expect(payments).toHaveLength(1);
+    expect(payments[0]!.voidedAt).toBeNull();
+    expect((await loadAppointment(id)).amountPaidCents).toBe(4000);
+  });
+
+  it('requires a durable payment retry identity', async () => {
+    const id = await completeWithBalance();
+    const response = await recordPayment(new Request(
+      'http://localhost/api/appointments/x/payments',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amountCents: 1000, method: 'cash' }),
+      },
+    ), { params: { id } });
+
+    expect(response.status).toBe(400);
+    expect((await response.json()).error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('does not void tender while the credited deposit refund is unresolved', async () => {
+    const id = await seedAppointment({ invoiceCurrency: 'CAD' });
+    await addPaidDeposit(id);
+    await addAfterPhoto(id);
+    const completed = await completePatch(patchRequest({
+      finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 10000 }],
+      payments: [{ amountCents: 4000, method: 'cash' }],
+    }), { params: { id } });
+
+    expect(completed.status).toBe(200);
+
+    await db.update(schema.appointmentDepositSchema).set({
+      refundStatus: 'pending',
+      refundStatusChangedAt: new Date('2026-08-15T12:00:00.000Z'),
+    }).where(eq(schema.appointmentDepositSchema.appointmentId, id));
+    const [payment] = await db.select().from(schema.appointmentPaymentSchema)
+      .where(eq(schema.appointmentPaymentSchema.appointmentId, id));
+
+    const response = await voidPayment(
+      new Request('http://localhost/void', { method: 'POST' }),
+      { params: { id, paymentId: payment!.id } },
+    );
+    const [unchanged] = await db.select().from(schema.appointmentPaymentSchema)
+      .where(eq(schema.appointmentPaymentSchema.id, payment!.id));
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('DEPOSIT_REFUND_IN_FLIGHT');
+    expect(unchanged!.voidedAt).toBeNull();
+    expect((await loadAppointment(id)).amountPaidCents).toBe(4000);
   });
 
   it('rejects a payment exceeding the remaining balance', async () => {
@@ -555,7 +1248,7 @@ describe('POST /payments + void + reopen — integration', () => {
     expect((await loadAppointment(id)).amountPaidCents).toBe(0);
   });
 
-  it('reopen is admin-only, reverts to in_progress, keeps payments; re-completion replaces final items', async () => {
+  it('keeps finalized D6.1 invoice evidence immutable when an admin requests reopen', async () => {
     const id = await completeWithBalance();
 
     holder.access = { actorRole: 'staff', salonId: SALON_ID, technicianId: TECH_ID };
@@ -567,54 +1260,24 @@ describe('POST /payments + void + reopen — integration', () => {
     expect(staffAttempt.status).toBe(403);
 
     holder.access = { actorRole: 'admin', salonId: SALON_ID };
-    const reopened = await reopenAppointment(
+    const reopenAttempt = await reopenAppointment(
       new Request('http://localhost/reopen', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'Wrong price' }) }),
       { params: { id } },
     );
+    const reopenBody = await reopenAttempt.json();
 
-    expect(reopened.status).toBe(200);
+    expect(reopenAttempt.status).toBe(409);
+    expect(reopenBody.error.code).toBe('INVOICE_REVISION_UNSUPPORTED');
 
-    const midway = await loadAppointment(id);
+    const unchanged = await loadAppointment(id);
 
-    expect(midway.status).toBe('in_progress');
-    expect(midway.completedAt).toBeNull();
+    expect(unchanged.status).toBe('completed');
+    expect(unchanged.completedAt).not.toBeNull();
+    expect(unchanged.finalTaxSnapshot).not.toBeNull();
 
-    // Payments survive the reopen.
-    const paymentsAfterReopen = await db.select().from(schema.appointmentPaymentSchema)
+    const paymentsAfterAttempt = await db.select().from(schema.appointmentPaymentSchema)
       .where(eq(schema.appointmentPaymentSchema.appointmentId, id));
 
-    expect(paymentsAfterReopen).toHaveLength(1);
-
-    // Double reopen is a clean 409.
-    const again = await reopenAppointment(
-      new Request('http://localhost/reopen', { method: 'POST' }),
-      { params: { id } },
-    );
-
-    expect(again.status).toBe(409);
-
-    // Re-complete with different items: final items replaced wholesale, and
-    // the surviving payment counts against the new totals.
-    const recompleted = await completePatch(patchRequest({
-      skipPhotoValidation: true,
-      finalItems: [{ kind: 'custom', name: 'Corrected set', quantity: 1, unitPriceCents: 4000 }],
-      payments: [],
-    }), { params: { id } });
-
-    expect(recompleted.status).toBe(200);
-
-    const finalItems = await db.select().from(schema.appointmentFinalItemSchema)
-      .where(eq(schema.appointmentFinalItemSchema.appointmentId, id));
-
-    expect(finalItems).toHaveLength(1);
-    expect(finalItems[0]!.name).toBe('Corrected set');
-
-    // Recorded payment (4000) covers the new 4000 due → a fresh payment
-    // recording of the outstanding 0 is unnecessary; balance derives to 0.
-    const after = await loadAppointment(id);
-
-    // The re-completion sent payments: [] so amountPaid resets to the derived
-    // sum of checkout-recorded rows (0 new), while historical rows remain.
-    expect(after.status).toBe('completed');
+    expect(paymentsAfterAttempt).toHaveLength(1);
   });
 });

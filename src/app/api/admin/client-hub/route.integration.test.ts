@@ -2,7 +2,7 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
-import { sql } from 'drizzle-orm';
+import { inArray, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
@@ -85,6 +85,7 @@ const legacyClientHubContract = z.object({
       topServices: z.array(legacyTopServiceSchema),
       serviceRevenueCents: z.number(),
       outstandingCents: z.number(),
+      unresolvedFinancialAppointmentCount: z.number(),
     }),
     segments: z.array(z.object({
       id: z.string(),
@@ -105,6 +106,9 @@ const legacyClientHubContract = z.object({
       tipsCents: z.number(),
       amountPaidCents: z.number(),
       outstandingCents: z.number(),
+      depositCreditAppliedCents: z.number(),
+      unresolvedFinancialAppointmentCount: z.number(),
+      settledByLegacyPaymentStatusCount: z.number(),
       promotionsMinted: z.number(),
       promotionsRedeemed: z.number(),
       topServices: z.array(legacyTopServiceSchema),
@@ -140,6 +144,7 @@ const clientInsightsContract = z.object({
         lastVisitAt: z.string().nullable(),
         expectedReturnAt: z.string().nullable(),
         completedOutstandingCents: z.number(),
+        financialState: z.enum(['resolved', 'under_review']),
         outreachStage: z.string().nullable(),
       })),
     }),
@@ -188,6 +193,7 @@ function completed(
     totalPrice: 8000,
     totalDurationMinutes: 60,
     paymentStatus: 'paid',
+    invoiceCurrency: 'CAD',
     ...overrides,
   };
 }
@@ -363,7 +369,9 @@ describe('GET /api/admin/client-insights', () => {
       cancelled: 1,
       noShows: 0,
       serviceRevenueCents: 66000,
-      taxCollectedCents: 1300,
+      // A legacy scalar without immutable tax identity is never reported as
+      // actual tax collected.
+      taxCollectedCents: 0,
       tipsCents: 500,
       amountPaidCents: 4000,
       outstandingCents: 7800,
@@ -395,6 +403,120 @@ describe('GET /api/admin/client-insights', () => {
     expect(JSON.stringify(denied.body)).not.toContain('client_');
   });
 
+  it('uses payment rows and canonical net deposit credit for legacy paid and outstanding totals', async () => {
+    const appointmentIds = ['hub_deposit_paid', 'hub_deposit_refunded'];
+    const before = legacyClientHubContract.parse((await legacyHub()).body);
+
+    try {
+      await db.insert(schema.appointmentSchema).values([
+        completed(
+          appointmentIds[0]!,
+          'client_a',
+          '2026-07-12T16:00:00.000Z',
+          {
+            finalPriceCents: 10000,
+            totalPrice: 10000,
+            amountPaidCents: 1000,
+            paymentStatus: 'partially_paid',
+            invoiceCurrency: 'CAD',
+          },
+        ),
+        completed(
+          appointmentIds[1]!,
+          'client_b',
+          '2026-07-13T16:00:00.000Z',
+          {
+            finalPriceCents: 5000,
+            totalPrice: 5000,
+            amountPaidCents: 1,
+            paymentStatus: 'partially_paid',
+            invoiceCurrency: 'CAD',
+          },
+        ),
+      ]);
+      await db.insert(schema.appointmentPaymentSchema).values([
+        {
+          id: 'hub_payment_deposit_paid',
+          appointmentId: appointmentIds[0]!,
+          salonId: SALON_ID,
+          amountCents: 1000,
+          method: 'cash',
+          recordedByType: 'admin',
+          recordedAt: new Date('2026-07-12T17:00:00.000Z'),
+        },
+        {
+          id: 'hub_payment_deposit_refunded',
+          appointmentId: appointmentIds[1]!,
+          salonId: SALON_ID,
+          amountCents: 1,
+          method: 'cash',
+          recordedByType: 'admin',
+          recordedAt: new Date('2026-07-13T17:00:00.000Z'),
+        },
+      ]);
+      await db.insert(schema.appointmentDepositSchema).values([
+        {
+          id: 'hub_deposit_credit',
+          salonId: SALON_ID,
+          appointmentId: appointmentIds[0]!,
+          amountCents: 2500,
+          currency: 'cad',
+          status: 'paid',
+          stripeAccountId: 'acct_hub',
+          stripePaymentIntentId: 'pi_hub_credit',
+          collectedAt: new Date('2026-07-12T15:00:00.000Z'),
+        },
+        {
+          id: 'hub_deposit_refunded',
+          salonId: SALON_ID,
+          appointmentId: appointmentIds[1]!,
+          amountCents: 1000,
+          currency: 'cad',
+          status: 'refunded',
+          stripeAccountId: 'acct_hub',
+          stripePaymentIntentId: 'pi_hub_refunded',
+          collectedAt: new Date('2026-07-11T15:00:00.000Z'),
+          stripeRefundId: 're_hub_refunded',
+          refundStatus: 'succeeded',
+          refundAmountCents: 1000,
+          refundedAt: new Date('2026-07-13T18:00:00.000Z'),
+          refundStatusChangedAt: new Date('2026-07-13T18:00:00.000Z'),
+        },
+      ]);
+
+      const after = legacyClientHubContract.parse((await legacyHub()).body);
+
+      expect(after.data.reports.amountPaidCents).toBe(
+        before.data.reports.amountPaidCents + 3501,
+      );
+      expect(after.data.reports.outstandingCents).toBe(
+        before.data.reports.outstandingCents + 11499,
+      );
+      expect(after.data.reports.depositCreditAppliedCents).toBe(
+        before.data.reports.depositCreditAppliedCents + 2500,
+      );
+      expect(after.data.reports.unresolvedFinancialAppointmentCount).toBe(
+        before.data.reports.unresolvedFinancialAppointmentCount,
+      );
+      expect(after.data.overview.outstandingCents).toBe(
+        after.data.reports.outstandingCents,
+      );
+    } finally {
+      await db.delete(schema.appointmentDepositSchema).where(inArray(
+        schema.appointmentDepositSchema.appointmentId,
+        appointmentIds,
+      ));
+      await db.delete(schema.appointmentPaymentSchema).where(inArray(
+        schema.appointmentPaymentSchema.appointmentId,
+        appointmentIds,
+      ));
+      await db.delete(schema.appointmentSchema).where(inArray(
+        schema.appointmentSchema.id,
+        appointmentIds,
+      ));
+    }
+  });
+
   it('uses the same definition for counts and paginated directory results', async () => {
     const { body } = await insights();
     const overdueCount = body.data.kpis.overdue;
@@ -410,6 +532,48 @@ describe('GET /api/admin/client-insights', () => {
     expect(list.data.filter.segment).toBe('overdue');
     expect(list.data.clients).toHaveLength(1);
     expect(['client_d', 'client_i']).toContain(list.data.clients[0].id);
+  });
+
+  it('marks client spend and attention under review when a completion cannot reconcile', async () => {
+    await db.insert(schema.appointmentSchema).values(completed(
+      'appt_client_a_corrupt_financials',
+      'client_a',
+      '2026-07-03T16:00:00.000Z',
+      {
+        clientPhone: '4165550201',
+        finalPriceCents: 5000,
+        amountPaidCents: 0,
+        paymentStatus: 'partially_paid',
+        finalTaxSnapshot: {} as AppointmentSeed['finalTaxSnapshot'],
+      },
+    ));
+
+    try {
+      const listResponse = await GET_CLIENTS(new Request(
+        'http://localhost/api/admin/clients?salonSlug=insights-salon&search=Active%20New',
+      ));
+      const list = await listResponse.json();
+      const { body } = await insights();
+      const attention = body.data.attention.items.find(
+        (item: { clientId: string }) => item.clientId === 'client_a',
+      );
+
+      expect(listResponse.status).toBe(200);
+      expect(list.data.clients[0]).toMatchObject({
+        id: 'client_a',
+        spendState: 'under_review',
+      });
+      expect(attention).toMatchObject({
+        clientId: 'client_a',
+        primaryReason: 'completed_outstanding',
+        completedOutstandingCents: 0,
+        financialState: 'under_review',
+      });
+    } finally {
+      await db.delete(schema.appointmentSchema).where(
+        sql`${schema.appointmentSchema.id} = 'appt_client_a_corrupt_financials'`,
+      );
+    }
   });
 
   it('composes search with a server-side segment and validates segment IDs', async () => {

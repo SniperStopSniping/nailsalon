@@ -11,6 +11,7 @@ import {
   type ResolvedTaxConfig,
 } from '@/libs/checkoutTotals';
 import { formatMoney } from '@/libs/formatMoney';
+import type { BookingTaxSnapshot, FinalTaxSnapshot } from '@/libs/taxConfig';
 import { themeVars } from '@/theme';
 
 // =============================================================================
@@ -31,6 +32,31 @@ type CheckoutItem = {
   unitPriceCents: number;
   durationMinutes: number | null;
   taxable: boolean;
+};
+
+type DepositCreditSummary = {
+  state: 'resolved' | 'blocked';
+  blockedCode: string | null;
+  blockedDetail?: string | null;
+  collectedCents: number;
+  refundedCents: number;
+  eligibleCents: number;
+};
+
+type CheckoutBalance = {
+  /** Gross service invoice before tip. Added by D6.1. */
+  serviceInvoiceTotalCents?: number;
+  totalDueCents: number;
+  /** Non-voided appointment_payment rows only. */
+  appointmentPaymentsCents?: number;
+  depositCreditAppliedCents?: number;
+  amountAlreadyPaidCents?: number;
+  balanceCents: number;
+  excessDepositCents?: number;
+  tenderExcessCents?: number;
+  legacyPaidAssumed?: boolean;
+  /** Pre-D6.1 compatibility: this meant appointment payments only. */
+  amountPaidCents?: number;
 };
 
 type CheckoutContext = {
@@ -62,6 +88,9 @@ type CheckoutContext = {
     taxAmountCents: number | null;
     taxExempt: boolean | null;
     taxExemptReason: string | null;
+    bookingTaxSnapshot: BookingTaxSnapshot | null;
+    rescheduleTaxSnapshot?: BookingTaxSnapshot | null;
+    finalTaxSnapshot: FinalTaxSnapshot | null;
   };
   bookedItems: Array<Omit<CheckoutItem, 'key' | 'taxable'>>;
   finalItems: Array<Omit<CheckoutItem, 'key'> & { id: string }>;
@@ -70,7 +99,7 @@ type CheckoutContext = {
     addOns: Array<{ id: string; name: string; priceCents: number; durationMinutes: number }>;
   };
   taxConfig: ResolvedTaxConfig;
-  currency: string;
+  currency: string | null;
   timeZone: string;
   photoPolicy: { requireAfterPhotoToFinish: 'off' | 'optional' | 'required' };
   photos: Array<{ id: string; imageUrl: string; thumbnailUrl: string | null; photoType: string }>;
@@ -83,7 +112,9 @@ type CheckoutContext = {
     recordedByName: string | null;
     voidedAt: string | null;
   }>;
-  balance: { totalDueCents: number; amountPaidCents: number; balanceCents: number };
+  balance: CheckoutBalance;
+  /** Absent on an older server response means a resolved zero-credit deposit. */
+  depositCredit?: DepositCreditSummary;
   etransfer: {
     enabled: boolean;
     recipient: string | null;
@@ -114,6 +145,54 @@ type CheckoutSheetProps = {
   onRebook?: () => void;
   onViewClient?: () => void;
 };
+
+type DisplayTaxConfiguration = {
+  enabled: boolean;
+  label: string | null;
+  rateBps: number;
+  mode: 'included' | 'added';
+  effectiveFrom: string | null;
+};
+
+function describeTaxConfiguration(configuration: DisplayTaxConfiguration): string {
+  if (!configuration.enabled) {
+    return 'tax disabled';
+  }
+  const precision = configuration.rateBps % 100 === 0 ? 0 : 2;
+  const effective = configuration.effectiveFrom
+    ? `, effective ${configuration.effectiveFrom}`
+    : '';
+  return `${configuration.label ?? 'Tax'} ${(configuration.rateBps / 100).toFixed(precision)}% (${configuration.mode}${effective})`;
+}
+
+function taxConfigurationChanged(
+  booking: BookingTaxSnapshot | null | undefined,
+  finalConfiguration: DisplayTaxConfiguration | null,
+): { booking: string; final: string } | null {
+  if (!booking || !finalConfiguration) {
+    return null;
+  }
+  const bookingConfiguration: DisplayTaxConfiguration = {
+    enabled: booking.configuration.enabled,
+    label: booking.configuration.label,
+    rateBps: booking.configuration.rateBps,
+    mode: booking.configuration.mode,
+    effectiveFrom: booking.configuration.configurationEffectiveFrom,
+  };
+  if (
+    bookingConfiguration.enabled === finalConfiguration.enabled
+    && bookingConfiguration.label === finalConfiguration.label
+    && bookingConfiguration.rateBps === finalConfiguration.rateBps
+    && bookingConfiguration.mode === finalConfiguration.mode
+    && bookingConfiguration.effectiveFrom === finalConfiguration.effectiveFrom
+  ) {
+    return null;
+  }
+  return {
+    booking: describeTaxConfiguration(bookingConfiguration),
+    final: describeTaxConfiguration(finalConfiguration),
+  };
+}
 
 // Preset options of the discount-reason <select>. A seeded booking-discount
 // label (or a reopened custom reason) that isn't one of these is rendered as
@@ -146,6 +225,83 @@ function centsToInput(cents: number): string {
 function inputToCents(value: string): number {
   const parsed = Number.parseFloat(value.replace(/[^0-9.]/g, ''));
   return Number.isNaN(parsed) || parsed < 0 ? 0 : Math.round(parsed * 100);
+}
+
+function safeCents(value: number | null | undefined): number {
+  return Number.isSafeInteger(value) && (value ?? 0) > 0 ? value! : 0;
+}
+
+type CheckoutFinancialBreakdown = {
+  depositState: 'resolved' | 'blocked';
+  depositBlockedCode: string | null;
+  depositCollectedCents: number;
+  depositRefundedCents: number;
+  depositEligibleCents: number;
+  appointmentPaymentsCents: number;
+  depositCreditAppliedCents: number;
+  amountAlreadyPaidCents: number;
+  balanceCents: number;
+  excessDepositCents: number;
+  tenderExcessCents: number;
+};
+
+/**
+ * Reprices only the balance side of an editable checkout. Deposit credit remains
+ * a payment after tax (never a discount), while the live invoice total may move
+ * as items, tax, discount, or tip are edited.
+ */
+function financialBreakdownForTotal(
+  context: CheckoutContext,
+  totalDueCents: number,
+  serviceInvoiceTotalCents = context.balance.serviceInvoiceTotalCents ?? totalDueCents,
+): CheckoutFinancialBreakdown {
+  const total = safeCents(totalDueCents);
+  const serviceInvoiceTotal = safeCents(serviceInvoiceTotalCents);
+  const appointmentPaymentsCents = safeCents(
+    context.balance.appointmentPaymentsCents ?? context.balance.amountPaidCents,
+  );
+  const serverAppliedCents = safeCents(context.balance.depositCreditAppliedCents);
+  const depositCollectedCents = safeCents(
+    context.depositCredit?.collectedCents ?? serverAppliedCents,
+  );
+  const depositRefundedCents = safeCents(context.depositCredit?.refundedCents);
+  const depositEligibleCents = safeCents(
+    context.depositCredit?.eligibleCents ?? serverAppliedCents,
+  );
+  const depositCreditAppliedCents = Math.min(
+    depositEligibleCents,
+    serviceInvoiceTotal,
+  );
+  const amountAlreadyPaidCents = appointmentPaymentsCents + depositCreditAppliedCents;
+
+  return {
+    depositState: context.depositCredit?.state ?? 'resolved',
+    depositBlockedCode: context.depositCredit?.blockedCode ?? null,
+    depositCollectedCents,
+    depositRefundedCents,
+    depositEligibleCents,
+    appointmentPaymentsCents,
+    depositCreditAppliedCents,
+    amountAlreadyPaidCents,
+    balanceCents: Math.max(0, total - amountAlreadyPaidCents),
+    // The server excess belongs to the persisted invoice. Once the checkout
+    // draft is repriced, carrying that old value forward can strand a valid
+    // deposit even after performed work raises the service invoice. The
+    // completion route revalidates this live result under lock.
+    excessDepositCents: Math.max(
+      0,
+      depositEligibleCents - depositCreditAppliedCents,
+    ),
+    tenderExcessCents: Math.max(0, amountAlreadyPaidCents - total),
+  };
+}
+
+function blockedDepositCopy(code: string | null): string {
+  if (!code) {
+    return 'Deposit credit needs review before this appointment can be completed.';
+  }
+  const detail = code.replaceAll('_', ' ').toLowerCase();
+  return `Deposit credit needs review (${detail}) before this appointment can be completed.`;
 }
 
 type CheckoutDraftFields = {
@@ -251,6 +407,10 @@ export function CheckoutSheet({
   const [recordingPayment, setRecordingPayment] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const postPaymentIdempotencyRef = useRef<{
+    signature: string;
+    key: string;
+  } | null>(null);
 
   const apiPath = useCallback((path: string) => (
     salonSlug ? `${path}?salonSlug=${encodeURIComponent(salonSlug)}` : path
@@ -305,6 +465,11 @@ export function CheckoutSheet({
       taxExempt: seededTaxExempt,
       tipCents: inputToCents(seededTipInput),
     });
+    const seededFinancials = financialBreakdownForTotal(
+      data,
+      seededTotals.totalDueCents,
+      seededTotals.finalPriceCents + seededTotals.taxAmountCents,
+    );
 
     setItems(seededItems);
     setDiscountInput(seededDiscountInput);
@@ -330,7 +495,7 @@ export function CheckoutSheet({
       taxExemptReason: seededTaxExemptReason,
       actualStart: seededActualStart,
       actualEnd: seededActualEnd,
-      amountReceivedCents: seededTotals.totalDueCents,
+      amountReceivedCents: seededFinancials.balanceCents,
       paymentMethod: data.appointment.paymentMethod,
       paymentRefInput: '',
       comp: false,
@@ -389,11 +554,26 @@ export function CheckoutSheet({
     });
   }, [context, items, discountInput, taxExempt, tipInput]);
 
+  const liveFinancials = useMemo(() => (
+    context && totals
+      ? financialBreakdownForTotal(
+          context,
+          totals.totalDueCents,
+          totals.finalPriceCents + totals.taxAmountCents,
+        )
+      : null
+  ), [context, totals]);
+
+  const balanceBeforeNewPaymentCents = liveFinancials?.balanceCents ?? 0;
+
   const amountReceivedCents = comp
     ? 0
     : amountTouched
       ? inputToCents(amountReceivedInput)
-      : totals?.totalDueCents ?? 0;
+      : balanceBeforeNewPaymentCents;
+  const paymentNowCents = comp
+    ? 0
+    : Math.min(amountReceivedCents, balanceBeforeNewPaymentCents);
 
   const currentDraftSignature = useMemo(() => checkoutDraftSignature({
     items,
@@ -427,9 +607,28 @@ export function CheckoutSheet({
 
   const hasAfterPhoto = context?.photos.some(photo => photo.photoType === 'after') ?? false;
   const photoPolicyMode = context?.photoPolicy.requireAfterPhotoToFinish ?? 'off';
-  const currency = context?.currency ?? 'CAD';
+  const currency = context?.currency ?? null;
 
-  const money = useCallback((cents: number) => formatMoney(cents, currency), [currency]);
+  const money = useCallback(
+    (cents: number) => currency ? formatMoney(cents, currency) : 'Unavailable',
+    [currency],
+  );
+  const excessDepositCents = comp
+    ? Math.max(
+        liveFinancials?.excessDepositCents ?? 0,
+        liveFinancials?.depositEligibleCents ?? 0,
+      )
+    : liveFinancials?.excessDepositCents ?? 0;
+  const financialBlockReason = context && !currency
+    ? 'This historical appointment has no frozen invoice currency. Reconcile it before taking payment or completing the appointment.'
+    : liveFinancials?.depositState === 'blocked'
+      ? blockedDepositCopy(liveFinancials.depositBlockedCode)
+      : excessDepositCents > 0
+        ? `The eligible deposit exceeds this invoice by ${money(excessDepositCents)}. Resolve the excess before completing the appointment.`
+        : (liveFinancials?.tenderExcessCents ?? 0) > 0
+            ? `Collected payments exceed this invoice by ${money(liveFinancials?.tenderExcessCents ?? 0)}. Reconcile the overpayment before completing the appointment.`
+            : null;
+  const financialBlocked = financialBlockReason !== null;
 
   // ---------------------------------------------------------------------------
   // Actions
@@ -494,6 +693,14 @@ export function CheckoutSheet({
     if (!appointmentId) {
       return;
     }
+    if (context?.appointment.status !== 'completed') {
+      setError('Complete the appointment to finalize its invoice before creating a payment QR.');
+      return;
+    }
+    if (financialBlockReason) {
+      setError(financialBlockReason);
+      return;
+    }
     try {
       setQrLoading(true);
       setError(null);
@@ -511,18 +718,22 @@ export function CheckoutSheet({
     } finally {
       setQrLoading(false);
     }
-  }, [apiPath, appointmentId]);
+  }, [apiPath, appointmentId, context?.appointment.status, financialBlockReason]);
 
   const submitCompletion = useCallback(async (options: { skipPhoto?: boolean } = {}) => {
     if (!appointmentId || !context || !totals) {
       return;
     }
+    if (financialBlockReason) {
+      setError(financialBlockReason);
+      return;
+    }
     try {
       setSubmitting(true);
       setError(null);
-      const payments = amountReceivedCents > 0
+      const payments = paymentNowCents > 0
         ? [{
-            amountCents: Math.min(amountReceivedCents, totals.totalDueCents),
+            amountCents: paymentNowCents,
             ...(paymentMethod ? { method: paymentMethod } : {}),
             ...(paymentRefInput.trim() ? { reference: paymentRefInput.trim() } : {}),
           }]
@@ -583,16 +794,45 @@ export function CheckoutSheet({
     } finally {
       setSubmitting(false);
     }
-  }, [apiPath, appointmentId, context, totals, items, discountInput, discountReason, tipInput, taxExempt, taxExemptReason, actualStart, actualEnd, comp, amountReceivedCents, paymentMethod, paymentRefInput, notes, skipPhotoConfirmed, fetchContext, onCompleted]);
+  }, [apiPath, appointmentId, context, totals, financialBlockReason, paymentNowCents, items, discountInput, discountReason, tipInput, taxExempt, taxExemptReason, actualStart, actualEnd, comp, paymentMethod, paymentRefInput, notes, skipPhotoConfirmed, fetchContext, onCompleted]);
 
-  const recordPostPayment = useCallback(async () => {
-    if (!appointmentId) {
+  const recordPostPayment = useCallback(async (requestedAmount = postPaymentAmount) => {
+    if (!appointmentId || !context) {
       return;
     }
-    const amountCents = inputToCents(postPaymentAmount);
+    const persistedFinancials = financialBreakdownForTotal(
+      context,
+      context.balance.totalDueCents,
+    );
+    if (
+      persistedFinancials.depositState === 'blocked'
+      || persistedFinancials.excessDepositCents > 0
+      || persistedFinancials.tenderExcessCents > 0
+    ) {
+      setError(
+        persistedFinancials.depositState === 'blocked'
+          ? blockedDepositCopy(persistedFinancials.depositBlockedCode)
+          : persistedFinancials.excessDepositCents > 0
+            ? `The eligible deposit exceeds this invoice by ${money(persistedFinancials.excessDepositCents)}. Resolve the excess before recording another payment.`
+            : `Collected payments exceed this invoice by ${money(persistedFinancials.tenderExcessCents)}. Reconcile the overpayment before recording another payment.`,
+      );
+      return;
+    }
+    const amountCents = Math.min(
+      inputToCents(requestedAmount),
+      persistedFinancials.balanceCents,
+    );
     if (amountCents <= 0) {
       return;
     }
+    const paymentSignature = `${amountCents}:${postPaymentMethod ?? ''}`;
+    if (postPaymentIdempotencyRef.current?.signature !== paymentSignature) {
+      postPaymentIdempotencyRef.current = {
+        signature: paymentSignature,
+        key: `checkout-payment-${crypto.randomUUID()}`,
+      };
+    }
+    const idempotencyKey = postPaymentIdempotencyRef.current.key;
     try {
       setRecordingPayment(true);
       setError(null);
@@ -601,6 +841,7 @@ export function CheckoutSheet({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           amountCents,
+          idempotencyKey,
           ...(postPaymentMethod ? { method: postPaymentMethod } : {}),
         }),
       });
@@ -609,13 +850,14 @@ export function CheckoutSheet({
         throw new Error(result?.error?.message ?? 'Could not record the payment');
       }
       setPostPaymentAmount('');
+      postPaymentIdempotencyRef.current = null;
       await fetchContext(false);
     } catch (paymentError) {
       setError(paymentError instanceof Error ? paymentError.message : 'Could not record the payment');
     } finally {
       setRecordingPayment(false);
     }
-  }, [apiPath, appointmentId, postPaymentAmount, postPaymentMethod, fetchContext]);
+  }, [apiPath, appointmentId, context, postPaymentAmount, postPaymentMethod, fetchContext, money]);
 
   // ---------------------------------------------------------------------------
   // Item helpers
@@ -700,19 +942,33 @@ export function CheckoutSheet({
     ? context.bookedItems.reduce((sum, item) => sum + item.unitPriceCents * item.quantity, 0)
     : 0;
 
-  const balanceAfterPayment = totals
-    ? (comp ? 0 : Math.max(0, totals.totalDueCents - Math.min(amountReceivedCents, totals.totalDueCents)))
-    : 0;
+  const balanceAfterPayment = comp
+    ? 0
+    : Math.max(0, balanceBeforeNewPaymentCents - paymentNowCents);
 
   const isCompleted = context?.appointment.status === 'completed';
+  const persistedFinancials = context
+    ? financialBreakdownForTotal(context, context.balance.totalDueCents)
+    : null;
 
   const renderTotalsRows = (options: { includePayment: boolean }) => {
-    if (!totals || !context) {
+    if (!totals || !context || !liveFinancials) {
       return null;
     }
     const taxLabel = context.taxConfig.enabled
       ? `${context.taxConfig.name ?? 'Tax'} (${(context.taxConfig.rateBps / 100).toFixed(context.taxConfig.rateBps % 100 === 0 ? 0 : 2)}%)`
       : 'Tax';
+    const taxChange = taxConfigurationChanged(
+      context.appointment.rescheduleTaxSnapshot
+      ?? context.appointment.bookingTaxSnapshot,
+      {
+        enabled: context.taxConfig.enabled,
+        label: context.taxConfig.name,
+        rateBps: context.taxConfig.rateBps,
+        mode: context.taxConfig.pricesIncludeTax ? 'included' : 'added',
+        effectiveFrom: context.taxConfig.configurationEffectiveFrom,
+      },
+    );
     return (
       <div className="space-y-1.5 text-sm text-neutral-700">
         <div className="flex justify-between">
@@ -741,6 +997,20 @@ export function CheckoutSheet({
             <span data-testid="checkout-tax-amount">{money(totals.taxAmountCents)}</span>
           </div>
         )}
+        {taxChange && (
+          <div
+            data-testid="checkout-tax-configuration-change"
+            className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs leading-5 text-sky-950"
+          >
+            Booking estimate:
+            {' '}
+            {taxChange.booking}
+            . Final invoice:
+            {' '}
+            {taxChange.final}
+            . Tax is calculated before the deposit payment credit.
+          </div>
+        )}
         {totals.tipCents > 0 && (
           <div className="flex justify-between">
             <span>Tip</span>
@@ -751,11 +1021,40 @@ export function CheckoutSheet({
           <span>Total</span>
           <span data-testid="checkout-total-due">{money(totals.totalDueCents)}</span>
         </div>
+        {liveFinancials.depositCollectedCents > 0 && (
+          <div className="flex justify-between text-neutral-700">
+            <span>Deposit paid</span>
+            <span data-testid="checkout-deposit-paid">{money(liveFinancials.depositCollectedCents)}</span>
+          </div>
+        )}
+        {liveFinancials.depositRefundedCents > 0 && (
+          <div className="flex justify-between text-neutral-700">
+            <span>Deposit refunded</span>
+            <span data-testid="checkout-deposit-refunded">
+              −
+              {money(liveFinancials.depositRefundedCents)}
+            </span>
+          </div>
+        )}
+        {(options.includePayment || liveFinancials.appointmentPaymentsCents > 0) && (
+          <div className="flex justify-between">
+            <span>Other payments</span>
+            <span data-testid="checkout-other-payments">{money(liveFinancials.appointmentPaymentsCents)}</span>
+          </div>
+        )}
+        {(options.includePayment
+          || liveFinancials.depositCollectedCents > 0
+          || liveFinancials.appointmentPaymentsCents > 0) && (
+          <div className="flex justify-between font-medium">
+            <span>Already paid</span>
+            <span data-testid="checkout-already-paid">{money(liveFinancials.amountAlreadyPaidCents)}</span>
+          </div>
+        )}
         {options.includePayment && !comp && (
           <>
             <div className="flex justify-between">
               <span>Receiving now</span>
-              <span>{money(Math.min(amountReceivedCents, totals.totalDueCents))}</span>
+              <span data-testid="checkout-receiving-now">{money(paymentNowCents)}</span>
             </div>
             <div className="flex justify-between font-medium">
               <span>Remaining balance</span>
@@ -769,6 +1068,15 @@ export function CheckoutSheet({
             <span>{money(0)}</span>
           </div>
         )}
+        {financialBlockReason && (
+          <div
+            data-testid="checkout-deposit-block"
+            className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900"
+            role="alert"
+          >
+            {financialBlockReason}
+          </div>
+        )}
       </div>
     );
   };
@@ -780,6 +1088,41 @@ export function CheckoutSheet({
     const appt = context.appointment;
     const receiptItems = context.finalItems.length > 0 ? context.finalItems : context.bookedItems;
     const totalDue = context.balance.totalDueCents;
+    const receiptFinancials = financialBreakdownForTotal(context, totalDue);
+    const receiptDepositBlocked = receiptFinancials.depositState === 'blocked'
+      || receiptFinancials.excessDepositCents > 0
+      || receiptFinancials.tenderExcessCents > 0;
+    const finalSnapshot = appt.finalTaxSnapshot;
+    const receiptTaxEnabled = finalSnapshot
+      ? finalSnapshot.configuration.enabled
+      : appt.taxEnabledSnapshot;
+    const receiptTaxName = finalSnapshot
+      ? finalSnapshot.configuration.label
+      : appt.taxNameSnapshot;
+    const receiptTaxRateBps = finalSnapshot
+      ? finalSnapshot.configuration.rateBps
+      : (appt.taxRateBps ?? 0);
+    const receiptTaxIncluded = finalSnapshot
+      ? finalSnapshot.configuration.mode === 'included'
+      : Boolean(appt.taxInclusive);
+    const receiptTaxExempt = finalSnapshot
+      ? finalSnapshot.taxExempt
+      : Boolean(appt.taxExempt);
+    const receiptTaxAmountCents = finalSnapshot
+      ? finalSnapshot.taxAmountCents
+      : (appt.taxAmountCents ?? 0);
+    const taxChange = taxConfigurationChanged(
+      appt.rescheduleTaxSnapshot ?? appt.bookingTaxSnapshot,
+      finalSnapshot
+        ? {
+            enabled: finalSnapshot.configuration.enabled,
+            label: finalSnapshot.configuration.label,
+            rateBps: finalSnapshot.configuration.rateBps,
+            mode: finalSnapshot.configuration.mode,
+            effectiveFrom: finalSnapshot.configuration.configurationEffectiveFrom,
+          }
+        : null,
+    );
     return (
       <div className="space-y-4" data-testid="checkout-receipt">
         <div className={sectionCard}>
@@ -811,19 +1154,33 @@ export function CheckoutSheet({
                 </span>
               </div>
             )}
-            {appt.taxEnabledSnapshot && (
-              <div className="flex justify-between">
+            {receiptTaxEnabled && (
+              <div className="flex justify-between" data-testid="checkout-receipt-tax-line">
                 <span>
-                  {appt.taxNameSnapshot ?? 'Tax'}
+                  {receiptTaxName ?? 'Tax'}
                   {' '}
                   (
-                  {((appt.taxRateBps ?? 0) / 100).toFixed((appt.taxRateBps ?? 0) % 100 === 0 ? 0 : 2)}
+                  {(receiptTaxRateBps / 100).toFixed(receiptTaxRateBps % 100 === 0 ? 0 : 2)}
                   %
-                  {appt.taxInclusive ? ', included' : ''}
-                  {appt.taxExempt ? ', exempt' : ''}
+                  {receiptTaxIncluded ? ', included' : ''}
+                  {receiptTaxExempt ? ', exempt' : ''}
                   )
                 </span>
-                <span>{money(appt.taxAmountCents ?? 0)}</span>
+                <span>{money(receiptTaxAmountCents)}</span>
+              </div>
+            )}
+            {taxChange && (
+              <div
+                data-testid="checkout-receipt-tax-configuration-change"
+                className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs leading-5 text-sky-950"
+              >
+                Booking estimate:
+                {' '}
+                {taxChange.booking}
+                . Final invoice:
+                {' '}
+                {taxChange.final}
+                . The booking estimate was preserved; the final invoice used the configuration effective when issued.
               </div>
             )}
             {(appt.tipCents ?? 0) > 0 && (
@@ -836,14 +1193,47 @@ export function CheckoutSheet({
               <span>Total</span>
               <span>{money(totalDue)}</span>
             </div>
-            <div className="flex justify-between">
-              <span>Paid</span>
-              <span>{money(context.balance.amountPaidCents)}</span>
-            </div>
-            <div className="flex justify-between font-medium">
-              <span>Balance</span>
-              <span>{money(context.balance.balanceCents)}</span>
-            </div>
+            {receiptFinancials.depositCollectedCents > 0 && (
+              <div className="flex justify-between">
+                <span>Deposit paid</span>
+                <span data-testid="checkout-receipt-deposit-paid">{money(receiptFinancials.depositCollectedCents)}</span>
+              </div>
+            )}
+            {receiptFinancials.depositRefundedCents > 0 && (
+              <div className="flex justify-between">
+                <span>Deposit refunded</span>
+                <span data-testid="checkout-receipt-deposit-refunded">
+                  −
+                  {money(receiptFinancials.depositRefundedCents)}
+                </span>
+              </div>
+            )}
+            {receiptDepositBlocked
+              ? (
+                  <div
+                    data-testid="checkout-receipt-financial-review"
+                    className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900"
+                    role="alert"
+                  >
+                    Payment totals are under review while the deposit or refund is reconciled. Already-paid and balance amounts will appear once the review is complete.
+                  </div>
+                )
+              : (
+                  <>
+                    <div className="flex justify-between">
+                      <span>Other payments</span>
+                      <span data-testid="checkout-receipt-other-payments">{money(receiptFinancials.appointmentPaymentsCents)}</span>
+                    </div>
+                    <div className="flex justify-between font-medium">
+                      <span>Already paid</span>
+                      <span data-testid="checkout-receipt-already-paid">{money(receiptFinancials.amountAlreadyPaidCents)}</span>
+                    </div>
+                    <div className="flex justify-between font-medium">
+                      <span>Balance</span>
+                      <span data-testid="checkout-receipt-balance">{money(receiptFinancials.balanceCents)}</span>
+                    </div>
+                  </>
+                )}
           </div>
         </div>
 
@@ -1314,7 +1704,7 @@ export function CheckoutSheet({
                         type="text"
                         inputMode="decimal"
                         data-testid="checkout-amount-received"
-                        value={amountTouched ? amountReceivedInput : totals ? centsToInput(totals.totalDueCents) : ''}
+                        value={amountTouched ? amountReceivedInput : centsToInput(balanceBeforeNewPaymentCents)}
                         onChange={(event) => {
                           setAmountTouched(true);
                           setAmountReceivedInput(event.target.value.replace(/[^0-9.]/g, ''));
@@ -1323,7 +1713,7 @@ export function CheckoutSheet({
                       />
                     </label>
                     <div className="mt-1 text-xs text-neutral-500">
-                      Enter less for a partial payment, or 0 to record the payment later.
+                      Enter less for a partial payment, or 0 to record it later. Luster will never record more than the balance due.
                     </div>
                     {paymentMethod === 'e_transfer' && (
                       <label className="mt-3 block">
@@ -1357,8 +1747,9 @@ export function CheckoutSheet({
                             <button
                               type="button"
                               aria-label="Copy recipient"
+                              disabled={financialBlocked}
                               onClick={() => void copyToClipboard('recipient', context.etransfer.recipient ?? '')}
-                              className="rounded-lg border border-neutral-200 p-1.5 text-neutral-600"
+                              className="rounded-lg border border-neutral-200 p-1.5 text-neutral-600 disabled:opacity-40"
                             >
                               {copied === 'recipient' ? <CheckCircle2 className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
                             </button>
@@ -1367,13 +1758,15 @@ export function CheckoutSheet({
                             <span>
                               Amount
                               {' '}
-                              <span className="font-medium">{money(comp ? 0 : balanceAfterPayment > 0 ? balanceAfterPayment : totals?.totalDueCents ?? 0)}</span>
+                              <span className="font-medium">{money(paymentNowCents)}</span>
                             </span>
                             <button
                               type="button"
                               aria-label="Copy amount"
-                              onClick={() => void copyToClipboard('amount', ((balanceAfterPayment > 0 ? balanceAfterPayment : totals?.totalDueCents ?? 0) / 100).toFixed(2))}
-                              className="rounded-lg border border-neutral-200 p-1.5 text-neutral-600"
+                              data-testid="checkout-copy-amount"
+                              disabled={financialBlocked || paymentNowCents <= 0}
+                              onClick={() => void copyToClipboard('amount', (paymentNowCents / 100).toFixed(2))}
+                              className="rounded-lg border border-neutral-200 p-1.5 text-neutral-600 disabled:opacity-40"
                             >
                               {copied === 'amount' ? <CheckCircle2 className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
                             </button>
@@ -1387,8 +1780,9 @@ export function CheckoutSheet({
                             <button
                               type="button"
                               aria-label="Copy reference"
+                              disabled={financialBlocked}
                               onClick={() => void copyToClipboard('reference', context.paymentReference)}
-                              className="rounded-lg border border-neutral-200 p-1.5 text-neutral-600"
+                              className="rounded-lg border border-neutral-200 p-1.5 text-neutral-600 disabled:opacity-40"
                             >
                               {copied === 'reference' ? <CheckCircle2 className="size-3.5 text-emerald-600" /> : <Copy className="size-3.5" />}
                             </button>
@@ -1411,12 +1805,19 @@ export function CheckoutSheet({
                                   <button
                                     type="button"
                                     data-testid="checkout-show-qr"
-                                    disabled={qrLoading}
+                                    disabled={qrLoading
+                                    || financialBlocked
+                                    || balanceBeforeNewPaymentCents <= 0
+                                    || context.appointment.status !== 'completed'}
                                     onClick={() => void showQr()}
                                     className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-neutral-200 p-2.5 text-sm font-medium text-neutral-700 disabled:opacity-50"
                                   >
                                     <QrCode className="size-4" />
-                                    {qrLoading ? 'Preparing…' : 'Show payment QR'}
+                                    {qrLoading
+                                      ? 'Preparing…'
+                                      : context.appointment.status === 'completed'
+                                        ? 'Show payment QR'
+                                        : 'Complete appointment for QR'}
                                   </button>
                                 )}
                           </div>
@@ -1517,14 +1918,49 @@ export function CheckoutSheet({
                       <span className="capitalize">{context.appointment.paymentMethod.replace('_', '-')}</span>
                     </div>
                   )}
+                  {(persistedFinancials?.depositCollectedCents ?? 0) > 0 && (
+                    <div className="flex justify-between">
+                      <span>Deposit paid</span>
+                      <span data-testid="checkout-success-deposit-paid">
+                        {money(persistedFinancials?.depositCollectedCents ?? 0)}
+                      </span>
+                    </div>
+                  )}
+                  {(persistedFinancials?.depositRefundedCents ?? 0) > 0 && (
+                    <div className="flex justify-between">
+                      <span>Deposit refunded</span>
+                      <span data-testid="checkout-success-deposit-refunded">
+                        −
+                        {money(persistedFinancials?.depositRefundedCents ?? 0)}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex justify-between">
+                    <span>Other payments</span>
+                    <span data-testid="checkout-success-other-payments">
+                      {money(persistedFinancials?.appointmentPaymentsCents ?? 0)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between font-medium">
+                    <span>Already paid</span>
+                    <span data-testid="checkout-success-already-paid">
+                      {money(persistedFinancials?.amountAlreadyPaidCents ?? 0)}
+                    </span>
+                  </div>
                   <div className="flex justify-between font-medium">
                     <span>Remaining balance</span>
-                    <span data-testid="checkout-success-balance">{money(context.balance.balanceCents)}</span>
+                    <span data-testid="checkout-success-balance">
+                      {money(persistedFinancials?.balanceCents ?? 0)}
+                    </span>
                   </div>
                 </div>
               </div>
 
-              {context.balance.balanceCents > 0 && context.appointment.paymentStatus !== 'comp' && (
+              {(persistedFinancials?.balanceCents ?? 0) > 0
+              && persistedFinancials?.depositState !== 'blocked'
+              && persistedFinancials?.excessDepositCents === 0
+              && persistedFinancials?.tenderExcessCents === 0
+              && context.appointment.paymentStatus !== 'comp' && (
                 <div className={sectionCard} data-testid="checkout-record-payment">
                   <div className={sectionTitle}>Record a payment</div>
                   <div className="flex flex-wrap gap-2 pb-3">
@@ -1545,7 +1981,7 @@ export function CheckoutSheet({
                       inputMode="decimal"
                       value={postPaymentAmount}
                       onChange={event => setPostPaymentAmount(event.target.value.replace(/[^0-9.]/g, ''))}
-                      placeholder={centsToInput(context.balance.balanceCents)}
+                      placeholder={centsToInput(persistedFinancials?.balanceCents ?? 0)}
                       className={`${inputClass} flex-1`}
                       aria-label="Payment amount"
                     />
@@ -1553,10 +1989,10 @@ export function CheckoutSheet({
                       type="button"
                       disabled={recordingPayment}
                       onClick={() => {
-                        if (!postPaymentAmount) {
-                          setPostPaymentAmount(centsToInput(context.balance.balanceCents));
-                        }
-                        void recordPostPayment();
+                        const requestedAmount = postPaymentAmount
+                          || centsToInput(persistedFinancials?.balanceCents ?? 0);
+                        setPostPaymentAmount(requestedAmount);
+                        void recordPostPayment(requestedAmount);
                       }}
                       className="rounded-xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
                       style={{ backgroundColor: themeVars.primary }}
@@ -1625,9 +2061,11 @@ export function CheckoutSheet({
           >
             <div className="flex items-center gap-3">
               <div className="min-w-0">
-                <div className="text-xs uppercase tracking-[0.08em] text-neutral-400">Total</div>
+                <div className="text-xs uppercase tracking-[0.08em] text-neutral-400">
+                  {view === 'review' ? 'Balance after payment' : 'Balance due'}
+                </div>
                 <div className="text-lg font-semibold" style={{ color: themeVars.primary }}>
-                  {money(totals.totalDueCents)}
+                  {money(view === 'review' ? balanceAfterPayment : balanceBeforeNewPaymentCents)}
                 </div>
               </div>
               {view === 'edit'
@@ -1645,7 +2083,7 @@ export function CheckoutSheet({
                       <button
                         type="button"
                         data-testid="checkout-review-button"
-                        disabled={submitting || isCompleted || Boolean(actualStart && actualEnd && new Date(actualEnd) < new Date(actualStart))}
+                        disabled={submitting || financialBlocked || isCompleted || Boolean(actualStart && actualEnd && new Date(actualEnd) < new Date(actualStart))}
                         onClick={() => setView('review')}
                         className="min-w-0 flex-1 rounded-2xl px-4 py-3 text-sm font-semibold text-white disabled:opacity-50"
                         style={{ backgroundColor: themeVars.primary }}
@@ -1659,7 +2097,7 @@ export function CheckoutSheet({
                       <button
                         type="button"
                         data-testid="checkout-back"
-                        disabled={submitting}
+                        disabled={submitting || financialBlocked}
                         onClick={() => setView('edit')}
                         className="rounded-2xl border border-neutral-200 p-3 text-sm font-medium text-neutral-700 disabled:opacity-50"
                       >

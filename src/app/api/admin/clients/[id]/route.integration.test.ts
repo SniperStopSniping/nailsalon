@@ -6,6 +6,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { buildBookingTaxSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
 import { GET, PATCH } from './route';
@@ -115,6 +116,7 @@ beforeAll(async () => {
       tipCents: 0,
       amountPaidCents: 4000,
       paymentStatus: 'partially_paid',
+      invoiceCurrency: 'CAD',
       status: 'completed',
       completedAt: new Date('2026-07-20T15:00:00.000Z'),
     },
@@ -131,9 +133,44 @@ beforeAll(async () => {
       totalPrice: 50000,
       amountPaidCents: 0,
       paymentStatus: 'pending',
+      invoiceCurrency: 'CAD',
+      bookingTaxSnapshot: buildBookingTaxSnapshot({
+        taxConfig: resolveTaxConfig({
+          payments: {
+            tax: {
+              enabled: true,
+              name: 'HST',
+              rateBps: 1300,
+              pricesIncludeTax: false,
+              jurisdiction: 'Ontario',
+              country: 'Canada',
+              region: 'ON',
+            },
+          },
+        }, new Date('2026-07-22T12:00:00.000Z')),
+        totals: {
+          taxApplied: true,
+          taxableSubtotalCents: 50000,
+          taxAmountCents: 6500,
+          finalPriceCents: 50000,
+        },
+        capturedAt: new Date('2026-07-22T12:00:00.000Z'),
+        currency: 'CAD',
+      }),
       status: 'confirmed',
     },
   ]);
+  await testDb.insert(schema.appointmentDepositSchema).values({
+    id: 'client_profile_deposit',
+    appointmentId: 'client_profile_partial',
+    salonId: SALON_ID,
+    amountCents: 2500,
+    currency: 'cad',
+    status: 'paid',
+    stripeAccountId: 'acct_client_profile',
+    stripePaymentIntentId: 'pi_client_profile',
+    collectedAt: new Date('2026-07-19T15:00:00.000Z'),
+  });
   await testDb.insert(schema.appointmentPaymentSchema).values({
     id: 'client_profile_payment',
     appointmentId: 'client_profile_partial',
@@ -180,7 +217,7 @@ afterAll(async () => {
 });
 
 describe('GET /api/admin/clients/[id] financial projection', () => {
-  it('counts complete partial-payment value while separating received cash and outstanding', async () => {
+  it('excludes unsettled value from spend while separating received cash and outstanding', async () => {
     const response = await GET(
       new Request(`http://localhost/api/admin/clients/${CLIENT_ID}?salonSlug=client-profile-financial`),
       { params: Promise.resolve({ id: CLIENT_ID }) },
@@ -190,7 +227,7 @@ describe('GET /api/admin/clients/[id] financial projection', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('cache-control')).toContain('private');
     expect(response.headers.get('cache-control')).toContain('no-store');
-    expect(body.data.client.totalSpent).toBe(4000);
+    expect(body.data.client.totalSpent).toBe(0);
     expect(body.data.client.birthday).toBe('1990-05-04');
     expect(body.data.client.updatedAt).toBe(
       exactClientVersion(CLIENT_UPDATED_AT),
@@ -198,16 +235,21 @@ describe('GET /api/admin/clients/[id] financial projection', () => {
     expect(body.data.summary).toMatchObject({
       currency: 'CAD',
       timeZone: 'America/Toronto',
-      lifetimeSpendCents: 10000,
-      spendThisMonthCents: 10000,
-      completedOutstandingCents: 6000,
+      lifetimeSpendCents: 0,
+      spendThisMonthCents: 0,
+      completedOutstandingCents: 3500,
       completedVisits: 1,
     });
     expect(body.data.pastAppointments[0].financial).toMatchObject({
       completedValueCents: 10000,
       source: 'finalized',
       paymentsReceivedCents: 4000,
-      completedOutstandingCents: 6000,
+      depositCollectedCents: 2500,
+      depositRefundedCents: 0,
+      depositCreditCents: 2500,
+      amountAlreadyPaidCents: 6500,
+      completedOutstandingCents: 3500,
+      balanceCents: 3500,
       paymentStatus: 'partially_paid',
     });
     expect(body.data.pastAppointments[0].financial.payments).toEqual([
@@ -217,6 +259,93 @@ describe('GET /api/admin/clients/[id] financial projection', () => {
         method: 'cash',
       }),
     ]);
+    expect(body.data.upcomingAppointments[0].financial).toMatchObject({
+      depositCreditCents: 0,
+      amountAlreadyPaidCents: 0,
+      balanceCents: 56500,
+      balanceState: 'upcoming_balance',
+    });
+  });
+
+  it.each([
+    [
+      'pending refund',
+      'DEPOSIT_REFUND_IN_FLIGHT',
+      {
+        refundStatus: 'pending',
+        refundStatusChangedAt: NOW,
+        refundRequestedAt: NOW,
+      },
+    ],
+    [
+      'failed refund',
+      'DEPOSIT_REFUND_UNRESOLVED',
+      {
+        refundStatus: 'failed',
+        refundStatusChangedAt: NOW,
+        refundRequestedAt: NOW,
+        refundLastErrorCode: 'UNKNOWN_PROVIDER_ERROR',
+        refundFailureReason: 'unknown',
+      },
+    ],
+    [
+      'provider refund conflict',
+      'DEPOSIT_REFUND_CONFLICT',
+      { refundConflictFlag: true },
+    ],
+  ])('nulls every dependent amount for a %s', async (_case, blockCode, mutation) => {
+    const cleanDepositState = {
+      refundStatus: null,
+      refundStatusChangedAt: null,
+      refundRequestedAt: null,
+      refundLastErrorCode: null,
+      refundFailureReason: null,
+      refundConflictFlag: false,
+    };
+    await testDb
+      .update(schema.appointmentDepositSchema)
+      .set({ ...cleanDepositState, ...mutation })
+      .where(eq(schema.appointmentDepositSchema.id, 'client_profile_deposit'));
+
+    try {
+      const response = await GET(
+        new Request(`http://localhost/api/admin/clients/${CLIENT_ID}?salonSlug=client-profile-financial`),
+        { params: Promise.resolve({ id: CLIENT_ID }) },
+      );
+      const body = await response.json();
+      const appointment = body.data.pastAppointments[0];
+
+      expect(response.status).toBe(200);
+      expect(appointment).toMatchObject({
+        id: 'client_profile_partial',
+        totalPrice: null,
+      });
+      expect(appointment.financial).toMatchObject({
+        completedValueCents: null,
+        source: 'unresolved',
+        discountCents: null,
+        taxCents: null,
+        tipsCents: null,
+        paymentsReceivedCents: null,
+        depositCollectedCents: null,
+        depositRefundedCents: null,
+        depositForfeitedCents: null,
+        depositCreditCents: null,
+        depositState: 'blocked',
+        depositBlockCode: blockCode,
+        depositPresentationState: 'blocked',
+        amountAlreadyPaidCents: null,
+        payments: [],
+        completedOutstandingCents: null,
+        balanceCents: null,
+        balanceState: 'unresolved',
+      });
+    } finally {
+      await testDb
+        .update(schema.appointmentDepositSchema)
+        .set(cleanDepositState)
+        .where(eq(schema.appointmentDepositSchema.id, 'client_profile_deposit'));
+    }
   });
 
   it('resolves a stale same-salon source ID to the terminal primary without changing snapshots', async () => {
@@ -247,6 +376,62 @@ describe('GET /api/admin/clients/[id] financial projection', () => {
       .from(schema.appointmentSchema);
 
     expect(appointmentsAfter).toEqual(appointmentsBefore);
+  });
+
+  it('loads a dirty cross-tenant payment child for reconciliation without disclosing it', async () => {
+    const foreignSalonId = 'salon_client_profile_foreign';
+    const dirtyPaymentId = 'client_profile_dirty_payment';
+    await testDb.insert(schema.salonSchema).values({
+      id: foreignSalonId,
+      name: 'Foreign Client Profile Salon',
+      slug: 'foreign-client-profile-salon',
+    });
+    await testDb.execute(sql.raw(
+      'ALTER TABLE appointment_payment DISABLE TRIGGER ALL',
+    ));
+    try {
+      await testDb.insert(schema.appointmentPaymentSchema).values({
+        id: dirtyPaymentId,
+        appointmentId: 'client_profile_partial',
+        salonId: foreignSalonId,
+        amountCents: 4000,
+        method: 'cash',
+        recordedByType: 'admin',
+        recordedAt: new Date('2026-07-20T15:00:00.000Z'),
+      });
+    } finally {
+      await testDb.execute(sql.raw(
+        'ALTER TABLE appointment_payment ENABLE TRIGGER ALL',
+      ));
+    }
+
+    try {
+      const response = await GET(
+        new Request(`http://localhost/api/admin/clients/${CLIENT_ID}?salonSlug=client-profile-financial`),
+        { params: Promise.resolve({ id: CLIENT_ID }) },
+      );
+      const body = await response.json();
+      const financial = body.data.pastAppointments[0].financial;
+
+      expect(response.status).toBe(200);
+      expect(financial).toMatchObject({
+        paymentLedgerState: 'blocked',
+        paymentLedgerBlockCode: 'PAYMENT_LEDGER_RECONCILIATION_REQUIRED',
+        balanceCents: null,
+        balanceState: 'unresolved',
+      });
+      expect(financial.payments).toEqual([
+        expect.objectContaining({ id: 'client_profile_payment' }),
+      ]);
+      expect(JSON.stringify(body)).not.toContain(dirtyPaymentId);
+    } finally {
+      await testDb.delete(schema.appointmentPaymentSchema).where(
+        eq(schema.appointmentPaymentSchema.id, dirtyPaymentId),
+      );
+      await testDb.delete(schema.salonSchema).where(
+        eq(schema.salonSchema.id, foreignSalonId),
+      );
+    }
   });
 });
 

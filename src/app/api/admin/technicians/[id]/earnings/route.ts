@@ -1,11 +1,13 @@
-import { and, eq, gte, lt, sql } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
-import { revenueCentsSql } from '@/libs/revenueSql';
-import { appointmentSchema, technicianSchema } from '@/models/Schema';
+import { getCompletedRevenueRows } from '@/libs/financialReportingServer';
+import { technicianSchema } from '@/models/Schema';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -66,6 +68,9 @@ export async function GET(
     if (error || !salon) {
       return error!;
     }
+    const bookingConfig = resolveBookingConfigFromSettings(
+      salon.settings as SalonSettings | null | undefined,
+    );
 
     // Step 16.3: Check if staffEarnings module is enabled
     const moduleGuard = await guardModuleOr403({ salonId: salon.id, module: 'staffEarnings' });
@@ -113,74 +118,52 @@ export async function GET(
 
     const commissionRate = technician.commissionRate ? Number.parseFloat(technician.commissionRate) : 0;
 
-    // Get summary
-    const summaryResult = await db
-      .select({
-        count: sql<number>`count(*)`,
-        totalRevenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
-      })
-      .from(appointmentSchema)
-      .where(
-        and(
-          eq(appointmentSchema.technicianId, id),
-          gte(appointmentSchema.startTime, fromDate),
-          lt(appointmentSchema.startTime, toDate),
-          eq(appointmentSchema.status, 'completed'),
-        ),
-      );
-
-    const totalRevenue = Number(summaryResult[0]?.totalRevenue ?? 0);
-    const appointmentCount = Number(summaryResult[0]?.count ?? 0);
+    const revenueRows = (await getCompletedRevenueRows({
+      salonId: salon.id,
+      currency: bookingConfig.currency,
+      start: fromDate,
+      end: toDate,
+    })).filter(row => row.technicianId === id);
+    const totalRevenue = revenueRows.reduce(
+      (sum, row) => sum + row.serviceValueCents,
+      0,
+    );
+    const appointmentCount = revenueRows.length;
     const techEarned = Math.round(totalRevenue * commissionRate);
     const salonEarned = totalRevenue - techEarned;
 
-    // Get time series based on groupBy
-    let dateGroupSql;
-    switch (groupBy) {
-      case 'week':
-        dateGroupSql = sql`date_trunc('week', ${appointmentSchema.startTime})`;
-        break;
-      case 'month':
-        dateGroupSql = sql`date_trunc('month', ${appointmentSchema.startTime})`;
-        break;
-      case 'day':
-      default:
-        dateGroupSql = sql`date_trunc('day', ${appointmentSchema.startTime})`;
-        break;
+    const seriesMap = new Map<string, { count: number; totalRevenue: number }>();
+    for (const row of revenueRows) {
+      const date = new Date(row.startTime);
+      if (groupBy === 'month') {
+        date.setUTCDate(1);
+      } else if (groupBy === 'week') {
+        const day = date.getUTCDay();
+        date.setUTCDate(date.getUTCDate() - (day === 0 ? 6 : day - 1));
+      }
+      const key = date.toISOString().slice(0, 10);
+      const current = seriesMap.get(key) ?? { count: 0, totalRevenue: 0 };
+      current.count += 1;
+      current.totalRevenue += row.serviceValueCents;
+      seriesMap.set(key, current);
     }
-
-    const seriesResult = await db
-      .select({
-        date: dateGroupSql.as('date'),
-        count: sql<number>`count(*)`,
-        totalRevenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
-      })
-      .from(appointmentSchema)
-      .where(
-        and(
-          eq(appointmentSchema.technicianId, id),
-          gte(appointmentSchema.startTime, fromDate),
-          lt(appointmentSchema.startTime, toDate),
-          eq(appointmentSchema.status, 'completed'),
-        ),
-      )
-      .groupBy(dateGroupSql)
-      .orderBy(dateGroupSql);
-
-    const series = seriesResult.map((row) => {
-      const rowRevenue = Number(row.totalRevenue);
-      const rowTechEarned = Math.round(rowRevenue * commissionRate);
-      return {
-        date: row.date ? new Date(row.date as string).toISOString().split('T')[0] : null,
-        appointments: Number(row.count),
-        totalRevenue: rowRevenue,
-        techEarned: rowTechEarned,
-        salonEarned: rowRevenue - rowTechEarned,
-      };
-    });
+    const series = [...seriesMap.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([date, row]) => {
+        const rowRevenue = row.totalRevenue;
+        const rowTechEarned = Math.round(rowRevenue * commissionRate);
+        return {
+          date,
+          appointments: row.count,
+          totalRevenue: rowRevenue,
+          techEarned: rowTechEarned,
+          salonEarned: rowRevenue - rowTechEarned,
+        };
+      });
 
     return Response.json({
       data: {
+        currency: bookingConfig.currency,
         technicianId: id,
         technicianName: technician.name,
         commissionRate,

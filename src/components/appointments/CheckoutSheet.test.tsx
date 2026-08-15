@@ -23,6 +23,39 @@ const TAX_ON = {
   taxCustomByDefault: true,
 };
 
+function taxSnapshot(
+  kind: 'booking_estimate' | 'final_actual',
+  rateBps: number,
+  capturedAt: string,
+) {
+  const base = {
+    schemaVersion: 1,
+    kind,
+    classification: kind === 'booking_estimate' ? 'estimate' : 'actual',
+    capturedAt,
+    currency: 'CAD',
+    configuration: {
+      enabled: true,
+      label: 'HST',
+      rateBps,
+      mode: 'added',
+      configurationSource: 'base',
+      configurationEffectiveFrom: null,
+      jurisdiction: 'Ontario HST',
+      country: 'CA',
+      region: 'ON',
+    },
+    taxApplied: true,
+    taxableSubtotalCents: 4500,
+    taxAmountCents: Math.round(4500 * rateBps / 10000),
+    serviceSubtotalCents: 4500,
+    invoiceTotalCents: 4500 + Math.round(4500 * rateBps / 10000),
+  };
+  return kind === 'final_actual'
+    ? { ...base, taxExempt: false, taxExemptReason: null }
+    : base;
+}
+
 function buildContext(overrides: Record<string, unknown> = {}) {
   return {
     appointment: {
@@ -375,7 +408,208 @@ describe('CheckoutSheet', () => {
     expect(body.payments).toEqual([{ amountCents: 2000, method: 'e_transfer' }]);
   });
 
-  it('shows e-Transfer instructions with reference, copy actions, and gated QR', async () => {
+  it('defaults and caps payment now to the balance after an eligible deposit', async () => {
+    await renderSheet(buildContext({
+      photos: [{ id: 'p1', imageUrl: 'https://img/1.jpg', thumbnailUrl: null, photoType: 'after' }],
+      depositCredit: {
+        state: 'resolved',
+        blockedCode: null,
+        collectedCents: 2500,
+        refundedCents: 0,
+        eligibleCents: 2500,
+      },
+      balance: {
+        serviceInvoiceTotalCents: 5085,
+        totalDueCents: 5085,
+        appointmentPaymentsCents: 0,
+        depositCreditAppliedCents: 2500,
+        amountAlreadyPaidCents: 2500,
+        balanceCents: 2585,
+        excessDepositCents: 0,
+      },
+    }));
+
+    expect(screen.getByTestId('checkout-amount-received')).toHaveValue('25.85');
+    expect(screen.getByTestId('checkout-deposit-paid')).toHaveTextContent('$25.00');
+
+    // Even a larger manual entry is capped to the canonical remaining balance.
+    fireEvent.change(screen.getByTestId('checkout-amount-received'), { target: { value: '999' } });
+    fireEvent.click(screen.getByTestId('checkout-review-button'));
+
+    expect(screen.getByTestId('checkout-already-paid')).toHaveTextContent('$25.00');
+    expect(screen.getByTestId('checkout-receiving-now')).toHaveTextContent('$25.85');
+    expect(screen.getByTestId('checkout-remaining-balance')).toHaveTextContent('$0.00');
+
+    fireEvent.click(screen.getByTestId('checkout-complete-button'));
+    await screen.findByTestId('checkout-success');
+
+    const completeCall = fetchMock.mock.calls.find(([, init]) => (init as RequestInit | undefined)?.method === 'PATCH');
+    const body = JSON.parse(String((completeCall![1] as RequestInit).body));
+
+    expect(body.expectedTotalDueCents).toBe(5085);
+    expect(body.payments).toEqual([{ amountCents: 2585 }]);
+  });
+
+  it('keeps a tip payable when the deposit covers the full service invoice', async () => {
+    await renderSheet(buildContext({
+      depositCredit: {
+        state: 'resolved',
+        blockedCode: null,
+        collectedCents: 5085,
+        refundedCents: 0,
+        eligibleCents: 5085,
+      },
+      balance: {
+        serviceInvoiceTotalCents: 5085,
+        totalDueCents: 5085,
+        appointmentPaymentsCents: 0,
+        depositCreditAppliedCents: 5085,
+        amountAlreadyPaidCents: 5085,
+        balanceCents: 0,
+        excessDepositCents: 0,
+      },
+    }));
+
+    expect(screen.getByTestId('checkout-amount-received')).toHaveValue('0');
+
+    fireEvent.change(screen.getByTestId('checkout-tip'), { target: { value: '10' } });
+
+    expect(screen.getByTestId('checkout-amount-received')).toHaveValue('10');
+    expect(screen.getByTestId('checkout-review-button')).toBeEnabled();
+
+    fireEvent.click(screen.getByTestId('checkout-review-button'));
+
+    expect(screen.getByTestId('checkout-already-paid')).toHaveTextContent('$50.85');
+    expect(screen.getByTestId('checkout-receiving-now')).toHaveTextContent('$10.00');
+    expect(screen.getByTestId('checkout-remaining-balance')).toHaveTextContent('$0.00');
+  });
+
+  it('blocks checkout and payment-link copy when deposit credit is unresolved', async () => {
+    await renderSheet(buildContext({
+      depositCredit: {
+        state: 'blocked',
+        blockedCode: 'REFUND_PENDING',
+        collectedCents: 2500,
+        refundedCents: 0,
+        eligibleCents: 0,
+      },
+      balance: {
+        serviceInvoiceTotalCents: 5085,
+        totalDueCents: 5085,
+        appointmentPaymentsCents: 0,
+        depositCreditAppliedCents: 0,
+        amountAlreadyPaidCents: 0,
+        balanceCents: 5085,
+        excessDepositCents: 0,
+      },
+    }));
+
+    expect(screen.getByTestId('checkout-deposit-block')).toHaveTextContent('refund pending');
+    expect(screen.getByTestId('checkout-review-button')).toBeDisabled();
+    expect(screen.getByTestId('checkout-copy-amount')).toBeDisabled();
+    expect(screen.getByTestId('checkout-show-qr')).toBeDisabled();
+  });
+
+  it('blocks historical money actions instead of guessing a mutable currency', async () => {
+    await renderSheet(buildContext({ currency: null }));
+
+    expect(screen.getByTestId('checkout-deposit-block')).toHaveTextContent(
+      'no frozen invoice currency',
+    );
+    expect(screen.getByTestId('checkout-review-button')).toBeDisabled();
+    expect(screen.getByTestId('checkout-copy-amount')).toBeDisabled();
+    expect(screen.getByTestId('checkout-show-qr')).toBeDisabled();
+  });
+
+  it('accepts server-projected issue-time currency for an active legacy appointment with no money history', async () => {
+    await renderSheet(buildContext({
+      currency: 'CAD',
+      appointment: {
+        ...buildContext().appointment,
+        invoiceCurrency: null,
+        bookingTaxSnapshot: null,
+        rescheduleTaxSnapshot: null,
+        finalTaxSnapshot: null,
+      },
+      depositCredit: {
+        state: 'resolved',
+        blockedCode: null,
+        collectedCents: 0,
+        refundedCents: 0,
+        eligibleCents: 0,
+      },
+    }));
+
+    expect(screen.queryByTestId('checkout-deposit-block')).not.toBeInTheDocument();
+    expect(screen.getByTestId('checkout-review-button')).toBeEnabled();
+  });
+
+  it('blocks completion when eligible deposit money exceeds the edited invoice', async () => {
+    await renderSheet(buildContext({
+      depositCredit: {
+        state: 'resolved',
+        blockedCode: null,
+        collectedCents: 6000,
+        refundedCents: 0,
+        eligibleCents: 6000,
+      },
+      balance: {
+        serviceInvoiceTotalCents: 5085,
+        totalDueCents: 5085,
+        appointmentPaymentsCents: 0,
+        depositCreditAppliedCents: 5085,
+        amountAlreadyPaidCents: 5085,
+        balanceCents: 0,
+        excessDepositCents: 915,
+      },
+    }));
+
+    expect(screen.getByTestId('checkout-deposit-block')).toHaveTextContent('$9.15');
+    expect(screen.getByTestId('checkout-review-button')).toBeDisabled();
+    expect(screen.getByTestId('checkout-amount-received')).toHaveValue('0');
+
+    fireEvent.change(screen.getByLabelText('Price for BIAB Short'), {
+      target: { value: '60' },
+    });
+
+    expect(screen.queryByTestId('checkout-deposit-block')).not.toBeInTheDocument();
+    expect(screen.getByTestId('checkout-review-button')).toBeEnabled();
+    expect(screen.getByTestId('checkout-amount-received')).toHaveValue('7.80');
+  });
+
+  it('blocks persisted tender excess but lets a larger live invoice absorb it', async () => {
+    await renderSheet(buildContext({
+      depositCredit: {
+        state: 'resolved',
+        blockedCode: null,
+        collectedCents: 2500,
+        refundedCents: 0,
+        eligibleCents: 2500,
+      },
+      balance: {
+        serviceInvoiceTotalCents: 5085,
+        totalDueCents: 5085,
+        appointmentPaymentsCents: 5085,
+        depositCreditAppliedCents: 2500,
+        amountAlreadyPaidCents: 7585,
+        balanceCents: 0,
+        excessDepositCents: 0,
+        tenderExcessCents: 2500,
+      },
+    }));
+
+    expect(screen.getByTestId('checkout-deposit-block')).toHaveTextContent('$25.00');
+    expect(screen.getByTestId('checkout-review-button')).toBeDisabled();
+
+    fireEvent.change(screen.getByLabelText('Price for BIAB Short'), {
+      target: { value: '75' },
+    });
+
+    expect(screen.queryByTestId('checkout-deposit-block')).not.toBeInTheDocument();
+    expect(screen.getByTestId('checkout-review-button')).toBeEnabled();
+  });
+
+  it('shows e-Transfer instructions but gates QR until the invoice is finalized', async () => {
     await renderSheet();
 
     const panel = screen.getByTestId('checkout-etransfer-panel');
@@ -384,9 +618,26 @@ describe('CheckoutSheet', () => {
     expect(screen.getByTestId('checkout-etransfer-reference')).toHaveTextContent('LSTR-APPT01');
     expect(panel).toHaveTextContent(/autodeposit is on/i);
     expect(screen.getByTestId('checkout-show-qr')).toBeInTheDocument();
+    expect(screen.getByTestId('checkout-show-qr')).toBeDisabled();
+    expect(screen.getByTestId('checkout-show-qr')).toHaveTextContent('Complete appointment for QR');
     expect(screen.getByLabelText('Copy recipient')).toBeInTheDocument();
     expect(screen.getByLabelText('Copy amount')).toBeInTheDocument();
     expect(screen.getByLabelText('Copy reference')).toBeInTheDocument();
+  });
+
+  it('enables the payment QR only for a finalized completed invoice', async () => {
+    await renderSheet(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        status: 'completed',
+        completedAt: '2026-07-18T15:00:00.000Z',
+        finalPriceCents: 4500,
+        taxAmountCents: 585,
+      },
+    }));
+
+    expect(screen.getByTestId('checkout-show-qr')).toBeEnabled();
+    expect(screen.getByTestId('checkout-show-qr')).toHaveTextContent('Show payment QR');
   });
 
   it('hides the QR button when the salon disabled the payment page', async () => {
@@ -420,6 +671,75 @@ describe('CheckoutSheet', () => {
     fireEvent.click(screen.getByTestId('checkout-success-view-receipt'));
 
     expect(await screen.findByTestId('checkout-receipt')).toBeInTheDocument();
+  });
+
+  it('reuses the standalone-payment idempotency key when the same failed submission is retried', async () => {
+    const initialContext = buildContext({
+      photos: [{ id: 'p1', imageUrl: 'https://img/1.jpg', thumbnailUrl: null, photoType: 'after' }],
+    });
+    const completedContext = buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        status: 'completed',
+        paymentStatus: 'pending',
+        completedAt: '2026-07-18T15:00:00.000Z',
+        finalPriceCents: 4500,
+        taxAmountCents: 585,
+      },
+      balance: {
+        serviceInvoiceTotalCents: 5085,
+        totalDueCents: 5085,
+        appointmentPaymentsCents: 0,
+        depositCreditAppliedCents: 0,
+        amountAlreadyPaidCents: 0,
+        balanceCents: 5085,
+        excessDepositCents: 0,
+      },
+    });
+    let completed = false;
+    const paymentBodies: Array<{ amountCents: number; idempotencyKey: string }> = [];
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/checkout')) {
+        return Promise.resolve(new Response(JSON.stringify({
+          data: completed ? completedContext : initialContext,
+        }), { status: 200 }));
+      }
+      if (url.includes('/complete') && init?.method === 'PATCH') {
+        completed = true;
+        return Promise.resolve(new Response(JSON.stringify({
+          data: {
+            appointment: { id: 'appt_1', status: 'completed', paymentStatus: 'pending', completedAt: new Date().toISOString() },
+            showReviewPrompt: false,
+          },
+        }), { status: 200 }));
+      }
+      if (url.includes('/payments') && init?.method === 'POST') {
+        paymentBodies.push(JSON.parse(String(init.body)));
+        return Promise.resolve(paymentBodies.length === 1
+          ? new Response(JSON.stringify({ error: { message: 'Try again' } }), { status: 503 })
+          : new Response(JSON.stringify({ data: { balanceCents: 4085 } }), { status: 200 }));
+      }
+      return Promise.reject(new Error(`Unhandled fetch: ${url} ${init?.method ?? 'GET'}`));
+    });
+    render(<CheckoutSheet isOpen appointmentId="appt_1" onClose={vi.fn()} />);
+    await screen.findByTestId('checkout-items-section');
+
+    fireEvent.change(screen.getByTestId('checkout-amount-received'), { target: { value: '0' } });
+    fireEvent.click(screen.getByTestId('checkout-review-button'));
+    fireEvent.click(screen.getByTestId('checkout-complete-button'));
+    await screen.findByTestId('checkout-record-payment');
+
+    fireEvent.change(screen.getByLabelText('Payment amount'), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+    await screen.findByText('Try again');
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }));
+
+    await waitFor(() => expect(paymentBodies).toHaveLength(2));
+
+    expect(paymentBodies[0]?.amountCents).toBe(1000);
+    expect(paymentBodies[0]?.idempotencyKey).toMatch(/^checkout-payment-/);
+    expect(paymentBodies[1]?.idempotencyKey).toBe(paymentBodies[0]?.idempotencyKey);
   });
 
   it('seeds a booked first-visit discount into the sheet when checkout opens', async () => {
@@ -576,6 +896,88 @@ describe('CheckoutSheet', () => {
     expect(screen.getByTestId('checkout-total-due')).toHaveTextContent('$50.85');
   });
 
+  it('discloses when the final tax configuration differs from the booking estimate', async () => {
+    await renderSheet(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        bookingTaxSnapshot: taxSnapshot(
+          'booking_estimate',
+          1300,
+          '2026-07-01T12:00:00.000Z',
+        ),
+      },
+      taxConfig: { ...TAX_ON, rateBps: 1500 },
+    }));
+
+    const notice = screen.getByTestId('checkout-tax-configuration-change');
+
+    expect(notice).toHaveTextContent('Booking estimate: HST 13%');
+    expect(notice).toHaveTextContent('Final invoice: HST 15%');
+    expect(notice).toHaveTextContent('before the deposit payment credit');
+  });
+
+  it('compares checkout tax to the latest reschedule estimate, not stale original history', async () => {
+    await renderSheet(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        bookingTaxSnapshot: taxSnapshot(
+          'booking_estimate',
+          500,
+          '2026-07-01T12:00:00.000Z',
+        ),
+        rescheduleTaxSnapshot: taxSnapshot(
+          'booking_estimate',
+          1300,
+          '2026-07-10T12:00:00.000Z',
+        ),
+      },
+      taxConfig: { ...TAX_ON, rateBps: 1500 },
+    }));
+
+    const notice = screen.getByTestId('checkout-tax-configuration-change');
+
+    expect(notice).toHaveTextContent('Booking estimate: HST 13%');
+    expect(notice).not.toHaveTextContent('Booking estimate: HST 5%');
+    expect(notice).toHaveTextContent('Final invoice: HST 15%');
+  });
+
+  it('renders receipt tax identity from the validated final snapshot, not legacy scalars', async () => {
+    mockCheckoutFetch(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        status: 'completed',
+        paymentStatus: 'paid',
+        finalPriceCents: 4500,
+        taxEnabledSnapshot: true,
+        taxNameSnapshot: 'GST',
+        taxRateBps: 500,
+        taxInclusive: true,
+        taxAmountCents: 585,
+        finalTaxSnapshot: taxSnapshot(
+          'final_actual',
+          1300,
+          '2026-07-18T15:00:00.000Z',
+        ),
+      },
+      balance: { totalDueCents: 5085, amountPaidCents: 5085, balanceCents: 0 },
+    }));
+    render(
+      <CheckoutSheet
+        isOpen
+        appointmentId="appt_1"
+        initialView="receipt"
+        onClose={vi.fn()}
+      />,
+    );
+
+    const taxLine = await screen.findByTestId('checkout-receipt-tax-line');
+
+    expect(taxLine).toHaveTextContent('HST (13%)');
+    expect(taxLine).not.toHaveTextContent('GST');
+    expect(taxLine).not.toHaveTextContent('included');
+    expect(taxLine).toHaveTextContent('$5.85');
+  });
+
   it('the receipt shows the finalized discount with its honest label', async () => {
     mockCheckoutFetch(buildContext({
       appointment: {
@@ -641,5 +1043,156 @@ describe('CheckoutSheet', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('checkout-review-button')).not.toBeInTheDocument();
     });
+  });
+
+  it('uses the frozen final tax snapshot in a receipt after settings change again', async () => {
+    mockCheckoutFetch(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        status: 'completed',
+        paymentStatus: 'paid',
+        finalPriceCents: 4500,
+        taxEnabledSnapshot: true,
+        taxNameSnapshot: 'HST',
+        taxRateBps: 1500,
+        taxInclusive: false,
+        taxAmountCents: 675,
+        bookingTaxSnapshot: taxSnapshot(
+          'booking_estimate',
+          1300,
+          '2026-07-01T12:00:00.000Z',
+        ),
+        rescheduleTaxSnapshot: taxSnapshot(
+          'booking_estimate',
+          1400,
+          '2026-07-10T12:00:00.000Z',
+        ),
+        finalTaxSnapshot: taxSnapshot(
+          'final_actual',
+          1500,
+          '2026-07-18T15:00:00.000Z',
+        ),
+      },
+      // Mutable settings have moved again; the receipt must ignore them.
+      taxConfig: { ...TAX_ON, rateBps: 2000 },
+      balance: { totalDueCents: 5175, amountPaidCents: 5175, balanceCents: 0 },
+    }));
+    render(
+      <CheckoutSheet
+        isOpen
+        appointmentId="appt_1"
+        initialView="receipt"
+        onClose={vi.fn()}
+      />,
+    );
+
+    const notice = await screen.findByTestId('checkout-receipt-tax-configuration-change');
+
+    expect(notice).toHaveTextContent('Booking estimate: HST 14%');
+    expect(notice).toHaveTextContent('Final invoice: HST 15%');
+    expect(notice).not.toHaveTextContent('20%');
+  });
+
+  it('keeps deposit, refund, other-payment, paid, and balance receipt values consistent', async () => {
+    mockCheckoutFetch(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        status: 'completed',
+        paymentStatus: 'partially_paid',
+        finalPriceCents: 4500,
+        taxEnabledSnapshot: true,
+        taxNameSnapshot: 'HST',
+        taxRateBps: 1300,
+        taxInclusive: false,
+        taxAmountCents: 585,
+      },
+      depositCredit: {
+        state: 'resolved',
+        blockedCode: null,
+        collectedCents: 2500,
+        refundedCents: 500,
+        eligibleCents: 2000,
+      },
+      balance: {
+        serviceInvoiceTotalCents: 5085,
+        totalDueCents: 5085,
+        appointmentPaymentsCents: 1000,
+        depositCreditAppliedCents: 2000,
+        amountAlreadyPaidCents: 3000,
+        balanceCents: 2085,
+        excessDepositCents: 0,
+      },
+    }));
+    render(
+      <CheckoutSheet
+        isOpen
+        appointmentId="appt_1"
+        initialView="receipt"
+        onClose={vi.fn()}
+      />,
+    );
+
+    await screen.findByTestId('checkout-receipt');
+
+    expect(screen.getByTestId('checkout-receipt-deposit-paid')).toHaveTextContent('$25.00');
+    expect(screen.getByTestId('checkout-receipt-deposit-refunded')).toHaveTextContent('$5.00');
+    expect(screen.getByTestId('checkout-receipt-other-payments')).toHaveTextContent('$10.00');
+    expect(screen.getByTestId('checkout-receipt-already-paid')).toHaveTextContent('$30.00');
+    expect(screen.getByTestId('checkout-receipt-balance')).toHaveTextContent('$20.85');
+  });
+
+  it.each([
+    ['pending refund', 'DEPOSIT_REFUND_IN_FLIGHT'],
+    ['failed refund', 'DEPOSIT_REFUND_UNRESOLVED'],
+    ['unreconciled deposit', 'DEPOSIT_RECONCILIATION_REQUIRED'],
+    ['late-deposit overpayment', 'APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED'],
+  ])('fails the receipt closed for a %s', async (_state, blockedCode) => {
+    mockCheckoutFetch(buildContext({
+      appointment: {
+        ...buildContext().appointment,
+        status: 'completed',
+        paymentStatus: 'partially_paid',
+        finalPriceCents: 4500,
+        taxEnabledSnapshot: true,
+        taxNameSnapshot: 'HST',
+        taxRateBps: 1300,
+        taxInclusive: false,
+        taxAmountCents: 585,
+      },
+      depositCredit: {
+        state: 'blocked',
+        blockedCode,
+        collectedCents: 2500,
+        refundedCents: 0,
+        eligibleCents: 0,
+      },
+      // These tempting values must never become definitive receipt amounts
+      // while the server says the deposit/refund state is unresolved.
+      balance: {
+        serviceInvoiceTotalCents: 5085,
+        totalDueCents: 5085,
+        appointmentPaymentsCents: 1000,
+        depositCreditAppliedCents: 0,
+        amountAlreadyPaidCents: 1000,
+        balanceCents: 4085,
+        excessDepositCents: 0,
+      },
+    }));
+    render(
+      <CheckoutSheet
+        isOpen
+        appointmentId="appt_1"
+        initialView="receipt"
+        onClose={vi.fn()}
+      />,
+    );
+
+    const review = await screen.findByTestId('checkout-receipt-financial-review');
+
+    expect(review).toHaveTextContent('Payment totals are under review');
+    expect(screen.queryByTestId('checkout-receipt-other-payments')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('checkout-receipt-already-paid')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('checkout-receipt-balance')).not.toBeInTheDocument();
+    expect(screen.getByTestId('checkout-receipt-deposit-paid')).toHaveTextContent('$25.00');
   });
 });

@@ -1,23 +1,35 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { andMock, descMock, eqMock, inArrayMock, select, db, requireClientApiSession, requireClientSalonFromQuery } = vi.hoisted(() => {
+import { GET } from './route';
+
+vi.mock('server-only', () => ({}));
+
+const { andMock, descMock, eqMock, inArrayMock, select, selectQueue, db, requireClientApiSession, requireClientSalonFromQuery } = vi.hoisted(() => {
   const andMock = vi.fn(() => 'and');
   const descMock = vi.fn(() => 'desc');
   const eqMock = vi.fn(() => 'eq');
   const inArrayMock = vi.fn(() => 'inArray');
-  const orderBy = vi.fn(async () => []);
-  const where = vi.fn(() => ({ orderBy }));
-  const from = vi.fn(() => ({ where }));
-  const select = vi.fn(() => ({ from }));
+  const selectQueue: unknown[] = [];
+  const select = vi.fn(() => {
+    const result = selectQueue.shift() ?? [];
+    const orderBy = vi.fn(async () => result);
+    const where = vi.fn(() => {
+      const query = Promise.resolve(result) as Promise<unknown> & {
+        orderBy: typeof orderBy;
+      };
+      query.orderBy = orderBy;
+      return query;
+    });
+    const from = vi.fn(() => ({ where }));
+    return { from };
+  });
 
   return {
     andMock,
     descMock,
     eqMock,
     inArrayMock,
-    orderBy,
-    where,
-    from,
+    selectQueue,
     select,
     db: {
       select,
@@ -48,11 +60,10 @@ vi.mock('@/libs/clientApiGuards', () => ({
   requireClientSalonFromQuery,
 }));
 
-import { GET } from './route';
-
 describe('GET /api/appointments/history', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    selectQueue.length = 0;
   });
 
   it('rejects caller-supplied phone access when there is no authenticated client session', async () => {
@@ -135,5 +146,57 @@ describe('GET /api/appointments/history', () => {
       },
     });
     expect(select).not.toHaveBeenCalled();
+  });
+
+  it('loads cross-tenant payment children and blocks the history response', async () => {
+    requireClientApiSession.mockResolvedValue({
+      ok: true,
+      normalizedPhone: '1111111111',
+      phoneVariants: ['1111111111'],
+      session: {
+        phone: '+11111111111',
+        clientName: 'Ava',
+        sessionId: 'client_session_1',
+      },
+    });
+    requireClientSalonFromQuery.mockResolvedValue({
+      ok: true,
+      salon: { id: 'salon_1' },
+    });
+    selectQueue.push(
+      [{
+        id: 'appt_dirty_payment',
+        salonId: 'salon_1',
+        clientPhone: '1111111111',
+        startTime: new Date('2026-07-01T14:00:00.000Z'),
+        endTime: new Date('2026-07-01T15:00:00.000Z'),
+        status: 'completed',
+        totalPrice: 5000,
+        totalDurationMinutes: 60,
+        amountPaidCents: null,
+        paymentStatus: 'paid',
+        invoiceCurrency: 'CAD',
+        bookingTaxSnapshot: null,
+        rescheduleTaxSnapshot: null,
+        finalTaxSnapshot: null,
+      }],
+      [],
+      [],
+      [{
+        id: 'payment_dirty_tenant',
+        appointmentId: 'appt_dirty_payment',
+        salonId: 'salon_foreign',
+        amountCents: 5000,
+        voidedAt: null,
+      }],
+    );
+
+    const response = await GET(new Request(
+      'http://localhost/api/appointments/history?salonSlug=salon-a',
+    ));
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('PAYMENT_LEDGER_RECONCILIATION_REQUIRED');
   });
 });

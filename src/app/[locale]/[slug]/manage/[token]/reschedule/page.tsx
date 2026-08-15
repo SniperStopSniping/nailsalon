@@ -2,8 +2,10 @@ import { and, eq } from 'drizzle-orm';
 import type { Metadata } from 'next';
 
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
+import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
+import { formatMoney } from '@/libs/formatMoney';
 import { SMART_FIT_DISCOUNT_TYPE } from '@/libs/smartFit';
 import {
   formatDateInTimeZone,
@@ -102,12 +104,12 @@ export default async function RescheduleAppointmentPage({
       .where(eq(appointmentAddOnSchema.appointmentId, appointment.id)),
     appointment.technicianId
       ? db.select({ name: technicianSchema.name })
-        .from(technicianSchema)
-        .where(and(
-          eq(technicianSchema.id, appointment.technicianId),
-          eq(technicianSchema.salonId, appointment.salonId),
-        ))
-        .limit(1)
+          .from(technicianSchema)
+          .where(and(
+            eq(technicianSchema.id, appointment.technicianId),
+            eq(technicianSchema.salonId, appointment.salonId),
+          ))
+          .limit(1)
       : Promise.resolve([]),
   ]);
 
@@ -124,6 +126,13 @@ export default async function RescheduleAppointmentPage({
   );
   const currentLabel = `${formatDateInTimeZone(appointment.startTime.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, timeZone)} at ${formatTimeInTimeZone(appointment.startTime.toISOString(), {}, timeZone)}`;
   const discountAmountCents = appointment.discountAmountCents ?? 0;
+  const taxChain = validateAppointmentTaxSnapshotChain(appointment);
+  const activeSnapshot = taxChain.ok ? taxChain.active.snapshot : null;
+  const frozenCurrency = taxChain.ok ? taxChain.invoiceCurrency : null;
+  const financialReviewRequired = activeSnapshot === null || frozenCurrency === null;
+  const priceLabel = financialReviewRequired
+    ? 'Financial details are under review.'
+    : `Current invoice estimate: ${formatMoney(activeSnapshot.invoiceTotalCents, frozenCurrency)} ${frozenCurrency}`;
 
   return (
     <main className="min-h-screen bg-stone-50 px-4 py-10">
@@ -144,9 +153,10 @@ export default async function RescheduleAppointmentPage({
             currentDateKey={currentDateKey}
             currentTimeKey={currentTimeKey}
             currentLabel={currentLabel}
-            priceLabel={`Total $${(appointment.totalPrice / 100).toFixed(2)} ${bookingConfig.currency}`}
+            priceLabel={priceLabel}
             discountNote={null}
-            currency={bookingConfig.currency}
+            currency={frozenCurrency}
+            financialReviewRequired={financialReviewRequired}
             subtotalCents={appointment.subtotalBeforeDiscountCents ?? appointment.totalPrice + discountAmountCents}
             committedDiscountCents={discountAmountCents}
             committedDiscountLabel={appointment.discountLabel}

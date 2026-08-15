@@ -99,7 +99,9 @@ function formatDate(value: string | null, timeZone: string): string {
 
 function reasonDescription(item: ClientInsightAttentionItem): string {
   if (item.primaryReason === 'completed_outstanding') {
-    return 'Completed balance to review';
+    return item.financialState === 'under_review'
+      ? 'Completed financials under review'
+      : 'Completed balance to review';
   }
   return CLIENT_INSIGHT_SEGMENT_LABELS[item.primaryReason];
 }
@@ -427,85 +429,85 @@ export function ClientInsightsPanel({
                   </div>
                 )
               : data.attention.items.map((item, index) => (
-                <article
-                  key={item.clientId}
-                  className={`p-4 sm:p-5 ${index > 0 ? 'border-t border-stone-100' : ''}`}
-                  data-testid={`client-insights-attention-${item.clientId}`}
-                >
-                  <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <button
-                      type="button"
-                      onClick={() => onOpenClient(item.clientId)}
-                      className="min-w-0 text-left focus:outline-none focus:ring-2 focus:ring-rose-400"
-                    >
-                      <span className="block truncate font-semibold text-stone-950">
-                        {item.clientName || 'Client'}
-                      </span>
-                      <span className="mt-1 block text-sm font-medium text-[#8c3657]">
-                        {reasonDescription(item)}
-                      </span>
-                      <span className="mt-1 block text-xs text-stone-500">
-                        Last visit:
-                        {' '}
-                        {formatDate(item.lastVisitAt, data.timeZone)}
-                      </span>
-                    </button>
-                    <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                  <article
+                    key={item.clientId}
+                    className={`p-4 sm:p-5 ${index > 0 ? 'border-t border-stone-100' : ''}`}
+                    data-testid={`client-insights-attention-${item.clientId}`}
+                  >
+                    <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                       <button
                         type="button"
                         onClick={() => onOpenClient(item.clientId)}
-                        className="min-h-10 rounded-full border border-stone-200 px-3 text-xs font-semibold text-stone-700"
+                        className="min-w-0 text-left focus:outline-none focus:ring-2 focus:ring-rose-400"
                       >
-                        View
+                        <span className="block truncate font-semibold text-stone-950">
+                          {item.clientName || 'Client'}
+                        </span>
+                        <span className="mt-1 block text-sm font-medium text-[#8c3657]">
+                          {reasonDescription(item)}
+                        </span>
+                        <span className="mt-1 block text-xs text-stone-500">
+                          Last visit:
+                          {' '}
+                          {formatDate(item.lastVisitAt, data.timeZone)}
+                        </span>
                       </button>
-                      <button
-                        type="button"
-                        onClick={() => onBookClient(item)}
-                        className="flex min-h-10 items-center justify-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-800"
-                      >
-                        <CalendarPlus size={14} />
-                        Book
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => prepareText(item)}
-                        className="flex min-h-10 items-center justify-center gap-1 rounded-full bg-[#6f2745] px-3 text-xs font-semibold text-white"
-                      >
-                        <MessageCircle size={14} />
-                        Text
-                      </button>
+                      <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:justify-end">
+                        <button
+                          type="button"
+                          onClick={() => onOpenClient(item.clientId)}
+                          className="min-h-10 rounded-full border border-stone-200 px-3 text-xs font-semibold text-stone-700"
+                        >
+                          View
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onBookClient(item)}
+                          className="flex min-h-10 items-center justify-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-800"
+                        >
+                          <CalendarPlus size={14} />
+                          Book
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => prepareText(item)}
+                          className="flex min-h-10 items-center justify-center gap-1 rounded-full bg-[#6f2745] px-3 text-xs font-semibold text-white"
+                        >
+                          <MessageCircle size={14} />
+                          Text
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                  {item.outreachStage && (
-                    <div className="mt-3 flex flex-wrap gap-4 pl-0 sm:justify-end">
-                      <button
-                        type="button"
-                        disabled={actionBusy !== null}
-                        onClick={() => void resolveRetention(item, 'snoozed')}
-                        className="text-xs font-semibold text-stone-600 underline disabled:opacity-50"
-                      >
-                        Snooze 7 days
-                      </button>
-                      <button
-                        type="button"
-                        disabled={actionBusy !== null}
-                        onClick={() => void resolveRetention(item, 'dismissed')}
-                        className="text-xs font-semibold text-stone-500 underline disabled:opacity-50"
-                      >
-                        Dismiss
-                      </button>
-                      <button
-                        type="button"
-                        disabled={actionBusy !== null}
-                        onClick={() => void resolveRetention(item, 'converted')}
-                        className="text-xs font-semibold text-rose-800 underline disabled:opacity-50"
-                      >
-                        Mark complete
-                      </button>
-                    </div>
-                  )}
-                </article>
-              ))}
+                    {item.outreachStage && (
+                      <div className="mt-3 flex flex-wrap gap-4 pl-0 sm:justify-end">
+                        <button
+                          type="button"
+                          disabled={actionBusy !== null}
+                          onClick={() => void resolveRetention(item, 'snoozed')}
+                          className="text-xs font-semibold text-stone-600 underline disabled:opacity-50"
+                        >
+                          Snooze 7 days
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actionBusy !== null}
+                          onClick={() => void resolveRetention(item, 'dismissed')}
+                          className="text-xs font-semibold text-stone-500 underline disabled:opacity-50"
+                        >
+                          Dismiss
+                        </button>
+                        <button
+                          type="button"
+                          disabled={actionBusy !== null}
+                          onClick={() => void resolveRetention(item, 'converted')}
+                          className="text-xs font-semibold text-rose-800 underline disabled:opacity-50"
+                        >
+                          Mark complete
+                        </button>
+                      </div>
+                    )}
+                  </article>
+                ))}
           </section>
 
           {actionError && (

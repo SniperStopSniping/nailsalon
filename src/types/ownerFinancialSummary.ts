@@ -21,6 +21,8 @@ export type OwnerFinancialSummary = {
     completedOutstandingCents: number;
     completed: FinancialPeriodSummary['provenance'];
     settledByLegacyPaymentStatusCount: number;
+    unknownCurrencyAppointmentCount?: number;
+    excludedForeignCurrencyAppointmentCount?: number;
     asOf: string;
   };
 };

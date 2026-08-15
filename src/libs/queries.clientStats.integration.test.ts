@@ -127,4 +127,165 @@ describe('updateSalonClientStats (0058 basis)', () => {
     expect(salonClient!.totalSpent).toBe(4500);
     expect(salonClient!.loyaltyPoints).toBe(900);
   });
+
+  it('defers deposit-funded reward attribution across repeated stats refreshes', async () => {
+    await db
+      .update(schema.appointmentSchema)
+      .set({ paymentStatus: 'paid', invoiceCurrency: 'CAD' })
+      .where(eq(schema.appointmentSchema.id, 'appt_stats_2'));
+    await db.insert(schema.appointmentDepositSchema).values({
+      id: 'dep_stats_d6_1',
+      salonId: SALON_ID,
+      appointmentId: 'appt_stats_2',
+      amountCents: 2500,
+      currency: 'cad',
+      status: 'paid',
+      stripeAccountId: 'acct_stats',
+      stripePaymentIntentId: 'pi_stats_d6_1',
+    });
+    await db
+      .update(schema.salonClientSchema)
+      .set({ loyaltyPoints: 777 })
+      .where(eq(schema.salonClientSchema.id, 'sclient_stats'));
+
+    await updateSalonClientStats(SALON_ID, PHONE);
+    await updateSalonClientStats(SALON_ID, PHONE);
+
+    const [salonClient] = await db
+      .select()
+      .from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, 'sclient_stats'));
+
+    expect(salonClient!.totalSpent).toBe(10500);
+    expect(salonClient!.loyaltyPoints).toBe(777);
+  });
+
+  it('preserves legacy loyalty behavior after a full deposit refund and full tender', async () => {
+    const refundedAt = new Date('2026-06-30T12:00:00.000Z');
+    await db
+      .update(schema.appointmentDepositSchema)
+      .set({
+        status: 'refunded',
+        stripeRefundId: 're_stats_d6_1',
+        refundStatus: 'succeeded',
+        refundStatusChangedAt: refundedAt,
+        refundAmountCents: 2500,
+        refundRequestedAt: refundedAt,
+        refundTrigger: 'owner',
+        refundedAt,
+      })
+      .where(eq(schema.appointmentDepositSchema.id, 'dep_stats_d6_1'));
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: 'pay_stats_refunded_full_tender',
+      salonId: SALON_ID,
+      appointmentId: 'appt_stats_2',
+      amountCents: 6780,
+      method: 'cash',
+      recordedByType: 'admin',
+    });
+    await db.update(schema.appointmentSchema).set({
+      amountPaidCents: 6780,
+      paymentStatus: 'paid',
+    }).where(eq(schema.appointmentSchema.id, 'appt_stats_2'));
+    await db
+      .update(schema.salonClientSchema)
+      .set({ totalSpent: 4500, loyaltyPoints: 900 })
+      .where(eq(schema.salonClientSchema.id, 'sclient_stats'));
+
+    await updateSalonClientStats(SALON_ID, PHONE);
+
+    const [salonClient] = await db
+      .select()
+      .from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, 'sclient_stats'));
+
+    expect(salonClient!.totalSpent).toBe(10500);
+    expect(salonClient!.loyaltyPoints).toBe(2100);
+  });
+
+  it('keeps deferred loyalty sticky after an applied-credit completion is later refunded', async () => {
+    await db.insert(schema.appointmentAuditLogSchema).values({
+      id: 'audit_stats_deposit_credit_applied',
+      salonId: SALON_ID,
+      appointmentId: 'appt_stats_2',
+      action: 'completed',
+      performedBy: 'admin_stats',
+      performedByRole: 'admin',
+      newValue: { depositCreditAppliedCents: 2500 },
+    });
+    await db.delete(schema.appointmentPaymentSchema)
+      .where(eq(schema.appointmentPaymentSchema.id, 'pay_stats_refunded_full_tender'));
+    await db.update(schema.appointmentSchema).set({
+      amountPaidCents: 0,
+      paymentStatus: 'pending',
+      status: 'confirmed',
+      completedAt: null,
+    }).where(eq(schema.appointmentSchema.id, 'appt_stats_2'));
+    await db.update(schema.salonClientSchema).set({
+      totalSpent: 10500,
+      loyaltyPoints: 900,
+    }).where(eq(schema.salonClientSchema.id, 'sclient_stats'));
+
+    await updateSalonClientStats(SALON_ID, PHONE);
+
+    const [salonClient] = await db.select()
+      .from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, 'sclient_stats'));
+
+    expect(salonClient!.totalSpent).toBe(4500);
+    expect(salonClient!.loyaltyPoints).toBe(900);
+  });
+
+  it('does not award points from a refunded historical deposit without tender provenance', async () => {
+    const dirtyPhone = '4165550199';
+    await db.insert(schema.salonClientSchema).values({
+      id: 'sclient_stats_dirty_refund',
+      salonId: SALON_ID,
+      phone: dirtyPhone,
+      fullName: 'Historical Refund Client',
+      loyaltyPoints: 333,
+      totalSpent: 0,
+    });
+    await db.insert(schema.appointmentSchema).values({
+      id: 'appt_stats_dirty_refund',
+      salonId: SALON_ID,
+      salonClientId: 'sclient_stats_dirty_refund',
+      clientPhone: dirtyPhone,
+      startTime: new Date('2026-06-20T15:00:00.000Z'),
+      endTime: new Date('2026-06-20T16:00:00.000Z'),
+      totalDurationMinutes: 60,
+      status: 'completed',
+      paymentStatus: 'paid',
+      totalPrice: 6000,
+      finalPriceCents: 6000,
+      invoiceCurrency: 'CAD',
+      completedAt: new Date('2026-06-20T16:00:00.000Z'),
+    });
+    await db.insert(schema.appointmentDepositSchema).values({
+      id: 'dep_stats_dirty_refund',
+      salonId: SALON_ID,
+      appointmentId: 'appt_stats_dirty_refund',
+      amountCents: 2500,
+      currency: 'cad',
+      status: 'refunded',
+      stripeAccountId: 'acct_stats',
+      stripePaymentIntentId: 'pi_stats_dirty_refund',
+      stripeRefundId: 're_stats_dirty_refund',
+      refundStatus: 'succeeded',
+      refundStatusChangedAt: new Date('2026-06-19T12:00:00.000Z'),
+      refundAmountCents: 2500,
+      refundRequestedAt: new Date('2026-06-19T12:00:00.000Z'),
+      refundTrigger: 'owner',
+      refundedAt: new Date('2026-06-19T12:00:00.000Z'),
+    });
+
+    await updateSalonClientStats(SALON_ID, dirtyPhone);
+
+    const [salonClient] = await db.select()
+      .from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, 'sclient_stats_dirty_refund'));
+
+    expect(salonClient!.totalSpent).toBe(6000);
+    expect(salonClient!.loyaltyPoints).toBe(333);
+  });
 });

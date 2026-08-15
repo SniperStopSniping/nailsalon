@@ -2,9 +2,11 @@ import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
-import { revenueCentsSql } from '@/libs/revenueSql';
+import { getCompletedFinancialResolution } from '@/libs/financialReportingServer';
 import { appointmentSchema, clientSchema, technicianSchema } from '@/models/Schema';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -65,6 +67,9 @@ export async function GET(
     if (error || !salon) {
       return error!;
     }
+    const bookingConfig = resolveBookingConfigFromSettings(
+      salon.settings as SalonSettings | null | undefined,
+    );
 
     // Verify technician exists and belongs to salon
     const [technician] = await db
@@ -97,7 +102,6 @@ export async function GET(
         clientPhone: appointmentSchema.clientPhone,
         clientName: appointmentSchema.clientName,
         totalVisits: sql<number>`count(*)`,
-        totalSpent: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
         lastVisit: sql<string>`max(${appointmentSchema.startTime})`,
         firstVisit: sql<string>`min(${appointmentSchema.startTime})`,
       })
@@ -105,13 +109,38 @@ export async function GET(
       .where(
         and(
           eq(appointmentSchema.technicianId, id),
+          eq(appointmentSchema.salonId, salon.id),
           eq(appointmentSchema.status, 'completed'),
         ),
       )
       .groupBy(appointmentSchema.clientPhone, appointmentSchema.clientName);
 
     // Get all results first for search and pagination
-    const allClientStats = await clientStatsQuery;
+    const [allClientStats, canonicalFinancialResolution] = await Promise.all([
+      clientStatsQuery,
+      getCompletedFinancialResolution({
+        salonId: salon.id,
+        currency: bookingConfig.currency,
+        asOf: new Date(),
+        technicianId: id,
+      }),
+    ]);
+    const canonicalFinancialRows = canonicalFinancialResolution.resolvedRows;
+    const settledSpendByPhone = new Map<string, number>();
+    const unresolvedPhones = new Set(
+      canonicalFinancialResolution.unresolvedRows.map(row =>
+        row.clientPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '')),
+    );
+    for (const row of canonicalFinancialRows) {
+      if (!row.financiallySettled) {
+        continue;
+      }
+      const phone = row.clientPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
+      settledSpendByPhone.set(
+        phone,
+        (settledSpendByPhone.get(phone) ?? 0) + row.serviceValueCents,
+      );
+    }
 
     // Filter by search if provided
     let filteredClients = allClientStats;
@@ -150,11 +179,16 @@ export async function GET(
     // Format response
     const clients = paginatedClients.map((stat) => {
       const clientRecord = clientMap.get(stat.clientPhone);
+      const phoneKey = stat.clientPhone.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
       return {
         clientPhone: stat.clientPhone,
         clientName: stat.clientName || clientRecord?.firstName || 'Unknown',
         totalVisits: Number(stat.totalVisits),
-        totalSpent: Number(stat.totalSpent),
+        totalSpent: settledSpendByPhone.get(phoneKey) ?? 0,
+        currency: bookingConfig.currency,
+        spendState: unresolvedPhones.has(phoneKey)
+          ? 'under_review' as const
+          : 'canonical_settled' as const,
         lastVisit: stat.lastVisit,
         firstVisit: stat.firstVisit,
       };

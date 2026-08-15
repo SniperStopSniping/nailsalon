@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { PUT } from './route';
+
+vi.mock('server-only', () => ({}));
+
 const { db, requireAdminSalon, setSelectPlan, updateSetSpy } = vi.hoisted(() => {
   let selectPlan: unknown[] = [];
   const updateSetSpy = vi.fn();
@@ -58,8 +62,6 @@ vi.mock('@/libs/adminAuth', () => ({
 vi.mock('@/libs/DB', () => ({
   db,
 }));
-
-import { PUT } from './route';
 
 describe('PUT /api/admin/technicians/[id]', () => {
   beforeEach(() => {
@@ -192,7 +194,9 @@ describe('PUT /api/admin/technicians/[id]', () => {
     );
 
     expect(response.status).toBe(200);
+
     const updatePayload = updateSetSpy.mock.calls[0]?.[0];
+
     expect(updatePayload).not.toHaveProperty('rating');
     expect(updatePayload).not.toHaveProperty('reviewCount');
     expect(updatePayload).toHaveProperty('acceptingNewClients', false);

@@ -109,6 +109,7 @@ async function seedHold(input: {
     status: input.appointmentStatus ?? 'awaiting_payment',
     totalPrice: 9000,
     totalDurationMinutes: 60,
+    invoiceCurrency: 'CAD',
     depositHoldExpiresAt: new Date(Date.now() + 1_800_000),
   });
 
@@ -390,7 +391,10 @@ describe('TX-B hold arm', () => {
 
     await confirmDepositPayment(evidence({ sessionId: hold.sessionId, paymentIntentId: 'pi_abc' }));
 
-    expect((await readDeposit(hold.depositId))?.stripePaymentIntentId).toBe('pi_abc');
+    const paidDeposit = await readDeposit(hold.depositId);
+
+    expect(paidDeposit?.stripePaymentIntentId).toBe('pi_abc');
+    expect(paidDeposit?.collectedAt).toBeInstanceOf(Date);
 
     const audits = await auditRows(hold.appointmentId);
 
@@ -473,7 +477,22 @@ describe('TX-B settled arms', () => {
       const result = await confirmDepositPayment(evidence({ sessionId: hold.sessionId }));
 
       expect(result.disposition).toBe('healed_deposit');
-      expect((await readDeposit(hold.depositId))?.status).toBe('paid');
+
+      const paidDeposit = await readDeposit(hold.depositId);
+
+      expect(paidDeposit?.status).toBe('paid');
+      expect(paidDeposit?.collectedAt).toBeInstanceOf(Date);
+
+      if (appointmentStatus === 'no_show') {
+        expect(paidDeposit?.forfeitedAt).toEqual(paidDeposit?.collectedAt);
+        expect(paidDeposit?.forfeitureTaxSnapshot).toMatchObject({
+          kind: 'forfeiture_estimate',
+          currency: 'CAD',
+          grossForfeitedCents: AMOUNT,
+          taxEstimateApplied: false,
+        });
+      }
+
       expect((await readAppointment(hold.appointmentId))?.status).toBe(appointmentStatus);
     },
   );
@@ -496,7 +515,19 @@ describe('TX-B settled arms', () => {
       const result = await confirmDepositPayment(evidence({ sessionId: hold.sessionId }));
 
       expect(result.disposition).toBe('healed_deposit_late');
-      expect((await readDeposit(hold.depositId))?.status).toBe('paid');
+
+      const paidDeposit = await readDeposit(hold.depositId);
+
+      expect(paidDeposit?.status).toBe('paid');
+
+      if (appointmentStatus === 'no_show') {
+        expect(paidDeposit?.forfeitedAt).toEqual(paidDeposit?.collectedAt);
+        expect(paidDeposit?.forfeitureTaxSnapshot).toMatchObject({
+          grossForfeitedCents: AMOUNT,
+          currency: 'CAD',
+        });
+      }
+
       // Compensating a no-show is the reason a deposit exists; refunding it
       // would return the money in precisely the case it was designed for.
       expect((await readAppointment(hold.appointmentId))?.status).toBe(appointmentStatus);
@@ -507,6 +538,88 @@ describe('TX-B settled arms', () => {
     },
   );
 
+  it('synchronizes a completed invoice when the late deposit exactly fills its balance', async () => {
+    const hold = await seedHold({
+      appointmentStatus: 'completed',
+      depositStatus: 'expired',
+    });
+    await db.update(schema.appointmentSchema).set({
+      finalPriceCents: 9000,
+      taxAmountCents: 0,
+      tipCents: 0,
+      amountPaidCents: 6500,
+      paymentStatus: 'partially_paid',
+      completedAt: new Date(Date.now() - 60_000),
+    }).where(eq(schema.appointmentSchema.id, hold.appointmentId));
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: `pay_${hold.appointmentId}`,
+      appointmentId: hold.appointmentId,
+      salonId: SALON,
+      amountCents: 6500,
+      recordedByType: 'staff',
+      recordedById: 'tech_confirm',
+    });
+
+    const result = await confirmDepositPayment(evidence({ sessionId: hold.sessionId }));
+
+    expect(result).toMatchObject({
+      disposition: 'healed_deposit_late',
+      depositId: hold.depositId,
+    });
+    expect(result.note).toBeUndefined();
+    expect(await readAppointment(hold.appointmentId)).toMatchObject({
+      paymentStatus: 'paid',
+      amountPaidCents: 6500,
+    });
+    expect((await auditRows(hold.appointmentId)).map(row => row.reason)).toContain(
+      'late_deposit_completed_invoice_synchronized',
+    );
+  });
+
+  it('keeps a completed late capture but marks tender overpayment for reconciliation', async () => {
+    const hold = await seedHold({
+      appointmentStatus: 'completed',
+      depositStatus: 'expired',
+    });
+    await db.update(schema.appointmentSchema).set({
+      finalPriceCents: 9000,
+      taxAmountCents: 0,
+      tipCents: 0,
+      amountPaidCents: 9000,
+      paymentStatus: 'paid',
+      completedAt: new Date(Date.now() - 60_000),
+    }).where(eq(schema.appointmentSchema.id, hold.appointmentId));
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: `pay_${hold.appointmentId}`,
+      appointmentId: hold.appointmentId,
+      salonId: SALON,
+      amountCents: 9000,
+      recordedByType: 'staff',
+      recordedById: 'tech_confirm',
+    });
+
+    const result = await confirmDepositPayment(evidence({ sessionId: hold.sessionId }));
+
+    expect(result).toMatchObject({
+      disposition: 'healed_deposit_late',
+      note: 'APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED',
+    });
+    expect(await readDeposit(hold.depositId)).toMatchObject({ status: 'paid' });
+    expect(await readAppointment(hold.appointmentId)).toMatchObject({
+      paymentStatus: 'pending',
+      amountPaidCents: 9000,
+    });
+    expect(await auditRows(hold.appointmentId)).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        reason: 'late_deposit_overpayment_reconciliation_required',
+        newValue: expect.objectContaining({
+          reconciliationRequired: true,
+          tenderExcessCents: AMOUNT,
+        }),
+      }),
+    ]));
+  });
+
   it('acks a redelivery against a paid deposit under a no_show appointment', async () => {
     // Ordinary idempotent redelivery after the owner no-showed a confirmed
     // deposit booking — not a new money decision, and NOT a duplicate session.
@@ -514,11 +627,13 @@ describe('TX-B settled arms', () => {
       appointmentStatus: 'no_show',
       depositStatus: 'paid',
       sessionId: 'cs_same',
+      paymentIntentId: 'pi_1',
     });
 
     const result = await confirmDepositPayment(evidence({ sessionId: 'cs_same' }));
 
     expect(result.disposition).toBe('already_confirmed');
+    expect((await readDeposit(hold.depositId))?.forfeitedAt).toBeInstanceOf(Date);
     expect(await outboxRows(hold.appointmentId)).toHaveLength(0);
   });
 

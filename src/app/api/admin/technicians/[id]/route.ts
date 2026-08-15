@@ -2,8 +2,9 @@ import { and, eq, gte, inArray, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
-import { revenueCentsSql } from '@/libs/revenueSql';
+import { getCompletedRevenueRows } from '@/libs/financialReportingServer';
 import { roundTechnicianRating } from '@/libs/technicianRating';
 import { normalizeWeeklySchedule, resolveWeeklySchedule } from '@/libs/weeklySchedule';
 import {
@@ -19,6 +20,7 @@ import {
   technicianServicesSchema,
   technicianTimeOffSchema,
 } from '@/models/Schema';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -133,6 +135,9 @@ export async function GET(
     if (error || !salon) {
       return error!;
     }
+    const bookingConfig = resolveBookingConfigFromSettings(
+      salon.settings as SalonSettings | null | undefined,
+    );
 
     // Get technician (including inactive for admin view)
     const [technician] = await db
@@ -192,55 +197,38 @@ export async function GET(
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
 
     const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const canonicalRevenueRows = await getCompletedRevenueRows({
+      salonId: salon.id,
+      currency: bookingConfig.currency,
+      start: new Date(0),
+      end: tomorrow,
+    });
+    const technicianRevenueRows = canonicalRevenueRows.filter(
+      row => row.technicianId === id,
+    );
 
     // Today stats
     const todayAppts = await db
       .select({
         count: sql<number>`count(*)`,
-        revenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
-        completed: sql<number>`count(*) filter (where ${appointmentSchema.status} = 'completed')`,
       })
       .from(appointmentSchema)
       .where(
         and(
           eq(appointmentSchema.technicianId, id),
+          eq(appointmentSchema.salonId, salon.id),
           gte(appointmentSchema.startTime, today),
           lt(appointmentSchema.startTime, tomorrow),
           inArray(appointmentSchema.status, ['confirmed', 'completed', 'in_progress']),
         ),
       );
 
-    // This week stats
-    const weekAppts = await db
-      .select({
-        count: sql<number>`count(*)`,
-        revenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
-      })
-      .from(appointmentSchema)
-      .where(
-        and(
-          eq(appointmentSchema.technicianId, id),
-          gte(appointmentSchema.startTime, weekStart),
-          lt(appointmentSchema.startTime, tomorrow),
-          eq(appointmentSchema.status, 'completed'),
-        ),
-      );
-
-    // This month stats
-    const monthAppts = await db
-      .select({
-        count: sql<number>`count(*)`,
-        revenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
-      })
-      .from(appointmentSchema)
-      .where(
-        and(
-          eq(appointmentSchema.technicianId, id),
-          gte(appointmentSchema.startTime, monthStart),
-          lt(appointmentSchema.startTime, tomorrow),
-          eq(appointmentSchema.status, 'completed'),
-        ),
-      );
+    const weekRevenueRows = technicianRevenueRows.filter(
+      row => row.startTime >= weekStart && row.startTime < tomorrow,
+    );
+    const monthRevenueRows = technicianRevenueRows.filter(
+      row => row.startTime >= monthStart && row.startTime < tomorrow,
+    );
 
     // Count unique clients
     const clientsCount = await db
@@ -251,6 +239,7 @@ export async function GET(
       .where(
         and(
           eq(appointmentSchema.technicianId, id),
+          eq(appointmentSchema.salonId, salon.id),
           eq(appointmentSchema.status, 'completed'),
         ),
       );
@@ -262,20 +251,24 @@ export async function GET(
     // Get all-time appointment counts by status for this technician
     const allTimeStats = await db
       .select({
-        completed: sql<number>`count(*) filter (where ${appointmentSchema.status} = 'completed')`,
         noShow: sql<number>`count(*) filter (where ${appointmentSchema.status} = 'no_show')`,
         cancelled: sql<number>`count(*) filter (where ${appointmentSchema.status} = 'cancelled')`,
         totalBooked: sql<number>`count(*) filter (where ${appointmentSchema.status} in ('completed', 'no_show', 'cancelled'))`,
-        totalRevenue: sql<number>`coalesce(sum(${revenueCentsSql()}) filter (where ${appointmentSchema.status} = 'completed'), 0)`,
       })
       .from(appointmentSchema)
-      .where(eq(appointmentSchema.technicianId, id));
+      .where(and(
+        eq(appointmentSchema.technicianId, id),
+        eq(appointmentSchema.salonId, salon.id),
+      ));
 
-    const completedCount = Number(allTimeStats[0]?.completed ?? 0);
+    const completedCount = technicianRevenueRows.length;
     const noShowCount = Number(allTimeStats[0]?.noShow ?? 0);
     const cancelledCount = Number(allTimeStats[0]?.cancelled ?? 0);
     const totalBooked = Number(allTimeStats[0]?.totalBooked ?? 0);
-    const totalRevenueAllTime = Number(allTimeStats[0]?.totalRevenue ?? 0);
+    const totalRevenueAllTime = technicianRevenueRows.reduce(
+      (sum, row) => sum + row.serviceValueCents,
+      0,
+    );
 
     // Calculate rates (0-1 decimals, avoid divide by zero)
     const noShowRate = totalBooked > 0 ? noShowCount / totalBooked : 0;
@@ -318,9 +311,21 @@ export async function GET(
 
     // Calculate earnings
     const commissionRate = technician.commissionRate ? Number.parseFloat(technician.commissionRate) : 0;
-    const todayRevenue = Number(todayAppts[0]?.revenue ?? 0);
-    const weekRevenue = Number(weekAppts[0]?.revenue ?? 0);
-    const monthRevenue = Number(monthAppts[0]?.revenue ?? 0);
+    const todayRevenueRows = technicianRevenueRows.filter(
+      row => row.startTime >= today && row.startTime < tomorrow,
+    );
+    const todayRevenue = todayRevenueRows.reduce(
+      (sum, row) => sum + row.serviceValueCents,
+      0,
+    );
+    const weekRevenue = weekRevenueRows.reduce(
+      (sum, row) => sum + row.serviceValueCents,
+      0,
+    );
+    const monthRevenue = monthRevenueRows.reduce(
+      (sum, row) => sum + row.serviceValueCents,
+      0,
+    );
 
     return Response.json({
       data: {
@@ -370,19 +375,19 @@ export async function GET(
         stats: {
           today: {
             appointments: Number(todayAppts[0]?.count ?? 0),
-            completed: Number(todayAppts[0]?.completed ?? 0),
+            completed: todayRevenueRows.length,
             revenue: todayRevenue,
             techEarned: Math.round(todayRevenue * commissionRate),
             salonEarned: Math.round(todayRevenue * (1 - commissionRate)),
           },
           thisWeek: {
-            appointments: Number(weekAppts[0]?.count ?? 0),
+            appointments: weekRevenueRows.length,
             revenue: weekRevenue,
             techEarned: Math.round(weekRevenue * commissionRate),
             salonEarned: Math.round(weekRevenue * (1 - commissionRate)),
           },
           thisMonth: {
-            appointments: Number(monthAppts[0]?.count ?? 0),
+            appointments: monthRevenueRows.length,
             revenue: monthRevenue,
             techEarned: Math.round(monthRevenue * commissionRate),
             salonEarned: Math.round(monthRevenue * (1 - commissionRate)),

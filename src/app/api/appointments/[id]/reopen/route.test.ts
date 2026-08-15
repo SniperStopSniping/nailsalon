@@ -165,6 +165,9 @@ const completedAppointment = {
   bufferMinutes: 0,
   status: 'completed',
   completedAt: new Date('2026-08-01T15:00:00.000Z'),
+  bookingTaxSnapshot: null,
+  rescheduleTaxSnapshot: null,
+  finalTaxSnapshot: null,
 };
 
 function request(): Request {
@@ -201,8 +204,9 @@ describe('POST /api/appointments/:id/reopen', () => {
 
   it('locks source lineage, technician, and appointment before the active check and CAS', async () => {
     const response = await POST(request(), { params: { id: 'appt_1' } });
+    const responseBody = await response.clone().json();
 
-    expect(response.status).toBe(200);
+    expect(response.status, JSON.stringify(responseBody)).toBe(200);
     expect(callOrder).toEqual([
       'resolve',
       'client-lock',
@@ -246,6 +250,37 @@ describe('POST /api/appointments/:id/reopen', () => {
     expect(dependentUpdate).not.toHaveBeenCalled();
     expect(auditInsert).not.toHaveBeenCalled();
     expect(updateSalonClientStats).not.toHaveBeenCalled();
+  });
+
+  it('preserves immutable D6.1 invoice evidence instead of reopening it', async () => {
+    const finalTaxSnapshot = {
+      schemaVersion: 1,
+      kind: 'final_actual',
+      classification: 'actual',
+      capturedAt: completedAppointment.completedAt.toISOString(),
+      currency: 'CAD',
+    };
+    lockedAppointment.current = {
+      ...completedAppointment,
+      finalTaxSnapshot,
+    };
+    requireAppointmentManagerAccess.mockResolvedValue({
+      ok: true,
+      actorRole: 'admin',
+      appointment: { ...completedAppointment, finalTaxSnapshot },
+    });
+
+    const response = await POST(request(), { params: { id: 'appt_1' } });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('INVOICE_REVISION_UNSUPPORTED');
+    expect(callOrder).not.toContain('active-check');
+    expect(callOrder).not.toContain('appointment-cas');
+    expect(dependentUpdate).not.toHaveBeenCalled();
+    expect(auditInsert).not.toHaveBeenCalled();
+    expect(updateSalonClientStats).not.toHaveBeenCalled();
+    expect(lockedAppointment.current.finalTaxSnapshot).toEqual(finalTaxSnapshot);
   });
 
   it('lets only the compare-and-set winner mutate dependent state', async () => {

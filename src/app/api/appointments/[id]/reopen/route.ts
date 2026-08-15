@@ -28,12 +28,11 @@ import {
 // =============================================================================
 // POST /api/appointments/[id]/reopen — reopen a completed appointment
 // =============================================================================
-// Admin-only escape hatch for completion mistakes. Returns the appointment to
-// 'in_progress'; the checkout snapshots (final items, tax, payments) are kept
-// and replaced wholesale by the next completion. Payments are NEVER deleted —
-// the balance simply recomputes against the new totals. Client stats/points
-// recompute post-commit (spend drops while reopened; the reconcile floors at
-// zero and preserves non-spend bonuses).
+// Admin-only escape hatch for legacy completion mistakes. D6.1 tax snapshots
+// are immutable invoice evidence and cannot be replaced without an append-only
+// invoice-revision model, so snapshot-backed appointments fail closed. Legacy
+// appointments with no snapshot evidence may still return to 'in_progress'.
+// Payments are NEVER deleted.
 // =============================================================================
 
 const reopenSchema = z.object({
@@ -41,6 +40,7 @@ const reopenSchema = z.object({
 });
 
 class ReopenConflictError extends Error {}
+class InvoiceRevisionUnsupportedError extends Error {}
 
 function errorJson(status: number, code: string, message: string): Response {
   return Response.json({ error: { code, message } }, { status });
@@ -155,6 +155,14 @@ export async function POST(
           throw new ReopenConflictError();
         }
 
+        if (
+          lockedAppointment.bookingTaxSnapshot !== null
+          || lockedAppointment.rescheduleTaxSnapshot !== null
+          || lockedAppointment.finalTaxSnapshot !== null
+        ) {
+          throw new InvoiceRevisionUnsupportedError();
+        }
+
         const lockedIdentity = lockedAppointment.salonClientId
           ? { terminal: await resolveTerminalSalonClientWithHandle(handle, {
               salonId: lockedAppointment.salonId,
@@ -263,6 +271,13 @@ export async function POST(
       },
     });
   } catch (error) {
+    if (error instanceof InvoiceRevisionUnsupportedError) {
+      return errorJson(
+        409,
+        'INVOICE_REVISION_UNSUPPORTED',
+        'This finalized invoice cannot be reopened without immutable invoice revision history.',
+      );
+    }
     if (
       error instanceof ReopenConflictError
       || error instanceof SlotConflictError

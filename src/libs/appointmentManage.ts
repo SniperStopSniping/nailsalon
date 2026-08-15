@@ -2,6 +2,8 @@ import 'server-only';
 
 import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 
+import { listPayments } from '@/libs/appointmentCheckoutServer';
+import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
   isSlotConstraintViolation,
@@ -9,15 +11,24 @@ import {
   SlotConflictError,
 } from '@/libs/bookingConflictGuard';
 import {
+  type BookingEmailFinancialSummary,
+  buildBookingEmailFinancialSummary,
+} from '@/libs/bookingEmailFinancialSummary.server';
+import {
   canTechnicianTakeAppointment,
   loadBookingPolicy,
   type RequestedService,
   resolveTechnicianCapabilityMode,
 } from '@/libs/bookingPolicy';
 import { db } from '@/libs/DB';
+import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
 import { getLocationById, getTechnicianById, getTechniciansBySalonId } from '@/libs/queries';
 import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
+import {
+  buildRescheduleTaxSnapshot,
+  validateInvoiceTaxSnapshot,
+} from '@/libs/taxConfig';
 import { getDateKeyInTimeZone, getZonedDayBounds, zonedTimeToUtc } from '@/libs/timeZone';
 import {
   type AddOnCategory,
@@ -80,6 +91,24 @@ export type ManagePermissions = {
   canReassignTechnician: boolean;
 };
 
+export type AppointmentManageFinancialDetail
+  = | {
+    state: 'resolved';
+    currency: string;
+    classification: 'estimate' | 'actual' | null;
+    serviceInvoiceTotalCents: number;
+    invoiceTotalCents: number;
+    taxAmountCents: number | null;
+    taxLabel: string | null;
+    depositCreditAppliedCents: number;
+    amountAlreadyPaidCents: number;
+    balanceCents: number;
+  }
+  | {
+    /** No amount is exposed when currency, tax, refund, tender, or deposit provenance is unresolved. */
+    state: 'under_review';
+  };
+
 type AppointmentServiceSnapshot = {
   row: AppointmentService;
   liveService: Service | null;
@@ -97,6 +126,7 @@ type LoadedManagedAppointment = {
   slotIntervalMinutes: number;
   bufferMinutes: number;
   timeZone: string;
+  salonSettings: SalonSettings | null;
 };
 
 export type AppointmentManageDetail = {
@@ -177,6 +207,7 @@ export type AppointmentManageDetail = {
     id: string;
     name: string;
   }>;
+  financial: AppointmentManageFinancialDetail;
   permissions: ManagePermissions;
   warnings: ManageWarning[];
   confirmationDelivery?: {
@@ -205,6 +236,13 @@ export type AppointmentCalendarEvent = {
   technicianName: string | null;
   serviceLabel: string;
   totalPrice: number;
+  pricePresentation:
+    | {
+      state: 'booked_service_subtotal';
+      amountCents: number;
+      currency: string;
+    }
+    | { state: 'under_review' };
   totalDurationMinutes: number;
   clientPhone: string;
   googleCalendarEventId: string | null;
@@ -394,6 +432,69 @@ function sumAddOnDurations(appointmentAddOns: AppointmentAddOnSnapshot[]) {
   return appointmentAddOns.reduce((sum, addOn) => sum + addOn.lineDurationMinutesSnapshot, 0);
 }
 
+function buildManagedRescheduleTaxSnapshot(input: {
+  loaded: LoadedManagedAppointment;
+  capturedAt: Date;
+  serviceLineTotalCents?: number;
+  addOnLineTotalCents?: number;
+  discountCents?: number;
+  totalPriceCents?: number;
+}) {
+  const { appointment } = input.loaded;
+  const currency = appointment.invoiceCurrency?.trim().toUpperCase() ?? null;
+  if (!currency) {
+    // Historical rows without a frozen currency stay explicitly historical.
+    // A reschedule must not borrow mutable current salon currency settings.
+    return null;
+  }
+
+  const serviceLineTotalCents = input.serviceLineTotalCents
+    ?? appointment.basePriceCents
+    ?? sumAppointmentServiceSnapshots(input.loaded.appointmentServices);
+  const addOnLineTotalCents = input.addOnLineTotalCents
+    ?? appointment.addOnsPriceCents
+    ?? sumAddOnLineTotals(input.loaded.appointmentAddOns);
+  const preDiscountTotal = serviceLineTotalCents + addOnLineTotalCents;
+  const totalPriceCents = input.totalPriceCents ?? appointment.totalPrice;
+  const discountCents = input.discountCents
+    ?? appointment.discountAmountCents
+    ?? Math.max(0, preDiscountTotal - totalPriceCents);
+
+  try {
+    const snapshot = buildRescheduleTaxSnapshot({
+      settings: input.loaded.salonSettings,
+      capturedAt: input.capturedAt,
+      currency,
+      serviceLineTotalCents,
+      addOnLineTotalCents,
+      discountCents,
+    });
+    const validation = validateInvoiceTaxSnapshot(snapshot, {
+      expectedKind: 'booking_estimate',
+      expectedCurrency: currency,
+      expectedScalars: { bookingTotalPriceCents: totalPriceCents },
+    });
+    if (!validation.ok) {
+      throw new AppointmentManageError(
+        'TAX_SNAPSHOT_INVALID',
+        'The appointment price is under review and cannot be changed online.',
+        409,
+        { reason: validation.code },
+      );
+    }
+    return snapshot;
+  } catch (error) {
+    if (error instanceof AppointmentManageError) {
+      throw error;
+    }
+    throw new AppointmentManageError(
+      'TAX_SNAPSHOT_INVALID',
+      'The appointment price is under review and cannot be changed online.',
+      409,
+    );
+  }
+}
+
 function getCurrentSubtotalCents(loaded: LoadedManagedAppointment): number {
   if (typeof loaded.appointment.subtotalBeforeDiscountCents === 'number') {
     return loaded.appointment.subtotalBeforeDiscountCents;
@@ -478,6 +579,10 @@ function buildCalendarEvent(loaded: LoadedManagedAppointment): AppointmentCalend
     technicianName,
     serviceLabel: serviceLabel || primaryService?.liveService?.name || 'Service',
     totalPrice: loaded.appointment.totalPrice,
+    // The synchronous mutation response cannot prove deposit/refund/payment
+    // provenance. The provider sync loader replaces this with a canonical,
+    // frozen-currency booked-subtotal presentation only after validation.
+    pricePresentation: { state: 'under_review' },
     totalDurationMinutes: loaded.appointment.totalDurationMinutes,
     timeZone: loaded.timeZone,
     locationName: loaded.salonLocation?.name ?? null,
@@ -490,6 +595,34 @@ function buildCalendarEvent(loaded: LoadedManagedAppointment): AppointmentCalend
     isLocked: Boolean(loaded.appointment.lockedAt) || loaded.appointment.status === 'in_progress',
     updatedAt: loaded.appointment.updatedAt.toISOString(),
   };
+}
+
+async function loadManagedFinancialSummary(
+  loaded: LoadedManagedAppointment,
+): Promise<BookingEmailFinancialSummary | null> {
+  const [deposits, paymentRows] = await Promise.all([
+    loadAppointmentDepositCreditRows({
+      salonId: loaded.appointment.salonId,
+      appointmentId: loaded.appointment.id,
+    }),
+    listPayments(db, loaded.appointment.id),
+  ]);
+  const paymentLedger = resolveAppointmentPaymentLedger({
+    cachedAmountPaidCents: loaded.appointment.amountPaidCents,
+    paymentRows,
+    expectedSalonId: loaded.appointment.salonId,
+    appointmentStatus: loaded.appointment.status,
+    paymentStatus: loaded.appointment.paymentStatus,
+  });
+  if (!paymentLedger.ok) {
+    return null;
+  }
+  const summary = buildBookingEmailFinancialSummary({
+    appointment: loaded.appointment,
+    deposits,
+    appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
+  });
+  return summary?.depositBlockedCode === null ? summary : null;
 }
 
 async function loadManagedAppointment(
@@ -534,14 +667,14 @@ async function loadManagedAppointment(
       .where(eq(appointmentAddOnSchema.appointmentId, appointmentId)),
     appointment.locationId
       ? database
-        .select()
-        .from(salonLocationSchema)
-        .where(and(
-          eq(salonLocationSchema.id, appointment.locationId),
-          eq(salonLocationSchema.salonId, appointment.salonId),
-        ))
-        .limit(1)
-        .then(rows => rows[0] ?? null)
+          .select()
+          .from(salonLocationSchema)
+          .where(and(
+            eq(salonLocationSchema.id, appointment.locationId),
+            eq(salonLocationSchema.salonId, appointment.salonId),
+          ))
+          .limit(1)
+          .then(rows => rows[0] ?? null)
       : Promise.resolve(null),
     database
       .select()
@@ -572,6 +705,7 @@ async function loadManagedAppointment(
     slotIntervalMinutes: bookingConfig.slotIntervalMinutes,
     bufferMinutes: bookingConfig.bufferMinutes,
     timeZone: bookingConfig.timezone,
+    salonSettings: (salonSettings as SalonSettings | null | undefined) ?? null,
   };
 }
 
@@ -740,6 +874,21 @@ function nextUpdatedAt(appointment: Appointment) {
   return new Date(Math.max(Date.now(), appointment.updatedAt.getTime() + 1));
 }
 
+function postgresErrorCode(error: unknown): string | undefined {
+  let candidate: unknown = error;
+  for (let depth = 0; depth < 4 && candidate; depth += 1) {
+    if (typeof candidate !== 'object') {
+      return undefined;
+    }
+    const record = candidate as { code?: unknown; cause?: unknown };
+    if (typeof record.code === 'string') {
+      return record.code;
+    }
+    candidate = record.cause;
+  }
+  return undefined;
+}
+
 async function withLockedManagedAppointment(
   args: {
     loaded: LoadedManagedAppointment;
@@ -780,6 +929,18 @@ async function withLockedManagedAppointment(
         throw new AppointmentManageError('APPOINTMENT_NOT_FOUND', 'Appointment not found', 404);
       }
       ensureEditable(lockedAppointment);
+
+      // This engine already owns technician/appointment locks. Take the
+      // mutable salon financial configuration with NOWAIT before reading it:
+      // a salon-first booking/settings transaction can make us retry, but the
+      // inverse order can never wait and deadlock. The lock is held through
+      // the appointment + reschedule-snapshot write.
+      await tx.execute(sql`
+        SELECT ${salonSchema.id}
+        FROM ${salonSchema}
+        WHERE ${salonSchema.id} = ${lockedAppointment.salonId}
+        FOR SHARE NOWAIT
+      `);
 
       if (args.sourceEventFence) {
         const [lockedSourceEvent] = await tx.select({
@@ -869,6 +1030,13 @@ async function withLockedManagedAppointment(
       return result;
     });
   } catch (error) {
+    if (postgresErrorCode(error) === '55P03') {
+      throw new AppointmentManageError(
+        'FINANCIAL_CONFIGURATION_BUSY',
+        'Salon financial settings are being updated. Refresh and try again.',
+        409,
+      );
+    }
     if (error instanceof SlotConflictError || isSlotConstraintViolation(error)) {
       throw new AppointmentManageError(
         'APPOINTMENT_CONFLICT',
@@ -974,7 +1142,13 @@ export async function getAppointmentManageDetail(args: {
   const loaded = await loadManagedAppointment(args.appointmentId, args.salonId);
   const permissions = buildPermissions(loaded.appointment, args.canReassignTechnician);
   const baseService = loaded.appointmentServices[0];
-  const [deliveryRows, salon, salonClient, retentionSettings] = await Promise.all([
+  const [
+    deliveryRows,
+    salon,
+    salonClient,
+    retentionSettings,
+    financialSummary,
+  ] = await Promise.all([
     db.select({
       channel: notificationDeliverySchema.channel,
       purpose: notificationDeliverySchema.purpose,
@@ -994,21 +1168,22 @@ export async function getAppointmentManageDetail(args: {
       .then(rows => rows[0] ?? null),
     loaded.appointment.salonClientId
       ? db
-        .select({
-          id: salonClientSchema.id,
-          notes: salonClientSchema.notes,
-          sensitivities: salonClientSchema.sensitivities,
-          nailPreferences: salonClientSchema.nailPreferences,
-        })
-        .from(salonClientSchema)
-        .where(and(
-          eq(salonClientSchema.id, loaded.appointment.salonClientId),
-          eq(salonClientSchema.salonId, args.salonId),
-        ))
-        .limit(1)
-        .then(rows => rows[0] ?? null)
+          .select({
+            id: salonClientSchema.id,
+            notes: salonClientSchema.notes,
+            sensitivities: salonClientSchema.sensitivities,
+            nailPreferences: salonClientSchema.nailPreferences,
+          })
+          .from(salonClientSchema)
+          .where(and(
+            eq(salonClientSchema.id, loaded.appointment.salonClientId),
+            eq(salonClientSchema.salonId, args.salonId),
+          ))
+          .limit(1)
+          .then(rows => rows[0] ?? null)
       : Promise.resolve(null),
     getRetentionSettingsForSalon(args.salonId),
+    loadManagedFinancialSummary(loaded),
   ]);
   const confirmationDelivery = deliveryRows.find(delivery => delivery.channel === 'email' && delivery.purpose.includes('booking_confirmation'))
     ?? deliveryRows.find(delivery => delivery.channel === 'email');
@@ -1087,6 +1262,20 @@ export async function getAppointmentManageDetail(args: {
         id: technician.id,
         name: technician.name,
       })),
+    financial: financialSummary
+      ? {
+          state: 'resolved',
+          currency: financialSummary.currency,
+          classification: financialSummary.taxClassification,
+          serviceInvoiceTotalCents: financialSummary.serviceInvoiceTotalCents,
+          invoiceTotalCents: financialSummary.totalDueCents,
+          taxAmountCents: financialSummary.taxAmountCents,
+          taxLabel: financialSummary.taxLabel,
+          depositCreditAppliedCents: financialSummary.depositCreditAppliedCents,
+          amountAlreadyPaidCents: financialSummary.amountAlreadyPaidCents,
+          balanceCents: financialSummary.balanceCents,
+        }
+      : { state: 'under_review' },
     permissions,
     warnings: [],
     confirmationDelivery: confirmationDelivery
@@ -1127,6 +1316,11 @@ async function applyMove(
     database: tx,
   });
 
+  const updatedAt = nextUpdatedAt(args.loaded.appointment);
+  const rescheduleTaxSnapshot = buildManagedRescheduleTaxSnapshot({
+    loaded: args.loaded,
+    capturedAt: updatedAt,
+  });
   const [appointment] = await tx
     .update(appointmentSchema)
     .set({
@@ -1136,8 +1330,9 @@ async function applyMove(
       totalDurationMinutes,
       bufferMinutes,
       blockedDurationMinutes: totalDurationMinutes + bufferMinutes,
+      ...(rescheduleTaxSnapshot ? { rescheduleTaxSnapshot } : {}),
       ...reminderRearmUpdate(args.loaded.appointment.startTime, validated.startTime),
-      updatedAt: nextUpdatedAt(args.loaded.appointment),
+      updatedAt,
     })
     .where(
       and(
@@ -1301,6 +1496,15 @@ async function applyChangeService(
     loaded: args.loaded,
     newSubtotalCents,
   });
+  const updatedAt = nextUpdatedAt(args.loaded.appointment);
+  const rescheduleTaxSnapshot = buildManagedRescheduleTaxSnapshot({
+    loaded: args.loaded,
+    capturedAt: updatedAt,
+    serviceLineTotalCents: newBasePriceCents,
+    addOnLineTotalCents: preservedAddOnPriceCents,
+    discountCents: discount.discountAmountCents,
+    totalPriceCents: discount.totalPrice,
+  });
   const requestedServices: RequestedService[] = [{
     id: newService.id,
     name: newService.name,
@@ -1385,8 +1589,9 @@ async function applyChangeService(
         discountLabel: discount.discountLabel,
         discountPercent: discount.discountPercent,
         discountAppliedAt: discount.discountAppliedAt,
+        ...(rescheduleTaxSnapshot ? { rescheduleTaxSnapshot } : {}),
         ...reminderRearmUpdate(args.loaded.appointment.startTime, validated.startTime),
-        updatedAt: nextUpdatedAt(args.loaded.appointment),
+        updatedAt,
       })
       .where(
         and(
@@ -1532,5 +1737,16 @@ export async function getAppointmentCalendarEventForSync(
   appointmentId: string,
   salonId: string,
 ): Promise<AppointmentCalendarEvent> {
-  return buildCalendarEvent(await loadManagedAppointment(appointmentId, salonId));
+  const loaded = await loadManagedAppointment(appointmentId, salonId);
+  const financialSummary = await loadManagedFinancialSummary(loaded);
+  return {
+    ...buildCalendarEvent(loaded),
+    pricePresentation: financialSummary
+      ? {
+          state: 'booked_service_subtotal',
+          amountCents: loaded.appointment.totalPrice,
+          currency: financialSummary.currency,
+        }
+      : { state: 'under_review' },
+  };
 }

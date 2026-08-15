@@ -1,6 +1,8 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { BookingEmailFinancialSummary } from './bookingEmailFinancialSummary.server';
+
 const { create, isSmsEnabled, twilio, db, queueSelectResults } = vi.hoisted(() => {
   const selectResults: unknown[][] = [];
   const query = {
@@ -11,7 +13,7 @@ const { create, isSmsEnabled, twilio, db, queueSelectResults } = vi.hoisted(() =
   };
 
   return {
-    create: vi.fn(async () => ({ sid: 'SM_referral' })),
+    create: vi.fn(async (_input: { body: string }) => ({ sid: 'SM_referral' })),
     isSmsEnabled: vi.fn(),
     twilio: vi.fn(() => ({
       messages: {
@@ -49,10 +51,36 @@ vi.mock('@/libs/salonStatus', () => ({
 
 import {
   buildAppointmentReminderMessage,
+  buildBookingFinancialSmsLines,
   sendBookingConfirmationToClient,
   sendInternalBookingNotificationSms,
   sendReferralInvite,
 } from './SMS';
+
+function financialSummary(
+  overrides: Partial<BookingEmailFinancialSummary> = {},
+): BookingEmailFinancialSummary {
+  return {
+    currency: 'CAD',
+    serviceInvoiceTotalCents: 4000,
+    totalDueCents: 4000,
+    taxAmountCents: null,
+    taxLabel: null,
+    taxMode: null,
+    taxClassification: 'estimate',
+    taxApplied: false,
+    collectedDepositCents: 0,
+    refundedDepositCents: 0,
+    forfeitedDepositCents: 0,
+    depositCreditAppliedCents: 0,
+    appointmentPaymentsCents: 0,
+    amountAlreadyPaidCents: 0,
+    balanceCents: 4000,
+    depositBlockedCode: null,
+    depositPresentationState: 'none',
+    ...overrides,
+  };
+}
 
 describe('SMS templates', () => {
   beforeEach(() => {
@@ -76,7 +104,7 @@ describe('SMS templates', () => {
       services: ['Gel Manicure'],
       startTime: '2026-06-10T17:45:00.000Z',
       totalDurationMinutes: 60,
-      totalPrice: 4000,
+      financialSummary: financialSummary(),
       technicianName: 'Daniela',
       timeZone: 'America/Toronto',
     });
@@ -95,7 +123,9 @@ describe('SMS templates', () => {
         'Client: Bob',
         'Phone: 4165550198',
         'Duration: 60 min',
-        'Total: $40',
+        'Estimated appointment total: $40.00 CAD',
+        'Already paid: $0.00 CAD',
+        'Estimated remaining balance: $40.00 CAD',
       ].join('\n'),
       to: '+14165550198',
     }));
@@ -111,7 +141,7 @@ describe('SMS templates', () => {
       services: ['Gel Manicure'],
       technicianName: 'Daniela',
       startTime: '2026-06-10T17:45:00.000Z',
-      totalPrice: 4000,
+      financialSummary: financialSummary(),
       timeZone: 'America/Toronto',
     });
 
@@ -124,7 +154,9 @@ describe('SMS templates', () => {
         '',
         'Gel Manicure with Daniela',
         'Wed, Jun 10, 1:45 PM',
-        'Total: $40',
+        'Estimated appointment total: $40.00 CAD',
+        'Already paid: $0.00 CAD',
+        'Estimated remaining balance: $40.00 CAD',
         '',
         'Reply STOP to opt out. Reply to this text if you need help.',
       ].join('\n'),
@@ -143,12 +175,126 @@ describe('SMS templates', () => {
       services: ['Gel Manicure'],
       technicianName: 'Daniela',
       startTime: '2026-06-10T17:45:00.000Z',
-      totalPrice: 4000,
+      financialSummary: financialSummary(),
       timeZone: 'America/Toronto',
     });
 
     expect(sent).toBeUndefined();
     expect(create).not.toHaveBeenCalled();
+  });
+
+  it('uses the added-tax snapshot and reconciled deposit/payment totals in customer SMS', async () => {
+    queueSelectResults([{ status: 'granted' }], [], [{ freeSoloEnabled: false }]);
+
+    await sendBookingConfirmationToClient('salon_1', {
+      phone: '4165550198',
+      clientName: 'Bob',
+      appointmentId: 'appt_1',
+      salonName: 'Isla Nail Studio',
+      services: ['Gel Manicure'],
+      technicianName: 'Daniela',
+      startTime: '2026-06-10T17:45:00.000Z',
+      financialSummary: financialSummary({
+        serviceInvoiceTotalCents: 11_300,
+        totalDueCents: 11_300,
+        taxAmountCents: 1300,
+        taxLabel: 'HST',
+        taxMode: 'added',
+        taxApplied: true,
+        collectedDepositCents: 2000,
+        refundedDepositCents: 500,
+        depositCreditAppliedCents: 1500,
+        appointmentPaymentsCents: 1000,
+        amountAlreadyPaidCents: 2500,
+        balanceCents: 8800,
+        depositPresentationState: 'creditable',
+      }),
+    });
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      body: expect.stringContaining([
+        'Estimated HST (added): $13.00 CAD',
+        'Estimated appointment total: $113.00 CAD',
+        'Deposit paid: $20.00 CAD',
+        'Deposit refunded: $5.00 CAD',
+        'Deposit applied: -$15.00 CAD',
+        'Other payments: $10.00 CAD',
+        'Already paid: $25.00 CAD',
+        'Estimated remaining balance: $88.00 CAD',
+      ].join('\n')),
+    }));
+  });
+
+  it('uses the frozen USD identity instead of a hardcoded dollar assumption', () => {
+    expect(buildBookingFinancialSmsLines(financialSummary({
+      currency: 'USD',
+      serviceInvoiceTotalCents: 5075,
+      totalDueCents: 5075,
+      balanceCents: 5075,
+    }))).toEqual([
+      'Estimated appointment total: $50.75 USD',
+      'Already paid: $0.00 USD',
+      'Estimated remaining balance: $50.75 USD',
+    ]);
+  });
+
+  it('labels a forfeited deposit as retained instead of credited', () => {
+    expect(buildBookingFinancialSmsLines(financialSummary({
+      serviceInvoiceTotalCents: 0,
+      totalDueCents: 0,
+      collectedDepositCents: 2000,
+      forfeitedDepositCents: 2000,
+      balanceCents: 0,
+      depositPresentationState: 'forfeited',
+    }))).toContain('Deposit retained: $20.00 CAD');
+  });
+
+  it('suppresses every definitive amount when a deposit refund is unresolved', async () => {
+    queueSelectResults([{ status: 'granted' }], [], [{ freeSoloEnabled: false }]);
+
+    await sendBookingConfirmationToClient('salon_1', {
+      phone: '4165550198',
+      clientName: 'Bob',
+      appointmentId: 'appt_1',
+      salonName: 'Isla Nail Studio',
+      services: ['Gel Manicure'],
+      technicianName: 'Daniela',
+      startTime: '2026-06-10T17:45:00.000Z',
+      financialSummary: financialSummary({
+        collectedDepositCents: 4000,
+        depositCreditAppliedCents: 4000,
+        amountAlreadyPaidCents: 4000,
+        balanceCents: 0,
+        depositBlockedCode: 'DEPOSIT_REFUND_UNRESOLVED',
+        depositPresentationState: 'blocked',
+      }),
+    });
+
+    const body = create.mock.calls[0]![0].body as string;
+
+    expect(body).toContain('Payment details: under review');
+    expect(body).toContain('Your final payment amount will be confirmed before collection.');
+    expect(body).not.toMatch(/\$|Total:|Balance due:/u);
+  });
+
+  it('keeps internal booking SMS money-free when immutable evidence is unavailable', async () => {
+    await sendInternalBookingNotificationSms('salon_1', {
+      phone: '4165550198',
+      salonName: 'Isla Nail Studio',
+      clientName: 'Bob',
+      clientPhone: '4165550198',
+      services: ['Gel Manicure'],
+      startTime: '2026-06-10T17:45:00.000Z',
+      totalDurationMinutes: 60,
+      financialSummary: null,
+      technicianName: 'Daniela',
+      timeZone: 'America/Toronto',
+    });
+
+    const body = create.mock.calls[0]![0].body as string;
+
+    expect(body).toContain('Payment details: under review');
+    expect(body).not.toMatch(/\$|Total:|Balance due:/u);
   });
 
   it('builds staff-triggered reminders with full appointment details and the secure link', () => {

@@ -58,6 +58,8 @@ type ClientSummary = {
   lastVisitAt: string | null;
   totalVisits: number;
   totalSpent: number;
+  spendCurrency?: string | null;
+  spendState?: 'canonical_settled' | 'under_review';
   noShowCount: number;
   loyaltyPoints: number;
   preferredTechnician: {
@@ -108,7 +110,8 @@ type ClientAppointment = {
   startTime: string;
   endTime: string;
   status: string;
-  totalPrice: number;
+  totalPrice: number | null;
+  currency?: string | null;
   technician: {
     id: string;
     name: string;
@@ -125,28 +128,46 @@ type ClientAppointment = {
   services: Array<{
     id: string;
     name: string;
-    price: number;
+    price: number | null;
   }>;
   addOns?: Array<{
     id: string;
     name: string;
     quantity: number;
-    lineTotalCents: number;
+    lineTotalCents: number | null;
   }>;
   finalItems?: Array<{
     id: string;
     kind: string;
     name: string;
     quantity: number;
-    lineTotalCents: number;
+    lineTotalCents: number | null;
   }>;
   financial?: {
     completedValueCents: number | null;
     source: 'excluded' | 'finalized' | 'legacy' | 'unresolved';
-    discountCents: number;
-    taxCents: number;
-    tipsCents: number;
-    paymentsReceivedCents: number;
+    discountCents: number | null;
+    taxCents: number | null;
+    tipsCents: number | null;
+    paymentsReceivedCents: number | null;
+    paymentLedgerState?: 'ledger' | 'explicit_zero' | 'untracked_zero' | 'legacy_paid' | 'blocked';
+    paymentLedgerBlockCode?: string | null;
+    depositCollectedCents?: number | null;
+    depositRefundedCents?: number | null;
+    depositForfeitedCents?: number | null;
+    depositCreditCents?: number | null;
+    depositState?: 'none' | 'creditable' | 'fully_refunded' | 'forfeited' | 'resolved' | 'blocked';
+    depositBlockCode?: string | null;
+    depositPresentationState?:
+      | 'none'
+      | 'creditable'
+      | 'refund_candidate'
+      | 'refund_in_flight'
+      | 'refund_review'
+      | 'refunded'
+      | 'forfeited'
+      | 'blocked';
+    amountAlreadyPaidCents?: number | null;
     payments: Array<{
       id: string;
       amountCents: number;
@@ -155,10 +176,18 @@ type ClientAppointment = {
     }>;
     paymentStatus: string | null;
     completedOutstandingCents: number | null;
+    balanceCents?: number | null;
     balanceState: string;
   };
   notes: string | null;
 };
+
+function appointmentFinancialDetailsUnderReview(
+  financial: ClientAppointment['financial'],
+): boolean {
+  return financial?.depositState === 'blocked'
+    || financial?.depositBlockCode != null;
+}
 
 type FinancialProvenance = {
   mode: 'empty' | 'finalized' | 'legacy' | 'mixed';
@@ -730,7 +759,11 @@ function ClientRow({
               {client.totalVisits !== 1 ? 's' : ''}
             </div>
             <div className="text-[12px] font-medium text-[#34C759]">
-              {formatCurrency(client.totalSpent)}
+              {client.spendState === 'under_review'
+                ? 'Under review'
+                : client.spendCurrency
+                  ? formatCurrency(client.totalSpent, client.spendCurrency)
+                  : 'Unavailable'}
             </div>
           </div>
           <ChevronRight className="size-4 text-[#C7C7CC]" />
@@ -883,6 +916,14 @@ function AppointmentCard({
   currency?: string;
 }) {
   const interactive = Boolean(onManage);
+  const appointmentCurrency = appointment.currency === undefined
+    ? currency
+    : appointment.currency;
+  const financialUnderReview = appointmentFinancialDetailsUnderReview(
+    appointment.financial,
+  );
+  const displayedAppointmentValue = appointment.financial?.completedValueCents
+    ?? appointment.totalPrice;
   return (
     <div
       data-testid={`client-appointment-card-${appointment.id}`}
@@ -915,10 +956,14 @@ function AppointmentCard({
         </div>
         <div className="shrink-0 text-right">
           <div className="text-[15px] font-semibold text-[#1C1C1E]">
-            {formatCurrency(
-              appointment.financial?.completedValueCents ?? appointment.totalPrice,
-              currency,
-            )}
+            {financialUnderReview
+              ? 'Under review'
+              : appointmentCurrency && displayedAppointmentValue != null
+                ? formatCurrency(
+                    displayedAppointmentValue,
+                    appointmentCurrency,
+                  )
+                : 'Unavailable'}
           </div>
           <span className={`mt-1 inline-flex rounded-full px-2 py-1 text-[11px] font-semibold capitalize ${getAppointmentStatusStyles(appointment.status)}`}>
             {formatAppointmentStatus(appointment.status)}
@@ -934,20 +979,54 @@ function AppointmentCard({
           )).join(', ')}
         </div>
       )}
-      {appointment.financial && appointment.status === 'completed' && (
-        <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-stone-600">
-          <span className="rounded-full bg-stone-100 px-2 py-1">
-            {appointment.financial.paymentStatus?.replaceAll('_', ' ') ?? 'Payment not recorded'}
-          </span>
-          {appointment.financial.completedOutstandingCents != null
-          && appointment.financial.completedOutstandingCents > 0 && (
-            <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-900">
-              {formatCurrency(appointment.financial.completedOutstandingCents, currency)}
-              {' '}
-              outstanding
-            </span>
-          )}
-        </div>
+      {appointment.financial
+      && ['completed', 'cancelled', 'no_show'].includes(appointment.status) && (
+        financialUnderReview
+          ? (
+              <div className="mt-2 inline-flex rounded-full bg-amber-100 px-2 py-1 text-[11px] font-semibold text-amber-900">
+                Financial details under review
+              </div>
+            )
+          : (
+              <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-stone-600">
+                <span className="rounded-full bg-stone-100 px-2 py-1">
+                  {appointment.financial.paymentStatus?.replaceAll('_', ' ') ?? 'Payment not recorded'}
+                </span>
+                {appointment.financial.paymentLedgerState === 'blocked' && (
+                  <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-900">
+                    Payment history under review
+                  </span>
+                )}
+                {appointment.financial.depositPresentationState === 'refund_candidate' && (
+                  <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-900">
+                    Deposit refund due for review
+                  </span>
+                )}
+                {appointment.financial.depositPresentationState === 'refunded' && (
+                  <span className="rounded-full bg-emerald-100 px-2 py-1 font-semibold text-emerald-900">
+                    Deposit refunded
+                  </span>
+                )}
+                {appointment.financial.depositPresentationState === 'forfeited' && (
+                  <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-900">
+                    Deposit retained
+                  </span>
+                )}
+                {appointment.financial.completedOutstandingCents != null
+                && appointment.financial.completedOutstandingCents > 0 && (
+                  <span className="rounded-full bg-amber-100 px-2 py-1 font-semibold text-amber-900">
+                    {appointmentCurrency
+                      ? formatCurrency(
+                          appointment.financial.completedOutstandingCents,
+                          appointmentCurrency,
+                        )
+                      : 'Unavailable'}
+                    {' '}
+                    outstanding
+                  </span>
+                )}
+              </div>
+            )
       )}
       {appointment.notes && (
         <div className="mt-2 rounded-xl bg-neutral-50 px-3 py-2 text-[12px] text-[#6B7280]">
@@ -1379,14 +1458,14 @@ function ClientDetail({
 
   const profileDirty
     = notesDraft !== (profile?.notes ?? '')
-    || preferredTechnicianIdDraft !== (profile?.preferredTechnician?.id ?? '')
-    || sensitivitiesDraft !== (profile?.sensitivities ?? '')
-    || shapeDraft !== (profile?.nailPreferences?.shape ?? '')
-    || lengthDraft !== (profile?.nailPreferences?.length ?? '')
-    || colorsDraft !== (profile?.nailPreferences?.favoriteColors ?? '')
-    || productsDraft !== (profile?.nailPreferences?.productsUsed ?? '')
-    || tagsDraft !== (profile?.tags?.join(', ') ?? '')
-    || rebookDaysDraft !== (profile?.rebookIntervalDays?.toString() ?? '');
+      || preferredTechnicianIdDraft !== (profile?.preferredTechnician?.id ?? '')
+      || sensitivitiesDraft !== (profile?.sensitivities ?? '')
+      || shapeDraft !== (profile?.nailPreferences?.shape ?? '')
+      || lengthDraft !== (profile?.nailPreferences?.length ?? '')
+      || colorsDraft !== (profile?.nailPreferences?.favoriteColors ?? '')
+      || productsDraft !== (profile?.nailPreferences?.productsUsed ?? '')
+      || tagsDraft !== (profile?.tags?.join(', ') ?? '')
+      || rebookDaysDraft !== (profile?.rebookIntervalDays?.toString() ?? '');
 
   const flagsDirty = useMemo(() => {
     if (!flagsState) {
@@ -2123,10 +2202,18 @@ function ClientDetail({
                             <div className="mt-4 space-y-3">
                               {pastAppointments.map((appointment) => {
                                 const financial = appointment.financial;
+                                const appointmentCurrency = appointment.currency ?? null;
+                                const appointmentMoney = (cents: number | null | undefined) =>
+                                  cents == null || appointmentCurrency == null
+                                    ? 'Unavailable'
+                                    : formatCurrency(cents, appointmentCurrency);
+                                const financialUnderReview
+                                  = appointmentFinancialDetailsUnderReview(financial);
                                 return (
                                   <button
                                     key={appointment.id}
                                     type="button"
+                                    data-testid={`client-payment-appointment-${appointment.id}`}
                                     onClick={() => handleManageAppointment(appointment.id)}
                                     className="w-full rounded-2xl border border-stone-100 bg-stone-50 p-4 text-left transition hover:border-rose-200"
                                   >
@@ -2138,31 +2225,73 @@ function ClientDetail({
                                         <div className="mt-1 text-xs text-stone-500">{formatDate(appointment.startTime)}</div>
                                       </div>
                                       <span className="text-sm font-semibold text-stone-900">
-                                        {financial?.completedValueCents != null
-                                          ? formatCurrency(financial.completedValueCents, summary?.currency)
-                                          : 'Unavailable'}
+                                        {financialUnderReview
+                                          ? 'Under review'
+                                          : financial?.completedValueCents != null
+                                            ? appointmentMoney(financial.completedValueCents)
+                                            : 'Unavailable'}
                                       </span>
                                     </div>
-                                    {financial && (
-                                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
-                                        <span>
-                                          Received
-                                          <strong>{formatCurrency(financial.paymentsReceivedCents, summary?.currency)}</strong>
-                                        </span>
-                                        <span>
-                                          Tax
-                                          <strong>{formatCurrency(financial.taxCents, summary?.currency)}</strong>
-                                        </span>
-                                        <span>
-                                          Tips
-                                          <strong>{formatCurrency(financial.tipsCents, summary?.currency)}</strong>
-                                        </span>
-                                        <span>
-                                          Outstanding
-                                          <strong>{financial.completedOutstandingCents == null ? 'Unavailable' : formatCurrency(financial.completedOutstandingCents, summary?.currency)}</strong>
-                                        </span>
-                                      </div>
-                                    )}
+                                    {financial && financialUnderReview
+                                      ? (
+                                          <div className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900">
+                                            Financial details under review. Amounts and balance are unavailable.
+                                          </div>
+                                        )
+                                      : financial && (
+                                        <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
+                                          <span>
+                                            Deposit paid
+                                            <strong>
+                                              {appointmentMoney(financial.depositCollectedCents ?? 0)}
+                                            </strong>
+                                          </span>
+                                          <span>
+                                            Deposit refunded
+                                            <strong>
+                                              {appointmentMoney(financial.depositRefundedCents ?? 0)}
+                                            </strong>
+                                          </span>
+                                          <span>
+                                            Other payments
+                                            <strong>{appointmentMoney(financial.paymentsReceivedCents)}</strong>
+                                          </span>
+                                          <span>
+                                            Already paid
+                                            <strong>
+                                              {appointmentMoney(
+                                                financial.amountAlreadyPaidCents
+                                                ?? financial.paymentsReceivedCents,
+                                              )}
+                                            </strong>
+                                          </span>
+                                          <span>
+                                            Tax
+                                            <strong>{appointmentMoney(financial.taxCents)}</strong>
+                                          </span>
+                                          <span>
+                                            Tips
+                                            <strong>{appointmentMoney(financial.tipsCents)}</strong>
+                                          </span>
+                                          <span>
+                                            Balance
+                                            <strong>
+                                              {(financial.balanceCents
+                                                ?? financial.completedOutstandingCents) == null
+                                                ? 'Unavailable'
+                                                : appointmentMoney(
+                                                    financial.balanceCents
+                                                    ?? financial.completedOutstandingCents!,
+                                                  )}
+                                            </strong>
+                                          </span>
+                                          {financial.paymentLedgerState === 'blocked' && (
+                                            <span className="col-span-2 text-amber-800 sm:col-span-4">
+                                              Payment history requires reconciliation. Paid amount and balance are unavailable.
+                                            </span>
+                                          )}
+                                        </div>
+                                      )}
                                   </button>
                                 );
                               })}

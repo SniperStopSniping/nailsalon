@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq, sql } from 'drizzle-orm';
 
 import type { AdminWithSalons } from '@/libs/adminAuth';
 import { getAdminImpersonationForAdmin, requireAdmin } from '@/libs/adminAuth';
@@ -165,6 +165,15 @@ export async function requireDepositMoneyActor(args: RateLimitedRequest & {
       eq(appointmentDepositSchema.salonId, access.salon.id),
       eq(appointmentDepositSchema.appointmentId, args.appointmentId),
     ))
+    .orderBy(
+      sql`CASE
+        WHEN ${appointmentDepositSchema.status} = 'paid' THEN 0
+        WHEN ${appointmentDepositSchema.status} = 'checkout_created' THEN 1
+        ELSE 2
+      END`,
+      desc(appointmentDepositSchema.createdAt),
+      desc(appointmentDepositSchema.id),
+    )
     .limit(1);
 
   if (!deposit) {

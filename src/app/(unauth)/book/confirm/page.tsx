@@ -19,8 +19,10 @@ import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechn
 import { resolvePublicRetentionCampaignPreview } from '@/libs/publicRetentionCampaign';
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus, isRewardsEnabled, isSmsEnabled } from '@/libs/salonStatus';
+import { buildTaxConfigurationSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import { getPublicPageContext } from '@/libs/tenant';
 import { getDateKeyInTimeZone, getTimeKeyInTimeZone } from '@/libs/timeZone';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 import { BookConfirmClient } from './BookConfirmClient';
 
@@ -76,6 +78,12 @@ export default async function BookConfirmPage({
 
   const { salon } = context;
   const bookingConfig = await getBookingConfigForSalon(salon.id);
+  const bookingTaxConfig = resolveTaxConfig(
+    (salon.settings as SalonSettings | null | undefined) ?? null,
+    new Date(),
+  );
+  const bookingTaxConfigurationIdentity
+    = buildTaxConfigurationSnapshot(bookingTaxConfig).configurationIdentity;
   const parsedStartTime = searchParams.startTime ? new Date(searchParams.startTime) : null;
   const canonicalStartTime = parsedStartTime
     && !Number.isNaN(parsedStartTime.getTime())
@@ -337,6 +345,9 @@ export default async function BookConfirmPage({
             ? campaignResolution.message
             : null}
           totalPrice={totalPriceCents / 100}
+          currency={bookingConfig.currency.toUpperCase()}
+          taxConfig={bookingTaxConfig}
+          taxConfigurationIdentity={bookingTaxConfigurationIdentity}
           totalDuration={resolvedTechnicianContext.resolvedSelection.visibleDurationMinutes}
           technician={technician}
           salonSlug={salon.slug}

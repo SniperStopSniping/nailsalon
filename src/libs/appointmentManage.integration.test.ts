@@ -7,9 +7,18 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createOpaqueToken } from '@/libs/lusterSecurity';
+import {
+  buildBookingTaxSnapshot,
+  resolveTaxConfig,
+  validateInvoiceTaxSnapshot,
+} from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
-import { getAppointmentManageDetail, runAppointmentManageMutation } from './appointmentManage';
+import {
+  getAppointmentCalendarEventForSync,
+  getAppointmentManageDetail,
+  runAppointmentManageMutation,
+} from './appointmentManage';
 
 vi.mock('server-only', () => ({}));
 
@@ -55,6 +64,13 @@ const REMINDER_STATE = {
   dayBeforeReminderChannel: 'email',
   sameDayReminderSentAt: new Date('2027-01-04T11:00:00.000Z'),
   sameDayReminderChannel: 'sms',
+};
+const DEFAULT_SALON_SETTINGS = {
+  booking: {
+    timezone: 'America/Toronto',
+    slotIntervalMinutes: 15,
+    bufferMinutes: 10,
+  },
 };
 
 const allDaySchedule = {
@@ -185,6 +201,33 @@ function reminders(row: Awaited<ReturnType<typeof appointment>>) {
   };
 }
 
+function addedTaxBookingSnapshot() {
+  const capturedAt = new Date('2026-12-01T12:00:00.000Z');
+  return buildBookingTaxSnapshot({
+    taxConfig: resolveTaxConfig({
+      payments: {
+        tax: {
+          enabled: true,
+          name: 'HST',
+          rateBps: 1300,
+          pricesIncludeTax: false,
+          jurisdiction: 'Ontario',
+          country: 'Canada',
+          region: 'ON',
+        },
+      },
+    }, capturedAt),
+    totals: {
+      taxableSubtotalCents: 5500,
+      taxAmountCents: 715,
+      finalPriceCents: 5500,
+      taxApplied: true,
+    },
+    capturedAt,
+    currency: 'CAD',
+  });
+}
+
 function mutate(args: Partial<Parameters<typeof runAppointmentManageMutation>[0]> = {}) {
   return runAppointmentManageMutation({
     appointmentId: APPOINTMENT_ID,
@@ -211,13 +254,7 @@ beforeAll(async () => {
       id: SALON_ID,
       name: 'Mutation Test Salon',
       slug: 'mutation-test-salon',
-      settings: {
-        booking: {
-          timezone: 'America/Toronto',
-          slotIntervalMinutes: 15,
-          bufferMinutes: 10,
-        },
-      },
+      settings: DEFAULT_SALON_SETTINGS,
     },
     {
       id: OTHER_SALON_ID,
@@ -299,7 +336,11 @@ beforeAll(async () => {
 beforeEach(async () => {
   vi.clearAllMocks();
   await db.delete(schema.googleCalendarEventSchema);
+  await db.delete(schema.appointmentDepositSchema);
   await db.delete(schema.appointmentSchema);
+  await db.update(schema.salonSchema)
+    .set({ settings: DEFAULT_SALON_SETTINGS })
+    .where(eq(schema.salonSchema.id, SALON_ID));
   await seedAppointment();
 });
 
@@ -312,6 +353,125 @@ afterAll(async () => {
 });
 
 describe('real appointment management mutations', () => {
+  it('returns a canonical added-tax estimate with deposit credit for every owner/staff consumer', async () => {
+    await db.update(schema.appointmentSchema).set({
+      paymentStatus: 'pending',
+      amountPaidCents: 0,
+      invoiceCurrency: 'CAD',
+      bookingTaxSnapshot: addedTaxBookingSnapshot(),
+    }).where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+    await db.insert(schema.appointmentDepositSchema).values({
+      id: 'manage_detail_deposit_credit',
+      appointmentId: APPOINTMENT_ID,
+      salonId: SALON_ID,
+      amountCents: 1000,
+      currency: 'cad',
+      status: 'paid',
+      stripeAccountId: 'acct_manage_detail',
+      stripePaymentIntentId: 'pi_manage_detail',
+      collectedAt: new Date('2026-12-02T12:00:00.000Z'),
+    });
+
+    const detail = await getAppointmentManageDetail({
+      appointmentId: APPOINTMENT_ID,
+      salonId: SALON_ID,
+      canReassignTechnician: true,
+      salonSlug: 'manage-mutator',
+    });
+
+    expect(detail.appointment.totalPrice).toBe(5500);
+    expect(detail.financial).toEqual({
+      state: 'resolved',
+      currency: 'CAD',
+      classification: 'estimate',
+      serviceInvoiceTotalCents: 6215,
+      invoiceTotalCents: 6215,
+      taxAmountCents: 715,
+      taxLabel: 'HST',
+      depositCreditAppliedCents: 1000,
+      amountAlreadyPaidCents: 1000,
+      balanceCents: 5215,
+    });
+    await expect(getAppointmentCalendarEventForSync(APPOINTMENT_ID, SALON_ID))
+      .resolves.toMatchObject({
+        totalPrice: 5500,
+        pricePresentation: {
+          state: 'booked_service_subtotal',
+          amountCents: 5500,
+          currency: 'CAD',
+        },
+      });
+  });
+
+  it('returns a money-free review state while a deposit refund is pending', async () => {
+    await db.update(schema.appointmentSchema).set({
+      paymentStatus: 'pending',
+      amountPaidCents: 0,
+      invoiceCurrency: 'CAD',
+      bookingTaxSnapshot: addedTaxBookingSnapshot(),
+    }).where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+    await db.insert(schema.appointmentDepositSchema).values({
+      id: 'manage_detail_pending_refund',
+      appointmentId: APPOINTMENT_ID,
+      salonId: SALON_ID,
+      amountCents: 1000,
+      currency: 'cad',
+      status: 'paid',
+      stripeAccountId: 'acct_manage_detail',
+      stripePaymentIntentId: 'pi_manage_detail_pending',
+      collectedAt: new Date('2026-12-02T12:00:00.000Z'),
+      refundStatus: 'pending',
+      refundAmountCents: 1000,
+      refundRequestedAt: new Date('2026-12-03T12:00:00.000Z'),
+      refundStatusChangedAt: new Date('2026-12-03T12:00:00.000Z'),
+      refundTrigger: 'owner',
+    });
+
+    const detail = await getAppointmentManageDetail({
+      appointmentId: APPOINTMENT_ID,
+      salonId: SALON_ID,
+      canReassignTechnician: true,
+      salonSlug: 'manage-mutator',
+    });
+
+    expect(detail.financial).toEqual({ state: 'under_review' });
+    expect(detail.financial).not.toHaveProperty('invoiceTotalCents');
+    await expect(getAppointmentCalendarEventForSync(APPOINTMENT_ID, SALON_ID))
+      .resolves.toMatchObject({ pricePresentation: { state: 'under_review' } });
+  });
+
+  it('does not guess a current currency for a historical appointment with a deposit', async () => {
+    await db.update(schema.appointmentSchema).set({
+      paymentStatus: 'pending',
+      amountPaidCents: 0,
+      invoiceCurrency: null,
+      bookingTaxSnapshot: null,
+    }).where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+    await db.insert(schema.appointmentDepositSchema).values({
+      id: 'manage_detail_unknown_currency',
+      appointmentId: APPOINTMENT_ID,
+      salonId: SALON_ID,
+      amountCents: 1000,
+      currency: 'cad',
+      status: 'paid',
+      stripeAccountId: 'acct_manage_detail',
+      stripePaymentIntentId: 'pi_manage_detail_unknown_currency',
+      collectedAt: new Date('2026-12-02T12:00:00.000Z'),
+    });
+
+    const detail = await getAppointmentManageDetail({
+      appointmentId: APPOINTMENT_ID,
+      salonId: SALON_ID,
+      canReassignTechnician: true,
+      salonSlug: 'manage-mutator',
+    });
+
+    expect(detail.financial).toEqual({ state: 'under_review' });
+    expect(detail.financial).not.toHaveProperty('currency');
+    await expect(getAppointmentCalendarEventForSync(APPOINTMENT_ID, SALON_ID))
+      .resolves.toMatchObject({ pricePresentation: { state: 'under_review' } });
+  });
+
   it('defaults customer notification off while re-arming reminders for a move', async () => {
     const nextStart = new Date('2027-01-04T16:00:00.000Z');
 
@@ -656,6 +816,52 @@ describe('real appointment management mutations', () => {
         dedupeKey: `google:${SALON_ID}:${APPOINTMENT_ID}:sync:appointment-mutation:${row.updatedAt.toISOString()}`,
       }),
     ]);
+  });
+
+  it('keeps original tax history and atomically refreshes the active estimate on a service-price change', async () => {
+    const capturedAt = new Date('2026-12-01T12:00:00.000Z');
+    const originalTaxConfig = resolveTaxConfig(DEFAULT_SALON_SETTINGS, capturedAt);
+    const original = buildBookingTaxSnapshot({
+      taxConfig: originalTaxConfig,
+      totals: {
+        taxableSubtotalCents: 0,
+        taxAmountCents: 0,
+        finalPriceCents: 5500,
+        taxApplied: false,
+      },
+      capturedAt,
+      currency: 'CAD',
+    });
+    await db.update(schema.appointmentSchema).set({
+      invoiceCurrency: 'CAD',
+      bookingTaxSnapshot: original,
+    }).where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+    await db.update(schema.salonSchema).set({
+      settings: {
+        ...DEFAULT_SALON_SETTINGS,
+        payments: { tax: { enabled: true, name: 'HST', rateBps: 1300 } },
+      },
+    }).where(eq(schema.salonSchema.id, SALON_ID));
+
+    await mutate({
+      operation: 'changeService',
+      baseServiceId: REPLACEMENT_SERVICE_ID,
+    });
+    const row = await appointment();
+
+    expect(row.bookingTaxSnapshot).toEqual(original);
+    expect(row.rescheduleTaxSnapshot).toMatchObject({
+      serviceSubtotalCents: 8000,
+      taxableSubtotalCents: 8000,
+      taxAmountCents: 1040,
+      invoiceTotalCents: 9040,
+      configuration: { label: 'HST', rateBps: 1300 },
+    });
+    expect(validateInvoiceTaxSnapshot(row.rescheduleTaxSnapshot, {
+      expectedKind: 'booking_estimate',
+      expectedCurrency: 'CAD',
+      expectedScalars: { bookingTotalPriceCents: 8000 },
+    }).ok).toBe(true);
   });
 
   it('persists distinct revisions for sequential provider changes at one start time', async () => {

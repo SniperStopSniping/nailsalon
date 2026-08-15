@@ -7,7 +7,9 @@ import type { AppointmentManageDetail } from '@/libs/appointmentManage';
 import { AppointmentQuickEditSheet } from './AppointmentQuickEditSheet';
 
 vi.mock('next/image', () => ({
-  default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => <img alt={props.alt} />,
+  default: (props: React.ImgHTMLAttributes<HTMLImageElement>) => React.createElement('img', {
+    alt: props.alt,
+  }),
 }));
 
 const baseDetail: AppointmentManageDetail = {
@@ -76,6 +78,18 @@ const baseDetail: AppointmentManageDetail = {
     { id: 'tech_1', name: 'Taylor' },
     { id: 'tech_2', name: 'Jordan' },
   ],
+  financial: {
+    state: 'resolved',
+    currency: 'CAD',
+    classification: 'estimate',
+    serviceInvoiceTotalCents: 4500,
+    invoiceTotalCents: 4500,
+    taxAmountCents: 0,
+    taxLabel: null,
+    depositCreditAppliedCents: 0,
+    amountAlreadyPaidCents: 0,
+    balanceCents: 4500,
+  },
   permissions: {
     canMove: true,
     canChangeService: true,
@@ -91,6 +105,70 @@ const baseDetail: AppointmentManageDetail = {
 };
 
 describe('AppointmentQuickEditSheet', () => {
+  it('shows the canonical tax-inclusive estimate and deposit credit instead of the booked subtotal mutant', () => {
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={{
+          ...baseDetail,
+          financial: {
+            state: 'resolved',
+            currency: 'CAD',
+            classification: 'estimate',
+            serviceInvoiceTotalCents: 5085,
+            invoiceTotalCents: 5085,
+            taxAmountCents: 585,
+            taxLabel: 'HST',
+            depositCreditAppliedCents: 1000,
+            amountAlreadyPaidCents: 1000,
+            balanceCents: 4085,
+          },
+        }}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    const summary = screen.getByTestId('appointment-sheet-financial-summary');
+
+    expect(summary).toHaveTextContent('Estimated total');
+    expect(summary).toHaveTextContent('$50.85');
+    expect(summary).toHaveTextContent('Deposit credit $10.00');
+    expect(summary).toHaveTextContent('Balance $40.85');
+    expect(summary).not.toHaveTextContent('$45.00');
+  });
+
+  it('shows a money-free review state for unresolved refunds or missing currency', () => {
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={{ ...baseDetail, financial: { state: 'under_review' } }}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    expect(screen.getByTestId('appointment-sheet-financial-summary')).toHaveTextContent(
+      'Financial detailsUnder review',
+    );
+    expect(screen.getByTestId('appointment-sheet-projected-price')).toHaveTextContent('Under review');
+    expect(screen.queryByText('$45.00')).not.toBeInTheDocument();
+  });
+
   it('does not expose D6 deposit controls on the default staff surface', () => {
     render(
       <AppointmentQuickEditSheet

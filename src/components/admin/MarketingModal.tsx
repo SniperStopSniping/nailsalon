@@ -480,6 +480,7 @@ type FollowupItem = {
 };
 
 type MarketingOverview = {
+  currency: string;
   followups: {
     groups: Array<{ id: string; title: string; items: FollowupItem[] }>;
     reminders: Array<{ clientId: string; clientName: string | null; appointmentId: string; startTime: string }>;
@@ -495,6 +496,7 @@ type MarketingOverview = {
       completedCount: number;
       completedRevenueCents: number;
       completedTaxCents: number;
+      unresolvedFinancialCount: number;
     }>;
     automatic: Array<{ channel: string; status: string; count: number }>;
   };
@@ -907,8 +909,8 @@ export function MarketingModal({
   );
   const markedSent30d = overview
     ? overview.results.outreach
-      .filter(row => row.status === 'marked_sent')
-      .reduce((sum, row) => sum + row.count, 0)
+        .filter(row => row.status === 'marked_sent')
+        .reduce((sum, row) => sum + row.count, 0)
     : null;
   const redeemedTotal = overview
     ? overview.results.campaigns.reduce((sum, row) => sum + row.redeemed, 0)
@@ -1325,17 +1327,23 @@ export function MarketingModal({
                                   <div className="flex justify-between">
                                     <span>Completed revenue (before tax)</span>
                                     <span className="font-medium text-[#1C1C1E]" data-testid={`campaign-revenue-${row.stage}`}>
-                                      {formatMoney(row.completedRevenueCents)}
+                                      {formatMoney(row.completedRevenueCents, overview.currency)}
                                     </span>
                                   </div>
                                   <div className="flex justify-between">
                                     <span>Tax collected (not revenue)</span>
-                                    <span className="font-medium text-[#1C1C1E]">{formatMoney(row.completedTaxCents)}</span>
+                                    <span className="font-medium text-[#1C1C1E]">{formatMoney(row.completedTaxCents, overview.currency)}</span>
                                   </div>
                                   <div className="flex justify-between">
                                     <span>Discounts given</span>
-                                    <span className="font-medium text-[#1C1C1E]">{formatMoney(row.discountGivenCents)}</span>
+                                    <span className="font-medium text-[#1C1C1E]">{formatMoney(row.discountGivenCents, overview.currency)}</span>
                                   </div>
+                                  {row.unresolvedFinancialCount > 0 && (
+                                    <div className="flex justify-between text-amber-700">
+                                      <span>Financial records under review</span>
+                                      <span className="font-medium">{row.unresolvedFinancialCount}</span>
+                                    </div>
+                                  )}
                                 </div>
                               </div>
                             ))}

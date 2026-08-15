@@ -11,6 +11,12 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import {
+  buildBookingTaxSnapshot,
+  buildFinalTaxSnapshot,
+  DISABLED_TAX_CONFIG,
+  type FinalTaxSnapshot,
+} from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
 import { POST as mintPaymentLink } from '../../../appointments/[id]/payment-link/route';
@@ -60,6 +66,10 @@ vi.mock('@/libs/fraudDetection', () => ({
 const SALON_ID = 'salon_pay';
 const APPT_ID = 'appt_pay_1';
 const OTHER_APPT_ID = 'appt_pay_2';
+const ESTIMATE_APPT_ID = 'appt_pay_estimate';
+const TERMINAL_APPT_ID = 'appt_pay_terminal';
+const HISTORICAL_APPT_ID = 'appt_pay_historical_currency_unknown';
+const LEGACY_REFUNDED_APPT_ID = 'appt_pay_legacy_refunded';
 
 let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -105,6 +115,7 @@ beforeAll(async () => {
       tipCents: 0,
       paymentStatus: 'pending',
       amountPaidCents: 0,
+      invoiceCurrency: 'CAD',
     },
     {
       id: OTHER_APPT_ID,
@@ -117,11 +128,90 @@ beforeAll(async () => {
       totalPrice: 5000,
       totalDurationMinutes: 60,
       finalPriceCents: 5000,
+      taxAmountCents: 0,
       tipCents: 0,
       paymentStatus: 'pending',
       amountPaidCents: 0,
+      invoiceCurrency: 'CAD',
+    },
+    {
+      id: ESTIMATE_APPT_ID,
+      salonId: SALON_ID,
+      clientPhone: '4165550179',
+      startTime: new Date('2026-07-12T14:00:00Z'),
+      endTime: new Date('2026-07-12T15:00:00Z'),
+      status: 'confirmed',
+      totalPrice: 11300,
+      totalDurationMinutes: 60,
+      paymentStatus: 'pending',
+      amountPaidCents: 0,
+      invoiceCurrency: 'CAD',
+    },
+    {
+      id: TERMINAL_APPT_ID,
+      salonId: SALON_ID,
+      clientPhone: '4165550180',
+      startTime: new Date('2026-07-13T14:00:00Z'),
+      endTime: new Date('2026-07-13T15:00:00Z'),
+      status: 'completed',
+      completedAt: new Date('2026-07-13T15:00:00Z'),
+      totalPrice: 5000,
+      totalDurationMinutes: 60,
+      finalPriceCents: 5000,
+      taxAmountCents: 0,
+      tipCents: 0,
+      paymentStatus: 'pending',
+      amountPaidCents: 0,
+      invoiceCurrency: 'CAD',
+    },
+    {
+      id: HISTORICAL_APPT_ID,
+      salonId: SALON_ID,
+      clientPhone: '4165550181',
+      startTime: new Date('2026-07-14T14:00:00Z'),
+      endTime: new Date('2026-07-14T15:00:00Z'),
+      status: 'completed',
+      completedAt: new Date('2026-07-14T15:00:00Z'),
+      totalPrice: 5000,
+      totalDurationMinutes: 60,
+      finalPriceCents: 5000,
+      taxAmountCents: 0,
+      paymentStatus: 'pending',
+      amountPaidCents: 0,
+    },
+    {
+      id: LEGACY_REFUNDED_APPT_ID,
+      salonId: SALON_ID,
+      clientPhone: '4165550182',
+      startTime: new Date('2026-07-15T14:00:00Z'),
+      endTime: new Date('2026-07-15T15:00:00Z'),
+      status: 'completed',
+      completedAt: new Date('2026-07-15T15:00:00Z'),
+      totalPrice: 10000,
+      totalDurationMinutes: 60,
+      finalPriceCents: 10000,
+      taxAmountCents: 0,
+      tipCents: 0,
+      paymentStatus: 'pending',
+      amountPaidCents: null,
+      invoiceCurrency: 'CAD',
     },
   ]);
+  await db.insert(schema.appointmentDepositSchema).values({
+    id: 'deposit_pay_legacy_refunded',
+    salonId: SALON_ID,
+    appointmentId: LEGACY_REFUNDED_APPT_ID,
+    amountCents: 2500,
+    currency: 'cad',
+    status: 'refunded',
+    stripeAccountId: 'acct_pay',
+    stripePaymentIntentId: 'pi_pay_legacy_refunded',
+    stripeRefundId: 're_pay_legacy_refunded',
+    refundStatus: 'succeeded',
+    refundStatusChangedAt: new Date('2026-08-15T12:00:00.000Z'),
+    refundAmountCents: 2500,
+    refundedAt: new Date('2026-08-15T12:00:00.000Z'),
+  });
 }, 60_000);
 
 beforeEach(() => {
@@ -145,6 +235,18 @@ async function mintToken(appointmentId: string): Promise<string> {
 }
 
 describe('payment link + public pay page', () => {
+  it('refuses to mint payment instructions from an editable booking estimate', async () => {
+    const response = await mintPaymentLink(
+      new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
+      { params: { id: ESTIMATE_APPT_ID } },
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'INVOICE_NOT_FINALIZED' },
+    });
+  });
+
   it('serves salon-side payment facts only — never client PII', async () => {
     const token = await mintToken(APPT_ID);
 
@@ -158,6 +260,7 @@ describe('payment link + public pay page', () => {
     expect(body.data).toMatchObject({
       salonName: 'Pay Salon',
       amountDueCents: 11300, // 10000 + 1300 tax, nothing paid
+      currency: 'CAD',
       isFinalized: true,
       recipient: 'pay@paysalon.ca',
     });
@@ -167,6 +270,194 @@ describe('payment link + public pay page', () => {
 
     expect(serialized).not.toContain('Private Client Name');
     expect(serialized).not.toContain('4165550177');
+  });
+
+  it('stops serving instructions after the appointment becomes terminal', async () => {
+    const token = await mintToken(TERMINAL_APPT_ID);
+
+    await db.update(schema.appointmentSchema)
+      .set({ status: 'no_show' })
+      .where(eq(schema.appointmentSchema.id, TERMINAL_APPT_ID));
+
+    const response = await getPayPage(
+      new Request(`http://localhost/api/public/pay/${token}`),
+      { params: { token } },
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'PAYMENT_LINK_INVALID' },
+    });
+  });
+
+  it('does not create a collection link for a historical invoice with unknown currency', async () => {
+    const response = await mintPaymentLink(
+      new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
+      { params: { id: HISTORICAL_APPT_ID } },
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'INVOICE_CURRENCY_UNAVAILABLE' },
+    });
+  });
+
+  it('fails mint and public collection closed on malformed or currency-drifted final snapshots', async () => {
+    const validSnapshot = buildFinalTaxSnapshot({
+      taxConfig: DISABLED_TAX_CONFIG,
+      totals: {
+        taxApplied: false,
+        taxableSubtotalCents: 0,
+        taxAmountCents: 0,
+        finalPriceCents: 5000,
+      },
+      capturedAt: new Date('2026-07-11T15:00:00.000Z'),
+      currency: 'CAD',
+      taxExempt: false,
+    });
+
+    await db.update(schema.appointmentSchema).set({
+      finalTaxSnapshot: validSnapshot,
+      taxableSubtotalCents: 0,
+      taxExempt: false,
+      taxExemptReason: null,
+    }).where(eq(schema.appointmentSchema.id, OTHER_APPT_ID));
+    const token = await mintToken(OTHER_APPT_ID);
+
+    try {
+      await db.update(schema.appointmentSchema).set({
+        finalTaxSnapshot: { malformed: true } as unknown as FinalTaxSnapshot,
+      }).where(eq(schema.appointmentSchema.id, OTHER_APPT_ID));
+
+      const malformedPublic = await getPayPage(
+        new Request(`http://localhost/api/public/pay/${token}`),
+        { params: { token } },
+      );
+
+      expect(malformedPublic.status).toBe(409);
+      await expect(malformedPublic.json()).resolves.toMatchObject({
+        error: {
+          code: 'TAX_SNAPSHOT_INVALID',
+          reason: 'TAX_SNAPSHOT_SCHEMA_UNSUPPORTED',
+        },
+      });
+
+      const malformedMint = await mintPaymentLink(
+        new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
+        { params: { id: OTHER_APPT_ID } },
+      );
+
+      expect(malformedMint.status).toBe(409);
+      await expect(malformedMint.json()).resolves.toMatchObject({
+        error: {
+          code: 'TAX_SNAPSHOT_INVALID',
+          reason: 'TAX_SNAPSHOT_SCHEMA_UNSUPPORTED',
+        },
+      });
+
+      await db.update(schema.appointmentSchema).set({
+        finalTaxSnapshot: validSnapshot,
+        invoiceCurrency: 'USD',
+      }).where(eq(schema.appointmentSchema.id, OTHER_APPT_ID));
+
+      const driftedPublic = await getPayPage(
+        new Request(`http://localhost/api/public/pay/${token}`),
+        { params: { token } },
+      );
+
+      expect(driftedPublic.status).toBe(409);
+      await expect(driftedPublic.json()).resolves.toMatchObject({
+        error: {
+          code: 'TAX_SNAPSHOT_INVALID',
+          reason: 'TAX_SNAPSHOT_CURRENCY_MISMATCH',
+        },
+      });
+
+      const driftedMint = await mintPaymentLink(
+        new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
+        { params: { id: OTHER_APPT_ID } },
+      );
+
+      expect(driftedMint.status).toBe(409);
+      await expect(driftedMint.json()).resolves.toMatchObject({
+        error: {
+          code: 'TAX_SNAPSHOT_INVALID',
+          reason: 'TAX_SNAPSHOT_CURRENCY_MISMATCH',
+        },
+      });
+    } finally {
+      await db.update(schema.appointmentSchema).set({
+        finalTaxSnapshot: null,
+        taxableSubtotalCents: null,
+        taxExempt: null,
+        taxExemptReason: null,
+        invoiceCurrency: 'CAD',
+      }).where(eq(schema.appointmentSchema.id, OTHER_APPT_ID));
+    }
+  });
+
+  it('fails mint and public collection closed when a finalized snapshot is deleted', async () => {
+    const token = await mintToken(OTHER_APPT_ID);
+    const bookingTaxSnapshot = buildBookingTaxSnapshot({
+      taxConfig: DISABLED_TAX_CONFIG,
+      totals: {
+        taxApplied: false,
+        taxableSubtotalCents: 0,
+        taxAmountCents: 0,
+        finalPriceCents: 5000,
+      },
+      capturedAt: new Date('2026-07-11T14:00:00.000Z'),
+      currency: 'CAD',
+    });
+
+    await db.update(schema.appointmentSchema).set({
+      bookingTaxSnapshot,
+      finalTaxSnapshot: null,
+    }).where(eq(schema.appointmentSchema.id, OTHER_APPT_ID));
+
+    try {
+      const publicResponse = await getPayPage(
+        new Request(`http://localhost/api/public/pay/${token}`),
+        { params: { token } },
+      );
+
+      expect(publicResponse.status).toBe(409);
+      await expect(publicResponse.json()).resolves.toMatchObject({
+        error: {
+          code: 'TAX_SNAPSHOT_INVALID',
+          reason: 'TAX_SNAPSHOT_INVALID_SHAPE',
+        },
+      });
+
+      const mintResponse = await mintPaymentLink(
+        new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
+        { params: { id: OTHER_APPT_ID } },
+      );
+
+      expect(mintResponse.status).toBe(409);
+      await expect(mintResponse.json()).resolves.toMatchObject({
+        error: {
+          code: 'TAX_SNAPSHOT_INVALID',
+          reason: 'TAX_SNAPSHOT_INVALID_SHAPE',
+        },
+      });
+    } finally {
+      await db.update(schema.appointmentSchema).set({
+        bookingTaxSnapshot: null,
+      }).where(eq(schema.appointmentSchema.id, OTHER_APPT_ID));
+    }
+  });
+
+  it('does not recollect a historical paid invoice after a deposit refund erases the paid scalar', async () => {
+    const response = await mintPaymentLink(
+      new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
+      { params: { id: LEGACY_REFUNDED_APPT_ID } },
+    );
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'PAYMENT_LEDGER_RECONCILIATION_REQUIRED' },
+    });
   });
 
   it('stores only the token hash, and a token cannot reach another appointment', async () => {
@@ -197,6 +488,139 @@ describe('payment link + public pay page', () => {
     expect(garbage.status).toBe(404);
   });
 
+  it('blocks every collection surface when a positive paid cache has no ledger provenance', async () => {
+    const token = await mintToken(APPT_ID);
+    await db.update(schema.appointmentSchema)
+      .set({ amountPaidCents: 2500 })
+      .where(eq(schema.appointmentSchema.id, APPT_ID));
+
+    try {
+      const publicResponse = await getPayPage(
+        new Request(`http://localhost/api/public/pay/${token}`),
+        { params: { token } },
+      );
+
+      expect(publicResponse.status).toBe(409);
+      await expect(publicResponse.json()).resolves.toMatchObject({
+        error: { code: 'PAYMENT_LEDGER_RECONCILIATION_REQUIRED' },
+      });
+
+      const mintResponse = await mintPaymentLink(
+        new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
+        { params: { id: APPT_ID } },
+      );
+
+      expect(mintResponse.status).toBe(409);
+      await expect(mintResponse.json()).resolves.toMatchObject({
+        error: { code: 'PAYMENT_LEDGER_RECONCILIATION_REQUIRED' },
+      });
+
+      const paymentResponse = await recordPayment(
+        new Request('http://localhost/api/appointments/x/payments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amountCents: 100,
+            method: 'e_transfer',
+            idempotencyKey: 'blocked-cache-without-ledger',
+          }),
+        }),
+        { params: { id: APPT_ID } },
+      );
+
+      expect(paymentResponse.status).toBe(409);
+      await expect(paymentResponse.json()).resolves.toMatchObject({
+        error: { code: 'PAYMENT_LEDGER_RECONCILIATION_REQUIRED' },
+      });
+    } finally {
+      await db.update(schema.appointmentSchema)
+        .set({ amountPaidCents: 0 })
+        .where(eq(schema.appointmentSchema.id, APPT_ID));
+    }
+  });
+
+  it('blocks public, link, and payment surfaces when a late deposit creates tender excess', async () => {
+    const token = await mintToken(OTHER_APPT_ID);
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: 'pay_late_deposit_overpayment',
+      appointmentId: OTHER_APPT_ID,
+      salonId: SALON_ID,
+      amountCents: 5000,
+      recordedByType: 'staff',
+      recordedById: 'tech_pay',
+    });
+    await db.insert(schema.appointmentDepositSchema).values({
+      id: 'deposit_late_overpayment',
+      appointmentId: OTHER_APPT_ID,
+      salonId: SALON_ID,
+      amountCents: 2500,
+      currency: 'cad',
+      status: 'paid',
+      stripeAccountId: 'acct_pay',
+      stripePaymentIntentId: 'pi_late_overpayment',
+      collectedAt: new Date('2026-07-11T16:00:00.000Z'),
+    });
+    await db.update(schema.appointmentSchema).set({
+      amountPaidCents: 5000,
+      paymentStatus: 'pending',
+    }).where(eq(schema.appointmentSchema.id, OTHER_APPT_ID));
+
+    try {
+      const publicResponse = await getPayPage(
+        new Request(`http://localhost/api/public/pay/${token}`),
+        { params: { token } },
+      );
+
+      expect(publicResponse.status).toBe(409);
+      await expect(publicResponse.json()).resolves.toMatchObject({
+        error: {
+          code: 'APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED',
+        },
+      });
+
+      const mintResponse = await mintPaymentLink(
+        new Request('http://localhost/api/appointments/x/payment-link', { method: 'POST' }),
+        { params: { id: OTHER_APPT_ID } },
+      );
+
+      expect(mintResponse.status).toBe(409);
+      await expect(mintResponse.json()).resolves.toMatchObject({
+        error: {
+          code: 'APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED',
+        },
+      });
+
+      const paymentResponse = await recordPayment(
+        new Request('http://localhost/api/appointments/x/payments', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            amountCents: 100,
+            method: 'e_transfer',
+            idempotencyKey: 'blocked-late-deposit-overpayment',
+          }),
+        }),
+        { params: { id: OTHER_APPT_ID } },
+      );
+
+      expect(paymentResponse.status).toBe(409);
+      await expect(paymentResponse.json()).resolves.toMatchObject({
+        error: {
+          code: 'APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED',
+        },
+      });
+    } finally {
+      await db.delete(schema.appointmentDepositSchema)
+        .where(eq(schema.appointmentDepositSchema.id, 'deposit_late_overpayment'));
+      await db.delete(schema.appointmentPaymentSchema)
+        .where(eq(schema.appointmentPaymentSchema.id, 'pay_late_deposit_overpayment'));
+      await db.update(schema.appointmentSchema).set({
+        amountPaidCents: 0,
+        paymentStatus: 'pending',
+      }).where(eq(schema.appointmentSchema.id, OTHER_APPT_ID));
+    }
+  });
+
   it('revokes the link once the balance is fully paid', async () => {
     const token = await mintToken(APPT_ID);
 
@@ -204,7 +628,11 @@ describe('payment link + public pay page', () => {
       new Request('http://localhost/api/appointments/x/payments', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amountCents: 11300, method: 'e_transfer' }),
+        body: JSON.stringify({
+          amountCents: 11300,
+          method: 'e_transfer',
+          idempotencyKey: 'public-pay-integration-1',
+        }),
       }),
       { params: { id: APPT_ID } },
     );

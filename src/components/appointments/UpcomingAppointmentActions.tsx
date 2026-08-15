@@ -145,8 +145,8 @@ export function UpcomingAppointmentActions({
         setReminderDue(payload?.data?.reminderDue === true);
         const latestManualReminder = Array.isArray(payload?.data?.history)
           ? payload.data.history.find((item: { kind?: string; status?: string }) => (
-            item.kind === 'reminder' && item.status === 'marked_sent'
-          ))
+              item.kind === 'reminder' && item.status === 'marked_sent'
+            ))
           : null;
         setManualReminderSentAt(latestManualReminder?.updatedAt ?? null);
       })
@@ -167,7 +167,9 @@ export function UpcomingAppointmentActions({
     salon: {
       name: detail.appointment.salonName,
       timeZone: detail.appointment.timeZone,
-      currency: 'CAD',
+      currency: detail.financial?.state === 'resolved'
+        ? detail.financial.currency
+        : null,
       location: detail.location
         ? {
             ...detail.location,
@@ -184,7 +186,9 @@ export function UpcomingAppointmentActions({
       artistName: detail.technicianOptions.find(
         technician => technician.id === detail.appointment.technicianId,
       )?.name ?? null,
-      totalPriceCents: detail.appointment.totalPrice,
+      totalPriceCents: detail.financial?.state === 'resolved'
+        ? detail.financial.invoiceTotalCents
+        : null,
     },
   }), [detail]);
 
@@ -233,10 +237,10 @@ export function UpcomingAppointmentActions({
           return href ? { href, body: serverDraft.body } : null;
         })()
       : composeClientSmsDraft({
-        kind,
-        context,
-        platform: detectNativeSmsPlatform(window.navigator.userAgent),
-      });
+          kind,
+          context,
+          platform: detectNativeSmsPlatform(window.navigator.userAgent),
+        });
 
     if (!draft) {
       setActionError('This client needs a valid mobile number before a text can be prepared.');

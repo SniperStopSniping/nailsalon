@@ -9,6 +9,7 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import type { AppointmentManageDetail, ManageWarning } from '@/libs/appointmentManage';
 import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
+import { formatMoney } from '@/libs/formatMoney';
 import { themeVars } from '@/theme';
 
 type AppointmentQuickEditSheetProps = {
@@ -56,10 +57,6 @@ type AppointmentQuickEditSheetProps = {
 
 const EMPTY_WARNINGS: ManageWarning[] = [];
 const EMPTY_PHOTOS: NonNullable<AppointmentQuickEditSheetProps['photos']> = [];
-
-function formatCurrency(cents: number) {
-  return `$${(cents / 100).toFixed(2)}`;
-}
 
 function formatDateTimeValue(iso: string) {
   const date = new Date(iso);
@@ -160,6 +157,12 @@ export function AppointmentQuickEditSheet({
   const projectedDuration = currentBaseService
     ? currentBaseService.durationMinutes + currentAddOnDuration
     : detail?.appointment.totalDurationMinutes ?? 0;
+  // Fail closed for stale cached/client fixtures that predate the financial
+  // DTO: absence is never permission to revive the raw booked total.
+  const financial = detail?.financial ?? { state: 'under_review' as const };
+  const financialCurrency = financial.state === 'resolved'
+    ? financial.currency
+    : null;
 
   const isDirty = Boolean(
     detail
@@ -266,11 +269,46 @@ export function AppointmentQuickEditSheet({
                               {formatAppointmentStatus(detail.appointment.status)}
                             </div>
                           </div>
-                          <div className="text-right">
-                            <div className="text-xs uppercase tracking-[0.08em] text-neutral-400">Current total</div>
-                            <div className="text-lg font-semibold" style={{ color: themeVars.primary }}>
-                              {formatCurrency(detail.appointment.totalPrice)}
-                            </div>
+                          <div className="text-right" data-testid="appointment-sheet-financial-summary">
+                            {financial.state === 'resolved'
+                              ? (
+                                  <>
+                                    <div className="text-xs uppercase tracking-[0.08em] text-neutral-400">
+                                      {financial.classification === 'actual'
+                                        ? 'Invoice total'
+                                        : 'Estimated total'}
+                                    </div>
+                                    <div className="text-lg font-semibold" style={{ color: themeVars.primary }}>
+                                      {formatMoney(
+                                        financial.invoiceTotalCents,
+                                        financial.currency,
+                                      )}
+                                    </div>
+                                    {financial.depositCreditAppliedCents > 0 && (
+                                      <div className="mt-1 text-xs text-neutral-500">
+                                        Deposit credit
+                                        {' '}
+                                        {formatMoney(
+                                          financial.depositCreditAppliedCents,
+                                          financial.currency,
+                                        )}
+                                        {' · '}
+                                        Balance
+                                        {' '}
+                                        {formatMoney(
+                                          financial.balanceCents,
+                                          financial.currency,
+                                        )}
+                                      </div>
+                                    )}
+                                  </>
+                                )
+                              : (
+                                  <>
+                                    <div className="text-xs uppercase tracking-[0.08em] text-neutral-400">Financial details</div>
+                                    <div className="text-sm font-semibold text-amber-700">Under review</div>
+                                  </>
+                                )}
                           </div>
                         </div>
                       </div>
@@ -374,8 +412,8 @@ export function AppointmentQuickEditSheet({
                         <div className="rounded-2xl border border-neutral-200 p-4">
                           <div className="text-sm font-semibold text-neutral-900">Communication history</div>
                           <div className="mt-3 divide-y divide-neutral-100">
-                            {detail.communications?.map((delivery, index) => (
-                              <div key={`${delivery.channel}-${delivery.purpose}-${delivery.updatedAt}-${index}`} className="flex items-center justify-between gap-3 py-2 text-sm">
+                            {detail.communications?.map(delivery => (
+                              <div key={`${delivery.channel}-${delivery.purpose}-${delivery.status}-${delivery.updatedAt}`} className="flex items-center justify-between gap-3 py-2 text-sm">
                                 <div>
                                   <p className="font-medium capitalize text-neutral-800">{delivery.purpose.replaceAll('_', ' ')}</p>
                                   <p className="text-xs text-neutral-500">
@@ -450,9 +488,11 @@ export function AppointmentQuickEditSheet({
                                         min
                                       </div>
                                     </div>
-                                    <div className="shrink-0 text-sm font-medium text-neutral-900">
-                                      {formatCurrency(addOn.lineTotalCents)}
-                                    </div>
+                                    {financialCurrency && (
+                                      <div className="shrink-0 text-sm font-medium text-neutral-900">
+                                        {formatMoney(addOn.lineTotalCents, financialCurrency)}
+                                      </div>
+                                    )}
                                   </div>
                                 ))}
                               </div>
@@ -479,10 +519,9 @@ export function AppointmentQuickEditSheet({
                               {detail.serviceOptions.map(service => (
                                 <option key={service.id} value={service.id}>
                                   {service.name}
-                                  {' '}
-                                  ·
-                                  {' '}
-                                  {formatCurrency(service.priceCents)}
+                                  {financialCurrency
+                                    ? ` · ${formatMoney(service.priceCents, financialCurrency)}`
+                                    : ''}
                                   {' '}
                                   ·
                                   {' '}
@@ -550,9 +589,11 @@ export function AppointmentQuickEditSheet({
                             </span>
                           </div>
                           <div className="mt-2 flex items-center justify-between">
-                            <span>Projected subtotal</span>
+                            <span>Projected service subtotal</span>
                             <span data-testid="appointment-sheet-projected-price" className="font-medium text-neutral-900">
-                              {formatCurrency(projectedPrice)}
+                              {financialCurrency
+                                ? formatMoney(projectedPrice, financialCurrency)
+                                : 'Under review'}
                             </span>
                           </div>
                           {detail.addOns.length > 0 && (

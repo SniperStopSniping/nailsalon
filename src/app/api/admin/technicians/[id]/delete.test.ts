@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { DELETE } from './route';
+
+vi.mock('server-only', () => ({}));
+
 const { db, requireAdminSalon, setSelectPlans } = vi.hoisted(() => {
   type Plan =
     | { type: 'limit'; result: unknown[] }
@@ -62,8 +66,6 @@ vi.mock('@/libs/adminAuth', () => ({
 vi.mock('@/libs/DB', () => ({
   db,
 }));
-
-import { DELETE } from './route';
 
 describe('DELETE /api/admin/technicians/[id]', () => {
   beforeEach(() => {

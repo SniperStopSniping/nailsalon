@@ -1,6 +1,12 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const forfeitAppointmentDepositInTx = vi.hoisted(() => vi.fn(async () => ({
+  disposition: 'no_deposit',
+  depositIds: [],
+  forfeitedCents: 0,
+})));
+
 const {
   requireAppointmentManagerAccess,
   getAppointmentServiceNames,
@@ -113,6 +119,11 @@ vi.mock('@/libs/routeAccessGuards', () => ({
 
 vi.mock('@/libs/DB', () => ({
   db,
+}));
+
+vi.mock('@/libs/deposits/depositForfeiture', () => ({
+  DepositForfeitureBlockedError: class DepositForfeitureBlockedError extends Error {},
+  forfeitAppointmentDepositInTx,
 }));
 
 vi.mock('@/libs/clientLifecycleStabilization', () => ({
@@ -334,6 +345,11 @@ describe('PATCH /api/appointments/[id]/cancel', () => {
       cancelReason: 'no_show',
     }));
     expect(body.data.appointment.status).toBe('no_show');
+    expect(forfeitAppointmentDepositInTx).toHaveBeenCalledWith(expect.objectContaining({
+      salonId: 'salon_1',
+      appointmentId: 'appt_1',
+      appointmentLockHeld: true,
+    }));
     // A client who missed their appointment must not receive a
     // "your appointment was cancelled" confirmation.
     expect(vi.mocked(sendCancellationConfirmation)).not.toHaveBeenCalled();

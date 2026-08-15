@@ -8,7 +8,10 @@ import {
   CLIENT_INSIGHTS_RULES_VERSION,
 } from '@/libs/clientInsights';
 import { db } from '@/libs/DB';
-import { buildFinancialBalanceSql } from '@/libs/financialReportingServer';
+import {
+  type CompletedOutstandingRow,
+  getCompletedOutstandingRows,
+} from '@/libs/financialReportingServer';
 import { normalizePhone } from '@/libs/phone';
 import {
   RETENTION_PROMO_6W_DAYS,
@@ -56,8 +59,10 @@ export type ClientInsightsDirectoryResult = {
 
 export type ClientInsightsQueryContext = {
   salonId: string;
+  currency: string;
   timeZone: string;
   now: Date;
+  completedOutstandingRows?: readonly CompletedOutstandingRow[];
 };
 
 export type ClientInsightsDirectoryQueryInput = ClientInsightsQueryContext & {
@@ -77,6 +82,9 @@ function assertContext(input: ClientInsightsQueryContext): void {
   }
   if (!input.timeZone.trim()) {
     throw new TypeError('timeZone is required');
+  }
+  if (!input.currency.trim()) {
+    throw new TypeError('currency is required');
   }
   if (!(input.now instanceof Date) || Number.isNaN(input.now.getTime())) {
     throw new TypeError('now must be a valid Date');
@@ -147,19 +155,14 @@ export function buildClientInsightsProjectionSql(
     RETENTION_TERMINAL_SUPPRESSION_STATUSES.map(status => sql`${status}`),
     sql`, `,
   );
-  const balance = buildFinancialBalanceSql(input.now, {
-    status: sql`a.status`,
-    deletedAt: sql`a.deleted_at`,
-    paymentStatus: sql`a.payment_status`,
-    startTime: sql`a.start_time`,
-    finalPriceCents: sql`a.final_price_cents`,
-    totalPrice: sql`a.total_price`,
-    taxAmountCents: sql`a.tax_amount_cents`,
-    tipCents: sql`a.tip_cents`,
-    amountPaidCents: sql`a.amount_paid_cents`,
-    paymentsCents: sql<number>`COALESCE(a.positive_payment_cents, 0)`,
-    hasPaymentHistory: sql`COALESCE(a.has_payment_history, false)`,
-  });
+  const completedOutstandingRows = input.completedOutstandingRows ?? [];
+  const canonicalBalanceValues = completedOutstandingRows.length > 0
+    ? sql`VALUES ${sql.join(completedOutstandingRows.map(row => sql`(
+        ${row.appointmentId}::text,
+        ${row.completedOutstandingCents}::bigint,
+        ${row.financialState}::text
+      )`), sql`, `)}`
+    : sql`SELECT NULL::text, NULL::bigint, NULL::text WHERE false`;
 
   return sql`
     WITH RECURSIVE
@@ -170,6 +173,13 @@ export function buildClientInsightsProjectionSql(
         ${input.timeZone}::text AS time_zone,
         ${input.todayKey}::date AS today,
         ${input.monthStartKey}::date AS month_start
+    ),
+    canonical_completed_balances(
+      appointment_id,
+      completed_outstanding_cents,
+      financial_state
+    ) AS (
+      ${canonicalBalanceValues}
     ),
     client_digits AS (
       SELECT
@@ -352,11 +362,6 @@ export function buildClientInsightsProjectionSql(
         a.status,
         a.updated_at,
         a.deleted_at,
-        a.total_price,
-        a.final_price_cents,
-        a.tax_amount_cents,
-        a.tip_cents,
-        a.amount_paid_cents,
         a.payment_status,
         regexp_replace(COALESCE(a.client_phone, ''), '[^0-9]', '', 'g') AS phone_digits
       FROM appointment a
@@ -375,28 +380,13 @@ export function buildClientInsightsProjectionSql(
         END AS normalized_phone
       FROM appointment_digits ad
     ),
-    payment_aggregate AS (
-      SELECT
-        ap.appointment_id,
-        COALESCE(sum(ap.amount_cents) FILTER (
-          WHERE ap.voided_at IS NULL AND ap.amount_cents > 0
-        ), 0)::bigint AS positive_payment_cents,
-        true AS has_payment_history
-      FROM appointment_payment ap
-      INNER JOIN insight_params p
-        ON p.salon_id = ap.salon_id
-       AND ap.recorded_at <= p.as_of
-      GROUP BY ap.appointment_id
-    ),
     resolved_appointments AS (
       SELECT
         ac.*,
         CASE
           WHEN ac.salon_client_id IS NOT NULL THEN stable.terminal_client_id
           ELSE legacy.client_id
-        END AS resolved_client_id,
-        COALESCE(pa.positive_payment_cents, 0)::bigint AS positive_payment_cents,
-        COALESCE(pa.has_payment_history, false) AS has_payment_history
+        END AS resolved_client_id
       FROM appointment_candidates ac
       LEFT JOIN client_terminal_map stable
         ON ac.salon_client_id IS NOT NULL
@@ -406,17 +396,17 @@ export function buildClientInsightsProjectionSql(
         ON ac.salon_client_id IS NULL
        AND legacy.salon_id = ac.salon_id
        AND legacy.normalized_phone = ac.normalized_phone
-      LEFT JOIN payment_aggregate pa ON pa.appointment_id = ac.id
     ),
     appointment_facts AS (
       SELECT
         a.*,
-        CASE
-          WHEN ${balance.finalizedResolved} THEN ${balance.finalizedDueCents}
-          WHEN ${balance.legacyResolved} THEN ${balance.legacyDueCents}
-          ELSE 0
-        END::bigint AS completed_outstanding_cents
+        COALESCE(balance.completed_outstanding_cents, 0)::bigint
+          AS completed_outstanding_cents,
+        COALESCE(balance.financial_state, 'not_applicable')::text
+          AS financial_state
       FROM resolved_appointments a
+      LEFT JOIN canonical_completed_balances balance
+        ON balance.appointment_id = a.id
     ),
     client_history AS (
       SELECT
@@ -451,7 +441,12 @@ export function buildClientInsightsProjectionSql(
           AS has_in_progress_appointment,
         COALESCE(sum(af.completed_outstanding_cents) FILTER (
           WHERE af.status = 'completed' AND af.start_time <= p.as_of
-        ), 0)::bigint AS completed_outstanding_cents
+        ), 0)::bigint AS completed_outstanding_cents,
+        COALESCE(bool_or(
+          af.status = 'completed'
+          AND af.start_time <= p.as_of
+          AND af.financial_state = 'under_review'
+        ), false) AS completed_financials_under_review
       FROM client_base cb
       CROSS JOIN insight_params p
       LEFT JOIN appointment_facts af ON af.resolved_client_id = cb.id
@@ -642,7 +637,10 @@ export function buildClientInsightsProjectionSql(
         ) AS segment_inactive_90,
         (
           NOT input.is_blocked
-          AND input.completed_outstanding_cents > 0
+          AND (
+            input.completed_outstanding_cents > 0
+            OR input.completed_financials_under_review
+          )
         ) AS segment_completed_outstanding
       FROM classification_inputs input
     ),
@@ -813,6 +811,11 @@ export function buildClientInsightsSummaryQuery(
               'lastVisitAt', last_completed_at,
               'expectedReturnAt', expected_return_at,
               'completedOutstandingCents', completed_outstanding_cents,
+              'financialState',
+                CASE
+                  WHEN completed_financials_under_review THEN 'under_review'
+                  ELSE 'resolved'
+                END,
               'outreachStage',
                 CASE
                   WHEN segment_due_soon OR segment_due_now OR segment_overdue
@@ -956,11 +959,23 @@ export function buildClientInsightsDirectoryQuery(
 
 export async function getClientInsightsSnapshot(args: {
   salonId: string;
+  currency: string;
   timeZone: string;
   now?: Date;
 }): Promise<ClientInsightsSnapshotResult> {
   const now = args.now ?? new Date();
-  const context = { salonId: args.salonId, timeZone: args.timeZone, now };
+  const completedOutstandingRows = await getCompletedOutstandingRows({
+    salonId: args.salonId,
+    currency: args.currency,
+    asOf: now,
+  });
+  const context = {
+    salonId: args.salonId,
+    currency: args.currency,
+    timeZone: args.timeZone,
+    now,
+    completedOutstandingRows,
+  };
   const rows = readRows(await db.execute(buildClientInsightsSummaryQuery(context)));
   const row = rows[0] ?? {};
   const counts = Object.fromEntries(
@@ -1008,7 +1023,12 @@ export async function getClientInsightsDirectoryPage(
   input: Omit<ClientInsightsDirectoryQueryInput, 'now'> & { now?: Date },
 ): Promise<ClientInsightsDirectoryResult> {
   const now = input.now ?? new Date();
-  const queryInput = { ...input, now };
+  const completedOutstandingRows = await getCompletedOutstandingRows({
+    salonId: input.salonId,
+    currency: input.currency,
+    asOf: now,
+  });
+  const queryInput = { ...input, now, completedOutstandingRows };
   const rows = readRows(await db.execute(buildClientInsightsDirectoryQuery(queryInput)));
   const total = numberValue(rows[0]?.total);
   const clients = rows

@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   buildPaymentReference,
+  CheckoutMoneyRangeError,
   computeBalance,
   computeCheckoutTotals,
   derivePaymentStatus,
+  MAX_SUPPORTED_MINOR_UNIT_AMOUNT,
   type ResolvedTaxConfig,
 } from './checkoutTotals';
 
@@ -16,6 +18,11 @@ const TAX_OFF: ResolvedTaxConfig = {
   taxServicesByDefault: true,
   taxAddOnsByDefault: true,
   taxCustomByDefault: true,
+  configurationSource: 'default',
+  configurationEffectiveFrom: null,
+  jurisdiction: null,
+  country: null,
+  region: null,
 };
 
 const HST_ADDED: ResolvedTaxConfig = {
@@ -220,6 +227,41 @@ describe('computeCheckoutTotals', () => {
         expect(totals.totalDueCents).toBe(displayedDue + totals.taxAmountCents);
       }
     }
+  });
+
+  it('accepts the canonical upper bound and rejects a one-cent overflow', () => {
+    expect(computeCheckoutTotals({
+      items: [taxable(MAX_SUPPORTED_MINOR_UNIT_AMOUNT)],
+      taxConfig: TAX_OFF,
+    }).totalDueCents).toBe(MAX_SUPPORTED_MINOR_UNIT_AMOUNT);
+
+    expect(() => computeCheckoutTotals({
+      items: [
+        taxable(MAX_SUPPORTED_MINOR_UNIT_AMOUNT),
+        nonTaxable(1),
+      ],
+      taxConfig: TAX_OFF,
+    })).toThrow(CheckoutMoneyRangeError);
+  });
+
+  it('blocks tax, tip, and non-integer mutants before an unsafe total is authorized', () => {
+    expect(() => computeCheckoutTotals({
+      items: [taxable(MAX_SUPPORTED_MINOR_UNIT_AMOUNT)],
+      taxConfig: { ...HST_ADDED, rateBps: 30_000 },
+    })).toThrow(CheckoutMoneyRangeError);
+    expect(() => computeCheckoutTotals({
+      items: [taxable(MAX_SUPPORTED_MINOR_UNIT_AMOUNT)],
+      tipCents: 1,
+      taxConfig: TAX_OFF,
+    })).toThrow(CheckoutMoneyRangeError);
+    expect(() => computeCheckoutTotals({
+      items: [taxable(100.5)],
+      taxConfig: TAX_OFF,
+    })).toThrow(CheckoutMoneyRangeError);
+    expect(() => computeCheckoutTotals({
+      items: [taxable(-1)],
+      taxConfig: TAX_OFF,
+    })).toThrow(CheckoutMoneyRangeError);
   });
 });
 

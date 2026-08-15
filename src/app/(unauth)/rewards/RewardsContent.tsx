@@ -21,9 +21,11 @@ import { useParams, useRouter } from 'next/navigation';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { twMerge } from 'tailwind-merge';
 
+import { ClientAppointmentFinancialSummary } from '@/components/client/ClientAppointmentFinancialSummary';
 import { useClientSession } from '@/hooks/useClientSession';
 import { appendSalonSlug } from '@/libs/bookingParams';
 import { useSalon } from '@/providers/SalonProvider';
+import type { ClientAppointmentFinancialPresentation } from '@/types/clientAppointmentFinancial';
 
 // --- UTILITY ---
 
@@ -133,6 +135,7 @@ type UpcomingAppointment = {
   endTime: string;
   status: string;
   totalPrice: number;
+  financial?: ClientAppointmentFinancialPresentation;
   services: Array<{
     id: string;
     name: string;
@@ -184,7 +187,6 @@ const RedeemSheet = ({ isOpen, onClose, reward, appointment, clientPhone, onSucc
   const [isRedeeming, setIsRedeeming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sliderValue, setSliderValue] = useState(0);
-  const [discountResult, setDiscountResult] = useState<{ discount: number; newTotal: number } | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -211,12 +213,16 @@ const RedeemSheet = ({ isOpen, onClose, reward, appointment, clientPhone, onSucc
       setIsRedeeming(false);
       setError(null);
       setSliderValue(0);
-      setDiscountResult(null);
     }
   }, [isOpen]);
 
   const handleConfirm = async () => {
     if (!reward || !appointment || !clientPhone || isRedeeming) {
+      return;
+    }
+    if (appointment.financial?.state !== 'resolved') {
+      setError('Financial details are under review. Please try again after the salon confirms them.');
+      setSliderValue(0);
       return;
     }
 
@@ -242,10 +248,6 @@ const RedeemSheet = ({ isOpen, onClose, reward, appointment, clientPhone, onSucc
       // Success!
       setIsConfirmed(true);
       setSliderValue(100);
-      setDiscountResult({
-        discount: data.data.discountApplied,
-        newTotal: data.data.newTotalPrice,
-      });
       triggerHaptic();
       triggerLuxuryConfetti();
 
@@ -335,26 +337,13 @@ const RedeemSheet = ({ isOpen, onClose, reward, appointment, clientPhone, onSucc
                 {isConfirmed ? 'Reward Applied!' : rewardTitle}
               </h2>
 
-              {/* Show discount result on success */}
-              {isConfirmed && discountResult && (
+              {isConfirmed && (
                 <div className="bg-[var(--n5-success)]/10 mb-4 rounded-xl px-4 py-3">
-                  <p className="font-body text-sm text-[var(--n5-success)]">
-                    <span className="font-semibold">
-                      $
-                      {discountResult.discount.toFixed(2)}
-                      {' '}
-                      off
-                    </span>
-                    {' '}
-                    applied!
+                  <p className="font-body text-sm font-semibold text-[var(--n5-success)]">
+                    Reward applied.
                   </p>
                   <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
-                    New appointment total:
-                    {' '}
-                    <span className="font-semibold">
-                      $
-                      {discountResult.newTotal.toFixed(2)}
-                    </span>
+                    Financial details are refreshing. The salon will confirm the updated estimate and remaining balance.
                   </p>
                 </div>
               )}
@@ -380,14 +369,10 @@ const RedeemSheet = ({ isOpen, onClose, reward, appointment, clientPhone, onSucc
                   <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
                     {appointment.services.map(s => s.name).join(', ')}
                   </p>
-                  <p className="font-body mt-1 text-xs text-[var(--n5-ink-main)]">
-                    Current total:
-                    {' '}
-                    <span className="font-semibold">
-                      $
-                      {(appointment.totalPrice / 100).toFixed(2)}
-                    </span>
-                  </p>
+                  <ClientAppointmentFinancialSummary
+                    financial={appointment.financial ?? { state: 'under_review' }}
+                    className="mt-2"
+                  />
                 </div>
               )}
 
@@ -493,7 +478,6 @@ const CatalogRedeemSheet = ({
   const [isRedeeming, setIsRedeeming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sliderValue, setSliderValue] = useState(0);
-  const [discountResult, setDiscountResult] = useState<{ discount: number; newTotal: number } | null>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -520,12 +504,16 @@ const CatalogRedeemSheet = ({
       setIsRedeeming(false);
       setError(null);
       setSliderValue(0);
-      setDiscountResult(null);
     }
   }, [isOpen]);
 
   const handleConfirm = async () => {
     if (!reward || !appointment || !clientPhone || isRedeeming) {
+      return;
+    }
+    if (appointment.financial?.state !== 'resolved') {
+      setError('Financial details are under review. Please try again after the salon confirms them.');
+      setSliderValue(0);
       return;
     }
 
@@ -557,10 +545,6 @@ const CatalogRedeemSheet = ({
       // Success!
       setIsConfirmed(true);
       setSliderValue(100);
-      setDiscountResult({
-        discount: data.data.discountApplied,
-        newTotal: data.data.newTotalPrice,
-      });
       triggerHaptic();
       triggerLuxuryConfetti();
 
@@ -640,26 +624,13 @@ const CatalogRedeemSheet = ({
                 {isConfirmed ? 'Reward Applied!' : rewardTitle}
               </h2>
 
-              {/* Show discount result on success */}
-              {isConfirmed && discountResult && (
+              {isConfirmed && (
                 <div className="bg-[var(--n5-success)]/10 mb-4 rounded-xl px-4 py-3">
-                  <p className="font-body text-sm text-[var(--n5-success)]">
-                    <span className="font-semibold">
-                      $
-                      {discountResult.discount.toFixed(2)}
-                      {' '}
-                      off
-                    </span>
-                    {' '}
-                    applied!
+                  <p className="font-body text-sm font-semibold text-[var(--n5-success)]">
+                    Reward applied.
                   </p>
                   <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
-                    New appointment total:
-                    {' '}
-                    <span className="font-semibold">
-                      $
-                      {discountResult.newTotal.toFixed(2)}
-                    </span>
+                    Financial details are refreshing. The salon will confirm the updated estimate and remaining balance.
                   </p>
                 </div>
               )}
@@ -685,14 +656,10 @@ const CatalogRedeemSheet = ({
                   <p className="font-body mt-1 text-xs text-[var(--n5-ink-muted)]">
                     {appointment.services.map(s => s.name).join(', ')}
                   </p>
-                  <p className="font-body mt-1 text-xs text-[var(--n5-ink-main)]">
-                    Current total:
-                    {' '}
-                    <span className="font-semibold">
-                      $
-                      {(appointment.totalPrice / 100).toFixed(2)}
-                    </span>
-                  </p>
+                  <ClientAppointmentFinancialSummary
+                    financial={appointment.financial ?? { state: 'under_review' }}
+                    className="mt-2"
+                  />
                 </div>
               )}
 
@@ -955,10 +922,21 @@ const BalanceCard = ({
  */
 type RewardCardProps = {
   isLocked: boolean;
+  redemptionBlocked?: boolean;
   onRedeem?: () => void;
 } & RewardData;
 
-const RewardCard = ({ points, title, subtitle, tierColor, isLocked, icon: Icon, onRedeem }: RewardCardProps) => {
+const RewardCard = ({
+  points,
+  title,
+  subtitle,
+  tierColor,
+  isLocked,
+  redemptionBlocked = false,
+  icon: Icon,
+  onRedeem,
+}: RewardCardProps) => {
+  const interactionBlocked = isLocked || redemptionBlocked;
   // Tier colors are semantic/decorative - green for discounts, purple for add-ons, gold for premium
   const colors = {
     green: { bg: 'bg-[#E8F5E9]', text: 'text-[#2E7D32]' },
@@ -974,43 +952,43 @@ const RewardCard = ({ points, title, subtitle, tierColor, isLocked, icon: Icon, 
       viewport={{ once: true }}
       className={cn(
         'relative w-full p-5 flex flex-col justify-between overflow-hidden group min-h-[180px]',
-        isLocked
+        interactionBlocked
           ? 'bg-[var(--n5-bg-card)]/40 backdrop-blur-[2px] border border-white/40'
           : 'bg-[var(--n5-bg-card)] shadow-[var(--n5-shadow-md)] border border-transparent transition-all duration-300',
       )}
       style={{
         borderRadius: 'var(--n5-radius-card)',
-        borderColor: !isLocked ? `color-mix(in srgb, var(--n5-accent) 0%, transparent)` : undefined,
+        borderColor: !interactionBlocked ? `color-mix(in srgb, var(--n5-accent) 0%, transparent)` : undefined,
       }}
       onMouseEnter={(e) => {
-        if (!isLocked) {
+        if (!interactionBlocked) {
           (e.currentTarget as HTMLElement).style.borderColor = `color-mix(in srgb, var(--n5-accent) 30%, transparent)`;
         }
       }}
       onMouseLeave={(e) => {
-        if (!isLocked) {
+        if (!interactionBlocked) {
           (e.currentTarget as HTMLElement).style.borderColor = `color-mix(in srgb, var(--n5-accent) 0%, transparent)`;
         }
       }}
     >
-      {!isLocked && (
+      {!interactionBlocked && (
         <div className="pointer-events-none absolute inset-0 z-0 -translate-x-full bg-gradient-to-r from-transparent via-white/40 to-transparent group-hover:animate-[shimmer_2s_infinite] motion-reduce:animate-none" />
       )}
 
       <div className="z-10 flex items-start justify-between">
         <span className={cn(
           'px-3 py-1.5 rounded-full text-[10px] font-bold font-body tracking-wider uppercase',
-          isLocked ? 'bg-[var(--n5-bg-card)]/50 text-[var(--n5-ink-muted)]' : `${theme.bg} ${theme.text}`,
+          interactionBlocked ? 'bg-[var(--n5-bg-card)]/50 text-[var(--n5-ink-muted)]' : `${theme.bg} ${theme.text}`,
         )}
         >
           {points.toLocaleString()}
           {' '}
           PTS
         </span>
-        {isLocked && <Lock className="text-[var(--n5-ink-muted)]/50 size-5" />}
+        {interactionBlocked && <Lock className="text-[var(--n5-ink-muted)]/50 size-5" />}
       </div>
 
-      <div className={cn('z-10 mt-4', isLocked && 'opacity-50')}>
+      <div className={cn('z-10 mt-4', interactionBlocked && 'opacity-50')}>
         <div
           className="mb-3 flex size-10 items-center justify-center rounded-full bg-[var(--n5-bg-selected)] text-[var(--n5-ink-main)]"
         >
@@ -1021,32 +999,43 @@ const RewardCard = ({ points, title, subtitle, tierColor, isLocked, icon: Icon, 
       </div>
 
       <div className="z-10 mt-4">
-        {isLocked
-          ? (
-              <div
-                className="font-body text-[var(--n5-ink-muted)]/60 flex h-10 w-full cursor-not-allowed items-center justify-center bg-black/5 text-[10px] font-bold uppercase tracking-widest"
-                style={{ borderRadius: 'var(--n5-radius-md)' }}
-              >
-                Locked
-              </div>
-            )
-          : (
-              <button
-                onClick={() => {
-                  triggerHaptic();
-                  onRedeem?.();
-                }}
-                aria-label={`Redeem ${title} for ${points.toLocaleString()} points`}
-                className="font-body flex h-10 w-full items-center justify-center space-x-1 bg-[var(--n5-button-primary-bg)] text-[11px] font-bold uppercase tracking-wide text-[var(--n5-button-primary-text)] shadow-[var(--n5-shadow-sm)] transition-transform active:scale-95"
-                style={{ borderRadius: 'var(--n5-radius-md)' }}
-              >
-                <span>Redeem</span>
-                <ChevronRight className="size-3" />
-              </button>
-            )}
+        {isLocked && (
+          <div
+            className="font-body text-[var(--n5-ink-muted)]/60 flex h-10 w-full cursor-not-allowed items-center justify-center bg-black/5 text-[10px] font-bold uppercase tracking-widest"
+            style={{ borderRadius: 'var(--n5-radius-md)' }}
+          >
+            Locked
+          </div>
+        )}
+        {!isLocked && redemptionBlocked && (
+          <button
+            type="button"
+            disabled
+            aria-label={`Redeem ${title} unavailable while financial details are under review`}
+            className="font-body flex h-10 w-full cursor-not-allowed items-center justify-center bg-black/5 text-[10px] font-bold uppercase tracking-widest text-[var(--n5-ink-muted)] opacity-60"
+            style={{ borderRadius: 'var(--n5-radius-md)' }}
+          >
+            Under Review
+          </button>
+        )}
+        {!interactionBlocked && (
+          <button
+            type="button"
+            onClick={() => {
+              triggerHaptic();
+              onRedeem?.();
+            }}
+            aria-label={`Redeem ${title} for ${points.toLocaleString()} points`}
+            className="font-body flex h-10 w-full items-center justify-center space-x-1 bg-[var(--n5-button-primary-bg)] text-[11px] font-bold uppercase tracking-wide text-[var(--n5-button-primary-text)] shadow-[var(--n5-shadow-sm)] transition-transform active:scale-95"
+            style={{ borderRadius: 'var(--n5-radius-md)' }}
+          >
+            <span>Redeem</span>
+            <ChevronRight className="size-3" />
+          </button>
+        )}
       </div>
 
-      {isLocked && <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent to-white/40" />}
+      {interactionBlocked && <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-transparent to-white/40" />}
     </motion.div>
   );
 };
@@ -1266,6 +1255,7 @@ export default function RewardsContent() {
             endTime: data.data.appointment.endTime,
             status: data.data.appointment.status,
             totalPrice: data.data.appointment.totalPrice,
+            financial: data.data.appointment.financial ?? { state: 'under_review' },
             services: data.data.services || [],
             technician: data.data.technician,
           });
@@ -1308,15 +1298,16 @@ export default function RewardsContent() {
     fetchAppointment();
     // Update the appointment price locally for immediate feedback
     // Note: newTotal is now in dollars from the API
-    if (upcomingAppointment) {
-      setUpcomingAppointment({
-        ...upcomingAppointment,
-        totalPrice: newTotal * 100, // Convert back to cents for local state
-      });
-    }
+    setUpcomingAppointment(current => current
+      ? {
+          ...current,
+          totalPrice: newTotal * 100, // Convert back to cents for local state
+          financial: { state: 'under_review' },
+        }
+      : current);
     // Update points locally (will be refreshed from API too)
     setCurrentPoints(prev => Math.max(0, prev - (discountApplied * 100 / 50))); // Rough estimate
-  }, [fetchRewards, fetchAppointment, upcomingAppointment]);
+  }, [fetchRewards, fetchAppointment]);
 
   // State for catalog redemption
   const [selectedCatalogReward, setSelectedCatalogReward] = useState<RewardData | null>(null);
@@ -1332,9 +1323,17 @@ export default function RewardsContent() {
     router.back();
   }, [router]);
 
+  // Reward repricing is a D6.2 concern. D6.1 therefore mirrors the server's
+  // fail-closed guard whenever the upcoming appointment cannot present a
+  // resolved, frozen financial summary.
+  const appointmentFinancialsUnderReview = upcomingAppointment !== null
+    && upcomingAppointment.financial?.state !== 'resolved';
+  const canRedeemAgainstUpcomingAppointment = upcomingAppointment !== null
+    && !appointmentFinancialsUnderReview;
+
   return (
     <>
-      <style jsx global>
+      <style>
         {`
         @keyframes shimmer {
           100% { transform: translateX(100%); }
@@ -1457,9 +1456,20 @@ export default function RewardsContent() {
                           <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
                             {upcomingAppointment.services.map(s => s.name).join(', ')}
                           </p>
-                          <p className="font-body mt-1 text-xs font-semibold text-[var(--n5-ink-main)]">
-                            Total: $
-                            {(upcomingAppointment.totalPrice / 100).toFixed(2)}
+                          <ClientAppointmentFinancialSummary
+                            financial={upcomingAppointment.financial ?? { state: 'under_review' }}
+                            className="mt-2"
+                          />
+                        </div>
+                      )}
+
+                      {appointmentFinancialsUnderReview && (
+                        <div
+                          data-testid="reward-redemption-financial-review"
+                          className="rounded-xl border border-[var(--n5-warning)] bg-[var(--n5-bg-card)] p-3"
+                        >
+                          <p className="font-body text-sm text-[var(--n5-warning)]">
+                            Rewards are temporarily unavailable while this appointment&apos;s financial details are under review.
                           </p>
                         </div>
                       )}
@@ -1495,9 +1505,10 @@ export default function RewardsContent() {
                               </div>
                             </div>
                             <button
+                              type="button"
                               onClick={() => {
                                 triggerHaptic();
-                                if (upcomingAppointment) {
+                                if (canRedeemAgainstUpcomingAppointment) {
                                   setSelectedApiReward(reward);
                                 } else {
                                   router.push(appendSalonSlug('/book', salonSlug, {
@@ -1506,15 +1517,19 @@ export default function RewardsContent() {
                                   }));
                                 }
                               }}
-                              disabled={!upcomingAppointment}
+                              disabled={!canRedeemAgainstUpcomingAppointment}
                               className={cn(
                                 'rounded-full px-4 py-2 text-xs font-bold uppercase tracking-wide transition-all',
-                                upcomingAppointment
+                                canRedeemAgainstUpcomingAppointment
                                   ? 'bg-[var(--n5-button-primary-bg)] text-[var(--n5-button-primary-text)] active:scale-95'
                                   : 'bg-gray-200 text-gray-400 cursor-not-allowed',
                               )}
                             >
-                              {upcomingAppointment ? 'Use' : 'Book First'}
+                              {!upcomingAppointment
+                                ? 'Book First'
+                                : appointmentFinancialsUnderReview
+                                  ? 'Under Review'
+                                  : 'Use'}
                             </button>
                           </motion.div>
                         ))}
@@ -1571,8 +1586,9 @@ export default function RewardsContent() {
                               key={reward.id}
                               {...reward}
                               isLocked={currentPoints < reward.points}
+                              redemptionBlocked={appointmentFinancialsUnderReview}
                               onRedeem={
-                                currentPoints >= reward.points && upcomingAppointment
+                                currentPoints >= reward.points && canRedeemAgainstUpcomingAppointment
                                   ? () => handleCatalogRedeem(reward)
                                   : undefined
                               }

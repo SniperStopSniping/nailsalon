@@ -17,7 +17,13 @@ import { guardModuleOr403 } from '@/libs/featureGating';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
 import { enqueueGoogleCalendarAppointmentMutation } from '@/libs/integrationOutbox';
 import { calculateRewardDiscountCents, getRewardDisplayContent } from '@/libs/rewardRules';
-import { appointmentSchema, appointmentServicesSchema, rewardSchema, serviceSchema } from '@/models/Schema';
+import {
+  appointmentDepositSchema,
+  appointmentSchema,
+  appointmentServicesSchema,
+  rewardSchema,
+  serviceSchema,
+} from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -60,6 +66,13 @@ class RewardRedemptionConflictError extends Error {
   constructor() {
     super('REWARD_REDEMPTION_CONFLICT');
     this.name = 'RewardRedemptionConflictError';
+  }
+}
+
+class RewardFinancialRepricingRequiredError extends Error {
+  constructor() {
+    super('REWARD_FINANCIAL_REPRICING_REQUIRED');
+    this.name = 'RewardFinancialRepricingRequiredError';
   }
 }
 
@@ -299,6 +312,35 @@ export async function POST(request: Request): Promise<Response> {
       ) {
         throw new RewardRedemptionConflictError();
       }
+      if (
+        lockedAppointment.invoiceCurrency !== null
+        || lockedAppointment.bookingTaxSnapshot !== null
+        || lockedAppointment.rescheduleTaxSnapshot !== null
+        || lockedAppointment.finalTaxSnapshot !== null
+      ) {
+        // D6.1 must not mutate frozen invoice identity or an immutable tax
+        // estimate by changing only the legacy total. Reward
+        // repricing/attribution belongs to D6.2; block before touching either
+        // the appointment or reward row.
+        throw new RewardFinancialRepricingRequiredError();
+      }
+
+      // Migration 0068 deliberately leaves some historical appointments
+      // without snapshots when the invoice facts cannot be proven. Deposit
+      // history is nevertheless immutable financial evidence, so it must also
+      // fail closed. This read happens only after the tenant-bound appointment
+      // lock and before either reward writer performs a mutation.
+      const [depositHistory] = await tx
+        .select({ id: appointmentDepositSchema.id })
+        .from(appointmentDepositSchema)
+        .where(and(
+          eq(appointmentDepositSchema.salonId, salon.id),
+          eq(appointmentDepositSchema.appointmentId, appointmentId),
+        ))
+        .limit(1);
+      if (depositHistory) {
+        throw new RewardFinancialRepricingRequiredError();
+      }
 
       const [linkedReward] = await tx
         .select({ id: rewardSchema.id })
@@ -429,6 +471,17 @@ export async function POST(request: Request): Promise<Response> {
 
     return Response.json(response, { status: 200 });
   } catch (error) {
+    if (error instanceof RewardFinancialRepricingRequiredError) {
+      return Response.json(
+        {
+          error: {
+            code: 'REWARD_FINANCIAL_REPRICING_REQUIRED',
+            message: 'This reward cannot reprice an appointment with frozen financial history yet. Contact the salon for help.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
     if (error instanceof RewardRedemptionConflictError) {
       return Response.json(
         {

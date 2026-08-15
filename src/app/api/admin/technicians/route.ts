@@ -3,9 +3,10 @@ import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
+import { getCompletedRevenueRows } from '@/libs/financialReportingServer';
 import { canAddTechnician } from '@/libs/planLimits';
-import { revenueCentsSql } from '@/libs/revenueSql';
 import { normalizeWeeklySchedule } from '@/libs/weeklySchedule';
 import {
   appointmentSchema,
@@ -15,6 +16,7 @@ import {
   technicianSchema,
   type WeeklySchedule,
 } from '@/models/Schema';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -100,6 +102,9 @@ export async function GET(request: Request): Promise<Response> {
     if (error || !salon) {
       return error!;
     }
+    const bookingConfig = resolveBookingConfigFromSettings(
+      salon.settings as SalonSettings | null | undefined,
+    );
 
     // Build base conditions
     const conditions = [eq(technicianSchema.salonId, salon.id)];
@@ -173,51 +178,67 @@ export async function GET(request: Request): Promise<Response> {
 
     if (techIds.length > 0) {
       // Today's stats
-      const todayAppointments = await db
-        .select({
-          technicianId: appointmentSchema.technicianId,
-          count: sql<number>`count(*)`,
-          revenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
-        })
-        .from(appointmentSchema)
-        .where(
-          and(
-            inArray(appointmentSchema.technicianId, techIds),
-            gte(appointmentSchema.startTime, today),
-            lt(appointmentSchema.startTime, tomorrow),
-            inArray(appointmentSchema.status, ['confirmed', 'completed', 'in_progress']),
-          ),
-        )
-        .groupBy(appointmentSchema.technicianId);
+      const [todayAppointments, canonicalMonthRevenue] = await Promise.all([
+        db
+          .select({
+            technicianId: appointmentSchema.technicianId,
+            count: sql<number>`count(*)`,
+          })
+          .from(appointmentSchema)
+          .where(
+            and(
+              inArray(appointmentSchema.technicianId, techIds),
+              eq(appointmentSchema.salonId, salon.id),
+              sql`UPPER(${appointmentSchema.invoiceCurrency}) = ${bookingConfig.currency}`,
+              gte(appointmentSchema.startTime, today),
+              lt(appointmentSchema.startTime, tomorrow),
+              inArray(appointmentSchema.status, ['confirmed', 'completed', 'in_progress']),
+            ),
+          )
+          .groupBy(appointmentSchema.technicianId),
+        getCompletedRevenueRows({
+          salonId: salon.id,
+          currency: bookingConfig.currency,
+          start: monthStart,
+          end: tomorrow,
+        }),
+      ]);
+
+      const monthRevenueByTechnician = new Map<
+        string,
+        { count: number; revenue: number }
+      >();
+      const todayRevenueByTechnician = new Map<string, number>();
+      for (const row of canonicalMonthRevenue) {
+        if (row.technicianId === null || !techIds.includes(row.technicianId)) {
+          continue;
+        }
+        const month = monthRevenueByTechnician.get(row.technicianId) ?? {
+          count: 0,
+          revenue: 0,
+        };
+        month.count += 1;
+        month.revenue += row.serviceValueCents;
+        monthRevenueByTechnician.set(row.technicianId, month);
+        if (row.startTime >= today && row.startTime < tomorrow) {
+          todayRevenueByTechnician.set(
+            row.technicianId,
+            (todayRevenueByTechnician.get(row.technicianId) ?? 0)
+            + row.serviceValueCents,
+          );
+        }
+      }
 
       todayStats = todayAppointments.map(a => ({
         technicianId: a.technicianId!,
         count: Number(a.count),
-        revenue: Number(a.revenue),
+        revenue: todayRevenueByTechnician.get(a.technicianId!) ?? 0,
       }));
 
-      // This month's stats
-      const monthAppointments = await db
-        .select({
-          technicianId: appointmentSchema.technicianId,
-          count: sql<number>`count(*)`,
-          revenue: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
-        })
-        .from(appointmentSchema)
-        .where(
-          and(
-            inArray(appointmentSchema.technicianId, techIds),
-            gte(appointmentSchema.startTime, monthStart),
-            lt(appointmentSchema.startTime, tomorrow),
-            eq(appointmentSchema.status, 'completed'),
-          ),
-        )
-        .groupBy(appointmentSchema.technicianId);
-
-      monthStats = monthAppointments.map(a => ({
-        technicianId: a.technicianId!,
-        count: Number(a.count),
-        revenue: Number(a.revenue),
+      monthStats = [...monthRevenueByTechnician].map(([technicianId, value]) => ({
+        technicianId,
+        count: value.count,
+        revenue: value.revenue,
       }));
     }
 

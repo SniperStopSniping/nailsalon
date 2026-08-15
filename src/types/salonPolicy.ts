@@ -418,10 +418,17 @@ export type SalonSettings = {
       taxServicesByDefault?: boolean;
       taxAddOnsByDefault?: boolean;
       taxCustomByDefault?: boolean;
+      forfeitureTaxEstimationEnabled?: boolean;
+      jurisdiction?: string;
+      country?: string;
+      region?: string;
       scheduledChange?: {
         rateBps: number;
         name?: string;
         effectiveFrom: string; // ISO date
+        /** Derived by the settings API from the salon-local date and zone. */
+        effectiveDate?: string; // YYYY-MM-DD
+        effectiveTimeZone?: string; // IANA timezone
       } | null;
     };
     etransfer?: {

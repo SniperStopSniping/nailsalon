@@ -196,6 +196,10 @@ export type SmartFitReportResponse = {
     upcomingCount: number;
     cancelledCount: number;
     noShowCount: number;
+    resolvedFinancialCount: number;
+    unknownCurrencyCount: number;
+    excludedForeignCurrencyCount: number;
+    invalidFinancialCount: number;
   };
   series: Array<{
     key: string;
@@ -221,9 +225,10 @@ export type SmartFitReportResponse = {
     clientName: string | null;
     serviceName: string;
     technicianName: string;
-    subtotalCents: number;
-    discountCents: number;
-    finalCents: number;
+    subtotalCents: number | null;
+    discountCents: number | null;
+    finalCents: number | null;
+    financialState: 'resolved' | 'unavailable';
     status: string;
   }>;
   period: string;

@@ -14,8 +14,11 @@
 import { and, desc, eq, gte, inArray } from 'drizzle-orm';
 import twilio from 'twilio';
 
+import { bookingEmailTaxLineLabel } from '@/libs/bookingEmailFinancialPresentation';
+import type { BookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { db } from '@/libs/DB';
 import { Env } from '@/libs/Env';
+import { formatMoney } from '@/libs/formatMoney';
 import { buildSalonPublicUrl } from '@/libs/publicUrl';
 import { formatRewardDollars, REFERRAL_REFEREE_AMOUNT_CENTS } from '@/libs/rewardRules';
 import { isSmsEnabled } from '@/libs/salonStatus';
@@ -36,7 +39,7 @@ export type BookingConfirmationParams = {
   services: string[];
   technicianName: string;
   startTime: string;
-  totalPrice: number;
+  financialSummary: BookingEmailFinancialSummary | null;
   timeZone?: string | null;
   manageUrl?: string;
 };
@@ -55,7 +58,7 @@ export type TechNotificationParams = {
   services: string[];
   startTime: string;
   totalDurationMinutes: number;
-  totalPrice?: number;
+  financialSummary: BookingEmailFinancialSummary | null;
   timeZone?: string | null;
 };
 
@@ -67,7 +70,7 @@ export type InternalBookingNotificationSmsParams = {
   services: string[];
   startTime: string;
   totalDurationMinutes: number;
-  totalPrice: number;
+  financialSummary: BookingEmailFinancialSummary | null;
   technicianName?: string | null;
   timeZone?: string | null;
 };
@@ -157,8 +160,52 @@ function formatAppointmentRange(
   return `${formattedDate}, ${formattedStartTime}-${formattedEndTime}`;
 }
 
-function formatPrice(cents: number): string {
-  return `$${(cents / 100).toFixed(0)}`;
+function formatSmsMoney(cents: number, currency: string): string {
+  return `${formatMoney(cents, currency)} ${currency}`;
+}
+
+/**
+ * Project the canonical booking financial summary into compact SMS lines.
+ * Null is a deliberate fail-closed state: callers must never reconstruct a
+ * charge from mutable salon settings or the appointment's legacy raw total.
+ */
+export function buildBookingFinancialSmsLines(
+  summary: BookingEmailFinancialSummary | null,
+): string[] {
+  if (!summary || summary.depositBlockedCode) {
+    return [
+      'Payment details: under review',
+      'Your final payment amount will be confirmed before collection.',
+    ];
+  }
+
+  const taxLineLabel = bookingEmailTaxLineLabel(summary);
+  const lines = taxLineLabel
+    ? [`${taxLineLabel}: ${formatSmsMoney(summary.taxAmountCents!, summary.currency)}`]
+    : [];
+  lines.push(
+    `${summary.taxClassification === 'actual' ? 'Invoice total' : 'Estimated appointment total'}: ${formatSmsMoney(summary.totalDueCents, summary.currency)}`,
+  );
+  if (summary.collectedDepositCents > 0) {
+    lines.push(`Deposit paid: ${formatSmsMoney(summary.collectedDepositCents, summary.currency)}`);
+  }
+  if (summary.refundedDepositCents > 0) {
+    lines.push(`Deposit refunded: ${formatSmsMoney(summary.refundedDepositCents, summary.currency)}`);
+  }
+  if (summary.forfeitedDepositCents > 0) {
+    lines.push(`Deposit retained: ${formatSmsMoney(summary.forfeitedDepositCents, summary.currency)}`);
+  }
+  if (summary.depositCreditAppliedCents > 0) {
+    lines.push(`Deposit applied: -${formatSmsMoney(summary.depositCreditAppliedCents, summary.currency)}`);
+  }
+  if (summary.appointmentPaymentsCents > 0) {
+    lines.push(`Other payments: ${formatSmsMoney(summary.appointmentPaymentsCents, summary.currency)}`);
+  }
+  lines.push(
+    `Already paid: ${formatSmsMoney(summary.amountAlreadyPaidCents, summary.currency)}`,
+    `${summary.taxClassification === 'actual' ? 'Balance due' : 'Estimated remaining balance'}: ${formatSmsMoney(summary.balanceCents, summary.currency)}`,
+  );
+  return lines;
 }
 
 // =============================================================================
@@ -549,7 +596,16 @@ export async function sendBookingConfirmationToClient(
   }
   throwIfSmsAborted(options.signal);
 
-  const { phone, clientName, salonName, services, technicianName, startTime, totalPrice, timeZone } = params;
+  const {
+    phone,
+    clientName,
+    salonName,
+    services,
+    technicianName,
+    startTime,
+    financialSummary,
+    timeZone,
+  } = params;
 
   const appointmentRange = formatAppointmentRange(startTime, 0, timeZone).replace(/-.+$/, '');
 
@@ -566,7 +622,7 @@ Hi ${clientName || 'there'},
 
 ${services.join(' + ')} with ${technicianName}
 ${appointmentRange}
-Total: ${formatPrice(totalPrice)}
+${buildBookingFinancialSmsLines(financialSummary).join('\n')}
 
 ${params.manageUrl ? `Manage: ${params.manageUrl}\n` : ''}Reply STOP to opt out. Reply to this text if you need help.`;
 
@@ -590,7 +646,16 @@ export async function sendBookingNotificationToTech(
     return;
   }
 
-  const { technicianName, technicianPhone, clientName, clientPhone, services, startTime, totalDurationMinutes, totalPrice = 0 } = params;
+  const {
+    technicianName,
+    technicianPhone,
+    clientName,
+    clientPhone,
+    services,
+    startTime,
+    totalDurationMinutes,
+    financialSummary,
+  } = params;
 
   if (!technicianPhone) {
     console.warn('[SMS SKIPPED] Technician phone missing for booking notification:', {
@@ -609,7 +674,7 @@ export async function sendBookingNotificationToTech(
     services,
     startTime,
     totalDurationMinutes,
-    totalPrice,
+    financialSummary,
     technicianName,
     timeZone: params.timeZone,
   });
@@ -635,7 +700,7 @@ export async function sendInternalBookingNotificationSms(
     services,
     startTime,
     totalDurationMinutes,
-    totalPrice,
+    financialSummary,
     technicianName,
     timeZone,
   } = params;
@@ -652,7 +717,7 @@ export async function sendInternalBookingNotificationSms(
     `Client: ${clientName}`,
     `Phone: ${clientPhone}`,
     `Duration: ${totalDurationMinutes} min`,
-    `Total: ${formatPrice(totalPrice)}`,
+    ...buildBookingFinancialSmsLines(financialSummary),
   ];
 
   return sendSMS(salonId, phone, messageLines.join('\n'), {

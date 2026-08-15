@@ -360,6 +360,15 @@ function SmartFitResultsBody({ data }: { data: SmartFitReportResponse }) {
 
       {hasResults && (
         <>
+          {(metrics.unknownCurrencyCount > 0
+            || metrics.excludedForeignCurrencyCount > 0
+            || metrics.invalidFinancialCount > 0) && (
+            <p className="rounded-lg bg-amber-50 p-3 text-[13px] text-amber-900">
+              Some appointment amounts are unavailable because their frozen currency or tax record needs review.
+              {' '}
+              Appointment counts remain visible, but those amounts are excluded from money totals.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <MetricTile
               label="Smart Fit appointments"
@@ -429,14 +438,22 @@ function SmartFitResultsBody({ data }: { data: SmartFitReportResponse }) {
                   {/* Labeled amounts, not an equation: the final total is the
                       finalized checkout amount when one exists, so it need not
                       equal booked-subtotal minus the Smart Fit discount. */}
-                  <div className="mt-0.5 text-[12px] tabular-nums text-[#8E8E93]">
-                    {'Booked '}
-                    {formatMoney(appointment.subtotalCents, currency)}
-                    {' · Smart Fit −'}
-                    {formatMoney(appointment.discountCents, currency)}
-                    {' · Final '}
-                    {formatMoney(appointment.finalCents, currency)}
-                  </div>
+                  {appointment.financialState === 'resolved'
+                    ? (
+                        <div className="mt-0.5 text-[12px] tabular-nums text-[#8E8E93]">
+                          {'Booked '}
+                          {formatMoney(appointment.subtotalCents ?? 0, currency)}
+                          {' · Smart Fit −'}
+                          {formatMoney(appointment.discountCents ?? 0, currency)}
+                          {' · Final '}
+                          {formatMoney(appointment.finalCents ?? 0, currency)}
+                        </div>
+                      )
+                    : (
+                        <p className="mt-0.5 text-[12px] text-amber-700">
+                          Financial amounts unavailable — under review
+                        </p>
+                      )}
                 </li>
               ))}
             </ul>

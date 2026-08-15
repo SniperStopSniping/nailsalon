@@ -31,7 +31,8 @@ type Props = {
   currentLabel: string;
   priceLabel: string;
   discountNote: string | null;
-  currency: string;
+  currency: string | null;
+  financialReviewRequired: boolean;
   subtotalCents: number;
   /** Discount already committed to this appointment, in cents. */
   committedDiscountCents: number;
@@ -40,8 +41,8 @@ type Props = {
   hasCommittedSmartFit: boolean;
 };
 
-function formatMoney(cents: number, currency: string): string {
-  return `$${(cents / 100).toFixed(2)} ${currency}`;
+function formatMoney(cents: number, currency: string | null): string {
+  return currency ? `$${(cents / 100).toFixed(2)} ${currency}` : 'Unavailable';
 }
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -260,30 +261,45 @@ export function RescheduleAppointmentClient(props: Props) {
           {' '}
           {props.currentLabel}
         </p>
+        <p className="mt-2 font-medium text-stone-800" data-testid="reschedule-current-invoice-estimate">
+          {props.priceLabel}
+        </p>
       </div>
 
-      <div data-testid="reschedule-price-summary" className="rounded-2xl border border-stone-200 bg-white p-5 text-sm shadow-sm">
-        <div className="flex justify-between text-stone-600">
-          <span>Subtotal</span>
-          <span>{formatMoney(props.subtotalCents, props.currency)}</span>
-        </div>
-        {pricePreview.discountCents > 0 && (
-          <div className="mt-1 flex justify-between text-emerald-700">
-            <span data-testid="reschedule-discount-label">{pricePreview.label ?? 'Discount'}</span>
-            <span>
-              −
-              {formatMoney(pricePreview.discountCents, props.currency)}
-            </span>
-          </div>
-        )}
-        <div className="mt-2 flex justify-between border-t border-stone-100 pt-2 text-base font-semibold text-stone-900">
-          <span>Total</span>
-          <span data-testid="reschedule-total">{formatMoney(pricePreview.totalCents, props.currency)}</span>
-        </div>
-        {pricePreview.note && (
-          <p data-testid="reschedule-discount-note" className="mt-2 text-emerald-700">{pricePreview.note}</p>
-        )}
-      </div>
+      {props.financialReviewRequired
+        ? (
+            <div
+              data-testid="reschedule-financial-review"
+              className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-900 shadow-sm"
+              role="alert"
+            >
+              Financial details are under review. Choose a time here, then contact the salon before making any payment.
+            </div>
+          )
+        : (
+            <div data-testid="reschedule-price-summary" className="rounded-2xl border border-stone-200 bg-white p-5 text-sm shadow-sm">
+              <div className="flex justify-between text-stone-600">
+                <span>Booked services</span>
+                <span>{formatMoney(props.subtotalCents, props.currency)}</span>
+              </div>
+              {pricePreview.discountCents > 0 && (
+                <div className="mt-1 flex justify-between text-emerald-700">
+                  <span data-testid="reschedule-discount-label">{pricePreview.label ?? 'Discount'}</span>
+                  <span>
+                    −
+                    {formatMoney(pricePreview.discountCents, props.currency)}
+                  </span>
+                </div>
+              )}
+              <div className="mt-2 flex justify-between border-t border-stone-100 pt-2 text-base font-semibold text-stone-900">
+                <span>Service price after discount (before tax)</span>
+                <span data-testid="reschedule-total">{formatMoney(pricePreview.totalCents, props.currency)}</span>
+              </div>
+              {pricePreview.note && (
+                <p data-testid="reschedule-discount-note" className="mt-2 text-emerald-700">{pricePreview.note}</p>
+              )}
+            </div>
+          )}
 
       <div className="rounded-[2rem] border border-stone-200 bg-white p-5 shadow-sm sm:p-6">
         <div className="flex items-center justify-between">

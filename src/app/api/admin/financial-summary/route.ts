@@ -74,6 +74,7 @@ export async function GET(request: Request): Promise<Response> {
     );
     const summaries = await getCurrentFinancialReportingSummaries({
       salonId: salon.id,
+      currency: bookingConfig.currency,
       timeZone: bookingConfig.timezone,
     });
 

@@ -1,8 +1,16 @@
 import { and, eq, isNull } from 'drizzle-orm';
 
-import { sumNonVoidedPayments } from '@/libs/appointmentCheckoutServer';
-import { buildPaymentReference, computeBalance } from '@/libs/checkoutTotals';
+import { listPayments } from '@/libs/appointmentCheckoutServer';
+import {
+  APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED,
+  appointmentFinancialOverpayment,
+  resolveAppointmentDepositFinancials,
+} from '@/libs/appointmentDepositFinancials';
+import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
+import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
+import { buildPaymentReference } from '@/libs/checkoutTotals';
 import { db } from '@/libs/DB';
+import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { hashOpaqueToken } from '@/libs/lusterSecurity';
 import { resolveEtransferSettings } from '@/libs/taxConfig';
 import {
@@ -55,9 +63,8 @@ export async function GET(
       );
     }
 
-    const etransfer = resolveEtransferSettings(
-      (row.salonSettings as SalonSettings | null | undefined) ?? null,
-    );
+    const settings = (row.salonSettings as SalonSettings | null | undefined) ?? null;
+    const etransfer = resolveEtransferSettings(settings);
     if (!etransfer.enabled || !etransfer.qrPageEnabled) {
       return Response.json(
         { error: { code: 'PAYMENT_LINK_INVALID', message: 'This payment link is invalid or no longer active.' } },
@@ -66,28 +73,131 @@ export async function GET(
     }
 
     const { appointment } = row;
-    const amountPaidCents = await sumNonVoidedPayments(db, appointment.id);
+    if (appointment.status !== 'completed') {
+      return Response.json(
+        { error: { code: 'PAYMENT_LINK_INVALID', message: 'This payment link is invalid or no longer active.' } },
+        { status: 404 },
+      );
+    }
+    const taxChain = validateAppointmentTaxSnapshotChain(appointment);
+    if (!taxChain.ok) {
+      return Response.json(
+        {
+          error: {
+            code: 'TAX_SNAPSHOT_INVALID',
+            reason: taxChain.code,
+            message: 'This payment amount is under review. Please contact the salon before sending payment.',
+          },
+        },
+        { status: 409 },
+      );
+    }
+    const [paymentRows, depositRows] = await Promise.all([
+      listPayments(db, appointment.id),
+      loadAppointmentDepositCreditRows({
+        salonId: appointment.salonId,
+        appointmentId: appointment.id,
+      }),
+    ]);
+    const paymentLedger = resolveAppointmentPaymentLedger({
+      cachedAmountPaidCents: appointment.amountPaidCents,
+      paymentRows,
+      expectedSalonId: appointment.salonId,
+      appointmentStatus: appointment.status,
+      paymentStatus: appointment.paymentStatus,
+    });
+    if (!paymentLedger.ok) {
+      return Response.json(
+        {
+          error: {
+            code: paymentLedger.code,
+            message: 'This payment amount is under review. Please contact the salon before sending payment.',
+          },
+        },
+        { status: 409 },
+      );
+    }
     // Completed checkouts have authoritative snapshots; before completion the
     // booked total is the best honest figure (finalized at checkout).
-    const amountDue = appointment.status === 'completed'
-      ? computeBalance({
-        finalPriceCents: appointment.finalPriceCents,
-        taxAmountCents: appointment.taxAmountCents,
-        tipCents: appointment.tipCents,
-        amountPaidCents,
-        paymentStatus: appointment.paymentStatus,
-      })
-      : {
-          totalDueCents: appointment.totalPrice,
-          amountPaidCents,
-          balanceCents: Math.max(0, appointment.totalPrice - amountPaidCents),
-        };
+    const invoiceCurrency = taxChain.invoiceCurrency;
+    if (!invoiceCurrency) {
+      return Response.json(
+        {
+          error: {
+            code: 'INVOICE_CURRENCY_UNAVAILABLE',
+            message: 'This historical payment amount cannot be collected safely. Please contact the salon.',
+          },
+        },
+        { status: 409 },
+      );
+    }
+    const depositFinancials = resolveAppointmentDepositFinancials({
+      deposits: depositRows,
+      invoiceCurrency,
+      finalPriceCents: appointment.status === 'completed'
+        ? appointment.finalPriceCents
+        : taxChain.active.snapshot?.serviceSubtotalCents ?? appointment.totalPrice,
+      taxAmountCents: appointment.status === 'completed'
+        ? appointment.taxAmountCents
+        : taxChain.active.snapshot?.taxAmountCents ?? 0,
+      tipCents: appointment.status === 'completed' ? appointment.tipCents : 0,
+      appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
+      appointmentStatus: appointment.status,
+      paymentStatus: appointment.paymentStatus,
+    });
+    if (!depositFinancials.depositResolution.ok) {
+      return Response.json(
+        {
+          error: {
+            code: depositFinancials.depositResolution.code,
+            message: 'This payment amount is under review. Please contact the salon before sending payment.',
+          },
+        },
+        { status: 409 },
+      );
+    }
+    if (!depositFinancials.financials.ok || !depositFinancials.balance) {
+      return Response.json(
+        { error: { code: 'INVALID_FINANCIAL_DATA', message: 'This payment amount is unavailable.' } },
+        { status: 409 },
+      );
+    }
+    if (depositFinancials.financials.excessDepositCents > 0) {
+      return Response.json(
+        {
+          error: {
+            code: 'DEPOSIT_EXCESS_REQUIRES_REFUND',
+            message: 'The salon must resolve the deposit before another payment is sent.',
+          },
+        },
+        { status: 409 },
+      );
+    }
+    if (appointmentFinancialOverpayment(depositFinancials)) {
+      return Response.json(
+        {
+          error: {
+            code: APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED,
+            message: 'This payment amount is under review because collected money exceeds the invoice.',
+          },
+        },
+        { status: 409 },
+      );
+    }
+    const amountDue = depositFinancials.financials;
 
     return Response.json({
       data: {
         salonName: row.salonName,
-        amountDueCents: amountDue.balanceCents,
+        amountDueCents: amountDue.remainingBalanceCents,
         totalCents: amountDue.totalDueCents,
+        serviceInvoiceTotalCents: amountDue.serviceInvoiceCents,
+        depositCreditCents: amountDue.depositCreditAppliedCents,
+        depositRefundedCents: depositFinancials.depositCredit.refundedCents,
+        depositForfeitedCents: depositFinancials.depositCredit.forfeitedCents,
+        appointmentPaymentsCents: amountDue.tenderedCents,
+        amountAlreadyPaidCents: amountDue.amountAlreadyPaidCents,
+        currency: invoiceCurrency,
         isFinalized: appointment.status === 'completed',
         reference: buildPaymentReference(appointment.id),
         recipient: etransfer.recipient,

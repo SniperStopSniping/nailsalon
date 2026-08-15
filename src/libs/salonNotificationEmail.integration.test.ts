@@ -11,12 +11,18 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import {
   buildRescheduleEventVersion,
   buildSalonNotificationDedupeKey,
   retrySalonNotificationEmail,
   sendSalonNotificationEmail,
 } from '@/libs/salonNotificationEmail';
+import {
+  buildBookingTaxSnapshot,
+  buildFinalTaxSnapshot,
+  resolveTaxConfig,
+} from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
@@ -92,6 +98,7 @@ async function seedAppointment(
     basePriceCents: 4500,
     addOnsPriceCents: 1000,
     subtotalBeforeDiscountCents: 5500,
+    invoiceCurrency: 'CAD',
     ...overrides,
   });
   await db.insert(schema.appointmentServicesSchema).values({
@@ -105,6 +112,57 @@ async function seedAppointment(
     durationMinutesSnapshot: 60,
   });
   return id;
+}
+
+async function seedPaidDeposit(appointmentId: string, amountCents = 2500) {
+  await db.insert(schema.appointmentDepositSchema).values({
+    id: `deposit_${appointmentId}`,
+    salonId: SALON_ID,
+    appointmentId,
+    amountCents,
+    currency: 'cad',
+    status: 'paid',
+    stripeAccountId: 'acct_notify',
+    stripePaymentIntentId: `pi_${appointmentId}`,
+    collectedAt: new Date('2026-07-01T17:00:00.000Z'),
+  });
+}
+
+function emailTaxEvidence(pricesIncludeTax: boolean) {
+  const capturedAt = new Date('2026-07-01T17:00:00.000Z');
+  const taxConfig = resolveTaxConfig({
+    payments: {
+      tax: {
+        enabled: true,
+        name: 'HST',
+        rateBps: 1300,
+        pricesIncludeTax,
+        jurisdiction: 'Ontario',
+        country: 'CA',
+        region: 'ON',
+      },
+    },
+  }, capturedAt);
+  const totals = computeCheckoutTotals({
+    items: [{ lineTotalCents: pricesIncludeTax ? 11300 : 10000, taxable: true }],
+    taxConfig,
+  });
+  return {
+    totals,
+    booking: buildBookingTaxSnapshot({
+      taxConfig,
+      totals,
+      capturedAt,
+      currency: 'CAD',
+    }),
+    final: buildFinalTaxSnapshot({
+      taxConfig,
+      totals,
+      capturedAt: new Date('2026-07-02T17:00:00.000Z'),
+      currency: 'CAD',
+      taxExempt: false,
+    }),
+  };
 }
 
 async function addFrenchTips(appointmentId: string) {
@@ -350,13 +408,197 @@ describe('new booking notifications', () => {
     expect(email.subject).toContain('Gel Manicure');
     expect(email.text).toContain('French Tips: $10.00');
     expect(email.text).toContain('Smart Fit discount: -$4.50');
-    expect(email.text).toContain('Expected total: $50.50');
+    expect(email.text).toContain('Estimated appointment total: $50.50');
     expect(email.text).toContain('Service: $45.00');
     // 18:00 UTC is 2:00 PM in America/Toronto (the salon default).
     expect(email.text).toContain('Start: 2:00 PM');
     expect(email.text).toContain('Expected finish: 3:10 PM');
     expect(email.text).toContain('America/Toronto');
     expect(email.html).toContain('New booking');
+  });
+
+  it('shows a collected deposit as money already paid and only the remaining balance due', async () => {
+    const appointmentId = await seedAppointment({
+      totalPrice: 10000,
+      basePriceCents: 10000,
+      addOnsPriceCents: 0,
+      subtotalBeforeDiscountCents: 10000,
+    });
+    await seedPaidDeposit(appointmentId);
+
+    await sendSalonNotificationEmail({
+      salonId: SALON_ID,
+      appointmentId,
+      event: 'newBooking',
+      source: 'online_booking',
+    });
+
+    const email = lastEmail();
+
+    expect(email.text).toContain('Estimated appointment total: $100.00');
+    expect(email.text).toContain('Deposit collected: $25.00');
+    expect(email.text).toContain('Deposit credit applied: -$25.00');
+    expect(email.text).toContain('Amount already paid: $25.00');
+    expect(email.text).toContain('Estimated remaining balance: $75.00');
+    expect(email.text.toLowerCase()).not.toContain('discount: -$25.00');
+  });
+
+  it('hides definitive payment totals while a deposit refund is in flight', async () => {
+    const appointmentId = await seedAppointment({
+      totalPrice: 10000,
+      basePriceCents: 10000,
+      addOnsPriceCents: 0,
+      subtotalBeforeDiscountCents: 10000,
+    });
+    await seedPaidDeposit(appointmentId);
+    const refundRequestedAt = new Date('2026-07-01T17:30:00.000Z');
+    await db.update(schema.appointmentDepositSchema).set({
+      refundStatus: 'pending',
+      refundRequestedAt,
+      refundStatusChangedAt: refundRequestedAt,
+    }).where(eq(schema.appointmentDepositSchema.appointmentId, appointmentId));
+
+    await sendSalonNotificationEmail({
+      salonId: SALON_ID,
+      appointmentId,
+      event: 'newBooking',
+      source: 'dashboard',
+    });
+
+    const email = lastEmail();
+
+    expect(email.text).toContain('Payment details: Under review (DEPOSIT_REFUND_IN_FLIGHT)');
+    expect(email.text).toContain('Payment update: The salon will confirm the final payment or refund status before any further action.');
+    expect(email.text).not.toContain('Amount already paid:');
+    expect(email.text).not.toContain('Balance due:');
+    expect(email.text).not.toContain('Estimated appointment total:');
+  });
+
+  it('renders validated added tax as a booking estimate', async () => {
+    const evidence = emailTaxEvidence(false);
+    const appointmentId = await seedAppointment({
+      totalPrice: 10000,
+      basePriceCents: 10000,
+      addOnsPriceCents: 0,
+      subtotalBeforeDiscountCents: 10000,
+      bookingTaxSnapshot: evidence.booking,
+    });
+
+    await sendSalonNotificationEmail({
+      salonId: SALON_ID,
+      appointmentId,
+      event: 'newBooking',
+      source: 'online_booking',
+    });
+
+    const email = lastEmail();
+
+    expect(email.text).toContain('Estimated HST (added): $13.00');
+    expect(email.text).toContain('Estimated appointment total: $113.00');
+  });
+
+  it('renders validated included tax as a booking estimate', async () => {
+    const evidence = emailTaxEvidence(true);
+    const appointmentId = await seedAppointment({
+      totalPrice: 11300,
+      basePriceCents: 11300,
+      addOnsPriceCents: 0,
+      subtotalBeforeDiscountCents: 11300,
+      bookingTaxSnapshot: evidence.booking,
+    });
+
+    await sendSalonNotificationEmail({
+      salonId: SALON_ID,
+      appointmentId,
+      event: 'newBooking',
+      source: 'online_booking',
+    });
+
+    const email = lastEmail();
+
+    expect(email.text).toContain('Estimated HST (included): $13.00');
+    expect(email.text).toContain('Estimated appointment total: $113.00');
+  });
+
+  it('renders validated final tax as actual rather than estimated', async () => {
+    const evidence = emailTaxEvidence(false);
+    const appointmentId = await seedAppointment({
+      status: 'completed',
+      paymentStatus: 'partially_paid',
+      completedAt: new Date('2026-07-02T17:00:00.000Z'),
+      totalPrice: 10000,
+      basePriceCents: 10000,
+      addOnsPriceCents: 0,
+      subtotalBeforeDiscountCents: 10000,
+      finalSubtotalCents: 10000,
+      finalPriceCents: evidence.totals.finalPriceCents,
+      taxableSubtotalCents: evidence.totals.taxableSubtotalCents,
+      taxAmountCents: evidence.totals.taxAmountCents,
+      taxExempt: false,
+      taxExemptReason: null,
+      amountPaidCents: 0,
+      bookingTaxSnapshot: evidence.booking,
+      finalTaxSnapshot: evidence.final,
+    });
+
+    await sendSalonNotificationEmail({
+      salonId: SALON_ID,
+      appointmentId,
+      event: 'newBooking',
+      source: 'dashboard',
+    });
+
+    const email = lastEmail();
+
+    expect(email.text).toContain('Actual HST (added): $13.00');
+    expect(email.text).toContain('Invoice total: $113.00');
+    expect(email.text).not.toContain('Estimated HST');
+  });
+
+  it('shows only under-review copy when tender overpays the final invoice', async () => {
+    const evidence = emailTaxEvidence(false);
+    const appointmentId = await seedAppointment({
+      status: 'completed',
+      paymentStatus: 'paid',
+      completedAt: new Date('2026-07-02T18:00:00.000Z'),
+      totalPrice: 10000,
+      basePriceCents: 10000,
+      addOnsPriceCents: 0,
+      subtotalBeforeDiscountCents: 10000,
+      finalSubtotalCents: 10000,
+      finalPriceCents: evidence.totals.finalPriceCents,
+      taxableSubtotalCents: evidence.totals.taxableSubtotalCents,
+      taxAmountCents: evidence.totals.taxAmountCents,
+      taxExempt: false,
+      taxExemptReason: null,
+      amountPaidCents: 12000,
+      bookingTaxSnapshot: evidence.booking,
+      finalTaxSnapshot: evidence.final,
+    });
+    await db.insert(schema.appointmentPaymentSchema).values({
+      id: `payment_${appointmentId}`,
+      appointmentId,
+      salonId: SALON_ID,
+      amountCents: 12000,
+      method: 'cash',
+      recordedByType: 'admin',
+    });
+
+    await sendSalonNotificationEmail({
+      salonId: SALON_ID,
+      appointmentId,
+      event: 'newBooking',
+      source: 'dashboard',
+    });
+
+    const email = lastEmail();
+
+    expect(email.text).toContain('Payment details: Under review');
+    expect(email.text).toContain(
+      'Payment update: The salon will confirm the final payment or refund status before any further action.',
+    );
+    expect(email.text).not.toMatch(/Actual HST|Invoice total:|Amount already paid:|Balance due:/u);
+    expect(email.text).not.toContain('$');
   });
 
   it('falls back to a placeholder when the client left no notes', async () => {
@@ -463,7 +705,6 @@ describe('reschedule notifications', () => {
         serviceSummary: 'Gel Manicure',
         discountLabel: null,
         discountAmountCents: 0,
-        totalPriceCents: 5500,
       },
     });
   }
@@ -518,7 +759,7 @@ describe('reschedule notifications', () => {
     expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
   });
 
-  it('shows previous and new discount and total when Smart Fit changes', async () => {
+  it('omits unsafe prior money when Smart Fit changes without prior invoice evidence', async () => {
     const appointmentId = await seedAppointment({
       discountType: 'smart_fit',
       discountLabel: 'Smart Fit Discount',
@@ -532,8 +773,12 @@ describe('reschedule notifications', () => {
 
     expect(email.text).toContain('Previous discount: None');
     expect(email.text).toContain('New discount: Smart Fit discount -$4.50');
-    expect(email.text).toContain('Previous expected total: $55.00');
-    expect(email.text).toContain('New expected total: $50.50');
+    expect(email.text).toContain(
+      'Previous pricing: Not shown — validated prior invoice evidence is unavailable',
+    );
+    expect(email.text).not.toContain('Previous expected total:');
+    expect(email.text).not.toContain('$55.00');
+    expect(email.text).toContain('Estimated appointment total: $50.50');
   });
 
   it('derives a stable event version from the confirmed schedules', () => {
@@ -599,6 +844,40 @@ describe('cancellation notifications', () => {
     });
 
     expect(lastEmail().text).toContain('Reason: salon request');
+  });
+
+  it('shows a retained paid deposit as a refund decision instead of invoice credit', async () => {
+    const taxEvidence = emailTaxEvidence(false);
+    const appointmentId = await seedAppointment({
+      status: 'cancelled',
+      totalPrice: 10000,
+      basePriceCents: 10000,
+      addOnsPriceCents: 0,
+      subtotalBeforeDiscountCents: 10000,
+      bookingTaxSnapshot: taxEvidence.booking,
+    });
+    await seedPaidDeposit(appointmentId);
+
+    await sendSalonNotificationEmail({
+      salonId: SALON_ID,
+      appointmentId,
+      event: 'cancelled',
+      source: 'dashboard',
+      cancellation: {
+        reason: 'salon_request',
+        cancelledAt: '2026-07-20T18:30:00.000Z',
+      },
+    });
+
+    const email = lastEmail();
+
+    expect(email.text).toContain('Deposit collected: $25.00');
+    expect(email.text).toContain('Deposit disposition: Refund decision required');
+    expect(email.text).not.toContain('Estimated HST');
+    expect(email.text).not.toContain('Estimated appointment total');
+    expect(email.text).not.toContain('Amount already paid');
+    expect(email.text).not.toContain('Estimated remaining balance');
+    expect(email.text).not.toContain('Deposit credit applied');
   });
 
   it('does not duplicate when the cancellation is retried', async () => {

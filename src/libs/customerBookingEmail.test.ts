@@ -13,6 +13,7 @@ const state = vi.hoisted(() => ({
   eligibilityQueue: [] as QueuedSelectResult[],
   insertQueue: [] as QueuedResult[],
   insertedValues: [] as Array<{ table: unknown; values: unknown }>,
+  loadBookingEmailFinancialSummary: vi.fn(),
   recipient: {
     status: 'terminal_current',
     email: 'current@example.com',
@@ -156,6 +157,9 @@ vi.mock('./clientLifecycleStabilization', () => ({
   resolveAppointmentOperationalEmailRecipient:
     state.resolveAppointmentOperationalEmailRecipient,
 }));
+vi.mock('./bookingEmailFinancialSummary.server', () => ({
+  loadBookingEmailFinancialSummary: state.loadBookingEmailFinancialSummary,
+}));
 vi.mock('./email', () => ({
   sendTransactionalEmailDetailed: state.sendTransactionalEmailDetailed,
 }));
@@ -297,6 +301,29 @@ function initialInput() {
   };
 }
 
+function financialSummary(overrides: Record<string, unknown> = {}) {
+  return {
+    currency: 'CAD',
+    serviceInvoiceTotalCents: 11300,
+    totalDueCents: 11300,
+    taxAmountCents: 1300,
+    taxLabel: 'HST',
+    taxMode: 'added',
+    taxClassification: 'estimate',
+    taxApplied: true,
+    collectedDepositCents: 2500,
+    refundedDepositCents: 0,
+    forfeitedDepositCents: 0,
+    depositCreditAppliedCents: 2500,
+    appointmentPaymentsCents: 0,
+    amountAlreadyPaidCents: 2500,
+    balanceCents: 8800,
+    depositBlockedCode: null,
+    depositPresentationState: 'creditable',
+    ...overrides,
+  };
+}
+
 function validPolicyEvidence(overrides?: Partial<{
   title: string;
   policyText: string;
@@ -341,6 +368,7 @@ describe('customer booking operational email', () => {
     state.eligibilityQueue.length = 0;
     state.insertQueue.length = 0;
     state.insertedValues.length = 0;
+    state.loadBookingEmailFinancialSummary.mockResolvedValue(null);
     state.selectQueue.length = 0;
     state.settingsQueue.length = 0;
     state.updateQueue.length = 0;
@@ -379,6 +407,88 @@ describe('customer booking operational email', () => {
     );
   });
 
+  it('uses the canonical deposit and remaining-balance summary in the confirmation email', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.loadBookingEmailFinancialSummary.mockResolvedValue(financialSummary());
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.text).toContain('Estimated HST (added): $13.00');
+    expect(email.text).toContain('Estimated appointment total: $113.00');
+    expect(email.text).toContain('Deposit collected: $25.00');
+    expect(email.text).toContain('Deposit credit applied: -$25.00');
+    expect(email.text).toContain('Amount already paid: $25.00');
+    expect(email.text).toContain('Estimated remaining balance: $88.00');
+    expect(email.html).toContain('Deposit credit applied: -$25.00');
+  });
+
+  it('labels tax included in booking prices as an estimate', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.loadBookingEmailFinancialSummary.mockResolvedValue(financialSummary({
+      taxMode: 'included',
+    }));
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.text).toContain('Estimated HST (included): $13.00');
+    expect(email.html).toContain('Estimated HST (included): $13.00');
+  });
+
+  it('labels validated final tax as actual, not estimated', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.loadBookingEmailFinancialSummary.mockResolvedValue(financialSummary({
+      taxClassification: 'actual',
+    }));
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.text).toContain('Actual HST (added): $13.00');
+    expect(email.text).toContain('Invoice total: $113.00');
+    expect(email.text).toContain('Balance due: $88.00');
+    expect(email.text).not.toContain('Estimated HST');
+  });
+
+  it('shows explicit under-review copy when canonical overpayment evidence is rejected', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.loadBookingEmailFinancialSummary.mockResolvedValue(null);
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.text).toContain('Payment details: Under review');
+    expect(email.text).toContain(
+      'Payment update: The salon will confirm the final payment or refund status before any further action.',
+    );
+    expect(email.html).toContain('Payment details: Under review');
+    expect(email.text).not.toMatch(/Invoice total:|Amount already paid:|Balance due:/u);
+  });
+
+  it('suppresses seeded money when deposit evidence is explicitly blocked', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.loadBookingEmailFinancialSummary.mockResolvedValue(financialSummary({
+      depositBlockedCode: 'DEPOSIT_REFUND_UNRESOLVED',
+    }));
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.text).toContain('Payment details: Under review');
+    expect(email.text).not.toMatch(/\$|Deposit collected:|Amount already paid:/u);
+  });
+
   it('appends the normalized shared message after unchanged initial HTML and plain-text content', async () => {
     state.insertQueue.push([{ id: 'delivery_1' }]);
     state.settingsQueue.push([{
@@ -398,6 +508,8 @@ describe('customer booking operational email', () => {
     expect(email.text).toBe(
       'Hi Client,\n\n'
       + 'Your Manicure appointment with Salon is confirmed for Wednesday, July 1 at 2:00 PM.\n\n'
+      + 'Payment details: Under review\n'
+      + 'Payment update: The salon will confirm the final payment or refund status before any further action.\n\n'
       + 'View, reschedule, or cancel: https://salon.example/manage/token\n\n'
       + 'Please arrive <early>.\nBring your confirmation & ID.',
     );
@@ -694,10 +806,14 @@ describe('customer booking operational email', () => {
       text:
         'Hi Client,\n\n'
         + 'Your Manicure appointment with Salon is confirmed for Wednesday, July 1 at 2:00 PM.\n\n'
+        + 'Payment details: Under review\n'
+        + 'Payment update: The salon will confirm the final payment or refund status before any further action.\n\n'
         + 'View, reschedule, or cancel: https://salon.example/manage/token',
       html:
         '<p>Hi Client,</p><p>Your <strong>Manicure</strong> appointment with Salon is confirmed for '
         + '<strong>Wednesday, July 1 at 2:00 PM</strong>.</p>'
+        + '<p>Payment details: Under review<br />'
+        + 'Payment update: The salon will confirm the final payment or refund status before any further action.</p>'
         + '<p><a href="https://salon.example/manage/token">View, reschedule, or cancel your appointment</a></p>',
     });
   });

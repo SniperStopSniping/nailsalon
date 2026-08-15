@@ -51,6 +51,7 @@ function makeSettings(overrides: Partial<RetentionSettings> = {}): RetentionSett
 }
 
 const OVERVIEW = {
+  currency: 'CAD',
   followups: {
     groups: [
       {
@@ -102,6 +103,7 @@ const OVERVIEW = {
       completedCount: 1,
       completedRevenueCents: 10000,
       completedTaxCents: 1300,
+      unresolvedFinancialCount: 0,
     }],
     automatic: [{ channel: 'sms', status: 'delivered', count: 7 }],
   },

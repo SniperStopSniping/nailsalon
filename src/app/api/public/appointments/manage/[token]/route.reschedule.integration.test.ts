@@ -15,6 +15,12 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createOpaqueToken } from '@/libs/lusterSecurity';
+import {
+  buildBookingTaxSnapshot,
+  resolveTaxConfig,
+  selectActiveInvoiceTaxSnapshot,
+  validateInvoiceTaxSnapshot,
+} from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
 import { POST } from './route';
@@ -210,6 +216,9 @@ beforeEach(async () => {
   await db.delete(schema.appointmentServicesSchema);
   await db.delete(schema.notificationDeliverySchema);
   await db.delete(schema.appointmentSchema);
+  await db.update(schema.salonSchema).set({
+    settings: { booking: { clientChangeCutoffHours: 0, slotIntervalMinutes: 15 } },
+  }).where(eq(schema.salonSchema.id, SALON_ID));
 });
 
 describe('customer manage-link reschedule', () => {
@@ -232,6 +241,90 @@ describe('customer manage-link reschedule', () => {
     // Identity and permitted pricing state survive the move.
     expect(rows[0]!.clientEmail).toBe('daniel@example.com');
     expect(rows[0]!.totalPrice).toBe(4500);
+  });
+
+  it('preserves the original booking estimate and atomically records the latest reschedule estimate', async () => {
+    const originalCapturedAt = new Date('2026-08-01T12:00:00.000Z');
+    const originalTaxConfig = resolveTaxConfig({
+      payments: { tax: { enabled: true, name: 'GST', rateBps: 500 } },
+    }, originalCapturedAt);
+    const original = buildBookingTaxSnapshot({
+      taxConfig: originalTaxConfig,
+      totals: {
+        taxableSubtotalCents: 4500,
+        taxAmountCents: 225,
+        finalPriceCents: 4500,
+        taxApplied: true,
+      },
+      capturedAt: originalCapturedAt,
+      currency: 'CAD',
+    });
+    await db.update(schema.salonSchema).set({
+      settings: {
+        booking: { clientChangeCutoffHours: 0, slotIntervalMinutes: 15 },
+        payments: { tax: { enabled: true, name: 'HST', rateBps: 1300 } },
+      },
+    }).where(eq(schema.salonSchema.id, SALON_ID));
+    const { appointmentId, token } = await seedAppointmentWithToken({
+      invoiceCurrency: 'CAD',
+      bookingTaxSnapshot: original,
+      basePriceCents: 4500,
+      addOnsPriceCents: 0,
+      subtotalBeforeDiscountCents: 4500,
+      discountAmountCents: 0,
+    });
+
+    const response = await POST(
+      rescheduleRequest(NEW_START.toISOString()),
+      { params: { token } },
+    );
+    const [row] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, appointmentId));
+
+    expect(response.status).toBe(200);
+    expect(row!.bookingTaxSnapshot).toEqual(original);
+    expect(row!.rescheduleTaxSnapshot).toMatchObject({
+      kind: 'booking_estimate',
+      currency: 'CAD',
+      serviceSubtotalCents: 4500,
+      taxAmountCents: 585,
+      invoiceTotalCents: 5085,
+      configuration: { label: 'HST', rateBps: 1300 },
+    });
+    expect(validateInvoiceTaxSnapshot(row!.rescheduleTaxSnapshot, {
+      expectedKind: 'booking_estimate',
+      expectedCurrency: 'CAD',
+      expectedScalars: { bookingTotalPriceCents: row!.totalPrice },
+    }).ok).toBe(true);
+    expect(selectActiveInvoiceTaxSnapshot(row!)).toEqual({
+      source: 'reschedule',
+      snapshot: row!.rescheduleTaxSnapshot,
+    });
+  });
+
+  it('does not create a reschedule estimate for a no-op or borrow currency for a historical row', async () => {
+    const historical = await seedAppointmentWithToken();
+    const unchanged = await POST(
+      rescheduleRequest(CURRENT_START.toISOString()),
+      { params: { token: historical.token } },
+    );
+    let [row] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, historical.appointmentId));
+
+    expect(unchanged.status).toBe(200);
+    expect(row!.invoiceCurrency).toBeNull();
+    expect(row!.rescheduleTaxSnapshot).toBeNull();
+
+    const moved = await POST(
+      rescheduleRequest(NEW_START.toISOString()),
+      { params: { token: historical.token } },
+    );
+    [row] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, historical.appointmentId));
+
+    expect(moved.status).toBe(200);
+    expect(row!.invoiceCurrency).toBeNull();
+    expect(row!.rescheduleTaxSnapshot).toBeNull();
   });
 
   it('keeps the customer’s capability token working after the move', async () => {
@@ -520,6 +613,86 @@ describe('customer manage-link reschedule', () => {
     expect(row!.discountType).toBeNull();
     expect(row!.discountAmountCents ?? 0).toBe(0);
     expect(row!.totalPrice).toBe(4500);
+  });
+
+  it('updates the active estimate atomically when the reschedule earns Smart Fit', async () => {
+    const capturedAt = new Date('2026-08-01T12:00:00.000Z');
+    const settings = {
+      booking: { clientChangeCutoffHours: 0, slotIntervalMinutes: 15 },
+      smartFit: {
+        enabled: true,
+        discountType: 'percent' as const,
+        value: 10,
+        maxRemainingGapMinutes: 10,
+        minImprovementMinutes: 20,
+      },
+      payments: { tax: { enabled: true, name: 'HST', rateBps: 1300 } },
+    };
+    await db.update(schema.salonSchema).set({ settings })
+      .where(eq(schema.salonSchema.id, SALON_ID));
+    await db.insert(schema.appointmentSchema).values({
+      id: 'appt_resched_smart_fit_neighbor',
+      salonId: SALON_ID,
+      technicianId: TECH_ID,
+      clientPhone: '4165550000',
+      startTime: new Date('2026-09-01T21:00:00.000Z'),
+      endTime: new Date('2026-09-01T22:00:00.000Z'),
+      status: 'confirmed',
+      totalPrice: 4500,
+      totalDurationMinutes: 60,
+      bufferMinutes: 0,
+      blockedDurationMinutes: 60,
+    });
+    const originalTaxConfig = resolveTaxConfig(settings, capturedAt);
+    const original = buildBookingTaxSnapshot({
+      taxConfig: originalTaxConfig,
+      totals: {
+        taxableSubtotalCents: 4500,
+        taxAmountCents: 585,
+        finalPriceCents: 4500,
+        taxApplied: true,
+      },
+      capturedAt,
+      currency: 'CAD',
+    });
+    const { appointmentId, token } = await seedAppointmentWithToken({
+      invoiceCurrency: 'CAD',
+      bookingTaxSnapshot: original,
+      basePriceCents: 4500,
+      addOnsPriceCents: 0,
+      subtotalBeforeDiscountCents: 4500,
+      discountAmountCents: 0,
+      bufferMinutes: 0,
+      blockedDurationMinutes: 60,
+    });
+
+    const response = await POST(
+      rescheduleRequest(NEW_START.toISOString()),
+      { params: { token } },
+    );
+    const body = await response.json();
+    const [row] = await db.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, appointmentId));
+
+    expect(response.status).toBe(200);
+    expect(body.data.smartFit).toBe('granted');
+    expect(row).toMatchObject({
+      totalPrice: 4050,
+      discountType: 'smart_fit',
+      discountAmountCents: 450,
+      bookingTaxSnapshot: original,
+      rescheduleTaxSnapshot: {
+        serviceSubtotalCents: 4050,
+        taxableSubtotalCents: 4050,
+        taxAmountCents: 527,
+        invoiceTotalCents: 4577,
+      },
+    });
+    expect(validateInvoiceTaxSnapshot(row!.rescheduleTaxSnapshot, {
+      expectedKind: 'booking_estimate',
+      expectedCurrency: 'CAD',
+      expectedScalars: { bookingTotalPriceCents: 4050 },
+    }).ok).toBe(true);
   });
 
   it('leaves a reward discount alone instead of replacing it with Smart Fit', async () => {

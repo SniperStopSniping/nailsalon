@@ -2,8 +2,10 @@ import { and, desc, eq, gt, gte, inArray, isNull, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
+import { getCompletedRevenueRows } from '@/libs/financialReportingServer';
 import {
   buildAppointmentReminderQueue,
   buildRetentionQueue,
@@ -13,7 +15,6 @@ import {
   type RetentionClientSnapshot,
 } from '@/libs/retentionAssistant';
 import { getRetentionSettingsForSalon } from '@/libs/retentionSettings.server';
-import { revenueCentsSql } from '@/libs/revenueSql';
 import {
   appointmentSchema,
   appointmentServicesSchema,
@@ -25,6 +26,7 @@ import {
   salonClientSchema,
 } from '@/models/Schema';
 import type { ClientCommunicationKind, ClientCommunicationStatus } from '@/types/retention';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 export const dynamic = 'force-dynamic';
 
@@ -193,6 +195,9 @@ export async function GET(request: Request): Promise<Response> {
 
   const now = new Date();
   const windowStart = new Date(now.getTime() - RESULTS_WINDOW_DAYS * 86_400_000);
+  const reportingCurrency = resolveBookingConfigFromSettings(
+    salon.settings as SalonSettings | null | undefined,
+  ).currency;
 
   const [settings, clientRows, appointmentRows, communicationRows] = await Promise.all([
     getRetentionSettingsForSalon(salon.id),
@@ -468,30 +473,74 @@ export async function GET(request: Request): Promise<Response> {
       .groupBy(notificationDeliverySchema.channel, notificationDeliverySchema.status),
   ]);
 
-  // Campaign outcomes: redemption rows joined to their appointments. Revenue
-  // uses the Phase-3 finalized values (net of tax; comp counts zero); tax is
-  // reported separately and NEVER added to revenue.
-  const campaignOutcomes = await db
-    .select({
-      stage: retentionCampaignSchema.stage,
-      discountGivenCents: sql<number>`COALESCE(sum(${retentionCampaignRedemptionSchema.discountAmountCents}), 0)::int`,
-      completedCount: sql<number>`count(*) FILTER (WHERE ${appointmentSchema.status} = 'completed')::int`,
-      completedRevenueCents: sql<number>`COALESCE(sum(${revenueCentsSql()}) FILTER (WHERE ${appointmentSchema.status} = 'completed'), 0)::int`,
-      completedTaxCents: sql<number>`COALESCE(sum(${appointmentSchema.taxAmountCents}) FILTER (WHERE ${appointmentSchema.status} = 'completed'), 0)::int`,
-    })
-    .from(retentionCampaignRedemptionSchema)
-    .innerJoin(
-      retentionCampaignSchema,
-      eq(retentionCampaignSchema.id, retentionCampaignRedemptionSchema.campaignId),
-    )
-    .innerJoin(
-      appointmentSchema,
-      eq(appointmentSchema.id, retentionCampaignRedemptionSchema.appointmentId),
-    )
-    .where(eq(retentionCampaignRedemptionSchema.salonId, salon.id))
-    .groupBy(retentionCampaignSchema.stage);
-
-  const outcomesByStage = new Map(campaignOutcomes.map(row => [row.stage, row]));
+  // Campaign outcomes are joined to canonical, currency-scoped completion
+  // facts. A missing/corrupt tax snapshot stays visible as under review and
+  // contributes neither revenue nor actual tax.
+  const [campaignRedemptions, canonicalCompletedRows] = await Promise.all([
+    db
+      .select({
+        stage: retentionCampaignSchema.stage,
+        appointmentId: appointmentSchema.id,
+        appointmentStatus: appointmentSchema.status,
+        appointmentCurrency: appointmentSchema.invoiceCurrency,
+        discountAmountCents: retentionCampaignRedemptionSchema.discountAmountCents,
+      })
+      .from(retentionCampaignRedemptionSchema)
+      .innerJoin(
+        retentionCampaignSchema,
+        eq(retentionCampaignSchema.id, retentionCampaignRedemptionSchema.campaignId),
+      )
+      .innerJoin(
+        appointmentSchema,
+        eq(appointmentSchema.id, retentionCampaignRedemptionSchema.appointmentId),
+      )
+      .where(eq(retentionCampaignRedemptionSchema.salonId, salon.id)),
+    getCompletedRevenueRows({
+      salonId: salon.id,
+      currency: reportingCurrency,
+      start: new Date(0),
+      end: new Date(now.getTime() + 86_400_000),
+    }),
+  ]);
+  const canonicalCompletionByAppointment = new Map(
+    canonicalCompletedRows.map(row => [row.appointmentId, row]),
+  );
+  const outcomesByStage = new Map<string, {
+    discountGivenCents: number;
+    completedCount: number;
+    completedRevenueCents: number;
+    completedTaxCents: number;
+    unresolvedFinancialCount: number;
+  }>();
+  for (const redemption of campaignRedemptions) {
+    const outcome = outcomesByStage.get(redemption.stage) ?? {
+      discountGivenCents: 0,
+      completedCount: 0,
+      completedRevenueCents: 0,
+      completedTaxCents: 0,
+      unresolvedFinancialCount: 0,
+    };
+    const frozenCurrency = redemption.appointmentCurrency?.trim().toUpperCase() ?? null;
+    const matchingCurrency = frozenCurrency === reportingCurrency;
+    let financialUnderReview = !matchingCurrency;
+    if (matchingCurrency) {
+      outcome.discountGivenCents += redemption.discountAmountCents;
+    }
+    if (redemption.appointmentStatus === 'completed') {
+      outcome.completedCount += 1;
+      const completion = canonicalCompletionByAppointment.get(redemption.appointmentId);
+      if (completion && !completion.unresolvedActualTaxIdentity) {
+        outcome.completedRevenueCents += completion.serviceValueCents;
+        outcome.completedTaxCents += completion.taxCents;
+      } else {
+        financialUnderReview = true;
+      }
+    }
+    if (financialUnderReview) {
+      outcome.unresolvedFinancialCount += 1;
+    }
+    outcomesByStage.set(redemption.stage, outcome);
+  }
 
   return Response.json({
     data: {
@@ -533,9 +582,12 @@ export async function GET(request: Request): Promise<Response> {
           completedCount: outcomesByStage.get(row.stage)?.completedCount ?? 0,
           completedRevenueCents: outcomesByStage.get(row.stage)?.completedRevenueCents ?? 0,
           completedTaxCents: outcomesByStage.get(row.stage)?.completedTaxCents ?? 0,
+          unresolvedFinancialCount:
+            outcomesByStage.get(row.stage)?.unresolvedFinancialCount ?? 0,
         })),
         automatic: automaticCounts,
       },
+      currency: reportingCurrency,
     },
   });
 }

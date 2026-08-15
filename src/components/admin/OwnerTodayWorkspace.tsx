@@ -697,14 +697,54 @@ export function OwnerTodayWorkspace({
                 )
               : (() => {
                   const todayPeriod = financialSummary.currentPeriods.today;
+                  const forfeitureGrossCents
+                    = todayPeriod.depositForfeitedCents ?? 0;
+                  const forfeitureRefundReversalCents
+                    = todayPeriod.depositForfeitureRefundReversalCents ?? 0;
                   const secondaryMetrics = [
                     ['Collected today', todayPeriod.cashCollectedCents],
+                    [
+                      'Remaining-balance payments',
+                      todayPeriod.remainingBalancePaymentsCollectedCents
+                      ?? todayPeriod.appointmentPaymentsCollectedCents
+                      ?? 0,
+                    ],
+                    ['Deposits collected', todayPeriod.depositCollectedCents ?? 0],
+                    ['Deposit refunds', todayPeriod.depositRefundedCents ?? 0],
+                    ['Deposits applied', todayPeriod.depositAppliedCents ?? 0],
+                    ...(forfeitureGrossCents > 0
+                      ? [
+                          ['Deposits forfeited (gross)', forfeitureGrossCents],
+                          [
+                            'Forfeiture tax estimate',
+                            todayPeriod.depositForfeitureEstimatedTaxCents ?? 0,
+                          ],
+                          [
+                            'Forfeiture net estimate',
+                            todayPeriod.depositForfeitureEstimatedNetCents ?? 0,
+                          ],
+                        ] as const
+                      : []),
+                    ...(forfeitureRefundReversalCents > 0
+                      ? [
+                          ['Forfeiture refund reversals', forfeitureRefundReversalCents],
+                          [
+                            'Forfeiture tax reversals',
+                            todayPeriod.depositForfeitureTaxReversalCents ?? 0,
+                          ],
+                          [
+                            'Forfeiture net reversals',
+                            todayPeriod.depositForfeitureNetReversalCents ?? 0,
+                          ],
+                        ] as const
+                      : []),
                     [
                       'Completed outstanding',
                       financialSummary.balances.completedOutstandingCents,
                     ],
                     ['Tips today', todayPeriod.tipsCents],
                     ['Tax today', todayPeriod.taxCents],
+                    ['Taxable subtotal today', todayPeriod.taxableSubtotalCents ?? 0],
                     ['Discounts today', todayPeriod.discountsCents],
                   ] as const;
                   const allDisplayedValues = [
@@ -718,6 +758,26 @@ export function OwnerTodayWorkspace({
                   const isEmpty = allDisplayedValues.every(cents => cents === 0);
                   const historyNotice
                     = getFinancialHistoryNotice(financialSummary);
+                  const depositReportingIncomplete = (
+                    (todayPeriod.unattributedPaymentEventCount ?? 0)
+                    + (todayPeriod.unattributedDepositEventCount ?? 0)
+                    + (todayPeriod.unresolvedDepositEventCount ?? 0)
+                    + (todayPeriod.unresolvedDepositApplicationCount ?? 0)
+                  ) > 0;
+                  const currencyReportingIncomplete = (
+                    (todayPeriod.unknownCurrencyAppointmentCount ?? 0)
+                    + (todayPeriod.excludedForeignCurrencyAppointmentCount ?? 0)
+                    + (todayPeriod.unknownCurrencyPaymentEventCount ?? 0)
+                    + (todayPeriod.excludedForeignCurrencyPaymentEventCount ?? 0)
+                    + (todayPeriod.unknownCurrencyDepositEventCount ?? 0)
+                    + (todayPeriod.excludedForeignCurrencyDepositEventCount ?? 0)
+                    + (financialSummary.balances.unknownCurrencyAppointmentCount ?? 0)
+                    + (financialSummary.balances.excludedForeignCurrencyAppointmentCount ?? 0)
+                  ) > 0;
+                  const forfeitureTaxBuckets
+                    = todayPeriod.forfeitureTaxIdentityBuckets ?? [];
+                  const actualTaxBuckets
+                    = todayPeriod.actualTaxIdentityBuckets ?? [];
 
                   return (
                     <div className="space-y-3 p-4">
@@ -735,6 +795,127 @@ export function OwnerTodayWorkspace({
                           Completed appointment revenue
                         </p>
                       </div>
+                      {forfeitureTaxBuckets.length > 0 && (
+                        <div
+                          className="space-y-2 rounded-2xl border border-stone-100 bg-stone-50 p-3 text-xs text-stone-700"
+                          data-testid="owner-forfeiture-tax-identities"
+                        >
+                          <p className="font-semibold text-stone-900">
+                            Forfeiture tax estimate identities
+                          </p>
+                          {forfeitureTaxBuckets.map(bucket => (
+                            <div
+                              key={[
+                                bucket.schemaVersion,
+                                bucket.classification,
+                                bucket.label ?? 'none',
+                                bucket.rateBps,
+                                bucket.mode,
+                                bucket.configurationEffectiveFrom ?? 'none',
+                                bucket.configurationSource,
+                                bucket.taxEstimateApplied,
+                              ].join(':')}
+                              className="rounded-xl bg-white px-3 py-2"
+                            >
+                              <p className="font-medium text-stone-900">
+                                {`${bucket.label ?? 'No tax label'} · ${(bucket.rateBps / 100).toFixed(2)}% · ${bucket.mode}`}
+                              </p>
+                              <p className="mt-0.5 text-stone-500">
+                                Schema
+                                {' '}
+                                {bucket.schemaVersion}
+                                {' '}
+                                ·
+                                {' '}
+                                {bucket.classification}
+                                {' '}
+                                ·
+                                {' '}
+                                {bucket.configurationSource}
+                                {bucket.configurationEffectiveFrom
+                                  ? ` · effective ${bucket.configurationEffectiveFrom}`
+                                  : ''}
+                              </p>
+                              <p className="mt-1 tabular-nums">
+                                Gross
+                                {' '}
+                                {formatMoney(bucket.grossForfeitedCents, financialSummary.currency)}
+                                {' '}
+                                · tax estimate
+                                {' '}
+                                {formatMoney(bucket.estimatedTaxIncludedCents, financialSummary.currency)}
+                                {' '}
+                                · net estimate
+                                {' '}
+                                {formatMoney(bucket.estimatedNetCents, financialSummary.currency)}
+                              </p>
+                              {bucket.refundReversalCount > 0 && (
+                                <p className="mt-1 tabular-nums text-amber-800">
+                                  Later refund reversal
+                                  {' '}
+                                  {formatMoney(bucket.refundReversalCents, financialSummary.currency)}
+                                </p>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {actualTaxBuckets.length > 0 && (
+                        <div
+                          className="space-y-2 rounded-2xl border border-stone-100 bg-stone-50 p-3 text-xs text-stone-700"
+                          data-testid="owner-actual-tax-identities"
+                        >
+                          <p className="font-semibold text-stone-900">
+                            Completed actual tax identities
+                          </p>
+                          {actualTaxBuckets.map(bucket => (
+                            <div
+                              key={[
+                                bucket.schemaVersion,
+                                bucket.classification,
+                                bucket.label ?? 'none',
+                                bucket.rateBps,
+                                bucket.mode,
+                                bucket.configurationEffectiveFrom ?? 'none',
+                                bucket.configurationSource,
+                                bucket.taxApplied,
+                                bucket.taxExempt,
+                              ].join(':')}
+                              className="rounded-xl bg-white px-3 py-2"
+                            >
+                              <p className="font-medium text-stone-900">
+                                {`${bucket.label ?? 'No tax label'} · ${(bucket.rateBps / 100).toFixed(2)}% · ${bucket.mode}`}
+                              </p>
+                              <p className="mt-0.5 text-stone-500">
+                                Schema
+                                {' '}
+                                {bucket.schemaVersion}
+                                {' '}
+                                ·
+                                {' '}
+                                {bucket.classification}
+                                {' '}
+                                ·
+                                {' '}
+                                {bucket.configurationSource}
+                                {bucket.configurationEffectiveFrom
+                                  ? ` · effective ${bucket.configurationEffectiveFrom}`
+                                  : ''}
+                                {bucket.taxExempt ? ' · exempt' : ''}
+                              </p>
+                              <p className="mt-1 tabular-nums">
+                                Taxable
+                                {' '}
+                                {formatMoney(bucket.taxableSubtotalCents, financialSummary.currency)}
+                                {' '}
+                                · tax
+                                {' '}
+                                {formatMoney(bucket.taxCents, financialSummary.currency)}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <div className="grid grid-cols-2 gap-3">
                         {[
                           [
@@ -792,6 +973,33 @@ export function OwnerTodayWorkspace({
                             {historyNotice.explanation}
                           </p>
                         </div>
+                      )}
+                      {depositReportingIncomplete && (
+                        <p
+                          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                          data-testid="owner-deposit-reporting-incomplete"
+                        >
+                          Some payment or deposit activity is excluded because its tenant, event date, currency, or resolution is unknown.
+                        </p>
+                      )}
+                      {currencyReportingIncomplete && (
+                        <p
+                          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                          data-testid="owner-currency-reporting-incomplete"
+                        >
+                          Financial activity with unknown or non-
+                          {financialSummary.currency}
+                          {' '}
+                          currency is excluded from these totals.
+                        </p>
+                      )}
+                      {(todayPeriod.unresolvedActualTaxIdentityCount ?? 0) > 0 && (
+                        <p
+                          className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                          data-testid="owner-tax-reporting-incomplete"
+                        >
+                          Some completed tax activity is excluded from tax identity details because its frozen final snapshot is unavailable or invalid.
+                        </p>
                       )}
                       {financialSummaryError && (
                         <div

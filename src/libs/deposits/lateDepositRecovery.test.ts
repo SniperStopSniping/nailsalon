@@ -340,7 +340,11 @@ describe('runLateDepositRecovery dispatch', () => {
     const result = await runLateDepositRecovery({ depositId: seeded.depositId, salonId: SALON });
 
     expect(result.disposition).toBe('restored');
-    expect((await readDeposit(seeded.depositId))?.status).toBe('paid');
+
+    const restoredDeposit = await readDeposit(seeded.depositId);
+
+    expect(restoredDeposit?.status).toBe('paid');
+    expect(restoredDeposit?.collectedAt).toBeInstanceOf(Date);
 
     const [appointment] = await db.select().from(schema.appointmentSchema)
       .where(eq(schema.appointmentSchema.id, seeded.appointmentId));

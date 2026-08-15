@@ -477,6 +477,13 @@
       "when": 1786299234999,
       "tag": "0067_deposit_refund_waiver_columns",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1786300235000,
+      "tag": "0068_deposit_credit_tax_snapshots",
+      "breakpoints": true
     }
   ]
 }

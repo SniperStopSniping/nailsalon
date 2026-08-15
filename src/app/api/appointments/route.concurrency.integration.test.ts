@@ -53,11 +53,11 @@ const parsedDatabaseUser = parsedConcurrencyUrl
   : '';
 const disposableDatabaseConfirmed
   = process.env.CLIENT_LIFECYCLE_DISPOSABLE_DATABASE_CONFIRMED === 'true'
-  || process.env.BOOKING_POLICY_ACKNOWLEDGMENT_DISPOSABLE_DATABASE_CONFIRMED === 'true'
-  || (
-    parsedDatabaseName === 'luster_qa'
-    && parsedConcurrencyUrl?.username === 'qa'
-  );
+    || process.env.BOOKING_POLICY_ACKNOWLEDGMENT_DISPOSABLE_DATABASE_CONFIRMED === 'true'
+    || (
+      parsedDatabaseName === 'luster_qa'
+      && parsedConcurrencyUrl?.username === 'qa'
+    );
 const IS_LOCAL_THROWAWAY = parsedConcurrencyUrl != null
   && ['127.0.0.1', 'localhost'].includes(parsedConcurrencyUrl.hostname)
   && parsedDatabaseName.length > 0
@@ -3992,6 +3992,59 @@ suite('POST /api/appointments — genuine concurrency', () => {
       `:${(jobs[0]?.payload as { mutationVersion: string }).mutationVersion}`,
     );
     expect(sendTransactionalEmailDetailed).not.toHaveBeenCalled();
+  });
+
+  it('fails fast instead of freezing a stale reschedule estimate while salon financial settings are locked', async () => {
+    const appointment = await seedManagedAppointment({
+      id: 'managed_reschedule_tax_settings_lock',
+      startTime: '2099-09-21T16:00:00.000Z',
+    });
+    await db.update(schema.appointmentSchema)
+      .set({ invoiceCurrency: 'CAD' })
+      .where(eq(schema.appointmentSchema.id, appointment.id));
+    const target = '2099-09-21T18:00:00.000Z';
+    const settingsWriter = await pool.connect();
+    try {
+      await settingsWriter.query('BEGIN');
+      await settingsWriter.query(
+        'SELECT id FROM salon WHERE id = $1 FOR UPDATE',
+        [SALON_ID],
+      );
+
+      await expect(runManagedMutation({
+        appointmentId: appointment.id,
+        operation: 'move',
+        startTime: target,
+      })).rejects.toMatchObject({
+        code: 'FINANCIAL_CONFIGURATION_BUSY',
+        status: 409,
+      });
+
+      const unchanged = await loadAppointment(appointment.id);
+
+      expect(unchanged.startTime).toEqual(appointment.startTime);
+      expect(unchanged.rescheduleTaxSnapshot).toBeNull();
+    } finally {
+      await settingsWriter.query('ROLLBACK');
+      settingsWriter.release();
+    }
+
+    await expect(runManagedMutation({
+      appointmentId: appointment.id,
+      operation: 'move',
+      startTime: target,
+    })).resolves.toBeDefined();
+
+    const committed = await loadAppointment(appointment.id);
+
+    expect(committed.startTime.toISOString()).toBe(target);
+    expect(committed.rescheduleTaxSnapshot).toMatchObject({
+      kind: 'booking_estimate',
+      currency: 'CAD',
+      serviceSubtotalCents: 6500,
+      taxAmountCents: 0,
+      invoiceTotalCents: 6500,
+    });
   });
 
   it('lets only the committing path notify in a concurrent staff/customer move', async () => {

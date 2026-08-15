@@ -68,12 +68,29 @@ vi.mock('@/components/ConfettiPopup', () => ({
   ConfettiPopup: () => null,
 }));
 
+let appointmentFinancial: Record<string, unknown>;
+
 describe('ProfileContent directions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubGlobal('fetch', fetchMock);
     vi.stubGlobal('navigator', { vibrate: vi.fn() });
     window.open = windowOpen;
+    appointmentFinancial = {
+      state: 'resolved',
+      currency: 'USD',
+      taxClassification: 'estimate',
+      taxAmountCents: 500,
+      taxLabel: 'Sales tax',
+      taxMode: 'added',
+      taxApplied: true,
+      totalCents: 6500,
+      collectedDepositCents: 2000,
+      refundedDepositCents: 0,
+      depositCreditCents: 2000,
+      amountAlreadyPaidCents: 2000,
+      balanceCents: 4500,
+    };
 
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
@@ -89,6 +106,7 @@ describe('ProfileContent directions', () => {
               totalPrice: 6500,
               totalDurationMinutes: 75,
               locationId: null,
+              financial: appointmentFinancial,
             },
             services: [{
               id: 'srv_1',
@@ -141,6 +159,10 @@ describe('ProfileContent directions', () => {
     const directionsButton = await screen.findByRole('button', { name: /get directions to salon/i });
 
     expect(directionsButton).toBeInTheDocument();
+    expect(screen.getByText('Estimated appointment total')).toBeInTheDocument();
+    expect(screen.getByText('$65.00 USD')).toBeInTheDocument();
+    expect(screen.getByText('Deposit collected')).toBeInTheDocument();
+    expect(screen.getByText('$45.00 USD')).toBeInTheDocument();
 
     fireEvent.click(directionsButton);
 
@@ -151,5 +173,16 @@ describe('ProfileContent directions', () => {
         'noopener,noreferrer',
       );
     });
+  });
+
+  it('shows no raw amount when financial provenance is under review', async () => {
+    appointmentFinancial = { state: 'under_review' };
+
+    render(<ProfileContent />);
+
+    expect(await screen.findByTestId('client-appointment-financial-under-review'))
+      .toHaveTextContent('Financial details are under review');
+    expect(screen.queryByText('$65.00')).not.toBeInTheDocument();
+    expect(screen.queryByText('$65')).not.toBeInTheDocument();
   });
 });

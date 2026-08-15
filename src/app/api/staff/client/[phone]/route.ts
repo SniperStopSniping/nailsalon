@@ -1,7 +1,10 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { db } from '@/libs/DB';
+import { getCompletedFinancialResolution } from '@/libs/financialReportingServer';
 import { isFullAccess, redactClientForStaff } from '@/libs/redact';
 import { requireStaffOrAdminSalonAccess } from '@/libs/routeAccessGuards';
 import { getEffectiveVisibility } from '@/libs/visibilityPolicy';
@@ -16,7 +19,7 @@ import {
   serviceSchema,
   technicianSchema,
 } from '@/models/Schema';
-import type { SalonVisibilityPolicy } from '@/types/salonPolicy';
+import type { SalonSettings, SalonVisibilityPolicy } from '@/types/salonPolicy';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -82,6 +85,9 @@ export async function GET(
       return access.response;
     }
     const { salon } = access;
+    const bookingConfig = resolveBookingConfigFromSettings(
+      salon.settings as SalonSettings | null | undefined,
+    );
 
     // Fetch salon visibility policy for staff redaction
     const [salonData] = await db
@@ -200,12 +206,29 @@ export async function GET(
           techName = tech?.name || null;
         }
 
+        const financial = await loadBookingEmailFinancialSummary({
+          salonId: salon.id,
+          appointmentId: appt.id,
+        });
+        const financialResolved = financial !== null
+          && financial.depositBlockedCode === null;
+
         return {
           id: appt.id,
           startTime: appt.startTime.toISOString(),
           endTime: appt.endTime.toISOString(),
           status: appt.status,
-          totalPrice: appt.totalPrice,
+          // A non-null summary may still represent an unresolved deposit. Do
+          // not let the legacy scalar or the summary's zero-credit fallback
+          // escape as if it were a settled customer balance.
+          totalPrice: financialResolved ? appt.totalPrice : null,
+          currency: financial?.currency ?? appt.invoiceCurrency ?? null,
+          financialState: financialResolved ? 'resolved' as const : 'blocked' as const,
+          financialBlockCode: financial?.depositBlockedCode
+            ?? (financial === null
+              ? 'FINANCIAL_SNAPSHOT_RECONCILIATION_REQUIRED'
+              : null),
+          financial: financialResolved ? financial : null,
           technicianName: techName,
           services: apptServices.map(s => s.serviceName),
         };
@@ -229,7 +252,25 @@ export async function GET(
 
     // Calculate stats
     const completedAppointments = appointments.filter(a => a.status === 'completed');
-    const totalSpent = completedAppointments.reduce((sum, a) => sum + a.totalPrice, 0);
+    const completedFinancialResolution = await getCompletedFinancialResolution({
+      salonId: salon.id,
+      currency: bookingConfig.currency,
+      asOf: new Date(),
+      clientPhoneVariants: phoneVariants,
+      technicianId: access.actorRole === 'staff'
+        ? access.session.technicianId
+        : undefined,
+    });
+    const completedFinancialRows = completedFinancialResolution.resolvedRows;
+    const settledCompletedFinancialRows = completedFinancialRows.filter(
+      row => row.financiallySettled,
+    );
+    const totalSpent = completedFinancialResolution.unresolvedRows.length > 0
+      ? null
+      : settledCompletedFinancialRows.reduce(
+          (sum, row) => sum + row.serviceValueCents,
+          0,
+        );
 
     // ==========================================================================
     // REDACTION: Apply visibility policy for staff requests
@@ -245,7 +286,7 @@ export async function GET(
       memberSince: client?.createdAt?.toISOString() || appointments[appointments.length - 1]?.createdAt.toISOString() || null,
       // History fields (controlled by showClientHistory)
       totalVisits: completedAppointments.length,
-      totalSpent,
+      totalSpent: totalSpent ?? 0,
       lastVisitAt: completedAppointments[0]?.startTime.toISOString() || null,
     };
 
@@ -263,7 +304,9 @@ export async function GET(
       };
       redactedStats = {
         totalVisits: fullClient.totalVisits,
-        totalSpent: fullClient.totalSpent,
+        totalSpent,
+        currency: bookingConfig.currency,
+        spendState: totalSpent === null ? 'under_review' : 'resolved',
         lastVisit: fullClient.lastVisitAt,
       };
     } else {
@@ -287,7 +330,11 @@ export async function GET(
       redactedStats = {};
       if (visibility.showClientHistory) {
         redactedStats.totalVisits = fullClient.totalVisits;
-        redactedStats.totalSpent = fullClient.totalSpent;
+        redactedStats.totalSpent = totalSpent;
+        redactedStats.currency = bookingConfig.currency;
+        redactedStats.spendState = totalSpent === null
+          ? 'under_review'
+          : 'resolved';
         redactedStats.lastVisit = fullClient.lastVisitAt;
       }
     }
@@ -323,7 +370,12 @@ export async function GET(
     // Redact appointment prices if needed
     let finalAppointments = appointmentsWithServices;
     if (!isFullAccess(visibility) && !visibility.showAppointmentPrice) {
-      finalAppointments = appointmentsWithServices.map(({ totalPrice, ...rest }) => rest) as typeof appointmentsWithServices;
+      finalAppointments = appointmentsWithServices.map(({
+        totalPrice: _totalPrice,
+        currency: _currency,
+        financial: _financial,
+        ...rest
+      }) => rest) as typeof appointmentsWithServices;
     }
 
     // Build response

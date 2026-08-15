@@ -6,6 +6,8 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { computeCheckoutTotals } from '@/libs/checkoutTotals';
+import { buildBookingTaxSnapshot, DISABLED_TAX_CONFIG } from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
@@ -101,6 +103,7 @@ beforeEach(async () => {
   holder.db = exposedDb();
 
   await realDb.delete(schema.integrationOutboxSchema);
+  await realDb.delete(schema.appointmentDepositSchema);
   await realDb.delete(schema.appointmentSchema);
   await realDb.delete(schema.salonClientSchema);
   await realDb.delete(schema.salonSchema);
@@ -149,6 +152,95 @@ afterAll(async () => {
 });
 
 describe('points redemption Calendar mutation', () => {
+  it('blocks D6.1 snapshot repricing before points, price, or Calendar mutation', async () => {
+    const capturedAt = new Date('2099-05-01T12:00:00.000Z');
+    const bookingTaxSnapshot = buildBookingTaxSnapshot({
+      taxConfig: DISABLED_TAX_CONFIG,
+      totals: computeCheckoutTotals({
+        items: [{ lineTotalCents: 5000, taxable: false }],
+        discountCents: 0,
+        taxConfig: DISABLED_TAX_CONFIG,
+        tipCents: 0,
+      }),
+      capturedAt,
+      currency: 'CAD',
+    });
+    await realDb
+      .update(schema.appointmentSchema)
+      .set({ invoiceCurrency: 'CAD', bookingTaxSnapshot })
+      .where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'REWARD_FINANCIAL_REPRICING_REQUIRED' },
+    });
+
+    const [appointment] = await realDb.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+    const [salonClient] = await realDb.select().from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, CLIENT_ID));
+
+    expect(appointment?.totalPrice).toBe(5000);
+    expect(salonClient?.loyaltyPoints).toBe(5000);
+    await expect(realDb.select().from(schema.integrationOutboxSchema)).resolves.toEqual([]);
+  });
+
+  it('blocks frozen invoice identity even when no tax snapshot exists', async () => {
+    await realDb
+      .update(schema.appointmentSchema)
+      .set({ invoiceCurrency: 'CAD' })
+      .where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'REWARD_FINANCIAL_REPRICING_REQUIRED' },
+    });
+
+    const [appointment] = await realDb.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+    const [salonClient] = await realDb.select().from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, CLIENT_ID));
+
+    expect(appointment?.totalPrice).toBe(5000);
+    expect(salonClient?.loyaltyPoints).toBe(5000);
+    await expect(realDb.select().from(schema.integrationOutboxSchema)).resolves.toEqual([]);
+  });
+
+  it('blocks legacy paid deposit history even when invoice identity and snapshots are absent', async () => {
+    await realDb.insert(schema.appointmentDepositSchema).values({
+      id: 'deposit_points_legacy_paid',
+      salonId: SALON_ID,
+      appointmentId: APPOINTMENT_ID,
+      amountCents: 1000,
+      disclosedAmountCents: 1000,
+      currency: 'cad',
+      status: 'paid',
+      stripeAccountId: 'acct_points_legacy',
+      stripePaymentIntentId: 'pi_points_legacy',
+      collectedAt: new Date('2099-05-01T12:00:00.000Z'),
+    });
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'REWARD_FINANCIAL_REPRICING_REQUIRED' },
+    });
+
+    const [appointment] = await realDb.select().from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.id, APPOINTMENT_ID));
+    const [salonClient] = await realDb.select().from(schema.salonClientSchema)
+      .where(eq(schema.salonClientSchema.id, CLIENT_ID));
+
+    expect(appointment?.totalPrice).toBe(5000);
+    expect(salonClient?.loyaltyPoints).toBe(5000);
+    await expect(realDb.select().from(schema.integrationOutboxSchema)).resolves.toEqual([]);
+  });
+
   it('commits price, points, and one durable same-revision Calendar intent', async () => {
     const response = await POST(request());
 

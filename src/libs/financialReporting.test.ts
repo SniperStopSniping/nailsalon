@@ -150,6 +150,62 @@ describe('appointment balance categories', () => {
     });
   });
 
+  it('subtracts a resolved deposit after tax but never lets it absorb a tip', () => {
+    const result = resolveAppointmentBalance({
+      status: 'completed',
+      paymentStatus: 'partially_paid',
+      finalPriceCents: 10000,
+      legacyBookedTotalCents: 10000,
+      taxAmountCents: 1300,
+      tipCents: 1000,
+      nonVoidedPaymentsCents: 3000,
+      depositCreditCents: 2500,
+      depositResolution: 'resolved',
+    });
+
+    // $113 service invoice + $10 tip - $25 deposit - $30 other payment.
+    expect(result).toMatchObject({
+      category: 'completed_outstanding',
+      amountCents: 6800,
+    });
+  });
+
+  it('keeps explicit unknown, blocked, and excess deposit facts unresolved', () => {
+    const base = {
+      status: 'completed',
+      paymentStatus: 'pending',
+      finalPriceCents: 5000,
+      legacyBookedTotalCents: 5000,
+      taxAmountCents: 650,
+      tipCents: 0,
+      nonVoidedPaymentsCents: 0,
+    } as const;
+
+    expect(resolveAppointmentBalance({
+      ...base,
+      depositCreditCents: null,
+    })).toMatchObject({
+      category: 'unresolved',
+      reason: 'unknown_deposit_amount',
+    });
+    expect(resolveAppointmentBalance({
+      ...base,
+      depositCreditCents: 0,
+      depositResolution: 'blocked',
+    })).toMatchObject({
+      category: 'unresolved',
+      reason: 'unresolved_deposit',
+    });
+    expect(resolveAppointmentBalance({
+      ...base,
+      depositCreditCents: 5651,
+      depositResolution: 'resolved',
+    })).toMatchObject({
+      category: 'unresolved',
+      reason: 'excess_deposit',
+    });
+  });
+
   it('clamps an overpaid completed balance to zero', () => {
     const result = resolveAppointmentBalance({
       status: 'completed',
@@ -210,6 +266,27 @@ describe('appointment balance categories', () => {
       source: 'booked',
       amountCents: 6500,
       reason: null,
+    });
+  });
+
+  it('uses the frozen tax-inclusive invoice for a future booked balance', () => {
+    const result = resolveAppointmentBalance({
+      status: 'confirmed',
+      paymentStatus: 'partially_paid',
+      startTime: '2026-07-20T16:00:00.000Z',
+      now: NOW,
+      finalPriceCents: null,
+      legacyBookedTotalCents: 9000,
+      bookedInvoiceTotalCents: 10170,
+      nonVoidedPaymentsCents: 2500,
+      depositCreditCents: 2000,
+      depositResolution: 'resolved',
+    });
+
+    expect(result).toMatchObject({
+      category: 'upcoming_balance',
+      // $90 service + $11.70 tax - $20 deposit - $25 other payment.
+      amountCents: 5670,
     });
   });
 

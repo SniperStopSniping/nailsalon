@@ -19,6 +19,10 @@ import {
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
+import {
+  DepositForfeitureBlockedError,
+  forfeitAppointmentDepositInTx,
+} from '@/libs/deposits/depositForfeiture';
 import { enqueueGoogleCalendarDeleteInTx } from '@/libs/integrationOutbox';
 import { requireStaffAppointmentAccess } from '@/libs/staffApiGuards';
 import {
@@ -63,8 +67,26 @@ type ErrorResponse = {
     code: string;
     message: string;
     reason?: string;
+    details?: unknown;
   };
 };
+
+function depositForfeitureBlockedResponse(error: DepositForfeitureBlockedError): Response {
+  return Response.json(
+    {
+      error: {
+        code: error.code,
+        message: 'Deposit state must be reconciled before this appointment can be marked no-show.',
+        reason: 'deposit_forfeiture_blocked',
+        details: {
+          depositIds: error.depositIds,
+          reason: error.detail,
+        },
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
+  );
+}
 
 // =============================================================================
 // POST /api/appointments/[id]/transition
@@ -102,6 +124,17 @@ export async function POST(
     }
 
     const { to } = parsed.data;
+    if (to === 'complete') {
+      return Response.json(
+        {
+          error: {
+            code: 'CHECKOUT_COMPLETION_REQUIRED',
+            message: 'Open checkout to finalize the invoice before completing this appointment.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
 
     // 7. Determine current canvas state
     const currentCanvasState: AppointmentState
@@ -380,6 +413,16 @@ export async function POST(
             ),
           )
           .returning();
+        if (winner && legacyStatus === 'no_show') {
+          await forfeitAppointmentDepositInTx({
+            tx,
+            salonId: session.salonId,
+            appointmentId,
+            invoiceCurrency: winner.invoiceCurrency,
+            forfeitedAt: winner.updatedAt,
+            appointmentLockHeld: true,
+          });
+        }
         if (winner && (legacyStatus === 'cancelled' || legacyStatus === 'no_show')) {
           const [linkedReward] = await tx
             .select()
@@ -470,6 +513,9 @@ export async function POST(
       },
     });
   } catch (error) {
+    if (error instanceof DepositForfeitureBlockedError) {
+      return depositForfeitureBlockedResponse(error);
+    }
     if (
       error instanceof TransitionConflictError
       || error instanceof SlotConflictError

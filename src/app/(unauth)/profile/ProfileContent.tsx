@@ -23,6 +23,7 @@ import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
+import { ClientAppointmentFinancialSummary } from '@/components/client/ClientAppointmentFinancialSummary';
 import { ConfettiPopup } from '@/components/ConfettiPopup';
 import { SectionCard } from '@/components/ui/section-card';
 import { StateCard } from '@/components/ui/state-card';
@@ -31,6 +32,7 @@ import { appendSalonSlug, buildChangeAppointmentUrl } from '@/libs/bookingParams
 import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/directions';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
+import type { ClientAppointmentFinancialPresentation } from '@/types/clientAppointmentFinancial';
 import { cn } from '@/utils/Helpers';
 
 // --- Types ---
@@ -49,6 +51,7 @@ type AppointmentData = {
   totalPrice: number;
   totalDurationMinutes: number;
   locationId: string | null;
+  financial?: ClientAppointmentFinancialPresentation;
 };
 
 type AppointmentLocationData = {
@@ -380,7 +383,6 @@ const AppointmentTicket = ({
 
   const serviceName = services.map(s => s.name).join(' + ') || 'Appointment';
   const techName = technician?.name || 'Any Artist';
-  const price = `$${(appointment.totalPrice / 100).toFixed(0)}`;
   const directionsUrl = buildGoogleMapsDirectionsUrl(location);
 
   return (
@@ -394,17 +396,6 @@ const AppointmentTicket = ({
         className="mt-6 border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
         title="Upcoming appointment"
         description={formatDateWithTime(appointment.startTime)}
-        actions={(
-          <span
-            className="font-body px-3 py-1 text-xs font-semibold text-[var(--n5-ink-main)]"
-            style={{
-              borderRadius: n5.radiusPill,
-              backgroundColor: 'var(--n5-bg-page)',
-            }}
-          >
-            {price}
-          </span>
-        )}
         contentClassName="space-y-4"
       >
         <div className="flex items-start gap-4">
@@ -438,6 +429,11 @@ const AppointmentTicket = ({
             </p>
           </div>
         </div>
+
+        <ClientAppointmentFinancialSummary
+          financial={appointment.financial ?? { state: 'under_review' }}
+          className="rounded-xl bg-[var(--n5-bg-page)] p-3"
+        />
 
         <div className={`grid gap-3 ${directionsUrl ? 'grid-cols-2' : 'grid-cols-1'}`}>
           <button

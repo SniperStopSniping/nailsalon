@@ -42,6 +42,7 @@ vi.mock('@/libs/bookingCommitEffects', () => ({
 }));
 
 vi.mock('@/libs/integrationOutbox', () => ({
+  enqueueClientStatsRefreshInTx: vi.fn(async () => undefined),
   enqueueDepositConfirmationSideEffects: vi.fn(async () => undefined),
   enqueueDepositRefundAlertInTx: vi.fn(async () => undefined),
   enqueueDepositRefundNotices: vi.fn(async () => undefined),
