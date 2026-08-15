@@ -125,7 +125,7 @@ const SALON_SLUG = 'd6-refund-concurrency';
 const TECH_ID = 'tech_d6_refund_concurrency';
 const ACCOUNT_ID = 'acct_d6_refund_concurrency';
 const OWNER_ID = 'admin_d6_refund_concurrency';
-const EXPECTED_EXECUTED_TESTS = 7;
+const EXPECTED_EXECUTED_TESTS = 8;
 
 type TestDb = ReturnType<typeof drizzle<typeof schema>>;
 type DepositRow = typeof schema.appointmentDepositSchema.$inferSelect;
@@ -318,6 +318,94 @@ suite('D6 — genuine PostgreSQL refund concurrency', () => {
     expect(winners).toHaveLength(1);
     expect(rowCount.rows[0]?.count).toBe(1);
     expect(auditCount.rows[0]?.count).toBe(1);
+
+    executedTests += 1;
+  }, 30_000);
+
+  it('T8(e)/mutant (ii): the SQL stamp CAS cannot rebind a retired refund identity', async () => {
+    const seeded = await seedDeposit({
+      suffix: 't8e_sql_cas',
+      status: 'paid',
+      refundStatus: 'requested',
+      refundTrigger: 'owner',
+    });
+    const retiredRefundId = `re_${seeded.depositId}_corpse`;
+    await db
+      .update(schema.appointmentDepositSchema)
+      .set({ priorRefundIds: [retiredRefundId] })
+      .where(eq(schema.appointmentDepositSchema.id, seeded.depositId));
+
+    const snapshots = await Promise.all([
+      loadDeposit(seeded.depositId),
+      loadDeposit(seeded.depositId),
+    ]);
+    const held = await holdAppointmentRow(seeded.appointmentId);
+    const nativeIncludes = Array.prototype.includes;
+    let retiredIdEligibilityChecks = 0;
+    const includesSpy = vi
+      .spyOn(Array.prototype, 'includes')
+      .mockImplementation(function (
+        this: unknown[],
+        searchElement: unknown,
+        fromIndex?: number,
+      ) {
+        if (
+          searchElement === retiredRefundId
+          && this.length === 1
+          && this[0] === retiredRefundId
+        ) {
+          // Isolate the database predicate from the duplicated application
+          // guards. PostgreSQL still contains the retired ID throughout.
+          retiredIdEligibilityChecks += 1;
+          return false;
+        }
+        return Reflect.apply(nativeIncludes, this, [searchElement, fromIndex]);
+      });
+    const operations = snapshots.map(snapshot => applyRefundObservation({
+      deposit: snapshot,
+      refund: {
+        id: retiredRefundId,
+        status: 'succeeded',
+        amount: snapshot.amountCents,
+        currency: snapshot.currency,
+        metadata: { luster_deposit_id: snapshot.id },
+        payment_intent: snapshot.stripePaymentIntentId ?? undefined,
+      },
+      origin: 'reconciler',
+    }));
+
+    let results: Awaited<ReturnType<typeof applyRefundObservation>>[];
+    try {
+      // Both operations have passed the snapshot guard before they queue on
+      // the same real PostgreSQL appointment lock; neither can stamp early.
+      await releaseAfterBlocked(held, 2, operations);
+      results = await Promise.all(operations);
+    } finally {
+      includesSpy.mockRestore();
+    }
+
+    const stored = await loadDeposit(seeded.depositId);
+    const auditCount = await pool.query<{ count: number }>(
+      `SELECT count(*)::int AS count
+         FROM appointment_audit_log
+        WHERE appointment_id = $1 AND action = 'deposit_refund_succeeded'`,
+      [seeded.appointmentId],
+    );
+    const allRefundIdentities = [
+      ...stored.priorRefundIds,
+      ...(stored.stripeRefundId ? [stored.stripeRefundId] : []),
+    ];
+
+    expect(retiredIdEligibilityChecks).toBe(4);
+    expect(results.filter(result => result.applied)).toHaveLength(0);
+    expect(stored).toMatchObject({
+      status: 'paid',
+      refundStatus: 'requested',
+      stripeRefundId: null,
+      priorRefundIds: [retiredRefundId],
+    });
+    expect(new Set(allRefundIdentities).size).toBe(allRefundIdentities.length);
+    expect(auditCount.rows[0]?.count).toBe(0);
 
     executedTests += 1;
   }, 30_000);

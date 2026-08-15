@@ -408,7 +408,7 @@ jobs:
       CLIENT_LIFECYCLE_TEST_DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
       CONCURRENCY_TEST_DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
       CLIENT_LIFECYCLE_DISPOSABLE_DATABASE_CONFIRMED: 'true'
-      V133_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+      V133_COMMIT: c357c429cac10687bdd39c7cc064a252e18f55a6
 
     steps:
       - uses: actions/checkout@v4
@@ -690,7 +690,7 @@ jobs:
             src/libs/deposits/depositRefund.concurrency.integration.test.ts \
             | tee d6-postgres-concurrency.log
           grep -Fqx \
-            'D6_REAL_POSTGRES_TESTS_EXECUTED=7 D6_REAL_POSTGRES_TESTS_SKIPPED=0' \
+            'D6_REAL_POSTGRES_TESTS_EXECUTED=8 D6_REAL_POSTGRES_TESTS_SKIPPED=0' \
             d6-postgres-concurrency.log
 
   booking-entitlement-override-postgres:
