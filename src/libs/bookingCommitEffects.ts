@@ -29,6 +29,7 @@
  */
 import { and, eq, inArray, sql } from 'drizzle-orm';
 
+import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { sendBookingNotificationsForNewBooking } from '@/libs/bookingNotifications';
 import { sendCustomerBookingConfirmationEmail } from '@/libs/customerBookingEmail';
 import { db } from '@/libs/DB';
@@ -283,7 +284,6 @@ async function notifySalonAboutBooking(args: {
         serviceSummary: previousServiceNames.join(', ') || 'Appointment',
         discountLabel: original.discountLabel,
         discountAmountCents: original.discountAmountCents ?? 0,
-        totalPriceCents: original.totalPrice,
       },
     });
   } catch (error) {
@@ -442,6 +442,24 @@ export async function runBookingCommitSideEffects(
   }
   throwIfBookingEffectsAborted(options.signal);
 
+  // Resolve money once for both SMS audiences from the immutable tax snapshot,
+  // canonical deposit resolver, and appointment-payment ledger. A null result
+  // is deliberate: the templates keep confirming the appointment but suppress
+  // every definitive amount until the financial evidence is reconciled.
+  let financialSummary = null;
+  try {
+    financialSummary = await loadBookingEmailFinancialSummary({
+      salonId: context.salon.id,
+      appointmentId: context.appointment.id,
+    });
+  } catch {
+    console.error('[Booking] SMS financial summary unavailable after the appointment committed:', {
+      salonId: context.salon.id,
+      appointmentId: context.appointment.id,
+    });
+  }
+  throwIfBookingEffectsAborted(options.signal);
+
   // 6/8. Client confirmation SMS, gated on consent exactly as before. Its
   // delivery identity is per attempt, so an aggregate replay may invoke it
   // again; ordinary provider failures are absorbed by the SMS helper.
@@ -454,7 +472,7 @@ export async function runBookingCommitSideEffects(
       services: context.serviceNames,
       technicianName: context.technician?.name ?? 'Any available artist',
       startTime: context.startTime.toISOString(),
-      totalPrice: context.totalPrice,
+      financialSummary,
       timeZone: context.timeZone,
       manageUrl: context.manageUrl,
     };
@@ -510,7 +528,7 @@ export async function runBookingCommitSideEffects(
     services: context.serviceNames,
     startTime: context.startTime.toISOString(),
     totalDurationMinutes: context.totalDurationMinutes,
-    totalPrice: context.totalPrice,
+    financialSummary,
     timeZone: context.timeZone,
   };
   if (options.signal) {

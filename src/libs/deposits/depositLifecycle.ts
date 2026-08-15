@@ -25,16 +25,19 @@ import {
 } from '@/libs/depositCheckout';
 import { resolveRuntimeEnvironment } from '@/libs/environmentIsolation';
 import {
+  enqueueClientStatsRefreshInTx,
   enqueueDepositRefundAlertInTx,
   enqueueDepositRefundNotices,
   enqueueGoogleCalendarDeleteInTx,
 } from '@/libs/integrationOutbox';
+import { updateSalonClientStats } from '@/libs/queries';
 import { getPublicSentryRuntimeConfig } from '@/libs/sentry/runtime';
 import { finalizeRetryable } from '@/libs/stripeConnect/webhookEvents';
 import {
   appointmentAuditLogSchema,
   type AppointmentDeposit,
   appointmentDepositSchema,
+  appointmentPaymentSchema,
   appointmentSchema,
   salonSchema,
   salonStripeAccountSchema,
@@ -514,9 +517,13 @@ async function withAppointmentFirstDepositLock<T>(
     locked: DepositRow,
   ) => Promise<T>,
 ): Promise<T | null> {
-  return depositsTransaction(db, async (tx) => {
+  let clientPhoneForStats: string | null = null;
+  const result = await depositsTransaction(db, async (tx) => {
     const [appointment] = await tx
-      .select({ id: appointmentSchema.id })
+      .select({
+        id: appointmentSchema.id,
+        clientPhone: appointmentSchema.clientPhone,
+      })
       .from(appointmentSchema)
       .where(and(
         eq(appointmentSchema.id, snapshot.appointmentId),
@@ -527,6 +534,7 @@ async function withAppointmentFirstDepositLock<T>(
     if (!appointment) {
       return null;
     }
+    clientPhoneForStats = appointment.clientPhone;
 
     const [locked] = await tx
       .select()
@@ -541,8 +549,101 @@ async function withAppointmentFirstDepositLock<T>(
       return null;
     }
 
-    return operation(tx, locked);
+    const operationResult = await operation(tx, locked);
+    const [currentDepositState] = await tx
+      .select({
+        status: appointmentDepositSchema.status,
+        refundStatus: appointmentDepositSchema.refundStatus,
+        refundStatusChangedAt: appointmentDepositSchema.refundStatusChangedAt,
+        refundTerminalFailureCount: appointmentDepositSchema.refundTerminalFailureCount,
+        updatedAt: appointmentDepositSchema.updatedAt,
+      })
+      .from(appointmentDepositSchema)
+      .where(and(
+        eq(appointmentDepositSchema.id, snapshot.id),
+        eq(appointmentDepositSchema.salonId, snapshot.salonId),
+      ))
+      .limit(1);
+    if (currentDepositState) {
+      await enqueueClientStatsRefreshInTx(tx, {
+        salonId: snapshot.salonId,
+        appointmentId: snapshot.appointmentId,
+        depositId: snapshot.id,
+        stateVersion: [
+          currentDepositState.updatedAt.toISOString(),
+          currentDepositState.status,
+          currentDepositState.refundStatus ?? 'none',
+          currentDepositState.refundStatusChangedAt?.toISOString() ?? 'none',
+          currentDepositState.refundTerminalFailureCount,
+        ].join(':'),
+      });
+    }
+    return operationResult;
   });
+
+  // Refund-state mutations can make a completed invoice stop being paid.
+  // Refresh denormalized visit/spend facts only after the money transaction
+  // commits; the sticky D6.1 attribution guard inside this helper keeps loyalty
+  // unchanged until D6.2. A refresh failure must never roll back a refund.
+  if (clientPhoneForStats) {
+    try {
+      await updateSalonClientStats(snapshot.salonId, clientPhoneForStats);
+    } catch (error) {
+      console.error('Failed to refresh client stats after deposit refund state change:', {
+        salonId: snapshot.salonId,
+        appointmentId: snapshot.appointmentId,
+        error,
+      });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Deposit refunds can invalidate a previously cached `paid` status without
+ * changing the appointment-payment ledger. Keep that cache conservative in
+ * the same appointment-first transaction as every refund-state mutation.
+ *
+ * A refund that is requested, unresolved, or succeeded deliberately removes
+ * deposit credit from this derivation. Only independently recorded,
+ * non-voided appointment tender can keep a completed invoice paid. Canonical
+ * read paths still resolve the full deposit state and remain authoritative.
+ */
+async function synchronizeAppointmentPaymentStatusAfterRefundState(
+  tx: DepositsTransactionHandle,
+  deposit: Pick<DepositRow, 'appointmentId' | 'salonId'>,
+): Promise<void> {
+  const ledgerPaidCents = sql<number>`COALESCE((
+    SELECT SUM(payment.amount_cents)
+    FROM ${appointmentPaymentSchema} payment
+    WHERE payment.appointment_id = ${deposit.appointmentId}
+      AND payment.salon_id = ${deposit.salonId}
+      AND payment.voided_at IS NULL
+  ), 0)`;
+  const completedInvoiceCents = sql<number>`GREATEST(
+    0,
+    COALESCE(${appointmentSchema.finalPriceCents}, ${appointmentSchema.totalPrice}, 0)
+      + COALESCE(${appointmentSchema.taxAmountCents}, 0)
+      + COALESCE(${appointmentSchema.tipCents}, 0)
+  )`;
+
+  await tx
+    .update(appointmentSchema)
+    .set({
+      paymentStatus: sql`CASE
+        WHEN ${appointmentSchema.paymentStatus} = 'comp' THEN 'comp'
+        WHEN ${appointmentSchema.status} <> 'completed' THEN 'pending'
+        WHEN ${ledgerPaidCents} >= ${completedInvoiceCents} THEN 'paid'
+        WHEN ${ledgerPaidCents} > 0 THEN 'partially_paid'
+        ELSE 'pending'
+      END`,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(appointmentSchema.id, deposit.appointmentId),
+      eq(appointmentSchema.salonId, deposit.salonId),
+    ));
 }
 
 /** TX-A0: the core opens a system intent before write-ahead work or Stripe. */
@@ -595,6 +696,7 @@ export async function openSystemRefundIntent(
         origin: 'system',
       }),
     });
+    await synchronizeAppointmentPaymentStatusAfterRefundState(tx, opened);
     return opened;
   });
 }
@@ -727,6 +829,7 @@ export async function recordListedRefundCorpses(
         origin: 'listing',
       }),
     });
+    await synchronizeAppointmentPaymentStatusAfterRefundState(tx, updated);
     return updated;
   });
 }
@@ -797,6 +900,7 @@ export async function retireStoredRefund(
         origin: 'reconciler',
       }),
     });
+    await synchronizeAppointmentPaymentStatusAfterRefundState(tx, updated);
     return updated;
   });
 }
@@ -939,6 +1043,7 @@ export async function requestDepositRefund(args: {
         origin: 'owner',
       }),
     });
+    await synchronizeAppointmentPaymentStatusAfterRefundState(tx, updated);
     return updated;
   });
 
@@ -1086,6 +1191,7 @@ export async function retryFailedDepositRefund(args: {
         origin: 'owner_retry',
       }),
     });
+    await synchronizeAppointmentPaymentStatusAfterRefundState(tx, updated);
     return { deposit: updated, priorRefundId };
   });
 
@@ -1147,7 +1253,7 @@ export async function applyRefundObservation(args: {
   errorCode?: unknown;
   accountRefusal?: 'ACCOUNT_DISCONNECTED' | 'ACCOUNT_REBOUND';
   eventMetadataDepositId?: string | null;
-  noticeVariant?: 'slot_lost' | 'waiver';
+  noticeVariant?: 'slot_lost' | 'waiver' | 'owner';
   /** TX-B only: fence a first object stamp to the core caller's source set. */
   allowedSourceStatuses?: readonly DepositStatus[];
   /** TX-B/TX-E: finalize this exact claimed event in the state-write tx. */
@@ -1254,6 +1360,7 @@ export async function applyRefundObservation(args: {
           terminalFailureCount: updated.refundTerminalFailureCount,
         },
       });
+      await synchronizeAppointmentPaymentStatusAfterRefundState(tx, updated);
       return { deposit: updated, applied: true };
     })) ?? { deposit: null, applied: false };
   }
@@ -1331,6 +1438,7 @@ export async function applyRefundObservation(args: {
               origin: args.origin,
             }),
           });
+          await synchronizeAppointmentPaymentStatusAfterRefundState(tx, updated);
           if (args.eventClaim) {
             await finalizeRefundEventInTx(tx, args.eventClaim, 'refunded');
           }
@@ -1397,6 +1505,7 @@ export async function applyRefundObservation(args: {
     }
 
     if (idMatches && source === target) {
+      await synchronizeAppointmentPaymentStatusAfterRefundState(tx, locked);
       return {
         deposit: locked,
         applied: false,
@@ -1550,6 +1659,7 @@ export async function applyRefundObservation(args: {
         origin: auditOrigin,
       }),
     });
+    await synchronizeAppointmentPaymentStatusAfterRefundState(tx, updated);
     if (args.noticeVariant && bindsObject && target !== 'failed') {
       await enqueueDepositRefundNotices(tx, {
         salonId: updated.salonId,
@@ -1755,7 +1865,7 @@ export async function stampDepositRefund(args: {
       refund: args.refund,
       origin: args.variant === 'owner' ? 'owner' : 'luster_recovered',
       eventMetadataDepositId: args.refund.metadata?.luster_deposit_id ?? null,
-      noticeVariant: args.variant === 'waiver' ? 'waiver' : 'slot_lost',
+      noticeVariant: args.variant,
       allowedSourceStatuses: args.allowedSourceStatuses,
       eventClaim: args.workClaim,
     });

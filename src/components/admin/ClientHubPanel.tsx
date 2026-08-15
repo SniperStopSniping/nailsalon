@@ -99,7 +99,9 @@ function formatDate(value: string | null, timeZone: string): string {
 
 function reasonDescription(item: ClientInsightAttentionItem): string {
   if (item.primaryReason === 'completed_outstanding') {
-    return 'Completed balance to review';
+    return item.financialState === 'under_review'
+      ? 'Completed financials under review'
+      : 'Completed balance to review';
   }
   return CLIENT_INSIGHT_SEGMENT_LABELS[item.primaryReason];
 }

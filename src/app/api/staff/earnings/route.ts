@@ -16,13 +16,15 @@
  * - Never returns commissionRate or other forbidden fields
  */
 
-import { and, eq, gte, lt, sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
-import { revenueCentsSql } from '@/libs/revenueSql';
+import { getCompletedRevenueRows } from '@/libs/financialReportingServer';
 import { requireStaffApiSession } from '@/libs/staffApiGuards';
-import { appointmentSchema, technicianSchema } from '@/models/Schema';
+import { salonSchema, technicianSchema } from '@/models/Schema';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 // Force dynamic rendering for this API route
 export const dynamic = 'force-dynamic';
@@ -33,6 +35,7 @@ export const dynamic = 'force-dynamic';
 
 type EarningsResponse = {
   data: {
+    currency: string;
     range: {
       from: string;
       to: string;
@@ -109,6 +112,14 @@ export async function GET(request: Request): Promise<Response> {
     if (moduleGuard) {
       return moduleGuard;
     }
+    const [salonMoneySettings] = await db
+      .select({ settings: salonSchema.settings })
+      .from(salonSchema)
+      .where(eq(salonSchema.id, salonId))
+      .limit(1);
+    const bookingConfig = resolveBookingConfigFromSettings(
+      salonMoneySettings?.settings as SalonSettings | null | undefined,
+    );
 
     // 3. Parse query params for date range
     const url = new URL(request.url);
@@ -160,74 +171,66 @@ export async function GET(request: Request): Promise<Response> {
       ? Number.parseFloat(technician.commissionRate)
       : 0;
 
-    // 5. Get totals for the period
-    const totalsResult = await db
-      .select({
-        count: sql<number>`count(*)`,
-        grossSales: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
-        tips: sql<number>`coalesce(sum(${appointmentSchema.tipCents}), 0)`,
-      })
-      .from(appointmentSchema)
-      .where(
-        and(
-          eq(appointmentSchema.technicianId, technicianId),
-          eq(appointmentSchema.salonId, salonId),
-          eq(appointmentSchema.status, 'completed'),
-          gte(appointmentSchema.startTime, fromDate),
-          lt(appointmentSchema.startTime, toDate),
-        ),
-      );
-
-    const totalGrossSales = Number(totalsResult[0]?.grossSales ?? 0);
-    const totalTips = Number(totalsResult[0]?.tips ?? 0);
-    const appointmentCount = Number(totalsResult[0]?.count ?? 0);
+    const revenueRows = (await getCompletedRevenueRows({
+      salonId,
+      currency: bookingConfig.currency,
+      start: fromDate,
+      end: toDate,
+    })).filter(row => row.technicianId === technicianId);
+    const totalGrossSales = revenueRows.reduce(
+      (sum, row) => sum + row.serviceValueCents,
+      0,
+    );
+    const totalTips = revenueRows.reduce(
+      (sum, row) => sum + row.tipCents,
+      0,
+    );
+    const appointmentCount = revenueRows.length;
 
     // EDIT 1: If no commission model/rate, earnings = 0 (NOT grossSales)
     const totalEarnings = commissionRate > 0
       ? Math.round(totalGrossSales * commissionRate)
       : 0;
 
-    // 6. Get daily breakdown
-    const dailyResult = await db
-      .select({
-        date: sql<string>`date_trunc('day', ${appointmentSchema.startTime})::date`,
-        count: sql<number>`count(*)`,
-        grossSales: sql<number>`coalesce(sum(${revenueCentsSql()}), 0)`,
-        tips: sql<number>`coalesce(sum(${appointmentSchema.tipCents}), 0)`,
-      })
-      .from(appointmentSchema)
-      .where(
-        and(
-          eq(appointmentSchema.technicianId, technicianId),
-          eq(appointmentSchema.salonId, salonId),
-          eq(appointmentSchema.status, 'completed'),
-          gte(appointmentSchema.startTime, fromDate),
-          lt(appointmentSchema.startTime, toDate),
-        ),
-      )
-      .groupBy(sql`date_trunc('day', ${appointmentSchema.startTime})::date`)
-      .orderBy(sql`date_trunc('day', ${appointmentSchema.startTime})::date`);
-
-    const daily = dailyResult.map((row) => {
-      const dayGrossSales = Number(row.grossSales);
-      // EDIT 1: If no commission model/rate, earnings = 0
-      const dayEarnings = commissionRate > 0
-        ? Math.round(dayGrossSales * commissionRate)
-        : 0;
-
-      return {
-        date: row.date ?? '',
-        grossSales: dayGrossSales,
-        tips: Number(row.tips),
-        earnings: dayEarnings,
-        appointmentCount: Number(row.count),
+    const dailyMap = new Map<
+      string,
+      { grossSales: number; tips: number; appointmentCount: number }
+    >();
+    for (const row of revenueRows) {
+      const date = row.startTime.toISOString().slice(0, 10);
+      const current = dailyMap.get(date) ?? {
+        grossSales: 0,
+        tips: 0,
+        appointmentCount: 0,
       };
-    });
+      current.grossSales += row.serviceValueCents;
+      current.tips += row.tipCents;
+      current.appointmentCount += 1;
+      dailyMap.set(date, current);
+    }
+    const daily = [...dailyMap.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([date, row]) => {
+        const dayGrossSales = row.grossSales;
+        // EDIT 1: If no commission model/rate, earnings = 0
+        const dayEarnings = commissionRate > 0
+          ? Math.round(dayGrossSales * commissionRate)
+          : 0;
+
+        return {
+          date,
+          grossSales: dayGrossSales,
+          tips: row.tips,
+          earnings: dayEarnings,
+          appointmentCount: row.appointmentCount,
+        };
+      });
 
     // 7. Build response (LOCKED SHAPE)
     // NOTE: commissionRate is NEVER returned to staff
     const response: EarningsResponse = {
       data: {
+        currency: bookingConfig.currency,
         range: {
           from: formatDateISO(fromDate),
           to: formatDateISO(toDate),

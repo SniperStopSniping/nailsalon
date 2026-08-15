@@ -1,11 +1,11 @@
-import { and, desc, eq, gte, inArray, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
-import { revenueCentsSql } from '@/libs/revenueSql';
 import { SMART_FIT_DISCOUNT_TYPE } from '@/libs/smartFit';
 import { resolveSmartFitConfig } from '@/libs/smartFitConfig';
 import type { SmartFitReportResponse } from '@/libs/smartFitReporting';
@@ -114,19 +114,17 @@ export async function GET(request: Request): Promise<Response> {
     const smartFitInRange = and(
       eq(appointmentSchema.salonId, salon.id),
       eq(appointmentSchema.discountType, SMART_FIT_DISCOUNT_TYPE),
+      isNull(appointmentSchema.deletedAt),
       gte(appointmentSchema.startTime, rangeStart),
       lt(appointmentSchema.startTime, rangeEnd),
     );
     const includedStatuses = [...SMART_FIT_REPORTED_STATUSES];
     const includedFilter = inArray(appointmentSchema.status, includedStatuses);
-    const revenue = revenueCentsSql();
 
-    const [metricsResult, technicianRows, appointmentRows, serviceRows] = await Promise.all([
+    const [metricsResult, appointmentRows, serviceRows] = await Promise.all([
       db
         .select({
           appointments: sql<number>`count(*) FILTER (WHERE ${includedFilter})::int`,
-          discountGivenCents: sql<number>`COALESCE(sum(${appointmentSchema.discountAmountCents}) FILTER (WHERE ${includedFilter}), 0)::int`,
-          bookedRevenueCents: sql<number>`COALESCE(sum(${revenue}) FILTER (WHERE ${includedFilter}), 0)::int`,
           completedCount: sql<number>`count(*) FILTER (WHERE ${eq(appointmentSchema.status, 'completed')})::int`,
           upcomingCount: sql<number>`count(*) FILTER (WHERE ${inArray(appointmentSchema.status, ['pending', 'confirmed', 'in_progress'])})::int`,
           cancelledCount: sql<number>`count(*) FILTER (WHERE ${eq(appointmentSchema.status, 'cancelled')})::int`,
@@ -136,30 +134,29 @@ export async function GET(request: Request): Promise<Response> {
         .where(smartFitInRange),
       db
         .select({
-          technicianId: appointmentSchema.technicianId,
-          technicianName: technicianSchema.name,
-          appointments: sql<number>`count(*)::int`,
-          revenueCents: sql<number>`COALESCE(sum(${revenue}), 0)::int`,
-          discountCents: sql<number>`COALESCE(sum(${appointmentSchema.discountAmountCents}), 0)::int`,
-        })
-        .from(appointmentSchema)
-        .leftJoin(technicianSchema, eq(appointmentSchema.technicianId, technicianSchema.id))
-        .where(and(smartFitInRange, includedFilter))
-        .groupBy(appointmentSchema.technicianId, technicianSchema.name)
-        .orderBy(sql`count(*) DESC`, sql`${technicianSchema.name} ASC NULLS LAST`, sql`${appointmentSchema.technicianId} ASC NULLS LAST`),
-      db
-        .select({
           id: appointmentSchema.id,
           startTime: appointmentSchema.startTime,
           status: appointmentSchema.status,
+          completedAt: appointmentSchema.completedAt,
           clientName: appointmentSchema.clientName,
           technicianId: appointmentSchema.technicianId,
+          technicianName: technicianSchema.name,
           subtotalBeforeDiscountCents: appointmentSchema.subtotalBeforeDiscountCents,
           discountAmountCents: appointmentSchema.discountAmountCents,
           totalPrice: appointmentSchema.totalPrice,
-          revenueCents: sql<number>`${revenue}::int`,
+          finalPriceCents: appointmentSchema.finalPriceCents,
+          taxableSubtotalCents: appointmentSchema.taxableSubtotalCents,
+          taxAmountCents: appointmentSchema.taxAmountCents,
+          taxExempt: appointmentSchema.taxExempt,
+          taxExemptReason: appointmentSchema.taxExemptReason,
+          paymentStatus: appointmentSchema.paymentStatus,
+          invoiceCurrency: appointmentSchema.invoiceCurrency,
+          bookingTaxSnapshot: appointmentSchema.bookingTaxSnapshot,
+          rescheduleTaxSnapshot: appointmentSchema.rescheduleTaxSnapshot,
+          finalTaxSnapshot: appointmentSchema.finalTaxSnapshot,
         })
         .from(appointmentSchema)
+        .leftJoin(technicianSchema, eq(appointmentSchema.technicianId, technicianSchema.id))
         .where(and(smartFitInRange, includedFilter))
         .orderBy(desc(appointmentSchema.startTime), desc(appointmentSchema.id)),
       db
@@ -178,15 +175,74 @@ export async function GET(request: Request): Promise<Response> {
 
     const metrics = metricsResult[0] ?? {
       appointments: 0,
-      discountGivenCents: 0,
-      bookedRevenueCents: 0,
       completedCount: 0,
       upcomingCount: 0,
       cancelledCount: 0,
       noShowCount: 0,
     };
-    const averageDiscountCents = metrics.appointments > 0
-      ? Math.round(metrics.discountGivenCents / metrics.appointments)
+    const reportingCurrency = bookingConfig.currency.toUpperCase();
+    const resolvedAppointmentRows = appointmentRows.map((row) => {
+      const frozenCurrency = row.invoiceCurrency?.trim().toUpperCase() ?? null;
+      const currencyState = frozenCurrency === null
+        ? 'unknown'
+        : frozenCurrency === reportingCurrency
+          ? 'matching'
+          : 'foreign';
+      const taxSnapshotChain = validateAppointmentTaxSnapshotChain({
+        status: row.status,
+        completedAt: row.completedAt,
+        totalPrice: row.totalPrice,
+        finalPriceCents: row.finalPriceCents,
+        taxableSubtotalCents: row.taxableSubtotalCents,
+        taxAmountCents: row.taxAmountCents,
+        taxExempt: row.taxExempt,
+        taxExemptReason: row.taxExemptReason,
+        invoiceCurrency: row.invoiceCurrency,
+        bookingTaxSnapshot: row.bookingTaxSnapshot,
+        rescheduleTaxSnapshot: row.rescheduleTaxSnapshot,
+        finalTaxSnapshot: row.finalTaxSnapshot,
+      });
+      const historicalRevenueCents = row.status === 'completed'
+        ? (row.finalPriceCents ?? row.totalPrice)
+        : row.totalPrice;
+      const revenueCents = taxSnapshotChain.ok
+        ? (taxSnapshotChain.active.snapshot?.serviceSubtotalCents
+          ?? historicalRevenueCents)
+        : null;
+      const discountCents = row.discountAmountCents ?? 0;
+      const subtotalCents = row.subtotalBeforeDiscountCents
+        ?? (row.totalPrice + discountCents);
+      const moneyResolved = currencyState === 'matching'
+        && taxSnapshotChain.ok
+        && Number.isSafeInteger(revenueCents)
+        && (revenueCents ?? -1) >= 0
+        && Number.isSafeInteger(discountCents)
+        && discountCents >= 0
+        && Number.isSafeInteger(subtotalCents)
+        && subtotalCents >= 0;
+
+      return {
+        ...row,
+        currencyState,
+        moneyResolved,
+        revenueCents: moneyResolved
+          ? (row.paymentStatus === 'comp' ? 0 : revenueCents as number)
+          : null,
+        discountCents: moneyResolved ? discountCents : null,
+        subtotalCents: moneyResolved ? subtotalCents : null,
+      };
+    });
+    const resolvedFinancialRows = resolvedAppointmentRows.filter(row => row.moneyResolved);
+    const discountGivenCents = resolvedFinancialRows.reduce(
+      (sum, row) => sum + (row.discountCents ?? 0),
+      0,
+    );
+    const bookedRevenueCents = resolvedFinancialRows.reduce(
+      (sum, row) => sum + (row.revenueCents ?? 0),
+      0,
+    );
+    const averageDiscountCents = resolvedFinancialRows.length > 0
+      ? Math.round(discountGivenCents / resolvedFinancialRows.length)
       : 0;
 
     // ==========================================================================
@@ -198,7 +254,7 @@ export async function GET(request: Request): Promise<Response> {
     for (const bucket of range.buckets) {
       seriesByBucket.set(bucket.key, { appointments: 0, discountCents: 0, revenueCents: 0 });
     }
-    for (const row of appointmentRows) {
+    for (const row of resolvedAppointmentRows) {
       const dateKey = getDateKeyInTimeZone(row.startTime, timezone);
       const bucketKey = bucketKeyForDateKey(range, dateKey);
       const bucket = bucketKey ? seriesByBucket.get(bucketKey) : undefined;
@@ -206,8 +262,8 @@ export async function GET(request: Request): Promise<Response> {
         continue;
       }
       bucket.appointments += 1;
-      bucket.discountCents += row.discountAmountCents ?? 0;
-      bucket.revenueCents += row.revenueCents;
+      bucket.discountCents += row.discountCents ?? 0;
+      bucket.revenueCents += row.revenueCents ?? 0;
     }
     const series = range.buckets.map(bucket => ({
       key: bucket.key,
@@ -236,7 +292,7 @@ export async function GET(request: Request): Promise<Response> {
     }
 
     const serviceAggregates = new Map<string, { name: string; appointments: number; revenueCents: number; discountCents: number }>();
-    for (const row of appointmentRows) {
+    for (const row of resolvedAppointmentRows) {
       const primary = primaryServiceByAppointment.get(row.id);
       if (!primary) {
         continue;
@@ -244,8 +300,8 @@ export async function GET(request: Request): Promise<Response> {
       const existing = serviceAggregates.get(primary.serviceId)
         ?? { name: primary.name, appointments: 0, revenueCents: 0, discountCents: 0 };
       existing.appointments += 1;
-      existing.revenueCents += row.revenueCents;
-      existing.discountCents += row.discountAmountCents ?? 0;
+      existing.revenueCents += row.revenueCents ?? 0;
+      existing.discountCents += row.discountCents ?? 0;
       serviceAggregates.set(primary.serviceId, existing);
     }
     const services = Array.from(serviceAggregates.entries())
@@ -260,37 +316,44 @@ export async function GET(request: Request): Promise<Response> {
     // Technician breakdown + recent list
     // ==========================================================================
 
-    const technicianNameById = new Map<string, string>();
-    const technicians = technicianRows.map((row) => {
+    const technicianAggregates = new Map<string, {
+      name: string;
+      appointments: number;
+      revenueCents: number;
+      discountCents: number;
+    }>();
+    for (const row of resolvedAppointmentRows) {
       const name = row.technicianId
         ? (row.technicianName ?? FALLBACK_TECHNICIAN_NAME)
         : UNASSIGNED_TECHNICIAN_NAME;
-      if (row.technicianId) {
-        technicianNameById.set(row.technicianId, name);
-      }
-      return {
+      const key = row.technicianId ?? '__unassigned__';
+      const aggregate = technicianAggregates.get(key) ?? {
         name,
-        appointments: row.appointments,
-        revenueCents: row.revenueCents,
-        discountCents: row.discountCents,
+        appointments: 0,
+        revenueCents: 0,
+        discountCents: 0,
       };
-    });
+      aggregate.appointments += 1;
+      aggregate.revenueCents += row.revenueCents ?? 0;
+      aggregate.discountCents += row.discountCents ?? 0;
+      technicianAggregates.set(key, aggregate);
+    }
+    const technicians = [...technicianAggregates.values()].sort((a, b) =>
+      b.appointments - a.appointments || a.name.localeCompare(b.name));
 
-    const recent = appointmentRows.slice(0, RECENT_LIMIT).map((row) => {
-      const discountCents = row.discountAmountCents ?? 0;
-      return {
-        startTime: row.startTime.toISOString(),
-        clientName: row.clientName,
-        serviceName: primaryServiceByAppointment.get(row.id)?.name ?? FALLBACK_SERVICE_NAME,
-        technicianName: row.technicianId
-          ? (technicianNameById.get(row.technicianId) ?? FALLBACK_TECHNICIAN_NAME)
-          : UNASSIGNED_TECHNICIAN_NAME,
-        subtotalCents: row.subtotalBeforeDiscountCents ?? (row.totalPrice + discountCents),
-        discountCents,
-        finalCents: row.revenueCents,
-        status: row.status,
-      };
-    });
+    const recent = resolvedAppointmentRows.slice(0, RECENT_LIMIT).map(row => ({
+      startTime: row.startTime.toISOString(),
+      clientName: row.clientName,
+      serviceName: primaryServiceByAppointment.get(row.id)?.name ?? FALLBACK_SERVICE_NAME,
+      technicianName: row.technicianId
+        ? (row.technicianName ?? FALLBACK_TECHNICIAN_NAME)
+        : UNASSIGNED_TECHNICIAN_NAME,
+      subtotalCents: row.subtotalCents,
+      discountCents: row.discountCents,
+      finalCents: row.revenueCents,
+      financialState: row.moneyResolved ? 'resolved' as const : 'unavailable' as const,
+      status: row.status,
+    }));
 
     const config = resolveSmartFitConfig(settings);
 
@@ -299,13 +362,18 @@ export async function GET(request: Request): Promise<Response> {
         config: { enabled: config.enabled },
         metrics: {
           appointments: metrics.appointments,
-          discountGivenCents: metrics.discountGivenCents,
-          bookedRevenueCents: metrics.bookedRevenueCents,
+          discountGivenCents,
+          bookedRevenueCents,
           averageDiscountCents,
           completedCount: metrics.completedCount,
           upcomingCount: metrics.upcomingCount,
           cancelledCount: metrics.cancelledCount,
           noShowCount: metrics.noShowCount,
+          resolvedFinancialCount: resolvedFinancialRows.length,
+          unknownCurrencyCount: resolvedAppointmentRows.filter(row => row.currencyState === 'unknown').length,
+          excludedForeignCurrencyCount: resolvedAppointmentRows.filter(row => row.currencyState === 'foreign').length,
+          invalidFinancialCount: resolvedAppointmentRows.filter(row =>
+            row.currencyState === 'matching' && !row.moneyResolved).length,
         },
         series,
         services,

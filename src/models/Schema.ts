@@ -584,6 +584,21 @@ export const appointmentSchema = pgTable(
 
     // Payment
     paymentStatus: text('payment_status').default('pending'), // 'pending' | 'paid'
+    // Frozen ISO identity for D6.1 invoice/deposit comparisons. Migration 0068
+    // safely backfills CAD when a tenant-bound CAD deposit proves that identity;
+    // other historical NULLs must never use mutable current salon settings.
+    invoiceCurrency: text('invoice_currency'),
+
+    // Booking-time disclosure estimate. Additive and nullable: existing rows
+    // stay explicitly historical rather than receiving guessed tax facts.
+    bookingTaxSnapshot: jsonb('booking_tax_snapshot')
+      .$type<import('@/libs/taxConfig').BookingTaxSnapshot>(),
+
+    // Latest estimate created by an in-place reschedule or price mutation.
+    // bookingTaxSnapshot is the immutable original disclosure; consumers use
+    // this nullable successor only while no final actual invoice exists.
+    rescheduleTaxSnapshot: jsonb('reschedule_tax_snapshot')
+      .$type<import('@/libs/taxConfig').BookingTaxSnapshot>(),
 
     // Completion record (filled by the tech's Complete Appointment form)
     // Nullable until the appointment is completed; source of truth for revenue/tips.
@@ -612,6 +627,11 @@ export const appointmentSchema = pgTable(
     taxableSubtotalCents: integer('taxable_subtotal_cents'),
     taxExempt: boolean('tax_exempt'),
     taxExemptReason: text('tax_exempt_reason'),
+    // Authoritative D6.1 invoice-issue snapshot. The older scalar columns above
+    // remain mapped for compatibility; this JSON preserves configuration
+    // identity and actual-vs-estimate classification as one typed value.
+    finalTaxSnapshot: jsonb('final_tax_snapshot')
+      .$type<import('@/libs/taxConfig').FinalTaxSnapshot>(),
 
     // Post-appointment review follow-up (what the tech chose to send)
     reviewFollowupAction: text('review_followup_action'), // 'satisfaction_question' | 'google_review_link' | 'skipped' | 'already_reviewed'
@@ -633,6 +653,10 @@ export const appointmentSchema = pgTable(
     techStartTimeIdx: index('appointment_tech_start_time_idx').on(table.technicianId, table.startTime),
     salonTechStartTimeIdx: index('appointment_salon_tech_start_time_idx').on(table.salonId, table.technicianId, table.startTime),
     deletedAtIdx: index('appointment_deleted_at_idx').on(table.deletedAt),
+    invoiceCurrencyValid: check(
+      'appointment_invoice_currency_valid',
+      sql`${table.invoiceCurrency} is null or ${table.invoiceCurrency} in ('CAD', 'USD')`,
+    ),
     // Fraud detection: basic composite for salonClientId lookups
     salonClientIdx: index('appointment_salon_client_idx').on(table.salonId, table.salonClientId),
     // Supports tenant-safe child references that bind an appointment to its
@@ -908,6 +932,9 @@ export const appointmentPaymentSchema = pgTable(
     method: text('method'), // PaymentMethod
     reference: text('reference'), // e.g. e-Transfer confirmation number
     note: text('note'),
+    // Client/request-supplied durable retry identity. Historical rows are NULL;
+    // the partial unique index applies only when a caller supplies a key.
+    idempotencyKey: text('idempotency_key'),
     recordedByType: text('recorded_by_type').notNull(), // 'admin' | 'staff' | 'system'
     recordedById: text('recorded_by_id'),
     recordedByName: text('recorded_by_name'),
@@ -917,8 +944,16 @@ export const appointmentPaymentSchema = pgTable(
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
   },
   table => ({
+    appointmentTenantFk: foreignKey({
+      name: 'appointment_payment_appointment_tenant_fk',
+      columns: [table.salonId, table.appointmentId],
+      foreignColumns: [appointmentSchema.salonId, appointmentSchema.id],
+    }).onDelete('cascade'),
     appointmentIdx: index('appt_payment_appointment_idx').on(table.appointmentId),
     salonRecordedIdx: index('appt_payment_salon_recorded_idx').on(table.salonId, table.recordedAt),
+    tenantIdempotencyUniq: uniqueIndex('appointment_payment_tenant_idempotency_uniq')
+      .on(table.salonId, table.appointmentId, table.idempotencyKey)
+      .where(sql`${table.idempotencyKey} is not null`),
   }),
 );
 
@@ -2773,6 +2808,7 @@ export const DEPOSIT_AUDIT_ACTIONS = [
   'deposit_external_refund_observed',
   'deposit_waived',
   'deposit_hold_released',
+  'deposit_forfeited',
 ] as const;
 
 export const APPOINTMENT_AUDIT_ACTIONS = [
@@ -3153,10 +3189,10 @@ export type FraudSignal = typeof fraudSignalSchema.$inferSelect;
 export type NewFraudSignal = typeof fraudSignalSchema.$inferInsert;
 
 // =============================================================================
-// DEPOSITS FOUNDATION (migrations 0065 and 0067)
+// DEPOSITS FOUNDATION (migrations 0065, 0067 and 0068)
 // =============================================================================
 // These three tables are created by `migrations/0065_deposits_foundation.sql`;
-// migration 0067 extends appointment_deposit with the D6 refund/waiver state.
+// migration 0067 adds D6 refund/waiver state and 0068 adds D6.1 invoice facts.
 // This mapping mirrors the landed DDL column-for-column and is proved by the
 // set-equality census in
 // `src/models/depositsSchema.integration.test.ts` (test 1).
@@ -3265,6 +3301,9 @@ export const appointmentDepositSchema = pgTable(
     stripeAccountId: text('stripe_account_id').notNull(),
     stripeCheckoutSessionId: text('stripe_checkout_session_id'),
     stripePaymentIntentId: text('stripe_payment_intent_id'),
+    // Set only by the verified collection transition. NULL on historical rows
+    // and every deposit that has not been authoritatively confirmed collected.
+    collectedAt: timestamp('collected_at', { mode: 'date', withTimezone: true }),
     stripeCheckoutUrl: text('stripe_checkout_url'),
     checkoutSuccessUrl: text('checkout_success_url'),
     checkoutCancelUrl: text('checkout_cancel_url'),
@@ -3314,6 +3353,9 @@ export const appointmentDepositSchema = pgTable(
     waivedAt: timestamp('waived_at', { mode: 'date', withTimezone: true }),
     waivedBy: text('waived_by'),
     waiverReason: text('waiver_reason'),
+    forfeitedAt: timestamp('forfeited_at', { mode: 'date', withTimezone: true }),
+    forfeitureTaxSnapshot: jsonb('forfeiture_tax_snapshot')
+      .$type<import('@/libs/taxConfig').ForfeitureTaxSnapshot>(),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
       .defaultNow()
       .notNull(),

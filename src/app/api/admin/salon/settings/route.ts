@@ -60,6 +60,7 @@ import {
 import { refreshAccountReadiness } from '@/libs/stripeConnect/readiness';
 import {
   mergePaymentsSettings,
+  normalizeTaxSettingsForTimeZone,
   readStoredPaymentsSettings,
   salonPaymentsSettingsWriteSchema,
 } from '@/libs/taxConfig';
@@ -442,6 +443,26 @@ export async function PATCH(request: Request): Promise<Response> {
     }
     const currentSettings = ((salon.settings as SalonSettings | null | undefined) ?? {}) as SalonSettings;
     const currentBookingConfig = resolveBookingConfigFromSettings((salon.settings as SalonSettings | null | undefined) ?? null);
+    if (updates.payments?.tax) {
+      try {
+        updates.payments.tax = normalizeTaxSettingsForTimeZone(
+          updates.payments.tax,
+          updates.bookingConfig?.timezone ?? currentBookingConfig.timezone,
+        );
+      } catch (error) {
+        return Response.json(
+          {
+            error: 'Invalid request data',
+            details: {
+              payments: {
+                tax: error instanceof Error ? error.message : 'Invalid tax schedule',
+              },
+            },
+          },
+          { status: 400 },
+        );
+      }
+    }
     const currentBookingExperience = resolveBookingExperience(
       (salon.settings as SalonSettings | null | undefined) ?? null,
       { includeAcknowledgmentConfiguration: true },

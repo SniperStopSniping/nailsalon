@@ -1,20 +1,29 @@
 import crypto from 'node:crypto';
 
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, sql } from 'drizzle-orm';
 import { z } from 'zod';
 
 import { getSalonPolicy, getSuperAdminPolicy } from '@/core/appointments/policyRepo';
 import { getActiveAppointmentsForCanonicalClientWithHandle } from '@/libs/activeAppointments';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
 import {
+  listPayments,
   resolveCheckoutActor,
-  sumNonVoidedPayments,
 } from '@/libs/appointmentCheckoutServer';
+import {
+  APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED,
+  appointmentFinancialOverpayment,
+  resolveAppointmentDepositFinancials,
+} from '@/libs/appointmentDepositFinancials';
+import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
+import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
   lockTechnicianAndAssertSlotFree,
   SlotConflictError,
 } from '@/libs/bookingConflictGuard';
 import {
+  CheckoutMoneyRangeError,
   computeCheckoutTotals,
   derivePaymentStatus,
   type ResolvedTaxConfig,
@@ -30,16 +39,19 @@ import {
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
+import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { evaluateAndFlagIfNeeded } from '@/libs/fraudDetection';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
 import {
   getAppointmentById,
   getOrCreateSalonClient,
-  getSalonById,
   updateSalonClientStats,
 } from '@/libs/queries';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
-import { resolveTaxConfig } from '@/libs/taxConfig';
+import {
+  buildFinalTaxSnapshot,
+  resolveTaxConfig,
+} from '@/libs/taxConfig';
 import {
   addOnSchema,
   appointmentAuditLogSchema,
@@ -49,6 +61,7 @@ import {
   appointmentSchema,
   PAYMENT_METHODS,
   salonClientSchema,
+  salonSchema,
   serviceSchema,
 } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
@@ -103,7 +116,11 @@ const completeAppointmentSchema = z.object({
   discountReason: z.string().trim().max(200).optional(),
   // Admin-only
   taxExempt: z.boolean().optional(),
-  taxExemptReason: z.string().trim().max(200).optional(),
+  // An empty or whitespace-only reason is "no reason supplied". Normalizing it
+  // to absent here keeps the stored scalar and the frozen snapshot identical:
+  // a stored '' beside a snapshot null would permanently fail chain validation.
+  taxExemptReason: z.string().trim().max(200).optional()
+    .transform(value => value || undefined),
   // Payments recorded at checkout. PRESENCE of this field (even empty) opts
   // into derived payment status; absence keeps the legacy hard-coded 'paid'.
   payments: z.array(paymentEntrySchema).max(10).optional(),
@@ -111,6 +128,9 @@ const completeAppointmentSchema = z.object({
   paymentStatusIntent: z.literal('comp').optional(),
   // Optimistic-concurrency check: server recomputes and 409s on drift.
   expectedTotalDueCents: z.number().int().min(0).max(10_000_000).optional(),
+  // The client-reviewed amount before this request's new payment entries.
+  // Revalidated while holding appointment -> deposit locks.
+  expectedBalanceCents: z.number().int().min(0).max(10_000_000).optional(),
 });
 
 type CompletePayload = z.infer<typeof completeAppointmentSchema>;
@@ -148,15 +168,32 @@ class StartAppointmentActiveConflictError extends Error {
   }
 }
 
+function postgresErrorCode(error: unknown): string | null {
+  let current: unknown = error;
+  for (let depth = 0; depth < 6 && current && typeof current === 'object'; depth += 1) {
+    const candidate = current as { code?: unknown; cause?: unknown };
+    if (typeof candidate.code === 'string') {
+      return candidate.code;
+    }
+    current = candidate.cause;
+  }
+  return null;
+}
+
 type CompletionTotals = {
   finalSubtotalCents: number;
   finalDiscountCents: number;
   taxableSubtotalCents: number;
   taxAmountCents: number;
+  taxApplied: boolean;
   finalPriceCents: number;
   tipCents: number;
   totalDueCents: number;
   amountPaidCents: number | null;
+  appointmentPaymentsCents: number;
+  depositCreditAppliedCents: number;
+  amountAlreadyPaidCents: number;
+  excessDepositCents: number;
   balanceCents: number;
 };
 
@@ -172,11 +209,177 @@ type SuccessResponse = {
       paymentMethod?: string | null;
     };
     totals?: CompletionTotals;
+    depositCredit?: {
+      state: 'resolved' | 'blocked';
+      blockedCode: string | null;
+      blockedDetail: string | null;
+      collectedCents: number;
+      refundedCents: number;
+      forfeitedCents: number;
+      eligibleCents: number;
+    };
     // Whether the post-appointment review prompt should be shown to the tech.
     // False once the client is marked as already reviewed on Google.
     showReviewPrompt?: boolean;
   };
 };
+
+/**
+ * Reconstruct the canonical response for every completed replay, including a
+ * request that lost the completion CAS after another identical request won.
+ * Keeping both paths here prevents concurrency-only response truncation while
+ * ensuring no completion side effects run twice.
+ */
+async function completedReplayResponse(
+  appointmentId: string,
+  completedAppointment: typeof appointmentSchema.$inferSelect,
+): Promise<Response> {
+  const replayTaxChain = validateAppointmentTaxSnapshotChain(completedAppointment);
+  if (!replayTaxChain.ok) {
+    return Response.json(
+      {
+        error: {
+          code: 'TAX_SNAPSHOT_INVALID',
+          message: replayTaxChain.detail,
+          details: { reason: replayTaxChain.code },
+        },
+      } satisfies ErrorResponse,
+      { status: 409 },
+    );
+  }
+  const [depositRows, replayPayments] = await Promise.all([
+    loadAppointmentDepositCreditRows({
+      salonId: completedAppointment.salonId,
+      appointmentId,
+    }),
+    listPayments(db, appointmentId),
+  ]);
+  const replayPaymentLedger = resolveAppointmentPaymentLedger({
+    cachedAmountPaidCents: completedAppointment.amountPaidCents,
+    paymentRows: replayPayments,
+    expectedSalonId: completedAppointment.salonId,
+    appointmentStatus: 'completed',
+    paymentStatus: completedAppointment.paymentStatus,
+  });
+  if (!replayPaymentLedger.ok) {
+    return Response.json(
+      {
+        error: {
+          code: replayPaymentLedger.code,
+          message: replayPaymentLedger.detail,
+        },
+      } satisfies ErrorResponse,
+      { status: 409 },
+    );
+  }
+  const replayCurrency = replayTaxChain.invoiceCurrency
+    // No deposit exists to compare in this branch; the sentinel is never
+    // displayed or used to reinterpret historical money.
+    ?? (depositRows.length === 0 ? 'CAD' : null);
+  const replayFinancials = resolveAppointmentDepositFinancials({
+    deposits: depositRows,
+    invoiceCurrency: replayCurrency,
+    finalPriceCents: completedAppointment.finalPriceCents
+      ?? completedAppointment.totalPrice,
+    taxAmountCents: completedAppointment.taxAmountCents,
+    tipCents: completedAppointment.tipCents,
+    appointmentPaymentsCents: replayPaymentLedger.appointmentPaymentsCents,
+    appointmentStatus: 'completed',
+    paymentStatus: completedAppointment.paymentStatus,
+  });
+  if (!replayFinancials.depositResolution.ok) {
+    return Response.json(
+      {
+        error: {
+          code: replayFinancials.depositResolution.code,
+          message: replayFinancials.depositResolution.detail,
+        },
+      } satisfies ErrorResponse,
+      { status: 409 },
+    );
+  }
+  if (!replayFinancials.financials.ok) {
+    return Response.json(
+      {
+        error: {
+          code: replayFinancials.financials.code,
+          message: 'The completed invoice money requires reconciliation.',
+        },
+      } satisfies ErrorResponse,
+      { status: 409 },
+    );
+  }
+  if (replayFinancials.financials.excessDepositCents > 0) {
+    return Response.json(
+      {
+        error: {
+          code: 'DEPOSIT_EXCESS_REQUIRES_REFUND',
+          message: 'Refund the excess deposit before relying on this completed invoice.',
+        },
+      } satisfies ErrorResponse,
+      { status: 409 },
+    );
+  }
+  const replayOverpayment = appointmentFinancialOverpayment(replayFinancials);
+  if (replayOverpayment) {
+    return Response.json(
+      {
+        error: {
+          code: APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED,
+          message: 'Collected money exceeds this completed invoice and requires reconciliation.',
+        },
+      } satisfies ErrorResponse,
+      { status: 409 },
+    );
+  }
+  const replayPaymentStatus
+    = completedAppointment.paymentStatus === 'comp'
+      ? 'comp'
+      : replayFinancials.depositResolution.ok && replayFinancials.financials.ok
+        ? derivePaymentStatus(
+          replayFinancials.financials.totalDueCents,
+          replayFinancials.financials.amountAlreadyPaidCents,
+        )
+        : completedAppointment.paymentStatus ?? 'pending';
+  return Response.json({
+    data: {
+      appointment: {
+        id: appointmentId,
+        status: 'completed',
+        paymentStatus: replayPaymentStatus,
+        completedAt: completedAppointment.completedAt ?? new Date(),
+      },
+      depositCredit: replayFinancials.depositCredit,
+      ...(replayFinancials.financials.ok
+        ? {
+            totals: {
+              finalSubtotalCents: completedAppointment.finalSubtotalCents
+                ?? completedAppointment.totalPrice,
+              finalDiscountCents: completedAppointment.finalDiscountCents ?? 0,
+              taxableSubtotalCents: completedAppointment.taxableSubtotalCents ?? 0,
+              taxAmountCents: completedAppointment.taxAmountCents ?? 0,
+              taxApplied: completedAppointment.finalTaxSnapshot
+                ? completedAppointment.finalTaxSnapshot.configuration.enabled
+                && completedAppointment.finalTaxSnapshot.configuration.rateBps > 0
+                && !completedAppointment.finalTaxSnapshot.taxExempt
+                : (completedAppointment.taxAmountCents ?? 0) > 0,
+              finalPriceCents: completedAppointment.finalPriceCents
+                ?? completedAppointment.totalPrice,
+              tipCents: completedAppointment.tipCents ?? 0,
+              totalDueCents: replayFinancials.financials.totalDueCents,
+              amountPaidCents: completedAppointment.amountPaidCents,
+              appointmentPaymentsCents: replayFinancials.financials.tenderedCents,
+              depositCreditAppliedCents:
+                replayFinancials.financials.depositCreditAppliedCents,
+              amountAlreadyPaidCents: replayFinancials.financials.amountAlreadyPaidCents,
+              excessDepositCents: replayFinancials.financials.excessDepositCents,
+              balanceCents: replayFinancials.financials.remainingBalanceCents,
+            },
+          }
+        : {}),
+    },
+  } satisfies SuccessResponse);
+}
 
 // =============================================================================
 // CHECKOUT COMPUTATION
@@ -213,6 +416,7 @@ function defaultTaxableFor(kind: ResolvedFinalItem['kind'], taxConfig: ResolvedT
  * - neither — legacy completion; no final items are recorded.
  */
 async function resolveFinalItems(
+  database: Pick<typeof db, 'select'>,
   appointment: typeof appointmentSchema.$inferSelect,
   payload: CompletePayload,
   taxConfig: ResolvedTaxConfig,
@@ -239,7 +443,7 @@ async function resolveFinalItems(
   const items: ResolvedFinalItem[] = [];
 
   if (performedServiceIds?.length) {
-    const services = await db
+    const services = await database
       .select()
       .from(serviceSchema)
       .where(and(
@@ -262,7 +466,7 @@ async function resolveFinalItems(
   }
 
   if (performedAddOnIds?.length) {
-    const addOns = await db
+    const addOns = await database
       .select()
       .from(addOnSchema)
       .where(and(
@@ -359,16 +563,7 @@ export async function PATCH(
     // state without re-validating money (its payment entries were already
     // recorded the first time and would otherwise read as over-payment).
     if (existingAppointment.status === 'completed' || existingAppointment.completedAt) {
-      return Response.json({
-        data: {
-          appointment: {
-            id: appointmentId,
-            status: 'completed',
-            paymentStatus: existingAppointment.paymentStatus ?? 'paid',
-            completedAt: existingAppointment.completedAt ?? new Date(),
-          },
-        },
-      } satisfies SuccessResponse);
+      return completedReplayResponse(appointmentId, existingAppointment);
     }
 
     if (payload.paymentStatusIntent === 'comp' && payload.payments?.length) {
@@ -454,111 +649,454 @@ export async function PATCH(
       }
     }
 
-    // 5. Resolve tax config (frozen into the snapshot) and the final items.
-    const salon = await getSalonById(existingAppointment.salonId);
-    const now = new Date();
-    const taxConfig = resolveTaxConfig(
-      (salon?.settings as SalonSettings | null | undefined) ?? null,
-      now,
-    );
+    // 5. Final tax/pricing inputs are resolved only after the appointment and
+    // deposit locks below. This prevents an invoice from freezing settings
+    // that changed while completion waited to serialize.
     const taxExempt = payload.taxExempt ?? false;
-
-    const finalItems = await resolveFinalItems(existingAppointment, payload, taxConfig);
     // Two independent capabilities: recording WHAT was performed (any item
     // shape, incl. legacy performed-ids) vs pricing FROM the items (only the
     // explicit `finalItems` checkout payload). The legacy staff sheet sends
     // performed ids + a hand-entered finalPriceCents — its money truth stays
     // the entered price, exactly as before this phase.
     const pricedFromItems = payload.finalItems !== undefined;
-
-    // 6. Compute totals. Item-priced mode sums the lines; legacy mode treats
-    // the (possibly overridden) final price as one default-taxable line so a
-    // tax-enabled salon still gets a consistent snapshot.
     const tipCents = payload.tipCents ?? 0;
-    const legacyFinalPrice = payload.finalPriceCents ?? existingAppointment.totalPrice;
-    const totals = computeCheckoutTotals({
-      items: pricedFromItems
-        ? finalItems!.map(item => ({ lineTotalCents: item.lineTotalCents, taxable: item.taxable }))
-        : [{
-            lineTotalCents: legacyFinalPrice,
-            taxable: defaultTaxableFor('service', taxConfig),
-          }],
-      discountCents: pricedFromItems ? payload.discountCents ?? 0 : 0,
-      taxConfig,
-      taxExempt,
-      tipCents,
-    });
 
-    if (
-      payload.expectedTotalDueCents !== undefined
-      && payload.expectedTotalDueCents !== totals.totalDueCents
-    ) {
-      return Response.json(
-        {
-          error: {
-            code: 'TOTALS_MISMATCH',
-            message: 'The salon tax or pricing settings changed while checking out. Review the updated totals and try again.',
-            details: { totals },
-          },
-        } satisfies ErrorResponse,
-        { status: 409 },
-      );
-    }
-
-    // 7. Payments recorded at checkout: presence of `payments` (even empty)
+    // 6. Payments recorded at checkout: presence of `payments` (even empty)
     // opts into derived payment status; absence keeps legacy 'paid'.
-    // Payments surviving a reopen also count toward the paid total, so the
-    // combined sum (existing non-voided rows + new entries) is the basis.
+    // Payments surviving a reopen also count toward the paid total. The
+    // definitive sum and deposit state are resolved again inside the locked
+    // transaction below, so a concurrent refund cannot race completion.
     const paymentsProvided = payload.payments !== undefined || payload.paymentStatusIntent !== undefined;
     const paymentEntries = payload.payments ?? [];
     const paidSum = paymentEntries.reduce((sum, entry) => sum + entry.amountCents, 0);
-    const existingPaidCents = paymentsProvided
-      ? await sumNonVoidedPayments(db, appointmentId)
-      : 0;
-    const combinedPaidCents = existingPaidCents + paidSum;
-
-    if (paymentsProvided && combinedPaidCents > totals.totalDueCents) {
-      return Response.json(
-        {
-          error: {
-            code: 'PAYMENTS_EXCEED_TOTAL',
-            message: 'Recorded payments exceed the amount due',
-            details: { totals },
-          },
-        } satisfies ErrorResponse,
-        { status: 422 },
-      );
-    }
-    if (payload.paymentStatusIntent === 'comp' && existingPaidCents > 0) {
-      return Response.json(
-        {
-          error: {
-            code: 'COMP_WITH_PAYMENTS',
-            message: 'Void the recorded payments before marking this appointment complimentary',
-          },
-        } satisfies ErrorResponse,
-        { status: 422 },
-      );
-    }
-
-    const paymentStatus = payload.paymentStatusIntent === 'comp'
-      ? 'comp'
-      : paymentsProvided
-        ? derivePaymentStatus(totals.totalDueCents, combinedPaidCents)
-        : 'paid'; // Legacy contract: completion implies paid.
-    const amountPaidCents = paymentsProvided
-      ? (payload.paymentStatusIntent === 'comp' ? 0 : combinedPaidCents)
-      : null; // Not recorded (legacy) — reads as "unknown", not zero owed.
     const paymentMethod = payload.paymentMethod
       ?? paymentEntries.find(entry => entry.method)?.method;
 
     const actor = resolveCheckoutActor(access);
 
-    // 8. ATOMIC COMPLETION. Every checkout write is gated on the CAS update:
+    // 7. ATOMIC COMPLETION. Every checkout write is gated on the CAS update:
     // an idempotent replay (0 rows) inserts nothing.
     const validStates = ['confirmed', 'in_progress'] as const;
 
     const result = await db.transaction(async (tx) => {
+      const [lockedAppointment] = await tx
+        .select()
+        .from(appointmentSchema)
+        .where(and(
+          eq(appointmentSchema.id, appointmentId),
+          eq(appointmentSchema.salonId, existingAppointment.salonId),
+          ...(access.actorRole === 'staff'
+            ? [eq(appointmentSchema.technicianId, access.session.technicianId)]
+            : []),
+        ))
+        .for('update')
+        .limit(1);
+      if (
+        !lockedAppointment
+        || !validStates.includes(lockedAppointment.status as typeof validStates[number])
+        || lockedAppointment.completedAt !== null
+      ) {
+        return { success: false as const, updatedAppointment: null };
+      }
+
+      // D6 lock order is appointment first, then every terminal-history
+      // deposit row. Keeping the credit decision inside this transaction
+      // prevents a refund request/observation from racing the invoice write.
+      const depositRows = await loadAppointmentDepositCreditRows({
+        salonId: lockedAppointment.salonId,
+        appointmentId,
+        database: tx,
+        forUpdate: true,
+        appointmentLockHeld: true,
+      });
+
+      // Settings writers and booking hold the salon row before touching an
+      // appointment. Completion must retain D6's appointment -> deposit lock
+      // order, so it takes the salon lock with NOWAIT: either this transaction
+      // gets one coherent issue-time configuration or the caller retries. It
+      // can never wait in the inverse order and deadlock a booking/settings
+      // transaction.
+      await tx.execute(sql.raw('SAVEPOINT completion_salon_config_lock'));
+      try {
+        await tx.execute(sql`
+          SELECT ${salonSchema.id}
+          FROM ${salonSchema}
+          WHERE ${salonSchema.id} = ${lockedAppointment.salonId}
+          FOR SHARE NOWAIT
+        `);
+        await tx.execute(sql.raw('RELEASE SAVEPOINT completion_salon_config_lock'));
+      } catch (error) {
+        if (postgresErrorCode(error) === '55P03') {
+          // PostgreSQL marks the transaction failed after NOWAIT. Recover the
+          // savepoint before returning the typed retry response so the outer
+          // transaction can finish cleanly instead of turning it into a 500.
+          await tx.execute(sql.raw('ROLLBACK TO SAVEPOINT completion_salon_config_lock'));
+          await tx.execute(sql.raw('RELEASE SAVEPOINT completion_salon_config_lock'));
+          return {
+            success: false as const,
+            updatedAppointment: null,
+            response: Response.json(
+              {
+                error: {
+                  code: 'TAX_CONFIGURATION_BUSY',
+                  message: 'The salon financial settings are being updated. Review the totals and try again.',
+                },
+              } satisfies ErrorResponse,
+              { status: 409 },
+            ),
+          };
+        }
+        throw error;
+      }
+      const [lockedSalon] = await tx
+        .select({ settings: salonSchema.settings })
+        .from(salonSchema)
+        .where(eq(salonSchema.id, lockedAppointment.salonId))
+        .limit(1);
+      if (!lockedSalon) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            {
+              error: {
+                code: 'SALON_NOT_FOUND',
+                message: 'The salon financial settings could not be resolved.',
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          ),
+        };
+      }
+
+      const now = new Date();
+      const salonSettings
+        = (lockedSalon.settings as SalonSettings | null | undefined) ?? null;
+      const fallbackInvoiceCurrency = resolveBookingConfigFromSettings(salonSettings)
+        .currency
+        .toUpperCase();
+      const taxConfig = resolveTaxConfig(salonSettings, now);
+      const finalItems = await resolveFinalItems(tx, lockedAppointment, payload, taxConfig);
+      const legacyFinalPrice = payload.finalPriceCents ?? lockedAppointment.totalPrice;
+      let totals: ReturnType<typeof computeCheckoutTotals>;
+      try {
+        totals = computeCheckoutTotals({
+          items: pricedFromItems
+            ? finalItems!.map(item => ({
+              lineTotalCents: item.lineTotalCents,
+              taxable: item.taxable,
+            }))
+            : [{
+                lineTotalCents: legacyFinalPrice,
+                taxable: defaultTaxableFor('service', taxConfig),
+              }],
+          discountCents: pricedFromItems ? payload.discountCents ?? 0 : 0,
+          taxConfig,
+          taxExempt,
+          tipCents,
+        });
+      } catch (error) {
+        if (error instanceof CheckoutMoneyRangeError) {
+          return {
+            success: false as const,
+            updatedAppointment: null,
+            response: Response.json(
+              {
+                error: {
+                  code: error.code,
+                  message: error.message,
+                },
+              } satisfies ErrorResponse,
+              { status: 422 },
+            ),
+          };
+        }
+        throw error;
+      }
+      if (
+        payload.expectedTotalDueCents !== undefined
+        && payload.expectedTotalDueCents !== totals.totalDueCents
+      ) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            {
+              error: {
+                code: 'TOTALS_MISMATCH',
+                message: 'The salon tax or pricing settings changed while checking out. Review the updated totals and try again.',
+                details: { totals },
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          ),
+        };
+      }
+
+      // The booking-time currency is immutable invoice identity. Only a truly
+      // historical appointment with no deposit may adopt the issue-time salon
+      // currency; historical deposit rows fail closed rather than being guessed.
+      const existingTaxChain = validateAppointmentTaxSnapshotChain(lockedAppointment);
+      if (!existingTaxChain.ok) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            {
+              error: {
+                code: 'TAX_SNAPSHOT_INVALID',
+                message: existingTaxChain.detail,
+                details: { reason: existingTaxChain.code },
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          ),
+        };
+      }
+      const invoiceCurrency = existingTaxChain.invoiceCurrency
+        ?? (depositRows.length === 0 ? fallbackInvoiceCurrency : null);
+      if (!invoiceCurrency) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            {
+              error: {
+                code: 'DEPOSIT_CURRENCY_MISMATCH',
+                message: 'The historical appointment has no frozen invoice currency.',
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          ),
+        };
+      }
+      const existingPaymentRows = await listPayments(tx, appointmentId);
+      const existingPaymentLedger = resolveAppointmentPaymentLedger({
+        cachedAmountPaidCents: lockedAppointment.amountPaidCents,
+        paymentRows: existingPaymentRows,
+        expectedSalonId: lockedAppointment.salonId,
+        appointmentStatus: lockedAppointment.status,
+        paymentStatus: lockedAppointment.paymentStatus,
+      });
+      if (!existingPaymentLedger.ok) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            {
+              error: {
+                code: existingPaymentLedger.code,
+                message: existingPaymentLedger.detail,
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          ),
+        };
+      }
+      const existingPaidCents = existingPaymentLedger.ledgerPaymentsCents;
+      if (payload.paymentStatusIntent === 'comp' && existingPaidCents > 0) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            {
+              error: {
+                code: 'COMP_WITH_PAYMENTS',
+                message: 'Void the recorded payments before marking this appointment complimentary',
+              },
+            } satisfies ErrorResponse,
+            { status: 422 },
+          ),
+        };
+      }
+
+      const beforeFinancials = resolveAppointmentDepositFinancials({
+        deposits: depositRows,
+        invoiceCurrency,
+        finalPriceCents: totals.finalPriceCents,
+        taxAmountCents: totals.taxAmountCents,
+        tipCents: totals.tipCents,
+        appointmentPaymentsCents: existingPaymentLedger.appointmentPaymentsCents,
+        appointmentStatus: lockedAppointment.status,
+        paymentStatus: payload.paymentStatusIntent === 'comp' ? 'comp' : 'pending',
+      });
+      if (!beforeFinancials.depositResolution.ok) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            {
+              error: {
+                code: beforeFinancials.depositResolution.code,
+                message: beforeFinancials.depositResolution.detail,
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          ),
+        };
+      }
+      if (!beforeFinancials.financials.ok) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            { error: { code: beforeFinancials.financials.code, message: 'The appointment money is invalid.' } } satisfies ErrorResponse,
+            { status: 422 },
+          ),
+        };
+      }
+      if (
+        payload.expectedBalanceCents !== undefined
+        && payload.expectedBalanceCents
+        !== beforeFinancials.financials.remainingBalanceCents
+      ) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            {
+              error: {
+                code: 'BALANCE_MISMATCH',
+                message: 'The deposit, refund, or payment balance changed. Review the updated balance and try again.',
+                details: {
+                  balanceCents: beforeFinancials.financials.remainingBalanceCents,
+                  depositCreditAppliedCents:
+                    beforeFinancials.financials.depositCreditAppliedCents,
+                },
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          ),
+        };
+      }
+
+      const combinedPaidCents = existingPaidCents + paidSum;
+      const legacyImplicitPaid = payload.paymentStatusIntent !== 'comp'
+        && !paymentsProvided
+        && beforeFinancials.depositResolution.state === 'none'
+        && existingPaymentLedger.state === 'untracked_zero';
+      const intendedPaymentStatus = payload.paymentStatusIntent === 'comp'
+        ? 'comp'
+        : paymentsProvided || !legacyImplicitPaid
+          ? 'pending'
+          : 'paid';
+      const completionFinancials = resolveAppointmentDepositFinancials({
+        deposits: depositRows,
+        invoiceCurrency,
+        finalPriceCents: totals.finalPriceCents,
+        taxAmountCents: totals.taxAmountCents,
+        tipCents: totals.tipCents,
+        appointmentPaymentsCents: payload.paymentStatusIntent === 'comp'
+          ? 0
+          : paymentsProvided
+            ? combinedPaidCents
+            : legacyImplicitPaid
+              ? null
+              : existingPaymentLedger.appointmentPaymentsCents,
+        appointmentStatus: 'completed',
+        paymentStatus: intendedPaymentStatus,
+      });
+      if (!completionFinancials.financials.ok) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            { error: { code: completionFinancials.financials.code, message: 'The appointment money is invalid.' } } satisfies ErrorResponse,
+            { status: 422 },
+          ),
+        };
+      }
+      if (completionFinancials.financials.excessDepositCents > 0) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            {
+              error: {
+                code: 'DEPOSIT_EXCESS_REQUIRES_REFUND',
+                message: 'Refund the deposit in full and wait for reconciliation before completing this invoice.',
+                details: {
+                  excessDepositCents:
+                    completionFinancials.financials.excessDepositCents,
+                },
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          ),
+        };
+      }
+      if (completionFinancials.financials.tenderExcessCents > 0) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            {
+              error: {
+                code: 'PAYMENTS_EXCEED_TOTAL',
+                message: 'Recorded payments exceed the amount due',
+                details: {
+                  totals,
+                  depositCreditAppliedCents:
+                    completionFinancials.financials.depositCreditAppliedCents,
+                },
+              },
+            } satisfies ErrorResponse,
+            { status: 422 },
+          ),
+        };
+      }
+
+      const paymentStatus = payload.paymentStatusIntent === 'comp'
+        ? 'comp'
+        : !legacyImplicitPaid
+            ? derivePaymentStatus(
+              completionFinancials.financials.totalDueCents,
+              completionFinancials.financials.amountAlreadyPaidCents,
+            )
+            : 'paid';
+      const amountPaidCents = paymentsProvided
+        ? (payload.paymentStatusIntent === 'comp' ? 0 : combinedPaidCents)
+        : legacyImplicitPaid
+          ? lockedAppointment.amountPaidCents
+          : existingPaymentLedger.appointmentPaymentsCents;
+
+      const expectedPaymentRows = [
+        ...existingPaymentRows,
+        ...paymentEntries.map(entry => ({
+          salonId: lockedAppointment.salonId,
+          amountCents: entry.amountCents,
+          voidedAt: null,
+        })),
+      ];
+      const completedPaymentLedger = resolveAppointmentPaymentLedger({
+        cachedAmountPaidCents: amountPaidCents,
+        paymentRows: expectedPaymentRows,
+        expectedSalonId: lockedAppointment.salonId,
+        appointmentStatus: 'completed',
+        paymentStatus,
+      });
+      if (!completedPaymentLedger.ok) {
+        return {
+          success: false as const,
+          updatedAppointment: null,
+          response: Response.json(
+            {
+              error: {
+                code: completedPaymentLedger.code,
+                message: completedPaymentLedger.detail,
+              },
+            } satisfies ErrorResponse,
+            { status: 409 },
+          ),
+        };
+      }
+
+      // One normalization, two writes: the scalar column and the frozen
+      // snapshot must carry the byte-identical reason (or both null), or the
+      // completed chain permanently fails its scalar-consistency validation.
+      const normalizedTaxExemptReason = taxExempt
+        ? (payload.taxExemptReason?.trim() || null)
+        : null;
       const updateResult = await tx
         .update(appointmentSchema)
         .set({
@@ -571,6 +1109,7 @@ export async function PATCH(
           // Money truth. finalPriceCents is ALWAYS net-of-tax, post-discount.
           finalPriceCents: totals.finalPriceCents,
           tipCents: totals.tipCents,
+          invoiceCurrency,
           ...(paymentMethod !== undefined ? { paymentMethod } : {}),
           ...(payload.techNotes !== undefined ? { techNotes: payload.techNotes } : {}),
           // Checkout record (nullable = not recorded on legacy shapes)
@@ -581,24 +1120,31 @@ export async function PATCH(
                 finalDiscountReason: payload.discountReason ?? null,
               }
             : {}),
-          // Legacy bodies never touch the paid total (preserves it across a
-          // legacy-shaped re-completion after reopen).
-          ...(paymentsProvided ? { amountPaidCents } : {}),
+          // Only explicit pre-ledger legacy-paid inference with canonically
+          // settled no-money deposit history may preserve a NULL cache.
+          // Collected, refunded, forfeited, blocked, or authoritative-ledger
+          // history persists its exact sum (including zero) so every later
+          // consumer can distinguish known-zero tender from unknown history.
+          ...(!legacyImplicitPaid ? { amountPaidCents } : {}),
           ...(payload.actualStartAt ? { actualStartAt: payload.actualStartAt } : {}),
           ...(payload.actualEndAt ? { actualEndAt: payload.actualEndAt } : {}),
           // Tax snapshot — frozen forever; settings changes never recalculate.
           taxEnabledSnapshot: taxConfig.enabled,
-          ...(taxConfig.enabled
-            ? {
-                taxNameSnapshot: taxConfig.name,
-                taxRateBps: taxConfig.rateBps,
-                taxInclusive: taxConfig.pricesIncludeTax,
-                taxAmountCents: totals.taxAmountCents,
-                taxableSubtotalCents: totals.taxableSubtotalCents,
-                taxExempt,
-                taxExemptReason: taxExempt ? payload.taxExemptReason ?? null : null,
-              }
-            : {}),
+          taxNameSnapshot: taxConfig.name,
+          taxRateBps: taxConfig.rateBps,
+          taxInclusive: taxConfig.pricesIncludeTax,
+          taxAmountCents: totals.taxAmountCents,
+          taxableSubtotalCents: totals.taxableSubtotalCents,
+          taxExempt,
+          taxExemptReason: normalizedTaxExemptReason,
+          finalTaxSnapshot: buildFinalTaxSnapshot({
+            taxConfig,
+            totals,
+            capturedAt: now,
+            currency: invoiceCurrency,
+            taxExempt,
+            taxExemptReason: normalizedTaxExemptReason,
+          }),
         })
         .where(
           and(
@@ -682,6 +1228,12 @@ export async function PATCH(
             taxAmountCents: totals.taxAmountCents,
             tipCents: totals.tipCents,
             totalDueCents: totals.totalDueCents,
+            depositCreditAppliedCents:
+              completionFinancials.financials.depositCreditAppliedCents,
+            amountAlreadyPaidCents:
+              completionFinancials.financials.amountAlreadyPaidCents,
+            balanceCents: completionFinancials.financials.remainingBalanceCents,
+            excessDepositCents: completionFinancials.financials.excessDepositCents,
           },
         }),
       ];
@@ -761,11 +1313,23 @@ export async function PATCH(
       // transaction commits — see handleSuccessfulCompletion. Doing it here
       // would read the not-yet-committed 'completed' row on a separate
       // connection and undercount the visit by one.
-      return { success: true as const, updatedAppointment: completedAppointment };
+      return {
+        success: true as const,
+        updatedAppointment: completedAppointment,
+        completedAt: now,
+        totals,
+        paymentStatus,
+        amountPaidCents,
+        financials: completionFinancials.financials,
+        depositCredit: completionFinancials.depositCredit,
+      };
     });
 
     // 9. Handle transaction result
     if (!result.success) {
+      if ('response' in result && result.response) {
+        return result.response;
+      }
       // Atomic update failed - re-fetch to determine why
       const currentAppointment = await getAppointmentById(
         appointmentId,
@@ -775,16 +1339,7 @@ export async function PATCH(
       if (currentAppointment?.status === 'completed') {
         // IDEMPOTENT: Already completed - return current state
         // DO NOT run fraud eval or points - already processed on first completion
-        return Response.json({
-          data: {
-            appointment: {
-              id: appointmentId,
-              status: 'completed',
-              paymentStatus: currentAppointment.paymentStatus ?? 'paid',
-              completedAt: currentAppointment.completedAt ?? now,
-            },
-          },
-        } satisfies SuccessResponse);
+        return completedReplayResponse(appointmentId, currentAppointment);
       }
 
       // Invalid state (cancelled, no_show, pending, etc.)
@@ -799,34 +1354,20 @@ export async function PATCH(
       );
     }
 
-    const updatedAppointment = result.updatedAppointment;
-    if (!updatedAppointment) {
-      console.warn('[BUG] Unexpected: success=true but updatedAppointment is null', {
-        appointmentId,
-      });
-      return Response.json({
-        data: {
-          appointment: {
-            id: appointmentId,
-            status: 'completed',
-            paymentStatus,
-            completedAt: now,
-          },
-        },
-      } satisfies SuccessResponse);
-    }
-
     return await handleSuccessfulCompletion(
-      updatedAppointment,
+      result.updatedAppointment,
       appointmentId,
-      now,
+      result.completedAt,
       {
-        ...totals,
-        amountPaidCents,
-        balanceCents: paymentStatus === 'comp'
-          ? 0
-          : Math.max(0, totals.totalDueCents - (amountPaidCents ?? totals.totalDueCents)),
+        ...result.totals,
+        amountPaidCents: result.amountPaidCents,
+        appointmentPaymentsCents: result.financials.tenderedCents,
+        depositCreditAppliedCents: result.financials.depositCreditAppliedCents,
+        amountAlreadyPaidCents: result.financials.amountAlreadyPaidCents,
+        excessDepositCents: result.financials.excessDepositCents,
+        balanceCents: result.financials.remainingBalanceCents,
       },
+      result.depositCredit,
     );
   } catch (error) {
     console.error('Error completing appointment:', error);
@@ -854,6 +1395,7 @@ async function handleSuccessfulCompletion(
   appointmentId: string,
   now: Date,
   totals: CompletionTotals,
+  depositCredit: NonNullable<SuccessResponse['data']['depositCredit']>,
 ): Promise<Response> {
   // DEFENSIVE CHECK: completedAt must be set (set by atomic update above)
   if (!completedAppointment.completedAt) {
@@ -931,7 +1473,11 @@ async function handleSuccessfulCompletion(
   // ONLY when the completion is fully PAID: fraud queries filter
   // payment_status='paid', so unpaid/partial/comp completions must skip eval —
   // for those, the payments route runs it on the transition to fully-paid.
-  if (salonClientId && completedAppointment.paymentStatus === 'paid') {
+  if (
+    salonClientId
+    && completedAppointment.paymentStatus === 'paid'
+    && totals.depositCreditAppliedCents === 0
+  ) {
     // eslint-disable-next-line no-console -- intentional info-level observability log
     console.info('[FraudDetection] fraud_eval_triggered', {
       appointmentId,
@@ -954,8 +1500,9 @@ async function handleSuccessfulCompletion(
     });
   }
 
-  // 6c. Recompute client stats (visits/spend/points) POST-COMMIT so the just-
-  // completed appointment is counted. Non-fatal — stats are recomputable.
+  // 6c. Recompute client visit/spend caches POST-COMMIT. The stats resolver
+  // itself freezes loyalty whenever collected-deposit history exists, keeping
+  // D6.1 from attributing or releasing rewards that belong to D6.2.
   try {
     await updateSalonClientStats(
       completedAppointment.salonId,
@@ -995,6 +1542,7 @@ async function handleSuccessfulCompletion(
         paymentMethod: completedAppointment.paymentMethod,
       },
       totals,
+      depositCredit,
       showReviewPrompt,
     },
   } satisfies SuccessResponse);

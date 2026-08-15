@@ -735,17 +735,60 @@ describe('refund event dispatch', () => {
     expect(firstDeposit?.priorRefundIds).toEqual([]);
     expect(secondDeposit?.priorRefundIds).toEqual([]);
 
-    const firstAlerts = await db
+    const firstJobs = await db
       .select()
       .from(schema.integrationOutboxSchema)
       .where(eq(schema.integrationOutboxSchema.appointmentId, first.appointmentId));
-    const secondAlerts = await db
+    const secondJobs = await db
       .select()
       .from(schema.integrationOutboxSchema)
       .where(eq(schema.integrationOutboxSchema.appointmentId, second.appointmentId));
 
-    expect(firstAlerts).toHaveLength(1);
-    expect(secondAlerts).toHaveLength(1);
+    for (const { appointmentId, depositId, jobs } of [
+      { appointmentId: first.appointmentId, depositId: first.depositId, jobs: firstJobs },
+      { appointmentId: second.appointmentId, depositId: second.depositId, jobs: secondJobs },
+    ]) {
+      const alerts = jobs.filter(job => job.operation === 'deposit_refund_alert');
+      const statsRefreshes = jobs.filter(job => job.operation === 'refresh_client_stats');
+
+      // The two Stripe event shapes describe the same terminal transition. Each
+      // order must therefore coalesce independently in both durable lanes: one
+      // owner alert and one denormalized client-stats refresh.
+      expect(jobs).toHaveLength(2);
+      expect(alerts).toHaveLength(1);
+      expect(statsRefreshes).toHaveLength(1);
+      expect(alerts[0]).toMatchObject({
+        salonId: SALON_ID,
+        appointmentId,
+        provider: 'email',
+        operation: 'deposit_refund_alert',
+        dedupeKey: `appointment:${appointmentId}:salon:refund-failed:1:1`,
+        payload: {
+          event: 'refundFailed',
+          refund: {
+            failureReason: 'declined',
+            keyEpoch: 1,
+            terminalFailureCount: 1,
+          },
+        },
+      });
+      expect(statsRefreshes[0]).toMatchObject({
+        salonId: SALON_ID,
+        appointmentId,
+        provider: 'internal',
+        operation: 'refresh_client_stats',
+        payload: { depositId },
+      });
+
+      const stateVersion = statsRefreshes[0]?.payload.stateVersion;
+
+      expect(stateVersion).toEqual(expect.any(String));
+      expect(stateVersion).toContain(':refunded:failed:');
+      expect(statsRefreshes[0]?.dedupeKey).toBe(
+        `deposit:${depositId}:client-stats:${stateVersion}`,
+      );
+    }
+
     expect(sentry.captureMessage).not.toHaveBeenCalledWith(
       'deposit_refund_failed_unreconciled',
       expect.anything(),

@@ -3,7 +3,10 @@ import { CalendarDays, Clock, Download, ExternalLink, Scissors, Sparkles, User }
 
 import { describeAppointmentAccessFailure, verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { db } from '@/libs/DB';
+import { formatMoney } from '@/libs/formatMoney';
+import { resolveManageDepositCheckout } from '@/libs/manageDepositCheckout';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 import { appointmentAddOnSchema, appointmentDepositSchema, appointmentServicesSchema, technicianSchema } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
@@ -45,10 +48,6 @@ function ManageLinkError({ failure, findBookingHref }: { failure: ManageLinkFail
   );
 }
 
-function formatMoney(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
-}
-
 /**
  * The private appointment-management view.
  *
@@ -87,8 +86,20 @@ export async function ManageAppointmentView({
   const timezone = bookingConfig.timezone;
   const changePolicy = getClientChangePolicy(appointment.startTime, bookingConfig);
   const isActive = ['pending', 'confirmed'].includes(appointment.status);
+  const isTerminal = ['cancelled', 'no_show'].includes(appointment.status);
+  const isAwaitingDeposit = appointment.status === 'awaiting_payment';
 
-  const [services, addOns, technician] = await Promise.all([
+  const financialSummaryEligible = [
+    'awaiting_payment',
+    'pending',
+    'confirmed',
+    'in_progress',
+    'completed',
+    'cancelled',
+    'no_show',
+  ]
+    .includes(appointment.status);
+  const [services, addOns, technician, financialSummary, depositForResumeRows] = await Promise.all([
     db.select({ name: appointmentServicesSchema.nameSnapshot })
       .from(appointmentServicesSchema)
       .where(eq(appointmentServicesSchema.appointmentId, appointment.id)),
@@ -108,38 +119,68 @@ export async function ManageAppointmentView({
         ))
         .limit(1)
       : Promise.resolve([]),
+    financialSummaryEligible
+      ? loadBookingEmailFinancialSummary({
+        salonId: appointment.salonId,
+        appointmentId: appointment.id,
+      })
+      : Promise.resolve(null),
+    isAwaitingDeposit
+      ? db
+        .select({
+          amountCents: appointmentDepositSchema.amountCents,
+          currency: appointmentDepositSchema.currency,
+          checkoutUrl: appointmentDepositSchema.stripeCheckoutUrl,
+        })
+        .from(appointmentDepositSchema)
+        .where(and(
+          eq(appointmentDepositSchema.salonId, appointment.salonId),
+          eq(appointmentDepositSchema.appointmentId, appointment.id),
+          eq(appointmentDepositSchema.status, 'checkout_created'),
+        ))
+        .limit(1)
+      : Promise.resolve([]),
   ]);
 
   const serviceName = services.map(service => service.name).filter(Boolean).join(', ') || 'Nail appointment';
   const technicianName = technician[0]?.name ?? 'Any available artist';
   const discountAmountCents = appointment.discountAmountCents ?? 0;
   const subtotalCents = appointment.subtotalBeforeDiscountCents ?? (appointment.totalPrice + discountAmountCents);
+  const displayCurrency = financialSummary?.currency
+    ?? appointment.invoiceCurrency
+    ?? null;
+  const depositForResume = depositForResumeRows[0] ?? null;
+  const depositCheckout = isAwaitingDeposit
+    ? resolveManageDepositCheckout({
+      invoiceCurrency: appointment.invoiceCurrency,
+      financialSummary,
+      deposit: depositForResume,
+    })
+    : null;
+  const depositDueCents = depositCheckout?.amountCents ?? null;
+  const financialDetailsUnavailable = financialSummaryEligible
+    && (
+      financialSummary === null
+      || (isAwaitingDeposit && depositDueCents === null)
+    );
+  const displayMoney = (cents: number) => displayCurrency && !financialDetailsUnavailable
+    ? `${formatMoney(cents, displayCurrency)} ${displayCurrency}`
+    : 'Unavailable';
   // A deposit hold is READ-ONLY here. Every mutating manage-token handler
   // already rejects it (ensureEditable throws HOLD_LOCKED, the PATCH cancel CAS
   // excludes it); this branch only makes the screen honest about WHY, and
   // offers the one thing the client can still usefully do — resume paying.
-  const isAwaitingDeposit = appointment.status === 'awaiting_payment';
   const statusLabel = appointment.status === 'cancelled'
     ? 'Cancelled'
     : appointment.status === 'completed'
       ? 'Completed'
-      : isAwaitingDeposit
-        ? 'Awaiting deposit'
-        : appointment.status === 'confirmed'
-          ? 'Confirmed'
-          : 'Awaiting confirmation';
-  const [depositForResume] = isAwaitingDeposit
-    ? await db
-      .select({ checkoutUrl: appointmentDepositSchema.stripeCheckoutUrl })
-      .from(appointmentDepositSchema)
-      .where(and(
-        eq(appointmentDepositSchema.salonId, appointment.salonId),
-        eq(appointmentDepositSchema.appointmentId, appointment.id),
-        eq(appointmentDepositSchema.status, 'checkout_created'),
-      ))
-      .limit(1)
-    : [];
-
+      : appointment.status === 'no_show'
+        ? 'No-show'
+        : isAwaitingDeposit
+          ? 'Awaiting deposit'
+          : appointment.status === 'confirmed'
+            ? 'Confirmed'
+            : 'Awaiting confirmation';
   const rescheduleUrl = `/${locale}/${resolvedSlug}/manage/${encodeURIComponent(token)}/reschedule`;
   const googleCalendarQuery = new URLSearchParams({
     action: 'TEMPLATE',
@@ -182,11 +223,11 @@ export async function ManageAppointmentView({
                     This booking is held while we wait for the deposit. It is not confirmed yet, and it
                     cannot be changed or cancelled from here until the payment is settled.
                   </p>
-                  {depositForResume?.checkoutUrl
+                  {depositCheckout
                     ? (
                         <a
                           className="mt-3 inline-flex rounded-full bg-stone-950 px-4 py-2 text-sm font-semibold text-white"
-                          href={depositForResume.checkoutUrl}
+                          href={depositCheckout.checkoutUrl}
                         >
                           Resume payment
                         </a>
@@ -220,7 +261,7 @@ export async function ManageAppointmentView({
                   <ul className="mt-1 space-y-0.5 text-stone-600">
                     {addOns.map(addOn => (
                       <li key={`${addOn.name}-${addOn.lineTotalCents}`}>
-                        {`+ ${addOn.name}${addOn.quantity > 1 ? ` ×${addOn.quantity}` : ''} · ${formatMoney(addOn.lineTotalCents)}`}
+                        {`+ ${addOn.name}${addOn.quantity > 1 ? ` ×${addOn.quantity}` : ''} · ${displayMoney(addOn.lineTotalCents)}`}
                       </li>
                     ))}
                   </ul>
@@ -238,7 +279,7 @@ export async function ManageAppointmentView({
               <>
                 <div className="flex justify-between text-stone-600">
                   <span>Subtotal</span>
-                  <span>{formatMoney(subtotalCents)}</span>
+                  <span>{displayMoney(subtotalCents)}</span>
                 </div>
                 <div className="mt-1 flex justify-between text-emerald-700">
                   <span className="inline-flex items-center gap-1.5">
@@ -247,19 +288,130 @@ export async function ManageAppointmentView({
                   </span>
                   <span>
                     −
-                    {formatMoney(discountAmountCents)}
+                    {displayMoney(discountAmountCents)}
                   </span>
                 </div>
               </>
             )}
             <div className="mt-2 flex justify-between text-base font-semibold text-stone-900">
-              <span>Total</span>
               <span>
-                {formatMoney(appointment.totalPrice)}
-                {' '}
-                {bookingConfig.currency}
+                {['cancelled', 'no_show'].includes(appointment.status)
+                  ? 'Booked services'
+                  : appointment.status === 'completed' ? 'Final total' : 'Estimated total'}
+              </span>
+              <span>
+                {!financialDetailsUnavailable && financialSummary
+                  ? displayMoney(
+                    isTerminal
+                      ? financialSummary.serviceInvoiceTotalCents
+                      : financialSummary.totalDueCents,
+                  )
+                  : financialSummaryEligible
+                    ? 'Unavailable'
+                    : displayMoney(appointment.totalPrice)}
               </span>
             </div>
+            {financialDetailsUnavailable
+              ? (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                    Financial details are under review. Contact the salon for confirmed amounts.
+                  </div>
+                )
+              : financialSummary?.depositPresentationState === 'blocked'
+                ? (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                      Deposit and remaining balance are under review. Contact the salon before sending payment.
+                    </div>
+                  )
+                : financialSummary
+                  ? (
+                      <div className="mt-3 space-y-1.5 border-t border-stone-200 pt-3 text-sm text-stone-700">
+                        {financialSummary.collectedDepositCents > 0 && (
+                          <div className="flex justify-between gap-3">
+                            <span>{isTerminal ? 'Deposit collected' : 'Deposit paid'}</span>
+                            <span data-testid="manage-deposit-paid">
+                              {displayMoney(financialSummary.collectedDepositCents)}
+                            </span>
+                          </div>
+                        )}
+                        {financialSummary.refundedDepositCents > 0 && (
+                          <div className="flex justify-between gap-3">
+                            <span>Deposit refunded</span>
+                            <span data-testid="manage-deposit-refunded">
+                              {displayMoney(financialSummary.refundedDepositCents)}
+                            </span>
+                          </div>
+                        )}
+                        {financialSummary.depositCreditAppliedCents > 0 && (
+                          <div className="flex justify-between gap-3">
+                            <span>Deposit payment credit</span>
+                            <span data-testid="manage-deposit-credit">
+                              −
+                              {displayMoney(financialSummary.depositCreditAppliedCents)}
+                            </span>
+                          </div>
+                        )}
+                        {isAwaitingDeposit && (
+                          <>
+                            <div className="flex justify-between gap-3">
+                              <span>Deposit payment credit</span>
+                              <span data-testid="manage-deposit-credit">
+                                {displayMoney(0)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between gap-3 font-medium">
+                              <span>Deposit due now</span>
+                              <span data-testid="manage-deposit-due">
+                                {displayMoney(depositDueCents!)}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                        {financialSummary.appointmentPaymentsCents > 0 && (
+                          <div className="flex justify-between gap-3">
+                            <span>Other payments</span>
+                            <span>{displayMoney(financialSummary.appointmentPaymentsCents)}</span>
+                          </div>
+                        )}
+                        {financialSummary.depositPresentationState === 'refund_candidate' && (
+                          <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
+                            Refund due for owner review. The deposit is not appointment credit.
+                          </div>
+                        )}
+                        {financialSummary.depositPresentationState === 'refund_in_flight' && (
+                          <div className="rounded-lg bg-blue-50 px-3 py-2 text-blue-900">
+                            Deposit refund in progress.
+                          </div>
+                        )}
+                        {financialSummary.depositPresentationState === 'forfeited' && (
+                          <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
+                            Deposit retained after no-show.
+                          </div>
+                        )}
+                        {financialSummary.depositPresentationState === 'refund_review' && (
+                          <div className="rounded-lg bg-amber-50 px-3 py-2 text-amber-900">
+                            Deposit handling is under review. Contact the salon for details.
+                          </div>
+                        )}
+                        {!isTerminal && (
+                          <>
+                            <div className="flex justify-between gap-3 font-medium">
+                              <span>Already paid</span>
+                              <span data-testid="manage-already-paid">
+                                {displayMoney(financialSummary.amountAlreadyPaidCents)}
+                              </span>
+                            </div>
+                            <div className="flex justify-between gap-3 font-semibold text-stone-900">
+                              <span>Remaining balance</span>
+                              <span data-testid="manage-balance">
+                                {displayMoney(financialSummary.balanceCents)}
+                              </span>
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    )
+                  : null}
           </div>
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2">

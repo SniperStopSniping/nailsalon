@@ -145,10 +145,16 @@ export type AppointmentBalanceInput = {
   now?: Date;
   finalPriceCents: number | null;
   legacyBookedTotalCents: number | null;
+  /** Frozen booking invoice including tax; omitted for pre-snapshot history. */
+  bookedInvoiceTotalCents?: number | null;
   taxAmountCents?: number | null;
   tipCents?: number | null;
   /** Authoritative sum of non-voided payment rows; null means not loaded. */
   nonVoidedPaymentsCents: number | null;
+  /** Canonical eligible collected deposit; never an appointment_payment row. */
+  depositCreditCents?: number | null;
+  /** Blocked means refund/currency/history state cannot support a safe balance. */
+  depositResolution?: 'resolved' | 'blocked';
   /**
    * A legacy completed row is only reportable when the caller has verified
    * that its booked total and payment history form a reliable fallback.
@@ -168,6 +174,9 @@ export type AppointmentBalanceResolution = {
     | 'invalid_snapshot_amount'
     | 'invalid_start_time'
     | 'unreliable_legacy_data'
+    | 'unknown_deposit_amount'
+    | 'unresolved_deposit'
+    | 'excess_deposit'
     | null;
 };
 
@@ -206,6 +215,25 @@ export function resolveAppointmentBalance(
   if (input.deletedAt != null || input.paymentStatus === 'comp') {
     return excludedBalance();
   }
+  const balanceEligibleStatus = input.status === 'completed'
+    || input.status === 'pending'
+    || input.status === 'confirmed';
+  if (balanceEligibleStatus && input.depositResolution === 'blocked') {
+    const scope = input.status === 'completed' ? 'completed' : 'upcoming';
+    return unresolvedBalance(scope, 'unresolved_deposit');
+  }
+  // Omission preserves compatibility for callers that have proved there is no
+  // deposit surface. An explicit NULL is different: D6.1 migrations use NULL
+  // for an unknown historical fact, so it must never be silently read as $0.
+  if (balanceEligibleStatus && input.depositCreditCents === null) {
+    const scope = input.status === 'completed' ? 'completed' : 'upcoming';
+    return unresolvedBalance(scope, 'unknown_deposit_amount');
+  }
+  const depositCreditCents = input.depositCreditCents ?? 0;
+  if (balanceEligibleStatus && !isValidCents(depositCreditCents)) {
+    const scope = input.status === 'completed' ? 'completed' : 'upcoming';
+    return unresolvedBalance(scope, 'invalid_payment_amount');
+  }
 
   if (input.status === 'completed') {
     if (!isValidCents(input.nonVoidedPaymentsCents)) {
@@ -234,15 +262,26 @@ export function resolveAppointmentBalance(
       revenueCents = input.legacyBookedTotalCents;
     }
 
-    const totalDueCents = revenueCents
-      + (input.taxAmountCents ?? 0)
-      + (input.tipCents ?? 0);
+    const serviceInvoiceCents = revenueCents + (input.taxAmountCents ?? 0);
+    if (!isValidCents(serviceInvoiceCents)) {
+      return unresolvedBalance('completed', 'invalid_snapshot_amount');
+    }
+    if (depositCreditCents > serviceInvoiceCents) {
+      return unresolvedBalance('completed', 'excess_deposit');
+    }
+    const totalDueCents = serviceInvoiceCents + (input.tipCents ?? 0);
+    if (!isValidCents(totalDueCents)) {
+      return unresolvedBalance('completed', 'invalid_snapshot_amount');
+    }
 
     return {
       category: 'completed_outstanding',
       scope: 'completed',
       source,
-      amountCents: Math.max(0, totalDueCents - input.nonVoidedPaymentsCents),
+      amountCents: Math.max(
+        0,
+        totalDueCents - depositCreditCents - input.nonVoidedPaymentsCents,
+      ),
       reason: null,
     };
   }
@@ -258,11 +297,17 @@ export function resolveAppointmentBalance(
   if (startTime.getTime() < (input.now ?? new Date()).getTime()) {
     return excludedBalance();
   }
-  if (!isValidCents(input.legacyBookedTotalCents)) {
+  const bookedInvoiceTotalCents = input.bookedInvoiceTotalCents === undefined
+    ? input.legacyBookedTotalCents
+    : input.bookedInvoiceTotalCents;
+  if (!isValidCents(bookedInvoiceTotalCents)) {
     return unresolvedBalance('upcoming', 'invalid_booked_amount');
   }
   if (!isValidCents(input.nonVoidedPaymentsCents)) {
     return unresolvedBalance('upcoming', 'invalid_payment_amount');
+  }
+  if (depositCreditCents > bookedInvoiceTotalCents) {
+    return unresolvedBalance('upcoming', 'excess_deposit');
   }
 
   return {
@@ -271,7 +316,9 @@ export function resolveAppointmentBalance(
     source: 'booked',
     amountCents: Math.max(
       0,
-      input.legacyBookedTotalCents - input.nonVoidedPaymentsCents,
+      bookedInvoiceTotalCents
+      - depositCreditCents
+      - input.nonVoidedPaymentsCents,
     ),
     reason: null,
   };

@@ -56,6 +56,10 @@ const appointment = {
   status: 'confirmed',
   totalPrice: 5000,
   discountType: null,
+  invoiceCurrency: null as string | null,
+  bookingTaxSnapshot: null as Record<string, unknown> | null,
+  rescheduleTaxSnapshot: null as Record<string, unknown> | null,
+  finalTaxSnapshot: null as Record<string, unknown> | null,
   notes: null,
   updatedAt: new Date('2099-01-01T00:00:00.000Z'),
 };
@@ -65,6 +69,8 @@ const pricedAppointment = {
   updatedAt: new Date('2099-01-01T00:00:00.001Z'),
 };
 let lockedReward = reward;
+let lockedAppointment = appointment;
+let lockedDeposits: Array<{ id: string }> = [];
 let transactionUpdate = vi.fn();
 
 function limitSelection(rows: unknown[]) {
@@ -93,6 +99,8 @@ describe('reward redemption Calendar mutation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     lockedReward = reward;
+    lockedAppointment = appointment;
+    lockedDeposits = [];
     const selections = [
       limitSelection([reward]),
       limitSelection([appointment]),
@@ -102,7 +110,7 @@ describe('reward redemption Calendar mutation', () => {
     ];
     db.select.mockImplementation(() => selections.shift());
     db.transaction.mockImplementation(async (work: (tx: unknown) => Promise<unknown>) => {
-      const lockedSelections = [[appointment], [], [lockedReward]];
+      const lockedSelections = [[lockedAppointment], lockedDeposits, [], [lockedReward]];
       transactionUpdate = vi.fn()
         .mockReturnValueOnce({
           set: vi.fn(() => ({
@@ -154,6 +162,51 @@ describe('reward redemption Calendar mutation', () => {
 
     expect(response.status).toBe(409);
     expect(db.transaction).toHaveBeenCalledTimes(1);
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
+  });
+
+  it('blocks D6.1 snapshot repricing before appointment or reward mutation', async () => {
+    lockedAppointment = {
+      ...appointment,
+      bookingTaxSnapshot: { kind: 'booking_estimate' },
+    };
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'REWARD_FINANCIAL_REPRICING_REQUIRED' },
+    });
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
+  });
+
+  it('blocks frozen invoice identity even when no tax snapshot exists', async () => {
+    lockedAppointment = {
+      ...appointment,
+      invoiceCurrency: 'CAD',
+    };
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'REWARD_FINANCIAL_REPRICING_REQUIRED' },
+    });
+    expect(transactionUpdate).not.toHaveBeenCalled();
+    expect(enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
+  });
+
+  it('blocks legacy deposit history even when invoice identity and snapshots are absent', async () => {
+    lockedDeposits = [{ id: 'deposit_legacy_paid' }];
+
+    const response = await POST(request());
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: { code: 'REWARD_FINANCIAL_REPRICING_REQUIRED' },
+    });
     expect(transactionUpdate).not.toHaveBeenCalled();
     expect(enqueueGoogleCalendarAppointmentMutation).not.toHaveBeenCalled();
   });

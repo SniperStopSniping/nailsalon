@@ -11,10 +11,13 @@ type DepositRecord = {
   amountCents: number;
   currency: string;
   refundStatus: string | null;
+  refundAmountCents?: number | null;
+  externalRefundObservedCents?: number | null;
   refundLastErrorCode?: string | null;
   refundFailureReason?: string | null;
   refundTerminalFailureCount?: number;
   refundedAt?: string | null;
+  forfeitedAt?: string | null;
   waivedAt?: string | null;
   waiverReason?: string | null;
 };
@@ -30,12 +33,23 @@ type DepositAuditRow = {
 };
 
 type DepositPanelData = {
+  appointmentStatus: string | null;
   deposit: DepositRecord | null;
+  deposits?: DepositRecord[];
+  depositCredit?: {
+    state: 'resolved' | 'blocked';
+    blockedCode: string | null;
+    blockedDetail: string | null;
+    collectedCents: number;
+    refundedCents: number;
+    forfeitedCents: number;
+    eligibleCents: number;
+  };
   auditRows: DepositAuditRow[];
   moreOmitted: number;
 };
 
-type DepositAction = 'refund' | 'retry' | 'waive' | 'release';
+type DepositAction = 'refund' | 'retry' | 'forfeit' | 'waive' | 'release';
 
 const ACTION_COPY: Record<DepositAction, {
   title: string;
@@ -54,6 +68,12 @@ const ACTION_COPY: Record<DepositAction, {
     confirmLabel: 'Retry refund',
     description: 'Luster will make another refund attempt using the current Stripe connection.',
     endpoint: 'refund/retry',
+  },
+  forfeit: {
+    title: 'Retain this cancelled deposit?',
+    confirmLabel: 'Retain deposit',
+    description: 'This records an explicit owner decision to retain the collected deposit and freezes its tax-reporting estimate. You can still issue a full refund later.',
+    endpoint: 'forfeit',
   },
   waive: {
     title: 'Waive this deposit?',
@@ -127,6 +147,9 @@ export function DepositPanel({
       const body = await response.json().catch(() => ({})) as {
         data?: DepositPanelData;
         deposit?: DepositRecord | null;
+        deposits?: DepositRecord[];
+        depositCredit?: DepositPanelData['depositCredit'];
+        appointmentStatus?: string | null;
         auditRows?: DepositAuditRow[];
         moreOmitted?: number;
       };
@@ -134,12 +157,18 @@ export function DepositPanel({
         throw new Error('Deposit details could not be loaded.');
       }
       const payload = body.data ?? {
+        appointmentStatus: body.appointmentStatus ?? null,
         deposit: body.deposit ?? null,
+        deposits: body.deposits ?? [],
+        depositCredit: body.depositCredit,
         auditRows: body.auditRows ?? [],
         moreOmitted: body.moreOmitted ?? 0,
       };
       setData({
+        appointmentStatus: payload.appointmentStatus ?? null,
         deposit: payload.deposit ?? null,
+        deposits: payload.deposits ?? [],
+        depositCredit: payload.depositCredit,
         auditRows: payload.auditRows ?? [],
         moreOmitted: payload.moreOmitted ?? 0,
       });
@@ -165,7 +194,7 @@ export function DepositPanel({
     if (!pendingAction || !salonSlug) {
       return;
     }
-    if ((pendingAction === 'waive' || pendingAction === 'release') && !reason.trim()) {
+    if ((pendingAction === 'forfeit' || pendingAction === 'waive' || pendingAction === 'release') && !reason.trim()) {
       setError('Add a short reason before continuing.');
       return;
     }
@@ -178,7 +207,7 @@ export function DepositPanel({
         `/api/admin/appointments/${encodeURIComponent(appointmentId)}/deposit/${ACTION_COPY[action].endpoint}?salonSlug=${encodeURIComponent(salonSlug)}`,
         {
           method: 'POST',
-          ...(action === 'waive' || action === 'release'
+          ...(action === 'forfeit' || action === 'waive' || action === 'release'
             ? {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ reason: reason.trim() }),
@@ -212,6 +241,11 @@ export function DepositPanel({
   const canRefund = deposit?.status === 'paid'
     && !['requested', 'pending', 'succeeded'].includes(refundStatus ?? '');
   const canRetry = refundStatus === 'failed';
+  const canForfeit = data?.appointmentStatus === 'cancelled'
+    && deposit?.status === 'paid'
+    && deposit.forfeitedAt == null
+    && refundStatus == null
+    && data.depositCredit?.state === 'resolved';
   const canResolveHold = deposit?.status === 'checkout_created';
 
   return (
@@ -261,6 +295,40 @@ export function DepositPanel({
 
       {!loading && deposit && (
         <>
+          {data?.depositCredit?.state === 'blocked'
+            ? (
+                <div className="mt-3 flex gap-2 rounded-xl bg-amber-50 p-3 text-sm text-amber-900" role="alert">
+                  <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                  <span>
+                    Deposit credit is paused for review.
+                    {' '}
+                    {data.depositCredit.blockedDetail}
+                  </span>
+                </div>
+              )
+            : data?.depositCredit
+              ? (
+                  <dl className="mt-3 grid gap-1 rounded-xl bg-white p-3 text-xs text-neutral-600">
+                    <div className="flex justify-between gap-3">
+                      <dt>Collected</dt>
+                      <dd className="font-medium text-neutral-900">{formatMoney(data.depositCredit.collectedCents, deposit.currency)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt>Refunded</dt>
+                      <dd className="font-medium text-neutral-900">{formatMoney(data.depositCredit.refundedCents, deposit.currency)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt>Retained</dt>
+                      <dd className="font-medium text-neutral-900">{formatMoney(data.depositCredit.forfeitedCents, deposit.currency)}</dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt>Eligible invoice credit</dt>
+                      <dd className="font-medium text-neutral-900">{formatMoney(data.depositCredit.eligibleCents, deposit.currency)}</dd>
+                    </div>
+                  </dl>
+                )
+              : null}
+
           <div className={`mt-3 flex items-center gap-2 rounded-xl p-3 text-sm font-medium ${refundStatus === 'failed' ? 'bg-red-50 text-red-800' : refundStatus === 'succeeded' ? 'bg-emerald-50 text-emerald-800' : 'bg-white text-neutral-800'}`}>
             {refundStatus === 'succeeded'
               ? <CheckCircle2 className="size-4" />
@@ -292,6 +360,11 @@ export function DepositPanel({
             {canRetry && (
               <button type="button" onClick={() => setPendingAction('retry')} className="rounded-xl bg-neutral-900 px-3 py-2.5 text-sm font-semibold text-white">
                 Retry
+              </button>
+            )}
+            {canForfeit && (
+              <button type="button" onClick={() => setPendingAction('forfeit')} className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2.5 text-sm font-semibold text-amber-900">
+                Retain deposit
               </button>
             )}
             {canResolveHold && (
@@ -351,7 +424,7 @@ export function DepositPanel({
         }}
         onConfirm={() => void runAction()}
       >
-        {(pendingAction === 'waive' || pendingAction === 'release') && (
+        {(pendingAction === 'forfeit' || pendingAction === 'waive' || pendingAction === 'release') && (
           <label className="block" htmlFor="deposit-action-reason">
             <span className="mb-1 block text-xs font-medium uppercase tracking-[0.08em] text-neutral-500">Reason</span>
             <textarea

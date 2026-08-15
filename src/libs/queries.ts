@@ -1,17 +1,24 @@
 import 'server-only';
 
-import { and, asc, desc, eq, gt, ilike, inArray, isNull, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, exists, gt, ilike, inArray, isNotNull, isNull, lt, ne, or, sql } from 'drizzle-orm';
 
+import { listPayments } from '@/libs/appointmentCheckoutServer';
+import { resolveAppointmentDepositFinancials } from '@/libs/appointmentDepositFinancials';
+import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
 import {
   CLIENT_LIFECYCLE_MAX_CHAIN_DEPTH,
+  getSalonClientHistoricalPhoneHintsWithHandle,
   getSalonClientLineageIdsWithHandle,
   getSalonClientPhoneAliasesWithHandle,
   resolveOperationalSalonClientByPhoneWithHandle,
 } from '@/libs/clientLifecycleStabilization';
+import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import {
   type AddOn,
   addOnSchema,
   type Appointment,
+  appointmentAuditLogSchema,
+  appointmentDepositSchema,
   appointmentSchema,
   appointmentServicesSchema,
   type CancelReason,
@@ -34,7 +41,7 @@ import {
 import { LOYALTY_POINTS } from '@/utils/AppConfig';
 
 import { getActiveAppointmentsForContact } from './activeAppointments';
-import { db } from './DB';
+import { type DatabaseSessionHandle, db } from './DB';
 import { reconcileLoyaltyPointsBalance } from './loyaltyBalance';
 import { normalizePhone } from './phone';
 import { resolveWeeklySchedule } from './weeklySchedule';
@@ -1156,6 +1163,163 @@ export async function updateSalonClient(
 }
 
 /**
+ * Return whether any completed+paid appointment in this stable client scope
+ * currently derives a positive credit from canonical deposit evidence.
+ * D6.1 uses this durable read to keep reward/points attribution deferred even
+ * when a later unrelated action refreshes client stats or fraud signals.
+ */
+export async function hasCanonicalAppliedDepositCreditForClient(input: {
+  salonId: string;
+  salonClientIds: readonly string[];
+  clientPhoneVariants?: readonly string[];
+  database?: Pick<DatabaseSessionHandle, 'select'>;
+}): Promise<boolean> {
+  const database = input.database ?? db;
+  const contactScope = input.clientPhoneVariants?.length
+    ? or(
+      inArray(appointmentSchema.salonClientId, [...input.salonClientIds]),
+      and(
+        isNull(appointmentSchema.salonClientId),
+        inArray(appointmentSchema.clientPhone, [...input.clientPhoneVariants]),
+      ),
+    )
+    : inArray(appointmentSchema.salonClientId, [...input.salonClientIds]);
+  const depositHistoryAppointments = await database
+    .select({
+      id: appointmentSchema.id,
+      amountPaidCents: appointmentSchema.amountPaidCents,
+      invoiceCurrency: appointmentSchema.invoiceCurrency,
+      finalPriceCents: appointmentSchema.finalPriceCents,
+      taxAmountCents: appointmentSchema.taxAmountCents,
+      tipCents: appointmentSchema.tipCents,
+      status: appointmentSchema.status,
+      paymentStatus: appointmentSchema.paymentStatus,
+    })
+    .from(appointmentSchema)
+    .where(and(
+      eq(appointmentSchema.salonId, input.salonId),
+      contactScope,
+      exists(
+        database
+          .select({ id: appointmentDepositSchema.id })
+          .from(appointmentDepositSchema)
+          .where(and(
+            eq(appointmentDepositSchema.salonId, appointmentSchema.salonId),
+            eq(appointmentDepositSchema.appointmentId, appointmentSchema.id),
+            isNotNull(appointmentDepositSchema.stripePaymentIntentId),
+          )),
+      ),
+    ));
+  if (depositHistoryAppointments.length === 0) {
+    return false;
+  }
+
+  // Completion and later-payment writers persist the applied credit in the
+  // immutable appointment audit row.  This is the durable D6.1/D6.2 boundary:
+  // a refund, reopen, or later status transition must not erase the fact that
+  // reward attribution was deliberately deferred when the invoice settled.
+  const [deferredAudit] = await database
+    .select({ id: appointmentAuditLogSchema.id })
+    .from(appointmentAuditLogSchema)
+    .where(and(
+      eq(appointmentAuditLogSchema.salonId, input.salonId),
+      inArray(
+        appointmentAuditLogSchema.appointmentId,
+        depositHistoryAppointments.map(appointment => appointment.id),
+      ),
+      sql`jsonb_typeof(${appointmentAuditLogSchema.newValue}->'depositCreditAppliedCents') = 'number'`,
+      sql`(${appointmentAuditLogSchema.newValue}->>'depositCreditAppliedCents')::numeric > 0`,
+    ))
+    .limit(1);
+  if (deferredAudit) {
+    return true;
+  }
+
+  const depositApplications = await Promise.all(
+    depositHistoryAppointments.map(async (appointment) => {
+      // Non-completed rows participate only in the immutable-audit lookup
+      // above. This catches a reopened/cancelled formerly completed invoice
+      // without freezing rewards merely because an upcoming booking collected
+      // its deposit.
+      if (appointment.status !== 'completed') {
+        return { attributionDeferred: false };
+      }
+      const [deposits, paymentRows] = await Promise.all([
+        loadAppointmentDepositCreditRows({
+          salonId: input.salonId,
+          appointmentId: appointment.id,
+          database,
+        }),
+        listPayments(database, appointment.id),
+      ]);
+      const paymentLedger = resolveAppointmentPaymentLedger({
+        cachedAmountPaidCents: appointment.amountPaidCents,
+        paymentRows,
+        expectedSalonId: input.salonId,
+        appointmentStatus: appointment.status,
+        paymentStatus: appointment.paymentStatus,
+      });
+      // A fully refunded deposit followed by a separately proven full tender
+      // retains the pre-D6 reward behavior.  Legacy paid inference, a tenant
+      // mismatch, or any unresolved ledger cannot prove that distinction and
+      // therefore keeps attribution deferred for D6.2.
+      if (!paymentLedger.ok || paymentLedger.state === 'legacy_paid') {
+        return { attributionDeferred: true };
+      }
+      const application = resolveAppointmentDepositFinancials({
+        deposits,
+        invoiceCurrency: appointment.invoiceCurrency,
+        finalPriceCents: appointment.finalPriceCents,
+        taxAmountCents: appointment.taxAmountCents,
+        tipCents: appointment.tipCents,
+        appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
+        appointmentStatus: appointment.status,
+        paymentStatus: appointment.paymentStatus,
+      });
+      return {
+        attributionDeferred: !application.depositResolution.ok
+          || !application.financials.ok
+          || application.financials.depositCreditAppliedCents > 0
+          || application.financials.excessDepositCents > 0
+          || application.financials.tenderExcessCents > 0
+          || !application.financials.financiallySettled,
+      };
+    }),
+  );
+  return depositApplications.some(application => application.attributionDeferred);
+}
+
+/**
+ * Resolve a caller's stable client id through its complete same-salon lineage
+ * and legacy phone aliases before applying the durable D6.1 reward boundary.
+ */
+export async function hasCanonicalAppliedDepositCreditForClientLineage(input: {
+  salonId: string;
+  salonClientId: string;
+}): Promise<boolean> {
+  const history = await getSalonClientHistoricalPhoneHintsWithHandle(db, {
+    salonId: input.salonId,
+    clientId: input.salonClientId,
+    allowArchived: true,
+  });
+  const lineageIds = await getSalonClientLineageIdsWithHandle(db, {
+    salonId: input.salonId,
+    terminalClientId: history.terminal.id,
+  });
+  const phoneVariants = [...new Set(history.phones.flatMap(phone => [
+    phone,
+    `1${phone}`,
+    `+1${phone}`,
+    `+${phone}`,
+  ]))];
+  return hasCanonicalAppliedDepositCreditForClient({
+    salonId: input.salonId,
+    salonClientIds: lineageIds,
+    clientPhoneVariants: phoneVariants,
+  });
+}
+
+/**
  * Update salon client stats based on their appointment history
  * Call this after appointment completion, cancellation, or no-show
  *
@@ -1175,135 +1339,165 @@ export async function updateSalonClientStats(
   salonId: string,
   phone: string,
 ): Promise<void> {
-  const terminal = await resolveOperationalSalonClientByPhoneWithHandle(db, {
-    salonId,
-    phone,
-  });
-  if (!terminal) {
-    // No salon client record exists - nothing to update
-    // This can happen if booking was created before the salon_client feature
-    return;
-  }
+  await db.transaction(async (database) => {
+    const terminal = await resolveOperationalSalonClientByPhoneWithHandle(database, {
+      salonId,
+      phone,
+    });
+    if (!terminal) {
+      // No salon client record exists - nothing to update. This can happen if
+      // booking was created before the salon_client feature.
+      return;
+    }
 
-  const lineageIds = await getSalonClientLineageIdsWithHandle(db, {
-    salonId,
-    terminalClientId: terminal.id,
-  });
-  const lineageClients = await db
-    .select({
-      id: salonClientSchema.id,
-      phone: salonClientSchema.phone,
-      loyaltyPoints: salonClientSchema.loyaltyPoints,
-      totalSpent: salonClientSchema.totalSpent,
-      rebookIntervalDays: salonClientSchema.rebookIntervalDays,
-    })
-    .from(salonClientSchema)
-    .where(and(
-      eq(salonClientSchema.salonId, salonId),
-      inArray(salonClientSchema.id, lineageIds),
-    ));
-  const terminalClient = lineageClients.find(client => client.id === terminal.id);
-  if (!terminalClient) {
-    return;
-  }
-
-  const aliasPhones = await getSalonClientPhoneAliasesWithHandle(db, {
-    salonId,
-    clientIds: lineageIds,
-  });
-  const ownedPhoneSnapshots = [
-    ...lineageClients.map(client => client.phone),
-    ...aliasPhones,
-    phone,
-  ];
-  const normalizedPhones = [...new Set(
-    ownedPhoneSnapshots
-      .map(normalizePhone)
-      .filter(value => value.length === 10),
-  )];
-  const phoneVariants = [...new Set([
-    ...ownedPhoneSnapshots,
-    ...ownedPhoneSnapshots.map(value => value.replace(/\D/g, '')),
-    ...normalizedPhones.flatMap(value => [
-      value,
-      `1${value}`,
-      `+1${value}`,
-    ]),
-  ].filter(Boolean))];
-
-  // Calculate stats from appointments - SCOPED TO THIS SALON ONLY
-  // Using FILTER clause for conditional aggregation (Postgres 9.4+)
-  const stats = await db
-    .select({
-      totalVisits: sql<number>`count(*) FILTER (WHERE ${appointmentSchema.status} = 'completed')::int`,
-      // Client spending = final charged price (net of tax; booked total for
-      // legacy rows), counted only once the appointment is fully PAID — an
-      // unpaid/partial/comp completion is a visit but not spend, and loyalty
-      // points derive from this figure. Tax is excluded by construction
-      // (finalPriceCents never includes it).
-      totalSpent: sql<number>`COALESCE(sum(COALESCE(${appointmentSchema.finalPriceCents}, ${appointmentSchema.totalPrice})) FILTER (WHERE ${appointmentSchema.status} = 'completed' AND ${appointmentSchema.paymentStatus} = 'paid'), 0)::int`,
-      noShowCount: sql<number>`count(*) FILTER (WHERE ${appointmentSchema.status} = 'no_show')::int`,
-      lastVisitAt: sql<Date | null>`max(${appointmentSchema.startTime}) FILTER (WHERE ${appointmentSchema.status} = 'completed')`,
-    })
-    .from(appointmentSchema)
-    .where(
-      and(
-        eq(appointmentSchema.salonId, salonId),
-        or(
-          inArray(appointmentSchema.salonClientId, lineageIds),
-          and(
-            isNull(appointmentSchema.salonClientId),
-            inArray(appointmentSchema.clientPhone, phoneVariants),
-          ),
-        ),
-      ),
-    );
-
-  const clientStats = stats[0];
-
-  // Calculate loyalty points using centralized formula (totalSpent is in cents)
-  // PER_DOLLAR_SPENT=20 means 20 points per $1, so $75.00 = 7500 cents = 1500 points
-  const totalSpentCents = clientStats?.totalSpent ?? 0;
-  // A merged lineage can contain independent loyalty histories that cannot be
-  // reconstructed from cached spend. Keep every balance unchanged until the
-  // ledger-backed PR 0B design exists; ordinary single-profile reconciliation
-  // retains the established behavior.
-  const reconciledLoyaltyPoints = lineageIds.length === 1
-    ? reconcileLoyaltyPointsBalance({
-      currentBalance: terminalClient.loyaltyPoints,
-      previousCompletedSpendCents: terminalClient.totalSpent,
-      nextCompletedSpendCents: totalSpentCents,
-    })
-    : null;
-  // Raw-SQL aggregates return strings on some drivers (PGlite) and Dates on
-  // others (pg) — normalize before doing Date math or writing back.
-  const rawLastVisitAt = clientStats?.lastVisitAt ?? null;
-  const lastVisitAt = rawLastVisitAt ? new Date(rawLastVisitAt) : null;
-  const nextRebookDueAt = lastVisitAt && terminalClient.rebookIntervalDays
-    ? new Date(lastVisitAt.getTime() + terminalClient.rebookIntervalDays * 86_400_000)
-    : null;
-
-  // Update the salon client with computed stats
-  // Double-check salonId in WHERE clause for multi-tenant safety
-  await db
-    .update(salonClientSchema)
-    .set({
-      totalVisits: clientStats?.totalVisits ?? 0,
-      totalSpent: clientStats?.totalSpent ?? 0,
-      noShowCount: clientStats?.noShowCount ?? 0,
-      lastVisitAt,
-      nextRebookDueAt,
-      ...(reconciledLoyaltyPoints === null
-        ? {}
-        : { loyaltyPoints: reconciledLoyaltyPoints }),
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
+    // Serialize the whole aggregate -> overwrite cycle on the stable terminal
+    // profile. Without this early lock, an older refund refresh could read an
+    // earlier appointment state, pause, and overwrite a newer payment/void
+    // refresh after it committed.
+    const [lockedTerminal] = await database
+      .select({ id: salonClientSchema.id })
+      .from(salonClientSchema)
+      .where(and(
         eq(salonClientSchema.id, terminal.id),
         eq(salonClientSchema.salonId, salonId),
-      ),
-    );
+      ))
+      .for('update')
+      .limit(1);
+    if (!lockedTerminal) {
+      return;
+    }
+
+    const lineageIds = await getSalonClientLineageIdsWithHandle(database, {
+      salonId,
+      terminalClientId: terminal.id,
+    });
+    const lineageClients = await database
+      .select({
+        id: salonClientSchema.id,
+        phone: salonClientSchema.phone,
+        loyaltyPoints: salonClientSchema.loyaltyPoints,
+        totalSpent: salonClientSchema.totalSpent,
+        rebookIntervalDays: salonClientSchema.rebookIntervalDays,
+      })
+      .from(salonClientSchema)
+      .where(and(
+        eq(salonClientSchema.salonId, salonId),
+        inArray(salonClientSchema.id, lineageIds),
+      ));
+    const terminalClient = lineageClients.find(client => client.id === terminal.id);
+    if (!terminalClient) {
+      return;
+    }
+
+    const aliasPhones = await getSalonClientPhoneAliasesWithHandle(database, {
+      salonId,
+      clientIds: lineageIds,
+    });
+    const ownedPhoneSnapshots = [
+      ...lineageClients.map(client => client.phone),
+      ...aliasPhones,
+      phone,
+    ];
+    const normalizedPhones = [...new Set(
+      ownedPhoneSnapshots
+        .map(normalizePhone)
+        .filter(value => value.length === 10),
+    )];
+    const phoneVariants = [...new Set([
+      ...ownedPhoneSnapshots,
+      ...ownedPhoneSnapshots.map(value => value.replace(/\D/g, '')),
+      ...normalizedPhones.flatMap(value => [
+        value,
+        `1${value}`,
+        `+1${value}`,
+      ]),
+    ].filter(Boolean))];
+
+    // D6.1 may make a completed invoice financially paid because canonical
+    // deposit credit was applied. Reward attribution/release belongs to D6.2,
+    // so freeze loyalty mutation while such an appointment exists. A fully
+    // refunded/forfeited deposit followed by full tender remains legacy-eligible.
+    const loyaltyAttributionDeferred = await hasCanonicalAppliedDepositCreditForClient({
+      salonId,
+      salonClientIds: lineageIds,
+      clientPhoneVariants: phoneVariants,
+      database,
+    });
+
+    // Calculate stats from appointments - SCOPED TO THIS SALON ONLY
+    // Using FILTER clause for conditional aggregation (Postgres 9.4+)
+    const stats = await database
+      .select({
+        totalVisits: sql<number>`count(*) FILTER (WHERE ${appointmentSchema.status} = 'completed')::int`,
+        // Client spending = final charged price (net of tax; booked total for
+        // legacy rows), counted only once the appointment is fully PAID — an
+        // unpaid/partial/comp completion is a visit but not spend, and loyalty
+        // points derive from this figure. Tax is excluded by construction
+        // (finalPriceCents never includes it).
+        totalSpent: sql<number>`COALESCE(sum(COALESCE(${appointmentSchema.finalPriceCents}, ${appointmentSchema.totalPrice})) FILTER (WHERE ${appointmentSchema.status} = 'completed' AND ${appointmentSchema.paymentStatus} = 'paid'), 0)::int`,
+        noShowCount: sql<number>`count(*) FILTER (WHERE ${appointmentSchema.status} = 'no_show')::int`,
+        lastVisitAt: sql<Date | null>`max(${appointmentSchema.startTime}) FILTER (WHERE ${appointmentSchema.status} = 'completed')`,
+      })
+      .from(appointmentSchema)
+      .where(
+        and(
+          eq(appointmentSchema.salonId, salonId),
+          or(
+            inArray(appointmentSchema.salonClientId, lineageIds),
+            and(
+              isNull(appointmentSchema.salonClientId),
+              inArray(appointmentSchema.clientPhone, phoneVariants),
+            ),
+          ),
+        ),
+      );
+
+    const clientStats = stats[0];
+
+    // Calculate loyalty points using centralized formula (totalSpent is in cents)
+    // PER_DOLLAR_SPENT=20 means 20 points per $1, so $75.00 = 7500 cents = 1500 points
+    const totalSpentCents = clientStats?.totalSpent ?? 0;
+    // A merged lineage can contain independent loyalty histories that cannot be
+    // reconstructed from cached spend. Keep every balance unchanged until the
+    // ledger-backed PR 0B design exists; ordinary single-profile reconciliation
+    // retains the established behavior.
+    const reconciledLoyaltyPoints = lineageIds.length === 1 && !loyaltyAttributionDeferred
+      ? reconcileLoyaltyPointsBalance({
+        currentBalance: terminalClient.loyaltyPoints,
+        previousCompletedSpendCents: terminalClient.totalSpent,
+        nextCompletedSpendCents: totalSpentCents,
+      })
+      : null;
+    // Raw-SQL aggregates return strings on some drivers (PGlite) and Dates on
+    // others (pg) — normalize before doing Date math or writing back.
+    const rawLastVisitAt = clientStats?.lastVisitAt ?? null;
+    const lastVisitAt = rawLastVisitAt ? new Date(rawLastVisitAt) : null;
+    const nextRebookDueAt = lastVisitAt && terminalClient.rebookIntervalDays
+      ? new Date(lastVisitAt.getTime() + terminalClient.rebookIntervalDays * 86_400_000)
+      : null;
+
+    // Update the salon client with computed stats
+    // Double-check salonId in WHERE clause for multi-tenant safety
+    await database
+      .update(salonClientSchema)
+      .set({
+        totalVisits: clientStats?.totalVisits ?? 0,
+        totalSpent: clientStats?.totalSpent ?? 0,
+        noShowCount: clientStats?.noShowCount ?? 0,
+        lastVisitAt,
+        nextRebookDueAt,
+        ...(reconciledLoyaltyPoints === null
+          ? {}
+          : { loyaltyPoints: reconciledLoyaltyPoints }),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(salonClientSchema.id, terminal.id),
+          eq(salonClientSchema.salonId, salonId),
+        ),
+      );
+  });
 }
 
 // =============================================================================

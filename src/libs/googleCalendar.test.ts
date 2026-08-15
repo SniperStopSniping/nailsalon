@@ -352,6 +352,11 @@ describe('googleCalendar', () => {
       startTime: new Date('2026-06-10T17:45:00.000Z'),
       endTime: new Date('2026-06-10T18:45:00.000Z'),
       totalPrice: 4000,
+      pricePresentation: {
+        state: 'booked_service_subtotal',
+        amountCents: 5085,
+        currency: 'CAD',
+      },
       totalDurationMinutes: 60,
       timeZone: 'America/Toronto',
       locationName: 'Kennedy & Ellesmere',
@@ -379,6 +384,9 @@ describe('googleCalendar', () => {
       salonId: 'salon_1',
       mutationVersion: '2026-06-10T12:34:56.789Z',
     });
+    expect(createBody.description).toContain('Booked services subtotal: $50.85');
+    expect(createBody.description).not.toContain('Price:');
+    expect(createBody.description).not.toContain('$40');
     expect(set).toHaveBeenCalledWith(expect.objectContaining({
       googleCalendarEventId: 'gcal_event_1',
       googleCalendarSyncStatus: 'synced',
@@ -414,6 +422,16 @@ describe('googleCalendar', () => {
       expect.stringContaining('/calendars/pinned-calendar%40example.com/events?'),
       expect.objectContaining({ method: 'POST' }),
     );
+
+    const createBody = JSON.parse(
+      fetchMock.mock.calls.find(([url, init]) => (
+        String(url).includes('/calendar/v3/') && init?.method === 'POST'
+      ))?.[1]?.body as string,
+    );
+
+    expect(createBody.description).toContain('Financial details: Under review');
+    expect(createBody.description).not.toContain('Price:');
+    expect(createBody.description).not.toContain('$40');
     expect(set).not.toHaveBeenCalled();
   });
 

@@ -1,6 +1,5 @@
-import React from 'react';
-
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FloatingActionBar } from './FloatingActionBar';
@@ -12,20 +11,12 @@ describe('FloatingActionBar', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
-  it('uses the real completion route for the floating complete action', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValue(new Response(JSON.stringify({
-        data: {
-          appointment: {
-            id: 'appt_1',
-            status: 'completed',
-          },
-        },
-      }), { status: 200 }));
-
+  it('opens canonical checkout instead of bypassing deposit and balance review', async () => {
+    const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
 
     const onSuccess = vi.fn();
+    const onOpenCheckout = vi.fn();
 
     render(
       <FloatingActionBar
@@ -43,18 +34,18 @@ describe('FloatingActionBar', () => {
           photos: [{ id: 'photo_1', photoType: 'after', imageUrl: '/after.jpg', thumbnailUrl: null }],
         }}
         onOpenPhotos={vi.fn()}
+        onOpenCheckout={onOpenCheckout}
         onSuccess={onSuccess}
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /complete/i }));
+    fireEvent.click(screen.getByRole('button', { name: /review & complete/i }));
 
     await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith('/api/appointments/appt_1/complete', expect.objectContaining({
-        method: 'PATCH',
-      }));
+      expect(onOpenCheckout).toHaveBeenCalledOnce();
     });
 
-    expect(onSuccess).toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(onSuccess).not.toHaveBeenCalled();
   });
 });

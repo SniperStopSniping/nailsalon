@@ -1752,6 +1752,73 @@ describe('BookConfirmClient deposit disclosure', () => {
     expect(disclosure).toHaveTextContent('$5.00');
   });
 
+  it('shows tax before applying the collected deposit as a payment credit', () => {
+    renderClient({
+      services: [{ id: 'srv_1', name: 'Gel Manicure', price: 100, duration: 75 }],
+      subtotalBeforeDiscount: 100,
+      totalPrice: 100,
+      currency: 'CAD',
+      taxConfig: {
+        enabled: true,
+        name: 'HST',
+        rateBps: 1300,
+        pricesIncludeTax: false,
+        taxServicesByDefault: true,
+        taxAddOnsByDefault: true,
+        taxCustomByDefault: true,
+        configurationSource: 'base',
+        configurationEffectiveFrom: null,
+        jurisdiction: 'Ontario',
+        country: 'CA',
+        region: 'ON',
+      },
+      depositDisclosure: {
+        label: '$25.00 deposit required to book — applied to your appointment total.',
+        amountCents: 2500,
+      },
+    });
+
+    expect(screen.getByTestId('booking-financial-estimate')).toHaveTextContent('HST (13%)');
+    expect(screen.getByTestId('booking-estimated-total')).toHaveTextContent('$113.00');
+    expect(screen.getByTestId('booking-deposit-due')).toHaveTextContent('$25.00');
+    expect(screen.getByTestId('booking-balance-after-deposit')).toHaveTextContent('$88.00');
+    expect(screen.getByRole('button', { name: 'Confirm appointment · $113.00' })).toBeInTheDocument();
+  });
+
+  it('binds the displayed tax total and configuration identity into the booking request', async () => {
+    fetchMock.mockResolvedValueOnce(okResponse());
+    renderClient({
+      services: [{ id: 'srv_1', name: 'Gel Manicure', price: 100, duration: 75 }],
+      subtotalBeforeDiscount: 100,
+      totalPrice: 100,
+      currency: 'CAD',
+      taxConfigurationIdentity: 'tax-config:v1:displayed-quote',
+      taxConfig: {
+        enabled: true,
+        name: 'HST',
+        rateBps: 1300,
+        pricesIncludeTax: false,
+        taxServicesByDefault: true,
+        taxAddOnsByDefault: true,
+        taxCustomByDefault: true,
+        configurationSource: 'base',
+        configurationEffectiveFrom: null,
+        jurisdiction: 'Ontario',
+        country: 'CA',
+        region: 'ON',
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm appointment · $113.00' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    expect(lastRequestBody().expectedBookingFinancialQuote).toEqual({
+      currency: 'CAD',
+      totalDueCents: 11300,
+      taxConfigurationIdentity: 'tax-config:v1:displayed-quote',
+    });
+  });
+
   it('test 36 — chip suppression, BOTH directions, keyed on the system predicate', () => {
     Object.assign(bookingExperienceMock.quickFacts.depositNotice, {
       enabled: true,

@@ -66,6 +66,18 @@ export type GoogleCalendarAppointmentEventInput = {
   startTime: Date;
   endTime: Date;
   totalPrice: number;
+  /**
+   * Financial copy is opt-in and provenance-bound. Legacy callers that only
+   * provide `totalPrice` receive a money-free review line rather than a
+   * guessed CAD invoice amount.
+   */
+  pricePresentation?:
+    | {
+      state: 'booked_service_subtotal';
+      amountCents: number;
+      currency: string;
+    }
+    | { state: 'under_review' };
   totalDurationMinutes: number;
   timeZone: string;
   locationName?: string | null;
@@ -1118,8 +1130,34 @@ function formatPhoneForCalendar(phone: string): string {
   return phone;
 }
 
-function formatPrice(cents: number): string {
-  return `$${(cents / 100).toFixed(0)}`;
+function formatFrozenPrice(cents: number, currency: string): string | null {
+  const normalizedCurrency = currency.trim().toUpperCase();
+  if (
+    !Number.isSafeInteger(cents)
+    || cents < 0
+    || (normalizedCurrency !== 'CAD' && normalizedCurrency !== 'USD')
+  ) {
+    return null;
+  }
+  return new Intl.NumberFormat(
+    normalizedCurrency === 'USD' ? 'en-US' : 'en-CA',
+    { style: 'currency', currency: normalizedCurrency },
+  ).format(cents / 100);
+}
+
+function buildFinancialDescriptionLine(
+  input: GoogleCalendarAppointmentEventInput,
+): string {
+  if (input.pricePresentation?.state === 'booked_service_subtotal') {
+    const amount = formatFrozenPrice(
+      input.pricePresentation.amountCents,
+      input.pricePresentation.currency,
+    );
+    if (amount) {
+      return `Booked services subtotal: ${amount}`;
+    }
+  }
+  return 'Financial details: Under review';
 }
 
 function buildLocationText(input: Pick<GoogleCalendarAppointmentEventInput, 'locationName' | 'locationAddress'>): string | null {
@@ -1145,7 +1183,7 @@ function buildGoogleCalendarEventBody(input: GoogleCalendarAppointmentEventInput
     `Phone: ${formatPhoneForCalendar(input.clientPhone)}`,
     `Artist: ${input.technicianName || 'Any available artist'}`,
     ...(locationText ? [`Location: ${locationText}`] : []),
-    `Price: ${formatPrice(input.totalPrice)}`,
+    buildFinancialDescriptionLine(input),
     `Duration: ${input.totalDurationMinutes} min`,
     ...(input.notes ? [`Notes: ${input.notes}`] : []),
     `Appointment ID: ${input.appointmentId}`,

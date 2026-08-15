@@ -56,7 +56,14 @@ export type CommunicationAppointment = {
   id: string;
   startTime: string;
   endTime: string;
-  totalPrice: number;
+  totalPrice: number | null;
+  currency?: string | null;
+  financial?: {
+    amountAlreadyPaidCents?: number | null;
+    balanceCents?: number | null;
+    balanceState?: string;
+    depositBlockCode?: string | null;
+  } | null;
   technician: { name: string } | null;
   location?: SalonLocation | null;
   services: Array<{ name: string }>;
@@ -181,6 +188,30 @@ const HISTORY_STATUS_LABELS: Record<ClientCommunicationStatus, string> = {
 // Promotion interpolation is shared with the Marketing follow-ups surface —
 // both must render identical resolved copy (src/libs/promotionMessage.ts).
 
+function resolvedInvoiceTotalCents(
+  appointment: CommunicationAppointment | null | undefined,
+): number | null {
+  const currency = appointment?.currency?.trim().toUpperCase();
+  const paid = appointment?.financial?.amountAlreadyPaidCents;
+  const balance = appointment?.financial?.balanceCents;
+  if (
+    !currency
+    || (currency !== 'CAD' && currency !== 'USD')
+    || appointment?.financial?.balanceState !== 'upcoming_balance'
+    || appointment?.financial?.depositBlockCode
+    || typeof paid !== 'number'
+    || typeof balance !== 'number'
+    || !Number.isSafeInteger(paid)
+    || !Number.isSafeInteger(balance)
+    || paid < 0
+    || balance < 0
+  ) {
+    return null;
+  }
+  const invoiceTotalCents = paid + balance;
+  return Number.isSafeInteger(invoiceTotalCents) ? invoiceTotalCents : null;
+}
+
 function toSmsAppointment(
   appointment: CommunicationAppointment | null | undefined,
   manageUrl?: string | null,
@@ -194,7 +225,7 @@ function toSmsAppointment(
     endTime: appointment.endTime,
     serviceNames: appointment.services.map(service => service.name),
     artistName: appointment.technician?.name ?? null,
-    totalPriceCents: appointment.totalPrice,
+    totalPriceCents: resolvedInvoiceTotalCents(appointment),
     manageUrl,
   };
 }
@@ -358,7 +389,7 @@ export function ClientCommunicationActions({
         bookingUrl: supportData.bookingUrl,
         googleReviewUrl: supportData.settings.googleReviewUrl,
         timeZone: supportData.timeZone,
-        currency: 'CAD',
+        currency: upcomingAppointment?.currency?.trim().toUpperCase() ?? null,
         location: directionsLocation
           ? {
               ...directionsLocation,
@@ -374,6 +405,7 @@ export function ClientCommunicationActions({
     client.phone,
     salonName,
     supportData,
+    upcomingAppointment?.currency,
     upcomingAppointment?.location,
   ]);
 

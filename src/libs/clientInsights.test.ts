@@ -81,6 +81,7 @@ async function addAppointment(args: {
     totalPrice: 8000,
     totalDurationMinutes: 60,
     paymentStatus: 'paid',
+    invoiceCurrency: 'CAD',
     ...args.overrides,
   };
   if (!args.bypassLifecycleTrigger) {
@@ -157,6 +158,7 @@ async function setClientLifecycleLinks(
 async function snapshot(now: Date = NOW) {
   return getClientInsightsSnapshot({
     salonId: SALON_ID,
+    currency: 'CAD',
     timeZone: TIME_ZONE,
     now,
   });
@@ -180,6 +182,7 @@ async function segmentIds(
 ): Promise<{ ids: string[]; total: number }> {
   const result = await getClientInsightsDirectoryPage({
     salonId: SALON_ID,
+    currency: 'CAD',
     timeZone: TIME_ZONE,
     now: options.now ?? NOW,
     segment,
@@ -721,7 +724,7 @@ describe('canonical Client Insights SQL projection', () => {
       overrides: {
         finalPriceCents: 10_000,
         totalPrice: 10_000,
-        amountPaidCents: 0,
+        amountPaidCents: 4000,
         paymentStatus: 'partially_paid',
       },
     });
@@ -902,6 +905,12 @@ describe('canonical Client Insights SQL projection', () => {
         amountPaidCents: 500,
         paymentStatus: 'partially_paid',
       }],
+      ['corrupt-final-snapshot', 'completed', {
+        finalPriceCents: 1000,
+        amountPaidCents: 0,
+        paymentStatus: 'partially_paid',
+        finalTaxSnapshot: {} as AppointmentSeed['finalTaxSnapshot'],
+      }],
       ['legacy-settled', 'completed', {
         finalPriceCents: null,
         totalPrice: 1000,
@@ -932,7 +941,10 @@ describe('canonical Client Insights SQL projection', () => {
       item => item.clientId === person.id,
     );
 
-    expect(attention?.completedOutstandingCents).toBe(8800);
+    // Only the canonical partial-payment ledger contributes $78.00. The
+    // overpayment and stale cache left behind by a voided row both fail closed.
+    expect(attention?.completedOutstandingCents).toBe(7800);
+    expect(attention?.financialState).toBe('under_review');
     expect((await segmentIds('completed_outstanding')).ids).toEqual(['balance']);
   });
 

@@ -2,11 +2,18 @@ import { and, eq } from 'drizzle-orm';
 
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
 import {
+  listPayments,
   resolveCheckoutActor,
-  sumNonVoidedPayments,
 } from '@/libs/appointmentCheckoutServer';
-import { computeBalance, derivePaymentStatus } from '@/libs/checkoutTotals';
+import {
+  appointmentFinancialOverpayment,
+  resolveAppointmentDepositFinancials,
+} from '@/libs/appointmentDepositFinancials';
+import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
+import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
+import { derivePaymentStatus } from '@/libs/checkoutTotals';
 import { db } from '@/libs/DB';
+import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import { updateSalonClientStats } from '@/libs/queries';
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import {
@@ -23,8 +30,11 @@ import {
 // from the remaining non-voided rows.
 // =============================================================================
 
-function errorJson(status: number, code: string, message: string): Response {
-  return Response.json({ error: { code, message } }, { status });
+function errorJson(status: number, code: string, message: string, details?: unknown): Response {
+  return Response.json(
+    { error: { code, message, ...(details === undefined ? {} : { details }) } },
+    { status },
+  );
 }
 
 export async function POST(
@@ -65,6 +75,14 @@ export async function POST(
         return { kind: 'error' as const, response: errorJson(404, 'APPOINTMENT_NOT_FOUND', 'Appointment not found') };
       }
 
+      const depositRows = await loadAppointmentDepositCreditRows({
+        salonId: appointment.salonId,
+        appointmentId,
+        database: tx,
+        forUpdate: true,
+        appointmentLockHeld: true,
+      });
+
       const [payment] = await tx
         .select()
         .from(appointmentPaymentSchema)
@@ -83,24 +101,109 @@ export async function POST(
         return { kind: 'error' as const, response: errorJson(409, 'ALREADY_VOIDED', 'Payment is already voided') };
       }
 
+      const taxChain = validateAppointmentTaxSnapshotChain(appointment);
+      if (!taxChain.ok) {
+        return {
+          kind: 'error' as const,
+          response: errorJson(
+            409,
+            'TAX_SNAPSHOT_INVALID',
+            taxChain.detail,
+            { reason: taxChain.code },
+          ),
+        };
+      }
+
+      const paymentRowsBefore = await listPayments(tx, appointmentId);
+      const paymentLedgerBefore = resolveAppointmentPaymentLedger({
+        cachedAmountPaidCents: appointment.amountPaidCents,
+        paymentRows: paymentRowsBefore,
+        expectedSalonId: appointment.salonId,
+        appointmentStatus: appointment.status,
+        paymentStatus: appointment.paymentStatus,
+      });
+      if (!paymentLedgerBefore.ok) {
+        return {
+          kind: 'error' as const,
+          response: errorJson(409, paymentLedgerBefore.code, paymentLedgerBefore.detail),
+        };
+      }
+      const amountPaidBefore = paymentLedgerBefore.ledgerPaymentsCents;
+      const amountPaidCents = amountPaidBefore - payment.amountCents;
+      const depositFinancials = resolveAppointmentDepositFinancials({
+        deposits: depositRows,
+        invoiceCurrency: taxChain.invoiceCurrency,
+        finalPriceCents: appointment.finalPriceCents,
+        taxAmountCents: appointment.taxAmountCents,
+        tipCents: appointment.tipCents,
+        appointmentPaymentsCents: amountPaidCents,
+        appointmentStatus: appointment.status,
+        paymentStatus: appointment.paymentStatus,
+      });
+      if (!depositFinancials.depositResolution.ok) {
+        return {
+          kind: 'error' as const,
+          response: errorJson(
+            409,
+            depositFinancials.depositResolution.code,
+            depositFinancials.depositResolution.detail,
+          ),
+        };
+      }
+      if (!depositFinancials.financials.ok || !depositFinancials.balance) {
+        return {
+          kind: 'error' as const,
+          response: errorJson(422, 'INVALID_FINANCIAL_DATA', 'The stored appointment money is invalid'),
+        };
+      }
+      const beforeFinancials = resolveAppointmentDepositFinancials({
+        deposits: depositRows,
+        invoiceCurrency: taxChain.invoiceCurrency,
+        finalPriceCents: appointment.finalPriceCents,
+        taxAmountCents: appointment.taxAmountCents,
+        tipCents: appointment.tipCents,
+        appointmentPaymentsCents: amountPaidBefore,
+        appointmentStatus: appointment.status,
+        paymentStatus: appointment.paymentStatus,
+      });
+      if (!beforeFinancials.financials.ok) {
+        return {
+          kind: 'error' as const,
+          response: errorJson(422, 'INVALID_FINANCIAL_DATA', 'The stored appointment money is invalid'),
+        };
+      }
+      const previousStatus = appointment.paymentStatus === 'comp'
+        ? 'comp'
+        : derivePaymentStatus(
+          beforeFinancials.financials.totalDueCents,
+          beforeFinancials.financials.amountAlreadyPaidCents,
+        );
+      // 'comp' is an explicit state, never derived — leave it untouched.
+      const nextStatus = previousStatus === 'comp'
+        ? 'comp'
+        : appointmentFinancialOverpayment(depositFinancials)
+          ? 'pending'
+          : derivePaymentStatus(
+            depositFinancials.financials.totalDueCents,
+            depositFinancials.financials.amountAlreadyPaidCents,
+          );
+
       await tx
         .update(appointmentPaymentSchema)
         .set({ voidedAt: now, voidedBy: actor.recordedById })
         .where(eq(appointmentPaymentSchema.id, paymentId));
 
-      const amountPaidCents = await sumNonVoidedPayments(tx, appointmentId);
-      const balance = computeBalance({
-        finalPriceCents: appointment.finalPriceCents,
-        taxAmountCents: appointment.taxAmountCents,
-        tipCents: appointment.tipCents,
-        amountPaidCents,
+      const paymentRowsAfter = await listPayments(tx, appointmentId);
+      const paymentLedgerAfter = resolveAppointmentPaymentLedger({
+        cachedAmountPaidCents: amountPaidCents,
+        paymentRows: paymentRowsAfter,
+        expectedSalonId: appointment.salonId,
+        appointmentStatus: appointment.status,
         paymentStatus: appointment.paymentStatus,
       });
-      const previousStatus = appointment.paymentStatus ?? 'pending';
-      // 'comp' is an explicit state, never derived — leave it untouched.
-      const nextStatus = previousStatus === 'comp'
-        ? 'comp'
-        : derivePaymentStatus(balance.totalDueCents, amountPaidCents);
+      if (!paymentLedgerAfter.ok) {
+        throw new Error(paymentLedgerAfter.code);
+      }
 
       await tx
         .update(appointmentSchema)
@@ -143,7 +246,8 @@ export async function POST(
         amountPaidCents,
         previousStatus,
         nextStatus,
-        totalDueCents: balance.totalDueCents,
+        depositCredit: depositFinancials.depositCredit,
+        financials: depositFinancials.financials,
       };
     });
 
@@ -164,8 +268,11 @@ export async function POST(
       data: {
         paymentStatus: result.nextStatus,
         amountPaidCents: result.amountPaidCents,
-        totalDueCents: result.totalDueCents,
-        balanceCents: Math.max(0, result.totalDueCents - result.amountPaidCents),
+        depositCredit: result.depositCredit,
+        depositCreditAppliedCents: result.financials.depositCreditAppliedCents,
+        amountAlreadyPaidCents: result.financials.amountAlreadyPaidCents,
+        totalDueCents: result.financials.totalDueCents,
+        balanceCents: result.financials.remainingBalanceCents,
       },
     });
   } catch (error) {

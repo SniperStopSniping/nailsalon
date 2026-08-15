@@ -11,12 +11,10 @@ import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
 import { serializeFinancialPeriodSummary } from '@/libs/financialReportingSerializer';
 import {
+  getCompletedRevenueRows,
   getCurrentFinancialReportingSummaries,
   getFinancialReportingRangeSummary,
 } from '@/libs/financialReportingServer';
-import {
-  completedAppointmentRevenueCentsSql,
-} from '@/libs/revenueSql';
 import { getDateKeyInTimeZone } from '@/libs/timeZone';
 import {
   appointmentSchema,
@@ -148,6 +146,7 @@ export async function GET(request: Request): Promise<Response> {
     const { start, end, previousStart, previousEnd } = reportDateRange;
     const currentFinancialsPromise = getCurrentFinancialReportingSummaries({
       salonId: salon.id,
+      currency: bookingConfig.currency,
       timeZone: salonTimeZone,
       now,
     });
@@ -163,24 +162,32 @@ export async function GET(request: Request): Promise<Response> {
         })
         : getFinancialReportingRangeSummary({
           salonId: salon.id,
+          currency: bookingConfig.currency,
           start,
           end,
         });
     const previousFinancialSummaryPromise
       = getFinancialReportingRangeSummary({
         salonId: salon.id,
+        currency: bookingConfig.currency,
         start: previousStart,
         end: previousEnd,
       });
+    const completedRevenueRowsPromise = getCompletedRevenueRows({
+      salonId: salon.id,
+      currency: bookingConfig.currency,
+      start,
+      end,
+    });
 
     const [
       selectedFinancialSummary,
       previousFinancialSummary,
       currentFinancials,
       appointmentStats,
-      staffPerformance,
+      activeTechnicians,
       serviceMix,
-      revenueRows,
+      completedRevenueRows,
     ] = await Promise.all([
       selectedFinancialSummaryPromise,
       previousFinancialSummaryPromise,
@@ -207,30 +214,15 @@ export async function GET(request: Request): Promise<Response> {
           name: technicianSchema.name,
           role: technicianSchema.role,
           avatarUrl: technicianSchema.avatarUrl,
-          revenue: sql<number>`COALESCE(sum(${completedAppointmentRevenueCentsSql()}), 0)::int`,
-          appointmentCount: sql<number>`count(${appointmentSchema.id})::int`,
         })
         .from(technicianSchema)
-        .leftJoin(
-          appointmentSchema,
-          and(
-            eq(appointmentSchema.technicianId, technicianSchema.id),
-            eq(appointmentSchema.salonId, salon.id),
-            eq(appointmentSchema.status, 'completed'),
-            isNull(appointmentSchema.deletedAt),
-            gte(appointmentSchema.startTime, start),
-            lt(appointmentSchema.startTime, end),
-          ),
-        )
         .where(
           and(
             eq(technicianSchema.salonId, salon.id),
             eq(technicianSchema.isActive, true),
           ),
         )
-        .groupBy(technicianSchema.id)
-        .orderBy(sql`sum(${completedAppointmentRevenueCentsSql()}) DESC NULLS LAST`)
-        .limit(5),
+        .orderBy(technicianSchema.displayOrder, technicianSchema.id),
       db
         .select({
           serviceId: serviceSchema.id,
@@ -253,25 +245,41 @@ export async function GET(request: Request): Promise<Response> {
         .groupBy(serviceSchema.id)
         .orderBy(sql`count(*) DESC`)
         .limit(4),
-      db
-        .select({
-          startTime: appointmentSchema.startTime,
-          totalPrice: sql<number>`${completedAppointmentRevenueCentsSql()}::int`,
-        })
-        .from(appointmentSchema)
-        .where(
-          and(
-            eq(appointmentSchema.salonId, salon.id),
-            eq(appointmentSchema.status, 'completed'),
-            isNull(appointmentSchema.deletedAt),
-            gte(appointmentSchema.startTime, start),
-            lt(appointmentSchema.startTime, end),
-          ),
-        ),
+      completedRevenueRowsPromise,
     ]);
 
+    const revenueByTechnician = new Map<
+      string,
+      { revenue: number; appointmentCount: number }
+    >();
+    for (const row of completedRevenueRows) {
+      if (row.technicianId === null) {
+        continue;
+      }
+      const current = revenueByTechnician.get(row.technicianId) ?? {
+        revenue: 0,
+        appointmentCount: 0,
+      };
+      current.revenue += row.serviceValueCents;
+      current.appointmentCount += 1;
+      revenueByTechnician.set(row.technicianId, current);
+    }
+    const staffPerformance = activeTechnicians
+      .map(technician => ({
+        ...technician,
+        revenue: revenueByTechnician.get(technician.id)?.revenue ?? 0,
+        appointmentCount:
+          revenueByTechnician.get(technician.id)?.appointmentCount ?? 0,
+      }))
+      .sort((left, right) => right.revenue - left.revenue
+        || left.id.localeCompare(right.id))
+      .slice(0, 5);
+
     const revenueSeries = buildRevenueSeries(
-      revenueRows,
+      completedRevenueRows.map(row => ({
+        startTime: row.startTime,
+        totalPrice: row.serviceValueCents,
+      })),
       fullDateRange.start,
       fullDateRange.end,
       period,

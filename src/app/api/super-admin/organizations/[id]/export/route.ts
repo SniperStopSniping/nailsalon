@@ -3,6 +3,10 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/libs/DB';
 import { requireSuperAdmin } from '@/libs/superAdmin';
 import {
+  appointmentAuditLogSchema,
+  appointmentDepositSchema,
+  appointmentFinalItemSchema,
+  appointmentPaymentSchema,
   appointmentSchema,
   clientPreferencesSchema,
   referralSchema,
@@ -48,10 +52,26 @@ export async function GET(
     }
 
     // Fetch all related data
-    const [services, technicians, appointments, referrals, rewards, clientPreferences, locations] = await Promise.all([
+    const [
+      services,
+      technicians,
+      appointments,
+      appointmentDeposits,
+      appointmentPayments,
+      appointmentFinalItems,
+      appointmentAuditLog,
+      referrals,
+      rewards,
+      clientPreferences,
+      locations,
+    ] = await Promise.all([
       db.select().from(serviceSchema).where(eq(serviceSchema.salonId, id)),
       db.select().from(technicianSchema).where(eq(technicianSchema.salonId, id)),
       db.select().from(appointmentSchema).where(eq(appointmentSchema.salonId, id)),
+      db.select().from(appointmentDepositSchema).where(eq(appointmentDepositSchema.salonId, id)),
+      db.select().from(appointmentPaymentSchema).where(eq(appointmentPaymentSchema.salonId, id)),
+      db.select().from(appointmentFinalItemSchema).where(eq(appointmentFinalItemSchema.salonId, id)),
+      db.select().from(appointmentAuditLogSchema).where(eq(appointmentAuditLogSchema.salonId, id)),
       db.select().from(referralSchema).where(eq(referralSchema.salonId, id)),
       db.select().from(rewardSchema).where(eq(rewardSchema.salonId, id)),
       db.select().from(clientPreferencesSchema).where(eq(clientPreferencesSchema.salonId, id)),
@@ -120,19 +140,47 @@ export async function GET(
         endTime: appt.endTime.toISOString(),
         status: appt.status,
         totalPrice: appt.totalPrice,
+        basePriceCents: appt.basePriceCents,
+        addOnsPriceCents: appt.addOnsPriceCents,
+        subtotalBeforeDiscountCents: appt.subtotalBeforeDiscountCents,
+        discountAmountCents: appt.discountAmountCents,
+        discountType: appt.discountType,
+        discountLabel: appt.discountLabel,
+        discountPercent: appt.discountPercent,
+        discountAppliedAt: appt.discountAppliedAt,
         totalDurationMinutes: appt.totalDurationMinutes,
         notes: appt.notes,
-        // Checkout record (0058): NULL = not recorded on legacy rows.
+        // Frozen D6.1 invoice identity and immutable estimate/final evidence.
+        // These are raw facts rather than a guessed derived balance: reviewers
+        // can resolve deposit/refund/payment history canonically from the
+        // tenant-bound ledgers exported below.
+        invoiceCurrency: appt.invoiceCurrency,
+        bookingTaxSnapshot: appt.bookingTaxSnapshot,
+        rescheduleTaxSnapshot: appt.rescheduleTaxSnapshot,
+        finalTaxSnapshot: appt.finalTaxSnapshot,
         finalPriceCents: appt.finalPriceCents,
+        finalSubtotalCents: appt.finalSubtotalCents,
+        finalDiscountCents: appt.finalDiscountCents,
+        finalDiscountReason: appt.finalDiscountReason,
         tipCents: appt.tipCents,
         paymentStatus: appt.paymentStatus,
         paymentMethod: appt.paymentMethod,
         amountPaidCents: appt.amountPaidCents,
+        taxEnabledSnapshot: appt.taxEnabledSnapshot,
         taxNameSnapshot: appt.taxNameSnapshot,
         taxRateBps: appt.taxRateBps,
+        taxInclusive: appt.taxInclusive,
         taxAmountCents: appt.taxAmountCents,
+        taxableSubtotalCents: appt.taxableSubtotalCents,
+        taxExempt: appt.taxExempt,
+        taxExemptReason: appt.taxExemptReason,
+        completedAt: appt.completedAt,
         createdAt: appt.createdAt.toISOString(),
       })),
+      appointmentDeposits,
+      appointmentPayments,
+      appointmentFinalItems,
+      appointmentAuditLog,
       referrals: referrals.map(ref => ({
         id: ref.id,
         referrerPhone: ref.referrerPhone,
@@ -166,6 +214,10 @@ export async function GET(
         servicesCount: services.length,
         techniciansCount: technicians.length,
         appointmentsCount: appointments.length,
+        appointmentDepositsCount: appointmentDeposits.length,
+        appointmentPaymentsCount: appointmentPayments.length,
+        appointmentFinalItemsCount: appointmentFinalItems.length,
+        appointmentAuditLogCount: appointmentAuditLog.length,
         referralsCount: referrals.length,
         rewardsCount: rewards.length,
         clientPreferencesCount: clientPreferences.length,

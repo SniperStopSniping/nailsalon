@@ -18,6 +18,7 @@ import {
   STRIPE_WEBHOOK_EVENT_OUTCOMES,
   STRIPE_WEBHOOK_EVENT_STATUSES,
 } from '@/libs/stripeConnect/webhookEvents';
+import { buildForfeitureTaxSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
 vi.mock('server-only', () => ({}));
@@ -205,6 +206,25 @@ describe('test 1 — mapped tables round-trip and match the landed DDL', () => {
   });
 
   it('appointment_deposit round-trips every mapped column', async () => {
+    const forfeitedAt = new Date('2026-08-08T03:00:00Z');
+    const forfeitureTaxSnapshot = buildForfeitureTaxSnapshot({
+      taxConfig: resolveTaxConfig({
+        payments: {
+          tax: {
+            enabled: true,
+            name: 'HST',
+            rateBps: 1300,
+            forfeitureTaxEstimationEnabled: true,
+            jurisdiction: 'Ontario HST',
+            country: 'CA',
+            region: 'ON',
+          },
+        },
+      }, forfeitedAt),
+      grossForfeitedCents: 2500,
+      capturedAt: forfeitedAt,
+      currency: 'CAD',
+    });
     const row = {
       id: 'dep_roundtrip',
       salonId: SALON_ID,
@@ -216,6 +236,7 @@ describe('test 1 — mapped tables round-trip and match the landed DDL', () => {
       stripeAccountId: 'acct_roundtrip',
       stripeCheckoutSessionId: 'cs_roundtrip',
       stripePaymentIntentId: 'pi_roundtrip',
+      collectedAt: new Date('2026-08-01T00:02:00Z'),
       stripeCheckoutUrl: 'https://checkout.example/x',
       checkoutSuccessUrl: 'https://app.example/ok',
       checkoutCancelUrl: 'https://app.example/no',
@@ -247,6 +268,8 @@ describe('test 1 — mapped tables round-trip and match the landed DDL', () => {
       waivedAt: new Date('2026-08-08T02:00:00Z'),
       waivedBy: 'admin_roundtrip',
       waiverReason: 'round-trip fixture',
+      forfeitedAt,
+      forfeitureTaxSnapshot,
       createdAt: new Date('2026-08-01T00:00:00Z'),
       updatedAt: new Date('2026-08-01T00:00:00Z'),
     } satisfies typeof schema.appointmentDepositSchema.$inferInsert;

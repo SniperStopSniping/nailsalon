@@ -54,6 +54,7 @@ export type ClientInsightAttentionItem = {
   lastVisitAt: string | null;
   expectedReturnAt: string | null;
   completedOutstandingCents: number;
+  financialState: 'resolved' | 'under_review';
   outreachStage: RetentionStage | null;
 };
 

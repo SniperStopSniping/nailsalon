@@ -842,7 +842,7 @@ export async function enqueueDepositRefundNotices(
     appointmentId: string;
     depositId: string;
     refundId: string;
-    variant: 'slot_lost' | 'waiver';
+    variant: 'slot_lost' | 'waiver' | 'owner';
   },
 ) {
   await database
@@ -858,6 +858,38 @@ export async function enqueueDepositRefundNotices(
         depositId: input.depositId,
         refundId: input.refundId,
         variant: input.variant,
+      },
+    })
+    .onConflictDoNothing();
+}
+
+/**
+ * Durable, transaction-coupled refresh of denormalized client visit/spend
+ * facts after a deposit refund state changes. The state version comes from the
+ * locked deposit row after the mutation, so an exact webhook/reconciler replay
+ * coalesces while a later refund transition schedules fresh work.
+ */
+export async function enqueueClientStatsRefreshInTx(
+  database: OutboxTransaction,
+  input: {
+    salonId: string;
+    appointmentId: string;
+    depositId: string;
+    stateVersion: string;
+  },
+) {
+  await database
+    .insert(integrationOutboxSchema)
+    .values({
+      id: crypto.randomUUID(),
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      provider: 'internal',
+      operation: 'refresh_client_stats',
+      dedupeKey: `deposit:${input.depositId}:client-stats:${input.stateVersion}`,
+      payload: {
+        depositId: input.depositId,
+        stateVersion: input.stateVersion,
       },
     })
     .onConflictDoNothing();
@@ -2703,6 +2735,7 @@ async function loadCurrentGoogleCalendarInput(
     startTime: new Date(event.startTime),
     endTime: new Date(event.endTime),
     totalPrice: event.totalPrice,
+    pricePresentation: event.pricePresentation,
     totalDurationMinutes: event.totalDurationMinutes,
     timeZone: event.timeZone,
     locationName: event.locationName,
@@ -3536,6 +3569,10 @@ async function processGoogleCalendarJob(
     const dispatchedEventId = serialized.googleCalendarEventId
       || appointment.googleCalendarEventId
       || null;
+    const currentInput = await loadCurrentGoogleCalendarInput(
+      payload.appointmentId,
+      job.salonId,
+    );
     (job.payload as Record<string, unknown>).dispatchedEventId = dispatchedEventId;
     providerResult = await dispatchWithCurrentIntentFence(
       dispatchedEventId,
@@ -3544,6 +3581,10 @@ async function processGoogleCalendarJob(
           ...serialized,
           startTime,
           endTime,
+          // Even an immutable snapshot must not revive a legacy raw amount.
+          // Currentness is already fenced above, so this canonical projection
+          // represents the same appointment revision at provider dispatch.
+          pricePresentation: currentInput.pricePresentation,
           googleCalendarEventId: dispatchedEventId,
           mutationVersion: payload.mutationVersion ?? undefined,
         }, {
@@ -3668,7 +3709,7 @@ export async function processIntegrationOutbox(
     .from(integrationOutboxSchema)
     .where(
       and(
-        inArray(integrationOutboxSchema.provider, ['google_calendar', 'email']),
+        inArray(integrationOutboxSchema.provider, ['google_calendar', 'email', 'internal']),
         inArray(integrationOutboxSchema.status, ['pending', 'retry']),
         lte(integrationOutboxSchema.availableAt, new Date()),
       ),
@@ -3778,6 +3819,26 @@ export async function processIntegrationOutbox(
           }
         }
         continue;
+      } else if (
+        job.provider === 'internal'
+        && job.operation === 'refresh_client_stats'
+      ) {
+        if (!job.appointmentId) {
+          throw new Error('INVALID_CLIENT_STATS_REFRESH');
+        }
+        const [appointment] = await db
+          .select({ clientPhone: appointmentSchema.clientPhone })
+          .from(appointmentSchema)
+          .where(and(
+            eq(appointmentSchema.id, job.appointmentId),
+            eq(appointmentSchema.salonId, job.salonId),
+          ))
+          .limit(1);
+        if (appointment) {
+          const { updateSalonClientStats } = await import('@/libs/queries');
+          await updateSalonClientStats(job.salonId, appointment.clientPhone);
+        }
+        result = { status: 'synced' as const };
       } else if (
         job.provider === 'email'
         && job.operation === 'retry_booking_confirmation'
@@ -4082,6 +4143,17 @@ export async function processIntegrationOutbox(
                 ),
               );
           }
+        }
+        if (job.provider === 'internal') {
+          Sentry.captureMessage('internal_outbox_job_failed', {
+            level: 'error',
+            tags: { outbox_operation: job.operation },
+            extra: {
+              jobId: job.id,
+              appointmentId: job.appointmentId,
+            },
+          });
+          continue;
         }
         const [salon] = await db
           .select({

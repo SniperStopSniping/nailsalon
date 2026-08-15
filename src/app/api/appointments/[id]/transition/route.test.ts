@@ -1,6 +1,12 @@
 /* eslint-disable import/first */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+const forfeitAppointmentDepositInTx = vi.hoisted(() => vi.fn(async () => ({
+  disposition: 'no_deposit',
+  depositIds: [],
+  forfeitedCents: 0,
+})));
+
 const {
   callOrder,
   requireStaffAppointmentAccess,
@@ -146,6 +152,10 @@ vi.mock('@/libs/bookingConflictGuard', () => ({
   lockTechnicianAndAssertSlotFree,
 }));
 vi.mock('@/libs/DB', () => ({ db }));
+vi.mock('@/libs/deposits/depositForfeiture', () => ({
+  DepositForfeitureBlockedError: class DepositForfeitureBlockedError extends Error {},
+  forfeitAppointmentDepositInTx,
+}));
 import { POST } from './route';
 
 const appointment = {
@@ -262,7 +272,7 @@ describe('POST /api/appointments/:id/transition', () => {
     expect(enqueueGoogleCalendarDelete).not.toHaveBeenCalled();
   });
 
-  it('keeps completion behavior without lifecycle locks', async () => {
+  it('rejects direct completion so checkout owns every financial write', async () => {
     const completing = {
       ...appointment,
       canvasState: 'wrap_up',
@@ -278,13 +288,18 @@ describe('POST /api/appointments/:id/transition', () => {
 
     const response = await POST(transitionRequest('complete'), { params: { id: 'appt_1' } });
 
-    expect(response.status).toBe(200);
-    expect(capturedUpdates[0]).toMatchObject({
-      canvasState: 'complete',
-      status: 'completed',
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toEqual({
+      error: {
+        code: 'CHECKOUT_COMPLETION_REQUIRED',
+        message: 'Open checkout to finalize the invoice before completing this appointment.',
+      },
     });
+    expect(capturedUpdates).toEqual([]);
     expect(lockOperationalSalonClientContactWithHandle).not.toHaveBeenCalled();
-    expect(callOrder).toEqual(['appointment-lock', 'appointment-cas']);
+    expect(callOrder).toEqual([]);
+    expect(logAppointmentChange).not.toHaveBeenCalled();
+    expect(logAppointmentLocked).not.toHaveBeenCalled();
   });
 
   it('keeps an already-active working to wrap-up transition lifecycle-lock free', async () => {
@@ -331,6 +346,11 @@ describe('POST /api/appointments/:id/transition', () => {
       status: 'no_show',
       cancelReason: 'no_show',
     });
+    expect(forfeitAppointmentDepositInTx).toHaveBeenCalledWith(expect.objectContaining({
+      salonId: 'salon_1',
+      appointmentId: 'appt_1',
+      appointmentLockHeld: true,
+    }));
     expect(enqueueGoogleCalendarDeleteInTx).toHaveBeenCalledWith(
       tx,
       expect.objectContaining({

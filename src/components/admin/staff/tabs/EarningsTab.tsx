@@ -3,6 +3,8 @@
 import { Building2, DollarSign, TrendingUp } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
 
+import { formatMoney } from '@/libs/formatMoney';
+
 // =============================================================================
 // Types
 // =============================================================================
@@ -34,12 +36,8 @@ type DateRange = 'today' | 'week' | 'month' | 'custom';
 // Helpers
 // =============================================================================
 
-function formatCurrency(cents: number): string {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: 'USD',
-    minimumFractionDigits: 0,
-  }).format(cents / 100);
+function formatCurrency(cents: number, currency: string | null): string {
+  return currency ? formatMoney(cents, currency) : 'Unavailable';
 }
 
 function getDateRange(range: DateRange): { from: string; to: string } {
@@ -77,6 +75,7 @@ export function EarningsTab({ salonSlug, technicianId, commissionRate }: Earning
   const [dateRange, setDateRange] = useState<DateRange>('month');
   const [summary, setSummary] = useState<EarningsSummary | null>(null);
   const [series, setSeries] = useState<EarningsSeries[]>([]);
+  const [currency, setCurrency] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchEarnings = useCallback(async () => {
@@ -103,6 +102,7 @@ export function EarningsTab({ salonSlug, technicianId, commissionRate }: Earning
       }
 
       const result = await response.json();
+      setCurrency(result.data?.currency ?? null);
       setSummary(result.data?.summary ?? null);
       setSeries(result.data?.series ?? []);
     } catch (err) {
@@ -143,23 +143,22 @@ export function EarningsTab({ salonSlug, technicianId, commissionRate }: Earning
         ))}
       </div>
 
-      {loading ? (
-        <LoadingSkeleton />
-      ) : (
+      {loading && <LoadingSkeleton />}
+      {!loading && (
         <>
           {/* Summary Cards */}
           <div className="grid grid-cols-2 gap-3">
             <EarningsCard
               icon={<DollarSign className="size-5" />}
               label="They Earned"
-              value={formatCurrency(summary?.techEarned ?? 0)}
+              value={formatCurrency(summary?.techEarned ?? 0, currency)}
               sublabel={`${Math.round(commissionRate * 100)}% commission`}
               color="#34C759"
             />
             <EarningsCard
               icon={<Building2 className="size-5" />}
               label="They Made Us"
-              value={formatCurrency(summary?.salonEarned ?? 0)}
+              value={formatCurrency(summary?.salonEarned ?? 0, currency)}
               sublabel={`${Math.round((1 - commissionRate) * 100)}% salon`}
               color="#007AFF"
             />
@@ -174,7 +173,7 @@ export function EarningsTab({ salonSlug, technicianId, commissionRate }: Earning
               <span className="text-[13px] text-[#8E8E93]">Total Revenue</span>
             </div>
             <div className="text-[28px] font-bold text-[#1C1C1E]">
-              {formatCurrency(summary?.totalRevenue ?? 0)}
+              {formatCurrency(summary?.totalRevenue ?? 0, currency)}
             </div>
             <div className="text-[13px] text-[#8E8E93]">
               from
@@ -194,7 +193,7 @@ export function EarningsTab({ salonSlug, technicianId, commissionRate }: Earning
               </h3>
               <div className="rounded-[12px] bg-white p-4">
                 <div className="flex h-32 items-end gap-1">
-                  {series.slice(-14).map((item, index) => {
+                  {series.slice(-14).map((item) => {
                     const height = (item.totalRevenue / maxRevenue) * 100;
                     const date = item.date ? new Date(item.date) : null;
                     const dayLabel = date
@@ -203,7 +202,7 @@ export function EarningsTab({ salonSlug, technicianId, commissionRate }: Earning
 
                     return (
                       <div
-                        key={index}
+                        key={item.date ?? `unknown-${item.appointments}-${item.totalRevenue}`}
                         className="flex flex-1 flex-col items-center"
                       >
                         <div

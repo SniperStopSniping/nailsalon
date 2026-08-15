@@ -15,6 +15,7 @@ import { and, eq, gte, isNull, ne, sql } from 'drizzle-orm';
 
 import { db } from '@/libs/DB';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
+import { hasCanonicalAppliedDepositCreditForClientLineage } from '@/libs/queries';
 import {
   appointmentSchema,
   fraudSignalSchema,
@@ -61,6 +62,17 @@ export async function evaluateAndFlagIfNeeded(
   pointsEarnedThisAppt: number,
 ): Promise<void> {
   try {
+    // D6.2 owns reward attribution and its velocity/frequency policy. A D6.1
+    // deposit-funded paid visit must not enter those signals now or through a
+    // later tender-only completion, so defer the whole evaluation while the
+    // stable client has canonical applied-credit history.
+    if (await hasCanonicalAppliedDepositCreditForClientLineage({
+      salonId,
+      salonClientId,
+    })) {
+      return;
+    }
+
     // Get client phone for metadata (optional, for display only)
     const clientPhone = await getClientPhone(salonClientId);
 

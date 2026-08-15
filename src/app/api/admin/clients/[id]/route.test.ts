@@ -26,6 +26,8 @@ const {
   transactionUpdateWhere,
   transactionInsert,
   transactionInsertValues,
+  getFinancialBalanceSummary,
+  getCompletedFinancialRows,
   db,
 } = vi.hoisted(() => {
   const selectQueue: unknown[] = [];
@@ -139,6 +141,8 @@ const {
     transactionUpdateWhere,
     transactionInsert,
     transactionInsertValues,
+    getFinancialBalanceSummary: vi.fn(),
+    getCompletedFinancialRows: vi.fn(),
     db: {
       select,
       transaction,
@@ -174,6 +178,15 @@ vi.mock('@/libs/DB', () => ({
   db,
 }));
 
+vi.mock('@/libs/financialReportingServer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/libs/financialReportingServer')>();
+  return {
+    ...actual,
+    getFinancialBalanceSummary,
+    getCompletedFinancialRows,
+  };
+});
+
 vi.mock('server-only', () => ({}));
 
 import { GET, PATCH } from './route';
@@ -201,6 +214,24 @@ describe('GET /api/admin/clients/[id]', () => {
         phones: ['1111111111'],
       }),
     );
+    getFinancialBalanceSummary.mockResolvedValue({
+      completedOutstandingCents: 0,
+      completedOutstandingAppointmentCount: 0,
+      completedOutstandingProvenance: {
+        state: 'complete',
+        source: 'none',
+        finalizedAppointmentCount: 0,
+        legacyAppointmentCount: 0,
+        unresolvedAppointmentCount: 0,
+        finalizedAmountCents: 0,
+        legacyFallbackAmountCents: 0,
+      },
+      upcomingBalanceCents: 0,
+      upcomingAppointmentCount: 0,
+      unresolvedUpcomingAppointmentCount: 0,
+      settledByLegacyPaymentStatusCount: 0,
+    });
+    getCompletedFinancialRows.mockResolvedValue([]);
   });
 
   it('rejects a synthetic wrong-tenant request without looking up or disclosing the client', async () => {
@@ -297,6 +328,15 @@ describe('GET /api/admin/clients/[id]', () => {
       error: null,
       salon: { id: 'salon_1' },
     });
+    getCompletedFinancialRows.mockResolvedValue([{
+      salonClientId: 'client_1',
+      clientPhone: '1111111111',
+      startTime: new Date('2026-03-10T14:00:00.000Z'),
+      completedOutstandingCents: 0,
+      serviceValueCents: 8200,
+      source: 'legacy',
+      financiallySettled: true,
+    }]);
     selectQueue.push(
       [{
         id: 'client_1',
@@ -374,6 +414,7 @@ describe('GET /api/admin/clients/[id]', () => {
       [],
       [],
       [],
+      [],
       [{
         totalCents: 8200,
         finalizedAppointmentCount: 0,
@@ -390,17 +431,6 @@ describe('GET /api/admin/clients/[id]', () => {
         unresolvedAppointmentCount: 0,
         finalizedAmountCents: 0,
         legacyFallbackAmountCents: 0,
-      }],
-      [{
-        finalizedAppointmentCount: 0,
-        legacyAppointmentCount: 0,
-        unresolvedAppointmentCount: 1,
-        finalizedAmountCents: 0,
-        legacyFallbackAmountCents: 0,
-        upcomingBalanceCents: 9500,
-        upcomingAppointmentCount: 1,
-        unresolvedUpcomingAppointmentCount: 0,
-        settledByLegacyPaymentStatusCount: 0,
       }],
       [],
       [{ id: 'svc_2', name: 'Classic Pedicure', count: 1, lastBookedAt: new Date('2026-03-10T14:00:00.000Z') }],

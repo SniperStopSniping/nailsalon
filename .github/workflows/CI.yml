@@ -227,12 +227,13 @@ jobs:
             fi
           fi
 
-          # 3. Only chartered paths may change under the additive surfaces.
+          # 3. Only the current packet's chartered paths may change under the
+          #    additive surfaces. Previously shipped migrations are deliberately
+          #    absent: any later edit to 0066 or 0067 must fail.
           while read -r file; do
             [ -n "$file" ] || continue
             case "$file" in
-              migrations/0066_deposit_hold_awaiting_payment.sql) ;;
-              migrations/0067_deposit_refund_waiver_columns.sql) ;;
+              migrations/0068_deposit_credit_tax_snapshots.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -252,13 +253,49 @@ jobs:
             exit 1
           fi
 
-          # 5. The additions themselves are allowlisted by content, so a packet
+          # 5. D6.1 may add 0068 exactly once and only with its reviewed
+          #    postimage. Once origin/main contains it, every subsequent edit is
+          #    rejected even if the edit is additive. The journal follows the
+          #    same one-packet rule, preventing additive mutation of old entries.
+          if ! git diff --quiet "$base" -- migrations/0068_deposit_credit_tax_snapshots.sql; then
+            if git cat-file -e "$base:migrations/0068_deposit_credit_tax_snapshots.sql" 2>/dev/null; then
+              echo "::error::Migration 0068 is already shipped and is immutable."
+              exit 1
+            fi
+            migration_0068_status="$(git diff --name-status "$base" -- migrations/0068_deposit_credit_tax_snapshots.sql)"
+            if [ "$migration_0068_status" != $'A\tmigrations/0068_deposit_credit_tax_snapshots.sql' ]; then
+              echo "::error::Migration 0068 must be introduced as one new file."
+              printf 'actual status: %s\n' "$migration_0068_status"
+              exit 1
+            fi
+            migration_0068_blob="$(git hash-object migrations/0068_deposit_credit_tax_snapshots.sql)"
+            if [ "$migration_0068_blob" != "ea99188b3e4a55730ee10f372b731ddfc1930124" ]; then
+              echo "::error::Migration 0068 does not match the reviewed D6.1 postimage."
+              printf 'actual blob: %s\n' "$migration_0068_blob"
+              exit 1
+            fi
+          fi
+
+          if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
+            if git show "$base:migrations/meta/_journal.json" \
+              | grep -Fq '"tag": "0068_deposit_credit_tax_snapshots"'; then
+              echo "::error::The D6.1 journal entry is already shipped and is immutable."
+              exit 1
+            fi
+            journal_blob="$(git hash-object migrations/meta/_journal.json)"
+            if [ "$journal_blob" != "f5bbd989c1f63e08bbc015c227008492f08c599e" ]; then
+              echo "::error::Migration journal does not match the reviewed D6.1 postimage."
+              printf 'actual blob: %s\n' "$journal_blob"
+              exit 1
+            fi
+          fi
+
+          # 6. The additions themselves are allowlisted by content, so a packet
           #    cannot smuggle an extra migration or an extra cron through.
           new_tags="$(git diff --unified=0 "$base" -- migrations/meta/_journal.json \
             | grep -E '^\+.*"tag"' | sed -E 's/.*"tag" *: *"([^"]+)".*/\1/' || true)"
           if [ -n "$new_tags" ] \
-             && [ "$new_tags" != "0066_deposit_hold_awaiting_payment" ] \
-             && [ "$new_tags" != "0067_deposit_refund_waiver_columns" ]; then
+             && [ "$new_tags" != "0068_deposit_credit_tax_snapshots" ]; then
             echo "::error::Unauthorized migration journal entries:"
             printf '%s\n' "$new_tags"
             exit 1
@@ -679,7 +716,7 @@ jobs:
             'D5_REAL_POSTGRES_TESTS_EXECUTED=5 D5_REAL_POSTGRES_TESTS_SKIPPED=0' \
             d5-postgres-concurrency.log
 
-      - name: Run all D6 real-PostgreSQL refund races and prove zero skips
+      - name: Run all D6/D6.1 real-PostgreSQL money races and prove zero skips
         shell: bash
         env:
           LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
@@ -688,9 +725,13 @@ jobs:
           set -euo pipefail
           npx vitest run --no-file-parallelism \
             src/libs/deposits/depositRefund.concurrency.integration.test.ts \
+            src/libs/queries.clientStats.concurrency.integration.test.ts \
             | tee d6-postgres-concurrency.log
           grep -Fqx \
-            'D6_REAL_POSTGRES_TESTS_EXECUTED=8 D6_REAL_POSTGRES_TESTS_SKIPPED=0' \
+            'D6_REAL_POSTGRES_TESTS_EXECUTED=10 D6_REAL_POSTGRES_TESTS_SKIPPED=0' \
+            d6-postgres-concurrency.log
+          grep -Fqx \
+            'D6_1_CLIENT_STATS_POSTGRES_TESTS_EXECUTED=1 D6_1_CLIENT_STATS_POSTGRES_TESTS_SKIPPED=0' \
             d6-postgres-concurrency.log
 
   booking-entitlement-override-postgres:

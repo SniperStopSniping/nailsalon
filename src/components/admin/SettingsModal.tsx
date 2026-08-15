@@ -68,6 +68,8 @@ import {
   parseDepositDollarsToCents,
 } from '@/libs/depositPolicy';
 import type { ResolvedLoyaltyPoints } from '@/libs/loyalty';
+import { hasReviewedForfeitureTaxTreatment } from '@/libs/taxConfig';
+import { getDateKeyInTimeZone } from '@/libs/timeZone';
 import { useSalon } from '@/providers/SalonProvider';
 import type {
   BookingExperience,
@@ -2379,6 +2381,10 @@ type PaymentsFormState = {
   taxServicesByDefault: boolean;
   taxAddOnsByDefault: boolean;
   taxCustomByDefault: boolean;
+  forfeitureTaxEstimationEnabled: boolean;
+  taxJurisdiction: string;
+  taxCountry: string;
+  taxRegion: string;
   scheduledRatePercent: string;
   scheduledEffectiveFrom: string;
   etransferEnabled: boolean;
@@ -2398,6 +2404,10 @@ const DEFAULT_PAYMENTS_FORM: PaymentsFormState = {
   taxServicesByDefault: true,
   taxAddOnsByDefault: true,
   taxCustomByDefault: true,
+  forfeitureTaxEstimationEnabled: false,
+  taxJurisdiction: '',
+  taxCountry: '',
+  taxRegion: '',
   scheduledRatePercent: '',
   scheduledEffectiveFrom: '',
   etransferEnabled: false,
@@ -2411,6 +2421,31 @@ const DEFAULT_PAYMENTS_FORM: PaymentsFormState = {
 
 function bpsToPercentString(bps: number | undefined): string {
   return bps === undefined || bps === null ? '' : String(bps / 100);
+}
+
+function scheduledTaxDateForForm(
+  scheduled: {
+    effectiveFrom?: string;
+    effectiveDate?: string;
+  } | null | undefined,
+  timeZone: string,
+): string {
+  if (scheduled?.effectiveDate) {
+    return scheduled.effectiveDate;
+  }
+  if (!scheduled?.effectiveFrom) {
+    return '';
+  }
+  const legacyNaiveDate = scheduled.effectiveFrom.match(
+    /^(\d{4}-\d{2}-\d{2})(?:T00:00(?::00(?:\.0+)?)?)?$/,
+  )?.[1];
+  if (legacyNaiveDate) {
+    return legacyNaiveDate;
+  }
+  const instant = new Date(scheduled.effectiveFrom);
+  return Number.isFinite(instant.getTime())
+    ? getDateKeyInTimeZone(instant, timeZone)
+    : '';
 }
 
 function percentStringToBps(value: string): number {
@@ -2854,11 +2889,18 @@ export function SettingsModal({
           taxServicesByDefault: data.payments?.tax?.taxServicesByDefault ?? true,
           taxAddOnsByDefault: data.payments?.tax?.taxAddOnsByDefault ?? true,
           taxCustomByDefault: data.payments?.tax?.taxCustomByDefault ?? true,
+          forfeitureTaxEstimationEnabled:
+            data.payments?.tax?.forfeitureTaxEstimationEnabled ?? false,
+          taxJurisdiction: data.payments?.tax?.jurisdiction ?? '',
+          taxCountry: data.payments?.tax?.country ?? '',
+          taxRegion: data.payments?.tax?.region ?? '',
           scheduledRatePercent: bpsToPercentString(
             data.payments?.tax?.scheduledChange?.rateBps,
           ),
-          scheduledEffectiveFrom:
-            data.payments?.tax?.scheduledChange?.effectiveFrom?.slice(0, 10) ?? '',
+          scheduledEffectiveFrom: scheduledTaxDateForForm(
+            data.payments?.tax?.scheduledChange,
+            data.bookingConfig?.timezone ?? 'America/Toronto',
+          ),
           etransferEnabled: data.payments?.etransfer?.enabled ?? false,
           etransferRecipient: data.payments?.etransfer?.recipient ?? '',
           etransferRecipientName: data.payments?.etransfer?.recipientName ?? '',
@@ -3057,10 +3099,17 @@ export function SettingsModal({
                 taxServicesByDefault: paymentsForm.taxServicesByDefault,
                 taxAddOnsByDefault: paymentsForm.taxAddOnsByDefault,
                 taxCustomByDefault: paymentsForm.taxCustomByDefault,
+                forfeitureTaxEstimationEnabled:
+                  paymentsForm.forfeitureTaxEstimationEnabled,
+                jurisdiction: paymentsForm.taxJurisdiction.trim(),
+                country: paymentsForm.taxCountry.trim(),
+                region: paymentsForm.taxRegion.trim(),
                 scheduledChange: hasScheduledChange
                   ? {
                       rateBps: scheduledBps,
-                      effectiveFrom: `${paymentsForm.scheduledEffectiveFrom}T00:00:00`,
+                      // The API converts this salon-local date to a timezone-
+                      // explicit midnight instant and stores both identities.
+                      effectiveFrom: paymentsForm.scheduledEffectiveFrom,
                     }
                   : null,
               },
@@ -4466,7 +4515,7 @@ export function SettingsModal({
           <>
             <Section
               title="Sales tax"
-              footer="Tax stays off until you turn it on — it is never assumed from your address. Completed appointments keep the tax that was in effect when they were checked out."
+              footer="Tax calculations and estimates are based on the settings you enter. Your business is responsible for registration, rates, tax treatment, filing, and remittance. Luster does not provide tax or accounting advice and does not file taxes for you. Tax stays off until you turn it on; completed appointments keep their original tax snapshot."
             >
               {programsLoading
                 ? (
@@ -4541,6 +4590,99 @@ export function SettingsModal({
                                 %
                               </span>
                             </div>
+                          </label>
+
+                          <div className="rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              Reporting jurisdiction
+                            </span>
+                            <div className="mt-2 grid gap-3 sm:grid-cols-3">
+                              <label className="flex flex-col gap-1">
+                                <span className="text-xs text-gray-500">Jurisdiction label</span>
+                                <input
+                                  type="text"
+                                  data-testid="payments-tax-jurisdiction"
+                                  value={paymentsForm.taxJurisdiction}
+                                  onChange={event =>
+                                    updatePaymentsForm(prev => ({
+                                      ...prev,
+                                      taxJurisdiction: event.target.value,
+                                    }))}
+                                  placeholder="Ontario HST"
+                                  maxLength={120}
+                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] text-black outline-none transition-colors focus:border-[#007AFF]"
+                                />
+                              </label>
+                              <label className="flex flex-col gap-1">
+                                <span className="text-xs text-gray-500">Country code</span>
+                                <input
+                                  type="text"
+                                  data-testid="payments-tax-country"
+                                  value={paymentsForm.taxCountry}
+                                  onChange={event =>
+                                    updatePaymentsForm(prev => ({
+                                      ...prev,
+                                      taxCountry: event.target.value,
+                                    }))}
+                                  placeholder="CA"
+                                  maxLength={120}
+                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] uppercase text-black outline-none transition-colors focus:border-[#007AFF]"
+                                />
+                              </label>
+                              <label className="flex flex-col gap-1">
+                                <span className="text-xs text-gray-500">Province / region code</span>
+                                <input
+                                  type="text"
+                                  data-testid="payments-tax-region"
+                                  value={paymentsForm.taxRegion}
+                                  onChange={event =>
+                                    updatePaymentsForm(prev => ({
+                                      ...prev,
+                                      taxRegion: event.target.value,
+                                    }))}
+                                  placeholder="ON"
+                                  maxLength={120}
+                                  className="h-11 rounded-[10px] border border-gray-200 px-3 text-[15px] uppercase text-black outline-none transition-colors focus:border-[#007AFF]"
+                                />
+                              </label>
+                            </div>
+                            <p className="mt-2 text-xs text-gray-500">
+                              Used for reporting only. The reviewed Ontario estimate requires
+                              Canada (CA) and Ontario (ON); other or missing locations report
+                              forfeited deposits at their gross amount without an estimated tax component.
+                            </p>
+                          </div>
+
+                          <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">
+                            <div className="space-y-1">
+                              <span className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                                Estimate tax included in forfeited deposits
+                              </span>
+                              <p className="text-sm text-gray-700">
+                                Opt in to an estimated tax-inclusive component when a
+                                collected deposit is retained. This is an estimate from
+                                your settings, not a filing or remittance calculation.
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {hasReviewedForfeitureTaxTreatment({
+                                  country: paymentsForm.taxCountry,
+                                  region: paymentsForm.taxRegion,
+                                })
+                                  ? 'The entered Canada / Ontario jurisdiction is reviewed for this estimate.'
+                                  : 'This jurisdiction is not reviewed; forfeitures remain gross-only even when opted in.'}
+                              </p>
+                            </div>
+                            <input
+                              type="checkbox"
+                              data-testid="payments-tax-forfeiture-estimate"
+                              checked={paymentsForm.forfeitureTaxEstimationEnabled}
+                              onChange={event =>
+                                updatePaymentsForm(prev => ({
+                                  ...prev,
+                                  forfeitureTaxEstimationEnabled: event.target.checked,
+                                }))}
+                              className="mt-1 size-4 rounded border-gray-300 text-rose-800 focus:ring-rose-700"
+                            />
                           </label>
 
                           <label className="flex items-start justify-between gap-3 rounded-[10px] border border-gray-200 p-3 sm:col-span-2">

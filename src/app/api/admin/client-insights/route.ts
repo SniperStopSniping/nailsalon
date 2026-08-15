@@ -50,6 +50,7 @@ export async function GET(request: Request): Promise<Response> {
     );
     const snapshot = await getClientInsightsSnapshot({
       salonId: salon.id,
+      currency: bookingConfig.currency,
       timeZone: bookingConfig.timezone,
     });
 

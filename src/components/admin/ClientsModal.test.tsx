@@ -143,6 +143,7 @@ type ListClient = {
   lastVisitAt?: string | null;
   totalVisits?: number;
   totalSpent?: number;
+  spendCurrency?: string | null;
   noShowCount?: number;
   loyaltyPoints?: number;
   notes?: string | null;
@@ -163,6 +164,7 @@ function buildListClient(overrides: Partial<ListClient> = {}): ListClient {
     lastVisitAt: '2026-03-10T14:00:00.000Z',
     totalVisits: 6,
     totalSpent: 45500,
+    spendCurrency: 'CAD',
     noShowCount: 1,
     loyaltyPoints: 820,
     notes: 'Prefers shorter almond shape.',
@@ -228,6 +230,7 @@ function buildDetailResponse(overrides?: Partial<{
         endTime: '2026-04-04T16:00:00.000Z',
         status: 'confirmed',
         totalPrice: 9500,
+        currency: 'CAD',
         technician: { id: 'tech_1', name: 'Daniela', avatarUrl: null },
         services: [{ id: 'svc_gel_fill', name: 'Gel Fill', price: 9500 }],
         notes: 'French finish',
@@ -238,6 +241,7 @@ function buildDetailResponse(overrides?: Partial<{
         endTime: '2026-03-10T15:00:00.000Z',
         status: 'completed',
         totalPrice: 8200,
+        currency: 'CAD',
         technician: { id: 'tech_2', name: 'Mila', avatarUrl: null },
         services: [{ id: 'svc_pedicure', name: 'Classic Pedicure', price: 8200 }],
         addOns: [{ id: 'addon_art', name: 'Nail art', quantity: 1, lineTotalCents: 1200 }],
@@ -248,6 +252,13 @@ function buildDetailResponse(overrides?: Partial<{
           taxCents: 0,
           tipsCents: 0,
           paymentsReceivedCents: 4000,
+          depositCollectedCents: 2500,
+          depositRefundedCents: 2500,
+          depositForfeitedCents: 0,
+          depositCreditCents: 0,
+          depositState: 'fully_refunded',
+          depositBlockCode: null,
+          amountAlreadyPaidCents: 4000,
           payments: [{
             id: 'payment_1',
             amountCents: 4000,
@@ -256,6 +267,8 @@ function buildDetailResponse(overrides?: Partial<{
           }],
           paymentStatus: 'partially_paid',
           completedOutstandingCents: 6000,
+          financialState: 'resolved',
+          balanceCents: 6000,
           balanceState: 'completed_outstanding',
         },
         notes: null,
@@ -276,6 +289,7 @@ function buildDetailResponse(overrides?: Partial<{
         lifetimeSpendCents: 45500,
         spendThisMonthCents: 10000,
         completedOutstandingCents: 6000,
+        financialState: 'resolved',
         completedVisits: 6,
         mostBookedService: { id: 'svc_pedicure', name: 'Classic Pedicure', count: 3 },
         rebooking: { status: 'overdue', dueAt: '2026-03-31T14:00:00.000Z' },
@@ -940,7 +954,7 @@ describe('ClientsModal', () => {
     )).not.toBeInTheDocument();
   });
 
-  it('separates completed value, recorded payments, and completed outstanding', async () => {
+  it('separates deposit, refund, other payments, paid amount, and balance', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith('/api/admin/settings/modules?')) {
@@ -972,8 +986,13 @@ describe('ClientsModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Payments' }));
 
     expect(await screen.findByText(/Completed appointment value and recorded payments are separate/)).toBeInTheDocument();
-    expect(screen.getByText('Received')).toBeInTheDocument();
-    expect(screen.getByText('$40.00')).toBeInTheDocument();
+    expect(screen.getByText('Deposit paid')).toBeInTheDocument();
+    expect(screen.getByText('Deposit refunded')).toBeInTheDocument();
+    expect(screen.getByText('Other payments')).toBeInTheDocument();
+    expect(screen.getByText('Already paid')).toBeInTheDocument();
+    expect(screen.getByText('Balance')).toBeInTheDocument();
+    expect(screen.getAllByText('$25.00')).toHaveLength(2);
+    expect(screen.getAllByText('$40.00')).toHaveLength(2);
     expect(screen.getAllByText('$60.00').length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole('button', { name: 'Notes & Photos' }));
@@ -985,6 +1004,104 @@ describe('ClientsModal', () => {
 
     expect(screen.getByLabelText('Preferred artist')).toBeInTheDocument();
     expect(screen.getByLabelText('Private notes')).toBeInTheDocument();
+  });
+
+  it.each([
+    ['pending refund', 'DEPOSIT_REFUND_IN_FLIGHT'],
+    ['failed refund', 'DEPOSIT_REFUND_UNRESOLVED'],
+    ['refund conflict', 'DEPOSIT_REFUND_CONFLICT'],
+  ])('shows only under-review copy for a %s appointment', async (_case, blockCode) => {
+    const detail = buildDetailResponse({
+      upcomingAppointments: [],
+      recentIssues: [],
+      pastAppointments: [{
+        id: 'appt_blocked',
+        startTime: '2026-03-10T14:00:00.000Z',
+        endTime: '2026-03-10T15:00:00.000Z',
+        status: 'completed',
+        totalPrice: 54321,
+        currency: 'CAD',
+        technician: { id: 'tech_2', name: 'Mila', avatarUrl: null },
+        services: [{ id: 'svc_pedicure', name: 'Classic Pedicure', price: 54321 }],
+        addOns: [{ id: 'addon_art', name: 'Nail art', quantity: 1, lineTotalCents: 3333 }],
+        financial: {
+          completedValueCents: 12345,
+          source: 'finalized',
+          discountCents: 1000,
+          taxCents: 1111,
+          tipsCents: 2222,
+          paymentsReceivedCents: 4567,
+          paymentLedgerState: 'ledger',
+          paymentLedgerBlockCode: null,
+          depositCollectedCents: 2345,
+          depositRefundedCents: 3456,
+          depositForfeitedCents: 0,
+          depositCreditCents: 2345,
+          // Exercise the UI's own block-code fence instead of trusting the
+          // companion state label from the API.
+          depositState: 'resolved',
+          depositBlockCode: blockCode,
+          depositPresentationState: 'refund_in_flight',
+          amountAlreadyPaidCents: 6912,
+          payments: [{
+            id: 'payment_blocked',
+            amountCents: 4567,
+            method: 'cash',
+            recordedAt: '2026-03-10T15:00:00.000Z',
+          }],
+          paymentStatus: 'partially_paid',
+          completedOutstandingCents: 6544,
+          balanceCents: 6544,
+          balanceState: 'completed_outstanding',
+        },
+        notes: null,
+      }],
+    });
+
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith('/api/admin/settings/modules?')) {
+        return new Response(JSON.stringify({
+          data: { moduleReasons: { clientFlags: 'MODULE_DISABLED', clientBlocking: 'MODULE_DISABLED' } },
+        }), { status: 200 });
+      }
+      if (url.startsWith('/api/admin/clients?')) {
+        return new Response(JSON.stringify(buildListResponse([buildListClient()])), { status: 200 });
+      }
+      if (url === '/api/admin/technicians?salonSlug=isla-nail-studio&limit=100') {
+        return new Response(JSON.stringify(buildTechniciansResponse()), { status: 200 });
+      }
+      if (url === '/api/admin/clients/client_1?salonSlug=isla-nail-studio') {
+        return new Response(JSON.stringify(detail), { status: 200 });
+      }
+      return new Response(JSON.stringify({ data: {} }), { status: 200 });
+    });
+
+    render(<ClientsModal onClose={() => {}} />);
+    fireEvent.click(await screen.findByRole('button', { name: /ava thompson/i }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Payments' }));
+
+    const paymentCard = await screen.findByTestId('client-payment-appointment-appt_blocked');
+
+    expect(within(paymentCard).getByText('Under review')).toBeInTheDocument();
+    expect(within(paymentCard).getByText(
+      'Financial details under review. Amounts and balance are unavailable.',
+    )).toBeInTheDocument();
+    expect(within(paymentCard).queryByText('Deposit paid')).not.toBeInTheDocument();
+
+    for (const leakedMoney of [
+      '$543.21',
+      '$123.45',
+      '$23.45',
+      '$34.56',
+      '$45.67',
+      '$69.12',
+      '$11.11',
+      '$22.22',
+      '$65.44',
+    ]) {
+      expect(within(paymentCard).queryByText(leakedMoney)).not.toBeInTheDocument();
+    }
   });
 
   it('saves preferred artist changes, then reloads the persisted value', async () => {

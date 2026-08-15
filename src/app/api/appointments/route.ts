@@ -26,7 +26,12 @@ import {
   mintAppointmentManageCapability,
   runBookingCommitSideEffects,
 } from '@/libs/bookingCommitEffects';
-import { getBookingConfigForSalon, getClientChangePolicy, resolveIntroPriceLabel } from '@/libs/bookingConfig';
+import {
+  getBookingConfigForSalon,
+  getClientChangePolicy,
+  resolveBookingConfigFromSettings,
+  resolveIntroPriceLabel,
+} from '@/libs/bookingConfig';
 import {
   BLOCKING_APPOINTMENT_STATUSES,
   isSlotConstraintViolation,
@@ -63,6 +68,7 @@ import {
   getPublicTechnicianCompatibility,
   validatePublicBookingSelection,
 } from '@/libs/bookingQuote';
+import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import { requireClientApiSession } from '@/libs/clientApiGuards';
 import {
   type CanonicalSalonClientIdentity,
@@ -88,6 +94,7 @@ import {
 import {
   buildDepositDisclosureFingerprint,
   DEPOSIT_CURRENCY,
+  DEPOSIT_ISO_CURRENCY,
   type DepositAccountSnapshot,
   type DepositPolicyInactiveReason,
   MIN_DEPOSIT_CENTS,
@@ -168,6 +175,10 @@ import {
   type ReadinessDecision,
   refreshAccountReadiness,
 } from '@/libs/stripeConnect/readiness';
+import {
+  buildBookingTaxSnapshot,
+  resolveTaxConfig,
+} from '@/libs/taxConfig';
 import { getDateKeyInTimeZone, getZonedDayBounds, zonedTimeToUtc } from '@/libs/timeZone';
 import {
   type Appointment,
@@ -306,6 +317,11 @@ const createAppointmentSchema = z.object({
   // is never silently changed. Absent fields keep legacy behavior.
   expectedDiscountType: z.string().trim().max(50).nullable().optional(),
   expectedTotalCents: z.number().int().min(0).max(50_000_000).optional(),
+  expectedBookingFinancialQuote: z.object({
+    currency: z.string().regex(/^[A-Z]{3}$/u),
+    totalDueCents: z.number().int().min(0).max(50_000_000),
+    taxConfigurationIdentity: z.string().min(16).max(2000),
+  }).strict().optional(),
   // The deposit amount the confirm page DISPLAYED, as an opaque token
   // ('deposit-v1:cad:<cents>', or 'deposit-v1:none' when nothing was shown).
   // The .max(64) cap is load-bearing: it is why the parser is never handed an
@@ -473,6 +489,17 @@ class BookingPolicyAttemptReusedError extends Error {
   }
 }
 
+class BookingFinancialQuoteChangedError extends Error {
+  constructor(public readonly quote: {
+    currency: string;
+    totalDueCents: number;
+    taxConfigurationIdentity: string;
+  }) {
+    super('BOOKING_FINANCIAL_QUOTE_CHANGED');
+    this.name = 'BookingFinancialQuoteChangedError';
+  }
+}
+
 function bookingPolicyAcknowledgmentRequiredResponse(
   bookingPolicy: RequiredBookingPolicy,
 ): Response {
@@ -519,6 +546,24 @@ function bookingPolicyCheckRetryResponse(): Response {
       status: 503,
       headers: { 'Retry-After': '1' },
     },
+  );
+}
+
+function bookingFinancialQuoteChangedResponse(
+  error: BookingFinancialQuoteChangedError,
+): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'BOOKING_FINANCIAL_QUOTE_CHANGED',
+        message: 'The salon tax or currency settings changed. Review the updated total before booking.',
+        details: {
+          refreshQuote: true,
+          quote: error.quote,
+        },
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
   );
 }
 
@@ -1207,6 +1252,7 @@ export async function POST(request: Request): Promise<Response> {
         ? null
         : (data.expectedDiscountType?.trim() || null),
       expectedTotalCents: data.expectedTotalCents ?? null,
+      expectedBookingFinancialQuote: data.expectedBookingFinancialQuote ?? null,
       // Registered here deliberately: without it, two requests differing ONLY
       // in the amount the client was shown hash identically, which weakens both
       // the Redis idempotency payload comparison and the acknowledgment-replay
@@ -1991,6 +2037,13 @@ export async function POST(request: Request): Promise<Response> {
       if (data.priceCentsOverride !== undefined) {
         totalPrice = data.priceCentsOverride;
         subtotalBeforeDiscountCents = data.priceCentsOverride;
+        // The owner-set price replaces the catalog decomposition entirely. The
+        // booking tax snapshot is built from basePriceCents + addOnsPriceCents
+        // − discount and is later validated against totalPrice, so every
+        // component must describe the same single overridden amount; the whole
+        // amount follows the salon's service taxability default.
+        basePriceCents = data.priceCentsOverride;
+        addOnsPriceCents = 0;
         discountAmountCents = 0;
         appointmentDiscountType = null;
         appointmentDiscountLabel = null;
@@ -2544,15 +2597,66 @@ export async function POST(request: Request): Promise<Response> {
       : (data.expectedDiscountType?.trim() || null);
     let smartFitGrantEvaluation: SmartFitEvaluation | null = null;
 
+    type LockedBookingFinancialConfiguration = {
+      settings: SalonSettings | null;
+      features: SalonFeatures | null;
+      requiredPolicy: RequiredBookingPolicy | null;
+      taxConfig: ReturnType<typeof resolveTaxConfig>;
+      invoiceCurrency: string;
+      capturedAt: Date;
+    };
+
+    const buildCurrentBookingTaxSnapshot = (
+      configuration: LockedBookingFinancialConfiguration,
+    ) => buildBookingTaxSnapshot({
+      taxConfig: configuration.taxConfig,
+      totals: computeCheckoutTotals({
+        items: [
+          {
+            lineTotalCents: basePriceCents,
+            taxable: configuration.taxConfig.taxServicesByDefault,
+          },
+          {
+            lineTotalCents: addOnsPriceCents,
+            taxable: configuration.taxConfig.taxAddOnsByDefault,
+          },
+        ],
+        discountCents: discountAmountCents,
+        taxConfig: configuration.taxConfig,
+        tipCents: 0,
+      }),
+      capturedAt: configuration.capturedAt,
+      currency: configuration.invoiceCurrency,
+    });
+
+    const assertCurrentBookingFinancialQuote = (
+      configuration: LockedBookingFinancialConfiguration,
+    ) => {
+      const snapshot = buildCurrentBookingTaxSnapshot(configuration);
+      const currentQuote = {
+        currency: snapshot.currency,
+        totalDueCents: snapshot.invoiceTotalCents,
+        taxConfigurationIdentity: snapshot.configuration.configurationIdentity,
+      };
+      const expected = data.expectedBookingFinancialQuote;
+      if (
+        expected
+        && (
+          expected.currency !== currentQuote.currency
+          || expected.totalDueCents !== currentQuote.totalDueCents
+          || expected.taxConfigurationIdentity !== currentQuote.taxConfigurationIdentity
+        )
+      ) {
+        throw new BookingFinancialQuoteChangedError(currentQuote);
+      }
+      return snapshot;
+    };
+
     type BookingTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
     const lockAndResolveRequiredBookingPolicyInTx = async (
       tx: BookingTx,
-    ): Promise<RequiredBookingPolicy | null> => {
-      if (!isNewPublicBooking) {
-        return null;
-      }
-
+    ): Promise<LockedBookingFinancialConfiguration> => {
       // Lock order for this route is:
       //   salon-client identity -> salon policy row -> technician advisory lock
       //   -> appointment/children.
@@ -2564,6 +2668,12 @@ export async function POST(request: Request): Promise<Response> {
       // Bound only the salon-policy wait. Resetting to 0 after acquisition
       // leaves the route's established client/technician lock behavior intact.
       await tx.execute(sql`set local lock_timeout = '3s'`);
+      await tx.execute(sql`
+        SELECT ${salonSchema.id}
+        FROM ${salonSchema}
+        WHERE ${salonSchema.id} = ${salon.id}
+        FOR SHARE
+      `);
       const [lockedSalon] = await tx
         .select({
           plan: salonSchema.plan,
@@ -2572,21 +2682,34 @@ export async function POST(request: Request): Promise<Response> {
         })
         .from(salonSchema)
         .where(eq(salonSchema.id, salon.id))
-        .for('share')
         .limit(1);
       await tx.execute(sql`set local lock_timeout = '0'`);
 
       if (!lockedSalon) {
         throw new Error('SALON_NOT_FOUND_DURING_BOOKING');
       }
-
-      return resolveRequiredBookingPolicy({
-        storedPlan: lockedSalon.plan,
-        features:
-          (lockedSalon.features as SalonFeatures | null | undefined) ?? null,
-        settings:
-          (lockedSalon.settings as SalonSettings | null | undefined) ?? null,
-      });
+      const settings
+        = (lockedSalon.settings as SalonSettings | null | undefined) ?? null;
+      const features
+        = (lockedSalon.features as SalonFeatures | null | undefined) ?? null;
+      const capturedAt = new Date();
+      return {
+        settings,
+        features,
+        requiredPolicy: isNewPublicBooking
+          ? resolveRequiredBookingPolicy({
+            storedPlan: lockedSalon.plan,
+            features,
+            settings,
+          })
+          : null,
+        taxConfig: resolveTaxConfig(settings, capturedAt),
+        invoiceCurrency: resolveBookingConfigFromSettings(settings)
+          .currency
+          .trim()
+          .toUpperCase(),
+        capturedAt,
+      };
     };
 
     const assertCurrentBookingPolicyAcknowledgment = (
@@ -3040,6 +3163,8 @@ export async function POST(request: Request): Promise<Response> {
       try {
         const transactionalResult = await runSerializedBookingTransaction(
           async (tx, lockedSalonClient) => {
+            const lockedBookingConfiguration
+              = await lockAndResolveRequiredBookingPolicyInTx(tx);
             if (technician) {
               await lockTechnicianAndAssertSlotFree(tx, {
                 salonId: salon.id,
@@ -3173,6 +3298,8 @@ export async function POST(request: Request): Promise<Response> {
             });
 
             await finalizeBookingPricingInTx(tx, lockedSalonClient);
+            const bookingTaxSnapshot
+              = assertCurrentBookingFinancialQuote(lockedBookingConfiguration);
 
             const [createdAppointment] = await tx
               .insert(appointmentSchema)
@@ -3190,6 +3317,8 @@ export async function POST(request: Request): Promise<Response> {
                 startTime,
                 endTime,
                 status: salon.freeSoloEnabled ? 'confirmed' : 'pending',
+                invoiceCurrency: lockedBookingConfiguration.invoiceCurrency,
+                bookingTaxSnapshot,
                 totalPrice,
                 totalDurationMinutes,
                 basePriceCents,
@@ -3337,6 +3466,9 @@ export async function POST(request: Request): Promise<Response> {
         if (error instanceof SmartFitStaleError) {
           return smartFitStaleResponse(error);
         }
+        if (error instanceof BookingFinancialQuoteChangedError) {
+          return bookingFinancialQuoteChangedResponse(error);
+        }
 
         if (error instanceof SlotConflictError || isSlotConstraintViolation(error)) {
           return Response.json(
@@ -3356,9 +3488,11 @@ export async function POST(request: Request): Promise<Response> {
       try {
         const transactionalResult = await runSerializedBookingTransaction(
           async (tx, lockedSalonClient) => {
+            const lockedBookingConfiguration
+              = await lockAndResolveRequiredBookingPolicyInTx(tx);
             const currentRequiredPolicy
               = assertCurrentBookingPolicyAcknowledgment(
-                await lockAndResolveRequiredBookingPolicyInTx(tx),
+                lockedBookingConfiguration.requiredPolicy,
               );
 
             if (currentRequiredPolicy && requestedPolicyAcknowledgment) {
@@ -3417,6 +3551,8 @@ export async function POST(request: Request): Promise<Response> {
             }
 
             await finalizeBookingPricingInTx(tx, lockedSalonClient);
+            const bookingTaxSnapshot
+              = assertCurrentBookingFinancialQuote(lockedBookingConfiguration);
 
             // =================================================================
             // DEPOSITS — E.1 (pure in-transaction resolution) and E.2/E.3
@@ -3435,18 +3571,9 @@ export async function POST(request: Request): Promise<Response> {
             // say). The 201 must still SAY so — see the return value below.
             let depositResolvedNotRequired = false;
             if (depositBranch) {
-              const [inTxSalon] = await tx
-                .select({
-                  settings: salonSchema.settings,
-                  features: salonSchema.features,
-                })
-                .from(salonSchema)
-                .where(eq(salonSchema.id, salon.id))
-                .limit(1);
-
               const depositPolicy = resolveDepositPolicy({
-                settings: (inTxSalon?.settings as SalonSettings | null | undefined) ?? null,
-                features: (inTxSalon?.features as SalonFeatures | null | undefined) ?? null,
+                settings: lockedBookingConfiguration.settings,
+                features: lockedBookingConfiguration.features,
                 stripeAccount: depositBranch.accountSnapshot,
                 // Imported from depositPolicy.server.ts. NEVER re-derived here:
                 // a locally recomputed livemode is exactly how a live Checkout
@@ -3485,6 +3612,13 @@ export async function POST(request: Request): Promise<Response> {
               }
 
               if (charge.required) {
+                // Defence in depth around the policy resolver: Stripe deposits
+                // are CAD-only in D6. A booking invoice in another currency
+                // must never reach a CAD hold even if stale or corrupt policy
+                // input is accidentally classified active.
+                if (lockedBookingConfiguration.invoiceCurrency !== DEPOSIT_ISO_CURRENCY) {
+                  throw new DepositsUnavailableError('currency_mismatch');
+                }
                 // R4: a platform key-mode change is reachable, and would
                 // otherwise create a LIVE Checkout against a test-mode binding
                 // (or the reverse) — charging a client on an account Luster can
@@ -3590,6 +3724,8 @@ export async function POST(request: Request): Promise<Response> {
                 ...(depositCharge
                   ? { createdAt: holdNow, depositHoldExpiresAt: holdExpiresAt }
                   : {}),
+                invoiceCurrency: lockedBookingConfiguration.invoiceCurrency,
+                bookingTaxSnapshot,
                 totalPrice,
                 totalDurationMinutes,
                 basePriceCents,
@@ -3923,6 +4059,9 @@ export async function POST(request: Request): Promise<Response> {
         }
         if (error instanceof SmartFitStaleError) {
           return smartFitStaleResponse(error);
+        }
+        if (error instanceof BookingFinancialQuoteChangedError) {
+          return bookingFinancialQuoteChangedResponse(error);
         }
 
         if (error instanceof SlotConflictError || isSlotConstraintViolation(error)) {
@@ -4448,6 +4587,7 @@ export async function GET(request: Request): Promise<Response> {
           status: appt.status,
           technicianId: appt.technicianId,
           totalPrice: appt.totalPrice,
+          invoiceCurrency: appt.invoiceCurrency,
           totalDurationMinutes: appt.totalDurationMinutes,
           locationId: appt.locationId,
           services: services.map(s => ({ name: s.name })),
@@ -4561,6 +4701,7 @@ export async function GET(request: Request): Promise<Response> {
         status: appt.status,
         technicianId: appt.technicianId,
         totalPrice: appt.totalPrice,
+        invoiceCurrency: appt.invoiceCurrency,
         cancelReason: appt.cancelReason,
         paymentStatus: appt.paymentStatus,
         services: services.map(s => ({ name: s.name })),

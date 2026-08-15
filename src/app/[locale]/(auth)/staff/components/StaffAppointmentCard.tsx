@@ -3,6 +3,7 @@
 import Image from 'next/image';
 
 import { Button } from '@/components/ui/button';
+import { formatMoney } from '@/libs/formatMoney';
 import { themeVars } from '@/theme';
 
 import { ProgressRing } from './ProgressRing';
@@ -29,6 +30,7 @@ export type AppointmentData = {
   technicianId: string | null;
   services: Array<{ name: string }>;
   totalPrice: number;
+  invoiceCurrency?: string | null;
   photos: AppointmentPhoto[];
 };
 
@@ -101,9 +103,9 @@ export function StaffAppointmentCard({
     });
   };
 
-  const formatPrice = (cents: number) => {
-    return `$${(cents / 100).toFixed(0)}`;
-  };
+  const formatPrice = (cents: number) => appointment.invoiceCurrency
+    ? formatMoney(cents, appointment.invoiceCurrency)
+    : 'Unavailable';
 
   // Determine canvas state (fallback to legacy status mapping)
   const canvasState = appointment.canvasState || mapLegacyStatus(appointment.status);
@@ -162,6 +164,9 @@ export function StaffAppointmentCard({
           <div className="flex items-start gap-2">
             <ProgressRing state={canvasState} size={36} />
             <div className="text-right">
+              <div className="text-[10px] font-medium uppercase tracking-wide text-neutral-500">
+                Booked services
+              </div>
               <div className="text-lg font-bold" style={{ color: themeVars.titleText }}>
                 {formatPrice(appointment.totalPrice)}
               </div>

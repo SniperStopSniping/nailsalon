@@ -20,6 +20,13 @@ const upcomingAppointment = {
   startTime: '2026-07-18T18:00:00.000Z',
   endTime: '2026-07-18T19:30:00.000Z',
   totalPrice: 6500,
+  currency: 'CAD',
+  financial: {
+    amountAlreadyPaidCents: 0,
+    balanceCents: 6500,
+    balanceState: 'upcoming_balance',
+    depositBlockCode: null,
+  },
   technician: { name: 'Daniela' },
   services: [{ name: 'Builder Gel Overlay' }],
 };
@@ -147,6 +154,53 @@ describe('ClientCommunicationActions', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Google review' })).toBeEnabled();
     });
+  });
+
+  it('sends the canonical tax-inclusive appointment total after deposit credit, not the raw booked subtotal', async () => {
+    const { onOpenNativeUrl } = renderActions({
+      upcomingAppointment: {
+        ...upcomingAppointment,
+        financial: {
+          amountAlreadyPaidCents: 1000,
+          balanceCents: 6345,
+          balanceState: 'upcoming_balance',
+          depositBlockCode: null,
+        },
+      },
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Appointment details' }));
+
+    await waitFor(() => expect(onOpenNativeUrl).toHaveBeenCalledTimes(1));
+    const body = decodeURIComponent(String(onOpenNativeUrl.mock.calls[0]?.[0]).split('body=')[1]!);
+
+    expect(body).toContain('Price: $73.45');
+    expect(body).not.toContain('$65.00');
+  });
+
+  it('keeps client messages money-free for a pending refund with unknown currency', async () => {
+    const { onOpenNativeUrl } = renderActions({
+      upcomingAppointment: {
+        ...upcomingAppointment,
+        currency: null,
+        financial: {
+          amountAlreadyPaidCents: null,
+          balanceCents: null,
+          balanceState: 'unresolved',
+          depositBlockCode: 'DEPOSIT_REFUND_IN_FLIGHT',
+        },
+      },
+    });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(4));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Appointment details' }));
+
+    await waitFor(() => expect(onOpenNativeUrl).toHaveBeenCalledTimes(1));
+    const body = decodeURIComponent(String(onOpenNativeUrl.mock.calls[0]?.[0]).split('body=')[1]!);
+
+    expect(body).not.toContain('Price:');
+    expect(body).not.toContain('$65.00');
   });
 
   it('normalizes the synthetic client phone, opens an encoded message, and records only honest states', async () => {

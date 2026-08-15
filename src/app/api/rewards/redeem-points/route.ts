@@ -20,7 +20,11 @@ import { db } from '@/libs/DB';
 import { guardModuleOr403 } from '@/libs/featureGating';
 import { FIRST_VISIT_DISCOUNT_TYPE } from '@/libs/firstVisitDiscount';
 import { enqueueGoogleCalendarAppointmentMutation } from '@/libs/integrationOutbox';
-import { appointmentSchema, salonClientSchema } from '@/models/Schema';
+import {
+  appointmentDepositSchema,
+  appointmentSchema,
+  salonClientSchema,
+} from '@/models/Schema';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,9 +78,10 @@ type RedemptionTransactionResult =
       | 'APPOINTMENT_NOT_FOUND'
       | 'FIRST_VISIT_DISCOUNT_ALREADY_APPLIED'
       | 'INSUFFICIENT_POINTS'
-      | 'INVALID_APPOINTMENT_STATUS';
+      | 'INVALID_APPOINTMENT_STATUS'
+      | 'REWARD_FINANCIAL_REPRICING_REQUIRED';
     message: string;
-    status: 400 | 404;
+    status: 400 | 404 | 409;
   };
 
 // =============================================================================
@@ -283,6 +288,41 @@ export async function POST(request: Request): Promise<Response> {
             code: 'FIRST_VISIT_DISCOUNT_ALREADY_APPLIED',
             message: 'Points cannot be redeemed on an appointment that already has the first-visit discount applied',
             status: 400,
+          };
+        }
+
+        if (
+          lockedAppointment.invoiceCurrency !== null
+          || lockedAppointment.bookingTaxSnapshot !== null
+          || lockedAppointment.rescheduleTaxSnapshot !== null
+          || lockedAppointment.finalTaxSnapshot !== null
+        ) {
+          return {
+            ok: false,
+            code: 'REWARD_FINANCIAL_REPRICING_REQUIRED',
+            message: 'Points cannot reprice an appointment with frozen financial history yet. Contact the salon for help.',
+            status: 409,
+          };
+        }
+
+        // A pre-0068 appointment can have deposit history without complete tax
+        // snapshots. Treat that history as an immutable financial boundary.
+        // The tenant-scoped read follows the appointment lock and precedes all
+        // appointment, points, and outbox writes.
+        const [depositHistory] = await tx
+          .select({ id: appointmentDepositSchema.id })
+          .from(appointmentDepositSchema)
+          .where(and(
+            eq(appointmentDepositSchema.salonId, salon.id),
+            eq(appointmentDepositSchema.appointmentId, appointmentId),
+          ))
+          .limit(1);
+        if (depositHistory) {
+          return {
+            ok: false,
+            code: 'REWARD_FINANCIAL_REPRICING_REQUIRED',
+            message: 'Points cannot reprice an appointment with frozen financial history yet. Contact the salon for help.',
+            status: 409,
           };
         }
 

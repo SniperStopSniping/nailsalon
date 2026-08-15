@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { GET } from './route';
+
+vi.mock('server-only', () => ({}));
+
 const { requireAdminSalon, db, selectQueue } = vi.hoisted(() => {
   const selectQueue: unknown[] = [];
   const offset = vi.fn(async () => selectQueue.shift() ?? []);
@@ -32,8 +36,6 @@ vi.mock('@/libs/DB', () => ({
 vi.mock('@/libs/planLimits', () => ({
   canAddTechnician: vi.fn(),
 }));
-
-import { GET } from './route';
 
 describe('GET /api/admin/technicians', () => {
   beforeEach(() => {

@@ -24,6 +24,7 @@ const cappuccino = {
 type FloatingActionBarProps = {
   appointment: AppointmentData | null;
   onOpenPhotos: () => void;
+  onOpenCheckout: () => void;
   onSuccess?: () => void;
 };
 
@@ -60,6 +61,7 @@ function mapLegacyStatus(status: string): string {
 export function FloatingActionBar({
   appointment,
   onOpenPhotos,
+  onOpenCheckout,
   onSuccess,
 }: FloatingActionBarProps) {
   const [isLoading, setIsLoading] = useState(false);
@@ -112,25 +114,12 @@ export function FloatingActionBar({
   } else if (canvasState === 'working' || canvasState === 'wrap_up') {
     if (hasAfterPhoto) {
       primaryAction = {
-        label: 'Complete',
+        label: 'Review & complete',
         icon: '✓',
         color: cappuccino.primary,
-        action: async () => {
-          setIsLoading(true);
-          try {
-            const response = await fetch(`/api/appointments/${appointment.id}/complete`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({}),
-            });
-
-            if (response.ok) {
-              triggerHaptic();
-              onSuccess?.();
-            }
-          } finally {
-            setIsLoading(false);
-          }
+        action: () => {
+          triggerHaptic();
+          onOpenCheckout();
         },
       };
     } else {

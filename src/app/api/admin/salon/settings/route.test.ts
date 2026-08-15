@@ -941,6 +941,67 @@ describe('/api/admin/salon/settings payments settings', () => {
 
     expect(response.status).toBe(400);
   });
+
+  it('stores a scheduled tax date as salon-local midnight with honest timezone identity', async () => {
+    getSalonBySlug.mockResolvedValue({ ...baseSalon, settings: null });
+    resolveBookingConfigFromSettings.mockReturnValue({
+      timezone: 'America/Toronto',
+    });
+    updatedRows.push({
+      ...baseSalon,
+      settings: {
+        payments: {
+          tax: {
+            enabled: true,
+            rateBps: 1300,
+            scheduledChange: {
+              rateBps: 1500,
+              effectiveFrom: '2026-09-01T04:00:00.000Z',
+              effectiveDate: '2026-09-01',
+              effectiveTimeZone: 'America/Toronto',
+            },
+          },
+        },
+      },
+    });
+
+    const response = await PATCH(
+      new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          payments: {
+            tax: {
+              enabled: true,
+              rateBps: 1300,
+              scheduledChange: {
+                rateBps: 1500,
+                effectiveFrom: '2026-09-01',
+              },
+            },
+          },
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(200);
+
+    const setPayload = db.update.mock.results[0]!.value.set.mock.calls[0]![0];
+    const sqlChunks = (setPayload.settings as { queryChunks?: unknown[] }).queryChunks ?? [];
+    const paramValues = sqlChunks.filter(
+      (chunk): chunk is string => typeof chunk === 'string',
+    );
+
+    expect(paramValues.some(value => value.includes(
+      '"effectiveFrom":"2026-09-01T04:00:00.000Z"',
+    ))).toBe(true);
+    expect(paramValues.some(value => value.includes(
+      '"effectiveDate":"2026-09-01"',
+    ))).toBe(true);
+    expect(paramValues.some(value => value.includes(
+      '"effectiveTimeZone":"America/Toronto"',
+    ))).toBe(true);
+  });
 });
 
 describe('/api/admin/salon/settings smart fit settings (P7.4)', () => {

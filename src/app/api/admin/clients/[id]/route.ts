@@ -12,7 +12,9 @@ import {
 import { z } from 'zod';
 
 import { requireAdminSalon } from '@/libs/adminAuth';
+import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { buildBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import {
   ClientLifecycleStabilizationError,
   getSalonClientHistoricalPhoneHints,
@@ -30,14 +32,20 @@ import {
   withClientLifecycleTransactionRetry,
 } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
-import { buildReportingProvenance, resolveAppointmentBalance, resolveCompletedAppointmentRevenue } from '@/libs/financialReporting';
-import { getCurrentFinancialReportingRanges, getFinancialBalanceSummary } from '@/libs/financialReportingServer';
+import type { DepositCreditRow } from '@/libs/depositCredit';
+import { buildReportingProvenance, resolveCompletedAppointmentRevenue } from '@/libs/financialReporting';
+import {
+  getCompletedFinancialRows,
+  getCurrentFinancialReportingRanges,
+  getFinancialBalanceSummary,
+} from '@/libs/financialReportingServer';
 import {
   normalizePhone,
 } from '@/libs/queries';
 import { completedAppointmentRevenueAggregateSql } from '@/libs/revenueSql';
 import {
   appointmentAddOnSchema,
+  appointmentDepositSchema,
   appointmentFinalItemSchema,
   appointmentPaymentSchema,
   appointmentPhotoSchema,
@@ -506,6 +514,7 @@ export async function GET(
         id: appointmentSchema.id,
         startTime: appointmentSchema.startTime,
         endTime: appointmentSchema.endTime,
+        completedAt: appointmentSchema.completedAt,
         status: appointmentSchema.status,
         totalPrice: appointmentSchema.totalPrice,
         technicianId: appointmentSchema.technicianId,
@@ -513,10 +522,17 @@ export async function GET(
         notes: appointmentSchema.notes,
         finalPriceCents: appointmentSchema.finalPriceCents,
         finalDiscountCents: appointmentSchema.finalDiscountCents,
+        taxableSubtotalCents: appointmentSchema.taxableSubtotalCents,
         taxAmountCents: appointmentSchema.taxAmountCents,
+        taxExempt: appointmentSchema.taxExempt,
+        taxExemptReason: appointmentSchema.taxExemptReason,
         tipCents: appointmentSchema.tipCents,
         paymentStatus: appointmentSchema.paymentStatus,
         amountPaidCents: appointmentSchema.amountPaidCents,
+        invoiceCurrency: appointmentSchema.invoiceCurrency,
+        bookingTaxSnapshot: appointmentSchema.bookingTaxSnapshot,
+        rescheduleTaxSnapshot: appointmentSchema.rescheduleTaxSnapshot,
+        finalTaxSnapshot: appointmentSchema.finalTaxSnapshot,
       })
       .from(appointmentSchema)
       .where(
@@ -537,6 +553,7 @@ export async function GET(
         id: appointmentSchema.id,
         startTime: appointmentSchema.startTime,
         endTime: appointmentSchema.endTime,
+        completedAt: appointmentSchema.completedAt,
         status: appointmentSchema.status,
         totalPrice: appointmentSchema.totalPrice,
         technicianId: appointmentSchema.technicianId,
@@ -544,10 +561,17 @@ export async function GET(
         notes: appointmentSchema.notes,
         finalPriceCents: appointmentSchema.finalPriceCents,
         finalDiscountCents: appointmentSchema.finalDiscountCents,
+        taxableSubtotalCents: appointmentSchema.taxableSubtotalCents,
         taxAmountCents: appointmentSchema.taxAmountCents,
+        taxExempt: appointmentSchema.taxExempt,
+        taxExemptReason: appointmentSchema.taxExemptReason,
         tipCents: appointmentSchema.tipCents,
         paymentStatus: appointmentSchema.paymentStatus,
         amountPaidCents: appointmentSchema.amountPaidCents,
+        invoiceCurrency: appointmentSchema.invoiceCurrency,
+        bookingTaxSnapshot: appointmentSchema.bookingTaxSnapshot,
+        rescheduleTaxSnapshot: appointmentSchema.rescheduleTaxSnapshot,
+        finalTaxSnapshot: appointmentSchema.finalTaxSnapshot,
       })
       .from(appointmentSchema)
       .where(
@@ -568,6 +592,7 @@ export async function GET(
         id: appointmentSchema.id,
         startTime: appointmentSchema.startTime,
         endTime: appointmentSchema.endTime,
+        completedAt: appointmentSchema.completedAt,
         status: appointmentSchema.status,
         totalPrice: appointmentSchema.totalPrice,
         technicianId: appointmentSchema.technicianId,
@@ -575,10 +600,17 @@ export async function GET(
         notes: appointmentSchema.notes,
         finalPriceCents: appointmentSchema.finalPriceCents,
         finalDiscountCents: appointmentSchema.finalDiscountCents,
+        taxableSubtotalCents: appointmentSchema.taxableSubtotalCents,
         taxAmountCents: appointmentSchema.taxAmountCents,
+        taxExempt: appointmentSchema.taxExempt,
+        taxExemptReason: appointmentSchema.taxExemptReason,
         tipCents: appointmentSchema.tipCents,
         paymentStatus: appointmentSchema.paymentStatus,
         amountPaidCents: appointmentSchema.amountPaidCents,
+        invoiceCurrency: appointmentSchema.invoiceCurrency,
+        bookingTaxSnapshot: appointmentSchema.bookingTaxSnapshot,
+        rescheduleTaxSnapshot: appointmentSchema.rescheduleTaxSnapshot,
+        finalTaxSnapshot: appointmentSchema.finalTaxSnapshot,
       })
       .from(appointmentSchema)
       .where(
@@ -674,9 +706,14 @@ export async function GET(
       method: string | null;
       recordedAt: string;
     }[]>();
-    const appointmentHasPaymentHistory = new Set<string>();
+    const appointmentPaymentLedgerRowsMap = new Map<string, {
+      salonId: string;
+      amountCents: number;
+      voidedAt: Date | null;
+    }[]>();
+    const appointmentDepositsMap = new Map<string, DepositCreditRow[]>();
     if (allAppointmentIds.length > 0) {
-      const [services, addOns, finalItems, paymentRows] = await Promise.all([
+      const [services, addOns, finalItems, paymentRows, depositRows] = await Promise.all([
         db
           .select({
             appointmentId: appointmentServicesSchema.appointmentId,
@@ -708,9 +745,13 @@ export async function GET(
         db
           .select()
           .from(appointmentPaymentSchema)
+          .where(inArray(appointmentPaymentSchema.appointmentId, allAppointmentIds)),
+        db
+          .select()
+          .from(appointmentDepositSchema)
           .where(and(
-            eq(appointmentPaymentSchema.salonId, salon.id),
-            inArray(appointmentPaymentSchema.appointmentId, allAppointmentIds),
+            eq(appointmentDepositSchema.salonId, salon.id),
+            inArray(appointmentDepositSchema.appointmentId, allAppointmentIds),
           )),
       ]);
 
@@ -744,8 +785,18 @@ export async function GET(
       }
 
       for (const payment of paymentRows) {
-        appointmentHasPaymentHistory.add(payment.appointmentId);
-        if (payment.voidedAt || payment.amountCents <= 0) {
+        const ledgerRows = appointmentPaymentLedgerRowsMap.get(payment.appointmentId) ?? [];
+        ledgerRows.push({
+          salonId: payment.salonId,
+          amountCents: payment.amountCents,
+          voidedAt: payment.voidedAt,
+        });
+        appointmentPaymentLedgerRowsMap.set(payment.appointmentId, ledgerRows);
+        if (
+          payment.salonId !== salon.id
+          || payment.voidedAt
+          || payment.amountCents <= 0
+        ) {
           continue;
         }
         const existing = appointmentPaymentsMap.get(payment.appointmentId) ?? [];
@@ -757,72 +808,136 @@ export async function GET(
         });
         appointmentPaymentsMap.set(payment.appointmentId, existing);
       }
+      for (const deposit of depositRows) {
+        const existing = appointmentDepositsMap.get(deposit.appointmentId) ?? [];
+        existing.push(deposit);
+        appointmentDepositsMap.set(deposit.appointmentId, existing);
+      }
     }
 
     // Format appointments
     const formatAppointment = (appt: typeof upcomingAppointments[0]) => {
       const payments = appointmentPaymentsMap.get(appt.id) ?? [];
-      const paymentsReceivedCents = payments.reduce(
-        (total, payment) => total + payment.amountCents,
-        0,
-      );
-      const paymentTrackingKnown
-        = appt.amountPaidCents === 0 || appointmentHasPaymentHistory.has(appt.id);
-      const settledByLegacyStatus = !paymentTrackingKnown && appt.paymentStatus === 'paid';
+      const paymentLedger = resolveAppointmentPaymentLedger({
+        cachedAmountPaidCents: appt.amountPaidCents,
+        paymentRows: appointmentPaymentLedgerRowsMap.get(appt.id) ?? [],
+        expectedSalonId: salon.id,
+        appointmentStatus: appt.status,
+        paymentStatus: appt.paymentStatus,
+      });
+      const paymentsReceivedCents = paymentLedger.ok
+        ? paymentLedger.appointmentPaymentsCents
+        : null;
+      const deposits = appointmentDepositsMap.get(appt.id) ?? [];
+      const canonicalSummary = paymentLedger.ok
+        ? buildBookingEmailFinancialSummary({
+          appointment: appt,
+          deposits,
+          appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
+        })
+        : null;
+      const depositBlocked = canonicalSummary !== null
+        && canonicalSummary.depositBlockedCode !== null;
+      const canonicalFinancialsResolved = canonicalSummary !== null
+        && !depositBlocked;
+      const storedInvoiceCurrency = appt.invoiceCurrency
+        ?? appt.finalTaxSnapshot?.currency
+        ?? appt.rescheduleTaxSnapshot?.currency
+        ?? appt.bookingTaxSnapshot?.currency;
       const revenue = resolveCompletedAppointmentRevenue({
         status: appt.status,
         paymentStatus: appt.paymentStatus,
         finalPriceCents: appt.finalPriceCents,
         legacyBookedTotalCents: appt.totalPrice,
       });
-      const balance = resolveAppointmentBalance({
-        status: appt.status,
-        paymentStatus: appt.paymentStatus,
-        startTime: appt.startTime,
-        now,
-        finalPriceCents: appt.finalPriceCents,
-        legacyBookedTotalCents: appt.totalPrice,
-        taxAmountCents: appt.taxAmountCents,
-        tipCents: appt.tipCents,
-        nonVoidedPaymentsCents: settledByLegacyStatus
-          ? revenue.amountCents + Math.max(appt.taxAmountCents ?? 0, 0) + Math.max(appt.tipCents ?? 0, 0)
-          : paymentTrackingKnown ? paymentsReceivedCents : null,
-        legacyPaymentDataReliable: paymentTrackingKnown || settledByLegacyStatus,
-      });
-
       return {
         id: appt.id,
         startTime: appt.startTime.toISOString(),
         endTime: appt.endTime.toISOString(),
         status: appt.status,
-        totalPrice: appt.totalPrice,
+        totalPrice: depositBlocked ? null : appt.totalPrice,
+        currency: storedInvoiceCurrency ?? null,
         technician: appt.technicianId ? techMap.get(appt.technicianId) ?? null : null,
         location: appt.locationId ? locationMap.get(appt.locationId) ?? null : null,
-        services: appointmentServicesMap.get(appt.id) ?? [],
-        addOns: appointmentAddOnsMap.get(appt.id) ?? [],
-        finalItems: appointmentFinalItemsMap.get(appt.id) ?? [],
+        services: (appointmentServicesMap.get(appt.id) ?? []).map(service => ({
+          ...service,
+          price: depositBlocked ? null : service.price,
+        })),
+        addOns: (appointmentAddOnsMap.get(appt.id) ?? []).map(addOn => ({
+          ...addOn,
+          lineTotalCents: depositBlocked ? null : addOn.lineTotalCents,
+        })),
+        finalItems: (appointmentFinalItemsMap.get(appt.id) ?? []).map(item => ({
+          ...item,
+          lineTotalCents: depositBlocked ? null : item.lineTotalCents,
+        })),
         notes: appt.notes,
         financial: {
-          completedValueCents: revenue.source === 'excluded' ? null : revenue.amountCents,
-          source: revenue.source,
-          discountCents: Math.max(appt.finalDiscountCents ?? 0, 0),
-          taxCents: Math.max(appt.taxAmountCents ?? 0, 0),
-          tipsCents: Math.max(appt.tipCents ?? 0, 0),
-          paymentsReceivedCents,
-          payments,
+          completedValueCents: canonicalFinancialsResolved
+            && revenue.source !== 'excluded'
+            ? revenue.amountCents
+            : null,
+          source: canonicalFinancialsResolved ? revenue.source : 'unresolved',
+          discountCents: !canonicalFinancialsResolved
+            ? null
+            : Math.max(appt.finalDiscountCents ?? 0, 0),
+          taxCents: !canonicalFinancialsResolved
+            ? null
+            : Math.max(appt.taxAmountCents ?? 0, 0),
+          tipsCents: !canonicalFinancialsResolved
+            ? null
+            : Math.max(appt.tipCents ?? 0, 0),
+          paymentsReceivedCents: depositBlocked ? null : paymentsReceivedCents,
+          paymentLedgerState: paymentLedger.ok ? paymentLedger.state : 'blocked',
+          paymentLedgerBlockCode: paymentLedger.ok ? null : paymentLedger.code,
+          depositCollectedCents: depositBlocked
+            ? null
+            : canonicalSummary?.collectedDepositCents ?? 0,
+          depositRefundedCents: depositBlocked
+            ? null
+            : canonicalSummary?.refundedDepositCents ?? 0,
+          depositForfeitedCents: depositBlocked
+            ? null
+            : canonicalSummary?.forfeitedDepositCents ?? 0,
+          depositCreditCents: depositBlocked
+            ? null
+            : canonicalSummary?.depositCreditAppliedCents ?? 0,
+          depositState: canonicalSummary === null
+            ? 'blocked'
+            : canonicalSummary.depositBlockedCode === null
+              ? 'resolved'
+              : 'blocked',
+          depositBlockCode: canonicalSummary?.depositBlockedCode
+            ?? (paymentLedger.ok
+              ? 'FINANCIAL_SNAPSHOT_RECONCILIATION_REQUIRED'
+              : paymentLedger.code),
+          depositPresentationState: canonicalFinancialsResolved
+            ? canonicalSummary.depositPresentationState
+            : 'blocked',
+          amountAlreadyPaidCents: canonicalFinancialsResolved
+            ? canonicalSummary.amountAlreadyPaidCents
+            : null,
+          payments: depositBlocked ? [] : payments,
           paymentStatus: appt.paymentStatus,
-          completedOutstandingCents:
-            balance.category === 'completed_outstanding' ? balance.amountCents : null,
-          balanceState: balance.category,
+          completedOutstandingCents: canonicalFinancialsResolved
+            && appt.status === 'completed'
+            ? canonicalSummary.balanceCents
+            : null,
+          balanceCents: canonicalFinancialsResolved
+            && ['completed', 'pending', 'confirmed'].includes(appt.status)
+            ? canonicalSummary.balanceCents
+            : null,
+          balanceState: !canonicalFinancialsResolved
+            ? 'unresolved'
+            : appt.status === 'completed'
+              ? 'completed_outstanding'
+              : ['pending', 'confirmed'].includes(appt.status)
+                  ? 'upcoming_balance'
+                  : 'excluded',
         },
       };
     };
 
-    // Calculate average spend
-    const averageSpend
-      = client.totalVisits && client.totalVisits > 0
-        ? Math.round((client.totalSpent ?? 0) / client.totalVisits)
-        : 0;
     const bookingConfig = resolveBookingConfigFromSettings(
       (salon.settings as Parameters<typeof resolveBookingConfigFromSettings>[0]) ?? null,
     );
@@ -841,6 +956,7 @@ export async function GET(
       lifetimeRows,
       monthRows,
       balanceSummary,
+      completedFinancialRows,
       submittedPreferenceRows,
       mostBookedServiceRows,
     ] = await Promise.all([
@@ -855,6 +971,7 @@ export async function GET(
         .from(appointmentSchema)
         .where(and(
           eq(appointmentSchema.salonId, salon.id),
+          sql`UPPER(${appointmentSchema.invoiceCurrency}) = ${bookingConfig.currency}`,
           inArray(appointmentSchema.clientPhone, phoneVariants),
         )),
       db
@@ -862,12 +979,20 @@ export async function GET(
         .from(appointmentSchema)
         .where(and(
           eq(appointmentSchema.salonId, salon.id),
+          sql`UPPER(${appointmentSchema.invoiceCurrency}) = ${bookingConfig.currency}`,
           inArray(appointmentSchema.clientPhone, phoneVariants),
           gte(appointmentSchema.startTime, monthToDate.start),
           lt(appointmentSchema.startTime, monthToDate.end),
         )),
       getFinancialBalanceSummary({
         salonId: salon.id,
+        currency: bookingConfig.currency,
+        asOf: now,
+        clientPhoneVariants: phoneVariants,
+      }),
+      getCompletedFinancialRows({
+        salonId: salon.id,
+        currency: bookingConfig.currency,
         asOf: now,
         clientPhoneVariants: phoneVariants,
       }),
@@ -923,6 +1048,44 @@ export async function GET(
       });
     const lifetimeProvenance = buildProvenance(lifetimeRows[0]);
     const monthToDateProvenance = buildProvenance(monthRows[0]);
+    const settledFinancialRows = completedFinancialRows.filter(
+      row => row.financiallySettled,
+    );
+    const monthSettledFinancialRows = settledFinancialRows.filter(
+      row => row.startTime >= monthToDate.start && row.startTime < monthToDate.end,
+    );
+    const buildSettledSpendProvenance = (
+      rows: typeof completedFinancialRows,
+      unresolvedAppointmentCount: number,
+    ) =>
+      buildReportingProvenance({
+        finalizedAppointmentCount: rows.filter(
+          row => row.source === 'finalized',
+        ).length,
+        legacyAppointmentCount: rows.filter(row => row.source === 'legacy').length,
+        unresolvedAppointmentCount,
+        finalizedAmountCents: rows.filter(row => row.source === 'finalized')
+          .reduce((sum, row) => sum + row.serviceValueCents, 0),
+        legacyFallbackAmountCents: rows.filter(row => row.source === 'legacy')
+          .reduce((sum, row) => sum + row.serviceValueCents, 0),
+      });
+    const lifetimeSettledSpendProvenance
+      = buildSettledSpendProvenance(
+        settledFinancialRows,
+        balanceSummary.completedOutstandingProvenance.unresolvedAppointmentCount,
+      );
+    const monthSettledSpendProvenance
+      = buildSettledSpendProvenance(
+        monthSettledFinancialRows,
+        monthToDateProvenance.unresolvedAppointmentCount,
+      );
+    const authoritativeTotalSpent
+      = settledFinancialRows.reduce((sum, row) => sum + row.serviceValueCents, 0);
+    const authoritativeSettledVisits
+      = settledFinancialRows.length;
+    const averageSpend = authoritativeSettledVisits > 0
+      ? Math.round(authoritativeTotalSpent / authoritativeSettledVisits)
+      : 0;
     const submittedPreferences = submittedPreferenceRows[0] ?? null;
     let submittedFavoriteTechnician = null;
     if (submittedPreferences?.favoriteTechId) {
@@ -986,7 +1149,7 @@ export async function GET(
           lastContactAt: client.lastContactAt?.toISOString() ?? null,
           lastVisitAt: client.lastVisitAt?.toISOString() ?? null,
           totalVisits: client.totalVisits ?? 0,
-          totalSpent: client.totalSpent ?? 0,
+          totalSpent: authoritativeTotalSpent,
           averageSpend,
           noShowCount: client.noShowCount ?? 0,
           loyaltyPoints: client.loyaltyPoints ?? 0,
@@ -999,20 +1162,29 @@ export async function GET(
           currency: bookingConfig.currency,
           timeZone: bookingConfig.timezone,
           lifetimeSpendCents:
-            lifetimeProvenance.finalizedAmountCents
-            + lifetimeProvenance.legacyFallbackAmountCents,
+            authoritativeTotalSpent,
           spendThisMonthCents:
-            monthToDateProvenance.finalizedAmountCents
-            + monthToDateProvenance.legacyFallbackAmountCents,
+            monthSettledFinancialRows.reduce(
+              (sum, row) => sum + row.serviceValueCents,
+              0,
+            ),
           completedOutstandingCents: balanceSummary.completedOutstandingCents,
           completedVisits: numberValue(lifetimeRows[0]?.completedVisits),
           mostBookedService: mostBookedServiceRows[0] ?? null,
           rebooking,
           provenance: {
-            lifetimeSpend: lifetimeProvenance,
-            spendThisMonth: monthToDateProvenance,
+            lifetimeSpend: lifetimeSettledSpendProvenance,
+            spendThisMonth: monthSettledSpendProvenance,
             completedOutstanding: balanceSummary.completedOutstandingProvenance,
           },
+          earnedRevenueProvenance: {
+            lifetime: lifetimeProvenance,
+            monthToDate: monthToDateProvenance,
+          },
+          unknownCurrencyAppointmentCount:
+            balanceSummary.unknownCurrencyAppointmentCount,
+          excludedForeignCurrencyAppointmentCount:
+            balanceSummary.excludedForeignCurrencyAppointmentCount,
           monthToDateRange: {
             start: monthToDate.start.toISOString(),
             end: monthToDate.end.toISOString(),

@@ -87,6 +87,7 @@ export type RedactableAppointment = {
   clientName?: string | null;
   clientPhone?: string;
   totalPrice?: number;
+  invoiceCurrency?: string | null;
   // NOTE: notes field removed - client notes handled via showClientNotes
 };
 
@@ -132,6 +133,7 @@ export type RedactedAppointment = {
   clientName?: string | null;
   clientPhone?: string;
   totalPrice?: number;
+  invoiceCurrency?: string | null;
 };
 
 /**
@@ -199,6 +201,7 @@ export function redactAppointmentForStaff(
 
   if (visibility.showAppointmentPrice && appointment.totalPrice !== undefined) {
     result.totalPrice = appointment.totalPrice;
+    result.invoiceCurrency = appointment.invoiceCurrency ?? null;
   }
 
   // ==========================================================================
@@ -305,8 +308,7 @@ export function isFullAccess(
  * @returns Object with forbidden keys removed
  */
 export function sanitizeForStaff<T extends Record<string, unknown>>(obj: T): T {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result: any = { ...obj };
+  const result: Record<string, unknown> = { ...obj };
 
   for (const key of STAFF_FORBIDDEN_FIELDS) {
     if (key in result) {
@@ -335,8 +337,7 @@ export function deepSanitizeForStaff<T>(obj: T): T {
     return obj.map(item => deepSanitizeForStaff(item)) as T;
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const result: any = {};
+  const result: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(obj)) {
     // Skip forbidden keys

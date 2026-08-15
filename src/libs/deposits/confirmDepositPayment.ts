@@ -1,13 +1,23 @@
 import 'server-only';
 
 import * as Sentry from '@sentry/nextjs';
-import { and, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, sql } from 'drizzle-orm';
 
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
+import { listPayments } from '@/libs/appointmentCheckoutServer';
+import {
+  APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED,
+  appointmentFinancialOverpayment,
+  resolveAppointmentDepositFinancials,
+} from '@/libs/appointmentDepositFinancials';
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
+import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
+import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { mintAppointmentManageCapability } from '@/libs/bookingCommitEffects';
+import { derivePaymentStatus } from '@/libs/checkoutTotals';
 import { db } from '@/libs/DB';
 import { DEPOSIT_CURRENCY } from '@/libs/depositPolicy';
+import { forfeitAppointmentDepositInTx } from '@/libs/deposits/depositForfeiture';
 import { enqueueDepositConfirmationSideEffects } from '@/libs/integrationOutbox';
 import type { AppointmentStatus } from '@/models/Schema';
 import {
@@ -303,13 +313,7 @@ async function applyConfirmTransaction(args: ConfirmTransactionArgs): Promise<Co
       }
 
       const [appointment] = await tx
-        .select({
-          id: appointmentSchema.id,
-          status: appointmentSchema.status,
-          endTime: appointmentSchema.endTime,
-          startTime: appointmentSchema.startTime,
-          clientPhone: appointmentSchema.clientPhone,
-        })
+        .select()
         .from(appointmentSchema)
         .where(and(
           eq(appointmentSchema.id, deposit.appointmentId),
@@ -322,15 +326,20 @@ async function applyConfirmTransaction(args: ConfirmTransactionArgs): Promise<Co
         return { disposition: 'account_mismatch', depositId, salonId };
       }
 
-      const [lockedDeposit] = await tx
+      const lockedDeposits = await tx
         .select()
         .from(appointmentDepositSchema)
         .where(and(
-          eq(appointmentDepositSchema.id, depositId),
           eq(appointmentDepositSchema.salonId, salonId),
+          eq(appointmentDepositSchema.appointmentId, appointment.id),
         ))
-        .for('update')
-        .limit(1);
+        .orderBy(
+          asc(appointmentDepositSchema.createdAt),
+          asc(appointmentDepositSchema.id),
+        )
+        .for('update');
+
+      const lockedDeposit = lockedDeposits.find(row => row.id === depositId);
 
       if (!lockedDeposit) {
         return { disposition: 'deferred_no_deposit' };
@@ -356,9 +365,17 @@ async function applyConfirmTransaction(args: ConfirmTransactionArgs): Promise<Co
         // the booking all the way through before the client's payment lands, and
         // it is the SAME appointment id in every case. Omitting either leaves a
         // paid event matching NO branch at all.
-          return settledArm({ tx, evidence, appointment, deposit: lockedDeposit, salonId, onWarn: (message) => {
-            pendingWarning = message;
-          } });
+          return settledArm({
+            tx,
+            evidence,
+            appointment,
+            deposit: lockedDeposit,
+            lockedDeposits,
+            salonId,
+            onWarn: (message) => {
+              pendingWarning = message;
+            },
+          });
 
         case 'cancelled':
         // Handed to routine B OUTSIDE this transaction: restore-or-refund takes
@@ -408,8 +425,9 @@ async function applyConfirmTransaction(args: ConfirmTransactionArgs): Promise<Co
 type ArmArgs = {
   tx: Parameters<Parameters<typeof db.transaction>[0]>[0];
   evidence: DepositEvidence;
-  appointment: { id: string; status: string; startTime: Date; endTime: Date; clientPhone: string };
+  appointment: typeof appointmentSchema.$inferSelect;
   deposit: typeof appointmentDepositSchema.$inferSelect;
+  lockedDeposits?: Array<typeof appointmentDepositSchema.$inferSelect>;
   salonId: string;
 };
 
@@ -451,12 +469,14 @@ async function holdArm(args: ArmArgs & { onWarn?: (message: string) => void }): 
     return { disposition: 'deferred_no_deposit', depositId: deposit.id, salonId };
   }
 
+  const collectedAt = new Date();
   const paidDeposit = await tx
     .update(appointmentDepositSchema)
     .set({
       status: 'paid',
       stripePaymentIntentId: evidence.paymentIntentId,
-      updatedAt: new Date(),
+      collectedAt,
+      updatedAt: collectedAt,
     })
     .where(and(
       eq(appointmentDepositSchema.id, deposit.id),
@@ -494,9 +514,167 @@ async function holdArm(args: ArmArgs & { onWarn?: (message: string) => void }): 
   return { disposition: 'confirmed', depositId: deposit.id, salonId };
 }
 
+type CompletedDepositFinancialSyncResult = {
+  reconciliationRequired: boolean;
+  previousPaymentStatus: string | null;
+  paymentStatus: string | null;
+  amountAlreadyPaidCents: number | null;
+  balanceCents: number | null;
+  excessDepositCents: number;
+  tenderExcessCents: number;
+};
+
+/**
+ * A verified Stripe capture can arrive after checkout completed.  The deposit
+ * remains real collected money, but it must be projected back through the
+ * frozen final invoice and the appointment-payment ledger while the existing
+ * appointment -> all-deposits locks are still held.  Exact late fills update
+ * the denormalized payment status; ambiguous history or overpayment remains
+ * captured and becomes an explicit reconciliation state.
+ */
+async function synchronizeCompletedFinancialsAfterDepositCapture(args: {
+  tx: ArmArgs['tx'];
+  appointment: ArmArgs['appointment'];
+  deposits: Array<typeof appointmentDepositSchema.$inferSelect>;
+  salonId: string;
+}): Promise<CompletedDepositFinancialSyncResult> {
+  const { tx, appointment, deposits, salonId } = args;
+  const previousPaymentStatus = appointment.paymentStatus;
+  const review = async (details: {
+    excessDepositCents?: number;
+    tenderExcessCents?: number;
+    reason: string;
+  }): Promise<CompletedDepositFinancialSyncResult> => {
+    // `comp` is an explicit owner decision. Keeping it preserves that intent;
+    // canonical consumers still block the now-excess deposit. Other raw paid
+    // states become pending so legacy readers cannot claim a reconciled invoice.
+    const paymentStatus = previousPaymentStatus === 'comp' ? 'comp' : 'pending';
+    if (paymentStatus !== previousPaymentStatus) {
+      await tx.update(appointmentSchema).set({
+        paymentStatus,
+        updatedAt: new Date(),
+      }).where(and(
+        eq(appointmentSchema.id, appointment.id),
+        eq(appointmentSchema.salonId, salonId),
+      ));
+    }
+    await tx.insert(appointmentAuditLogSchema).values(buildAppointmentAuditRow({
+      appointmentId: appointment.id,
+      salonId,
+      action: 'payment_status_changed',
+      performedBy: 'system:deposits',
+      performedByRole: 'system',
+      previousValue: { paymentStatus: previousPaymentStatus },
+      newValue: {
+        paymentStatus,
+        reconciliationRequired: true,
+        code: APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED,
+        excessDepositCents: details.excessDepositCents ?? 0,
+        tenderExcessCents: details.tenderExcessCents ?? 0,
+      },
+      reason: details.reason,
+    }));
+    return {
+      reconciliationRequired: true,
+      previousPaymentStatus,
+      paymentStatus,
+      amountAlreadyPaidCents: null,
+      balanceCents: null,
+      excessDepositCents: details.excessDepositCents ?? 0,
+      tenderExcessCents: details.tenderExcessCents ?? 0,
+    };
+  };
+
+  const taxChain = validateAppointmentTaxSnapshotChain(appointment);
+  if (!taxChain.ok) {
+    return review({ reason: 'late_deposit_tax_snapshot_reconciliation_required' });
+  }
+  const invoiceCurrency = taxChain.invoiceCurrency;
+  if (!invoiceCurrency) {
+    return review({ reason: 'late_deposit_invoice_currency_reconciliation_required' });
+  }
+
+  const paymentRows = await listPayments(tx, appointment.id);
+  const paymentLedger = resolveAppointmentPaymentLedger({
+    cachedAmountPaidCents: appointment.amountPaidCents,
+    paymentRows,
+    expectedSalonId: salonId,
+    appointmentStatus: appointment.status,
+    paymentStatus: appointment.paymentStatus,
+  });
+  if (!paymentLedger.ok || paymentLedger.state === 'legacy_paid') {
+    // A late deposit changes how much non-deposit tender would have been
+    // needed. Legacy paid-without-ledger inference cannot prove whether that
+    // tender was already collected, so it is never rewritten as an exact fill.
+    return review({ reason: 'late_deposit_payment_ledger_reconciliation_required' });
+  }
+
+  const resolution = resolveAppointmentDepositFinancials({
+    deposits,
+    invoiceCurrency,
+    finalPriceCents: appointment.finalPriceCents ?? appointment.totalPrice,
+    taxAmountCents: appointment.taxAmountCents,
+    tipCents: appointment.tipCents,
+    appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
+    appointmentStatus: appointment.status,
+    paymentStatus: appointment.paymentStatus,
+  });
+  if (!resolution.depositResolution.ok || !resolution.financials.ok) {
+    return review({ reason: 'late_deposit_money_reconciliation_required' });
+  }
+  const overpayment = appointmentFinancialOverpayment(resolution);
+  if (overpayment) {
+    return review({
+      reason: 'late_deposit_overpayment_reconciliation_required',
+      excessDepositCents: overpayment.excessDepositCents,
+      tenderExcessCents: overpayment.tenderExcessCents,
+    });
+  }
+
+  const paymentStatus = derivePaymentStatus(
+    resolution.financials.totalDueCents,
+    resolution.financials.amountAlreadyPaidCents,
+  );
+  if (paymentStatus !== previousPaymentStatus) {
+    await tx.update(appointmentSchema).set({
+      paymentStatus,
+      updatedAt: new Date(),
+    }).where(and(
+      eq(appointmentSchema.id, appointment.id),
+      eq(appointmentSchema.salonId, salonId),
+    ));
+    await tx.insert(appointmentAuditLogSchema).values(buildAppointmentAuditRow({
+      appointmentId: appointment.id,
+      salonId,
+      action: 'payment_status_changed',
+      performedBy: 'system:deposits',
+      performedByRole: 'system',
+      previousValue: { paymentStatus: previousPaymentStatus },
+      newValue: {
+        paymentStatus,
+        depositCreditAppliedCents:
+          resolution.financials.depositCreditAppliedCents,
+        amountAlreadyPaidCents: resolution.financials.amountAlreadyPaidCents,
+        balanceCents: resolution.financials.remainingBalanceCents,
+      },
+      reason: 'late_deposit_completed_invoice_synchronized',
+    }));
+  }
+  return {
+    reconciliationRequired: false,
+    previousPaymentStatus,
+    paymentStatus,
+    amountAlreadyPaidCents: resolution.financials.amountAlreadyPaidCents,
+    balanceCents: resolution.financials.remainingBalanceCents,
+    excessDepositCents: 0,
+    tenderExcessCents: 0,
+  };
+}
+
 /** Active-or-settled appointment: the deposit moves, the appointment does not. */
 async function settledArm(args: ArmArgs & { onWarn: (message: string) => void }): Promise<ConfirmResult> {
   const { tx, evidence, appointment, deposit, salonId } = args;
+  const lockedDeposits = args.lockedDeposits ?? [deposit];
 
   if (deposit.status === 'paid') {
     if (deposit.stripeCheckoutSessionId && deposit.stripeCheckoutSessionId !== evidence.sessionId) {
@@ -504,6 +682,18 @@ async function settledArm(args: ArmArgs & { onWarn: (message: string) => void })
       // money with no confirm and no refund attached to it, so it must be a
       // named, queryable state — not an alert stapled to an idempotent ack.
       return { disposition: 'held_duplicate_session', depositId: deposit.id, salonId };
+    }
+    if (appointment.status === 'no_show') {
+      await forfeitAppointmentDepositInTx({
+        tx,
+        salonId,
+        appointmentId: appointment.id,
+        invoiceCurrency: appointment.invoiceCurrency,
+        forfeitedAt: new Date(),
+        appointmentLockHeld: true,
+        prelockedDeposits: lockedDeposits,
+        depositLocksHeld: true,
+      });
     }
     // Ordinary idempotent redelivery, including after the owner has since
     // marked the booking `no_show`.
@@ -522,12 +712,14 @@ async function settledArm(args: ArmArgs & { onWarn: (message: string) => void })
 
   const late = deposit.status !== 'checkout_created';
 
+  const collectedAt = new Date();
   const healed = await tx
     .update(appointmentDepositSchema)
     .set({
       status: 'paid',
       stripePaymentIntentId: evidence.paymentIntentId,
-      updatedAt: new Date(),
+      collectedAt,
+      updatedAt: collectedAt,
     })
     .where(and(
       eq(appointmentDepositSchema.id, deposit.id),
@@ -540,6 +732,32 @@ async function settledArm(args: ArmArgs & { onWarn: (message: string) => void })
 
   if (healed.length === 0) {
     return { disposition: 'deferred_no_deposit', depositId: deposit.id, salonId };
+  }
+
+  const paidDeposit = healed[0]!;
+  const updatedDeposits = lockedDeposits.map(row => (
+    row.id === paidDeposit.id ? paidDeposit : row
+  ));
+  const completedFinancialSync = appointment.status === 'completed'
+    ? await synchronizeCompletedFinancialsAfterDepositCapture({
+      tx,
+      appointment,
+      deposits: updatedDeposits,
+      salonId,
+    })
+    : null;
+
+  if (appointment.status === 'no_show') {
+    await forfeitAppointmentDepositInTx({
+      tx,
+      salonId,
+      appointmentId: appointment.id,
+      invoiceCurrency: appointment.invoiceCurrency,
+      forfeitedAt: collectedAt,
+      appointmentLockHeld: true,
+      prelockedDeposits: updatedDeposits,
+      depositLocksHeld: true,
+    });
   }
 
   await tx.insert(appointmentAuditLogSchema).values(buildAppointmentAuditRow({
@@ -563,10 +781,24 @@ async function settledArm(args: ArmArgs & { onWarn: (message: string) => void })
     // precisely the case the instrument was designed for. A discretionary
     // refund stays available through the owner tooling.
     args.onWarn('deposit_healed_late');
-    return { disposition: 'healed_deposit_late', depositId: deposit.id, salonId };
+    return {
+      disposition: 'healed_deposit_late',
+      depositId: deposit.id,
+      salonId,
+      ...(completedFinancialSync?.reconciliationRequired
+        ? { note: APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED }
+        : {}),
+    };
   }
 
-  return { disposition: 'healed_deposit', depositId: deposit.id, salonId };
+  return {
+    disposition: 'healed_deposit',
+    depositId: deposit.id,
+    salonId,
+    ...(completedFinancialSync?.reconciliationRequired
+      ? { note: APPOINTMENT_FINANCIAL_OVERPAYMENT_RECONCILIATION_REQUIRED }
+      : {}),
+  };
 }
 
 /**

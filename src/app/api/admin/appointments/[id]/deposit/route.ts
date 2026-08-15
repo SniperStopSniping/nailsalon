@@ -1,6 +1,8 @@
 import { and, count, desc, eq, inArray } from 'drizzle-orm';
 
+import { summarizeDepositCredit } from '@/libs/appointmentDepositFinancials';
 import { db } from '@/libs/DB';
+import { resolveDepositCredit } from '@/libs/depositCredit';
 import {
   filterDepositAuditMetadata,
   serializeDepositForRole,
@@ -63,7 +65,7 @@ export async function GET(
       eq(appointmentAuditLogSchema.appointmentId, appointmentId),
       inArray(appointmentAuditLogSchema.action, [...DEPOSIT_AUDIT_ACTIONS]),
     );
-    const [[deposit], auditRows, [auditCount]] = await Promise.all([
+    const [deposits, auditRows, [auditCount]] = await Promise.all([
       db
         .select()
         .from(appointmentDepositSchema)
@@ -71,7 +73,10 @@ export async function GET(
           eq(appointmentDepositSchema.salonId, access.salon.id),
           eq(appointmentDepositSchema.appointmentId, appointmentId),
         ))
-        .limit(1),
+        .orderBy(
+          desc(appointmentDepositSchema.createdAt),
+          desc(appointmentDepositSchema.id),
+        ),
       db
         .select({
           id: appointmentAuditLogSchema.id,
@@ -93,8 +98,24 @@ export async function GET(
     ]);
 
     const role = access.admin.isSuperAdmin ? 'super_admin' : 'admin';
+    // Historical NULL is an unknown frozen invoice identity. It must not be
+    // reinterpreted using mutable current salon settings. The sentinel is safe
+    // only when there are no deposit rows and therefore no money to compare.
+    const invoiceCurrency = access.appointment?.invoiceCurrency
+      ?? (deposits.length === 0 ? 'CAD' : '');
+    const resolution = resolveDepositCredit({
+      deposits,
+      invoiceCurrency,
+    });
+    const deposit = deposits.find(row => row.status === 'paid')
+      ?? deposits.find(row => row.status === 'checkout_created')
+      ?? deposits[0]
+      ?? null;
     return privateJson({
+      appointmentStatus: access.appointment?.status ?? null,
       deposit: deposit ? serializeDepositForRole(role, deposit) : null,
+      deposits: deposits.map(row => serializeDepositForRole(role, row)),
+      depositCredit: summarizeDepositCredit(resolution),
       auditRows: auditRows.map(row => ({
         ...row,
         newValue: filterDepositAuditMetadata(row.newValue),

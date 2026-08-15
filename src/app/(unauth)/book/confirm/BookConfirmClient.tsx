@@ -24,6 +24,7 @@ import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
 import type { BookingStep } from '@/libs/bookingFlow';
 import { appendSalonSlug, buildBookingUrl } from '@/libs/bookingParams';
+import { computeCheckoutTotals, type ResolvedTaxConfig } from '@/libs/checkoutTotals';
 import { buildDepositDisclosure, DEPOSIT_CURRENCY, DEPOSIT_FINGERPRINT_NONE } from '@/libs/depositPolicy';
 import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/directions';
 import { formatMoney } from '@/libs/formatMoney';
@@ -111,6 +112,11 @@ type BookConfirmClientProps = {
   } | null;
   campaignMessage?: string | null;
   totalPrice: number;
+  /** Booking-time tax configuration used to disclose the invoice estimate. */
+  taxConfig?: ResolvedTaxConfig;
+  /** Immutable semantic identity of the tax configuration displayed here. */
+  taxConfigurationIdentity?: string;
+  currency?: string;
   totalDuration: number;
   technician: TechnicianSummary;
   technicianSelectionSource?: 'explicit' | 'auto' | null;
@@ -149,12 +155,23 @@ type BookConfirmClientProps = {
   navigateToCheckout?: (url: string) => void;
 };
 
+type BookingFinancialEstimate = {
+  currency: string;
+  serviceSubtotalCents: number;
+  taxAmountCents: number;
+  totalDueCents: number;
+  taxLabel: string | null;
+  depositDueCents: number;
+  remainingAfterDepositCents: number;
+};
+
 function defaultNavigateToCheckout(url: string): void {
   window.location.assign(url);
 }
 
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
 const EMPTY_SELECTED_ADD_ONS: NonNullable<BookConfirmClientProps['selectedAddOns']> = [];
+const DEFAULT_BOOKING_CURRENCY = DEPOSIT_CURRENCY.toUpperCase();
 
 /** One nearby Smart Fit alternative, carried from the time step's availability response. */
 type SmartFitSuggestion = {
@@ -574,7 +591,7 @@ const BookingCard = ({
         actions={(
           <div className="text-right">
             <p className="font-body text-[10px] font-semibold uppercase tracking-[0.16em] text-[var(--n5-ink-muted)]">
-              Total
+              Estimated total
             </p>
             <p className="font-heading mt-1 text-2xl font-bold text-[var(--n5-accent)]">
               {totalPriceDisplay ?? `$${totalPrice}`}
@@ -924,6 +941,7 @@ const ConfirmContent = ({
   policy,
   quickFacts,
   depositDisclosure,
+  bookingFinancialEstimate,
   depositNoticeSuppressed,
   policyAcknowledged,
   onPolicyAcknowledgmentChange,
@@ -965,6 +983,7 @@ const ConfirmContent = ({
   policy: ConfirmationPolicy;
   quickFacts: ConfirmationQuickFacts;
   depositDisclosure: { label: string; amountCents: number } | null;
+  bookingFinancialEstimate: BookingFinancialEstimate | null;
   depositNoticeSuppressed: boolean;
   policyAcknowledged: boolean;
   onPolicyAcknowledgmentChange: (value: boolean) => void;
@@ -1293,6 +1312,49 @@ const ConfirmContent = ({
             >
               {depositDisclosure.label}
             </p>
+          )}
+
+          {bookingFinancialEstimate && (
+            <div
+              data-testid="booking-financial-estimate"
+              className="font-body space-y-1.5 rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-sm text-[var(--n5-ink-main)]"
+            >
+              <div className="flex justify-between gap-3">
+                <span>Services after discount</span>
+                <span>{formatMoney(bookingFinancialEstimate.serviceSubtotalCents, bookingFinancialEstimate.currency)}</span>
+              </div>
+              {bookingFinancialEstimate.taxLabel && (
+                <div className="flex justify-between gap-3">
+                  <span>{bookingFinancialEstimate.taxLabel}</span>
+                  <span>{formatMoney(bookingFinancialEstimate.taxAmountCents, bookingFinancialEstimate.currency)}</span>
+                </div>
+              )}
+              <div className="flex justify-between gap-3 border-t border-[var(--n5-border-muted)] pt-1.5 font-semibold">
+                <span>Estimated appointment total</span>
+                <span data-testid="booking-estimated-total">
+                  {formatMoney(bookingFinancialEstimate.totalDueCents, bookingFinancialEstimate.currency)}
+                </span>
+              </div>
+              {bookingFinancialEstimate.depositDueCents > 0 && (
+                <>
+                  <div className="flex justify-between gap-3">
+                    <span>Deposit due now</span>
+                    <span data-testid="booking-deposit-due">
+                      {formatMoney(bookingFinancialEstimate.depositDueCents, bookingFinancialEstimate.currency)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between gap-3 font-semibold">
+                    <span>Estimated balance after deposit</span>
+                    <span data-testid="booking-balance-after-deposit">
+                      {formatMoney(bookingFinancialEstimate.remainingAfterDepositCents, bookingFinancialEstimate.currency)}
+                    </span>
+                  </div>
+                </>
+              )}
+              <p className="pt-1 text-xs leading-5 text-[var(--n5-ink-muted)]">
+                The deposit is money already paid toward the appointment. Tax is estimated on the full taxable service subtotal before that payment credit.
+              </p>
+            </div>
           )}
 
           {policy.enabled
@@ -1682,6 +1744,9 @@ export function BookConfirmClient({
   campaignPromotionPreview = null,
   campaignMessage = null,
   totalPrice,
+  taxConfig,
+  taxConfigurationIdentity,
+  currency = DEFAULT_BOOKING_CURRENCY,
   totalDuration,
   technician,
   technicianSelectionSource = null,
@@ -1893,9 +1958,55 @@ export function BookConfirmClient({
   const resolvedTotalPrice = smartFitOffer
     ? smartFitOffer.discountedPriceCents / 100
     : totalPrice;
-  const totalPriceDisplay = smartFitOffer
-    ? formatMoney(smartFitOffer.discountedPriceCents)
-    : `$${totalPrice}`;
+  const resolvedTotalPriceCents = Math.round(resolvedTotalPrice * 100);
+  const addOnSubtotalCents = addOns.reduce(
+    (sum, addOn) => sum + Math.max(0, Math.round(addOn.price * 100)),
+    0,
+  );
+  const serviceSubtotalCents = Math.max(0, subtotalCents - addOnSubtotalCents);
+  const bookingTotals = taxConfig
+    ? computeCheckoutTotals({
+      items: [
+        {
+          lineTotalCents: serviceSubtotalCents,
+          taxable: taxConfig.taxServicesByDefault,
+        },
+        {
+          lineTotalCents: addOnSubtotalCents,
+          taxable: taxConfig.taxAddOnsByDefault,
+        },
+      ].filter(item => item.lineTotalCents > 0),
+      discountCents: Math.max(0, subtotalCents - resolvedTotalPriceCents),
+      taxConfig,
+      tipCents: 0,
+    })
+    : null;
+  const totalPriceDisplay = bookingTotals
+    ? formatMoney(bookingTotals.totalDueCents, currency)
+    : smartFitOffer
+      ? formatMoney(smartFitOffer.discountedPriceCents, currency)
+      : `$${totalPrice}`;
+  const depositDueCents = displayedDeposit?.amountCents ?? 0;
+  const bookingFinancialEstimate: BookingFinancialEstimate | null = bookingTotals
+    ? {
+        currency,
+        serviceSubtotalCents: bookingTotals.finalPriceCents,
+        taxAmountCents: bookingTotals.taxAmountCents,
+        totalDueCents: bookingTotals.totalDueCents,
+        taxLabel: bookingTotals.taxApplied
+          ? `${taxConfig?.name ?? 'Tax'} (${(taxConfig?.rateBps ?? 0) / 100}%)${taxConfig?.pricesIncludeTax ? ' included' : ''}`
+          : null,
+        depositDueCents,
+        remainingAfterDepositCents: Math.max(
+          0,
+          bookingTotals.totalDueCents
+          - Math.min(
+            depositDueCents,
+            bookingTotals.finalPriceCents + bookingTotals.taxAmountCents,
+          ),
+        ),
+      }
+    : null;
   const resolvedTotalDuration = totalDuration;
   const resolvedSubtotalBeforeDiscount = subtotalBeforeDiscount;
   // totalPrice is in dollars, convert to cents for points calculation
@@ -1936,6 +2047,13 @@ export function BookConfirmClient({
       ? {
           accepted: policyAcknowledged,
           version: displayedPolicy.version,
+        }
+      : null,
+    bookingFinancialQuote: bookingTotals && taxConfigurationIdentity
+      ? {
+          currency: currency.toUpperCase(),
+          totalDueCents: bookingTotals.totalDueCents,
+          taxConfigurationIdentity,
         }
       : null,
   });
@@ -2038,6 +2156,15 @@ export function BookConfirmClient({
         // stale expectation with 409 SMART_FIT_CHANGED instead of booking at
         // a different price than shown.
         ...(smartFitOffer && buildSmartFitExpectationFields(smartFitOffer)),
+        ...(bookingTotals && taxConfigurationIdentity
+          ? {
+              expectedBookingFinancialQuote: {
+                currency: currency.toUpperCase(),
+                totalDueCents: bookingTotals.totalDueCents,
+                taxConfigurationIdentity,
+              },
+            }
+          : {}),
         // ALWAYS sent, never conditional. This is a MONEY-PATH field: the
         // downstream booking PR reads it BEFORE its transaction to decide
         // whether a booking on a salon with no chargeable connected account is
@@ -2282,7 +2409,7 @@ export function BookConfirmClient({
     } finally {
       setIsBooking(false);
     }
-  }, [acknowledgmentRequired, baseServiceId, campaignPromotionPreview, campaignToken, canonicalStartTime, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, navigateToCheckout, smartFitOffer, smsConsent, smsEnabled, submittedDepositFingerprint, techId, timeStr]);
+  }, [acknowledgmentRequired, baseServiceId, bookingTotals, campaignPromotionPreview, campaignToken, canonicalStartTime, currency, dateStr, displayedDeposit?.label, displayedPolicy, guestEmail, guestName, guestPhone, location, manageToken, originalAppointmentId, policyAcknowledged, salonSlug, selectedAddOns, services, navigateToCheckout, smartFitOffer, smsConsent, smsEnabled, submittedDepositFingerprint, taxConfigurationIdentity, techId, timeStr]);
 
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);
@@ -2435,6 +2562,7 @@ export function BookConfirmClient({
       policy={displayedPolicy}
       quickFacts={bookingExperience.quickFacts}
       depositDisclosure={displayedDeposit ?? null}
+      bookingFinancialEstimate={bookingFinancialEstimate}
       depositNoticeSuppressed={depositNoticeSuppressed}
       policyAcknowledged={policyAcknowledged}
       onPolicyAcknowledgmentChange={setPolicyAcknowledged}

@@ -167,7 +167,9 @@ export function UpcomingAppointmentActions({
     salon: {
       name: detail.appointment.salonName,
       timeZone: detail.appointment.timeZone,
-      currency: 'CAD',
+      currency: detail.financial?.state === 'resolved'
+        ? detail.financial.currency
+        : null,
       location: detail.location
         ? {
             ...detail.location,
@@ -184,7 +186,9 @@ export function UpcomingAppointmentActions({
       artistName: detail.technicianOptions.find(
         technician => technician.id === detail.appointment.technicianId,
       )?.name ?? null,
-      totalPriceCents: detail.appointment.totalPrice,
+      totalPriceCents: detail.financial?.state === 'resolved'
+        ? detail.financial.invoiceTotalCents
+        : null,
     },
   }), [detail]);
 

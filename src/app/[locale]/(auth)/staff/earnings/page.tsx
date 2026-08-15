@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { ModuleDisabledState, ModuleSkeleton, StaffBottomNav, StaffHeader, UpgradeRequiredState } from '@/components/staff';
 import { useStaffCapabilities } from '@/hooks/useStaffCapabilities';
+import { formatMoney } from '@/libs/formatMoney';
 import { themeVars } from '@/theme';
 
 // =============================================================================
@@ -19,6 +20,7 @@ import { themeVars } from '@/theme';
 // =============================================================================
 
 type EarningsData = {
+  currency: string;
   range: {
     from: string;
     to: string;
@@ -58,8 +60,8 @@ function getMonthRange(offset: number): { from: string; to: string; label: strin
   };
 }
 
-function formatCurrency(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`;
+function formatCurrency(cents: number, currency: string): string {
+  return formatMoney(cents, currency);
 }
 
 function formatDate(dateStr: string): string {
@@ -279,151 +281,157 @@ export default function StaffEarningsPage() {
         </div>
 
         {/* Content */}
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div
-              className="size-8 animate-spin rounded-full border-4 border-t-transparent"
-              style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
-            />
-          </div>
-        ) : error ? (
-          <div
-            className="rounded-2xl bg-white p-6 text-center shadow-lg"
-            style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
-          >
-            <div className="mb-2 text-4xl">⚠️</div>
-            <p className="text-neutral-600">{error}</p>
-            <button
-              type="button"
-              onClick={fetchEarnings}
-              className="mt-4 rounded-xl px-4 py-2 text-sm font-medium"
-              style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
-            >
-              Try Again
-            </button>
-          </div>
-        ) : earnings ? (
-          <div
-            className="space-y-4"
-            style={{
-              opacity: mounted ? 1 : 0,
-              transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-              transition: 'opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms',
-            }}
-          >
-            {/* Period Label */}
-            <div className="text-center text-sm text-neutral-500">
-              {dateRange === 'this_month' ? thisMonthRange.label : lastMonthRange.label}
-            </div>
-
-            {/* Totals Card */}
-            <div
-              className="overflow-hidden rounded-2xl bg-white shadow-lg"
-              style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
-            >
-              <div className="p-6">
-                {/* Earnings (Primary) */}
-                <div className="mb-6 text-center">
-                  <div className="text-sm font-medium text-neutral-500">My Earnings</div>
-                  <div
-                    className="text-4xl font-bold"
-                    style={{ color: themeVars.accent }}
-                  >
-                    {formatCurrency(earnings.totals.earnings)}
-                  </div>
-                  {earnings.totals.earnings === 0 && earnings.totals.grossSales > 0 && (
-                    <div className="mt-1 text-xs text-neutral-400">
-                      (Commission not configured)
-                    </div>
-                  )}
-                </div>
-
-                {/* Stats Grid */}
-                <div className="grid grid-cols-3 gap-4">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold" style={{ color: themeVars.titleText }}>
-                      {earnings.totals.appointmentCount}
-                    </div>
-                    <div className="text-xs text-neutral-500">Appointments</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold" style={{ color: themeVars.titleText }}>
-                      {formatCurrency(earnings.totals.grossSales)}
-                    </div>
-                    <div className="text-xs text-neutral-500">Gross Sales</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold" style={{ color: themeVars.titleText }}>
-                      {formatCurrency(earnings.totals.tips)}
-                    </div>
-                    <div className="text-xs text-neutral-500">Tips</div>
-                  </div>
-                </div>
+        {loading
+          ? (
+              <div className="flex items-center justify-center py-12">
+                <div
+                  className="size-8 animate-spin rounded-full border-4 border-t-transparent"
+                  style={{ borderColor: `${themeVars.primary} transparent ${themeVars.primary} ${themeVars.primary}` }}
+                />
               </div>
-            </div>
+            )
+          : error
+            ? (
+                <div
+                  className="rounded-2xl bg-white p-6 text-center shadow-lg"
+                  style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
+                >
+                  <div className="mb-2 text-4xl">⚠️</div>
+                  <p className="text-neutral-600">{error}</p>
+                  <button
+                    type="button"
+                    onClick={fetchEarnings}
+                    className="mt-4 rounded-xl px-4 py-2 text-sm font-medium"
+                    style={{ backgroundColor: themeVars.selectedBackground, color: themeVars.titleText }}
+                  >
+                    Try Again
+                  </button>
+                </div>
+              )
+            : earnings
+              ? (
+                  <div
+                    className="space-y-4"
+                    style={{
+                      opacity: mounted ? 1 : 0,
+                      transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+                      transition: 'opacity 300ms ease-out 150ms, transform 300ms ease-out 150ms',
+                    }}
+                  >
+                    {/* Period Label */}
+                    <div className="text-center text-sm text-neutral-500">
+                      {dateRange === 'this_month' ? thisMonthRange.label : lastMonthRange.label}
+                    </div>
 
-            {/* Daily Breakdown */}
-            {earnings.daily.length > 0 && (
-              <div
-                className="overflow-hidden rounded-2xl bg-white shadow-lg"
-                style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
-              >
-                <div className="p-4">
-                  <h3 className="mb-3 font-bold" style={{ color: themeVars.titleText }}>
-                    Daily Breakdown
-                  </h3>
-                  <div className="space-y-2">
-                    {earnings.daily.map(day => (
-                      <div
-                        key={day.date}
-                        className="flex items-center justify-between rounded-xl p-3"
-                        style={{ backgroundColor: themeVars.surfaceAlt }}
-                      >
-                        <div>
-                          <div className="font-medium text-neutral-900">
-                            {formatDate(day.date)}
+                    {/* Totals Card */}
+                    <div
+                      className="overflow-hidden rounded-2xl bg-white shadow-lg"
+                      style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
+                    >
+                      <div className="p-6">
+                        {/* Earnings (Primary) */}
+                        <div className="mb-6 text-center">
+                          <div className="text-sm font-medium text-neutral-500">My Earnings</div>
+                          <div
+                            className="text-4xl font-bold"
+                            style={{ color: themeVars.accent }}
+                          >
+                            {formatCurrency(earnings.totals.earnings, earnings.currency)}
                           </div>
-                          <div className="text-xs text-neutral-500">
-                            {day.appointmentCount}
-                            {' '}
-                            appointment
-                            {day.appointmentCount !== 1 ? 's' : ''}
-                          </div>
+                          {earnings.totals.earnings === 0 && earnings.totals.grossSales > 0 && (
+                            <div className="mt-1 text-xs text-neutral-400">
+                              (Commission not configured)
+                            </div>
+                          )}
                         </div>
-                        <div className="text-right">
-                          <div className="font-bold" style={{ color: themeVars.accent }}>
-                            {formatCurrency(day.earnings)}
+
+                        {/* Stats Grid */}
+                        <div className="grid grid-cols-3 gap-4">
+                          <div className="text-center">
+                            <div className="text-2xl font-bold" style={{ color: themeVars.titleText }}>
+                              {earnings.totals.appointmentCount}
+                            </div>
+                            <div className="text-xs text-neutral-500">Appointments</div>
                           </div>
-                          <div className="text-xs text-neutral-500">
-                            {formatCurrency(day.grossSales)}
-                            {' '}
-                            sales
+                          <div className="text-center">
+                            <div className="text-2xl font-bold" style={{ color: themeVars.titleText }}>
+                              {formatCurrency(earnings.totals.grossSales, earnings.currency)}
+                            </div>
+                            <div className="text-xs text-neutral-500">Gross Sales</div>
+                          </div>
+                          <div className="text-center">
+                            <div className="text-2xl font-bold" style={{ color: themeVars.titleText }}>
+                              {formatCurrency(earnings.totals.tips, earnings.currency)}
+                            </div>
+                            <div className="text-xs text-neutral-500">Tips</div>
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            )}
+                    </div>
 
-            {/* Empty State */}
-            {earnings.daily.length === 0 && (
-              <div
-                className="rounded-2xl bg-white p-8 text-center shadow-lg"
-                style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
-              >
-                <div className="mb-2 text-4xl">📊</div>
-                <p className="text-lg font-medium" style={{ color: themeVars.titleText }}>
-                  No completed appointments
-                </p>
-                <p className="mt-1 text-sm text-neutral-500">
-                  Earnings will appear here once you complete appointments
-                </p>
-              </div>
-            )}
-          </div>
-        ) : null}
+                    {/* Daily Breakdown */}
+                    {earnings.daily.length > 0 && (
+                      <div
+                        className="overflow-hidden rounded-2xl bg-white shadow-lg"
+                        style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
+                      >
+                        <div className="p-4">
+                          <h3 className="mb-3 font-bold" style={{ color: themeVars.titleText }}>
+                            Daily Breakdown
+                          </h3>
+                          <div className="space-y-2">
+                            {earnings.daily.map(day => (
+                              <div
+                                key={day.date}
+                                className="flex items-center justify-between rounded-xl p-3"
+                                style={{ backgroundColor: themeVars.surfaceAlt }}
+                              >
+                                <div>
+                                  <div className="font-medium text-neutral-900">
+                                    {formatDate(day.date)}
+                                  </div>
+                                  <div className="text-xs text-neutral-500">
+                                    {day.appointmentCount}
+                                    {' '}
+                                    appointment
+                                    {day.appointmentCount !== 1 ? 's' : ''}
+                                  </div>
+                                </div>
+                                <div className="text-right">
+                                  <div className="font-bold" style={{ color: themeVars.accent }}>
+                                    {formatCurrency(day.earnings, earnings.currency)}
+                                  </div>
+                                  <div className="text-xs text-neutral-500">
+                                    {formatCurrency(day.grossSales, earnings.currency)}
+                                    {' '}
+                                    sales
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Empty State */}
+                    {earnings.daily.length === 0 && (
+                      <div
+                        className="rounded-2xl bg-white p-8 text-center shadow-lg"
+                        style={{ borderColor: themeVars.cardBorder, borderWidth: 1 }}
+                      >
+                        <div className="mb-2 text-4xl">📊</div>
+                        <p className="text-lg font-medium" style={{ color: themeVars.titleText }}>
+                          No completed appointments
+                        </p>
+                        <p className="mt-1 text-sm text-neutral-500">
+                          Earnings will appear here once you complete appointments
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                )
+              : null}
       </div>
 
       <StaffBottomNav activeItem="earnings" />

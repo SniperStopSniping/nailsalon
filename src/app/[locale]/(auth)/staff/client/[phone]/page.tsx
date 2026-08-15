@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
 import { appointmentStatusChipClasses, formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
+import { formatMoney } from '@/libs/formatMoney';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
 
@@ -22,7 +23,9 @@ type ClientProfile = {
   // Stats may be redacted (empty) when the salon hides client history from staff
   stats: {
     totalVisits?: number;
-    totalSpent?: number;
+    totalSpent?: number | null;
+    currency?: string;
+    spendState?: 'resolved' | 'under_review';
     lastVisit?: string | null;
   };
   preferences: {
@@ -46,7 +49,22 @@ type ClientProfile = {
     startTime: string;
     endTime: string;
     status: string;
-    totalPrice: number;
+    totalPrice: number | null;
+    currency: string | null;
+    financialState: 'resolved' | 'blocked';
+    financialBlockCode?: string | null;
+    financial: {
+      serviceInvoiceTotalCents: number;
+      totalDueCents: number;
+      collectedDepositCents: number;
+      refundedDepositCents: number;
+      forfeitedDepositCents: number;
+      depositCreditAppliedCents: number;
+      amountAlreadyPaidCents: number;
+      balanceCents: number;
+      depositBlockedCode: string | null;
+      depositPresentationState: string;
+    } | null;
     technicianName: string | null;
     services: string[];
   }>;
@@ -190,9 +208,8 @@ export default function StaffClientProfilePage() {
   };
 
   // Format price
-  const formatPrice = (cents: number) => {
-    return `$${(cents / 100).toFixed(0)}`;
-  };
+  const formatPrice = (cents: number | null | undefined, currency: string | null | undefined) =>
+    cents == null || !currency ? 'Unavailable' : formatMoney(cents, currency);
 
   // Format phone
   const formatPhone = (p: string) => {
@@ -330,7 +347,12 @@ export default function StaffClientProfilePage() {
                           <StatCard
                             icon="💰"
                             label="Total Spent"
-                            value={formatPrice(profile.stats.totalSpent ?? 0)}
+                            value={profile.stats.spendState === 'under_review'
+                              ? 'Under review'
+                              : formatPrice(
+                                profile.stats.totalSpent,
+                                profile.stats.currency,
+                              )}
                           />
                           <StatCard
                             icon="📆"
@@ -417,44 +439,92 @@ export default function StaffClientProfilePage() {
                             )
                           : (
                               <div className="space-y-3">
-                                {profile.appointments.slice(0, 10).map(appt => (
-                                  <div
-                                    key={appt.id}
-                                    className="rounded-xl p-3"
-                                    style={{ backgroundColor: themeVars.surfaceAlt }}
-                                  >
-                                    <div className="flex items-start justify-between">
-                                      <div>
-                                        <div className="font-medium text-neutral-900">
-                                          {appt.services.join(', ')}
-                                        </div>
-                                        <div className="text-sm text-neutral-500">
-                                          {formatDate(appt.startTime)}
-                                          {' '}
-                                          at
-                                          {formatTime(appt.startTime)}
-                                        </div>
-                                        {appt.technicianName && (
-                                          <div className="mt-1 text-xs" style={{ color: themeVars.accent }}>
-                                            with
-                                            {' '}
-                                            {appt.technicianName}
+                                {profile.appointments.slice(0, 10).map((appt) => {
+                                  const financialUnderReview = appt.financialState === 'blocked'
+                                    || appt.financial?.depositBlockedCode != null;
+                                  return (
+                                    <div
+                                      key={appt.id}
+                                      className="rounded-xl p-3"
+                                      style={{ backgroundColor: themeVars.surfaceAlt }}
+                                    >
+                                      <div className="flex items-start justify-between">
+                                        <div>
+                                          <div className="font-medium text-neutral-900">
+                                            {appt.services.join(', ')}
                                           </div>
-                                        )}
-                                      </div>
-                                      <div className="text-right">
-                                        <div className="font-bold" style={{ color: themeVars.primary }}>
-                                          {formatPrice(appt.totalPrice)}
+                                          <div className="text-sm text-neutral-500">
+                                            {formatDate(appt.startTime)}
+                                            {' '}
+                                            at
+                                            {formatTime(appt.startTime)}
+                                          </div>
+                                          {appt.technicianName && (
+                                            <div className="mt-1 text-xs" style={{ color: themeVars.accent }}>
+                                              with
+                                              {' '}
+                                              {appt.technicianName}
+                                            </div>
+                                          )}
                                         </div>
-                                        <div
-                                          className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-xs font-medium ${appointmentStatusChipClasses(appt.status)}`}
-                                        >
-                                          {formatAppointmentStatus(appt.status)}
+                                        <div className="text-right">
+                                          <div className="font-bold" style={{ color: themeVars.primary }}>
+                                            {!financialUnderReview && appt.financial
+                                              ? formatPrice(
+                                                ['cancelled', 'no_show'].includes(appt.status)
+                                                  ? appt.financial.serviceInvoiceTotalCents
+                                                  : appt.financial.totalDueCents,
+                                                appt.currency,
+                                              )
+                                              : financialUnderReview
+                                                ? 'Under review'
+                                                : 'Unavailable'}
+                                          </div>
+                                          {financialUnderReview
+                                            ? (
+                                                <div className="mt-1 text-xs font-semibold text-amber-800">
+                                                  Financial details under review
+                                                </div>
+                                              )
+                                            : (
+                                                <>
+                                                  {appt.financial?.depositPresentationState === 'refund_candidate' && (
+                                                    <div className="mt-1 text-xs font-semibold text-amber-800">
+                                                      Deposit refund due for review
+                                                    </div>
+                                                  )}
+                                                  {appt.financial?.depositPresentationState === 'refunded' && (
+                                                    <div className="mt-1 text-xs font-semibold text-emerald-700">
+                                                      Deposit refunded
+                                                      {' '}
+                                                      {formatPrice(
+                                                        appt.financial.refundedDepositCents,
+                                                        appt.currency,
+                                                      )}
+                                                    </div>
+                                                  )}
+                                                  {appt.financial?.depositPresentationState === 'forfeited' && (
+                                                    <div className="mt-1 text-xs font-semibold text-amber-800">
+                                                      Deposit retained
+                                                      {' '}
+                                                      {formatPrice(
+                                                        appt.financial.forfeitedDepositCents,
+                                                        appt.currency,
+                                                      )}
+                                                    </div>
+                                                  )}
+                                                </>
+                                              )}
+                                          <div
+                                            className={`mt-1 inline-block rounded-full border px-2 py-0.5 text-xs font-medium ${appointmentStatusChipClasses(appt.status)}`}
+                                          >
+                                            {formatAppointmentStatus(appt.status)}
+                                          </div>
                                         </div>
                                       </div>
                                     </div>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             )
                       )}

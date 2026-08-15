@@ -65,7 +65,7 @@ type ConfirmationPayload = {
 type RefundNoticePayload = {
   depositId: string;
   refundId: string;
-  variant: 'slot_lost' | 'waiver';
+  variant: 'slot_lost' | 'waiver' | 'owner';
 };
 
 type RefundAlertPayload = {
@@ -95,7 +95,9 @@ function readRefundNoticePayload(value: unknown): RefundNoticePayload {
   return {
     depositId: payload.depositId,
     refundId: payload.refundId,
-    variant: payload.variant === 'waiver' ? 'waiver' : 'slot_lost',
+    variant: payload.variant === 'waiver' || payload.variant === 'owner'
+      ? payload.variant
+      : 'slot_lost',
   };
 }
 
@@ -262,10 +264,15 @@ export async function runDepositRefundNotices(args: HandlerArgs): Promise<void> 
         subject: `${row.salonName}: your deposit has been refunded`,
         body: `${row.salonName} has waived the deposit for your appointment, so the ${amount} you paid has been refunded. Your appointment is unchanged — we will see you as booked.`,
       }
-    : {
-        subject: `${row.salonName}: your deposit has been refunded`,
-        body: `Your payment for ${row.salonName} arrived after the time was released, and that slot is no longer available. The ${amount} deposit has been refunded in full. You are welcome to rebook any time.`,
-      };
+    : payload.variant === 'owner'
+      ? {
+          subject: `${row.salonName}: your deposit has been refunded`,
+          body: `${row.salonName} has refunded your ${amount} deposit in full to the original payment method. Please contact the salon if you have any questions about the appointment.`,
+        }
+      : {
+          subject: `${row.salonName}: your deposit has been refunded`,
+          body: `Your payment for ${row.salonName} arrived after the time was released, and that slot is no longer available. The ${amount} deposit has been refunded in full. You are welcome to rebook any time.`,
+        };
 
   try {
     const delivery = await sendAppointmentOperationalEmailOnce({
@@ -309,7 +316,9 @@ export async function runDepositRefundNotices(args: HandlerArgs): Promise<void> 
     const when = `${formatDateInTimeZone(row.startTime.toISOString(), { weekday: 'long', month: 'long', day: 'numeric' }, timezone)} at ${formatTimeInTimeZone(row.startTime.toISOString(), {}, timezone)}`;
     const ownerText = payload.variant === 'waiver'
       ? `A deposit of ${amount} for ${row.clientName || 'a client'} (${when}) was refunded because the deposit was waived after the client had already paid. No action is needed.`
-      : `A deposit of ${amount} for ${row.clientName || 'a client'} (${when}) was refunded automatically: the payment arrived after the hold lapsed and the time could not be restored.`;
+      : payload.variant === 'owner'
+        ? `A deposit of ${amount} for ${row.clientName || 'a client'} (${when}) was refunded at the salon's request. No further action is needed.`
+        : `A deposit of ${amount} for ${row.clientName || 'a client'} (${when}) was refunded automatically: the payment arrived after the hold lapsed and the time could not be restored.`;
     try {
       const { sendTransactionalEmail } = await import('@/libs/email');
       const sent = await sendTransactionalEmail({

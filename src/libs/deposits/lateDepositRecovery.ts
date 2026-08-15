@@ -321,9 +321,14 @@ async function restoreReleasedHold(deposit: DepositRow): Promise<boolean> {
         return false;
       }
 
+      const collectedAt = new Date();
       const paidDeposit = await tx
         .update(appointmentDepositSchema)
-        .set({ status: 'paid', updatedAt: new Date() })
+        .set({
+          status: 'paid',
+          collectedAt,
+          updatedAt: collectedAt,
+        })
         .where(and(
           eq(appointmentDepositSchema.id, deposit.id),
           eq(appointmentDepositSchema.salonId, deposit.salonId),

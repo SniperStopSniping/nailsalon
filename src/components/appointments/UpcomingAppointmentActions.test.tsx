@@ -77,6 +77,18 @@ const baseDetail: AppointmentManageDetail = {
     durationMinutes: 60,
   }],
   technicianOptions: [{ id: 'tech_1', name: 'Taylor' }],
+  financial: {
+    state: 'resolved',
+    currency: 'CAD',
+    classification: 'estimate',
+    serviceInvoiceTotalCents: 4500,
+    invoiceTotalCents: 4500,
+    taxAmountCents: 0,
+    taxLabel: null,
+    depositCreditAppliedCents: 0,
+    amountAlreadyPaidCents: 0,
+    balanceCents: 4500,
+  },
   permissions: {
     canMove: true,
     canChangeService: true,
@@ -151,6 +163,11 @@ describe('UpcomingAppointmentActions', () => {
       if (url.includes('/send-reminder') && init?.method === 'POST') {
         return Promise.resolve(reminderResponse);
       }
+      if (url.includes('/manage-link') && init?.method === 'POST') {
+        return Promise.resolve(jsonResponse({
+          data: { manageUrl: 'https://salon-a.test/en/salon-a/manage/secure-token' },
+        }));
+      }
 
       return Promise.resolve(jsonResponse({ data: {} }));
     });
@@ -159,6 +176,48 @@ describe('UpcomingAppointmentActions', () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it('uses the canonical tax-inclusive total in appointment details, not the raw booked subtotal', async () => {
+    const { onOpenNativeUrl } = renderActions({
+      detail: {
+        ...baseDetail,
+        financial: {
+          state: 'resolved',
+          currency: 'CAD',
+          classification: 'estimate',
+          serviceInvoiceTotalCents: 5085,
+          invoiceTotalCents: 5085,
+          taxAmountCents: 585,
+          taxLabel: 'HST',
+          depositCreditAppliedCents: 1000,
+          amountAlreadyPaidCents: 1000,
+          balanceCents: 4085,
+        },
+      },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send details' }));
+
+    await waitFor(() => expect(onOpenNativeUrl).toHaveBeenCalledTimes(1));
+    const body = decodeURIComponent(String(onOpenNativeUrl.mock.calls[0]?.[0]).split('body=')[1]!);
+
+    expect(body).toContain('Price: $50.85');
+    expect(body).not.toContain('$45.00');
+  });
+
+  it('omits money from appointment details while refund or currency evidence is under review', async () => {
+    const { onOpenNativeUrl } = renderActions({
+      detail: { ...baseDetail, financial: { state: 'under_review' } },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send details' }));
+
+    await waitFor(() => expect(onOpenNativeUrl).toHaveBeenCalledTimes(1));
+    const body = decodeURIComponent(String(onOpenNativeUrl.mock.calls[0]?.[0]).split('body=')[1]!);
+
+    expect(body).not.toContain('Price:');
+    expect(body).not.toContain('$45.00');
   });
 
   it('sends an eligible reminder automatically and refreshes appointment details', async () => {

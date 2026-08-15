@@ -59,6 +59,7 @@ const insights: ClientInsightsData = {
       lastVisitAt: '2026-06-24T16:00:00.000Z',
       expectedReturnAt: '2026-07-15T04:00:00.000Z',
       completedOutstandingCents: 0,
+      financialState: 'resolved',
       outreachStage: 'rebook',
     }],
   },

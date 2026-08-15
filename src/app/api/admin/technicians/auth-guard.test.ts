@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import * as technicianAvatarRoute from './[id]/avatar/route';
+import * as technicianClientsRoute from './[id]/clients/route';
+import * as technicianEarningsRoute from './[id]/earnings/route';
+import * as technicianInviteRoute from './[id]/invite/route';
+import * as technicianDetailRoute from './[id]/route';
+import * as technicianServicesRoute from './[id]/services/route';
+import * as technicianStatusRoute from './[id]/status/route';
+import * as reorderRoute from './reorder/route';
+import * as techniciansRoute from './route';
+
 const { requireAdminSalon } = vi.hoisted(() => ({
   requireAdminSalon: vi.fn(),
 }));
@@ -28,6 +38,8 @@ vi.mock('@/libs/featureGating', () => ({
   guardModuleOr403: vi.fn(),
 }));
 
+vi.mock('server-only', () => ({}));
+
 vi.mock('cloudinary', () => ({
   v2: {
     config: vi.fn(),
@@ -37,16 +49,6 @@ vi.mock('cloudinary', () => ({
     },
   },
 }));
-
-import * as techniciansRoute from './route';
-import * as reorderRoute from './reorder/route';
-import * as technicianDetailRoute from './[id]/route';
-import * as technicianServicesRoute from './[id]/services/route';
-import * as technicianAvatarRoute from './[id]/avatar/route';
-import * as technicianInviteRoute from './[id]/invite/route';
-import * as technicianStatusRoute from './[id]/status/route';
-import * as technicianClientsRoute from './[id]/clients/route';
-import * as technicianEarningsRoute from './[id]/earnings/route';
 
 describe('admin technician route auth guard propagation', () => {
   beforeEach(() => {
@@ -184,6 +186,7 @@ describe('admin technician route auth guard propagation', () => {
     },
   ])('$label rejects unauthenticated access', async ({ invoke }) => {
     const response = await invoke();
+
     expect(response.status).toBe(401);
   });
 });

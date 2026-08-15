@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { buildBookingEmailFinancialLines } from '@/libs/bookingEmailFinancialPresentation';
+import type { BookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import {
   resolveBookingNotificationCapabilities,
   resolveBookingNotificationSettingsFromSettings,
@@ -44,7 +46,7 @@ export type NewBookingNotificationContext = {
   services: string[];
   startTime: string;
   totalDurationMinutes: number;
-  totalPrice: number;
+  financialSummary: BookingEmailFinancialSummary | null;
   timeZone?: string | null;
 };
 
@@ -134,7 +136,7 @@ export async function sendBookingNotificationsForNewBooking(
         services: context.services,
         startTime: context.startTime,
         totalDurationMinutes: context.totalDurationMinutes,
-        totalPrice: context.totalPrice,
+        financialSummary: context.financialSummary,
         technicianName: context.technician?.name ?? null,
         timeZone: context.timeZone,
       };
@@ -471,7 +473,9 @@ function buildNewBookingText(context: NewBookingNotificationContext): string {
     `Services: ${context.services.join(', ')}`,
     `Duration: ${context.totalDurationMinutes} min`,
     `Artist: ${context.technician?.name ?? 'Any available artist'}`,
-    `Total: $${(context.totalPrice / 100).toFixed(0)}`,
+    ...buildBookingEmailFinancialLines(context.financialSummary, {
+      includeBlockedCode: true,
+    }).map(line => `${line.label}: ${line.value}`),
     `Appointment ID: ${context.appointmentId}`,
   ].join('\n');
 }

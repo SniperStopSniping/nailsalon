@@ -2796,6 +2796,52 @@ describe('D5 integration outbox', () => {
     ]);
   });
 
+  it('uses neutral copy for an owner-requested refund', async () => {
+    const refundJobId = 'job_owner_refund_notice';
+    const refundId = 're_owner_refund_notice';
+    await db.update(schema.salonSchema).set({
+      ownerEmail: 'owner@example.com',
+    }).where(eq(schema.salonSchema.id, SALON_ID));
+    await db.update(schema.appointmentDepositSchema).set({
+      status: 'refunded',
+    }).where(eq(schema.appointmentDepositSchema.id, DEPOSIT_ID));
+    await db.insert(schema.integrationOutboxSchema).values({
+      id: refundJobId,
+      salonId: SALON_ID,
+      appointmentId: APPOINTMENT_ID,
+      provider: 'email',
+      operation: 'deposit_refund_notices',
+      dedupeKey: `deposit:${DEPOSIT_ID}:refund-notices:${refundId}`,
+      payload: {
+        depositId: DEPOSIT_ID,
+        refundId,
+        variant: 'owner',
+      },
+    });
+
+    expect(await processIntegrationOutbox()).toMatchObject({
+      failed: 0,
+      scanned: 1,
+      succeeded: 1,
+    });
+
+    const providerRequests = providerEmail.mock.calls.map(([, options]) =>
+      JSON.parse(String((options as RequestInit).body)) as {
+        subject: string;
+        text: string;
+        to: string[];
+      });
+    const client = providerRequests.find(request => request.to[0] === 'client@example.com');
+    const owner = providerRequests.find(request => request.to[0] === 'owner@example.com');
+
+    expect(client?.text).toContain('has refunded your CA$25.00 deposit in full');
+    expect(owner?.text).toContain('refunded at the salon\'s request');
+
+    for (const request of providerRequests) {
+      expect(request.text).not.toMatch(/arrived after|slot is no longer|refunded automatically/i);
+    }
+  });
+
   it('replays the direct refund-owner email after a lost completion write while client email stays single-claimed', async () => {
     const refundJobId = 'job_refund_notice_replay';
     const refundId = 're_refund_notice_replay';

@@ -406,6 +406,7 @@ describe('Deep-scan forbidden field verification', () => {
       'clientName',
       'clientPhone',
       'totalPrice',
+      'invoiceCurrency',
     ];
 
     for (const key of resultKeys) {

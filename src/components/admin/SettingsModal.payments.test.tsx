@@ -198,6 +198,9 @@ describe('SettingsModal Payments & taxes', () => {
     fireEvent.click(screen.getByTestId('payments-tax-enabled'));
     fireEvent.change(screen.getByTestId('payments-tax-name'), { target: { value: 'HST' } });
     fireEvent.change(screen.getByTestId('payments-tax-rate'), { target: { value: '13' } });
+    fireEvent.change(screen.getByTestId('payments-tax-jurisdiction'), { target: { value: 'Ontario HST' } });
+    fireEvent.change(screen.getByTestId('payments-tax-country'), { target: { value: 'CA' } });
+    fireEvent.change(screen.getByTestId('payments-tax-region'), { target: { value: 'ON' } });
     fireEvent.click(screen.getByTestId('payments-save'));
 
     await waitFor(() => {
@@ -218,9 +221,43 @@ describe('SettingsModal Payments & taxes', () => {
       name: 'HST',
       rateBps: 1300,
       pricesIncludeTax: false,
+      forfeitureTaxEstimationEnabled: false,
+      jurisdiction: 'Ontario HST',
+      country: 'CA',
+      region: 'ON',
       scheduledChange: null,
     });
     expect(body.payments.etransfer).toMatchObject({ enabled: false });
+  });
+
+  it('loads jurisdiction metadata and explains the gross-only fallback', async () => {
+    mockEndpoints({
+      payments: {
+        tax: {
+          enabled: true,
+          name: 'HST',
+          rateBps: 1300,
+          jurisdiction: 'Ontario HST',
+          country: 'CA',
+          region: 'ON',
+          forfeitureTaxEstimationEnabled: true,
+        },
+      },
+    });
+
+    await openPaymentsView();
+
+    expect(screen.getByTestId('payments-tax-jurisdiction')).toHaveValue('Ontario HST');
+    expect(screen.getByTestId('payments-tax-country')).toHaveValue('CA');
+    expect(screen.getByTestId('payments-tax-region')).toHaveValue('ON');
+    expect(screen.getByTestId('payments-tax-forfeiture-estimate')).toBeChecked();
+    expect(screen.getByText(/other or missing locations report/i)).toBeInTheDocument();
+    expect(screen.getByText(/tax calculations and estimates are based on the settings you enter/i))
+      .toBeInTheDocument();
+    expect(screen.getByText(/your business is responsible for registration, rates, tax treatment, filing, and remittance/i))
+      .toBeInTheDocument();
+    expect(screen.getByText(/does not provide tax or accounting advice and does not file taxes/i))
+      .toBeInTheDocument();
   });
 
   it('includes a scheduled rate change only when both rate and date are set', async () => {
@@ -242,8 +279,29 @@ describe('SettingsModal Payments & taxes', () => {
 
     expect(body.payments.tax.scheduledChange).toEqual({
       rateBps: 1500,
-      effectiveFrom: '2026-09-01T00:00:00',
+      effectiveFrom: '2026-09-01',
     });
+  });
+
+  it('persists the forfeiture estimate as an explicit default-false opt-in', async () => {
+    await openPaymentsView();
+
+    fireEvent.click(screen.getByTestId('payments-tax-enabled'));
+
+    expect(screen.getByTestId('payments-tax-forfeiture-estimate')).not.toBeChecked();
+
+    fireEvent.click(screen.getByTestId('payments-tax-forfeiture-estimate'));
+    fireEvent.click(screen.getByTestId('payments-save'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Payments & taxes saved.')).toBeInTheDocument();
+    });
+    const patchCall = fetchMock.mock.calls.find(
+      ([, init]) => (init as RequestInit | undefined)?.method === 'PATCH',
+    );
+    const body = JSON.parse(String((patchCall![1] as RequestInit).body));
+
+    expect(body.payments.tax.forfeitureTaxEstimationEnabled).toBe(true);
   });
 
   it('keeps Save disabled until a field changes (explicit-save pattern)', async () => {

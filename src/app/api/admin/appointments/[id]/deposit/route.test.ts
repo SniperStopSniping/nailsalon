@@ -51,7 +51,31 @@ const guarded = {
   ok: true,
   admin: { isSuperAdmin: false },
   salon: { id: 'salon_1' },
-  appointment: { id: 'appt_1' },
+  appointment: { id: 'appt_1', invoiceCurrency: 'CAD' },
+};
+
+const paidDeposit = {
+  id: 'dep_1',
+  status: 'paid',
+  amountCents: 2500,
+  currency: 'cad',
+  stripePaymentIntentId: 'pi_1',
+  stripeRefundId: null,
+  refundedAt: null,
+  refundStatus: null,
+  refundStatusChangedAt: null,
+  refundAmountCents: null,
+  refundRequestedAt: null,
+  refundTrigger: null,
+  refundLastErrorCode: null,
+  refundFailureReason: null,
+  externalRefundObservedCents: null,
+  refundConflictFlag: false,
+  refundTerminalFailureCount: 0,
+  priorRefundIds: [],
+  forfeitedAt: null,
+  forfeitureTaxSnapshot: null,
+  createdAt: new Date('2026-08-14T10:00:00.000Z'),
 };
 
 function request() {
@@ -93,7 +117,7 @@ describe('GET /api/admin/appointments/[id]/deposit', () => {
 
   it('loads the tenant-scoped panel and returns only filtered deposit audits', async () => {
     queryQueue.push(
-      [{ id: 'dep_1', status: 'paid', refundLastErrorCode: 'UNKNOWN_PROVIDER_ERROR' }],
+      [paidDeposit],
       [
         {
           id: 'audit_2',
@@ -129,7 +153,18 @@ describe('GET /api/admin/appointments/[id]/deposit', () => {
       expect.objectContaining({ id: 'dep_1' }),
     );
     expect(body).toEqual({
+      appointmentStatus: null,
       deposit: { id: 'dep_1', status: 'paid' },
+      deposits: [{ id: 'dep_1', status: 'paid' }],
+      depositCredit: {
+        state: 'resolved',
+        blockedCode: null,
+        blockedDetail: null,
+        collectedCents: 2500,
+        refundedCents: 0,
+        forfeitedCents: 0,
+        eligibleCents: 2500,
+      },
       auditRows: [{
         id: 'audit_2',
         action: 'deposit_refund_failed',
@@ -142,6 +177,32 @@ describe('GET /api/admin/appointments/[id]/deposit', () => {
       moreOmitted: 51,
     });
     expect(JSON.stringify(body)).not.toContain('rawProviderMessage');
+  });
+
+  it('blocks a historical deposit whose invoice currency is unknown', async () => {
+    requireDepositReadActor.mockResolvedValue({
+      ...guarded,
+      salon: {
+        id: 'salon_1',
+        settings: { booking: { currency: 'USD' } },
+      },
+      appointment: { id: 'appt_1', invoiceCurrency: null },
+    });
+    queryQueue.push([paidDeposit], [], [{ total: 0 }]);
+
+    const response = await GET(request(), {
+      params: Promise.resolve({ id: 'appt_1' }),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.depositCredit).toMatchObject({
+      state: 'blocked',
+      blockedCode: 'DEPOSIT_CURRENCY_MISMATCH',
+      collectedCents: 0,
+      refundedCents: 0,
+      eligibleCents: 0,
+    });
   });
 
   it('passes read-guard failures through with private cache headers', async () => {

@@ -5,6 +5,11 @@ import { createHash } from 'node:crypto';
 import { and, eq } from 'drizzle-orm';
 
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { buildBookingEmailFinancialLines } from '@/libs/bookingEmailFinancialPresentation';
+import {
+  type BookingEmailFinancialSummary,
+  loadBookingEmailFinancialSummary,
+} from '@/libs/bookingEmailFinancialSummary.server';
 import { db } from '@/libs/DB';
 import { sendTransactionalEmailDetailed } from '@/libs/email';
 import { formatMoney } from '@/libs/formatMoney';
@@ -53,7 +58,6 @@ export type SalonNotificationPreviousSchedule = {
   serviceSummary: string;
   discountLabel: string | null;
   discountAmountCents: number;
-  totalPriceCents: number;
 };
 
 export type SalonNotificationCancellation = {
@@ -100,7 +104,8 @@ export type SalonNotificationContext = {
   services: Array<{ name: string; priceCents: number; durationMinutes: number }>;
   addOns: Array<{ name: string; quantity: number; lineTotalCents: number }>;
   timeZone: string;
-  currency: string;
+  currency: string | null;
+  financialSummary: BookingEmailFinancialSummary | null;
 };
 
 const EVENT_PURPOSE: Record<SalonNotificationEventKey, string> = {
@@ -221,7 +226,7 @@ async function loadSalonNotificationContext(
     return null;
   }
 
-  const [serviceRows, addOnRows] = await Promise.all([
+  const [serviceRows, addOnRows, financialSummary] = await Promise.all([
     db
       .select({
         name: appointmentServicesSchema.nameSnapshot,
@@ -238,6 +243,7 @@ async function loadSalonNotificationContext(
       })
       .from(appointmentAddOnSchema)
       .where(eq(appointmentAddOnSchema.appointmentId, appointmentId)),
+    loadBookingEmailFinancialSummary({ salonId, appointmentId }),
   ]);
 
   const settings = (row.salonSettings as SalonSettings | null) ?? null;
@@ -266,7 +272,8 @@ async function loadSalonNotificationContext(
       lineTotalCents: addOn.lineTotalCents,
     })),
     timeZone: bookingConfig.timezone,
-    currency: bookingConfig.currency,
+    currency: financialSummary?.currency ?? row.appointment.invoiceCurrency ?? null,
+    financialSummary,
   };
 }
 
@@ -306,6 +313,10 @@ function formatTimeZoneLabel(value: string | Date, timeZone: string): string {
   }).formatToParts(new Date(value));
   const name = parts.find(part => part.type === 'timeZoneName')?.value;
   return name ? `${timeZone} (${name})` : timeZone;
+}
+
+function formatKnownMoney(cents: number, currency: string | null): string {
+  return currency ? formatMoney(cents, currency) : 'Unavailable';
 }
 
 /** Short, human-quotable reference. The full id stays in the dashboard link. */
@@ -410,7 +421,7 @@ function buildServiceLines(context: SalonNotificationContext): Line[] {
 function buildAddOnLines(context: SalonNotificationContext): Line[] {
   return context.addOns.map(addOn => ({
     label: addOn.quantity > 1 ? `${addOn.name} ×${addOn.quantity}` : addOn.name,
-    value: formatMoney(addOn.lineTotalCents, context.currency),
+    value: formatKnownMoney(addOn.lineTotalCents, context.currency),
   }));
 }
 
@@ -424,23 +435,25 @@ function resolveDiscountLabel(
   return discountLabel?.trim() || 'Discount';
 }
 
-function resolveExpectedTotalCents(
-  appointment: typeof appointmentSchema.$inferSelect,
-): number {
-  // Tax is only snapshotted at checkout, so booking-time emails normally have
-  // none. When it exists and is exclusive, it is part of what the client owes.
-  if (
-    appointment.taxEnabledSnapshot
-    && appointment.taxAmountCents != null
-    && !appointment.taxInclusive
-  ) {
-    return appointment.totalPrice + appointment.taxAmountCents;
-  }
-  return appointment.totalPrice;
-}
-
 function buildPricingLines(context: SalonNotificationContext): Line[] {
-  const { appointment, currency, services } = context;
+  const {
+    appointment,
+    currency,
+    services,
+    financialSummary,
+  } = context;
+  if (!financialSummary || financialSummary.depositBlockedCode) {
+    return buildBookingEmailFinancialLines(financialSummary, {
+      includeBlockedCode: true,
+    });
+  }
+
+  if (appointment.status === 'cancelled' || appointment.status === 'no_show') {
+    return buildBookingEmailFinancialLines(financialSummary, {
+      includeBlockedCode: true,
+    });
+  }
+
   const lines: Line[] = [];
 
   const addOnTotal = appointment.addOnsPriceCents
@@ -448,32 +461,21 @@ function buildPricingLines(context: SalonNotificationContext): Line[] {
   const baseTotal = appointment.basePriceCents
     ?? services.reduce((sum, service) => sum + service.priceCents, 0);
 
-  lines.push({ label: 'Service', value: formatMoney(baseTotal, currency) });
+  lines.push({ label: 'Service', value: formatKnownMoney(baseTotal, currency) });
 
   if (addOnTotal > 0) {
-    lines.push({ label: 'Add-ons', value: formatMoney(addOnTotal, currency) });
+    lines.push({ label: 'Add-ons', value: formatKnownMoney(addOnTotal, currency) });
   }
 
   const discountAmount = appointment.discountAmountCents ?? 0;
   if (discountAmount > 0) {
     lines.push({
       label: resolveDiscountLabel(appointment.discountType, appointment.discountLabel),
-      value: `-${formatMoney(discountAmount, currency)}`,
+      value: currency ? `-${formatMoney(discountAmount, currency)}` : 'Unavailable',
     });
   }
 
-  if (appointment.taxEnabledSnapshot && appointment.taxAmountCents != null) {
-    lines.push({
-      label: appointment.taxNameSnapshot || 'Tax',
-      value: formatMoney(appointment.taxAmountCents, currency),
-    });
-  }
-
-  lines.push({
-    label: 'Expected total',
-    value: formatMoney(resolveExpectedTotalCents(appointment), currency),
-  });
-
+  lines.push(...buildBookingEmailFinancialLines(financialSummary));
   return lines;
 }
 
@@ -606,7 +608,9 @@ export function buildSalonNotificationEmailPayload(
     ? context.services.map(service => service.name).join(', ')
     : 'Appointment';
   const dashboardUrl = buildDashboardUrl(context);
-  const addOnLines = buildAddOnLines(context);
+  const financialsResolved = context.financialSummary !== null
+    && context.financialSummary.depositBlockedCode === null;
+  const addOnLines = financialsResolved ? buildAddOnLines(context) : [];
   const reference = formatAppointmentReference(appointment.id);
 
   const commonTail: Block[] = [
@@ -713,22 +717,20 @@ export function buildSalonNotificationEmailPayload(
         changeLines.push({
           label: 'Previous discount',
           value: previousDiscount > 0
-            ? `${previous.discountLabel ?? 'Discount'} -${formatMoney(previousDiscount, currency)}`
+            ? `${previous.discountLabel ?? 'Discount applied'} (amount unavailable)`
             : 'None',
         });
         changeLines.push({
           label: 'New discount',
           value: newDiscount > 0
-            ? `${resolveDiscountLabel(appointment.discountType, appointment.discountLabel)} -${formatMoney(newDiscount, currency)}`
+            ? financialsResolved
+              ? `${resolveDiscountLabel(appointment.discountType, appointment.discountLabel)} -${formatKnownMoney(newDiscount, currency)}`
+              : `${resolveDiscountLabel(appointment.discountType, appointment.discountLabel)} (amount under review)`
             : 'None',
         });
         changeLines.push({
-          label: 'Previous expected total',
-          value: formatMoney(previous.totalPriceCents, currency),
-        });
-        changeLines.push({
-          label: 'New expected total',
-          value: formatMoney(resolveExpectedTotalCents(appointment), currency),
+          label: 'Previous pricing',
+          value: 'Not shown — validated prior invoice evidence is unavailable',
         });
       }
     }

@@ -3,6 +3,9 @@ import { createHash } from 'node:crypto';
 import { and, desc, eq, isNull, ne } from 'drizzle-orm';
 
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
+import { buildBookingEmailFinancialLines } from '@/libs/bookingEmailFinancialPresentation';
+import type { BookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
+import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import {
   BOOKING_EXPERIENCE_LIMITS,
   resolveBookingExperience,
@@ -72,6 +75,21 @@ const NO_BOOKING_EMAIL_CUSTOMIZATION: BookingEmailCustomization = {
   confirmationMessage: null,
   policy: NO_CONFIRMATION_POLICY,
 };
+
+function composeBookingFinancialText(
+  summary: BookingEmailFinancialSummary | null,
+): string {
+  return buildBookingEmailFinancialLines(summary)
+    .map(line => `${line.label}: ${line.value}`)
+    .join('\n');
+}
+
+function composeBookingFinancialHtml(
+  summary: BookingEmailFinancialSummary | null,
+): string {
+  const text = composeBookingFinancialText(summary);
+  return text ? `<p>${renderLineBreaks(text)}</p>` : '';
+}
 
 function composeBookingPolicyText(policy: ConfirmationPolicyModel): string | null {
   if (policy.kind === 'none') {
@@ -576,6 +594,7 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   }
   let recipient;
   let customization = NO_BOOKING_EMAIL_CUSTOMIZATION;
+  let financialSummary: BookingEmailFinancialSummary | null = null;
   try {
     const appointment = await loadBookingConfirmationEligibility(input);
     if (!isBookingConfirmationEligible(appointment)) {
@@ -592,6 +611,10 @@ export async function sendCustomerBookingConfirmationEmail(input: {
       salonId: input.salonId,
       appointmentId: input.appointmentId,
       currentCustomization,
+    });
+    financialSummary = await loadBookingEmailFinancialSummary({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
     });
     recipient = await resolveAppointmentOperationalEmailRecipient({
       salonId: input.salonId,
@@ -640,12 +663,15 @@ export async function sendCustomerBookingConfirmationEmail(input: {
     to: recipient.email,
     subject,
     text: composeBookingConfirmationText({
-      appointmentContent: appointmentText,
+      appointmentContent: [
+        appointmentText,
+        composeBookingFinancialText(financialSummary),
+      ].filter((content): content is string => Boolean(content)).join('\n\n'),
       manageContent: manageText,
       customization,
     }),
     html: composeBookingConfirmationHtml({
-      appointmentContent: appointmentHtml,
+      appointmentContent: `${appointmentHtml}${composeBookingFinancialHtml(financialSummary)}`,
       manageContent: manageHtml,
       customization,
     }),
@@ -828,16 +854,23 @@ export async function retryCustomerBookingConfirmationEmail(input: {
       await markBookingAppointmentNotConfirmable(input);
       return appointmentNotConfirmableResult;
     }
+    const financialSummary = await loadBookingEmailFinancialSummary({
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+    });
     emailInput = {
       to: finalRecipient.email,
       subject: `${row.salonName} booking confirmed`,
       text: composeBookingConfirmationText({
-        appointmentContent: appointmentText,
+        appointmentContent: [
+          appointmentText,
+          composeBookingFinancialText(financialSummary),
+        ].filter((content): content is string => Boolean(content)).join('\n\n'),
         manageContent: manageText,
         customization,
       }),
       html: composeBookingConfirmationHtml({
-        appointmentContent: appointmentHtml,
+        appointmentContent: `${appointmentHtml}${composeBookingFinancialHtml(financialSummary)}`,
         manageContent: manageHtml,
         customization,
       }),

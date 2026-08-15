@@ -1,8 +1,12 @@
 import { and, desc, eq, inArray, ne } from 'drizzle-orm';
 
+import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger';
+import { buildBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { requireClientApiSession, requireClientSalonFromQuery } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
 import {
+  appointmentDepositSchema,
+  appointmentPaymentSchema,
   appointmentSchema,
   appointmentServicesSchema,
   serviceSchema,
@@ -62,17 +66,62 @@ export async function GET(request: Request): Promise<Response> {
     // Get all appointment IDs for batch fetching services
     const appointmentIds = appointments.map(a => a.id);
 
-    // Batch fetch all appointment services
-    const allAppointmentServices = await db
-      .select({
-        appointmentId: appointmentServicesSchema.appointmentId,
-        serviceId: appointmentServicesSchema.serviceId,
-        priceAtBooking: appointmentServicesSchema.priceAtBooking,
-        durationAtBooking: appointmentServicesSchema.durationAtBooking,
-      })
-      .from(appointmentServicesSchema)
-      .where(inArray(appointmentServicesSchema.appointmentId, appointmentIds));
-
+    // Batch fetch item and money history. Deposits remain their own ledger;
+    // they are never fabricated as appointment_payment rows.
+    const [allAppointmentServices, depositRows, paymentRows] = await Promise.all([
+      db
+        .select({
+          appointmentId: appointmentServicesSchema.appointmentId,
+          serviceId: appointmentServicesSchema.serviceId,
+          priceAtBooking: appointmentServicesSchema.priceAtBooking,
+          durationAtBooking: appointmentServicesSchema.durationAtBooking,
+        })
+        .from(appointmentServicesSchema)
+        .where(inArray(appointmentServicesSchema.appointmentId, appointmentIds)),
+      db
+        .select()
+        .from(appointmentDepositSchema)
+        .where(and(
+          eq(appointmentDepositSchema.salonId, salon.id),
+          inArray(appointmentDepositSchema.appointmentId, appointmentIds),
+        )),
+      db
+        .select()
+        .from(appointmentPaymentSchema)
+        .where(inArray(appointmentPaymentSchema.appointmentId, appointmentIds)),
+    ]);
+    const depositsByAppointment = new Map<string, typeof depositRows>();
+    for (const row of depositRows) {
+      const rows = depositsByAppointment.get(row.appointmentId) ?? [];
+      rows.push(row);
+      depositsByAppointment.set(row.appointmentId, rows);
+    }
+    const paymentsByAppointment = new Map<string, typeof paymentRows>();
+    for (const row of paymentRows) {
+      const rows = paymentsByAppointment.get(row.appointmentId) ?? [];
+      rows.push(row);
+      paymentsByAppointment.set(row.appointmentId, rows);
+    }
+    const paymentLedgerByAppointment = new Map<string, Extract<
+      ReturnType<typeof resolveAppointmentPaymentLedger>,
+      { ok: true }
+    >>();
+    for (const appointment of appointments) {
+      const paymentLedger = resolveAppointmentPaymentLedger({
+        cachedAmountPaidCents: appointment.amountPaidCents,
+        paymentRows: paymentsByAppointment.get(appointment.id) ?? [],
+        expectedSalonId: salon.id,
+        appointmentStatus: appointment.status,
+        paymentStatus: appointment.paymentStatus,
+      });
+      if (!paymentLedger.ok) {
+        return Response.json(
+          { error: { code: paymentLedger.code, message: paymentLedger.detail } } satisfies ErrorResponse,
+          { status: 409 },
+        );
+      }
+      paymentLedgerByAppointment.set(appointment.id, paymentLedger);
+    }
     // Get unique service IDs
     const serviceIds = [...new Set(allAppointmentServices.map(as => as.serviceId))];
 
@@ -123,6 +172,17 @@ export async function GET(request: Request): Promise<Response> {
       const technician = appointment.technicianId
         ? technicianMap.get(appointment.technicianId)
         : null;
+      const paymentLedger = paymentLedgerByAppointment.get(appointment.id)!;
+      const invoiceCurrency = appointment.invoiceCurrency
+        ?? appointment.finalTaxSnapshot?.currency
+        ?? appointment.rescheduleTaxSnapshot?.currency
+        ?? appointment.bookingTaxSnapshot?.currency
+        ?? null;
+      const financialSummary = buildBookingEmailFinancialSummary({
+        appointment,
+        deposits: depositsByAppointment.get(appointment.id) ?? [],
+        appointmentPaymentsCents: paymentLedger.appointmentPaymentsCents,
+      });
 
       return {
         id: appointment.id,
@@ -131,7 +191,26 @@ export async function GET(request: Request): Promise<Response> {
         status: appointment.status,
         cancelReason: appointment.cancelReason,
         totalPrice: appointment.totalPrice,
+        currency: invoiceCurrency,
         totalDurationMinutes: appointment.totalDurationMinutes,
+        financial: financialSummary
+          ? {
+              serviceInvoiceTotalCents: financialSummary.serviceInvoiceTotalCents,
+              totalCents: financialSummary.totalDueCents,
+              depositCreditCents: financialSummary.depositCreditAppliedCents,
+              appointmentPaymentsCents: financialSummary.appointmentPaymentsCents,
+              amountAlreadyPaidCents: financialSummary.amountAlreadyPaidCents,
+              balanceCents: financialSummary.balanceCents,
+              depositState: financialSummary.depositBlockedCode === null
+                ? 'resolved' as const
+                : 'blocked' as const,
+              depositBlockCode: financialSummary.depositBlockedCode,
+              depositPresentationState: financialSummary.depositPresentationState,
+              collectedDepositCents: financialSummary.collectedDepositCents,
+              refundedDepositCents: financialSummary.refundedDepositCents,
+              forfeitedDepositCents: financialSummary.forfeitedDepositCents,
+            }
+          : null,
         locationId: appointment.locationId,
         services: servicesData,
         technician: technician

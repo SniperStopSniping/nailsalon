@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, ne } from 'drizzle-orm';
+import { and, eq, inArray, isNull, ne, sql } from 'drizzle-orm';
 
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import {
@@ -7,6 +7,7 @@ import {
 } from '@/libs/appointmentManage';
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
 import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
+import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { loadBookingPolicy } from '@/libs/bookingPolicy';
 import { sendAppointmentOperationalEmailOnce } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
@@ -15,6 +16,7 @@ import {
   enqueueGoogleCalendarAppointmentMutation,
   enqueueGoogleCalendarDeleteInTx,
 } from '@/libs/integrationOutbox';
+import { resolveManageDepositCheckout } from '@/libs/manageDepositCheckout';
 import { getLocationById, getTechnicianById } from '@/libs/queries';
 import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
 import { evaluateSmartFitSlot, type SmartFitEvaluation } from '@/libs/smartFit';
@@ -26,6 +28,10 @@ import {
   resolveSmartFitRescheduleDiscount,
   type SmartFitRescheduleOutcome,
 } from '@/libs/smartFitReschedulePolicy';
+import {
+  buildRescheduleTaxSnapshot,
+  validateInvoiceTaxSnapshot,
+} from '@/libs/taxConfig';
 import {
   formatDateInTimeZone,
   formatTimeInTimeZone,
@@ -194,17 +200,34 @@ export async function GET(_request: Request, context: { params: { token: string 
   // READ-ONLY deposit-hold state. Every MUTATING manage-token handler keeps
   // rejecting holds; this only lets the client see that a deposit is owed and
   // reach the payment page again.
-  const [depositForResume] = appointment.status === 'awaiting_payment'
-    ? await db
-      .select({ checkoutUrl: appointmentDepositSchema.stripeCheckoutUrl })
-      .from(appointmentDepositSchema)
-      .where(and(
-        eq(appointmentDepositSchema.salonId, appointment.salonId),
-        eq(appointmentDepositSchema.appointmentId, appointment.id),
-        eq(appointmentDepositSchema.status, 'checkout_created'),
-      ))
-      .limit(1)
-    : [];
+  const [financialSummary, depositForResumeRows] = appointment.status === 'awaiting_payment'
+    ? await Promise.all([
+      loadBookingEmailFinancialSummary({
+        salonId: appointment.salonId,
+        appointmentId: appointment.id,
+      }),
+      db
+        .select({
+          amountCents: appointmentDepositSchema.amountCents,
+          currency: appointmentDepositSchema.currency,
+          checkoutUrl: appointmentDepositSchema.stripeCheckoutUrl,
+        })
+        .from(appointmentDepositSchema)
+        .where(and(
+          eq(appointmentDepositSchema.salonId, appointment.salonId),
+          eq(appointmentDepositSchema.appointmentId, appointment.id),
+          eq(appointmentDepositSchema.status, 'checkout_created'),
+        ))
+        .limit(1),
+    ])
+    : [null, []];
+  const depositCheckout = appointment.status === 'awaiting_payment'
+    ? resolveManageDepositCheckout({
+      invoiceCurrency: appointment.invoiceCurrency,
+      financialSummary,
+      deposit: depositForResumeRows[0] ?? null,
+    })
+    : null;
   return Response.json({ data: {
     appointment: {
       id: appointment.id,
@@ -216,7 +239,7 @@ export async function GET(_request: Request, context: { params: { token: string 
       ...(appointment.status === 'awaiting_payment'
         ? {
             depositHoldExpiresAt: appointment.depositHoldExpiresAt,
-            depositCheckoutUrl: depositForResume?.checkoutUrl ?? null,
+            depositCheckoutUrl: depositCheckout?.checkoutUrl ?? null,
           }
         : {}),
     },
@@ -408,23 +431,64 @@ export async function POST(request: Request, context: { params: { token: string 
       nextPricing: pricingInputs,
       newSlotEvaluation,
     });
-    smartFitOutcome = decision.outcome;
-
     if (decision.outcome === 'granted') {
       // Guarded on the discount still being absent, so a retried request can
       // never stack a second discount onto the same appointment.
-      await db.transaction(async (tx) => {
+      const applied = await db.transaction(async (tx) => {
         const [locked] = await tx.select().from(appointmentSchema).where(and(
           eq(appointmentSchema.id, managed.capability.appointmentId),
           eq(appointmentSchema.salonId, managed.capability.salonId),
         )).for('update').limit(1);
         if (!locked || locked.discountType) {
-          return;
+          return false;
         }
         const mutationVersion = new Date(Math.max(
           Date.now(),
           locked.updatedAt.getTime() + 1,
         ));
+        await tx.execute(sql`
+          SELECT ${salonSchema.id}
+          FROM ${salonSchema}
+          WHERE ${salonSchema.id} = ${managed.capability.salonId}
+          FOR SHARE NOWAIT
+        `);
+        const [lockedSalonFinancials] = await tx
+          .select({ settings: salonSchema.settings })
+          .from(salonSchema)
+          .where(eq(salonSchema.id, managed.capability.salonId))
+          .limit(1);
+        if (!lockedSalonFinancials) {
+          throw new Error('SALON_NOT_FOUND_DURING_RESCHEDULE_PRICING');
+        }
+        const serviceLineTotalCents = locked.basePriceCents
+          ?? Math.max(
+            0,
+            pricingInputs.subtotalBeforeDiscountCents
+            - (locked.addOnsPriceCents ?? 0),
+          );
+        const addOnLineTotalCents = locked.addOnsPriceCents ?? 0;
+        const rescheduleTaxSnapshot = locked.invoiceCurrency
+          ? buildRescheduleTaxSnapshot({
+            settings: (lockedSalonFinancials.settings as SalonSettings | null | undefined) ?? null,
+            capturedAt: mutationVersion,
+            currency: locked.invoiceCurrency,
+            serviceLineTotalCents,
+            addOnLineTotalCents,
+            discountCents: decision.discountAmountCents,
+          })
+          : null;
+        if (rescheduleTaxSnapshot) {
+          const validation = validateInvoiceTaxSnapshot(rescheduleTaxSnapshot, {
+            expectedKind: 'booking_estimate',
+            expectedCurrency: locked.invoiceCurrency,
+            expectedScalars: {
+              bookingTotalPriceCents: decision.finalTotalCents,
+            },
+          });
+          if (!validation.ok) {
+            throw new Error(`RESCHEDULE_TAX_SNAPSHOT_INVALID:${validation.code}`);
+          }
+        }
         const [discounted] = await tx.update(appointmentSchema)
           .set({
             discountType: decision.discountType,
@@ -433,6 +497,7 @@ export async function POST(request: Request, context: { params: { token: string 
             discountAmountCents: decision.discountAmountCents,
             subtotalBeforeDiscountCents: pricingInputs.subtotalBeforeDiscountCents,
             totalPrice: decision.finalTotalCents,
+            ...(rescheduleTaxSnapshot ? { rescheduleTaxSnapshot } : {}),
             discountAppliedAt: new Date(),
             updatedAt: mutationVersion,
           })
@@ -448,10 +513,16 @@ export async function POST(request: Request, context: { params: { token: string 
             salonId: discounted.salonId,
             mutationVersion: discounted.updatedAt,
           });
+          return true;
         }
+        return false;
       });
+      smartFitOutcome = applied ? 'granted' : 'none';
+    } else {
+      smartFitOutcome = decision.outcome;
     }
   } catch (smartFitError) {
+    smartFitOutcome = 'none';
     // Pricing is a bonus here; never fail a committed move over it.
     console.error('[AppointmentManageLink] Smart Fit evaluation failed after the move committed:', {
       salonId: managed.capability.salonId,

@@ -229,6 +229,8 @@ vi.mock('@/libs/SMS', () => ({
   sendRescheduleConfirmation: vi.fn(),
 }));
 
+import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
+
 import { POST } from './route';
 
 const REQUIRED_POLICY_TITLE = 'Deposit and cancellation policy';
@@ -272,31 +274,58 @@ function requiredPolicyProjection() {
   };
 }
 
+const DEFAULT_LOCKED_SALON_FINANCIAL_CONFIGURATION = {
+  plan: null,
+  features: null,
+  settings: null,
+};
+
+function isSalonFinancialConfigurationSelection(
+  selection?: Record<string, unknown>,
+): boolean {
+  return Boolean(
+    selection
+    && 'plan' in selection
+    && 'features' in selection
+    && 'settings' in selection,
+  );
+}
+
+function mockSelectRows(rows: unknown[]) {
+  return {
+    from: vi.fn(() => ({
+      where: vi.fn(() => Object.assign(Promise.resolve(rows), {
+        limit: vi.fn(async () => rows),
+        for: vi.fn(() => ({
+          limit: vi.fn(async () => rows),
+        })),
+      })),
+    })),
+  };
+}
+
+function selectionAwareSelect<T>(
+  fallback: (selection?: Record<string, unknown>) => T,
+  lockedSalonFinancialConfiguration: {
+    plan: unknown;
+    features: unknown;
+    settings: unknown;
+  } = DEFAULT_LOCKED_SALON_FINANCIAL_CONFIGURATION,
+) {
+  return (selection?: Record<string, unknown>) => {
+    if (isSalonFinancialConfigurationSelection(selection)) {
+      return mockSelectRows([lockedSalonFinancialConfiguration]);
+    }
+
+    return fallback(selection);
+  };
+}
+
 describe('POST /api/appointments booking policy', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    db.select.mockImplementation((selection?: Record<string, unknown>) => {
-      const isPolicyLock = Boolean(
-        selection
-        && 'plan' in selection
-        && 'features' in selection
-        && 'settings' in selection,
-      );
-      const rows = isPolicyLock
-        ? [{ plan: null, features: null, settings: null }]
-        : [];
-      return {
-        from: vi.fn(() => ({
-          where: vi.fn(() => Object.assign(Promise.resolve(rows), {
-            limit: vi.fn(async () => rows),
-            for: vi.fn(() => ({
-              limit: vi.fn(async () => rows),
-            })),
-          })),
-        })),
-      };
-    });
+    db.select.mockImplementation(selectionAwareSelect(() => mockSelectRows([])));
     getSalonBySlug.mockResolvedValue({ id: 'salon_1', slug: 'salon-a', name: 'Salon A' });
     getSalonById.mockResolvedValue({
       id: 'salon_1',
@@ -625,38 +654,21 @@ describe('POST /api/appointments booking policy', () => {
       available: true,
       schedule: { start: '09:00', end: '18:00' },
     });
-    db.select.mockImplementation((selection?: Record<string, unknown>) => {
-      const isPolicyLock = Boolean(
-        selection
-        && 'plan' in selection
-        && 'features' in selection
-        && 'settings' in selection,
-      );
-      const rows = isPolicyLock
-        ? [{
-            plan: 'single_salon',
-            features: null,
-            settings: {
-              bookingExperience: {
-                policy: {
-                  ...requiredPolicyProjection(),
-                  version: undefined,
-                },
-              },
+    db.select.mockImplementation(selectionAwareSelect(
+      () => mockSelectRows([]),
+      {
+        plan: 'single_salon',
+        features: null,
+        settings: {
+          bookingExperience: {
+            policy: {
+              ...requiredPolicyProjection(),
+              version: undefined,
             },
-          }]
-        : [];
-      return {
-        from: vi.fn(() => ({
-          where: vi.fn(() => Object.assign(Promise.resolve(rows), {
-            limit: vi.fn(async () => rows),
-            for: vi.fn(() => ({
-              limit: vi.fn(async () => rows),
-            })),
-          })),
-        })),
-      };
-    });
+          },
+        },
+      },
+    ));
 
     const response = await postBooking();
 
@@ -1225,7 +1237,7 @@ describe('POST /api/appointments booking policy', () => {
       clientName: 'Ava Guest',
       clientPhone: '9999999999',
       services: ['BIAB'],
-      totalPrice: 6500,
+      financialSummary: null,
     }));
     expect(enqueueGoogleCalendarAppointmentMutation).toHaveBeenCalledWith(
       expect.anything(),
@@ -1376,11 +1388,7 @@ describe('POST /api/appointments booking policy', () => {
     db.transaction.mockImplementationOnce(async (callback: (tx: typeof db) => Promise<unknown>) => {
       const tx = {
         execute: vi.fn(async () => undefined),
-        select: vi.fn(() => ({
-          from: vi.fn(() => ({
-            where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
-          })),
-        })),
+        select: vi.fn(selectionAwareSelect(() => mockSelectRows([]))),
         insert: vi.fn()
           .mockImplementationOnce(() => ({
             values: vi.fn((values: Record<string, unknown>) => {
@@ -1462,6 +1470,81 @@ describe('POST /api/appointments booking policy', () => {
     expect(enqueueGoogleCalendarUpsert).not.toHaveBeenCalled();
   });
 
+  it('converts with a price override as one internally consistent financial representation', async () => {
+    requireAdmin.mockResolvedValue({ ok: true });
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    mockConversionSelects(buildConversionSourceEvent());
+    const txState = mockConversionTransaction();
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          clientPhone: '1111111111',
+          clientName: 'Converted Client',
+          startTime: '2099-03-13T15:00:00.000Z',
+          googleEventReviewId: 'google_event_1',
+          priceCentsOverride: 5000,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+
+    const values = txState.appointmentValues!;
+
+    // Every stored price component describes the single overridden amount;
+    // srv_1's catalog price (6500) must not survive anywhere in the row.
+    expect(values).toEqual(expect.objectContaining({
+      totalPrice: 5000,
+      basePriceCents: 5000,
+      addOnsPriceCents: 0,
+      subtotalBeforeDiscountCents: 5000,
+      discountAmountCents: 0,
+    }));
+
+    // The frozen booking snapshot must satisfy the same canonical chain
+    // validator that checkout, completion, and financial presentation gate on.
+    const chainInput = {
+      status: 'confirmed',
+      completedAt: null,
+      totalPrice: values.totalPrice as number,
+      finalPriceCents: null,
+      taxableSubtotalCents: null,
+      taxAmountCents: null,
+      taxExempt: null,
+      taxExemptReason: null,
+      invoiceCurrency: (values.invoiceCurrency as string | null) ?? null,
+      bookingTaxSnapshot: values.bookingTaxSnapshot as never,
+      rescheduleTaxSnapshot: null,
+      finalTaxSnapshot: null,
+    } as const;
+
+    expect(validateAppointmentTaxSnapshotChain(chainInput)).toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+
+    // Fail-closed validation is not weakened: the identical snapshot beside a
+    // contradicting booked total (the pre-repair row shape, where the catalog
+    // decomposition survived the override) must still be rejected.
+    const inconsistent = validateAppointmentTaxSnapshotChain({
+      ...chainInput,
+      totalPrice: 6500,
+    });
+
+    expect(inconsistent).toEqual(expect.objectContaining({
+      ok: false,
+      code: 'TAX_SNAPSHOT_ARITHMETIC_MISMATCH',
+    }));
+  });
+
   function buildConversionSourceEvent() {
     return {
       id: 'google_event_1',
@@ -1498,15 +1581,11 @@ describe('POST /api/appointments booking policy', () => {
     db.transaction.mockImplementationOnce(async (callback: (tx: typeof db) => Promise<unknown>) => {
       const tx = {
         execute: vi.fn(async () => undefined),
-        select: vi.fn(() => ({
-          from: vi.fn(() => ({
-            where: vi.fn(() => ({
-              // lockTechnicianAndAssertSlotFree's overlap probe: a returned
-              // row means a genuine double-book and throws SlotConflictError.
-              limit: vi.fn(async () => (options.guardConflict ? [{ id: 'existing_overlap' }] : [])),
-            })),
-          })),
-        })),
+        select: vi.fn(selectionAwareSelect(() => mockSelectRows(
+          // lockTechnicianAndAssertSlotFree's overlap probe: a returned row
+          // means a genuine double-book and throws SlotConflictError.
+          options.guardConflict ? [{ id: 'existing_overlap' }] : [],
+        ))),
         insert: vi.fn()
           .mockImplementationOnce(() => ({
             values: vi.fn((values: Record<string, unknown>) => {
@@ -1853,48 +1932,50 @@ describe('POST /api/appointments booking policy', () => {
             set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
           })),
         execute: vi.fn(async () => undefined),
-        select: vi.fn()
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                limit: vi.fn(async () => []),
-              })),
-            })),
-          }))
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                for: vi.fn(() => ({
-                  limit: vi.fn(async () => [{
-                    id: 'appt_original',
-                    salonId: 'salon_1',
-                    salonClientId: undefined,
-                    status: 'confirmed',
-                    updatedAt: new Date('2099-02-28T00:00:00.000Z'),
-                  }]),
+        select: vi.fn(selectionAwareSelect(
+          vi.fn()
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => []),
                 })),
               })),
-            })),
-          }))
+            }))
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  for: vi.fn(() => ({
+                    limit: vi.fn(async () => [{
+                      id: 'appt_original',
+                      salonId: 'salon_1',
+                      salonClientId: undefined,
+                      status: 'confirmed',
+                      updatedAt: new Date('2099-02-28T00:00:00.000Z'),
+                    }]),
+                  })),
+                })),
+              })),
+            }))
           // The reschedule deposit fence probes appointment_deposit for a
           // non-terminal row on the original. There is none here, so the
           // reschedule proceeds exactly as it did before the fence existed.
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                limit: vi.fn(async () => []),
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => []),
+                })),
               })),
-            })),
-          }))
+            }))
           // Candidate-base reschedule behavior checks for an ordinary reward
           // linked to the cancelled appointment. This fixture has none.
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                limit: vi.fn(async () => []),
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => []),
+                })),
               })),
             })),
-          })),
+        )),
       };
 
       const result = await callback(tx as never);
@@ -2030,48 +2111,50 @@ describe('POST /api/appointments booking policy', () => {
             set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
           })),
         execute: vi.fn(async () => undefined),
-        select: vi.fn()
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                limit: vi.fn(async () => []),
-              })),
-            })),
-          }))
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                for: vi.fn(() => ({
-                  limit: vi.fn(async () => [{
-                    id: 'appt_original',
-                    salonId: 'salon_1',
-                    salonClientId: undefined,
-                    status: 'confirmed',
-                    updatedAt: new Date('2099-02-28T00:00:00.000Z'),
-                  }]),
+        select: vi.fn(selectionAwareSelect(
+          vi.fn()
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => []),
                 })),
               })),
-            })),
-          }))
+            }))
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  for: vi.fn(() => ({
+                    limit: vi.fn(async () => [{
+                      id: 'appt_original',
+                      salonId: 'salon_1',
+                      salonClientId: undefined,
+                      status: 'confirmed',
+                      updatedAt: new Date('2099-02-28T00:00:00.000Z'),
+                    }]),
+                  })),
+                })),
+              })),
+            }))
           // The reschedule deposit fence probes appointment_deposit for a
           // non-terminal row on the original. There is none here, so the
           // reschedule proceeds exactly as it did before the fence existed.
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                limit: vi.fn(async () => []),
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => []),
+                })),
               })),
-            })),
-          }))
+            }))
           // Candidate-base reschedule behavior checks for an ordinary reward
           // linked to the cancelled appointment. This fixture has none.
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                limit: vi.fn(async () => []),
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => []),
+                })),
               })),
             })),
-          })),
+        )),
       };
 
       const result = await callback(tx as never);
@@ -2184,38 +2267,40 @@ describe('POST /api/appointments booking policy', () => {
             set: vi.fn(() => ({ where: vi.fn(async () => undefined) })),
           })),
         execute: vi.fn(async () => undefined),
-        select: vi.fn()
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                limit: vi.fn(async () => []),
-              })),
-            })),
-          }))
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                for: vi.fn(() => ({
-                  limit: vi.fn(async () => [{
-                    id: 'appt_original',
-                    salonId: 'salon_1',
-                    salonClientId: undefined,
-                    status: 'confirmed',
-                  }]),
+        select: vi.fn(selectionAwareSelect(
+          vi.fn()
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => []),
                 })),
               })),
-            })),
-          }))
+            }))
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  for: vi.fn(() => ({
+                    limit: vi.fn(async () => [{
+                      id: 'appt_original',
+                      salonId: 'salon_1',
+                      salonClientId: undefined,
+                      status: 'confirmed',
+                    }]),
+                  })),
+                })),
+              })),
+            }))
           // The reschedule deposit fence probes appointment_deposit for a
           // non-terminal row on the original. There is none here, so the
           // reschedule proceeds exactly as it did before the fence existed.
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                limit: vi.fn(async () => []),
+            .mockImplementationOnce(() => ({
+              from: vi.fn(() => ({
+                where: vi.fn(() => ({
+                  limit: vi.fn(async () => []),
+                })),
               })),
             })),
-          })),
+        )),
       };
 
       const result = await callback(tx as never);
@@ -2291,32 +2376,11 @@ describe('POST /api/appointments booking policy', () => {
     db.transaction.mockImplementationOnce(async (callback: (tx: typeof db) => Promise<unknown>) => {
       const tx = {
         execute: vi.fn(async () => undefined),
-        select: vi.fn()
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                for: vi.fn(() => ({
-                  limit: vi.fn(async () => [{
-                    plan: null,
-                    features: null,
-                    settings: null,
-                  }]),
-                })),
-              })),
-            })),
-          }))
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
-            })),
-          }))
-          .mockImplementationOnce(() => ({
-            from: vi.fn(() => ({
-              where: vi.fn(() => ({
-                for: vi.fn(() => ({ limit: vi.fn(async () => [campaign]) })),
-              })),
-            })),
-          })),
+        select: vi.fn(selectionAwareSelect(
+          vi.fn()
+            .mockImplementationOnce(() => mockSelectRows([]))
+            .mockImplementationOnce(() => mockSelectRows([campaign])),
+        )),
         insert: vi.fn()
           .mockImplementationOnce(() => ({
             values: vi.fn((values: Record<string, unknown>) => {
@@ -2425,33 +2489,12 @@ describe('POST /api/appointments booking policy', () => {
       available: true,
       schedule: { start: '09:00', end: '18:00' },
     });
-    db.select.mockImplementationOnce(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => ({ limit: vi.fn(async () => [campaign]) })),
-      })),
-    })).mockImplementationOnce(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          for: vi.fn(() => ({
-            limit: vi.fn(async () => [{
-              plan: null,
-              features: null,
-              settings: null,
-            }]),
-          })),
-        })),
-      })),
-    })).mockImplementationOnce(() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
-      })),
-    })).mockImplementationOnce((() => ({
-      from: vi.fn(() => ({
-        where: vi.fn(() => ({
-          for: vi.fn(() => ({ limit: vi.fn(async () => [campaign]) })),
-        })),
-      })),
-    })) as never);
+    db.select.mockImplementation(selectionAwareSelect(
+      vi.fn()
+        .mockImplementationOnce(() => mockSelectRows([campaign]))
+        .mockImplementationOnce(() => mockSelectRows([]))
+        .mockImplementationOnce(() => mockSelectRows([campaign])),
+    ));
 
     const response = await POST(new Request('http://localhost/api/appointments', {
       method: 'POST',

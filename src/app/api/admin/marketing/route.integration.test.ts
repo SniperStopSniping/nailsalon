@@ -12,6 +12,7 @@ import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { buildFinalTaxSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
 import { GET } from './route';
@@ -34,7 +35,14 @@ vi.mock('@/libs/adminAuth', () => ({
         error: Response.json({ error: { code: 'FORBIDDEN' } }, { status: 403 }),
       };
     }
-    return { salon: { id: 'salon_mkt', slug }, error: null };
+    return {
+      salon: {
+        id: 'salon_mkt',
+        slug,
+        settings: { booking: { currency: 'CAD' } },
+      },
+      error: null,
+    };
   }),
 }));
 
@@ -52,6 +60,28 @@ beforeAll(async () => {
   holder.db = db;
 
   const now = Date.now();
+  const finalTaxSnapshot = buildFinalTaxSnapshot({
+    taxConfig: resolveTaxConfig({
+      payments: {
+        tax: {
+          enabled: true,
+          name: 'HST',
+          rateBps: 1300,
+          jurisdiction: 'Ontario',
+          country: 'CA',
+          region: 'ON',
+        },
+      },
+    }, new Date(now - 5 * DAY)),
+    totals: {
+      taxApplied: true,
+      taxableSubtotalCents: 10000,
+      taxAmountCents: 1300,
+      finalPriceCents: 10000,
+    },
+    capturedAt: new Date(now - 5 * DAY),
+    currency: 'CAD',
+  });
   await db.insert(schema.salonSchema).values({ id: SALON_ID, name: 'Marketing Salon', slug: 'marketing-salon' });
   await db.insert(schema.salonClientSchema).values([
     // 45 days since last visit → win-back stage 1; has transactional consent.
@@ -258,8 +288,13 @@ beforeAll(async () => {
       totalPrice: 11000,
       totalDurationMinutes: 60,
       finalPriceCents: 10000,
+      taxableSubtotalCents: 10000,
       taxAmountCents: 1300,
+      taxExempt: false,
+      taxExemptReason: null,
       paymentStatus: 'paid',
+      invoiceCurrency: 'CAD',
+      finalTaxSnapshot,
     },
   ]);
   await db.execute(sql`
@@ -403,7 +438,85 @@ describe('GET /api/admin/marketing', () => {
       // finalPriceCents (10000), NOT totalPrice (11000) and NOT final+tax.
       completedRevenueCents: 10000,
       completedTaxCents: 1300,
+      unresolvedFinancialCount: 0,
     });
+    expect(body.data.currency).toBe('CAD');
+  });
+
+  it('excludes a foreign-currency redemption from CAD money and exposes review provenance', async () => {
+    const now = new Date();
+    await db.insert(schema.appointmentSchema).values({
+      id: 'appt_redeemed_usd',
+      salonId: SALON_ID,
+      salonClientId: 'sc_due',
+      clientPhone: '4165550301',
+      startTime: new Date(now.getTime() - DAY),
+      endTime: new Date(now.getTime() - DAY + 3_600_000),
+      status: 'completed',
+      completedAt: new Date(now.getTime() - DAY),
+      totalPrice: 5000,
+      totalDurationMinutes: 60,
+      finalPriceCents: 5000,
+      taxAmountCents: 0,
+      paymentStatus: 'paid',
+      invoiceCurrency: 'USD',
+    });
+    await db.insert(schema.retentionCampaignSchema).values({
+      id: 'camp_usd',
+      salonId: SALON_ID,
+      salonClientId: 'sc_due',
+      tokenHash: 'hash_usd',
+      stage: 'promo_8w',
+      promotionSnapshot: {
+        enabled: true,
+        name: 'USD offer',
+        discountType: 'fixed',
+        value: 500,
+        eligibleServiceIds: [],
+        expiryDays: 14,
+        code: null,
+        messageTemplate: 'x {bookingLink}',
+        singleUse: true,
+      },
+      expiresAt: new Date(now.getTime() + 14 * DAY),
+      singleUse: true,
+      redeemedAt: now,
+      redeemedAppointmentId: 'appt_redeemed_usd',
+    });
+    await db.insert(schema.retentionCampaignRedemptionSchema).values({
+      id: 'red_usd',
+      salonId: SALON_ID,
+      campaignId: 'camp_usd',
+      appointmentId: 'appt_redeemed_usd',
+      discountAmountCents: 500,
+    });
+
+    try {
+      const response = await GET(marketingRequest());
+      const body = await response.json();
+      const stage = body.data.results.campaigns.find(
+        (row: { stage: string }) => row.stage === 'promo_8w',
+      );
+
+      expect(stage).toMatchObject({
+        redeemed: 1,
+        discountGivenCents: 0,
+        completedCount: 1,
+        completedRevenueCents: 0,
+        completedTaxCents: 0,
+        unresolvedFinancialCount: 1,
+      });
+    } finally {
+      await db.delete(schema.retentionCampaignRedemptionSchema).where(
+        sql`${schema.retentionCampaignRedemptionSchema.id} = 'red_usd'`,
+      );
+      await db.delete(schema.retentionCampaignSchema).where(
+        sql`${schema.retentionCampaignSchema.id} = 'camp_usd'`,
+      );
+      await db.delete(schema.appointmentSchema).where(
+        sql`${schema.appointmentSchema.id} = 'appt_redeemed_usd'`,
+      );
+    }
   });
 
   it('enforces admin tenancy server-side', async () => {

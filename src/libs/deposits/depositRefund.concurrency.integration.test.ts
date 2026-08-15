@@ -61,6 +61,7 @@ const holder = vi.hoisted(() => ({ db: null as unknown }));
 const mocks = vi.hoisted(() => ({
   captureException: vi.fn(),
   captureMessage: vi.fn(),
+  enqueueClientStatsRefreshInTx: vi.fn(),
   enqueueDepositConfirmationSideEffects: vi.fn(),
   enqueueDepositRefundAlertInTx: vi.fn(),
   enqueueDepositRefundNotices: vi.fn(),
@@ -70,6 +71,7 @@ const mocks = vi.hoisted(() => ({
   refundsList: vi.fn(),
   refundsRetrieve: vi.fn(),
   checkoutRetrieve: vi.fn(),
+  requireAppointmentManagerAccess: vi.fn(),
 }));
 
 vi.mock('@/libs/DB', () => ({
@@ -99,7 +101,12 @@ vi.mock('@/libs/bookingCommitEffects', () => ({
   mintAppointmentManageCapability: mocks.mintAppointmentManageCapability,
 }));
 
+vi.mock('@/libs/routeAccessGuards', () => ({
+  requireAppointmentManagerAccess: mocks.requireAppointmentManagerAccess,
+}));
+
 vi.mock('@/libs/integrationOutbox', () => ({
+  enqueueClientStatsRefreshInTx: mocks.enqueueClientStatsRefreshInTx,
   enqueueDepositConfirmationSideEffects: mocks.enqueueDepositConfirmationSideEffects,
   enqueueDepositRefundAlertInTx: mocks.enqueueDepositRefundAlertInTx,
   enqueueDepositRefundNotices: mocks.enqueueDepositRefundNotices,
@@ -119,13 +126,17 @@ const {
   resolveAllowedSourceStatuses,
 } = await import('./depositRefund');
 const { confirmDepositPayment } = await import('./confirmDepositPayment');
+const { forfeitAppointmentDepositInTx } = await import('./depositForfeiture');
+const { PATCH: completeAppointment } = await import(
+  '@/app/api/appointments/[id]/complete/route'
+);
 
 const SALON_ID = 'salon_d6_refund_concurrency';
 const SALON_SLUG = 'd6-refund-concurrency';
 const TECH_ID = 'tech_d6_refund_concurrency';
 const ACCOUNT_ID = 'acct_d6_refund_concurrency';
 const OWNER_ID = 'admin_d6_refund_concurrency';
-const EXPECTED_EXECUTED_TESTS = 8;
+const EXPECTED_EXECUTED_TESTS = 10;
 
 type TestDb = ReturnType<typeof drizzle<typeof schema>>;
 type DepositRow = typeof schema.appointmentDepositSchema.$inferSelect;
@@ -188,10 +199,33 @@ suite('D6 — genuine PostgreSQL refund concurrency', () => {
       token: 'd6-concurrency-manage-token',
       expiresAt: new Date('2100-01-01T00:00:00.000Z'),
     });
+    mocks.enqueueClientStatsRefreshInTx.mockResolvedValue(undefined);
     mocks.enqueueDepositConfirmationSideEffects.mockResolvedValue(undefined);
     mocks.enqueueDepositRefundAlertInTx.mockResolvedValue(undefined);
     mocks.enqueueDepositRefundNotices.mockResolvedValue(undefined);
     mocks.enqueueGoogleCalendarDeleteInTx.mockResolvedValue(undefined);
+    mocks.requireAppointmentManagerAccess.mockImplementation(async (appointmentId: string) => {
+      const [appointment] = await db
+        .select()
+        .from(schema.appointmentSchema)
+        .where(eq(schema.appointmentSchema.id, appointmentId))
+        .limit(1);
+      if (!appointment) {
+        return {
+          ok: false as const,
+          response: Response.json(
+            { error: { code: 'APPOINTMENT_NOT_FOUND', message: 'Appointment not found.' } },
+            { status: 404 },
+          ),
+        };
+      }
+      return {
+        ok: true as const,
+        actorRole: 'admin' as const,
+        admin: { id: OWNER_ID, name: 'D6.1 Concurrency Owner' },
+        appointment,
+      };
+    });
     mocks.checkoutRetrieve.mockImplementation(async (
       _sessionId: string,
       options: { stripeAccount?: string },
@@ -763,6 +797,189 @@ suite('D6 — genuine PostgreSQL refund concurrency', () => {
     expect(audits.filter(row => row.action === 'payment_status_changed')).toHaveLength(1);
     expect(audits.filter(row => row.action === 'deposit_refund_succeeded')).toHaveLength(1);
     expect(finalDeposit).toMatchObject({ status: 'refunded', refundStatus: 'succeeded' });
+
+    executedTests += 1;
+  }, 30_000);
+
+  it('D6.1: completion returns a clean retry conflict while tax settings are locked, then re-quotes the committed rate', async () => {
+    const appointmentId = 'appt_d6_1_completion_settings_lock';
+    const startTime = new Date('2099-11-15T15:00:00.000Z');
+    await db.update(schema.salonSchema).set({
+      settings: { payments: { tax: { enabled: true, name: 'HST', rateBps: 1300 } } },
+    }).where(eq(schema.salonSchema.id, SALON_ID));
+    await db.insert(schema.appointmentSchema).values({
+      id: appointmentId,
+      salonId: SALON_ID,
+      technicianId: TECH_ID,
+      clientPhone: '4165556161',
+      clientName: 'D6.1 Completion Concurrency',
+      startTime,
+      endTime: new Date(startTime.getTime() + 60 * 60_000),
+      status: 'confirmed',
+      totalPrice: 10_000,
+      totalDurationMinutes: 60,
+      invoiceCurrency: 'CAD',
+    });
+
+    const settingsWriter = await pool.connect();
+    try {
+      await settingsWriter.query('BEGIN');
+      await settingsWriter.query(
+        'UPDATE salon SET settings = $2::jsonb WHERE id = $1',
+        [
+          SALON_ID,
+          JSON.stringify({
+            payments: { tax: { enabled: true, name: 'HST', rateBps: 1500 } },
+          }),
+        ],
+      );
+
+      const busy = await completeAppointment(
+        new Request(`http://localhost/api/appointments/${appointmentId}/complete`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            skipPhotoValidation: true,
+            expectedTotalDueCents: 11_300,
+          }),
+        }),
+        { params: { id: appointmentId } },
+      );
+
+      expect(busy.status).toBe(409);
+      await expect(busy.json()).resolves.toMatchObject({
+        error: { code: 'TAX_CONFIGURATION_BUSY' },
+      });
+      expect((await db.select().from(schema.appointmentSchema)
+        .where(eq(schema.appointmentSchema.id, appointmentId)))[0]).toMatchObject({
+        status: 'confirmed',
+        finalTaxSnapshot: null,
+      });
+
+      await settingsWriter.query('COMMIT');
+    } finally {
+      await settingsWriter.query('ROLLBACK').catch(() => undefined);
+      settingsWriter.release();
+    }
+
+    const reQuote = await completeAppointment(
+      new Request(`http://localhost/api/appointments/${appointmentId}/complete`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          skipPhotoValidation: true,
+          expectedTotalDueCents: 11_300,
+        }),
+      }),
+      { params: { id: appointmentId } },
+    );
+
+    expect(reQuote.status).toBe(409);
+    await expect(reQuote.json()).resolves.toMatchObject({
+      error: {
+        code: 'TOTALS_MISMATCH',
+        details: { totals: { taxAmountCents: 1500, totalDueCents: 11_500 } },
+      },
+    });
+
+    executedTests += 1;
+  }, 30_000);
+
+  it('D6.1: forfeiture rolls back a NOWAIT conflict and freezes only the subsequently committed tax identity', async () => {
+    await db.update(schema.salonSchema).set({
+      settings: {
+        payments: {
+          tax: {
+            enabled: true,
+            name: 'HST',
+            rateBps: 1300,
+            forfeitureTaxEstimationEnabled: true,
+            country: 'CA',
+            region: 'ON',
+          },
+        },
+      },
+    }).where(eq(schema.salonSchema.id, SALON_ID));
+    const seeded = await seedDeposit({ suffix: 'd6_1_forfeiture_settings_lock', status: 'paid' });
+    await db.update(schema.appointmentSchema).set({
+      status: 'no_show',
+      invoiceCurrency: 'CAD',
+    }).where(eq(schema.appointmentSchema.id, seeded.appointmentId));
+    const forfeitedAt = new Date('2099-11-15T16:00:00.000Z');
+
+    const settingsWriter = await pool.connect();
+    try {
+      await settingsWriter.query('BEGIN');
+      await settingsWriter.query(
+        'UPDATE salon SET settings = $2::jsonb WHERE id = $1',
+        [
+          SALON_ID,
+          JSON.stringify({
+            payments: {
+              tax: {
+                enabled: true,
+                name: 'HST',
+                rateBps: 1500,
+                forfeitureTaxEstimationEnabled: true,
+                country: 'CA',
+                region: 'ON',
+              },
+            },
+          }),
+        ],
+      );
+
+      const blockedForfeiture = db.transaction(async (tx) => {
+        await tx.select().from(schema.appointmentSchema)
+          .where(eq(schema.appointmentSchema.id, seeded.appointmentId))
+          .for('update')
+          .limit(1);
+        return forfeitAppointmentDepositInTx({
+          tx,
+          salonId: SALON_ID,
+          appointmentId: seeded.appointmentId,
+          invoiceCurrency: 'CAD',
+          forfeitedAt,
+          appointmentLockHeld: true,
+        });
+      });
+
+      await expect(blockedForfeiture).rejects.toMatchObject({
+        code: 'DEPOSIT_RECONCILIATION_REQUIRED',
+        detail: expect.stringContaining('financial settings are being updated'),
+      });
+      expect(await loadDeposit(seeded.depositId)).toMatchObject({
+        forfeitedAt: null,
+        forfeitureTaxSnapshot: null,
+      });
+
+      await settingsWriter.query('COMMIT');
+    } finally {
+      await settingsWriter.query('ROLLBACK').catch(() => undefined);
+      settingsWriter.release();
+    }
+
+    await expect(db.transaction(async (tx) => {
+      await tx.select().from(schema.appointmentSchema)
+        .where(eq(schema.appointmentSchema.id, seeded.appointmentId))
+        .for('update')
+        .limit(1);
+      return forfeitAppointmentDepositInTx({
+        tx,
+        salonId: SALON_ID,
+        appointmentId: seeded.appointmentId,
+        invoiceCurrency: 'CAD',
+        forfeitedAt,
+        appointmentLockHeld: true,
+      });
+    })).resolves.toMatchObject({ disposition: 'forfeited', forfeitedCents: 2500 });
+    expect(await loadDeposit(seeded.depositId)).toMatchObject({
+      forfeitedAt,
+      forfeitureTaxSnapshot: {
+        taxEstimateApplied: true,
+        configuration: { rateBps: 1500 },
+      },
+    });
 
     executedTests += 1;
   }, 30_000);

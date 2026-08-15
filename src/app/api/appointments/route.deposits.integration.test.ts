@@ -356,6 +356,10 @@ beforeEach(async () => {
   await db.delete(schema.appointmentDepositSchema);
   await db.delete(schema.rewardSchema);
   await db.delete(schema.appointmentSchema);
+  await db
+    .update(schema.salonSchema)
+    .set({ settings: null })
+    .where(eq(schema.salonSchema.id, SALON_ID));
   seedChargeReady(false);
   deposits.chargeOverride = null;
   deposits.createDepositCheckoutSession.mockResolvedValue({
@@ -529,6 +533,16 @@ describe('28(g-iii) — stale stored row, live account healthy', () => {
 
     expect(appointment!.status).toBe('awaiting_payment');
     expect(appointment!.depositHoldExpiresAt).not.toBeNull();
+    expect(appointment!.invoiceCurrency).toBe('CAD');
+    expect(appointment!.bookingTaxSnapshot).toMatchObject({
+      schemaVersion: 1,
+      kind: 'booking_estimate',
+      classification: 'estimate',
+      currency: 'CAD',
+      taxApplied: false,
+      taxAmountCents: 0,
+      invoiceTotalCents: appointment!.totalPrice,
+    });
 
     // 35 minutes after created_at, give or take clock granularity.
     const heldMinutes = (appointment!.depositHoldExpiresAt!.getTime()
@@ -546,6 +560,30 @@ describe('28(g-iii) — stale stored row, live account healthy', () => {
     expect(deposit!.stripeCheckoutSessionId).toBe('cs_test_dep');
     expect(deposit!.checkoutSuccessUrl).toBeTruthy();
     expect(deposit!.checkoutCancelUrl).toBeTruthy();
+  });
+
+  it('refuses a CAD deposit hold when the frozen booking invoice is USD', async () => {
+    await db
+      .update(schema.salonSchema)
+      .set({ settings: { booking: { currency: 'USD' } } })
+      .where(eq(schema.salonSchema.id, SALON_ID));
+    // Bypass the primary raw-settings policy guard to prove the route-level
+    // invariant independently. No mismatched appointment or hold may commit.
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    setClientSession(freshPhone());
+
+    const response = await postBooking({
+      startTime: at(futureDate(25), '16:30').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.error.code).toBe('DEPOSITS_TEMPORARILY_UNAVAILABLE');
+    expect(await appointmentRows()).toHaveLength(0);
+    expect(await depositRows()).toHaveLength(0);
+    expect(deposits.createDepositCheckoutSession).not.toHaveBeenCalled();
   });
 });
 
@@ -1155,6 +1193,56 @@ describe('4 — deposit booking happy path', () => {
     expect(deposit!.stripeCheckoutSessionId).toBe('cs_test_dep');
     expect(deposit!.checkoutSuccessUrl).toBeTruthy();
     expect(deposit!.checkoutCancelUrl).toBeTruthy();
+  });
+});
+
+describe('D6.1 — booking tax quote binding', () => {
+  it('rolls back when the locked tax configuration differs from the displayed quote', async () => {
+    await db.update(schema.salonSchema).set({
+      settings: {
+        payments: {
+          tax: {
+            enabled: true,
+            name: 'HST',
+            rateBps: 1300,
+            pricesIncludeTax: false,
+            taxServicesByDefault: true,
+            taxAddOnsByDefault: true,
+            taxCustomByDefault: true,
+          },
+        },
+      },
+    }).where(eq(schema.salonSchema.id, SALON_ID));
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    setClientSession(freshPhone());
+
+    const response = await postBooking({
+      startTime: at(futureDate(60), '14:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+      expectedBookingFinancialQuote: {
+        currency: 'CAD',
+        totalDueCents: 4500,
+        taxConfigurationIdentity: 'tax-config:v1:stale-displayed-configuration',
+      },
+    });
+
+    expect(response.status).toBe(409);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: 'BOOKING_FINANCIAL_QUOTE_CHANGED',
+        details: {
+          refreshQuote: true,
+          quote: {
+            currency: 'CAD',
+            totalDueCents: 5085,
+          },
+        },
+      },
+    });
+    expect(await appointmentRows()).toHaveLength(0);
+    expect(await depositRows()).toHaveLength(0);
+    expect(deposits.createDepositCheckoutSession).not.toHaveBeenCalled();
   });
 });
 

@@ -8,6 +8,7 @@ const {
   requireClientSalonFromQuery,
   getLocationById,
   getPrimaryLocation,
+  loadBookingEmailFinancialSummary,
 } = vi.hoisted(() => {
   let responses: unknown[] = [];
 
@@ -39,6 +40,7 @@ const {
     requireClientSalonFromQuery: vi.fn(),
     getLocationById: vi.fn(),
     getPrimaryLocation: vi.fn(),
+    loadBookingEmailFinancialSummary: vi.fn(),
   };
 });
 
@@ -54,6 +56,10 @@ vi.mock('@/libs/clientApiGuards', () => ({
 vi.mock('@/libs/queries', () => ({
   getLocationById,
   getPrimaryLocation,
+}));
+
+vi.mock('@/libs/bookingEmailFinancialSummary.server', () => ({
+  loadBookingEmailFinancialSummary,
 }));
 
 import { GET } from './route';
@@ -84,6 +90,7 @@ describe('GET /api/client/next-appointment', () => {
     });
     getLocationById.mockResolvedValue(null);
     getPrimaryLocation.mockResolvedValue(null);
+    loadBookingEmailFinancialSummary.mockResolvedValue(null);
   });
 
   it('returns the actual next-appointment payload needed by the profile reschedule flow', async () => {
@@ -94,6 +101,26 @@ describe('GET /api/client/next-appointment', () => {
       city: 'Toronto',
       state: 'ON',
       zipCode: 'M5H 2M9',
+    });
+    loadBookingEmailFinancialSummary.mockResolvedValue({
+      appointmentStatus: 'confirmed',
+      currency: 'USD',
+      serviceInvoiceTotalCents: 6000,
+      totalDueCents: 6500,
+      taxAmountCents: 500,
+      taxLabel: 'Sales tax',
+      taxMode: 'added',
+      taxClassification: 'estimate',
+      taxApplied: true,
+      collectedDepositCents: 2000,
+      refundedDepositCents: 0,
+      forfeitedDepositCents: 0,
+      depositCreditAppliedCents: 2000,
+      appointmentPaymentsCents: 0,
+      amountAlreadyPaidCents: 2000,
+      balanceCents: 4500,
+      depositBlockedCode: null,
+      depositPresentationState: 'creditable',
     });
 
     setSelectResponses([
@@ -142,6 +169,21 @@ describe('GET /api/client/next-appointment', () => {
           totalPrice: 6500,
           totalDurationMinutes: 90,
           locationId: 'loc_1',
+          financial: {
+            state: 'resolved',
+            currency: 'USD',
+            taxClassification: 'estimate',
+            taxAmountCents: 500,
+            taxLabel: 'Sales tax',
+            taxMode: 'added',
+            taxApplied: true,
+            totalCents: 6500,
+            collectedDepositCents: 2000,
+            refundedDepositCents: 0,
+            depositCreditCents: 2000,
+            amountAlreadyPaidCents: 2000,
+            balanceCents: 4500,
+          },
         },
         services: [{
           id: 'srv_1',
@@ -169,6 +211,51 @@ describe('GET /api/client/next-appointment', () => {
       },
     });
     expect(JSON.stringify(body)).not.toContain('clientPhone');
+  });
+
+  it('returns an explicit review state instead of raw money when the canonical currency is unsupported', async () => {
+    loadBookingEmailFinancialSummary.mockResolvedValue({
+      appointmentStatus: 'confirmed',
+      currency: 'EUR',
+      serviceInvoiceTotalCents: 6500,
+      totalDueCents: 6500,
+      taxAmountCents: null,
+      taxLabel: null,
+      taxMode: null,
+      taxClassification: 'estimate',
+      taxApplied: false,
+      collectedDepositCents: 0,
+      refundedDepositCents: 0,
+      forfeitedDepositCents: 0,
+      depositCreditAppliedCents: 0,
+      appointmentPaymentsCents: 0,
+      amountAlreadyPaidCents: 0,
+      balanceCents: 6500,
+      depositBlockedCode: null,
+      depositPresentationState: 'none',
+    });
+    setSelectResponses([
+      [{
+        id: 'appt_review',
+        startTime: new Date('2099-03-20T15:30:00.000Z'),
+        endTime: new Date('2099-03-20T17:00:00.000Z'),
+        status: 'confirmed',
+        totalPrice: 6500,
+        totalDurationMinutes: 90,
+        technicianId: null,
+        locationId: null,
+      }],
+      [],
+    ]);
+
+    const response = await GET(
+      new Request('http://localhost/api/client/next-appointment?salonSlug=salon-a'),
+    );
+    const body = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(body.data.appointment.financial).toEqual({ state: 'under_review' });
+    expect(JSON.stringify(body.data.appointment.financial)).not.toContain('6500');
   });
 
   it('prefers the primary active location over the stale salon root address when no appointment location is set', async () => {

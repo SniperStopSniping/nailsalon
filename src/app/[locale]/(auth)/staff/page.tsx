@@ -8,6 +8,7 @@ import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
 import { SectionCard } from '@/components/ui/section-card';
 import { useStaffCapabilities } from '@/hooks/useStaffCapabilities';
+import { formatMoney } from '@/libs/formatMoney';
 import { DEFAULT_BOOKING_TIME_ZONE, getDateKeyInTimeZone, getZonedDayBounds } from '@/libs/timeZone';
 import { themeVars } from '@/theme';
 
@@ -618,6 +619,11 @@ export default function StaffDashboardPage() {
               setShowPhotoModal(true);
             }
           }}
+          onOpenCheckout={() => {
+            if (activeAppointment) {
+              handleOpenActions(activeAppointment);
+            }
+          }}
           onSuccess={fetchAppointments}
         />
       )}
@@ -682,10 +688,14 @@ export default function StaffDashboardPage() {
                 </div>
               </SectionCard>
               <SectionCard className="flex-1 shadow-none" contentClassName="py-4">
-                <div className="text-sm text-neutral-500">Total</div>
+                <div className="text-sm text-neutral-500">Booked services</div>
                 <div className="font-semibold" style={{ color: themeVars.titleText }}>
-                  $
-                  {(selectedAppointment.totalPrice / 100).toFixed(0)}
+                  {selectedAppointment.invoiceCurrency
+                    ? formatMoney(
+                      selectedAppointment.totalPrice,
+                      selectedAppointment.invoiceCurrency,
+                    )
+                    : 'Unavailable'}
                 </div>
               </SectionCard>
             </div>

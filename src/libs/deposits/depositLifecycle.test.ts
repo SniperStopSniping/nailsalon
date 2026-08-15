@@ -22,11 +22,13 @@ vi.mock('server-only', () => ({}));
 
 const {
   db,
+  enqueueClientStatsRefreshInTx,
   enqueueDepositRefundAlertInTx,
   resolveCheckoutActor,
   selectPlans,
   transactionTx,
   updatePlans,
+  updateSalonClientStats,
 } = vi.hoisted(() => {
   const selectPlans: unknown[][] = [];
   const updatePlans: unknown[][] = [];
@@ -71,6 +73,7 @@ const {
 
   return {
     db,
+    enqueueClientStatsRefreshInTx: vi.fn(async () => undefined),
     enqueueDepositRefundAlertInTx: vi.fn(async () => undefined),
     resolveCheckoutActor: vi.fn(() => ({
       recordedByType: 'admin',
@@ -83,6 +86,7 @@ const {
     selectPlans,
     transactionTx,
     updatePlans,
+    updateSalonClientStats: vi.fn(async () => undefined),
   };
 });
 
@@ -105,9 +109,11 @@ vi.mock('@/libs/environmentIsolation', () => ({
   resolveRuntimeEnvironment: vi.fn(() => 'test'),
 }));
 vi.mock('@/libs/integrationOutbox', () => ({
+  enqueueClientStatsRefreshInTx,
   enqueueDepositRefundAlertInTx,
   enqueueGoogleCalendarDeleteInTx: vi.fn(),
 }));
+vi.mock('@/libs/queries', () => ({ updateSalonClientStats }));
 vi.mock('@/libs/sentry/runtime', () => ({
   getPublicSentryRuntimeConfig: vi.fn(() => ({ enabled: false })),
 }));
@@ -140,6 +146,7 @@ function deposit(overrides: Partial<DepositRow> = {}): DepositRow {
     stripeAccountId: 'acct_1',
     stripeCheckoutSessionId: 'cs_1',
     stripePaymentIntentId: 'pi_1',
+    collectedAt: null,
     stripeCheckoutUrl: null,
     checkoutSuccessUrl: null,
     checkoutCancelUrl: null,
@@ -171,6 +178,8 @@ function deposit(overrides: Partial<DepositRow> = {}): DepositRow {
     waivedAt: null,
     waivedBy: null,
     waiverReason: null,
+    forfeitedAt: null,
+    forfeitureTaxSnapshot: null,
     createdAt: now,
     updatedAt: now,
     ...overrides,
@@ -342,7 +351,7 @@ describe('refund transition alerts', () => {
       refundLastErrorCode: 'charge_disputed',
       refundTerminalFailureCount: 1,
     });
-    selectPlans.push([{ id: requested.appointmentId }], [requested]);
+    selectPlans.push([{ id: requested.appointmentId }], [requested], [failed]);
     updatePlans.push([failed]);
 
     const result = await applyRefundObservation({
@@ -365,8 +374,17 @@ describe('refund transition alerts', () => {
         terminalFailureCount: 1,
       },
     });
+    expect(enqueueClientStatsRefreshInTx).toHaveBeenCalledWith(
+      transactionTx,
+      expect.objectContaining({
+        salonId: 'salon_1',
+        appointmentId: 'appt_1',
+        depositId: 'dep_1',
+        stateVersion: expect.stringContaining(':paid:failed:'),
+      }),
+    );
 
-    selectPlans.push([{ id: requested.appointmentId }], [failed]);
+    selectPlans.push([{ id: requested.appointmentId }], [failed], [failed]);
     updatePlans.push([]);
     await applyRefundObservation({
       deposit: failed,
@@ -424,7 +442,7 @@ describe('TX-B first-stamp source-status fence', () => {
 
   it('does not attempt a first-stamp update from a stale source status', async () => {
     const stale = deposit({ status: 'canceled' });
-    selectPlans.push([{ id: stale.appointmentId }], [stale], [stale]);
+    selectPlans.push([{ id: stale.appointmentId }], [stale], [stale], [stale]);
 
     const result = await stampDepositRefund({
       deposit: stale,
@@ -449,7 +467,7 @@ describe('TX-B first-stamp source-status fence', () => {
   it('treats a zero-row first-stamp caused by a status race as late-confirmed', async () => {
     const requested = deposit({ status: 'paid' });
     const raced = deposit({ status: 'canceled' });
-    selectPlans.push([{ id: requested.appointmentId }], [requested], [raced]);
+    selectPlans.push([{ id: requested.appointmentId }], [requested], [raced], [raced]);
     updatePlans.push([]);
 
     const result = await stampDepositRefund({

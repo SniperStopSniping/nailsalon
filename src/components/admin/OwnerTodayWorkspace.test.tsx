@@ -74,6 +74,23 @@ function buildFinancialSummary(options?: {
   weekRevenueCents?: number;
   monthRevenueCents?: number;
   cashCollectedCents?: number;
+  depositCollectedCents?: number;
+  depositRefundedCents?: number;
+  depositForfeitedCents?: number;
+  depositForfeitureEstimatedTaxCents?: number;
+  depositForfeitureEstimatedNetCents?: number;
+  depositForfeitureRefundReversalCents?: number;
+  depositForfeitureTaxReversalCents?: number;
+  depositForfeitureNetReversalCents?: number;
+  forfeitureTaxIdentityBuckets?: NonNullable<
+    OwnerFinancialSummary['currentPeriods']['today']['forfeitureTaxIdentityBuckets']
+  >;
+  depositAppliedCents?: number;
+  unresolvedDepositApplicationCount?: number;
+  unattributedPaymentEventCount?: number;
+  unattributedDepositEventCount?: number;
+  unresolvedDepositEventCount?: number;
+  unknownCurrencyAppointmentCount?: number;
   completedOutstandingCents?: number;
   tipsCents?: number;
   taxCents?: number;
@@ -89,6 +106,58 @@ function buildFinancialSummary(options?: {
     completedAppointmentRevenueCents,
     cashCollectedCents: includeTodayDetails
       ? (options?.cashCollectedCents ?? 0)
+      : 0,
+    appointmentPaymentsCollectedCents: includeTodayDetails
+      ? Math.max(
+        0,
+        (options?.cashCollectedCents ?? 0)
+        - (options?.depositCollectedCents ?? 0),
+      )
+      : 0,
+    depositCollectedCents: includeTodayDetails
+      ? (options?.depositCollectedCents ?? 0)
+      : 0,
+    depositRefundedCents: includeTodayDetails
+      ? (options?.depositRefundedCents ?? 0)
+      : 0,
+    depositForfeitedCents: includeTodayDetails
+      ? (options?.depositForfeitedCents ?? 0)
+      : 0,
+    depositForfeitureEstimatedTaxCents: includeTodayDetails
+      ? (options?.depositForfeitureEstimatedTaxCents ?? 0)
+      : 0,
+    depositForfeitureEstimatedNetCents: includeTodayDetails
+      ? (options?.depositForfeitureEstimatedNetCents ?? 0)
+      : 0,
+    depositForfeitureRefundReversalCents: includeTodayDetails
+      ? (options?.depositForfeitureRefundReversalCents ?? 0)
+      : 0,
+    depositForfeitureTaxReversalCents: includeTodayDetails
+      ? (options?.depositForfeitureTaxReversalCents ?? 0)
+      : 0,
+    depositForfeitureNetReversalCents: includeTodayDetails
+      ? (options?.depositForfeitureNetReversalCents ?? 0)
+      : 0,
+    forfeitureTaxIdentityBuckets: includeTodayDetails
+      ? (options?.forfeitureTaxIdentityBuckets ?? [])
+      : [],
+    depositAppliedCents: includeTodayDetails
+      ? (options?.depositAppliedCents ?? 0)
+      : 0,
+    unresolvedDepositApplicationCount: includeTodayDetails
+      ? (options?.unresolvedDepositApplicationCount ?? 0)
+      : 0,
+    unattributedPaymentEventCount: includeTodayDetails
+      ? (options?.unattributedPaymentEventCount ?? 0)
+      : 0,
+    unattributedDepositEventCount: includeTodayDetails
+      ? (options?.unattributedDepositEventCount ?? 0)
+      : 0,
+    unresolvedDepositEventCount: includeTodayDetails
+      ? (options?.unresolvedDepositEventCount ?? 0)
+      : 0,
+    unknownCurrencyAppointmentCount: includeTodayDetails
+      ? (options?.unknownCurrencyAppointmentCount ?? 0)
       : 0,
     discountsCents: includeTodayDetails ? (options?.discountsCents ?? 0) : 0,
     taxCents: includeTodayDetails ? (options?.taxCents ?? 0) : 0,
@@ -149,7 +218,7 @@ beforeEach(() => {
 });
 
 describe('OwnerTodayWorkspace client follow-ups', () => {
-  it('shows the eight ordered figures with the exact estimated-history explanation', async () => {
+  it('shows the ordered financial figures with the exact estimated-history explanation', async () => {
     const estimatedProvenance: ReportingProvenance = {
       mode: 'mixed',
       finalizedAppointmentCount: 1,
@@ -164,6 +233,7 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
       weekRevenueCents: 25000,
       monthRevenueCents: 80000,
       cashCollectedCents: 6000,
+      depositForfeitedCents: 300,
       completedOutstandingCents: 5800,
       tipsCents: 500,
       taxCents: 1300,
@@ -205,10 +275,15 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
     expect(revenue).toHaveTextContent('$800.00');
     expect(revenue).toHaveTextContent('Completed outstanding');
     expect(revenue).toHaveTextContent('$58.00');
-    expect(revenue).not.toHaveTextContent(/profit|deposit|refund/i);
+    expect(revenue).not.toHaveTextContent(/profit/i);
 
     const secondaryLabels = [
       'Collected today',
+      'Remaining-balance payments',
+      'Deposits collected',
+      'Deposit refunds',
+      'Deposits applied',
+      'Deposits forfeited (gross)',
       'Completed outstanding',
       'Tips today',
       'Tax today',
@@ -250,7 +325,7 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
     expect(screen.queryByText('Revenue today')).not.toBeInTheDocument();
   });
 
-  it('shows the overall empty state only when all eight figures are zero', async () => {
+  it('shows the overall empty state only when every displayed figure is zero', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
       const supportingResponse = supportingWorkspaceResponse(url);
@@ -273,7 +348,7 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
     expect(emptyState).toHaveTextContent(
       'No completed financial activity yet.',
     );
-    expect(within(revenue).getAllByText('$0.00')).toHaveLength(8);
+    expect(within(revenue).getAllByText('$0.00')).toHaveLength(13);
     expect(revenue).not.toHaveTextContent(/Estimated history|Incomplete history/);
   });
 
@@ -296,10 +371,108 @@ describe('OwnerTodayWorkspace client follow-ups', () => {
 
     renderWorkspace();
 
-    expect(await screen.findByText('$1.00')).toBeInTheDocument();
+    expect(await screen.findAllByText('$1.00')).toHaveLength(2);
     expect(
       screen.queryByTestId('owner-revenue-summary-empty'),
     ).not.toBeInTheDocument();
+  });
+
+  it('shows dated deposit flows separately and discloses unresolved history', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const supportingResponse = supportingWorkspaceResponse(url);
+      if (supportingResponse) {
+        return supportingResponse;
+      }
+      if (url.startsWith('/api/admin/financial-summary?')) {
+        return financialSummaryResponse(buildFinancialSummary({
+          cashCollectedCents: 6500,
+          depositCollectedCents: 2500,
+          depositRefundedCents: 500,
+          depositAppliedCents: 2000,
+          depositForfeitedCents: 300,
+          unattributedPaymentEventCount: 1,
+          unattributedDepositEventCount: 1,
+        }));
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWorkspace();
+
+    const revenue = await screen.findByTestId('owner-revenue-summary');
+
+    // Same timing contract as the forfeiture test below: the card mounts
+    // before the financial summary's state update renders the deposit lines.
+    await waitFor(() => expect(revenue).toHaveTextContent('Deposits collected$25.00'));
+
+    expect(revenue).toHaveTextContent('Deposit refunds$5.00');
+    expect(revenue).toHaveTextContent('Deposits applied$20.00');
+    expect(revenue).toHaveTextContent('Deposits forfeited (gross)$3.00');
+    expect(screen.getByTestId('owner-deposit-reporting-incomplete')).toHaveTextContent(
+      'event date, currency, or resolution is unknown',
+    );
+  });
+
+  it('shows frozen forfeiture tax identity, stored estimates, reversals, and currency exclusions', async () => {
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      const supportingResponse = supportingWorkspaceResponse(url);
+      if (supportingResponse) {
+        return supportingResponse;
+      }
+      if (url.startsWith('/api/admin/financial-summary?')) {
+        return financialSummaryResponse(buildFinancialSummary({
+          depositForfeitedCents: 2500,
+          depositForfeitureEstimatedTaxCents: 288,
+          depositForfeitureEstimatedNetCents: 2212,
+          depositForfeitureRefundReversalCents: 2500,
+          depositForfeitureTaxReversalCents: 288,
+          depositForfeitureNetReversalCents: 2212,
+          unknownCurrencyAppointmentCount: 1,
+          forfeitureTaxIdentityBuckets: [{
+            schemaVersion: 1,
+            classification: 'estimate',
+            label: 'HST',
+            rateBps: 1300,
+            mode: 'added',
+            configurationEffectiveFrom: null,
+            configurationSource: 'base',
+            taxEstimateApplied: true,
+            forfeitureCount: 1,
+            grossForfeitedCents: 2500,
+            estimatedTaxIncludedCents: 288,
+            estimatedNetCents: 2212,
+            refundReversalCount: 1,
+            refundReversalCents: 2500,
+            estimatedTaxReversalCents: 288,
+            estimatedNetReversalCents: 2212,
+          }],
+        }));
+      }
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    renderWorkspace();
+
+    const revenue = await screen.findByTestId('owner-revenue-summary');
+
+    // The card mounts before the financial summary's later state update
+    // renders the forfeiture lines; wait for that content like the
+    // 'Incomplete history' test below does.
+    await waitFor(() => expect(revenue).toHaveTextContent('Forfeiture tax estimate$2.88'));
+
+    expect(revenue).toHaveTextContent('Forfeiture net estimate$22.12');
+    expect(revenue).toHaveTextContent('Forfeiture refund reversals$25.00');
+    expect(screen.getByTestId('owner-forfeiture-tax-identities')).toHaveTextContent(
+      'HST · 13.00% · added',
+    );
+    expect(screen.getByTestId('owner-forfeiture-tax-identities')).toHaveTextContent(
+      'Schema 1 · estimate · base',
+    );
+    expect(screen.getByTestId('owner-currency-reporting-incomplete')).toHaveTextContent(
+      'unknown or non-CAD currency',
+    );
   });
 
   it('gives incomplete history precedence and uses the exact explanation', async () => {

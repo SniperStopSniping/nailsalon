@@ -37,6 +37,22 @@ export type ResolvedTaxConfig = {
   taxServicesByDefault: boolean;
   taxAddOnsByDefault: boolean;
   taxCustomByDefault: boolean;
+  /** Where the effective values came from; retained in immutable tax snapshots. */
+  configurationSource: 'default' | 'base' | 'scheduled_change';
+  /** Exact scheduled-change identity when one is effective, otherwise null. */
+  configurationEffectiveFrom: string | null;
+  /**
+   * Salon-local calendar date and IANA zone that produced the effective
+   * instant. Both are absent for base/default and legacy scheduled settings
+   * whose original wall-clock intent was never stored.
+   */
+  configurationEffectiveDate?: string | null;
+  configurationTimeZone?: string | null;
+  /** Explicit owner opt-in; absent legacy settings resolve to false. */
+  forfeitureTaxEstimationEnabled?: boolean;
+  jurisdiction: string | null;
+  country: string | null;
+  region: string | null;
 };
 
 export type CheckoutTotalsInput = {
@@ -64,11 +80,88 @@ export type CheckoutTotals = {
   taxApplied: boolean;
 };
 
+/** Same upper bound used by the public booking quote contract. */
+export const MAX_SUPPORTED_MINOR_UNIT_AMOUNT = 50_000_000;
+
+export class CheckoutMoneyRangeError extends RangeError {
+  readonly code = 'CHECKOUT_MONEY_OUT_OF_RANGE' as const;
+
+  constructor(label: string) {
+    super(`${label} must be a non-negative integer no greater than ${MAX_SUPPORTED_MINOR_UNIT_AMOUNT}`);
+    this.name = 'CheckoutMoneyRangeError';
+  }
+}
+
+function checkedMoney(label: string, value: number): number {
+  if (
+    !Number.isSafeInteger(value)
+    || value < 0
+    || value > MAX_SUPPORTED_MINOR_UNIT_AMOUNT
+  ) {
+    throw new CheckoutMoneyRangeError(label);
+  }
+  return value;
+}
+
+function checkedMoneySum(label: string, ...values: number[]): number {
+  let total = 0;
+  for (const value of values) {
+    checkedMoney(label, value);
+    total += value;
+    if (!Number.isSafeInteger(total) || total > MAX_SUPPORTED_MINOR_UNIT_AMOUNT) {
+      throw new CheckoutMoneyRangeError(label);
+    }
+  }
+  return total;
+}
+
+function checkedProduct(label: string, left: number, right: number): number {
+  const product = left * right;
+  if (!Number.isSafeInteger(product) || product < 0) {
+    throw new CheckoutMoneyRangeError(label);
+  }
+  return product;
+}
+
 /** Exact integer division with half-up rounding. Inputs must be non-negative. */
 function divideHalfUp(numerator: number, denominator: number): number {
+  if (
+    !Number.isSafeInteger(numerator)
+    || numerator < 0
+    || !Number.isSafeInteger(denominator)
+    || denominator <= 0
+  ) {
+    throw new CheckoutMoneyRangeError('Tax calculation');
+  }
   const quotient = Math.floor(numerator / denominator);
   const remainder = numerator - quotient * denominator;
   return remainder * 2 >= denominator ? quotient + 1 : quotient;
+}
+
+/**
+ * Decompose the tax included in a non-negative gross minor-unit amount.
+ *
+ * This is also the D6.1 forfeiture-estimate primitive. Keeping the invoice and
+ * forfeiture paths on this one exported implementation prevents their rounding
+ * from drifting by a cent.
+ */
+export function computeInclusiveTaxCents(grossCents: number, rateBps: number): number {
+  if (
+    !Number.isSafeInteger(grossCents)
+    || grossCents < 0
+    || grossCents > MAX_SUPPORTED_MINOR_UNIT_AMOUNT
+    || !Number.isSafeInteger(rateBps)
+    || rateBps < 0
+    || rateBps > 30_000
+  ) {
+    throw new CheckoutMoneyRangeError('Inclusive tax input');
+  }
+  if (grossCents === 0 || rateBps === 0) {
+    return 0;
+  }
+  const numerator = checkedProduct('Inclusive tax calculation', grossCents, rateBps);
+  const denominator = 10000 + rateBps;
+  return checkedMoney('Inclusive tax result', divideHalfUp(numerator, denominator));
 }
 
 /**
@@ -87,7 +180,11 @@ function prorateDiscountToTaxable(
   if (taxableSubtotal >= totalSubtotal) {
     return Math.min(discountCents, taxableSubtotal);
   }
-  const exactNumerator = discountCents * taxableSubtotal;
+  const exactNumerator = checkedProduct(
+    'Taxable discount proration',
+    discountCents,
+    taxableSubtotal,
+  );
   const floorShare = Math.floor(exactNumerator / totalSubtotal);
   const remainderTaxable = exactNumerator - floorShare * totalSubtotal;
   // Non-taxable share's remainder is (totalSubtotal - remainderTaxable) % totalSubtotal;
@@ -97,15 +194,30 @@ function prorateDiscountToTaxable(
 }
 
 export function computeCheckoutTotals(input: CheckoutTotalsInput): CheckoutTotals {
-  const tipCents = Math.max(0, Math.trunc(input.tipCents ?? 0));
+  const tipCents = checkedMoney('Tip', input.tipCents ?? 0);
   const items = input.items.map(item => ({
-    lineTotalCents: Math.max(0, Math.trunc(item.lineTotalCents)),
+    lineTotalCents: checkedMoney('Checkout line total', item.lineTotalCents),
     taxable: item.taxable,
   }));
 
-  const finalSubtotalCents = items.reduce((sum, item) => sum + item.lineTotalCents, 0);
+  if (
+    !Number.isSafeInteger(input.taxConfig.rateBps)
+    || input.taxConfig.rateBps < 0
+    || input.taxConfig.rateBps > 30_000
+  ) {
+    throw new CheckoutMoneyRangeError('Tax rate');
+  }
+
+  const finalSubtotalCents = items.reduce(
+    (sum, item) => checkedMoneySum('Checkout subtotal', sum, item.lineTotalCents),
+    0,
+  );
+  const requestedDiscountCents = checkedMoney(
+    'Checkout discount',
+    input.discountCents ?? 0,
+  );
   const finalDiscountCents = Math.min(
-    Math.max(0, Math.trunc(input.discountCents ?? 0)),
+    requestedDiscountCents,
     finalSubtotalCents,
   );
 
@@ -115,7 +227,10 @@ export function computeCheckoutTotals(input: CheckoutTotalsInput): CheckoutTotal
 
   const grossTaxablePool = items
     .filter(item => item.taxable)
-    .reduce((sum, item) => sum + item.lineTotalCents, 0);
+    .reduce(
+      (sum, item) => checkedMoneySum('Taxable subtotal', sum, item.lineTotalCents),
+      0,
+    );
 
   const discountedSubtotal = finalSubtotalCents - finalDiscountCents;
 
@@ -134,13 +249,27 @@ export function computeCheckoutTotals(input: CheckoutTotalsInput): CheckoutTotal
 
     if (input.taxConfig.pricesIncludeTax) {
       // Decompose the included tax out of the displayed taxable base.
-      taxAmountCents = divideHalfUp(taxableSubtotalCents * rateBps, 10000 + rateBps);
+      taxAmountCents = computeInclusiveTaxCents(taxableSubtotalCents, rateBps);
       finalPriceCents = discountedSubtotal - taxAmountCents;
     } else {
-      taxAmountCents = divideHalfUp(taxableSubtotalCents * rateBps, 10000);
+      taxAmountCents = checkedMoney(
+        'Tax amount',
+        divideHalfUp(
+          checkedProduct('Tax calculation', taxableSubtotalCents, rateBps),
+          10000,
+        ),
+      );
       finalPriceCents = discountedSubtotal;
     }
   }
+
+  checkedMoney('Service subtotal', finalPriceCents);
+  const totalDueCents = checkedMoneySum(
+    'Checkout total',
+    finalPriceCents,
+    taxAmountCents,
+    tipCents,
+  );
 
   return {
     finalSubtotalCents,
@@ -149,7 +278,7 @@ export function computeCheckoutTotals(input: CheckoutTotalsInput): CheckoutTotal
     taxAmountCents,
     finalPriceCents,
     tipCents,
-    totalDueCents: finalPriceCents + taxAmountCents + tipCents,
+    totalDueCents,
     taxApplied,
   };
 }

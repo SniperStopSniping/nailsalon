@@ -28,7 +28,9 @@ const {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
         where: vi.fn(() => ({
-          limit: vi.fn(async () => selectedDeposits.shift() ?? []),
+          orderBy: vi.fn(() => ({
+            limit: vi.fn(async () => selectedDeposits.shift() ?? []),
+          })),
         })),
       })),
     })),

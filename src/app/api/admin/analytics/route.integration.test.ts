@@ -1,10 +1,12 @@
 import path from 'node:path';
 
 import { PGlite } from '@electric-sql/pglite';
+import { eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/pglite';
 import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { buildFinalTaxSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import * as schema from '@/models/Schema';
 
 import { GET } from './route';
@@ -51,6 +53,34 @@ vi.mock('@/libs/featureGating', () => ({
 }));
 
 const SALON_ID = 'salon_analytics';
+const finalizedAt = new Date('2026-06-15T15:00:00.000Z');
+
+function finalTaxSnapshotAt(capturedAt: Date) {
+  return buildFinalTaxSnapshot({
+    taxConfig: resolveTaxConfig({
+      payments: {
+        tax: {
+          enabled: true,
+          name: 'HST',
+          rateBps: 1300,
+          jurisdiction: 'Ontario',
+          country: 'CA',
+          region: 'ON',
+        },
+      },
+    }, capturedAt),
+    totals: {
+      taxApplied: true,
+      taxableSubtotalCents: 10000,
+      taxAmountCents: 1300,
+      finalPriceCents: 10000,
+    },
+    capturedAt,
+    currency: 'USD',
+  });
+}
+
+const finalTaxSnapshot = finalTaxSnapshotAt(finalizedAt);
 
 let client: PGlite;
 let db: ReturnType<typeof drizzle<typeof schema>>;
@@ -69,6 +99,11 @@ beforeAll(async () => {
     name: 'Analytics Salon',
     slug: 'analytics-salon',
   });
+  await db.insert(schema.technicianSchema).values({
+    id: 'analytics_technician',
+    salonId: SALON_ID,
+    name: 'Alex',
+  });
   await db.insert(schema.appointmentSchema).values([
     {
       id: 'analytics_finalized',
@@ -77,14 +112,20 @@ beforeAll(async () => {
       startTime: new Date('2026-06-15T14:00:00.000Z'),
       endTime: new Date('2026-06-15T15:00:00.000Z'),
       status: 'completed',
+      completedAt: finalizedAt,
       totalPrice: 11000,
       totalDurationMinutes: 60,
       finalPriceCents: 10000,
       finalDiscountCents: 1000,
       taxAmountCents: 1300,
+      taxableSubtotalCents: 10000,
+      taxExempt: false,
       tipCents: 500,
       amountPaidCents: 6000,
       paymentStatus: 'partially_paid',
+      invoiceCurrency: 'USD',
+      finalTaxSnapshot,
+      technicianId: 'analytics_technician',
     },
     {
       id: 'analytics_legacy',
@@ -96,6 +137,7 @@ beforeAll(async () => {
       totalPrice: 4500,
       totalDurationMinutes: 60,
       paymentStatus: 'paid',
+      invoiceCurrency: 'USD',
     },
     {
       id: 'analytics_comp',
@@ -109,6 +151,7 @@ beforeAll(async () => {
       finalPriceCents: 7000,
       tipCents: 900,
       paymentStatus: 'comp',
+      invoiceCurrency: 'USD',
     },
     {
       id: 'analytics_deleted',
@@ -122,6 +165,7 @@ beforeAll(async () => {
       finalPriceCents: 9000,
       deletedAt: new Date('2026-06-19T14:00:00.000Z'),
       paymentStatus: 'paid',
+      invoiceCurrency: 'USD',
     },
     {
       id: 'analytics_previous',
@@ -134,6 +178,7 @@ beforeAll(async () => {
       totalDurationMinutes: 60,
       finalPriceCents: 5000,
       paymentStatus: 'paid',
+      invoiceCurrency: 'USD',
     },
     {
       id: 'analytics_without_prior_period',
@@ -146,6 +191,7 @@ beforeAll(async () => {
       totalDurationMinutes: 60,
       finalPriceCents: 3000,
       paymentStatus: 'paid',
+      invoiceCurrency: 'USD',
     },
   ]);
   await db.insert(schema.appointmentPaymentSchema).values({
@@ -186,6 +232,15 @@ describe('GET /api/admin/analytics reporting correctness', () => {
       legacyFallbackAmountCents: 4500,
       isEstimated: true,
     });
+    expect(body.data.revenue.series.reduce(
+      (sum: number, value: number) => sum + value,
+      0,
+    )).toBe(14500);
+    expect(body.data.staff[0]).toMatchObject({
+      id: 'analytics_technician',
+      revenue: 10000,
+      appointmentCount: 1,
+    });
     expect(body.data.revenue.trend).toBe(190);
     expect(body.data.revenue.trendAvailable).toBe(true);
     expect(body.data.financials.selectedPeriod).toMatchObject({
@@ -205,6 +260,60 @@ describe('GET /api/admin/analytics reporting correctness', () => {
       amountCents: null,
       reason: 'Per-appointment deposit obligations are not recorded.',
     });
+  });
+
+  it('excludes a corrupt final snapshot from headline, chart, and technician revenue', async () => {
+    const id = 'analytics_corrupt_final_snapshot';
+    const corruptCompletedAt = new Date('2026-06-20T15:00:00.000Z');
+    const validFinalTaxSnapshot = finalTaxSnapshotAt(corruptCompletedAt);
+    const corruptFinalTaxSnapshot = {
+      ...validFinalTaxSnapshot,
+      configuration: {
+        ...validFinalTaxSnapshot.configuration,
+        configurationIdentity: `${validFinalTaxSnapshot.configuration.configurationIdentity}-stale`,
+      },
+    } as typeof validFinalTaxSnapshot;
+    try {
+      await db.insert(schema.appointmentSchema).values({
+        id,
+        salonId: SALON_ID,
+        clientPhone: '4165550199',
+        technicianId: 'analytics_technician',
+        startTime: new Date('2026-06-20T14:00:00.000Z'),
+        endTime: new Date('2026-06-20T15:00:00.000Z'),
+        status: 'completed',
+        completedAt: corruptCompletedAt,
+        totalPrice: 10000,
+        totalDurationMinutes: 60,
+        finalPriceCents: 10000,
+        taxableSubtotalCents: 10000,
+        taxAmountCents: 1300,
+        taxExempt: false,
+        invoiceCurrency: 'USD',
+        paymentStatus: 'pending',
+        finalTaxSnapshot: corruptFinalTaxSnapshot,
+      });
+
+      const response = await GET(new Request(
+        'http://localhost/api/admin/analytics?salonSlug=analytics-salon&period=monthly&anchor=2026-06-15',
+      ));
+      const body = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(body.data.revenue.total).toBe(14500);
+      expect(body.data.revenue.provenance.unresolvedAppointmentCount).toBe(1);
+      expect(body.data.revenue.series.reduce(
+        (sum: number, value: number) => sum + value,
+        0,
+      )).toBe(14500);
+      expect(body.data.staff[0]).toMatchObject({
+        revenue: 10000,
+        appointmentCount: 1,
+      });
+    } finally {
+      await db.delete(schema.appointmentSchema)
+        .where(eq(schema.appointmentSchema.id, id));
+    }
   });
 
   it('does not fabricate a percentage when the prior period has no revenue', async () => {

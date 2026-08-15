@@ -1,5 +1,6 @@
 import { and, asc, eq, gte, inArray, isNull } from 'drizzle-orm';
 
+import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
 import { requireClientApiSession, requireClientSalonFromQuery } from '@/libs/clientApiGuards';
 import { db } from '@/libs/DB';
 import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
@@ -10,6 +11,7 @@ import {
   serviceSchema,
   technicianSchema,
 } from '@/models/Schema';
+import type { ClientAppointmentFinancialPresentation } from '@/types/clientAppointmentFinancial';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +21,48 @@ type ErrorResponse = {
     message: string;
   };
 };
+
+function projectClientFinancialSummary(
+  summary: Awaited<ReturnType<typeof loadBookingEmailFinancialSummary>>,
+): ClientAppointmentFinancialPresentation {
+  if (
+    !summary
+    || summary.depositBlockedCode !== null
+    || summary.taxClassification !== 'estimate'
+    || (summary.currency !== 'CAD' && summary.currency !== 'USD')
+  ) {
+    return { state: 'under_review' };
+  }
+
+  const moneyValues = [
+    summary.totalDueCents,
+    summary.collectedDepositCents,
+    summary.refundedDepositCents,
+    summary.depositCreditAppliedCents,
+    summary.amountAlreadyPaidCents,
+    summary.balanceCents,
+    ...(summary.taxAmountCents === null ? [] : [summary.taxAmountCents]),
+  ];
+  if (moneyValues.some(value => !Number.isSafeInteger(value) || value < 0)) {
+    return { state: 'under_review' };
+  }
+
+  return {
+    state: 'resolved',
+    currency: summary.currency,
+    taxClassification: summary.taxClassification,
+    taxAmountCents: summary.taxAmountCents,
+    taxLabel: summary.taxLabel,
+    taxMode: summary.taxMode,
+    taxApplied: summary.taxApplied,
+    totalCents: summary.totalDueCents,
+    collectedDepositCents: summary.collectedDepositCents,
+    refundedDepositCents: summary.refundedDepositCents,
+    depositCreditCents: summary.depositCreditAppliedCents,
+    amountAlreadyPaidCents: summary.amountAlreadyPaidCents,
+    balanceCents: summary.balanceCents,
+  };
+}
 
 /**
  * GET /api/client/next-appointment
@@ -64,14 +108,20 @@ export async function GET(request: Request): Promise<Response> {
     }
 
     // Get the services for this appointment
-    const appointmentServices = await db
-      .select({
-        serviceId: appointmentServicesSchema.serviceId,
-        priceAtBooking: appointmentServicesSchema.priceAtBooking,
-        durationAtBooking: appointmentServicesSchema.durationAtBooking,
-      })
-      .from(appointmentServicesSchema)
-      .where(eq(appointmentServicesSchema.appointmentId, appointment.id));
+    const [appointmentServices, financialSummary] = await Promise.all([
+      db
+        .select({
+          serviceId: appointmentServicesSchema.serviceId,
+          priceAtBooking: appointmentServicesSchema.priceAtBooking,
+          durationAtBooking: appointmentServicesSchema.durationAtBooking,
+        })
+        .from(appointmentServicesSchema)
+        .where(eq(appointmentServicesSchema.appointmentId, appointment.id)),
+      loadBookingEmailFinancialSummary({
+        salonId: salon.id,
+        appointmentId: appointment.id,
+      }),
+    ]);
 
     // Get service details
     const serviceIds = appointmentServices.map(as => as.serviceId);
@@ -138,6 +188,7 @@ export async function GET(request: Request): Promise<Response> {
           totalPrice: appointment.totalPrice,
           totalDurationMinutes: appointment.totalDurationMinutes,
           locationId: appointment.locationId,
+          financial: projectClientFinancialSummary(financialSummary),
         },
         services: services.map(s => ({
           id: s.id,

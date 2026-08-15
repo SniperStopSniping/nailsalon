@@ -493,6 +493,7 @@ async function enqueueCurrentAppointmentState(
     startTime: new Date(event.startTime),
     endTime: new Date(event.endTime),
     totalPrice: event.totalPrice,
+    pricePresentation: event.pricePresentation,
     totalDurationMinutes: event.totalDurationMinutes,
     timeZone: event.timeZone,
     locationName: event.locationName,
