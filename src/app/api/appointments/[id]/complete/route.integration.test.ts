@@ -289,6 +289,42 @@ describe('PATCH /complete — checkout integration', () => {
     expect((await loadAppointment(id)).invoiceCurrency).toBe('USD');
   });
 
+  it('blocks live completion with DEPOSIT_EXCESS_REQUIRES_REFUND when the deposit exceeds the invoice', async () => {
+    const id = await seedAppointment({ invoiceCurrency: 'CAD' });
+    await addPaidDeposit(id); // $25.00 paid deposit
+    await addAfterPhoto(id);
+
+    // Final invoice ($10.00, tax disabled) is below the eligible credit, and
+    // no permitted partial-refund path exists: OD6-P6 requires a typed block,
+    // never a silently retained excess or a settled completion.
+    const response = await completePatch(patchRequest({
+      finalItems: [{ kind: 'custom', name: 'Trim', quantity: 1, unitPriceCents: 1000 }],
+      payments: [],
+    }), { params: { id } });
+
+    expect(response.status).toBe(409);
+
+    const body = await response.json();
+
+    expect(body.error.code).toBe('DEPOSIT_EXCESS_REQUIRES_REFUND');
+    expect(body.error.details).toEqual({ excessDepositCents: 1500 });
+
+    // The blocked completion must leave no financial state behind.
+    const row = await loadAppointment(id);
+
+    expect(row.status).toBe('confirmed');
+    expect(row.completedAt).toBeNull();
+    expect(row.finalTaxSnapshot).toBeNull();
+
+    const payments = await db.select().from(schema.appointmentPaymentSchema)
+      .where(eq(schema.appointmentPaymentSchema.appointmentId, id));
+    const finalItems = await db.select().from(schema.appointmentFinalItemSchema)
+      .where(eq(schema.appointmentFinalItemSchema.appointmentId, id));
+
+    expect(payments).toHaveLength(0);
+    expect(finalItems).toHaveLength(0);
+  });
+
   it('fails closed instead of guessing currency for a historical deposit appointment', async () => {
     const id = await seedAppointment({ invoiceCurrency: null });
     await addPaidDeposit(id);
@@ -586,6 +622,67 @@ describe('PATCH /complete — checkout integration', () => {
 
     expect(payments).toHaveLength(1);
     expect(finalItems).toHaveLength(1);
+  });
+
+  it('normalizes an empty tax-exempt reason to null on both the scalar and the snapshot', async () => {
+    const id = await seedAppointment();
+    await addAfterPhoto(id);
+
+    const first = await completePatch(patchRequest({
+      finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 5000 }],
+      payments: [{ amountCents: 5000, method: 'cash' }],
+      taxExempt: true,
+      taxExemptReason: '   ',
+    }), { params: { id } });
+
+    expect(first.status).toBe(200);
+
+    const row = await loadAppointment(id);
+    const finalSnapshot = row.finalTaxSnapshot as { taxExemptReason: string | null } | null;
+
+    expect(row.taxExempt).toBe(true);
+    expect(row.taxExemptReason).toBeNull();
+    expect(finalSnapshot?.taxExemptReason).toBeNull();
+
+    // Replay revalidates the entire frozen chain: a stored '' beside a
+    // snapshot null would 409 with TAX_SNAPSHOT_ARITHMETIC_MISMATCH here.
+    const replay = await completePatch(patchRequest({
+      finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 5000 }],
+      payments: [{ amountCents: 5000, method: 'cash' }],
+      taxExempt: true,
+      taxExemptReason: '',
+    }), { params: { id } });
+
+    expect(replay.status).toBe(200);
+  });
+
+  it('stores one identical normalized tax-exempt reason on the scalar and the snapshot', async () => {
+    const id = await seedAppointment();
+    await addAfterPhoto(id);
+
+    const first = await completePatch(patchRequest({
+      finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 5000 }],
+      payments: [{ amountCents: 5000, method: 'cash' }],
+      taxExempt: true,
+      taxExemptReason: '  Charity event  ',
+    }), { params: { id } });
+
+    expect(first.status).toBe(200);
+
+    const row = await loadAppointment(id);
+    const finalSnapshot = row.finalTaxSnapshot as { taxExemptReason: string | null } | null;
+
+    expect(row.taxExemptReason).toBe('Charity event');
+    expect(finalSnapshot?.taxExemptReason).toBe('Charity event');
+
+    const replay = await completePatch(patchRequest({
+      finalItems: [{ kind: 'custom', name: 'Set', quantity: 1, unitPriceCents: 5000 }],
+      payments: [{ amountCents: 5000, method: 'cash' }],
+      taxExempt: true,
+      taxExemptReason: 'Charity event',
+    }), { params: { id } });
+
+    expect(replay.status).toBe(200);
   });
 
   it('blocks completed replay when D6.1 booking evidence survives final-snapshot deletion', async () => {

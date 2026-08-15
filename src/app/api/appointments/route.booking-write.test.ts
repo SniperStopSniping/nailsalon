@@ -229,6 +229,8 @@ vi.mock('@/libs/SMS', () => ({
   sendRescheduleConfirmation: vi.fn(),
 }));
 
+import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
+
 import { POST } from './route';
 
 const REQUIRED_POLICY_TITLE = 'Deposit and cancellation policy';
@@ -1466,6 +1468,81 @@ describe('POST /api/appointments booking policy', () => {
       decision: 'appointment',
     });
     expect(enqueueGoogleCalendarUpsert).not.toHaveBeenCalled();
+  });
+
+  it('converts with a price override as one internally consistent financial representation', async () => {
+    requireAdmin.mockResolvedValue({ ok: true });
+    canTechnicianTakeAppointment.mockReturnValue({
+      available: true,
+      schedule: { start: '09:00', end: '18:00' },
+    });
+    mockConversionSelects(buildConversionSourceEvent());
+    const txState = mockConversionTransaction();
+
+    const response = await POST(
+      new Request('http://localhost/api/appointments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          salonSlug: 'salon-a',
+          serviceIds: ['srv_1'],
+          technicianId: 'tech_1',
+          clientPhone: '1111111111',
+          clientName: 'Converted Client',
+          startTime: '2099-03-13T15:00:00.000Z',
+          googleEventReviewId: 'google_event_1',
+          priceCentsOverride: 5000,
+        }),
+      }),
+    );
+
+    expect(response.status).toBe(201);
+
+    const values = txState.appointmentValues!;
+
+    // Every stored price component describes the single overridden amount;
+    // srv_1's catalog price (6500) must not survive anywhere in the row.
+    expect(values).toEqual(expect.objectContaining({
+      totalPrice: 5000,
+      basePriceCents: 5000,
+      addOnsPriceCents: 0,
+      subtotalBeforeDiscountCents: 5000,
+      discountAmountCents: 0,
+    }));
+
+    // The frozen booking snapshot must satisfy the same canonical chain
+    // validator that checkout, completion, and financial presentation gate on.
+    const chainInput = {
+      status: 'confirmed',
+      completedAt: null,
+      totalPrice: values.totalPrice as number,
+      finalPriceCents: null,
+      taxableSubtotalCents: null,
+      taxAmountCents: null,
+      taxExempt: null,
+      taxExemptReason: null,
+      invoiceCurrency: (values.invoiceCurrency as string | null) ?? null,
+      bookingTaxSnapshot: values.bookingTaxSnapshot as never,
+      rescheduleTaxSnapshot: null,
+      finalTaxSnapshot: null,
+    } as const;
+
+    expect(validateAppointmentTaxSnapshotChain(chainInput)).toEqual(
+      expect.objectContaining({ ok: true }),
+    );
+
+    // Fail-closed validation is not weakened: the identical snapshot beside a
+    // contradicting booked total (the pre-repair row shape, where the catalog
+    // decomposition survived the override) must still be rejected.
+    const inconsistent = validateAppointmentTaxSnapshotChain({
+      ...chainInput,
+      totalPrice: 6500,
+    });
+
+    expect(inconsistent).toEqual(expect.objectContaining({
+      ok: false,
+      code: 'TAX_SNAPSHOT_ARITHMETIC_MISMATCH',
+    }));
   });
 
   function buildConversionSourceEvent() {

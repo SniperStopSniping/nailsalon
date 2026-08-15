@@ -1243,10 +1243,21 @@ export async function getFinancialReportingRangeSummary(
       actualTaxBuckets.set(key, current);
     }
   }
+  // Completed rows excluded by the reporting-currency boundary (historical
+  // NULL/invalid invoice currency, or a different valid currency) are real
+  // completed money this summary deliberately did not aggregate. They count as
+  // unresolved so the provenance discloses the omission (isEstimated flips)
+  // instead of presenting a partial total as exact — mirroring how
+  // loadResolvedBalanceRows classifies the same rows for balance provenance.
+  // The dedicated unknown/foreign counters remain the itemized disclosure.
+  const currencyExcludedCompletedCount
+    = numberValue(currencyCounts?.unknownCurrencyAppointmentCount)
+      + numberValue(currencyCounts?.excludedForeignCurrencyAppointmentCount);
   const provenance = buildReportingProvenance({
     finalizedAppointmentCount,
     legacyAppointmentCount,
-    unresolvedAppointmentCount,
+    unresolvedAppointmentCount:
+      unresolvedAppointmentCount + currencyExcludedCompletedCount,
     finalizedAmountCents,
     legacyFallbackAmountCents,
   });

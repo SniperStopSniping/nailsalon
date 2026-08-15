@@ -116,7 +116,11 @@ const completeAppointmentSchema = z.object({
   discountReason: z.string().trim().max(200).optional(),
   // Admin-only
   taxExempt: z.boolean().optional(),
-  taxExemptReason: z.string().trim().max(200).optional(),
+  // An empty or whitespace-only reason is "no reason supplied". Normalizing it
+  // to absent here keeps the stored scalar and the frozen snapshot identical:
+  // a stored '' beside a snapshot null would permanently fail chain validation.
+  taxExemptReason: z.string().trim().max(200).optional()
+    .transform(value => value || undefined),
   // Payments recorded at checkout. PRESENCE of this field (even empty) opts
   // into derived payment status; absence keeps the legacy hard-coded 'paid'.
   payments: z.array(paymentEntrySchema).max(10).optional(),
@@ -1087,6 +1091,12 @@ export async function PATCH(
         };
       }
 
+      // One normalization, two writes: the scalar column and the frozen
+      // snapshot must carry the byte-identical reason (or both null), or the
+      // completed chain permanently fails its scalar-consistency validation.
+      const normalizedTaxExemptReason = taxExempt
+        ? (payload.taxExemptReason?.trim() || null)
+        : null;
       const updateResult = await tx
         .update(appointmentSchema)
         .set({
@@ -1126,14 +1136,14 @@ export async function PATCH(
           taxAmountCents: totals.taxAmountCents,
           taxableSubtotalCents: totals.taxableSubtotalCents,
           taxExempt,
-          taxExemptReason: taxExempt ? payload.taxExemptReason ?? null : null,
+          taxExemptReason: normalizedTaxExemptReason,
           finalTaxSnapshot: buildFinalTaxSnapshot({
             taxConfig,
             totals,
             capturedAt: now,
             currency: invoiceCurrency,
             taxExempt,
-            taxExemptReason: payload.taxExemptReason ?? null,
+            taxExemptReason: normalizedTaxExemptReason,
           }),
         })
         .where(

@@ -475,6 +475,12 @@ describe('financial reporting range aggregation', () => {
         excludedForeignCurrencyPaymentEventCount: 1,
         excludedForeignCurrencyDepositEventCount: 0,
       });
+      // Currency-excluded completed rows are disclosed through provenance:
+      // the range total is real money the summary did not represent, so it
+      // must never present itself as an exact, complete aggregate.
+      expect(cad.provenance.unresolvedAppointmentCount)
+        .toBeGreaterThanOrEqual(2);
+      expect(cad.provenance.isEstimated).toBe(true);
 
       const usd = await getFinancialReportingRangeSummary({
         salonId: SALON_ID,
@@ -486,6 +492,9 @@ describe('financial reporting range aggregation', () => {
       expect(usd.completedAppointmentRevenueCents).toBe(12000);
       expect(usd.appointmentPaymentsCollectedCents).toBe(5000);
       expect(usd.depositCollectedCents).toBe(0);
+      // The USD view likewise discloses the completed money it excluded
+      // (the unknown-currency row and every CAD completion).
+      expect(usd.provenance.isEstimated).toBe(true);
 
       const cadBalance = await getFinancialBalanceSummary({
         salonId: SALON_ID,

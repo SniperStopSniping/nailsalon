@@ -2037,6 +2037,13 @@ export async function POST(request: Request): Promise<Response> {
       if (data.priceCentsOverride !== undefined) {
         totalPrice = data.priceCentsOverride;
         subtotalBeforeDiscountCents = data.priceCentsOverride;
+        // The owner-set price replaces the catalog decomposition entirely. The
+        // booking tax snapshot is built from basePriceCents + addOnsPriceCents
+        // − discount and is later validated against totalPrice, so every
+        // component must describe the same single overridden amount; the whole
+        // amount follows the salon's service taxability default.
+        basePriceCents = data.priceCentsOverride;
+        addOnsPriceCents = 0;
         discountAmountCents = 0;
         appointmentDiscountType = null;
         appointmentDiscountLabel = null;
