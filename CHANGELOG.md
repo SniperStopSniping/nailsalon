@@ -1,3 +1,10 @@
+## [1.53.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.53.1...v1.53.2) (2026-08-16)
+
+
+### Bug Fixes
+
+* **smart-fit:** exclude unpaid deposit holds from discount qualification ([c389b6f](https://github.com/SniperStopSniping/nailsalon/commit/c389b6f87fd7f49aed692730a88f14c2706606e7))
+
 ## [1.53.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.53.0...v1.53.1) (2026-08-16)
 
 
