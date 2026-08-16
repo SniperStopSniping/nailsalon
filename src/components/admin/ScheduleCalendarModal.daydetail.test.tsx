@@ -70,6 +70,9 @@ const MANAGE_DETAIL = {
   communications: [],
 };
 
+// Per-test status for the seeded day appointment (reset in beforeEach).
+let dayAppointmentStatus = 'confirmed';
+
 function routeFetch(url: string) {
   if (url.startsWith('/api/admin/appointments')) {
     return {
@@ -79,7 +82,7 @@ function routeFetch(url: string) {
           clientName: 'Avery Client',
           startTime: todayAt(14),
           endTime: todayAt(15),
-          status: 'confirmed',
+          status: dayAppointmentStatus,
           services: [{ name: 'Gel Manicure' }],
           technician: { id: 'tech_1', name: 'Taylor' },
         }],
@@ -111,6 +114,7 @@ function routeFetch(url: string) {
 }
 
 beforeEach(() => {
+  dayAppointmentStatus = 'confirmed';
   fetchMock.mockImplementation(async (url: string) => ({
     ok: true,
     status: 200,
@@ -154,6 +158,28 @@ describe('ScheduleCalendarModal day detail', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('day-detail-appointment-appt_1')).not.toBeInTheDocument();
     });
+  });
+
+  it('renders an awaiting_payment hold in the distinct hold palette, never confirmed-blue', async () => {
+    dayAppointmentStatus = 'awaiting_payment';
+    await openTodayPanel();
+
+    const holdCard = await screen.findByTestId('day-detail-appointment-appt_1');
+
+    // Colors pair with the explicit label — status is never color-alone.
+    expect(screen.getByText('Awaiting deposit')).toBeInTheDocument();
+    expect(holdCard).toHaveClass('bg-fuchsia-50');
+    expect(holdCard).not.toHaveClass('bg-blue-50');
+  });
+
+  it('keeps the confirmed presentation unchanged', async () => {
+    await openTodayPanel();
+
+    const card = await screen.findByTestId('day-detail-appointment-appt_1');
+
+    expect(screen.getByText('Confirmed')).toBeInTheDocument();
+    expect(card).toHaveClass('bg-blue-50');
+    expect(card).not.toHaveClass('bg-fuchsia-50');
   });
 
   it('keeps Google events non-tappable with only the convert action', async () => {
