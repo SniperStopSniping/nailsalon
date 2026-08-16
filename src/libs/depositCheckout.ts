@@ -319,7 +319,18 @@ export function isCancellableCreateFailure(failure: StripeFailureClass): boolean
 
 function isSessionNotOpenError(error: Stripe.errors.StripeInvalidRequestError): boolean {
   const message = error.message ?? '';
-  return /not\s+open|already\s+(?:expired|complete)|cannot\s+be\s+expired/i.test(message);
+  // Stripe's live rejection for expiring an already-non-open session reads:
+  //   Only Checkout Sessions with a status in ["open"] can be expired. This
+  //   Checkout Session has a status of `expired`.
+  // The head phrase is matched with a bounded single-clause gap so any quoting
+  // of "open" passes, while messages that merely CONTAIN "expired" (API key
+  // expired, idempotency key expired, webhook timestamp expired, ...) never
+  // do. `can\s+be` cannot match inside "cannot be", so the negative wording
+  // stays on its own (already supported) alternative. This predicate only
+  // ever routes the reaper to the authoritative re-GET — it never finalizes
+  // anything by itself.
+  return /only\s+checkout\s+sessions\s+with\s+a\s+status\s+in\s+[^.]{0,20}can\s+be\s+expired/i.test(message)
+    || /not\s+open|already\s+(?:expired|complete)|cannot\s+be\s+expired/i.test(message);
 }
 
 function isDeauthorizedOrAccountInvalid(

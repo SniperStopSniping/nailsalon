@@ -302,6 +302,49 @@ describe('classifyStripeFailure (§14 test 14)', () => {
 
     expect(classifyStripeFailure(deauthorized)).toBe('permanent');
   });
+
+  /**
+   * The wording Stripe ACTUALLY returns in production when the session
+   * auto-expired before the reaper's `expire` call. The old matcher missed it
+   * ("can be expired" is not "cannot be expired"), classified it `definite`,
+   * and every abandoned hold survived to the 120-minute backstop instead of
+   * releasing on the next reaper cycle. Observed live twice on 2026-08-16.
+   */
+  it.each([
+    [
+      'exact production wording (backticks)',
+      'Only Checkout Sessions with a status in ["open"] can be expired. This Checkout Session has a status of `expired`.',
+    ],
+    [
+      'formatting variant (curly quotes, no trailing period)',
+      'Only Checkout Sessions with a status in [“open”] can be expired. This Checkout Session has a status of expired',
+    ],
+    [
+      'same rejection while the session is complete',
+      'Only Checkout Sessions with a status in ["open"] can be expired. This Checkout Session has a status of `complete`.',
+    ],
+  ])('recognizes the live auto-expired rejection: %s', (_label, message) => {
+    const error = new Stripe.errors.StripeInvalidRequestError({ type: 'invalid_request_error', message });
+
+    // session_not_open only ever routes the caller to the authoritative
+    // re-GET — the classifier itself never finalizes a hold, so recognizing
+    // the complete-status variant is safe by construction.
+    expect(classifyStripeFailure(error)).toBe('session_not_open');
+  });
+
+  it.each([
+    ['API key expired', 'Expired API Key provided: sk_live_***'],
+    ['idempotency key expired', 'Keys for idempotent requests expire after 24 hours. This key expired.'],
+    ['webhook timestamp expired', 'Timestamp outside the tolerance zone; the webhook signature expired.'],
+    ['customer session expired', 'This customer session has expired.'],
+    ['request expired', 'The request expired before it could be processed.'],
+    ['arbitrary error containing expired', 'The coupon you supplied has expired.'],
+    ['unrelated message containing can be expired', 'Only coupons with an active status can be expired.'],
+  ])('does NOT misclassify unrelated expiry wording: %s', (_label, message) => {
+    const error = new Stripe.errors.StripeInvalidRequestError({ type: 'invalid_request_error', message });
+
+    expect(classifyStripeFailure(error)).toBe('definite');
+  });
 });
 
 /** §14 test 19. */

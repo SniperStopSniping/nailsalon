@@ -220,6 +220,96 @@ describe('15 — the reaper matrix', () => {
     expect(after.appointment!.status).toBe('awaiting_payment');
   });
 
+  /**
+   * THE PRODUCTION REGRESSION (observed live twice, 2026-08-16): the session's
+   * expires_at equals the hold deadline, so by the time the reaper runs Stripe
+   * has ALREADY auto-expired it, and `expire` is rejected with this exact
+   * wording. The old matcher missed it -> classified `definite` -> `retry` ->
+   * every abandoned hold blocked its slot for ~120 minutes (hard backstop)
+   * instead of ~one reaper cycle.
+   */
+  const LIVE_AUTO_EXPIRED_MESSAGE
+    = 'Only Checkout Sessions with a status in ["open"] can be expired. This Checkout Session has a status of `expired`.';
+
+  const throwLiveAutoExpired = async () => {
+    throw new Stripe.errors.StripeInvalidRequestError({
+      type: 'invalid_request_error',
+      message: LIVE_AUTO_EXPIRED_MESSAGE,
+    });
+  };
+
+  it('(c2) LIVE auto-expired wording + retrieve EXPIRED -> finalizes on THIS cycle, not the backstop', async () => {
+    const ids = await seedHold({ holdExpiresAt: minutesAgo(10) });
+    const { client: stub, retrieve } = stubClient({
+      expire: throwLiveAutoExpired,
+      retrieve: async () => ({ id: 'cs', status: 'expired' }),
+    });
+
+    // 10 minutes past expiry — nowhere near the 120-minute backstop.
+    const summary = await reapExpiredDepositHolds({ client: stub, now: NOW });
+    const after = await readBack(ids);
+
+    expect(retrieve).toHaveBeenCalledTimes(1);
+    expect(summary.finalized).toBe(1);
+    expect(after.appointment!.status).toBe('cancelled');
+    expect(after.appointment!.cancelReason).toBe('deposit_not_paid');
+    expect(after.deposit!.status).toBe('expired');
+    // The intended path, not the forced release.
+    expect(after.deposit!.resolutionNote).toContain('session status expired');
+    expect(after.deposit!.resolutionNote).not.toContain('forced release');
+  });
+
+  it('(c3) LIVE auto-expired wording + retrieve COMPLETE -> untouched (payment landed)', async () => {
+    const ids = await seedHold({ holdExpiresAt: minutesAgo(10) });
+    const { client: stub, retrieve } = stubClient({
+      expire: throwLiveAutoExpired,
+      retrieve: async () => ({ id: 'cs', status: 'complete' }),
+    });
+
+    const summary = await reapExpiredDepositHolds({ client: stub, now: NOW });
+    const after = await readBack(ids);
+
+    // The error message is NEVER proof of payment state; only the re-GET is.
+    expect(retrieve).toHaveBeenCalledTimes(1);
+    expect(summary.finalized).toBe(0);
+    expect(after.appointment!.status).toBe('awaiting_payment');
+    expect(after.deposit!.status).toBe('checkout_created');
+  });
+
+  it('(c4) LIVE auto-expired wording + retrieve OPEN (contradiction) -> untouched, retries', async () => {
+    const ids = await seedHold({ holdExpiresAt: minutesAgo(10) });
+    const { client: stub } = stubClient({
+      expire: throwLiveAutoExpired,
+      retrieve: async () => ({ id: 'cs', status: 'open' }),
+    });
+
+    const summary = await reapExpiredDepositHolds({ client: stub, now: NOW });
+    const after = await readBack(ids);
+
+    // Contradictory provider state must never finalize a hold.
+    expect(summary.finalized).toBe(0);
+    expect(after.appointment!.status).toBe('awaiting_payment');
+    expect(after.deposit!.status).toBe('checkout_created');
+  });
+
+  it('(c5) LIVE auto-expired wording + retrieve THROWS 500 -> untouched inside the backstop', async () => {
+    const ids = await seedHold({ holdExpiresAt: minutesAgo(10) });
+    const { client: stub } = stubClient({
+      expire: throwLiveAutoExpired,
+      retrieve: async () => {
+        throw new Stripe.errors.StripeAPIError({ type: 'api_error', message: 'server error' });
+      },
+    });
+
+    const summary = await reapExpiredDepositHolds({ client: stub, now: NOW });
+    const after = await readBack(ids);
+
+    // Message text alone never releases inventory; retry/backstop stands.
+    expect(summary.finalized).toBe(0);
+    expect(after.appointment!.status).toBe('awaiting_payment');
+    expect(after.deposit!.status).toBe('checkout_created');
+  });
+
   it('(d) NULL-session hold whose probe throws idempotency_error -> still a hold', async () => {
     const ids = await seedHold({ holdExpiresAt: minutesAgo(10), sessionId: null });
     const { client: stub } = stubClient({
