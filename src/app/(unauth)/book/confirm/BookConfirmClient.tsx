@@ -19,6 +19,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
+import { useHoldCountdown } from '@/components/deposits/HoldCountdown';
 import { SectionCard } from '@/components/ui/section-card';
 import { StateCard } from '@/components/ui/state-card';
 import { useBookingState } from '@/hooks/useBookingState';
@@ -795,6 +796,91 @@ export function maskPhone(phone: string): string {
 // Per-tab persistence for guest contact details (name/email/phone only — no
 // booking data). Cleared on successful booking; sessionStorage dies with the tab.
 const GUEST_CONTACT_STORAGE_KEY = 'luster_booking_contact';
+
+/**
+ * Per-tab record of the checkout THIS browser was handed on its own 201.
+ *
+ * SECURITY CONTRACT: the DEPOSIT_HOLD_ACTIVE 409 deliberately carries no
+ * checkout URL (the API authenticates by phone possession alone), so the ONLY
+ * source of a resume link is this tab's own earlier redirect. A different
+ * browser or device never receives the URL — it merely sees the countdown from
+ * the 409's server-provided expiry. sessionStorage dies with the tab.
+ */
+const DEPOSIT_RESUME_STORAGE_KEY = 'luster_deposit_resume';
+
+type StoredDepositResume = {
+  checkoutUrl: string;
+  holdExpiresAt: string | null;
+  salonSlug: string;
+};
+
+function readStoredDepositResume(): StoredDepositResume | null {
+  try {
+    const raw = sessionStorage.getItem(DEPOSIT_RESUME_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<StoredDepositResume>;
+    return typeof parsed.checkoutUrl === 'string' && typeof parsed.salonSlug === 'string'
+      ? {
+          checkoutUrl: parsed.checkoutUrl,
+          holdExpiresAt: typeof parsed.holdExpiresAt === 'string' ? parsed.holdExpiresAt : null,
+          salonSlug: parsed.salonSlug,
+        }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The live-hold banner: server-authoritative countdown, plus "Continue
+ * payment" only in the tab that owns the checkout. At zero it flips to the
+ * released copy — the actual release stays reaper-owned; this is display.
+ */
+const DepositHoldNotice = ({
+  expiresAt,
+  resumeUrl,
+}: {
+  expiresAt: string | null;
+  resumeUrl: string | null;
+}) => {
+  const { label, expired } = useHoldCountdown(expiresAt);
+
+  if (expired) {
+    return (
+      <div className="mx-auto mb-4 max-w-md rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm leading-6 text-stone-700" role="status">
+        This booking hold has ended and the time is being released. You are
+        welcome to book again below.
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto mb-4 max-w-md rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-900" role="status">
+      <p>
+        Your deposit payment is still pending
+        {label
+          ? (
+              <>
+                {' — the slot is held for another '}
+                <span data-testid="hold-countdown" className="font-semibold tabular-nums">{label}</span>
+                .
+              </>
+            )
+          : '.'}
+      </p>
+      {resumeUrl && (
+        <a
+          className="mt-3 inline-flex rounded-full bg-stone-950 px-5 py-2.5 text-sm font-semibold text-white"
+          href={resumeUrl}
+        >
+          Continue payment
+        </a>
+      )}
+    </div>
+  );
+};
 
 /**
  * Slot-taken state: another client got the time first. The selections are
@@ -1852,6 +1938,12 @@ export function BookConfirmClient({
   }, [salonSlug]);
   const [manageUrl, setManageUrl] = useState<string | null>(null);
   const [hasExistingAppointment, setHasExistingAppointment] = useState(false);
+  // Set only by the DEPOSIT_HOLD_ACTIVE branch: the server's authoritative hold
+  // expiry, plus a resume URL when (and only when) THIS tab owns the checkout.
+  const [depositHold, setDepositHold] = useState<{
+    expiresAt: string | null;
+    resumeUrl: string | null;
+  } | null>(null);
   const [guestName, setGuestName] = useState('');
   const [guestEmail, setGuestEmail] = useState('');
   const [guestPhone, setGuestPhone] = useState('');
@@ -2318,6 +2410,21 @@ export function BookConfirmClient({
         // no checkout URL and no manage URL here: this API authenticates by
         // phone possession alone.
         if (errorCode === 'DEPOSIT_HOLD_ACTIVE') {
+          const holdExpiresAt = typeof errorData.error?.details?.holdExpiresAt === 'string'
+            ? errorData.error.details.holdExpiresAt
+            : null;
+          // Resume ONLY from this tab's own stored 201 redirect, and only when
+          // the stored record provably describes the SAME hold: same salon and
+          // the same server-issued expiry instant. A different browser has no
+          // record; a stale record for an older hold fails the identity check.
+          const stored = readStoredDepositResume();
+          const resumeUrl = stored
+            && stored.salonSlug === salonSlug
+            && holdExpiresAt !== null
+            && stored.holdExpiresAt === holdExpiresAt
+            ? stored.checkoutUrl
+            : null;
+          setDepositHold({ expiresAt: holdExpiresAt, resumeUrl });
           setHasExistingAppointment(true);
           setBookingError(
             errorMessage
@@ -2385,6 +2492,20 @@ export function BookConfirmClient({
         ? data.data.deposit.checkoutUrl
         : null;
       if (typeof depositCheckoutUrl === 'string' && depositCheckoutUrl) {
+        // Remember OUR OWN checkout before leaving, so an abandoned session can
+        // be resumed from this tab (and only this tab — see the storage-key
+        // contract above) with a live countdown instead of a dead end.
+        try {
+          sessionStorage.setItem(DEPOSIT_RESUME_STORAGE_KEY, JSON.stringify({
+            checkoutUrl: depositCheckoutUrl,
+            holdExpiresAt: typeof data.data.deposit.holdExpiresAt === 'string'
+              ? data.data.deposit.holdExpiresAt
+              : null,
+            salonSlug,
+          } satisfies StoredDepositResume));
+        } catch {
+          // Storage unavailable — resume simply won't be offered.
+        }
         navigateToCheckout(depositCheckoutUrl);
         return;
       }
@@ -2422,34 +2543,44 @@ export function BookConfirmClient({
 
   // Existing appointment error: the server (never browser state) confirmed an
   // active appointment for this phone. Offer every path forward instead of a
-  // dead end.
+  // dead end. When the blocker is a live deposit hold, a countdown (and, in
+  // the tab that owns the checkout, a resume link) renders above the options.
   if (hasExistingAppointment) {
     return (
-      <ExistingAppointmentOptions
-        salonSlug={salonSlug}
-        guestEmail={guestEmail}
-        guestPhone={guestPhone}
-        salonPhone={salonPhone}
-        onManageBooking={() => {
-          if (manageToken) {
-            router.push(`/${locale}/${salonSlug}/manage/${manageToken}`);
-            return;
-          }
-          router.push(`/${locale}/${salonSlug}/find-booking`);
-        }}
-        onEditContact={() => {
-          setHasExistingAppointment(false);
-          setBookingError('You already have a booking under that phone number. Update your contact details below, then confirm again.');
-        }}
-        onRetryBooking={() => {
+      <div>
+        {depositHold && (
+          <DepositHoldNotice
+            expiresAt={depositHold.expiresAt}
+            resumeUrl={depositHold.resumeUrl}
+          />
+        )}
+        <ExistingAppointmentOptions
+          salonSlug={salonSlug}
+          guestEmail={guestEmail}
+          guestPhone={guestPhone}
+          salonPhone={salonPhone}
+          onManageBooking={() => {
+            if (manageToken) {
+              router.push(`/${locale}/${salonSlug}/manage/${manageToken}`);
+              return;
+            }
+            router.push(`/${locale}/${salonSlug}/find-booking`);
+          }}
+          onEditContact={() => {
+            setHasExistingAppointment(false);
+            setBookingError('You already have a booking under that phone number. Update your contact details below, then confirm again.');
+          }}
+          onRetryBooking={() => {
           // The server re-verifies on every attempt; if the appointment was
           // cancelled meanwhile, this proceeds and the success path clears the
           // stored contact details.
-          setHasExistingAppointment(false);
-          setBookingError(null);
-          void createBooking();
-        }}
-      />
+            setHasExistingAppointment(false);
+            setDepositHold(null);
+            setBookingError(null);
+            void createBooking();
+          }}
+        />
+      </div>
     );
   }
 

@@ -2064,6 +2064,104 @@ describe('BookConfirmClient deposit disclosure', () => {
       expect(navigateToCheckout).not.toHaveBeenCalled();
     });
 
+    it('remembers this tab\'s own checkout for resume before redirecting', async () => {
+      const holdExpiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        data: {
+          appointmentId: 'appt_hold',
+          deposit: {
+            required: true,
+            checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_1',
+            amountCents: 2500,
+            currency: 'cad',
+            fingerprint: 'deposit-v1:cad:2500',
+            holdExpiresAt,
+          },
+        },
+      }), { status: 201 }));
+
+      renderDeposit();
+      confirm();
+
+      await waitFor(() => expect(navigateToCheckout).toHaveBeenCalled());
+
+      expect(JSON.parse(sessionStorage.getItem('luster_deposit_resume') ?? 'null')).toEqual({
+        checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_1',
+        holdExpiresAt,
+        salonSlug: 'salon-a',
+      });
+    });
+
+    it('the OWNING tab gets a live countdown and Continue payment from its own stored record', async () => {
+      const holdExpiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+      sessionStorage.setItem('luster_deposit_resume', JSON.stringify({
+        checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_1',
+        holdExpiresAt,
+        salonSlug: 'salon-a',
+      }));
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        error: {
+          code: 'DEPOSIT_HOLD_ACTIVE',
+          message: 'You already have a booking waiting for its deposit.',
+          details: { holdExpiresAt },
+        },
+      }), { status: 409 }));
+
+      renderDeposit();
+      confirm();
+
+      expect(await screen.findByTestId('hold-countdown')).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Continue payment' })).toHaveAttribute(
+        'href',
+        'https://checkout.stripe.com/c/pay/cs_1',
+      );
+    });
+
+    it('a DIFFERENT browser sees the countdown but never receives the checkout URL', async () => {
+      // No stored record: this context did not perform the original redirect.
+      const holdExpiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        error: {
+          code: 'DEPOSIT_HOLD_ACTIVE',
+          message: 'You already have a booking waiting for its deposit.',
+          details: { holdExpiresAt },
+        },
+      }), { status: 409 }));
+
+      renderDeposit();
+      confirm();
+
+      expect(await screen.findByTestId('hold-countdown')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Continue payment' })).not.toBeInTheDocument();
+      // The secret URL must not exist ANYWHERE in this context's render: the
+      // 409 body carries none (server contract) and no storage supplied one.
+      expect(document.body.innerHTML).not.toContain('checkout.stripe.com');
+    });
+
+    it('a stored record for an OLDER hold fails the identity check and earns no resume link', async () => {
+      const holdExpiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+      sessionStorage.setItem('luster_deposit_resume', JSON.stringify({
+        checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_stale',
+        // A different server-issued expiry = a different hold.
+        holdExpiresAt: new Date(Date.now() + 2 * 60_000).toISOString(),
+        salonSlug: 'salon-a',
+      }));
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        error: {
+          code: 'DEPOSIT_HOLD_ACTIVE',
+          message: 'You already have a booking waiting for its deposit.',
+          details: { holdExpiresAt },
+        },
+      }), { status: 409 }));
+
+      renderDeposit();
+      confirm();
+
+      expect(await screen.findByTestId('hold-countdown')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Continue payment' })).not.toBeInTheDocument();
+      expect(document.body.innerHTML).not.toContain('cs_stale');
+    });
+
     it('a 409 DEPOSIT_CHANGED adopts the new amount and issues NO further POST', async () => {
       fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
         error: {
