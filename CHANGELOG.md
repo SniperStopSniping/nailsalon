@@ -1,3 +1,10 @@
+# [1.55.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.54.0...v1.55.0) (2026-08-16)
+
+
+### Features
+
+* **deposits:** identify Stripe payments by appointment, service, and local time ([fe55c43](https://github.com/SniperStopSniping/nailsalon/commit/fe55c43d633a2e2acd6d3f1b16afcca328186879))
+
 # [1.54.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.53.2...v1.54.0) (2026-08-16)
 
 
