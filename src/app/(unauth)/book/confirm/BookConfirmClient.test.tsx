@@ -2138,6 +2138,41 @@ describe('BookConfirmClient deposit disclosure', () => {
       expect(document.body.innerHTML).not.toContain('checkout.stripe.com');
     });
 
+    it.each([
+      ['javascript: scheme', 'javascript:alert(document.cookie)'],
+      ['data: scheme', 'data:text/html,<script>alert(1)</script>'],
+      ['http downgrade', 'http://checkout.stripe.com/c/pay/cs_1'],
+      ['attacker host', 'https://evil.example.com/c/pay/cs_1'],
+      ['lookalike host', 'https://checkout.stripe.com.evil.example.com/c/pay/cs_1'],
+      ['not a URL at all', 'not-a-url'],
+    ])('a tampered stored checkout URL (%s) is never rendered as a link', async (_label, tamperedUrl) => {
+      // sessionStorage is same-origin WRITABLE, so its contents are untrusted
+      // input: an unvalidated value here would be a click-to-execute XSS sink
+      // or an open redirect for a client mid-payment.
+      const holdExpiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+      sessionStorage.setItem('luster_deposit_resume', JSON.stringify({
+        checkoutUrl: tamperedUrl,
+        holdExpiresAt,
+        salonSlug: 'salon-a',
+      }));
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        error: {
+          code: 'DEPOSIT_HOLD_ACTIVE',
+          message: 'You already have a booking waiting for its deposit.',
+          details: { holdExpiresAt },
+        },
+      }), { status: 409 }));
+
+      renderDeposit();
+      confirm();
+
+      // The countdown still renders — only the resume capability is withheld.
+      expect(await screen.findByTestId('hold-countdown')).toBeInTheDocument();
+      expect(screen.queryByRole('link', { name: 'Continue payment' })).not.toBeInTheDocument();
+      expect(document.body.innerHTML).not.toContain('javascript:');
+      expect(document.body.innerHTML).not.toContain('evil.example.com');
+    });
+
     it('a stored record for an OLDER hold fails the identity check and earns no resume link', async () => {
       const holdExpiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
       sessionStorage.setItem('luster_deposit_resume', JSON.stringify({

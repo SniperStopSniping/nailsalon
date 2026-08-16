@@ -814,6 +814,29 @@ type StoredDepositResume = {
   salonSlug: string;
 };
 
+/**
+ * sessionStorage is same-origin WRITABLE, so its contents are untrusted input
+ * even though only this tab should have written them. A stored value becomes an
+ * `href`, and an unvalidated one would make `javascript:`/`data:` a
+ * click-to-execute sink and any `https://` host an open redirect for a client
+ * mid-payment. Only a Stripe-hosted HTTPS Checkout URL may ever be resumed;
+ * anything else is discarded and the client simply sees the countdown with no
+ * resume link (the safe degradation).
+ */
+export function isResumableStripeCheckoutUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:') {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  return host === 'checkout.stripe.com' || host.endsWith('.checkout.stripe.com');
+}
+
 function readStoredDepositResume(): StoredDepositResume | null {
   try {
     const raw = sessionStorage.getItem(DEPOSIT_RESUME_STORAGE_KEY);
@@ -821,7 +844,9 @@ function readStoredDepositResume(): StoredDepositResume | null {
       return null;
     }
     const parsed = JSON.parse(raw) as Partial<StoredDepositResume>;
-    return typeof parsed.checkoutUrl === 'string' && typeof parsed.salonSlug === 'string'
+    return typeof parsed.checkoutUrl === 'string'
+      && isResumableStripeCheckoutUrl(parsed.checkoutUrl)
+      && typeof parsed.salonSlug === 'string'
       ? {
           checkoutUrl: parsed.checkoutUrl,
           holdExpiresAt: typeof parsed.holdExpiresAt === 'string' ? parsed.holdExpiresAt : null,
