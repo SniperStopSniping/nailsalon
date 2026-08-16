@@ -1,3 +1,11 @@
+## [1.53.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.53.0...v1.53.1) (2026-08-16)
+
+
+### Bug Fixes
+
+* **calendar:** give awaiting_payment holds their own palette in the owner calendar ([33dba92](https://github.com/SniperStopSniping/nailsalon/commit/33dba92c107b502d6ef0b5dfbe873146d96dd9d3))
+* **deposits:** surface typed load errors in the owner DepositPanel ([f6051d6](https://github.com/SniperStopSniping/nailsalon/commit/f6051d618101a514387631920d8541bdb2ad2144))
+
 # [1.53.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.52.1...v1.53.0) (2026-08-15)
 
 
