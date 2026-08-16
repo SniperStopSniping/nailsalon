@@ -12,7 +12,7 @@ import {
   getDepositStripeClient,
 } from '@/libs/depositCheckout';
 import { finalizeExpiredHold } from '@/libs/deposits/holdWriters';
-import { appointmentDepositSchema, appointmentSchema } from '@/models/Schema';
+import { appointmentDepositSchema, appointmentSchema, appointmentServicesSchema } from '@/models/Schema';
 
 import { isRedisAvailable, redis } from '../core/redis/redisClient';
 
@@ -81,6 +81,7 @@ type EligibleHold = {
   stripeCheckoutSessionId: string | null;
   checkoutSuccessUrl: string | null;
   checkoutCancelUrl: string | null;
+  appointmentStartTime: Date;
 };
 
 export async function reapExpiredDepositHolds(options?: {
@@ -260,6 +261,16 @@ async function probeForExistingSession(args: {
     return { sessionId: null, error: 'deposit row has no stored redirect URLs' };
   }
 
+  // Write-once snapshots, read back in any order — buildDepositCheckoutParams
+  // canonicalises (sorts) them, so this probe rebuilds the booking path's
+  // byte-identical parameters under the same idempotency key.
+  const serviceNameSnapshots = (await db
+    .select({ nameSnapshot: appointmentServicesSchema.nameSnapshot })
+    .from(appointmentServicesSchema)
+    .where(eq(appointmentServicesSchema.appointmentId, hold.appointmentId)))
+    .map(row => row.nameSnapshot)
+    .filter((name): name is string => typeof name === 'string');
+
   const row: DepositCheckoutRow = {
     id: hold.depositId,
     salonId: hold.salonId,
@@ -269,6 +280,8 @@ async function probeForExistingSession(args: {
     checkoutSuccessUrl: hold.checkoutSuccessUrl,
     checkoutCancelUrl: hold.checkoutCancelUrl,
     holdExpiresAt: hold.holdExpiresAt,
+    appointmentStartTime: hold.appointmentStartTime,
+    serviceNameSnapshots,
   };
 
   try {
@@ -336,6 +349,7 @@ async function loadEligibleHolds(now: Date): Promise<EligibleHold[]> {
       stripeCheckoutSessionId: appointmentDepositSchema.stripeCheckoutSessionId,
       checkoutSuccessUrl: appointmentDepositSchema.checkoutSuccessUrl,
       checkoutCancelUrl: appointmentDepositSchema.checkoutCancelUrl,
+      appointmentStartTime: appointmentSchema.startTime,
     })
     .from(appointmentSchema)
     // The deposit-status join is a LOCAL, network-independent guarantee that a
