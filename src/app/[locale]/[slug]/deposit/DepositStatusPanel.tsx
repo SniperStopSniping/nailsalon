@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from 'react';
 
+import { useHoldCountdown } from '@/components/deposits/HoldCountdown';
+
 /**
  * Shared client panel for both deposit landing pages.
  *
@@ -35,6 +37,10 @@ function formatTime(iso: string | null): string | null {
 export function DepositStatusPanel({ variant }: { variant: 'return' | 'cancel' }) {
   const [status, setStatus] = useState<SessionStatus | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'unknown'>('loading');
+  // Ticks from the endpoint's authoritative expiry; inert until a live hold loads.
+  const countdown = useHoldCountdown(
+    status?.state === 'awaiting_payment' ? status.holdExpiresAt : null,
+  );
 
   useEffect(() => {
     const sessionId = new URLSearchParams(window.location.search).get('session_id');
@@ -90,13 +96,32 @@ export function DepositStatusPanel({ variant }: { variant: 'return' | 'cancel' }
   }
 
   if (status.state === 'awaiting_payment') {
+    // The endpoint said the hold was live when it answered; once the local
+    // countdown of that SAME server expiry hits zero, stop offering resume —
+    // the session and the hold die at that instant, so the link would 404
+    // into Stripe's expired-session page.
+    if (countdown.expired && status.holdExpiresAt) {
+      return (
+        <p className="mt-3 text-sm leading-6 text-stone-600">
+          This booking hold has ended and the time has been released. You are welcome to book again.
+        </p>
+      );
+    }
     return (
       <div className="mt-3 space-y-4">
         <p className="text-sm leading-6 text-stone-600">
           {variant === 'cancel'
             ? 'Payment not completed'
             : 'We have not received your deposit yet'}
-          {holdTime ? ` — your slot is held until ${holdTime}.` : '.'}
+          {countdown.label
+            ? (
+                <>
+                  {' — your slot is held for another '}
+                  <span data-testid="hold-countdown" className="font-semibold tabular-nums">{countdown.label}</span>
+                  {holdTime ? ` (until ${holdTime}).` : '.'}
+                </>
+              )
+            : (holdTime ? ` — your slot is held until ${holdTime}.` : '.')}
         </p>
         {status.checkoutUrl
           ? (
