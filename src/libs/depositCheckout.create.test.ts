@@ -23,6 +23,8 @@ import { EXPECTED_STRIPE_API_VERSION } from './stripe';
 /* eslint-enable import/first */
 
 const HOLD_EXPIRES_AT = new Date('2099-03-13T15:35:00.000Z');
+// 2099-03-13T15:00:00Z is 10:00 AM in America/Toronto (EST until Mar 14 2099).
+const APPOINTMENT_START = new Date('2099-03-13T15:00:00.000Z');
 
 function buildDeposit(overrides: Partial<DepositCheckoutRow> = {}): DepositCheckoutRow {
   return {
@@ -34,6 +36,8 @@ function buildDeposit(overrides: Partial<DepositCheckoutRow> = {}): DepositCheck
     checkoutSuccessUrl: 'https://salon.example.com/deposit/return',
     checkoutCancelUrl: 'https://salon.example.com/deposit/cancel',
     holdExpiresAt: HOLD_EXPIRES_AT,
+    appointmentStartTime: APPOINTMENT_START,
+    serviceNameSnapshots: ['BIAB Overlay'],
     ...overrides,
   };
 }
@@ -81,10 +85,79 @@ describe('deposit Checkout — the provider contract (§14 test 2)', () => {
       appointment_id: 'appt_1',
       salon_id: 'salon_1',
       deposit_id: 'dep_1',
+      appointment_start: `${new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Toronto',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(APPOINTMENT_START)} (America/Toronto)`,
+      service: 'BIAB Overlay',
     };
 
     expect(params.metadata).toEqual(expectedMetadata);
     expect(params.payment_intent_data?.metadata).toEqual(expectedMetadata);
+    // The owner-facing payments-list line: reference · service · local time.
+    expect(params.payment_intent_data?.description).toBe(
+      `Appt appt_1 · BIAB Overlay · ${new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/Toronto',
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }).format(APPOINTMENT_START)}`,
+    );
+  });
+
+  it('renders the appointment time in the salon-operating timezone, not UTC', () => {
+    // 15:00 UTC on 2099-03-13 is 11:00 AM in America/Toronto (EDT, UTC−4) — a
+    // wrong-timezone build would print 3:00 PM. This is the exact class of
+    // confusion the owner hit when Stripe showed a "3:00 AM" payment.
+    const params = buildDepositCheckoutParams(buildDeposit());
+    const description = params.payment_intent_data?.description ?? '';
+
+    expect(description).toContain('11:00 AM');
+    expect(description).not.toContain('3:00 PM');
+  });
+
+  it('canonicalises service names: order-independent, trimmed, truncated, empty-safe', () => {
+    const orderA = buildDepositCheckoutParams(
+      buildDeposit({ serviceNameSnapshots: ['Pedicure', ' BIAB Overlay '] }),
+    );
+    const orderB = buildDepositCheckoutParams(
+      buildDeposit({ serviceNameSnapshots: ['BIAB Overlay', 'Pedicure'] }),
+    );
+
+    // The reaper's probe reads snapshots back in DB order; the booking path
+    // passes user-selection order. Both must produce identical bytes.
+    expect(orderA).toEqual(orderB);
+    expect(orderA.metadata?.service).toBe('BIAB Overlay, Pedicure');
+
+    const noServices = buildDepositCheckoutParams(buildDeposit({ serviceNameSnapshots: [] }));
+
+    expect(noServices.metadata && 'service' in noServices.metadata).toBe(false);
+    expect(noServices.payment_intent_data?.description).not.toContain('·  ·');
+
+    const oversized = buildDepositCheckoutParams(
+      buildDeposit({ serviceNameSnapshots: ['x'.repeat(600)] }),
+    );
+
+    expect(String(oversized.metadata?.service ?? '').length).toBeLessThanOrEqual(200);
+    expect((oversized.payment_intent_data?.description ?? '').length).toBeLessThanOrEqual(500);
+  });
+
+  it('keeps client PII out of every parameter', () => {
+    // The builder receives no client fields at all — pin that the serialized
+    // params never gain name/phone/email keys by accident.
+    const serialized = JSON.stringify(buildDepositCheckoutParams(buildDeposit()));
+
+    for (const banned of ['client_name', 'clientName', 'phone', 'email', 'customer_email']) {
+      expect(serialized).not.toContain(banned);
+    }
   });
 
   it('carries the {CHECKOUT_SESSION_ID} template on BOTH redirect URLs', () => {
@@ -119,6 +192,16 @@ describe('deposit Checkout — the provider contract (§14 test 2)', () => {
 
     expect(paramsC).toEqual(paramsA);
     expect(JSON.stringify(paramsA)).not.toContain('salon.example.com/name');
+
+    // The identification fields derive from the committed appointment row and
+    // its write-once service snapshots — inputs that cannot change while the
+    // appointment is `awaiting_payment` (HOLD_LOCKED) — never from live salon
+    // state. Same rows in, same bytes out.
+    const paramsD = buildDepositCheckoutParams(buildDeposit({
+      serviceNameSnapshots: [...buildDeposit().serviceNameSnapshots].reverse(),
+    }));
+
+    expect(paramsD).toEqual(paramsA);
   });
 
   it('passes the connected account and the stable idempotency key', async () => {

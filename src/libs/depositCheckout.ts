@@ -58,6 +58,12 @@ export const DEPOSIT_STRIPE_TIMEOUT_MS = 6_000;
  *
  * `holdExpiresAt` is read from the committed APPOINTMENT row (the appointment IS
  * the hold); it is equally immutable for the life of the hold.
+ *
+ * `appointmentStartTime` and `serviceNameSnapshots` follow the same precedent:
+ * the appointment row cannot change while it is `awaiting_payment` (the update
+ * route rejects any write with `HOLD_LOCKED`) and `appointment_services`
+ * snapshot columns are write-once, so both are immutable for every window in
+ * which these parameters can be rebuilt.
  */
 export type DepositCheckoutRow = {
   id: string;
@@ -68,11 +74,54 @@ export type DepositCheckoutRow = {
   checkoutSuccessUrl: string;
   checkoutCancelUrl: string;
   holdExpiresAt: Date;
+  /** Committed appointment start instant — owner-facing identification only. */
+  appointmentStartTime: Date;
+  /** Write-once `appointment_services.name_snapshot` values, any order. */
+  serviceNameSnapshots: string[];
 };
 
 /** Stable per appointment; `appointment.id` is a globally unique text PK. */
 export function buildDepositCheckoutIdempotencyKey(appointmentId: string): string {
   return `deposit-checkout:v1:${appointmentId}`;
+}
+
+/**
+ * The FIXED timezone for owner-facing identification strings.
+ *
+ * Pinned rather than read from salon settings on purpose: the DETERMINISM RULE
+ * above forbids runtime-mutable inputs, and the platform's own day-boundary
+ * helpers (`getTorontoDateString` in bookingPolicy) are already anchored to
+ * this zone. The rendered string carries the zone name, so it stays honest
+ * even if a future salon operates elsewhere.
+ */
+export const DEPOSIT_DESCRIPTION_TIME_ZONE = 'America/Toronto';
+
+/** Fixed locale + fixed options + fixed zone → deterministic rendering. */
+export function formatDepositAppointmentStart(startTime: Date): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: DEPOSIT_DESCRIPTION_TIME_ZONE,
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(startTime);
+}
+
+/**
+ * Canonical, order-independent service string: the booking path passes names in
+ * user-selection order while the reaper's probe reads them back from the
+ * database, so BOTH must collapse to identical bytes. Codepoint sort, no
+ * locale collation.
+ */
+export function canonicalDepositServiceNames(names: readonly string[]): string {
+  return [...names]
+    .map(name => name.trim())
+    .filter(Boolean)
+    .sort()
+    .join(', ')
+    .slice(0, 200);
 }
 
 export function depositHoldExpiresAtEpochSeconds(holdExpiresAt: Date): number {
@@ -88,11 +137,23 @@ export function depositHoldExpiresAtEpochSeconds(holdExpiresAt: Date): number {
 export function buildDepositCheckoutParams(
   deposit: DepositCheckoutRow,
 ): Stripe.Checkout.SessionCreateParams {
+  const serviceNames = canonicalDepositServiceNames(deposit.serviceNameSnapshots);
+  const appointmentStart = formatDepositAppointmentStart(deposit.appointmentStartTime);
   const metadata = {
     appointment_id: deposit.appointmentId,
     salon_id: deposit.salonId,
     deposit_id: deposit.id,
+    // Owner-facing identification. NO client name, phone, email, or notes —
+    // Checkout's own billing_details already show the payer to the owner.
+    appointment_start: `${appointmentStart} (${DEPOSIT_DESCRIPTION_TIME_ZONE})`,
+    ...(serviceNames ? { service: serviceNames } : {}),
   };
+  // Renders in the connected account's payments list, where bare metadata does
+  // not. e.g. "Appt appt_123 · BIAB Overlay · Aug 31, 2026, 12:30 PM".
+  const description = [`Appt ${deposit.appointmentId}`, serviceNames || null, appointmentStart]
+    .filter(Boolean)
+    .join(' · ')
+    .slice(0, 500);
 
   return {
     mode: 'payment',
@@ -121,7 +182,7 @@ export function buildDepositCheckoutParams(
     // positive if present, so omission is the documented-safe encoding of 0%.
     client_reference_id: deposit.appointmentId,
     metadata,
-    payment_intent_data: { metadata },
+    payment_intent_data: { metadata, description },
     // THE TEMPLATE IS REQUIRED ON BOTH URLS. Stripe substitutes
     // {CHECKOUT_SESSION_ID} on cancel URLs exactly as on success URLs; without
     // it the cancel page arrives with no query parameter at all and cannot call

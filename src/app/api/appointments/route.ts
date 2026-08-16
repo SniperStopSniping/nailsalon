@@ -713,6 +713,12 @@ type CommittedDepositPlan = {
   checkoutSuccessUrl: string;
   checkoutCancelUrl: string;
   fingerprint: string;
+  /**
+   * Immutable-for-the-hold identification inputs (see DepositCheckoutRow):
+   * the committed start instant and the write-once service name snapshots.
+   */
+  appointmentStartTime: Date;
+  serviceNameSnapshots: string[];
 };
 
 /**
@@ -3793,6 +3799,11 @@ export async function POST(request: Request): Promise<Response> {
                 checkoutSuccessUrl,
                 checkoutCancelUrl,
                 fingerprint: depositCharge.fingerprint,
+                // The committed start instant, and the same `service.name`
+                // values the appointment_services snapshot insert below writes
+                // as `nameSnapshot` — byte-identical inputs by construction.
+                appointmentStartTime: createdAppointment.startTime,
+                serviceNameSnapshots: services.map(service => service.name),
               };
             }
 
@@ -4156,6 +4167,8 @@ export async function POST(request: Request): Promise<Response> {
         checkoutSuccessUrl: depositPlan.checkoutSuccessUrl,
         checkoutCancelUrl: depositPlan.checkoutCancelUrl,
         holdExpiresAt: depositPlan.holdExpiresAt,
+        appointmentStartTime: depositPlan.appointmentStartTime,
+        serviceNameSnapshots: depositPlan.serviceNameSnapshots,
       };
       const created = await createDepositCheckoutSession({ deposit: depositRow });
       const checkoutUrl = created.ok ? created.session.url : null;
