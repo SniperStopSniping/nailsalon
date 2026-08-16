@@ -1,3 +1,15 @@
+# [1.54.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.53.2...v1.54.0) (2026-08-16)
+
+
+### Bug Fixes
+
+* **deposits:** validate the stored resume URL before rendering it as a link ([b03c58b](https://github.com/SniperStopSniping/nailsalon/commit/b03c58b68c7db9cc0128fe652fb15b61ea3bc95c))
+
+
+### Features
+
+* **deposits:** checkout recovery UX with server-anchored hold countdown ([02237d3](https://github.com/SniperStopSniping/nailsalon/commit/02237d37214cf50570547fa62bd3abdcbbb5de01))
+
 ## [1.53.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.53.1...v1.53.2) (2026-08-16)
 
 
