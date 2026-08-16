@@ -2769,6 +2769,7 @@ export async function POST(request: Request): Promise<Response> {
             blockedDurationMinutes: appointmentSchema.blockedDurationMinutes,
             totalDurationMinutes: appointmentSchema.totalDurationMinutes,
             bufferMinutes: appointmentSchema.bufferMinutes,
+            status: appointmentSchema.status,
             salonClientId: appointmentSchema.salonClientId,
             clientPhone: appointmentSchema.clientPhone,
           })

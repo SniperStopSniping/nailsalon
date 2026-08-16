@@ -76,6 +76,31 @@ describe('DepositPanel — explicit cancelled-deposit retention', () => {
     ]);
   });
 
+  it('surfaces the server-typed load error so the fix is discoverable', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      error: {
+        code: 'SUPER_ADMIN_MUST_IMPERSONATE',
+        message: 'Super administrators must impersonate this salon before accessing deposit records.',
+      },
+    }), { status: 403, headers: { 'Content-Type': 'application/json' } }));
+
+    render(<DepositPanel appointmentId="appt_cancelled" salonSlug="isla" />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Super administrators must impersonate this salon before accessing deposit records.',
+    );
+  });
+
+  it('falls back to the generic load error when the failure carries no message', async () => {
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 500 }));
+
+    render(<DepositPanel appointmentId="appt_cancelled" salonSlug="isla" />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Deposit details could not be loaded. Try again.',
+    );
+  });
+
   it('never offers retention while deposit resolution is blocked', async () => {
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: {

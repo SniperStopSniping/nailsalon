@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { BLOCKING_APPOINTMENT_STATUSES } from '@/libs/bookingConflictGuard';
 import { evaluateSmartFitSlot } from '@/libs/smartFit';
 import {
   buildSmartFitClientKeys,
@@ -248,6 +249,79 @@ describe('buildSmartFitDayContext — blocks', () => {
 
     expect(evaluation.eligible).toBe(true);
     expect(evaluation.qualifyingSides).toEqual(['before']);
+  });
+
+  // Table-driven over the SHARED blocking constant: adding a status to
+  // BLOCKING_APPOINTMENT_STATUSES forces a conscious Smart Fit classification.
+  it('classifies every blocking status: awaiting_payment becomes a shrink-only hold, all others stay appointments', () => {
+    for (const status of BLOCKING_APPOINTMENT_STATUSES) {
+      const context = buildSmartFitDayContext({
+        ...baseArgs(),
+        appointments: [{
+          id: `appt_${status}`,
+          startTime: at('9:00'),
+          endTime: at('10:00'),
+          blockedDurationMinutes: 60,
+          status,
+        }],
+      });
+
+      expect(context!.blocks).toHaveLength(1);
+      expect(context!.blocks[0]).toMatchObject({
+        id: `appt_${status}`,
+        kind: status === 'awaiting_payment' ? 'hold' : 'appointment',
+      });
+    }
+  });
+
+  it('treats a window with no status as a plain appointment (legacy callers)', () => {
+    const context = buildSmartFitDayContext({
+      ...baseArgs(),
+      appointments: [{
+        id: 'appt_no_status',
+        startTime: at('9:00'),
+        endTime: at('10:00'),
+        blockedDurationMinutes: 60,
+      }],
+    });
+
+    expect(context!.blocks[0]!.kind).toBe('appointment');
+  });
+
+  it('feeds the evaluator end-to-end: a tight fit beside an unpaid hold does NOT qualify', () => {
+    const context = buildSmartFitDayContext({
+      ...baseArgs(),
+      appointments: [{
+        id: 'appt_hold',
+        startTime: at('9:00'),
+        endTime: at('10:00'),
+        blockedDurationMinutes: 60,
+        status: 'awaiting_payment',
+        salonClientId: 'sc_other',
+        clientPhone: '4165559999',
+      }],
+    });
+
+    const evaluation = evaluateSmartFitSlot({
+      config: ENABLED,
+      candidate: {
+        startMs: atMs('10:00'),
+        visibleDurationMinutes: 75,
+        bufferMinutes: 10,
+        serviceId: 'srv_1',
+        technicianId: null,
+        locationId: null,
+        clientKeys: buildSmartFitClientKeys({ salonClientId: 'sc_me', clientPhone: '4165550000' }),
+      },
+      day: context!,
+    });
+
+    expect(evaluation.eligible).toBe(false);
+    expect(evaluation.reason).toBe('NO_QUALIFYING_NEIGHBOR');
+    expect(evaluation.sides.before).toMatchObject({
+      neighbor: { id: 'appt_hold', kind: 'hold' },
+      qualifies: false,
+    });
   });
 });
 

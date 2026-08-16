@@ -136,9 +136,14 @@ export function buildSmartFitDayContext(args: SmartFitDayContextArgs): SmartFitD
       salonClientId: appointment.salonClientId,
       clientPhone: appointment.clientPhone,
     });
+    // Unpaid deposit holds occupy the slot but are shrink-only for Smart Fit:
+    // they must never qualify adjacency or mint a discount that could outlive
+    // a hold that expires unpaid. Every other blocking status stays a fully
+    // qualifying 'appointment' block.
+    const kind = appointment.status === 'awaiting_payment' ? 'hold' : 'appointment';
     blocks.push({
       id: appointment.id,
-      kind: 'appointment',
+      kind,
       startMs,
       endMs: startMs + blockedMinutes * MINUTE_MS,
       ...(clientKeys.length > 0 ? { clientKeys } : {}),
