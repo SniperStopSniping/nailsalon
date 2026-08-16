@@ -274,6 +274,55 @@ describe('evaluateSmartFitSlot — shrink-only blocks and boundaries', () => {
     expect(result.reason).toBe('NO_QUALIFYING_NEIGHBOR');
     expect(result.sides.before).toMatchObject({ edge: 'boundary', gapMinutes: 0, qualifies: false });
   });
+
+  // Holds (unpaid awaiting_payment deposits) mirror google_busy: shrink-only.
+  it('a hold neighbor never creates eligibility, but does shrink the free span', () => {
+    const result = evaluate(ENABLED, { startMs: t(10) }, {
+      blocks: [{ id: 'appt_hold', kind: 'hold', startMs: t(11, 25), endMs: t(13) }],
+    });
+
+    expect(result.eligible).toBe(false);
+    expect(result.reason).toBe('NO_QUALIFYING_NEIGHBOR');
+    // Span shrank to 9:00→11:25 (145 − 85 = 60), proving the hold bounded it.
+    expect(result.improvementMinutes).toBe(60);
+    expect(result.sides.after).toMatchObject({
+      edge: 'block',
+      neighbor: { id: 'appt_hold', kind: 'hold' },
+      qualifies: false,
+    });
+  });
+
+  it('a hold still blocks its exact slot: an overlapping candidate is rejected', () => {
+    const result = evaluate(ENABLED, { startMs: t(10) }, {
+      // Candidate blocked window is 10:00–11:25; the hold overlaps its tail.
+      blocks: [{ id: 'appt_hold', kind: 'hold', startMs: t(11), endMs: t(12) }],
+    });
+
+    expect(result.eligible).toBe(false);
+    expect(result.reason).toBe('OVERLAPS_BLOCK');
+  });
+
+  it('a mixed day derives eligibility only from the real-appointment side', () => {
+    const result = evaluate(ENABLED, { startMs: t(10) }, {
+      blocks: [
+        // Hold forms the before-edge (span keeps 30 min slack ≥ minImprovement).
+        { id: 'appt_hold', kind: 'hold', startMs: t(9), endMs: t(9, 30) },
+        // A real appointment forms the after-edge (starts at the blocked end).
+        appointment('appt_next', t(11, 25), t(13), ['sc_other']),
+      ],
+    });
+
+    expect(result.eligible).toBe(true);
+    expect(result.qualifyingSides).toEqual(['after']);
+    expect(result.sides.before).toMatchObject({
+      neighbor: { id: 'appt_hold', kind: 'hold' },
+      qualifies: false,
+    });
+    expect(result.sides.after).toMatchObject({
+      neighbor: { id: 'appt_next', kind: 'appointment' },
+      qualifies: true,
+    });
+  });
 });
 
 describe('evaluateSmartFitSlot — grid quantization clamp', () => {
