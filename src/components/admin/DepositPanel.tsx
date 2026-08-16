@@ -152,9 +152,14 @@ export function DepositPanel({
         appointmentStatus?: string | null;
         auditRows?: DepositAuditRow[];
         moreOmitted?: number;
+        error?: { code?: string; message?: string };
       };
       if (!response.ok) {
-        throw new Error('Deposit details could not be loaded.');
+        // Surface the server's typed, actionable copy (mirroring runAction) —
+        // a super admin who has not impersonated the salon would otherwise see
+        // only a generic failure with no way to discover the fix.
+        setError(body.error?.message || 'Deposit details could not be loaded. Try again.');
+        return;
       }
       const payload = body.data ?? {
         appointmentStatus: body.appointmentStatus ?? null,
