@@ -41,6 +41,12 @@ export type AppointmentWindow = {
   totalDurationMinutes?: number | null;
   bufferMinutes?: number | null;
   /**
+   * Appointment status of the occupying window. Smart Fit classifies
+   * `awaiting_payment` as a shrink-only `hold` block (never a qualifying
+   * adjacency neighbor); conflict/availability semantics do not read it.
+   */
+  status?: string | null;
+  /**
    * Client identity of the occupying appointment — server-side only, consumed
    * by Smart Fit self-adjacency exclusion. Never serialize these to clients.
    */
@@ -638,6 +644,7 @@ export async function loadBookingPolicy(args: {
       blockedDurationMinutes: appointmentSchema.blockedDurationMinutes,
       totalDurationMinutes: appointmentSchema.totalDurationMinutes,
       bufferMinutes: appointmentSchema.bufferMinutes,
+      status: appointmentSchema.status,
       salonClientId: appointmentSchema.salonClientId,
       clientPhone: appointmentSchema.clientPhone,
     })
@@ -667,6 +674,7 @@ export async function loadBookingPolicy(args: {
       blockedDurationMinutes: appointment.blockedDurationMinutes,
       totalDurationMinutes: appointment.totalDurationMinutes,
       bufferMinutes: appointment.bufferMinutes,
+      status: appointment.status,
       salonClientId: appointment.salonClientId,
       clientPhone: appointment.clientPhone,
     });

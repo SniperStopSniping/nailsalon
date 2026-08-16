@@ -25,14 +25,18 @@ import type { ResolvedSmartFitConfig, SmartFitDiscountType } from '@/libs/smartF
 // Input model
 // ---------------------------------------------------------------------------
 
-export const SMART_FIT_BLOCK_KINDS = ['appointment', 'break', 'time_off', 'google_busy'] as const;
+export const SMART_FIT_BLOCK_KINDS = ['appointment', 'break', 'time_off', 'google_busy', 'hold'] as const;
 export type SmartFitBlockKind = (typeof SMART_FIT_BLOCK_KINDS)[number];
 
 /**
  * Kinds that can QUALIFY adjacency (real salon-side busy time). Google busy
  * windows are shrink-only per the approved architecture: freeBusy is
  * salon-wide, not per-technician, so packing "against" one may be fictitious —
- * they reduce free spans but never create eligibility.
+ * they reduce free spans but never create eligibility. `hold` (an unpaid
+ * `awaiting_payment` deposit hold) is shrink-only for the same reason in a
+ * different costume: the neighbor may never pay, and a discount packed
+ * against it would outlive a hold that evaporates minutes later — holds block
+ * their slot but never mint eligibility.
  */
 const QUALIFYING_BLOCK_KINDS: ReadonlySet<SmartFitBlockKind> = new Set([
   'appointment',
@@ -69,9 +73,11 @@ export type SmartFitDayContext = {
   workStartMs: number;
   workEndMs: number;
   /**
-   * Every busy block on this technician's day (statuses pending|confirmed|
-   * in_progress for appointments), EXCLUDING nothing — reschedule exclusion is
-   * expressed via `candidate.excludeAppointmentId`.
+   * Every busy block on this technician's day (every BLOCKING appointment
+   * status: pending|confirmed|in_progress as kind 'appointment', plus
+   * awaiting_payment deposit holds as shrink-only kind 'hold'), EXCLUDING
+   * nothing — reschedule exclusion is expressed via
+   * `candidate.excludeAppointmentId`.
    */
   blocks: SmartFitBlock[];
   /** Salon slot grid (5|10|15|30). */
