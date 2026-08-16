@@ -474,6 +474,131 @@ describe('booking POST × Smart Fit — grant and persistence', () => {
   });
 });
 
+describe('booking POST × Smart Fit — unpaid holds are shrink-only', () => {
+  // An awaiting_payment hold occupies the slot but must never mint a discount
+  // (pre-transaction quote and in-transaction revalidation agree).
+  it('grants no smart_fit against an awaiting_payment hold neighbor', async () => {
+    const date = futureDate(60);
+    await seedAppointment({ date, startTime: '9:00', status: 'awaiting_payment' });
+    const phone = freshPhone();
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone] };
+
+    // Identical geometry to the qualifying-slot test — the ONLY difference is
+    // the neighbor's status, so the status is the proven discriminator.
+    const response = await postBooking({
+      startTime: at(date, '10:15').toISOString(),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(await getAppointmentRow(body.data.appointmentId)).toMatchObject({
+      discountType: null,
+      discountAmountCents: 0,
+      totalPrice: 6500,
+    });
+    expect(await getAuditRows(body.data.appointmentId)).toHaveLength(0);
+  });
+
+  it('rejects declared expectations packed against a hold with SMART_FIT_CHANGED (in-transaction recheck agrees)', async () => {
+    const date = futureDate(61);
+    await seedAppointment({ date, startTime: '9:00', status: 'awaiting_payment' });
+    const phone = freshPhone();
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone] };
+
+    const response = await postBooking({
+      startTime: at(date, '10:15').toISOString(),
+      expectedDiscountType: 'smart_fit',
+      expectedTotalCents: 5850,
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('SMART_FIT_CHANGED');
+    expect(body.error.details.breakdown).toMatchObject({
+      discountType: null,
+      discountAmountCents: 0,
+      finalTotalCents: 6500,
+    });
+
+    const created = await db
+      .select({ id: schema.appointmentSchema.id })
+      .from(schema.appointmentSchema)
+      .where(eq(schema.appointmentSchema.clientPhone, phone));
+
+    expect(created).toHaveLength(0);
+  });
+
+  it('a hold still blocks its exact slot: an overlapping booking is refused', async () => {
+    const date = futureDate(62);
+    await seedAppointment({ date, startTime: '9:00', status: 'awaiting_payment' });
+    const phone = freshPhone();
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone] };
+
+    const response = await postBooking({
+      startTime: at(date, '9:30').toISOString(),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('TIME_CONFLICT');
+  });
+
+  // Race regression: an abandoned hold must not leave a discount behind. With
+  // holds shrink-only, no discount is granted at booking time — and nothing
+  // retroactively grants one when the hold later evaporates.
+  it('an expired-then-released hold cannot manufacture a discount that survives it', async () => {
+    const date = futureDate(63);
+    const holdId = await seedAppointment({ date, startTime: '9:00', status: 'awaiting_payment' });
+    const phone = freshPhone();
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone] };
+
+    const response = await postBooking({
+      startTime: at(date, '10:15').toISOString(),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(await getAppointmentRow(body.data.appointmentId)).toMatchObject({
+      discountType: null,
+      totalPrice: 6500,
+    });
+
+    // The hold expires unpaid and is released (what the reaper's
+    // finalizeExpiredHold does to the appointment row).
+    await db.update(schema.appointmentSchema)
+      .set({ status: 'cancelled' })
+      .where(eq(schema.appointmentSchema.id, holdId));
+
+    expect(await getAppointmentRow(body.data.appointmentId)).toMatchObject({
+      discountType: null,
+      discountAmountCents: 0,
+      totalPrice: 6500,
+    });
+    expect(await getAuditRows(body.data.appointmentId)).toHaveLength(0);
+  });
+
+  // Control: the identical geometry with a CONFIRMED neighbor still earns the
+  // existing discount — proving the fix changed holds only.
+  it('the same slot beside a confirmed neighbor still earns smart_fit', async () => {
+    const date = futureDate(64);
+    await seedAppointment({ date, startTime: '9:00', status: 'confirmed' });
+    const phone = freshPhone();
+    holder.clientSession = { normalizedPhone: phone, phoneVariants: [phone] };
+
+    const response = await postBooking({
+      startTime: at(date, '10:15').toISOString(),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(await getAppointmentRow(body.data.appointmentId)).toMatchObject({
+      discountType: 'smart_fit',
+      discountAmountCents: 650,
+      totalPrice: 5850,
+    });
+  });
+});
+
 describe('booking POST × Smart Fit — precedence', () => {
   // Matrix 19: first visit beats Smart Fit.
   it('applies the first-visit discount, not smart_fit, when both would apply', async () => {

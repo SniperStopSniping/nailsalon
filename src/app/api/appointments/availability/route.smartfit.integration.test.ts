@@ -353,6 +353,21 @@ describe('availability × Smart Fit — qualifying slots are annotated', () => {
     expect(body.bookedSlots).toContain('9:00');
   });
 
+  // Unpaid deposit holds are shrink-only: they keep the slot blocked but must
+  // never produce a Smart Fit annotation on an adjacent slot.
+  it('does not annotate the tight slot beside an awaiting_payment hold, which still blocks its own slot', async () => {
+    const date = futureDate(71);
+    // Identical geometry to the qualifying test above — only the status differs.
+    await seedNeighborAppointment({ date, startTime: '9:00', status: 'awaiting_payment' });
+
+    const body = await queryAvailability({ date, technicianId: TECH_1 });
+
+    expect(annotatedTimes(body)).toEqual([]);
+    expect(slotByTime(body, '10:15').smartFit).toBeUndefined();
+    // The hold still occupies its own slot in availability.
+    expect(body.bookedSlots).toContain('9:00');
+  });
+
   // With 'any' technician a slot blocked for one technician can still be free
   // (and unannotated) through another whose day has no adjacency.
   it('only annotates when an AVAILABLE technician qualifies in any-tech mode', async () => {
