@@ -1,3 +1,10 @@
+## [1.55.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.55.0...v1.55.1) (2026-08-16)
+
+
+### Bug Fixes
+
+* **deposits:** release holds when Stripe already expired the checkout ([81fc795](https://github.com/SniperStopSniping/nailsalon/commit/81fc7958c26e8c3415f8fdf0533576769ce29af2))
+
 # [1.55.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.54.0...v1.55.0) (2026-08-16)
 
 
