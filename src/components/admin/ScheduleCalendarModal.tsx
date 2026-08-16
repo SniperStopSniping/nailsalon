@@ -212,6 +212,14 @@ const STATUS_COLORS: Record<
     text: 'text-green-700',
     border: 'border-green-300',
   },
+  // Deliberately distinct from confirmed-blue: an unpaid hold rendered in the
+  // confirmed palette reads as a real booking at a glance. Fuchsia matches the
+  // shared chip contract in appointmentStatusDisplay.ts.
+  awaiting_payment: {
+    bg: 'bg-fuchsia-50',
+    text: 'text-fuchsia-800',
+    border: 'border-fuchsia-300',
+  },
   completed: {
     bg: 'bg-gray-50',
     text: 'text-gray-600',
