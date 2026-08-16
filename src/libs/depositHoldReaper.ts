@@ -240,6 +240,13 @@ async function resolveSessionVerdict(args: {
     if (session.status === 'complete') {
       return { kind: 'paid' };
     }
+    if (session.status === 'open') {
+      // Contradiction: the expire path said the session was not open (or the
+      // expire succeeded), yet the authoritative read says open. Never
+      // finalize on contradictory provider state — stand down and let the
+      // next cycle re-expire; the hard backstop still bounds the worst case.
+      return { kind: 'retry', error: 'session reported open after a non-open expire result' };
+    }
     return { kind: 'finalize', note: `session status ${session.status ?? 'unknown'}` };
   } catch (error) {
     if (classifyStripeFailure(error) === 'permanent') {
