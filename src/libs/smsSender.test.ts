@@ -242,7 +242,11 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
     const importers = grep.split('\n').filter(line => line.length > 0).sort();
 
     // Gate B wires the resolver into the (dark, CRON_SECRET-gated, provider-
-    // stubbed) dispatcher. Any importer beyond this reviewed list re-fails.
-    expect(importers).toEqual(['src/libs/communicationDispatcher.ts']);
+    // stubbed) dispatcher and the inbound webhook's sender-identity lookup.
+    // Any importer beyond this reviewed list re-fails.
+    expect(importers).toEqual([
+      'src/app/api/integrations/twilio/inbound/route.ts',
+      'src/libs/communicationDispatcher.ts',
+    ]);
   });
 });
