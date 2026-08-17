@@ -33,6 +33,17 @@ if (databaseUrl) {
 }
 const describePostgres = databaseUrl ? describe : describe.skip;
 
+// Chain-replay tests measure real-Postgres migration replays. On shared CI
+// runners the 5s vitest default is marginal for them: main run 32031268736
+// (2026-08-17) timed five of them out at exactly 5000ms while the same tests
+// pass locally in 0.8-2.6s and pass on CI on faster runners (the suite flaked
+// at this boundary before Gate B, when the replayed chain was identical -
+// these tests replay THROUGH 0062 via migrationFolderThrough, so Gate B did
+// not lengthen their workload). Assertions are unchanged; only the budget is
+// sized to the workload, matching the 60-120s budgets the slower siblings in
+// this file have always carried.
+const MIGRATION_REPLAY_TIMEOUT_MS = 60_000;
+
 type Journal = {
   dialect?: string;
   version?: string;
@@ -272,7 +283,7 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     await migrate(database, { migrationsFolder: fullFolder });
 
     expect(await appliedMigrationRows(pool)).toEqual(firstRows);
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 
   it('upgrades populated 0060 through exact 0061 and 0062', async () => {
     await resetDatabase(pool);
@@ -318,7 +329,7 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     );
 
     expect(preserved.rows[0]?.count).toBe('1');
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 
   it('applies only 0062 over populated exact 0061 and keeps old writes compatible', async () => {
     await resetDatabase(pool);
@@ -388,7 +399,7 @@ describePostgres.sequential('client lifecycle migration chain', () => {
       set merged_into_client_id = 'compat-source'
       where id = 'compat-primary'
     `)).rejects.toMatchObject({ code: '23514' });
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 
   it('rolls back a failure before readiness and then applies a clean retry', async () => {
     await resetDatabase(pool);
@@ -471,7 +482,7 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     expect(
       (await getClientLifecycleSchemaReadiness(database)).ready,
     ).toBe(true);
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 
   it('rejects a same-named index with the wrong definition before readiness', async () => {
     await resetDatabase(pool);
@@ -1266,7 +1277,7 @@ describePostgres.sequential('client lifecycle migration chain', () => {
     expect((await appliedMigrationRows(pool)).at(-1)?.created_at).toBe(
       '1784950000006',
     );
-  });
+  }, MIGRATION_REPLAY_TIMEOUT_MS);
 
   it('refuses to connect without explicit rehearsal confirmation', () => {
     const rehearsal = runLifecycleRehearsal(false);
