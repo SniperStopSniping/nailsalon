@@ -3,6 +3,12 @@ import { Env } from '@/libs/Env';
 import { signOAuthState } from '@/libs/lusterSecurity';
 
 export async function GET(request: Request) {
+  if (Env.SMS_BYO_MODE_ENABLED !== 'true') {
+    // New BYO Twilio Connect onboarding is dormant by default (contract
+    // §9.3/§11.5). Existing connected salons are unaffected: callback and
+    // deauthorize stay open, and this guard never touches sending.
+    return Response.json({ error: 'Twilio Connect onboarding is not available' }, { status: 503 });
+  }
   const salonSlug = new URL(request.url).searchParams.get('salonSlug');
   if (!salonSlug) {
     return Response.json({ error: 'salonSlug is required' }, { status: 400 });

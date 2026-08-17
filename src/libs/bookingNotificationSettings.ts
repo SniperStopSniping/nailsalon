@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import { Env } from '@/libs/Env';
 import { getEffectiveModuleEnabled } from '@/libs/featureGating';
-import type { SalonSettings, SalonFeatures } from '@/types/salonPolicy';
+import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 export const BOOKING_NOTIFICATION_CHANNELS = ['sms', 'email', 'both'] as const;
 
@@ -110,7 +110,16 @@ export function resolveBookingNotificationCapabilities(
 }
 
 export function hasSmsInfrastructure(): boolean {
-  return Boolean(Env.TWILIO_ACCOUNT_SID && Env.TWILIO_AUTH_TOKEN && Env.TWILIO_PHONE_NUMBER);
+  // Credential-presence predicate only. A Messaging-Service-only deployment
+  // (shared Luster sender, no bare TWILIO_PHONE_NUMBER) is valid SMS
+  // infrastructure — but note this env presence alone never makes the shared
+  // sender operational (it stays dark behind COMMUNICATIONS_SMS_ENABLED and
+  // the platform communication control).
+  return Boolean(
+    Env.TWILIO_ACCOUNT_SID
+    && Env.TWILIO_AUTH_TOKEN
+    && (Env.TWILIO_PHONE_NUMBER || Env.TWILIO_MESSAGING_SERVICE_SID),
+  );
 }
 
 export function hasEmailInfrastructure(): boolean {

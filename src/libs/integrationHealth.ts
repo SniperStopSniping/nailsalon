@@ -172,6 +172,41 @@ export async function getSalonIntegrationHealth(salonId: string) {
         && process.env.CLOUDINARY_API_KEY
         && process.env.CLOUDINARY_API_SECRET,
       ),
+      // NEW Twilio Connect onboarding is a separate permission from existing
+      // BYO continuity: the connect/provision routes 503 unless the flag is
+      // on, so the UI must stop offering an Authorize button that would fail.
+      twilioConnectOnboarding: Boolean(
+        process.env.TWILIO_CONNECT_APP_SID
+        && process.env.TWILIO_CONNECT_REDIRECT_URI
+        && process.env.TWILIO_AUTH_TOKEN
+        && process.env.SMS_BYO_MODE_ENABLED === 'true',
+      ),
+    },
+    // Capability-specific configuration flags (contract §11.8/§23). These are
+    // ENV-PRESENCE indicators only, never operational readiness: the shared
+    // sender stays dark until the platform communication control (Gate B)
+    // enables it, and the two not-yet-built capabilities are hard false so no
+    // surface can claim an unbuilt component is ready. availability.twilio
+    // above keeps its legacy per-salon-Connect meaning untouched.
+    capabilities: {
+      twilioVerifyConfigured: Boolean(
+        process.env.TWILIO_ACCOUNT_SID
+        && process.env.TWILIO_AUTH_TOKEN
+        && process.env.TWILIO_VERIFY_SERVICE_SID,
+      ),
+      sharedSmsConfigured: Boolean(
+        process.env.TWILIO_ACCOUNT_SID
+        && process.env.TWILIO_AUTH_TOKEN
+        && process.env.TWILIO_MESSAGING_SERVICE_SID,
+      ),
+      twilioMessagingServiceConfigured: Boolean(process.env.TWILIO_MESSAGING_SERVICE_SID),
+      twilioConnectConfigured: Boolean(
+        process.env.TWILIO_CONNECT_APP_SID
+        && process.env.TWILIO_CONNECT_REDIRECT_URI,
+      ),
+      twilioStatusCallbackConfigured: Boolean(process.env.NEXT_PUBLIC_APP_URL),
+      smsWorkerConfigured: false as const,
+      smsCreditLedgerReady: false as const,
     },
     google: google
       ? {

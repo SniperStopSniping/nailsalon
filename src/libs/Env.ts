@@ -21,6 +21,14 @@ export const Env = createEnv({
     TWILIO_AUTH_TOKEN: z.string().optional(),
     TWILIO_VERIFY_SERVICE_SID: z.string().optional(),
     TWILIO_PHONE_NUMBER: z.string().optional(), // For sending SMS notifications
+    // Shared Luster-managed SMS sender (Gate A foundation — dark by default;
+    // unset COMMUNICATIONS_SMS_ENABLED means no shared sending, structurally).
+    TWILIO_MESSAGING_SERVICE_SID: z.string().optional(),
+    LUSTER_SMS_SENDER_IDENTITY: z.string().optional(),
+    COMMUNICATIONS_SMS_ENABLED: z.enum(['true', 'false']).optional(),
+    SMS_BYO_MODE_ENABLED: z.enum(['true', 'false']).optional(),
+    SMS_PILOT_ENABLED: z.enum(['true', 'false']).optional(),
+    SMS_PILOT_SALON_ALLOWLIST: z.string().optional(),
     RESEND_API_KEY: z.string().optional(),
     RESEND_FROM_EMAIL: z.string().optional(),
     RESEND_REPLY_TO_EMAIL: z.string().optional(),
@@ -92,6 +100,12 @@ export const Env = createEnv({
     TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
     TWILIO_VERIFY_SERVICE_SID: process.env.TWILIO_VERIFY_SERVICE_SID,
     TWILIO_PHONE_NUMBER: process.env.TWILIO_PHONE_NUMBER,
+    TWILIO_MESSAGING_SERVICE_SID: process.env.TWILIO_MESSAGING_SERVICE_SID,
+    LUSTER_SMS_SENDER_IDENTITY: process.env.LUSTER_SMS_SENDER_IDENTITY,
+    COMMUNICATIONS_SMS_ENABLED: process.env.COMMUNICATIONS_SMS_ENABLED,
+    SMS_BYO_MODE_ENABLED: process.env.SMS_BYO_MODE_ENABLED,
+    SMS_PILOT_ENABLED: process.env.SMS_PILOT_ENABLED,
+    SMS_PILOT_SALON_ALLOWLIST: process.env.SMS_PILOT_SALON_ALLOWLIST,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL,
     RESEND_REPLY_TO_EMAIL: process.env.RESEND_REPLY_TO_EMAIL,
