@@ -1,3 +1,10 @@
+## [1.60.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.60.0...v1.60.1) (2026-08-17)
+
+
+### Bug Fixes
+
+* **billing:** correct upgrade-diff and top-up reversal to cumulative evidence ([47c4dbc](https://github.com/SniperStopSniping/nailsalon/commit/47c4dbcd033883c2e5d33534897b09b47c355c3c))
+
 # [1.60.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.59.0...v1.60.0) (2026-08-17)
 
 
