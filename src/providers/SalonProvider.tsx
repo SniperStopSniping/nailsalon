@@ -8,7 +8,7 @@ import {
 } from 'react';
 
 import { BOOKING_EXPERIENCE_DEFAULTS } from '@/libs/bookingExperience';
-import { BOOKING_PAGE_CONFIG_SIDE_DEFAULTS, type BookingPageConfigSide } from '@/libs/bookingPageConfig';
+import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import type { OwnerPreviewActorType } from '@/libs/ownerPreview';
 import type { SalonStatus } from '@/models/Schema';
 import type { BookingExperience } from '@/types/salonPolicy';
@@ -21,6 +21,27 @@ export type SalonOwnerPreviewState = {
 const EMPTY_OWNER_PREVIEW: SalonOwnerPreviewState = {
   isPreviewing: false,
   actorType: null,
+};
+
+/**
+ * Client-safe duplicate of `@/libs/bookingPageConfig`'s `createDefaultSide()`
+ * output (`BOOKING_PAGE_CONFIG_SIDE_DEFAULTS`). That module (`import { db }
+ * from '@/libs/DB'`, which is `import 'server-only'`) can never be imported
+ * for a runtime value from this 'use client' file — only `import type` is
+ * safe. Keep this literal in sync with `createDefaultSide()` if that
+ * ever changes — nothing reads `bookingPage` off an un-provisioned context
+ * yet (see the field's own doc comment below), so this is purely a safe,
+ * always-renderable placeholder.
+ */
+const CLIENT_SAFE_BOOKING_PAGE_SIDE_DEFAULTS: BookingPageConfigSide = {
+  layout: 'quick_book',
+  stylePack: 'default',
+  tokenOverrides: null,
+  sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
+  sectionVariants: {},
+  hiddenSections: [],
+  businessMode: 'solo',
+  startMode: 'services_first',
 };
 
 // Empty values force callers to resolve tenant context explicitly.
@@ -36,7 +57,7 @@ const EMPTY_SALON = {
   // section registry in PR4 is the first consumer). Defaults to the live
   // shape's defaults so an un-provisioned context never accidentally
   // implies "previewing".
-  bookingPage: BOOKING_PAGE_CONFIG_SIDE_DEFAULTS,
+  bookingPage: CLIENT_SAFE_BOOKING_PAGE_SIDE_DEFAULTS,
   ownerPreview: EMPTY_OWNER_PREVIEW,
 };
 
