@@ -208,7 +208,12 @@ export type MaterializeRemindersInput = {
  */
 export async function materializeReminders(
   input: MaterializeRemindersInput,
-): Promise<{ materialized: MaterializedIntent[]; skipped: Array<{ ruleId: string; channel: string; reason: string }> }> {
+): Promise<{
+    materialized: MaterializedIntent[];
+    skipped: Array<{ ruleId: string; channel: string; reason: string }>;
+    /** Every dedupe key the CURRENT plan wants live — the reconciler's set. */
+    desiredDedupeKeys: string[];
+  }> {
   const now = input.now ?? new Date();
   const allowedChannels = resolveEventChannels(input.settings, 'appointment_reminder')
     .filter(channel => (channel === 'sms' ? input.smsEligible && input.clientPhone : input.clientEmail));
@@ -228,11 +233,13 @@ export async function materializeReminders(
 
   const materialized: MaterializedIntent[] = [];
   const skipped: Array<{ ruleId: string; channel: string; reason: string }> = [];
+  const desiredDedupeKeys: string[] = [];
   for (const plan of planned) {
     if (plan.kind === 'skipped') {
       skipped.push({ ruleId: plan.ruleId, channel: plan.channel, reason: plan.reason });
       continue;
     }
+    desiredDedupeKeys.push(plan.dedupeKey);
     const recipient = plan.channel === 'sms' ? input.clientPhone! : input.clientEmail!;
     const template = plan.channel === 'sms'
       ? TEMPLATED_SMS_EVENTS.appointment_reminder!
@@ -258,7 +265,46 @@ export async function materializeReminders(
     });
     materialized.push({ intentId, channel: plan.channel, created });
   }
-  return { materialized, skipped };
+  return { materialized, skipped, desiredDedupeKeys };
+}
+
+/**
+ * Reconciler entry (contract §11.2): make the live reminder intents for one
+ * appointment match the CURRENT desired plan. Missing intents are
+ * materialized (idempotent); live intents whose dedupe key fell out of the
+ * desired set — a settings, timezone, quiet-hours, rule or start change
+ * moved the scheduling revision — are canceled. Terminal rows are never
+ * touched; claimed/sending rows belong to the dispatcher.
+ */
+export async function reconcileAppointmentReminders(
+  input: MaterializeRemindersInput,
+): Promise<{
+    materialized: MaterializedIntent[];
+    skipped: Array<{ ruleId: string; channel: string; reason: string }>;
+    canceledStale: number;
+  }> {
+  const { materialized, skipped, desiredDedupeKeys } = await materializeReminders(input);
+  const { communicationIntentSchema } = await import('@/models/Schema');
+  const { and, eq, inArray, notInArray } = await import('drizzle-orm');
+  const staleFilter = and(
+    eq(communicationIntentSchema.salonId, input.salonId),
+    eq(communicationIntentSchema.appointmentId, input.appointmentId),
+    eq(communicationIntentSchema.eventType, 'appointment_reminder'),
+    inArray(communicationIntentSchema.status, ['pending', 'blocked_no_credit']),
+    ...(desiredDedupeKeys.length > 0
+      ? [notInArray(communicationIntentSchema.dedupeKey, desiredDedupeKeys)]
+      : []),
+  );
+  const canceled = await input.tx
+    .update(communicationIntentSchema)
+    .set({
+      status: 'canceled',
+      resolvedAt: input.now ?? new Date(),
+      lastError: 'SCHEDULING_REVISION_SUPERSEDED',
+    })
+    .where(staleFilter)
+    .returning();
+  return { materialized, skipped, canceledStale: canceled.length };
 }
 
 /**

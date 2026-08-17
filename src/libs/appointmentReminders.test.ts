@@ -301,7 +301,26 @@ vi.mock('@/libs/DB', () => ({
     insert,
     select,
     update: vi.fn(() => ({ set: updateSet })),
+    // Gate C1 orphan sweep runs one raw UPDATE ... RETURNING per pass.
+    execute: vi.fn(async () => ({ rows: [] })),
   },
+}));
+
+// This suite pins the LEGACY dual-window BYO reminder path (owner decision
+// 2.2: active BYO salons keep it byte-identical). Shared-mode candidates
+// route to the rule-based reconciler, which has its own PGlite suite
+// (appointmentReminders.reconciler.test.ts).
+vi.mock('@/libs/communicationMaterialization', () => ({
+  resolveSalonCommunicationContext: vi.fn(async () => ({
+    settings: null,
+    mode: 'connected_byo',
+    smsEligible: false,
+    timeZone: null,
+    salonName: null,
+  })),
+  reconcileAppointmentReminders: vi.fn(async () => ({ materialized: [], skipped: [], canceledStale: 0 })),
+  formatIntentStartTime: vi.fn(() => 'Wed Aug 26, 12:30 PM'),
+  loadAppointmentClientEmail: vi.fn(async () => null),
 }));
 
 describe('appointment reminders', () => {
@@ -454,6 +473,9 @@ describe('appointment reminders', () => {
       sameDaySent: 0,
       skipped: 0,
       failures: 0,
+      intentsMaterialized: 0,
+      intentsCanceledStale: 0,
+      orphanIntentsCanceled: 0,
     });
   });
 

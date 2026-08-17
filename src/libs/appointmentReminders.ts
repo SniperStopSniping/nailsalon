@@ -1,13 +1,22 @@
 import 'server-only';
 
-import { and, desc, eq, gt, gte, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
 
+import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
+import { mintAppointmentManageCapability } from '@/libs/bookingCommitEffects';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
   resolveOperationalSalonClientContact,
   resolveOperationalSalonClientContactByPhone,
   sendAppointmentOperationalEmailOnce,
 } from '@/libs/clientLifecycleStabilization';
+import {
+  formatIntentStartTime,
+  reconcileAppointmentReminders,
+  resolveSalonCommunicationContext,
+} from '@/libs/communicationMaterialization';
+import { planReminders } from '@/libs/communicationScheduling';
+import { resolveActiveReminderRules, resolveEventChannels } from '@/libs/communicationSettings';
 import { db } from '@/libs/DB';
 import { normalizePhone } from '@/libs/phone';
 import { getAppointmentServiceNames } from '@/libs/queries';
@@ -16,6 +25,7 @@ import { sendAppointmentReminder } from '@/libs/SMS';
 import {
   appointmentSchema,
   communicationConsentSchema,
+  communicationIntentSchema,
   notificationDeliverySchema,
   salonClientSchema,
   salonSchema,
@@ -47,6 +57,9 @@ type ReminderCandidate = {
   appointmentEmail: string | null;
   dayBeforeReminderSentAt: Date | null;
   sameDayReminderSentAt: Date | null;
+  salonSlug: string;
+  salonCustomDomain: string | null;
+  appointmentUpdatedAt: Date;
 };
 
 type ReminderSendResult = {
@@ -70,6 +83,10 @@ export type ProcessAppointmentRemindersResult = {
   sameDaySent: number;
   skipped: number;
   failures: number;
+  /** Gate C1 reconciler counters (shared-mode salons only). */
+  intentsMaterialized: number;
+  intentsCanceledStale: number;
+  orphanIntentsCanceled: number;
 };
 
 export async function processAppointmentReminders(args?: {
@@ -87,13 +104,47 @@ export async function processAppointmentReminders(args?: {
     sameDaySent: 0,
     skipped: 0,
     failures: 0,
+    intentsMaterialized: 0,
+    intentsCanceledStale: 0,
+    orphanIntentsCanceled: 0,
   };
 
+  const contextCache = new Map<string, Awaited<ReturnType<typeof resolveSalonCommunicationContext>>>();
   for (const candidate of candidates) {
     const bookingConfig = resolveBookingConfigFromSettings(
       (candidate.salonSettings as SalonSettings | null | undefined) ?? null,
     );
     const timeZone = bookingConfig.timezone;
+
+    // MODE-FIRST (Gate C1, owner decision 2.2). Shared-Luster salons use the
+    // rule-based durable reconciler below; active BYO salons keep the legacy
+    // dual-window synchronous path BYTE-IDENTICAL — routing them through
+    // intents would subject their sends to shared credits, suppression and
+    // rate limits, exactly what BYO continuity forbids.
+    let communicationContext = contextCache.get(candidate.salonId);
+    if (communicationContext === undefined) {
+      communicationContext = await resolveSalonCommunicationContext(db, candidate.salonId);
+      contextCache.set(candidate.salonId, communicationContext);
+    }
+    if (communicationContext.mode !== 'connected_byo') {
+      try {
+        const outcome = await reconcileSharedModeReminders({
+          candidate,
+          communicationContext,
+          timeZone,
+          now,
+        });
+        result.intentsMaterialized += outcome.materialized;
+        result.intentsCanceledStale += outcome.canceledStale;
+        if (outcome.materialized === 0 && outcome.canceledStale === 0) {
+          result.skipped += 1;
+        }
+      } catch {
+        result.failures += 1;
+      }
+      continue;
+    }
+
     const dueDayBefore = candidate.dayBeforeReminderSentAt == null
       && isDayBeforeReminderDue({
         now,
@@ -205,6 +256,25 @@ export async function processAppointmentReminders(args?: {
     }
   }
 
+  // Orphan sweep (contract §11.1): live reminder intents whose appointment is
+  // no longer active — cancelled, completed elsewhere, or soft-deleted — are
+  // canceled. The per-candidate reconciler never sees these appointments (the
+  // candidate query filters to live ones), so the sweep is what guarantees a
+  // cancellation that happened BETWEEN cron passes suppresses its reminders.
+  const orphaned = await db.execute(sql`
+    UPDATE communication_intent i
+       SET status = 'canceled',
+           resolved_at = ${now},
+           last_error = 'APPOINTMENT_NO_LONGER_ACTIVE'
+      FROM appointment a
+     WHERE i.appointment_id = a.id
+       AND i.event_type = 'appointment_reminder'
+       AND i.status IN ('pending', 'blocked_no_credit')
+       AND (a.status NOT IN ('pending', 'confirmed') OR a.deleted_at IS NOT NULL)
+    RETURNING i.id
+  `);
+  result.orphanIntentsCanceled = orphaned.rows.length;
+
   return result;
 }
 
@@ -240,6 +310,9 @@ async function loadReminderCandidates(now: Date): Promise<ReminderCandidate[]> {
       salonClientId: appointmentSchema.salonClientId,
       salonName: salonSchema.name,
       salonSettings: salonSchema.settings,
+      salonSlug: salonSchema.slug,
+      salonCustomDomain: salonSchema.customDomain,
+      appointmentUpdatedAt: appointmentSchema.updatedAt,
       clientName: appointmentSchema.clientName,
       clientPhone: appointmentSchema.clientPhone,
       startTime: appointmentSchema.startTime,
@@ -278,10 +351,11 @@ async function loadReminderCandidates(now: Date): Promise<ReminderCandidate[]> {
         isNull(appointmentSchema.deletedAt),
         gt(appointmentSchema.startTime, now),
         lt(appointmentSchema.startTime, latestRelevantStartTime),
-        or(
-          isNull(appointmentSchema.dayBeforeReminderSentAt),
-          isNull(appointmentSchema.sameDayReminderSentAt),
-        ),
+        // The legacy sent-at columns no longer filter the QUERY: shared-mode
+        // reconciliation must see every near-horizon appointment (a settings
+        // change can invalidate an already-materialized plan). The BYO legs
+        // still consult the columns per candidate, preserving their exact
+        // legacy dedupe.
       ),
     )
     .orderBy(appointmentSchema.startTime)
@@ -984,4 +1058,91 @@ function escapeHtml(value: string): string {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll('\'', '&#39;');
+}
+
+/**
+ * Shared-mode reminder reconciliation for one candidate (contract §11.2).
+ *
+ * Fast path first: the desired plan is computed PURELY (planReminders) and
+ * compared against the live intent rows; when every desired dedupe key is
+ * already live and nothing stale remains, the candidate is untouched — no
+ * capability mint, no writes. Only drift (settings/timezone/quiet-hours/rule
+ * or start change, or a brand-new appointment) pays for a manage-capability
+ * mint and the reconcile transaction.
+ */
+async function reconcileSharedModeReminders(args: {
+  candidate: ReminderCandidate;
+  communicationContext: Awaited<ReturnType<typeof resolveSalonCommunicationContext>>;
+  timeZone: string;
+  now: Date;
+}): Promise<{ materialized: number; canceledStale: number }> {
+  const { candidate, communicationContext, timeZone, now } = args;
+  const settings = communicationContext.settings;
+  const clientEmail = candidate.appointmentEmail ?? candidate.salonClientEmail ?? null;
+  const clientPhone = candidate.clientPhone ?? null;
+
+  const allowedChannels = resolveEventChannels(settings, 'appointment_reminder')
+    .filter(channel => (channel === 'sms'
+      ? communicationContext.smsEligible && clientPhone !== null
+      : clientEmail !== null));
+  const planned = planReminders({
+    salonId: candidate.salonId,
+    appointmentId: candidate.appointmentId,
+    appointmentStart: candidate.startTime,
+    appointmentUpdatedAt: candidate.appointmentUpdatedAt,
+    timeZone,
+    quietHours: settings.quietHours,
+    rules: resolveActiveReminderRules(settings),
+    allowedChannels,
+    smsEnabled: settings.sms.enabled,
+    emailEnabled: settings.email.enabled,
+    now,
+  });
+  const desiredKeys = planned.flatMap(plan => (plan.kind === 'scheduled' ? [plan.dedupeKey] : []));
+
+  const liveRows = await db
+    .select({ dedupeKey: communicationIntentSchema.dedupeKey })
+    .from(communicationIntentSchema)
+    .where(and(
+      eq(communicationIntentSchema.salonId, candidate.salonId),
+      eq(communicationIntentSchema.appointmentId, candidate.appointmentId),
+      eq(communicationIntentSchema.eventType, 'appointment_reminder'),
+      inArray(communicationIntentSchema.status, ['pending', 'blocked_no_credit']),
+    ));
+  const liveKeys = new Set(liveRows.map(row => row.dedupeKey));
+  const inSync = desiredKeys.length === liveKeys.size
+    && desiredKeys.every(key => liveKeys.has(key));
+  if (inSync) {
+    return { materialized: 0, canceledStale: 0 };
+  }
+
+  return db.transaction(async (tx) => {
+    const capability = await mintAppointmentManageCapability(tx, {
+      salonId: candidate.salonId,
+      appointmentId: candidate.appointmentId,
+      appointmentEndTime: candidate.endTime,
+    });
+    const outcome = await reconcileAppointmentReminders({
+      tx,
+      salonId: candidate.salonId,
+      appointmentId: candidate.appointmentId,
+      appointmentStart: candidate.startTime,
+      appointmentUpdatedAt: candidate.appointmentUpdatedAt,
+      clientPhone,
+      clientEmail,
+      settings,
+      timeZone,
+      variables: {
+        salonName: candidate.salonName,
+        startTime: formatIntentStartTime(candidate.startTime, timeZone),
+        manageUrl: buildAppointmentManageUrl(
+          { slug: candidate.salonSlug, customDomain: candidate.salonCustomDomain ?? null },
+          capability.token,
+        ),
+      },
+      smsEligible: communicationContext.smsEligible,
+      now,
+    });
+    return { materialized: outcome.materialized.length, canceledStale: outcome.canceledStale };
+  });
 }
