@@ -11,6 +11,7 @@
 import { processDueCommunications } from '@/libs/communicationDispatcher';
 import { releaseExpiredInboundEvidence } from '@/libs/smsInboundRetention';
 import { sendIntentEmail, sendViaSharedMessagingService } from '@/libs/twilioMessagingSend';
+import { resolveUnknownOutcomes } from '@/libs/unknownOutcomeResolver';
 
 function isAuthorized(request: Request): boolean {
   const secret = process.env.CRON_SECRET;
@@ -38,7 +39,10 @@ async function run(request: Request): Promise<Response> {
     emailSend: sendIntentEmail,
   });
   const retention = await releaseExpiredInboundEvidence();
-  return Response.json({ summary, retention });
+  // §7.5 resolver: adopt SIDs from signed callback evidence, alert on
+  // over-budget unknowns. Never resends, never releases without proof.
+  const unknownOutcomes = await resolveUnknownOutcomes();
+  return Response.json({ summary, retention, unknownOutcomes });
 }
 
 export const GET = run;
