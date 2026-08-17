@@ -30,6 +30,8 @@ const RESERVED_PUBLIC_SEGMENTS = new Set([
   'pay',
   'payment-methods',
   'preferences',
+  // Public plan pricing (Gate C2) — dark behind PUBLIC_PRICING_ENABLED.
+  'pricing',
   'privacy',
   'profile',
   'referral',

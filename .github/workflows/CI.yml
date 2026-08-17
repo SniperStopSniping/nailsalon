@@ -201,11 +201,49 @@ jobs:
           base="$(git merge-base origin/main HEAD)"
 
           # 1. Hard zero-diff. D6 adds dependency manifests to the protected set.
+          #    Gate C2 narrowed the billing freeze: the PORTAL route (the one
+          #    production-used billing surface) stays byte-frozen here, while
+          #    the checkout surface moved to the reviewed-postimage allowlist
+          #    in step 1b — its legacy body accepted a client-supplied Stripe
+          #    priceId and was replaced by the server-authoritative C2 route.
           git diff --exit-code "$base" -- \
             src/app/api/webhooks/stripe/route.ts \
-            src/app/api/billing \
+            src/app/api/billing/portal \
             package.json \
             package-lock.json
+
+          # 1b. Billing checkout surface (Gate C2). Only the enumerated paths
+          #     may change under src/app/api/billing, and the route itself
+          #     must match a reviewed postimage. Extend this list per reviewed
+          #     change; never remove entries — historical freezes stay frozen.
+          while read -r file; do
+            [ -n "$file" ] || continue
+            case "$file" in
+              src/app/api/billing/checkout/route.ts) ;;
+              src/app/api/billing/checkout/route.test.ts) ;;
+              src/app/api/billing/windows/evaluate/route.ts) ;;
+              src/app/api/billing/reconcile/route.ts) ;;
+              src/app/api/billing/reconcile/route.test.ts) ;;
+              *)
+                echo "::error::Unauthorized change under src/app/api/billing: $file"
+                exit 1
+                ;;
+            esac
+          done <<< "$(git diff --name-only "$base" -- src/app/api/billing)"
+          if ! git diff --quiet "$base" -- src/app/api/billing/checkout/route.ts; then
+            checkout_blob="$(git hash-object src/app/api/billing/checkout/route.ts)"
+            case "$checkout_blob" in
+              # Reviewed postimages: Gate C2 server-authoritative checkout.
+              ce148781b0f8b28aa2b94f9f623b06869871337f) ;;
+              # + §2.3 typed duplicate-subscription refusals.
+              90b8019c1d545de917763ffb9d983f6eb5f04edd) ;;
+              *)
+                echo "::error::src/app/api/billing/checkout/route.ts must match a reviewed postimage."
+                printf 'actual blob: %s\n' "$checkout_blob"
+                exit 1
+                ;;
+            esac
+          fi
 
           # 2. D6's salon-purge edit is additive and byte-exact. The postimage
           #    contains only the appointment_deposit registration, the two

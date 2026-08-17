@@ -2144,71 +2144,17 @@ const DEFAULT_BOOKING_NOTIFICATION_EVENT_FORM_STATE: BookingNotificationEventFor
     ownerChannel: 'both',
   };
 
-const PLAN_FEATURES = {
-  starter: {
-    name: 'Starter',
-    price: 'Free',
-    description: 'Essential tools for small salons',
-    popular: false,
-    features: [
-      { name: 'Online Booking', included: true },
-      { name: 'Staff Dashboard', included: true },
-      { name: 'Photo Uploads', included: true },
-      { name: 'Client Profiles', included: true },
-      { name: 'SMS Reminders', included: false },
-      { name: 'Referrals Program', included: false },
-      { name: 'Rewards Program', included: false },
-      { name: 'Schedule Overrides', included: false },
-      { name: 'Staff Earnings', included: false },
-      { name: 'Client Flags', included: false },
-      { name: 'Analytics Dashboard', included: false },
-      { name: 'Multi-Location', included: false },
-    ],
-    limits: { staff: 1, locations: 1 },
-  },
-  pro: {
-    name: 'Pro',
-    price: '$49/mo',
-    description: 'Marketing & client management',
-    popular: true,
-    features: [
-      { name: 'Online Booking', included: true },
-      { name: 'Staff Dashboard', included: true },
-      { name: 'Photo Uploads', included: true },
-      { name: 'Client Profiles', included: true },
-      { name: 'SMS Reminders', included: true },
-      { name: 'Referrals Program', included: true },
-      { name: 'Rewards Program', included: true },
-      { name: 'Schedule Overrides', included: true },
-      { name: 'Staff Earnings', included: true },
-      { name: 'Client Flags', included: true },
-      { name: 'Analytics Dashboard', included: true },
-      { name: 'Multi-Location', included: false },
-    ],
-    limits: { staff: 10, locations: 1 },
-  },
-  elite: {
-    name: 'Elite',
-    price: '$99/mo',
-    description: 'Advanced analytics & multi-location',
-    popular: false,
-    features: [
-      { name: 'Online Booking', included: true },
-      { name: 'Staff Dashboard', included: true },
-      { name: 'Photo Uploads', included: true },
-      { name: 'Client Profiles', included: true },
-      { name: 'SMS Reminders', included: true },
-      { name: 'Referrals Program', included: true },
-      { name: 'Rewards Program', included: true },
-      { name: 'Schedule Overrides', included: true },
-      { name: 'Staff Earnings', included: true },
-      { name: 'Client Flags', included: true },
-      { name: 'Analytics Dashboard', included: true },
-      { name: 'Multi-Location', included: true },
-    ],
-    limits: { staff: 50, locations: 10 },
-  },
-};
+/**
+ * Canonical plan cards (Gate C2). MIRRORS src/libs/billing/billingOffers.ts
+ * (a server-only module a client component cannot import); the
+ * SettingsModal.billing test pins these against the catalogue so any price
+ * drift fails CI. No feature matrix here — §12 forbids inventing one.
+ */
+export const BILLING_PLAN_CARDS = [
+  { family: 'starter', name: 'Starter', monthly: '$14.99', annual: '$149.90', smsCredits: 200 },
+  { family: 'pro', name: 'Pro', monthly: '$24.99', annual: '$249.90', smsCredits: 400 },
+  { family: 'elite', name: 'Elite', monthly: '$44.99', annual: '$449.90', smsCredits: 800 },
+] as const;
 
 function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
   if (!isOpen) {
@@ -2237,74 +2183,45 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
           </button>
         </div>
 
-        {/* Content */}
+        {/* Content — the CANONICAL catalogue only (Gate C2, §12). Feature
+            access is unchanged by these plans until the separately-approved
+            feature matrix lands; plans differ in monthly SMS credits. */}
         <div className="max-h-[calc(90vh-120px)] touch-pan-y overflow-y-auto overscroll-contain p-5 supports-[height:100dvh]:max-h-[calc(90dvh-120px)]">
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            {Object.entries(PLAN_FEATURES).map(([key, plan]) => (
-              <div
-                key={key}
-                className={`relative rounded-xl border-2 p-4 ${
-                  plan.popular
-                    ? 'border-purple-500 bg-purple-50/50'
-                    : 'border-gray-200 bg-white'
-                }`}
-              >
-                {plan.popular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-purple-500 px-3 py-0.5 text-xs font-medium text-white">
-                    Most Popular
-                  </div>
-                )}
+            {BILLING_PLAN_CARDS.map(plan => (
+              <div key={plan.family} className="rounded-xl border-2 border-gray-200 bg-white p-4">
                 <div className="mb-3 text-center">
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    {plan.name}
-                  </h3>
-                  <div className="mt-1 text-2xl font-bold text-gray-900">
-                    {plan.price}
-                  </div>
-                  <p className="mt-1 text-xs text-gray-500">
-                    {plan.description}
-                  </p>
+                  <h3 className="text-lg font-semibold text-gray-900">{plan.name}</h3>
+                  <div className="mt-1 text-2xl font-bold text-gray-900">{plan.monthly}</div>
+                  <p className="mt-1 text-xs text-gray-500">per month</p>
                 </div>
-
-                <div className="mb-3 rounded-lg bg-gray-50 p-2 text-center text-xs text-gray-600">
-                  <span className="font-medium">{plan.limits.staff}</span>
-                  {' '}
-                  staff
-                  {' · '}
-                  <span className="font-medium">
-                    {plan.limits.locations}
-                  </span>
-                  {' '}
-                  location
-                  {plan.limits.locations > 1 ? 's' : ''}
-                </div>
-
-                <ul className="space-y-2">
-                  {plan.features.map(feature => (
-                    <li
-                      key={feature.name}
-                      className="flex items-center gap-2 text-sm"
-                    >
-                      {feature.included
-                        ? (
-                            <Check className="size-4 shrink-0 text-green-500" />
-                          )
-                        : (
-                            <X className="size-4 shrink-0 text-gray-300" />
-                          )}
-                      <span
-                        className={
-                          feature.included ? 'text-gray-700' : 'text-gray-400'
-                        }
-                      >
-                        {feature.name}
-                      </span>
-                    </li>
-                  ))}
+                <ul className="space-y-2 text-sm text-gray-700">
+                  <li className="flex items-center gap-2">
+                    <Check className="size-4 shrink-0 text-green-500" />
+                    {plan.smsCredits}
+                    {' '}
+                    SMS credits / month
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="size-4 shrink-0 text-green-500" />
+                    Email confirmations & reminders included
+                  </li>
+                  <li className="flex items-center gap-2">
+                    <Check className="size-4 shrink-0 text-green-500" />
+                    {plan.annual}
+                    {' '}
+                    / year (two months free)
+                  </li>
                 </ul>
               </div>
             ))}
           </div>
+
+          <p className="mt-4 text-center text-xs text-gray-500">
+            Prices in CAD, plus applicable taxes. Annual plans renew at the
+            standard annual price. Your current feature access does not change
+            with these plans.
+          </p>
 
           <p className="mt-6 text-center text-xs text-gray-500">
             To change plans, contact Luster at support@islanailsalon.com
