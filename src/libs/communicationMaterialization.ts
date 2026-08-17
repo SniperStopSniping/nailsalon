@@ -279,3 +279,59 @@ export async function supersedeAppointmentCommunications(input: {
     now: input.now,
   });
 }
+
+/**
+ * In-transaction sender-mode + settings resolution for materialization call
+ * sites — the first production consumer of resolveSmsSenderMode (§9.4 step
+ * 1: mode BEFORE any environment check). Returns everything a producer
+ * needs to decide `smsEligible` and build intents, in one tx-consistent
+ * read.
+ */
+export async function resolveSalonCommunicationContext(
+  tx: CommunicationIntentTransaction,
+  salonId: string,
+): Promise<{
+    settings: CommunicationSettings;
+    mode: 'shared_luster' | 'connected_byo' | 'disabled';
+    smsEligible: boolean;
+    timeZone: string | null;
+    salonName: string | null;
+  }> {
+  const { resolveSmsSenderMode } = await import('@/libs/smsSender');
+  const { resolveCommunicationSettingsFromSettings } = await import('@/libs/communicationSettings');
+  const { salonSchema, salonTwilioConnectionSchema } = await import('@/models/Schema');
+  const { eq } = await import('drizzle-orm');
+
+  const [salon] = await tx
+    .select({ name: salonSchema.name, settings: salonSchema.settings })
+    .from(salonSchema)
+    .where(eq(salonSchema.id, salonId))
+    .limit(1);
+  const settings = resolveCommunicationSettingsFromSettings(
+    (salon?.settings ?? null) as Parameters<typeof resolveCommunicationSettingsFromSettings>[0],
+  );
+  const [connection] = await tx
+    .select({
+      status: salonTwilioConnectionSchema.status,
+      connectAccountSid: salonTwilioConnectionSchema.connectAccountSid,
+      messagingServiceSid: salonTwilioConnectionSchema.messagingServiceSid,
+      phoneNumber: salonTwilioConnectionSchema.phoneNumber,
+    })
+    .from(salonTwilioConnectionSchema)
+    .where(eq(salonTwilioConnectionSchema.salonId, salonId))
+    .limit(1);
+  const mode = resolveSmsSenderMode({
+    connection: connection ?? null,
+    perSalonDisabled: settings.killSwitch,
+  });
+  const storedSettings = (salon?.settings ?? null) as { booking?: { timezone?: string } } | null;
+  return {
+    settings,
+    mode,
+    // Owner decision 2.2: only shared-mode salons route SMS through intents;
+    // BYO keeps the legacy synchronous path byte-identical.
+    smsEligible: mode === 'shared_luster' && settings.sms.enabled,
+    timeZone: storedSettings?.booking?.timezone ?? null,
+    salonName: salon?.name ?? null,
+  };
+}

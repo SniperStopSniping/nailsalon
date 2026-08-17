@@ -15,6 +15,11 @@ import { resolveAppointmentPaymentLedger } from '@/libs/appointmentPaymentLedger
 import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapshot';
 import { mintAppointmentManageCapability } from '@/libs/bookingCommitEffects';
 import { derivePaymentStatus } from '@/libs/checkoutTotals';
+import {
+  materializeClientEvent,
+  materializeReminders,
+  resolveSalonCommunicationContext,
+} from '@/libs/communicationMaterialization';
 import { db } from '@/libs/DB';
 import { DEPOSIT_CURRENCY } from '@/libs/depositPolicy';
 import { forfeitAppointmentDepositInTx } from '@/libs/deposits/depositForfeiture';
@@ -865,6 +870,73 @@ export async function enqueueDepositConfirmationEffectsInTx(args: {
     // persistence change in a sibling packet, not closed by improvisation here.
     appliedRewardId: null,
   });
+
+  // Gate C1 — durable confirmation + reminder intents, with the SAME
+  // transaction handle as the money write. Keyed on the DEPOSIT id, so the
+  // Stripe return page, a browser refresh, a duplicate webhook, the reaper
+  // and the late-recovery lane (which calls this same function) all collapse
+  // onto one intent per channel. SMS only, shared mode only: BYO keeps the
+  // legacy synchronous send byte-identical (owner decision 2.2), and the
+  // confirmation EMAIL stays on the legacy outbox leg until the reminder
+  // reconciler lands so a client is never double-emailed.
+  const communicationContext = await resolveSalonCommunicationContext(tx, salonId);
+  const smsConsentGranted = await hasTransactionalSmsConsent(tx, salonId, args.clientPhone);
+  const [appointmentRow] = await tx
+    .select({
+      startTime: appointmentSchema.startTime,
+      updatedAt: appointmentSchema.updatedAt,
+      clientEmail: appointmentSchema.clientEmail,
+    })
+    .from(appointmentSchema)
+    .where(eq(appointmentSchema.id, appointment.id))
+    .limit(1);
+  if (appointmentRow !== undefined) {
+    const variables = {
+      salonName: communicationContext.salonName ?? '',
+      startTime: formatIntentStartTime(appointmentRow.startTime, communicationContext.timeZone),
+      manageUrl: buildAppointmentManageUrl(salon, capability.token),
+    };
+    await materializeClientEvent({
+      tx,
+      salonId,
+      appointmentId: appointment.id,
+      eventType: 'booking_confirmation',
+      transitionEventId: deposit.id,
+      clientPhone: smsConsentGranted ? args.clientPhone : null,
+      clientEmail: null, // legacy outbox leg owns the confirmation email today
+      settings: communicationContext.settings,
+      timeZone: communicationContext.timeZone,
+      appointmentStart: appointmentRow.startTime,
+      variables,
+      smsEligible: communicationContext.smsEligible,
+    });
+    await materializeReminders({
+      tx,
+      salonId,
+      appointmentId: appointment.id,
+      appointmentStart: appointmentRow.startTime,
+      appointmentUpdatedAt: appointmentRow.updatedAt,
+      clientPhone: smsConsentGranted ? args.clientPhone : null,
+      clientEmail: appointmentRow.clientEmail,
+      settings: communicationContext.settings,
+      timeZone: communicationContext.timeZone,
+      variables,
+      smsEligible: communicationContext.smsEligible,
+    });
+  }
+}
+
+/** 'Wed Aug 26, 12:30 PM' in the salon's timezone — the template shape. */
+function formatIntentStartTime(start: Date, timeZone: string | null): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: timeZone ?? 'America/Toronto',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(start).replace(' at ', ', ');
 }
 
 /**
