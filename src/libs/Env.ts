@@ -16,6 +16,16 @@ export const Env = createEnv({
     // the receipt layer must not be switchable off by omission.
     DEPOSITS_CONNECT_WEBHOOK_PROCESSING_ENABLED: z.enum(['true', 'false']).optional(),
     BILLING_PLAN_ENV: z.enum(['dev', 'test', 'prod']),
+    // Server-side billing dark switches (Gate C2, contract §12). All optional
+    // and UNSET MEANS DISABLED — read as `=== 'true'`, so a fresh deploy can
+    // never enable billing structurally. Page hiding is presentation; these
+    // are the control boundary, enforced before any Stripe call.
+    BILLING_SUBSCRIPTIONS_ENABLED: z.enum(['true', 'false']).optional(),
+    BILLING_TOPUPS_ENABLED: z.enum(['true', 'false']).optional(),
+    PUBLIC_PRICING_ENABLED: z.enum(['true', 'false']).optional(),
+    // Dedicated secret for /api/webhooks/stripe-billing (§8.1) — never shared
+    // with the legacy or deposits webhook secrets.
+    STRIPE_BILLING_WEBHOOK_SECRET: z.string().optional(),
     // Twilio (for SMS OTP and notifications)
     TWILIO_ACCOUNT_SID: z.string().optional(),
     TWILIO_AUTH_TOKEN: z.string().optional(),
@@ -104,6 +114,10 @@ export const Env = createEnv({
     DEPOSITS_CONNECT_WEBHOOK_PROCESSING_ENABLED:
       process.env.DEPOSITS_CONNECT_WEBHOOK_PROCESSING_ENABLED,
     BILLING_PLAN_ENV: process.env.BILLING_PLAN_ENV,
+    BILLING_SUBSCRIPTIONS_ENABLED: process.env.BILLING_SUBSCRIPTIONS_ENABLED,
+    BILLING_TOPUPS_ENABLED: process.env.BILLING_TOPUPS_ENABLED,
+    PUBLIC_PRICING_ENABLED: process.env.PUBLIC_PRICING_ENABLED,
+    STRIPE_BILLING_WEBHOOK_SECRET: process.env.STRIPE_BILLING_WEBHOOK_SECRET,
     TWILIO_ACCOUNT_SID: process.env.TWILIO_ACCOUNT_SID,
     TWILIO_AUTH_TOKEN: process.env.TWILIO_AUTH_TOKEN,
     TWILIO_VERIFY_SERVICE_SID: process.env.TWILIO_VERIFY_SERVICE_SID,
