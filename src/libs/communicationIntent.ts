@@ -1,28 +1,28 @@
 /**
- * Communication intents â enqueue, claim, lease recovery, supersession.
+ * Communication intents — enqueue, claim, lease recovery, supersession.
  *
- * Governing contract: docs/luster-billing-communications-rev-2-2.md Â§11 +
- * the Rev 1 intent model carried by Â§11.1.
+ * Governing contract: docs/luster-billing-communications-rev-2-2.md §11 +
+ * the Rev 1 intent model carried by §11.1.
  *
  * State machine (all transitions CAS, idempotent, tenant-safe):
  *
- *   pending â claimed â sending â { sent | send_outcome_unknown | failed }
- *   pending â { canceled | suppressed | expired | blocked_no_credit }
+ *   pending → claimed → sending → { sent | send_outcome_unknown | failed }
+ *   pending → { canceled | suppressed | expired | blocked_no_credit }
  *
  * send_outcome_unknown never transitions back to pending and is never
- * re-sent â the reconciler resolves it with provider evidence only.
+ * re-sent — the reconciler resolves it with provider evidence only.
  *
  * Lease recovery discriminates on STATUS, not on the presence of a
  * delivery row: 'claimed' provably never reached the provider (recover to
  * pending); 'sending' means the pre-provider transaction committed, so
- * acceptance may have happened (â send_outcome_unknown).
+ * acceptance may have happened (→ send_outcome_unknown).
  */
 
 import 'server-only';
 
 import { and, eq, inArray, lt, sql } from 'drizzle-orm';
 
-import { db } from '@/libs/DB';
+import { type DatabaseSessionHandle, db } from '@/libs/DB';
 import { normalizeConsentRecipient } from '@/libs/smsConsentShared';
 import {
   type CommunicationEventType,
@@ -31,7 +31,31 @@ import {
   type CommunicationIntentStatus,
 } from '@/models/Schema';
 
+/**
+ * Transaction plumbing, mirroring the codebase's single transaction idiom
+ * (`OutboxTransaction`/`OutboxDatabase`, integrationOutbox.ts:47-48).
+ *
+ * Gate C / C1 needs this because materialization must happen INSIDE the
+ * appointment-mutation transaction (contract §11.1): enqueuing after the
+ * commit means a crash in the gap silently drops the confirmation or
+ * reminder with no retry path, which is exactly the durability the intent
+ * model exists to provide.
+ */
+export type CommunicationIntentTransaction = Parameters<
+  Parameters<typeof db.transaction>[0]
+>[0];
+export type CommunicationIntentDatabase =
+  | CommunicationIntentTransaction
+  | DatabaseSessionHandle;
+
 export type EnqueueIntentInput = {
+  /**
+   * Optional transaction handle. Defaults to the module-level `db` so every
+   * pre-existing caller keeps working unchanged; C1's producers pass the open
+   * appointment/deposit transaction so the intent commits atomically with the
+   * business state that justifies it.
+   */
+  database?: CommunicationIntentDatabase;
   salonId: string;
   appointmentId?: string | null;
   channel: 'sms' | 'email';
@@ -54,8 +78,9 @@ export type EnqueueIntentInput = {
 export async function enqueueCommunicationIntent(
   input: EnqueueIntentInput,
 ): Promise<{ intentId: string; created: boolean }> {
+  const database = input.database ?? db;
   const id = `ci_${crypto.randomUUID()}`;
-  const inserted = await db
+  const inserted = await database
     .insert(communicationIntentSchema)
     .values({
       id,
@@ -65,9 +90,14 @@ export async function enqueueCommunicationIntent(
       eventType: input.eventType,
       audience: input.audience,
       dedupeKey: input.dedupeKey,
-      // One recipient format everywhere: consent rows, suppression events and
-      // attribution all key on the bare-10-digit form.
-      recipient: normalizeConsentRecipient(input.recipient),
+      // SMS: one recipient format everywhere — consent rows, suppression
+      // events and attribution all key on the bare-10-digit form. EMAIL:
+      // phone normalization would reduce an address to an empty string
+      // (latent through Gate B, which only produced SMS intents; caught by
+      // the C1 email-lane tests) — emails just get case/whitespace folding.
+      recipient: input.channel === 'sms'
+        ? normalizeConsentRecipient(input.recipient)
+        : input.recipient.trim().toLowerCase(),
       destinationCountry: input.destinationCountry ?? null,
       templateKey: input.templateKey,
       templateVersion: input.templateVersion,
@@ -85,7 +115,7 @@ export async function enqueueCommunicationIntent(
   if (inserted.length === 1) {
     return { intentId: inserted[0]!.id, created: true };
   }
-  const existing = await db
+  const existing = await database
     .select({ id: communicationIntentSchema.id })
     .from(communicationIntentSchema)
     .where(eq(communicationIntentSchema.dedupeKey, input.dedupeKey))
@@ -98,7 +128,7 @@ export const INTENT_LEASE_MS = 2 * 60 * 1000;
 /**
  * Atomic due-intent claiming: bounded batch, per-salon fairness (row_number
  * over salon partitions), per-salon in-flight concurrency of 1 enforced in
- * the claim SQL itself â worker-local mutexes cannot serialize concurrent
+ * the claim SQL itself — worker-local mutexes cannot serialize concurrent
  * serverless invocations.
  */
 export async function claimDueIntents(input: {
@@ -112,7 +142,11 @@ export async function claimDueIntents(input: {
   const rows = await db.execute(sql`
     WITH due AS (
       SELECT i.id,
-             ROW_NUMBER() OVER (PARTITION BY i.salon_id ORDER BY i.scheduled_for, i.id) AS rn
+             -- available_at FIRST: deferral pushes available_at forward, so a
+             -- structurally-blocked intent rotates to the back of its salon's
+             -- queue instead of head-of-line-blocking every other channel
+             -- (adversarial review H4).
+             ROW_NUMBER() OVER (PARTITION BY i.salon_id ORDER BY i.available_at, i.scheduled_for, i.id) AS rn
       FROM communication_intent i
       WHERE i.status = 'pending'
         AND i.available_at <= ${now}
@@ -216,8 +250,8 @@ export async function transitionIntent(
 }
 
 /**
- * Lease recovery. 'claimed' past lease â pending (never reached provider);
- * 'sending' past lease â send_outcome_unknown (acceptance may have
+ * Lease recovery. 'claimed' past lease → pending (never reached provider);
+ * 'sending' past lease → send_outcome_unknown (acceptance may have
  * happened; NEVER resend).
  */
 export async function recoverExpiredLeases(now = new Date()): Promise<{
@@ -249,7 +283,7 @@ export async function recoverExpiredLeases(now = new Date()): Promise<{
   return { recovered: recovered.length, unknownOutcome: unknown.length };
 }
 
-/** Expire pending/blocked intents past their notAfter â never send stale. */
+/** Expire pending/blocked intents past their notAfter — never send stale. */
 export async function expireStaleIntents(now = new Date()): Promise<{ expired: number }> {
   const updated = await db
     .update(communicationIntentSchema)
@@ -264,13 +298,19 @@ export async function expireStaleIntents(now = new Date()): Promise<{ expired: n
 
 /** Cancel all live intents for an appointment (reschedule/cancel supersession). */
 export async function cancelAppointmentIntents(input: {
+  /**
+   * Optional transaction handle — supersession must commit atomically with
+   * the appointment mutation that justifies it (same contract as enqueue).
+   */
+  database?: CommunicationIntentDatabase;
   salonId: string;
   appointmentId: string;
   supersededByIntentId?: string;
   now?: Date;
 }): Promise<{ canceled: number }> {
+  const database = input.database ?? db;
   const now = input.now ?? new Date();
-  const updated = await db
+  const updated = await database
     .update(communicationIntentSchema)
     .set({
       status: 'canceled',
@@ -288,7 +328,7 @@ export async function cancelAppointmentIntents(input: {
 }
 
 /**
- * Release blocked_no_credit intents after a top-up â ONLY those still
+ * Release blocked_no_credit intents after a top-up — ONLY those still
  * relevant (notAfter in the future). Everything else stays blocked as
  * evidence.
  */

@@ -116,6 +116,27 @@ async function hasSalonTransactionalConsent(salonId: string, recipient: string):
   return rows[0]?.status === 'granted';
 }
 
+/**
+ * Appointment-linked intents re-check the appointment's CURRENT state before
+ * any send (review H6 — the ≤15-minute orphan-sweep window is real time in
+ * which a cancellation can land): a no-longer-active appointment suppresses
+ * the message. Non-appointment intents pass through.
+ */
+async function appointmentStillActive(intent: CommunicationIntent): Promise<boolean> {
+  if (intent.appointmentId === null) {
+    return true;
+  }
+  const rows = await db.execute(sql`
+    SELECT 1 FROM appointment
+    WHERE id = ${intent.appointmentId}
+      AND salon_id = ${intent.salonId}
+      AND status IN ('pending', 'confirmed')
+      AND deleted_at IS NULL
+    LIMIT 1
+  `);
+  return rows.rows.length === 1;
+}
+
 async function deferIntent(intentId: string, reason: string, now: Date): Promise<void> {
   await db
     .update(communicationIntentSchema)
@@ -317,6 +338,17 @@ export async function dispatchClaimedIntent(
     return 'suppressed';
   }
 
+  if (!(await appointmentStillActive(intent))) {
+    // Final pre-provider appointment recheck: the reservation releases and
+    // the provider is never called — same linearization posture as STOP.
+    await releaseReservation({ reservationId: reservation.reservationId, reason: 'appointment_inactive', now });
+    await db.update(notificationDeliverySchema)
+      .set({ status: 'canceled', settlementState: 'not_applicable' })
+      .where(eq(notificationDeliverySchema.id, deliveryId));
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'APPOINTMENT_NO_LONGER_ACTIVE' }, now);
+    return 'suppressed';
+  }
+
   // Provider call — OUTSIDE any transaction.
   let sid: string;
   try {
@@ -324,7 +356,10 @@ export async function dispatchClaimedIntent(
       to: destination.e164,
       body,
       messagingServiceSid: readiness.messagingServiceSid,
-      statusCallbackUrl: null,
+      // Delivery identity in the callback (§6.10): a signed status callback
+      // carrying this id is the §7.5 evidence that lets the resolver adopt a
+      // SID onto an unknown-outcome intent.
+      statusCallbackUrl: (await import('@/libs/twilioMessagingSend')).buildStatusCallbackUrl(deliveryId),
     });
     sid = result.sid;
   } catch (error) {
@@ -398,10 +433,115 @@ export async function dispatchClaimedIntent(
   return 'sent';
 }
 
+/**
+ * Email lane send function — injected exactly like ProviderSendFn so tests
+ * never touch a real mail provider. The production implementation wraps the
+ * repo's idempotent operational-email helper; it MUST be internally
+ * idempotent on the intent id, because the email lane relies on that (not on
+ * credit reservations, which email deliberately does not have — §3.6).
+ */
+export type EmailSendFn = (input: {
+  intentId: string;
+  salonId: string;
+  appointmentId: string | null;
+  recipient: string;
+  subject: string;
+  body: string;
+}) => Promise<{ delivered: boolean }>;
+
+/**
+ * Minimal email dispatch (blueprint H1): no credits, no SMS consent gates,
+ * no rate-limit CLOSED posture — email is not SMS (§3.6). The salon kill
+ * switch and per-event toggles were already applied at MATERIALIZATION time,
+ * and a canceled appointment cancels its intents, so the only pre-send gates
+ * here are template resolution and the notAfter recheck the claim query
+ * already performed.
+ */
+async function dispatchClaimedEmailIntent(
+  intent: CommunicationIntent,
+  emailSend: EmailSendFn,
+  now: Date,
+): Promise<'sent' | 'failed'> {
+  const { getEmailTemplate } = await import('@/libs/communicationEmailTemplates');
+  const template = getEmailTemplate(intent.templateKey);
+  if (template === null) {
+    await transitionIntent(intent.id, { to: 'failed', lastError: 'TEMPLATE_UNKNOWN' }, now);
+    return 'failed';
+  }
+  if (!(await appointmentStillActive(intent))) {
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'APPOINTMENT_NO_LONGER_ACTIVE' }, now);
+    return 'failed';
+  }
+  const variables = (intent.variables ?? {}) as Record<string, string>;
+  const subject = template.subject(variables);
+  const body = template.body(variables);
+  // A real delivery row: intent.delivery_id carries an FK, and the history
+  // surface (C4) reads email sends from the same table as everything else.
+  // Idempotent on the intent-scoped dedupe key, exactly like the SMS lane.
+  const deliveryId = `nd_${crypto.randomUUID()}`;
+  const insertedDelivery = await db.insert(notificationDeliverySchema).values({
+    id: deliveryId,
+    salonId: intent.salonId,
+    appointmentId: intent.appointmentId,
+    channel: 'email',
+    purpose: intent.eventType,
+    dedupeKey: `intent:${intent.id}:email`,
+    status: 'queued',
+    intentId: intent.id,
+    encoding: 'email',
+  }).onConflictDoNothing({ target: notificationDeliverySchema.dedupeKey }).returning();
+  const effectiveDeliveryId = insertedDelivery.length === 1
+    ? deliveryId
+    : (await db.select({ id: notificationDeliverySchema.id })
+        .from(notificationDeliverySchema)
+        .where(eq(notificationDeliverySchema.dedupeKey, `intent:${intent.id}:email`))
+        .limit(1))[0]!.id;
+  const moved = await transitionIntent(intent.id, {
+    to: 'sending',
+    deliveryId: effectiveDeliveryId,
+    creditReservationId: null,
+    bodySnapshot: body,
+    bodyFingerprint: '',
+    segmentCount: 0,
+    encoding: 'email',
+  }, now);
+  if (!moved.applied) {
+    return 'failed';
+  }
+  try {
+    await emailSend({
+      intentId: intent.id,
+      salonId: intent.salonId,
+      appointmentId: intent.appointmentId,
+      recipient: intent.recipient,
+      subject,
+      body,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message.slice(0, 200) : 'EMAIL_SEND_FAILED';
+    await db.update(notificationDeliverySchema)
+      .set({ status: 'failed', errorMessage: message })
+      .where(eq(notificationDeliverySchema.id, effectiveDeliveryId));
+    await transitionIntent(intent.id, { to: 'failed', lastError: message }, now);
+    return 'failed';
+  }
+  await db.update(notificationDeliverySchema)
+    .set({ status: 'sent' })
+    .where(eq(notificationDeliverySchema.id, effectiveDeliveryId));
+  await transitionIntent(intent.id, { to: 'sent' }, now);
+  return 'sent';
+}
+
 /** One dispatcher pass: housekeeping → claim → per-intent pipeline. */
 export async function processDueCommunications(input: {
   workerId: string;
   providerSend: ProviderSendFn;
+  /**
+   * Optional until the cron route wires the production implementation —
+   * absent, email intents fail closed with EMAIL_LANE_NOT_WIRED rather than
+   * silently vanishing.
+   */
+  emailSend?: EmailSendFn;
   now?: Date;
 }): Promise<DispatchSummary> {
   const now = input.now ?? new Date();
@@ -438,6 +578,20 @@ export async function processDueCommunications(input: {
   summary.claimed = intents.length;
 
   for (const intent of intents) {
+    if (intent.channel === 'email') {
+      if (input.emailSend === undefined) {
+        await transitionIntent(intent.id, { to: 'failed', lastError: 'EMAIL_LANE_NOT_WIRED' }, now);
+        summary.failed += 1;
+        continue;
+      }
+      const emailOutcome = await dispatchClaimedEmailIntent(intent, input.emailSend, now);
+      if (emailOutcome === 'sent') {
+        summary.sent += 1;
+      } else {
+        summary.failed += 1;
+      }
+      continue;
+    }
     if (intent.channel !== 'sms') {
       await transitionIntent(intent.id, { to: 'failed', lastError: 'CHANNEL_NOT_IMPLEMENTED' }, now);
       summary.failed += 1;

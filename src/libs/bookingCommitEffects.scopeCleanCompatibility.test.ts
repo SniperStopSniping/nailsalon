@@ -40,6 +40,22 @@ const boundaries = vi.hoisted(() => ({
 }));
 
 vi.mock('@/libs/DB', () => ({ db: boundaries.db }));
+vi.mock('@/libs/communicationMaterialization', () => ({
+  // These suites pin the LEGACY (BYO-mode) behavior of the send legs; the
+  // shared-mode intent path has its own suites. connected_byo preserves the
+  // exact pre-C1 semantics under test, and the materializers are inert.
+  resolveSalonCommunicationContext: vi.fn(async () => ({
+    settings: null,
+    mode: 'connected_byo',
+    smsEligible: false,
+    timeZone: null,
+    salonName: null,
+  })),
+  materializeClientEvent: vi.fn(async () => []),
+  materializeReminders: vi.fn(async () => ({ materialized: [], skipped: [] })),
+  formatIntentStartTime: vi.fn(() => 'Wed Aug 26, 12:30 PM'),
+  loadAppointmentClientEmail: vi.fn(async () => null),
+}));
 vi.mock('@/libs/integrationOutbox', () => ({
   enqueueGoogleCalendarAppointmentMutation: boundaries.enqueueGoogleCalendarAppointmentMutation,
   enqueueGoogleCalendarUpsert: boundaries.enqueueGoogleCalendarUpsert,

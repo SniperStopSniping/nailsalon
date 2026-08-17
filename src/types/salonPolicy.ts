@@ -469,6 +469,30 @@ export type SalonSettings = {
     lusterPromoDismissed?: boolean; // default: false
     serviceLibraryIntroDismissed?: boolean; // default: false
   };
+
+  // Transactional client communications (Gate C1): channel masters, kill
+  // switch, quiet hours, per-event toggles and reminder rules. Canonical
+  // defaults, Zod schemas and the pure resolver live in
+  // src/libs/communicationSettings.ts — this type deliberately stays loose
+  // (unknown) at the leaf level because the resolver revalidates everything
+  // and malformed stored data must fall back to defaults, never throw.
+  communications?: {
+    sms?: { enabled?: boolean };
+    email?: { enabled?: boolean };
+    killSwitch?: boolean;
+    quietHours?: { enabled?: boolean; start?: string; end?: string };
+    events?: Record<string, { enabled?: boolean; channels?: 'sms' | 'email' | 'both' }>;
+    reminders?: {
+      rules?: Array<{
+        id?: string;
+        offsetMinutes?: number;
+        channels?: 'sms' | 'email' | 'both';
+        enabled?: boolean;
+      }>;
+    };
+    staffOverrides?: Record<string, { notificationsEnabled?: boolean; channels?: 'sms' | 'email' | 'both' }>;
+  };
+
   notifications?: {
     newBooking?: {
       technicianEnabled?: boolean;

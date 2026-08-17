@@ -27,6 +27,7 @@
  * with the response body. The two halves straddling the cache write are
  * deliberate and pinned by test, not incidental.
  */
+import * as Sentry from '@sentry/nextjs';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
@@ -460,10 +461,83 @@ export async function runBookingCommitSideEffects(
   }
   throwIfBookingEffectsAborted(options.signal);
 
-  // 6/8. Client confirmation SMS, gated on consent exactly as before. Its
-  // delivery identity is per attempt, so an aggregate replay may invoke it
-  // again; ordinary provider failures are absorbed by the SMS helper.
-  if (context.smsConsentGranted) {
+  // 6/8. Client confirmation SMS. MODE-FIRST (Gate C1, owner decision 2.2):
+  // shared-Luster salons get their confirmation through the durable
+  // communication-intent pipeline — materialized in-transaction by the
+  // deposit seam and the booking route — which is exactly-once per
+  // authoritative transition, so the legacy leg MUST NOT also fire (its
+  // delivery identity is per attempt, and an aggregate replay of this
+  // at-least-once runner can invoke it again: the historical double-send).
+  // BYO salons keep this path byte-identical; provider failures are absorbed
+  // by the SMS helper exactly as before.
+  const {
+    formatIntentStartTime,
+    loadAppointmentClientEmail,
+    materializeClientEvent,
+    materializeReminders,
+    resolveSalonCommunicationContext,
+  } = await import('@/libs/communicationMaterialization');
+  const communicationContext = await resolveSalonCommunicationContext(db, context.salon.id);
+
+  // Direct-confirm lane only: materialize the durable confirmation and
+  // reminder intents here. The DEPOSIT lane already materialized them inside
+  // the money transaction (its runner invocation carries the
+  // deposit_confirmation calendarCause), so materializing again would race a
+  // second identity against the seam's. This runner is post-commit for the
+  // direct lane, so durability rides its idempotent keys: a replay recomputes
+  // transitionEventId 'direct' and lands on the same rows.
+  if (options.calendarCause?.kind !== 'deposit_confirmation') {
+    try {
+      const appointmentClientEmail = await loadAppointmentClientEmail(db, context.appointment.id);
+      const intentVariables = {
+        salonName: context.salon.name,
+        startTime: formatIntentStartTime(context.startTime, context.timeZone),
+        manageUrl: context.manageUrl,
+      };
+      await materializeClientEvent({
+        tx: db,
+        salonId: context.salon.id,
+        appointmentId: context.appointment.id,
+        eventType: 'booking_confirmation',
+        transitionEventId: 'direct',
+        clientPhone: context.smsConsentGranted ? context.clientPhone : null,
+        clientEmail: null, // the legacy email leg below owns the confirmation email
+        settings: communicationContext.settings,
+        timeZone: context.timeZone,
+        appointmentStart: context.startTime,
+        variables: intentVariables,
+        smsEligible: communicationContext.smsEligible,
+      });
+      // REMINDER intents are shared-mode only: a BYO salon's reminders (SMS
+      // AND email) stay wholly on the legacy dual-window cron it runs today —
+      // materializing the email half here would double-email BYO clients
+      // (adversarial review H1).
+      if (communicationContext.mode !== 'connected_byo') {
+        await materializeReminders({
+          tx: db,
+          salonId: context.salon.id,
+          appointmentId: context.appointment.id,
+          appointmentStart: context.startTime,
+          appointmentUpdatedAt: context.appointment.updatedAt,
+          clientPhone: context.smsConsentGranted ? context.clientPhone : null,
+          clientEmail: appointmentClientEmail,
+          settings: communicationContext.settings,
+          timeZone: context.timeZone,
+          variables: intentVariables,
+          smsEligible: communicationContext.smsEligible,
+        });
+      }
+    } catch (materializationError) {
+      // Materialization must never take down the effects that follow it —
+      // the legacy confirmation and the owner alert still fire (review H8).
+      // The 15-minute reconciler re-materializes anything lost here.
+      Sentry.captureException(materializationError, {
+        tags: { seam: 'bookingCommitEffects.materialization' },
+      });
+    }
+  }
+
+  if (context.smsConsentGranted && !communicationContext.smsEligible) {
     const smsParams = {
       phone: context.clientPhone,
       clientName: context.clientName ?? undefined,

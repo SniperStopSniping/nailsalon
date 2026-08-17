@@ -2326,6 +2326,7 @@ type SettingsView
   | 'smart-fit'
   | 'payments'
   | 'notifications'
+  | 'communications'
   | 'features'
   | 'visibility';
 
@@ -2340,6 +2341,7 @@ const VIEW_TITLES: Record<SettingsView, string> = {
   'smart-fit': 'Smart Fit discounts',
   'payments': 'Payments & taxes',
   'notifications': 'Notifications',
+  'communications': 'Client communications',
   'features': 'Features',
   'visibility': 'Staff visibility',
 };
@@ -2639,6 +2641,28 @@ export function SettingsModal({
       smsChannelAvailable: false,
       emailChannelAvailable: false,
     });
+
+  // Gate C1 — transactional client communications (settings.communications).
+  // Rules are edited as a whole list (replace-on-save, matching the server's
+  // update schema); every control below is reduced-motion safe (CSS
+  // transitions behind Tailwind's motion-reduce variant, no spring physics).
+  const [communicationsForm, setCommunicationsForm] = useState<{
+    emailEnabled: boolean;
+    smsEnabled: boolean;
+    quietHours: { enabled: boolean; start: string; end: string };
+    rules: Array<{ id: string; offsetMinutes: number; channels: 'sms' | 'email' | 'both'; enabled: boolean }>;
+    events: Record<string, { enabled: boolean; channels: 'sms' | 'email' | 'both' }>;
+  }>({
+    emailEnabled: true,
+    smsEnabled: false,
+    quietHours: { enabled: true, start: '21:00', end: '09:00' },
+    rules: [],
+    events: {},
+  });
+  const [communicationsDirty, setCommunicationsDirty] = useState(false);
+  const [communicationsSaving, setCommunicationsSaving] = useState(false);
+  const [communicationsSaved, setCommunicationsSaved] = useState(false);
+  const [communicationsError, setCommunicationsError] = useState<string | null>(null);
   const [salonEmailNotificationsForm, setSalonEmailNotificationsForm]
     = useState<SalonEmailNotificationFormState>(
       DEFAULT_SALON_EMAIL_NOTIFICATION_FORM_STATE,
@@ -2834,6 +2858,20 @@ export function SettingsModal({
         setShowServiceImages(
           data.merchandising?.showServiceImages !== false,
         );
+        if (data.communications) {
+          setCommunicationsForm({
+            emailEnabled: data.communications.email?.enabled !== false,
+            smsEnabled: data.communications.sms?.enabled === true,
+            quietHours: {
+              enabled: data.communications.quietHours?.enabled !== false,
+              start: data.communications.quietHours?.start ?? '21:00',
+              end: data.communications.quietHours?.end ?? '09:00',
+            },
+            rules: (data.communications.reminders?.rules ?? []).map((rule: { id: string; offsetMinutes: number; channels: 'sms' | 'email' | 'both'; enabled: boolean }) => ({ ...rule })),
+            events: { ...(data.communications.events ?? {}) },
+          });
+          setCommunicationsDirty(false);
+        }
         setBookingConfigDirty(false);
         setBookingNotificationsForm({
           newBooking: {
@@ -3827,6 +3865,56 @@ export function SettingsModal({
     || entitledModules.scheduleOverrides
     || entitledModules.staffEarnings;
 
+  const saveCommunications = useCallback(async () => {
+    if (!salonSlug || communicationsSaving) {
+      return;
+    }
+    try {
+      setCommunicationsSaving(true);
+      setCommunicationsSaved(false);
+      setCommunicationsError(null);
+      const response = await fetch(`/api/admin/salon/settings?salonSlug=${salonSlug}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          communications: {
+            sms: { enabled: communicationsForm.smsEnabled },
+            email: { enabled: communicationsForm.emailEnabled },
+            quietHours: communicationsForm.quietHours,
+            reminders: { rules: communicationsForm.rules },
+            ...(Object.keys(communicationsForm.events).length > 0
+              ? { events: communicationsForm.events }
+              : {}),
+          },
+        }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to save communication settings');
+      }
+      const data = await response.json();
+      if (data.communications) {
+        setCommunicationsForm({
+          emailEnabled: data.communications.email?.enabled !== false,
+          smsEnabled: data.communications.sms?.enabled === true,
+          quietHours: {
+            enabled: data.communications.quietHours?.enabled !== false,
+            start: data.communications.quietHours?.start ?? '21:00',
+            end: data.communications.quietHours?.end ?? '09:00',
+          },
+          rules: (data.communications.reminders?.rules ?? []).map((rule: { id: string; offsetMinutes: number; channels: 'sms' | 'email' | 'both'; enabled: boolean }) => ({ ...rule })),
+          events: { ...(data.communications.events ?? {}) },
+        });
+      }
+      setCommunicationsDirty(false);
+      setCommunicationsSaved(true);
+      setTimeout(() => setCommunicationsSaved(false), 2500);
+    } catch {
+      setCommunicationsError('Could not save. Please try again.');
+    } finally {
+      setCommunicationsSaving(false);
+    }
+  }, [salonSlug, communicationsSaving, communicationsForm]);
+
   const viewDirty: Partial<Record<SettingsView, boolean>> = {
     'location': locationDirty || parkingDirty,
     'branding': bookingExperienceDirty,
@@ -3835,6 +3923,7 @@ export function SettingsModal({
     'payments': paymentsDirty,
     'smart-fit': smartFitDirty,
     'notifications': notificationsDirty,
+    'communications': communicationsDirty,
     'account': profileDirty,
   };
   const currentViewDirty = viewDirty[view] === true;
@@ -4067,6 +4156,16 @@ export function SettingsModal({
                 iconColor="bg-red-500"
                 label="Booking & cancellation alerts"
                 onClick={() => openView('notifications')}
+                isLast
+              />
+            </Section>
+
+            <Section title="Communications">
+              <Row
+                icon={MessageSquare}
+                iconColor="bg-rose-800"
+                label="Client texts & reminders"
+                onClick={() => openView('communications')}
                 isLast
               />
             </Section>
@@ -5113,6 +5212,240 @@ export function SettingsModal({
                   )}
             </Section>
           </>
+        )}
+
+        {view === 'communications' && (
+          <div className="space-y-6 px-4 pb-8 pt-2">
+            {/* Channel masters. SMS stays VISIBLE but disabled when the
+                platform cannot send (§6.3: disabled, never hidden). */}
+            <Section title="Channels">
+              <div className="space-y-3 p-4">
+                <label className="flex min-h-[44px] items-center justify-between gap-3">
+                  <span className="text-[15px] text-black">Email to clients</span>
+                  <input
+                    type="checkbox"
+                    className="size-5 accent-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+                    checked={communicationsForm.emailEnabled}
+                    onChange={(event) => {
+                      setCommunicationsForm(current => ({ ...current, emailEnabled: event.target.checked }));
+                      setCommunicationsDirty(true);
+                    }}
+                  />
+                </label>
+                <label className="flex min-h-[44px] items-center justify-between gap-3">
+                  <span className="text-[15px] text-black">
+                    Text messages to clients
+                    {!bookingNotificationCapabilities.smsChannelAvailable && (
+                      <span className="ml-1 text-[13px] text-[#8E8E93]">(Unavailable)</span>
+                    )}
+                  </span>
+                  <input
+                    type="checkbox"
+                    className="size-5 accent-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40"
+                    checked={communicationsForm.smsEnabled}
+                    disabled={!bookingNotificationCapabilities.smsChannelAvailable}
+                    onChange={(event) => {
+                      setCommunicationsForm(current => ({ ...current, smsEnabled: event.target.checked }));
+                      setCommunicationsDirty(true);
+                    }}
+                  />
+                </label>
+                <p className="text-[13px] leading-snug text-[#8E8E93]">
+                  Email confirmations and reminders are included with every plan.
+                  Text messages use your SMS credits once texting is available for
+                  your salon.
+                </p>
+              </div>
+            </Section>
+
+            {/* Reminder rules — up to three, whole-list edited. */}
+            <Section title="Appointment reminders">
+              <div className="space-y-3 p-4">
+                {communicationsForm.rules.length === 0 && (
+                  <p className="text-[14px] text-[#8E8E93]">
+                    No reminders configured. Clients only receive their booking
+                    confirmation.
+                  </p>
+                )}
+                {communicationsForm.rules.map((rule, index) => (
+                  <div key={rule.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-gray-100 p-3">
+                    <input
+                      type="checkbox"
+                      aria-label={`Reminder ${index + 1} enabled`}
+                      className="size-5 accent-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+                      checked={rule.enabled}
+                      onChange={(event) => {
+                        setCommunicationsForm((current) => {
+                          const rules = current.rules.map(entry =>
+                            entry.id === rule.id ? { ...entry, enabled: event.target.checked } : entry);
+                          return { ...current, rules };
+                        });
+                        setCommunicationsDirty(true);
+                      }}
+                    />
+                    <select
+                      aria-label={`Reminder ${index + 1} timing`}
+                      className="h-9 rounded-md border border-gray-200 bg-white px-2 text-[14px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
+                      value={String(rule.offsetMinutes)}
+                      onChange={(event) => {
+                        const offsetMinutes = Number(event.target.value);
+                        setCommunicationsForm((current) => {
+                          const rules = current.rules.map(entry =>
+                            entry.id === rule.id ? { ...entry, offsetMinutes } : entry);
+                          return { ...current, rules };
+                        });
+                        setCommunicationsDirty(true);
+                      }}
+                    >
+                      <option value="120">2 hours before</option>
+                      <option value="240">4 hours before</option>
+                      <option value="1440">24 hours before</option>
+                      <option value="2880">2 days before</option>
+                      <option value="4320">3 days before</option>
+                    </select>
+                    <select
+                      aria-label={`Reminder ${index + 1} channel`}
+                      className="h-9 rounded-md border border-gray-200 bg-white px-2 text-[14px] transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
+                      value={rule.channels}
+                      onChange={(event) => {
+                        const channels = event.target.value as 'sms' | 'email' | 'both';
+                        setCommunicationsForm((current) => {
+                          const rules = current.rules.map(entry =>
+                            entry.id === rule.id ? { ...entry, channels } : entry);
+                          return { ...current, rules };
+                        });
+                        setCommunicationsDirty(true);
+                      }}
+                    >
+                      <option value="email">Email</option>
+                      <option value="sms" disabled={!bookingNotificationCapabilities.smsChannelAvailable}>
+                        {bookingNotificationCapabilities.smsChannelAvailable ? 'Text' : 'Text (Unavailable)'}
+                      </option>
+                      <option value="both" disabled={!bookingNotificationCapabilities.smsChannelAvailable}>
+                        {bookingNotificationCapabilities.smsChannelAvailable ? 'Email & text' : 'Email & text (Unavailable)'}
+                      </option>
+                    </select>
+                    <button
+                      type="button"
+                      className="ml-auto text-[14px] text-red-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+                      onClick={() => {
+                        setCommunicationsForm(current => ({
+                          ...current,
+                          rules: current.rules.filter(entry => entry.id !== rule.id),
+                        }));
+                        setCommunicationsDirty(true);
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                {communicationsForm.rules.length < 3 && (
+                  <button
+                    type="button"
+                    className="text-[14px] font-medium text-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+                    onClick={() => {
+                      setCommunicationsForm(current => ({
+                        ...current,
+                        rules: [
+                          ...current.rules,
+                          {
+                            id: `crule_${crypto.randomUUID()}`,
+                            // 2h, NOT 24h: a new rule must not collide with
+                            // the shipped default rule's enabled offset,
+                            // which would fail validation on save.
+                            offsetMinutes: 120,
+                            channels: 'email' as const,
+                            enabled: true,
+                          },
+                        ],
+                      }));
+                      setCommunicationsDirty(true);
+                    }}
+                  >
+                    + Add reminder
+                  </button>
+                )}
+              </div>
+            </Section>
+
+            {/* Quiet hours */}
+            <Section title="Quiet hours">
+              <div className="space-y-3 p-4">
+                <label className="flex min-h-[44px] items-center justify-between gap-3">
+                  <span className="text-[15px] text-black">Hold texts overnight</span>
+                  <input
+                    type="checkbox"
+                    className="size-5 accent-rose-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+                    checked={communicationsForm.quietHours.enabled}
+                    onChange={(event) => {
+                      setCommunicationsForm(current => ({
+                        ...current,
+                        quietHours: { ...current.quietHours, enabled: event.target.checked },
+                      }));
+                      setCommunicationsDirty(true);
+                    }}
+                  />
+                </label>
+                {communicationsForm.quietHours.enabled && (
+                  <div className="flex items-center gap-3">
+                    <label className="flex items-center gap-2 text-[14px] text-black">
+                      From
+                      <input
+                        type="time"
+                        aria-label="Quiet hours start"
+                        className="h-9 rounded-md border border-gray-200 px-2 text-[14px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+                        value={communicationsForm.quietHours.start}
+                        onChange={(event) => {
+                          setCommunicationsForm(current => ({
+                            ...current,
+                            quietHours: { ...current.quietHours, start: event.target.value },
+                          }));
+                          setCommunicationsDirty(true);
+                        }}
+                      />
+                    </label>
+                    <label className="flex items-center gap-2 text-[14px] text-black">
+                      to
+                      <input
+                        type="time"
+                        aria-label="Quiet hours end"
+                        className="h-9 rounded-md border border-gray-200 px-2 text-[14px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950"
+                        value={communicationsForm.quietHours.end}
+                        onChange={(event) => {
+                          setCommunicationsForm(current => ({
+                            ...current,
+                            quietHours: { ...current.quietHours, end: event.target.value },
+                          }));
+                          setCommunicationsDirty(true);
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+                <p className="text-[13px] leading-snug text-[#8E8E93]">
+                  Scheduled reminders wait until quiet hours end. Booking
+                  confirmations still send right away.
+                </p>
+              </div>
+            </Section>
+
+            {/* Save */}
+            <div className="flex items-center gap-3 px-1">
+              <button
+                type="button"
+                onClick={saveCommunications}
+                disabled={communicationsSaving || !communicationsDirty}
+                className="rounded-lg bg-rose-800 px-4 py-2 text-[15px] font-medium text-white transition-opacity focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
+              >
+                {communicationsSaving ? 'Saving…' : 'Save communication settings'}
+              </button>
+              <span role="status" aria-live="polite" className="text-[13px] text-[#8E8E93]">
+                {communicationsSaved ? 'Saved' : ''}
+                {communicationsError ?? ''}
+              </span>
+            </div>
+          </div>
         )}
 
         {view === 'notifications' && (

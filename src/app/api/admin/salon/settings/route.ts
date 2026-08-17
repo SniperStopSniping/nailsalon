@@ -29,6 +29,11 @@ import {
   resolveBookingNotificationCapabilities,
   resolveBookingNotificationSettingsFromSettings,
 } from '@/libs/bookingNotificationSettings';
+import {
+  communicationSettingsUpdateSchema,
+  mergeCommunicationSettings,
+  resolveCommunicationSettingsFromSettings,
+} from '@/libs/communicationSettings';
 import { db } from '@/libs/DB';
 import {
   DEPOSIT_COLLECTION_LIVE,
@@ -79,6 +84,7 @@ const adminUpdateSchema = z.object({
   rewardsEnabled: z.boolean().optional(),
   bookingConfig: bookingConfigSchema.partial().optional(),
   bookingNotifications: bookingNotificationSettingsUpdateSchema.optional(),
+  communications: communicationSettingsUpdateSchema.optional(),
   salonEmailNotifications: salonEmailNotificationSettingsUpdateSchema.optional(),
   merchandising: merchandisingSettingsUpdateSchema.optional(),
   // The WRITE schema, not the stored one: the stored parser is deliberately
@@ -288,6 +294,9 @@ export async function GET(request: Request): Promise<Response> {
       ),
       bookingExperienceEntitlement,
       bookingNotifications,
+      communications: resolveCommunicationSettingsFromSettings(
+        (salon.settings as SalonSettings | null | undefined) ?? null,
+      ),
       ...buildSalonEmailNotificationResponse({
         settings: (salon.settings as SalonSettings | null | undefined) ?? null,
         ownerEmail: salon.ownerEmail,
@@ -645,6 +654,29 @@ export async function PATCH(request: Request): Promise<Response> {
 
       ensureNextSettings().notifications = nextNotifications;
       touchedSettingsKeys.push('notifications');
+    }
+
+    if (updates.communications) {
+      const currentCommunications = resolveCommunicationSettingsFromSettings(currentSettings);
+      let mergedCommunications: ReturnType<typeof mergeCommunicationSettings>;
+      try {
+        mergedCommunications = mergeCommunicationSettings(
+          currentCommunications,
+          updates.communications,
+        );
+      } catch (mergeError) {
+        if (mergeError instanceof z.ZodError) {
+          return Response.json(
+            { error: 'Invalid request data', details: mergeError.flatten() },
+            { status: 400 },
+          );
+        }
+        throw mergeError;
+      }
+      before.communications = currentCommunications;
+      after.communications = mergedCommunications;
+      ensureNextSettings().communications = mergedCommunications;
+      touchedSettingsKeys.push('communications');
     }
 
     const currentPayments = readStoredPaymentsSettings(currentSettings);
@@ -1022,6 +1054,9 @@ export async function PATCH(request: Request): Promise<Response> {
       if (touchedSettingsKeys.includes('notifications')) {
         settingsExpression = sql`jsonb_set(${settingsExpression}, '{notifications}', ${JSON.stringify(settingsToPersist.notifications)}::jsonb)`;
       }
+      if (touchedSettingsKeys.includes('communications')) {
+        settingsExpression = sql`jsonb_set(${settingsExpression}, '{communications}', ${JSON.stringify(settingsToPersist.communications)}::jsonb)`;
+      }
       if (touchedSettingsKeys.includes('payments') && updates.payments) {
         // Payments is written at SUB-PATH granularity, and `deposit` at FIELD
         // granularity. Object granularity is not sufficient: a merged deposit
@@ -1325,6 +1360,9 @@ export async function PATCH(request: Request): Promise<Response> {
       ),
       bookingExperienceEntitlement: updatedBookingExperienceEntitlement,
       bookingNotifications,
+      communications: resolveCommunicationSettingsFromSettings(
+        (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
+      ),
       ...buildSalonEmailNotificationResponse({
         settings: (updatedSalon.settings as SalonSettings | null | undefined) ?? null,
         ownerEmail: updatedSalon.ownerEmail,
