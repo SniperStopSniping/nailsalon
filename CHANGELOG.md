@@ -1,3 +1,11 @@
+# [1.60.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.59.0...v1.60.0) (2026-08-17)
+
+
+### Features
+
+* **consent:** pin owner-ratified shared-number STOP disclosure (§10.2) ([f9f2da7](https://github.com/SniperStopSniping/nailsalon/commit/f9f2da74763aae7e7b0eed5bed41725585d9e630))
+* **consent:** split inbound webhook into shared and BYO branches ([a875877](https://github.com/SniperStopSniping/nailsalon/commit/a8758779262b8bda57b0ceef1d9a824fafd4eb24))
+
 # [1.59.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.58.0...v1.59.0) (2026-08-17)
 
 
