@@ -1,3 +1,10 @@
+# [1.63.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.62.0...v1.63.0) (2026-08-17)
+
+
+### Features
+
+* **billing:** add SMS credit top-up checkout and fulfillment (C3) ([78dd7f0](https://github.com/SniperStopSniping/nailsalon/commit/78dd7f03624a8e14a545bcfa3076331e607f060e)), closes [#118](https://github.com/SniperStopSniping/nailsalon/issues/118)
+
 # [1.62.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.61.0...v1.62.0) (2026-08-17)
 
 
