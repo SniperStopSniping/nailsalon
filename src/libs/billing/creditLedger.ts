@@ -248,7 +248,13 @@ export async function appendLotGrant(
 
   await tx
     .update(smsCreditAccountSchema)
-    .set({ warningEpoch: sql`${smsCreditAccountSchema.warningEpoch} + 1` })
+    .set({
+      warningEpoch: sql`${smsCreditAccountSchema.warningEpoch} + 1`,
+      // "Deterministically resetting warning eligibility" (§7.1) means the
+      // TIER resets with the epoch: a fresh epoch must not inherit the old
+      // epoch's rank, or a post-top-up drop back into a tier stays silent.
+      lastWarningTier: null,
+    })
     .where(eq(smsCreditAccountSchema.salonId, input.salonId));
 
   return { lotId: inserted[0]!.id, created: true };
