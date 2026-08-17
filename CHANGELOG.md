@@ -1,3 +1,25 @@
+# [1.61.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.60.1...v1.61.0) (2026-08-17)
+
+
+### Bug Fixes
+
+* **communications:** close the adversarial-review findings on the C1 cutover ([9353bfe](https://github.com/SniperStopSniping/nailsalon/commit/9353bfeac1d645c50b43b68580ba322159c249d9))
+
+
+### Features
+
+* **communications:** add in-transaction intent materialization ([746b361](https://github.com/SniperStopSniping/nailsalon/commit/746b3614bf76b3e7f82060702e4488742870065c))
+* **communications:** add reminder rule settings and scheduling primitives ([191aa8e](https://github.com/SniperStopSniping/nailsalon/commit/191aa8e19320b56dbf1fae01f7d6fb5a1678432e))
+* **communications:** add the Communications settings view ([96c4b84](https://github.com/SniperStopSniping/nailsalon/commit/96c4b84e5d190b4eb36d21497b2aa45cb6143e08))
+* **communications:** add the minimal dispatcher email lane ([7dad166](https://github.com/SniperStopSniping/nailsalon/commit/7dad1663da76ac73445f9035baa544802c660d31))
+* **communications:** add the unknown-outcome resolver ([bce3477](https://github.com/SniperStopSniping/nailsalon/commit/bce347719670e972f3e98e4f66ba230bad2f38f3))
+* **communications:** gate legacy sends mode-first, suspend shared referrals ([31f6fa1](https://github.com/SniperStopSniping/nailsalon/commit/31f6fa132b96a0b9ec9ef1842a3b97c6c5ab7070))
+* **communications:** materialize deposit-confirmation intents in-transaction ([e1b1432](https://github.com/SniperStopSniping/nailsalon/commit/e1b143246ffd7b796ec28038c88ed654585170a8))
+* **communications:** materialize the direct-confirm lane in the runner ([79931ed](https://github.com/SniperStopSniping/nailsalon/commit/79931ed2cced53257d5dcc6165622aa66667e9b3))
+* **communications:** turn the reminder cron into a mode-split reconciler ([7a5f2c5](https://github.com/SniperStopSniping/nailsalon/commit/7a5f2c52c74898fcbad8318787ba065effb7b6fa))
+* **communications:** wire the communications namespace into admin settings ([07c08c2](https://github.com/SniperStopSniping/nailsalon/commit/07c08c2c452ca45f294cf44f70b4e9323e306a74))
+* **communications:** wire the production provider seams, still dark ([729eda0](https://github.com/SniperStopSniping/nailsalon/commit/729eda034f404718f3e5d19a9f156e865bb291bd))
+
 ## [1.60.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.60.0...v1.60.1) (2026-08-17)
 
 
