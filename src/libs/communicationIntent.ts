@@ -90,9 +90,14 @@ export async function enqueueCommunicationIntent(
       eventType: input.eventType,
       audience: input.audience,
       dedupeKey: input.dedupeKey,
-      // One recipient format everywhere: consent rows, suppression events and
-      // attribution all key on the bare-10-digit form.
-      recipient: normalizeConsentRecipient(input.recipient),
+      // SMS: one recipient format everywhere — consent rows, suppression
+      // events and attribution all key on the bare-10-digit form. EMAIL:
+      // phone normalization would reduce an address to an empty string
+      // (latent through Gate B, which only produced SMS intents; caught by
+      // the C1 email-lane tests) — emails just get case/whitespace folding.
+      recipient: input.channel === 'sms'
+        ? normalizeConsentRecipient(input.recipient)
+        : input.recipient.trim().toLowerCase(),
       destinationCountry: input.destinationCountry ?? null,
       templateKey: input.templateKey,
       templateVersion: input.templateVersion,
