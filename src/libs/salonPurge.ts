@@ -39,6 +39,9 @@ import {
   appointmentServicesSchema,
   auditLogSchema,
   autopostQueueSchema,
+  billingPromotionClaimSchema,
+  billingStarterGrantSchema,
+  billingStripeEventSchema,
   clientPreferencesSchema,
   fraudSignalSchema,
   googleCalendarDraftSchema,
@@ -52,6 +55,7 @@ import {
   salonSignupInviteSchema,
   serviceAddOnSchema,
   serviceSchema,
+  smsTopupPurchaseSchema,
   technicianBlockedSlotSchema,
   technicianScheduleOverrideSchema,
   technicianSchema,
@@ -566,6 +570,42 @@ export const SALON_PURGE_PLAN: PurgeStep[] = [
     reason:
       'NULL OUT result_salon_id (nullable, no CHECK on this column). Load-bearing, not defensive: live rows exist with salon_id NULL and a real result_salon_id, so the cascade arm provably does not fire for them.',
     where: (_tx, salonId) => eq(salonSignupInviteSchema.resultSalonId, salonId),
+  }),
+  nullOutStep({
+    table: 'billing_starter_grant',
+    group: 'salon',
+    target: billingStarterGrantSchema,
+    set: { salonId: null },
+    reason:
+      'NULL OUT, do not delete: once-per-business starter-grant evidence must survive salon purge or a recreated salon under the same business identity could claim the grant again (contract §7.3).',
+    where: (_tx, salonId) => eq(billingStarterGrantSchema.salonId, salonId),
+  }),
+  nullOutStep({
+    table: 'billing_promotion_claim',
+    group: 'salon',
+    target: billingPromotionClaimSchema,
+    set: { salonId: null },
+    reason:
+      'NULL OUT: founding-promotion claims are once-per-business anti-abuse state attached to the durable business identity; the salon column is provenance only.',
+    where: (_tx, salonId) => eq(billingPromotionClaimSchema.salonId, salonId),
+  }),
+  nullOutStep({
+    table: 'sms_topup_purchase',
+    group: 'salon',
+    target: smsTopupPurchaseSchema,
+    set: { salonId: null },
+    reason:
+      'NULL OUT: paid-money purchase evidence must survive tenant deletion for refund/dispute/audit obligations.',
+    where: (_tx, salonId) => eq(smsTopupPurchaseSchema.salonId, salonId),
+  }),
+  nullOutStep({
+    table: 'billing_stripe_event',
+    group: 'salon',
+    target: billingStripeEventSchema,
+    set: { salonId: null },
+    reason:
+      'NULL OUT: billing webhook-event audit rows survive the purge like audit_log; the salon association is informational.',
+    where: (_tx, salonId) => eq(billingStripeEventSchema.salonId, salonId),
   }),
   deleteStep({
     table: 'salon',

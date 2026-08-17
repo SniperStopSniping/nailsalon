@@ -259,6 +259,41 @@ async function seedSalon(salonId: string, suffix: string, dayOffset: number): Pr
     resultSalonId: salonId,
   });
 
+  // Gate B1 billing evidence tables (salon FK SET NULL): rows must SURVIVE
+  // the purge with salon_id nulled — anti-abuse and financial audit evidence
+  // outlives the salon.
+  await db.insert(schema.billingBusinessIdentitySchema).values({ id: id('bbi') });
+  await db.insert(schema.billingStarterGrantSchema).values({
+    id: id('bsg'),
+    businessIdentityId: id('bbi'),
+    salonId,
+    credits: 100,
+  });
+  await db.insert(schema.billingPromotionClaimSchema).values({
+    id: id('bpc'),
+    promotionKey: 'founding_annual_2026',
+    businessIdentityId: id('bbi'),
+    salonId,
+    status: 'released',
+  });
+  await db.insert(schema.smsTopupPurchaseSchema).values({
+    id: id('stp'),
+    salonId,
+    topupOfferKey: 'topup_100_paid_2026_08',
+    credits: 100,
+    amountCents: 599,
+    status: 'fulfilled',
+  });
+  await db.insert(schema.billingStripeEventSchema).values({
+    id: id('bse'),
+    eventId: `evt_${suffix}`,
+    eventType: 'checkout.session.completed',
+    livemode: false,
+    apiCreatedAt: new Date(Date.UTC(2026, 7, 1)),
+    salonId,
+    status: 'processed',
+  });
+
   // Migration 0052 backup tables: no foreign keys, so they are invisible to any
   // FK-derived plan and only a seeded row proves the purge covers them.
   await db.execute(

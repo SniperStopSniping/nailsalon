@@ -26,8 +26,8 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0068_deposit_credit_tax_snapshots';
-const MIGRATION_COUNT = 69;
+const FINAL_MIGRATION = '0069_billing_credit_foundation';
+const MIGRATION_COUNT = 70;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -350,6 +350,18 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'salon_signup_invite', 'salon_signup_invite_result_salon_id_salon_id_fk', ['result_salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
   ['public', 'salon_signup_invite', 'salon_signup_invite_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'salon_stripe_account', 'salon_stripe_account_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  // Gate B / migration 0069 — billing & SMS-credit foundation.
+  ['public', 'billing_checkout_attempt', 'billing_checkout_attempt_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'billing_credit_window', 'billing_credit_window_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'billing_promotion_claim', 'billing_promotion_claim_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
+  ['public', 'billing_starter_grant', 'billing_starter_grant_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
+  ['public', 'billing_stripe_event', 'billing_stripe_event_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
+  ['public', 'billing_subscription', 'billing_subscription_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'sms_credit_account', 'sms_credit_account_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'sms_credit_ledger', 'sms_credit_ledger_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'sms_credit_reservation', 'sms_credit_reservation_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'sms_credit_reservation_lot', 'sms_credit_reservation_lot_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'sms_topup_purchase', 'sms_topup_purchase_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
   ['public', 'salon_twilio_connection', 'salon_twilio_connection_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'service', 'service_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'service_add_on', 'service_add_on_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],

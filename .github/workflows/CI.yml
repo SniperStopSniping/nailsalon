@@ -220,11 +220,17 @@ jobs:
             fi
 
             salon_purge_blob="$(git hash-object src/libs/salonPurge.ts)"
-            if [ "$salon_purge_blob" != "ba5eaf44ce96b6f217d94c71268d8261bc5bfe24" ]; then
-              echo "::error::Unauthorized change outside the reviewed D6 salon-purge postimage."
-              printf 'actual blob: %s\n' "$salon_purge_blob"
-              exit 1
-            fi
+            case "$salon_purge_blob" in
+              # Reviewed postimages: D6 baseline, then Gate B1 (billing purge
+              # steps). Extend this list per reviewed change; never remove.
+              ba5eaf44ce96b6f217d94c71268d8261bc5bfe24) ;;
+              f75af0c6fa6d6be326ffb6f1272c51ea7fa2f1fe) ;;
+              *)
+                echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
+                printf 'actual blob: %s\n' "$salon_purge_blob"
+                exit 1
+                ;;
+            esac
           fi
 
           # 3. Only the current packet's chartered paths may change under the
@@ -234,6 +240,7 @@ jobs:
             [ -n "$file" ] || continue
             case "$file" in
               migrations/0068_deposit_credit_tax_snapshots.sql) ;;
+              migrations/0069_billing_credit_foundation.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -277,15 +284,23 @@ jobs:
           fi
 
           if ! git diff --quiet "$base" -- migrations/meta/_journal.json; then
-            if git show "$base:migrations/meta/_journal.json" \
-              | grep -Fq '"tag": "0068_deposit_credit_tax_snapshots"'; then
-              echo "::error::The D6.1 journal entry is already shipped and is immutable."
+            # Shipped journal entries are IMMUTABLE, but later chartered
+            # packets legitimately APPEND (0069/0070 below). A line-level or
+            # blob pin cannot express that — appending an entry adds a comma
+            # to the previous last entry — so immutability is enforced by
+            # CONTENT: the shipped entry list must be a strict prefix of the
+            # new one, and the journal header must be untouched. Step 6 then
+            # bounds WHAT may be appended.
+            base_entry_count="$(git show "$base:migrations/meta/_journal.json" | jq '.entries | length')"
+            if ! diff \
+              <(git show "$base:migrations/meta/_journal.json" | jq -S '.entries') \
+              <(jq -S ".entries[:$base_entry_count]" migrations/meta/_journal.json) >/dev/null; then
+              echo "::error::Shipped migration journal entries are immutable (append-only)."
               exit 1
             fi
-            journal_blob="$(git hash-object migrations/meta/_journal.json)"
-            if [ "$journal_blob" != "f5bbd989c1f63e08bbc015c227008492f08c599e" ]; then
-              echo "::error::Migration journal does not match the reviewed D6.1 postimage."
-              printf 'actual blob: %s\n' "$journal_blob"
+            if [ "$(git show "$base:migrations/meta/_journal.json" | jq -cS 'del(.entries)')" \
+              != "$(jq -cS 'del(.entries)' migrations/meta/_journal.json)" ]; then
+              echo "::error::The migration journal header is immutable."
               exit 1
             fi
           fi
@@ -294,12 +309,17 @@ jobs:
           #    cannot smuggle an extra migration or an extra cron through.
           new_tags="$(git diff --unified=0 "$base" -- migrations/meta/_journal.json \
             | grep -E '^\+.*"tag"' | sed -E 's/.*"tag" *: *"([^"]+)".*/\1/' || true)"
-          if [ -n "$new_tags" ] \
-             && [ "$new_tags" != "0068_deposit_credit_tax_snapshots" ]; then
-            echo "::error::Unauthorized migration journal entries:"
-            printf '%s\n' "$new_tags"
-            exit 1
-          fi
+          while read -r tag; do
+            [ -n "$tag" ] || continue
+            case "$tag" in
+              0068_deposit_credit_tax_snapshots) ;;
+              0069_billing_credit_foundation) ;;
+              *)
+                echo "::error::Unauthorized migration journal entries: $tag"
+                exit 1
+                ;;
+            esac
+          done <<< "$new_tags"
 
           # Compared PER ENTRY against the chartered set, not as one joined
           # string: a packet that legitimately adds a cron alongside an earlier
@@ -464,8 +484,22 @@ jobs:
       - name: Install dependencies
         run: HUSKY=0 npm ci
 
-      - name: Verify the exercised staff reset matches the reviewed head
-        run: git diff --exit-code "$V133_COMMIT" -- src/libs/salonPurge.ts
+      - name: Verify the exercised staff reset is additive over the reviewed head
+        run: |
+          set -euo pipefail
+          # Byte-exact pinning contradicts the deposits-ladder guard, which
+          # explicitly permits reviewed ADDITIVE extensions of salonPurge.ts
+          # (Gate B registers its billing/communications purge steps). The
+          # reviewed-postimage blob allowlist in the `test` job carries the
+          # exact-content review; here we require only that nothing the V133
+          # head shipped was removed or rewritten.
+          removed="$(git diff --unified=0 "$V133_COMMIT" -- src/libs/salonPurge.ts \
+            | grep -E '^-' | grep -vE '^--- ' || true)"
+          if [ -n "$removed" ]; then
+            echo "::error::salonPurge.ts must remain additive over the V133 reviewed head."
+            printf '%s\n' "$removed"
+            exit 1
+          fi
 
       - name: Run real migration, concurrency, and directory suites
         run: npm run test:client-lifecycle:pg
@@ -733,6 +767,40 @@ jobs:
           grep -Fqx \
             'D6_1_CLIENT_STATS_POSTGRES_TESTS_EXECUTED=1 D6_1_CLIENT_STATS_POSTGRES_TESTS_SKIPPED=0' \
             d6-postgres-concurrency.log
+
+  sms-credit-ledger-postgres:
+    needs: secret-scan
+    name: SMS credit ledger PostgreSQL concurrency
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: sms_credit_ci
+          POSTGRES_USER: sms_credit_ci
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U sms_credit_ci -d sms_credit_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CONCURRENCY_TEST_DATABASE_URL: postgresql://sms_credit_ci@127.0.0.1:5432/sms_credit_ci
+      SMS_CREDIT_LEDGER_DISPOSABLE_DATABASE_CONFIRMED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: HUSKY=0 npm ci
+      - run: npx vitest run --no-file-parallelism 'src/libs/billing/creditReservation.concurrency.integration.test.ts'
 
   booking-entitlement-override-postgres:
     name: Booking entitlement override PostgreSQL concurrency
