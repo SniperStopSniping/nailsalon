@@ -16,6 +16,7 @@ import { validateAppointmentTaxSnapshotChain } from '@/libs/appointmentTaxSnapsh
 import { mintAppointmentManageCapability } from '@/libs/bookingCommitEffects';
 import { derivePaymentStatus } from '@/libs/checkoutTotals';
 import {
+  formatIntentStartTime,
   materializeClientEvent,
   materializeReminders,
   resolveSalonCommunicationContext,
@@ -924,19 +925,6 @@ export async function enqueueDepositConfirmationEffectsInTx(args: {
       smsEligible: communicationContext.smsEligible,
     });
   }
-}
-
-/** 'Wed Aug 26, 12:30 PM' in the salon's timezone — the template shape. */
-function formatIntentStartTime(start: Date, timeZone: string | null): string {
-  return new Intl.DateTimeFormat('en-US', {
-    timeZone: timeZone ?? 'America/Toronto',
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  }).format(start).replace(' at ', ', ');
 }
 
 /**

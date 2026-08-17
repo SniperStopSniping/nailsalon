@@ -28,7 +28,6 @@ import 'server-only';
 
 import type {
   CommunicationIntentDatabase,
-  CommunicationIntentTransaction,
   EnqueueIntentInput,
 } from '@/libs/communicationIntent';
 import { cancelAppointmentIntents, enqueueCommunicationIntent } from '@/libs/communicationIntent';
@@ -56,8 +55,11 @@ function emailTemplateFor(eventType: CommunicationEventType): { templateKey: str
 }
 
 export type MaterializeEventInput = {
-  /** The caller's OPEN transaction — materialization must commit atomically. */
-  tx: CommunicationIntentTransaction;
+  /**
+   * The caller's transaction, or the plain db handle for post-commit
+   * producers whose durability comes from an at-least-once driver.
+   */
+  tx: CommunicationIntentDatabase;
   salonId: string;
   appointmentId: string;
   eventType: Exclude<CommunicationEventType, 'appointment_reminder'>;
@@ -184,7 +186,7 @@ export async function materializeClientEvent(
 }
 
 export type MaterializeRemindersInput = {
-  tx: CommunicationIntentTransaction;
+  tx: CommunicationIntentDatabase;
   salonId: string;
   appointmentId: string;
   appointmentStart: Date;
@@ -265,7 +267,7 @@ export async function materializeReminders(
  * (cancellation) — in the SAME transaction.
  */
 export async function supersedeAppointmentCommunications(input: {
-  tx: CommunicationIntentTransaction;
+  tx: CommunicationIntentDatabase;
   salonId: string;
   appointmentId: string;
   now?: Date;
@@ -335,4 +337,35 @@ export async function resolveSalonCommunicationContext(
     timeZone: storedSettings?.booking?.timezone ?? null,
     salonName: salon?.name ?? null,
   };
+}
+
+/** 'Wed Aug 26, 12:30 PM' in the salon's timezone — the template shape. */
+export function formatIntentStartTime(start: Date, timeZone: string | null): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: timeZone ?? 'America/Toronto',
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  }).format(start).replace(' at ', ', ');
+}
+
+/**
+ * Appointment client email, tx-consistent — producers that only carry a
+ * phone in their context use this instead of reaching for the raw table.
+ */
+export async function loadAppointmentClientEmail(
+  dbh: CommunicationIntentDatabase,
+  appointmentId: string,
+): Promise<string | null> {
+  const { appointmentSchema } = await import('@/models/Schema');
+  const { eq } = await import('drizzle-orm');
+  const [row] = await dbh
+    .select({ clientEmail: appointmentSchema.clientEmail })
+    .from(appointmentSchema)
+    .where(eq(appointmentSchema.id, appointmentId))
+    .limit(1);
+  return row?.clientEmail ?? null;
 }

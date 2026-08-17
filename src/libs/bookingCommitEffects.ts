@@ -469,8 +469,58 @@ export async function runBookingCommitSideEffects(
   // at-least-once runner can invoke it again: the historical double-send).
   // BYO salons keep this path byte-identical; provider failures are absorbed
   // by the SMS helper exactly as before.
-  const { resolveSalonCommunicationContext } = await import('@/libs/communicationMaterialization');
+  const {
+    formatIntentStartTime,
+    loadAppointmentClientEmail,
+    materializeClientEvent,
+    materializeReminders,
+    resolveSalonCommunicationContext,
+  } = await import('@/libs/communicationMaterialization');
   const communicationContext = await resolveSalonCommunicationContext(db, context.salon.id);
+
+  // Direct-confirm lane only: materialize the durable confirmation and
+  // reminder intents here. The DEPOSIT lane already materialized them inside
+  // the money transaction (its runner invocation carries the
+  // deposit_confirmation calendarCause), so materializing again would race a
+  // second identity against the seam's. This runner is post-commit for the
+  // direct lane, so durability rides its idempotent keys: a replay recomputes
+  // transitionEventId 'direct' and lands on the same rows.
+  if (options.calendarCause?.kind !== 'deposit_confirmation') {
+    const appointmentClientEmail = await loadAppointmentClientEmail(db, context.appointment.id);
+    const intentVariables = {
+      salonName: context.salon.name,
+      startTime: formatIntentStartTime(context.startTime, context.timeZone),
+      manageUrl: context.manageUrl,
+    };
+    await materializeClientEvent({
+      tx: db,
+      salonId: context.salon.id,
+      appointmentId: context.appointment.id,
+      eventType: 'booking_confirmation',
+      transitionEventId: 'direct',
+      clientPhone: context.smsConsentGranted ? context.clientPhone : null,
+      clientEmail: null, // the legacy email leg below owns the confirmation email
+      settings: communicationContext.settings,
+      timeZone: context.timeZone,
+      appointmentStart: context.startTime,
+      variables: intentVariables,
+      smsEligible: communicationContext.smsEligible,
+    });
+    await materializeReminders({
+      tx: db,
+      salonId: context.salon.id,
+      appointmentId: context.appointment.id,
+      appointmentStart: context.startTime,
+      appointmentUpdatedAt: context.appointment.updatedAt,
+      clientPhone: context.smsConsentGranted ? context.clientPhone : null,
+      clientEmail: appointmentClientEmail,
+      settings: communicationContext.settings,
+      timeZone: context.timeZone,
+      variables: intentVariables,
+      smsEligible: communicationContext.smsEligible,
+    });
+  }
+
   if (context.smsConsentGranted && !communicationContext.smsEligible) {
     const smsParams = {
       phone: context.clientPhone,
