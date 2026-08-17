@@ -1,3 +1,10 @@
+# [1.56.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.55.1...v1.56.0) (2026-08-17)
+
+
+### Features
+
+* **billing:** add founding plan catalogue foundation ([1ea3e94](https://github.com/SniperStopSniping/nailsalon/commit/1ea3e94046371367d474b70c588aa1879801a06b))
+
 ## [1.55.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.55.0...v1.55.1) (2026-08-16)
 
 
