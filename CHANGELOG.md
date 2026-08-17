@@ -1,3 +1,10 @@
+# [1.58.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.57.0...v1.58.0) (2026-08-17)
+
+
+### Features
+
+* **billing:** add SMS credit and subscription accounting foundation ([55fd1cc](https://github.com/SniperStopSniping/nailsalon/commit/55fd1ccab1e3d262d854674d4893074ce15cf215))
+
 # [1.57.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.56.0...v1.57.0) (2026-08-17)
 
 
