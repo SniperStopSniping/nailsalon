@@ -1,3 +1,15 @@
+# [1.57.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.56.0...v1.57.0) (2026-08-17)
+
+
+### Bug Fixes
+
+* **communications:** repair GSM table corruption and harden review findings ([2541447](https://github.com/SniperStopSniping/nailsalon/commit/25414476ef9ca0e188709f793d638c360dd16f78))
+
+
+### Features
+
+* **communications:** add dark shared-sender foundation ([a593cbf](https://github.com/SniperStopSniping/nailsalon/commit/a593cbfa6fc988ba36f1249eb1c549e616a1c74c))
+
 # [1.56.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.55.1...v1.56.0) (2026-08-17)
 
 
