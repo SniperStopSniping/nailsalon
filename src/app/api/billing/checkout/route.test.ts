@@ -283,6 +283,60 @@ describe('attempt lifecycle', () => {
     expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
   });
 
+  it('refuses a scheduled-cancellation subscription with a Portal-directing typed error (§2.3)', async () => {
+    await seedSalon('s_sched');
+    await db.insert(schema.billingSubscriptionSchema).values({
+      id: 'sub_sched',
+      salonId: 's_sched',
+      stripeSubscriptionId: 'sub_stripe_sched',
+      stripeCustomerId: 'cus_sched',
+      planDefinitionKey: 'pro_2026_08',
+      billingOfferKey: 'pro_2026_08_monthly',
+      billingCadence: 'monthly',
+      status: 'active',
+      cancelAtPeriodEnd: true,
+      paidThrough: new Date('2027-01-01T00:00:00.000Z'),
+      creditCycleAnchor: new Date('2026-08-01T00:00:00.000Z'),
+    });
+    const response = await post({ salonId: 's_sched', billingOfferKey: 'elite_2026_08_monthly' });
+
+    expect(response.status).toBe(409);
+    expect((await response.json()).error.code).toBe('CANCELLATION_SCHEDULED');
+    expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses canceled-but-prepaid with the entitlement date, allows checkout after it ends (§2.3)', async () => {
+    await seedSalon('s_prepaid');
+    await db.insert(schema.billingSubscriptionSchema).values({
+      id: 'sub_prepaid',
+      salonId: 's_prepaid',
+      stripeSubscriptionId: 'sub_stripe_prepaid',
+      stripeCustomerId: 'cus_prepaid',
+      planDefinitionKey: 'pro_2026_08',
+      billingOfferKey: 'pro_2026_08_monthly',
+      billingCadence: 'monthly',
+      status: 'canceled',
+      paidThrough: new Date(Date.now() + 7 * 24 * 3600_000),
+      creditCycleAnchor: new Date('2026-08-01T00:00:00.000Z'),
+    });
+    const refused = await post({ salonId: 's_prepaid', billingOfferKey: 'pro_2026_08_monthly' });
+
+    expect(refused.status).toBe(409);
+
+    const refusedBody = await refused.json();
+
+    expect(refusedBody.error.code).toBe('PREPAID_ENTITLEMENT_REMAINS');
+    expect(typeof refusedBody.error.paidThrough).toBe('string');
+
+    // Entitlement lapses: a new checkout proceeds.
+    await db.update(schema.billingSubscriptionSchema)
+      .set({ paidThrough: new Date(Date.now() - 1000) })
+      .where(eq(schema.billingSubscriptionSchema.id, 'sub_prepaid'));
+    const allowed = await post({ salonId: 's_prepaid', billingOfferKey: 'pro_2026_08_monthly' });
+
+    expect(allowed.status).toBe(200);
+  });
+
   it('a provider failure fails the attempt so the slot is not wedged', async () => {
     await seedSalon('s_fail');
     stripeMock.checkout.sessions.create.mockRejectedValueOnce(new Error('stripe down'));

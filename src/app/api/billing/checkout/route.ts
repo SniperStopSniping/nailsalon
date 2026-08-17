@@ -40,6 +40,7 @@ import { z } from 'zod';
 
 import { requireAdmin } from '@/libs/adminAuth';
 import { getBillingOffer } from '@/libs/billing/billingOffers';
+import { classifySubscriptionEligibility } from '@/libs/billing/billingSubscriptionProjection';
 import { resolveOrCreateBusinessIdentity } from '@/libs/billing/businessIdentity';
 import {
   beginCheckoutAttempt,
@@ -170,6 +171,14 @@ export async function POST(request: NextRequest) {
     // 4. TX1 — durable attempt + claim-before-Checkout.
     const clerkUserId = authResult.admin.clerkUserId ?? null;
     const reservation = await db.transaction(async (tx) => {
+      // Owner decision 2.3: typed refusals for every live-or-prepaid shape.
+      // beginCheckoutAttempt's own live-subscription check remains beneath
+      // this as the serialization backstop; THIS classification is what the
+      // UI can act on (resume via Portal, wait out prepaid entitlement).
+      const eligibility = await classifySubscriptionEligibility(tx, salonId, now);
+      if (!eligibility.eligible) {
+        return { kind: 'ineligible' as const, eligibility };
+      }
       const attempt = await beginCheckoutAttempt(tx, {
         salonId,
         purpose: 'plan_subscription',
@@ -217,6 +226,22 @@ export async function POST(request: NextRequest) {
       };
     });
 
+    if (reservation.kind === 'ineligible') {
+      const { eligibility } = reservation;
+      if (eligibility.reason === 'CANCELLATION_SCHEDULED') {
+        return errorJson(409, 'CANCELLATION_SCHEDULED', 'This subscription is scheduled to cancel. Resume or manage it in the Billing Portal instead of starting a new one.');
+      }
+      if (eligibility.reason === 'PREPAID_ENTITLEMENT_REMAINS') {
+        return NextResponse.json({
+          error: {
+            code: 'PREPAID_ENTITLEMENT_REMAINS',
+            message: 'This salon has prepaid access remaining. A new subscription can start after it ends.',
+            paidThrough: eligibility.paidThrough.toISOString(),
+          },
+        }, { status: 409 });
+      }
+      return errorJson(409, 'ACTIVE_SUBSCRIPTION_EXISTS', 'This salon already has a live subscription. Manage it in the Billing Portal.');
+    }
     if (reservation.kind === 'conflict') {
       return errorJson(409, 'ACTIVE_SUBSCRIPTION_EXISTS', 'This salon already has a live subscription. Manage it in the Billing Portal.');
     }
