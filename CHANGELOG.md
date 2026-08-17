@@ -1,3 +1,10 @@
+# [1.59.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.58.0...v1.59.0) (2026-08-17)
+
+
+### Features
+
+* **communications:** add durable shared-SMS delivery pipeline ([d93c331](https://github.com/SniperStopSniping/nailsalon/commit/d93c3314161e087354fd7706b55b050a3694b5f1))
+
 # [1.58.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.57.0...v1.58.0) (2026-08-17)
 
 
