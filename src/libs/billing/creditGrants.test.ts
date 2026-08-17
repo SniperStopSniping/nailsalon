@@ -211,10 +211,12 @@ describe('credit windows — §6 grant semantics', () => {
       paidThrough: new Date('2026-09-01T00:00:00.000Z'),
     });
     const now = new Date('2026-08-10T00:00:00.000Z');
+    // §6.4: the upgrade diff tops up an already-GRANTED window. Grant window 0
+    // (200 starter credits) first — an ungranted window is the engine's job.
+    const { evaluateSubscriptionWindows } = await grants();
+    await evaluateSubscriptionWindows({ subscriptionId: 'sub_up', now });
     const diff = await db.transaction(async tx =>
-      (await grants()).applyUpgradeDiff === undefined
-        ? { granted: -1 }
-        : applyUpgradeDiff(tx, { subscriptionId: 'sub_up', fromPlanKey: 'starter_2026_08', toPlanKey: 'pro_2026_08', now }));
+      applyUpgradeDiff(tx, { subscriptionId: 'sub_up', fromPlanKey: 'starter_2026_08', toPlanKey: 'pro_2026_08', now }));
 
     expect(diff.granted).toBe(200); // 400 − 200
 
@@ -450,9 +452,13 @@ describe('top-up fulfillment and reversals', () => {
       providerSid: 'SM_tp',
     });
     const refund = await db.transaction(async tx =>
-      reverseTopup(tx, { topupPurchaseId: 'tp_1', kind: 'refund', stripeRef: 're_tp1' }));
+      reverseTopup(tx, { topupPurchaseId: 'tp_1', kind: 'refund', stripeRef: 're_tp1', cumulativeRefundedCents: 599 }));
 
+    // Full 599¢ refund targets all 100 credits; 30 were consumed as sent
+    // messages and are never fabricated back — reversal caps at the 70
+    // unused, the 30-credit shortfall is audited.
     expect(refund.reversed).toBe(70);
+    expect(refund.shortfall).toBe(30);
 
     // Dispute on a second, fully spent purchase drives availability negative
     // and a subsequent reserve is blocked — never authorized below zero.
@@ -480,5 +486,202 @@ describe('top-up fulfillment and reversals', () => {
     const blocked = await reserveSmsCredits({ salonId: 's_tp1', dedupeKey: 'tp_res3', segments: 1 });
 
     expect(blocked.ok).toBe(false);
+  });
+});
+
+describe('top-up reversal — cumulative partial-refund arithmetic (§7.8)', () => {
+  async function seedPurchase(input: {
+    salonId: string;
+    purchaseId: string;
+    credits: number;
+    amountCents: number;
+    offerKey?: string;
+  }) {
+    const { fulfillTopupPurchase } = await grants();
+    await seedSalon(input.salonId);
+    await db.insert(schema.smsTopupPurchaseSchema).values({
+      id: input.purchaseId,
+      salonId: input.salonId,
+      topupOfferKey: input.offerKey ?? 'topup_100_paid_2026_08',
+      credits: input.credits,
+      amountCents: input.amountCents,
+      status: 'paid',
+      stripeCheckoutSessionId: `cs_${input.purchaseId}`,
+      stripePaymentIntentId: `pi_${input.purchaseId}`,
+    });
+    await db.transaction(async tx => fulfillTopupPurchase(tx, { topupPurchaseId: input.purchaseId }));
+  }
+
+  async function consume(salonId: string, dedupeKey: string, segments: number) {
+    const { reserveSmsCredits, settleReservationOnAccept } = await import('./creditReservation');
+    const reserved = await reserveSmsCredits({ salonId, dedupeKey, segments });
+    await settleReservationOnAccept({
+      reservationId: (reserved as { reservationId: string }).reservationId,
+      providerSid: `SM_${dedupeKey}`,
+    });
+  }
+
+  const refund = async (purchaseId: string, stripeRef: string, cumulativeRefundedCents: number) =>
+    db.transaction(async tx =>
+      (await grants()).reverseTopup(tx, { topupPurchaseId: purchaseId, kind: 'refund', stripeRef, cumulativeRefundedCents }));
+
+  it('converges two sequential partials on the cumulative target, not summed per-refund floors', async () => {
+    // G=250, A=1399¢. T(400)=floor(100000/1399)=71; T(800)=floor(200000/1399)=142.
+    // Per-refund floors would also give 71+71 here, but only cumulative
+    // targeting GUARANTEES total = T(cumulative) for every partition of the
+    // same refunded cents — pin the invariant, not the coincidence.
+    await seedPurchase({ salonId: 's_rv1', purchaseId: 'tp_rv1', credits: 250, amountCents: 1399, offerKey: 'topup_250_paid_2026_08' });
+
+    expect((await refund('tp_rv1', 're_rv1a', 400)).reversed).toBe(71);
+    expect((await refund('tp_rv1', 're_rv1b', 800)).reversed).toBe(71);
+
+    const total = await db.execute(sql`
+      SELECT COALESCE(-SUM(amount), 0)::int AS reversed FROM sms_credit_ledger
+      WHERE salon_id = 's_rv1' AND entry_type = 'purchase_reversal'
+    `);
+
+    expect(Number((total.rows[0] as Record<string, unknown>).reversed)).toBe(142);
+  });
+
+  it('reverses proportionally after partial consumption', async () => {
+    // G=100, A=599¢, 40 consumed. T(300)=floor(30000/599)=50 ≤ U=60 → 50.
+    await seedPurchase({ salonId: 's_rv2', purchaseId: 'tp_rv2', credits: 100, amountCents: 599 });
+    await consume('s_rv2', 'rv2_spend', 40);
+    const result = await refund('tp_rv2', 're_rv2', 300);
+
+    expect(result).toEqual({ reversed: 50, shortfall: 0, anomaly: null });
+  });
+
+  it('caps at unused value and audits the consumed shortfall', async () => {
+    // G=100, A=599¢, 70 consumed. T(300)=50, U=30 → reverse 30, shortfall 20.
+    await seedPurchase({ salonId: 's_rv3', purchaseId: 'tp_rv3', credits: 100, amountCents: 599 });
+    await consume('s_rv3', 'rv3_spend', 70);
+    const result = await refund('tp_rv3', 're_rv3', 300);
+
+    expect(result).toEqual({ reversed: 30, shortfall: 20, anomaly: null });
+
+    const note = await db.execute(sql`
+      SELECT note FROM sms_credit_ledger
+      WHERE salon_id = 's_rv3' AND entry_type = 'purchase_reversal'
+    `);
+
+    expect(String((note.rows[0] as Record<string, unknown>).note)).toContain('consumed_shortfall=20');
+  });
+
+  it('is exact at full refund arriving after a partial', async () => {
+    // G=100, A=599¢. T(220)=floor(22000/599)=36, then T(599)=100 → +64 = 100.
+    await seedPurchase({ salonId: 's_rv4', purchaseId: 'tp_rv4', credits: 100, amountCents: 599 });
+
+    expect((await refund('tp_rv4', 're_rv4a', 220)).reversed).toBe(36);
+    expect((await refund('tp_rv4', 're_rv4b', 599)).reversed).toBe(64);
+
+    const purchase = await db
+      .select({ status: schema.smsTopupPurchaseSchema.status })
+      .from(schema.smsTopupPurchaseSchema)
+      .where(eq(schema.smsTopupPurchaseSchema.id, 'tp_rv4'));
+
+    expect(purchase[0]!.status).toBe('refunded');
+  });
+
+  it('dispute after a partial refund reverses only the residual G − C', async () => {
+    // Prior partial reversed 36; dispute reverses 100 − 36 = 64, never 100 —
+    // total reversal can never exceed the grant.
+    await seedPurchase({ salonId: 's_rv5', purchaseId: 'tp_rv5', credits: 100, amountCents: 599 });
+
+    expect((await refund('tp_rv5', 're_rv5', 220)).reversed).toBe(36);
+
+    const dispute = await db.transaction(async tx =>
+      (await grants()).reverseTopup(tx, { topupPurchaseId: 'tp_rv5', kind: 'dispute', stripeRef: 'dp_rv5' }));
+
+    expect(dispute.reversed).toBe(64);
+
+    const total = await db.execute(sql`
+      SELECT COALESCE(-SUM(amount), 0)::int AS reversed FROM sms_credit_ledger
+      WHERE salon_id = 's_rv5' AND entry_type = 'purchase_reversal'
+    `);
+
+    expect(Number((total.rows[0] as Record<string, unknown>).reversed)).toBe(100);
+  });
+
+  it('replayed and reordered refund events are no-ops', async () => {
+    await seedPurchase({ salonId: 's_rv6', purchaseId: 'tp_rv6', credits: 100, amountCents: 599 });
+
+    expect((await refund('tp_rv6', 're_rv6', 400)).reversed).toBe(66);
+    // Same event redelivered: same cumulative figure ⇒ T = C ⇒ 0.
+    expect((await refund('tp_rv6', 're_rv6', 400)).reversed).toBe(0);
+  });
+
+  it('a cumulative figure that moved backward writes nothing and flags the anomaly', async () => {
+    // Stripe refunds can FAIL after creation, shrinking amount_refunded. The
+    // append-only ledger never auto-claws-forward — manual audited adjustment.
+    await seedPurchase({ salonId: 's_rv7', purchaseId: 'tp_rv7', credits: 100, amountCents: 599 });
+
+    expect((await refund('tp_rv7', 're_rv7a', 400)).reversed).toBe(66);
+    expect(await refund('tp_rv7', 're_rv7b', 300))
+      .toEqual({ reversed: 0, shortfall: 0, anomaly: 'REFUND_TOTAL_REGRESSED' });
+  });
+
+  it('a refund without cumulative evidence fails closed', async () => {
+    await seedPurchase({ salonId: 's_rv8', purchaseId: 'tp_rv8', credits: 100, amountCents: 599 });
+    const result = await db.transaction(async tx =>
+      (await grants()).reverseTopup(tx, { topupPurchaseId: 'tp_rv8', kind: 'refund', stripeRef: 're_rv8' }));
+
+    expect(result).toEqual({ reversed: 0, shortfall: 0, anomaly: 'REFUND_EVIDENCE_MISSING' });
+  });
+});
+
+describe('upgrade diff — window-cumulative, not plan-pair (§6.4)', () => {
+  it('a downgrade-then-upgrade sequence cannot farm credits past the highest allowance', async () => {
+    const { applyUpgradeDiff, evaluateSubscriptionWindows } = await grants();
+    await seedSalon('s_farm');
+    await seedSubscription({
+      id: 'sub_farm',
+      salonId: 's_farm',
+      anchor: new Date('2026-08-01T00:00:00.000Z'),
+      paidThrough: new Date('2026-09-01T00:00:00.000Z'),
+    });
+    const now = new Date('2026-08-10T00:00:00.000Z');
+    await evaluateSubscriptionWindows({ subscriptionId: 'sub_farm', now });
+
+    expect(await monthlyBalance('s_farm')).toBe(200); // starter window grant
+
+    // Starter→Elite tops the window up to Elite's 800.
+    const up1 = await db.transaction(async tx =>
+      applyUpgradeDiff(tx, { subscriptionId: 'sub_farm', fromPlanKey: 'starter_2026_08', toPlanKey: 'elite_2026_08', now }));
+
+    expect(up1.granted).toBe(600);
+
+    // Downgrade (pending, no clawback), then Starter→Pro: a plan-PAIR diff
+    // would mint +200 under a fresh pair key; cumulative evidence sees 800
+    // already granted ≥ Pro's 400 and mints nothing.
+    const up2 = await db.transaction(async tx =>
+      applyUpgradeDiff(tx, { subscriptionId: 'sub_farm', fromPlanKey: 'starter_2026_08', toPlanKey: 'pro_2026_08', now }));
+
+    expect(up2.granted).toBe(0);
+    expect(await monthlyBalance('s_farm')).toBe(800);
+  });
+
+  it('grants nothing for a window the engine has not granted', async () => {
+    const { applyUpgradeDiff } = await grants();
+    await seedSalon('s_ungr');
+    await seedSubscription({
+      id: 'sub_ungr',
+      salonId: 's_ungr',
+      anchor: new Date('2026-08-01T00:00:00.000Z'),
+      paidThrough: new Date('2026-09-01T00:00:00.000Z'),
+    });
+    // No evaluateSubscriptionWindows call: window 0 has no granted row, so the
+    // engine owns it entirely — it will grant the NEW plan's full allowance
+    // when it runs, and an upgrade diff here would double-grant.
+    const result = await db.transaction(async tx =>
+      applyUpgradeDiff(tx, {
+        subscriptionId: 'sub_ungr',
+        fromPlanKey: 'starter_2026_08',
+        toPlanKey: 'elite_2026_08',
+        now: new Date('2026-08-10T00:00:00.000Z'),
+      }));
+
+    expect(result.granted).toBe(0);
+    expect(await monthlyBalance('s_ungr')).toBe(0);
   });
 });

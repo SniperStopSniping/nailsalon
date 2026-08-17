@@ -233,7 +233,23 @@ export async function evaluateSubscriptionWindows(
   });
 }
 
-/** Upgrade mid-window: grant only max(0, newAllowance − alreadyGrantedThisWindow). */
+/**
+ * Upgrade mid-window: grant only max(0, newAllowance − alreadyGrantedThisWindow).
+ *
+ * `alreadyGrantedThisWindow` is computed from GRANTED EVIDENCE — the sum of
+ * monthly grant lots expiring at this window's end — never from the from/to
+ * plan pair. A pair diff is farmable: Starter→Elite (+600), downgrade, then
+ * Starter→Pro carries a fresh pair key and would mint +200 more, landing a
+ * salon at 1000 monthly credits inside an Elite-capped-800 window. Against
+ * cumulative evidence the second upgrade sees 800 already granted and mints
+ * nothing (contract §6.4).
+ *
+ * Only an already-GRANTED window is topped up. If the current window has no
+ * granted row yet, the window engine is the sole granter and will mint the
+ * NEW plan's full allowance when the window qualifies (the webhook updates
+ * plan_definition_key before evaluating) — an upgrade-diff issued here too
+ * would double-grant the difference the engine is about to include.
+ */
 export async function applyUpgradeDiff(
   tx: BillingDbTransaction,
   input: {
@@ -258,15 +274,45 @@ export async function applyUpgradeDiff(
   if (fromPlan === null || toPlan === null) {
     return { granted: 0 };
   }
-  const diff = Math.max(0, toPlan.monthlySmsCredits - fromPlan.monthlySmsCredits);
-  if (diff === 0) {
-    return { granted: 0 };
-  }
   const window = computeCreditWindow(subscription.creditCycleAnchor, subscription.creditCycleIndex);
   if (now.getTime() < window.start.getTime() || now.getTime() >= window.end.getTime()) {
     return { granted: 0 };
   }
+
+  const windowRows = await tx
+    .select({ status: billingCreditWindowSchema.status })
+    .from(billingCreditWindowSchema)
+    .where(and(
+      eq(billingCreditWindowSchema.billingSubscriptionId, subscription.id),
+      eq(billingCreditWindowSchema.creditCycleIndex, subscription.creditCycleIndex),
+    ))
+    .limit(1);
+  if (windowRows.length === 0 || windowRows[0]!.status !== 'granted') {
+    return { granted: 0 };
+  }
+
+  // Serialize against every other ledger mutation for this salon BEFORE
+  // reading the cumulative sum, or two concurrent plan changes could both
+  // read the pre-upgrade total.
   await lockCreditAccount(tx, subscription.salonId);
+
+  // Every monthly grant for this window — the window grant plus any prior
+  // upgrade diffs — expires exactly at window.end, and no other window of
+  // this salon shares that instant (one live subscription per salon), so the
+  // expiry IS the window discriminator.
+  const grantedRows = await tx.execute(sql`
+    SELECT COALESCE(SUM(amount), 0)::int AS granted
+    FROM sms_credit_ledger
+    WHERE salon_id = ${subscription.salonId}
+      AND bucket = 'monthly'
+      AND entry_type = 'grant'
+      AND expires_at = ${window.end}
+  `);
+  const alreadyGranted = Number((grantedRows.rows[0] as Record<string, unknown>).granted);
+  const diff = Math.max(0, toPlan.monthlySmsCredits - alreadyGranted);
+  if (diff === 0) {
+    return { granted: 0 };
+  }
   const { created } = await appendLotGrant(tx, {
     salonId: subscription.salonId,
     bucket: 'monthly',
@@ -325,20 +371,56 @@ export async function fulfillTopupPurchase(
 }
 
 /**
- * Top-up refund: reverse min(unused, refunded) from the purchased lot —
- * never below the lot's remaining value. Dispute: reverse the FULL credited
- * amount; availability MAY go negative (blocks sends, never authorizes).
+ * Top-up refund/dispute reversal — deterministic under CUMULATIVE provider
+ * evidence (contract §7.8).
+ *
+ * Definitions, per purchase:
+ *   G = credits granted            A = amount_cents paid
+ *   R = cumulative refunded cents  — Stripe's `charge.amount_refunded`,
+ *       cumulative by definition, re-fetchable forever; clamped to [0, A]
+ *   C = credits already reversed   — derived from the append-only ledger's
+ *       `purchase_reversal` rows against this lot (never from event payloads,
+ *       which are purge-scheduled and double-count charge.refunded +
+ *       refund.updated for one refund)
+ *   U = unused value remaining on the lot
+ *
+ *   refund:  T(R) = floor(G * R / A)            — target cumulative reversal
+ *            d    = min(max(0, T − C), max(U, 0))
+ *   dispute: d    = max(0, G − C)               — full residual, NO unused
+ *            cap; availability MAY go negative (blocks sends, never
+ *            authorizes below zero)
+ *
+ * floor is deliberate: the salon is never docked more credits than the
+ * refunded money proportionally covers (Luster absorbs the fraction), and it
+ * is exact at full refund (T(A) = G). Cumulative targeting makes replays and
+ * reordered events no-ops (older R ⇒ T ≤ C ⇒ d = 0) and makes multiple
+ * partials converge without drift — summing independent per-refund floors
+ * does not. G ≤ 1000 and A ≤ 4999 keep G·R ≤ 4,999,000: exact integer math.
+ *
+ * A refund whose T − C exceeds the unused cap reverses only U; the shortfall
+ * is value the salon already consumed as sent messages, which is never
+ * fabricated back (§7.8 "partial usage = audited adjustment") — it is
+ * recorded on the reversal row's note. A cumulative figure that moved
+ * BACKWARD (a failed refund) writes nothing: the ledger is append-only, so
+ * correction is a manual audited adjustment, never an automatic re-grant.
  */
 export async function reverseTopup(
   tx: BillingDbTransaction,
   input: {
     topupPurchaseId: string;
     kind: 'refund' | 'dispute';
+    /** Refund id or dispute id — the per-event identity for the ledger key. */
     stripeRef: string;
+    /**
+     * REQUIRED for refunds: the charge's cumulative `amount_refunded` at the
+     * time of this event. Never a per-event delta. Ignored for disputes.
+     */
+    cumulativeRefundedCents?: number;
     now?: Date;
   },
-): Promise<{ reversed: number }> {
+): Promise<{ reversed: number; shortfall: number; anomaly: string | null }> {
   const now = input.now ?? new Date();
+  const none = (anomaly: string | null) => ({ reversed: 0, shortfall: 0, anomaly });
   const rows = await tx
     .select()
     .from(smsTopupPurchaseSchema)
@@ -346,18 +428,52 @@ export async function reverseTopup(
     .for('update');
   const purchase = rows[0];
   if (purchase === undefined || purchase.salonId === null || purchase.grantLedgerId === null) {
-    return { reversed: 0 };
+    return none(null);
   }
   await lockCreditAccount(tx, purchase.salonId);
   const info = await lotRemaining(tx, purchase.grantLedgerId);
   if (info === null) {
-    return { reversed: 0 };
+    return none(null);
   }
-  const amount = input.kind === 'dispute'
-    ? purchase.credits
-    : Math.min(Math.max(info.remaining, 0), purchase.credits);
+
+  // C — cumulative credits already reversed, from durable ledger evidence.
+  const reversedRows = await tx.execute(sql`
+    SELECT COALESCE(-SUM(amount), 0)::int AS reversed
+    FROM sms_credit_ledger
+    WHERE consumed_from_ledger_id = ${purchase.grantLedgerId}
+      AND entry_type = 'purchase_reversal'
+  `);
+  const alreadyReversed = Number((reversedRows.rows[0] as Record<string, unknown>).reversed);
+
+  let amount: number;
+  let shortfall = 0;
+  let note: string | null = null;
+  if (input.kind === 'dispute') {
+    amount = Math.max(0, purchase.credits - alreadyReversed);
+  } else {
+    if (
+      input.cumulativeRefundedCents === undefined
+      || !Number.isInteger(input.cumulativeRefundedCents)
+      || input.cumulativeRefundedCents < 0
+    ) {
+      // Never guess a refund magnitude — fail closed for a manual look.
+      return none('REFUND_EVIDENCE_MISSING');
+    }
+    const cumulativeCents = Math.min(input.cumulativeRefundedCents, purchase.amountCents);
+    const target = Math.floor((purchase.credits * cumulativeCents) / purchase.amountCents);
+    if (target < alreadyReversed) {
+      // amount_refunded moved backward — a failed refund. Append-only ledger:
+      // no automatic claw-forward; manual audited adjustment only.
+      return none('REFUND_TOTAL_REGRESSED');
+    }
+    const delta = target - alreadyReversed;
+    amount = Math.min(delta, Math.max(info.remaining, 0));
+    shortfall = delta - amount;
+    note = `cum_refunded_cents=${cumulativeCents}${
+      shortfall > 0 ? `;consumed_shortfall=${shortfall}` : ''}`;
+  }
   if (amount <= 0) {
-    return { reversed: 0 };
+    return { reversed: 0, shortfall, anomaly: null };
   }
   const key = input.kind === 'dispute'
     ? `dispute-reversal:${input.stripeRef}:${purchase.grantLedgerId}`
@@ -371,10 +487,11 @@ export async function reverseTopup(
     idempotencyKey: key,
     reason: input.kind === 'dispute' ? 'topup_dispute_reversal' : 'topup_refund_reversal',
     stripeRef: input.stripeRef,
+    note,
   });
   const nextStatus = input.kind === 'dispute'
     ? 'disputed'
-    : info.remaining >= purchase.credits ? 'refunded' : 'partially_reversed';
+    : (input.cumulativeRefundedCents ?? 0) >= purchase.amountCents ? 'refunded' : 'partially_reversed';
   await tx
     .update(smsTopupPurchaseSchema)
     .set({
@@ -384,7 +501,7 @@ export async function reverseTopup(
     })
     .where(eq(smsTopupPurchaseSchema.id, purchase.id));
   await recomputeCachedBalance(tx, purchase.salonId, now);
-  return { reversed: created ? amount : 0 };
+  return { reversed: created ? amount : 0, shortfall, anomaly: null };
 }
 
 /** Bookkeeping sweep: expired lots get explicit expiry entries. Correctness never depends on it. */
