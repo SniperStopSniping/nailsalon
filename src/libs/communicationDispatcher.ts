@@ -324,7 +324,10 @@ export async function dispatchClaimedIntent(
       to: destination.e164,
       body,
       messagingServiceSid: readiness.messagingServiceSid,
-      statusCallbackUrl: null,
+      // Delivery identity in the callback (§6.10): a signed status callback
+      // carrying this id is the §7.5 evidence that lets the resolver adopt a
+      // SID onto an unknown-outcome intent.
+      statusCallbackUrl: (await import('@/libs/twilioMessagingSend')).buildStatusCallbackUrl(deliveryId),
     });
     sid = result.sid;
   } catch (error) {
