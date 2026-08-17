@@ -83,6 +83,7 @@ import { BackButton, ModalHeader } from './AppModal';
 import { BookingFlowEditor } from './BookingFlowEditor';
 import { PageThemesSettings } from './PageThemesSettings';
 import { SmartFitSettingsCard } from './SmartFitSettingsCard';
+import { UsageBillingModal } from './UsageBillingModal';
 
 /**
  * Formats a Canadian postal code readably (`m5h2m9` → `M5H 2M9`). Values that
@@ -2480,6 +2481,9 @@ export function SettingsModal({
   const [visibilityLoading, setVisibilityLoading] = useState(true);
   const [visibilitySaving, setVisibilitySaving] = useState(false);
   const [visibilityEntitled, setVisibilityEntitled] = useState(false);
+
+  // Usage & billing modal (Gate C4).
+  const [showUsageBilling, setShowUsageBilling] = useState(false);
 
   // Compare Plans modal state (Step 19)
   const [showComparePlans, setShowComparePlans] = useState(false);
@@ -6187,12 +6191,27 @@ export function SettingsModal({
                       Compare Plans
                     </button>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => setShowUsageBilling(true)}
+                    className="rounded-[10px] border border-gray-300 px-4 py-2.5 text-sm font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
+                  >
+                    Usage & billing
+                  </button>
                 </div>
               </div>
             </Section>
           </>
         )}
       </div>
+
+      {/* Usage & billing (Gate C4) */}
+      {showUsageBilling && salonSlug && (
+        <UsageBillingModal
+          salonSlug={salonSlug}
+          onClose={() => setShowUsageBilling(false)}
+        />
+      )}
 
       {/* Compare Plans Modal (Step 19) */}
       <ComparePlansModal

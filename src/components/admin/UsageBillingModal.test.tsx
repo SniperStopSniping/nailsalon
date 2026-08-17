@@ -17,6 +17,11 @@ describe('UsageBillingModal', () => {
     vi.stubGlobal('fetch', fetchMock);
     fetchMock.mockResolvedValue(new Response(JSON.stringify({
       data: {
+        salonId: 'salon_1',
+        topupOffers: [
+          { key: 'topup_100_paid_2026_08', credits: 100, priceCents: 599 },
+          { key: 'topup_250_paid_2026_08', credits: 250, priceCents: 1399 },
+        ],
         usage: {
           availableCredits: 277,
           monthlyCredits: 277,
@@ -69,5 +74,9 @@ describe('UsageBillingModal', () => {
     expect(document.body.innerHTML).not.toContain('4165550199');
     // No internal ledger vocabulary leaks.
     expect(document.body.innerHTML).not.toMatch(/lot|reservation|ledger|debit/i);
+    // Buy More renders the server-resolved offers (§9.6) — real buttons, no
+    // client-side catalogue.
+    expect(screen.getByRole('button', { name: /100 credits — \$5\.99/ })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /250 credits — \$13\.99/ })).toBeInTheDocument();
   });
 });

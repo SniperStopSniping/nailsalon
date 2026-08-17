@@ -130,3 +130,10 @@ export function getPublicTopupOffers(family: PlanFamily): PublicTopupOfferProjec
 
 Object.freeze(TOPUP_OFFERS);
 Object.values(TOPUP_OFFERS).forEach(Object.freeze);
+
+/** Active offers for ONE audience — the Buy More list, server-resolved (§9.1). */
+export function listActiveTopupOffersForAudience(audience: TopupAudience): TopupOffer[] {
+  return Object.values(TOPUP_OFFERS)
+    .filter(offer => offer.active && offer.audience === audience)
+    .sort((a, b) => a.credits - b.credits);
+}

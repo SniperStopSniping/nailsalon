@@ -15,6 +15,7 @@ import { X } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
 
 type UsagePayload = {
+  salonId: string;
   usage: {
     availableCredits: number;
     monthlyCredits: number;
@@ -32,6 +33,7 @@ type UsagePayload = {
       cancelAtPeriodEnd: boolean;
     } | null;
   };
+  topupOffers: Array<{ key: string; credits: number; priceCents: number }>;
   history: Array<{
     id: string;
     channel: string;
@@ -80,6 +82,8 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [portalLoading, setPortalLoading] = useState(false);
+  const [buying, setBuying] = useState<string | null>(null);
+  const [buyError, setBuyError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -127,6 +131,33 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
       setPortalLoading(false);
     }
   }, [portalLoading, salonSlug]);
+
+  const buyTopup = useCallback(async (topupOfferKey: string) => {
+    if (buying !== null) {
+      return;
+    }
+    try {
+      setBuying(topupOfferKey);
+      setBuyError(null);
+      const response = await fetch('/api/billing/checkout/topup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ salonId: data?.salonId, topupOfferKey }),
+      });
+      const body = await response.json();
+      if (response.ok && body.data?.url) {
+        window.location.assign(body.data.url);
+        return;
+      }
+      setBuyError(body.error?.code === 'TOPUPS_DISABLED'
+        ? 'Buying credits is not available yet.'
+        : 'Could not start the purchase. Please try again.');
+    } catch {
+      setBuyError('Could not start the purchase. Please try again.');
+    } finally {
+      setBuying(null);
+    }
+  }, [buying, salonSlug, data]);
 
   const usage = data?.usage ?? null;
 
@@ -236,6 +267,27 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
                   {portalLoading ? 'Opening…' : 'Manage billing'}
                 </button>
               </section>
+
+              {data!.topupOffers.length > 0 && (
+                <section aria-labelledby="buymore-heading" className="space-y-2">
+                  <h3 id="buymore-heading" className="text-[15px] font-medium text-gray-900">Buy more credits</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {data!.topupOffers.map(offer => (
+                      <button
+                        key={offer.key}
+                        type="button"
+                        onClick={() => buyTopup(offer.key)}
+                        disabled={buying !== null}
+                        className="rounded-lg border border-gray-300 px-3 py-2 text-[14px] font-medium text-gray-800 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 disabled:opacity-40 motion-reduce:transition-none"
+                      >
+                        {buying === offer.key ? 'Opening…' : `${offer.credits} credits — $${(offer.priceCents / 100).toFixed(2)}`}
+                      </button>
+                    ))}
+                  </div>
+                  <p role="status" aria-live="polite" className="text-[13px] text-red-600">{buyError ?? ''}</p>
+                  <p className="text-[13px] text-[#8E8E93]">Purchased credits never expire. Prices in CAD, plus applicable taxes.</p>
+                </section>
+              )}
 
               <section aria-labelledby="history-heading" className="space-y-2">
                 <h3 id="history-heading" className="text-[15px] font-medium text-gray-900">Recent messages</h3>
