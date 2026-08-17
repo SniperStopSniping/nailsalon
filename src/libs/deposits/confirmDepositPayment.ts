@@ -911,19 +911,21 @@ export async function enqueueDepositConfirmationEffectsInTx(args: {
       variables,
       smsEligible: communicationContext.smsEligible,
     });
-    await materializeReminders({
-      tx,
-      salonId,
-      appointmentId: appointment.id,
-      appointmentStart: appointmentRow.startTime,
-      appointmentUpdatedAt: appointmentRow.updatedAt,
-      clientPhone: smsConsentGranted ? args.clientPhone : null,
-      clientEmail: appointmentRow.clientEmail,
-      settings: communicationContext.settings,
-      timeZone: communicationContext.timeZone,
-      variables,
-      smsEligible: communicationContext.smsEligible,
-    });
+    if (communicationContext.mode !== 'connected_byo') {
+      await materializeReminders({
+        tx,
+        salonId,
+        appointmentId: appointment.id,
+        appointmentStart: appointmentRow.startTime,
+        appointmentUpdatedAt: appointmentRow.updatedAt,
+        clientPhone: smsConsentGranted ? args.clientPhone : null,
+        clientEmail: appointmentRow.clientEmail,
+        settings: communicationContext.settings,
+        timeZone: communicationContext.timeZone,
+        variables,
+        smsEligible: communicationContext.smsEligible,
+      });
+    }
   }
 }
 

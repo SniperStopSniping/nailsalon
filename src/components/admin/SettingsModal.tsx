@@ -5351,7 +5351,10 @@ export function SettingsModal({
                           ...current.rules,
                           {
                             id: `crule_${crypto.randomUUID()}`,
-                            offsetMinutes: 1440,
+                            // 2h, NOT 24h: a new rule must not collide with
+                            // the shipped default rule's enabled offset,
+                            // which would fail validation on save.
+                            offsetMinutes: 120,
                             channels: 'email' as const,
                             enabled: true,
                           },

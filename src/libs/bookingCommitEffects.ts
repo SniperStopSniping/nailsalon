@@ -27,6 +27,7 @@
  * with the response body. The two halves straddling the cache write are
  * deliberate and pinned by test, not incidental.
  */
+import * as Sentry from '@sentry/nextjs';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 
 import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
@@ -486,39 +487,54 @@ export async function runBookingCommitSideEffects(
   // direct lane, so durability rides its idempotent keys: a replay recomputes
   // transitionEventId 'direct' and lands on the same rows.
   if (options.calendarCause?.kind !== 'deposit_confirmation') {
-    const appointmentClientEmail = await loadAppointmentClientEmail(db, context.appointment.id);
-    const intentVariables = {
-      salonName: context.salon.name,
-      startTime: formatIntentStartTime(context.startTime, context.timeZone),
-      manageUrl: context.manageUrl,
-    };
-    await materializeClientEvent({
-      tx: db,
-      salonId: context.salon.id,
-      appointmentId: context.appointment.id,
-      eventType: 'booking_confirmation',
-      transitionEventId: 'direct',
-      clientPhone: context.smsConsentGranted ? context.clientPhone : null,
-      clientEmail: null, // the legacy email leg below owns the confirmation email
-      settings: communicationContext.settings,
-      timeZone: context.timeZone,
-      appointmentStart: context.startTime,
-      variables: intentVariables,
-      smsEligible: communicationContext.smsEligible,
-    });
-    await materializeReminders({
-      tx: db,
-      salonId: context.salon.id,
-      appointmentId: context.appointment.id,
-      appointmentStart: context.startTime,
-      appointmentUpdatedAt: context.appointment.updatedAt,
-      clientPhone: context.smsConsentGranted ? context.clientPhone : null,
-      clientEmail: appointmentClientEmail,
-      settings: communicationContext.settings,
-      timeZone: context.timeZone,
-      variables: intentVariables,
-      smsEligible: communicationContext.smsEligible,
-    });
+    try {
+      const appointmentClientEmail = await loadAppointmentClientEmail(db, context.appointment.id);
+      const intentVariables = {
+        salonName: context.salon.name,
+        startTime: formatIntentStartTime(context.startTime, context.timeZone),
+        manageUrl: context.manageUrl,
+      };
+      await materializeClientEvent({
+        tx: db,
+        salonId: context.salon.id,
+        appointmentId: context.appointment.id,
+        eventType: 'booking_confirmation',
+        transitionEventId: 'direct',
+        clientPhone: context.smsConsentGranted ? context.clientPhone : null,
+        clientEmail: null, // the legacy email leg below owns the confirmation email
+        settings: communicationContext.settings,
+        timeZone: context.timeZone,
+        appointmentStart: context.startTime,
+        variables: intentVariables,
+        smsEligible: communicationContext.smsEligible,
+      });
+      // REMINDER intents are shared-mode only: a BYO salon's reminders (SMS
+      // AND email) stay wholly on the legacy dual-window cron it runs today —
+      // materializing the email half here would double-email BYO clients
+      // (adversarial review H1).
+      if (communicationContext.mode !== 'connected_byo') {
+        await materializeReminders({
+          tx: db,
+          salonId: context.salon.id,
+          appointmentId: context.appointment.id,
+          appointmentStart: context.startTime,
+          appointmentUpdatedAt: context.appointment.updatedAt,
+          clientPhone: context.smsConsentGranted ? context.clientPhone : null,
+          clientEmail: appointmentClientEmail,
+          settings: communicationContext.settings,
+          timeZone: context.timeZone,
+          variables: intentVariables,
+          smsEligible: communicationContext.smsEligible,
+        });
+      }
+    } catch (materializationError) {
+      // Materialization must never take down the effects that follow it —
+      // the legacy confirmation and the owner alert still fire (review H8).
+      // The 15-minute reconciler re-materializes anything lost here.
+      Sentry.captureException(materializationError, {
+        tags: { seam: 'bookingCommitEffects.materialization' },
+      });
+    }
   }
 
   if (context.smsConsentGranted && !communicationContext.smsEligible) {

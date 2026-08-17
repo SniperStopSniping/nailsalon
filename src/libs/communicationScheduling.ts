@@ -408,6 +408,11 @@ export function planReminders(input: {
         quietHours: input.quietHours,
         timeZone: input.timeZone,
         notAfter,
+        // Quiet hours hold TEXTS overnight (the owner-facing copy is exactly
+        // that); an email reminder lands in an inbox, not a sleeping pocket.
+        // Without this, an early-morning appointment's 2h EMAIL reminder
+        // shifts past its own notAfter and is dropped entirely (review H9).
+        bypass: channel === 'email',
       });
       if (decision.kind === 'stale') {
         planned.push({ kind: 'skipped', ...identity, reason: QUIET_HOURS_STALE });

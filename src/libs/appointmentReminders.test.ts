@@ -476,6 +476,7 @@ describe('appointment reminders', () => {
       intentsMaterialized: 0,
       intentsCanceledStale: 0,
       orphanIntentsCanceled: 0,
+      failedEmailsRetried: 0,
     });
   });
 

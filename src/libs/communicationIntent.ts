@@ -142,7 +142,11 @@ export async function claimDueIntents(input: {
   const rows = await db.execute(sql`
     WITH due AS (
       SELECT i.id,
-             ROW_NUMBER() OVER (PARTITION BY i.salon_id ORDER BY i.scheduled_for, i.id) AS rn
+             -- available_at FIRST: deferral pushes available_at forward, so a
+             -- structurally-blocked intent rotates to the back of its salon's
+             -- queue instead of head-of-line-blocking every other channel
+             -- (adversarial review H4).
+             ROW_NUMBER() OVER (PARTITION BY i.salon_id ORDER BY i.available_at, i.scheduled_for, i.id) AS rn
       FROM communication_intent i
       WHERE i.status = 'pending'
         AND i.available_at <= ${now}

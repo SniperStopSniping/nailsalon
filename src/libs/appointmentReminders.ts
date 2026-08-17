@@ -33,7 +33,12 @@ import {
 } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
 
-const DAY_BEFORE_QUERY_HOURS = 36;
+// The RECONCILER's horizon must cover the longest configurable rule lead
+// (7 days) plus a margin, or long-lead intents escape reconciliation
+// entirely: a reschedule outside the legacy 36h window would never cancel
+// its stale reminder (adversarial review H5). The BYO legacy due-windows
+// are unchanged — they gate per candidate, not in the query.
+const RECONCILER_QUERY_HOURS = 8 * 24;
 const DAY_BEFORE_WINDOW_MINUTES = 30;
 const SAME_DAY_WINDOW_MIN_MINUTES = 105;
 const SAME_DAY_WINDOW_MAX_MINUTES = 135;
@@ -87,6 +92,7 @@ export type ProcessAppointmentRemindersResult = {
   intentsMaterialized: number;
   intentsCanceledStale: number;
   orphanIntentsCanceled: number;
+  failedEmailsRetried: number;
 };
 
 export async function processAppointmentReminders(args?: {
@@ -107,6 +113,7 @@ export async function processAppointmentReminders(args?: {
     intentsMaterialized: 0,
     intentsCanceledStale: 0,
     orphanIntentsCanceled: 0,
+    failedEmailsRetried: 0,
   };
 
   const contextCache = new Map<string, Awaited<ReturnType<typeof resolveSalonCommunicationContext>>>();
@@ -256,6 +263,22 @@ export async function processAppointmentReminders(args?: {
     }
   }
 
+  // Failed-EMAIL retry (review H7): the legacy leg retried failed reminder
+  // emails; the intent lane must not silently do worse. A failed email
+  // intent whose window is still open returns to pending with backoff, at
+  // most three attempts. SMS is NEVER blanket-retried this way — its failure
+  // semantics (credits, §7.5 ambiguity) belong to the dispatcher.
+  const retriedEmails = await db.execute(sql`
+    UPDATE communication_intent
+       SET status = 'pending', available_at = ${new Date(now.getTime() + 10 * 60 * 1000)}
+     WHERE channel = 'email'
+       AND status = 'failed'
+       AND attempts <= 3
+       AND not_after > ${now}
+    RETURNING id
+  `);
+  result.failedEmailsRetried = retriedEmails.rows.length;
+
   // Orphan sweep (contract §11.1): live reminder intents whose appointment is
   // no longer active — cancelled, completed elsewhere, or soft-deleted — are
   // canceled. The per-candidate reconciler never sees these appointments (the
@@ -268,6 +291,7 @@ export async function processAppointmentReminders(args?: {
            last_error = 'APPOINTMENT_NO_LONGER_ACTIVE'
       FROM appointment a
      WHERE i.appointment_id = a.id
+       AND i.salon_id = a.salon_id
        AND i.event_type = 'appointment_reminder'
        AND i.status IN ('pending', 'blocked_no_credit')
        AND (a.status NOT IN ('pending', 'confirmed') OR a.deleted_at IS NOT NULL)
@@ -301,7 +325,7 @@ export function isSameDayReminderDue(args: {
 }
 
 async function loadReminderCandidates(now: Date): Promise<ReminderCandidate[]> {
-  const latestRelevantStartTime = new Date(now.getTime() + DAY_BEFORE_QUERY_HOURS * 60 * 60 * 1000);
+  const latestRelevantStartTime = new Date(now.getTime() + RECONCILER_QUERY_HOURS * 60 * 60 * 1000);
 
   const rows = await db
     .select({
@@ -1100,19 +1124,30 @@ async function reconcileSharedModeReminders(args: {
   });
   const desiredKeys = planned.flatMap(plan => (plan.kind === 'scheduled' ? [plan.dedupeKey] : []));
 
-  const liveRows = await db
-    .select({ dedupeKey: communicationIntentSchema.dedupeKey })
+  const allRows = await db
+    .select({
+      dedupeKey: communicationIntentSchema.dedupeKey,
+      status: communicationIntentSchema.status,
+    })
     .from(communicationIntentSchema)
     .where(and(
       eq(communicationIntentSchema.salonId, candidate.salonId),
       eq(communicationIntentSchema.appointmentId, candidate.appointmentId),
       eq(communicationIntentSchema.eventType, 'appointment_reminder'),
-      inArray(communicationIntentSchema.status, ['pending', 'blocked_no_credit']),
     ));
-  const liveKeys = new Set(liveRows.map(row => row.dedupeKey));
-  const inSync = desiredKeys.length === liveKeys.size
-    && desiredKeys.every(key => liveKeys.has(key));
-  if (inSync) {
+  // ANY existing row satisfies a desired key for the fast path — a FAILED or
+  // SENT row still owns its dedupe key (the unique index has no status
+  // predicate), so treating it as drift would re-enter the transaction and
+  // mint a fresh manage capability every pass, forever (review H7). Stale
+  // detection cares only about LIVE rows outside the desired set.
+  const anyKeys = new Set(allRows.map(row => row.dedupeKey));
+  const liveKeys = new Set(allRows
+    .filter(row => row.status === 'pending' || row.status === 'blocked_no_credit')
+    .map(row => row.dedupeKey));
+  const desiredSet = new Set(desiredKeys);
+  const missing = desiredKeys.some(key => !anyKeys.has(key));
+  const stale = [...liveKeys].some(key => !desiredSet.has(key));
+  if (!missing && !stale) {
     return { materialized: 0, canceledStale: 0 };
   }
 

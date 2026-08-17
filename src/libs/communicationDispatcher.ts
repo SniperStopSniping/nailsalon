@@ -116,6 +116,27 @@ async function hasSalonTransactionalConsent(salonId: string, recipient: string):
   return rows[0]?.status === 'granted';
 }
 
+/**
+ * Appointment-linked intents re-check the appointment's CURRENT state before
+ * any send (review H6 — the ≤15-minute orphan-sweep window is real time in
+ * which a cancellation can land): a no-longer-active appointment suppresses
+ * the message. Non-appointment intents pass through.
+ */
+async function appointmentStillActive(intent: CommunicationIntent): Promise<boolean> {
+  if (intent.appointmentId === null) {
+    return true;
+  }
+  const rows = await db.execute(sql`
+    SELECT 1 FROM appointment
+    WHERE id = ${intent.appointmentId}
+      AND salon_id = ${intent.salonId}
+      AND status IN ('pending', 'confirmed')
+      AND deleted_at IS NULL
+    LIMIT 1
+  `);
+  return rows.rows.length === 1;
+}
+
 async function deferIntent(intentId: string, reason: string, now: Date): Promise<void> {
   await db
     .update(communicationIntentSchema)
@@ -317,6 +338,17 @@ export async function dispatchClaimedIntent(
     return 'suppressed';
   }
 
+  if (!(await appointmentStillActive(intent))) {
+    // Final pre-provider appointment recheck: the reservation releases and
+    // the provider is never called — same linearization posture as STOP.
+    await releaseReservation({ reservationId: reservation.reservationId, reason: 'appointment_inactive', now });
+    await db.update(notificationDeliverySchema)
+      .set({ status: 'canceled', settlementState: 'not_applicable' })
+      .where(eq(notificationDeliverySchema.id, deliveryId));
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'APPOINTMENT_NO_LONGER_ACTIVE' }, now);
+    return 'suppressed';
+  }
+
   // Provider call — OUTSIDE any transaction.
   let sid: string;
   try {
@@ -434,6 +466,10 @@ async function dispatchClaimedEmailIntent(
   const template = getEmailTemplate(intent.templateKey);
   if (template === null) {
     await transitionIntent(intent.id, { to: 'failed', lastError: 'TEMPLATE_UNKNOWN' }, now);
+    return 'failed';
+  }
+  if (!(await appointmentStillActive(intent))) {
+    await transitionIntent(intent.id, { to: 'suppressed', lastError: 'APPOINTMENT_NO_LONGER_ACTIVE' }, now);
     return 'failed';
   }
   const variables = (intent.variables ?? {}) as Record<string, string>;
