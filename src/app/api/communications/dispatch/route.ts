@@ -9,6 +9,7 @@
  * Gate C wires the real Messaging Service sender.
  */
 import { processDueCommunications } from '@/libs/communicationDispatcher';
+import { evaluateLowBalanceWarnings, sendLowBalanceWarningEmail } from '@/libs/lowBalanceWarnings';
 import { releaseExpiredInboundEvidence } from '@/libs/smsInboundRetention';
 import { sendIntentEmail, sendViaSharedMessagingService } from '@/libs/twilioMessagingSend';
 import { resolveUnknownOutcomes } from '@/libs/unknownOutcomeResolver';
@@ -42,7 +43,11 @@ async function run(request: Request): Promise<Response> {
   // §7.5 resolver: adopt SIDs from signed callback evidence, alert on
   // over-budget unknowns. Never resends, never releases without proof.
   const unknownOutcomes = await resolveUnknownOutcomes();
-  return Response.json({ summary, retention, unknownOutcomes });
+  // §10.3 low-balance sweep: email + in-app only, once per tier per epoch.
+  const lowBalance = await evaluateLowBalanceWarnings({
+    sendWarningEmail: sendLowBalanceWarningEmail,
+  });
+  return Response.json({ summary, retention, unknownOutcomes, lowBalance });
 }
 
 export const GET = run;

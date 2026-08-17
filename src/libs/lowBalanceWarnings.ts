@@ -139,3 +139,28 @@ export async function evaluateLowBalanceWarnings(input: {
   }
   return result;
 }
+
+/** Production email implementation — plain transactional copy, no SMS ever. */
+export const sendLowBalanceWarningEmail: WarningEmailFn = async (input) => {
+  const { sendTransactionalEmailDetailed } = await import('@/libs/email');
+  const copy: Record<WarningTier, { subject: string; body: string }> = {
+    '20pct': {
+      subject: 'Your SMS credits are running low',
+      body: `You have ${input.availableCredits} SMS credits remaining. You can buy more or upgrade your plan from Settings.`,
+    },
+    '10': {
+      subject: 'Only a few SMS credits left',
+      body: `You have ${input.availableCredits} SMS credits remaining. Text reminders will pause when they run out; email keeps working.`,
+    },
+    '0': {
+      subject: 'SMS credits have run out',
+      body: 'Text reminders are paused. Email confirmations and reminders continue, and bookings are unaffected. Buy more credits or upgrade from Settings to resume texts.',
+    },
+  };
+  await sendTransactionalEmailDetailed({
+    to: input.ownerEmail,
+    subject: copy[input.tier].subject,
+    text: copy[input.tier].body,
+    html: `<p>${copy[input.tier].body}</p>`,
+  });
+};
