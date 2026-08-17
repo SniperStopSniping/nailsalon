@@ -37,6 +37,12 @@ import {
   projectSubscriptionSnapshot,
   type StripeSubscriptionSnapshot,
 } from '@/libs/billing/billingSubscriptionProjection';
+import {
+  applyTopupChargeRefunded,
+  applyTopupDisputeCreated,
+  applyTopupSessionCompleted,
+  applyTopupSessionExpired,
+} from '@/libs/billing/topupFulfillment';
 import { Env } from '@/libs/Env';
 import { stripe } from '@/libs/stripe';
 
@@ -146,11 +152,23 @@ async function handleEvent(event: Stripe.Event): Promise<{
     case 'checkout.session.completed': {
       const session = event.data.object as Stripe.Checkout.Session;
       const purpose = session.metadata?.purpose;
+      if (purpose === 'sms_topup') {
+        const result = await applyTopupSessionCompleted({
+          sessionId: session.id,
+          paymentStatus: session.payment_status ?? 'unpaid',
+          paymentIntentId: typeof session.payment_intent === 'string'
+            ? session.payment_intent
+            : session.payment_intent?.id ?? null,
+        });
+        if (!result.fulfilled && result.reason === 'PURCHASE_NOT_FOUND') {
+          // The precreated row should always exist — retryable, redelivery
+          // gives a racing checkout TX2 time to record the session id.
+          throw new Error('TOPUP_PURCHASE_NOT_FOUND');
+        }
+        return { status: 'processed' };
+      }
       if (purpose !== 'plan_subscription') {
-        // sms_topup fulfillment lands with C3; anything else is foreign.
-        return purpose === 'sms_topup'
-          ? { status: 'held_anomaly', detail: 'TOPUP_FULFILLMENT_NOT_YET_WIRED' }
-          : { status: 'ignored_foreign' };
+        return { status: 'ignored_foreign' };
       }
       await applyCheckoutSessionCompleted({
         sessionId: session.id,
@@ -171,6 +189,7 @@ async function handleEvent(event: Stripe.Event): Promise<{
     case 'checkout.session.expired': {
       const session = event.data.object as Stripe.Checkout.Session;
       await applyCheckoutSessionExpired({ sessionId: session.id });
+      await applyTopupSessionExpired(session.id);
       return { status: 'processed' };
     }
     case 'customer.subscription.created':
@@ -243,18 +262,60 @@ async function handleEvent(event: Stripe.Event): Promise<{
       });
       return { status: 'processed' };
     }
-    case 'charge.refunded':
-    case 'charge.dispute.created':
-    case 'charge.dispute.closed': {
-      // Subscription-charge refunds/disputes have no automated v1 behavior
-      // (§6.7 — "MAY suspend" is an operator decision); top-up refund and
-      // dispute arithmetic lands with C3. Holding preserves the evidence and
-      // alerts a human instead of guessing at money.
+    case 'charge.refunded': {
+      const charge = event.data.object as Stripe.Charge;
+      const paymentIntentId = typeof charge.payment_intent === 'string'
+        ? charge.payment_intent
+        : charge.payment_intent?.id ?? null;
+      if (paymentIntentId !== null) {
+        const latestRefundId = charge.refunds?.data?.[0]?.id ?? event.id;
+        const outcome = await applyTopupChargeRefunded({
+          paymentIntentId,
+          refundId: latestRefundId,
+          cumulativeRefundedCents: charge.amount_refunded ?? 0,
+        });
+        if (outcome !== null) {
+          return outcome.anomaly !== null
+            ? { status: 'held_anomaly', detail: outcome.anomaly }
+            : { status: 'processed' };
+        }
+      }
+      // Not a top-up: a SUBSCRIPTION-charge refund has no automated v1
+      // behavior (§6.7 — "MAY suspend" is an operator decision).
       Sentry.captureMessage('billing.charge_event_held', {
         level: 'warning',
         extra: { eventId: event.id, eventType: event.type },
       });
       return { status: 'held_anomaly', detail: 'CHARGE_EVENT_HELD_FOR_REVIEW' };
+    }
+    case 'charge.dispute.created': {
+      const dispute = event.data.object as Stripe.Dispute;
+      const paymentIntentId = typeof dispute.payment_intent === 'string'
+        ? dispute.payment_intent
+        : dispute.payment_intent?.id ?? null;
+      if (paymentIntentId !== null) {
+        const outcome = await applyTopupDisputeCreated({
+          paymentIntentId,
+          disputeId: dispute.id,
+        });
+        if (outcome !== null) {
+          return { status: 'processed' };
+        }
+      }
+      Sentry.captureMessage('billing.charge_event_held', {
+        level: 'warning',
+        extra: { eventId: event.id, eventType: event.type },
+      });
+      return { status: 'held_anomaly', detail: 'CHARGE_EVENT_HELD_FOR_REVIEW' };
+    }
+    case 'charge.dispute.closed': {
+      // Win/loss handling is a manual operator flow in v1: the reversal
+      // already happened at creation; closure is evidence for the human.
+      Sentry.captureMessage('billing.dispute_closed', {
+        level: 'warning',
+        extra: { eventId: event.id },
+      });
+      return { status: 'held_anomaly', detail: 'DISPUTE_CLOSED_FOR_REVIEW' };
     }
     default:
       return { status: 'ignored_foreign' };
