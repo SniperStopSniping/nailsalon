@@ -5,6 +5,8 @@ export type SearchParamsLike = URLSearchParams | SearchParamsRecord | undefined;
 export type RouteParamsRecord = Record<string, string | string[] | undefined>;
 
 const RESERVED_PUBLIC_SEGMENTS = new Set([
+  // Short appointment-management links (Gate B): /a/<token>.
+  'a',
   'admin',
   'admin-login',
   'admin-onboarding',

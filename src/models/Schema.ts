@@ -2289,6 +2289,25 @@ export const notificationDeliverySchema = pgTable(
     errorCode: text('error_code'),
     errorMessage: text('error_message'),
     retryable: boolean('retryable'),
+    // --- 0070 communications-pipeline extensions (all nullable; legacy rows untouched) ---
+    intentId: text('intent_id'),
+    creditReservationId: text('credit_reservation_id'),
+    segmentCount: integer('segment_count'),
+    encoding: text('encoding'),
+    senderIdentity: text('sender_identity'),
+    messagingServiceSid: text('messaging_service_sid'),
+    statusRank: integer('status_rank'),
+    settlementState: text('settlement_state'),
+    settledAt: timestamp('settled_at', { mode: 'date', withTimezone: true }),
+    providerPriceRaw: numeric('provider_price_raw'),
+    providerCurrency: text('provider_currency'),
+    providerSegments: integer('provider_segments'),
+    fxRate: numeric('fx_rate'),
+    fxRateSource: text('fx_rate_source'),
+    fxConvertedAt: timestamp('fx_converted_at', { mode: 'date', withTimezone: true }),
+    providerCostCadMicros: bigint('provider_cost_cad_micros', { mode: 'number' }),
+    anomalyCode: text('anomaly_code'),
+    reconciledAt: timestamp('reconciled_at', { mode: 'date', withTimezone: true }),
     createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
       .defaultNow()
@@ -3950,3 +3969,211 @@ export const smsTopupPurchaseSchema = pgTable(
   }),
 );
 export type SmsTopupPurchase = typeof smsTopupPurchaseSchema.$inferSelect;
+
+// =============================================================================
+// GATE B / MIGRATION 0070 — COMMUNICATIONS PIPELINE
+// Hand-written mappings for 0070_communications_pipeline.sql. Everything DARK:
+// the dispatcher requires CRON_SECRET and the control row ships disabled.
+// notification_delivery extension columns are declared on the existing table
+// mapping consumers via raw SQL where needed; the drizzle mapping additions
+// live here as a parallel typed surface for new code only.
+// =============================================================================
+
+export const COMMUNICATION_INTENT_STATUSES = [
+  'pending',
+  'claimed',
+  'sending',
+  'sent',
+  'send_outcome_unknown',
+  'failed',
+  'canceled',
+  'suppressed',
+  'expired',
+  'blocked_no_credit',
+] as const;
+export type CommunicationIntentStatus = (typeof COMMUNICATION_INTENT_STATUSES)[number];
+
+export const COMMUNICATION_EVENT_TYPES = [
+  'booking_confirmation',
+  'booking_request_received',
+  'booking_request_approved',
+  'booking_request_declined',
+  'booking_request_expired',
+  'appointment_rescheduled',
+  'appointment_cancelled',
+  'deposit_received',
+  'deposit_refunded',
+  'balance_reminder',
+  'appointment_reminder',
+  'manual_reminder',
+  'owner_new_booking',
+  'owner_appointment_cancelled',
+  'tech_new_booking',
+  'tech_appointment_cancelled',
+] as const;
+export type CommunicationEventType = (typeof COMMUNICATION_EVENT_TYPES)[number];
+
+export const communicationIntentSchema = pgTable(
+  'communication_intent',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    appointmentId: text('appointment_id').references(() => appointmentSchema.id, {
+      onDelete: 'cascade',
+    }),
+    channel: text('channel').$type<'sms' | 'email'>().notNull(),
+    eventType: text('event_type').$type<CommunicationEventType>().notNull(),
+    audience: text('audience').$type<'client' | 'owner' | 'technician'>().notNull(),
+    dedupeKey: text('dedupe_key').notNull(),
+    recipient: text('recipient').notNull(),
+    destinationCountry: text('destination_country'),
+    templateKey: text('template_key').notNull(),
+    templateVersion: text('template_version').notNull(),
+    variables: jsonb('variables').$type<Record<string, string>>().default({}).notNull(),
+    ruleId: text('rule_id'),
+    startRevision: text('start_revision'),
+    schedulingRevision: text('scheduling_revision').notNull(),
+    bodySnapshot: text('body_snapshot'),
+    bodyFingerprint: text('body_fingerprint'),
+    segmentCount: integer('segment_count'),
+    encoding: text('encoding'),
+    status: text('status').$type<CommunicationIntentStatus>().default('pending').notNull(),
+    scheduledFor: timestamp('scheduled_for', { mode: 'date', withTimezone: true }).notNull(),
+    notAfter: timestamp('not_after', { mode: 'date', withTimezone: true }).notNull(),
+    availableAt: timestamp('available_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    attempts: integer('attempts').default(0).notNull(),
+    lockedBy: text('locked_by'),
+    leaseExpiresAt: timestamp('lease_expires_at', { mode: 'date', withTimezone: true }),
+    deliveryId: text('delivery_id').references(() => notificationDeliverySchema.id, {
+      onDelete: 'set null',
+    }),
+    creditReservationId: text('credit_reservation_id').references(
+      () => smsCreditReservationSchema.id,
+      { onDelete: 'set null' },
+    ),
+    requiredCredits: integer('required_credits'),
+    blockedReason: text('blocked_reason'),
+    blockedAt: timestamp('blocked_at', { mode: 'date', withTimezone: true }),
+    supersededByIntentId: text('superseded_by_intent_id'),
+    resolvedAt: timestamp('resolved_at', { mode: 'date', withTimezone: true }),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    dedupeUniq: uniqueIndex('communication_intent_dedupe_uniq').on(table.dedupeKey),
+    dueIdx: index('communication_intent_due_idx')
+      .on(table.availableAt, table.scheduledFor)
+      .where(sql`${table.status} = 'pending'`),
+    leaseIdx: index('communication_intent_lease_idx')
+      .on(table.leaseExpiresAt)
+      .where(sql`${table.status} in ('claimed', 'sending')`),
+    salonIdx: index('communication_intent_salon_idx').on(table.salonId, table.status, table.scheduledFor),
+    appointmentIdx: index('communication_intent_appointment_idx').on(
+      table.salonId,
+      table.appointmentId,
+      table.status,
+    ),
+  }),
+);
+export type CommunicationIntent = typeof communicationIntentSchema.$inferSelect;
+export type NewCommunicationIntent = typeof communicationIntentSchema.$inferInsert;
+
+export const smsGlobalConsentEventSchema = pgTable(
+  'sms_global_consent_event',
+  {
+    id: text('id').primaryKey(),
+    seq: bigint('seq', { mode: 'number' }).generatedAlwaysAsIdentity(),
+    senderIdentity: text('sender_identity').notNull(),
+    recipient: text('recipient').notNull(),
+    state: text('state').$type<'suppressed' | 'restored'>().notNull(),
+    keywordClassification: text('keyword_classification'),
+    optOutType: text('opt_out_type'),
+    source: text('source').notNull(),
+    providerSid: text('provider_sid'),
+    occurredAt: timestamp('occurred_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  table => ({
+    recipientIdx: index('sms_global_consent_recipient_idx').on(
+      table.senderIdentity,
+      table.recipient,
+      table.seq,
+    ),
+    providerSidUniq: uniqueIndex('sms_global_consent_provider_sid_uniq')
+      .on(table.providerSid)
+      .where(sql`${table.providerSid} is not null`),
+  }),
+);
+export type SmsGlobalConsentEvent = typeof smsGlobalConsentEventSchema.$inferSelect;
+
+export const smsInboundEventSchema = pgTable(
+  'sms_inbound_event',
+  {
+    id: text('id').primaryKey(),
+    attributedSalonId: text('attributed_salon_id').references(() => salonSchema.id, {
+      onDelete: 'set null',
+    }),
+    senderIdentity: text('sender_identity'),
+    fromRecipient: text('from_recipient').notNull(),
+    toNumber: text('to_number').notNull(),
+    keywordClassification: text('keyword_classification')
+      .$type<'stop' | 'start' | 'help' | 'cancel' | 'other'>()
+      .notNull(),
+    attributionState: text('attribution_state')
+      .$type<'attributed' | 'unattributed' | 'ambiguous'>()
+      .notNull(),
+    bodyPresent: boolean('body_present').notNull(),
+    segmentCount: integer('segment_count'),
+    providerPriceRaw: numeric('provider_price_raw'),
+    providerCurrency: text('provider_currency'),
+    providerSid: text('provider_sid').notNull(),
+    receivedAt: timestamp('received_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  table => ({
+    providerSidUniq: uniqueIndex('sms_inbound_event_provider_sid_uniq').on(table.providerSid),
+    receivedIdx: index('sms_inbound_event_received_idx').on(table.receivedAt),
+  }),
+);
+export type SmsInboundEvent = typeof smsInboundEventSchema.$inferSelect;
+
+export const platformCommunicationControlSchema = pgTable('platform_communication_control', {
+  id: text('id').primaryKey(),
+  smsEnabled: boolean('sms_enabled').default(false).notNull(),
+  disabledEventTypes: jsonb('disabled_event_types').$type<string[]>().default([]).notNull(),
+  dispatchBatchLimit: integer('dispatch_batch_limit').default(100).notNull(),
+  perSalonBatchLimit: integer('per_salon_batch_limit').default(1).notNull(),
+  dailySendLimit: integer('daily_send_limit').default(5000).notNull(),
+  dailyAnomalyThreshold: integer('daily_anomaly_threshold').default(250).notNull(),
+  updatedBy: text('updated_by'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+export type PlatformCommunicationControl = typeof platformCommunicationControlSchema.$inferSelect;
+
+// notification_delivery 0070 extension columns (typed parallel surface —
+// added to the existing mapping's table via raw SQL migration; new code reads
+// them through this extended mapping).
+export const NOTIFICATION_DELIVERY_SETTLEMENT_STATES = [
+  'settling',
+  'settled',
+  'refunded',
+  'released',
+  'not_applicable',
+] as const;
+export type NotificationDeliverySettlementState
+  = (typeof NOTIFICATION_DELIVERY_SETTLEMENT_STATES)[number];

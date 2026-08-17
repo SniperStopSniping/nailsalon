@@ -239,8 +239,10 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
         return '';
       }
     })();
-    const importers = grep.split('\n').filter(line => line.length > 0);
+    const importers = grep.split('\n').filter(line => line.length > 0).sort();
 
-    expect(importers).toEqual([]);
+    // Gate B wires the resolver into the (dark, CRON_SECRET-gated, provider-
+    // stubbed) dispatcher. Any importer beyond this reviewed list re-fails.
+    expect(importers).toEqual(['src/libs/communicationDispatcher.ts']);
   });
 });

@@ -69,7 +69,8 @@ describe('tenantSlug helpers', () => {
 
   it('validates permanent salon slugs and reserves Luster system names', () => {
     expect(isValidSalonSlug('isla-nails')).toBe(true);
-    expect(isValidSalonSlug('a')).toBe(true);
+    // 'a' is the reserved short-link segment as of Gate B (see /a/[token]).
+    expect(isValidSalonSlug('a')).toBe(false);
     expect(isValidSalonSlug('ab')).toBe(true);
     expect(isValidSalonSlug('a'.repeat(47))).toBe(true);
     expect(isValidSalonSlug('a'.repeat(48))).toBe(false);

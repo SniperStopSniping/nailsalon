@@ -26,8 +26,8 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0069_billing_credit_foundation';
-const MIGRATION_COUNT = 70;
+const FINAL_MIGRATION = '0070_communications_pipeline';
+const MIGRATION_COUNT = 71;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -351,6 +351,9 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'salon_signup_invite', 'salon_signup_invite_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'salon_stripe_account', 'salon_stripe_account_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   // Gate B / migration 0069 — billing & SMS-credit foundation.
+  // Gate B / migration 0070 — communications pipeline.
+  ['public', 'communication_intent', 'communication_intent_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'sms_inbound_event', 'sms_inbound_event_attributed_salon_id_fkey', ['attributed_salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
   ['public', 'billing_checkout_attempt', 'billing_checkout_attempt_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'billing_credit_window', 'billing_credit_window_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'billing_promotion_claim', 'billing_promotion_claim_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'SET NULL'],
