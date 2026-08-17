@@ -3709,7 +3709,7 @@ export async function processIntegrationOutbox(
     .from(integrationOutboxSchema)
     .where(
       and(
-        inArray(integrationOutboxSchema.provider, ['google_calendar', 'email', 'internal']),
+        inArray(integrationOutboxSchema.provider, ['google_calendar', 'email', 'internal', 'twilio']),
         inArray(integrationOutboxSchema.status, ['pending', 'retry']),
         lte(integrationOutboxSchema.availableAt, new Date()),
       ),
@@ -4062,6 +4062,8 @@ export async function processIntegrationOutbox(
         result = delivery.status === 'failed'
           ? { status: 'failed' as const, error: 'STAFF_RESCHEDULE_EMAIL_FAILED' }
           : { status: 'synced' as const };
+      } else if (job.provider === 'twilio' && job.operation === 'reconcile_message_cost') {
+        result = await reconcileTwilioMessageCost(job.payload as TwilioReconcilePayload);
       } else {
         throw new Error('INVALID_INTEGRATION_OUTBOX_OPERATION');
       }
@@ -4143,6 +4145,19 @@ export async function processIntegrationOutbox(
                 ),
               );
           }
+        }
+        if (job.provider === 'twilio') {
+          // Ops-only: a Twilio reconciliation exhaustion must never email the
+          // salon owner the Google-Calendar attention notice.
+          Sentry.captureMessage('twilio_reconciliation_job_failed', {
+            level: 'error',
+            tags: { outbox_operation: job.operation },
+            extra: {
+              jobId: job.id,
+              appointmentId: job.appointmentId,
+            },
+          });
+          continue;
         }
         if (job.provider === 'internal') {
           Sentry.captureMessage('internal_outbox_job_failed', {
@@ -4490,4 +4505,104 @@ export async function processIntegrationOutbox(
 
   throwIfAborted();
   return summary;
+}
+
+// =============================================================================
+// GATE B — Twilio cost/segment reconciliation (contract §7.7, §11).
+// The outbox is reused ONLY for post-hoc provider truth; intents never ride
+// it. The provider fetch is injected so Gate B ships no live Twilio read
+// path — tests and Gate C wiring supply the fetcher.
+// =============================================================================
+
+export type TwilioReconcilePayload = {
+  deliveryId: string;
+  providerMessageId: string;
+};
+
+export async function enqueueTwilioCostReconciliation(input: {
+  salonId: string;
+  appointmentId: string | null;
+  deliveryId: string;
+  providerMessageId: string;
+}): Promise<void> {
+  await db
+    .insert(integrationOutboxSchema)
+    .values({
+      id: crypto.randomUUID(),
+      salonId: input.salonId,
+      appointmentId: input.appointmentId,
+      provider: 'twilio',
+      operation: 'reconcile_message_cost',
+      dedupeKey: `twilio:reconcile:${input.deliveryId}`,
+      payload: { deliveryId: input.deliveryId, providerMessageId: input.providerMessageId },
+      // Twilio finalizes price asynchronously; first attempt after 15 minutes.
+      availableAt: new Date(Date.now() + 15 * 60 * 1000),
+    })
+    .onConflictDoNothing();
+}
+
+export type TwilioMessageCostFetcher = (providerMessageId: string) => Promise<{
+  priceRaw: string | null;
+  priceCurrency: string | null;
+  numSegments: number | null;
+} | null>;
+
+let twilioCostFetcher: TwilioMessageCostFetcher | null = null;
+
+/** Gate C wires the real fetcher; tests inject fakes. Unset = unresolved retry. */
+export function setTwilioCostFetcher(fetcher: TwilioMessageCostFetcher | null): void {
+  twilioCostFetcher = fetcher;
+}
+
+async function reconcileTwilioMessageCost(
+  payload: TwilioReconcilePayload,
+): Promise<{ status: 'synced' } | { status: 'failed'; error: string }> {
+  if (twilioCostFetcher === null) {
+    return { status: 'failed', error: 'TWILIO_COST_FETCHER_UNCONFIGURED' };
+  }
+  const truth = await twilioCostFetcher(payload.providerMessageId);
+  if (truth === null || truth.numSegments === null || truth.numSegments <= 0) {
+    // Missing/zero/unusable actuals: unresolved — retry via outbox backoff.
+    return { status: 'failed', error: 'PROVIDER_ACTUALS_UNAVAILABLE' };
+  }
+
+  const [delivery] = await db
+    .select({
+      segmentCount: notificationDeliverySchema.segmentCount,
+      creditReservationId: notificationDeliverySchema.creditReservationId,
+      salonId: notificationDeliverySchema.salonId,
+    })
+    .from(notificationDeliverySchema)
+    .where(eq(notificationDeliverySchema.id, payload.deliveryId))
+    .limit(1);
+  if (!delivery) {
+    return { status: 'synced' };
+  }
+
+  const predicted = delivery.segmentCount;
+  let anomalyCode: string | null = null;
+  if (predicted !== null && truth.numSegments > predicted) {
+    // No extra salon charge — Luster absorbs; alert via anomaly code.
+    anomalyCode = 'segment_mismatch_underpredicted';
+  } else if (predicted !== null && truth.numSegments < predicted
+    && delivery.creditReservationId !== null) {
+    anomalyCode = 'segment_mismatch_overpredicted';
+    const { refundOverpredictedSegments } = await import('@/libs/billing/creditReservation');
+    await refundOverpredictedSegments({
+      reservationId: delivery.creditReservationId,
+      actualSegments: truth.numSegments,
+    });
+  }
+
+  await db
+    .update(notificationDeliverySchema)
+    .set({
+      providerPriceRaw: truth.priceRaw,
+      providerCurrency: truth.priceCurrency,
+      providerSegments: truth.numSegments,
+      anomalyCode,
+      reconciledAt: new Date(),
+    })
+    .where(eq(notificationDeliverySchema.id, payload.deliveryId));
+  return { status: 'synced' };
 }

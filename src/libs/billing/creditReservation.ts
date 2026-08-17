@@ -453,6 +453,15 @@ export async function reapExpiredReservations(now = new Date()): Promise<{ relea
       eq(smsCreditReservationSchema.status, 'held'),
       lt(smsCreditReservationSchema.expiresAt, now),
       sql`${smsCreditReservationSchema.providerSid} IS NULL`,
+      // §7.6: only CLEARLY pre-send holds. A delivery row in settling/settled
+      // means the provider call may have happened (crash between accept and
+      // settle) — that ambiguity belongs to the §7.5 reconciler, never here.
+      sql`NOT EXISTS (
+        SELECT 1 FROM notification_delivery nd
+        WHERE nd.credit_reservation_id = ${smsCreditReservationSchema.id}
+          AND nd.settlement_state IN ('settling', 'settled')
+          AND nd.status <> 'canceled'
+      )`,
     ));
   let released = 0;
   for (const row of stale) {

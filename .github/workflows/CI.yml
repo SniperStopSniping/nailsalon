@@ -225,6 +225,7 @@ jobs:
               # steps). Extend this list per reviewed change; never remove.
               ba5eaf44ce96b6f217d94c71268d8261bc5bfe24) ;;
               f75af0c6fa6d6be326ffb6f1272c51ea7fa2f1fe) ;;
+              e423780a1d92122518864f20b801b0302bdb42a6) ;;
               *)
                 echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
                 printf 'actual blob: %s\n' "$salon_purge_blob"
@@ -241,6 +242,7 @@ jobs:
             case "$file" in
               migrations/0068_deposit_credit_tax_snapshots.sql) ;;
               migrations/0069_billing_credit_foundation.sql) ;;
+              migrations/0070_communications_pipeline.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -314,6 +316,7 @@ jobs:
             case "$tag" in
               0068_deposit_credit_tax_snapshots) ;;
               0069_billing_credit_foundation) ;;
+              0070_communications_pipeline) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -333,6 +336,7 @@ jobs:
             case "$cron" in
               /api/deposits/holds/reap) ;;
               /api/deposits/reconcile) ;;
+              /api/communications/dispatch) ;;
               *)
                 echo "::error::Unauthorized vercel.json cron entry: $cron"
                 exit 1
@@ -767,6 +771,40 @@ jobs:
           grep -Fqx \
             'D6_1_CLIENT_STATS_POSTGRES_TESTS_EXECUTED=1 D6_1_CLIENT_STATS_POSTGRES_TESTS_SKIPPED=0' \
             d6-postgres-concurrency.log
+
+  communications-dispatch-postgres:
+    needs: secret-scan
+    name: Communications dispatcher PostgreSQL concurrency
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: comms_dispatch_ci
+          POSTGRES_USER: comms_dispatch_ci
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U comms_dispatch_ci -d comms_dispatch_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CONCURRENCY_TEST_DATABASE_URL: postgresql://comms_dispatch_ci@127.0.0.1:5432/comms_dispatch_ci
+      COMMUNICATIONS_DISPATCH_DISPOSABLE_DATABASE_CONFIRMED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: HUSKY=0 npm ci
+      - run: npx vitest run --no-file-parallelism 'src/libs/communicationDispatcher.concurrency.integration.test.ts'
 
   sms-credit-ledger-postgres:
     needs: secret-scan

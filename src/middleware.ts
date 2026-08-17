@@ -132,6 +132,14 @@ export default async function middleware(
     return finalizeResponse(NextResponse.next());
   }
 
+  // Short appointment-management links (/a/<token>) need the identical
+  // carve-out: next-intl's as-needed locale prefix would rewrite this to
+  // /<locale>/a/<token>, matching the tenant tree as slug="a" and 404ing
+  // before the route handler ever runs.
+  if (p === '/a' || p.startsWith('/a/')) {
+    return finalizeResponse(NextResponse.next());
+  }
+
   if (isDevMode && devRole === 'super_admin') {
     // Bypass for super-admin API routes
     if (p.startsWith('/api/super-admin')) {

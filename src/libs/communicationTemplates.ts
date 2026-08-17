@@ -157,8 +157,16 @@ export const WORST_CASE_MANAGE_URL_SHORT_ORIGIN
   = 'https://islanailsalon.com/manage/Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb3dEf6hIj9';
 export const WORST_CASE_MANAGE_URL_SLUG_PATH
   = 'https://lusterbooking.com/en/the-longest-approved-salon-slug-we-support-here/manage/Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zAb3dEf6hIj9';
-const WORST_CASE_SALON_NAME = 'Extraordinary Beauty Lounge and Nail Atelier';
-const WORST_CASE_TIME = 'Wed Aug 26, 2:30 PM';
+/**
+ * Short-link worst case: origin + '/a/' bounded at 34 chars (host <= 23,
+ * enforced against the configured origin by the template suite) + a 22-char
+ * 128-bit base64url token.
+ */
+export const WORST_CASE_SHORT_LINK
+  = 'https://xxxxxxxxxxxxxxxxxxxxxxx/a/AbCdEfGhIjKlMnOpQrStUv';
+
+const WORST_CASE_SALON_NAME = 'Twenty Four Septet Name Xy';
+const WORST_CASE_TIME = 'Wed Aug 26, 12:30 PM';
 
 export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
   client_booking_confirmation_nolink: {
@@ -187,6 +195,34 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
         salonName: WORST_CASE_SALON_NAME,
         startTime: WORST_CASE_TIME,
         manageUrl: WORST_CASE_MANAGE_URL_SLUG_PATH,
+      },
+    ],
+  },
+  client_appointment_reminder_shortlink: {
+    key: 'client_appointment_reminder_shortlink',
+    version: 'v1',
+    audience: 'client',
+    render: variables =>
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Reminder for ${variables.startTime ?? ''}. Manage: ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+    worstCaseVariables: [
+      {
+        salonName: WORST_CASE_SALON_NAME,
+        startTime: WORST_CASE_TIME,
+        manageUrl: WORST_CASE_SHORT_LINK,
+      },
+    ],
+  },
+  client_booking_confirmation_shortlink: {
+    key: 'client_booking_confirmation_shortlink',
+    version: 'v1',
+    audience: 'client',
+    render: variables =>
+      `${buildClientSmsPrefix(variables.salonName ?? '')}Confirmed for ${variables.startTime ?? ''}. Manage: ${variables.manageUrl ?? ''} ${STOP_LANGUAGE}`,
+    worstCaseVariables: [
+      {
+        salonName: WORST_CASE_SALON_NAME,
+        startTime: WORST_CASE_TIME,
+        manageUrl: WORST_CASE_SHORT_LINK,
       },
     ],
   },
