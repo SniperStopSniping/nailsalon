@@ -232,6 +232,18 @@ suite('POST /api/appointments — genuine concurrency', () => {
       publicationStatus: 'published',
       settings: BASE_SALON_SETTINGS,
     });
+    // Gate C1 mode-split: this suite pins the LEGACY synchronous send paths
+    // under genuine concurrency, and those paths now belong to BYO salons
+    // (owner decision 2.2 — shared-mode salons route through durable
+    // intents, proven in their own suites). An ACTIVE BYO connection keeps
+    // every expectation in this file exercising exactly the pipeline it has
+    // always proven.
+    await db.insert(schema.salonTwilioConnectionSchema).values({
+      salonId: SALON_ID,
+      connectAccountSid: 'AC00000000000000000000000000000000',
+      phoneNumber: '+14165550000',
+      status: 'active',
+    });
     await db.insert(schema.technicianSchema).values([
       {
         id: TECH_ID,
