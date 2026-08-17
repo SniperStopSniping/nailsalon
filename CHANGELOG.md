@@ -1,3 +1,16 @@
+# [1.64.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.63.0...v1.64.0) (2026-08-17)
+
+
+### Bug Fixes
+
+* **communications:** make the usage surface reachable and wire Buy More ([017f431](https://github.com/SniperStopSniping/nailsalon/commit/017f4313691745c9e0bd1bd4cf42351e7b2684e1))
+
+
+### Features
+
+* **communications:** add usage/history API, masking and low-balance warnings (C4) ([c066653](https://github.com/SniperStopSniping/nailsalon/commit/c066653662fbd0cc7a50bf940f708896dfee5b19))
+* **communications:** usage modal, warning driver and operations report (C4) ([138f8be](https://github.com/SniperStopSniping/nailsalon/commit/138f8be8db1d5a6ed6931a22653ea0cb72611e15))
+
 # [1.63.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.62.0...v1.63.0) (2026-08-17)
 
 
