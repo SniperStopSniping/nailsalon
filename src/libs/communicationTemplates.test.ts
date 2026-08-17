@@ -50,7 +50,7 @@ describe('controlled templates', () => {
       for (const variables of template.worstCaseVariables) {
         const body = template.render(variables);
 
-        expect(body).toMatch(/^.+ via Luster: /);
+        expect(body).toMatch(/^(?:.+ via Luster: |Luster: )/);
         expect(body).toContain('Reply STOP to opt out.');
       }
     }
@@ -106,6 +106,19 @@ describe('controlled templates', () => {
     const violations = validateTemplateSegments();
 
     expect(violations.length).toBe(reminder.worstCaseVariables.length);
+  });
+});
+
+describe('GSM-unrepresentable salon names', () => {
+  it('falls back to the platform identity instead of sending an anonymous message', () => {
+    expect(buildClientSmsPrefix('美甲沙龍')).toBe('Luster: ');
+
+    const confirmation = COMMUNICATION_TEMPLATES.client_booking_confirmation_nolink!;
+    const body = confirmation.render({ salonName: '美甲沙龍', startTime: 'Wed Aug 26, 2:30 PM' });
+
+    expect(body).toMatch(/^Luster: /);
+    expect(body.startsWith(' ')).toBe(false);
+    expect(isGsmCompatible(body)).toBe(true);
   });
 });
 

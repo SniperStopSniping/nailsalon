@@ -76,7 +76,9 @@ export async function POST(request: Request) {
     );
   }
 
-  const template = COMMUNICATION_TEMPLATES[parsed.data.templateKey];
+  const template = Object.hasOwn(COMMUNICATION_TEMPLATES, parsed.data.templateKey)
+    ? COMMUNICATION_TEMPLATES[parsed.data.templateKey]
+    : undefined;
   if (template === undefined) {
     return Response.json(
       { error: { code: 'UNKNOWN_TEMPLATE', message: 'Unknown template key' } },

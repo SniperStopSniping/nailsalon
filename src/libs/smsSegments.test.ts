@@ -47,6 +47,33 @@ describe('calculateSmsSegments — GSM-7', () => {
   });
 });
 
+describe('GSM 03.38 basic table integrity', () => {
+  // The canonical 128-position basic table (ESC excluded, so 127 characters).
+  // The two historically mojibake-prone characters are written as escapes on
+  // purpose: a single composed code point (e.g. U+0727) once replaced them.
+  const CANONICAL_GSM_BASIC
+    = '@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&\'()*+,-./0123456789:;<=>?'
+    + '¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑ\u00DC\u00A7¿abcdefghijklmnopqrstuvwxyzäöñüà';
+
+  it('contains all 127 canonical basic characters', () => {
+    expect(Array.from(CANONICAL_GSM_BASIC)).toHaveLength(127);
+
+    for (const char of CANONICAL_GSM_BASIC) {
+      expect(isGsmCompatible(char), `U+${char.codePointAt(0)!.toString(16)} must be GSM basic`).toBe(true);
+    }
+  });
+
+  it('bills Ü and § one septet each (the mojibake regression vector)', () => {
+    expect(isGsmCompatible('\u00DC\u00A7')).toBe(true);
+    expect(calculateSmsSegments('\u00DC\u00A7')).toMatchObject({ encoding: 'gsm7', billableUnits: 2 });
+  });
+
+  it('rejects the Syriac look-alike that once corrupted the table', () => {
+    expect(isGsmCompatible('\u0727')).toBe(false);
+    expect(calculateSmsSegments('\u0727').encoding).toBe('ucs2');
+  });
+});
+
 describe('calculateSmsSegments — UCS-2', () => {
   it('bills 70 UCS-2 units as one segment, 71 as two, 134 as two', () => {
     expect(calculateSmsSegments(bmp(70))).toMatchObject({ encoding: 'ucs2', billableUnits: 70, segments: 1, limitForSegments: 70 });

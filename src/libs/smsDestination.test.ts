@@ -16,6 +16,11 @@ describe('normalizeNanpNumber', () => {
     expect(normalizeNanpNumber('')).toBeNull();
   });
 
+  it('rejects N11 exchanges (416-911-xxxx is not a subscriber number)', () => {
+    expect(normalizeNanpNumber('+14169111234')).toBeNull();
+    expect(normalizeNanpNumber('+14164111234')).toBeNull();
+  });
+
   it('rejects invalid NPAs (leading 0/1 and N11 service codes)', () => {
     expect(normalizeNanpNumber('+11165551234')).toBeNull();
     expect(normalizeNanpNumber('+14115551234')).toBeNull();

@@ -106,7 +106,15 @@ function septets(text: string): number {
 }
 
 export function buildClientSmsPrefix(salonName: string): string {
-  return `${sanitizeSalonNameForSms(salonName)} via Luster: `;
+  const sanitized = sanitizeSalonNameForSms(salonName);
+  if (sanitized === '') {
+    // A name with no GSM-representable characters (e.g. fully CJK) cannot
+    // carry the salon identity in the prefix; fall back to the platform
+    // identity rather than sending an anonymous message. Gate B may add
+    // transliteration; tracked in the Gate A owner report.
+    return 'Luster: ';
+  }
+  return `${sanitized} via Luster: `;
 }
 
 export const STOP_LANGUAGE = 'Reply STOP to opt out.';
@@ -187,7 +195,7 @@ export const COMMUNICATION_TEMPLATES: Record<string, TemplateDefinition> = {
     version: 'v1',
     audience: 'owner',
     render: variables =>
-      `Luster: New booking at ${variables.salonName ?? ''} - ${variables.clientName ?? ''}, ${variables.serviceName ?? ''}, ${variables.startTime ?? ''}.`,
+      `Luster: New booking at ${sanitizeSalonNameForSms(variables.salonName ?? '')} - ${variables.clientName ?? ''}, ${variables.serviceName ?? ''}, ${variables.startTime ?? ''}.`,
     worstCaseVariables: [
       {
         salonName: WORST_CASE_SALON_NAME,

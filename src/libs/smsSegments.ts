@@ -54,7 +54,7 @@ const UCS2_CONCAT_SEGMENT = 67;
 // GSM 03.38 basic character set (each costs one septet).
 const GSM_BASIC
   = '@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !"#¤%&\'()*+,-./0123456789:;<=>?'
-  + '¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑܧ¿abcdefghijklmnopqrstuvwxyzäöñüà';
+  + '¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà';
 
 // GSM 03.38 default extension table (each costs two septets: ESC + char).
 const GSM_EXTENSION = '\f^{}\\[~]|€';

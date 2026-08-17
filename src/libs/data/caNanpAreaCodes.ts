@@ -19,6 +19,7 @@ export const CA_GEOGRAPHIC_AREA_CODES: ReadonlySet<string> = new Set([
   '236',
   '249',
   '250',
+  '257',
   '263',
   '289',
   '306',
@@ -37,7 +38,6 @@ export const CA_GEOGRAPHIC_AREA_CODES: ReadonlySet<string> = new Set([
   '437',
   '438',
   '450',
-  '460',
   '468',
   '474',
   '506',
@@ -69,6 +69,7 @@ export const CA_GEOGRAPHIC_AREA_CODES: ReadonlySet<string> = new Set([
   '879',
   '902',
   '905',
+  '942',
 ]);
 
 /**

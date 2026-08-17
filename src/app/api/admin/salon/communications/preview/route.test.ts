@@ -57,6 +57,9 @@ describe('POST /api/admin/salon/communications/preview', () => {
 
   it('rejects unknown templates and malformed bodies without leaking anything', async () => {
     expect((await POST(previewRequest({ templateKey: 'totally_unknown' }))).status).toBe(404);
+    expect((await POST(previewRequest({ templateKey: 'constructor' }))).status).toBe(404);
+    expect((await POST(previewRequest({ templateKey: '__proto__' }))).status).toBe(404);
+    expect((await POST(previewRequest({ templateKey: 'toString' }))).status).toBe(404);
     expect((await POST(previewRequest({ templateKey: '' }))).status).toBe(400);
     expect((await POST(previewRequest({ templateKey: 'x', extra: 'nope' }))).status).toBe(400);
 

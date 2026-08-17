@@ -179,6 +179,11 @@ export function resolveByoSenderReadiness(
   connection: TwilioConnectionSnapshot,
   deps: { authTokenPresent: boolean },
 ): ByoSenderResolution {
+  // Defense in depth for future callers: the mode resolver guarantees this
+  // invariant, but nothing type-enforces call ordering.
+  if (connection.messagingServiceSid === null && connection.phoneNumber === null) {
+    return { ready: false, mode: 'connected_byo', reason: 'SENDER_NOT_READY' };
+  }
   if (!deps.authTokenPresent) {
     return { ready: false, mode: 'connected_byo', reason: 'SENDER_NOT_READY' };
   }
@@ -196,22 +201,37 @@ export function resolveByoSenderReadiness(
  * env-derived — they arrive from their owning modules in Gate B and stay
  * absent (fail-closed) until then.
  */
-export function readSharedSenderEnvConfig(): Omit<
-  SharedSenderRuntimeConfig,
-  'platformControl' | 'creditReservation'
-> {
-  const allowlist = (Env.SMS_PILOT_SALON_ALLOWLIST ?? '')
+export type SharedSenderEnvSource = Pick<
+  typeof Env,
+  | 'COMMUNICATIONS_SMS_ENABLED'
+  | 'TWILIO_MESSAGING_SERVICE_SID'
+  | 'TWILIO_ACCOUNT_SID'
+  | 'TWILIO_AUTH_TOKEN'
+  | 'LUSTER_SMS_SENDER_IDENTITY'
+  | 'SMS_PILOT_ENABLED'
+  | 'SMS_PILOT_SALON_ALLOWLIST'
+>;
+
+export function readSharedSenderEnvConfig(
+  env: SharedSenderEnvSource = Env,
+): Omit<SharedSenderRuntimeConfig, 'platformControl' | 'creditReservation'> {
+  const allowlist = (env.SMS_PILOT_SALON_ALLOWLIST ?? '')
     .split(',')
     .map(entry => entry.trim())
     .filter(entry => entry.length > 0);
+  // Truthiness (not ??) on purpose: an EMPTY-STRING env value must fall back
+  // to the default — this identity keys global STOP suppression, and '' would
+  // silently orphan every existing opt-out.
+  const senderIdentity = env.LUSTER_SMS_SENDER_IDENTITY || LUSTER_DEFAULT_SENDER_IDENTITY;
+  const messagingServiceSid = env.TWILIO_MESSAGING_SERVICE_SID || null;
   return {
-    communicationsSmsEnabled: Env.COMMUNICATIONS_SMS_ENABLED === 'true',
-    messagingServiceSid: Env.TWILIO_MESSAGING_SERVICE_SID ?? null,
-    accountSidPresent: Boolean(Env.TWILIO_ACCOUNT_SID),
-    authTokenPresent: Boolean(Env.TWILIO_AUTH_TOKEN),
-    senderIdentity: Env.LUSTER_SMS_SENDER_IDENTITY ?? LUSTER_DEFAULT_SENDER_IDENTITY,
+    communicationsSmsEnabled: env.COMMUNICATIONS_SMS_ENABLED === 'true',
+    messagingServiceSid,
+    accountSidPresent: Boolean(env.TWILIO_ACCOUNT_SID),
+    authTokenPresent: Boolean(env.TWILIO_AUTH_TOKEN),
+    senderIdentity,
     pilot: {
-      enabled: Env.SMS_PILOT_ENABLED === 'true',
+      enabled: env.SMS_PILOT_ENABLED === 'true',
       allowlist,
     },
   };

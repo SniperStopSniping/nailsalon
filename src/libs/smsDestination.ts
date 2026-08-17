@@ -48,7 +48,7 @@ export type NanpNormalizer = (rawPhone: string) => NormalizedNanpNumber | null;
  */
 export function normalizeNanpNumber(rawPhone: string): NormalizedNanpNumber | null {
   const compact = rawPhone.replace(/[\s\-().]/g, '');
-  const match = /^(?:\+?1)?([2-9]\d{2})([2-9]\d{2})(\d{4})$/.exec(compact);
+  const match = /^(?:\+?1)?([2-9]\d{2})([2-9](?!11)\d{2})(\d{4})$/.exec(compact);
   if (match === null) {
     return null;
   }

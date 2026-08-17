@@ -6,6 +6,7 @@ vi.mock('server-only', () => ({}));
 
 const {
   LUSTER_DEFAULT_SENDER_IDENTITY,
+  readSharedSenderEnvConfig,
   resolveByoSenderReadiness,
   resolveSharedSenderReadiness,
   resolveSmsSenderMode,
@@ -152,6 +153,61 @@ describe('resolveSharedSenderReadiness — structurally dark by default', () => 
   });
 });
 
+describe('readSharedSenderEnvConfig — the env seam', () => {
+  const baseEnv = {
+    COMMUNICATIONS_SMS_ENABLED: undefined,
+    TWILIO_MESSAGING_SERVICE_SID: undefined,
+    TWILIO_ACCOUNT_SID: undefined,
+    TWILIO_AUTH_TOKEN: undefined,
+    LUSTER_SMS_SENDER_IDENTITY: undefined,
+    SMS_PILOT_ENABLED: undefined,
+    SMS_PILOT_SALON_ALLOWLIST: undefined,
+  };
+
+  it('treats an EMPTY-STRING sender identity as unset — never orphan the opt-out namespace', () => {
+    expect(readSharedSenderEnvConfig({ ...baseEnv, LUSTER_SMS_SENDER_IDENTITY: '' }).senderIdentity)
+      .toBe(LUSTER_DEFAULT_SENDER_IDENTITY);
+    expect(readSharedSenderEnvConfig({ ...baseEnv, LUSTER_SMS_SENDER_IDENTITY: 'custom_v2' }).senderIdentity)
+      .toBe('custom_v2');
+  });
+
+  it('normalizes an empty Messaging Service SID to null', () => {
+    expect(readSharedSenderEnvConfig({ ...baseEnv, TWILIO_MESSAGING_SERVICE_SID: '' }).messagingServiceSid)
+      .toBeNull();
+  });
+
+  it('only the literal lowercase true enables anything', () => {
+    for (const hostile of ['TRUE', 'True', '1', 'yes', '']) {
+      const config = readSharedSenderEnvConfig({
+        ...baseEnv,
+        COMMUNICATIONS_SMS_ENABLED: hostile as never,
+        SMS_PILOT_ENABLED: hostile as never,
+      });
+
+      expect(config.communicationsSmsEnabled).toBe(false);
+      expect(config.pilot.enabled).toBe(false);
+    }
+  });
+
+  it('parses the allowlist with trimming and empty-entry removal', () => {
+    const config = readSharedSenderEnvConfig({
+      ...baseEnv,
+      SMS_PILOT_SALON_ALLOWLIST: ' isla-nail-studio , second-salon ,, ',
+    });
+
+    expect(config.pilot.allowlist).toEqual(['isla-nail-studio', 'second-salon']);
+  });
+});
+
+describe('BYO readiness defends its own invariant', () => {
+  it('a connection with neither Messaging Service nor phone number is not ready — even called directly', () => {
+    const bare = { ...activeByoConnection, messagingServiceSid: null, phoneNumber: null };
+
+    expect(resolveByoSenderReadiness(bare, { authTokenPresent: true }))
+      .toEqual({ ready: false, mode: 'connected_byo', reason: 'SENDER_NOT_READY' });
+  });
+});
+
 describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
   const source = readFileSync(new URL('./smsSender.ts', import.meta.url), 'utf8');
 
@@ -168,5 +224,23 @@ describe('smsSender source hygiene (mechanical dark-by-default proof)', () => {
 
   it('does not read the BYO onboarding flag — continuity and onboarding are separate permissions', () => {
     expect(source).not.toContain('SMS_BYO_MODE_ENABLED');
+  });
+
+  it('is imported by NOTHING in src outside its own test — dark-by-deploy is mechanical, not incidental', async () => {
+    const { execFileSync } = await import('node:child_process');
+    const grep = (() => {
+      try {
+        return execFileSync(
+          'grep',
+          ['-rl', 'from \'@/libs/smsSender\'', 'src', '--include=*.ts', '--include=*.tsx'],
+          { cwd: new URL('../..', import.meta.url), encoding: 'utf8' },
+        );
+      } catch {
+        return '';
+      }
+    })();
+    const importers = grep.split('\n').filter(line => line.length > 0);
+
+    expect(importers).toEqual([]);
   });
 });
