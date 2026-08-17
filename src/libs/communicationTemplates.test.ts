@@ -7,6 +7,7 @@ import {
   MAX_SEGMENTS_BY_AUDIENCE,
   SALON_NAME_MAX_SEPTETS,
   sanitizeSalonNameForSms,
+  SHARED_SENDER_STOP_DISCLOSURE,
   validateTemplateSegments,
 } from './communicationTemplates';
 import { calculateSmsSegments, isGsmCompatible } from './smsSegments';
@@ -127,6 +128,23 @@ describe('ADVANCED_OPT_OUT_COPY', () => {
     expect(ADVANCED_OPT_OUT_COPY.stopConfirmation).toContain('was not cancelled');
     expect(calculateSmsSegments(ADVANCED_OPT_OUT_COPY.stopConfirmation)).toMatchObject({ encoding: 'gsm7', segments: 1 });
     expect(calculateSmsSegments(ADVANCED_OPT_OUT_COPY.helpResponse)).toMatchObject({ encoding: 'gsm7', segments: 1 });
+  });
+});
+
+describe('SHARED_SENDER_STOP_DISCLOSURE (§10.2 — owner-ratified 2026-08-17)', () => {
+  it('is BYTE-EXACTLY the owner-approved wording; any drift requires a fresh sign-off', () => {
+    expect(SHARED_SENDER_STOP_DISCLOSURE).toBe(
+      'Appointment texts are sent through Luster\'s shared messaging number. '
+      + 'Reply STOP to stop appointment texts sent through this number, including '
+      + 'texts from other businesses using Luster. Reply START to resubscribe. '
+      + 'Stopping texts does not cancel your appointments.',
+    );
+  });
+
+  it('discloses the cross-business effect, the restore path, and opt-out\u2260cancellation', () => {
+    expect(SHARED_SENDER_STOP_DISCLOSURE).toContain('including texts from other businesses using Luster');
+    expect(SHARED_SENDER_STOP_DISCLOSURE).toContain('Reply START to resubscribe');
+    expect(SHARED_SENDER_STOP_DISCLOSURE).toContain('does not cancel your appointments');
   });
 });
 
