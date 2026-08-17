@@ -26,6 +26,12 @@ async function requireTwilioConnection(salonSlug: string) {
 }
 
 export async function GET(request: Request) {
+  if (Env.SMS_BYO_MODE_ENABLED !== 'true') {
+    // New BYO Twilio Connect onboarding is dormant by default (contract
+    // §9.3/§11.5). Existing connected salons are unaffected: callback and
+    // deauthorize stay open, and this guard never touches sending.
+    return Response.json({ error: 'Twilio Connect onboarding is not available' }, { status: 503 });
+  }
   const url = new URL(request.url);
   const salonSlug = url.searchParams.get('salonSlug');
   const areaCode = url.searchParams.get('areaCode');
@@ -49,6 +55,12 @@ export async function GET(request: Request) {
 
 const provisionSchema = z.object({ salonSlug: z.string(), areaCode: z.string().regex(/^\d{3}$/), confirmedMonthlyPrice: z.string().nullable().optional() });
 export async function POST(request: Request) {
+  if (Env.SMS_BYO_MODE_ENABLED !== 'true') {
+    // New BYO Twilio Connect onboarding is dormant by default (contract
+    // §9.3/§11.5). Existing connected salons are unaffected: callback and
+    // deauthorize stay open, and this guard never touches sending.
+    return Response.json({ error: 'Twilio Connect onboarding is not available' }, { status: 503 });
+  }
   const parsed = provisionSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) {
     return Response.json({ error: 'Invalid provisioning request' }, { status: 400 });
