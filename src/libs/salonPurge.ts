@@ -55,6 +55,7 @@ import {
   salonSignupInviteSchema,
   serviceAddOnSchema,
   serviceSchema,
+  smsInboundEventSchema,
   smsTopupPurchaseSchema,
   technicianBlockedSlotSchema,
   technicianScheduleOverrideSchema,
@@ -570,6 +571,15 @@ export const SALON_PURGE_PLAN: PurgeStep[] = [
     reason:
       'NULL OUT result_salon_id (nullable, no CHECK on this column). Load-bearing, not defensive: live rows exist with salon_id NULL and a real result_salon_id, so the cascade arm provably does not fire for them.',
     where: (_tx, salonId) => eq(salonSignupInviteSchema.resultSalonId, salonId),
+  }),
+  nullOutStep({
+    table: 'sms_inbound_event',
+    group: 'salon',
+    target: smsInboundEventSchema,
+    set: { attributedSalonId: null },
+    reason:
+      'NULL OUT: inbound provider evidence (cost, consent keywords) is platform data; attribution to a purged salon is informational only. The global opt-out log has no salon column at all by design.',
+    where: (_tx, salonId) => eq(smsInboundEventSchema.attributedSalonId, salonId),
   }),
   nullOutStep({
     table: 'billing_starter_grant',

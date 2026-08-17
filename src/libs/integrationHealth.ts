@@ -205,8 +205,12 @@ export async function getSalonIntegrationHealth(salonId: string) {
         && process.env.TWILIO_CONNECT_REDIRECT_URI,
       ),
       twilioStatusCallbackConfigured: Boolean(process.env.NEXT_PUBLIC_APP_URL),
-      smsWorkerConfigured: false as const,
-      smsCreditLedgerReady: false as const,
+      // Both shipped in Gate B: the dispatcher route exists (CRON_SECRET
+      // gates invocation) and migration 0069 created the ledger. These are
+      // capability-presence flags, never operational-readiness claims — the
+      // shared sender stays dark behind the platform control row.
+      smsWorkerConfigured: Boolean(process.env.CRON_SECRET),
+      smsCreditLedgerReady: true as const,
     },
     google: google
       ? {

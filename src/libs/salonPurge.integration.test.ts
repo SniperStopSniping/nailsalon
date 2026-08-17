@@ -294,6 +294,19 @@ async function seedSalon(salonId: string, suffix: string, dayOffset: number): Pr
     status: 'processed',
   });
 
+  // Gate B2 inbound evidence (salon FK SET NULL): survives purge nulled.
+  await db.insert(schema.smsInboundEventSchema).values({
+    id: id('sie'),
+    attributedSalonId: salonId,
+    senderIdentity: 'luster_shared_v1',
+    fromRecipient: `41655500${dayOffset}9`,
+    toNumber: '+14165550100',
+    keywordClassification: 'other',
+    attributionState: 'attributed',
+    bodyPresent: false,
+    providerSid: `SM_purge_${suffix}`,
+  });
+
   // Migration 0052 backup tables: no foreign keys, so they are invisible to any
   // FK-derived plan and only a seeded row proves the purge covers them.
   await db.execute(
