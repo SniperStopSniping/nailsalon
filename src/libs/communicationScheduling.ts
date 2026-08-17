@@ -65,6 +65,26 @@ function localMinutesOfDay(instant: Date, timeZone: string): number {
 }
 
 /**
+ * Advance a "YYYY-MM-DD" local calendar key by one calendar day.
+ *
+ * This MUST be calendar arithmetic on the date components, never
+ * `instant + 24h`. Adding 24 hours to an instant whose local time is near
+ * midnight jumps two calendar days across a spring-forward transition: Mar 7
+ * 23:00 EST plus 24h is Mar 9 00:00 EDT, skipping Mar 8 entirely and shifting
+ * a quiet-hours reminder a full day late. Mirrors the component-wise stepping
+ * already used by getZonedDayBounds (timeZone.ts:63-69).
+ */
+function nextCalendarDay(dateKey: string): string {
+  const [year = 0, month = 1, day = 1] = dateKey.split('-').map(Number);
+  const next = new Date(Date.UTC(year, month - 1, day + 1));
+  return [
+    next.getUTCFullYear(),
+    String(next.getUTCMonth() + 1).padStart(2, '0'),
+    String(next.getUTCDate()).padStart(2, '0'),
+  ].join('-');
+}
+
+/**
  * Is `instant` inside the quiet window? The window wraps midnight whenever
  * start > end (21:00 → 09:00 is the default and wraps; 09:00 → 21:00 would
  * not). Half-open [start, end): an instant exactly at the end boundary is
@@ -138,8 +158,8 @@ export function applyQuietHours(input: {
   // before the end boundary) the target is TODAY's end; otherwise we are in
   // the evening head and the target is TOMORROW's end.
   const sameLocalDay = localNow < endMinutes;
-  const dayKeySource = sameLocalDay ? instant : new Date(instant.getTime() + DAY_MS);
-  const dateKey = getDateKeyInTimeZone(dayKeySource, zone);
+  const todayKey = getDateKeyInTimeZone(instant, zone);
+  const dateKey = sameLocalDay ? todayKey : nextCalendarDay(todayKey);
   const shifted = zonedTimeToUtc({ date: dateKey, time: quietHours.end, timeZone: zone });
 
   // Defensive: a DST gap can make the requested wall time nonexistent, in
