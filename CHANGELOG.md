@@ -1,3 +1,21 @@
+# [1.62.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.61.0...v1.62.0) (2026-08-17)
+
+
+### Bug Fixes
+
+* **billing:** close the adversarial financial-review findings ([f8c1a5b](https://github.com/SniperStopSniping/nailsalon/commit/f8c1a5b627faaf77a36ed2a077ef4e2a85034857))
+
+
+### Features
+
+* **billing:** add the billing-event claim machinery and subscription projection ([0372ae2](https://github.com/SniperStopSniping/nailsalon/commit/0372ae2587204ca5fa5457dfb9510d07a14123ba)), closes [#118](https://github.com/SniperStopSniping/nailsalon/issues/118)
+* **billing:** add the dark public pricing page ([e669a5f](https://github.com/SniperStopSniping/nailsalon/commit/e669a5f9b2361d618b8ee5169a5e5f53bd9ced77))
+* **billing:** add the stripe-billing webhook route ([3a8f127](https://github.com/SniperStopSniping/nailsalon/commit/3a8f12743f1b44888829597babad35da3f2961f2))
+* **billing:** add the window scheduler and reconciliation routes ([9b6795f](https://github.com/SniperStopSniping/nailsalon/commit/9b6795f56f08ce22f5bee2ed1e3925415f16527c))
+* **billing:** replace client-priced checkout with server-authoritative C2 route ([0fc0ba8](https://github.com/SniperStopSniping/nailsalon/commit/0fc0ba8804f9908e3a674ffa8f8610b4eb1bfbaa))
+* **billing:** replace the fake plan comparison with the canonical catalogue ([4a246b7](https://github.com/SniperStopSniping/nailsalon/commit/4a246b71ef14e55a3dc2e4445601896cf86bd927))
+* **billing:** typed duplicate-subscription refusals in checkout (§2.3) ([352ac33](https://github.com/SniperStopSniping/nailsalon/commit/352ac3382322aa413e66f87ff61bf42ad4425582))
+
 # [1.61.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.60.1...v1.61.0) (2026-08-17)
 
 
