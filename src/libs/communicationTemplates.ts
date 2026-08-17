@@ -120,6 +120,22 @@ export function buildClientSmsPrefix(salonName: string): string {
 export const STOP_LANGUAGE = 'Reply STOP to opt out.';
 
 /**
+ * Shared-number consent disclosure — contract §10.2. EXACT owner-approved
+ * wording (ratified 2026-08-17, Gate B merge authorization): the copy the
+ * owner/client-facing policy surfaces wherever shared-sender appointment
+ * texts are described. It leads with the cross-business effect BEFORE the
+ * user opts out and separates opt-out from appointment cancellation.
+ * Changing a single byte requires a fresh owner sign-off. This ratification
+ * is owner/product sign-off for this implementation stage, not external
+ * legal advice; broad public rollout still owes legal/compliance review.
+ */
+export const SHARED_SENDER_STOP_DISCLOSURE
+  = 'Appointment texts are sent through Luster\'s shared messaging number. '
+  + 'Reply STOP to stop appointment texts sent through this number, including '
+  + 'texts from other businesses using Luster. Reply START to resubscribe. '
+  + 'Stopping texts does not cancel your appointments.';
+
+/**
  * Advanced Opt-Out copy — configured in the Twilio console (B3 runbook)
  * and mirrored here so it is code-reviewed and regression-tested. The
  * STOP confirmation MUST state the appointment was not cancelled

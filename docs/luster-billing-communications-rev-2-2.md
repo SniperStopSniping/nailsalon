@@ -261,7 +261,7 @@ Persisted country columns (client/contact records and `communication_intent.dest
 Suppression key = **logical sender identity + recipient** (`sms_global_consent_event`, append-only, `seq bigserial` ordering, partial unique on provider SID, no salon_id). STOP suppresses every salon on the shared sender immediately. START restores global eligibility only — the per-salon `communication_consent` row must independently be `granted`; both gates always.
 
 ### 10.2 Transparent consent copy (publication-gated)
-Owner/client-facing policy MUST state: "Replying STOP unsubscribes you from appointment texts sent through Luster's shared number, including texts from other businesses using Luster." Requires explicit owner/product/legal sign-off before the consent PR (B3) is approved.
+Owner/client-facing policy MUST state the ratified disclosure (owner-approved 2026-08-17 with the Gate B merge authorization; pinned as `SHARED_SENDER_STOP_DISCLOSURE` in `src/libs/communicationTemplates.ts`): "Appointment texts are sent through Luster's shared messaging number. Reply STOP to stop appointment texts sent through this number, including texts from other businesses using Luster. Reply START to resubscribe. Stopping texts does not cancel your appointments." This ratification is owner/product sign-off for this implementation stage; broad public rollout still requires legal/compliance review before publication.
 
 ### 10.3 Outbound copy
 Every client message begins `"{salonDisplayName} via Luster: "` (display name capped ~24 chars, word-boundary truncation) and ends with the manage link + "Reply STOP to opt out." "Do not reply" is forbidden. Five existing templates currently saying "Reply to this text…"/"Reply or call us" (verified at SMS.ts) MUST be rewritten.
