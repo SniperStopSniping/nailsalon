@@ -3,7 +3,7 @@
  *
  * Fulfillment happens ONLY on verified Stripe payment evidence arriving
  * through the billing webhook: the success page never grants. The grant
- * itself is fulfillTopupPurchase (idempotent on topup-grant:{purchaseId}'s
+ * itself is fulfillTopupPurchase (idempotent on topup-grant:{checkoutSessionId}'s
  * ledger key via the purchased-lot insert), and reversals are the
  * cumulative-evidence arithmetic repaired in #118 — refunds carry the
  * charge's CUMULATIVE amount_refunded, disputes reverse the residual G − C.
