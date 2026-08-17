@@ -202,9 +202,12 @@ export async function applyInvoicePaymentSucceeded(input: {
       return { applied: false as const, anomaly: 'SUBSCRIPTION_NOT_PROJECTED', subscriptionRowId: undefined };
     }
 
+    // Deliberately NOT advancing last_event_created/last_event_id: that
+    // fence belongs to the SUBSCRIPTION event stream. An invoice raising the
+    // shared watermark would make a genuinely newer plan change created a
+    // second earlier read as stale and be dropped (review finding 2).
+    // paid_through is monotonic and needs no fence.
     const patch: Record<string, unknown> = {
-      lastEventCreated: input.eventCreated,
-      lastEventId: input.eventId,
       status: 'active',
     };
     if (input.paidPeriodEnd.getTime() > subscription.paidThrough.getTime()) {
@@ -228,15 +231,35 @@ export async function applyInvoicePaymentSucceeded(input: {
     if (subscription.promotionKey !== null && subscription.rateProtectedThrough === null) {
       const promotion = getPromotion(subscription.promotionKey);
       if (promotion !== null) {
-        patch.rateProtectedThrough = addMonthsClamped(now, promotion.rateProtectionMonths);
-        await tx
+        // Protection requires THIS salon's own claim as evidence — redeemed
+        // now (reserved → redeemed) or already redeemed by the checkout
+        // handler. bare metadata promotionKey is never enough: it survives
+        // on a subscription whose claim was refused (review finding 1).
+        const redeemedNow = await tx
           .update(billingPromotionClaimSchema)
           .set({ status: 'redeemed', redeemedAt: now })
           .where(and(
             eq(billingPromotionClaimSchema.promotionKey, subscription.promotionKey),
             eq(billingPromotionClaimSchema.salonId, subscription.salonId),
             eq(billingPromotionClaimSchema.status, 'reserved'),
-          ));
+          ))
+          .returning();
+        let hasClaim = redeemedNow.length === 1;
+        if (!hasClaim) {
+          const [already] = await tx
+            .select({ id: billingPromotionClaimSchema.id })
+            .from(billingPromotionClaimSchema)
+            .where(and(
+              eq(billingPromotionClaimSchema.promotionKey, subscription.promotionKey),
+              eq(billingPromotionClaimSchema.salonId, subscription.salonId),
+              eq(billingPromotionClaimSchema.status, 'redeemed'),
+            ))
+            .limit(1);
+          hasClaim = already !== undefined;
+        }
+        if (hasClaim) {
+          patch.rateProtectedThrough = addMonthsClamped(now, promotion.rateProtectionMonths);
+        }
       }
     }
 

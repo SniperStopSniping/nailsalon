@@ -17,7 +17,9 @@
 import { and, inArray, isNull, lte, or } from 'drizzle-orm';
 
 import { evaluateSubscriptionWindows } from '@/libs/billing/creditGrants';
+import { expireStaleClaims } from '@/libs/billing/promotionClaims';
 import { db } from '@/libs/DB';
+import { Env } from '@/libs/Env';
 import { billingSubscriptionSchema } from '@/models/Schema';
 
 function isAuthorized(request: Request): boolean {
@@ -34,7 +36,17 @@ async function run(request: Request): Promise<Response> {
   if (!isAuthorized(request)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  if (Env.BILLING_SUBSCRIPTIONS_ENABLED !== 'true') {
+    return Response.json(
+      { error: { code: 'BILLING_DISABLED', message: 'Nothing to evaluate while billing is dark.' } },
+      { status: 503 },
+    );
+  }
   const now = new Date();
+  // A crash between claim reservation and session creation leaves a
+  // reserved claim with no session to expire it — sweeping here frees the
+  // once-per-business slot after its TTL (review LOW finding).
+  const staleClaims = await db.transaction(async tx => expireStaleClaims(tx, now));
   const due = await db
     .select({ id: billingSubscriptionSchema.id })
     .from(billingSubscriptionSchema)
@@ -56,7 +68,7 @@ async function run(request: Request): Promise<Response> {
     summary.skippedMissed += result.skippedMissed;
     summary.anomalies.push(...result.anomalies);
   }
-  return Response.json({ summary });
+  return Response.json({ summary, staleClaimsExpired: staleClaims.expired });
 }
 
 export const GET = run;

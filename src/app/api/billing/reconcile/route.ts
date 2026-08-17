@@ -102,7 +102,11 @@ async function run(request: Request): Promise<Response> {
           currentPeriodStart: new Date(remote.current_period_start * 1000),
           metadata: (remote.metadata ?? {}) as Record<string, string | undefined>,
         },
-        eventCreated: new Date(),
+        // The CURRENT watermark, not now(): a reconcile pass must never
+        // out-fence authentic Stripe events still mid-retry (finding 3) —
+        // equal-second stays eligible, so the repair applies without
+        // advancing anything.
+        eventCreated: row.lastEventCreated ?? new Date(0),
         eventId: `reconcile_${crypto.randomUUID()}`,
       });
       for (const [field, local, remoteValue] of conflicting) {

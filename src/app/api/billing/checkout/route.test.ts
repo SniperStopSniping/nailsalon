@@ -430,7 +430,51 @@ describe('founding promotion — claim-before-Checkout (§7.3)', () => {
     expect(stripeMock.checkout.sessions.create).not.toHaveBeenCalled();
   });
 
+  it('a SECOND salon of the same business cannot ride the reserved claim (once-per-business)', async () => {
+    // Same Clerk user = same durable business identity. Salon A reserves the
+    // founding claim; salon B's checkout inside the reservation window must
+    // be REFUSED — reusing A's claim would hand every salon of one business
+    // its own founding-priced session (adversarial review finding 1).
+    adminHolder.clerkUserId = 'user_multi_salon';
+    await seedSalon('s_multi_a');
+    await seedSalon('s_multi_b');
+    const first = await post({
+      salonId: 's_multi_a',
+      billingOfferKey: 'pro_2026_08_annual',
+      promotionKey: 'founding_annual_2026',
+    });
+
+    expect(first.status).toBe(200);
+
+    const second = await post({
+      salonId: 's_multi_b',
+      billingOfferKey: 'pro_2026_08_annual',
+      promotionKey: 'founding_annual_2026',
+    });
+
+    expect(second.status).toBe(409);
+    expect((await second.json()).error.code).toBe('ALREADY_CLAIMED');
+
+    // Exactly one live claim for the identity; B's attempt did not wedge.
+    const claims = (await db.select().from(schema.billingPromotionClaimSchema))
+      .filter(claim => claim.salonId === 's_multi_a' || claim.salonId === 's_multi_b');
+
+    expect(claims).toHaveLength(1);
+    expect(claims[0]!.salonId).toBe('s_multi_a');
+
+    // Same salon retrying still reuses its own claim and session.
+    stripeMock.checkout.sessions.retrieve.mockResolvedValue({ id: 'cs_reuse', url: 'https://x' });
+    const retryA = await post({
+      salonId: 's_multi_a',
+      billingOfferKey: 'pro_2026_08_annual',
+      promotionKey: 'founding_annual_2026',
+    });
+
+    expect(retryA.status).toBe(200);
+  });
+
   it('releases the claim when the provider refuses the session', async () => {
+    adminHolder.clerkUserId = 'user_promo_f';
     await seedSalon('s_promo_f');
     stripeMock.checkout.sessions.create.mockRejectedValueOnce(new Error('stripe down'));
     const response = await post({

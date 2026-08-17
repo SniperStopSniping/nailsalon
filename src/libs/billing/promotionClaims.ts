@@ -57,7 +57,11 @@ export async function reservePromotionClaim(
     .for('update');
 
   const existing = await tx
-    .select({ id: billingPromotionClaimSchema.id, status: billingPromotionClaimSchema.status })
+    .select({
+      id: billingPromotionClaimSchema.id,
+      status: billingPromotionClaimSchema.status,
+      salonId: billingPromotionClaimSchema.salonId,
+    })
     .from(billingPromotionClaimSchema)
     .where(and(
       eq(billingPromotionClaimSchema.promotionKey, input.promotionKey),
@@ -66,7 +70,12 @@ export async function reservePromotionClaim(
     ))
     .limit(1);
   if (existing.length > 0) {
-    if (existing[0]!.status === 'reserved') {
+    // Reuse is SAME-SALON only. A reserved claim held by a DIFFERENT salon
+    // of the same business must refuse: reusing it would hand every salon of
+    // one business its own founding-priced session inside the reservation
+    // window, defeating once-per-business (§3.3/§7.3 — adversarial review
+    // finding 1). The business identity holds ONE slot, whoever finishes it.
+    if (existing[0]!.status === 'reserved' && existing[0]!.salonId === input.salonId) {
       return { ok: true, claimId: existing[0]!.id, reused: true };
     }
     return { ok: false, reason: 'ALREADY_CLAIMED' };
