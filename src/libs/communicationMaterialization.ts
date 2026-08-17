@@ -27,6 +27,7 @@
 import 'server-only';
 
 import type {
+  CommunicationIntentDatabase,
   CommunicationIntentTransaction,
   EnqueueIntentInput,
 } from '@/libs/communicationIntent';
@@ -288,7 +289,7 @@ export async function supersedeAppointmentCommunications(input: {
  * read.
  */
 export async function resolveSalonCommunicationContext(
-  tx: CommunicationIntentTransaction,
+  tx: CommunicationIntentDatabase,
   salonId: string,
 ): Promise<{
     settings: CommunicationSettings;

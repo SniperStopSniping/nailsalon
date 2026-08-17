@@ -460,10 +460,18 @@ export async function runBookingCommitSideEffects(
   }
   throwIfBookingEffectsAborted(options.signal);
 
-  // 6/8. Client confirmation SMS, gated on consent exactly as before. Its
-  // delivery identity is per attempt, so an aggregate replay may invoke it
-  // again; ordinary provider failures are absorbed by the SMS helper.
-  if (context.smsConsentGranted) {
+  // 6/8. Client confirmation SMS. MODE-FIRST (Gate C1, owner decision 2.2):
+  // shared-Luster salons get their confirmation through the durable
+  // communication-intent pipeline — materialized in-transaction by the
+  // deposit seam and the booking route — which is exactly-once per
+  // authoritative transition, so the legacy leg MUST NOT also fire (its
+  // delivery identity is per attempt, and an aggregate replay of this
+  // at-least-once runner can invoke it again: the historical double-send).
+  // BYO salons keep this path byte-identical; provider failures are absorbed
+  // by the SMS helper exactly as before.
+  const { resolveSalonCommunicationContext } = await import('@/libs/communicationMaterialization');
+  const communicationContext = await resolveSalonCommunicationContext(db, context.salon.id);
+  if (context.smsConsentGranted && !communicationContext.smsEligible) {
     const smsParams = {
       phone: context.clientPhone,
       clientName: context.clientName ?? undefined,

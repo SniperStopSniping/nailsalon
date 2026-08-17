@@ -270,14 +270,22 @@ export async function POST(request: Request): Promise<Response> {
       status: 'sent', // Use 'sent' to match schema definition
     });
 
-    // 7. Send the SMS with claim link (gated by smsRemindersEnabled toggle)
-    const smsSent = await sendReferralInvite(salon.id, {
-      refereePhone,
-      referrerName: resolvedReferrerName,
-      salonName: salon.name,
-      salonCustomDomain: salon.customDomain,
-      referralId,
-    });
+    // 7. Send the SMS with claim link (gated by smsRemindersEnabled toggle).
+    // Contract §23 (Gate C1): referral marketing is SUSPENDED on the shared
+    // Luster sender — a marketing invite must never spend shared credits or
+    // ride the shared number's consent posture. BYO salons (own number, own
+    // opt-out namespace) keep sending exactly as today.
+    const { resolveSalonCommunicationContext } = await import('@/libs/communicationMaterialization');
+    const referralSenderContext = await resolveSalonCommunicationContext(db, salon.id);
+    const smsSent = referralSenderContext.mode !== 'connected_byo'
+      ? false
+      : await sendReferralInvite(salon.id, {
+        refereePhone,
+        referrerName: resolvedReferrerName,
+        salonName: salon.name,
+        salonCustomDomain: salon.customDomain,
+        referralId,
+      });
 
     // 8. Return success response
     const response: SuccessResponse = {
