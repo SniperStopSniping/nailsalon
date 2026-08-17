@@ -1,3 +1,10 @@
+# [1.65.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.64.0...v1.65.0) (2026-08-17)
+
+
+### Features
+
+* **booking-page:** add versioned bookingPage modular config contract ([a21dc4c](https://github.com/SniperStopSniping/nailsalon/commit/a21dc4c156c8965b3a093dbfe439869dee5b5d15))
+
 # [1.64.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.63.0...v1.64.0) (2026-08-17)
 
 
