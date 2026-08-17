@@ -289,13 +289,19 @@ export async function expireStaleIntents(now = new Date()): Promise<{ expired: n
 
 /** Cancel all live intents for an appointment (reschedule/cancel supersession). */
 export async function cancelAppointmentIntents(input: {
+  /**
+   * Optional transaction handle — supersession must commit atomically with
+   * the appointment mutation that justifies it (same contract as enqueue).
+   */
+  database?: CommunicationIntentDatabase;
   salonId: string;
   appointmentId: string;
   supersededByIntentId?: string;
   now?: Date;
 }): Promise<{ canceled: number }> {
+  const database = input.database ?? db;
   const now = input.now ?? new Date();
-  const updated = await db
+  const updated = await database
     .update(communicationIntentSchema)
     .set({
       status: 'canceled',
