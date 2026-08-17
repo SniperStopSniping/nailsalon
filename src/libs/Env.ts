@@ -29,6 +29,11 @@ export const Env = createEnv({
     SMS_BYO_MODE_ENABLED: z.enum(['true', 'false']).optional(),
     SMS_PILOT_ENABLED: z.enum(['true', 'false']).optional(),
     SMS_PILOT_SALON_ALLOWLIST: z.string().optional(),
+    // Business-identity email fingerprints (Gate B). Fail-closed: without the
+    // dedicated secret, HMAC identity links are simply unavailable — the
+    // engine never falls back to an unkeyed hash.
+    BILLING_IDENTITY_HMAC_SECRET: z.string().optional(),
+    BILLING_IDENTITY_HMAC_VERSION: z.coerce.number().int().positive().optional(),
     RESEND_API_KEY: z.string().optional(),
     RESEND_FROM_EMAIL: z.string().optional(),
     RESEND_REPLY_TO_EMAIL: z.string().optional(),
@@ -106,6 +111,8 @@ export const Env = createEnv({
     SMS_BYO_MODE_ENABLED: process.env.SMS_BYO_MODE_ENABLED,
     SMS_PILOT_ENABLED: process.env.SMS_PILOT_ENABLED,
     SMS_PILOT_SALON_ALLOWLIST: process.env.SMS_PILOT_SALON_ALLOWLIST,
+    BILLING_IDENTITY_HMAC_SECRET: process.env.BILLING_IDENTITY_HMAC_SECRET,
+    BILLING_IDENTITY_HMAC_VERSION: process.env.BILLING_IDENTITY_HMAC_VERSION,
     RESEND_API_KEY: process.env.RESEND_API_KEY,
     RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL,
     RESEND_REPLY_TO_EMAIL: process.env.RESEND_REPLY_TO_EMAIL,

@@ -3448,3 +3448,505 @@ export type AppointmentDeposit = typeof appointmentDepositSchema.$inferSelect;
 export type NewAppointmentDeposit = typeof appointmentDepositSchema.$inferInsert;
 export type StripeWebhookEvent = typeof stripeWebhookEventSchema.$inferSelect;
 export type NewStripeWebhookEvent = typeof stripeWebhookEventSchema.$inferInsert;
+
+// =============================================================================
+// GATE B / MIGRATION 0069 — BILLING & SMS-CREDIT FOUNDATION
+// Governing contract: docs/luster-billing-communications-rev-2-2.md §6-§8.
+// Hand-written mappings for 0069_billing_credit_foundation.sql. Everything in
+// this block is DARK in Gate B: no route, webhook or cron reads these tables
+// outside tests. The append-only ledger has no updatedAt on purpose.
+// =============================================================================
+
+export const BILLING_SUBSCRIPTION_STATUSES = [
+  'incomplete',
+  'incomplete_expired',
+  'trialing',
+  'active',
+  'past_due',
+  'canceled',
+  'unpaid',
+  'paused',
+] as const;
+export type BillingSubscriptionStatus = (typeof BILLING_SUBSCRIPTION_STATUSES)[number];
+
+export const BILLING_CADENCES_DB = ['monthly', 'annual'] as const;
+export type BillingCadenceDb = (typeof BILLING_CADENCES_DB)[number];
+
+export const BILLING_CREDIT_WINDOW_STATUSES = [
+  'pending',
+  'granted',
+  'skipped_unpaid',
+  'skipped_missed',
+  'reversed',
+] as const;
+export type BillingCreditWindowStatus = (typeof BILLING_CREDIT_WINDOW_STATUSES)[number];
+
+export const BILLING_IDENTITY_LINK_TYPES = [
+  'clerk_user',
+  'salon',
+  'stripe_customer',
+  'email_hmac',
+] as const;
+export type BillingIdentityLinkType = (typeof BILLING_IDENTITY_LINK_TYPES)[number];
+
+export const BILLING_PROMOTION_CLAIM_STATUSES = [
+  'reserved',
+  'redeemed',
+  'released',
+  'expired',
+  'rejected',
+] as const;
+export type BillingPromotionClaimStatus = (typeof BILLING_PROMOTION_CLAIM_STATUSES)[number];
+
+export const BILLING_CHECKOUT_ATTEMPT_STATUSES = [
+  'creating',
+  'checkout_created',
+  'completed',
+  'expired',
+  'failed',
+  'superseded',
+] as const;
+export type BillingCheckoutAttemptStatus = (typeof BILLING_CHECKOUT_ATTEMPT_STATUSES)[number];
+
+export const SMS_CREDIT_ENTRY_TYPES = [
+  'grant',
+  'debit',
+  'sms_refund',
+  'purchase_reversal',
+  'adjustment',
+  'expiry',
+] as const;
+export type SmsCreditEntryType = (typeof SMS_CREDIT_ENTRY_TYPES)[number];
+
+export const SMS_CREDIT_BUCKETS = [
+  'starter',
+  'monthly',
+  'purchased',
+  'promotional',
+  'delivery_recovery',
+  'administrative',
+] as const;
+export type SmsCreditBucket = (typeof SMS_CREDIT_BUCKETS)[number];
+
+export const SMS_CREDIT_RESERVATION_STATUSES = ['held', 'settled', 'released', 'expired'] as const;
+export type SmsCreditReservationStatus = (typeof SMS_CREDIT_RESERVATION_STATUSES)[number];
+
+export const SMS_LOW_BALANCE_TIERS = ['20pct', '10', '0'] as const;
+export type SmsLowBalanceTier = (typeof SMS_LOW_BALANCE_TIERS)[number];
+
+export const BILLING_STRIPE_EVENT_STATUSES = [
+  'processing',
+  'processed',
+  'failed_retryable',
+  'poisoned',
+  'ignored_unhandled',
+  'ignored_livemode_mismatch',
+  'ignored_foreign',
+  'superseded_stale',
+  'held_anomaly',
+] as const;
+export type BillingStripeEventStatus = (typeof BILLING_STRIPE_EVENT_STATUSES)[number];
+
+export const SMS_TOPUP_PURCHASE_STATUSES = [
+  'checkout_created',
+  'paid',
+  'fulfilled',
+  'expired',
+  'canceled',
+  'refunded',
+  'partially_reversed',
+  'disputed',
+] as const;
+export type SmsTopupPurchaseStatus = (typeof SMS_TOPUP_PURCHASE_STATUSES)[number];
+
+export const billingSubscriptionSchema = pgTable(
+  'billing_subscription',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    stripeSubscriptionId: text('stripe_subscription_id').notNull(),
+    stripeCustomerId: text('stripe_customer_id').notNull(),
+    planDefinitionKey: text('plan_definition_key').notNull(),
+    billingOfferKey: text('billing_offer_key').notNull(),
+    pendingOfferKey: text('pending_offer_key'),
+    promotionKey: text('promotion_key'),
+    rateProtectedThrough: timestamp('rate_protected_through', { mode: 'date', withTimezone: true }),
+    billingCadence: text('billing_cadence').$type<BillingCadenceDb>().notNull(),
+    status: text('status').$type<BillingSubscriptionStatus>().notNull(),
+    cancelAtPeriodEnd: boolean('cancel_at_period_end').default(false).notNull(),
+    paidThrough: timestamp('paid_through', { mode: 'date', withTimezone: true }).notNull(),
+    creditCycleAnchor: timestamp('credit_cycle_anchor', { mode: 'date', withTimezone: true }).notNull(),
+    creditCycleIndex: integer('credit_cycle_index').default(0).notNull(),
+    currentCreditWindowStart: timestamp('current_credit_window_start', { mode: 'date', withTimezone: true }),
+    currentCreditWindowEnd: timestamp('current_credit_window_end', { mode: 'date', withTimezone: true }),
+    nextCreditGrantAt: timestamp('next_credit_grant_at', { mode: 'date', withTimezone: true }),
+    lastEventCreated: timestamp('last_event_created', { mode: 'date', withTimezone: true }),
+    lastEventId: text('last_event_id'),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    stripeSubUniq: uniqueIndex('billing_subscription_stripe_sub_uniq').on(table.stripeSubscriptionId),
+    // One LIVE subscription per salon; canceled/expired history rows remain.
+    liveSalonUniq: uniqueIndex('billing_subscription_live_salon_uniq')
+      .on(table.salonId)
+      .where(sql`${table.status} not in ('canceled', 'incomplete_expired')`),
+    salonIdx: index('billing_subscription_salon_idx').on(table.salonId, table.status),
+  }),
+);
+export type BillingSubscription = typeof billingSubscriptionSchema.$inferSelect;
+export type NewBillingSubscription = typeof billingSubscriptionSchema.$inferInsert;
+
+export const billingCreditWindowSchema = pgTable(
+  'billing_credit_window',
+  {
+    id: text('id').primaryKey(),
+    billingSubscriptionId: text('billing_subscription_id')
+      .notNull()
+      .references(() => billingSubscriptionSchema.id, { onDelete: 'cascade' }),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    creditCycleIndex: integer('credit_cycle_index').notNull(),
+    planDefinitionKey: text('plan_definition_key').notNull(),
+    windowStart: timestamp('window_start', { mode: 'date', withTimezone: true }).notNull(),
+    windowEnd: timestamp('window_end', { mode: 'date', withTimezone: true }).notNull(),
+    status: text('status').$type<BillingCreditWindowStatus>().notNull(),
+    grantLedgerId: text('grant_ledger_id'),
+    idempotencyKey: text('idempotency_key').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    resolvedAt: timestamp('resolved_at', { mode: 'date', withTimezone: true }),
+  },
+  table => ({
+    cycleUniq: uniqueIndex('billing_credit_window_cycle_uniq')
+      .on(table.billingSubscriptionId, table.creditCycleIndex),
+    idemUniq: uniqueIndex('billing_credit_window_idem_uniq').on(table.idempotencyKey),
+    salonIdx: index('billing_credit_window_salon_idx').on(table.salonId, table.status),
+  }),
+);
+export type BillingCreditWindow = typeof billingCreditWindowSchema.$inferSelect;
+export type NewBillingCreditWindow = typeof billingCreditWindowSchema.$inferInsert;
+
+export const billingBusinessIdentitySchema = pgTable('billing_business_identity', {
+  id: text('id').primaryKey(),
+  note: text('note'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+export type BillingBusinessIdentity = typeof billingBusinessIdentitySchema.$inferSelect;
+
+export const billingBusinessIdentityLinkSchema = pgTable(
+  'billing_business_identity_link',
+  {
+    id: text('id').primaryKey(),
+    businessIdentityId: text('business_identity_id')
+      .notNull()
+      .references(() => billingBusinessIdentitySchema.id, { onDelete: 'cascade' }),
+    linkType: text('link_type').$type<BillingIdentityLinkType>().notNull(),
+    // Plain text VALUE on purpose (even for link_type='salon'): the link must
+    // survive salon purge or once-per-business enforcement dies with the salon.
+    linkValue: text('link_value').notNull(),
+    hmacKeyVersion: integer('hmac_key_version'),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  table => ({
+    valueUniq: uniqueIndex('billing_identity_link_value_uniq').on(table.linkType, table.linkValue),
+    identityIdx: index('billing_identity_link_identity_idx').on(table.businessIdentityId),
+  }),
+);
+export type BillingBusinessIdentityLink = typeof billingBusinessIdentityLinkSchema.$inferSelect;
+
+export const billingStarterGrantSchema = pgTable(
+  'billing_starter_grant',
+  {
+    id: text('id').primaryKey(),
+    businessIdentityId: text('business_identity_id')
+      .notNull()
+      .references(() => billingBusinessIdentitySchema.id, { onDelete: 'cascade' }),
+    salonId: text('salon_id').references(() => salonSchema.id, { onDelete: 'set null' }),
+    ledgerId: text('ledger_id'),
+    credits: integer('credits').notNull(),
+    grantedAt: timestamp('granted_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  table => ({
+    // THE once-per-business enforcement: ledger rows purge with their salon,
+    // this evidence row does not.
+    identityUniq: uniqueIndex('billing_starter_grant_identity_uniq').on(table.businessIdentityId),
+    salonIdx: index('billing_starter_grant_salon_idx').on(table.salonId),
+  }),
+);
+export type BillingStarterGrant = typeof billingStarterGrantSchema.$inferSelect;
+
+export const billingPromotionCounterSchema = pgTable('billing_promotion_counter', {
+  promotionKey: text('promotion_key').primaryKey(),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+});
+
+export const billingPromotionClaimSchema = pgTable(
+  'billing_promotion_claim',
+  {
+    id: text('id').primaryKey(),
+    promotionKey: text('promotion_key').notNull(),
+    businessIdentityId: text('business_identity_id')
+      .notNull()
+      .references(() => billingBusinessIdentitySchema.id, { onDelete: 'cascade' }),
+    salonId: text('salon_id').references(() => salonSchema.id, { onDelete: 'set null' }),
+    billingCheckoutAttemptId: text('billing_checkout_attempt_id'),
+    stripeCheckoutSessionId: text('stripe_checkout_session_id'),
+    status: text('status').$type<BillingPromotionClaimStatus>().notNull(),
+    reservedAt: timestamp('reserved_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }),
+    redeemedAt: timestamp('redeemed_at', { mode: 'date', withTimezone: true }),
+    releasedAt: timestamp('released_at', { mode: 'date', withTimezone: true }),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    liveUniq: uniqueIndex('billing_promotion_claim_live_uniq')
+      .on(table.promotionKey, table.businessIdentityId)
+      .where(sql`${table.status} in ('reserved', 'redeemed')`),
+    salonIdx: index('billing_promotion_claim_salon_idx').on(table.salonId),
+    statusIdx: index('billing_promotion_claim_status_idx').on(table.promotionKey, table.status),
+  }),
+);
+export type BillingPromotionClaim = typeof billingPromotionClaimSchema.$inferSelect;
+
+export const billingCheckoutAttemptSchema = pgTable(
+  'billing_checkout_attempt',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    purpose: text('purpose').$type<'plan_subscription' | 'sms_topup'>().notNull(),
+    billingOfferKey: text('billing_offer_key'),
+    topupOfferKey: text('topup_offer_key'),
+    promotionKey: text('promotion_key'),
+    status: text('status').$type<BillingCheckoutAttemptStatus>().notNull(),
+    stripeIdempotencyKey: text('stripe_idempotency_key').notNull(),
+    stripeCheckoutSessionId: text('stripe_checkout_session_id'),
+    stripeSubscriptionId: text('stripe_subscription_id'),
+    stripePaymentIntentId: text('stripe_payment_intent_id'),
+    expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    // Purpose-scoped: a pending subscription attempt must never block top-ups.
+    activeSubscriptionUniq: uniqueIndex('billing_checkout_attempt_active_subscription_uniq')
+      .on(table.salonId)
+      .where(sql`${table.purpose} = 'plan_subscription' and ${table.status} in ('creating', 'checkout_created')`),
+    idemUniq: uniqueIndex('billing_checkout_attempt_idem_uniq').on(table.stripeIdempotencyKey),
+    sessionUniq: uniqueIndex('billing_checkout_attempt_session_uniq')
+      .on(table.stripeCheckoutSessionId)
+      .where(sql`${table.stripeCheckoutSessionId} is not null`),
+    salonIdx: index('billing_checkout_attempt_salon_idx').on(table.salonId, table.status),
+  }),
+);
+export type BillingCheckoutAttempt = typeof billingCheckoutAttemptSchema.$inferSelect;
+
+export const smsCreditLedgerSchema = pgTable(
+  'sms_credit_ledger',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    entryType: text('entry_type').$type<SmsCreditEntryType>().notNull(),
+    bucket: text('bucket').$type<SmsCreditBucket>().notNull(),
+    amount: integer('amount').notNull(),
+    expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }),
+    consumedFromLedgerId: text('consumed_from_ledger_id'),
+    reservationId: text('reservation_id'),
+    idempotencyKey: text('idempotency_key').notNull(),
+    reason: text('reason').notNull(),
+    stripeRef: text('stripe_ref'),
+    actor: text('actor'),
+    note: text('note'),
+    // Append-only: no updatedAt, and a DB trigger rejects UPDATE outright.
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  table => ({
+    idemUniq: uniqueIndex('sms_credit_ledger_idem_uniq').on(table.idempotencyKey),
+    salonCreatedIdx: index('sms_credit_ledger_salon_created_idx').on(table.salonId, table.createdAt),
+    lotConsumptionIdx: index('sms_credit_ledger_lot_consumption_idx').on(table.consumedFromLedgerId),
+    openLotsIdx: index('sms_credit_ledger_open_lots_idx')
+      .on(table.salonId, table.expiresAt)
+      .where(sql`${table.amount} > 0`),
+  }),
+);
+export type SmsCreditLedgerEntry = typeof smsCreditLedgerSchema.$inferSelect;
+export type NewSmsCreditLedgerEntry = typeof smsCreditLedgerSchema.$inferInsert;
+
+export const smsCreditAccountSchema = pgTable('sms_credit_account', {
+  salonId: text('salon_id')
+    .primaryKey()
+    .references(() => salonSchema.id, { onDelete: 'cascade' }),
+  cachedAvailable: integer('cached_available').default(0).notNull(),
+  cachedReserved: integer('cached_reserved').default(0).notNull(),
+  cacheComputedAt: timestamp('cache_computed_at', { mode: 'date', withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  warningEpoch: integer('warning_epoch').default(0).notNull(),
+  lastWarningTier: text('last_warning_tier').$type<SmsLowBalanceTier>(),
+  lastWarningAt: timestamp('last_warning_at', { mode: 'date', withTimezone: true }),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+export type SmsCreditAccount = typeof smsCreditAccountSchema.$inferSelect;
+
+export const smsCreditReservationSchema = pgTable(
+  'sms_credit_reservation',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    deliveryId: text('delivery_id').references(() => notificationDeliverySchema.id, {
+      onDelete: 'set null',
+    }),
+    dedupeKey: text('dedupe_key').notNull(),
+    segments: integer('segments').notNull(),
+    status: text('status').$type<SmsCreditReservationStatus>().notNull(),
+    providerSid: text('provider_sid'),
+    providerSegments: integer('provider_segments'),
+    expiresAt: timestamp('expires_at', { mode: 'date', withTimezone: true }).notNull(),
+    settledAt: timestamp('settled_at', { mode: 'date', withTimezone: true }),
+    releasedAt: timestamp('released_at', { mode: 'date', withTimezone: true }),
+    releaseReason: text('release_reason'),
+    refundedAt: timestamp('refunded_at', { mode: 'date', withTimezone: true }),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    activeDedupeUniq: uniqueIndex('sms_credit_reservation_active_dedupe_uniq')
+      .on(table.dedupeKey)
+      .where(sql`${table.status} in ('held', 'settled')`),
+    reaperIdx: index('sms_credit_reservation_reaper_idx')
+      .on(table.expiresAt)
+      .where(sql`${table.status} = 'held'`),
+    salonIdx: index('sms_credit_reservation_salon_idx').on(table.salonId, table.status),
+  }),
+);
+export type SmsCreditReservation = typeof smsCreditReservationSchema.$inferSelect;
+
+export const smsCreditReservationLotSchema = pgTable(
+  'sms_credit_reservation_lot',
+  {
+    reservationId: text('reservation_id')
+      .notNull()
+      .references(() => smsCreditReservationSchema.id, { onDelete: 'cascade' }),
+    lotLedgerId: text('lot_ledger_id')
+      .notNull()
+      .references(() => smsCreditLedgerSchema.id, { onDelete: 'cascade' }),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    segments: integer('segments').notNull(),
+    debitLedgerId: text('debit_ledger_id'),
+    refundLedgerId: text('refund_ledger_id'),
+    refundedAt: timestamp('refunded_at', { mode: 'date', withTimezone: true }),
+    refundedSegments: integer('refunded_segments').default(0).notNull(),
+  },
+  table => ({
+    pk: primaryKey({
+      name: 'sms_credit_reservation_lot_pk',
+      columns: [table.reservationId, table.lotLedgerId],
+    }),
+    lotIdx: index('sms_credit_reservation_lot_lot_idx').on(table.lotLedgerId),
+  }),
+);
+export type SmsCreditReservationLot = typeof smsCreditReservationLotSchema.$inferSelect;
+
+export const billingStripeEventSchema = pgTable(
+  'billing_stripe_event',
+  {
+    id: text('id').primaryKey(),
+    eventId: text('event_id').notNull(),
+    eventType: text('event_type').notNull(),
+    livemode: boolean('livemode').notNull(),
+    apiCreatedAt: timestamp('api_created_at', { mode: 'date', withTimezone: true }).notNull(),
+    salonId: text('salon_id').references(() => salonSchema.id, { onDelete: 'set null' }),
+    status: text('status').$type<BillingStripeEventStatus>().notNull(),
+    attempts: integer('attempts').default(0).notNull(),
+    availableAt: timestamp('available_at', { mode: 'date', withTimezone: true }),
+    lastError: text('last_error'),
+    subscriptionId: text('subscription_id'),
+    invoiceId: text('invoice_id'),
+    checkoutSessionId: text('checkout_session_id'),
+    paymentIntentId: text('payment_intent_id'),
+    priceId: text('price_id'),
+    rawPayload: jsonb('raw_payload').$type<Record<string, unknown>>(),
+    payloadPurgeAfter: timestamp('payload_purge_after', { mode: 'date', withTimezone: true }),
+    receivedAt: timestamp('received_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    processedAt: timestamp('processed_at', { mode: 'date', withTimezone: true }),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    eventIdUniq: uniqueIndex('billing_stripe_event_event_id_uniq').on(table.eventId),
+    statusAvailableIdx: index('billing_stripe_event_status_available_idx').on(
+      table.status,
+      table.availableAt,
+    ),
+  }),
+);
+export type BillingStripeEvent = typeof billingStripeEventSchema.$inferSelect;
+
+export const smsTopupPurchaseSchema = pgTable(
+  'sms_topup_purchase',
+  {
+    id: text('id').primaryKey(),
+    // SET NULL: paid-money evidence must survive salon purge (audit/refunds).
+    salonId: text('salon_id').references(() => salonSchema.id, { onDelete: 'set null' }),
+    topupOfferKey: text('topup_offer_key').notNull(),
+    credits: integer('credits').notNull(),
+    amountCents: integer('amount_cents').notNull(),
+    currency: text('currency').default('cad').notNull(),
+    status: text('status').$type<SmsTopupPurchaseStatus>().notNull(),
+    stripeCheckoutSessionId: text('stripe_checkout_session_id'),
+    stripePaymentIntentId: text('stripe_payment_intent_id'),
+    stripeRefundId: text('stripe_refund_id'),
+    stripeDisputeId: text('stripe_dispute_id'),
+    grantLedgerId: text('grant_ledger_id'),
+    refundedAt: timestamp('refunded_at', { mode: 'date', withTimezone: true }),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    sessionUniq: uniqueIndex('sms_topup_purchase_session_uniq')
+      .on(table.stripeCheckoutSessionId)
+      .where(sql`${table.stripeCheckoutSessionId} is not null`),
+    piUniq: uniqueIndex('sms_topup_purchase_pi_uniq')
+      .on(table.stripePaymentIntentId)
+      .where(sql`${table.stripePaymentIntentId} is not null`),
+    salonIdx: index('sms_topup_purchase_salon_idx').on(table.salonId, table.status),
+  }),
+);
+export type SmsTopupPurchase = typeof smsTopupPurchaseSchema.$inferSelect;

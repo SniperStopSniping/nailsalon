@@ -484,6 +484,13 @@
       "when": 1786300235000,
       "tag": "0068_deposit_credit_tax_snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1786957111064,
+      "tag": "0069_billing_credit_foundation",
+      "breakpoints": true
     }
   ]
 }
