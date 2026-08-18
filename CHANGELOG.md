@@ -1,3 +1,11 @@
+## [1.69.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.69.0...v1.69.1) (2026-08-18)
+
+
+### Bug Fixes
+
+* **booking-page:** close two public address leaks in confirm page and shell ([0a88c35](https://github.com/SniperStopSniping/nailsalon/commit/0a88c35889df1592135bd6e2bc606567053e095c))
+* **booking-page:** wire hiddenSections into render path and enforce locationDisplayMode privacy ([9974889](https://github.com/SniperStopSniping/nailsalon/commit/9974889d86f91d6a6f31a5baf13cf04a61c8b088))
+
 # [1.69.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.68.0...v1.69.0) (2026-08-18)
 
 
