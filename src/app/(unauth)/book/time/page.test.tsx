@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { DraftSalonGateResult } from '@/libs/ownerPreview';
+
 import BookTimePage from './page';
 
 const {
@@ -10,6 +12,7 @@ const {
   getLocationById,
   getPrimaryLocation,
   getPublicPageContext,
+  resolveDraftSalonAccess,
   resolvePublicBookingTechnicianContext,
   redirectMock,
 } = vi.hoisted(() => ({
@@ -20,6 +23,12 @@ const {
   getLocationById: vi.fn(),
   getPrimaryLocation: vi.fn(),
   getPublicPageContext: vi.fn(),
+  resolveDraftSalonAccess: vi.fn((): Promise<DraftSalonGateResult> => Promise.resolve({
+    allowed: true,
+    isPreviewingDraftSalon: false,
+    isPreviewingDraftConfig: false,
+    actorType: null,
+  })),
   resolvePublicBookingTechnicianContext: vi.fn(),
   redirectMock: vi.fn((url: string) => {
     throw new Error(`REDIRECT:${url}`);
@@ -55,6 +64,36 @@ vi.mock('@/libs/salonStatus', () => ({
 
 vi.mock('@/libs/publicBookingTechnicians', () => ({
   resolvePublicBookingTechnicianContext,
+}));
+
+vi.mock('@/libs/ownerPreview', () => ({
+  resolveDraftSalonAccess,
+}));
+
+vi.mock('@/libs/bookingPageConfig', () => ({
+  resolveBookingPageConfig: vi.fn(() => ({
+    version: 1,
+    draft: {
+      layout: 'quick_book',
+      stylePack: 'default',
+      tokenOverrides: null,
+      sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
+      sectionVariants: {},
+      hiddenSections: [],
+      businessMode: 'solo',
+      startMode: 'services_first',
+    },
+    live: {
+      layout: 'quick_book',
+      stylePack: 'default',
+      tokenOverrides: null,
+      sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
+      sectionVariants: {},
+      hiddenSections: [],
+      businessMode: 'solo',
+      startMode: 'services_first',
+    },
+  })),
 }));
 
 vi.mock('@/libs/tenant', () => ({
@@ -363,5 +402,88 @@ describe('BookTimePage', () => {
     expect(resolvePublicBookingTechnicianContext).toHaveBeenCalledWith(expect.objectContaining({
       clientPhone: '+14165550123',
     }));
+  });
+});
+
+describe('BookTimePage owner-preview gate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    buildTenantRedirectPath.mockImplementation((path: string | null) => path);
+    getClientSession.mockResolvedValue(null);
+    getPublicPageContext.mockResolvedValue({
+      appearance: null,
+      salon: {
+        id: 'salon_1',
+        slug: 'salon-a',
+        bookingFlow: ['service', 'tech', 'time', 'confirm'],
+        settings: null,
+        publicationStatus: 'published',
+        freeSoloEnabled: true,
+      },
+    });
+    checkSalonStatus.mockResolvedValue({});
+    checkFeatureEnabled.mockResolvedValue({});
+    getPrimaryLocation.mockResolvedValue(null);
+  });
+
+  it('redirects to not-found and renders no draft content when the preview gate denies access', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: false,
+      reason: 'no_session',
+    });
+    buildTenantRedirectPath.mockReturnValue('/en/salon-a/not-found');
+
+    await expect(BookTimePage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        baseServiceId: 'svc_1',
+      },
+      params: { locale: 'en', slug: 'salon-a' },
+    })).rejects.toThrow('REDIRECT:/en/salon-a/not-found');
+
+    // Real deny-before-render proof: nothing past the gate ever ran.
+    expect(checkSalonStatus).not.toHaveBeenCalled();
+    expect(resolvePublicBookingTechnicianContext).not.toHaveBeenCalled();
+  });
+
+  it('allows an authorized owner previewing a draft salon through to the time step', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: true,
+      isPreviewingDraftConfig: true,
+      actorType: 'owner',
+    });
+    resolvePublicBookingTechnicianContext.mockResolvedValue({
+      resolvedSelection: {
+        services: [{ id: 'svc_1', name: 'Gel Manicure', priceCents: 4000, durationMinutes: 60 }],
+        addOns: [],
+        totalPriceCents: 4000,
+        visibleDurationMinutes: 60,
+      },
+      activeTechnicians: [],
+      compatibleTechnicians: [],
+      compatibleCount: 0,
+      compatibleTechnicianIds: [],
+      soleCompatibleTechnician: null,
+      requestedTechnicianId: null,
+      hasValidExplicitTechnician: false,
+      validExplicitTechnician: null,
+      effectiveTechnicianId: null,
+      effectiveTechnician: null,
+      effectiveTechnicianSelectionSource: null,
+      shouldAutoSkipTech: false,
+    });
+
+    const element = await BookTimePage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        baseServiceId: 'svc_1',
+        techId: 'any',
+      },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+
+    expect(element).toBeTruthy();
+    expect(resolvePublicBookingTechnicianContext).toHaveBeenCalled();
   });
 });

@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { DraftSalonGateResult } from '@/libs/ownerPreview';
+
 import BookConfirmPage from './page';
 
 const {
@@ -15,6 +17,7 @@ const {
   getSalonById,
   isRewardsEnabled,
   isSmsEnabled,
+  resolveDraftSalonAccess,
   resolvePublicBookingTechnicianContext,
   resolvePublicRetentionCampaignPreview,
   bookConfirmClientSpy,
@@ -30,6 +33,12 @@ const {
   getSalonById: vi.fn(),
   isRewardsEnabled: vi.fn(),
   isSmsEnabled: vi.fn(),
+  resolveDraftSalonAccess: vi.fn((): Promise<DraftSalonGateResult> => Promise.resolve({
+    allowed: true,
+    isPreviewingDraftSalon: false,
+    isPreviewingDraftConfig: false,
+    actorType: null,
+  })),
   resolvePublicBookingTechnicianContext: vi.fn(),
   resolvePublicRetentionCampaignPreview: vi.fn(),
   bookConfirmClientSpy: vi.fn(),
@@ -54,8 +63,42 @@ vi.mock('@/libs/depositAccountSnapshot.server', () => ({
 // Deliberately NOT mocked: `@/libs/depositPolicy.server` is the module under test
 // on this path.
 
+const { redirectMock } = vi.hoisted(() => ({
+  redirectMock: vi.fn(),
+}));
+
 vi.mock('next/navigation', () => ({
-  redirect: vi.fn(),
+  redirect: redirectMock,
+}));
+
+vi.mock('@/libs/ownerPreview', () => ({
+  resolveDraftSalonAccess,
+}));
+
+vi.mock('@/libs/bookingPageConfig', () => ({
+  resolveBookingPageConfig: vi.fn(() => ({
+    version: 1,
+    draft: {
+      layout: 'quick_book',
+      stylePack: 'default',
+      tokenOverrides: null,
+      sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
+      sectionVariants: {},
+      hiddenSections: [],
+      businessMode: 'solo',
+      startMode: 'services_first',
+    },
+    live: {
+      layout: 'quick_book',
+      stylePack: 'default',
+      tokenOverrides: null,
+      sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
+      sectionVariants: {},
+      hiddenSections: [],
+      businessMode: 'solo',
+      startMode: 'services_first',
+    },
+  })),
 }));
 
 vi.mock('@/components/PublicSalonPageShell', () => ({
@@ -636,5 +679,134 @@ describe('BookConfirmPage deposit disclosure — dark', () => {
     });
 
     expect(props.depositDisclosure).toBeNull();
+  });
+});
+
+describe('BookConfirmPage owner-preview gate', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getPublicPageContext.mockResolvedValue({
+      appearance: null,
+      salon: {
+        id: 'salon_1',
+        slug: 'salon-a',
+        name: 'Salon A',
+        address: '123 Beauty Lane',
+        city: 'Los Angeles',
+        state: 'CA',
+        zipCode: '90001',
+        bookingFlow: ['service', 'tech', 'time', 'confirm'],
+        settings: null,
+        publicationStatus: 'published',
+        freeSoloEnabled: true,
+      },
+    });
+    getClientSession.mockResolvedValue(null);
+    buildTenantRedirectPath.mockImplementation((path: string | null) => path);
+  });
+
+  it('redirects to not-found and renders no draft content when the preview gate denies access', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: false,
+      reason: 'no_session',
+    });
+    // Scoped to this single call only: proves the real page's own
+    // redirect() fires and halts execution before anything below it runs
+    // (matching real Next.js redirect() semantics), without disturbing the
+    // no-op default the other tests in this file rely on for their
+    // incidental location-repair redirect call.
+    redirectMock.mockImplementationOnce((url: string) => {
+      throw new Error(`REDIRECT:${url}`);
+    });
+    buildTenantRedirectPath.mockReturnValue('/en/salon-a/not-found');
+
+    await expect(BookConfirmPage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    })).rejects.toThrow('REDIRECT:/en/salon-a/not-found');
+
+    // Real deny-before-render proof: nothing past the gate ever ran.
+    expect(checkSalonStatus).not.toHaveBeenCalled();
+    expect(getPrimaryLocation).not.toHaveBeenCalled();
+    expect(resolvePublicBookingTechnicianContext).not.toHaveBeenCalled();
+    expect(bookConfirmClientSpy).not.toHaveBeenCalled();
+  });
+
+  it('allows an authorized owner previewing a draft salon through to the confirm step', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: true,
+      isPreviewingDraftConfig: true,
+      actorType: 'owner',
+    });
+    checkSalonStatus.mockResolvedValue({});
+    checkFeatureEnabled.mockResolvedValue({});
+    getPrimaryLocation.mockResolvedValue({
+      id: 'loc_primary',
+      name: 'Salon A',
+      address: '123 Beauty Lane',
+      city: 'Los Angeles',
+      state: 'CA',
+      zipCode: '90001',
+    });
+    getLocationById.mockResolvedValue(null);
+    resolvePublicRetentionCampaignPreview.mockResolvedValue({ status: 'none', preview: null, message: null });
+    isRewardsEnabled.mockResolvedValue(false);
+    isSmsEnabled.mockResolvedValue(false);
+    resolvePublicBookingTechnicianContext.mockResolvedValue({
+      resolvedSelection: {
+        mode: 'legacy',
+        baseServiceId: null,
+        selectedAddOns: [],
+        requestedServices: [{ id: 'srv_1', name: 'BIAB Short', price: 6500, durationMinutes: 75 }],
+        services: [{
+          id: 'srv_1',
+          name: 'BIAB Short',
+          durationMinutes: 75,
+          priceCents: 6500,
+          category: 'builder_gel',
+          descriptionItems: [],
+          priceDisplayText: null,
+          resolvedIntroPriceLabel: null,
+        }],
+        addOns: [],
+        subtotalBeforeDiscountCents: 6500,
+        discountAmountCents: 0,
+        totalPriceCents: 6500,
+        firstVisitDiscountPreview: null,
+        visibleDurationMinutes: 75,
+        blockedDurationMinutes: 85,
+        bufferMinutes: 10,
+      },
+      activeTechnicians: [],
+      compatibleTechnicians: [],
+      compatibleCount: 0,
+      compatibleTechnicianIds: [],
+      soleCompatibleTechnician: null,
+      requestedTechnicianId: null,
+      hasValidExplicitTechnician: false,
+      validExplicitTechnician: null,
+      effectiveTechnicianId: null,
+      effectiveTechnician: null,
+      effectiveTechnicianSelectionSource: null,
+      shouldAutoSkipTech: false,
+    });
+
+    const element = await BookConfirmPage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        serviceIds: 'srv_1',
+        techId: 'any',
+        date: '2026-03-20',
+        time: '10:00',
+        locationId: 'loc_primary',
+      },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+
+    render(element);
+
+    expect(redirectMock).not.toHaveBeenCalled();
+    expect(screen.getByText('Book confirm client')).toBeInTheDocument();
   });
 });

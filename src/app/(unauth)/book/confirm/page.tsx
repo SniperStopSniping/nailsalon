@@ -1,9 +1,11 @@
 import { redirect } from 'next/navigation';
 import { Suspense } from 'react';
 
+import type { PreviewBannerVariant } from '@/components/PreviewBanner';
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
+import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import {
@@ -15,6 +17,7 @@ import {
 } from '@/libs/depositPolicy';
 import { getDepositPolicyForSalon } from '@/libs/depositPolicy.server';
 import { buildDirectionsDestination, resolveDirectionsLocation } from '@/libs/directions';
+import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
 import { resolvePublicRetentionCampaignPreview } from '@/libs/publicRetentionCampaign';
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
@@ -22,6 +25,7 @@ import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus, isRewar
 import { buildTaxConfigurationSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import { getPublicPageContext } from '@/libs/tenant';
 import { getDateKeyInTimeZone, getTimeKeyInTimeZone } from '@/libs/timeZone';
+import type { SalonOwnerPreviewState } from '@/providers/SalonProvider';
 import type { SalonSettings } from '@/types/salonPolicy';
 
 import { BookConfirmClient } from './BookConfirmClient';
@@ -97,8 +101,50 @@ export default async function BookConfirmPage({
     locale: params?.locale,
   };
 
-  // Check salon status - redirect if suspended/cancelled
-  const statusCheck = await checkSalonStatus(salon.id);
+  // Owner-preview gate (Luster UI/UX plan rev 3, PR3): reuse the SAME
+  // authorization matrix `[locale]/[slug]/layout.tsx` already resolved for
+  // this request, rather than letting checkSalonStatus() below run an
+  // independent, unaware publication check that would re-404 an owner (or
+  // authorized impersonating super admin) the layout just let through.
+  const previewGate = await resolveDraftSalonAccess({
+    id: salon.id,
+    publicationStatus: salon.publicationStatus,
+    freeSoloEnabled: salon.freeSoloEnabled,
+  });
+  if (!previewGate.allowed) {
+    redirect(buildTenantRedirectPath('/not-found', tenantRoute) ?? '/not-found');
+  }
+
+  // Thread the same gate result into the SalonProvider PublicSalonPageShell
+  // mounts below (Luster UI/UX plan rev 3, PR3). `[locale]/[slug]/layout.tsx`
+  // resolves this same gate and enforces its own notFound()/redirect above
+  // it, but never renders PreviewBanner — PublicSalonPageShell is the single
+  // owner of banner rendering for every public page reached through this
+  // page.tsx, whether via the canonical `/book?salonSlug=...` entry URL
+  // (outside the `[locale]/[slug]` tree, so the layout above never wraps it
+  // at all) or via `[locale]/[slug]/book/confirm`, which re-exports this
+  // exact page and IS nested under the layout.
+  const bookingPageConfig = resolveBookingPageConfig(salon.settings);
+  const activeBookingPageSide = previewGate.isPreviewingDraftConfig
+    ? bookingPageConfig.draft
+    : bookingPageConfig.live;
+  const ownerPreviewState: SalonOwnerPreviewState = {
+    isPreviewing: previewGate.isPreviewingDraftSalon || previewGate.isPreviewingDraftConfig,
+    actorType: previewGate.actorType,
+  };
+  const previewBannerVariant: PreviewBannerVariant | null = previewGate.isPreviewingDraftSalon
+    ? 'draft-salon'
+    : previewGate.isPreviewingDraftConfig
+      ? 'draft-config'
+      : null;
+
+  // Check salon status - redirect if suspended/cancelled. Deleted/
+  // suspended/cancelled checks still apply even when previewing a draft
+  // salon; only the "not published" branch is bypassed for an authorized
+  // previewer.
+  const statusCheck = await checkSalonStatus(salon.id, {
+    allowUnpublishedPreview: previewGate.isPreviewingDraftSalon,
+  });
   const statusRedirectPath = buildTenantRedirectPath(statusCheck.redirectPath, tenantRoute);
   if (statusRedirectPath) {
     redirect(statusRedirectPath);
@@ -322,6 +368,9 @@ export default async function BookConfirmPage({
       appearance={context.appearance}
       pageName="book-confirm"
       salon={context.salon}
+      bookingPage={activeBookingPageSide}
+      ownerPreview={ownerPreviewState}
+      previewBannerVariant={previewBannerVariant}
     >
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>
         <BookConfirmClient
