@@ -132,10 +132,20 @@ describe('POST /api/onboarding/luster', () => {
     expect(transaction).toHaveBeenCalledOnce();
     expect(tx.insert).toHaveBeenCalledTimes(7);
     expect(tx.update).toHaveBeenCalledOnce();
+    // Phase A (draft/publish split): onboarding creates the salon as a
+    // private, owner-only draft — it no longer publishes in the same
+    // request. This assertion used to read `publicationStatus: 'published'`;
+    // corrected here because the whole point of this change is that
+    // creation and publication are no longer fused. Publishing is now a
+    // separate, deliberate action — see
+    // src/app/api/admin/salon/publish/route.test.ts for that endpoint's
+    // coverage of the actual 'draft' -> 'published' flip.
     expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({
       slug: 'isla-nails',
       freeSoloEnabled: true,
-      publicationStatus: 'published',
+      publicationStatus: 'draft',
+      publishedAt: null,
+      slugLockedAt: null,
       plan: 'free',
     }));
     expect(insertValues).toHaveBeenCalledWith(expect.objectContaining({

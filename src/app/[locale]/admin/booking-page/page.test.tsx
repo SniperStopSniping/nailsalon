@@ -44,12 +44,21 @@ describe('BookingPageOwnerSurface', () => {
   let config: ReturnType<typeof baseConfig>;
   let content: ReturnType<typeof baseContent>;
   let fetchMock: ReturnType<typeof vi.fn>;
+  // Phase A (draft/publish split): defaults to 'published' so every
+  // pre-existing test in this file (written before the salon-publish
+  // affordance existed) keeps rendering exactly as before — the banner only
+  // appears in the dedicated describe block below that sets this to
+  // 'draft'.
+  let salonPublicationStatus: string;
+  let salonPublishShouldFail: boolean;
 
   beforeEach(() => {
     vi.clearAllMocks();
     searchParamsMock.value = new URLSearchParams('salon=salon-a');
     config = baseConfig();
     content = baseContent();
+    salonPublicationStatus = 'published';
+    salonPublishShouldFail = false;
 
     fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
@@ -61,9 +70,29 @@ describe('BookingPageOwnerSurface', () => {
         }), { status: 200 }));
       }
 
+      if (url.includes('/api/admin/salon/publish')) {
+        if (salonPublishShouldFail) {
+          return Promise.resolve(new Response(JSON.stringify({
+            error: { code: 'INTERNAL_ERROR', message: 'Publishing failed.' },
+          }), { status: 500 }));
+        }
+        salonPublicationStatus = 'published';
+        return Promise.resolve(new Response(JSON.stringify({
+          data: {
+            salonId: 'salon_1',
+            slug: 'salon-a',
+            publicationStatus: 'published',
+            publishedAt: '2026-08-18T12:00:00.000Z',
+            slugLockedAt: '2026-08-18T12:00:00.000Z',
+            publicUrl: 'https://salon-a.example.com/',
+            bookingUrl: 'https://salon-a.example.com/en/salon-a/book/service',
+          },
+        }), { status: 200 }));
+      }
+
       if (url.includes('/api/admin/booking-page')) {
         if (method === 'GET') {
-          return Promise.resolve(new Response(JSON.stringify({ config, content }), { status: 200 }));
+          return Promise.resolve(new Response(JSON.stringify({ config, content, salon: { publicationStatus: salonPublicationStatus } }), { status: 200 }));
         }
         if (method === 'PATCH') {
           const body = JSON.parse(String(init?.body));
@@ -73,7 +102,7 @@ describe('BookingPageOwnerSurface', () => {
           if (body.content) {
             content = { ...content, draft: { ...content.draft, ...body.content } };
           }
-          return Promise.resolve(new Response(JSON.stringify({ config, content }), { status: 200 }));
+          return Promise.resolve(new Response(JSON.stringify({ config, content, salon: { publicationStatus: salonPublicationStatus } }), { status: 200 }));
         }
         if (method === 'POST') {
           const body = JSON.parse(String(init?.body));
@@ -84,7 +113,7 @@ describe('BookingPageOwnerSurface', () => {
             config = { ...config, draft: config.live };
             content = { ...content, draft: content.live };
           }
-          return Promise.resolve(new Response(JSON.stringify({ config, content }), { status: 200 }));
+          return Promise.resolve(new Response(JSON.stringify({ config, content, salon: { publicationStatus: salonPublicationStatus } }), { status: 200 }));
         }
       }
 
@@ -352,6 +381,83 @@ describe('BookingPageOwnerSurface', () => {
 
     await waitFor(() => {
       expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+    });
+  });
+
+  // Phase A follow-up: the wizard's success screen is not the owner's only
+  // way back to publishing — an owner who navigates away from it with the
+  // salon still in `draft` needs a persistent, reachable way to finish the
+  // job. This surface (the existing "my public page" destination) is it.
+  describe('salon publish affordance (Phase A follow-up)', () => {
+    it('does not render for an already-published salon', async () => {
+      salonPublicationStatus = 'published';
+      render(<BookingPageOwnerSurface />);
+
+      await screen.findByTestId('layout-option-quick_book');
+
+      expect(screen.queryByTestId('salon-publish-banner')).not.toBeInTheDocument();
+    });
+
+    it('renders a distinct "publish the salon" affordance for a draft salon, separate from the booking-page Publish button', async () => {
+      salonPublicationStatus = 'draft';
+      render(<BookingPageOwnerSurface />);
+
+      const banner = await screen.findByTestId('salon-publish-banner');
+      const salonPublishButton = screen.getByTestId('salon-publish-button');
+
+      expect(banner).toBeInTheDocument();
+      // The booking-page config button says the bare word "Publish"
+      // (asserted elsewhere in this file); the salon-level action must
+      // never carry that same bare label — an owner could confuse them.
+      expect(salonPublishButton).not.toHaveTextContent(/^Publish$/);
+      expect(screen.getByText(/permanently locks your link/i)).toBeInTheDocument();
+    });
+
+    it('clicking the salon-publish button calls POST /api/admin/salon/publish (not the booking-page action endpoint), and hides the banner on success', async () => {
+      salonPublicationStatus = 'draft';
+      render(<BookingPageOwnerSurface />);
+
+      const button = await screen.findByTestId('salon-publish-button');
+      fireEvent.click(button);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('salon-publish-banner')).not.toBeInTheDocument();
+      });
+
+      const publishCall = fetchMock.mock.calls.find(([url]) => String(url).includes('/api/admin/salon/publish'));
+
+      expect(publishCall).toBeDefined();
+      expect(publishCall?.[1]?.method).toBe('POST');
+
+      // Never routes through the booking-page config publish/revert action.
+      const bookingPageActionCalls = fetchMock.mock.calls.filter(
+        ([url, init]) => String(url).includes('/api/admin/booking-page') && init?.method === 'POST',
+      );
+
+      expect(bookingPageActionCalls).toHaveLength(0);
+    });
+
+    it('shows an error and keeps the banner when the publish call fails', async () => {
+      salonPublicationStatus = 'draft';
+      salonPublishShouldFail = true;
+      render(<BookingPageOwnerSurface />);
+
+      const button = await screen.findByTestId('salon-publish-button');
+      fireEvent.click(button);
+
+      await screen.findByRole('alert');
+
+      expect(screen.getByTestId('salon-publish-banner')).toBeInTheDocument();
+    });
+
+    it('is independent of the booking-page config Publish/Revert action state (clicking one never disables the other)', async () => {
+      salonPublicationStatus = 'draft';
+      render(<BookingPageOwnerSurface />);
+
+      await screen.findByTestId('salon-publish-banner');
+      const configPublishButton = screen.getByTestId('booking-page-publish');
+
+      expect(configPublishButton).toBeEnabled();
     });
   });
 });

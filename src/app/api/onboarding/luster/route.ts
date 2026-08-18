@@ -344,9 +344,16 @@ export async function POST(request: Request) {
         ownerClerkUserId: clerkUser.id,
         status: 'active',
         isActive: true,
-        publicationStatus: 'published',
-        publishedAt: now,
-        slugLockedAt: now,
+        // Phase A (draft/publish split): onboarding creates the salon, it
+        // does not publish it. The salon stays a private, owner-only draft
+        // (see resolveDraftSalonAccess / PreviewBanner) — with the slug
+        // left unlocked — until the owner takes the separate, deliberate
+        // publish action at POST /api/admin/salon/publish. That endpoint is
+        // the only place publicationStatus/publishedAt/slugLockedAt get
+        // stamped to 'published' / now / now.
+        publicationStatus: 'draft',
+        publishedAt: null,
+        slugLockedAt: null,
         onboardingCompletedAt: now,
         freeSoloEnabled: true,
         invitationSource: invite.campaignSource,

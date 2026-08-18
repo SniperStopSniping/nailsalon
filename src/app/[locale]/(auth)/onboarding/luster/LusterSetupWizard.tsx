@@ -49,6 +49,7 @@ export function LusterSetupWizard({ inviteToken }: { inviteToken: string; locale
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState<{
+    slug: string;
     publicUrl: string;
     bookingUrl: string;
     dashboardUrl: string;
@@ -59,6 +60,9 @@ export function LusterSetupWizard({ inviteToken }: { inviteToken: string; locale
   const [verificationCodeSent, setVerificationCodeSent] = useState(false);
   const [verificationBusy, setVerificationBusy] = useState<'send' | 'verify' | 'refresh' | null>(null);
   const [verificationMessage, setVerificationMessage] = useState('');
+  const [published, setPublished] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState('');
 
   const primaryEmail = user?.primaryEmailAddress;
   const emailVerified = primaryEmail?.verification.status === 'verified';
@@ -187,6 +191,28 @@ export function LusterSetupWizard({ inviteToken }: { inviteToken: string; locale
     }
   }
 
+  async function publishSalon() {
+    if (!result) {
+      return;
+    }
+    setPublishing(true);
+    setPublishError('');
+    try {
+      const response = await fetch(`/api/admin/salon/publish?salonSlug=${encodeURIComponent(result.slug)}`, {
+        method: 'POST',
+      });
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error?.message || 'Your booking page could not be published.');
+      }
+      setPublished(true);
+    } catch (cause) {
+      setPublishError(cause instanceof Error ? cause.message : 'Your booking page could not be published.');
+    } finally {
+      setPublishing(false);
+    }
+  }
+
   async function submit() {
     setSubmitting(true);
     setError('');
@@ -232,14 +258,35 @@ export function LusterSetupWizard({ inviteToken }: { inviteToken: string; locale
       <main className="min-h-screen bg-stone-50 px-4 py-16">
         <div className="mx-auto max-w-xl rounded-[2rem] border border-emerald-200 bg-white p-8 text-center shadow-sm">
           <span className="mx-auto flex size-14 items-center justify-center rounded-full bg-emerald-100 text-emerald-700"><Check /></span>
-          <h1 className="mt-5 text-3xl font-semibold text-stone-900">Your booking page is live</h1>
-          <p className="mt-3 text-stone-600">Calendar and text reminders are optional. You can connect them from your owner dashboard.</p>
+          <h1 className="mt-5 text-3xl font-semibold text-stone-900">
+            {published ? 'Your booking page is live' : 'Your salon is set up — ready to publish'}
+          </h1>
+          <p className="mt-3 text-stone-600">
+            {published
+              ? 'Calendar and text reminders are optional. You can connect them from your owner dashboard.'
+              : 'Your booking page is saved as a private draft — only you can see it. Preview it below, then publish when you’re ready. Your link locks in the moment you publish.'}
+          </p>
+          {publishError && (
+            <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-800" role="alert">
+              {publishError}
+            </div>
+          )}
           <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:justify-center">
+            {!published && (
+              <button
+                type="button"
+                disabled={publishing}
+                onClick={publishSalon}
+                className="inline-flex items-center justify-center gap-2 rounded-full bg-rose-700 px-5 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+              >
+                {publishing ? 'Publishing…' : 'Publish my booking page'}
+              </button>
+            )}
             <a className="inline-flex items-center justify-center gap-2 rounded-full bg-stone-900 px-5 py-3 text-sm font-medium text-white" href={result.dashboardUrl}>
               Open owner dashboard
             </a>
             <a className="inline-flex items-center justify-center gap-2 rounded-full border border-stone-300 px-5 py-3 text-sm font-medium text-stone-800" href={result.bookingUrl} target="_blank" rel="noreferrer">
-              View booking page
+              {published ? 'View booking page' : 'Preview booking page'}
               <ExternalLink size={16} />
             </a>
           </div>
@@ -418,7 +465,7 @@ export function LusterSetupWizard({ inviteToken }: { inviteToken: string; locale
           </div>
         )}
         {error && <div className="mt-6 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</div>}
-        <div className="mt-8 flex justify-end"><button type="button" disabled={submitting || loadingInvite || !inviteToken || !clerkLoaded || !emailVerified} onClick={submit} className="rounded-full bg-rose-700 px-7 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-50">{submitting ? 'Creating your salon…' : inviteIntent === 'claim_existing' ? 'Finish and publish my salon' : 'Publish my free booking page'}</button></div>
+        <div className="mt-8 flex justify-end"><button type="button" disabled={submitting || loadingInvite || !inviteToken || !clerkLoaded || !emailVerified} onClick={submit} className="rounded-full bg-rose-700 px-7 py-3 text-sm font-semibold text-white shadow-sm disabled:opacity-50">{submitting ? 'Creating your salon…' : inviteIntent === 'claim_existing' ? 'Finish salon setup' : 'Create my booking page'}</button></div>
       </div>
     </main>
   );
