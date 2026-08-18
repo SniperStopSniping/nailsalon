@@ -256,6 +256,32 @@ describe('BookingPageOwnerSurface', () => {
     });
   });
 
+  it('warns that location name/phone still show under city_only, and clears the warning back to full_address', async () => {
+    render(<BookingPageOwnerSurface />);
+
+    await screen.findByTestId('content-hero-image-url');
+
+    // full_address is the fixture default — no warning yet (also proves the
+    // assertion below isn't vacuously true for every render).
+    expect(screen.queryByTestId('location-display-mode-city-only-warning')).not.toBeInTheDocument();
+
+    const cityOnlyButton = screen.getByTestId('location-display-mode-city_only');
+    fireEvent.click(cityOnlyButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-display-mode-city-only-warning')).toHaveTextContent(
+        /location's name and phone number are still shown/,
+      );
+    });
+
+    const fullAddressButton = screen.getByTestId('location-display-mode-full_address');
+    fireEvent.click(fullAddressButton);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('location-display-mode-city-only-warning')).not.toBeInTheDocument();
+    });
+  });
+
   it('the preview link points at the salon booking URL from /api/admin/auth/me', async () => {
     render(<BookingPageOwnerSurface />);
 
