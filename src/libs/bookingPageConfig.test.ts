@@ -286,6 +286,57 @@ describe('validateSectionOrder', () => {
     expect(result.sectionOrder).toEqual(BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.sectionOrder);
     expect(result.hiddenSections).toEqual([]);
   });
+
+  // Repair A4: salonProfile joined REQUIRED_SECTION_IDS alongside
+  // serviceMenu/bookingCta — it hosts the page's only <h1> on both layouts
+  // (BookingStepHeader for Quick Book, the hero heading for Editorial). A
+  // crafted PATCH (or stale/legacy stored data written before this repair)
+  // that omits it from sectionOrder, or adds it to hiddenSections, must
+  // never survive validateSectionOrder.
+  describe('salonProfile floor (repair A4)', () => {
+    it('strips salonProfile from hiddenSections — a crafted PATCH cannot hide it', () => {
+      const result = validateSectionOrder(
+        ['salonProfile', 'serviceMenu', 'bookingCta'],
+        ['salonProfile', 'policies'],
+        'quick_book',
+      );
+
+      expect(result.hiddenSections).toEqual(['policies']);
+      expect(result.hiddenSections).not.toContain('salonProfile');
+    });
+
+    it('inserts a missing salonProfile at the FRONT of sectionOrder, not appended after serviceMenu/bookingCta', () => {
+      // A stored/crafted sectionOrder that already omits salonProfile —
+      // e.g. stale data written before this repair, or a hand-crafted PATCH.
+      // Position-aware hazard: a naive `.push()` (the same repair
+      // serviceMenu/bookingCta already use) would land it AFTER bookingCta,
+      // rendering the salon header/step-progress below the service menu.
+      const result = validateSectionOrder(
+        ['serviceMenu', 'featuredServices', 'bookingCta'],
+        [],
+        'quick_book',
+      );
+
+      expect(result.sectionOrder).toEqual(['salonProfile', 'serviceMenu', 'featuredServices', 'bookingCta']);
+      expect(result.sectionOrder[0]).toBe('salonProfile');
+    });
+
+    it('leaves an already-present salonProfile exactly where it was — repair only inserts when missing', () => {
+      const result = validateSectionOrder(
+        ['featuredServices', 'salonProfile', 'serviceMenu', 'bookingCta'],
+        [],
+        'quick_book',
+      );
+
+      expect(result.sectionOrder).toEqual(['featuredServices', 'salonProfile', 'serviceMenu', 'bookingCta']);
+    });
+
+    it('serviceMenu/bookingCta keep their existing append-at-the-end floor behaviour, unchanged by the salonProfile fix', () => {
+      const result = validateSectionOrder(['salonProfile'], [], 'quick_book');
+
+      expect(result.sectionOrder).toEqual(['salonProfile', 'serviceMenu', 'bookingCta']);
+    });
+  });
 });
 
 describe('foldLegacyAppearanceInputs', () => {
@@ -356,5 +407,66 @@ describe('full pipeline: resolveBookingPageConfig -> resolveVisibleSectionOrder'
 
     expect(visible).toContain('serviceMenu');
     expect(visible).toContain('bookingCta');
+  });
+
+  // Repair A4: same end-to-end proof, for the newly-required salonProfile —
+  // both the "crafted PATCH" shape (an authenticated write attempting
+  // `hiddenSections: ['salonProfile']`) and the "stale/poisoned data" shape
+  // (a sectionOrder saved before this repair existed, which never had
+  // salonProfile in it at all) are exercised through the exact same
+  // resolveBookingPageConfig entry point every real read goes through — so
+  // this also proves the fix protects data already sitting in the database,
+  // not just new writes.
+  it('a crafted stored hiddenSections attempting to hide salonProfile never actually hides it at render time', () => {
+    const maliciousSettings = {
+      bookingPage: {
+        draft: {
+          layout: 'quick_book',
+          sectionOrder: ['salonProfile', 'serviceMenu', 'bookingCta'],
+          hiddenSections: ['salonProfile', 'policies'],
+        },
+      },
+    };
+
+    const resolved = resolveBookingPageConfig(maliciousSettings);
+
+    expect(resolved.draft.hiddenSections).not.toContain('salonProfile');
+    expect(resolved.draft.sectionOrder).toContain('salonProfile');
+
+    const content = { ...EMPTY_SALON_CONTENT, identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Salon' } };
+    const visible = resolveVisibleSectionOrder(
+      resolved.draft.sectionOrder,
+      resolved.draft.hiddenSections,
+      content,
+    );
+
+    expect(visible).toContain('salonProfile');
+  });
+
+  it('stale sectionOrder saved before salonProfile was required is repaired on read, at the front, and stays visible', () => {
+    // No hiddenSections trickery here — this stored sectionOrder simply
+    // predates the repair and never had salonProfile in it.
+    const staleSettings = {
+      bookingPage: {
+        draft: {
+          layout: 'quick_book',
+          sectionOrder: ['serviceMenu', 'featuredServices', 'policies', 'bookingCta'],
+          hiddenSections: [],
+        },
+      },
+    };
+
+    const resolved = resolveBookingPageConfig(staleSettings);
+
+    expect(resolved.draft.sectionOrder[0]).toBe('salonProfile');
+
+    const content = { ...EMPTY_SALON_CONTENT, identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Salon' } };
+    const visible = resolveVisibleSectionOrder(
+      resolved.draft.sectionOrder,
+      resolved.draft.hiddenSections,
+      content,
+    );
+
+    expect(visible[0]).toBe('salonProfile');
   });
 });

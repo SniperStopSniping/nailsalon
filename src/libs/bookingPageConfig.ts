@@ -74,10 +74,25 @@ function isSectionId(value: unknown): value is SectionId {
 
 /**
  * `serviceMenu` hosts the one shared booking engine; `bookingCta` is the only
- * always-available entry point into it. Neither may ever be removed from
+ * always-available entry point into it; `salonProfile` is the one section
+ * that hosts the page's only `<h1>` on both layouts (Quick Book's via
+ * `BookingStepHeader`, Editorial's via its hero heading — see
+ * `BookServiceClient.tsx`). None of the three may ever be removed from
  * sectionOrder or added to hiddenSections — see validateSectionOrder below.
+ *
+ * Post-launch fix: `salonProfile` was missing from this set, so a crafted
+ * authenticated `PATCH { config: { hiddenSections: ['salonProfile'] } }`
+ * persisted and published, deleting the page's only heading (a WCAG
+ * heading-structure failure) — the SAME hiddenSections-floor bug this
+ * constant already closed for `serviceMenu`/`bookingCta`, just not extended
+ * to this id yet. `salonProfile.canRender` (`@/libs/sectionRegistry`) is a
+ * separate, independent gate this floor does NOT reach — it stays
+ * conditional on the salon having a non-empty name, which a real resolved
+ * salon always does (see that entry's own comment); this floor only
+ * guarantees the id survives sectionOrder/hiddenSections, not that it always
+ * visually renders.
  */
-const REQUIRED_SECTION_IDS: readonly SectionId[] = ['serviceMenu', 'bookingCta'];
+const REQUIRED_SECTION_IDS: readonly SectionId[] = ['salonProfile', 'serviceMenu', 'bookingCta'];
 
 // =============================================================================
 // LAYOUT / STYLE PACK / MODE ENUMS
@@ -331,15 +346,20 @@ export const bookingPageDraftPatchSchema = bookingPageSideSchema.partial();
 
 /**
  * Enforces the one load-bearing invariant of the config contract: booking
- * must always be reachable. Real, enforced logic (not a comment):
+ * must always be reachable, with a heading, at every layout. Real, enforced
+ * logic (not a comment):
  *
  *  1. Strips any ID that is not one of the 12 registered SECTION_IDS.
  *  2. Removes duplicates, keeping the first occurrence.
- *  3. Removes `serviceMenu` / `bookingCta` from hiddenSections — they can
- *     never be hidden.
- *  4. Guarantees both are present in the final order, appending whichever is
- *     missing (in `serviceMenu`, then `bookingCta` order) rather than
- *     dropping the rest of an otherwise-valid order.
+ *  3. Removes `salonProfile` / `serviceMenu` / `bookingCta` from
+ *     hiddenSections — none of the three can ever be hidden.
+ *  4. Guarantees all three are present in the final order: `salonProfile` is
+ *     inserted at the FRONT if missing (it hosts the page's only `<h1>` on
+ *     both layouts — appending it after `serviceMenu`/`bookingCta` like the
+ *     other two would push the salon header below the service menu instead
+ *     of just being a harmless reorder), then `serviceMenu`/`bookingCta` are
+ *     appended if still missing (in that order) rather than dropping the
+ *     rest of an otherwise-valid order.
  *  5. If, after stripping unknown IDs, nothing usable survives (empty array
  *     or non-array input), the order falls back entirely to the layout
  *     default order — hiddenSections is still cleaned independently in that
@@ -369,7 +389,7 @@ export function validateSectionOrder(
     if (
       isSectionId(entry)
       && !seenHidden.has(entry)
-      // serviceMenu/bookingCta may never be hidden.
+      // salonProfile/serviceMenu/bookingCta may never be hidden.
       && !REQUIRED_SECTION_IDS.includes(entry)
     ) {
       seenHidden.add(entry);
@@ -380,6 +400,20 @@ export function validateSectionOrder(
   const finalOrder = cleanedOrder.length > 0
     ? cleanedOrder
     : layoutDefaultSectionOrder(layout);
+
+  // salonProfile carries the page's only <h1> on both layouts. Repairing it
+  // back in the SAME way serviceMenu/bookingCta are repaired below —
+  // appending to the end — would render the salon header/step-progress
+  // BELOW the service menu whenever a stored/crafted sectionOrder omits it;
+  // harmless for serviceMenu/bookingCta (bookingCta has no renderer at all,
+  // and serviceMenu's position is exactly where an appended id would already
+  // want to land in every real default order) but not for a page-top heading.
+  // Every real default sectionOrder already places salonProfile first, so
+  // inserting it at the front on repair matches that, not just avoids the
+  // append bug.
+  if (!finalOrder.includes('salonProfile')) {
+    finalOrder.unshift('salonProfile');
+  }
 
   for (const requiredId of REQUIRED_SECTION_IDS) {
     if (!finalOrder.includes(requiredId)) {

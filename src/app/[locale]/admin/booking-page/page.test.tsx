@@ -152,6 +152,22 @@ describe('BookingPageOwnerSurface', () => {
     expect(screen.queryByText(/booking cta/i)).not.toBeInTheDocument();
   });
 
+  // Repair A4: salonProfile hosts the page's only <h1> on both layouts and
+  // joined the non-removable floor (REQUIRED_SECTION_IDS in
+  // @/libs/bookingPageConfig) alongside serviceMenu/bookingCta. A normal
+  // admin has no way to hide it because this surface never offers a toggle
+  // for it at all — the server-side floor (validateSectionOrder) is the
+  // defense against a crafted request bypassing this UI, proven in
+  // bookingPageConfig.test.ts's "salonProfile floor" and full-pipeline
+  // coverage.
+  it('never renders a toggle control for salonProfile', async () => {
+    render(<BookingPageOwnerSurface />);
+    await screen.findByTestId('layout-option-quick_book');
+
+    expect(screen.queryByTestId('section-toggle-salonProfile')).not.toBeInTheDocument();
+    expect(screen.queryByText(/salon profile/i)).not.toBeInTheDocument();
+  });
+
   it('renders portfolio and reviews as disabled, marked coming soon', async () => {
     render(<BookingPageOwnerSurface />);
     await screen.findByTestId('layout-option-quick_book');

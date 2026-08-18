@@ -24,6 +24,7 @@ import {
   technicianSupportsPublicLocation,
 } from '@/libs/publicTechnicianCompatibility';
 import { EMPTY_SALON_CONTENT } from '@/libs/salonContent';
+import { resolveVisitContent } from '@/libs/sectionRegistry';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
 import { BOOKING_CATEGORIES, type BookingCategory } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
@@ -2319,12 +2320,19 @@ export function BookServiceClient({
               </div>
             ),
             hoursLocation: () => {
-              const { address, hours, entranceInstructions, locations } = quickBookContent.place;
-              const primaryLocation = locations.find(location => location.isPrimary) ?? locations[0] ?? null;
-              const resolvedAddress = address?.address ?? primaryLocation?.address ?? null;
-              const resolvedCity = address?.city ?? primaryLocation?.city ?? null;
-              const hasAddress = Boolean(resolvedAddress || resolvedCity);
-              if (!hasAddress && !hours && !entranceInstructions) {
+              const { entranceInstructions } = quickBookContent.place;
+              // Post-launch fix: resolveVisitContent (`@/libs/sectionRegistry`)
+              // is the same predicate `SECTION_REGISTRY.hoursLocation.canRender`
+              // gates this renderer's very invocation with — sharing it here
+              // (rather than a second, locally-recomputed hasAddress) is what
+              // keeps this guard from drifting away from canRender's again.
+              // `hours` is intentionally not part of that resolution: nothing
+              // below renders it, so treating it as sufficient to justify the
+              // section used to produce an `<h2>Visit</h2>` frame with no
+              // address/entrance paragraph beneath it whenever a salon had
+              // hours but no address.
+              const { resolvedAddress, resolvedCity, hasVisitableContent } = resolveVisitContent(quickBookContent);
+              if (!hasVisitableContent) {
                 return null;
               }
               return (
@@ -2337,7 +2345,7 @@ export function BookServiceClient({
                   <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-3 lg:text-xs">
                     Visit
                   </h2>
-                  {hasAddress && (
+                  {(resolvedAddress || resolvedCity) && (
                     <p data-testid="editorial-visit-address" className="text-sm text-neutral-700 lg:text-base">
                       {[resolvedAddress, resolvedCity].filter(Boolean).join(' · ')}
                     </p>
@@ -2351,7 +2359,19 @@ export function BookServiceClient({
               );
             },
             policies: () => {
-              if (!quickBookContent.policies.policy.enabled || !quickBookContent.policies.policy.text) {
+              // Post-launch fix: this used to omit the `showOnServicePage`
+              // check Quick Book's own embedded policy card already applies
+              // (see `servicePagePolicyText` above), so an owner who turned
+              // "show on service page" off was obeyed on Quick Book and
+              // ignored here on Editorial. Same source object either way —
+              // `quickBookContent.policies.policy` is `resolveSalonContent`'s
+              // copy of the exact same `bookingExperience.policy` — so this
+              // is now the same three-part condition Quick Book uses.
+              if (
+                !quickBookContent.policies.policy.enabled
+                || !quickBookContent.policies.policy.showOnServicePage
+                || !quickBookContent.policies.policy.text
+              ) {
                 return null;
               }
               return (

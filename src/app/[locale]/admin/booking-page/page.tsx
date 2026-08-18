@@ -12,11 +12,12 @@
  * control here is a plain picker, toggle, or text field over a value the
  * server already validates.
  *
- * `serviceMenu` and `bookingCta` are never rendered as toggle controls here —
- * see OPTIONAL_SECTIONS below, which deliberately omits both. Even if a
- * malicious request bypassed this UI, `@/libs/bookingPageConfig`'s
- * `validateSectionOrder` (invoked by the API route on every write) strips
- * them from `hiddenSections` server-side regardless.
+ * `salonProfile`, `serviceMenu`, and `bookingCta` are never rendered as
+ * toggle controls here — see OPTIONAL_SECTIONS below, which deliberately
+ * omits all three. Even if a malicious request bypassed this UI,
+ * `@/libs/bookingPageConfig`'s `validateSectionOrder` (invoked by the API
+ * route on every write, and again on every read) strips them from
+ * `hiddenSections` server-side regardless.
  */
 
 import { ArrowLeft, ExternalLink } from 'lucide-react';

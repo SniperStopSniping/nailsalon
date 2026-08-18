@@ -37,6 +37,37 @@ function hasText(value: string | null | undefined): boolean {
   return Boolean(value && value.trim() !== '');
 }
 
+/**
+ * The one canonical resolution of "what does the Visit section (hoursLocation)
+ * actually have to show" — the same address/city fallback
+ * (`place.address` → primary location → nothing) BookServiceClient.tsx's
+ * editorial `hoursLocation` renderer performs to build its address paragraph.
+ * Exported and shared (rather than duplicated) so `canRender` below and that
+ * renderer's own guard can never independently drift the way they did before
+ * this was extracted: `canRender` used to allow `content.place.hours` alone
+ * to satisfy it even though no renderer anywhere puts `hours` on the page,
+ * which produced a `<h2>Visit</h2>` frame with nothing under it whenever a
+ * salon had hours but no address. `hours` is deliberately excluded here for
+ * the same reason — this predicate reflects what actually renders, not what
+ * data happens to exist.
+ */
+export function resolveVisitContent(content: SalonContent): {
+  resolvedAddress: string | null;
+  resolvedCity: string | null;
+  hasVisitableContent: boolean;
+} {
+  const { address, locations, entranceInstructions } = content.place;
+  const primaryLocation = locations.find(location => location.isPrimary) ?? locations[0] ?? null;
+  const resolvedAddress = address?.address ?? primaryLocation?.address ?? null;
+  const resolvedCity = address?.city ?? primaryLocation?.city ?? null;
+  const hasAddress = Boolean(resolvedAddress || resolvedCity);
+  return {
+    resolvedAddress,
+    resolvedCity,
+    hasVisitableContent: hasAddress || Boolean(entranceInstructions),
+  };
+}
+
 export const SECTION_REGISTRY: Record<SectionId, SectionRegistryEntry> = {
   salonProfile: {
     id: 'salonProfile',
@@ -123,20 +154,32 @@ export const SECTION_REGISTRY: Record<SectionId, SectionRegistryEntry> = {
     // 'full' added in PR 6 (Editorial's Visit section: location, hours, and
     // entrance instructions when present).
     variants: ['compact', 'full'],
-    // "address or hours".
-    canRender: content => content.place.locations.length > 0
-      || content.place.address !== null
-      || content.place.hours !== null,
+    // "resolved address/city, or entrance instructions" — see
+    // resolveVisitContent above. Post-launch fix: this used to also accept
+    // `content.place.hours !== null` and `content.place.locations.length > 0`
+    // on their own, which allowed canRender to pass (and, combined with the
+    // renderer's own separately-drifted guard, actually render) an empty
+    // `<h2>Visit</h2>` frame for a salon with hours/locations but no
+    // renderable address text and no entrance instructions — nothing in
+    // either layout has ever put raw `hours` on the page.
+    canRender: content => resolveVisitContent(content).hasVisitableContent,
   },
 
   policies: {
     id: 'policies',
     // Future: collapsed.
     variants: ['inline'],
-    // "policy enabled" — mirrors bookingExperience.policy.enabled, the
-    // existing per-content toggle (this section governs placement only, per
-    // the plan's "does not duplicate existing content switches" rule).
-    canRender: content => content.policies.policy.enabled === true,
+    // "policy enabled AND shown on the service page" — mirrors
+    // bookingExperience.policy.{enabled,showOnServicePage}, the existing
+    // per-content toggles (this section governs placement only, per the
+    // plan's "does not duplicate existing content switches" rule). Post-launch
+    // fix: `showOnServicePage` used to be checked by Quick Book's own embedded
+    // policy card but not here, so an owner who turned it off was obeyed on
+    // Quick Book and ignored on Editorial (whose dedicated `policies`
+    // renderer is gated by this registry entry) — one owner setting, one
+    // enforcement point, not a per-layout fork.
+    canRender: content => content.policies.policy.enabled === true
+      && content.policies.policy.showOnServicePage === true,
   },
 
   socialLinks: {
@@ -171,12 +214,12 @@ export const SECTION_REGISTRY: Record<SectionId, SectionRegistryEntry> = {
  *
  * `hiddenSections` is trusted as already having gone through
  * `validateSectionOrder` (`@/libs/bookingPageConfig`) — the one place
- * `serviceMenu`/`bookingCta` are stripped out and can never be hidden. This
- * function deliberately does NOT re-implement that floor (no second rule):
- * every real caller (`resolveBookingPageConfig` → `SalonProvider` →
- * `BookServiceClient`) only ever hands this function an already-validated
- * `hiddenSections`, so `serviceMenu`/`bookingCta` never actually appear in
- * it in production.
+ * `salonProfile`/`serviceMenu`/`bookingCta` are stripped out and can never be
+ * hidden. This function deliberately does NOT re-implement that floor (no
+ * second rule): every real caller (`resolveBookingPageConfig` →
+ * `SalonProvider` → `BookServiceClient`) only ever hands this function an
+ * already-validated `hiddenSections`, so none of the three ever actually
+ * appear in it in production.
  */
 export function resolveVisibleSectionOrder(
   order: readonly SectionId[],
