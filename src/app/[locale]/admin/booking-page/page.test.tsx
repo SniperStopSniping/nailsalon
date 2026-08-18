@@ -256,7 +256,13 @@ describe('BookingPageOwnerSurface', () => {
     });
   });
 
-  it('warns that location name/phone still show under city_only, and clears the warning back to full_address', async () => {
+  // Post-launch privacy fix: this warning previously read "location's name
+  // and phone number are still shown" under city_only — that copy
+  // documented THE DEFECT (the salon phone survived redaction) as intended
+  // behaviour. Now that `applyLocationDisplayMode`/`applyPhoneDisplayMode`
+  // (`@/libs/salonContent`) actually redact the phone too, the owner-facing
+  // copy is corrected to match: only the location NAME still shows.
+  it('warns that only the location name still shows under city_only (address/postal/phone are hidden), and clears the warning back to full_address', async () => {
     render(<BookingPageOwnerSurface />);
 
     await screen.findByTestId('content-hero-image-url');
@@ -270,7 +276,7 @@ describe('BookingPageOwnerSurface', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('location-display-mode-city-only-warning')).toHaveTextContent(
-        /location's name and phone number are still shown/,
+        /hides your street address, postal code, and phone number.*location's name is\s+still shown/,
       );
     });
 

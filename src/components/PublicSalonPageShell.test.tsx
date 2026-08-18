@@ -203,6 +203,13 @@ describe('PublicSalonPageShell location privacy (locationDisplayMode) — per-lo
   const PRIVATE_UNIT = 'UNIT 77';
   const PRIVATE_POSTAL_CODE = 'A1A 1A1';
   const PRIVATE_FULL_ADDRESS = `${PRIVATE_STREET_ADDRESS}, ${PRIVATE_UNIT}`;
+  // Unmistakable synthetic phone (never a real number) — post-launch privacy
+  // fix: `applyLocationDisplayMode` (`@/libs/salonContent`) now redacts
+  // `phone` alongside `address`/`zipCode`, closing the gap where a
+  // home-based solo tech's personal mobile survived `city_only` redaction
+  // (this exact `place.locations[].phone` field is where it leaked, since
+  // `resolveSalonContent` is the ONE public choke point this shell calls).
+  const PRIVATE_PHONE = '+14165550199';
 
   const privateLocation = {
     id: 'loc-private',
@@ -211,10 +218,11 @@ describe('PublicSalonPageShell location privacy (locationDisplayMode) — per-lo
     city: 'Homeburg',
     state: 'ON',
     zipCode: PRIVATE_POSTAL_CODE,
+    phone: PRIVATE_PHONE,
     isPrimary: true,
   };
 
-  it('full_address (default) preserves the exact address in salonContent.place unchanged', () => {
+  it('full_address (default) preserves the exact address and phone in salonContent.place unchanged', () => {
     render(
       <PublicSalonPageShell
         appearance={{ mode: 'custom', themeKey: null }}
@@ -232,9 +240,10 @@ describe('PublicSalonPageShell location privacy (locationDisplayMode) — per-lo
     expect(place.address.address).toBe(PRIVATE_FULL_ADDRESS);
     expect(place.address.zipCode).toBe(PRIVATE_POSTAL_CODE);
     expect(place.locations[0].address).toBe(PRIVATE_FULL_ADDRESS);
+    expect(place.locations[0].phone).toBe(PRIVATE_PHONE);
   });
 
-  it('city_only redacts address/zipCode from salonContent.place.address and every place.locations entry', () => {
+  it('city_only redacts address/zipCode/phone from salonContent.place.address and every place.locations entry', () => {
     vi.mocked(resolveBookingPageContent).mockReturnValueOnce(bookingPageContentReturn('city_only'));
 
     render(
@@ -254,11 +263,12 @@ describe('PublicSalonPageShell location privacy (locationDisplayMode) — per-lo
     expect(serialized).not.toContain(PRIVATE_STREET_ADDRESS);
     expect(serialized).not.toContain(PRIVATE_UNIT);
     expect(serialized).not.toContain(PRIVATE_POSTAL_CODE);
+    expect(serialized).not.toContain(PRIVATE_PHONE);
 
     const place = JSON.parse(serialized);
 
     expect(place.address).toEqual({ address: null, city: 'Homeburg', state: 'ON', zipCode: null });
-    expect(place.locations[0]).toMatchObject({ id: 'loc-private', name: 'Home Studio', address: null, zipCode: null, city: 'Homeburg' });
+    expect(place.locations[0]).toMatchObject({ id: 'loc-private', name: 'Home Studio', address: null, zipCode: null, phone: null, city: 'Homeburg' });
   });
 });
 

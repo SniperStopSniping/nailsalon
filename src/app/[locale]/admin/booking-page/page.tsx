@@ -666,8 +666,8 @@ export default function BookingPageOwnerSurface() {
                 </div>
                 {content.draft.locationDisplayMode === 'city_only' && (
                   <p data-testid="location-display-mode-city-only-warning" className="mt-2 text-xs text-stone-500">
-                    "City only" hides your street address and postal code. Your location's name and phone number
-                    are still shown — avoid putting an address in the location name if you're keeping it private.
+                    "City only" hides your street address, postal code, and phone number. Your location's name is
+                    still shown — avoid putting an address in the location name if you're keeping it private.
                   </p>
                 )}
               </div>

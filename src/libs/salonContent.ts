@@ -293,9 +293,11 @@ export type ResolveSalonContentInput = {
      * straight through). Defaults to `'full_address'` (today's behaviour,
      * unchanged) when the caller omits it. This is the server-side privacy
      * projection point: `'city_only'` strips street address/unit and
-     * postal/ZIP from BOTH `place.address` and every entry of
-     * `place.locations` before this function ever returns — never a
-     * cosmetic, render-time hide. See `applyLocationDisplayMode` below.
+     * postal/ZIP from `place.address`, and strips street address/unit,
+     * postal/ZIP, AND phone from every entry of `place.locations` (each
+     * carries its own `phone` — see `SalonContentLocation`), before this
+     * function ever returns — never a cosmetic, render-time hide. See
+     * `applyLocationDisplayMode` below.
      */
     locationDisplayMode?: LocationDisplayMode;
   };
@@ -304,29 +306,64 @@ export type ResolveSalonContentInput = {
 /**
  * The one server-side location-privacy projection: strips `address` (street
  * address, including any unit/suite — those are not separate fields in this
- * schema, they live inside the free-text `address` string) and `zipCode`
- * (postal codes materially narrow a private residence) whenever
- * `mode === 'city_only'`. `city`/`state`/`name`/every other field on `T`
- * pass through untouched — enough to still book at, never a full redaction.
- * `full_address` is a no-op (today's behaviour, byte-for-byte).
+ * schema, they live inside the free-text `address` string), `zipCode`
+ * (postal codes materially narrow a private residence), and — when the
+ * value being projected carries one — `phone` (post-launch privacy fix: for
+ * a home-based solo technician, the most likely `city_only` user, the salon
+ * phone IS the personal mobile tied to that same private residence; a
+ * control named "city only" that still publishes the exact number is a
+ * broken promise) whenever `mode === 'city_only'`. `city`/`state`/`name`/
+ * every other field on `T` pass through untouched — enough to still book
+ * at, never a full redaction. `full_address` is a no-op (today's behaviour,
+ * byte-for-byte).
  *
- * Generic and exported so the ONE public "location" surface that lives
- * outside `resolveSalonContent`'s own `place.{address,locations}` output —
- * `book/service/page.tsx`'s separate `locations` prop passed straight to
- * `BookServiceClient`'s location picker, built from raw DB rows rather than
- * routed through this function — can apply the exact same redaction rather
- * than a second, possibly-drifting implementation. Both call sites are
- * server components/modules, so the projection always happens before the
- * location data reaches the public client.
+ * `phone` is optional in `T`'s constraint — plenty of callers (the plain
+ * `{ address, city, state, zipCode }` shape `resolveSalonContent` uses for
+ * its salon-level `place.address` fallback, `book/confirm/page.tsx`'s
+ * `locationSummary`/`salonDirectionsFallback`) never had a `phone` field at
+ * all, and this function must stay a no-op on the field's mere ABSENCE —
+ * only a value that actually carries `phone` gets it redacted, checked via
+ * `hasOwnProperty` rather than unconditionally adding the key (which would
+ * silently change the shape of every caller that never had one).
+ *
+ * Generic and exported so every public "location"/"phone" surface that
+ * lives outside `resolveSalonContent`'s own `place.{address,locations}`
+ * output — `book/service/page.tsx`'s separate `locations` prop passed
+ * straight to `BookServiceClient`'s location picker, built from raw DB rows
+ * rather than routed through this function — can apply the exact same
+ * redaction rather than a second, possibly-drifting implementation. Both
+ * call sites are server components/modules, so the projection always
+ * happens before the location data reaches the public client. See also
+ * `applyPhoneDisplayMode` below, the scalar counterpart for callers that
+ * only have a bare phone string (not a full location-shaped object) in
+ * hand.
  */
-export function applyLocationDisplayMode<T extends { address: string | null; zipCode: string | null }>(
+export function applyLocationDisplayMode<T extends { address: string | null; zipCode: string | null; phone?: string | null }>(
   value: T,
   mode: LocationDisplayMode,
 ): T {
   if (mode !== 'city_only') {
     return value;
   }
-  return { ...value, address: null, zipCode: null };
+  const redacted = { ...value, address: null, zipCode: null };
+  if (Object.prototype.hasOwnProperty.call(value, 'phone')) {
+    (redacted as { phone: string | null }).phone = null;
+  }
+  return redacted;
+}
+
+/**
+ * Scalar counterpart to `applyLocationDisplayMode` for callers that only
+ * have a bare phone string in hand — not a full location-shaped object —
+ * e.g. `salon.phone` threaded straight into a public client prop
+ * (`book/confirm/page.tsx`'s `salonPhone`, `find-booking/page.tsx`'s
+ * `salonPhone`). Reuses the exact same `mode !== 'city_only'` rule via
+ * `applyLocationDisplayMode` itself, wrapped in a throwaway
+ * location-shaped object purely to reuse that one implementation — never a
+ * second, independently-decided redaction rule.
+ */
+export function applyPhoneDisplayMode(phone: string | null, mode: LocationDisplayMode): string | null {
+  return applyLocationDisplayMode({ address: null, zipCode: null, phone }, mode).phone ?? null;
 }
 
 function toNumberOrNull(value: number | string | null | undefined): number | null {

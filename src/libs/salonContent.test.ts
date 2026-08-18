@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   applyLocationDisplayMode,
+  applyPhoneDisplayMode,
   EMPTY_SALON_CONTENT,
   resolveSalonContent,
   type ResolveSalonContentInput,
@@ -13,6 +14,10 @@ const PRIVATE_STREET_ADDRESS = '999 PRIVATE HOME ROAD';
 const PRIVATE_UNIT = 'UNIT 77';
 const PRIVATE_POSTAL_CODE = 'A1A 1A1';
 const PRIVATE_FULL_ADDRESS = `${PRIVATE_STREET_ADDRESS}, ${PRIVATE_UNIT}`;
+// Unmistakable synthetic phone (never a real number) — the home-based solo
+// tech's personal mobile that `city_only` must also redact, not just the
+// street address/postal code.
+const PRIVATE_PHONE = '+14165550199';
 
 const BASE_BOOKING_EXPERIENCE: ResolveSalonContentInput['bookingExperience'] = {
   policy: {
@@ -291,7 +296,14 @@ describe('applyLocationDisplayMode', () => {
     expect(applyLocationDisplayMode(value, 'full_address')).toBe(value);
   });
 
-  it('strips address and zipCode for city_only, preserving every other field', () => {
+  // Post-launch privacy fix: this assertion previously read `phone:
+  // '555-0100'` here — i.e. it asserted the salon phone SURVIVES
+  // `city_only` redaction, which was the exact defect this fix closes (a
+  // home-based solo tech's personal mobile staying published under a
+  // control named "city only"). Corrected to assert the phone is redacted
+  // too, alongside address/zipCode — every other field still passes
+  // through untouched.
+  it('strips address, zipCode, and phone for city_only when the value carries a phone field, preserving every other field', () => {
     const value = {
       id: 'loc-private',
       name: 'Home Studio',
@@ -299,7 +311,7 @@ describe('applyLocationDisplayMode', () => {
       city: 'Homeburg',
       state: 'ON',
       zipCode: PRIVATE_POSTAL_CODE,
-      phone: '555-0100',
+      phone: PRIVATE_PHONE,
       isPrimary: true,
     };
 
@@ -307,14 +319,57 @@ describe('applyLocationDisplayMode', () => {
 
     expect(redacted.address).toBeNull();
     expect(redacted.zipCode).toBeNull();
+    expect(redacted.phone).toBeNull();
+    expect(JSON.stringify(redacted)).not.toContain(PRIVATE_PHONE);
     expect(redacted).toMatchObject({
       id: 'loc-private',
       name: 'Home Studio',
       city: 'Homeburg',
       state: 'ON',
-      phone: '555-0100',
       isPrimary: true,
     });
+  });
+
+  it('full_address (control) preserves the exact phone unredacted — proves the city_only assertion above is not vacuous', () => {
+    const value = {
+      id: 'loc-private',
+      name: 'Home Studio',
+      address: PRIVATE_FULL_ADDRESS,
+      city: 'Homeburg',
+      state: 'ON',
+      zipCode: PRIVATE_POSTAL_CODE,
+      phone: PRIVATE_PHONE,
+      isPrimary: true,
+    };
+
+    const result = applyLocationDisplayMode(value, 'full_address');
+
+    expect(result.phone).toBe(PRIVATE_PHONE);
+    expect(result).toBe(value);
+  });
+
+  it('never adds a phone key to a value that never had one — city_only stays shape-preserving for phone-less values', () => {
+    const value = { address: PRIVATE_FULL_ADDRESS, zipCode: PRIVATE_POSTAL_CODE, city: 'Homeburg' };
+
+    const redacted = applyLocationDisplayMode(value, 'city_only');
+
+    expect(redacted).toEqual({ address: null, zipCode: null, city: 'Homeburg' });
+    expect(Object.prototype.hasOwnProperty.call(redacted, 'phone')).toBe(false);
+  });
+});
+
+describe('applyPhoneDisplayMode', () => {
+  it('is a no-op for full_address', () => {
+    expect(applyPhoneDisplayMode(PRIVATE_PHONE, 'full_address')).toBe(PRIVATE_PHONE);
+  });
+
+  it('redacts the phone to null for city_only', () => {
+    expect(applyPhoneDisplayMode(PRIVATE_PHONE, 'city_only')).toBeNull();
+  });
+
+  it('stays null in, null out regardless of mode', () => {
+    expect(applyPhoneDisplayMode(null, 'full_address')).toBeNull();
+    expect(applyPhoneDisplayMode(null, 'city_only')).toBeNull();
   });
 });
 
@@ -344,7 +399,7 @@ describe('resolveSalonContent — location privacy (locationDisplayMode)', () =>
     });
   });
 
-  it('full_address preserves the exact street address and postal code (single location, explicit mode)', () => {
+  it('full_address preserves the exact street address, postal code, and phone (single location, explicit mode)', () => {
     const content = resolveSalonContent({
       salon: { name: 'Private Home Studio' },
       technicians: [],
@@ -357,6 +412,7 @@ describe('resolveSalonContent — location privacy (locationDisplayMode)', () =>
           city: 'Homeburg',
           state: 'ON',
           zipCode: PRIVATE_POSTAL_CODE,
+          phone: PRIVATE_PHONE,
           isPrimary: true,
         },
       ],
@@ -368,9 +424,17 @@ describe('resolveSalonContent — location privacy (locationDisplayMode)', () =>
     expect(content.place.address?.zipCode).toBe(PRIVATE_POSTAL_CODE);
     expect(content.place.locations[0]?.address).toBe(PRIVATE_FULL_ADDRESS);
     expect(content.place.locations[0]?.zipCode).toBe(PRIVATE_POSTAL_CODE);
+    expect(content.place.locations[0]?.phone).toBe(PRIVATE_PHONE);
   });
 
-  it('city_only strips street address/unit and postal code from a single location, keeping city/state/name', () => {
+  // Post-launch privacy fix: this test previously asserted `phone:
+  // '555-0100'` SURVIVES `city_only` redaction — that was the exact defect
+  // (THE DEFECT section of the hotfix task). Corrected to assert the phone
+  // is redacted to `null` alongside address/zipCode, and the synthetic
+  // phone string is added to the "none of these private strings survive"
+  // serialized-payload proof below, same as the address strings already
+  // were.
+  it('city_only strips street address/unit, postal code, and phone from a single location, keeping city/state/name', () => {
     const content = resolveSalonContent({
       salon: { name: 'Private Home Studio' },
       technicians: [],
@@ -383,7 +447,7 @@ describe('resolveSalonContent — location privacy (locationDisplayMode)', () =>
           city: 'Homeburg',
           state: 'ON',
           zipCode: PRIVATE_POSTAL_CODE,
-          phone: '555-0100',
+          phone: PRIVATE_PHONE,
           isPrimary: true,
         },
       ],
@@ -398,6 +462,7 @@ describe('resolveSalonContent — location privacy (locationDisplayMode)', () =>
     expect(serialized).not.toContain(PRIVATE_STREET_ADDRESS);
     expect(serialized).not.toContain(PRIVATE_UNIT);
     expect(serialized).not.toContain(PRIVATE_POSTAL_CODE);
+    expect(serialized).not.toContain(PRIVATE_PHONE);
 
     expect(content.place.address).toEqual({
       address: null,
@@ -412,7 +477,7 @@ describe('resolveSalonContent — location privacy (locationDisplayMode)', () =>
       city: 'Homeburg',
       state: 'ON',
       zipCode: null,
-      phone: '555-0100',
+      phone: null,
     });
   });
 
@@ -429,6 +494,7 @@ describe('resolveSalonContent — location privacy (locationDisplayMode)', () =>
           city: 'Homeburg',
           state: 'ON',
           zipCode: PRIVATE_POSTAL_CODE,
+          phone: PRIVATE_PHONE,
           isPrimary: true,
         },
         {
@@ -438,6 +504,7 @@ describe('resolveSalonContent — location privacy (locationDisplayMode)', () =>
           city: 'Homeburg',
           state: 'ON',
           zipCode: 'B2B 2B2',
+          phone: '+14165550299',
           isPrimary: false,
         },
       ],
@@ -450,6 +517,7 @@ describe('resolveSalonContent — location privacy (locationDisplayMode)', () =>
     for (const location of content.place.locations) {
       expect(location.address).toBeNull();
       expect(location.zipCode).toBeNull();
+      expect(location.phone).toBeNull();
       expect(location.city).toBe('Homeburg');
     }
   });

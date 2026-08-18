@@ -22,7 +22,7 @@ import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
 import { resolvePublicRetentionCampaignPreview } from '@/libs/publicRetentionCampaign';
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
-import { applyLocationDisplayMode } from '@/libs/salonContent';
+import { applyLocationDisplayMode, applyPhoneDisplayMode } from '@/libs/salonContent';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus, isRewardsEnabled, isSmsEnabled } from '@/libs/salonStatus';
 import { buildTaxConfigurationSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import { getPublicPageContext } from '@/libs/tenant';
@@ -437,7 +437,18 @@ export default async function BookConfirmPage({
           rewardsEnabled={rewardsEnabled}
           smsEnabled={smsEnabled}
           clientChangeCutoffHours={bookingConfig.clientChangeCutoffHours}
-          salonPhone={salon.phone ?? null}
+          // Post-launch privacy fix: this is the "call the salon" escape
+          // hatch on the duplicate-booking screen (`ExistingAppointmentOptions`
+          // renders it as a `tel:` link) — a second, independent public phone
+          // surface on this same page, alongside `locationSummary` above. For
+          // a `city_only` home-based solo tech, the salon phone IS the
+          // personal mobile tied to the same private residence being
+          // redacted, so it gets the identical projection via
+          // `applyPhoneDisplayMode` (`@/libs/salonContent`), the scalar
+          // counterpart of the `applyLocationDisplayMode` calls above — same
+          // choke point, same `activeBookingPageContentSide.locationDisplayMode`
+          // gate, never a second/drifting redaction decision.
+          salonPhone={applyPhoneDisplayMode(salon.phone ?? null, activeBookingPageContentSide.locationDisplayMode)}
           depositDisclosure={depositDisclosure}
           depositNoticeSuppressed={depositNoticeSuppressed}
           depositFingerprint={depositFingerprint}

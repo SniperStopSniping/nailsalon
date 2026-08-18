@@ -646,6 +646,14 @@ const PRIVATE_STREET_ADDRESS = '999 PRIVATE HOME ROAD';
 const PRIVATE_UNIT = 'UNIT 77';
 const PRIVATE_POSTAL_CODE = 'A1A 1A1';
 const PRIVATE_FULL_ADDRESS = `${PRIVATE_STREET_ADDRESS}, ${PRIVATE_UNIT}`;
+// Unmistakable synthetic phone (never a real number) — post-launch privacy
+// fix: `applyLocationDisplayMode` (`@/libs/salonContent`) now redacts
+// `phone` alongside `address`/`zipCode`. This exact `locations` prop is THE
+// DEFECT'S third confirmed exposure point ("SalonContentLocation.phone
+// survives the projection ... and reaches the public service-page location
+// payload") — for a home-based solo tech, the most likely `city_only` user,
+// this phone IS the personal mobile tied to the same private residence.
+const PRIVATE_PHONE = '+14165550199';
 
 describe('BookServicePage location privacy (locationDisplayMode)', () => {
   beforeEach(() => {
@@ -695,7 +703,7 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
         city: 'Homeburg',
         state: 'ON',
         zipCode: PRIVATE_POSTAL_CODE,
-        phone: '555-0100',
+        phone: PRIVATE_PHONE,
         isPrimary: true,
       },
     ]);
@@ -709,7 +717,7 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
     });
   });
 
-  it('full_address (default) passes the exact address through to the locations prop unchanged', async () => {
+  it('full_address (default) passes the exact address and phone through to the locations prop unchanged', async () => {
     const element = await BookServicePage({
       searchParams: { salonSlug: 'salon-a' },
       params: { locale: 'en', slug: 'salon-a' },
@@ -724,11 +732,20 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
         address: PRIVATE_FULL_ADDRESS,
         zipCode: PRIVATE_POSTAL_CODE,
         city: 'Homeburg',
+        phone: PRIVATE_PHONE,
       }),
     ]);
   });
 
-  it('city_only strips address/zipCode from the locations prop passed to the location picker, keeping city/name', async () => {
+  // Post-launch privacy fix: this test previously asserted `phone:
+  // '555-0100'` SURVIVES `city_only` redaction here — the exact defect this
+  // hotfix closes (see THE DEFECT section of the task: "SalonContentLocation
+  // .phone survives the projection ... and reaches the public service-page
+  // location payload (book/service/page.tsx)"). Corrected to assert the
+  // phone is redacted to `null` alongside address/zipCode, and the
+  // synthetic phone string is added to the "none of these private strings
+  // survive" serialized-payload proof below.
+  it('city_only strips address/zipCode/phone from the locations prop passed to the location picker, keeping city/name', async () => {
     vi.mocked(resolveBookingPageContent).mockReturnValue({
       version: 1,
       draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'city_only' },
@@ -749,6 +766,7 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
     expect(serializedLocations).not.toContain(PRIVATE_STREET_ADDRESS);
     expect(serializedLocations).not.toContain(PRIVATE_UNIT);
     expect(serializedLocations).not.toContain(PRIVATE_POSTAL_CODE);
+    expect(serializedLocations).not.toContain(PRIVATE_PHONE);
 
     expect(passedLocations).toEqual([
       expect.objectContaining({
@@ -758,7 +776,7 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
         zipCode: null,
         city: 'Homeburg',
         state: 'ON',
-        phone: '555-0100',
+        phone: null,
         isPrimary: true,
       }),
     ]);
