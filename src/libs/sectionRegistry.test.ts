@@ -150,7 +150,7 @@ describe('SECTION_REGISTRY', () => {
 });
 
 describe('resolveVisibleSectionOrder', () => {
-  it('renders the full Quick Book order against a fully populated SalonContent', () => {
+  it('renders the full Quick Book order against a fully populated SalonContent when nothing is hidden', () => {
     const content = withContent({
       identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
       policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true } },
@@ -161,7 +161,7 @@ describe('resolveVisibleSectionOrder', () => {
       },
     });
 
-    expect(resolveVisibleSectionOrder(QUICK_BOOK_ORDER, content)).toEqual(QUICK_BOOK_ORDER);
+    expect(resolveVisibleSectionOrder(QUICK_BOOK_ORDER, [], content)).toEqual(QUICK_BOOK_ORDER);
   });
 
   it('omits every optional section that fails canRender against a minimally populated SalonContent, but still leaves a bookable page', () => {
@@ -172,7 +172,7 @@ describe('resolveVisibleSectionOrder', () => {
       identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Bare Salon' },
     });
 
-    const visible = resolveVisibleSectionOrder(QUICK_BOOK_ORDER, content);
+    const visible = resolveVisibleSectionOrder(QUICK_BOOK_ORDER, [], content);
 
     expect(visible).toEqual(['salonProfile', 'serviceMenu', 'bookingCta']);
     // The page is still bookable: the booking engine's host and its only
@@ -182,7 +182,7 @@ describe('resolveVisibleSectionOrder', () => {
   });
 
   it('still renders a bookable page even when salonProfile itself fails canRender (no name)', () => {
-    const visible = resolveVisibleSectionOrder(QUICK_BOOK_ORDER, EMPTY_SALON_CONTENT);
+    const visible = resolveVisibleSectionOrder(QUICK_BOOK_ORDER, [], EMPTY_SALON_CONTENT);
 
     expect(visible).toEqual(['serviceMenu', 'bookingCta']);
   });
@@ -190,9 +190,66 @@ describe('resolveVisibleSectionOrder', () => {
   it('drops unregistered ids defensively rather than throwing', () => {
     const visible = resolveVisibleSectionOrder(
       ['salonProfile', 'not-a-real-section' as SectionId, 'bookingCta'],
+      [],
       withContent({ identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Salon' } }),
     );
 
     expect(visible).toEqual(['salonProfile', 'bookingCta']);
+  });
+
+  // Regression coverage for the shipped bug this PR fixes: hiddenSections
+  // used to be written by the admin surface, validated by
+  // validateSectionOrder, and round-tripped through publish/revert — but
+  // nothing in the render path ever read it. Every fixture above uses `[]`
+  // deliberately to prove the "nothing hidden" baseline; these use a
+  // NON-EMPTY hiddenSections, which is exactly the case that shipped broken.
+  it('omits a hidden section even though it passes canRender', () => {
+    const content = withContent({
+      identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
+      policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true } },
+      social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
+    });
+
+    const visible = resolveVisibleSectionOrder(QUICK_BOOK_ORDER, ['policies'], content);
+
+    expect(visible).not.toContain('policies');
+    expect(visible).toEqual(['salonProfile', 'serviceMenu', 'socialLinks', 'bookingCta']);
+  });
+
+  it('omits multiple hidden sections at once, independent of canRender', () => {
+    const content = withContent({
+      identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
+      policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true } },
+      social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
+      catalog: {
+        ...EMPTY_SALON_CONTENT.catalog,
+        featuredServices: [{ id: 'svc-1', name: 'Luster Manicure', description: null, durationMinutes: 75, priceCents: 6500, priceDisplayText: null, category: 'manicure', bookingCategory: null, imageUrl: null, featuredOrder: null }],
+      },
+    });
+
+    const visible = resolveVisibleSectionOrder(QUICK_BOOK_ORDER, ['featuredServices', 'socialLinks'], content);
+
+    expect(visible).toEqual(['salonProfile', 'serviceMenu', 'policies', 'bookingCta']);
+  });
+
+  it('hiding a section that already fails canRender changes nothing observable — still omitted, for the same reason', () => {
+    // policies fails canRender here (policy.enabled is false); hiding it too
+    // must not throw or double-omit in an observable way.
+    const content = withContent({ identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' } });
+
+    const visible = resolveVisibleSectionOrder(QUICK_BOOK_ORDER, ['policies'], content);
+
+    expect(visible).toEqual(['salonProfile', 'serviceMenu', 'bookingCta']);
+  });
+
+  it('hiding an id absent from hiddenSections has no effect (positive control)', () => {
+    const content = withContent({
+      identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
+      social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
+    });
+
+    const visible = resolveVisibleSectionOrder(QUICK_BOOK_ORDER, ['reviews'], content);
+
+    expect(visible).toEqual(['salonProfile', 'serviceMenu', 'socialLinks', 'bookingCta']);
   });
 });

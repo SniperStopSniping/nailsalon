@@ -71,6 +71,15 @@ function SalonContextProbe() {
   );
 }
 
+function SalonContentPlaceProbe() {
+  const { salonContent } = useSalon();
+  return (
+    <div data-testid="salon-content-place-probe">
+      {JSON.stringify(salonContent.place)}
+    </div>
+  );
+}
+
 describe('PublicSalonPageShell owner-preview wiring', () => {
   it('does not render a preview banner and exposes the live bookingPage side by default', () => {
     render(
@@ -135,5 +144,77 @@ describe('PublicSalonPageShell owner-preview wiring', () => {
 
     expect(banner).toHaveAttribute('data-preview-variant', 'draft-config');
     expect(banner).toHaveTextContent('Previewing unpublished changes');
+  });
+});
+
+// Post-launch privacy fix: `resolveSalonContent` is called exactly once,
+// right here in `PublicSalonPageShell` (this file's own doc comment already
+// says so) — the natural, single server-side projection point for
+// `locationDisplayMode`. This suite exercises the REAL `resolveSalonContent`
+// (not mocked), proving the projection actually reaches `useSalon().salonContent`
+// as seen by every consumer downstream (e.g. BookServiceClient's Editorial
+// "Visit" section).
+describe('PublicSalonPageShell location privacy (locationDisplayMode)', () => {
+  const PRIVATE_STREET_ADDRESS = '999 PRIVATE HOME ROAD';
+  const PRIVATE_UNIT = 'UNIT 77';
+  const PRIVATE_POSTAL_CODE = 'A1A 1A1';
+  const PRIVATE_FULL_ADDRESS = `${PRIVATE_STREET_ADDRESS}, ${PRIVATE_UNIT}`;
+
+  const privateLocation = {
+    id: 'loc-private',
+    name: 'Home Studio',
+    address: PRIVATE_FULL_ADDRESS,
+    city: 'Homeburg',
+    state: 'ON',
+    zipCode: PRIVATE_POSTAL_CODE,
+    isPrimary: true,
+  };
+
+  it('full_address (default) preserves the exact address in salonContent.place unchanged', () => {
+    render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="book-service"
+        salon={baseSalon}
+        bookingPage={liveBookingPageSide}
+        salonContentInput={{ locations: [privateLocation] }}
+      >
+        <SalonContentPlaceProbe />
+      </PublicSalonPageShell>,
+    );
+
+    const place = JSON.parse(screen.getByTestId('salon-content-place-probe').textContent ?? '{}');
+
+    expect(place.address.address).toBe(PRIVATE_FULL_ADDRESS);
+    expect(place.address.zipCode).toBe(PRIVATE_POSTAL_CODE);
+    expect(place.locations[0].address).toBe(PRIVATE_FULL_ADDRESS);
+  });
+
+  it('city_only redacts address/zipCode from salonContent.place.address and every place.locations entry', () => {
+    render(
+      <PublicSalonPageShell
+        appearance={{ mode: 'custom', themeKey: null }}
+        pageName="book-service"
+        salon={baseSalon}
+        bookingPage={liveBookingPageSide}
+        salonContentInput={{
+          locations: [privateLocation],
+          content: { locationDisplayMode: 'city_only' },
+        }}
+      >
+        <SalonContentPlaceProbe />
+      </PublicSalonPageShell>,
+    );
+
+    const serialized = screen.getByTestId('salon-content-place-probe').textContent ?? '';
+
+    expect(serialized).not.toContain(PRIVATE_STREET_ADDRESS);
+    expect(serialized).not.toContain(PRIVATE_UNIT);
+    expect(serialized).not.toContain(PRIVATE_POSTAL_CODE);
+
+    const place = JSON.parse(serialized);
+
+    expect(place.address).toEqual({ address: null, city: 'Homeburg', state: 'ON', zipCode: null });
+    expect(place.locations[0]).toMatchObject({ id: 'loc-private', name: 'Home Studio', address: null, zipCode: null, city: 'Homeburg' });
   });
 });

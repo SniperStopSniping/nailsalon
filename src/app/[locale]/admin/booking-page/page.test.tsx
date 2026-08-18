@@ -165,6 +165,26 @@ describe('BookingPageOwnerSurface', () => {
     expect(screen.getByText('Reviews (coming soon)')).toBeInTheDocument();
   });
 
+  // Post-launch audit fix: whatsIncluded (SECTION_REGISTRY.whatsIncluded's
+  // canRender is unconditionally `() => false` — no data field exists yet)
+  // and technicianList (no renderer in any layout) could previously be
+  // toggled on with zero possible visible effect — an inert toggle with no
+  // indication to the owner. Both now render disabled and clearly labelled,
+  // same treatment as portfolio/reviews above, rather than silently doing
+  // nothing when clicked.
+  it('renders whatsIncluded and technicianList as disabled, marked coming soon (no inert toggle may remain)', async () => {
+    render(<BookingPageOwnerSurface />);
+    await screen.findByTestId('layout-option-quick_book');
+
+    const whatsIncluded = screen.getByTestId('section-toggle-whatsIncluded');
+    const technicianList = screen.getByTestId('section-toggle-technicianList');
+
+    expect(whatsIncluded).toBeDisabled();
+    expect(technicianList).toBeDisabled();
+    expect(screen.getByText('What\'s included (coming soon)')).toBeInTheDocument();
+    expect(screen.getByText('Technician list (coming soon)')).toBeInTheDocument();
+  });
+
   it('toggling an optional section PATCHes sectionOrder/hiddenSections and reflects the new state', async () => {
     render(<BookingPageOwnerSurface />);
     const toggle = await screen.findByTestId('section-toggle-technicianProfile');

@@ -12,6 +12,7 @@ import { getClientSession } from '@/libs/clientAuth';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId, getTechniciansBySalonId } from '@/libs/queries';
+import { applyLocationDisplayMode } from '@/libs/salonContent';
 import { resolveMerchandisingSettings } from '@/libs/salonMerchandisingSettings';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicBookableServiceIds } from '@/libs/serviceAssignments';
@@ -233,8 +234,17 @@ export default async function BookServicePage({
     }
   }
 
-  // Map locations to the shape expected by the client component
-  const locations = activeLocations.map(loc => ({
+  // Map locations to the shape expected by the client component.
+  // Post-launch privacy fix: `activeBookingPageContentSide.locationDisplayMode`
+  // is applied here via `applyLocationDisplayMode` (`@/libs/salonContent`) —
+  // the SAME redaction `resolveSalonContent` applies to `salonContent.place`
+  // below, reused rather than reimplemented — because this `locations` array
+  // is a second, independent public-location surface: it feeds
+  // `BookServiceClient`'s location picker directly and never passes through
+  // `resolveSalonContent` at all. Without this, `city_only` would redact the
+  // Editorial "Visit" section but leave the exact street address visible in
+  // the service location picker.
+  const locations = activeLocations.map(loc => applyLocationDisplayMode({
     id: loc.id,
     name: loc.name,
     address: loc.address,
@@ -243,7 +253,7 @@ export default async function BookServicePage({
     zipCode: loc.zipCode,
     phone: loc.phone,
     isPrimary: loc.isPrimary ?? false,
-  }));
+  }, activeBookingPageContentSide.locationDisplayMode));
 
   const showFirstVisitOffer = bookingConfig.firstVisitDiscountEnabled
     && (!clientSession || await isClientEligibleForFirstVisitDiscount({
@@ -270,6 +280,7 @@ export default async function BookServicePage({
           heroImageUrl: activeBookingPageContentSide.heroImageUrl,
           specialtyLine: activeBookingPageContentSide.specialtyLine,
           bio: activeBookingPageContentSide.bio,
+          locationDisplayMode: activeBookingPageContentSide.locationDisplayMode,
         },
       }}
       previewBannerVariant={previewBannerVariant}

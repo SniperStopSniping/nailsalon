@@ -5,6 +5,7 @@ import {
   resolveBookingExperience,
 } from '@/libs/bookingExperience';
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
+import type { LocationDisplayMode } from '@/libs/bookingPageContent';
 import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import type { PageAppearanceResult } from '@/libs/pageAppearance';
 import type {
@@ -68,6 +69,16 @@ type PublicSalonPageShellProps = {
       heroImageUrl?: string | null;
       specialtyLine?: string | null;
       bio?: string | null;
+      /**
+       * The active (draft/live-resolved) `bookingPageContent.locationDisplayMode`
+       * (Post-launch privacy fix) — forwarded straight into
+       * `resolveSalonContent`'s own `content.locationDisplayMode`, the
+       * server-side projection point that strips street address/unit and
+       * postal/ZIP from `salonContent.place` when set to `'city_only'`.
+       * Optional so every existing caller that has not resolved
+       * `bookingPageContent` yet keeps today's `'full_address'` behaviour.
+       */
+      locationDisplayMode?: LocationDisplayMode;
     };
   };
   /**

@@ -27,6 +27,8 @@ import {
   SECTION_IDS,
   validateSectionOrder,
 } from './bookingPageConfig';
+import { EMPTY_SALON_CONTENT } from './salonContent';
+import { resolveVisibleSectionOrder } from './sectionRegistry';
 /* eslint-enable import/first */
 
 describe('bookingPageConfig defaults', () => {
@@ -314,5 +316,45 @@ describe('foldLegacyAppearanceInputs', () => {
     const folded = foldLegacyAppearanceInputs(config, null);
 
     expect(folded.draft.tokenOverrides).toBeNull();
+  });
+});
+
+describe('full pipeline: resolveBookingPageConfig -> resolveVisibleSectionOrder', () => {
+  // Proves the floor lives in ONE place (validateSectionOrder, exercised via
+  // resolveBookingPageConfig) and that resolveVisibleSectionOrder
+  // (@/libs/sectionRegistry) — the render-path choke point — never has to
+  // reimplement it: by the time a malicious/stale stored hiddenSections
+  // reaches the render path, it has already been stripped of
+  // serviceMenu/bookingCta, so this never-hidden invariant holds end to end
+  // without a second rule anywhere downstream.
+  it('a malicious stored hiddenSections attempting to hide serviceMenu/bookingCta never actually hides them at render time', () => {
+    const maliciousSettings = {
+      bookingPage: {
+        draft: {
+          layout: 'quick_book',
+          sectionOrder: ['salonProfile', 'serviceMenu', 'bookingCta'],
+          // A hand-crafted request (bypassing the owner UI, which never
+          // offers a toggle for either — see admin/booking-page/page.tsx)
+          // trying to hide the two non-removable sections.
+          hiddenSections: ['serviceMenu', 'bookingCta', 'policies'],
+        },
+      },
+    };
+
+    const resolved = resolveBookingPageConfig(maliciousSettings);
+
+    // The floor: validateSectionOrder already stripped both out.
+    expect(resolved.draft.hiddenSections).not.toContain('serviceMenu');
+    expect(resolved.draft.hiddenSections).not.toContain('bookingCta');
+
+    const content = { ...EMPTY_SALON_CONTENT, identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Salon' } };
+    const visible = resolveVisibleSectionOrder(
+      resolved.draft.sectionOrder,
+      resolved.draft.hiddenSections,
+      content,
+    );
+
+    expect(visible).toContain('serviceMenu');
+    expect(visible).toContain('bookingCta');
   });
 });
