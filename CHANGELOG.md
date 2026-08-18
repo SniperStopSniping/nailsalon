@@ -1,3 +1,18 @@
+# [1.66.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.65.0...v1.66.0) (2026-08-18)
+
+
+### Bug Fixes
+
+* **owner-preview:** make SalonProvider client-safe — type-only bookingPageConfig import ([b0dd386](https://github.com/SniperStopSniping/nailsalon/commit/b0dd3861aceaa034e41de79b987569329b5ec0bb)), closes [#90](https://github.com/SniperStopSniping/nailsalon/issues/90) [#92](https://github.com/SniperStopSniping/nailsalon/issues/92) [#123](https://github.com/SniperStopSniping/nailsalon/issues/123)
+* **owner-preview:** single-owner PreviewBanner rendering + deny-path coverage ([5b1845b](https://github.com/SniperStopSniping/nailsalon/commit/5b1845b2f9f86bdeea13b67d37e36580bada84e0))
+* **owner-preview:** thread bookingPage/ownerPreview into the real booking pages ([4ec7369](https://github.com/SniperStopSniping/nailsalon/commit/4ec73698a81758aad4d4b5894386f44206b7a0ff))
+* **owner-preview:** thread the draft-salon gate into the real booking pages ([f4d062e](https://github.com/SniperStopSniping/nailsalon/commit/f4d062ea53f412aa94b570524d39e2dcc3a1bda6))
+
+
+### Features
+
+* **owner-preview:** add private owner preview primitive + 404 gate bypass ([2a709cd](https://github.com/SniperStopSniping/nailsalon/commit/2a709cdecd00007f4d3047f4670d39e817a12c0c))
+
 # [1.65.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.64.0...v1.65.0) (2026-08-17)
 
 
