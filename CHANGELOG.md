@@ -1,3 +1,22 @@
+# [1.69.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.68.0...v1.69.0) (2026-08-18)
+
+
+### Bug Fixes
+
+* **booking-page:** editorial jump CTA no longer disappears before a service is selected ([8e395fc](https://github.com/SniperStopSniping/nailsalon/commit/8e395fc213ac232a86be3c0f5e8c73b31a1d7529))
+* **booking-page:** fix Editorial sticky-CTA trap on short salon pages ([1a8ec96](https://github.com/SniperStopSniping/nailsalon/commit/1a8ec96fc1fd6dc723bbd531ef52dc74a49bc32c))
+* **booking-page:** reset sectionOrder on layout switch; fix sticky-CTA scroll-margin threshold ([7da8f0c](https://github.com/SniperStopSniping/nailsalon/commit/7da8f0c14677ff1f5931409e75b7e2680096b76f))
+* **booking-page:** sticky-CTA reachability, remove editorial conditionals, add desktop breakpoints ([5adb6fe](https://github.com/SniperStopSniping/nailsalon/commit/5adb6fe460155cc0d22aa54ad004e59d6938e38d))
+* **booking-page:** stop Editorial layout from double-rendering Featured services and Policies ([7eb5c31](https://github.com/SniperStopSniping/nailsalon/commit/7eb5c310286450ed991b14434513f3b4d9464495))
+* **booking-page:** stop SalonProvider dragging server-only DB into client bundle ([af50eea](https://github.com/SniperStopSniping/nailsalon/commit/af50eea643aea4db0a224225c130f4fb9262eed7)), closes [#1](https://github.com/SniperStopSniping/nailsalon/issues/1)
+* **owner-preview:** single-owner PreviewBanner rendering + deny-path coverage ([86d33c1](https://github.com/SniperStopSniping/nailsalon/commit/86d33c1e80de2983f678617e32860211cc0dff59))
+* **owner-preview:** thread bookingPage/ownerPreview into the real booking pages ([7f39867](https://github.com/SniperStopSniping/nailsalon/commit/7f39867a888128a10200cf00f31c6685a25959e1))
+
+
+### Features
+
+* **booking-page:** add Editorial Luxury layout (PR6) ([134dcc4](https://github.com/SniperStopSniping/nailsalon/commit/134dcc416850ccc18cca1aea18d9f1d9a776dca3))
+
 # [1.68.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.67.0...v1.68.0) (2026-08-18)
 
 
