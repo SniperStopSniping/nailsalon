@@ -94,6 +94,7 @@ export async function createPortfolioPhoto(
       .select({
         plan: salonSchema.plan,
         maxPortfolioPhotos: salonSchema.maxPortfolioPhotos,
+        freeSoloEnabled: salonSchema.freeSoloEnabled,
       })
       .from(salonSchema)
       .where(eq(salonSchema.id, input.salonId))
@@ -106,6 +107,7 @@ export async function createPortfolioPhoto(
     const allowance = resolvePortfolioAllowance({
       plan: salon.plan as SalonPlan | null,
       maxPortfolioPhotos: salon.maxPortfolioPhotos,
+      freeSoloEnabled: salon.freeSoloEnabled,
     });
 
     if (allowance.max !== UNLIMITED_PORTFOLIO_PHOTOS) {

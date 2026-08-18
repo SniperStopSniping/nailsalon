@@ -35,12 +35,18 @@ function rows(result: unknown): any[] {
   return Array.isArray(wrapped?.rows) ? wrapped.rows : (Array.isArray(result) ? result as any[] : []);
 }
 
-async function seedSalon(id: string, plan: string, maxPortfolioPhotos: number | null) {
+async function seedSalon(
+  id: string,
+  plan: string,
+  maxPortfolioPhotos: number | null,
+  freeSoloEnabled = false,
+) {
   await db.execute(sql`
-    insert into salon (id, name, slug, theme_key, plan, max_portfolio_photos)
-    values (${id}, ${id}, ${id}, 'nail-salon-no5', ${plan}, ${maxPortfolioPhotos})
+    insert into salon (id, name, slug, theme_key, plan, max_portfolio_photos, free_solo_enabled)
+    values (${id}, ${id}, ${id}, 'nail-salon-no5', ${plan}, ${maxPortfolioPhotos}, ${freeSoloEnabled})
     on conflict (id) do update set plan = excluded.plan,
-      max_portfolio_photos = excluded.max_portfolio_photos
+      max_portfolio_photos = excluded.max_portfolio_photos,
+      free_solo_enabled = excluded.free_solo_enabled
   `);
 }
 
@@ -156,6 +162,52 @@ describe('portfolio photo limit enforcement', () => {
     const remaining = rows(await db.execute(sql`select count(*)::int as c from salon_portfolio_photo where salon_id = ${SALON_A} and deleted_at is null`));
 
     expect(remaining[0].c).toBe(5);
+  });
+});
+
+describe('owner-ratified plan allowances', () => {
+  it('resolves each legacy plan identifier to its ratified allowance', async () => {
+    const expected: [string, number][] = [
+      ['free', 10],
+      ['single_salon', 75],
+      ['multi_salon', 200],
+      ['enterprise', 200],
+    ];
+
+    for (const [plan, max] of expected) {
+      await seedSalon(SALON_A, plan, null);
+      const usage = await limits.getPortfolioUsage(SALON_A);
+
+      expect(usage.max, plan).toBe(max);
+      expect(usage.source, plan).toBe('plan');
+    }
+  });
+
+  it('grants a founding salon the founding allowance from the database flag', async () => {
+    await seedSalon(SALON_A, 'free', null, true);
+    const usage = await limits.getPortfolioUsage(SALON_A);
+
+    expect(usage.max).toBe(75);
+    expect(usage.source).toBe('founding');
+  });
+
+  it('keeps an explicit per-salon override above founding status', async () => {
+    await seedSalon(SALON_A, 'free', 40, true);
+    const usage = await limits.getPortfolioUsage(SALON_A);
+
+    expect(usage.max).toBe(40);
+    expect(usage.source).toBe('override');
+  });
+
+  it('enforces the founding allowance on the real upload path', async () => {
+    await seedSalon(SALON_A, 'free', null, true);
+
+    // A founding salon on the `free` row must not be capped at 10.
+    for (let i = 0; i < 11; i++) {
+      await addPhoto(SALON_A, `founding000000${String(i).padStart(2, '0')}`);
+    }
+
+    expect(await limits.countStoredPortfolioPhotos(SALON_A)).toBe(11);
   });
 });
 

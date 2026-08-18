@@ -25,6 +25,7 @@ export async function getPortfolioAllowance(salonId: string): Promise<PortfolioA
     .select({
       plan: salonSchema.plan,
       maxPortfolioPhotos: salonSchema.maxPortfolioPhotos,
+      freeSoloEnabled: salonSchema.freeSoloEnabled,
     })
     .from(salonSchema)
     .where(eq(salonSchema.id, salonId))
@@ -39,6 +40,7 @@ export async function getPortfolioAllowance(salonId: string): Promise<PortfolioA
   return resolvePortfolioAllowance({
     plan: salon.plan as SalonPlan | null,
     maxPortfolioPhotos: salon.maxPortfolioPhotos,
+    freeSoloEnabled: salon.freeSoloEnabled,
   });
 }
 

@@ -24,41 +24,62 @@ import type { SalonPlan } from '@/models/Schema';
  */
 
 // ---------------------------------------------------------------------------
-// LEGACY PLAN → PORTFOLIO LIMIT MAPPING — OWNER REVIEW REQUIRED
+// LEGACY PLAN → PORTFOLIO LIMIT MAPPING (owner-ratified)
 // ---------------------------------------------------------------------------
 //
-// `docs/DISCOVER_V1_BRIEF.md` §25 proposes limits by commercial plan family
-// (Free 10 / Starter 30 / Pro 75 / Elite 200) and states that the exact
-// mapping onto the real legacy plan family must be ratified in PR1 review.
-// The two vocabularies do not line up one-to-one, so two decisions below are
-// PROVISIONAL and are flagged for the owner rather than silently baked in:
+// The legacy feature-entitlement rail is the sole authority here. The billing
+// domain added by the billing & communications track is deliberately NOT
+// consulted: per §5 of `docs/luster-billing-communications-rev-2-2.md` it must
+// not write `salon.plan` or feature entitlements, and a salon may be
+// `starter_2026_08` for billing while remaining legacy `single_salon` for
+// features. Nothing in this module reads `billing_subscription`.
 //
-//   1. The brief's "Starter / solo paid: 30" row has NO legacy equivalent.
-//      The legacy family is free | single_salon | multi_salon | enterprise,
-//      and `free` is the only plan mapping to the `starter` feature tier
-//      (see PLAN_TO_FEATURE_TIER in `@/libs/planLimits`). The values below
-//      follow that existing bridge — free→starter, single_salon→pro,
-//      multi_salon→elite, enterprise→elite — rather than inventing a second
-//      plan↔tier mapping. Consequence: the commercial Starter tier (30) has
-//      no legacy home yet, and a paid `single_salon` salon receives the Pro
-//      allowance of 75.
+// The repository has exactly four legacy plan identifiers (`SALON_PLANS`),
+// which the existing resolver `PLAN_TO_FEATURE_TIER` normalizes onto three
+// feature tiers:
 //
-//   2. `enterprise` is unlimited (-1) here, matching how `PLAN_LIMITS` already
-//      treats enterprise for technicians and locations. The brief's table
-//      stops at Elite/200 and does not describe enterprise at all.
+//   free          → starter
+//   single_salon  → pro
+//   multi_salon   → elite
+//   enterprise    → elite      (two identifiers, one tier — normalized here)
 //
-// Changing either decision is a one-line edit to this table. Until the owner
-// ratifies it, treat these numbers as provisional defaults, not policy.
+// Owner-ratified allowances, applied through that resolver:
+//
+//   free          10   the entry plan, named explicitly by the owner decision
+//   single_salon  75   pro / growth tier
+//   multi_salon  200   elite / team tier
+//   enterprise   200   elite / team tier
+//
+// NOTE FOR REVIEW: the owner decision also names a "starter / solo" tier at
+// 30. No legacy identifier normalizes to it — `free` is the only plan on the
+// `starter` feature tier, and the owner named that plan's allowance directly
+// as the entry value of 10. The 30 row therefore corresponds to the
+// commercial Starter plan, which has no legacy feature-plan equivalent yet;
+// it becomes reachable when the separately approved feature-matrix migration
+// introduces one. It is recorded here rather than silently dropped.
+//
+// `enterprise` is 200 rather than unlimited: the owner's table tops out at the
+// elite/team tier, and granting a higher allowance than any ratified row would
+// be exactly the silent escalation the decision forbids.
 export const PORTFOLIO_PHOTO_LIMITS: Record<SalonPlan, number> = {
   free: 10,
   single_salon: 75,
   multi_salon: 200,
-  enterprise: -1, // -1 = unlimited, consistent with PLAN_LIMITS
+  enterprise: 200,
 };
+
+/**
+ * Founding salons carry the growth allowance regardless of the plan row they
+ * sit on, which is usually `free`.
+ *
+ * Founding status is read from `salon.freeSoloEnabled` — the flag the Luster
+ * onboarding invite path sets — and never inferred from billing state.
+ */
+export const FOUNDING_PORTFOLIO_PHOTO_LIMIT = 75;
 
 export const UNLIMITED_PORTFOLIO_PHOTOS = -1;
 
-export type PortfolioLimitSource = 'plan' | 'override';
+export type PortfolioLimitSource = 'plan' | 'founding' | 'override';
 
 export type PortfolioAllowance = {
   plan: SalonPlan;
@@ -83,14 +104,23 @@ export function portfolioLimitForPlan(plan: SalonPlan): number {
 export function resolvePortfolioAllowance({
   plan,
   maxPortfolioPhotos,
+  freeSoloEnabled = false,
 }: {
   plan: SalonPlan | null | undefined;
   maxPortfolioPhotos: number | null | undefined;
+  /** Founding/free-solo salon, from `salon.freeSoloEnabled`. Never billing. */
+  freeSoloEnabled?: boolean | null;
 }): PortfolioAllowance {
   const resolvedPlan = (plan || 'free') as SalonPlan;
 
+  // An explicit per-salon number is the final word, above both the founding
+  // default and the plan row — it is how a specific promise is kept.
   if (typeof maxPortfolioPhotos === 'number') {
     return { plan: resolvedPlan, max: maxPortfolioPhotos, source: 'override' };
+  }
+
+  if (freeSoloEnabled) {
+    return { plan: resolvedPlan, max: FOUNDING_PORTFOLIO_PHOTO_LIMIT, source: 'founding' };
   }
 
   return {
