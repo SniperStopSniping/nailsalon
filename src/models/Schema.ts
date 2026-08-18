@@ -360,6 +360,79 @@ export const serviceSchema = pgTable(
 );
 
 // -----------------------------------------------------------------------------
+// AddOnGroup - How a salon's add-ons are grouped and bounded (dark; 0073)
+// -----------------------------------------------------------------------------
+/**
+ * A named set of add-ons with a selection bound: "pick 1 shape", "pick up to
+ * 3 accents". Declared BEFORE `addOnSchema` because `add_on.group_id` carries
+ * a composite foreign key into it and Drizzle evaluates a table's extra config
+ * eagerly — a forward reference here would be a load-time error, not a typo
+ * caught later.
+ *
+ * DARK. Created empty by 0073 and read by nothing: no booking path, no public
+ * DTO and no owner editor touches this table in this PR. `maxSelections` NULL
+ * means unlimited and 1 is what a later PR renders as a single-select group.
+ *
+ * An add-on belongs to at most ONE group in L1. This is not a stepping stone
+ * to many-to-many grouping, and no per-service override model exists.
+ */
+export const addOnGroupSchema = pgTable(
+  'add_on_group',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    name: text('name').notNull(),
+    slug: text('slug').notNull(),
+    description: text('description'),
+
+    // How many members a selection must / may contain. Bounded by CHECK:
+    // min >= 0, max IS NULL OR max >= 1, max IS NULL OR max >= min.
+    minSelections: integer('min_selections').default(0).notNull(),
+    maxSelections: integer('max_selections'),
+
+    sortOrder: integer('sort_order').default(0).notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
+
+    // Stable key linking this group to a catalog template, mirroring
+    // `add_on.template_key`. Unique per salon via a partial index in 0073.
+    templateKey: text('template_key'),
+
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    salonIdx: index('add_on_group_salon_idx').on(table.salonId),
+    salonSlugIdx: uniqueIndex('add_on_group_salon_slug_idx').on(table.salonId, table.slug),
+    salonOrderIdx: index('add_on_group_salon_order_idx').on(table.salonId, table.sortOrder),
+    // Tenant identity referenced by the composite foreign key from `add_on`.
+    salonIdIdKey: uniqueIndex('add_on_group_salon_id_id_key').on(table.salonId, table.id),
+    minSelectionsValid: check(
+      'add_on_group_min_selections_check',
+      sql`${table.minSelections} >= 0`,
+    ),
+    maxSelectionsValid: check(
+      'add_on_group_max_selections_check',
+      sql`${table.maxSelections} IS NULL OR ${table.maxSelections} >= 1`,
+    ),
+    minMaxCompatible: check(
+      'add_on_group_min_max_compatible_check',
+      sql`${table.maxSelections} IS NULL OR ${table.maxSelections} >= ${table.minSelections}`,
+    ),
+    // Partial unique index (WHERE template_key IS NOT NULL) is created in
+    // migrations/0073_l1_catalog_rules_foundation.sql as
+    // add_on_group_salon_template_key_idx — one template-derived group per salon.
+  }),
+);
+export type AddOnGroup = typeof addOnGroupSchema.$inferSelect;
+
+// -----------------------------------------------------------------------------
 // AddOn - Optional extras attached to a base service
 // -----------------------------------------------------------------------------
 export const addOnSchema = pgTable(
@@ -384,6 +457,16 @@ export const addOnSchema = pgTable(
     maxQuantity: integer('max_quantity'),
     isActive: boolean('is_active').default(true),
     displayOrder: integer('display_order').default(0),
+
+    // ---- Luster L1 catalog rules foundation (dark; migration 0073) ---------
+    // Membership in an `add_on_group`, nullable and backfilled by nothing.
+    // Every pre-existing add-on keeps NULL and behaves exactly as it did
+    // before this column existed: an ungrouped add-on is a valid add-on.
+    // Tenant-safe by construction — the composite foreign key carries
+    // `salon_id` on both sides, so a group in another salon is
+    // unrepresentable rather than merely discouraged.
+    groupId: text('group_id'),
+
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
       .defaultNow()
@@ -394,6 +477,18 @@ export const addOnSchema = pgTable(
     salonIdx: index('add_on_salon_idx').on(table.salonId),
     salonSlugIdx: uniqueIndex('add_on_salon_slug_idx').on(table.salonId, table.slug),
     activeCategoryIdx: index('add_on_active_category_idx').on(table.salonId, table.isActive, table.category),
+    // Tenant identity referenced by the composite foreign keys from `add_on`
+    // itself and from `catalog_rule` (0073).
+    salonIdIdKey: uniqueIndex('add_on_salon_id_id_key').on(table.salonId, table.id),
+    // NO ACTION, never SET NULL: a composite SET NULL would null `salon_id`
+    // alongside the reference and silently detach the row from its tenant.
+    // Un-grouping stays an explicit application operation.
+    groupTenantFk: foreignKey({
+      columns: [table.salonId, table.groupId],
+      foreignColumns: [addOnGroupSchema.salonId, addOnGroupSchema.id],
+      name: 'add_on_group_salon_fk',
+    }),
+    groupMemberIdx: index('add_on_group_member_idx').on(table.salonId, table.groupId),
   }),
 );
 
@@ -485,6 +580,9 @@ export const technicianSchema = pgTable(
   },
   table => ({
     salonIdx: index('technician_salon_idx').on(table.salonId),
+    // Tenant identity referenced by the composite foreign key from
+    // `technician_capability` (0073).
+    salonIdIdKey: uniqueIndex('technician_salon_id_id_key').on(table.salonId, table.id),
   }),
 );
 
@@ -4447,3 +4545,253 @@ export const salonDiscoverSettingsSchema = pgTable('salon_discover_settings', {
     .notNull(),
 });
 export type SalonDiscoverSettings = typeof salonDiscoverSettingsSchema.$inferSelect;
+
+// =============================================================================
+// LUSTER L1 — CATALOG CAPABILITIES AND RULES (dark; migration 0073)
+// =============================================================================
+// Everything below is created empty by 0073 and read by nothing in this PR.
+// No booking path, pricing calculation, duration calculation, availability
+// filter, request lifecycle, public DTO or owner editor imports these tables.
+// They may stay empty indefinitely without any behaviour changing.
+//
+// Every relationship carries `salon_id` on BOTH sides of its foreign key. That
+// makes a cross-tenant reference unrepresentable at the database level rather
+// than something each future write path must remember to check.
+//
+// Every composite foreign key is NO ACTION on delete and update. SET NULL is
+// forbidden outright on a composite key — it would null `salon_id` along with
+// the reference. RESTRICT is deliberately avoided too: NO ACTION is checked at
+// the END of the statement, so a `salon` hard-delete that cascades a parent
+// and its referencing rows away together still settles, while RESTRICT would
+// abort the purge.
+
+/**
+ * A salon-owned skill vocabulary — "certified for hard gel", "does Russian
+ * manicure". Scoped per salon, so one salon's vocabulary is never visible to
+ * another. Retirement is soft (`isActive`) so that assignment history a later
+ * PR may need to explain a past booking is never destroyed.
+ */
+export const capabilitySchema = pgTable(
+  'capability',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    slug: text('slug').notNull(),
+    name: text('name').notNull(),
+    description: text('description'),
+    isActive: boolean('is_active').default(true).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    salonIdx: index('capability_salon_idx').on(table.salonId),
+    salonSlugIdx: uniqueIndex('capability_salon_slug_idx').on(table.salonId, table.slug),
+    // Tenant identity referenced by the composite foreign keys from
+    // `technician_capability` and `catalog_rule`.
+    salonIdIdKey: uniqueIndex('capability_salon_id_id_key').on(table.salonId, table.id),
+  }),
+);
+export type Capability = typeof capabilitySchema.$inferSelect;
+
+/**
+ * Which technician holds which capability.
+ *
+ * Existing technicians receive NO capabilities — this table is created empty
+ * and nothing backfills it. An empty table cannot filter anybody out of
+ * anything, and no availability code reads it in this PR, so technician
+ * availability is bit-for-bit unchanged.
+ */
+export const technicianCapabilitySchema = pgTable(
+  'technician_capability',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    technicianId: text('technician_id').notNull(),
+    capabilityId: text('capability_id').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    // A technician holds a capability once or not at all. `technicianId` is
+    // globally unique on its own, so this pair needs no salon-scoped variant.
+    assignmentUniq: uniqueIndex('technician_capability_assignment_uniq').on(
+      table.technicianId,
+      table.capabilityId,
+    ),
+    salonIdx: index('technician_capability_salon_idx').on(table.salonId),
+    capabilityIdx: index('technician_capability_capability_idx').on(
+      table.salonId,
+      table.capabilityId,
+    ),
+    // Both sides carry `salon_id`: assigning salon B's capability to salon A's
+    // technician is rejected by the database in either direction.
+    technicianTenantFk: foreignKey({
+      columns: [table.salonId, table.technicianId],
+      foreignColumns: [technicianSchema.salonId, technicianSchema.id],
+      name: 'technician_capability_technician_salon_fk',
+    }),
+    capabilityTenantFk: foreignKey({
+      columns: [table.salonId, table.capabilityId],
+      foreignColumns: [capabilitySchema.salonId, capabilitySchema.id],
+      name: 'technician_capability_capability_salon_fk',
+    }),
+  }),
+);
+export type TechnicianCapability = typeof technicianCapabilitySchema.$inferSelect;
+
+/**
+ * Bounded, typed rule STORAGE for the guided catalog.
+ *
+ * NOTHING EXECUTES THESE ROWS. There is no resolver, no expression language,
+ * no price or duration arithmetic and no public projection anywhere in this
+ * PR. Six rule types exist and no seventh is representable without a
+ * migration; the vocabulary and the per-type `params` shapes are pinned in
+ * `src/libs/catalogRuleContract.ts`.
+ *
+ * SCOPE vs SUBJECT. `serviceId IS NULL` means the rule is in force salon-wide;
+ * a value narrows it to one service. That is separate from the SUBJECT, which
+ * is the thing whose selection the rule keys off — exactly one of
+ * `subjectServiceId` or `subjectAddOnId`, enforced by CHECK.
+ *
+ * `params` is validated by the typed contract, NOT by the database beyond
+ * "is a JSON object". That boundary is deliberate and documented in both
+ * places rather than implied: a CHECK strong enough to express the per-type
+ * shapes would rely on JSON expressions whose behaviour is not guaranteed
+ * identical between PostgreSQL and the PGlite build the suite replays against,
+ * and a constraint that holds on one engine reads as a guarantee it cannot
+ * keep. Raw `params` is never projected to a public client.
+ */
+export const catalogRuleSchema = pgTable(
+  'catalog_rule',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+
+    /** NULL = salon-wide scope. */
+    serviceId: text('service_id'),
+
+    /**
+     * One of 'include' | 'exclude' | 'requires' | 'mutually_exclusive' |
+     * 'max_quantity' | 'requires_capability' — bounded by CHECK and mirrored
+     * by `CATALOG_RULE_TYPES`.
+     */
+    ruleType: text('rule_type').notNull(),
+
+    /** Exactly one of the two is non-NULL, enforced by CHECK. */
+    subjectServiceId: text('subject_service_id'),
+    subjectAddOnId: text('subject_add_on_id'),
+
+    /** Determined by `ruleType`: a capability rule names one, others the other. */
+    objectAddOnId: text('object_add_on_id'),
+    capabilityId: text('capability_id'),
+
+    params: jsonb('params').$type<Record<string, unknown>>().default({}).notNull(),
+
+    priority: integer('priority').default(0).notNull(),
+    isActive: boolean('is_active').default(true).notNull(),
+
+    /** Owner-facing free text. Never projected to a client. */
+    note: text('note'),
+
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    salonIdx: index('catalog_rule_salon_idx').on(table.salonId),
+    salonServiceIdx: index('catalog_rule_salon_service_idx').on(table.salonId, table.serviceId),
+    subjectServiceIdx: index('catalog_rule_subject_service_idx').on(
+      table.salonId,
+      table.subjectServiceId,
+    ),
+    subjectAddOnIdx: index('catalog_rule_subject_add_on_idx').on(
+      table.salonId,
+      table.subjectAddOnId,
+    ),
+    objectAddOnIdx: index('catalog_rule_object_add_on_idx').on(
+      table.salonId,
+      table.objectAddOnId,
+    ),
+    capabilityIdx: index('catalog_rule_capability_idx').on(table.salonId, table.capabilityId),
+    activeIdx: index('catalog_rule_active_idx').on(
+      table.salonId,
+      table.isActive,
+      table.priority,
+    ),
+
+    ruleTypeValid: check(
+      'catalog_rule_type_check',
+      sql`${table.ruleType} IN ('include', 'exclude', 'requires', 'mutually_exclusive', 'max_quantity', 'requires_capability')`,
+    ),
+    // Boolean inequality is XOR: true when precisely one subject is NULL.
+    // Written this way rather than with `num_nonnulls(...)` so the expression
+    // is plain portable SQL that behaves identically on PostgreSQL and PGlite.
+    singleSubjectValid: check(
+      'catalog_rule_single_subject_check',
+      sql`(${table.subjectServiceId} IS NULL) <> (${table.subjectAddOnId} IS NULL)`,
+    ),
+    objectShapeValid: check(
+      'catalog_rule_object_shape_check',
+      sql`(${table.ruleType} = 'requires_capability' AND ${table.capabilityId} IS NOT NULL AND ${table.objectAddOnId} IS NULL) OR (${table.ruleType} <> 'requires_capability' AND ${table.capabilityId} IS NULL AND ${table.objectAddOnId} IS NOT NULL)`,
+    ),
+    noSelfPairValid: check(
+      'catalog_rule_no_self_pair_check',
+      sql`${table.subjectAddOnId} IS NULL OR ${table.objectAddOnId} IS NULL OR ${table.subjectAddOnId} <> ${table.objectAddOnId}`,
+    ),
+    paramsObjectValid: check(
+      'catalog_rule_params_object_check',
+      sql`jsonb_typeof(${table.params}) = 'object'`,
+    ),
+    priorityValid: check(
+      'catalog_rule_priority_check',
+      sql`${table.priority} >= 0`,
+    ),
+
+    serviceTenantFk: foreignKey({
+      columns: [table.salonId, table.serviceId],
+      foreignColumns: [serviceSchema.salonId, serviceSchema.id],
+      name: 'catalog_rule_service_salon_fk',
+    }),
+    subjectServiceTenantFk: foreignKey({
+      columns: [table.salonId, table.subjectServiceId],
+      foreignColumns: [serviceSchema.salonId, serviceSchema.id],
+      name: 'catalog_rule_subject_service_salon_fk',
+    }),
+    subjectAddOnTenantFk: foreignKey({
+      columns: [table.salonId, table.subjectAddOnId],
+      foreignColumns: [addOnSchema.salonId, addOnSchema.id],
+      name: 'catalog_rule_subject_add_on_salon_fk',
+    }),
+    objectAddOnTenantFk: foreignKey({
+      columns: [table.salonId, table.objectAddOnId],
+      foreignColumns: [addOnSchema.salonId, addOnSchema.id],
+      name: 'catalog_rule_object_add_on_salon_fk',
+    }),
+    capabilityTenantFk: foreignKey({
+      columns: [table.salonId, table.capabilityId],
+      foreignColumns: [capabilitySchema.salonId, capabilitySchema.id],
+      name: 'catalog_rule_capability_salon_fk',
+    }),
+  }),
+);
+export type CatalogRule = typeof catalogRuleSchema.$inferSelect;

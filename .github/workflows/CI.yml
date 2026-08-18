@@ -292,6 +292,9 @@ jobs:
               migrations/0071_discover_portfolio_foundation.sql) ;;
               # Luster L1 PR1 — dark catalog foundation.
               migrations/0072_l1_catalog_foundation.sql) ;;
+              # Luster L1 PR2 — dark catalog grouping / capability / rule
+              # foundation.
+              migrations/0073_l1_catalog_rules_foundation.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
@@ -370,6 +373,9 @@ jobs:
               0071_discover_portfolio_foundation) ;;
               # Luster L1 PR1 — dark catalog foundation.
               0072_l1_catalog_foundation) ;;
+              # Luster L1 PR2 — dark catalog grouping / capability / rule
+              # foundation.
+              0073_l1_catalog_rules_foundation) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
@@ -961,6 +967,47 @@ jobs:
         run: >-
           npx vitest run --no-file-parallelism
           src/libs/stripeConnect/stripeConnect.concurrency.integration.test.ts
+
+  l1-catalog-rules-postgres:
+    needs: secret-scan
+    name: L1 catalog rules PostgreSQL parity
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: l1_catalog_ci
+          POSTGRES_USER: l1_catalog_ci
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U l1_catalog_ci -d l1_catalog_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      CONCURRENCY_TEST_DATABASE_URL: postgresql://l1_catalog_ci@127.0.0.1:5432/l1_catalog_ci
+      L1_CATALOG_DISPOSABLE_DATABASE_CONFIRMED: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+      - run: HUSKY=0 npm ci
+      # The rest of the suite replays these migrations on PGlite. This job is
+      # the other half of that pair: the same constraints rehearsed on real
+      # PostgreSQL, so a CHECK or composite key that holds on only one engine
+      # fails here instead of in production.
+      - run: >-
+          npx vitest run --no-file-parallelism
+          'src/models/l1CatalogRulesFoundation.integration.test.ts'
+          'src/models/l1CatalogFoundation.integration.test.ts'
 
   synchronize-with-crowdin:
     name: Crowdin sync excluded from PR-head
