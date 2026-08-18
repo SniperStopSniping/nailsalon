@@ -26,8 +26,8 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0071_discover_portfolio_foundation';
-const MIGRATION_COUNT = 72;
+const FINAL_MIGRATION = '0072_l1_catalog_foundation';
+const MIGRATION_COUNT = 73;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -380,6 +380,7 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'technician', 'technician_location_fk', ['primary_location_id'], 'public', 'salon_location', ['id'], 'NO ACTION', 'SET NULL'],
   ['public', 'appointment_final_item', 'appointment_final_item_catalog_service_id_fkey', ['catalog_service_id'], 'public', 'service', ['id'], 'NO ACTION', 'NO ACTION'],
   ['public', 'appointment_services', 'appointment_services_service_id_service_id_fk', ['service_id'], 'public', 'service', ['id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'service', 'service_parent_service_salon_fk', ['salon_id', 'parent_service_id'], 'public', 'service', ['salon_id', 'id'], 'NO ACTION', 'NO ACTION'],
   ['public', 'service_add_on', 'service_add_on_service_id_fkey', ['service_id'], 'public', 'service', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'technician_services', 'technician_services_service_id_service_id_fk', ['service_id'], 'public', 'service', ['id'], 'NO ACTION', 'NO ACTION'],
   ['public', 'appointment', 'appointment_review_followup_sent_by_technician_id_fk', ['review_followup_sent_by'], 'public', 'technician', ['id'], 'NO ACTION', 'NO ACTION'],

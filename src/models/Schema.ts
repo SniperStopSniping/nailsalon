@@ -319,6 +319,26 @@ export const serviceSchema = pgTable(
     // Status
     isActive: boolean('is_active').default(true),
 
+    // ---- Luster L1 catalog foundation (dark; migration 0072) ----------------
+    // Every field below is nullable with no default. A row with NULLs is a
+    // legacy service and behaves exactly as it did before these columns
+    // existed; nothing reads them until the catalog feature keys are enabled.
+    //
+    // Parent link for service variants, tenant-safe by construction: the
+    // composite foreign key carries `salon_id` on both sides, so a parent in
+    // another salon is unrepresentable rather than merely discouraged.
+    parentServiceId: text('parent_service_id'),
+    // Distinguishes a child from its siblings ("Short", "XL"). Required on a
+    // child, enforced by CHECK.
+    variantLabel: text('variant_label'),
+    // The axis a PARENT's children vary along. A child never redefines its own
+    // axis, enforced by CHECK.
+    variantKind: text('variant_kind'),
+    // 'direct' | 'guided' — bounded by CHECK.
+    selectionMode: text('selection_mode'),
+    // 'instant' | 'request_approval' | 'consultation' — bounded by CHECK.
+    confirmationMode: text('confirmation_mode'),
+
     // Metadata
     createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { mode: 'date' })
@@ -331,6 +351,8 @@ export const serviceSchema = pgTable(
     salonSlugIdx: uniqueIndex('service_salon_slug_idx').on(table.salonId, table.slug),
     categoryIdx: index('service_category_idx').on(table.salonId, table.category),
     activeCategoryIdx: index('service_active_category_idx').on(table.salonId, table.isActive, table.category),
+    // Tenant identity referenced by the composite parent foreign key (0072).
+    salonIdIdKey: uniqueIndex('service_salon_id_id_key').on(table.salonId, table.id),
     // Partial unique index (WHERE template_key IS NOT NULL) is created in
     // migrations/0056_booking_category_luster_featuring.sql as
     // service_salon_template_key_idx — one template-derived service per salon.
@@ -525,6 +547,17 @@ export const appointmentSchema = pgTable(
     // 'pending' | 'confirmed' | 'in_progress' | 'awaiting_payment'
     //   | 'cancelled' | 'completed' | 'no_show'
     cancelReason: text('cancel_reason'),
+
+    // ---- Luster L1 catalog foundation (dark; migration 0072) ----------------
+    // Snapshots, in the same spirit as the price/duration snapshots on
+    // appointment_services: an appointment renders from what was true when it
+    // was booked, not from the live service row. Nullable and unread until the
+    // catalog feature keys are enabled.
+    selectionModeSnapshot: text('selection_mode_snapshot'),
+    confirmationModeSnapshot: text('confirmation_mode_snapshot'),
+    // timestamptz — an expiry deadline is an absolute instant. No expiry
+    // behaviour is activated by this PR; nothing writes or reads this yet.
+    requestExpiresAt: timestamp('request_expires_at', { mode: 'date', withTimezone: true }),
     // 'rescheduled' | 'client_request' | 'no_show' | 'deposit_not_paid' | null
 
     // Canvas Flow OS state (parallel to legacy status)
@@ -807,6 +840,9 @@ export const appointmentServicesSchema = pgTable(
     // Historical snapshot fields - render appointments from these, not live services.
     nameSnapshot: text('name_snapshot'),
     categorySnapshot: text('category_snapshot'),
+    // ---- Luster L1 catalog foundation (dark; migration 0072) ----------------
+    variantLabelSnapshot: text('variant_label_snapshot'),
+    variantKindSnapshot: text('variant_kind_snapshot'),
     priceCentsSnapshot: integer('price_cents_snapshot'),
     durationMinutesSnapshot: integer('duration_minutes_snapshot'),
     priceDisplayTextSnapshot: text('price_display_text_snapshot'),
@@ -3052,6 +3088,49 @@ export const auditLogSchema = pgTable(
     createdAtIdx: index('general_audit_log_created_at_idx').on(table.createdAt),
   }),
 );
+
+/**
+ * Luster L1 request-lifecycle cancellation reasons.
+ *
+ * These are the reasons an appointment can end once booking modes exist: a
+ * salon declines a pending request, or a request lapses past
+ * `appointment.request_expires_at`. Both are DARK — nothing writes them, and
+ * nothing may write them until the request lifecycle is built behind
+ * `catalog.bookingModesV1`.
+ *
+ * They are deliberately kept OUT of `CANCEL_REASONS`. That list is not merely
+ * documentation: it feeds `z.enum(CANCEL_REASONS)` in the appointment PATCH
+ * and cancel routes, so appending to it would immediately let a caller submit
+ * `request_expired` on an ordinary cancel, months before the lifecycle that
+ * gives the word meaning exists. Widening a live request schema is exactly the
+ * behaviour change this PR is required not to make.
+ */
+export const L1_REQUEST_LIFECYCLE_CANCEL_REASONS = [
+  'declined_by_salon',
+  'request_expired',
+] as const;
+
+/**
+ * The full cancellation-reason vocabulary: everything the codebase writes
+ * today, plus the dark L1 reasons above.
+ *
+ * IMPORTANT — this is a VOCABULARY, not an enforcement boundary.
+ * `appointment.cancel_reason` is and remains an unbounded `text` column
+ * (added in migration 0003). There is no database enum and no CHECK, and this
+ * PR deliberately does not add one: existing rows may hold arbitrary strings,
+ * so constraining the column would be a behaviour change and could reject
+ * legacy data — exactly what the dark-foundation contract forbids.
+ *
+ * Derived from `CANCEL_REASONS` by spread rather than re-listed, so the
+ * writable reasons have exactly one definition. Extend by appending to one of
+ * the two source lists; never reorder or remove.
+ */
+export const APPOINTMENT_CANCELLATION_REASONS = [
+  ...CANCEL_REASONS,
+  ...L1_REQUEST_LIFECYCLE_CANCEL_REASONS,
+] as const;
+export type AppointmentCancellationReason
+  = (typeof APPOINTMENT_CANCELLATION_REASONS)[number];
 
 export const AUDIT_LOG_ACTIONS = [
   // Billing
