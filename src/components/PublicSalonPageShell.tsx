@@ -7,6 +7,13 @@ import {
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import type { PageAppearanceResult } from '@/libs/pageAppearance';
+import type {
+  SalonContentAddOnInput,
+  SalonContentLocationInput,
+  SalonContentServiceInput,
+  SalonContentTechnicianInput,
+} from '@/libs/salonContent';
+import { resolveSalonContent } from '@/libs/salonContent';
 import type { Salon, SalonStatus } from '@/models/Schema';
 import { type SalonOwnerPreviewState, SalonProvider } from '@/providers/SalonProvider';
 
@@ -33,6 +40,25 @@ type PublicSalonPageShellProps = {
   /** Owner-preview state for this request, already gated server-side. */
   ownerPreview?: SalonOwnerPreviewState;
   /**
+   * Raw ingredients for the server-resolved `SalonContent` (Luster UI/UX
+   * plan rev 3, section 4A.A) — everything the content contract needs that
+   * this shell does not already have (`salon` and the entitlement-resolved
+   * `bookingExperience` below cover the rest). Resolved via
+   * `resolveSalonContent` right here, once per render, so
+   * `salonContent.policies`/`.social` always come from the SAME
+   * entitlement-gated `bookingExperience` value this shell already computes
+   * for the page itself — never a second, independently-resolved copy that
+   * could drift out of sync with the entitlement gate. Omitted fields
+   * default to empty, which is always safe to render.
+   */
+  salonContentInput?: {
+    technicians?: SalonContentTechnicianInput[];
+    services?: SalonContentServiceInput[];
+    addOns?: SalonContentAddOnInput[];
+    locations?: SalonContentLocationInput[];
+    lusterFeaturingEnabled?: boolean;
+  };
+  /**
    * Which preview banner (if any) to render for this request, computed by
    * the caller from the same `resolveDraftSalonAccess()` result used for
    * `ownerPreview`/`bookingPage` above. Rendered here — not in
@@ -54,6 +80,7 @@ export function PublicSalonPageShell({
   salon,
   bookingPage,
   ownerPreview,
+  salonContentInput,
   previewBannerVariant,
 }: PublicSalonPageShellProps) {
   let bookingExperience = resolveBookingExperience(null);
@@ -77,6 +104,24 @@ export function PublicSalonPageShell({
     : {};
   const hasBookingColorOverride = Object.keys(bookingExperienceStyles).length > 0;
 
+  const salonContent = resolveSalonContent({
+    salon: {
+      name: salon.name,
+      logoUrl: salon.logoUrl ?? null,
+      address: salon.address ?? null,
+      city: salon.city ?? null,
+      state: salon.state ?? null,
+      zipCode: salon.zipCode ?? null,
+      businessHours: salon.businessHours ?? null,
+    },
+    technicians: salonContentInput?.technicians ?? [],
+    services: salonContentInput?.services ?? [],
+    addOns: salonContentInput?.addOns,
+    locations: salonContentInput?.locations,
+    bookingExperience,
+    lusterFeaturingEnabled: salonContentInput?.lusterFeaturingEnabled,
+  });
+
   return (
     <SalonProvider
       salonId={salon.id}
@@ -87,6 +132,7 @@ export function PublicSalonPageShell({
       bookingExperience={bookingExperience}
       bookingPage={bookingPage}
       ownerPreview={ownerPreview}
+      salonContent={salonContent}
     >
       {previewBannerVariant && <PreviewBanner variant={previewBannerVariant} />}
       <PageThemeWrapper

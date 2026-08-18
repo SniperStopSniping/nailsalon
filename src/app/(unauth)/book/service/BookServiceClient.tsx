@@ -5,6 +5,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { type CSSProperties, useEffect, useRef, useState } from 'react';
 
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
+import { SectionOrderRenderer } from '@/components/booking/SectionOrderRenderer';
 import { ServiceCardImage } from '@/components/booking/ServiceCardImage';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { Card } from '@/components/ui/card';
@@ -14,6 +15,7 @@ import { useBookingState } from '@/hooks/useBookingState';
 import { BOOKING_CATEGORY_META } from '@/libs/bookingCategory';
 import { type BookingStep, getFirstStep, getNextStep, getPrevStep } from '@/libs/bookingFlow';
 import { getFeaturedServices, sortServicesForCategory } from '@/libs/bookingMerchandising';
+import type { SectionId } from '@/libs/bookingPageConfig';
 import { buildBookingUrl, parseSelectedAddOnsParam, type SelectedAddOnParam, serializeSelectedAddOns } from '@/libs/bookingParams';
 import { triggerHaptic } from '@/libs/haptics';
 import {
@@ -21,6 +23,7 @@ import {
   type PublicTechnicianPreview,
   technicianSupportsPublicLocation,
 } from '@/libs/publicTechnicianCompatibility';
+import { EMPTY_SALON_CONTENT } from '@/libs/salonContent';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
 import { BOOKING_CATEGORIES, type BookingCategory } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
@@ -194,6 +197,27 @@ function buildDefaultSelectedAddOns(
 const EMPTY_ADD_ONS: AddOnData[] = [];
 const EMPTY_ADD_ON_RULES: ServiceAddOnRule[] = [];
 const EMPTY_TECHNICIANS: TechnicianPreviewData[] = [];
+/**
+ * Mirrors `DEFAULT_SECTION_ORDER` / `BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.sectionOrder`
+ * in `@/libs/bookingPageConfig` (PR 2) exactly. Not imported directly: that
+ * module also exports `updateBookingPageDraft`, which imports `@/libs/DB`
+ * (`import 'server-only'`) — importing ANY value from it, even an unrelated
+ * constant, would drag that server-only module graph into this 'use client'
+ * component's bundle. `useSalon().bookingPage.sectionOrder` (the real,
+ * server-resolved value threaded through `SalonProvider`) is what actually
+ * drives rendering in production; this literal is only a same-shape fallback
+ * for the rare case that value is missing (a test double stubbing
+ * `useSalon()` with a partial object). If PR 2's default ever changes, update
+ * both — there is currently no client-safe way to import one from the other.
+ */
+const QUICK_BOOK_SECTION_ORDER_FALLBACK: SectionId[] = [
+  'salonProfile',
+  'serviceMenu',
+  'featuredServices',
+  'policies',
+  'socialLinks',
+  'bookingCta',
+];
 const SOCIAL_LINKS = [
   { key: 'instagram', label: 'Instagram', Icon: Instagram },
   { key: 'facebook', label: 'Facebook', Icon: Facebook },
@@ -215,9 +239,23 @@ export function BookServiceClient({
   const router = useRouter();
   const params = useParams();
   const searchParams = useSearchParams();
-  const { bookingExperience, salonName, salonSlug } = useSalon();
+  const { bookingExperience, salonName, salonSlug, bookingPage, salonContent } = useSalon();
   const locale = (params?.locale as string) || 'en';
   const routeSalonSlug = typeof params?.slug === 'string' ? params.slug : null;
+  // Luster UI/UX plan rev 3, PR 4: iterate the resolved Quick Book section
+  // order rather than re-deciding it here. `bookingPage`/`salonContent` are
+  // only undefined in test doubles that mock `useSalon()` with a partial
+  // object; the real SalonProvider always supplies both, resolved
+  // server-side, so these fallbacks only ever apply outside production.
+  const quickBookSectionOrder = bookingPage?.sectionOrder ?? QUICK_BOOK_SECTION_ORDER_FALLBACK;
+  // EMPTY_SALON_CONTENT's identity.name is '' by design (see its own doc
+  // comment) — patched in with the real salonName here so the fallback path
+  // still satisfies salonProfile's canRender (name-based) exactly like the
+  // real resolved SalonContent would, instead of silently omitting the
+  // identity band whenever a caller has not threaded salonContent through
+  // yet.
+  const quickBookContent = salonContent
+    ?? { ...EMPTY_SALON_CONTENT, identity: { ...EMPTY_SALON_CONTENT.identity, name: salonName } };
   const hasBookingBrandColor = bookingExperience.primaryColor !== null;
   const bookingBrandForeground = hasBookingBrandColor
     ? 'var(--booking-brand-foreground, #000000)'
@@ -862,530 +900,307 @@ export function BookServiceClient({
       }}
     >
       <div className="mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10">
-        <BookingStepHeader
-          salonName={salonName}
-          mounted={mounted}
-          salonNameVariant="editorial"
-          announcement={campaignOffer
-            ? (
-                <div
-                  className="inline-flex max-w-full items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-center text-[11px] font-semibold leading-tight text-emerald-900 shadow-[0_4px_14px_rgba(0,0,0,0.04)]"
-                >
-                  ✨
-                  {' '}
-                  {campaignOffer.name}
-                  {' · '}
-                  {campaignOffer.displayOffer}
-                  {campaignOffer.code ? ` · ${campaignOffer.code}` : ''}
-                </div>
-              )
-            : showNewClientPromo
-              ? (
-                  <div
-                    className="inline-flex max-w-full items-center justify-center rounded-full border px-3 py-1.5 text-center text-[11px] font-medium leading-tight shadow-[0_4px_14px_rgba(0,0,0,0.04)]"
-                    style={{
-                      borderColor: `color-mix(in srgb, ${themeVars.accent} 18%, ${themeVars.cardBorder})`,
-                      backgroundColor: `color-mix(in srgb, white 84%, ${themeVars.accent} 16%)`,
-                      color: hasBookingBrandColor
-                        ? themeVars.accent
-                        : `color-mix(in srgb, ${themeVars.primaryDark} 74%, ${themeVars.accent})`,
-                    }}
-                  >
-                    ✨ 25% off for new clients — until April 30
-                  </div>
-                )
-              : undefined}
-          title="Choose Your Service"
-          description="Pick your main service, then add optional extras."
-          bookingFlow={effectiveBookingFlow}
-          currentStep="service"
-          isFirstStep={isFirstStep}
-          onBack={handleBack}
-          className="-mb-1"
-        />
-
-        {(bookingExperience.bookingMessage || serviceQuickFacts.length > 0) && (
-          <section
-            data-testid="booking-experience-intro"
-            aria-label="Booking information"
-            className="mb-4 space-y-2.5"
-          >
-            {serviceQuickFacts.length > 0 && (
-              <ul
-                data-testid="booking-quick-facts"
-                aria-label="Booking quick facts"
-                className="flex flex-wrap gap-2"
-              >
-                {serviceQuickFacts.map(fact => (
-                  <li
-                    key={fact.key}
-                    data-testid={fact.key === 'appointment-only'
-                      ? 'booking-appointment-only'
-                      : `booking-quick-fact-${fact.key}`}
-                    className="inline-flex min-w-0 max-w-full rounded-full border px-2.5 py-1 text-xs font-medium leading-4 text-neutral-700"
-                    style={{
-                      borderColor: hasBookingBrandColor
-                        ? 'color-mix(in srgb, var(--booking-brand-state-border, var(--theme-primary)) 42%, transparent)'
-                        : themeVars.cardBorder,
-                      backgroundColor: hasBookingBrandColor
-                        ? 'color-mix(in srgb, var(--booking-brand-primary) 8%, white)'
-                        : themeVars.surfaceAlt,
-                    }}
-                  >
-                    <span className="min-w-0 break-words">{fact.label}</span>
-                  </li>
-                ))}
-              </ul>
-            )}
-            {bookingExperience.bookingMessage && (
-              <div
-                data-testid="booking-message-card"
-                className="flex items-start gap-2.5 rounded-xl border px-3 py-2.5"
-                style={{
-                  borderColor: hasBookingBrandColor
-                    ? 'color-mix(in srgb, var(--booking-brand-state-border, var(--theme-primary)) 34%, transparent)'
-                    : `color-mix(in srgb, ${themeVars.accent} 20%, ${themeVars.cardBorder})`,
-                  backgroundColor: hasBookingBrandColor
-                    ? 'color-mix(in srgb, var(--booking-brand-primary) 6%, white)'
-                    : `color-mix(in srgb, white 92%, ${themeVars.accent})`,
-                }}
-              >
-                <Info
-                  aria-hidden="true"
-                  className="mt-0.5 size-4 shrink-0"
-                  style={{
-                    color: hasBookingBrandColor
-                      ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                      : themeVars.primaryDark,
-                  }}
-                />
-                <p
-                  data-testid="booking-message"
-                  className="whitespace-pre-line break-words text-sm leading-5 text-neutral-700"
-                >
-                  {bookingExperience.bookingMessage}
-                </p>
-              </div>
-            )}
-          </section>
-        )}
-
-        {campaignUnavailable && (
-          <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            This promotion link is no longer available. You can still book at the regular price.
-          </div>
-        )}
-
-        <div
-          ref={searchCardRef}
-          className="mb-4 scroll-mt-3"
-          style={{
-            opacity: mounted ? 1 : 0,
-            transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-            transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
-          }}
-        >
-          <Card className="flex items-center px-4 py-3 shadow-sm">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="mr-3 text-neutral-400">
-              <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
-              <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-            </svg>
-            <Input
-              type="text"
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              onFocus={handleSearchFocus}
-              placeholder="Search services..."
-              className="h-auto flex-1 border-0 bg-transparent p-0 text-base text-neutral-800 shadow-none focus-visible:ring-0"
-            />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery('')}
-                aria-label="Clear search"
-                className="ml-2 flex size-6 items-center justify-center rounded-full bg-neutral-100 transition-colors hover:bg-neutral-200"
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
-                  <path d="M9 3L3 9M3 3L9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </button>
-            )}
-          </Card>
-        </div>
-
-        {showLocationFallbackToast && (
-          <div
-            className="mb-4 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3"
-            style={{
-              borderWidth: '1px',
-              borderStyle: 'solid',
-              borderColor: '#fbbf24',
-              opacity: mounted ? 1 : 0,
-              transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-              transition: 'opacity 300ms ease-out 110ms, transform 300ms ease-out 110ms',
-            }}
-          >
-            <div className="flex items-center gap-2">
-              <span className="text-amber-600">⚠️</span>
-              <span className="text-sm text-amber-800">
-                Location not found, defaulted to
-                {' '}
-                {primaryLocation?.name || 'primary location'}
-                .
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setShowLocationFallbackToast(false)}
-              className="ml-2 text-amber-600 hover:text-amber-800"
-              aria-label="Dismiss"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-              </svg>
-            </button>
-          </div>
-        )}
-
-        {showLocationPicker && (
-          <div
-            className="mb-4"
-            style={{
-              opacity: mounted ? 1 : 0,
-              transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-              transition: 'opacity 300ms ease-out 120ms, transform 300ms ease-out 120ms',
-            }}
-          >
-            <div className="mb-2 text-center text-sm font-medium text-neutral-600">
-              📍 Choose a location
-            </div>
-            <div className="flex flex-col gap-2">
-              {locations.map((location) => {
-                const isSelected = selectedLocationId === location.id;
-                return (
-                  <button
-                    key={location.id}
-                    type="button"
-                    onClick={() => {
-                      if (selectedLocationId !== location.id) {
-                        hasUserChangedSelectionRef.current = true;
-                        setSelectedLocationId(location.id);
-                        triggerHaptic('select');
-                      }
-                    }}
-                    className="relative overflow-hidden rounded-xl p-3 text-left transition-all duration-200"
-                    style={{
-                      backgroundColor: isSelected
-                        ? hasBookingBrandColor
-                          ? 'var(--booking-brand-selection-background, white)'
-                          : `color-mix(in srgb, ${themeVars.primary} 15%, white)`
-                        : 'white',
-                      borderWidth: '1px',
-                      borderStyle: 'solid',
-                      borderColor: isSelected
-                        ? hasBookingBrandColor
-                          ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                          : themeVars.primary
-                        : themeVars.cardBorder,
-                      boxShadow: isSelected ? '0 4px 12px rgba(0,0,0,0.08)' : '0 2px 8px rgba(0,0,0,0.04)',
-                    }}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-neutral-900">{location.name}</span>
-                          {location.isPrimary && (
-                            <span
-                              className="rounded-full px-2 py-0.5 text-xs font-medium"
-                              style={{ backgroundColor: `color-mix(in srgb, ${themeVars.accent} 15%, white)`, color: themeVars.accent }}
-                            >
-                              Primary
-                            </span>
-                          )}
-                        </div>
-                        {location.address && (
-                          <div className="mt-0.5 text-sm text-neutral-500">
-                            {location.address}
-                            {location.city && `, ${location.city}`}
-                            {location.state && ` ${location.state}`}
-                          </div>
-                        )}
-                      </div>
+        {/*
+          Luster UI/UX plan rev 3, PR 4 (BUILD step 4): the identity/header
+          region is the ONLY thing extracted into the section registry's
+          thin rendering wrapper. `serviceMenu` renders every remaining line
+          of this file's existing return JSX — search, category pills,
+          service cards, the inline add-on panel — completely unchanged, as
+          one opaque block, exactly as it rendered before this PR.
+          `featuredServices`/`policies`/`socialLinks`/`bookingCta` stay
+          structurally embedded inside that same unchanged block (they
+          already rendered there) rather than being pulled into their own
+          renderers, so `quickBookSectionOrder`'s entries for those ids are
+          intentionally left without a mapped renderer below and are
+          skipped — see `SectionOrderRenderer`'s own doc comment. The sticky
+          Continue bar further down (`service-sticky-bar`) is also left
+          completely untouched in its original position, outside this
+          wrapper, since it is a viewport-fixed element structurally
+          independent of in-flow section order.
+        */}
+        <SectionOrderRenderer
+          order={quickBookSectionOrder}
+          content={quickBookContent}
+          renderers={{
+            salonProfile: () => (
+              <BookingStepHeader
+                salonName={salonName}
+                mounted={mounted}
+                salonNameVariant="editorial"
+                announcement={campaignOffer
+                  ? (
                       <div
-                        className="flex size-6 shrink-0 items-center justify-center rounded-full transition-all"
+                        className="inline-flex max-w-full items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-center text-[11px] font-semibold leading-tight text-emerald-900 shadow-[0_4px_14px_rgba(0,0,0,0.04)]"
+                      >
+                        ✨
+                        {' '}
+                        {campaignOffer.name}
+                        {' · '}
+                        {campaignOffer.displayOffer}
+                        {campaignOffer.code ? ` · ${campaignOffer.code}` : ''}
+                      </div>
+                    )
+                  : showNewClientPromo
+                    ? (
+                        <div
+                          className="inline-flex max-w-full items-center justify-center rounded-full border px-3 py-1.5 text-center text-[11px] font-medium leading-tight shadow-[0_4px_14px_rgba(0,0,0,0.04)]"
+                          style={{
+                            borderColor: `color-mix(in srgb, ${themeVars.accent} 18%, ${themeVars.cardBorder})`,
+                            backgroundColor: `color-mix(in srgb, white 84%, ${themeVars.accent} 16%)`,
+                            color: hasBookingBrandColor
+                              ? themeVars.accent
+                              : `color-mix(in srgb, ${themeVars.primaryDark} 74%, ${themeVars.accent})`,
+                          }}
+                        >
+                          ✨ 25% off for new clients — until April 30
+                        </div>
+                      )
+                    : undefined}
+                title="Choose Your Service"
+                description="Pick your main service, then add optional extras."
+                bookingFlow={effectiveBookingFlow}
+                currentStep="service"
+                isFirstStep={isFirstStep}
+                onBack={handleBack}
+                className="-mb-1"
+              />
+            ),
+            serviceMenu: () => (
+              <>
+                {(bookingExperience.bookingMessage || serviceQuickFacts.length > 0) && (
+                  <section
+                    data-testid="booking-experience-intro"
+                    aria-label="Booking information"
+                    className="mb-4 space-y-2.5"
+                  >
+                    {serviceQuickFacts.length > 0 && (
+                      <ul
+                        data-testid="booking-quick-facts"
+                        aria-label="Booking quick facts"
+                        className="flex flex-wrap gap-2"
+                      >
+                        {serviceQuickFacts.map(fact => (
+                          <li
+                            key={fact.key}
+                            data-testid={fact.key === 'appointment-only'
+                              ? 'booking-appointment-only'
+                              : `booking-quick-fact-${fact.key}`}
+                            className="inline-flex min-w-0 max-w-full rounded-full border px-2.5 py-1 text-xs font-medium leading-4 text-neutral-700"
+                            style={{
+                              borderColor: hasBookingBrandColor
+                                ? 'color-mix(in srgb, var(--booking-brand-state-border, var(--theme-primary)) 42%, transparent)'
+                                : themeVars.cardBorder,
+                              backgroundColor: hasBookingBrandColor
+                                ? 'color-mix(in srgb, var(--booking-brand-primary) 8%, white)'
+                                : themeVars.surfaceAlt,
+                            }}
+                          >
+                            <span className="min-w-0 break-words">{fact.label}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {bookingExperience.bookingMessage && (
+                      <div
+                        data-testid="booking-message-card"
+                        className="flex items-start gap-2.5 rounded-xl border px-3 py-2.5"
                         style={{
-                          backgroundColor: isSelected
-                            ? hasBookingBrandColor
-                              ? 'var(--booking-brand-primary)'
-                              : themeVars.primary
-                            : 'transparent',
-                          borderWidth: isSelected ? 0 : '2px',
-                          borderStyle: 'solid',
-                          borderColor: isSelected ? 'transparent' : '#d4d4d4',
-                          color: isSelected ? bookingBrandForeground : undefined,
+                          borderColor: hasBookingBrandColor
+                            ? 'color-mix(in srgb, var(--booking-brand-state-border, var(--theme-primary)) 34%, transparent)'
+                            : `color-mix(in srgb, ${themeVars.accent} 20%, ${themeVars.cardBorder})`,
+                          backgroundColor: hasBookingBrandColor
+                            ? 'color-mix(in srgb, var(--booking-brand-primary) 6%, white)'
+                            : `color-mix(in srgb, white 92%, ${themeVars.accent})`,
                         }}
                       >
-                        {isSelected && (
-                          <svg
-                            width="14"
-                            height="14"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            className={hasBookingBrandColor ? undefined : 'text-white'}
-                          >
-                            <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                          </svg>
-                        )}
+                        <Info
+                          aria-hidden="true"
+                          className="mt-0.5 size-4 shrink-0"
+                          style={{
+                            color: hasBookingBrandColor
+                              ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                              : themeVars.primaryDark,
+                          }}
+                        />
+                        <p
+                          data-testid="booking-message"
+                          className="whitespace-pre-line break-words text-sm leading-5 text-neutral-700"
+                        >
+                          {bookingExperience.bookingMessage}
+                        </p>
                       </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {selectedService && shouldPreviewAutoSkipTech && soleCompatiblePreviewTechnician && (
-          <div
-            data-testid="service-auto-technician-preview"
-            className="mb-4 flex items-center gap-3 rounded-full border bg-white/90 px-3 py-2 shadow-[0_4px_18px_rgba(0,0,0,0.05)] backdrop-blur-sm"
-            style={{
-              borderColor: hasBookingBrandColor
-                ? 'var(--booking-brand-state-border, var(--theme-card-border))'
-                : `color-mix(in srgb, ${themeVars.primary} 20%, ${themeVars.cardBorder})`,
-              opacity: mounted ? 1 : 0,
-              transform: mounted ? 'translateY(0)' : 'translateY(10px)',
-              transition: 'opacity 300ms ease-out 130ms, transform 300ms ease-out 130ms',
-            }}
-          >
-            <TechnicianAvatar
-              name={soleCompatiblePreviewTechnician.name}
-              imageUrl={soleCompatiblePreviewTechnician.imageUrl}
-              className="size-10 shrink-0"
-              sizes="40px"
-            />
-            <div className="min-w-0 flex-1">
-              <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
-                Your artist
-              </div>
-              <div className="truncate text-sm font-semibold text-neutral-900">
-                {soleCompatiblePreviewTechnician.name}
-              </div>
-            </div>
-            <div className="shrink-0 text-right text-[11px] text-neutral-500">
-              {soleCompatiblePreviewRating?.kind === 'rated'
-                ? (
-                    <>
-                      <div className="font-semibold text-neutral-800">
-                        {soleCompatiblePreviewRating.ratingText}
-                        {' '}
-                        ★
-                      </div>
-                      <div>
-                        {soleCompatiblePreviewRating.reviewCountText}
-                        {' '}
-                        reviews
-                      </div>
-                    </>
-                  )
-                : 'New artist'}
-            </div>
-          </div>
-        )}
-
-        {services.length === 0
-          ? (
-              <StateCard
-                className="shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
-                contentClassName="py-8"
-                icon="🗓️"
-                title="Online booking is not ready yet"
-                description={(
-                  <>
-                    This salon does not have any active services available to book right now.
-                    {' '}
-                    Please contact the salon directly to make an appointment.
-                  </>
+                    )}
+                  </section>
                 )}
-              />
-            )
-          : (
-              <>
-                {/* Featured is hidden while searching so matches sit directly under
-                    the search bar instead of below the carousel (mobile keyboard). */}
-                {!isSearching && featuredServices.length > 0 && (
-                  <div
-                    className="scrollbar-hide -mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
-                    style={{
-                      opacity: mounted ? 1 : 0,
-                      transition: 'opacity 300ms ease-out 150ms',
-                    }}
-                    data-testid="featured-services-scroll"
-                  >
-                    <div className="mb-2.5">
-                      <div className="mb-1 px-4 sm:px-0">
-                        <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
-                          Featured services
-                        </div>
-                        <div className="mt-0.5 text-[13px] font-semibold text-neutral-900">
-                          Popular premium sets and combo appointments
-                        </div>
-                      </div>
-                      <div
-                        className="scrollbar-hide -mx-4 overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:px-0"
-                        role="region"
-                        aria-label="Featured services"
-                      >
-                        <div className="flex min-w-max gap-2">
-                          {featuredServices.map((service, featuredIndex) => {
-                            const isSelected = selectedBaseServiceId === service.id;
-                            const featuredBadgeLabel = featuredIndex === 0 && service.bookingCategory === 'combo'
-                              ? 'Best value'
-                              : BOOKING_CATEGORY_META[service.bookingCategory].label;
-                            return (
-                              <button
-                                key={`featured-${service.id}`}
-                                type="button"
-                                disabled={!isHydrated}
-                                onClick={() => handleServiceSelection(service)}
-                                data-testid={`featured-service-card-${service.id}`}
-                                aria-pressed={isSelected}
-                                aria-label={`${service.name}, ${formatDuration(service.durationMinutes)}, ${service.priceDisplayText || formatMoney(service.priceCents, currency)}`}
-                                className={`relative w-[min(272px,calc(100vw-4rem))] shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
-                                  service.bookingCategory === 'combo' ? 'sm:w-[320px]' : 'sm:w-[280px]'
-                                }`}
-                                style={{
-                                  background: isSelected
-                                    ? hasBookingBrandColor
-                                      ? 'var(--booking-brand-selection-background, white)'
-                                      : `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 24%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 12%, transparent))`
-                                    : 'white',
-                                  boxShadow: isSelected
-                                    ? '0 14px 28px rgba(0,0,0,0.14)'
-                                    : '0 4px 20px rgba(0,0,0,0.06)',
-                                  borderWidth: '1px',
-                                  borderStyle: 'solid',
-                                  borderColor: isSelected
-                                    ? hasBookingBrandColor
-                                      ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                                      : themeVars.primary
-                                    : themeVars.cardBorder,
-                                }}
-                              >
-                                {showServiceImages && (
-                                  <div
-                                    data-testid={`featured-service-card-image-container-${service.id}`}
-                                    className="relative h-[80px] overflow-hidden sm:h-[96px]"
-                                  >
-                                    <ServiceCardImage
-                                      src={service.imageUrl}
-                                      alt={`${service.name} nail service`}
-                                      imageTestId={`featured-service-card-image-${service.id}`}
-                                      className="object-cover transition-transform duration-300"
-                                    />
-                                    <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/45 to-transparent sm:h-20" />
-                                    <div
-                                      data-testid={`featured-service-card-badge-${service.id}`}
-                                      className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm"
-                                    >
-                                      {/* "Best value" only on the lead card — a badge on every card means nothing */}
-                                      {featuredBadgeLabel}
-                                    </div>
-                                  </div>
-                                )}
-                                <div className="p-2">
-                                  {!showServiceImages && (
-                                    <div
-                                      data-testid={`featured-service-card-badge-${service.id}`}
-                                      className="mb-1 w-fit max-w-full whitespace-normal break-words rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-semibold uppercase leading-tight tracking-[0.08em] text-neutral-800"
-                                    >
-                                      {featuredBadgeLabel}
-                                    </div>
-                                  )}
-                                  <div className="line-clamp-2 break-words text-[13px] font-bold leading-tight text-neutral-900 sm:text-[14px]">
-                                    {service.name}
-                                  </div>
-                                  <div className="mt-0.5 line-clamp-1 text-[10px] leading-[1.35] text-neutral-500 sm:line-clamp-2">
-                                    {service.descriptionItems[0] ?? service.description ?? 'Bookable base service'}
-                                  </div>
-                                  <div className="mt-0.5 flex items-center justify-between gap-3 sm:mt-1">
-                                    <span className="text-[12px] text-neutral-500">
-                                      {formatDuration(service.durationMinutes)}
-                                    </span>
-                                    <span className="text-[15px] font-bold" style={{ color: themeVars.accent }}>
-                                      {service.priceDisplayText || formatMoney(service.priceCents, currency)}
-                                    </span>
-                                  </div>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    </div>
+
+                {campaignUnavailable && (
+                  <div role="status" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    This promotion link is no longer available. You can still book at the regular price.
                   </div>
                 )}
 
-                {/* Category chips are useless during a search (results already span
-                    every category), so they collapse too — only results remain. */}
-                {!isSearching && (
+                <div
+                  ref={searchCardRef}
+                  className="mb-4 scroll-mt-3"
+                  style={{
+                    opacity: mounted ? 1 : 0,
+                    transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+                    transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
+                  }}
+                >
+                  <Card className="flex items-center px-4 py-3 shadow-sm">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="mr-3 text-neutral-400">
+                      <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
+                      <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                    <Input
+                      type="text"
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      onFocus={handleSearchFocus}
+                      placeholder="Search services..."
+                      className="h-auto flex-1 border-0 bg-transparent p-0 text-base text-neutral-800 shadow-none focus-visible:ring-0"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery('')}
+                        aria-label="Clear search"
+                        className="ml-2 flex size-6 items-center justify-center rounded-full bg-neutral-100 transition-colors hover:bg-neutral-200"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                          <path d="M9 3L3 9M3 3L9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                        </svg>
+                      </button>
+                    )}
+                  </Card>
+                </div>
+
+                {showLocationFallbackToast && (
                   <div
-                    className="scrollbar-hide -mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 md:mx-0 md:w-full md:overflow-visible md:px-0"
+                    className="mb-4 flex items-center justify-between rounded-xl bg-amber-50 px-4 py-3"
+                    style={{
+                      borderWidth: '1px',
+                      borderStyle: 'solid',
+                      borderColor: '#fbbf24',
+                      opacity: mounted ? 1 : 0,
+                      transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+                      transition: 'opacity 300ms ease-out 110ms, transform 300ms ease-out 110ms',
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-amber-600">⚠️</span>
+                      <span className="text-sm text-amber-800">
+                        Location not found, defaulted to
+                        {' '}
+                        {primaryLocation?.name || 'primary location'}
+                        .
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowLocationFallbackToast(false)}
+                      className="ml-2 text-amber-600 hover:text-amber-800"
+                      aria-label="Dismiss"
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+                      </svg>
+                    </button>
+                  </div>
+                )}
+
+                {showLocationPicker && (
+                  <div
+                    className="mb-4"
                     style={{
                       opacity: mounted ? 1 : 0,
-                      transition: 'opacity 300ms ease-out 150ms',
+                      transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+                      transition: 'opacity 300ms ease-out 120ms, transform 300ms ease-out 120ms',
                     }}
-                    data-testid="service-category-scroll"
                   >
-                    <div
-                      className="flex min-w-max flex-nowrap gap-1.5 md:min-w-0 md:flex-wrap md:justify-center md:gap-2"
-                      data-testid="service-category-track"
-                    >
-                      {BOOKING_CATEGORIES.map((category) => {
-                        const active = category === selectedCategory;
-                        const meta = BOOKING_CATEGORY_META[category];
+                    <div className="mb-2 text-center text-sm font-medium text-neutral-600">
+                      📍 Choose a location
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      {locations.map((location) => {
+                        const isSelected = selectedLocationId === location.id;
                         return (
                           <button
-                            key={category}
+                            key={location.id}
                             type="button"
-                            disabled={!isHydrated}
-                            aria-pressed={active}
                             onClick={() => {
-                              if (category !== selectedCategory) {
-                                setSelectedCategory(category);
+                              if (selectedLocationId !== location.id) {
+                                hasUserChangedSelectionRef.current = true;
+                                setSelectedLocationId(location.id);
                                 triggerHaptic('select');
                               }
                             }}
-                            className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 md:gap-2 md:px-5 ${
-                              active && hasBookingBrandColor
-                                ? 'bg-[var(--booking-brand-primary)] text-[var(--booking-brand-foreground)]'
-                                : ''
-                            }`}
+                            className="relative overflow-hidden rounded-xl p-3 text-left transition-all duration-200"
                             style={{
-                              backgroundColor: active
+                              backgroundColor: isSelected
                                 ? hasBookingBrandColor
-                                  ? 'var(--booking-brand-primary)'
-                                  : themeVars.accent
+                                  ? 'var(--booking-brand-selection-background, white)'
+                                  : `color-mix(in srgb, ${themeVars.primary} 15%, white)`
                                 : 'white',
-                              color: active
-                                ? bookingBrandForeground ?? 'white'
-                                : '#525252',
-                              borderWidth: active
-                                ? hasBookingBrandColor
-                                  ? '2px'
-                                  : 0
-                                : '1px',
+                              borderWidth: '1px',
                               borderStyle: 'solid',
-                              borderColor: active
+                              borderColor: isSelected
                                 ? hasBookingBrandColor
-                                  ? 'var(--booking-brand-state-border)'
-                                  : 'transparent'
+                                  ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                                  : themeVars.primary
                                 : themeVars.cardBorder,
-                              boxShadow: active ? '0 4px 6px -1px rgb(0 0 0 / 0.1)' : undefined,
+                              boxShadow: isSelected ? '0 4px 12px rgba(0,0,0,0.08)' : '0 2px 8px rgba(0,0,0,0.04)',
                             }}
                           >
-                            <span className="shrink-0">{meta.icon}</span>
-                            <span className="shrink-0 whitespace-nowrap">{meta.label}</span>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0 flex-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="font-semibold text-neutral-900">{location.name}</span>
+                                  {location.isPrimary && (
+                                    <span
+                                      className="rounded-full px-2 py-0.5 text-xs font-medium"
+                                      style={{ backgroundColor: `color-mix(in srgb, ${themeVars.accent} 15%, white)`, color: themeVars.accent }}
+                                    >
+                                      Primary
+                                    </span>
+                                  )}
+                                </div>
+                                {location.address && (
+                                  <div className="mt-0.5 text-sm text-neutral-500">
+                                    {location.address}
+                                    {location.city && `, ${location.city}`}
+                                    {location.state && ` ${location.state}`}
+                                  </div>
+                                )}
+                              </div>
+                              <div
+                                className="flex size-6 shrink-0 items-center justify-center rounded-full transition-all"
+                                style={{
+                                  backgroundColor: isSelected
+                                    ? hasBookingBrandColor
+                                      ? 'var(--booking-brand-primary)'
+                                      : themeVars.primary
+                                    : 'transparent',
+                                  borderWidth: isSelected ? 0 : '2px',
+                                  borderStyle: 'solid',
+                                  borderColor: isSelected ? 'transparent' : '#d4d4d4',
+                                  color: isSelected ? bookingBrandForeground : undefined,
+                                }}
+                              >
+                                {isSelected && (
+                                  <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    className={hasBookingBrandColor ? undefined : 'text-white'}
+                                  >
+                                    <path d="M20 6L9 17l-5-5" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+                                  </svg>
+                                )}
+                              </div>
+                            </div>
                           </button>
                         );
                       })}
@@ -1393,375 +1208,627 @@ export function BookServiceClient({
                   </div>
                 )}
 
-                <div className="space-y-2">
-                  {!isSearching && filteredServices.length === 0 && (
-                    <div
-                      data-testid="service-category-empty"
-                      className="rounded-2xl border border-dashed px-4 py-8 text-center text-sm text-neutral-500"
-                      style={{ borderColor: themeVars.cardBorder }}
-                    >
-                      No
-                      {' '}
-                      {selectedCategory}
-                      {' '}
-                      services available yet.
-                    </div>
-                  )}
-                  {isSearching && filteredServices.length === 0 && (
-                    <div
-                      data-testid="service-search-empty"
-                      className="rounded-2xl border border-dashed px-4 py-8 text-center"
-                      style={{ borderColor: themeVars.cardBorder }}
-                    >
-                      <div className="text-sm font-semibold text-neutral-700">
-                        No services found
+                {selectedService && shouldPreviewAutoSkipTech && soleCompatiblePreviewTechnician && (
+                  <div
+                    data-testid="service-auto-technician-preview"
+                    className="mb-4 flex items-center gap-3 rounded-full border bg-white/90 px-3 py-2 shadow-[0_4px_18px_rgba(0,0,0,0.05)] backdrop-blur-sm"
+                    style={{
+                      borderColor: hasBookingBrandColor
+                        ? 'var(--booking-brand-state-border, var(--theme-card-border))'
+                        : `color-mix(in srgb, ${themeVars.primary} 20%, ${themeVars.cardBorder})`,
+                      opacity: mounted ? 1 : 0,
+                      transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+                      transition: 'opacity 300ms ease-out 130ms, transform 300ms ease-out 130ms',
+                    }}
+                  >
+                    <TechnicianAvatar
+                      name={soleCompatiblePreviewTechnician.name}
+                      imageUrl={soleCompatiblePreviewTechnician.imageUrl}
+                      className="size-10 shrink-0"
+                      sizes="40px"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-500">
+                        Your artist
                       </div>
-                      <div className="mt-1 text-[13px] text-neutral-500">
-                        Try a different name, or clear the search to browse the full menu.
+                      <div className="truncate text-sm font-semibold text-neutral-900">
+                        {soleCompatiblePreviewTechnician.name}
                       </div>
                     </div>
-                  )}
-                  {serviceRows.map((row, rowIndex) => {
-                    const rowContainsSelectedService = row.some(service => service.id === selectedBaseServiceId);
-
-                    return (
-                      <div key={`service-row-${row.map(service => service.id).join('-')}`} className="space-y-2">
-                        <div className="grid grid-cols-2 gap-3">
-                          {row.map((service, serviceIndex) => {
-                            const isSelected = selectedBaseServiceId === service.id;
-                            const previewDescription = service.descriptionItems[0] ?? service.description ?? 'Bookable base service';
-                            const animationIndex = rowIndex * 2 + serviceIndex;
-
-                            return (
-                              <button
-                                key={service.id}
-                                type="button"
-                                disabled={!isHydrated}
-                                onClick={() => handleServiceSelection(service)}
-                                data-testid={`service-card-${service.id}`}
-                                data-selected={isSelected ? 'true' : 'false'}
-                                aria-pressed={isSelected}
-                                className={`relative flex h-full flex-col overflow-hidden rounded-2xl text-left transition-all duration-200 ${
-                                  service.bookingCategory === 'combo' ? 'col-span-full' : ''
-                                }`}
-                                style={{
-                                  transform: mounted ? 'translateY(0)' : 'translateY(15px)',
-                                  opacity: mounted ? 1 : 0,
-                                  background: isSelected
-                                    ? hasBookingBrandColor
-                                      ? 'var(--booking-brand-selection-background, #fdf8f1)'
-                                      : '#fdf8f1'
-                                    : 'white',
-                                  boxShadow: isSelected
-                                    ? '0 10px 22px rgba(0,0,0,0.08)'
-                                    : '0 4px 20px rgba(0,0,0,0.06)',
-                                  borderWidth: '1px',
-                                  borderStyle: 'solid',
-                                  borderColor: isSelected
-                                    ? hasBookingBrandColor
-                                      ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                                      : themeVars.primary
-                                    : themeVars.cardBorder,
-                                  transition: `opacity 300ms ease-out ${200 + animationIndex * 50}ms, transform 300ms ease-out ${200 + animationIndex * 50}ms, box-shadow 200ms ease-out, border-color 200ms ease-out`,
-                                }}
-                              >
-                                {showServiceImages && (
-                                  <div
-                                    data-testid={`service-card-image-${service.id}`}
-                                    className={`relative overflow-hidden ${service.bookingCategory === 'combo' ? 'h-[96px]' : 'h-[68px]'}`}
-                                    style={{
-                                      background: hasBookingBrandColor
-                                        ? `linear-gradient(to bottom right, ${themeVars.background}, ${themeVars.selectedBackground})`
-                                        : `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
-                                    }}
-                                  >
-                                    <ServiceCardImage
-                                      src={service.imageUrl}
-                                      alt={`${service.name} nail service`}
-                                      imageTestId={`service-card-image-element-${service.id}`}
-                                      placeholderTestId={`service-card-image-placeholder-${service.id}`}
-                                      className={`object-cover transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}
-                                    />
-                                    {service.resolvedIntroPriceLabel && (
-                                      <div
-                                        data-testid={`service-card-intro-badge-${service.id}`}
-                                        className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm"
-                                      >
-                                        {service.resolvedIntroPriceLabel}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-
-                                <div
-                                  data-testid={`service-card-content-${service.id}`}
-                                  className={`flex flex-1 flex-col ${service.bookingCategory === 'combo' ? 'p-2.5' : 'min-h-[104px] p-2.5'}`}
-                                >
-                                  {!showServiceImages && service.resolvedIntroPriceLabel && (
-                                    <div
-                                      data-testid={`service-card-intro-badge-${service.id}`}
-                                      className="mb-1 w-fit max-w-full whitespace-normal break-words rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-semibold uppercase leading-tight tracking-[0.08em] text-neutral-800"
-                                    >
-                                      {service.resolvedIntroPriceLabel}
-                                    </div>
-                                  )}
-                                  <div className="break-words text-[14px] font-bold leading-tight text-neutral-900">
-                                    {service.name}
-                                  </div>
-                                  <div className="mt-0.5 line-clamp-2 text-[10px] leading-[1.35] text-neutral-500">
-                                    {previewDescription}
-                                  </div>
-                                  {isSelected && hasVisibleAddOns && (
-                                    <div
-                                      data-testid={`service-card-addon-cue-${service.id}`}
-                                      className="mt-1 inline-flex items-center text-[8px] font-medium tracking-[0.01em]"
-                                      style={{
-                                        color: hasBookingBrandColor
-                                          ? '#525252'
-                                          : `color-mix(in srgb, ${themeVars.primaryDark} 62%, #9b7a35)`,
-                                      }}
-                                    >
-                                      Add-ons available
-                                    </div>
-                                  )}
-                                  <div
-                                    data-testid={`service-card-meta-row-${service.id}`}
-                                    className="mt-auto flex items-end justify-between gap-3 pt-2.5"
-                                  >
-                                    <span className="text-[11px] leading-none text-neutral-500">
-                                      {formatDuration(service.durationMinutes)}
-                                    </span>
-                                    <span
-                                      data-testid={`service-card-price-${service.id}`}
-                                      className="shrink-0 text-right text-lg font-bold leading-none"
-                                      style={{ color: themeVars.accent }}
-                                    >
-                                      {service.priceDisplayText || formatMoney(service.priceCents, currency)}
-                                    </span>
-                                  </div>
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        {rowContainsSelectedService && hasVisibleAddOns && selectedService && (
-                          <div
-                            data-testid="service-inline-addons-panel"
-                            className="w-full rounded-[24px] bg-white px-3.5 py-3 shadow-[0_8px_22px_rgba(0,0,0,0.04)] sm:px-4 sm:py-3.5"
-                            style={{
-                              borderWidth: '1px',
-                              borderStyle: 'solid',
-                              borderColor: themeVars.cardBorder,
-                            }}
-                          >
-                            <div className="mb-2">
-                              <div className="text-[15px] font-semibold text-neutral-900">
-                                Customize your service
-                              </div>
-                              <div className="mt-0.5 text-[11px] leading-4 text-neutral-500">
-                                Optional add-ons for
+                    <div className="shrink-0 text-right text-[11px] text-neutral-500">
+                      {soleCompatiblePreviewRating?.kind === 'rated'
+                        ? (
+                            <>
+                              <div className="font-semibold text-neutral-800">
+                                {soleCompatiblePreviewRating.ratingText}
                                 {' '}
-                                {selectedService.name}
+                                ★
                               </div>
-                            </div>
+                              <div>
+                                {soleCompatiblePreviewRating.reviewCountText}
+                                {' '}
+                                reviews
+                              </div>
+                            </>
+                          )
+                        : 'New artist'}
+                    </div>
+                  </div>
+                )}
 
-                            <div className="space-y-1.5">
-                              {allowedAddOns.map((item) => {
-                                if (!item) {
-                                  return null;
-                                }
-
-                                const { addOn, rule, quantity } = item;
-                                const isSelected = quantity > 0;
-                                const isRequired = rule.selectionMode === 'required';
-                                const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
-                                const lineTotalCents = addOn.priceCents * Math.max(quantity, 1);
-                                const lineDurationMinutes = addOn.durationMinutes * Math.max(quantity, 1);
-
-                                return (
-                                  <div
-                                    key={addOn.id}
-                                    data-testid={`service-addon-row-${addOn.id}`}
-                                    className="rounded-[18px] border px-3 py-2 sm:px-3.5 sm:py-2.5"
-                                    style={{
-                                      borderColor: isSelected
-                                        ? hasBookingBrandColor
-                                          ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                                          : themeVars.primary
-                                        : themeVars.cardBorder,
-                                      backgroundColor: isSelected
-                                        ? hasBookingBrandColor
-                                          ? 'var(--booking-brand-selection-background, white)'
-                                          : `color-mix(in srgb, ${themeVars.primary} 5%, white)`
-                                        : 'white',
-                                    }}
-                                  >
-                                    <div className="flex items-center justify-between gap-2.5">
-                                      <div className="min-w-0 flex-1">
-                                        <div className="flex items-center gap-2">
-                                          <div className="text-sm font-semibold text-neutral-900">{addOn.name}</div>
-                                          {isRequired && (
-                                            <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
-                                              Required
-                                            </span>
-                                          )}
-                                        </div>
-                                        {addOn.descriptionItems[0] && (
-                                          <div className="mt-0.5 text-[12px] leading-4 text-neutral-500">
-                                            {addOn.descriptionItems[0]}
+                {services.length === 0
+                  ? (
+                      <StateCard
+                        className="shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+                        contentClassName="py-8"
+                        icon="🗓️"
+                        title="Online booking is not ready yet"
+                        description={(
+                          <>
+                            This salon does not have any active services available to book right now.
+                            {' '}
+                            Please contact the salon directly to make an appointment.
+                          </>
+                        )}
+                      />
+                    )
+                  : (
+                      <>
+                        {/* Featured is hidden while searching so matches sit directly under
+                    the search bar instead of below the carousel (mobile keyboard). */}
+                        {!isSearching && featuredServices.length > 0 && (
+                          <div
+                            className="scrollbar-hide -mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
+                            style={{
+                              opacity: mounted ? 1 : 0,
+                              transition: 'opacity 300ms ease-out 150ms',
+                            }}
+                            data-testid="featured-services-scroll"
+                          >
+                            <div className="mb-2.5">
+                              <div className="mb-1 px-4 sm:px-0">
+                                <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
+                                  Featured services
+                                </div>
+                                <div className="mt-0.5 text-[13px] font-semibold text-neutral-900">
+                                  Popular premium sets and combo appointments
+                                </div>
+                              </div>
+                              <div
+                                className="scrollbar-hide -mx-4 overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:px-0"
+                                role="region"
+                                aria-label="Featured services"
+                              >
+                                <div className="flex min-w-max gap-2">
+                                  {featuredServices.map((service, featuredIndex) => {
+                                    const isSelected = selectedBaseServiceId === service.id;
+                                    const featuredBadgeLabel = featuredIndex === 0 && service.bookingCategory === 'combo'
+                                      ? 'Best value'
+                                      : BOOKING_CATEGORY_META[service.bookingCategory].label;
+                                    return (
+                                      <button
+                                        key={`featured-${service.id}`}
+                                        type="button"
+                                        disabled={!isHydrated}
+                                        onClick={() => handleServiceSelection(service)}
+                                        data-testid={`featured-service-card-${service.id}`}
+                                        aria-pressed={isSelected}
+                                        aria-label={`${service.name}, ${formatDuration(service.durationMinutes)}, ${service.priceDisplayText || formatMoney(service.priceCents, currency)}`}
+                                        className={`relative w-[min(272px,calc(100vw-4rem))] shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
+                                          service.bookingCategory === 'combo' ? 'sm:w-[320px]' : 'sm:w-[280px]'
+                                        }`}
+                                        style={{
+                                          background: isSelected
+                                            ? hasBookingBrandColor
+                                              ? 'var(--booking-brand-selection-background, white)'
+                                              : `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 24%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 12%, transparent))`
+                                            : 'white',
+                                          boxShadow: isSelected
+                                            ? '0 14px 28px rgba(0,0,0,0.14)'
+                                            : '0 4px 20px rgba(0,0,0,0.06)',
+                                          borderWidth: '1px',
+                                          borderStyle: 'solid',
+                                          borderColor: isSelected
+                                            ? hasBookingBrandColor
+                                              ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                                              : themeVars.primary
+                                            : themeVars.cardBorder,
+                                        }}
+                                      >
+                                        {showServiceImages && (
+                                          <div
+                                            data-testid={`featured-service-card-image-container-${service.id}`}
+                                            className="relative h-[80px] overflow-hidden sm:h-[96px]"
+                                          >
+                                            <ServiceCardImage
+                                              src={service.imageUrl}
+                                              alt={`${service.name} nail service`}
+                                              imageTestId={`featured-service-card-image-${service.id}`}
+                                              className="object-cover transition-transform duration-300"
+                                            />
+                                            <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/45 to-transparent sm:h-20" />
+                                            <div
+                                              data-testid={`featured-service-card-badge-${service.id}`}
+                                              className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm"
+                                            >
+                                              {/* "Best value" only on the lead card — a badge on every card means nothing */}
+                                              {featuredBadgeLabel}
+                                            </div>
                                           </div>
                                         )}
-                                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
-                                          <span>{addOn.priceDisplayText || formatMoney(addOn.priceCents, currency)}</span>
-                                          <span>{formatDuration(addOn.durationMinutes)}</span>
-                                          {isSelected && (
-                                            <span>
-                                              Selected:
-                                              {' '}
-                                              {formatMoney(lineTotalCents, currency)}
-                                              {' '}
-                                              ·
-                                              {' '}
-                                              {formatDuration(lineDurationMinutes)}
-                                            </span>
-                                          )}
-                                        </div>
-                                      </div>
-
-                                      {addOn.pricingType === 'per_unit'
-                                        ? (
-                                            <div className="flex items-center gap-1">
-                                              <button
-                                                type="button"
-                                                onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, quantity - 1) : Math.max(0, quantity - 1))}
-                                                disabled={isRequired ? quantity <= 1 : quantity <= 0}
-                                                className="flex size-7 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
-                                              >
-                                                -
-                                              </button>
-                                              <div className="min-w-6 text-center text-sm font-semibold text-neutral-900">
-                                                {quantity}
-                                              </div>
-                                              <button
-                                                type="button"
-                                                onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, Math.max(quantity, 0) + 1))}
-                                                disabled={quantity >= maxQuantity}
-                                                className="flex size-7 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
-                                              >
-                                                +
-                                              </button>
-                                            </div>
-                                          )
-                                        : (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleAddOnToggle(addOn.id)}
-                                              disabled={isRequired}
-                                              className="rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed"
-                                              style={{
-                                                backgroundColor: isSelected || isRequired
-                                                  ? hasBookingBrandColor
-                                                    ? 'var(--booking-brand-primary)'
-                                                    : themeVars.primary
-                                                  : '#f5f5f5',
-                                                color: isSelected || isRequired
-                                                  ? bookingBrandForeground ?? '#171717'
-                                                  : '#404040',
-                                              }}
+                                        <div className="p-2">
+                                          {!showServiceImages && (
+                                            <div
+                                              data-testid={`featured-service-card-badge-${service.id}`}
+                                              className="mb-1 w-fit max-w-full whitespace-normal break-words rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-semibold uppercase leading-tight tracking-[0.08em] text-neutral-800"
                                             >
-                                              {isRequired ? 'Included' : isSelected ? 'Added' : 'Add'}
-                                            </button>
+                                              {featuredBadgeLabel}
+                                            </div>
                                           )}
-                                    </div>
-                                  </div>
+                                          <div className="line-clamp-2 break-words text-[13px] font-bold leading-tight text-neutral-900 sm:text-[14px]">
+                                            {service.name}
+                                          </div>
+                                          <div className="mt-0.5 line-clamp-1 text-[10px] leading-[1.35] text-neutral-500 sm:line-clamp-2">
+                                            {service.descriptionItems[0] ?? service.description ?? 'Bookable base service'}
+                                          </div>
+                                          <div className="mt-0.5 flex items-center justify-between gap-3 sm:mt-1">
+                                            <span className="text-[12px] text-neutral-500">
+                                              {formatDuration(service.durationMinutes)}
+                                            </span>
+                                            <span className="text-[15px] font-bold" style={{ color: themeVars.accent }}>
+                                              {service.priceDisplayText || formatMoney(service.priceCents, currency)}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Category chips are useless during a search (results already span
+                    every category), so they collapse too — only results remain. */}
+                        {!isSearching && (
+                          <div
+                            className="scrollbar-hide -mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 md:mx-0 md:w-full md:overflow-visible md:px-0"
+                            style={{
+                              opacity: mounted ? 1 : 0,
+                              transition: 'opacity 300ms ease-out 150ms',
+                            }}
+                            data-testid="service-category-scroll"
+                          >
+                            <div
+                              className="flex min-w-max flex-nowrap gap-1.5 md:min-w-0 md:flex-wrap md:justify-center md:gap-2"
+                              data-testid="service-category-track"
+                            >
+                              {BOOKING_CATEGORIES.map((category) => {
+                                const active = category === selectedCategory;
+                                const meta = BOOKING_CATEGORY_META[category];
+                                return (
+                                  <button
+                                    key={category}
+                                    type="button"
+                                    disabled={!isHydrated}
+                                    aria-pressed={active}
+                                    onClick={() => {
+                                      if (category !== selectedCategory) {
+                                        setSelectedCategory(category);
+                                        triggerHaptic('select');
+                                      }
+                                    }}
+                                    className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 md:gap-2 md:px-5 ${
+                                      active && hasBookingBrandColor
+                                        ? 'bg-[var(--booking-brand-primary)] text-[var(--booking-brand-foreground)]'
+                                        : ''
+                                    }`}
+                                    style={{
+                                      backgroundColor: active
+                                        ? hasBookingBrandColor
+                                          ? 'var(--booking-brand-primary)'
+                                          : themeVars.accent
+                                        : 'white',
+                                      color: active
+                                        ? bookingBrandForeground ?? 'white'
+                                        : '#525252',
+                                      borderWidth: active
+                                        ? hasBookingBrandColor
+                                          ? '2px'
+                                          : 0
+                                        : '1px',
+                                      borderStyle: 'solid',
+                                      borderColor: active
+                                        ? hasBookingBrandColor
+                                          ? 'var(--booking-brand-state-border)'
+                                          : 'transparent'
+                                        : themeVars.cardBorder,
+                                      boxShadow: active ? '0 4px 6px -1px rgb(0 0 0 / 0.1)' : undefined,
+                                    }}
+                                  >
+                                    <span className="shrink-0">{meta.icon}</span>
+                                    <span className="shrink-0 whitespace-nowrap">{meta.label}</span>
+                                  </button>
                                 );
                               })}
                             </div>
                           </div>
                         )}
+
+                        <div className="space-y-2">
+                          {!isSearching && filteredServices.length === 0 && (
+                            <div
+                              data-testid="service-category-empty"
+                              className="rounded-2xl border border-dashed px-4 py-8 text-center text-sm text-neutral-500"
+                              style={{ borderColor: themeVars.cardBorder }}
+                            >
+                              No
+                              {' '}
+                              {selectedCategory}
+                              {' '}
+                              services available yet.
+                            </div>
+                          )}
+                          {isSearching && filteredServices.length === 0 && (
+                            <div
+                              data-testid="service-search-empty"
+                              className="rounded-2xl border border-dashed px-4 py-8 text-center"
+                              style={{ borderColor: themeVars.cardBorder }}
+                            >
+                              <div className="text-sm font-semibold text-neutral-700">
+                                No services found
+                              </div>
+                              <div className="mt-1 text-[13px] text-neutral-500">
+                                Try a different name, or clear the search to browse the full menu.
+                              </div>
+                            </div>
+                          )}
+                          {serviceRows.map((row, rowIndex) => {
+                            const rowContainsSelectedService = row.some(service => service.id === selectedBaseServiceId);
+
+                            return (
+                              <div key={`service-row-${row.map(service => service.id).join('-')}`} className="space-y-2">
+                                <div className="grid grid-cols-2 gap-3">
+                                  {row.map((service, serviceIndex) => {
+                                    const isSelected = selectedBaseServiceId === service.id;
+                                    const previewDescription = service.descriptionItems[0] ?? service.description ?? 'Bookable base service';
+                                    const animationIndex = rowIndex * 2 + serviceIndex;
+
+                                    return (
+                                      <button
+                                        key={service.id}
+                                        type="button"
+                                        disabled={!isHydrated}
+                                        onClick={() => handleServiceSelection(service)}
+                                        data-testid={`service-card-${service.id}`}
+                                        data-selected={isSelected ? 'true' : 'false'}
+                                        aria-pressed={isSelected}
+                                        className={`relative flex h-full flex-col overflow-hidden rounded-2xl text-left transition-all duration-200 ${
+                                          service.bookingCategory === 'combo' ? 'col-span-full' : ''
+                                        }`}
+                                        style={{
+                                          transform: mounted ? 'translateY(0)' : 'translateY(15px)',
+                                          opacity: mounted ? 1 : 0,
+                                          background: isSelected
+                                            ? hasBookingBrandColor
+                                              ? 'var(--booking-brand-selection-background, #fdf8f1)'
+                                              : '#fdf8f1'
+                                            : 'white',
+                                          boxShadow: isSelected
+                                            ? '0 10px 22px rgba(0,0,0,0.08)'
+                                            : '0 4px 20px rgba(0,0,0,0.06)',
+                                          borderWidth: '1px',
+                                          borderStyle: 'solid',
+                                          borderColor: isSelected
+                                            ? hasBookingBrandColor
+                                              ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                                              : themeVars.primary
+                                            : themeVars.cardBorder,
+                                          transition: `opacity 300ms ease-out ${200 + animationIndex * 50}ms, transform 300ms ease-out ${200 + animationIndex * 50}ms, box-shadow 200ms ease-out, border-color 200ms ease-out`,
+                                        }}
+                                      >
+                                        {showServiceImages && (
+                                          <div
+                                            data-testid={`service-card-image-${service.id}`}
+                                            className={`relative overflow-hidden ${service.bookingCategory === 'combo' ? 'h-[96px]' : 'h-[68px]'}`}
+                                            style={{
+                                              background: hasBookingBrandColor
+                                                ? `linear-gradient(to bottom right, ${themeVars.background}, ${themeVars.selectedBackground})`
+                                                : `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.background} 80%, ${themeVars.primaryDark}), color-mix(in srgb, ${themeVars.selectedBackground} 90%, ${themeVars.primaryDark}))`,
+                                            }}
+                                          >
+                                            <ServiceCardImage
+                                              src={service.imageUrl}
+                                              alt={`${service.name} nail service`}
+                                              imageTestId={`service-card-image-element-${service.id}`}
+                                              placeholderTestId={`service-card-image-placeholder-${service.id}`}
+                                              className={`object-cover transition-transform duration-300 ${isSelected ? 'scale-105' : ''}`}
+                                            />
+                                            {service.resolvedIntroPriceLabel && (
+                                              <div
+                                                data-testid={`service-card-intro-badge-${service.id}`}
+                                                className="absolute left-2 top-2 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm"
+                                              >
+                                                {service.resolvedIntroPriceLabel}
+                                              </div>
+                                            )}
+                                          </div>
+                                        )}
+
+                                        <div
+                                          data-testid={`service-card-content-${service.id}`}
+                                          className={`flex flex-1 flex-col ${service.bookingCategory === 'combo' ? 'p-2.5' : 'min-h-[104px] p-2.5'}`}
+                                        >
+                                          {!showServiceImages && service.resolvedIntroPriceLabel && (
+                                            <div
+                                              data-testid={`service-card-intro-badge-${service.id}`}
+                                              className="mb-1 w-fit max-w-full whitespace-normal break-words rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-semibold uppercase leading-tight tracking-[0.08em] text-neutral-800"
+                                            >
+                                              {service.resolvedIntroPriceLabel}
+                                            </div>
+                                          )}
+                                          <div className="break-words text-[14px] font-bold leading-tight text-neutral-900">
+                                            {service.name}
+                                          </div>
+                                          <div className="mt-0.5 line-clamp-2 text-[10px] leading-[1.35] text-neutral-500">
+                                            {previewDescription}
+                                          </div>
+                                          {isSelected && hasVisibleAddOns && (
+                                            <div
+                                              data-testid={`service-card-addon-cue-${service.id}`}
+                                              className="mt-1 inline-flex items-center text-[8px] font-medium tracking-[0.01em]"
+                                              style={{
+                                                color: hasBookingBrandColor
+                                                  ? '#525252'
+                                                  : `color-mix(in srgb, ${themeVars.primaryDark} 62%, #9b7a35)`,
+                                              }}
+                                            >
+                                              Add-ons available
+                                            </div>
+                                          )}
+                                          <div
+                                            data-testid={`service-card-meta-row-${service.id}`}
+                                            className="mt-auto flex items-end justify-between gap-3 pt-2.5"
+                                          >
+                                            <span className="text-[11px] leading-none text-neutral-500">
+                                              {formatDuration(service.durationMinutes)}
+                                            </span>
+                                            <span
+                                              data-testid={`service-card-price-${service.id}`}
+                                              className="shrink-0 text-right text-lg font-bold leading-none"
+                                              style={{ color: themeVars.accent }}
+                                            >
+                                              {service.priceDisplayText || formatMoney(service.priceCents, currency)}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+
+                                {rowContainsSelectedService && hasVisibleAddOns && selectedService && (
+                                  <div
+                                    data-testid="service-inline-addons-panel"
+                                    className="w-full rounded-[24px] bg-white px-3.5 py-3 shadow-[0_8px_22px_rgba(0,0,0,0.04)] sm:px-4 sm:py-3.5"
+                                    style={{
+                                      borderWidth: '1px',
+                                      borderStyle: 'solid',
+                                      borderColor: themeVars.cardBorder,
+                                    }}
+                                  >
+                                    <div className="mb-2">
+                                      <div className="text-[15px] font-semibold text-neutral-900">
+                                        Customize your service
+                                      </div>
+                                      <div className="mt-0.5 text-[11px] leading-4 text-neutral-500">
+                                        Optional add-ons for
+                                        {' '}
+                                        {selectedService.name}
+                                      </div>
+                                    </div>
+
+                                    <div className="space-y-1.5">
+                                      {allowedAddOns.map((item) => {
+                                        if (!item) {
+                                          return null;
+                                        }
+
+                                        const { addOn, rule, quantity } = item;
+                                        const isSelected = quantity > 0;
+                                        const isRequired = rule.selectionMode === 'required';
+                                        const maxQuantity = rule.maxQuantityOverride ?? addOn.maxQuantity ?? 10;
+                                        const lineTotalCents = addOn.priceCents * Math.max(quantity, 1);
+                                        const lineDurationMinutes = addOn.durationMinutes * Math.max(quantity, 1);
+
+                                        return (
+                                          <div
+                                            key={addOn.id}
+                                            data-testid={`service-addon-row-${addOn.id}`}
+                                            className="rounded-[18px] border px-3 py-2 sm:px-3.5 sm:py-2.5"
+                                            style={{
+                                              borderColor: isSelected
+                                                ? hasBookingBrandColor
+                                                  ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                                                  : themeVars.primary
+                                                : themeVars.cardBorder,
+                                              backgroundColor: isSelected
+                                                ? hasBookingBrandColor
+                                                  ? 'var(--booking-brand-selection-background, white)'
+                                                  : `color-mix(in srgb, ${themeVars.primary} 5%, white)`
+                                                : 'white',
+                                            }}
+                                          >
+                                            <div className="flex items-center justify-between gap-2.5">
+                                              <div className="min-w-0 flex-1">
+                                                <div className="flex items-center gap-2">
+                                                  <div className="text-sm font-semibold text-neutral-900">{addOn.name}</div>
+                                                  {isRequired && (
+                                                    <span className="rounded-full bg-neutral-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-white">
+                                                      Required
+                                                    </span>
+                                                  )}
+                                                </div>
+                                                {addOn.descriptionItems[0] && (
+                                                  <div className="mt-0.5 text-[12px] leading-4 text-neutral-500">
+                                                    {addOn.descriptionItems[0]}
+                                                  </div>
+                                                )}
+                                                <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-neutral-500">
+                                                  <span>{addOn.priceDisplayText || formatMoney(addOn.priceCents, currency)}</span>
+                                                  <span>{formatDuration(addOn.durationMinutes)}</span>
+                                                  {isSelected && (
+                                                    <span>
+                                                      Selected:
+                                                      {' '}
+                                                      {formatMoney(lineTotalCents, currency)}
+                                                      {' '}
+                                                      ·
+                                                      {' '}
+                                                      {formatDuration(lineDurationMinutes)}
+                                                    </span>
+                                                  )}
+                                                </div>
+                                              </div>
+
+                                              {addOn.pricingType === 'per_unit'
+                                                ? (
+                                                    <div className="flex items-center gap-1">
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, quantity - 1) : Math.max(0, quantity - 1))}
+                                                        disabled={isRequired ? quantity <= 1 : quantity <= 0}
+                                                        className="flex size-7 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                                      >
+                                                        -
+                                                      </button>
+                                                      <div className="min-w-6 text-center text-sm font-semibold text-neutral-900">
+                                                        {quantity}
+                                                      </div>
+                                                      <button
+                                                        type="button"
+                                                        onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, Math.max(quantity, 0) + 1))}
+                                                        disabled={quantity >= maxQuantity}
+                                                        className="flex size-7 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                                      >
+                                                        +
+                                                      </button>
+                                                    </div>
+                                                  )
+                                                : (
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => handleAddOnToggle(addOn.id)}
+                                                      disabled={isRequired}
+                                                      className="rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed"
+                                                      style={{
+                                                        backgroundColor: isSelected || isRequired
+                                                          ? hasBookingBrandColor
+                                                            ? 'var(--booking-brand-primary)'
+                                                            : themeVars.primary
+                                                          : '#f5f5f5',
+                                                        color: isSelected || isRequired
+                                                          ? bookingBrandForeground ?? '#171717'
+                                                          : '#404040',
+                                                      }}
+                                                    >
+                                                      {isRequired ? 'Included' : isSelected ? 'Added' : 'Add'}
+                                                    </button>
+                                                  )}
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+
+                {servicePagePolicyText && (
+                  <section
+                    data-testid="booking-policy"
+                    aria-labelledby={bookingExperience.policy.title ? 'booking-policy-title' : undefined}
+                    aria-label={bookingExperience.policy.title ? undefined : 'Booking policy'}
+                    className="mt-5 rounded-xl border px-3.5 py-3"
+                    style={{
+                      borderColor: hasBookingBrandColor
+                        ? 'color-mix(in srgb, var(--booking-brand-state-border, var(--theme-primary)) 34%, transparent)'
+                        : `color-mix(in srgb, ${themeVars.accent} 20%, ${themeVars.cardBorder})`,
+                      backgroundColor: hasBookingBrandColor
+                        ? 'color-mix(in srgb, var(--booking-brand-primary) 6%, white)'
+                        : `color-mix(in srgb, white 92%, ${themeVars.accent})`,
+                    }}
+                  >
+                    <div className="flex items-start gap-2.5">
+                      <ShieldCheck
+                        aria-hidden="true"
+                        className="mt-0.5 size-4 shrink-0"
+                        style={{
+                          color: hasBookingBrandColor
+                            ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                            : themeVars.primaryDark,
+                        }}
+                      />
+                      <div className="min-w-0">
+                        {bookingExperience.policy.title && (
+                          <h2 id="booking-policy-title" className="mb-1 min-w-0 break-words text-sm font-semibold text-neutral-900">
+                            {bookingExperience.policy.title}
+                          </h2>
+                        )}
+                        <p className="whitespace-pre-line break-words text-sm leading-5 text-neutral-700">
+                          {servicePagePolicyText}
+                        </p>
                       </div>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-
-        {servicePagePolicyText && (
-          <section
-            data-testid="booking-policy"
-            aria-labelledby={bookingExperience.policy.title ? 'booking-policy-title' : undefined}
-            aria-label={bookingExperience.policy.title ? undefined : 'Booking policy'}
-            className="mt-5 rounded-xl border px-3.5 py-3"
-            style={{
-              borderColor: hasBookingBrandColor
-                ? 'color-mix(in srgb, var(--booking-brand-state-border, var(--theme-primary)) 34%, transparent)'
-                : `color-mix(in srgb, ${themeVars.accent} 20%, ${themeVars.cardBorder})`,
-              backgroundColor: hasBookingBrandColor
-                ? 'color-mix(in srgb, var(--booking-brand-primary) 6%, white)'
-                : `color-mix(in srgb, white 92%, ${themeVars.accent})`,
-            }}
-          >
-            <div className="flex items-start gap-2.5">
-              <ShieldCheck
-                aria-hidden="true"
-                className="mt-0.5 size-4 shrink-0"
-                style={{
-                  color: hasBookingBrandColor
-                    ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                    : themeVars.primaryDark,
-                }}
-              />
-              <div className="min-w-0">
-                {bookingExperience.policy.title && (
-                  <h2 id="booking-policy-title" className="mb-1 min-w-0 break-words text-sm font-semibold text-neutral-900">
-                    {bookingExperience.policy.title}
-                  </h2>
+                    </div>
+                  </section>
                 )}
-                <p className="whitespace-pre-line break-words text-sm leading-5 text-neutral-700">
-                  {servicePagePolicyText}
-                </p>
-              </div>
-            </div>
-          </section>
-        )}
 
-        {configuredSocialLinks.length > 0 && (
-          <nav
-            data-testid="booking-social-links"
-            aria-label="Salon social links"
-            className="mt-4 flex items-center justify-center gap-3"
-          >
-            {configuredSocialLinks.map(({ key, label, Icon, href }) => (
-              <a
-                key={key}
-                href={href}
-                target="_blank"
-                rel="noopener noreferrer"
-                aria-label={`Visit ${salonName} on ${label}`}
-                className="flex size-11 items-center justify-center rounded-full border bg-white text-neutral-800 shadow-sm transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-                style={{
-                  'borderColor': hasBookingBrandColor
-                    ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                    : themeVars.cardBorder,
-                  '--tw-ring-color': hasBookingBrandColor
-                    ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                    : themeVars.selectedRing,
-                } as CSSProperties}
-              >
-                <Icon className="size-5" aria-hidden="true" />
-              </a>
-            ))}
-          </nav>
-        )}
+                {configuredSocialLinks.length > 0 && (
+                  <nav
+                    data-testid="booking-social-links"
+                    aria-label="Salon social links"
+                    className="mt-4 flex items-center justify-center gap-3"
+                  >
+                    {configuredSocialLinks.map(({ key, label, Icon, href }) => (
+                      <a
+                        key={key}
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        aria-label={`Visit ${salonName} on ${label}`}
+                        className="flex size-11 items-center justify-center rounded-full border bg-white text-neutral-800 shadow-sm transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                        style={{
+                          'borderColor': hasBookingBrandColor
+                            ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                            : themeVars.cardBorder,
+                          '--tw-ring-color': hasBookingBrandColor
+                            ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                            : themeVars.selectedRing,
+                        } as CSSProperties}
+                      >
+                        <Icon className="size-5" aria-hidden="true" />
+                      </a>
+                    ))}
+                  </nav>
+                )}
 
-        {selectedService && (
-          <div
-            data-testid="service-sticky-spacer"
-            aria-hidden="true"
-            style={{ height: STICKY_FOOTER_CLEARANCE }}
-          />
-        )}
+                {selectedService && (
+                  <div
+                    data-testid="service-sticky-spacer"
+                    aria-hidden="true"
+                    style={{ height: STICKY_FOOTER_CLEARANCE }}
+                  />
+                )}
+              </>
+            ),
+          }}
+        />
       </div>
 
       {selectedService && (

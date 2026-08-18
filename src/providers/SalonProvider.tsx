@@ -10,6 +10,7 @@ import {
 import { BOOKING_EXPERIENCE_DEFAULTS } from '@/libs/bookingExperience';
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import type { OwnerPreviewActorType } from '@/libs/ownerPreview';
+import { EMPTY_SALON_CONTENT, type SalonContent } from '@/libs/salonContent';
 import type { SalonStatus } from '@/models/Schema';
 import type { BookingExperience } from '@/types/salonPolicy';
 
@@ -59,6 +60,11 @@ const EMPTY_SALON = {
   // implies "previewing".
   bookingPage: CLIENT_SAFE_BOOKING_PAGE_SIDE_DEFAULTS,
   ownerPreview: EMPTY_OWNER_PREVIEW,
+  // Server-resolved SalonContent (Luster UI/UX plan rev 3, section 4A.A /
+  // PR 4). An un-provisioned context gets the safe, always-renderable empty
+  // value rather than undefined, so a consumer reading `useSalon().salonContent`
+  // before a given route threads the real value never crashes.
+  salonContent: EMPTY_SALON_CONTENT,
 };
 
 /**
@@ -89,6 +95,14 @@ export type SalonContextValue = {
   bookingPage: BookingPageConfigSide;
   /** Owner-preview state for this request, resolved by the same gate. */
   ownerPreview: SalonOwnerPreviewState;
+  /**
+   * Server-resolved SalonContent (Luster UI/UX plan rev 3, section 4A.A) —
+   * identity/people/catalog/place/policies/social/proof, resolved once per
+   * page render and threaded down rather than refetched per section. Falls
+   * back to `EMPTY_SALON_CONTENT` (always safe to render, never crashes a
+   * consumer) on routes that have not wired a real value through yet.
+   */
+  salonContent: SalonContent;
   /** Whether the salon is accessible (true for active/trial, false for suspended/cancelled) */
   isAccessible: boolean;
 };
@@ -102,6 +116,7 @@ const SalonContext = createContext<SalonContextValue>({
   bookingExperience: EMPTY_SALON.bookingExperience,
   bookingPage: EMPTY_SALON.bookingPage,
   ownerPreview: EMPTY_SALON.ownerPreview,
+  salonContent: EMPTY_SALON.salonContent,
   isAccessible: false,
 });
 
@@ -123,6 +138,8 @@ export type SalonProviderProps = {
   bookingPage?: BookingPageConfigSide;
   /** Owner-preview state, already gated server-side */
   ownerPreview?: SalonOwnerPreviewState;
+  /** Server-resolved SalonContent, already resolved once for this request */
+  salonContent?: SalonContent;
 };
 
 /**
@@ -159,6 +176,7 @@ export function SalonProvider({
   bookingExperience,
   bookingPage,
   ownerPreview,
+  salonContent,
 }: SalonProviderProps) {
   const value = useMemo<SalonContextValue>(() => {
     const currentStatus = status ?? EMPTY_SALON.status;
@@ -174,9 +192,10 @@ export function SalonProvider({
       bookingExperience: bookingExperience ?? EMPTY_SALON.bookingExperience,
       bookingPage: bookingPage ?? EMPTY_SALON.bookingPage,
       ownerPreview: ownerPreview ?? EMPTY_SALON.ownerPreview,
+      salonContent: salonContent ?? EMPTY_SALON.salonContent,
       isAccessible,
     };
-  }, [bookingExperience, bookingPage, ownerPreview, salonId, salonName, salonSlug, themeKey, status]);
+  }, [bookingExperience, bookingPage, ownerPreview, salonContent, salonId, salonName, salonSlug, themeKey, status]);
 
   return (
     <SalonContext.Provider value={value}>{children}</SalonContext.Provider>
