@@ -26,8 +26,8 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0072_l1_catalog_foundation';
-const MIGRATION_COUNT = 73;
+const FINAL_MIGRATION = '0073_l1_catalog_rules_foundation';
+const MIGRATION_COUNT = 74;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -397,6 +397,19 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'technician_services', 'technician_services_technician_id_technician_id_fk', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'NO ACTION'],
   ['public', 'technician_time_off', 'technician_time_off_technician_id_fkey', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'time_off_request', 'time_off_request_technician_id_fkey', ['technician_id'], 'public', 'technician', ['id'], 'NO ACTION', 'CASCADE'],
+  // Luster L1 PR2 / migration 0073 — catalog grouping, capabilities and rules.
+  // The composite edges carry `salon_id` on both sides and are NO ACTION on
+  // delete: SET NULL would null `salon_id` too, and RESTRICT would abort the
+  // salon purge these fixtures rely on.
+  ['public', 'add_on_group', 'add_on_group_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'capability', 'capability_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'technician_capability', 'technician_capability_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'catalog_rule', 'catalog_rule_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'technician_capability', 'technician_capability_technician_salon_fk', ['salon_id', 'technician_id'], 'public', 'technician', ['salon_id', 'id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'catalog_rule', 'catalog_rule_service_salon_fk', ['salon_id', 'service_id'], 'public', 'service', ['salon_id', 'id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'catalog_rule', 'catalog_rule_subject_service_salon_fk', ['salon_id', 'subject_service_id'], 'public', 'service', ['salon_id', 'id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'catalog_rule', 'catalog_rule_subject_add_on_salon_fk', ['salon_id', 'subject_add_on_id'], 'public', 'add_on', ['salon_id', 'id'], 'NO ACTION', 'NO ACTION'],
+  ['public', 'catalog_rule', 'catalog_rule_object_add_on_salon_fk', ['salon_id', 'object_add_on_id'], 'public', 'add_on', ['salon_id', 'id'], 'NO ACTION', 'NO ACTION'],
 ] as const satisfies readonly IncomingForeignKeyIdentity[];
 const FIXTURE_TARGET_ROWS: Record<string, readonly Row[]> = { salon: FIXTURE.salons, salon_location: FIXTURE.locations, service: FIXTURE.services, add_on: FIXTURE.addOns, technician: FIXTURE.technicians, admin_user: [FIXTURE.admin], service_add_on: FIXTURE.rules, technician_services: FIXTURE.assignments, admin_salon_membership: FIXTURE.memberships };
 function uniqueRelations(relations: ReadonlyArray<readonly [string, string]>): Array<readonly [string, string]> {
