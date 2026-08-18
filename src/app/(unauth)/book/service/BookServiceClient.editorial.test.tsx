@@ -389,6 +389,123 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
     expect(screen.getByTestId('editorial-visit-entrance')).toHaveTextContent('Buzz 4B, 2nd floor');
   });
 
+  // Post-launch fix regression coverage: the Visit section's guard used to
+  // be a three-way AND (`!hasAddress && !hours && !entranceInstructions`)
+  // even though the section body never rendered `hours` anywhere — a salon
+  // with hours set but no address published `<h2>Visit</h2>` with nothing
+  // beneath it. These six cases are the full matrix the repair's contract
+  // calls for: hours+address, hours only, address only, neither, city_only,
+  // full_address. None may ever leave an `<h2>Visit</h2>` frame with no
+  // address/entrance paragraph under it.
+  describe('Visit section (hoursLocation) — no empty frame across the hours/address matrix', () => {
+    it('hours + address: renders the address paragraph', () => {
+      salonContextMock.salonContent = buildContent({
+        place: {
+          locations: [],
+          address: { address: '123 Queen St W', city: 'Toronto', state: 'ON', zipCode: 'M5V 1A1' },
+          hours: { monday: { open: '10:00', close: '18:00' } },
+          entranceInstructions: null,
+        },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.getByTestId('editorial-visit')).toBeInTheDocument();
+      expect(screen.getByTestId('editorial-visit-address')).toHaveTextContent('123 Queen St W · Toronto');
+    });
+
+    it('hours only, no address, no entrance instructions: omits the section entirely — never an empty <h2>Visit</h2> frame', () => {
+      salonContextMock.salonContent = buildContent({
+        place: {
+          locations: [],
+          address: null,
+          hours: { monday: { open: '10:00', close: '18:00' } },
+          entranceInstructions: null,
+        },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      // The regression: this used to render `editorial-visit` with an <h2>
+      // and nothing else, because `hours` alone satisfied the old guard.
+      expect(screen.queryByTestId('editorial-visit')).not.toBeInTheDocument();
+      expect(screen.queryByText('Visit')).not.toBeInTheDocument();
+    });
+
+    it('address only, no hours: renders the address paragraph', () => {
+      salonContextMock.salonContent = buildContent({
+        place: {
+          locations: [],
+          address: { address: '123 Queen St W', city: 'Toronto', state: 'ON', zipCode: 'M5V 1A1' },
+          hours: null,
+          entranceInstructions: null,
+        },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.getByTestId('editorial-visit')).toBeInTheDocument();
+      expect(screen.getByTestId('editorial-visit-address')).toHaveTextContent('123 Queen St W · Toronto');
+    });
+
+    it('neither address, hours, nor entrance instructions: omits the section entirely', () => {
+      salonContextMock.salonContent = buildContent({
+        place: { locations: [], address: null, hours: null, entranceInstructions: null },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.queryByTestId('editorial-visit')).not.toBeInTheDocument();
+    });
+
+    it('city_only: street address nulled but city survives — still renders (home/private studios stay coherent)', () => {
+      salonContextMock.salonContent = buildContent({
+        place: {
+          locations: [],
+          // Mirrors applyLocationDisplayMode's city_only projection
+          // (@/libs/salonContent): address/zipCode nulled, city untouched.
+          address: { address: null, city: 'Toronto', state: 'ON', zipCode: null },
+          hours: { monday: { open: '10:00', close: '18:00' } },
+          entranceInstructions: null,
+        },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.getByTestId('editorial-visit')).toBeInTheDocument();
+      expect(screen.getByTestId('editorial-visit-address')).toHaveTextContent('Toronto');
+      expect(screen.getByTestId('editorial-visit-address')).not.toHaveTextContent('123 Queen St W');
+    });
+
+    it('full_address: street, city, state, and zip all present — renders the full address text', () => {
+      salonContextMock.salonContent = buildContent({
+        place: {
+          locations: [],
+          address: { address: '123 Queen St W', city: 'Toronto', state: 'ON', zipCode: 'M5V 1A1' },
+          hours: null,
+          entranceInstructions: null,
+        },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.getByTestId('editorial-visit')).toBeInTheDocument();
+      expect(screen.getByTestId('editorial-visit-address')).toHaveTextContent('123 Queen St W · Toronto');
+    });
+  });
+
   it('renders the Policies section when the policy is enabled with text', () => {
     salonContextMock.salonContent = buildContent({
       policies: {
@@ -476,6 +593,62 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
 
       expect(screen.queryByTestId('editorial-about')).not.toBeInTheDocument();
       expect(screen.queryByText('Daniela')).not.toBeInTheDocument();
+    });
+
+    // Repair A4 regression coverage: `salonProfile` hosts the page's only
+    // <h1> on both layouts. The actual "cannot be hidden by a crafted PATCH
+    // / stale hiddenSections" proof lives in bookingPageConfig.test.ts's
+    // full-pipeline describe block — `salonProfile` is stripped from
+    // hiddenSections and repaired into sectionOrder by `validateSectionOrder`
+    // (@/libs/bookingPageConfig) before a real `bookingPage` ever reaches
+    // this component, exactly like `serviceMenu`/`bookingCta` already were.
+    // Mirroring that existing test's own architecture note (this
+    // component/`resolveVisibleSectionOrder` deliberately does NOT
+    // re-implement that floor as a second rule), these two tests instead
+    // confirm the two Editorial `salonProfile` renderer paths (hero,
+    // no-hero fallback) each still produce exactly one page-level <h1> when
+    // OTHER sections are hidden around it — the defense-in-depth shape the
+    // existing "serviceMenu ... is never suppressed even if hiddenSections
+    // is malformed" test in BookServiceClient.hiddenSections.test.tsx uses.
+    it('salonProfile (hero path) still renders — and is the page\'s only <h1> — while other sections are hidden', () => {
+      salonContextMock.bookingPage = {
+        ...EDITORIAL_BOOKING_PAGE_SIDE,
+        hiddenSections: ['featuredServices', 'technicianProfile', 'hoursLocation', 'policies'],
+      };
+      salonContextMock.salonContent = buildContent({
+        identity: {
+          ...EMPTY_SALON_CONTENT.identity,
+          name: 'Isla Nail Studio',
+          heroImageUrl: 'https://example.com/hero.jpg',
+        },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.getByTestId('editorial-hero')).toBeInTheDocument();
+      expect(document.querySelectorAll('h1')).toHaveLength(1);
+    });
+
+    it('salonProfile (no-hero fallback path) still renders — and is the page\'s only <h1> — while other sections are hidden', () => {
+      salonContextMock.bookingPage = {
+        ...EDITORIAL_BOOKING_PAGE_SIDE,
+        hiddenSections: ['featuredServices', 'technicianProfile', 'hoursLocation', 'policies'],
+      };
+      salonContextMock.salonContent = buildContent({
+        identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio', heroImageUrl: null },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.queryByTestId('editorial-hero')).not.toBeInTheDocument();
+      // BookingStepHeader (the fallback's actual <h1> host) is mocked in
+      // this file — its presence is the observable proxy that salonProfile
+      // still rendered.
+      expect(screen.getByTestId('booking-step-header')).toBeInTheDocument();
     });
 
     it('un-hiding restores the section — hiding is not a permanent content loss', () => {
@@ -1039,6 +1212,42 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
       // render — exactly one policy notice on the page.
       expect(screen.queryByTestId('booking-policy')).not.toBeInTheDocument();
       expect(screen.getAllByText('24h cancellation notice required.')).toHaveLength(1);
+    });
+
+    // Post-launch fix (repair A3): Editorial's dedicated Policies renderer
+    // used to check only `policy.enabled && policy.text`, ignoring
+    // `showOnServicePage` — Quick Book's embedded policy card already
+    // honoured it (see BookServiceClient.hiddenSections.test.tsx's positive
+    // control). An owner who turned "show on service page" off was obeyed on
+    // Quick Book and silently ignored on Editorial.
+    it('omits the Policies section when showOnServicePage is false, even with the policy enabled and text present', () => {
+      salonContextMock.bookingExperience = {
+        ...BASE_BOOKING_EXPERIENCE,
+        policy: {
+          ...BASE_BOOKING_EXPERIENCE.policy,
+          enabled: true,
+          showOnServicePage: false,
+          text: '24h cancellation notice required.',
+        },
+      };
+      salonContextMock.salonContent = buildContent({
+        policies: {
+          ...EMPTY_SALON_CONTENT.policies,
+          policy: {
+            ...EMPTY_SALON_CONTENT.policies.policy,
+            enabled: true,
+            showOnServicePage: false,
+            text: '24h cancellation notice required.',
+          },
+        },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.queryByTestId('editorial-policies')).not.toBeInTheDocument();
+      expect(screen.queryByText('24h cancellation notice required.')).not.toBeInTheDocument();
     });
   });
 });

@@ -12,11 +12,12 @@
  * control here is a plain picker, toggle, or text field over a value the
  * server already validates.
  *
- * `serviceMenu` and `bookingCta` are never rendered as toggle controls here —
- * see OPTIONAL_SECTIONS below, which deliberately omits both. Even if a
- * malicious request bypassed this UI, `@/libs/bookingPageConfig`'s
- * `validateSectionOrder` (invoked by the API route on every write) strips
- * them from `hiddenSections` server-side regardless.
+ * `salonProfile`, `serviceMenu`, and `bookingCta` are never rendered as
+ * toggle controls here — see OPTIONAL_SECTIONS below, which deliberately
+ * omits all three. Even if a malicious request bypassed this UI,
+ * `@/libs/bookingPageConfig`'s `validateSectionOrder` (invoked by the API
+ * route on every write, and again on every read) strips them from
+ * `hiddenSections` server-side regardless.
  */
 
 import { ArrowLeft, ExternalLink } from 'lucide-react';
@@ -127,6 +128,14 @@ const OPTIONAL_SECTIONS: Array<{ id: SectionId; label: string; comingSoon: boole
 type BookingPageApiResponse = {
   config: BookingPageConfig;
   content: BookingPageContent;
+  /**
+   * Phase A (draft/publish split). Present on every response from
+   * `/api/admin/booking-page` — read here only to decide whether to show
+   * the "publish the salon" affordance below (see `SalonPublishBanner`).
+   * Unrelated to `config.draft`/`config.live`: this is the salon row's own
+   * `publicationStatus`, not the booking-page config draft/live pair.
+   */
+  salon?: { publicationStatus: string };
 };
 
 async function fetchBookingPageState(salonSlug: string): Promise<BookingPageApiResponse> {
@@ -167,6 +176,28 @@ async function postBookingPageAction(
     throw new Error(`Failed to ${action} (${response.status})`);
   }
   return response.json();
+}
+
+/**
+ * Phase A (draft/publish split). A DIFFERENT endpoint and a DIFFERENT
+ * resource than `postBookingPageAction` above: this flips the salon row
+ * itself from `publicationStatus: 'draft'` to `'published'` — making the
+ * booking page publicly reachable for the first time and permanently
+ * locking the slug. `postBookingPageAction('publish')` only ever moves the
+ * booking-page config/content draft onto the already-public live salon; it
+ * never touches `publicationStatus`. Reusing that action's name or endpoint
+ * for this would silently conflate the two — see `SalonPublishBanner`'s
+ * copy, which is deliberately worded to keep them apart for the owner too.
+ */
+async function publishSalon(salonSlug: string): Promise<{ publicationStatus: string }> {
+  const response = await fetch(`/api/admin/salon/publish?salonSlug=${encodeURIComponent(salonSlug)}`, {
+    method: 'POST',
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `Failed to publish salon (${response.status})`);
+  }
+  return payload.data;
 }
 
 // =============================================================================
@@ -226,6 +257,59 @@ function Toggle({
   );
 }
 
+/**
+ * Phase A (draft/publish split) — the persistent, owner-reachable way to
+ * take a salon from draft to published. Rendered ONLY while
+ * `publicationStatus !== 'published'`; once the salon publishes it
+ * disappears entirely (this is deliberately not a place to un-publish —
+ * that is a separate, not-yet-built product decision).
+ *
+ * Copy is written to be unmistakably distinct from the plain "Publish"
+ * button further down this page, which only pushes booking-page config
+ * changes from draft to live on an ALREADY-public salon. This banner is the
+ * one and only control that makes the salon itself publicly reachable and
+ * permanently locks the slug — it never gets confused with the config
+ * publish/revert pair below because it never uses the bare word "Publish"
+ * alone: every label here says "salon" or "booking page public" explicitly.
+ */
+function SalonPublishBanner({
+  status,
+  onPublish,
+}: {
+  status: 'idle' | 'publishing' | 'error';
+  onPublish: () => void;
+}) {
+  return (
+    <div
+      data-testid="salon-publish-banner"
+      className="mt-6 rounded-3xl border border-amber-300 bg-amber-50 p-5 text-amber-950"
+    >
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-amber-700">Private draft</p>
+      <h2 className="mt-1 text-lg font-semibold">Your booking page isn't public yet</h2>
+      <p className="mt-2 text-sm text-amber-900">
+        Only you can see this booking page right now. Publishing your salon makes it publicly
+        reachable for the first time and permanently locks your link — this is different from the
+        plain "Publish" button further down, which only pushes booking-page layout/content changes
+        once your salon is already public.
+      </p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          data-testid="salon-publish-button"
+          disabled={status === 'publishing'}
+          onClick={onPublish}
+          className="rounded-full bg-amber-900 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-amber-800 disabled:opacity-50"
+        >
+          {status === 'publishing' ? 'Publishing your salon…' : 'Publish my salon (locks my link)'}
+        </button>
+        {status === 'error' && (
+          <span role="alert" className="text-sm text-red-800">Publishing failed. Please try again.</span>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // =============================================================================
 // Page
 // =============================================================================
@@ -245,6 +329,13 @@ export default function BookingPageOwnerSurface() {
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [actionStatus, setActionStatus] = useState<'idle' | 'publishing' | 'reverting'>('idle');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  // Phase A (draft/publish split): the salon's OWN publicationStatus — not
+  // the booking-page config draft/live pair above. Drives whether
+  // `SalonPublishBanner` renders at all; null while unknown/loading so the
+  // banner never flashes on before the real value is in.
+  const [salonPublicationStatus, setSalonPublicationStatus] = useState<string | null>(null);
+  const [salonPublishStatus, setSalonPublishStatus] = useState<'idle' | 'publishing' | 'error'>('idle');
 
   // Bio/specialty/heroImage text fields save on blur, not on every keystroke.
   const [bioDraft, setBioDraft] = useState('');
@@ -288,6 +379,7 @@ export default function BookingPageOwnerSurface() {
           setBioDraft(state.content.draft.bio ?? '');
           setSpecialtyDraft(state.content.draft.specialtyLine ?? '');
           setHeroImageDraft(state.content.draft.heroImageUrl ?? '');
+          setSalonPublicationStatus(state.salon?.publicationStatus ?? 'published');
         }
       } catch {
         if (!cancelled) {
@@ -452,6 +544,27 @@ export default function BookingPageOwnerSurface() {
     }
   };
 
+  /**
+   * Phase A (draft/publish split). Deliberately independent of
+   * `handlePublish`/`handleRevert` above — different endpoint, different
+   * resource (`salon.publicationStatus`, not `bookingPage` config), and its
+   * own status/error state so a booking-page config save in flight never
+   * disables this button (and vice versa).
+   */
+  const handlePublishSalon = async () => {
+    if (!salonSlug) {
+      return;
+    }
+    setSalonPublishStatus('publishing');
+    try {
+      const data = await publishSalon(salonSlug);
+      setSalonPublicationStatus(data.publicationStatus);
+      setSalonPublishStatus('idle');
+    } catch {
+      setSalonPublishStatus('error');
+    }
+  };
+
   if (loading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#F8F3F0]">
@@ -507,6 +620,10 @@ export default function BookingPageOwnerSurface() {
             <span className="text-[11px] text-stone-400">Shows your draft — only you can see it</span>
           </div>
         </div>
+
+        {salonPublicationStatus !== null && salonPublicationStatus !== 'published' && (
+          <SalonPublishBanner status={salonPublishStatus} onPublish={() => void handlePublishSalon()} />
+        )}
 
         <div className="mt-3 h-5 text-xs text-stone-500" role="status" aria-live="polite">
           {saveStatus === 'saving' && 'Saving…'}
@@ -666,8 +783,8 @@ export default function BookingPageOwnerSurface() {
                 </div>
                 {content.draft.locationDisplayMode === 'city_only' && (
                   <p data-testid="location-display-mode-city-only-warning" className="mt-2 text-xs text-stone-500">
-                    "City only" hides your street address and postal code. Your location's name and phone number
-                    are still shown — avoid putting an address in the location name if you're keeping it private.
+                    "City only" hides your street address, postal code, and phone number. Your location's name is
+                    still shown — avoid putting an address in the location name if you're keeping it private.
                   </p>
                 )}
               </div>
@@ -675,28 +792,39 @@ export default function BookingPageOwnerSurface() {
           </SectionCard>
         </div>
 
-        <div className="mt-8 flex flex-wrap items-center gap-3 rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
-          <button
-            type="button"
-            data-testid="booking-page-publish"
-            disabled={actionStatus !== 'idle'}
-            onClick={() => void handlePublish()}
-            className="rounded-full bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-800 disabled:opacity-50"
-          >
-            {actionStatus === 'publishing' ? 'Publishing…' : 'Publish'}
-          </button>
-          <button
-            type="button"
-            data-testid="booking-page-revert"
-            disabled={actionStatus !== 'idle'}
-            onClick={() => void handleRevert()}
-            className="rounded-full border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-50 disabled:opacity-50"
-          >
-            {actionStatus === 'reverting' ? 'Reverting…' : 'Revert draft to live'}
-          </button>
-          {actionMessage && (
-            <span role="status" className="text-sm text-stone-600">{actionMessage}</span>
-          )}
+        <div className="mt-8 rounded-3xl border border-stone-200 bg-white p-5 shadow-sm">
+          {/*
+            Phase A (draft/publish split) copy note: this row's "Publish"
+            only pushes the booking-page layout/content draft onto what is
+            already live — it never touches publicationStatus and never
+            makes an unpublished salon public. The caption below exists
+            specifically to keep it from being misread as the salon-level
+            action in SalonPublishBanner above.
+          */}
+          <p className="mb-3 text-xs text-stone-500">Publishes booking-page layout &amp; content changes only — not the same as publishing your salon above.</p>
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              data-testid="booking-page-publish"
+              disabled={actionStatus !== 'idle'}
+              onClick={() => void handlePublish()}
+              className="rounded-full bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-800 disabled:opacity-50"
+            >
+              {actionStatus === 'publishing' ? 'Publishing…' : 'Publish'}
+            </button>
+            <button
+              type="button"
+              data-testid="booking-page-revert"
+              disabled={actionStatus !== 'idle'}
+              onClick={() => void handleRevert()}
+              className="rounded-full border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-50 disabled:opacity-50"
+            >
+              {actionStatus === 'reverting' ? 'Reverting…' : 'Revert draft to live'}
+            </button>
+            {actionMessage && (
+              <span role="status" className="text-sm text-stone-600">{actionMessage}</span>
+            )}
+          </div>
         </div>
       </div>
     </main>

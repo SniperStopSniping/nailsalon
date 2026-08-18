@@ -288,4 +288,26 @@ describe('BookServiceClient — Quick Book layout hiddenSections', () => {
 
     expect(screen.getByPlaceholderText('Search services...')).toBeInTheDocument();
   });
+
+  // Repair A4: salonProfile hosts the page's only <h1> (via
+  // BookingStepHeader, mocked in this file — see the top-level mock above).
+  // Same defense-in-depth shape as the serviceMenu test directly above: the
+  // actual "cannot be hidden by a crafted PATCH / stale data" proof is
+  // bookingPageConfig.test.ts's "salonProfile floor" and full-pipeline
+  // coverage (validateSectionOrder strips it from hiddenSections and
+  // repairs it into sectionOrder before this component ever sees it); this
+  // confirms a well-formed hiddenSections that hides everything else still
+  // leaves salonProfile's header rendered.
+  it('salonProfile is never suppressed even if hiddenSections is malformed', () => {
+    salonContextMock.bookingPage = {
+      ...QUICK_BOOK_BOOKING_PAGE_SIDE,
+      hiddenSections: ['featuredServices', 'policies', 'socialLinks'],
+    };
+
+    render(
+      <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+    );
+
+    expect(screen.getByTestId('booking-step-header')).toBeInTheDocument();
+  });
 });

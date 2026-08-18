@@ -95,6 +95,12 @@ export async function GET(request: Request): Promise<Response> {
   return Response.json({
     config: resolveBookingPageConfig(salon.settings),
     content: resolveBookingPageContent(salon.settings),
+    // Phase A (draft/publish split): lets the owner Booking Page surface
+    // show its own "publish the salon" affordance (distinct from the
+    // Publish/Revert below, which only ever moves the draft/live config
+    // pair) without a second round trip — this route already resolves and
+    // authorizes the salon.
+    salon: { publicationStatus: salon.publicationStatus },
   });
 }
 
@@ -223,5 +229,6 @@ async function resolveFreshState(salonId: string) {
   return {
     config: resolveBookingPageConfig(salon?.settings ?? null),
     content: resolveBookingPageContent(salon?.settings ?? null),
+    salon: { publicationStatus: salon?.publicationStatus ?? 'published' },
   };
 }

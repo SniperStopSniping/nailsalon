@@ -99,7 +99,7 @@ vi.mock('@/libs/bookingPageContent', () => ({
   resolveBookingPageContent,
 }));
 
-const SALON = { id: 'salon_1', slug: 'salon-a', settings: { some: 'settings' } };
+const SALON = { id: 'salon_1', slug: 'salon-a', settings: { some: 'settings' }, publicationStatus: 'published' };
 
 function request(url: string, init?: RequestInit) {
   return new Request(url, init);
@@ -149,6 +149,18 @@ describe('admin booking-page route', () => {
       expect(resolveBookingPageContent).toHaveBeenCalledWith(SALON.settings);
       expect(body.config.draft.layout).toBe('quick_book');
       expect(body.content).toBeDefined();
+    });
+
+    // Phase A (draft/publish split): the owner Booking Page surface reads
+    // this field to decide whether to show its own "publish the salon"
+    // affordance — see src/app/[locale]/admin/booking-page/page.tsx and its
+    // test file.
+    it('includes the salon publicationStatus so the owner surface can offer publishing the salon itself', async () => {
+      getSalonBySlug.mockResolvedValue({ ...SALON, publicationStatus: 'draft' });
+      const response = await GET(request('https://x.test/api/admin/booking-page?salonSlug=salon-a'));
+      const body = await response.json();
+
+      expect(body.salon).toEqual({ publicationStatus: 'draft' });
     });
   });
 

@@ -463,6 +463,13 @@ describe('BookConfirmPage location privacy (locationDisplayMode) — Blocker 1',
   const PRIVATE_UNIT = 'UNIT 77';
   const PRIVATE_POSTAL_CODE = 'A1A 1A1';
   const PRIVATE_FULL_ADDRESS = `${PRIVATE_STREET_ADDRESS}, ${PRIVATE_UNIT}`;
+  // Unmistakable synthetic phone (never a real number) — post-launch privacy
+  // fix: the `salonPhone` prop below (the "call the salon" escape hatch
+  // `ExistingAppointmentOptions` renders as a `tel:` link) previously passed
+  // `salon.phone` straight through with NO redaction at all, regardless of
+  // `locationDisplayMode` — a second, independent public phone leak on this
+  // same page, alongside the `location` prop already covered above.
+  const PRIVATE_PHONE = '+14165550199';
 
   function bookingPageContentReturn(liveMode: 'full_address' | 'city_only', draftMode: 'full_address' | 'city_only' = liveMode) {
     return {
@@ -490,6 +497,7 @@ describe('BookConfirmPage location privacy (locationDisplayMode) — Blocker 1',
         city: 'Homeburg',
         state: 'ON',
         zipCode: PRIVATE_POSTAL_CODE,
+        phone: PRIVATE_PHONE,
         bookingFlow: ['service', 'tech', 'time', 'confirm'],
         features: {},
         settings: null,
@@ -562,6 +570,21 @@ describe('BookConfirmPage location privacy (locationDisplayMode) — Blocker 1',
     render(element);
     const props = bookConfirmClientSpy.mock.calls.at(-1)![0] as Record<string, unknown>;
     return props.location as { id: string; name: string; address: string | null; city: string | null; state: string | null; zipCode: string | null };
+  }
+
+  async function renderAndCaptureSalonPhone() {
+    const element = await BookConfirmPage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        serviceIds: 'srv_1',
+        techId: 'any',
+        date: '2026-03-20',
+        time: '10:00',
+      },
+    });
+    render(element);
+    const props = bookConfirmClientSpy.mock.calls.at(-1)![0] as Record<string, unknown>;
+    return props.salonPhone as string | null;
   }
 
   describe('primary-location branch (resolvedLocation)', () => {
@@ -712,6 +735,66 @@ describe('BookConfirmPage location privacy (locationDisplayMode) — Blocker 1',
       expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
         isPreviewingDraftConfig: false,
       }));
+    });
+  });
+
+  // THE DEFECT (post-launch privacy hotfix): `salonPhone` — the "call the
+  // salon" escape hatch `ExistingAppointmentOptions` renders as a `tel:`
+  // link on the duplicate-booking screen — used to pass `salon.phone`
+  // straight through with NO redaction, regardless of `locationDisplayMode`.
+  // Getting the `location` prop's address/zipCode right (above) said nothing
+  // about this second, independent phone surface on the very same page.
+  describe('salonPhone prop (the "call the salon" escape hatch)', () => {
+    beforeEach(() => {
+      getPrimaryLocation.mockResolvedValue({
+        id: 'loc_primary',
+        name: 'Home Studio',
+        address: PRIVATE_FULL_ADDRESS,
+        city: 'Homeburg',
+        state: 'ON',
+        zipCode: PRIVATE_POSTAL_CODE,
+      });
+    });
+
+    it('full_address (default/control) passes the exact salon phone through unredacted — proves the city_only assertion below is not vacuous', async () => {
+      const salonPhone = await renderAndCaptureSalonPhone();
+
+      expect(salonPhone).toBe(PRIVATE_PHONE);
+    });
+
+    it('city_only redacts salonPhone to null — the exact string never reaches the captured BookConfirmClient props', async () => {
+      vi.mocked(resolveBookingPageContent).mockReturnValueOnce(bookingPageContentReturn('city_only'));
+
+      const salonPhone = await renderAndCaptureSalonPhone();
+
+      expect(salonPhone).toBeNull();
+      expect(JSON.stringify(bookConfirmClientSpy.mock.calls.at(-1)![0])).not.toContain(PRIVATE_PHONE);
+    });
+
+    it('an authorized owner preview (isPreviewingDraftConfig=true) redacts salonPhone using the DRAFT side even while live is full_address', async () => {
+      resolveDraftSalonAccess.mockResolvedValue({
+        allowed: true,
+        isPreviewingDraftSalon: false,
+        isPreviewingDraftConfig: true,
+        actorType: 'owner',
+      });
+      vi.mocked(resolveBookingPageContent).mockReturnValueOnce(
+        bookingPageContentReturn('full_address', 'city_only'),
+      );
+
+      const salonPhone = await renderAndCaptureSalonPhone();
+
+      expect(salonPhone).toBeNull();
+    });
+
+    it('a public visitor (isPreviewingDraftConfig=false) reads LIVE for salonPhone too — an in-progress full_address draft never leaks the phone past a city_only live setting', async () => {
+      vi.mocked(resolveBookingPageContent).mockReturnValueOnce(
+        bookingPageContentReturn('city_only', 'full_address'),
+      );
+
+      const salonPhone = await renderAndCaptureSalonPhone();
+
+      expect(salonPhone).toBeNull();
     });
   });
 });

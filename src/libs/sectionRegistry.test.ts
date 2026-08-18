@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { SectionId } from '@/libs/bookingPageConfig';
 import { EMPTY_SALON_CONTENT, type SalonContent } from '@/libs/salonContent';
 
-import { REGISTERED_SECTION_IDS, resolveVisibleSectionOrder, SECTION_REGISTRY } from './sectionRegistry';
+import { REGISTERED_SECTION_IDS, resolveVisibleSectionOrder, resolveVisitContent, SECTION_REGISTRY } from './sectionRegistry';
 
 // Kept independent of `SECTION_IDS` from bookingPageConfig.ts (which pulls in
 // a server-only DB import chain this test file does not want) — this is the
@@ -146,6 +146,147 @@ describe('SECTION_REGISTRY', () => {
     });
 
     expect(SECTION_REGISTRY.whatsIncluded.canRender(fullyPopulated)).toBe(false);
+  });
+
+  // Post-launch fix: hoursLocation.canRender used to accept `hours !== null`
+  // or `locations.length > 0` on their own, even though no renderer in
+  // either layout puts raw `hours` on the page and a location can exist with
+  // both `address`/`city` null (e.g. a location entry carrying only a
+  // name/phone) — either case let this canRender pass while there was
+  // nothing for the Visit section's editorial renderer to actually show,
+  // producing an `<h2>Visit</h2>` frame with no address/entrance paragraph
+  // beneath it. resolveVisitContent (shared with the renderer) is now the
+  // one predicate both agree on.
+  describe('hoursLocation — resolveVisitContent parity (no empty Visit frame)', () => {
+    it('omits when there is hours but no address and no entrance instructions', () => {
+      const content = withContent({
+        place: {
+          locations: [],
+          address: null,
+          hours: { monday: { open: '10:00', close: '18:00' } },
+          entranceInstructions: null,
+        },
+      });
+
+      expect(resolveVisitContent(content).hasVisitableContent).toBe(false);
+      expect(SECTION_REGISTRY.hoursLocation.canRender(content)).toBe(false);
+    });
+
+    it('omits when a location exists but neither its address nor city is set', () => {
+      const content = withContent({
+        place: {
+          locations: [{ id: 'loc-1', name: 'Studio', address: null, city: null, state: null, zipCode: null, phone: '555-0100', isPrimary: true, hours: null }],
+          address: null,
+          hours: null,
+          entranceInstructions: null,
+        },
+      });
+
+      expect(resolveVisitContent(content).hasVisitableContent).toBe(false);
+      expect(SECTION_REGISTRY.hoursLocation.canRender(content)).toBe(false);
+    });
+
+    it('renders when address and hours are both present', () => {
+      const content = withContent({
+        place: {
+          locations: [],
+          address: { address: '123 Queen St W', city: 'Toronto', state: 'ON', zipCode: 'M5V 1A1' },
+          hours: { monday: { open: '10:00', close: '18:00' } },
+          entranceInstructions: null,
+        },
+      });
+
+      expect(resolveVisitContent(content)).toEqual({
+        resolvedAddress: '123 Queen St W',
+        resolvedCity: 'Toronto',
+        hasVisitableContent: true,
+      });
+      expect(SECTION_REGISTRY.hoursLocation.canRender(content)).toBe(true);
+    });
+
+    it('renders on address alone, with no hours', () => {
+      const content = withContent({
+        place: {
+          locations: [],
+          address: { address: '123 Queen St W', city: 'Toronto', state: 'ON', zipCode: 'M5V 1A1' },
+          hours: null,
+          entranceInstructions: null,
+        },
+      });
+
+      expect(SECTION_REGISTRY.hoursLocation.canRender(content)).toBe(true);
+    });
+
+    it('omits when neither address, hours, locations, nor entrance instructions are present', () => {
+      expect(resolveVisitContent(EMPTY_SALON_CONTENT).hasVisitableContent).toBe(false);
+      expect(SECTION_REGISTRY.hoursLocation.canRender(EMPTY_SALON_CONTENT)).toBe(false);
+    });
+
+    it('city_only: street address is nulled but city survives — still renders (home/private studios stay coherent)', () => {
+      const content = withContent({
+        place: {
+          locations: [],
+          // Mirrors applyLocationDisplayMode's city_only projection
+          // (@/libs/salonContent): address/zipCode nulled, city untouched.
+          address: { address: null, city: 'Toronto', state: 'ON', zipCode: null },
+          hours: { monday: { open: '10:00', close: '18:00' } },
+          entranceInstructions: null,
+        },
+      });
+
+      const resolved = resolveVisitContent(content);
+
+      expect(resolved.hasVisitableContent).toBe(true);
+      expect(resolved.resolvedAddress).toBeNull();
+      expect(resolved.resolvedCity).toBe('Toronto');
+      expect(SECTION_REGISTRY.hoursLocation.canRender(content)).toBe(true);
+    });
+
+    it('full_address: street, city, state, and zip all present — renders', () => {
+      const content = withContent({
+        place: {
+          locations: [],
+          address: { address: '123 Queen St W', city: 'Toronto', state: 'ON', zipCode: 'M5V 1A1' },
+          hours: null,
+          entranceInstructions: null,
+        },
+      });
+
+      const resolved = resolveVisitContent(content);
+
+      expect(resolved.hasVisitableContent).toBe(true);
+      expect(resolved.resolvedAddress).toBe('123 Queen St W');
+      expect(SECTION_REGISTRY.hoursLocation.canRender(content)).toBe(true);
+    });
+  });
+
+  // Post-launch fix: policies.canRender used to mirror only
+  // bookingExperience.policy.enabled, ignoring showOnServicePage entirely —
+  // Quick Book's own embedded policy card already checked showOnServicePage,
+  // so an owner who turned it off was obeyed on Quick Book and ignored on
+  // Editorial (whose dedicated `policies` renderer is gated by this entry).
+  describe('policies — showOnServicePage parity', () => {
+    it('omits when showOnServicePage is false, even with enabled + text', () => {
+      const content = withContent({
+        policies: {
+          ...EMPTY_SALON_CONTENT.policies,
+          policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true, showOnServicePage: false, text: '24h cancellation notice.' },
+        },
+      });
+
+      expect(SECTION_REGISTRY.policies.canRender(content)).toBe(false);
+    });
+
+    it('renders when enabled and showOnServicePage are both true', () => {
+      const content = withContent({
+        policies: {
+          ...EMPTY_SALON_CONTENT.policies,
+          policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true, showOnServicePage: true, text: '24h cancellation notice.' },
+        },
+      });
+
+      expect(SECTION_REGISTRY.policies.canRender(content)).toBe(true);
+    });
   });
 });
 
