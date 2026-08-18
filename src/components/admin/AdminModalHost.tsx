@@ -10,6 +10,7 @@ import { type FraudSignal, FraudSignalsModal } from '@/components/admin/FraudSig
 import { IntegrationsModal, type IntegrationsView } from '@/components/admin/IntegrationsModal';
 import { MarketingModal } from '@/components/admin/MarketingModal';
 import { NotificationsModal } from '@/components/admin/NotificationsModal';
+import { PortfolioModal } from '@/components/admin/PortfolioModal';
 import { ReviewsModal } from '@/components/admin/ReviewsModal';
 import { RewardsModal } from '@/components/admin/RewardsModal';
 import { ScheduleCalendarModal } from '@/components/admin/ScheduleCalendarModal';
@@ -210,6 +211,13 @@ export function AdminModalHost({
         onClose={onCloseModal}
       >
         <ReviewsModal onClose={onCloseModal} />
+      </AppModal>
+
+      <AppModal
+        isOpen={activeModal === 'portfolio'}
+        onClose={onCloseModal}
+      >
+        <PortfolioModal onClose={onCloseModal} />
       </AppModal>
 
       <AppModal

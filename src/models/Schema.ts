@@ -3131,6 +3131,13 @@ export const AUDIT_LOG_ACTIONS = [
   ...DEPOSIT_AUDIT_ACTIONS,
   'payment_health_viewed',
   'deposit_records_viewed',
+  // Luster Discover — owner portfolio operations. Appended, never reordered.
+  'portfolio_photo_created',
+  'portfolio_photos_updated',
+  'portfolio_photo_deleted',
+  'portfolio_photos_reordered',
+  'portfolio_photo_crop_updated',
+  'discover_participation_changed',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 

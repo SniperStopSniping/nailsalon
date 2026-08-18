@@ -21,6 +21,7 @@ import {
   CalendarDays,
   ClipboardList,
   Gift,
+  Images,
   LayoutTemplate,
   Plug,
   Scissors,
@@ -164,6 +165,14 @@ const APPS: AppItem[] = [
     icon: Scissors,
     gradient: 'from-rose-600 to-pink-400',
     shadowColor: '#e11d48',
+  },
+  {
+    id: 'portfolio',
+    name: 'Portfolio',
+    description: 'Your nail work',
+    icon: Images,
+    gradient: 'from-fuchsia-600 to-purple-400',
+    shadowColor: '#c026d3',
   },
 ];
 
