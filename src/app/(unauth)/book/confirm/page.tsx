@@ -6,6 +6,7 @@ import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
 import { getBookingConfigForSalon } from '@/libs/bookingConfig';
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
+import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { buildBookingUrl, parseSelectedAddOnsParam, repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import {
@@ -21,6 +22,7 @@ import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { resolvePublicBookingTechnicianContext } from '@/libs/publicBookingTechnicians';
 import { resolvePublicRetentionCampaignPreview } from '@/libs/publicRetentionCampaign';
 import { getLocationById, getPrimaryLocation } from '@/libs/queries';
+import { applyLocationDisplayMode } from '@/libs/salonContent';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus, isRewardsEnabled, isSmsEnabled } from '@/libs/salonStatus';
 import { buildTaxConfigurationSnapshot, resolveTaxConfig } from '@/libs/taxConfig';
 import { getPublicPageContext } from '@/libs/tenant';
@@ -128,6 +130,17 @@ export default async function BookConfirmPage({
   const activeBookingPageSide = previewGate.isPreviewingDraftConfig
     ? bookingPageConfig.draft
     : bookingPageConfig.live;
+  // Post-launch privacy fix: this page builds its OWN `locationSummary` for
+  // `BookConfirmClient` below (directions/Google-Maps + the on-screen
+  // "Location" row), entirely independent of `PublicSalonPageShell`'s
+  // internal `resolveSalonContent` projection — mirrors why
+  // `book/service/page.tsx` resolves its own `activeBookingPageContentSide`
+  // for its separate `locations` prop. Same draft/live gate
+  // (`previewGate.isPreviewingDraftConfig`) as everything else on this page.
+  const bookingPageContent = resolveBookingPageContent(salon.settings);
+  const activeBookingPageContentSide = previewGate.isPreviewingDraftConfig
+    ? bookingPageContent.draft
+    : bookingPageContent.live;
   const ownerPreviewState: SalonOwnerPreviewState = {
     isPreviewing: previewGate.isPreviewingDraftSalon || previewGate.isPreviewingDraftConfig,
     actorType: previewGate.actorType,
@@ -271,32 +284,46 @@ export default async function BookConfirmPage({
     ? await getLocationById(locationId, salon.id)
     : primaryLocation;
   const resolvedLocation = resolveDirectionsLocation(requestedLocation, primaryLocation);
+  // Post-launch privacy fix: `buildDirectionsDestination` below decides
+  // whether a usable destination exists at all — that check runs against
+  // the RAW (unredacted) salon fields on purpose, since city/state alone
+  // (which always survive redaction) can still be a valid destination.
+  // `applyLocationDisplayMode` is only applied to the object actually
+  // handed to the client, below.
   const salonDirectionsFallback = buildDirectionsDestination({
     address: salon.address,
     city: salon.city,
     state: salon.state,
     zipCode: salon.zipCode,
   })
-    ? {
-        id: locationId || `salon_${salon.id}`,
-        name: salon.name,
-        address: salon.address,
-        city: salon.city,
-        state: salon.state,
-        zipCode: salon.zipCode,
-      }
+    ? applyLocationDisplayMode({
+      id: locationId || `salon_${salon.id}`,
+      name: salon.name,
+      address: salon.address,
+      city: salon.city,
+      state: salon.state,
+      zipCode: salon.zipCode,
+    }, activeBookingPageContentSide.locationDisplayMode)
     : null;
 
-  // Build location summary for client
+  // Build location summary for client. This — not `resolveSalonContent`'s
+  // `salonContent.place` (projected inside `PublicSalonPageShell`) — is the
+  // ONLY thing that reaches `BookConfirmClient`'s on-screen "Location" row
+  // and its `buildGoogleMapsDirectionsUrl()` call (`directions.ts`), on this
+  // PUBLIC, pre-submit (unauth) route. Redacting it here, at the source,
+  // means the directions URL — built downstream from whatever `address`/
+  // `zipCode` this object carries — can never reconstruct a `city_only`
+  // salon's street address either: with both nulled, only city/state (if
+  // any) end up in the destination string.
   const locationSummary = resolvedLocation
-    ? {
-        id: resolvedLocation.id,
-        name: resolvedLocation.name,
-        address: resolvedLocation.address,
-        city: resolvedLocation.city,
-        state: resolvedLocation.state,
-        zipCode: resolvedLocation.zipCode,
-      }
+    ? applyLocationDisplayMode({
+      id: resolvedLocation.id,
+      name: resolvedLocation.name,
+      address: resolvedLocation.address,
+      city: resolvedLocation.city,
+      state: resolvedLocation.state,
+      zipCode: resolvedLocation.zipCode,
+    }, activeBookingPageContentSide.locationDisplayMode)
     : salonDirectionsFallback;
 
   const services = resolvedTechnicianContext.resolvedSelection.services.map(service => ({
@@ -370,6 +397,7 @@ export default async function BookConfirmPage({
       salon={context.salon}
       bookingPage={activeBookingPageSide}
       ownerPreview={ownerPreviewState}
+      isPreviewingDraftConfig={previewGate.isPreviewingDraftConfig}
       previewBannerVariant={previewBannerVariant}
     >
       <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><div className="size-8 animate-spin rounded-full border-2 border-amber-500 border-t-transparent" /></div>}>

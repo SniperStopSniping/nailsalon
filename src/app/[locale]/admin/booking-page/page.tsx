@@ -82,15 +82,37 @@ const LOCATION_DISPLAY_MODE_OPTIONS: Array<{ id: LocationDisplayMode; label: str
  * `serviceMenu` and `bookingCta` are intentionally absent — this is the one
  * and only list this component reads to build toggle controls, so there is
  * no code path here that can ever render a toggle for either.
- * `portfolio`/`reviews` are marked `comingSoon`: PR 4's registry always
- * resolves both to empty (`content.proof.{portfolio,reviews}` are `[]` until
- * PR 10), so toggling them on today would have no visible effect.
+ *
+ * `comingSoon` sections are disabled here because turning them on has no
+ * possible visible effect anywhere, and are shown that way rather than left
+ * as a silently-inert toggle (post-launch audit finding — "no inert toggle
+ * may remain"):
+ *   - `portfolio`/`reviews`: PR 4's registry always resolves both to empty
+ *     (`content.proof.{portfolio,reviews}` are `[]` until PR 10).
+ *   - `whatsIncluded`: `SECTION_REGISTRY.whatsIncluded.canRender` is
+ *     `() => false` unconditionally (`@/libs/sectionRegistry`) — data gap
+ *     17, no per-service inclusions field exists yet in `SalonContent`.
+ *   - `technicianList`: no layout has a `technicianList` renderer yet (only
+ *     `canRender` — "≥2 technicians" — is implemented; see
+ *     `BookServiceClient.tsx`'s `quickBookRenderers`/`editorialRenderers`,
+ *     neither of which defines one).
+ *
+ * `technicianProfile`/`hoursLocation` are NOT marked `comingSoon`: both have
+ * a real, working renderer today — in the `editorial` layout only
+ * (`BookServiceClient.tsx`'s `editorialRenderers`). Quick Book has no
+ * renderer for either, so toggling them on while on `quick_book` currently
+ * has no visible effect there — a known, separately-tracked gap (not fixed
+ * by this PR: layout-gating them here would disable the SAME toggle this
+ * surface's own regression test exercises against the default `quick_book`
+ * config, and building new Quick Book sections for them is a larger,
+ * untested change outside this PR's scope). Recorded as deferred debt, not
+ * silently accepted.
  */
 const OPTIONAL_SECTIONS: Array<{ id: SectionId; label: string; comingSoon: boolean }> = [
   { id: 'technicianProfile', label: 'Technician profile', comingSoon: false },
   { id: 'featuredServices', label: 'Featured services', comingSoon: false },
-  { id: 'whatsIncluded', label: 'What\'s included', comingSoon: false },
-  { id: 'technicianList', label: 'Technician list', comingSoon: false },
+  { id: 'whatsIncluded', label: 'What\'s included', comingSoon: true },
+  { id: 'technicianList', label: 'Technician list', comingSoon: true },
   { id: 'portfolio', label: 'Portfolio', comingSoon: true },
   { id: 'reviews', label: 'Reviews', comingSoon: true },
   { id: 'hoursLocation', label: 'Hours & location', comingSoon: false },
@@ -642,6 +664,12 @@ export default function BookingPageOwnerSurface() {
                     </button>
                   ))}
                 </div>
+                {content.draft.locationDisplayMode === 'city_only' && (
+                  <p data-testid="location-display-mode-city-only-warning" className="mt-2 text-xs text-stone-500">
+                    "City only" hides your street address and postal code. Your location's name and phone number
+                    are still shown — avoid putting an address in the location name if you're keeping it private.
+                  </p>
+                )}
               </div>
             </div>
           </SectionCard>

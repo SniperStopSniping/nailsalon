@@ -17,6 +17,7 @@ const {
   getLocationById,
   getPrimaryLocation,
   getPublicPageContext,
+  publicSalonPageShellSpy,
   redirectMock,
   resolveDraftSalonAccess,
   resolvePublicBookingTechnicianContext,
@@ -31,6 +32,7 @@ const {
   getLocationById: vi.fn(),
   getPrimaryLocation: vi.fn(),
   getPublicPageContext: vi.fn(),
+  publicSalonPageShellSpy: vi.fn(),
   redirectMock: vi.fn((url: string) => {
     throw new Error(`REDIRECT:${url}`);
   }),
@@ -48,7 +50,10 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/components/PublicSalonPageShell', () => ({
-  PublicSalonPageShell: ({ children }: { children: React.ReactNode }) => children,
+  PublicSalonPageShell: (props: { children: React.ReactNode } & Record<string, unknown>) => {
+    publicSalonPageShellSpy(props);
+    return props.children;
+  },
 }));
 
 vi.mock('./BookTechClient', () => ({
@@ -176,6 +181,16 @@ describe('BookTechPage', () => {
     expect(screen.getByText(/"unavailableReason":"Not assigned to this service yet"/)).toBeInTheDocument();
     expect(resolvePublicBookingTechnicianContext).toHaveBeenCalledWith(expect.objectContaining({
       clientPhone: '+14165550123',
+    }));
+
+    // Post-launch privacy fix ("Blocker 2"): this page mounts
+    // `PublicSalonPageShell` with NO `salonContentInput`, so the shell's own
+    // `locationDisplayMode` resolution is the only thing protecting a
+    // salon-level address on this route — it needs the real
+    // `isPreviewingDraftConfig` value, not an accidentally-omitted one, to
+    // pick the right draft/live side. An ordinary visitor here must see live.
+    expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+      isPreviewingDraftConfig: false,
     }));
   });
 
@@ -347,5 +362,11 @@ describe('BookTechPage owner-preview gate', () => {
     }));
 
     expect(bookTechClientMock).toHaveBeenCalled();
+    // Mirrors the visitor-side assertion above: an authorized owner preview
+    // must forward `isPreviewingDraftConfig: true` so the shell resolves the
+    // DRAFT `locationDisplayMode` side, not live.
+    expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+      isPreviewingDraftConfig: true,
+    }));
   });
 });

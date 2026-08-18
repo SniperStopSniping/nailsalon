@@ -258,6 +258,19 @@ export function BookServiceClient({
   // object; the real SalonProvider always supplies both, resolved
   // server-side, so these fallbacks only ever apply outside production.
   const quickBookSectionOrder = bookingPage?.sectionOrder ?? QUICK_BOOK_SECTION_ORDER_FALLBACK;
+  // Post-launch fix: resolved `bookingPage.{draft,live}.hiddenSections` —
+  // previously written by the admin surface, validated by
+  // validateSectionOrder, and round-tripped through publish/revert, but
+  // never actually read anywhere in the render path (the bug this fix
+  // closes). Defaults to none-hidden for the same test-double reason as
+  // quickBookSectionOrder above. Threaded into SectionOrderRenderer below
+  // (the one choke point for section visibility) AND used here to compute
+  // presentation flags for the content that stays structurally embedded
+  // inside the shared `serviceMenu` block — see `renderServiceMenuContent`'s
+  // own doc comment for why SectionOrderRenderer alone cannot govern that
+  // embedded content.
+  const quickBookHiddenSections = bookingPage?.hiddenSections ?? [];
+  const isSectionHidden = (id: SectionId) => quickBookHiddenSections.includes(id);
   // EMPTY_SALON_CONTENT's identity.name is '' by design (see its own doc
   // comment) — patched in with the real salonName here so the fallback path
   // still satisfies salonProfile's canRender (name-based) exactly like the
@@ -1173,9 +1186,21 @@ export function BookServiceClient({
           const renderServiceMenuContent = ({
             showFeaturedCarousel,
             showPolicyCard,
+            showSocialLinks,
           }: {
             showFeaturedCarousel: boolean;
             showPolicyCard: boolean;
+            /**
+             * Post-launch fix: `configuredSocialLinks` used to render
+             * unconditionally here regardless of `hiddenSections` — the
+             * `socialLinks` section id has no dedicated renderer in EITHER
+             * layout's renderers map (see both maps' own doc comments), so
+             * hiding it via the admin toggle previously had no effect at
+             * all, in both Quick Book and Editorial. Both callers below now
+             * pass `!isSectionHidden('socialLinks')`, same pattern as
+             * `showFeaturedCarousel`/`showPolicyCard`.
+             */
+            showSocialLinks: boolean;
           }) => (
             <>
               {(bookingExperience.bookingMessage || serviceQuickFacts.length > 0) && (
@@ -2012,7 +2037,7 @@ export function BookServiceClient({
                 </section>
               )}
 
-              {configuredSocialLinks.length > 0 && (
+              {showSocialLinks && configuredSocialLinks.length > 0 && (
                 <nav
                   data-testid="booking-social-links"
                   aria-label="Salon social links"
@@ -2095,7 +2120,17 @@ export function BookServiceClient({
                 className="-mb-1"
               />
             ),
-            serviceMenu: () => renderServiceMenuContent({ showFeaturedCarousel: true, showPolicyCard: true }),
+            // Post-launch fix: featuredServices/policies/socialLinks stay
+            // structurally embedded inside this shared block (they have no
+            // dedicated renderer in this layout's map — see the block
+            // comment above), so their visibility is driven directly from
+            // `hiddenSections` here rather than by SectionOrderRenderer
+            // (which only governs ids that HAVE a renderer entry).
+            serviceMenu: () => renderServiceMenuContent({
+              showFeaturedCarousel: !isSectionHidden('featuredServices'),
+              showPolicyCard: !isSectionHidden('policies'),
+              showSocialLinks: !isSectionHidden('socialLinks'),
+            }),
           };
 
           // Luster UI/UX plan rev 3, PR 6: Editorial's own renderers map for
@@ -2186,9 +2221,9 @@ export function BookServiceClient({
                 // that uses the wider shell's width instead of still
                 // scrolling sideways inside a 1024px+ column.
                 <section data-testid="editorial-featured-services" className="mb-6 lg:mb-10">
-                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-4 lg:text-xs">
+                  <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-4 lg:text-xs">
                     Signature services
-                  </div>
+                  </h2>
                   <div className="scrollbar-hide -mx-4 flex min-w-max gap-2 overflow-x-auto px-4 lg:mx-0 lg:grid lg:min-w-0 lg:grid-cols-4 lg:gap-5 lg:overflow-visible lg:px-0">
                     {quickBookContent.catalog.featuredServices.map(service => (
                       <div
@@ -2231,9 +2266,9 @@ export function BookServiceClient({
                 // multi-column grid so profiles sit side by side across the
                 // wider shell instead of one long single-file column.
                 <section data-testid="editorial-about" className="mb-6 lg:mb-10">
-                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-4 lg:text-xs">
+                  <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-4 lg:text-xs">
                     About
-                  </div>
+                  </h2>
                   <div className="space-y-4 lg:grid lg:grid-cols-2 lg:gap-x-8 lg:gap-y-6 lg:space-y-0">
                     {profiledTechnicians.map(technician => (
                       <div key={technician.id} data-testid={`editorial-technician-${technician.id}`} className="flex gap-3 lg:gap-4">
@@ -2271,9 +2306,16 @@ export function BookServiceClient({
             // only — this shared booking engine keeps its existing narrow
             // geometry unchanged, since it is explicitly out of scope for
             // this PR's redesign.
+            // socialLinks has no dedicated Editorial renderer either (unlike
+            // featuredServices/policies above), so — same as Quick Book —
+            // its visibility is driven directly from `hiddenSections` here.
             serviceMenu: () => (
               <div id="services" ref={servicesAnchorRef} className="scroll-mt-4 lg:mx-auto lg:w-full lg:max-w-[430px]">
-                {renderServiceMenuContent({ showFeaturedCarousel: false, showPolicyCard: false })}
+                {renderServiceMenuContent({
+                  showFeaturedCarousel: false,
+                  showPolicyCard: false,
+                  showSocialLinks: !isSectionHidden('socialLinks'),
+                })}
               </div>
             ),
             hoursLocation: () => {
@@ -2292,9 +2334,9 @@ export function BookServiceClient({
                 // stretching edge to edge, still far wider than the mobile
                 // 430px column.
                 <section data-testid="editorial-visit" className="mb-6 lg:mb-10 lg:max-w-2xl">
-                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-3 lg:text-xs">
+                  <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-3 lg:text-xs">
                     Visit
-                  </div>
+                  </h2>
                   {hasAddress && (
                     <p data-testid="editorial-visit-address" className="text-sm text-neutral-700 lg:text-base">
                       {[resolvedAddress, resolvedCity].filter(Boolean).join(' · ')}
@@ -2314,9 +2356,9 @@ export function BookServiceClient({
               }
               return (
                 <section data-testid="editorial-policies" className="mb-6 lg:mb-10 lg:max-w-2xl">
-                  <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-3 lg:text-xs">
+                  <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-3 lg:text-xs">
                     Policies
-                  </div>
+                  </h2>
                   <p className="text-sm text-neutral-700 lg:text-base">{quickBookContent.policies.policy.text}</p>
                 </section>
               );
@@ -2326,6 +2368,7 @@ export function BookServiceClient({
           return (
             <SectionOrderRenderer
               order={quickBookSectionOrder}
+              hiddenSections={quickBookHiddenSections}
               content={quickBookContent}
               renderers={isEditorialLayout ? editorialRenderers : quickBookRenderers}
             />

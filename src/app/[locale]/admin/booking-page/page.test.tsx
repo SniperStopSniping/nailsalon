@@ -165,6 +165,26 @@ describe('BookingPageOwnerSurface', () => {
     expect(screen.getByText('Reviews (coming soon)')).toBeInTheDocument();
   });
 
+  // Post-launch audit fix: whatsIncluded (SECTION_REGISTRY.whatsIncluded's
+  // canRender is unconditionally `() => false` — no data field exists yet)
+  // and technicianList (no renderer in any layout) could previously be
+  // toggled on with zero possible visible effect — an inert toggle with no
+  // indication to the owner. Both now render disabled and clearly labelled,
+  // same treatment as portfolio/reviews above, rather than silently doing
+  // nothing when clicked.
+  it('renders whatsIncluded and technicianList as disabled, marked coming soon (no inert toggle may remain)', async () => {
+    render(<BookingPageOwnerSurface />);
+    await screen.findByTestId('layout-option-quick_book');
+
+    const whatsIncluded = screen.getByTestId('section-toggle-whatsIncluded');
+    const technicianList = screen.getByTestId('section-toggle-technicianList');
+
+    expect(whatsIncluded).toBeDisabled();
+    expect(technicianList).toBeDisabled();
+    expect(screen.getByText('What\'s included (coming soon)')).toBeInTheDocument();
+    expect(screen.getByText('Technician list (coming soon)')).toBeInTheDocument();
+  });
+
   it('toggling an optional section PATCHes sectionOrder/hiddenSections and reflects the new state', async () => {
     render(<BookingPageOwnerSurface />);
     const toggle = await screen.findByTestId('section-toggle-technicianProfile');
@@ -233,6 +253,32 @@ describe('BookingPageOwnerSurface', () => {
       const body = JSON.parse(String(patchCall?.[1]?.body));
 
       expect(body.content).toEqual({ bio: 'Hello there' });
+    });
+  });
+
+  it('warns that location name/phone still show under city_only, and clears the warning back to full_address', async () => {
+    render(<BookingPageOwnerSurface />);
+
+    await screen.findByTestId('content-hero-image-url');
+
+    // full_address is the fixture default — no warning yet (also proves the
+    // assertion below isn't vacuously true for every render).
+    expect(screen.queryByTestId('location-display-mode-city-only-warning')).not.toBeInTheDocument();
+
+    const cityOnlyButton = screen.getByTestId('location-display-mode-city_only');
+    fireEvent.click(cityOnlyButton);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('location-display-mode-city-only-warning')).toHaveTextContent(
+        /location's name and phone number are still shown/,
+      );
+    });
+
+    const fullAddressButton = screen.getByTestId('location-display-mode-full_address');
+    fireEvent.click(fullAddressButton);
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('location-display-mode-city-only-warning')).not.toBeInTheDocument();
     });
   });
 

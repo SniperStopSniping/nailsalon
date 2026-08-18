@@ -101,4 +101,96 @@ describe('SectionOrderRenderer', () => {
     expect(screen.getByTestId('section-serviceMenu')).toBeInTheDocument();
     expect(screen.getByTestId('section-bookingCta')).toBeInTheDocument();
   });
+
+  // Regression coverage: hiddenSections used to be written and validated but
+  // never read at render time (every fixture above uses the default `[]`
+  // hiddenSections, which is exactly why this shipped broken). These use a
+  // NON-EMPTY hiddenSections to actually exercise the fix.
+  describe('hiddenSections', () => {
+    it('omits a hidden section even though both canRender and a renderer are present', () => {
+      const content = withContent({
+        identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
+        policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true } },
+      });
+
+      render(
+        <SectionOrderRenderer
+          order={QUICK_BOOK_ORDER}
+          hiddenSections={['policies']}
+          content={content}
+          renderers={{
+            salonProfile: () => <div data-testid="section-salonProfile">profile</div>,
+            serviceMenu: () => <div data-testid="section-serviceMenu">menu</div>,
+            policies: () => <div data-testid="section-policies">policies</div>,
+            bookingCta: () => <div data-testid="section-bookingCta">cta</div>,
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId('section-salonProfile')).toBeInTheDocument();
+      expect(screen.queryByTestId('section-policies')).not.toBeInTheDocument();
+      expect(screen.getByTestId('section-bookingCta')).toBeInTheDocument();
+    });
+
+    it('re-enabling a previously hidden section (empty hiddenSections again) restores it at its original order position', () => {
+      const content = withContent({
+        identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
+        policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true } },
+        social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
+      });
+      const renderers = {
+        salonProfile: () => <div data-testid="section-salonProfile">profile</div>,
+        serviceMenu: () => <div data-testid="section-serviceMenu">menu</div>,
+        policies: () => <div data-testid="section-policies">policies</div>,
+        socialLinks: () => <div data-testid="section-socialLinks">social</div>,
+        bookingCta: () => <div data-testid="section-bookingCta">cta</div>,
+      };
+
+      const { rerender } = render(
+        <SectionOrderRenderer order={QUICK_BOOK_ORDER} hiddenSections={['policies']} content={content} renderers={renderers} />,
+      );
+
+      // Hiding does not touch sectionOrder — the position between
+      // salonProfile/serviceMenu and socialLinks/bookingCta survives while
+      // hidden, and QUICK_BOOK_ORDER itself is passed through unchanged.
+      expect(screen.queryByTestId('section-policies')).not.toBeInTheDocument();
+
+      rerender(
+        <SectionOrderRenderer order={QUICK_BOOK_ORDER} hiddenSections={[]} content={content} renderers={renderers} />,
+      );
+
+      const rendered = screen.getAllByTestId(/^section-/).map(node => node.dataset.testid);
+
+      expect(rendered).toEqual([
+        'section-salonProfile',
+        'section-serviceMenu',
+        'section-policies',
+        'section-socialLinks',
+        'section-bookingCta',
+      ]);
+    });
+
+    it('defaults to hiding nothing when hiddenSections is omitted (existing callers keep working unchanged)', () => {
+      const content = withContent({
+        identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
+        social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
+      });
+
+      render(
+        <SectionOrderRenderer
+          order={QUICK_BOOK_ORDER}
+          content={content}
+          renderers={{
+            salonProfile: () => <div data-testid="section-salonProfile">profile</div>,
+            serviceMenu: () => <div data-testid="section-serviceMenu">menu</div>,
+            socialLinks: () => <div data-testid="section-socialLinks">social</div>,
+            bookingCta: () => <div data-testid="section-bookingCta">cta</div>,
+          }}
+        />,
+      );
+
+      expect(screen.getByTestId('section-salonProfile')).toBeInTheDocument();
+      expect(screen.getByTestId('section-socialLinks')).toBeInTheDocument();
+    });
+  });
 });

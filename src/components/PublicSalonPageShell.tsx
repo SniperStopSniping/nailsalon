@@ -5,6 +5,7 @@ import {
   resolveBookingExperience,
 } from '@/libs/bookingExperience';
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
+import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import type { PageAppearanceResult } from '@/libs/pageAppearance';
 import type {
@@ -40,6 +41,23 @@ type PublicSalonPageShellProps = {
   /** Owner-preview state for this request, already gated server-side. */
   ownerPreview?: SalonOwnerPreviewState;
   /**
+   * The exact `previewGate.isPreviewingDraftConfig` value each page.tsx
+   * already computes from its own `resolveDraftSalonAccess()` call, before
+   * ever mounting this shell (mirrors how `bookingPage`/`ownerPreview` above
+   * are threaded). Privacy fix (post-launch): this shell is the single
+   * choke point that resolves `bookingPageContent` — and therefore
+   * `locationDisplayMode`, the address-redaction switch — for EVERY public
+   * booking page (service/tech/time/confirm), not just the ones that
+   * happen to remember to thread it themselves. Forwarded explicitly
+   * rather than re-derived from `ownerPreview.isPreviewing` (which
+   * conflates "salon itself is a draft" with "config is being previewed")
+   * or recomputed here (which would be a second, independent preview
+   * decision — `resolveDraftSalonAccess()` must stay the ONE place that
+   * decides who may see draft state). Defaults to `false` (live), the safe
+   * default for any caller that omits it.
+   */
+  isPreviewingDraftConfig?: boolean;
+  /**
    * Raw ingredients for the server-resolved `SalonContent` (Luster UI/UX
    * plan rev 3, section 4A.A) — everything the content contract needs that
    * this shell does not already have (`salon` and the entitlement-resolved
@@ -63,6 +81,13 @@ type PublicSalonPageShellProps = {
      * `resolveSalonContent`'s own `content` input (PR 6). Optional so every
      * existing caller that has not resolved `bookingPageContent` yet keeps
      * today's behaviour unchanged.
+     *
+     * Deliberately has NO `locationDisplayMode` field (post-launch privacy
+     * fix): that one field is always resolved by this shell itself, below,
+     * from `salon.settings` + `isPreviewingDraftConfig` — never threaded in
+     * by the caller. A caller-supplied privacy switch is exactly the shape
+     * of bug this fix closes (a page that forgets to thread it silently
+     * fails open), so there is intentionally no way to pass one in here.
      */
     content?: {
       heroImageUrl?: string | null;
@@ -92,6 +117,7 @@ export function PublicSalonPageShell({
   salon,
   bookingPage,
   ownerPreview,
+  isPreviewingDraftConfig = false,
   salonContentInput,
   previewBannerVariant,
 }: PublicSalonPageShellProps) {
@@ -116,6 +142,19 @@ export function PublicSalonPageShell({
     : {};
   const hasBookingColorOverride = Object.keys(bookingExperienceStyles).length > 0;
 
+  // Post-launch privacy fix: resolved HERE, unconditionally, for every
+  // caller — not threaded in by each page.tsx — so `locationDisplayMode`
+  // can never silently default to `'full_address'` just because a given
+  // public page (tech/time/confirm) never got around to resolving
+  // `bookingPageContent` itself. `resolveBookingPageContent` is pure/
+  // DB-free (it only parses `salon.settings`, already in hand), so calling
+  // it here costs nothing and closes the gap for every current AND future
+  // page that mounts this shell.
+  const bookingPageContent = resolveBookingPageContent(salon.settings);
+  const activeBookingPageContentSide = isPreviewingDraftConfig
+    ? bookingPageContent.draft
+    : bookingPageContent.live;
+
   const salonContent = resolveSalonContent({
     salon: {
       name: salon.name,
@@ -132,7 +171,10 @@ export function PublicSalonPageShell({
     locations: salonContentInput?.locations,
     bookingExperience,
     lusterFeaturingEnabled: salonContentInput?.lusterFeaturingEnabled,
-    content: salonContentInput?.content,
+    content: {
+      ...salonContentInput?.content,
+      locationDisplayMode: activeBookingPageContentSide.locationDisplayMode,
+    },
   });
 
   return (

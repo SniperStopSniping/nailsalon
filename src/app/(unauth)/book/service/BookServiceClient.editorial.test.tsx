@@ -404,6 +404,115 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
     expect(screen.getByTestId('editorial-policies')).toHaveTextContent('24h cancellation notice required.');
   });
 
+  // Post-launch fix regression coverage: `hiddenSections` used to be written
+  // by the admin surface and validated, but nothing in the render path ever
+  // read it — every fixture above uses the default `hiddenSections: []` on
+  // EDITORIAL_BOOKING_PAGE_SIDE, which is exactly why this shipped broken.
+  // Editorial is where the bug bit hardest: it has dedicated renderers for
+  // all four of these ids.
+  describe('hiddenSections (post-launch fix)', () => {
+    it('hides the Visit section (hoursLocation) when hidden, even with real address/hours data', () => {
+      salonContextMock.bookingPage = { ...EDITORIAL_BOOKING_PAGE_SIDE, hiddenSections: ['hoursLocation'] };
+      salonContextMock.salonContent = buildContent({
+        place: {
+          locations: [],
+          address: { address: '123 Queen St W', city: 'Toronto', state: 'ON', zipCode: 'M5V 1A1' },
+          hours: { monday: { open: '10:00', close: '18:00' } },
+          entranceInstructions: 'Buzz 4B, 2nd floor',
+        },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.queryByTestId('editorial-visit')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('editorial-visit-address')).not.toBeInTheDocument();
+    });
+
+    it('hides the Policies section when hidden, even with policy enabled and text present', () => {
+      salonContextMock.bookingPage = { ...EDITORIAL_BOOKING_PAGE_SIDE, hiddenSections: ['policies'] };
+      salonContextMock.salonContent = buildContent({
+        policies: {
+          ...EMPTY_SALON_CONTENT.policies,
+          policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true, text: '24h cancellation notice required.' },
+        },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.queryByTestId('editorial-policies')).not.toBeInTheDocument();
+      expect(screen.queryByText('24h cancellation notice required.')).not.toBeInTheDocument();
+    });
+
+    it('hides the Signature services section (featuredServices) when hidden, even with featured services present', () => {
+      salonContextMock.bookingPage = { ...EDITORIAL_BOOKING_PAGE_SIDE, hiddenSections: ['featuredServices'] };
+      salonContextMock.salonContent = buildContent({
+        catalog: {
+          ...EMPTY_SALON_CONTENT.catalog,
+          featuredServices: [{ id: 'svc-1', name: 'Signature Gel-X', description: null, durationMinutes: 90, priceCents: 9000, priceDisplayText: null, category: 'extensions', bookingCategory: 'manicure', imageUrl: null, featuredOrder: 1 }],
+        },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.queryByTestId('editorial-featured-services')).not.toBeInTheDocument();
+      expect(screen.queryByText('Signature services')).not.toBeInTheDocument();
+    });
+
+    it('hides the About section (technicianProfile) when hidden, even with a technician bio present', () => {
+      salonContextMock.bookingPage = { ...EDITORIAL_BOOKING_PAGE_SIDE, hiddenSections: ['technicianProfile'] };
+      salonContextMock.salonContent = buildContent({
+        people: { technicians: [TECHNICIAN_DANIELA] },
+      });
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.queryByTestId('editorial-about')).not.toBeInTheDocument();
+      expect(screen.queryByText('Daniela')).not.toBeInTheDocument();
+    });
+
+    it('un-hiding restores the section — hiding is not a permanent content loss', () => {
+      salonContextMock.bookingPage = { ...EDITORIAL_BOOKING_PAGE_SIDE, hiddenSections: ['policies'] };
+      salonContextMock.salonContent = buildContent({
+        policies: {
+          ...EMPTY_SALON_CONTENT.policies,
+          policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true, text: '24h cancellation notice required.' },
+        },
+      });
+
+      const { rerender } = render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.queryByTestId('editorial-policies')).not.toBeInTheDocument();
+
+      salonContextMock.bookingPage = { ...EDITORIAL_BOOKING_PAGE_SIDE, hiddenSections: [] };
+      rerender(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.getByTestId('editorial-policies')).toHaveTextContent('24h cancellation notice required.');
+    });
+
+    it('never renders portfolio/reviews UI regardless of hiddenSections — canRender already omits them independently', () => {
+      salonContextMock.bookingPage = { ...EDITORIAL_BOOKING_PAGE_SIDE, hiddenSections: [] };
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.queryByTestId('editorial-portfolio')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('editorial-reviews')).not.toBeInTheDocument();
+    });
+  });
+
   describe('sticky CTA handoff', () => {
     it('shows only the editorial sticky CTA before the services anchor is reached, even with a service pre-selected from the URL', () => {
       navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');

@@ -160,17 +160,34 @@ export const SECTION_REGISTRY: Record<SectionId, SectionRegistryEntry> = {
 
 /**
  * Filters a resolved `sectionOrder` (e.g. `bookingPage.{draft,live}.sectionOrder`
- * from `@/libs/bookingPageConfig`) down to the ids that are both registered
- * and satisfy their own `canRender(content)` — the same omission rule
- * `SectionOrderRenderer` (`@/components/booking/SectionOrderRenderer`)
- * applies at render time, exposed standalone so it can be asserted on
- * directly without mounting React.
+ * from `@/libs/bookingPageConfig`) down to the ids that are simultaneously:
+ * NOT present in the resolved `hiddenSections` (e.g. the same side's
+ * `.hiddenSections`), registered, and satisfying their own
+ * `canRender(content)` — the ONE canonical section-visibility rule.
+ * `SectionOrderRenderer` (`@/components/booking/SectionOrderRenderer`) is
+ * this function's production caller, so this is the single choke point both
+ * a draft owner-preview render and a live public render go through — never
+ * two competing "is this section visible" algorithms.
+ *
+ * `hiddenSections` is trusted as already having gone through
+ * `validateSectionOrder` (`@/libs/bookingPageConfig`) — the one place
+ * `serviceMenu`/`bookingCta` are stripped out and can never be hidden. This
+ * function deliberately does NOT re-implement that floor (no second rule):
+ * every real caller (`resolveBookingPageConfig` → `SalonProvider` →
+ * `BookServiceClient`) only ever hands this function an already-validated
+ * `hiddenSections`, so `serviceMenu`/`bookingCta` never actually appear in
+ * it in production.
  */
 export function resolveVisibleSectionOrder(
   order: readonly SectionId[],
+  hiddenSections: readonly SectionId[],
   content: SalonContent,
 ): SectionId[] {
+  const hiddenSet = new Set(hiddenSections);
   return order.filter((id) => {
+    if (hiddenSet.has(id)) {
+      return false;
+    }
     const entry = SECTION_REGISTRY[id];
     return entry !== undefined && entry.canRender(content);
   });

@@ -22,6 +22,14 @@
  */
 
 import { getFeaturedServices } from '@/libs/bookingMerchandising';
+// Type-only import: `@/libs/bookingPageContent` starts with `import
+// 'server-only'` (transitively `@/libs/DB`), but a `import type` is erased
+// at compile time and carries no runtime code — the same safe pattern
+// `BookServiceClient.tsx` and the admin booking-page route already use for
+// `SectionId` from the equally server-only `@/libs/bookingPageConfig`. This
+// keeps `resolveSalonContent` itself pure/DB-free (see this module's own
+// doc comment above) while still sharing the one enum definition.
+import type { LocationDisplayMode } from '@/libs/bookingPageContent';
 import type { BusinessHours } from '@/libs/bookingPolicy';
 import type { ServiceCategory } from '@/models/Schema';
 import type { BookingExperience } from '@/types/salonPolicy';
@@ -276,8 +284,50 @@ export type ResolveSalonContentInput = {
     heroImageUrl?: string | null;
     specialtyLine?: string | null;
     bio?: string | null;
+    /**
+     * PR 5's `bookingPageContent.{draft,live}.locationDisplayMode` — the
+     * owner's location-privacy choice. Threaded through the same
+     * `salonContentInput.content` path as `heroImageUrl`/`specialtyLine`/
+     * `bio` above (the caller resolves the active draft/live
+     * `bookingPageContent` side and passes its `locationDisplayMode`
+     * straight through). Defaults to `'full_address'` (today's behaviour,
+     * unchanged) when the caller omits it. This is the server-side privacy
+     * projection point: `'city_only'` strips street address/unit and
+     * postal/ZIP from BOTH `place.address` and every entry of
+     * `place.locations` before this function ever returns — never a
+     * cosmetic, render-time hide. See `applyLocationDisplayMode` below.
+     */
+    locationDisplayMode?: LocationDisplayMode;
   };
 };
+
+/**
+ * The one server-side location-privacy projection: strips `address` (street
+ * address, including any unit/suite — those are not separate fields in this
+ * schema, they live inside the free-text `address` string) and `zipCode`
+ * (postal codes materially narrow a private residence) whenever
+ * `mode === 'city_only'`. `city`/`state`/`name`/every other field on `T`
+ * pass through untouched — enough to still book at, never a full redaction.
+ * `full_address` is a no-op (today's behaviour, byte-for-byte).
+ *
+ * Generic and exported so the ONE public "location" surface that lives
+ * outside `resolveSalonContent`'s own `place.{address,locations}` output —
+ * `book/service/page.tsx`'s separate `locations` prop passed straight to
+ * `BookServiceClient`'s location picker, built from raw DB rows rather than
+ * routed through this function — can apply the exact same redaction rather
+ * than a second, possibly-drifting implementation. Both call sites are
+ * server components/modules, so the projection always happens before the
+ * location data reaches the public client.
+ */
+export function applyLocationDisplayMode<T extends { address: string | null; zipCode: string | null }>(
+  value: T,
+  mode: LocationDisplayMode,
+): T {
+  if (mode !== 'city_only') {
+    return value;
+  }
+  return { ...value, address: null, zipCode: null };
+}
 
 function toNumberOrNull(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined) {
@@ -363,6 +413,7 @@ function resolveLocation(input: SalonContentLocationInput): SalonContentLocation
 }
 
 export function resolveSalonContent(input: ResolveSalonContentInput): SalonContent {
+  const locationDisplayMode: LocationDisplayMode = input.content?.locationDisplayMode ?? 'full_address';
   const technicians = input.technicians.map(resolveTechnician);
   const services = input.services.map(resolveService);
   const servicesById = new Map(services.map(service => [service.id, service]));
@@ -425,8 +476,13 @@ export function resolveSalonContent(input: ResolveSalonContentInput): SalonConte
       featuredServices,
     },
     place: {
-      locations,
-      address: resolvedAddress,
+      // Projected AFTER `primaryLocation`/`resolvedAddress` above are
+      // computed from the raw, unprojected `locations` — `hours` still needs
+      // the real primary location, and `resolvedAddress`'s own
+      // primary-vs-salon-level fallback logic must run before redaction, not
+      // choose between two already-redacted candidates.
+      locations: locations.map(location => applyLocationDisplayMode(location, locationDisplayMode)),
+      address: resolvedAddress ? applyLocationDisplayMode(resolvedAddress, locationDisplayMode) : null,
       hours: primaryLocation?.hours ?? input.salon.businessHours ?? null,
       entranceInstructions: null,
     },

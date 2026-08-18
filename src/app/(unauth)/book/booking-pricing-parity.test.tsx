@@ -106,6 +106,19 @@ vi.mock('@/libs/bookingPageConfig', () => ({
   })),
 }));
 
+// `BookConfirmPage` now resolves `bookingPageContent` directly (post-launch
+// privacy fix, Blocker 1) to redact its own `locationSummary`. That module
+// starts with `import 'server-only'` (transitively `@/libs/DB`) — mocked
+// here for the same reason `@/libs/bookingPageConfig` is above, so this
+// test never touches the real DB module.
+vi.mock('@/libs/bookingPageContent', () => ({
+  resolveBookingPageContent: vi.fn(() => ({
+    version: 1,
+    draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
+    live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
+  })),
+}));
+
 vi.mock('@/libs/queries', () => ({
   getLocationById,
   getPrimaryLocation,

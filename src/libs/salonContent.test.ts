@@ -1,10 +1,18 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyLocationDisplayMode,
   EMPTY_SALON_CONTENT,
   resolveSalonContent,
   type ResolveSalonContentInput,
 } from './salonContent';
+
+// Unmistakable synthetic PII — if any of these strings survive into a
+// `city_only` result (or a snapshot of it), the leak is impossible to miss.
+const PRIVATE_STREET_ADDRESS = '999 PRIVATE HOME ROAD';
+const PRIVATE_UNIT = 'UNIT 77';
+const PRIVATE_POSTAL_CODE = 'A1A 1A1';
+const PRIVATE_FULL_ADDRESS = `${PRIVATE_STREET_ADDRESS}, ${PRIVATE_UNIT}`;
 
 const BASE_BOOKING_EXPERIENCE: ResolveSalonContentInput['bookingExperience'] = {
   policy: {
@@ -272,6 +280,223 @@ describe('resolveSalonContent', () => {
     expect(withContent.identity.heroImageUrl).toBe('https://example.com/hero.jpg');
     expect(withContent.identity.specialtyLine).toBe('Russian manicure & BIAB · Toronto');
     expect(withContent.identity.bio).toBe('A quiet, detail-first studio.');
+  });
+});
+
+describe('applyLocationDisplayMode', () => {
+  it('is a no-op for full_address', () => {
+    const value = { address: PRIVATE_FULL_ADDRESS, zipCode: PRIVATE_POSTAL_CODE, city: 'Homeburg' };
+
+    expect(applyLocationDisplayMode(value, 'full_address')).toEqual(value);
+    expect(applyLocationDisplayMode(value, 'full_address')).toBe(value);
+  });
+
+  it('strips address and zipCode for city_only, preserving every other field', () => {
+    const value = {
+      id: 'loc-private',
+      name: 'Home Studio',
+      address: PRIVATE_FULL_ADDRESS,
+      city: 'Homeburg',
+      state: 'ON',
+      zipCode: PRIVATE_POSTAL_CODE,
+      phone: '555-0100',
+      isPrimary: true,
+    };
+
+    const redacted = applyLocationDisplayMode(value, 'city_only');
+
+    expect(redacted.address).toBeNull();
+    expect(redacted.zipCode).toBeNull();
+    expect(redacted).toMatchObject({
+      id: 'loc-private',
+      name: 'Home Studio',
+      city: 'Homeburg',
+      state: 'ON',
+      phone: '555-0100',
+      isPrimary: true,
+    });
+  });
+});
+
+describe('resolveSalonContent — location privacy (locationDisplayMode)', () => {
+  const salonWithPrivateSalonLevelAddress: ResolveSalonContentInput['salon'] = {
+    name: 'Private Home Studio',
+    address: PRIVATE_FULL_ADDRESS,
+    city: 'Homeburg',
+    state: 'ON',
+    zipCode: PRIVATE_POSTAL_CODE,
+  };
+
+  it('defaults to full_address (unchanged behaviour) when locationDisplayMode is not supplied', () => {
+    const content = resolveSalonContent({
+      salon: salonWithPrivateSalonLevelAddress,
+      technicians: [],
+      services: [],
+      locations: [],
+      bookingExperience: BASE_BOOKING_EXPERIENCE,
+    });
+
+    expect(content.place.address).toEqual({
+      address: PRIVATE_FULL_ADDRESS,
+      city: 'Homeburg',
+      state: 'ON',
+      zipCode: PRIVATE_POSTAL_CODE,
+    });
+  });
+
+  it('full_address preserves the exact street address and postal code (single location, explicit mode)', () => {
+    const content = resolveSalonContent({
+      salon: { name: 'Private Home Studio' },
+      technicians: [],
+      services: [],
+      locations: [
+        {
+          id: 'loc-1',
+          name: 'Home Studio',
+          address: PRIVATE_FULL_ADDRESS,
+          city: 'Homeburg',
+          state: 'ON',
+          zipCode: PRIVATE_POSTAL_CODE,
+          isPrimary: true,
+        },
+      ],
+      bookingExperience: BASE_BOOKING_EXPERIENCE,
+      content: { locationDisplayMode: 'full_address' },
+    });
+
+    expect(content.place.address?.address).toBe(PRIVATE_FULL_ADDRESS);
+    expect(content.place.address?.zipCode).toBe(PRIVATE_POSTAL_CODE);
+    expect(content.place.locations[0]?.address).toBe(PRIVATE_FULL_ADDRESS);
+    expect(content.place.locations[0]?.zipCode).toBe(PRIVATE_POSTAL_CODE);
+  });
+
+  it('city_only strips street address/unit and postal code from a single location, keeping city/state/name', () => {
+    const content = resolveSalonContent({
+      salon: { name: 'Private Home Studio' },
+      technicians: [],
+      services: [],
+      locations: [
+        {
+          id: 'loc-1',
+          name: 'Home Studio',
+          address: PRIVATE_FULL_ADDRESS,
+          city: 'Homeburg',
+          state: 'ON',
+          zipCode: PRIVATE_POSTAL_CODE,
+          phone: '555-0100',
+          isPrimary: true,
+        },
+      ],
+      bookingExperience: BASE_BOOKING_EXPERIENCE,
+      content: { locationDisplayMode: 'city_only' },
+    });
+
+    // The unmistakable proof: none of the private strings survive anywhere
+    // in the resolved content, serialized or not.
+    const serialized = JSON.stringify(content);
+
+    expect(serialized).not.toContain(PRIVATE_STREET_ADDRESS);
+    expect(serialized).not.toContain(PRIVATE_UNIT);
+    expect(serialized).not.toContain(PRIVATE_POSTAL_CODE);
+
+    expect(content.place.address).toEqual({
+      address: null,
+      city: 'Homeburg',
+      state: 'ON',
+      zipCode: null,
+    });
+    expect(content.place.locations[0]).toMatchObject({
+      id: 'loc-1',
+      name: 'Home Studio',
+      address: null,
+      city: 'Homeburg',
+      state: 'ON',
+      zipCode: null,
+      phone: '555-0100',
+    });
+  });
+
+  it('city_only redacts every location in a multi-location salon, not only the primary', () => {
+    const content = resolveSalonContent({
+      salon: { name: 'Multi-Location Salon' },
+      technicians: [],
+      services: [],
+      locations: [
+        {
+          id: 'loc-primary',
+          name: 'Main Studio',
+          address: PRIVATE_FULL_ADDRESS,
+          city: 'Homeburg',
+          state: 'ON',
+          zipCode: PRIVATE_POSTAL_CODE,
+          isPrimary: true,
+        },
+        {
+          id: 'loc-secondary',
+          name: 'Second Studio',
+          address: '42 OTHER PRIVATE LANE',
+          city: 'Homeburg',
+          state: 'ON',
+          zipCode: 'B2B 2B2',
+          isPrimary: false,
+        },
+      ],
+      bookingExperience: BASE_BOOKING_EXPERIENCE,
+      content: { locationDisplayMode: 'city_only' },
+    });
+
+    expect(content.place.locations).toHaveLength(2);
+
+    for (const location of content.place.locations) {
+      expect(location.address).toBeNull();
+      expect(location.zipCode).toBeNull();
+      expect(location.city).toBe('Homeburg');
+    }
+  });
+
+  it('city_only also redacts the salon-level fallback address used when there is no location row', () => {
+    const content = resolveSalonContent({
+      salon: salonWithPrivateSalonLevelAddress,
+      technicians: [],
+      services: [],
+      locations: [],
+      bookingExperience: BASE_BOOKING_EXPERIENCE,
+      content: { locationDisplayMode: 'city_only' },
+    });
+
+    const serialized = JSON.stringify(content);
+
+    expect(serialized).not.toContain(PRIVATE_STREET_ADDRESS);
+    expect(serialized).not.toContain(PRIVATE_POSTAL_CODE);
+    expect(content.place.address).toEqual({
+      address: null,
+      city: 'Homeburg',
+      state: 'ON',
+      zipCode: null,
+    });
+  });
+
+  it('city_only never touches hours or entranceInstructions — only address fields are privacy-sensitive', () => {
+    const content = resolveSalonContent({
+      salon: { name: 'Private Home Studio' },
+      technicians: [],
+      services: [],
+      locations: [
+        {
+          id: 'loc-1',
+          name: 'Home Studio',
+          address: PRIVATE_FULL_ADDRESS,
+          city: 'Homeburg',
+          zipCode: PRIVATE_POSTAL_CODE,
+          isPrimary: true,
+          businessHours: { monday: { open: '10:00', close: '18:00' } },
+        },
+      ],
+      bookingExperience: BASE_BOOKING_EXPERIENCE,
+      content: { locationDisplayMode: 'city_only' },
+    });
+
+    expect(content.place.hours).toEqual({ monday: { open: '10:00', close: '18:00' } });
   });
 });
 

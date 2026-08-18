@@ -143,6 +143,8 @@ vi.mock('./BookServiceClient', () => ({
   },
 }));
 
+import { resolveBookingPageContent } from '@/libs/bookingPageContent';
+
 import BookServicePage from './page';
 
 describe('BookServicePage first-visit offer visibility', () => {
@@ -583,6 +585,35 @@ describe('BookServicePage owner-preview wiring', () => {
     }));
   });
 
+  it('threads heroImageUrl/specialtyLine/bio through to salonContentInput.content, and forwards isPreviewingDraftConfig — but no longer threads locationDisplayMode itself', async () => {
+    // Post-launch privacy fix: `locationDisplayMode` moved from a
+    // per-caller-threaded value to something `PublicSalonPageShell` always
+    // resolves itself (see `PublicSalonPageShell.test.tsx`'s "salon-level
+    // address redaction" suite for the real end-to-end proof). This page no
+    // longer has any way to pass one in — asserting its absence here is a
+    // regression guard against silently reintroducing the exact
+    // caller-must-remember-to-thread-it shape of bug this fix closes.
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: false,
+      isPreviewingDraftConfig: true,
+      actorType: 'owner',
+    });
+
+    const element = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(element);
+
+    expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+      isPreviewingDraftConfig: true,
+      salonContentInput: expect.objectContaining({
+        content: { heroImageUrl: null, specialtyLine: null, bio: null },
+      }),
+    }));
+  });
+
   it('redirects to not-found and renders no draft content when the preview gate denies access', async () => {
     resolveDraftSalonAccess.mockResolvedValue({
       allowed: false,
@@ -602,5 +633,152 @@ describe('BookServicePage owner-preview wiring', () => {
     expect(getServicesBySalonId).not.toHaveBeenCalled();
     expect(publicSalonPageShellSpy).not.toHaveBeenCalled();
     expect(bookServiceClientSpy).not.toHaveBeenCalled();
+  });
+});
+
+// Post-launch privacy fix: `locationDisplayMode` was stored and validated
+// but nothing ever read it — `BookServiceClient`'s own `locations` prop (the
+// service location picker) is built directly from raw DB rows here in
+// page.tsx, entirely bypassing `resolveSalonContent`'s projection, so it
+// needed its OWN redaction call (`applyLocationDisplayMode`). Unmistakable
+// synthetic PII strings, per the hotfix's own test requirement.
+const PRIVATE_STREET_ADDRESS = '999 PRIVATE HOME ROAD';
+const PRIVATE_UNIT = 'UNIT 77';
+const PRIVATE_POSTAL_CODE = 'A1A 1A1';
+const PRIVATE_FULL_ADDRESS = `${PRIVATE_STREET_ADDRESS}, ${PRIVATE_UNIT}`;
+
+describe('BookServicePage location privacy (locationDisplayMode)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // `vi.clearAllMocks()` clears call history but not a `mockReturnValue`
+    // set by an earlier test (e.g. the 'redirects to not-found...' test
+    // above sets `buildTenantRedirectPath.mockReturnValue(...)`, which
+    // otherwise persists) — restore its default identity behaviour so this
+    // describe block's redirect checks below start from a clean slate
+    // regardless of run order.
+    buildTenantRedirectPath.mockImplementation((path: string | null) => path);
+    getPublicPageContext.mockResolvedValue({
+      appearance: null,
+      salon: {
+        id: 'salon_1',
+        slug: 'salon-a',
+        bookingFlow: ['service', 'tech', 'time', 'confirm'],
+      },
+    });
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: false,
+      isPreviewingDraftConfig: false,
+      actorType: null,
+    });
+    checkSalonStatus.mockResolvedValue({});
+    checkFeatureEnabled.mockResolvedValue({});
+    getBookingConfigForSalon.mockResolvedValue({
+      bufferMinutes: 10,
+      slotIntervalMinutes: 15,
+      currency: 'CAD',
+      timezone: 'America/Toronto',
+      introPriceDefaultLabel: null,
+      firstVisitDiscountEnabled: false,
+    });
+    getClientSession.mockResolvedValue(null);
+    getServicesBySalonId.mockResolvedValue([]);
+    getActiveAddOnsBySalonId.mockResolvedValue([]);
+    getServiceAddOnRulesBySalonId.mockResolvedValue([]);
+    getTechniciansBySalonId.mockResolvedValue([]);
+    getPublicBookableServiceIds.mockResolvedValue(null);
+    getActiveLocationsBySalonId.mockResolvedValue([
+      {
+        id: 'loc-private',
+        name: 'Home Studio',
+        address: PRIVATE_FULL_ADDRESS,
+        city: 'Homeburg',
+        state: 'ON',
+        zipCode: PRIVATE_POSTAL_CODE,
+        phone: '555-0100',
+        isPrimary: true,
+      },
+    ]);
+    // Explicit, per-test default — `vi.clearAllMocks()` clears call history
+    // but does not reset a `mockReturnValue` set by a previous test, so this
+    // keeps each test's starting state independent of run order.
+    vi.mocked(resolveBookingPageContent).mockReturnValue({
+      version: 1,
+      draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
+      live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
+    });
+  });
+
+  it('full_address (default) passes the exact address through to the locations prop unchanged', async () => {
+    const element = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(element);
+
+    const passedLocations = bookServiceClientSpy.mock.calls.at(-1)?.[0]?.locations;
+
+    expect(passedLocations).toEqual([
+      expect.objectContaining({
+        id: 'loc-private',
+        address: PRIVATE_FULL_ADDRESS,
+        zipCode: PRIVATE_POSTAL_CODE,
+        city: 'Homeburg',
+      }),
+    ]);
+  });
+
+  it('city_only strips address/zipCode from the locations prop passed to the location picker, keeping city/name', async () => {
+    vi.mocked(resolveBookingPageContent).mockReturnValue({
+      version: 1,
+      draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'city_only' },
+      live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'city_only' },
+    });
+
+    const element = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(element);
+
+    const passedLocations = bookServiceClientSpy.mock.calls.at(-1)?.[0]?.locations;
+    const serializedLocations = JSON.stringify(passedLocations);
+
+    // The unmistakable proof: none of the private strings survive anywhere
+    // in what gets passed as a prop to the client component.
+    expect(serializedLocations).not.toContain(PRIVATE_STREET_ADDRESS);
+    expect(serializedLocations).not.toContain(PRIVATE_UNIT);
+    expect(serializedLocations).not.toContain(PRIVATE_POSTAL_CODE);
+
+    expect(passedLocations).toEqual([
+      expect.objectContaining({
+        id: 'loc-private',
+        name: 'Home Studio',
+        address: null,
+        zipCode: null,
+        city: 'Homeburg',
+        state: 'ON',
+        phone: '555-0100',
+        isPrimary: true,
+      }),
+    ]);
+
+    // `content` no longer carries `locationDisplayMode` at all — that field
+    // is resolved by `PublicSalonPageShell` itself now (see
+    // `PublicSalonPageShell.test.tsx`), never threaded in by this page.
+    // `salonContentInput.locations` below is UNREDACTED on purpose: it's raw
+    // ingredients for `resolveSalonContent`, which applies the redaction
+    // itself, inside the shell — this is a different array from the
+    // already-redacted `locations` prop asserted above, which bypasses
+    // `resolveSalonContent` entirely and so must be redacted here, by this
+    // page, before it ever reaches `BookServiceClient`.
+    expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+      salonContentInput: expect.objectContaining({
+        content: { heroImageUrl: null, specialtyLine: null, bio: null },
+        locations: expect.arrayContaining([
+          expect.objectContaining({ id: 'loc-private', address: PRIVATE_FULL_ADDRESS }),
+        ]),
+      }),
+    }));
   });
 });

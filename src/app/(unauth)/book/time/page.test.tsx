@@ -391,7 +391,7 @@ describe('BookTimePage', () => {
       shouldAutoSkipTech: false,
     });
 
-    await BookTimePage({
+    const element = await BookTimePage({
       searchParams: {
         salonSlug: 'salon-a',
         baseServiceId: 'svc_1',
@@ -402,6 +402,18 @@ describe('BookTimePage', () => {
     expect(resolvePublicBookingTechnicianContext).toHaveBeenCalledWith(expect.objectContaining({
       clientPhone: '+14165550123',
     }));
+
+    // Post-launch privacy fix ("Blocker 2"): this page mounts
+    // `PublicSalonPageShell` with NO `salonContentInput`, so the shell's own
+    // `locationDisplayMode` resolution is the only thing protecting a
+    // salon-level address on this route. An ordinary visitor here must be
+    // threaded through as `isPreviewingDraftConfig: false` so the shell
+    // resolves live, not draft. `BookTimePage` returns the
+    // `<PublicSalonPageShell>` element directly, so its own `.props` can be
+    // inspected without rendering.
+    expect((element as unknown as { props: Record<string, unknown> }).props).toMatchObject({
+      isPreviewingDraftConfig: false,
+    });
   });
 });
 
@@ -485,5 +497,11 @@ describe('BookTimePage owner-preview gate', () => {
 
     expect(element).toBeTruthy();
     expect(resolvePublicBookingTechnicianContext).toHaveBeenCalled();
+    // Mirrors the visitor-side assertion in the describe block above: an
+    // authorized owner preview must forward `isPreviewingDraftConfig: true`
+    // so the shell resolves the DRAFT `locationDisplayMode` side, not live.
+    expect((element as unknown as { props: Record<string, unknown> }).props).toMatchObject({
+      isPreviewingDraftConfig: true,
+    });
   });
 });
