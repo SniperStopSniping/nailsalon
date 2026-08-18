@@ -197,6 +197,35 @@ describe('tenant isolation', () => {
     expect(applied).toBe(false);
   });
 
+  it('does not let a public id authorize a write', async () => {
+    const photo = await addPhoto(SALON_A, 'nnnnnnnnnnnnnnn1');
+    const rows = await media.listPortfolioPhotos(SALON_A);
+    const publicId = rows[0]!.publicId;
+
+    // Public ids address a photo on public surfaces; they are not credentials.
+    // Every mutation keys on the internal id, so passing a public id where an
+    // id is expected must match nothing rather than quietly succeeding.
+    expect(publicId).not.toBe(photo.id);
+
+    const updated = await media.updatePortfolioPhotos({
+      salonId: SALON_A,
+      photoIds: [publicId],
+      patch: { serviceFamily: 'acrylic' },
+    });
+
+    expect(updated).toBe(0);
+
+    const cropped = await media.setPortfolioPhotoCrop({
+      salonId: SALON_A,
+      photoId: publicId,
+      crop: { cropX: 0, cropY: 0, cropWidth: 1, cropHeight: 1, focalX: null, focalY: null },
+    });
+
+    expect(cropped).toBe(false);
+    expect(await media.deletePortfolioPhoto({ salonId: SALON_A, photoId: publicId })).toBeNull();
+    expect(await limits.countStoredPortfolioPhotos(SALON_A)).toBe(1);
+  });
+
   it('does not let one salon reorder another salon’s photos', async () => {
     const victim = await addPhoto(SALON_B, 'jjjjjjjjjjjjjjj1');
 
