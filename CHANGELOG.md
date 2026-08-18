@@ -1,3 +1,10 @@
+# [1.71.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.70.0...v1.71.0) (2026-08-18)
+
+
+### Features
+
+* **catalog:** add dark L1 catalog schema foundation ([b9854a9](https://github.com/SniperStopSniping/nailsalon/commit/b9854a9eb551972e0600886fb14d22c299d2ce1a))
+
 # [1.70.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.69.1...v1.70.0) (2026-08-18)
 
 
