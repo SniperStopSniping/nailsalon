@@ -29,7 +29,9 @@ const EMPTY_OWNER_PREVIEW: SalonOwnerPreviewState = {
  * output (`BOOKING_PAGE_CONFIG_SIDE_DEFAULTS`). That module (`import { db }
  * from '@/libs/DB'`, which is `import 'server-only'`) can never be imported
  * for a runtime value from this 'use client' file — only `import type` is
- * safe. Keep this literal in sync with `createDefaultSide()` if that
+ * safe, same rule `BookServiceClient.tsx`'s `QUICK_BOOK_SECTION_ORDER_FALLBACK`
+ * and `admin/booking-page/page.tsx`'s option lists already follow for the
+ * same reason. Keep this literal in sync with `createDefaultSide()` if that
  * ever changes — nothing reads `bookingPage` off an un-provisioned context
  * yet (see the field's own doc comment below), so this is purely a safe,
  * always-renderable placeholder.

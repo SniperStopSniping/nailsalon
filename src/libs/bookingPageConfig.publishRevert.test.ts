@@ -146,4 +146,68 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
     await expect(publishBookingPageConfig('does-not-exist')).resolves.toBeNull();
     await expect(revertBookingPageDraft('does-not-exist')).resolves.toBeNull();
   });
+
+  describe('PR 6: layout switch resets sectionOrder to the new layout default', () => {
+    const LAYOUT_SWITCH_SALON_ID = 'salon_booking_page_layout_switch';
+
+    beforeAll(async () => {
+      await db.insert(schema.salonSchema).values({
+        id: LAYOUT_SWITCH_SALON_ID,
+        name: 'Layout Switch Salon',
+        slug: 'layout-switch-salon',
+        settings: {},
+      });
+    });
+
+    it('a bare `{ layout }` patch resets sectionOrder to the new layout default, discarding the previous layout\'s order', async () => {
+      // Establish a real, customized quick_book order first — a stored,
+      // non-empty array that would otherwise never hit validateSectionOrder's
+      // "empty input" fallback.
+      const withHiddenPolicies = await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, {
+        layout: 'quick_book',
+        hiddenSections: ['policies'],
+      });
+
+      expect(withHiddenPolicies?.draft.hiddenSections).toEqual(['policies']);
+
+      const switched = await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, { layout: 'editorial' });
+
+      expect(switched?.draft.layout).toBe('editorial');
+      expect(switched?.draft.sectionOrder).toEqual([
+        'salonProfile',
+        'featuredServices',
+        'technicianProfile',
+        'portfolio',
+        'reviews',
+        'serviceMenu',
+        'hoursLocation',
+        'policies',
+        'bookingCta',
+      ]);
+      // hiddenSections resets too — 'policies' was a quick_book-era
+      // customization, not something the new layout inherits blindly.
+      expect(switched?.draft.hiddenSections).toEqual([]);
+    });
+
+    it('a patch that sets layout AND an explicit sectionOrder keeps that explicit order — the reset never overrides it', async () => {
+      const result = await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, {
+        layout: 'quick_book',
+        sectionOrder: ['salonProfile', 'serviceMenu', 'bookingCta'],
+      });
+
+      expect(result?.draft.layout).toBe('quick_book');
+      expect(result?.draft.sectionOrder).toEqual(['salonProfile', 'serviceMenu', 'bookingCta']);
+    });
+
+    it('re-patching the SAME layout leaves the current sectionOrder untouched (no reset when layout does not actually change)', async () => {
+      const before = await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, { businessMode: 'solo' });
+
+      expect(before?.draft.layout).toBe('quick_book');
+      expect(before?.draft.sectionOrder).toEqual(['salonProfile', 'serviceMenu', 'bookingCta']);
+
+      const after = await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, { layout: 'quick_book' });
+
+      expect(after?.draft.sectionOrder).toEqual(['salonProfile', 'serviceMenu', 'bookingCta']);
+    });
+  });
 });

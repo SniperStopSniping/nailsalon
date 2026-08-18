@@ -94,7 +94,7 @@ describe('BookingPageOwnerSurface', () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
   });
 
-  it('renders the layout picker with only Quick Book selectable, the rest disabled as coming soon', async () => {
+  it('renders the layout picker with Quick Book and Editorial Luxury selectable, the rest disabled as coming soon (PR 6)', async () => {
     render(<BookingPageOwnerSurface />);
 
     const quickBook = await screen.findByTestId('layout-option-quick_book');
@@ -102,7 +102,13 @@ describe('BookingPageOwnerSurface', () => {
     expect(quickBook).toBeEnabled();
     expect(quickBook).toHaveAttribute('aria-pressed', 'true');
 
-    for (const id of ['editorial', 'tech_profile', 'portfolio', 'catalogue']) {
+    const editorial = screen.getByTestId('layout-option-editorial');
+
+    expect(editorial).toBeEnabled();
+    expect(editorial).toHaveAttribute('aria-pressed', 'false');
+    expect(within(editorial).queryByText('Coming soon')).not.toBeInTheDocument();
+
+    for (const id of ['tech_profile', 'portfolio', 'catalogue']) {
       const option = screen.getByTestId(`layout-option-${id}`);
 
       expect(option).toBeDisabled();
@@ -110,11 +116,25 @@ describe('BookingPageOwnerSurface', () => {
     }
   });
 
-  it('does not PATCH when a disabled (unimplemented) layout option is clicked', async () => {
+  it('PATCHes layout when Editorial Luxury is selected (PR 6: no longer a disabled option)', async () => {
     render(<BookingPageOwnerSurface />);
     const editorial = await screen.findByTestId('layout-option-editorial');
 
     fireEvent.click(editorial);
+
+    await waitFor(() => {
+      const patchCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH');
+
+      expect(patchCalls).toHaveLength(1);
+      expect(JSON.parse(String(patchCalls[0]?.[1]?.body))).toEqual({ config: { layout: 'editorial' } });
+    });
+  });
+
+  it('does not PATCH when a disabled (unimplemented) layout option is clicked', async () => {
+    render(<BookingPageOwnerSurface />);
+    const techProfile = await screen.findByTestId('layout-option-tech_profile');
+
+    fireEvent.click(techProfile);
 
     // Only the initial GET calls (booking-page + auth/me) should have fired.
     await waitFor(() => {

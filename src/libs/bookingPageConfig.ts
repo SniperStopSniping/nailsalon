@@ -166,7 +166,36 @@ const DEFAULT_SECTION_ORDER: readonly SectionId[] = [
   'bookingCta',
 ];
 
-function layoutDefaultSectionOrder(_layout: BookingPageLayout): SectionId[] {
+/**
+ * Editorial's own default section order (Luster UI/UX plan rev 3, PR 6,
+ * section 6 wireframe): hero/profile image (with fallback to the Quick Book
+ * identity band — a rendering-time decision, not a config one) → featured
+ * services near the top → About the tech → portfolio/reviews (registered
+ * here, not omitted from the order, so PR 10 only has to add data — both
+ * always resolve to omitted today via `canRender`, since
+ * `SalonContent.proof` is always empty until then) → the SAME serviceMenu
+ * engine block Quick Book uses, anchored for Skip-to-services → Visit
+ * (hoursLocation) → policies → bookingCta (symbolic placement only — the
+ * actual sticky mobile CTA hands off to the existing sticky Continue bar and
+ * is rendered outside the section-order flow entirely, same as Quick Book's
+ * sticky Continue bar; see BookServiceClient.tsx).
+ */
+const EDITORIAL_SECTION_ORDER: readonly SectionId[] = [
+  'salonProfile',
+  'featuredServices',
+  'technicianProfile',
+  'portfolio',
+  'reviews',
+  'serviceMenu',
+  'hoursLocation',
+  'policies',
+  'bookingCta',
+];
+
+function layoutDefaultSectionOrder(layout: BookingPageLayout): SectionId[] {
+  if (layout === 'editorial') {
+    return [...EDITORIAL_SECTION_ORDER];
+  }
   return [...DEFAULT_SECTION_ORDER];
 }
 
@@ -418,11 +447,28 @@ function resolveSide(rawSide: unknown): BookingPageConfigSide {
     source.businessMode,
     BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.businessMode,
   );
-  const startMode = resolveWithDefault(
+  const resolvedStartMode = resolveWithDefault(
     startModeSchema,
     source.startMode,
     BOOKING_PAGE_CONFIG_SIDE_DEFAULTS.startMode,
   );
+  /**
+   * PR 6 (Rev 3 plan section 6): "Editorial requires startMode:
+   * services_first — the config layer rejects Editorial + staff_first with
+   * a clear owner message." This resolver's whole contract is to NEVER
+   * throw (see `resolveBookingPageConfig`'s own doc comment), and a public
+   * booking page can never be allowed to misrender or crash over a stored
+   * combination — so "rejected" here means a documented, conservative
+   * fallback rather than an exception: a persisted/legacy `staff_first`
+   * value alongside `layout: 'editorial'` resolves to `services_first`
+   * instead. (The "clear owner message" half of that plan sentence belongs
+   * to the owner-surface UI, which does not yet expose a startMode picker
+   * at all — PR 7 adds business/start modes — so there is no UI path today
+   * that could even set this combination; this is a defensive resolver
+   * guarantee, not yet a user-visible rejection message.) Recorded as a
+   * conservative decision, not silently guessed at.
+   */
+  const startMode = layout === 'editorial' ? 'services_first' : resolvedStartMode;
 
   const rawOrder = Array.isArray(source.sectionOrder) ? source.sectionOrder : [];
   const rawHidden = Array.isArray(source.hiddenSections) ? source.hiddenSections : [];
@@ -645,7 +691,27 @@ export async function updateBookingPageDraft(
   if (validatedPatch.startMode !== undefined) {
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,startMode}', ${JSON.stringify(validatedPatch.startMode)}::jsonb)`;
   }
-  if (validatedPatch.sectionOrder !== undefined || validatedPatch.hiddenSections !== undefined) {
+  // PR 6 finding: a stored `sectionOrder` from the PREVIOUS layout is a
+  // valid, non-empty array of real section IDs for the layout being
+  // switched AWAY from — so validateSectionOrder's "empty → layout default"
+  // fallback never triggers on a bare `{ layout }` patch, and an owner
+  // switching from Quick Book to Editorial (or any other layout) would
+  // silently keep Quick Book's section order forever. A layout change with
+  // no explicit sectionOrder/hiddenSections in THIS patch resets both to
+  // the new layout's own default instead — the one case a caller sending
+  // only `{ layout }` could not reasonably intend otherwise. A patch that
+  // explicitly sets sectionOrder/hiddenSections alongside layout keeps full
+  // control below and is never overridden by this reset.
+  const layoutChangedWithoutExplicitOrder = validatedPatch.layout !== undefined
+    && validatedPatch.layout !== currentConfig.draft.layout
+    && validatedPatch.sectionOrder === undefined
+    && validatedPatch.hiddenSections === undefined;
+
+  if (layoutChangedWithoutExplicitOrder) {
+    const { sectionOrder, hiddenSections } = validateSectionOrder([], [], validatedPatch.layout!);
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,sectionOrder}', ${JSON.stringify(sectionOrder)}::jsonb)`;
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,hiddenSections}', ${JSON.stringify(hiddenSections)}::jsonb)`;
+  } else if (validatedPatch.sectionOrder !== undefined || validatedPatch.hiddenSections !== undefined) {
     const layout = validatedPatch.layout ?? currentConfig.draft.layout;
     const nextOrderInput = validatedPatch.sectionOrder ?? currentConfig.draft.sectionOrder;
     const nextHiddenInput = validatedPatch.hiddenSections ?? currentConfig.draft.hiddenSections;
