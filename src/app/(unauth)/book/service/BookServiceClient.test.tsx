@@ -235,6 +235,23 @@ vi.mock('@/libs/haptics', () => ({
   triggerHaptic: vi.fn(),
 }));
 
+// This file renders the REAL `PublicSalonPageShell`, which now resolves
+// `bookingPageContent` itself (post-launch privacy fix). That module starts
+// with `import 'server-only'` (transitively `@/libs/DB`) — mocked here for
+// the same reason `book/service/page.test.tsx` mocks it, so this
+// component-level test never touches the real DB module. The mocked
+// `SalonProvider` below discards `salonContent` entirely (its own `useSalon`
+// stub never exposes it), so the exact return value here is inert for every
+// assertion in this file — only its presence (preventing the real,
+// DB-importing module from loading) matters.
+vi.mock('@/libs/bookingPageContent', () => ({
+  resolveBookingPageContent: vi.fn(() => ({
+    version: 1,
+    draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
+    live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
+  })),
+}));
+
 vi.mock('@/providers/SalonProvider', () => ({
   SalonProvider: ({
     bookingExperience,

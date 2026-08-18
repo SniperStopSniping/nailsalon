@@ -270,6 +270,7 @@ export default async function BookServicePage({
       salon={context.salon}
       bookingPage={activeBookingPageSide}
       ownerPreview={ownerPreviewState}
+      isPreviewingDraftConfig={previewGate.isPreviewingDraftConfig}
       salonContentInput={{
         technicians: dbTechnicians,
         services,
@@ -280,7 +281,6 @@ export default async function BookServicePage({
           heroImageUrl: activeBookingPageContentSide.heroImageUrl,
           specialtyLine: activeBookingPageContentSide.specialtyLine,
           bio: activeBookingPageContentSide.bio,
-          locationDisplayMode: activeBookingPageContentSide.locationDisplayMode,
         },
       }}
       previewBannerVariant={previewBannerVariant}

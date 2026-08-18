@@ -585,12 +585,19 @@ describe('BookServicePage owner-preview wiring', () => {
     }));
   });
 
-  it('threads the active locationDisplayMode through to salonContentInput.content unchanged (full_address)', async () => {
+  it('threads heroImageUrl/specialtyLine/bio through to salonContentInput.content, and forwards isPreviewingDraftConfig — but no longer threads locationDisplayMode itself', async () => {
+    // Post-launch privacy fix: `locationDisplayMode` moved from a
+    // per-caller-threaded value to something `PublicSalonPageShell` always
+    // resolves itself (see `PublicSalonPageShell.test.tsx`'s "salon-level
+    // address redaction" suite for the real end-to-end proof). This page no
+    // longer has any way to pass one in — asserting its absence here is a
+    // regression guard against silently reintroducing the exact
+    // caller-must-remember-to-thread-it shape of bug this fix closes.
     resolveDraftSalonAccess.mockResolvedValue({
       allowed: true,
       isPreviewingDraftSalon: false,
-      isPreviewingDraftConfig: false,
-      actorType: null,
+      isPreviewingDraftConfig: true,
+      actorType: 'owner',
     });
 
     const element = await BookServicePage({
@@ -600,8 +607,9 @@ describe('BookServicePage owner-preview wiring', () => {
     render(element);
 
     expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+      isPreviewingDraftConfig: true,
       salonContentInput: expect.objectContaining({
-        content: expect.objectContaining({ locationDisplayMode: 'full_address' }),
+        content: { heroImageUrl: null, specialtyLine: null, bio: null },
       }),
     }));
   });
@@ -755,12 +763,18 @@ describe('BookServicePage location privacy (locationDisplayMode)', () => {
       }),
     ]);
 
-    // Also threaded into salonContentInput.content, so resolveSalonContent
-    // (inside PublicSalonPageShell) redacts salonContent.place the same way
-    // for the Editorial "Visit" section and any other salonContent consumer.
+    // `content` no longer carries `locationDisplayMode` at all — that field
+    // is resolved by `PublicSalonPageShell` itself now (see
+    // `PublicSalonPageShell.test.tsx`), never threaded in by this page.
+    // `salonContentInput.locations` below is UNREDACTED on purpose: it's raw
+    // ingredients for `resolveSalonContent`, which applies the redaction
+    // itself, inside the shell — this is a different array from the
+    // already-redacted `locations` prop asserted above, which bypasses
+    // `resolveSalonContent` entirely and so must be redacted here, by this
+    // page, before it ever reaches `BookServiceClient`.
     expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
       salonContentInput: expect.objectContaining({
-        content: expect.objectContaining({ locationDisplayMode: 'city_only' }),
+        content: { heroImageUrl: null, specialtyLine: null, bio: null },
         locations: expect.arrayContaining([
           expect.objectContaining({ id: 'loc-private', address: PRIVATE_FULL_ADDRESS }),
         ]),

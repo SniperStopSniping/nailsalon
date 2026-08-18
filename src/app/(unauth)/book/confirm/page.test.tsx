@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { resolveBookingPageContent } from '@/libs/bookingPageContent';
+import { buildGoogleMapsDirectionsUrl } from '@/libs/directions';
 import type { DraftSalonGateResult } from '@/libs/ownerPreview';
 
 import BookConfirmPage from './page';
@@ -21,6 +23,7 @@ const {
   resolvePublicBookingTechnicianContext,
   resolvePublicRetentionCampaignPreview,
   bookConfirmClientSpy,
+  publicSalonPageShellSpy,
   depositAccountSnapshot,
 } = vi.hoisted(() => ({
   buildTenantRedirectPath: vi.fn((path: string | null) => path),
@@ -42,6 +45,7 @@ const {
   resolvePublicBookingTechnicianContext: vi.fn(),
   resolvePublicRetentionCampaignPreview: vi.fn(),
   bookConfirmClientSpy: vi.fn(),
+  publicSalonPageShellSpy: vi.fn(),
   depositAccountSnapshot: vi.fn(),
 }));
 
@@ -102,7 +106,23 @@ vi.mock('@/libs/bookingPageConfig', () => ({
 }));
 
 vi.mock('@/components/PublicSalonPageShell', () => ({
-  PublicSalonPageShell: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  PublicSalonPageShell: (props: { children: React.ReactNode } & Record<string, unknown>) => {
+    publicSalonPageShellSpy(props);
+    return <div>{props.children}</div>;
+  },
+}));
+
+// `@/libs/bookingPageContent` starts with `import 'server-only'`
+// (transitively `@/libs/DB`) — mocked for the same reason
+// `@/libs/bookingPageConfig` is above, so this page-level test never touches
+// the real DB module. Defaults to `full_address` on both sides; individual
+// tests below override with `mockReturnValueOnce`.
+vi.mock('@/libs/bookingPageContent', () => ({
+  resolveBookingPageContent: vi.fn(() => ({
+    version: 1,
+    draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
+    live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' },
+  })),
 }));
 
 vi.mock('@/libs/bookingFlow', () => ({
@@ -424,6 +444,275 @@ describe('BookConfirmPage directions fallback', () => {
       firstVisitDiscountPreview: null,
       campaignPromotionPreview: expect.objectContaining({ id: 'campaign_1' }),
     }));
+  });
+});
+
+// =============================================================================
+// PR 125 review finding ("Blocker 1"): `/book/confirm` is a PUBLIC,
+// pre-submit `(unauth)` route. Its own `locationSummary` (and
+// `salonDirectionsFallback`) used to be built straight from raw DB rows with
+// NO redaction, then passed to `BookConfirmClient` — reaching both the
+// on-screen "Location" row and `buildGoogleMapsDirectionsUrl()`
+// (`@/libs/directions`) regardless of the owner's `locationDisplayMode`
+// setting. Asserted against the REAL captured spy props (`bookConfirmClientSpy
+// .mock.calls`), not an inert fixture, on both branches `locationSummary` can
+// take: the primary-location branch and the salon-level fallback branch.
+// =============================================================================
+describe('BookConfirmPage location privacy (locationDisplayMode) — Blocker 1', () => {
+  const PRIVATE_STREET_ADDRESS = '999 PRIVATE HOME ROAD';
+  const PRIVATE_UNIT = 'UNIT 77';
+  const PRIVATE_POSTAL_CODE = 'A1A 1A1';
+  const PRIVATE_FULL_ADDRESS = `${PRIVATE_STREET_ADDRESS}, ${PRIVATE_UNIT}`;
+
+  function bookingPageContentReturn(liveMode: 'full_address' | 'city_only', draftMode: 'full_address' | 'city_only' = liveMode) {
+    return {
+      version: 1 as const,
+      draft: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: draftMode },
+      live: { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: liveMode },
+    };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: false,
+      isPreviewingDraftConfig: false,
+      actorType: null,
+    });
+    getPublicPageContext.mockResolvedValue({
+      appearance: null,
+      salon: {
+        id: 'salon_1',
+        slug: 'salon-a',
+        name: 'Salon A',
+        address: PRIVATE_FULL_ADDRESS,
+        city: 'Homeburg',
+        state: 'ON',
+        zipCode: PRIVATE_POSTAL_CODE,
+        bookingFlow: ['service', 'tech', 'time', 'confirm'],
+        features: {},
+        settings: null,
+      },
+    });
+    depositAccountSnapshot.mockResolvedValue({
+      chargesEnabled: true,
+      revokedAt: null,
+      lastSyncedAt: new Date('2026-01-01T00:00:00.000Z'),
+      livemode: false,
+    });
+    checkSalonStatus.mockResolvedValue({});
+    checkFeatureEnabled.mockResolvedValue({});
+    getSalonById.mockResolvedValue({ id: 'salon_1', settings: null });
+    isRewardsEnabled.mockResolvedValue(true);
+    isSmsEnabled.mockResolvedValue(true);
+    getClientSession.mockResolvedValue(null);
+    getLocationById.mockResolvedValue(null);
+    resolvePublicRetentionCampaignPreview.mockResolvedValue({ status: 'none', preview: null, message: null });
+    resolvePublicBookingTechnicianContext.mockResolvedValue({
+      resolvedSelection: {
+        mode: 'legacy',
+        baseServiceId: null,
+        selectedAddOns: [],
+        requestedServices: [{ id: 'srv_1', name: 'BIAB Short', price: 6500, durationMinutes: 75 }],
+        services: [{
+          id: 'srv_1',
+          name: 'BIAB Short',
+          durationMinutes: 75,
+          priceCents: 6500,
+          category: 'builder_gel',
+          descriptionItems: [],
+          priceDisplayText: null,
+          resolvedIntroPriceLabel: null,
+        }],
+        addOns: [],
+        subtotalBeforeDiscountCents: 6500,
+        discountAmountCents: 0,
+        totalPriceCents: 6500,
+        firstVisitDiscountPreview: null,
+        visibleDurationMinutes: 75,
+        blockedDurationMinutes: 85,
+        bufferMinutes: 10,
+      },
+      activeTechnicians: [],
+      compatibleTechnicians: [],
+      compatibleCount: 0,
+      compatibleTechnicianIds: [],
+      soleCompatibleTechnician: null,
+      requestedTechnicianId: null,
+      hasValidExplicitTechnician: false,
+      validExplicitTechnician: null,
+      effectiveTechnicianId: null,
+      effectiveTechnician: null,
+      effectiveTechnicianSelectionSource: null,
+      shouldAutoSkipTech: false,
+    });
+  });
+
+  async function renderAndCaptureLocation() {
+    const element = await BookConfirmPage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        serviceIds: 'srv_1',
+        techId: 'any',
+        date: '2026-03-20',
+        time: '10:00',
+      },
+    });
+    render(element);
+    const props = bookConfirmClientSpy.mock.calls.at(-1)![0] as Record<string, unknown>;
+    return props.location as { id: string; name: string; address: string | null; city: string | null; state: string | null; zipCode: string | null };
+  }
+
+  describe('primary-location branch (resolvedLocation)', () => {
+    beforeEach(() => {
+      getPrimaryLocation.mockResolvedValue({
+        id: 'loc_primary',
+        name: 'Home Studio',
+        address: PRIVATE_FULL_ADDRESS,
+        city: 'Homeburg',
+        state: 'ON',
+        zipCode: PRIVATE_POSTAL_CODE,
+      });
+    });
+
+    it('full_address (default/control) passes the exact address through unredacted — proves the city_only assertion below is not vacuous', async () => {
+      const location = await renderAndCaptureLocation();
+
+      expect(location).toEqual({
+        id: 'loc_primary',
+        name: 'Home Studio',
+        address: PRIVATE_FULL_ADDRESS,
+        city: 'Homeburg',
+        state: 'ON',
+        zipCode: PRIVATE_POSTAL_CODE,
+      });
+
+      // Non-vacuous proof the directions URL carries the full address today.
+      const directionsUrl = buildGoogleMapsDirectionsUrl(location);
+
+      expect(directionsUrl).toContain(encodeURIComponent(PRIVATE_STREET_ADDRESS));
+    });
+
+    it('city_only redacts address/zipCode from the captured BookConfirmClient location prop, keeping city/name', async () => {
+      vi.mocked(resolveBookingPageContent).mockReturnValueOnce(bookingPageContentReturn('city_only'));
+
+      const location = await renderAndCaptureLocation();
+      const serialized = JSON.stringify(location);
+
+      expect(serialized).not.toContain(PRIVATE_STREET_ADDRESS);
+      expect(serialized).not.toContain(PRIVATE_UNIT);
+      expect(serialized).not.toContain(PRIVATE_POSTAL_CODE);
+
+      expect(location).toEqual({
+        id: 'loc_primary',
+        name: 'Home Studio',
+        address: null,
+        city: 'Homeburg',
+        state: 'ON',
+        zipCode: null,
+      });
+
+      // The directions/Google-Maps URL cannot reconstruct the street address
+      // either — it's built downstream from this same (already redacted)
+      // object, so with address/zipCode null only city/state remain.
+      const directionsUrl = buildGoogleMapsDirectionsUrl(location);
+
+      expect(directionsUrl).not.toContain(encodeURIComponent(PRIVATE_STREET_ADDRESS));
+      expect(directionsUrl).not.toContain(encodeURIComponent(PRIVATE_UNIT));
+      expect(directionsUrl).not.toContain(encodeURIComponent(PRIVATE_POSTAL_CODE));
+      expect(directionsUrl).toContain(encodeURIComponent('Homeburg'));
+    });
+  });
+
+  describe('salon-level fallback branch (salonDirectionsFallback, no location record)', () => {
+    beforeEach(() => {
+      getPrimaryLocation.mockResolvedValue(null);
+    });
+
+    it('full_address (default/control) passes the exact salon address through unredacted', async () => {
+      const location = await renderAndCaptureLocation();
+
+      expect(location).toEqual({
+        id: 'salon_salon_1',
+        name: 'Salon A',
+        address: PRIVATE_FULL_ADDRESS,
+        city: 'Homeburg',
+        state: 'ON',
+        zipCode: PRIVATE_POSTAL_CODE,
+      });
+    });
+
+    it('city_only redacts the salon-level fallback address/zipCode too', async () => {
+      vi.mocked(resolveBookingPageContent).mockReturnValueOnce(bookingPageContentReturn('city_only'));
+
+      const location = await renderAndCaptureLocation();
+      const serialized = JSON.stringify(location);
+
+      expect(serialized).not.toContain(PRIVATE_STREET_ADDRESS);
+      expect(serialized).not.toContain(PRIVATE_UNIT);
+      expect(serialized).not.toContain(PRIVATE_POSTAL_CODE);
+
+      expect(location).toEqual({
+        id: 'salon_salon_1',
+        name: 'Salon A',
+        address: null,
+        city: 'Homeburg',
+        state: 'ON',
+        zipCode: null,
+      });
+    });
+  });
+
+  describe('draft/live gate (mirrors book/service/page.tsx)', () => {
+    beforeEach(() => {
+      getPrimaryLocation.mockResolvedValue({
+        id: 'loc_primary',
+        name: 'Home Studio',
+        address: PRIVATE_FULL_ADDRESS,
+        city: 'Homeburg',
+        state: 'ON',
+        zipCode: PRIVATE_POSTAL_CODE,
+      });
+    });
+
+    it('an authorized owner preview (isPreviewingDraftConfig=true) redacts using the DRAFT side even while live is full_address', async () => {
+      resolveDraftSalonAccess.mockResolvedValue({
+        allowed: true,
+        isPreviewingDraftSalon: false,
+        isPreviewingDraftConfig: true,
+        actorType: 'owner',
+      });
+      vi.mocked(resolveBookingPageContent).mockReturnValueOnce(
+        bookingPageContentReturn('full_address', 'city_only'),
+      );
+
+      const location = await renderAndCaptureLocation();
+
+      expect(location.address).toBeNull();
+      expect(location.zipCode).toBeNull();
+      // Also verifies this page forwards the SAME gate value to
+      // `PublicSalonPageShell` (Blocker 2) that it uses for its own
+      // `locationSummary` redaction (Blocker 1) above — one decision, two
+      // consumers, never a second independent one.
+      expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+        isPreviewingDraftConfig: true,
+      }));
+    });
+
+    it('a public visitor (isPreviewingDraftConfig=false) reads LIVE — an in-progress full_address draft never leaks past a city_only live setting', async () => {
+      vi.mocked(resolveBookingPageContent).mockReturnValueOnce(
+        bookingPageContentReturn('city_only', 'full_address'),
+      );
+
+      const location = await renderAndCaptureLocation();
+
+      expect(location.address).toBeNull();
+      expect(location.zipCode).toBeNull();
+      expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+        isPreviewingDraftConfig: false,
+      }));
+    });
   });
 });
 
