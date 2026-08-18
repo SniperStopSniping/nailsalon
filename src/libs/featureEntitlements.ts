@@ -285,6 +285,7 @@ export const FEATURE_DEFAULTS: {
   staff: { scheduleOverrides: boolean; timeOff: boolean };
   clients: { clientProfiles: boolean; clientHistory: boolean };
   social: { photoUploads: boolean };
+  catalog: { variantsV1: boolean; addOnGroupsV1: boolean; bookingModesV1: boolean };
   marketing: { smsReminders: boolean; referrals: boolean; rewards: boolean };
   money: { staffEarnings: boolean; deposits: boolean };
   analytics: { dashboard: boolean; utilization: boolean };
@@ -302,6 +303,9 @@ export const FEATURE_DEFAULTS: {
   staff: { scheduleOverrides: true, timeOff: true },
   clients: { clientProfiles: true, clientHistory: true },
   social: { photoUploads: true },
+  // Luster L1 catalog domain — dark by default on every tier. Nothing reads
+  // these until the behaviour they gate is built and separately enabled.
+  catalog: { variantsV1: false, addOnGroupsV1: false, bookingModesV1: false },
   marketing: { smsReminders: false, referrals: false, rewards: false },
   money: { staffEarnings: false, deposits: false },
   analytics: { dashboard: false, utilization: false },

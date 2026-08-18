@@ -20,6 +20,20 @@ export const OPTIONAL_SALON_FEATURES = [
   { key: 'staffEarnings', group: 'money', nestedKey: 'staffEarnings', label: 'Staff earnings', description: 'Technician revenue and earnings views' },
   { key: 'clientFlags', group: 'controls', nestedKey: 'clientFlags', label: 'Client flags', description: 'Private risk and service notes' },
   { key: 'clientBlocking', group: 'controls', nestedKey: 'clientBlocking', label: 'Client blocking', description: 'Prevent blocked clients from booking' },
+  // Luster L1 catalog domain (migration 0072). Registered so the schema is
+  // addressable and the keys are visible to Super Admin, but dark: they are
+  // deliberately absent from every preset in applySalonFeaturePreset below,
+  // so no preset — including 'all_available' — can switch them on by accident.
+  { key: 'catalogVariantsV1', group: 'catalog', nestedKey: 'variantsV1', label: 'Service variants (L1)', description: 'Parent services with labelled variants — not yet built' },
+  { key: 'catalogAddOnGroupsV1', group: 'catalog', nestedKey: 'addOnGroupsV1', label: 'Add-on groups (L1)', description: 'Grouped add-on selection rules — not yet built' },
+  { key: 'catalogBookingModesV1', group: 'catalog', nestedKey: 'bookingModesV1', label: 'Booking modes (L1)', description: 'Guided selection and request/consultation confirmation — not yet built' },
+] as const;
+
+/** Dark L1 catalog keys. No preset may enable these. */
+export const DARK_CATALOG_FEATURE_KEYS = [
+  'catalogVariantsV1',
+  'catalogAddOnGroupsV1',
+  'catalogBookingModesV1',
 ] as const;
 
 export type OptionalSalonFeatureKey = typeof OPTIONAL_SALON_FEATURES[number]['key'];
@@ -50,8 +64,11 @@ export function applySalonFeaturePreset(
     (current, definition) => setOptionalSalonFeature(
       current,
       definition.key,
-      preset === 'all_available'
-      || (preset === 'pro' && ['analyticsDashboard', 'smsReminders', 'clientFlags', 'clientBlocking'].includes(definition.key)),
+      !(DARK_CATALOG_FEATURE_KEYS as readonly string[]).includes(definition.key)
+      && (
+        preset === 'all_available'
+        || (preset === 'pro' && ['analyticsDashboard', 'smsReminders', 'clientFlags', 'clientBlocking'].includes(definition.key))
+      ),
     ),
     features ?? {},
   );

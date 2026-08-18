@@ -68,6 +68,16 @@ export type SalonFeatures = {
     clientProfiles?: boolean; // default: true
     clientHistory?: boolean; // default: true
   };
+  /**
+   * Luster L1 catalog domain. All keys ship OFF and gate features that are
+   * schema-only until a later PR builds their behaviour; an absent group
+   * resolves to false, so omission and explicit `false` mean the same thing.
+   */
+  catalog?: {
+    variantsV1?: boolean; // default: false
+    addOnGroupsV1?: boolean; // default: false
+    bookingModesV1?: boolean; // default: false
+  };
   social?: {
     photoUploads?: boolean; // default: TRUE (core - Step 14/15 needs this)
   };
