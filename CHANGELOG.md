@@ -1,3 +1,16 @@
+# [1.73.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.72.0...v1.73.0) (2026-08-18)
+
+
+### Bug Fixes
+
+* **presentation:** empty Visit frame, policy visibility parity, salonProfile floor ([95f226b](https://github.com/SniperStopSniping/nailsalon/commit/95f226b8280e165d8cc7dda8313c8b5108e3a114))
+* **privacy:** redact salon phone under city_only location display mode ([8d74f2f](https://github.com/SniperStopSniping/nailsalon/commit/8d74f2fa75f56355b498bfdcfa0c1b8373b4c494))
+
+
+### Features
+
+* **onboarding:** split salon creation from publication ([0e80f46](https://github.com/SniperStopSniping/nailsalon/commit/0e80f4699b3810d463f5a5a6ff0964ccf245d904))
+
 # [1.72.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.71.0...v1.72.0) (2026-08-18)
 
 
