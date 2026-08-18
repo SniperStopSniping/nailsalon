@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertTriangle, Check, ImagePlus, Loader2, Trash2 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   ASSIGNABLE_DISCOVER_NAIL_LENGTHS,
@@ -183,6 +183,110 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
     [load, salonSlug],
   );
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [rightsConfirmed, setRightsConfirmed] = useState(false);
+  const [uploading, setUploading] = useState(false);
+
+  /**
+   * Presign → upload to Cloudinary → finalize.
+   *
+   * The browser never picks the public id and never talks to our database:
+   * it receives a signed, app-scoped target, and the server re-derives every
+   * fact about the file from Cloudinary's own decoded metadata at finalize.
+   * Publication rights are confirmed before the upload is authorized, and the
+   * durable record is written with the row.
+   */
+  const uploadFiles = useCallback(
+    async (files: FileList) => {
+      if (!salonSlug || !rightsConfirmed) {
+        return;
+      }
+
+      setUploading(true);
+      setError(null);
+
+      try {
+        for (const file of Array.from(files)) {
+          const presignResponse = await fetch('/api/admin/portfolio/upload', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              salonSlug,
+              contentType: file.type,
+              fileSize: file.size,
+              publicationRightsConfirmed: true,
+            }),
+          });
+
+          const presign = (await presignResponse.json()) as {
+            upload?: Record<string, string | number | boolean>;
+            error?: { message?: string };
+          };
+
+          if (!presignResponse.ok || !presign.upload) {
+            setError(presign.error?.message ?? 'That photo could not be uploaded.');
+            break;
+          }
+
+          const upload = presign.upload;
+          const form = new FormData();
+
+          form.append('file', file);
+          form.append('api_key', String(upload.apiKey));
+          form.append('timestamp', String(upload.timestamp));
+          form.append('signature', String(upload.signature));
+          form.append('upload_preset', String(upload.uploadPreset));
+          form.append('public_id', String(upload.publicId));
+          form.append('overwrite', 'false');
+          form.append('type', 'upload');
+          form.append('tags', String(upload.tags));
+          form.append('context', String(upload.context));
+
+          const cloudinaryResponse = await fetch(String(upload.uploadUrl), {
+            method: 'POST',
+            body: form,
+          });
+
+          if (!cloudinaryResponse.ok) {
+            setError('That photo could not be uploaded.');
+            break;
+          }
+
+          const asset = (await cloudinaryResponse.json()) as { asset_id?: string };
+
+          const finalizeResponse = await fetch('/api/admin/portfolio/upload', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              salonSlug,
+              assetId: asset.asset_id,
+              publicId: upload.publicId,
+              finalizeToken: upload.finalizeToken,
+              timestamp: upload.timestamp,
+              publicationRightsConfirmed: true,
+            }),
+          });
+
+          if (!finalizeResponse.ok) {
+            const payload = (await finalizeResponse.json()) as { error?: { message?: string } };
+
+            setError(payload.error?.message ?? 'That photo could not be saved.');
+            break;
+          }
+        }
+
+        await load();
+      } finally {
+        setUploading(false);
+
+        if (fileInputRef.current) {
+          fileInputRef.current.value = '';
+        }
+      }
+    },
+    [load, rightsConfirmed, salonSlug],
+  );
+
   const atLimit = useMemo(
     () => Boolean(data && data.usage.max !== UNLIMITED && data.usage.remaining <= 0),
     [data],
@@ -249,6 +353,55 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                 portfolio photos on your current plan. Upgrade to add more of your work.
               </div>
             )}
+
+            <section className="mb-4 rounded-2xl border border-gray-200 bg-white p-4">
+              <h3 className="text-[13px] font-semibold uppercase tracking-wide text-gray-500">
+                Add photos
+              </h3>
+
+              <label className="mt-3 flex items-start gap-3 text-[15px] text-gray-800">
+                <input
+                  type="checkbox"
+                  checked={rightsConfirmed}
+                  onChange={event => setRightsConfirmed(event.target.checked)}
+                  className="mt-1 size-4"
+                />
+                <span>
+                  I confirm I have permission to publicly display this image.
+                </span>
+              </label>
+
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                multiple
+                className="sr-only"
+                onChange={(event) => {
+                  if (event.target.files?.length) {
+                    void uploadFiles(event.target.files);
+                  }
+                }}
+              />
+
+              <button
+                type="button"
+                disabled={!rightsConfirmed || uploading || atLimit}
+                onClick={() => fileInputRef.current?.click()}
+                className="mt-3 flex items-center gap-2 rounded-full bg-gray-900 px-4 py-2 text-[15px] text-white disabled:opacity-40"
+              >
+                {uploading
+                  ? <Loader2 className="size-4 animate-spin" aria-hidden="true" />
+                  : <ImagePlus className="size-4" aria-hidden="true" />}
+                {uploading ? 'Uploading…' : 'Choose photos'}
+              </button>
+
+              {!rightsConfirmed && (
+                <p className="mt-2 text-[13px] text-gray-500">
+                  Confirm the permission above to add photos.
+                </p>
+              )}
+            </section>
 
             <section className="mb-4 rounded-2xl border border-gray-200 bg-white p-4">
               <h3 className="text-[13px] font-semibold uppercase tracking-wide text-gray-500">
