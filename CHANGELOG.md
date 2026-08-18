@@ -1,3 +1,18 @@
+# [1.70.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.69.1...v1.70.0) (2026-08-18)
+
+
+### Bug Fixes
+
+* **discover:** register the portfolio foreign-key edges in the preview contract ([4be35f1](https://github.com/SniperStopSniping/nailsalon/commit/4be35f13e57b41c13fe3c226cd6ba0cfe7d1e17c))
+
+
+### Features
+
+* **discover:** add canonical salon portfolio foundation and photo limits ([98b6b86](https://github.com/SniperStopSniping/nailsalon/commit/98b6b86c46788b0e3a6e88e4fe5cf39e4eec34c9)), closes [#116](https://github.com/SniperStopSniping/nailsalon/issues/116)
+* **discover:** add owner portfolio management API and admin surface ([c759741](https://github.com/SniperStopSniping/nailsalon/commit/c759741daf10faa55d8867594d5151d1040357ad))
+* **discover:** apply the owner-ratified portfolio plan allowances ([3e8becd](https://github.com/SniperStopSniping/nailsalon/commit/3e8becdb4aa2d49961294702e6151cedb4f9d270))
+* **discover:** wire portfolio uploads in the owner surface ([1fdc835](https://github.com/SniperStopSniping/nailsalon/commit/1fdc8359743949cc68346c52d8998536d3cdcde8))
+
 ## [1.69.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.69.0...v1.69.1) (2026-08-18)
 
 
