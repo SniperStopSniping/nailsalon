@@ -1079,6 +1079,12 @@ function AdminDashboardContent() {
       router.push(
         `/${locale}/admin/luster${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
       );
+    } else if (appId === 'booking-page') {
+      // Luster UI/UX plan rev 3, PR 5: a full navigation like 'luster', not a
+      // ?app= modal — the owner Booking Page surface is its own route.
+      router.push(
+        `/${locale}/admin/booking-page${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
+      );
     } else if (appId === 'schedule') {
       setShowScheduleCalendar(true);
     } else {
