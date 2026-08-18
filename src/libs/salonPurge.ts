@@ -49,8 +49,10 @@ import {
   reviewSchema,
   rewardSchema,
   salonClientSchema,
+  salonDiscoverSettingsSchema,
   salonLocationSchema,
   salonPageAppearanceSchema,
+  salonPortfolioPhotoSchema,
   salonSchema,
   salonSignupInviteSchema,
   serviceAddOnSchema,
@@ -533,6 +535,20 @@ export const SALON_PURGE_PLAN: PurgeStep[] = [
     where: (_tx, salonId) => eq(addOnSchema.salonId, salonId),
   }),
   deleteStep({
+    table: 'salon_portfolio_photo',
+    group: 'salon',
+    target: salonPortfolioPhotoSchema,
+    reason: 'salon_id cascades from salon, but cleared here so portfolio media is explicitly accounted for.',
+    where: (_tx, salonId) => eq(salonPortfolioPhotoSchema.salonId, salonId),
+  }),
+  deleteStep({
+    table: 'salon_discover_settings',
+    group: 'salon',
+    target: salonDiscoverSettingsSchema,
+    reason: 'salon_id cascades from salon, but cleared here so Discover participation is explicitly accounted for.',
+    where: (_tx, salonId) => eq(salonDiscoverSettingsSchema.salonId, salonId),
+  }),
+  deleteStep({
     table: 'salon_page_appearance',
     group: 'salon',
     target: salonPageAppearanceSchema,
@@ -672,6 +688,12 @@ export async function assertNoCrossTenantReferences(tx: PurgeTx, salonId: string
       column: 'technician_id',
       from: reviewSchema,
       where: and(ne(reviewSchema.salonId, salonId), inArray(reviewSchema.technicianId, techIds)),
+    },
+    {
+      table: 'salon_portfolio_photo',
+      column: 'technician_id',
+      from: salonPortfolioPhotoSchema,
+      where: and(ne(salonPortfolioPhotoSchema.salonId, salonId), inArray(salonPortfolioPhotoSchema.technicianId, techIds)),
     },
     {
       table: 'appointment_photo',
@@ -829,6 +851,10 @@ async function unlinkGroupReferences(tx: PurgeTx, salonId: string, groups: Purge
       .update(appointmentSchema)
       .set({ reviewFollowupSentBy: null })
       .where(and(eq(appointmentSchema.salonId, salonId), isNotNull(appointmentSchema.reviewFollowupSentBy)));
+    await tx
+      .update(salonPortfolioPhotoSchema)
+      .set({ technicianId: null })
+      .where(and(eq(salonPortfolioPhotoSchema.salonId, salonId), isNotNull(salonPortfolioPhotoSchema.technicianId)));
     await tx
       .update(appointmentPhotoSchema)
       .set({ uploadedByTechId: null })

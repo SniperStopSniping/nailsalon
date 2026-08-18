@@ -266,6 +266,11 @@ jobs:
               ba5eaf44ce96b6f217d94c71268d8261bc5bfe24) ;;
               f75af0c6fa6d6be326ffb6f1272c51ea7fa2f1fe) ;;
               e423780a1d92122518864f20b801b0302bdb42a6) ;;
+              # Discover PR1: registers salon_portfolio_photo and
+              # salon_discover_settings purge steps, the cross-tenant
+              # technician-reference check, and the technician null-out.
+              # Strictly additive over the Gate B1 postimage above.
+              a9bee33c090b68feb4b8f3c9c351bc2bf7040b56) ;;
               *)
                 echo "::error::Unauthorized change outside the reviewed salon-purge postimages."
                 printf 'actual blob: %s\n' "$salon_purge_blob"
@@ -283,6 +288,8 @@ jobs:
               migrations/0068_deposit_credit_tax_snapshots.sql) ;;
               migrations/0069_billing_credit_foundation.sql) ;;
               migrations/0070_communications_pipeline.sql) ;;
+              # Discover PR1 — portfolio foundation (docs/DISCOVER_V1_BRIEF.md).
+              migrations/0071_discover_portfolio_foundation.sql) ;;
               migrations/meta/_journal.json) ;;
               vercel.json) ;;
               *)
