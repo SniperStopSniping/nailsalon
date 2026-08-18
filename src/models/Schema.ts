@@ -202,6 +202,10 @@ export const salonSchema = pgTable(
     // Plan & Billing (Super Admin controlled)
     plan: text('plan').default('single_salon'),
     maxLocations: integer('max_locations').default(1),
+    // Per-salon Portfolio photo limit override. NULL means "use the plan
+    // default" — the same shape as `maxLocations` above, which is read as
+    // `salon.maxLocations ?? planLimit`. See `@/libs/portfolioLimits`.
+    maxPortfolioPhotos: integer('max_portfolio_photos'),
     isMultiLocationEnabled: boolean('is_multi_location_enabled').default(false),
 
     // Status (Super Admin controlled)
@@ -3127,6 +3131,13 @@ export const AUDIT_LOG_ACTIONS = [
   ...DEPOSIT_AUDIT_ACTIONS,
   'payment_health_viewed',
   'deposit_records_viewed',
+  // Luster Discover — owner portfolio operations. Appended, never reordered.
+  'portfolio_photo_created',
+  'portfolio_photos_updated',
+  'portfolio_photo_deleted',
+  'portfolio_photos_reordered',
+  'portfolio_photo_crop_updated',
+  'discover_participation_changed',
 ] as const;
 export type AuditLogAction = (typeof AUDIT_LOG_ACTIONS)[number];
 
@@ -4177,3 +4188,183 @@ export const NOTIFICATION_DELIVERY_SETTLEMENT_STATES = [
 ] as const;
 export type NotificationDeliverySettlementState
   = (typeof NOTIFICATION_DELIVERY_SETTLEMENT_STATES)[number];
+
+// =============================================================================
+// Luster Discover — Portfolio Foundation (Discover PR1)
+// =============================================================================
+//
+// This is the canonical salon-owned portfolio: fresh owner-uploaded marketing
+// media. It is deliberately SEPARATE from `appointment_photo`, which holds
+// per-appointment client before/after records keyed to a client's phone number.
+// Appointment photos are client records, not marketing assets: they are never
+// migrated, promoted, or published here, and public-display consent is never
+// inferred from them.
+//
+// Discover browsing metadata (service family + length) is NOT booking-category
+// identity. `VISIBLE_BOOKING_CATEGORIES` in `@/libs/bookingCategory` remains
+// the authority for the three main booking categories a booking surface may
+// show; these families are a separate photo-browsing dimension whose values are
+// derived from the real service catalogue (`TEMPLATE_KEY_FAMILY_PREFIXES` in
+// `@/libs/serviceImage`). See `@/libs/discoverTaxonomy`.
+
+export const discoverServiceFamilyEnum = pgEnum('discover_service_family', [
+  'gel_x',
+  'acrylic',
+  'builder_gel',
+  'hard_gel',
+  'polygel',
+  'dip_powder',
+  'manicure',
+  'pedicure',
+  'unspecified',
+]);
+
+export const discoverNailLengthEnum = pgEnum('discover_nail_length', [
+  'short',
+  'medium',
+  'long',
+  'xl',
+  'unspecified',
+]);
+
+/**
+ * Moderation state is admin-owned and separate from owner intent.
+ *
+ * - `allowed`     — no moderation action.
+ * - `discover_off` — removed from Discover surfaces only; the photo remains
+ *                    eligible for the salon's own profile grid.
+ * - `disabled`    — removed everywhere.
+ */
+export const portfolioModerationStateEnum = pgEnum('portfolio_moderation_state', [
+  'allowed',
+  'discover_off',
+  'disabled',
+]);
+export type PortfolioModerationState
+  = (typeof portfolioModerationStateEnum.enumValues)[number];
+
+export const salonPortfolioPhotoSchema = pgTable(
+  'salon_portfolio_photo',
+  {
+    id: text('id').primaryKey(),
+
+    // Stable identifier used by public-facing surfaces in later Discover PRs.
+    // Never reuse the internal id publicly, and never treat a public id as
+    // mutation authority.
+    publicId: text('public_id').notNull(),
+
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+
+    // V1 businesses have a single primary location; the association is modeled
+    // now so multi-location remains possible without a rewrite.
+    locationId: text('location_id').references(() => salonLocationSchema.id, {
+      onDelete: 'set null',
+    }),
+
+    // Optional attribution. Nulled (not cascaded) when a technician is removed,
+    // matching how `appointment_photo.uploaded_by_tech_id` is purged.
+    technicianId: text('technician_id').references(() => technicianSchema.id, {
+      onDelete: 'set null',
+    }),
+
+    // Cloudinary object reference. Managed public ids are app-generated and
+    // validated; browser-supplied values are never trusted.
+    cloudinaryPublicId: text('cloudinary_public_id').notNull(),
+    imageUrl: text('image_url').notNull(),
+    originalWidth: integer('original_width').notNull(),
+    originalHeight: integer('original_height').notNull(),
+    mimeType: text('mime_type').notNull(),
+    fileSizeBytes: integer('file_size_bytes').notNull(),
+
+    // Owner-managed ordering. Also decides which photos stay plan-eligible when
+    // an allowance shrinks, so the owner keeps control of what survives.
+    sortOrder: integer('sort_order').default(0).notNull(),
+
+    // Owner intent. These are NEVER rewritten by a plan change.
+    ownerVisible: boolean('owner_visible').default(true).notNull(),
+    discoverIncluded: boolean('discover_included').default(true).notNull(),
+
+    serviceFamily: discoverServiceFamilyEnum('service_family')
+      .default('unspecified')
+      .notNull(),
+    nailLength: discoverNailLengthEnum('nail_length').default('unspecified').notNull(),
+
+    // Normalized 4:5 crop rectangle plus focal point, all stored as fractions of
+    // the original in [0,1]. Sufficient to derive the swipe (4:5), nearby (1:1)
+    // and profile-grid variants via Cloudinary transforms without duplicating
+    // physical files.
+    cropX: numeric('crop_x', { precision: 6, scale: 5 }),
+    cropY: numeric('crop_y', { precision: 6, scale: 5 }),
+    cropWidth: numeric('crop_width', { precision: 6, scale: 5 }),
+    cropHeight: numeric('crop_height', { precision: 6, scale: 5 }),
+    focalX: numeric('focal_x', { precision: 6, scale: 5 }),
+    focalY: numeric('focal_y', { precision: 6, scale: 5 }),
+
+    altText: text('alt_text'),
+
+    moderationState: portfolioModerationStateEnum('moderation_state')
+      .default('allowed')
+      .notNull(),
+
+    // Durable publication-rights evidence. A UI checkbox is not sufficient: the
+    // confirming actor, the moment, and the exact text version are all retained
+    // so the confirmation is attributable after the fact.
+    publicationRightsConfirmedAt: timestamp('publication_rights_confirmed_at', {
+      mode: 'date',
+      withTimezone: true,
+    }).notNull(),
+    publicationRightsConfirmedBy: text('publication_rights_confirmed_by').notNull(),
+    publicationRightsVersion: text('publication_rights_version').notNull(),
+
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+    deletedAt: timestamp('deleted_at', { mode: 'date', withTimezone: true }),
+  },
+  table => ({
+    salonIdx: index('salon_portfolio_photo_salon_idx').on(table.salonId),
+    salonOrderIdx: index('salon_portfolio_photo_salon_order_idx').on(
+      table.salonId,
+      table.sortOrder,
+    ),
+    locationIdx: index('salon_portfolio_photo_location_idx').on(table.locationId),
+    technicianIdx: index('salon_portfolio_photo_technician_idx').on(table.technicianId),
+    publicIdIdx: uniqueIndex('salon_portfolio_photo_public_id_idx').on(table.publicId),
+    cloudinaryIdx: uniqueIndex('salon_portfolio_photo_cloudinary_idx').on(
+      table.cloudinaryPublicId,
+    ),
+  }),
+);
+export type SalonPortfolioPhoto = typeof salonPortfolioPhotoSchema.$inferSelect;
+
+/**
+ * Business-level Discover participation.
+ *
+ * Absent row means "not enabled" — existing businesses are opted out by
+ * default and no existing content is ever published without consent.
+ * `adminSuspendedAt` is admin-owned and independent of the owner's toggle, so
+ * suspending Discover never touches the salon's booking page or owner intent.
+ */
+export const salonDiscoverSettingsSchema = pgTable('salon_discover_settings', {
+  salonId: text('salon_id')
+    .primaryKey()
+    .references(() => salonSchema.id, { onDelete: 'cascade' }),
+  discoverEnabled: boolean('discover_enabled').default(false).notNull(),
+  adminSuspendedAt: timestamp('admin_suspended_at', { mode: 'date', withTimezone: true }),
+  adminSuspendedReason: text('admin_suspended_reason'),
+  updatedBy: text('updated_by'),
+  createdAt: timestamp('created_at', { mode: 'date', withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+    .defaultNow()
+    .$onUpdate(() => new Date())
+    .notNull(),
+});
+export type SalonDiscoverSettings = typeof salonDiscoverSettingsSchema.$inferSelect;

@@ -238,6 +238,22 @@ async function seedSalon(salonId: string, suffix: string, dayOffset: number): Pr
     reason: 'seeded',
   });
   await db.insert(schema.salonPageAppearanceSchema).values({ id: id('page'), salonId, pageName: 'home' });
+  await db.insert(schema.salonPortfolioPhotoSchema).values({
+    id: id('portfolio'),
+    publicId: id('portfolio_public'),
+    salonId,
+    technicianId: id('tech'),
+    cloudinaryPublicId: `salons/${salonId}/portfolio/portfolio_${suffix.padEnd(16, 'x')}_jpg`,
+    imageUrl: `https://res.cloudinary.com/demo/${suffix}.jpg`,
+    originalWidth: 1200,
+    originalHeight: 1500,
+    mimeType: 'image/jpeg',
+    fileSizeBytes: 2048,
+    publicationRightsConfirmedAt: new Date(),
+    publicationRightsConfirmedBy: id('admin'),
+    publicationRightsVersion: 'portfolio_publication_rights_v1',
+  });
+  await db.insert(schema.salonDiscoverSettingsSchema).values({ salonId, discoverEnabled: true });
   await db.insert(schema.adminInviteSchema).values({
     id: id('invite'),
     salonId,
