@@ -364,6 +364,8 @@ jobs:
               0068_deposit_credit_tax_snapshots) ;;
               0069_billing_credit_foundation) ;;
               0070_communications_pipeline) ;;
+              # Discover PR1 — portfolio foundation (docs/DISCOVER_V1_BRIEF.md).
+              0071_discover_portfolio_foundation) ;;
               *)
                 echo "::error::Unauthorized migration journal entries: $tag"
                 exit 1
