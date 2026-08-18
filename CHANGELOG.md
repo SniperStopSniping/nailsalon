@@ -1,3 +1,15 @@
+# [1.72.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.71.0...v1.72.0) (2026-08-18)
+
+
+### Bug Fixes
+
+* **catalog:** register migration 0073 in the preview fixture contract ([a3d91c3](https://github.com/SniperStopSniping/nailsalon/commit/a3d91c38f635f929665ae5ad4ce9d63df2a68791))
+
+
+### Features
+
+* **catalog:** add dark L1 catalog grouping, capability and rule schema ([0ed829f](https://github.com/SniperStopSniping/nailsalon/commit/0ed829fef6b887c9e1d2cb346871c3973f9955e6))
+
 # [1.71.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.70.0...v1.71.0) (2026-08-18)
 
 
