@@ -1,3 +1,17 @@
+# [1.68.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.67.0...v1.68.0) (2026-08-18)
+
+
+### Bug Fixes
+
+* **owner-preview:** single-owner PreviewBanner rendering + deny-path coverage ([ff864c8](https://github.com/SniperStopSniping/nailsalon/commit/ff864c8882661d671fa6aac1c6fe75f7d8480325))
+* **owner-preview:** thread bookingPage/ownerPreview into the real booking pages ([d424c1d](https://github.com/SniperStopSniping/nailsalon/commit/d424c1df594855480f78786d10271faced26ac46))
+* **owner-preview:** thread the draft-salon gate into the real booking pages ([88e3266](https://github.com/SniperStopSniping/nailsalon/commit/88e326661edd5a5a6e8eabdbea5cc454a8b9c6e2))
+
+
+### Features
+
+* **booking-page:** add owner Booking Page surface (PR5) ([46cbde1](https://github.com/SniperStopSniping/nailsalon/commit/46cbde1fd9efa835ad513b81ff42a89b06c82a7b))
+
 # [1.67.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.66.0...v1.67.0) (2026-08-18)
 
 
