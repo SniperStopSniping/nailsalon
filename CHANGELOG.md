@@ -1,3 +1,10 @@
+# [1.67.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.66.0...v1.67.0) (2026-08-18)
+
+
+### Features
+
+* **sections:** add SalonContent contract, section registry, and Quick Book order ([92359e2](https://github.com/SniperStopSniping/nailsalon/commit/92359e276480bca66c239b0e8f5028ca3ebf9c0f))
+
 # [1.66.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.65.0...v1.66.0) (2026-08-18)
 
 
