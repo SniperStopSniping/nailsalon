@@ -1,3 +1,4 @@
+import { normalizeDescriptionItems } from '@/libs/bookingCatalog';
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
   CATALOG_RESOLUTION_FINGERPRINT_SCHEMA_VERSION,
@@ -270,7 +271,15 @@ function buildProjectionKey(parts: {
   subjectId: string;
   targetAddOnId: string | null;
 }): string {
-  const encode = (value: string) => value.replaceAll('.', '_dot_');
+  // Backslash-escape THEN dot-escape (in that order) is an injective
+  // encoding: decoding unambiguously scans left to right, since every
+  // literal backslash in the input is doubled first, so a lone `\.` in the
+  // output can only ever mean "an escaped delimiter", never "a literal
+  // underscore-word a caller happened to type". The previous
+  // `'.' -> '_dot_'` scheme was not injective — the distinct inputs `a.b`
+  // and `a_dot_b` both encoded to `a_dot_b`, so two different rules could
+  // collide on the identical projectionKey.
+  const encode = (value: string) => value.replaceAll('\\', '\\\\').replaceAll('.', '\\.');
   return [
     'pk',
     parts.effect,
@@ -397,11 +406,33 @@ function tighten(current: number, caps: number[]): number {
   return caps.length === 0 ? current : Math.min(current, ...caps);
 }
 
+/**
+ * Static (service-subject) `max_quantity` caps, scoped to exactly one
+ * (service, add-on) pairing -- nested by serviceId then addOnId rather than
+ * a string-concatenated composite key, so two different ids can never
+ * collide into the same slot regardless of what characters they contain
+ * (ids are opaque strings here, never assumed free of any particular
+ * separator character).
+ */
+type StaticQuantityCapsByService = Map<string, Map<string, number[]>>;
+
+function addStaticQuantityCap(map: StaticQuantityCapsByService, serviceId: string, addOnId: string, cap: number): void {
+  const byAddOnId = map.get(serviceId) ?? new Map<string, number[]>();
+  const list = byAddOnId.get(addOnId) ?? [];
+  list.push(cap);
+  byAddOnId.set(addOnId, list);
+  map.set(serviceId, byAddOnId);
+}
+
+function getStaticQuantityCaps(map: StaticQuantityCapsByService, serviceId: string, addOnId: string): number[] {
+  return map.get(serviceId)?.get(addOnId) ?? [];
+}
+
 function buildBindingsForService(
   serviceId: string,
   sourceRows: ServiceAddOn[],
   addOnById: Map<string, AddOn>,
-  staticQuantityCapsByAddOnId: Map<string, number[]>,
+  staticQuantityCapsByService: StaticQuantityCapsByService,
 ): PublicServiceAddOnBinding[] {
   const usable = sourceRows.filter((row) => {
     const addOn = addOnById.get(row.addOnId);
@@ -428,7 +459,7 @@ function buildBindingsForService(
     // `bookingQuote.ts`'s `else if (quantity !== 1)` branch, which never
     // consults `maxQuantityOverride` at all for a non-`per_unit` add-on.
     const base = baseMaxQuantity(addOn.pricingType, addOn.maxQuantity ?? null, row.maxQuantityOverride ?? null);
-    const caps = staticQuantityCapsByAddOnId.get(row.addOnId) ?? [];
+    const caps = getStaticQuantityCaps(staticQuantityCapsByService, serviceId, row.addOnId);
     const effectiveMaxQuantity = tighten(base, caps);
 
     return {
@@ -447,7 +478,18 @@ export function buildPublicCatalogSnapshot(input: BuildPublicCatalogSnapshotInpu
   const serviceById = new Map(input.services.map(s => [s.id, s]));
   const addOnById = new Map(input.addOns.map(a => [a.id, a]));
 
-  const validation = validateRules(input.rules, serviceById, addOnById);
+  // The ratified evaluation order is `(priority, id)` — ascending on both,
+  // `id` breaking a tie since `catalog_rule.id` is unique. Sorted HERE, in
+  // the core, rather than trusted from the caller: a bare `db.select()` (see
+  // `catalogResolver.server.ts`) carries no ORDER BY guarantee from Postgres,
+  // and this same order is what `buildRuleProjections` emits `ruleProjections`
+  // in (embedded verbatim in `revision.canonical`) and what the auto-add
+  // firing tiebreak (`resolveCatalogSelection`) relies on — so the core must
+  // be correct regardless of the order `input.rules` arrives in, not merely
+  // "usually correct" because the SQL layer happened to sort it too.
+  const rules = [...input.rules].sort((a, b) => (a.priority - b.priority) || compareIds(a.id, b.id));
+
+  const validation = validateRules(rules, serviceById, addOnById);
   if (!validation.ok) {
     return { ok: false, failure: validation.failure };
   }
@@ -467,13 +509,21 @@ export function buildPublicCatalogSnapshot(input: BuildPublicCatalogSnapshotInpu
 
   // Static (service-conditioned) quantity ceilings: a `max_quantity` rule
   // whose SUBJECT IS THE SERVICE ITSELF is unconditionally in force whenever
-  // that service/add-on pairing is displayed, so it can be baked into the
-  // declarative snapshot. A rule whose subject is a DIFFERENT add-on is
-  // conditional on that add-on being selected — it cannot be a static fact
-  // about the pairing, so `resolveCatalogSelection` applies it dynamically
-  // from this same `ruleProjections` list instead. Both layers only ever
-  // tighten, never loosen, and are combined with `Math.min`.
-  const staticQuantityCapsByAddOnId = new Map<string, number[]>();
+  // THAT SPECIFIC service/add-on pairing is displayed, so it can be baked
+  // into the declarative snapshot. A rule whose subject is a DIFFERENT
+  // add-on is conditional on that add-on being selected — it cannot be a
+  // static fact about the pairing, so `resolveCatalogSelection` applies it
+  // dynamically from this same `ruleProjections` list instead. Both layers
+  // only ever tighten, never loosen, and are combined with `Math.min`.
+  //
+  // Keyed by (serviceId, addOnId) — NEVER by addOnId alone. A cap whose
+  // subject is svcA must apply only to svcA's binding of the target add-on,
+  // not to every OTHER service that also happens to offer it (that would
+  // wrongly tighten svcB's ceiling too — "contamination"). Per-service
+  // keying is what makes `buildBindingsForService`'s lookup below correct:
+  // it only ever reads the cap entries scoped to the service it is
+  // currently building bindings for.
+  const staticQuantityCapsByService: StaticQuantityCapsByService = new Map();
   for (const projection of ruleProjections) {
     if (
       projection.effect === 'limit_quantity'
@@ -482,9 +532,7 @@ export function buildPublicCatalogSnapshot(input: BuildPublicCatalogSnapshotInpu
       && projection.maxQuantity !== undefined
       && (projection.serviceScopeId === null || projection.serviceScopeId === projection.trigger.subjectId)
     ) {
-      const list = staticQuantityCapsByAddOnId.get(projection.targetAddOnId) ?? [];
-      list.push(projection.maxQuantity);
-      staticQuantityCapsByAddOnId.set(projection.targetAddOnId, list);
+      addStaticQuantityCap(staticQuantityCapsByService, projection.trigger.subjectId, projection.targetAddOnId, projection.maxQuantity);
     }
   }
 
@@ -541,7 +589,7 @@ export function buildPublicCatalogSnapshot(input: BuildPublicCatalogSnapshotInpu
       name: service.name,
       slug: service.slug ?? null,
       category: service.category,
-      descriptionItems: normalizeDescriptionItemsLocal(service.descriptionItems),
+      descriptionItems: normalizeDescriptionItems(service.descriptionItems),
       priceCents: service.price,
       priceDisplayText: service.priceDisplayText ?? null,
       durationMinutes: service.durationMinutes,
@@ -568,32 +616,44 @@ export function buildPublicCatalogSnapshot(input: BuildPublicCatalogSnapshotInpu
       : (kind === 'child' && parent ? bindingsByServiceId.get(parent.id) ?? [] : []);
 
     serviceAddOnBindings.push(
-      ...buildBindingsForService(service.id, sourceRows, addOnById, staticQuantityCapsByAddOnId),
+      ...buildBindingsForService(service.id, sourceRows, addOnById, staticQuantityCapsByService),
     );
   }
 
-  const addOnGroups: PublicCatalogAddOnGroup[] = input.addOnGroups
+  const sortedAddOnGroupRows = input.addOnGroups
     .filter(g => g.isActive !== false)
     .sort((a, b) => {
       const orderDiff = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
       return orderDiff !== 0 ? orderDiff : compareIds(a.id, b.id);
-    })
-    .map((group) => {
-      const bounds = addOnGroupBoundsSchema.parse({
-        minSelections: group.minSelections,
-        maxSelections: group.maxSelections,
-      });
-      return {
-        id: group.id,
-        name: group.name,
-        slug: group.slug,
-        description: group.description ?? null,
-        minSelections: bounds.minSelections,
-        maxSelections: bounds.maxSelections,
-        isSingleSelect: isSingleSelectGroup(bounds),
-        sortOrder: group.sortOrder ?? 0,
-      };
     });
+
+  // `.safeParse`, never `.parse`: this is corrupt-DATA territory exactly
+  // like every other fail-closed check in this function (`validateRules`,
+  // `detectAutoAddCycle`) — a stored `minSelections`/`maxSelections` pair
+  // that no longer satisfies the bounds contract must return a typed
+  // `CatalogCorruptionFailure`, not throw a raw ZodError past this
+  // function's `CatalogSnapshotResult` contract.
+  const addOnGroups: PublicCatalogAddOnGroup[] = [];
+  for (const group of sortedAddOnGroupRows) {
+    const boundsResult = addOnGroupBoundsSchema.safeParse({
+      minSelections: group.minSelections,
+      maxSelections: group.maxSelections,
+    });
+    if (!boundsResult.success) {
+      return { ok: false, failure: fail('invalid_group_bounds', { kind: 'group', groupId: group.id }) };
+    }
+    const bounds = boundsResult.data;
+    addOnGroups.push({
+      id: group.id,
+      name: group.name,
+      slug: group.slug,
+      description: group.description ?? null,
+      minSelections: bounds.minSelections,
+      maxSelections: bounds.maxSelections,
+      isSingleSelect: isSingleSelectGroup(bounds),
+      sortOrder: group.sortOrder ?? 0,
+    });
+  }
 
   const addOns: PublicCatalogAddOn[] = input.addOns
     .filter(a => a.isActive !== false)
@@ -606,7 +666,7 @@ export function buildPublicCatalogSnapshot(input: BuildPublicCatalogSnapshotInpu
       name: addOn.name,
       slug: addOn.slug,
       category: addOn.category,
-      descriptionItems: normalizeDescriptionItemsLocal(addOn.descriptionItems),
+      descriptionItems: normalizeDescriptionItems(addOn.descriptionItems),
       priceCents: addOn.priceCents,
       priceDisplayText: addOn.priceDisplayText ?? null,
       durationMinutes: addOn.durationMinutes,
@@ -787,15 +847,6 @@ export async function finalizeCatalogResolutionFingerprint(
   return { input, revision: { canonical, fingerprint } };
 }
 
-/** Mirrors `normalizeDescriptionItems` in `bookingCatalog.ts` closely enough for this DTO's purposes, without importing that module (keeps this core independent, per its header note). */
-function normalizeDescriptionItemsLocal(value: unknown): string[] | null {
-  if (!Array.isArray(value)) {
-    return null;
-  }
-  const items = value.filter((item): item is string => typeof item === 'string' && item.trim().length > 0);
-  return items.length > 0 ? items : null;
-}
-
 // =============================================================================
 // SELECTION RESOLUTION
 // =============================================================================
@@ -807,6 +858,22 @@ function mergeCatalogSelectedAddOns(selectedAddOns: CatalogSelectionInput['selec
     merged.set(input.addOnId, existing + (input.quantity ?? 1));
   }
   return merged;
+}
+
+/**
+ * Whether a projection's trigger has actually FIRED against a concrete
+ * selection: for a service-subject trigger, only when the resolved service
+ * itself is the trigger; for an add-on-subject trigger, only when that
+ * add-on is itself part of the FINAL (client ∪ auto-added) selection. Shared
+ * by every place in `resolveCatalogSelection` that needs to know "is this
+ * rule live right now" — the `require`/`disable` checks, the auto-add
+ * explanation attribution, and the client-selected-add-on availability check
+ * all ask exactly this question and must never diverge on the answer.
+ */
+function isRuleTriggerFired(trigger: CatalogRuleTrigger, serviceId: string, finalSelectedIds: Set<string>): boolean {
+  return trigger.subjectKind === 'service'
+    ? trigger.subjectId === serviceId
+    : finalSelectedIds.has(trigger.subjectId);
 }
 
 export function resolveCatalogSelection(
@@ -855,13 +922,31 @@ export function resolveCatalogSelection(
   const explanations: CatalogExplanation[] = [];
   const violations: CatalogViolation[] = [];
 
+  // Computed BEFORE the auto-add explanation loop below (not after, as
+  // originally written) — attributing an auto-add to the correct rule
+  // requires knowing the full final selection first, see the firing filter
+  // immediately below.
+  const finalSelectedIds = new Set<string>([...clientSelectedIds, ...autoAddedIds]);
+
   // Auto-add is definitionally material: a line the client did not ask for
   // is entering the selection. Always explained, per rule, regardless of
   // `presentation`.
+  //
+  // Attribution must be restricted to projections whose trigger ACTUALLY
+  // FIRED (`isRuleTriggerFired`) before picking the "winning" one. Two
+  // unrelated `include`-with-`autoAdd` rules can target the SAME add-on from
+  // DIFFERENT subjects (e.g. one keyed off service A, another off service
+  // B) — only one of them can have actually caused this particular
+  // resolution's auto-add, and a non-firing rule must never be allowed to
+  // supply the reason (or, worse, demote a firing `surface` rule's
+  // announcement to a non-firing rule's `silent`). Once restricted to
+  // firing candidates, `autoAddProjections` (built from `ruleProjections`,
+  // itself emitted in `(priority, id)` order — see `buildPublicCatalogSnapshot`)
+  // is already in the correct tiebreak order, so no second sort is needed
+  // here.
   for (const addOnId of autoAddedIds) {
     const firing = autoAddProjections
-      .filter(p => p.targetAddOnId === addOnId)
-      .sort((a, b) => compareIds(a.projectionKey, b.projectionKey))[0];
+      .filter(p => p.targetAddOnId === addOnId && isRuleTriggerFired(p.trigger, service.id, finalSelectedIds))[0];
     if (firing) {
       explanations.push({
         kind: 'add_on_auto_added',
@@ -872,8 +957,6 @@ export function resolveCatalogSelection(
       });
     }
   }
-
-  const finalSelectedIds = new Set<string>([...clientSelectedIds, ...autoAddedIds]);
 
   // Lines: client-selected quantities as given (never silently clamped),
   // auto-added quantities default to the resolved binding's default, or 1.
@@ -889,8 +972,35 @@ export function resolveCatalogSelection(
 
     const isAutoAdded = !clientSelectedIds.has(addOnId);
     const binding = bindingByAddOnId.get(addOnId) ?? null;
+
+    // A CLIENT-SELECTED add-on with no `service_add_on` binding for this
+    // service is only legitimate when some `include`-with-`autoAdd` rule
+    // actually makes it available here — the identical firing test used to
+    // attribute an auto-add explanation above. Without that, it is an
+    // add-on that belongs to some OTHER service (or none at all), and must
+    // be rejected with a typed violation rather than silently accepted
+    // through the `addOn.baseMaxQuantity` fallback below and priced into
+    // the subtotal. Genuinely auto-added lines (`isAutoAdded === true`) are
+    // exempt — the fallback below exists precisely for them (e.g. a rule
+    // that auto-adds an add-on with no matching `service_add_on` row at
+    // all).
+    if (!isAutoAdded && !binding) {
+      const madeAvailableByRule = autoAddProjections.some(
+        p => p.targetAddOnId === addOnId && isRuleTriggerFired(p.trigger, service.id, finalSelectedIds),
+      );
+      if (!madeAvailableByRule) {
+        violations.push({ code: 'addon_unavailable', anchor: { kind: 'addOn', addOnId } });
+        continue;
+      }
+    }
+
+    // A stored `defaultQuantity` of `0` (or negative) is treated the same as
+    // "unset": an auto-added line must always be a client-fixable positive
+    // quantity, never a silently-added zero-quantity line paired with a
+    // `quantity_exceeded` violation the client has no way to act on.
+    const storedDefaultQuantity = binding?.defaultQuantity;
     const requestedQuantity = isAutoAdded
-      ? (binding?.defaultQuantity ?? 1)
+      ? (storedDefaultQuantity != null && storedDefaultQuantity > 0 ? storedDefaultQuantity : 1)
       : (clientQuantities.get(addOnId) ?? 1);
 
     // `binding.effectiveMaxQuantity` is authoritative when a binding exists;
@@ -902,11 +1012,22 @@ export function resolveCatalogSelection(
     for (const projection of projectionsInScope) {
       if (
         projection.effect === 'limit_quantity'
-        && projection.trigger.subjectKind === 'addOn'
         && projection.targetAddOnId === addOnId
         && projection.maxQuantity !== undefined
-        && finalSelectedIds.has(projection.trigger.subjectId)
+        && isRuleTriggerFired(projection.trigger, service.id, finalSelectedIds)
       ) {
+        // Covers BOTH an add-on-subject trigger (only once ITS trigger
+        // add-on is also selected) AND a service-subject trigger. The
+        // service-subject case matters here even though
+        // `buildPublicCatalogSnapshot` already bakes a service-subject cap
+        // into `binding.effectiveMaxQuantity` when a binding exists
+        // (`staticCeiling` above) — applying it again via `tighten` is a
+        // no-op there (`Math.min` is idempotent). What this branch actually
+        // FIXES is the case with NO `service_add_on` binding at all: with
+        // no binding, `staticCeiling` falls back to `addOn.baseMaxQuantity`,
+        // which structurally cannot carry a per-service cap, so the ONLY
+        // place left to enforce a service-subject `max_quantity` rule is
+        // here.
         dynamicCaps.push(projection.maxQuantity);
         explanations.push({
           kind: 'quantity_limited',
@@ -954,9 +1075,7 @@ export function resolveCatalogSelection(
     if (projection.effect !== 'require' || !projection.targetAddOnId) {
       continue;
     }
-    const triggerSelected = projection.trigger.subjectKind === 'service'
-      ? projection.trigger.subjectId === service.id
-      : finalSelectedIds.has(projection.trigger.subjectId);
+    const triggerSelected = isRuleTriggerFired(projection.trigger, service.id, finalSelectedIds);
     if (!triggerSelected || finalSelectedIds.has(projection.targetAddOnId)) {
       continue;
     }
@@ -999,9 +1118,7 @@ export function resolveCatalogSelection(
       (projection.effect === 'hide' || projection.effect === 'disable')
       && projection.targetAddOnId
     ) {
-      const triggerSelected = projection.trigger.subjectKind === 'service'
-        ? projection.trigger.subjectId === service.id
-        : finalSelectedIds.has(projection.trigger.subjectId);
+      const triggerSelected = isRuleTriggerFired(projection.trigger, service.id, finalSelectedIds);
       if (triggerSelected && finalSelectedIds.has(projection.targetAddOnId)) {
         violations.push({
           code: 'mutually_exclusive_conflict',
@@ -1018,6 +1135,21 @@ export function resolveCatalogSelection(
     }
   }
 
+  // "Offered for THIS service" — structurally, independent of the client's
+  // current picks: either bound via `service_add_on`, or reachable through
+  // the auto-add graph starting from the service itself or from any add-on
+  // already bound to it (an add-on-subject auto-add rule can only ever fire
+  // once its trigger add-on is actually selectable for this service in the
+  // first place). Computed once, ahead of the group loop below, because a
+  // group's minimum requirement must be scoped to groups that have SOME
+  // member actually offered here — see the `minSelections` note below.
+  const structuralRoots: CatalogAutoAddNode[] = [
+    { kind: 'service', id: service.id },
+    ...[...bindingByAddOnId.keys()].sort(compareIds).map(id => ({ kind: 'addOn' as const, id })),
+  ];
+  const structurallyOfferedAddOnIds = new Set(expandAutoAddClosure(edges, structuralRoots));
+  const isOfferedForService = (addOnId: string) => bindingByAddOnId.has(addOnId) || structurallyOfferedAddOnIds.has(addOnId);
+
   // Group bounds: distinct-selection counts, never a per-item cap.
   for (const group of snapshot.addOnGroups) {
     const memberIds = snapshot.addOns.filter(a => a.groupId === group.id).map(a => a.id);
@@ -1031,7 +1163,16 @@ export function resolveCatalogSelection(
         selected: selectedCount,
       });
     }
-    if (group.minSelections > 0 && selectedCount < group.minSelections) {
+    // A `minSelections` requirement is only meaningful when this group
+    // actually offers SOMETHING for the service being booked. A group whose
+    // every member belongs to some OTHER service (no binding, and not
+    // reachable via any auto-add rule for this one) must never block this
+    // booking on an empty selection it structurally could never satisfy.
+    // The maximum check above is intentionally left unconditional — a max
+    // bound is never violated by zero selections, so there is nothing to
+    // scope there.
+    const hasOfferedMember = memberIds.some(isOfferedForService);
+    if (hasOfferedMember && group.minSelections > 0 && selectedCount < group.minSelections) {
       violations.push({
         code: 'group_selection_below_minimum',
         anchor: { kind: 'group', groupId: group.id },

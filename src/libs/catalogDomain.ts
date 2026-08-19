@@ -358,7 +358,8 @@ export type CatalogCorruptionCode =
   | 'inactive_referenced_object'
   | 'invalid_subject_shape'
   | 'invalid_object_shape'
-  | 'cyclic_auto_add';
+  | 'cyclic_auto_add'
+  | 'invalid_group_bounds';
 
 export type CatalogCorruptionFailure = {
   code: CatalogCorruptionCode;

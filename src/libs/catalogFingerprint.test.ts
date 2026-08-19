@@ -21,6 +21,38 @@ describe('stableStringify', () => {
   });
 });
 
+describe('stableStringify — Date handling (F2)', () => {
+  it('a Date canonicalizes to its ISO string, never to "{}" — Object.entries(date) is empty, so the generic object branch must never run for a Date', () => {
+    const date = new Date('2024-03-15T12:30:00.000Z');
+
+    expect(stableStringify({ expiresAt: date })).toBe('{"expiresAt":"2024-03-15T12:30:00.000Z"}');
+  });
+
+  it('two payloads differing only in a Date field produce different canonical strings', () => {
+    const a = canonicalizeCatalogPayload({ introPriceExpiresAt: new Date('2024-01-01T00:00:00Z') });
+    const b = canonicalizeCatalogPayload({ introPriceExpiresAt: new Date('2025-06-01T00:00:00Z') });
+
+    expect(a).not.toBe(b);
+  });
+
+  it('two payloads differing only in a Date field hash to different SHA-256 digests', async () => {
+    const a = canonicalizeCatalogPayload({ introPriceExpiresAt: new Date('2024-01-01T00:00:00Z') });
+    const b = canonicalizeCatalogPayload({ introPriceExpiresAt: new Date('2025-06-01T00:00:00Z') });
+
+    const hashA = await hashCatalogFingerprintWebCrypto(catalogCanonicalBytes(a));
+    const hashB = await hashCatalogFingerprintWebCrypto(catalogCanonicalBytes(b));
+
+    expect(hashA).not.toBe(hashB);
+  });
+
+  it('a null date and an object with no date field remain distinguishable from an actual Date (no accidental "{}" collision)', () => {
+    const withDate = stableStringify({ expiresAt: new Date('2024-01-01T00:00:00.000Z') });
+    const withNull = stableStringify({ expiresAt: null });
+
+    expect(withDate).not.toBe(withNull);
+  });
+});
+
 describe('canonicalizeCatalogPayload', () => {
   it('is the same canonicalization stableStringify produces', () => {
     const value = { b: 2, a: 1 };

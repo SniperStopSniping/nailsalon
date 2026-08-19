@@ -40,6 +40,21 @@ function sortKeysDeep(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(sortKeysDeep);
   }
+  // MUST be special-cased before the generic object branch below: a `Date`
+  // has `typeof === 'object'`, and `Object.entries(date)` is `[]` (its
+  // fields are getters, not own-enumerable properties) — so without this
+  // check every `Date` would canonicalize to `"{}"`, identical to every
+  // OTHER `Date`, regardless of the instant it represents. That would make
+  // `revision.fingerprint` blind to a change in, e.g.,
+  // `PublicCatalogService.introPriceExpiresAt`. `toISOString()` is a fixed,
+  // timezone-independent, JSON.stringify-compatible representation (in fact
+  // the exact string `JSON.stringify(date)` itself produces, since `Date`
+  // defines `toJSON` as `toISOString`) — using it directly here means we
+  // never depend on `JSON.stringify` reaching `toJSON` after this function
+  // returns.
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
   if (value !== null && typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>)
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));

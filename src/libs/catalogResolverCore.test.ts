@@ -1286,6 +1286,25 @@ describe('revision fingerprint', () => {
     expect(first.snapshot.revision.canonical).not.toBe(second.snapshot.revision.canonical);
   });
 
+  it('F2 — a Date field (introPriceExpiresAt) changing moves revision.canonical: a Date must never canonicalize to "{}"', () => {
+    const first = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svc1', isIntroPrice: true, introPriceExpiresAt: new Date('2024-06-01T00:00:00Z') })],
+    }));
+    const second = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svc1', isIntroPrice: true, introPriceExpiresAt: new Date('2024-07-01T00:00:00Z') })],
+    }));
+    expectOk(first);
+    expectOk(second);
+
+    // Before the fix, `Object.entries(date)` is `[]`, so BOTH snapshots'
+    // canonical strings would carry `introPriceExpiresAt` as the identical
+    // `{}` regardless of the actual expiry — this assertion is exactly what
+    // would have failed.
+    expect(first.snapshot.revision.canonical).not.toBe(second.snapshot.revision.canonical);
+    expect(first.snapshot.revision.canonical).toContain('2024-06-01T00:00:00.000Z');
+    expect(second.snapshot.revision.canonical).toContain('2024-07-01T00:00:00.000Z');
+  });
+
   it('finalizeCatalogRevision computes a 64-character hex SHA-256 fingerprint from the canonical bytes, asynchronously, via an injected hasher', async () => {
     const result = buildPublicCatalogSnapshot(baseSnapshotInput({ services: [makeService({ id: 'svc1' })] }));
     expectOk(result);
@@ -1356,5 +1375,342 @@ describe('service add-on binding display order tiebreak', () => {
     expectOk(result);
 
     expect(result.snapshot.serviceAddOnBindings.map(b => b.addOnId)).toEqual(['z_addon', 'a_addon']);
+  });
+});
+
+// =============================================================================
+// ADVERSARIAL REVIEW REPAIRS (L1 PR3) — F1 through F12
+// =============================================================================
+
+describe('F1 — service-subject max_quantity caps are keyed by (serviceId, addOnId), never addOnId alone', () => {
+  it('contamination: a cap whose subject is svcA must not tighten svcB\'s binding of the same shared add-on', () => {
+    const result = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svcA' }), makeService({ id: 'svcB' })],
+      addOns: [makeAddOn({ id: 'shared_addon', pricingType: 'per_unit', maxQuantity: 10 })],
+      serviceAddOnBindings: [
+        makeBinding({ id: 'sao_a', serviceId: 'svcA', addOnId: 'shared_addon' }),
+        makeBinding({ id: 'sao_b', serviceId: 'svcB', addOnId: 'shared_addon' }),
+      ],
+      rules: [makeRule({ id: 'r1', ruleType: 'max_quantity', subjectServiceId: 'svcA', objectAddOnId: 'shared_addon', params: { maxQuantity: 2 } })],
+    }));
+    expectOk(result);
+
+    const bindingA = result.snapshot.serviceAddOnBindings.find(b => b.serviceId === 'svcA' && b.addOnId === 'shared_addon')!;
+    const bindingB = result.snapshot.serviceAddOnBindings.find(b => b.serviceId === 'svcB' && b.addOnId === 'shared_addon')!;
+
+    expect(bindingA.effectiveMaxQuantity).toBe(2);
+    // svcB's ceiling is UNAFFECTED — the rule's subject is svcA, not svcB.
+    expect(bindingB.effectiveMaxQuantity).toBe(10);
+
+    const resolutionB = resolveCatalogSelection(result.snapshot, {
+      serviceId: 'svcB',
+      selectedAddOns: [{ addOnId: 'shared_addon', quantity: 5 }],
+    });
+    expectOk(resolutionB);
+
+    // 5 <= 10: never wrongly capped down to svcA's 2.
+    expect(resolutionB.selection.violations).toHaveLength(0);
+  });
+
+  it('loss: the cap still applies when the add-on has NO service_add_on binding at all (only reachable via auto-add)', () => {
+    const snapshot = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svc1' })],
+      // per_unit with no explicit ceiling -> base ceiling of 10, deliberately
+      // far above the rule's cap of 1, so a leaked/ignored cap is visible.
+      addOns: [makeAddOn({ id: 'freebie', pricingType: 'per_unit', maxQuantity: null })],
+      rules: [
+        makeRule({ id: 'r_include', ruleType: 'include', subjectServiceId: 'svc1', objectAddOnId: 'freebie', params: { autoAdd: true } }),
+        makeRule({ id: 'r_cap', ruleType: 'max_quantity', subjectServiceId: 'svc1', objectAddOnId: 'freebie', params: { maxQuantity: 1 } }),
+      ],
+    }));
+    expectOk(snapshot);
+
+    // Confirms the scenario really has no service_add_on row to carry the cap.
+    expect(snapshot.snapshot.serviceAddOnBindings).toHaveLength(0);
+
+    const resolution = resolveCatalogSelection(snapshot.snapshot, {
+      serviceId: 'svc1',
+      selectedAddOns: [{ addOnId: 'freebie', quantity: 9 }],
+    });
+    expectOk(resolution);
+
+    expect(resolution.selection.violations).toContainEqual({
+      code: 'quantity_exceeded',
+      anchor: { kind: 'quantity', addOnId: 'freebie' },
+      limit: 1,
+      attempted: 9,
+    });
+  });
+});
+
+describe('F3/F10/F11 — rules evaluate in deterministic (priority, id) order, and priority is actually consulted', () => {
+  it('revision.canonical and ruleProjections order are identical regardless of the input rules array order', () => {
+    const services = [makeService({ id: 'svc1' })];
+    const addOns = [makeAddOn({ id: 'a' }), makeAddOn({ id: 'b' }), makeAddOn({ id: 'c' })];
+    const rules: CatalogRuleCoreInput[] = [
+      makeRule({ id: 'rule_c', ruleType: 'exclude', subjectAddOnId: 'a', objectAddOnId: 'b', priority: 5 }),
+      makeRule({ id: 'rule_a', ruleType: 'exclude', subjectAddOnId: 'a', objectAddOnId: 'c', priority: 1 }),
+      makeRule({ id: 'rule_b', ruleType: 'requires', subjectServiceId: 'svc1', objectAddOnId: 'b', priority: 1 }),
+    ];
+
+    const forward = buildPublicCatalogSnapshot(baseSnapshotInput({ services, addOns, rules }));
+    const shuffled = buildPublicCatalogSnapshot(baseSnapshotInput({ services, addOns, rules: [rules[2]!, rules[0]!, rules[1]!] }));
+    const reversed = buildPublicCatalogSnapshot(baseSnapshotInput({ services, addOns, rules: [...rules].reverse() }));
+    expectOk(forward);
+    expectOk(shuffled);
+    expectOk(reversed);
+
+    expect(shuffled.snapshot.revision.canonical).toBe(forward.snapshot.revision.canonical);
+    expect(reversed.snapshot.revision.canonical).toBe(forward.snapshot.revision.canonical);
+    expect(shuffled.snapshot.ruleProjections.map(p => p.projectionKey)).toEqual(
+      forward.snapshot.ruleProjections.map(p => p.projectionKey),
+    );
+  });
+
+  it('the auto-add firing tiebreak follows (priority, id): the LOWER-priority rule\'s explanation wins, regardless of input array order (also covers F10 duplicate-rule ties)', () => {
+    const buildSnapshot = (rules: CatalogRuleCoreInput[]) => buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svc1' })],
+      addOns: [makeAddOn({ id: 'target' })],
+      rules,
+    }));
+    const rules: CatalogRuleCoreInput[] = [
+      makeRule({
+        id: 'r_low_priority',
+        ruleType: 'include',
+        subjectServiceId: 'svc1',
+        objectAddOnId: 'target',
+        priority: 5,
+        params: { autoAdd: true, reasonCode: 'quantity_limited' },
+      }),
+      makeRule({
+        id: 'r_high_priority',
+        ruleType: 'include',
+        subjectServiceId: 'svc1',
+        objectAddOnId: 'target',
+        priority: 1,
+        params: { autoAdd: true, reasonCode: 'capability_required' },
+      }),
+    ];
+
+    const snapshotForward = buildSnapshot(rules);
+    const snapshotReversed = buildSnapshot([...rules].reverse());
+    expectOk(snapshotForward);
+    expectOk(snapshotReversed);
+
+    const resolutionForward = resolveCatalogSelection(snapshotForward.snapshot, { serviceId: 'svc1', selectedAddOns: [] });
+    const resolutionReversed = resolveCatalogSelection(snapshotReversed.snapshot, { serviceId: 'svc1', selectedAddOns: [] });
+    expectOk(resolutionForward);
+    expectOk(resolutionReversed);
+
+    const explanationForward = resolutionForward.selection.explanations.find(e => e.kind === 'add_on_auto_added');
+    const explanationReversed = resolutionReversed.selection.explanations.find(e => e.kind === 'add_on_auto_added');
+
+    // priority: 1 (r_high_priority) beats priority: 5 (r_low_priority) — and
+    // the winner is the same either way the rules array was ordered.
+    expect(explanationForward?.reasonCode).toBe('capability_required');
+    expect(explanationReversed?.reasonCode).toBe('capability_required');
+  });
+});
+
+describe('F4 — a non-firing rule must never supply the auto-add explanation', () => {
+  it('two rules target the same add-on from different subjects; only the one that actually fired attributes the explanation', () => {
+    const snapshot = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svc_aaa' }), makeService({ id: 'svc_zzz' })],
+      addOns: [makeAddOn({ id: 'a' })],
+      rules: [
+        makeRule({
+          id: 'r1',
+          ruleType: 'include',
+          subjectServiceId: 'svc_aaa',
+          objectAddOnId: 'a',
+          params: { autoAdd: true, presentation: 'silent', reasonCode: 'included_with_selection' },
+        }),
+        makeRule({
+          id: 'r2',
+          ruleType: 'include',
+          subjectServiceId: 'svc_zzz',
+          objectAddOnId: 'a',
+          params: { autoAdd: true, presentation: 'surface', reasonCode: 'required_for_selection' },
+        }),
+      ],
+    }));
+    expectOk(snapshot);
+
+    // Booking svc_zzz: only r2's trigger fires. r1's trigger (svc_aaa) never did.
+    const resolution = resolveCatalogSelection(snapshot.snapshot, { serviceId: 'svc_zzz', selectedAddOns: [] });
+    expectOk(resolution);
+
+    const explanation = resolution.selection.explanations.find(e => e.kind === 'add_on_auto_added');
+
+    expect(explanation).toMatchObject({ reasonCode: 'required_for_selection', presentation: 'surface' });
+    // Specifically NOT r1's — a non-firing rule must never demote a firing
+    // rule's announcement policy or attribute the wrong reason.
+    expect(explanation?.reasonCode).not.toBe('included_with_selection');
+    expect(explanation?.presentation).not.toBe('silent');
+  });
+});
+
+describe('F5 — a client-selected add-on with no binding is rejected unless a rule genuinely makes it available', () => {
+  it('an add-on bound only to svcB is rejected — not silently accepted or priced in — when selected against svcA', () => {
+    const snapshot = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svcA' }), makeService({ id: 'svcB' })],
+      addOns: [makeAddOn({ id: 'addon_b_only', priceCents: 5000 })],
+      serviceAddOnBindings: [makeBinding({ id: 'sao_b', serviceId: 'svcB', addOnId: 'addon_b_only' })],
+    }));
+    expectOk(snapshot);
+
+    const resolution = resolveCatalogSelection(snapshot.snapshot, {
+      serviceId: 'svcA',
+      selectedAddOns: [{ addOnId: 'addon_b_only' }],
+    });
+    expectOk(resolution);
+
+    expect(resolution.selection.violations).toContainEqual({
+      code: 'addon_unavailable',
+      anchor: { kind: 'addOn', addOnId: 'addon_b_only' },
+    });
+    // Never silently accepted into the resolved lines or priced into the subtotal.
+    expect(resolution.selection.addOns.some(line => line.addOnId === 'addon_b_only')).toBe(false);
+
+    const svcAPrice = snapshot.snapshot.services.find(s => s.id === 'svcA')!.priceCents;
+
+    expect(resolution.selection.subtotalCents).toBe(svcAPrice);
+  });
+
+  it('the fallback stays legitimate: a client can pre-select an add-on a rule genuinely makes available, even with no binding', () => {
+    const snapshot = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svc1' })],
+      addOns: [makeAddOn({ id: 'freebie', pricingType: 'per_unit', maxQuantity: 5 })],
+      rules: [makeRule({ id: 'r1', ruleType: 'include', subjectServiceId: 'svc1', objectAddOnId: 'freebie', params: { autoAdd: true } })],
+    }));
+    expectOk(snapshot);
+
+    const resolution = resolveCatalogSelection(snapshot.snapshot, {
+      serviceId: 'svc1',
+      selectedAddOns: [{ addOnId: 'freebie', quantity: 3 }],
+    });
+    expectOk(resolution);
+
+    expect(resolution.selection.violations).toHaveLength(0);
+    expect(resolution.selection.addOns[0]).toMatchObject({ addOnId: 'freebie', quantity: 3, autoAdded: false });
+  });
+});
+
+describe('F6 — group minSelections is scoped to groups that actually offer something for the resolved service', () => {
+  it('a min-1 group whose only member is unbound to (and not auto-addable for) the resolved service never blocks that service', () => {
+    const snapshot = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svc_unrelated' }), makeService({ id: 'svc_other' })],
+      addOnGroups: [makeAddOnGroup({ id: 'g1', minSelections: 1, maxSelections: 1 })],
+      addOns: [makeAddOn({ id: 'member_a', groupId: 'g1' })],
+      // member_a is bound to svc_other only — never to svc_unrelated, and no
+      // rule connects them.
+      serviceAddOnBindings: [makeBinding({ id: 'sao1', serviceId: 'svc_other', addOnId: 'member_a' })],
+    }));
+    expectOk(snapshot);
+
+    const resolution = resolveCatalogSelection(snapshot.snapshot, { serviceId: 'svc_unrelated', selectedAddOns: [] });
+    expectOk(resolution);
+
+    expect(resolution.selection.violations).toHaveLength(0);
+    expect(resolution.selection.blocksContinue).toBe(false);
+  });
+
+  it('regression guard: the SAME min-1 group still blocks the service that DOES offer a member', () => {
+    const snapshot = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svc_other' })],
+      addOnGroups: [makeAddOnGroup({ id: 'g1', minSelections: 1, maxSelections: 1 })],
+      addOns: [makeAddOn({ id: 'member_a', groupId: 'g1' })],
+      serviceAddOnBindings: [makeBinding({ id: 'sao1', serviceId: 'svc_other', addOnId: 'member_a' })],
+    }));
+    expectOk(snapshot);
+
+    const resolution = resolveCatalogSelection(snapshot.snapshot, { serviceId: 'svc_other', selectedAddOns: [] });
+    expectOk(resolution);
+
+    expect(resolution.selection.violations).toContainEqual({
+      code: 'group_selection_below_minimum',
+      anchor: { kind: 'group', groupId: 'g1' },
+      minimum: 1,
+      selected: 0,
+    });
+  });
+});
+
+describe('F7 — projectionKey escaping is injective', () => {
+  it('an id containing a literal dot never collides with a different id that happens to spell out the old escape sequence', () => {
+    const resultWithDot = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svc1' })],
+      addOns: [makeAddOn({ id: 'a.b' })],
+      rules: [makeRule({ id: 'r1', ruleType: 'exclude', subjectServiceId: 'svc1', objectAddOnId: 'a.b' })],
+    }));
+    const resultWithLiteralEscapeText = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svc1' })],
+      addOns: [makeAddOn({ id: 'a_dot_b' })],
+      rules: [makeRule({ id: 'r1', ruleType: 'exclude', subjectServiceId: 'svc1', objectAddOnId: 'a_dot_b' })],
+    }));
+    expectOk(resultWithDot);
+    expectOk(resultWithLiteralEscapeText);
+
+    expect(resultWithDot.snapshot.ruleProjections[0]!.projectionKey)
+      .not.toBe(resultWithLiteralEscapeText.snapshot.ruleProjections[0]!.projectionKey);
+  });
+});
+
+describe('F8 — a non-positive stored defaultQuantity never produces a client-unfixable auto-added line', () => {
+  it('binding.defaultQuantity: 0 is treated as quantity 1, not a quantity-0 line plus a quantity_exceeded violation', () => {
+    const snapshot = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svc1' })],
+      addOns: [makeAddOn({ id: 'freebie', pricingType: 'per_unit', maxQuantity: 5 })],
+      serviceAddOnBindings: [makeBinding({ id: 'sao1', serviceId: 'svc1', addOnId: 'freebie', defaultQuantity: 0 })],
+      rules: [makeRule({ id: 'r1', ruleType: 'include', subjectServiceId: 'svc1', objectAddOnId: 'freebie', params: { autoAdd: true } })],
+    }));
+    expectOk(snapshot);
+
+    const resolution = resolveCatalogSelection(snapshot.snapshot, { serviceId: 'svc1', selectedAddOns: [] });
+    expectOk(resolution);
+
+    const line = resolution.selection.addOns.find(l => l.addOnId === 'freebie')!;
+
+    expect(line.quantity).toBe(1);
+    expect(resolution.selection.violations).toHaveLength(0);
+  });
+});
+
+describe('F9 — corrupt add-on group bounds fail closed with a typed corruption code', () => {
+  it('minSelections > maxSelections returns a typed CatalogCorruptionFailure, never a thrown ZodError', () => {
+    const result = buildPublicCatalogSnapshot(baseSnapshotInput({
+      addOnGroups: [makeAddOnGroup({ id: 'g_corrupt', minSelections: 5, maxSelections: 2 })],
+    }));
+
+    expect(result.ok).toBe(false);
+
+    if (!result.ok) {
+      expect(result.failure.code).toBe('invalid_group_bounds');
+      expect(result.failure.anchor).toEqual({ kind: 'group', groupId: 'g_corrupt' });
+    }
+  });
+});
+
+describe('F12 — descriptionItems normalization matches bookingCatalog.ts\'s shared normalizer exactly', () => {
+  it('trims whitespace and slices to the shared 120-character limit', () => {
+    const longItem = 'x'.repeat(200);
+    const result = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({ id: 'svc1', descriptionItems: [`  ${longItem}  `] })],
+    }));
+    expectOk(result);
+
+    expect(result.snapshot.services[0]!.descriptionItems).toEqual([longItem.slice(0, 120)]);
+  });
+
+  it('more than 10 items fails closed to null, matching the shared schema\'s bound (the old local copy had no count cap at all)', () => {
+    const result = buildPublicCatalogSnapshot(baseSnapshotInput({
+      services: [makeService({
+        id: 'svc1',
+        descriptionItems: Array.from({ length: 11 }, (_, i) => `item ${i}`),
+      })],
+    }));
+    expectOk(result);
+
+    expect(result.snapshot.services[0]!.descriptionItems).toBeNull();
   });
 });

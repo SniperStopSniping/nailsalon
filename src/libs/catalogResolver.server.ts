@@ -196,7 +196,16 @@ export async function resolvePublicCatalogSnapshot(
     getAllAddOnsBySalonId(args.salonId),
     getServiceAddOnRulesBySalonId(args.salonId),
     db.select().from(addOnGroupSchema).where(eq(addOnGroupSchema.salonId, args.salonId)),
-    db.select().from(catalogRuleSchema).where(eq(catalogRuleSchema.salonId, args.salonId)),
+    // Ordered defensively, matching the ratified `(priority, id)` evaluation
+    // order — but this is belt-and-suspenders, not the load-bearing fix:
+    // `buildPublicCatalogSnapshot` (`catalogResolverCore.ts`) sorts `rules`
+    // itself before doing anything else with them, precisely because a bare
+    // `db.select()` carries no ORDER BY guarantee from Postgres (row order
+    // is unspecified and can shift with plan changes on an unchanged
+    // catalog), and the core must be correct regardless of what order its
+    // caller hands it rules in.
+    db.select().from(catalogRuleSchema).where(eq(catalogRuleSchema.salonId, args.salonId))
+      .orderBy(catalogRuleSchema.priority, catalogRuleSchema.id),
   ]);
 
   return buildPublicCatalogSnapshot({
