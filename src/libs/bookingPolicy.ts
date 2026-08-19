@@ -1,6 +1,6 @@
 import { and, eq, gte, inArray, lt, lte, ne } from 'drizzle-orm';
 
-import { BLOCKING_APPOINTMENT_STATUSES } from '@/libs/bookingConflictGuard';
+import { blockingAppointmentCondition } from '@/libs/appointmentBlocking';
 import { db } from '@/libs/DB';
 import { normalizeScheduleDay } from '@/libs/weeklySchedule';
 import {
@@ -526,6 +526,15 @@ export async function loadBookingPolicy(args: {
   endOfDay: Date;
   excludedAppointmentId?: string | null;
   database?: { select: typeof db.select };
+  /**
+   * Gates whether an explicit (non-legacy) `'pending'` request row still
+   * blocks — see `blockingAppointmentCondition` (`appointmentBlocking.ts`).
+   * Optional and defaulted to `new Date()` for backward compatibility with
+   * every pre-existing caller; a caller inside a larger multi-step write
+   * should pass its own transaction-stable `now` instead of relying on the
+   * default.
+   */
+  now?: Date;
 }): Promise<LoadedBookingPolicy> {
   const {
     salonId,
@@ -535,6 +544,7 @@ export async function loadBookingPolicy(args: {
     startOfDay,
     endOfDay,
     excludedAppointmentId,
+    now = new Date(),
   } = args;
   const database = args.database ?? db;
 
@@ -625,10 +635,9 @@ export async function loadBookingPolicy(args: {
     gte(appointmentSchema.startTime, startOfDay),
     lt(appointmentSchema.startTime, endOfDay),
     // in_progress still occupies the technician (e.g. long services started
-    // early). Uses the single BLOCKING_APPOINTMENT_STATUSES source of truth
-    // (shared with the double-booking guard); both must stay in sync with the
-    // 0054 migration partial-index predicate, which an integration test pins.
-    inArray(appointmentSchema.status, [...BLOCKING_APPOINTMENT_STATUSES]),
+    // early). Uses the single `blockingAppointmentCondition` source of truth
+    // (shared with the double-booking guard) — see appointmentBlocking.ts.
+    blockingAppointmentCondition(now),
   ];
 
   if (excludedAppointmentId) {

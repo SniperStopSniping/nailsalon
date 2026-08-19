@@ -562,6 +562,17 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   salonId: string;
   appointmentId: string;
   signal?: AbortSignal;
+  /**
+   * L1 PR4 §14 — the explicit-mode email split. True only for a new
+   * booking created under explicit request-approval activation (dark-gated,
+   * unreachable for any real salon today — see
+   * `requestApprovalReconciliation.server.ts`). Changes ONLY the subject
+   * line and the opening copy below, from "confirmed" to "received,
+   * pending the salon's review" — nothing about delivery, dedup, retry,
+   * customization, or financial-summary composition changes; every one of
+   * those stays byte-identical to the `false`/absent path.
+   */
+  isExplicitRequestApproval?: boolean;
 }) {
   if (input.signal?.aborted) {
     throw input.signal.reason instanceof Error
@@ -571,13 +582,22 @@ export async function sendCustomerBookingConfirmationEmail(input: {
   const { sendTransactionalEmailDetailed } = await import('@/libs/email');
   const date = formatDateInTimeZone(input.startTime, { weekday: 'long', month: 'long', day: 'numeric' }, input.timeZone);
   const time = formatTimeInTimeZone(input.startTime, {}, input.timeZone);
-  const subject = `${input.salonName} booking confirmed`;
-  const appointmentText = [
-    `Hi ${input.clientName},`,
-    `Your ${input.serviceNames.join(', ')} appointment with ${input.salonName} is confirmed for ${date} at ${time}.`,
-  ].join('\n\n');
+  const subject = input.isExplicitRequestApproval
+    ? `${input.salonName} booking request received`
+    : `${input.salonName} booking confirmed`;
+  const appointmentText = input.isExplicitRequestApproval
+    ? [
+        `Hi ${input.clientName},`,
+        `We've received your request for ${input.serviceNames.join(', ')} with ${input.salonName} on ${date} at ${time}. The salon will review it and confirm shortly.`,
+      ].join('\n\n')
+    : [
+        `Hi ${input.clientName},`,
+        `Your ${input.serviceNames.join(', ')} appointment with ${input.salonName} is confirmed for ${date} at ${time}.`,
+      ].join('\n\n');
   const manageText = `View, reschedule, or cancel: ${input.manageUrl}`;
-  const appointmentHtml = `<p>Hi ${escapeHtml(input.clientName)},</p><p>Your <strong>${escapeHtml(input.serviceNames.join(', '))}</strong> appointment with ${escapeHtml(input.salonName)} is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p>`;
+  const appointmentHtml = input.isExplicitRequestApproval
+    ? `<p>Hi ${escapeHtml(input.clientName)},</p><p>We've received your request for <strong>${escapeHtml(input.serviceNames.join(', '))}</strong> with ${escapeHtml(input.salonName)} on <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>. The salon will review it and confirm shortly.</p>`
+    : `<p>Hi ${escapeHtml(input.clientName)},</p><p>Your <strong>${escapeHtml(input.serviceNames.join(', '))}</strong> appointment with ${escapeHtml(input.salonName)} is confirmed for <strong>${escapeHtml(date)} at ${escapeHtml(time)}</strong>.</p>`;
   const manageHtml = `<p><a href="${escapeHtml(input.manageUrl)}">View, reschedule, or cancel your appointment</a></p>`;
   const deliveryId = crypto.randomUUID();
   const inserted = await db.insert(notificationDeliverySchema).values({

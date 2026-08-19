@@ -564,6 +564,45 @@ export type SalonSettings = {
       otherTechAppointments?: boolean; // default: false
     };
   };
+
+  // ==========================================================================
+  // LUSTER L1 CATALOG — PR4, explicit request-approval scheduling override
+  // ==========================================================================
+  // Additive JSONB, not a schema change: `salon.settings` already accepts
+  // arbitrary JSON. Only ever consulted when a variant/service is explicitly
+  // `confirmation_mode = 'request_approval'` AND the dark `catalog.*`
+  // entitlement (`SalonFeatures.catalog`, a DIFFERENT type — entitlement vs.
+  // config) is on for the salon — unreachable by any real salon today, same
+  // as everything else under L1. See `requestApprovalReconciliation.server.ts`.
+  catalog?: {
+    requestApproval?: RequestApprovalScheduleSettings;
+  };
+};
+
+/** One override window on one weekday, `HH:MM` 24-hour local time — `end <= start` means the window spans past midnight into the next calendar day. */
+export type RequestApprovalWindowRange = { start: string; end: string };
+
+/**
+ * Per-salon override for the request-approval review-window algorithm
+ * (`resolveRequestApprovalDeadline`, `requestApprovalReconciliation.server.ts`).
+ * Every field is optional; an absent field falls back to that function's own
+ * default (or, for `reviewWindows`, to the selected location's
+ * `business_hours`). `reviewWindows` is the one config surface in this
+ * codebase that can express more than one range per day (a genuine split
+ * shift) — `salon_location.business_hours` structurally cannot.
+ */
+export type RequestApprovalScheduleSettings = {
+  /** Default 720 (12h) — how far out the algorithm nominally aims before window-shape correction. */
+  nominalWindowMinutes?: number;
+  /** Default 60 — minimum ACTUAL open-window minutes a deadline must guarantee. */
+  minReviewableMinutes?: number;
+  /** Default 120 — mirrors the platform lead time; the deadline may never be later than `startTime - leadCapMinutes`. */
+  leadCapMinutes?: number;
+  /** Replaces reading the location's `business_hours` entirely when present. Keyed by lowercase weekday name; an absent or empty day means closed that day. */
+  reviewWindows?: Partial<Record<
+    'sunday' | 'monday' | 'tuesday' | 'wednesday' | 'thursday' | 'friday' | 'saturday',
+    RequestApprovalWindowRange[]
+  >>;
 };
 
 /**

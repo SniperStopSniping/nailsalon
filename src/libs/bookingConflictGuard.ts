@@ -1,28 +1,28 @@
 import 'server-only';
 
-import { and, eq, inArray, isNull, lt, ne, sql } from 'drizzle-orm';
+import { and, eq, isNull, lt, ne, sql } from 'drizzle-orm';
 
+import { blockingAppointmentCondition } from '@/libs/appointmentBlocking';
 import { appointmentSchema } from '@/models/Schema';
 
 /**
- * Appointment statuses that occupy a technician's time. Must stay in sync with
- * the double-booking backstops in the migrations — originally
- * 0054_prevent_double_booking.sql, widened for deposit holds by
- * 0066_deposit_hold_awaiting_payment.sql, which drops and recreates BOTH the
- * partial unique index and the gist exclusion constraint with the predicate
- * below. `src/libs/bookingBlockingStatuses.test.ts` resolves the LATEST such
- * migration and machine-checks it against this constant, so the two cannot
- * drift silently.
+ * Appointment statuses that occupy a technician's time, independent of any
+ * other field. Must stay in sync with the double-booking backstops in the
+ * migrations — originally 0054_prevent_double_booking.sql, widened for
+ * deposit holds by 0066_deposit_hold_awaiting_payment.sql, which drops and
+ * recreates BOTH the partial unique index and the gist exclusion constraint
+ * with the predicate below. `src/libs/bookingBlockingStatuses.test.ts`
+ * resolves the LATEST such migration and machine-checks it against this
+ * constant, so the two cannot drift silently.
  *
  * 'awaiting_payment' is a deposit hold: the appointment row IS the hold, so it
  * must occupy the slot exactly as 'pending' does for as long as it lives.
+ *
+ * Re-exported from `appointmentBlocking.ts` (this module's new canonical
+ * owner — see that file's doc comment) so every pre-existing importer of
+ * this constant keeps working unchanged.
  */
-export const BLOCKING_APPOINTMENT_STATUSES = [
-  'pending',
-  'confirmed',
-  'in_progress',
-  'awaiting_payment',
-] as const;
+export { BLOCKING_APPOINTMENT_STATUSES } from '@/libs/appointmentBlocking';
 
 export class SlotConflictError extends Error {
   constructor() {
@@ -47,6 +47,12 @@ type ConflictGuardTx = {
  * The conflict window mirrors `hasBufferedConflict` in bookingPolicy.ts:
  * an existing appointment blocks [start_time, start_time + blocked minutes)
  * where blocked minutes falls back to the visible duration plus buffer.
+ *
+ * `now` gates whether an explicit (non-legacy) `'pending'` request row still
+ * blocks — see `blockingAppointmentCondition` (`appointmentBlocking.ts`).
+ * Optional and defaulted to `new Date()` for backward compatibility with
+ * every pre-existing caller; a caller inside a larger multi-step write should
+ * pass its own transaction-stable `now` instead of relying on the default.
  */
 export async function lockTechnicianAndAssertSlotFree(
   tx: ConflictGuardTx,
@@ -56,6 +62,7 @@ export async function lockTechnicianAndAssertSlotFree(
     startTime: Date;
     blockedEndTime: Date;
     excludedAppointmentId?: string | null;
+    now?: Date;
   },
 ): Promise<void> {
   await tx.execute(
@@ -65,7 +72,7 @@ export async function lockTechnicianAndAssertSlotFree(
   const conditions = [
     eq(appointmentSchema.salonId, args.salonId),
     eq(appointmentSchema.technicianId, args.technicianId),
-    inArray(appointmentSchema.status, [...BLOCKING_APPOINTMENT_STATUSES]),
+    blockingAppointmentCondition(args.now ?? new Date()),
     isNull(appointmentSchema.deletedAt),
     lt(appointmentSchema.startTime, args.blockedEndTime),
     sql`GREATEST(
