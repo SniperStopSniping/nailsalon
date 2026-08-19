@@ -1670,3 +1670,123 @@ describe('10 [P] — a hold occupies the slot', () => {
     expect(holds).toHaveLength(1);
   });
 });
+
+/**
+ * L1 PR4 §14 — "current main wins" for deposits, applied literally: a
+ * salon whose service is explicitly `confirmation_mode = 'request_approval'`
+ * (dark-gated, unreachable for any real salon today — see
+ * `requestApprovalReconciliation.server.ts`) must NOT have that activation
+ * override an active deposit charge decision. A dedicated salon/service, so
+ * this never touches the 53 tests above sharing `SALON_ID`/`SERVICE_ID`.
+ */
+describe('L1 PR4 §14 — deposit priority over explicit request-approval activation', () => {
+  const RA_SALON_ID = 'salon_deposits_request_approval';
+  const RA_SALON_SLUG = 'deposits-request-approval-salon';
+  const RA_TECH_ID = 'tech_deposits_request_approval';
+  const RA_SERVICE_ID = 'srv_deposits_request_approval';
+  const RA_LOCATION_ID = 'loc_deposits_request_approval';
+
+  beforeAll(async () => {
+    await db.insert(schema.salonSchema).values({
+      id: RA_SALON_ID,
+      name: 'Request Approval Deposits Salon',
+      slug: RA_SALON_SLUG,
+      ownerEmail: 'owner-ra@example.com',
+      // The dark L1 feature key, set directly on a FIXTURE salon only.
+      features: { catalog: { variantsV1: false, addOnGroupsV1: false, bookingModesV1: true } },
+    });
+    await db.insert(schema.technicianSchema).values({
+      id: RA_TECH_ID,
+      salonId: RA_SALON_ID,
+      name: 'Priya',
+      weeklySchedule: FULL_WEEK,
+    });
+    await db.insert(schema.salonLocationSchema).values({
+      id: RA_LOCATION_ID,
+      salonId: RA_SALON_ID,
+      name: 'Main',
+      isPrimary: true,
+      businessHours: {
+        sunday: { open: '09:00', close: '19:00' },
+        monday: { open: '09:00', close: '19:00' },
+        tuesday: { open: '09:00', close: '19:00' },
+        wednesday: { open: '09:00', close: '19:00' },
+        thursday: { open: '09:00', close: '19:00' },
+        friday: { open: '09:00', close: '19:00' },
+        saturday: { open: '09:00', close: '19:00' },
+      },
+    });
+    // `confirmationMode` set directly against the row — exactly how this
+    // dark column can be populated today, with no owner editor (PR6).
+    await db.insert(schema.serviceSchema).values({
+      id: RA_SERVICE_ID,
+      salonId: RA_SALON_ID,
+      name: 'Ombré Request Set',
+      category: 'manicure',
+      price: 4500,
+      durationMinutes: 60,
+      confirmationMode: 'request_approval',
+    });
+    await db.insert(schema.technicianServicesSchema).values({
+      technicianId: RA_TECH_ID,
+      serviceId: RA_SERVICE_ID,
+      enabled: true,
+    });
+  }, 30_000);
+
+  async function postRequestApprovalBooking(body: Record<string, unknown>): Promise<Response> {
+    return POST(new Request('http://localhost/api/appointments', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        salonSlug: RA_SALON_SLUG,
+        baseServiceId: RA_SERVICE_ID,
+        technicianId: RA_TECH_ID,
+        locationId: RA_LOCATION_ID,
+        ...body,
+      }),
+    }));
+  }
+
+  it('an ACTIVE deposit policy wins: status is awaiting_payment, and NEITHER request_expires_at NOR confirmation_mode_snapshot is written', async () => {
+    seedPolicy(ACTIVE_POLICY);
+    seedChargeReady(true);
+    setClientSession(freshPhone());
+
+    const response = await postRequestApprovalBooking({
+      startTime: at(futureDate(30), '10:00').toISOString(),
+      expectedDepositFingerprint: 'deposit-v1:cad:2500',
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.data.deposit?.required).toBe(true);
+
+    const [row] = (await appointmentRows()).filter(r => r.salonId === RA_SALON_ID);
+
+    expect(row?.status).toBe('awaiting_payment');
+    expect(row?.requestExpiresAt).toBeNull();
+    expect(row?.confirmationModeSnapshot).toBeNull();
+  });
+
+  it('with NO active deposit policy, the same service/slot activates explicit request-approval: status pending, requestExpiresAt and confirmationModeSnapshot set', async () => {
+    seedPolicy({ active: false, reason: 'disabled', amountCents: 2500 });
+    setClientSession(freshPhone());
+
+    const response = await postRequestApprovalBooking({
+      startTime: at(futureDate(31), '10:00').toISOString(),
+    });
+    const body = await response.json();
+
+    expect(response.status).toBe(201);
+    expect(body.data.deposit).toBeUndefined();
+
+    const [row] = (await appointmentRows())
+      .filter(r => r.salonId === RA_SALON_ID)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+    expect(row?.status).toBe('pending');
+    expect(row?.requestExpiresAt).not.toBeNull();
+    expect(row?.confirmationModeSnapshot).toBe('request_approval');
+  });
+});

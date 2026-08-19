@@ -118,6 +118,18 @@ export type BookingCommitEffectsContext = {
     googleCalendarEventId: string | null;
     updatedAt: Date;
     status?: string;
+    /**
+     * L1 PR4 §14 — true only for a NEW booking created under explicit
+     * request-approval activation (`resolveExplicitRequestApprovalActivation`,
+     * `requestApprovalReconciliation.server.ts`): dark-gated, unreachable for
+     * any real salon today. Optional and defaulted to falsy everywhere except
+     * the one route.ts call site that sets it — every other caller
+     * (reschedule, deposit confirmation, `loadBookingCommitEffectsContext`)
+     * is byte-identical. Read only by the customer confirmation email (step
+     * 5/8) to pick the "request received" copy instead of "confirmed"; no
+     * other effect branches on it.
+     */
+    isExplicitRequestApproval?: boolean;
   };
   serviceNames: string[];
   technician: {
@@ -433,6 +445,7 @@ export async function runBookingCommitSideEffects(
       startTime: context.startTime.toISOString(),
       timeZone: context.timeZone,
       manageUrl: context.manageUrl,
+      ...(context.appointment.isExplicitRequestApproval ? { isExplicitRequestApproval: true } : {}),
       ...(options.signal ? { signal: options.signal } : {}),
     });
   } catch {

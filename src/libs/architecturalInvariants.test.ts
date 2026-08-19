@@ -102,16 +102,24 @@ describe('invariant 4 — client/server import boundary (see architectureClientS
 });
 
 // =============================================================================
-// 5. PR3 core has zero production hot-path invocation.
+// 5. PR3 core has zero UNAUTHORIZED production hot-path invocation.
 //
 // "The catalog module set" — every production file L1 PR3 added (per its
-// own commits: 0ed829f, 18a2836, 6e7ea7e). Nothing else in the tree, other
-// than a test file, may import any of these — this is the CONTRACT PR4 will
-// intentionally, deliberately change (by wiring the resolver into a real
-// booking path). Until then, this stays a hard zero.
+// own commits: 0ed829f, 18a2836, 6e7ea7e). PR4 DELIBERATELY changes this
+// contract: `catalogSubmissionReconciliation.server.ts` (§13, L1 PR4) is now
+// an authorized production importer of `catalogResolver.server.ts` — it is
+// the seam that wires the PR3 resolver into `POST /api/appointments`
+// (`route.ts`), gated by `resolveCatalogDomainView` (dark for every real
+// salon today; see that module's own doc comment for the full story).
+//
+// This invariant does NOT become a no-op: it still fails for ANY importer
+// or ANY module-set member not named in `AUTHORIZED_PRODUCTION_IMPORTS`
+// below — the allowlist is a closed, explicit (importer -> imported) edge
+// list, not a blanket exemption for a file or a directory. Widening it
+// again requires touching this test, on purpose, exactly like this PR did.
 // =============================================================================
 
-describe('invariant 5 — the L1 PR3 catalog core has zero production hot-path invocation', () => {
+describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED production hot-path invocation', () => {
   const CATALOG_MODULE_SET = [
     'catalogDomain',
     'catalogResolverCore',
@@ -124,6 +132,23 @@ describe('invariant 5 — the L1 PR3 catalog core has zero production hot-path i
     'catalogResolverFixtures',
   ];
   const MODULE_SET_FILES = new Set(CATALOG_MODULE_SET.map(m => `src/libs/${m}.ts`));
+
+  /**
+   * Closed allowlist of (importer -> imported set member) edges. Every entry
+   * must be a PRODUCTION file (never a test) deliberately wired to consume
+   * the PR3 core through its intended boundary (`catalogResolver.server.ts`,
+   * the server wrapper — never `catalogResolverCore.ts`/`catalogDomain.ts`
+   * directly, which stay DB-free and browser-safe per ADR 0004).
+   */
+  const AUTHORIZED_PRODUCTION_IMPORTS: ReadonlyArray<{ importer: string; imports: string }> = [
+    {
+      importer: 'src/libs/catalogSubmissionReconciliation.server.ts',
+      imports: 'src/libs/catalogResolver.server.ts',
+    },
+  ];
+  const isAuthorized = (importer: string, imported: string) =>
+    AUTHORIZED_PRODUCTION_IMPORTS.some(edge => edge.importer === importer && edge.imports === imported);
+
   // Every real `src/` file, for `resolveModuleSpecifier`'s existence check
   // AND so "does file X import module Y" is answered by RESOLUTION
   // (catching `from './catalogResolverCore'` exactly like `from '@/libs/
@@ -148,7 +173,25 @@ describe('invariant 5 — the L1 PR3 catalog core has zero production hot-path i
     expect(resolveFromLibs('./catalogResolverCore')).toBe('src/libs/catalogResolverCore.ts');
   });
 
-  it('no production file outside the set imports any set member, aliased or relative', () => {
+  it('every authorized edge is a REAL file that REALLY imports its named target (the allowlist cannot list a stale/fictional edge)', () => {
+    for (const edge of AUTHORIZED_PRODUCTION_IMPORTS) {
+      expect(allSrcFiles.has(edge.importer), `${edge.importer} does not exist`).toBe(true);
+      expect(MODULE_SET_FILES.has(edge.imports), `${edge.imports} is not a catalog module-set member`).toBe(true);
+
+      const source = read(edge.importer);
+      const resolvedTargets = getValueImportSpecifiers(source, edge.importer)
+        .map(specifier => resolveModuleSpecifier(edge.importer, specifier, fileExists));
+
+      expect(resolvedTargets, `${edge.importer} does not actually import ${edge.imports}`).toContain(edge.imports);
+    }
+  });
+
+  it('a hypothetical UNAUTHORIZED importer of the same module-set member is still caught (non-vacuous)', () => {
+    expect(isAuthorized('src/libs/someRandomFile.ts', 'src/libs/catalogResolver.server.ts')).toBe(false);
+    expect(isAuthorized('src/libs/catalogSubmissionReconciliation.server.ts', 'src/libs/catalogResolverCore.ts')).toBe(false);
+  });
+
+  it('no production file outside the set imports any set member except through an authorized edge', () => {
     const offenders: string[] = [];
     for (const file of allSrcFiles) {
       if (isTestOrStoryFile(file) || MODULE_SET_FILES.has(file)) {
@@ -157,7 +200,7 @@ describe('invariant 5 — the L1 PR3 catalog core has zero production hot-path i
       const source = read(file);
       for (const specifier of getValueImportSpecifiers(source, file)) {
         const resolved = resolveModuleSpecifier(file, specifier, fileExists);
-        if (resolved && MODULE_SET_FILES.has(resolved)) {
+        if (resolved && MODULE_SET_FILES.has(resolved) && !isAuthorized(file, resolved)) {
           offenders.push(`${file} imports ${resolved} (as '${specifier}')`);
         }
       }

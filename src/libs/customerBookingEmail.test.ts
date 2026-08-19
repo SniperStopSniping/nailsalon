@@ -407,6 +407,38 @@ describe('customer booking operational email', () => {
     );
   });
 
+  it('L1 PR4 §14: isExplicitRequestApproval absent/false sends the ORIGINAL "confirmed" copy, byte-identical to before', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.subject).toBe('Salon booking confirmed');
+    expect(email.text).toContain('is confirmed for');
+    expect(email.text).not.toContain('request');
+    expect(email.html).toContain('is confirmed for');
+  });
+
+  it('L1 PR4 §14: isExplicitRequestApproval true sends the "request received" copy instead, with no other change to the send', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+
+    await expect(sendCustomerBookingConfirmationEmail({ ...initialInput(), isExplicitRequestApproval: true }))
+      .resolves.toBe(true);
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.subject).toBe('Salon booking request received');
+    expect(email.text).toContain('We\'ve received your request for');
+    expect(email.text).toContain('The salon will review it and confirm shortly.');
+    expect(email.text).not.toContain('is confirmed for');
+    expect(email.html).toContain('We\'ve received your request for');
+    // The manage-link section is UNCHANGED regardless of the split.
+    expect(email.text).toContain('View, reschedule, or cancel:');
+    expect(email.to).toBe('current@example.com');
+  });
+
   it('uses the canonical deposit and remaining-balance summary in the confirmation email', async () => {
     state.insertQueue.push([{ id: 'delivery_1' }]);
     state.loadBookingEmailFinancialSummary.mockResolvedValue(financialSummary());

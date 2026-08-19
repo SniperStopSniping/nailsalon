@@ -18,6 +18,7 @@ import {
 import { requireAdmin, requireAdminSalon } from '@/libs/adminAuth';
 import { verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { buildAppointmentAuditRow } from '@/libs/appointmentAudit';
+import { blockingAppointmentCondition } from '@/libs/appointmentBlocking';
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
 import { logAuditEvent } from '@/libs/auditLog';
 import type { BookingCommitEffectsContext } from '@/libs/bookingCommitEffects';
@@ -33,7 +34,6 @@ import {
   resolveIntroPriceLabel,
 } from '@/libs/bookingConfig';
 import {
-  BLOCKING_APPOINTMENT_STATUSES,
   isSlotConstraintViolation,
   lockTechnicianAndAssertSlotFree,
   SlotConflictError,
@@ -68,6 +68,11 @@ import {
   getPublicTechnicianCompatibility,
   validatePublicBookingSelection,
 } from '@/libs/bookingQuote';
+import type { CatalogSelectionInput } from '@/libs/catalogDomain';
+import {
+  type CatalogConflictPayload,
+  reconcileCatalogSelection,
+} from '@/libs/catalogSubmissionReconciliation.server';
 import { computeCheckoutTotals } from '@/libs/checkoutTotals';
 import { requireClientApiSession } from '@/libs/clientApiGuards';
 import {
@@ -140,6 +145,7 @@ import {
   normalizePhone,
 } from '@/libs/queries';
 import { redactAppointmentForStaff } from '@/libs/redact';
+import { resolveExplicitRequestApprovalActivation } from '@/libs/requestApprovalReconciliation.server';
 import {
   calculateRetentionDiscount,
   type CampaignValidationFailureCode,
@@ -276,6 +282,19 @@ const bookingPolicyAcknowledgmentRequestSchema = z.object({
   attemptId: z.string().uuid(),
 }).strict();
 
+/**
+ * L1 PR4 §13 — optional. Absent on every client today (no public UI resolves
+ * the catalog through `catalogResolver.server.ts` yet — PR7, out of scope).
+ * When present, the server recomputes the fresh selection resolution and
+ * compares only the MATERIAL `resolutionFingerprint` against this one — see
+ * `reconcileCatalogSelection` (`catalogSubmissionReconciliation.server.ts`)
+ * and ADR 0005 for why a changed `catalogRevision` alone must not gate this.
+ */
+const catalogAcknowledgmentRequestSchema = z.object({
+  serviceId: z.string().min(1),
+  resolutionFingerprint: z.string().regex(/^[a-f0-9]{64}$/u),
+}).strict();
+
 const createAppointmentSchema = z.object({
   salonSlug: z.string().min(1, 'Salon slug is required'),
   serviceIds: z.array(z.string()).min(1, 'At least one service is required').optional(),
@@ -330,6 +349,7 @@ const createAppointmentSchema = z.object({
   expectedDepositFingerprint: z.string().max(64).optional(),
   bookingPolicyAcknowledgment:
     bookingPolicyAcknowledgmentRequestSchema.optional(),
+  catalogAcknowledgment: catalogAcknowledgmentRequestSchema.optional(),
 });
 
 type CreateAppointmentRequest = z.infer<typeof createAppointmentSchema>;
@@ -564,6 +584,49 @@ function bookingFinancialQuoteChangedResponse(
       },
     } satisfies ErrorResponse,
     { status: 409 },
+  );
+}
+
+/**
+ * L1 PR4 §13. `payload` is already public-safe end to end — allowlisted
+ * `PublicCatalogSnapshot` / `ResolvedCatalogSelection` types plus bounded
+ * `reason`/`recovery` strings; never a rule id, priority, note, raw params,
+ * capability id, or the private rule graph (see
+ * `catalogSubmissionReconciliation.server.ts`'s own privacy test for the
+ * proof) — this builder adds nothing beyond the HTTP envelope and a
+ * user-facing message.
+ */
+function catalogSelectionChangedResponse(
+  payload: CatalogConflictPayload,
+): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'CATALOG_SELECTION_CHANGED',
+        message: 'This service or add-on selection has changed. Please review the updated details and try again.',
+        details: {
+          refreshCatalog: true,
+          reason: payload.reason,
+          recovery: payload.recovery,
+          snapshot: payload.snapshot,
+          resolution: payload.resolution,
+          resolutionFingerprint: payload.resolutionFingerprint,
+        },
+      },
+    } satisfies ErrorResponse,
+    { status: 409 },
+  );
+}
+
+function catalogTemporarilyUnavailableResponse(): Response {
+  return Response.json(
+    {
+      error: {
+        code: 'CATALOG_TEMPORARILY_UNAVAILABLE',
+        message: 'We could not confirm this salon\'s current menu. Please try again shortly.',
+      },
+    } satisfies ErrorResponse,
+    { status: 503 },
   );
 }
 
@@ -1213,6 +1276,27 @@ export async function POST(request: Request): Promise<Response> {
     && !googleReviewEvent;
     const requestedPolicyAcknowledgment = data.bookingPolicyAcknowledgment;
 
+    // L1 PR4 §13 — the selection catalog reconciliation resolves against.
+    // `null` for a legacy multi-service basket (`serviceIds[]`, no single
+    // `baseServiceId`) or a reschedule/Google-event-conversion request — the
+    // L1 catalog model has no multi-service concept, and catalog
+    // reconciliation is scoped to new public bookings only (see
+    // `catalogSubmissionReconciliation.server.ts`'s doc comment).
+    // `reconcileCatalogSelection` itself is additionally gated on
+    // `resolveCatalogDomainView`, so this is a second, independent reason
+    // this stays inert for every real salon today, not the only one.
+    const catalogSelectionInput: CatalogSelectionInput | null = (isNewPublicBooking && normalizedBaseServiceId)
+      ? {
+          serviceId: normalizedBaseServiceId,
+          technicianId: normalizedTechnicianId,
+          selectedAddOns: normalizedSelectedAddOns.map(addOn => ({
+            addOnId: addOn.addOnId,
+            quantity: addOn.quantity,
+          })),
+        }
+      : null;
+    const requestedCatalogAcknowledgment = data.catalogAcknowledgment;
+
     // This full canonical hash is a database authority as well as the Redis
     // payload hash. It is therefore generated even when Redis is unavailable.
     // Key order is intentionally fixed; arrays whose order is not meaningful
@@ -1436,6 +1520,38 @@ export async function POST(request: Request): Promise<Response> {
         );
       }
       throw error;
+    }
+
+    // L1 PR4 §12/§13 — catalog selection reconciliation runs FIRST, ahead of
+    // every check below (see `bookingSubmissionOrder.ts`). This runs
+    // PRE-TRANSACTION deliberately: `reconcileCatalogSelection`
+    // (`catalogSubmissionReconciliation.server.ts`) calls the PR3-frozen
+    // `resolvePublicCatalogSnapshot` / `resolveCatalogSelectionForSalon`
+    // (`catalogResolver.server.ts`), which run their own top-level DB calls
+    // via `@/libs/DB` and were never built to accept a caller's `tx` —
+    // invoking them from inside `runSerializedBookingTransaction`'s callback
+    // deadlocks this suite's single-connection PGlite harness (confirmed
+    // while building this PR) and would, under real Postgres, read through a
+    // second, un-scoped connection regardless. `reconcileCatalogSelection`
+    // short-circuits to `not_applicable` (no DB read at all) unless this
+    // salon has explicitly opted into the dark `catalog.*` L1 feature keys —
+    // true for every real salon today, which is what makes this call a
+    // provable no-op for current production traffic.
+    const catalogOutcome = await reconcileCatalogSelection({
+      salonId: salon.id,
+      features: (salon.features as SalonFeatures | null | undefined) ?? null,
+      selection: catalogSelectionInput,
+      clientAcknowledgment: requestedCatalogAcknowledgment,
+    });
+    if (catalogOutcome.status === 'conflict') {
+      return catalogSelectionChangedResponse(catalogOutcome.payload);
+    }
+    if (catalogOutcome.status === 'unavailable') {
+      console.error(
+        '[Catalog] resolution failed closed during booking submission',
+        { salonId: salon.id, failure: catalogOutcome.failure },
+      );
+      return catalogTemporarilyUnavailableResponse();
     }
 
     const preliminaryRequiredPolicy = isNewPublicBooking
@@ -2145,6 +2261,7 @@ export async function POST(request: Request): Promise<Response> {
       startOfDay: bookingStartOfDay,
       endOfDay: bookingEndOfDay,
       excludedAppointmentId: normalizedOriginalApptId,
+      now,
     });
 
     // Smart Fit (P7.2) — request-level applicability. Campaign bookings keep
@@ -2450,6 +2567,7 @@ export async function POST(request: Request): Promise<Response> {
       startOfDay: bookingStartOfDay,
       endOfDay: bookingEndOfDay,
       excludedAppointmentId: normalizedOriginalApptId,
+      now,
     });
 
     // Conversions keep the technician resolved in the initial pass — the
@@ -2515,6 +2633,68 @@ export async function POST(request: Request): Promise<Response> {
           { status },
         );
       }
+    }
+
+    // L1 PR4 §14/§15 — explicit request-approval activation. Dark-gated
+    // twice over: `catalogOutcome.status === 'ok'` alone requires
+    // `resolveCatalogDomainView(features) === 'l1'` (unreachable for any
+    // real salon — see catalogSubmissionReconciliation.server.ts), and this
+    // ALSO requires the resolved service's `confirmationMode` to be
+    // EXPLICITLY `'request_approval'` (impossible today — no owner editor
+    // exists to set it, PR6). Computed PRE-TRANSACTION, before every other
+    // check below, so an ineligible/not-request-bookable slot is rejected
+    // "before creating anything" (§15) — matches where catalog
+    // reconciliation (§13) already runs, for the same reason (PR3's
+    // resolver functions cannot run nested inside a transaction).
+    const resolvedCatalogService = catalogOutcome.status === 'ok'
+      ? catalogOutcome.snapshot.services.find(s => s.id === catalogOutcome.resolution.serviceId)
+      : undefined;
+    let explicitRequestApproval: {
+      requestExpiresAt: Date;
+      confirmationModeSnapshot: 'request_approval';
+      selectionModeSnapshot: 'direct' | 'guided' | null;
+    } | null = null;
+    if (resolvedCatalogService?.explicitConfirmationMode === 'request_approval' && !bypassAvailabilityGate) {
+      const activation = resolveExplicitRequestApprovalActivation({
+        startTime,
+        endTime: blockedEndTime,
+        weeklySchedule: technician.weeklySchedule as WeeklySchedule | null,
+        override: finalPolicy.overridesByTechnician.get(technician.id),
+        isOnTimeOff: finalPolicy.timeOffTechnicianIds.has(technician.id),
+        blockedSlots: finalPolicy.blockedSlotsByTechnician.get(technician.id) ?? [],
+        requestedServices: services,
+        capabilityMode,
+        enabledServiceIds: technician.enabledServiceIds ?? [],
+        specialties: technician.specialties ?? [],
+        locationId: validatedLocationId,
+        primaryLocationId: technician.primaryLocationId ?? null,
+        locationBusinessHours: validatedLocation?.businessHours ?? null,
+        existingAppointments: finalPolicy.appointmentsByTechnician.get(technician.id) ?? [],
+        excludedAppointmentId: normalizedOriginalApptId,
+        bufferMinutes: 0,
+        now,
+        timeZone: bookingConfig.timezone,
+        locationBusinessHoursForReview: validatedLocation?.businessHours ?? null,
+      });
+
+      if (!activation.activates) {
+        return Response.json(
+          {
+            error: {
+              code: 'REQUEST_NOT_BOOKABLE',
+              message: 'This time is too soon for a request — choose a later time or contact the salon.',
+              details: { reason: activation.reason },
+            },
+          } satisfies ErrorResponse,
+          { status: 400 },
+        );
+      }
+
+      explicitRequestApproval = {
+        requestExpiresAt: activation.deadline,
+        confirmationModeSnapshot: 'request_approval',
+        selectionModeSnapshot: resolvedCatalogService.selectionMode,
+      };
     }
 
     try {
@@ -2756,7 +2936,7 @@ export async function POST(request: Request): Promise<Response> {
           eq(appointmentSchema.technicianId, lockedTechnician.id),
           gte(appointmentSchema.startTime, bookingStartOfDay),
           lt(appointmentSchema.startTime, bookingEndOfDay),
-          inArray(appointmentSchema.status, [...BLOCKING_APPOINTMENT_STATUSES]),
+          blockingAppointmentCondition(now),
         ];
         if (normalizedOriginalApptId) {
           freshWindowConditions.push(ne(appointmentSchema.id, normalizedOriginalApptId));
@@ -3179,6 +3359,7 @@ export async function POST(request: Request): Promise<Response> {
                 startTime,
                 blockedEndTime,
                 excludedAppointmentId: normalizedOriginalApptId,
+                now,
               });
             }
 
@@ -3541,6 +3722,7 @@ export async function POST(request: Request): Promise<Response> {
                 technicianId: technician.id,
                 startTime,
                 blockedEndTime,
+                now,
               });
             }
 
@@ -3725,11 +3907,32 @@ export async function POST(request: Request): Promise<Response> {
                 startTime,
                 endTime,
                 // THE APPOINTMENT ROW IS THE HOLD.
+                //
+                // L1 PR4 §14 — explicit request-approval activation is
+                // checked ONLY when `depositCharge` is falsy: the existing
+                // deposit-priority arm is UNCHANGED and always wins when a
+                // deposit is required — "current main wins" applied
+                // literally, per the coordinator's explicit ruling, rather
+                // than guessing how a request-approval booking should
+                // interact with a deposit hold. When it does apply, it also
+                // overrides `salon.freeSoloEnabled`'s normal
+                // 'confirmed' default: an owner's explicit per-service
+                // request-approval choice is a stronger signal than the
+                // salon-wide free-solo convenience setting.
                 status: depositCharge
                   ? 'awaiting_payment'
-                  : (salon.freeSoloEnabled ? 'confirmed' : 'pending'),
+                  : explicitRequestApproval
+                    ? 'pending'
+                    : (salon.freeSoloEnabled ? 'confirmed' : 'pending'),
                 ...(depositCharge
                   ? { createdAt: holdNow, depositHoldExpiresAt: holdExpiresAt }
+                  : {}),
+                ...(!depositCharge && explicitRequestApproval
+                  ? {
+                      requestExpiresAt: explicitRequestApproval.requestExpiresAt,
+                      confirmationModeSnapshot: explicitRequestApproval.confirmationModeSnapshot,
+                      selectionModeSnapshot: explicitRequestApproval.selectionModeSnapshot,
+                    }
                   : {}),
                 invoiceCurrency: lockedBookingConfiguration.invoiceCurrency,
                 bookingTaxSnapshot,
@@ -4323,6 +4526,10 @@ export async function POST(request: Request): Promise<Response> {
         notes: appointment.notes,
         googleCalendarEventId: appointment.googleCalendarEventId,
         updatedAt: appointment.updatedAt,
+        // `explicitRequestApproval` stays `null` on the reschedule branch
+        // (only ever set in the new-booking branch above), so this is
+        // `undefined` there — byte-identical to before this PR.
+        ...(explicitRequestApproval ? { isExplicitRequestApproval: true } : {}),
       },
       serviceNames: services.map(s => s.name),
       technician: technician
