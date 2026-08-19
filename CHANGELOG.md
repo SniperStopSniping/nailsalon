@@ -1,3 +1,16 @@
+# [1.75.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.74.0...v1.75.0) (2026-08-19)
+
+
+### Bug Fixes
+
+* **architecture:** close guard escapes found by adversarial review ([2ac933e](https://github.com/SniperStopSniping/nailsalon/commit/2ac933ec62a05bf77b3679ad93113515db8311de))
+* **health:** compare exact migration tail identity; stop paging on DB-ahead ([bb51222](https://github.com/SniperStopSniping/nailsalon/commit/bb512227a49eacb276d79e648de37e21b01f0133))
+
+
+### Features
+
+* **health:** detect production schema drift in readiness ([c470dcb](https://github.com/SniperStopSniping/nailsalon/commit/c470dcb9534c449b068fe8588e5aef31ab6d6e0c))
+
 # [1.74.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.73.0...v1.74.0) (2026-08-19)
 
 
