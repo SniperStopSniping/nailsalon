@@ -1,3 +1,10 @@
+# [1.76.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.75.0...v1.76.0) (2026-08-19)
+
+
+### Features
+
+* **booking:** enforce catalog resolution at submission ([6e5293d](https://github.com/SniperStopSniping/nailsalon/commit/6e5293d6a87251e999e1baf7ced174caeff2e313))
+
 # [1.75.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.74.0...v1.75.0) (2026-08-19)
 
 
