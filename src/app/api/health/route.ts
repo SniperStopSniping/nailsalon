@@ -6,6 +6,7 @@ import type { LifecycleReadinessSqlHandle } from '@/libs/clientLifecycleSchemaCo
 import { db } from '@/libs/DB';
 import { type DepositsReadinessSqlHandle, isDepositsSchemaReady } from '@/libs/depositsSchema';
 import { isResendSenderVerified } from '@/libs/resendHealth';
+import { getSchemaDriftStatus, type SchemaReadinessSqlHandle } from '@/libs/schemaReadiness';
 
 // =============================================================================
 // HEALTH CHECK ENDPOINT
@@ -54,6 +55,15 @@ type HealthResponse = {
   // booleans only. This is the proof the owner's manual production migration
   // actually landed.
   depositsSchema: 'ready' | 'not_ready' | 'unavailable';
+  // Sibling of clientLifecycleSchema/depositsSchema. Compares the repository's
+  // expected migration tail (migrations/meta/_journal.json) against how many
+  // migrations the database has actually applied (drizzle.__drizzle_migrations).
+  // This is the general-purpose version of the same proof clientLifecycleSchema
+  // and depositsSchema each hand-roll for one migration: it is what would have
+  // caught code deployed expecting migrations through 0072 while the database
+  // was still at 0068. Deliberately a bounded status, never raw migration
+  // tags/counts — see getSchemaDriftStatus in @/libs/schemaReadiness.
+  schemaDrift: 'ready' | 'not_ready' | 'unavailable';
   timestamp: string;
   gitSha?: string;
 };
@@ -117,6 +127,22 @@ export async function GET(): Promise<Response> {
       depositsSchema = depositsReady ? 'ready' : 'not_ready';
     } catch {
       depositsSchema = 'unavailable';
+    }
+  }
+
+  // Schema-drift readiness (production schema-drift incident hardening). Read
+  // only, and — unlike depositsSchema — gated into criticalChecksPass below
+  // (production only), because the whole point is that a release must not
+  // report full readiness when it expects a migration tail newer than the
+  // database has applied.
+  let schemaDrift: HealthResponse['schemaDrift'] = 'unavailable';
+  if (checks.db) {
+    try {
+      schemaDrift = await getSchemaDriftStatus(
+        db as SchemaReadinessSqlHandle,
+      );
+    } catch {
+      schemaDrift = 'unavailable';
     }
   }
 
@@ -243,6 +269,7 @@ export async function GET(): Promise<Response> {
   const criticalChecksPass
     = checks.db
     && (!productionHosted || clientLifecycleSchema === 'ready')
+    && (!productionHosted || schemaDrift === 'ready')
     && checks.clerkEnv
     && checks.passwordAuthEnv
     && (!hosted
@@ -254,6 +281,7 @@ export async function GET(): Promise<Response> {
     checks,
     clientLifecycleSchema,
     depositsSchema,
+    schemaDrift,
     timestamp: new Date().toISOString(),
   };
 

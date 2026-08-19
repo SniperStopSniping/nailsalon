@@ -16,12 +16,14 @@ const {
   schemaReadyMock,
   depositsReadyMock,
   isResendSenderVerifiedMock,
+  schemaDriftStatusMock,
 } = vi.hoisted(() => ({
   executeMock: vi.fn(),
   isRedisAvailableMock: vi.fn(),
   schemaReadyMock: vi.fn(),
   depositsReadyMock: vi.fn(),
   isResendSenderVerifiedMock: vi.fn(),
+  schemaDriftStatusMock: vi.fn(),
 }));
 
 vi.mock('@/libs/DB', () => ({
@@ -45,6 +47,10 @@ vi.mock('@/libs/depositsSchema', () => ({
   isDepositsSchemaReady: depositsReadyMock,
 }));
 
+vi.mock('@/libs/schemaReadiness', () => ({
+  getSchemaDriftStatus: schemaDriftStatusMock,
+}));
+
 const { GET } = await import('./route');
 
 const originalEnv = { ...process.env };
@@ -63,6 +69,7 @@ beforeEach(() => {
   isResendSenderVerifiedMock.mockResolvedValue(true);
   schemaReadyMock.mockResolvedValue(true);
   depositsReadyMock.mockResolvedValue(true);
+  schemaDriftStatusMock.mockResolvedValue('ready');
 
   // The baseline must genuinely be `status: 'ok'`, otherwise "status is
   // unchanged" is vacuously true and neither leg below can ever fail. That
