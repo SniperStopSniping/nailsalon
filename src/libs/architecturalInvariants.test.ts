@@ -3,6 +3,12 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import {
+  getValueImportSpecifiers,
+  isTestOrStoryFile,
+  resolveModuleSpecifier,
+  walkTsFiles,
+} from '@/libs/architectureGuardSupport';
 import { buildPublicCatalogSnapshot } from '@/libs/catalogResolverCore';
 import { CATALOG_FIXTURE_SCENARIOS } from '@/libs/catalogResolverFixtures';
 
@@ -118,16 +124,14 @@ describe('invariant 5 — the L1 PR3 catalog core has zero production hot-path i
     'catalogResolverFixtures',
   ];
   const MODULE_SET_FILES = new Set(CATALOG_MODULE_SET.map(m => `src/libs/${m}.ts`));
-
-  function walk(dir: string): string[] {
-    return readdirSync(path.join(ROOT, dir), { withFileTypes: true }).flatMap((entry) => {
-      const rel = `${dir}/${entry.name}`;
-      if (entry.isDirectory()) {
-        return entry.name === 'node_modules' ? [] : walk(rel);
-      }
-      return /\.tsx?$/.test(entry.name) ? [rel] : [];
-    });
-  }
+  // Every real `src/` file, for `resolveModuleSpecifier`'s existence check
+  // AND so "does file X import module Y" is answered by RESOLUTION
+  // (catching `from './catalogResolverCore'` exactly like `from '@/libs/
+  // catalogResolverCore'`), not by a hand-rolled `@/libs/...`-only regex —
+  // a sibling in `src/libs/` is exactly the file most likely to reach for
+  // the relative spelling.
+  const allSrcFiles = new Set(walkTsFiles());
+  const fileExists = (candidate: string) => MODULE_SET_FILES.has(candidate) || allSrcFiles.has(candidate);
 
   it('the module set really does have at least one importer among itself + tests (non-vacuous)', () => {
     // catalogResolverCore.ts imports catalogDomain.ts — an internal edge —
@@ -137,17 +141,24 @@ describe('invariant 5 — the L1 PR3 catalog core has zero production hot-path i
     expect(coreSource).toContain('@/libs/catalogDomain');
   });
 
-  it('no production file outside the set imports any set member', () => {
+  it('the resolver actually resolves a relative import to the same target as its aliased form (non-vacuous)', () => {
+    const resolveFromLibs = (specifier: string) => resolveModuleSpecifier('src/libs/fixture.ts', specifier, fileExists);
+
+    expect(resolveFromLibs('@/libs/catalogResolverCore')).toBe('src/libs/catalogResolverCore.ts');
+    expect(resolveFromLibs('./catalogResolverCore')).toBe('src/libs/catalogResolverCore.ts');
+  });
+
+  it('no production file outside the set imports any set member, aliased or relative', () => {
     const offenders: string[] = [];
-    for (const file of walk('src')) {
-      if (/\.(?:test|spec|stories)\.tsx?$/.test(file) || MODULE_SET_FILES.has(file)) {
+    for (const file of allSrcFiles) {
+      if (isTestOrStoryFile(file) || MODULE_SET_FILES.has(file)) {
         continue;
       }
-      const source = codeOnly(read(file));
-      for (const moduleName of CATALOG_MODULE_SET) {
-        const pattern = new RegExp(`from\\s+['"]@/libs/${moduleName.replace('.', '\\.')}['"]`);
-        if (pattern.test(source)) {
-          offenders.push(`${file} imports @/libs/${moduleName}`);
+      const source = read(file);
+      for (const specifier of getValueImportSpecifiers(source, file)) {
+        const resolved = resolveModuleSpecifier(file, specifier, fileExists);
+        if (resolved && MODULE_SET_FILES.has(resolved)) {
+          offenders.push(`${file} imports ${resolved} (as '${specifier}')`);
         }
       }
     }

@@ -1,9 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { stripComments } from '@/libs/architectureGuardSupport';
+import { getValueImportSpecifiers, resolveModuleSpecifier } from '@/libs/architectureGuardSupport';
 
 /**
  * H5 — domain ownership boundaries (architecture hardening pass).
@@ -25,6 +25,19 @@ import { stripComments } from '@/libs/architectureGuardSupport';
  * domain pairing named in H5. Broader domain debt this pass does NOT
  * enforce is documented at the bottom instead of guarded, per the charter's
  * explicit instruction not to attempt a large unrelated refactor.
+ *
+ * MATCHING: every check below is DIRECT-IMPORT-ONLY by design (a fixed,
+ * small file list — never transitive, never a repo-wide sweep; see the
+ * module doc comment above). Within that direct-import scope, a forbidden
+ * INTERNAL target (another `src/` module, e.g. `@/libs/DB`) is matched by
+ * RESOLVING every value-import specifier with `resolveModuleSpecifier`
+ * (`architectureGuardSupport.ts`) and comparing the resolved path — so
+ * `from './DB'` is caught exactly like `from '@/libs/DB'`, both resolving to
+ * the same `src/libs/DB.ts`, rather than by hand-rolling a second
+ * alias-only regex that only a `@/libs/...` spelling would match. A
+ * forbidden EXTERNAL package (`drizzle-orm`, `server-only`, `react`) has no
+ * relative-path form at all — an npm package can't be imported as `./DB` —
+ * so those stay a raw specifier check.
  */
 
 const ROOT = process.cwd();
@@ -33,13 +46,18 @@ function read(relativePath: string): string {
   return readFileSync(path.join(ROOT, relativePath), 'utf8');
 }
 
-/** True when `source`'s value-import lines (comments stripped) match `pattern`. */
-function importsMatching(source: string, pattern: RegExp): boolean {
-  return pattern.test(stripComments(source));
+const fileExists = (candidate: string): boolean => existsSync(path.join(ROOT, candidate));
+
+/** Every value-import specifier `file` writes, verbatim (for matching an EXTERNAL package by name). */
+function rawValueImportSpecifiers(file: string): string[] {
+  return getValueImportSpecifiers(read(file), file);
 }
 
-function offendersAmong(files: readonly string[], pattern: RegExp): string[] {
-  return files.filter(file => importsMatching(read(file), pattern));
+/** Every value-import specifier `file` writes, RESOLVED to a repo-relative path where it names an internal `src/` module (for matching an INTERNAL target regardless of alias vs. relative spelling). */
+function resolvedValueImportTargets(file: string): string[] {
+  return rawValueImportSpecifiers(file)
+    .map(specifier => resolveModuleSpecifier(file, specifier, fileExists))
+    .filter((resolved): resolved is string => resolved !== null);
 }
 
 // =============================================================================
@@ -63,41 +81,60 @@ describe('catalog core is free of DB access (H5 #1)', () => {
     'src/libs/confirmationMode.ts',
   ];
 
-  // `server-only` is always a bare side-effect import (`import 'server-only';`
-  // — no `from`), so it needs its own alternative rather than folding into
-  // the `from '...'` pattern the other two use.
-  const FORBIDDEN = /from\s+['"](?:@\/libs\/DB|drizzle-orm[^'"]*)['"]|^\s*import\s+['"]server-only['"]/m;
+  const FORBIDDEN_INTERNAL_TARGETS = new Set(['src/libs/DB.ts']);
+  const isForbiddenExternalPackage = (specifier: string) =>
+    specifier === 'server-only' || specifier === 'drizzle-orm' || specifier.startsWith('drizzle-orm/');
 
-  it('the pattern actually matches a known-bad import (non-vacuous)', () => {
-    expect(importsMatching(`import { db } from '@/libs/DB';\n`, FORBIDDEN)).toBe(true);
-    expect(importsMatching(`import 'server-only';\n`, FORBIDDEN)).toBe(true);
-    expect(importsMatching(`import { eq } from 'drizzle-orm';\n`, FORBIDDEN)).toBe(true);
+  function offenders(): string[] {
+    return CATALOG_CORE_FILES.filter(file =>
+      resolvedValueImportTargets(file).some(target => FORBIDDEN_INTERNAL_TARGETS.has(target))
+      || rawValueImportSpecifiers(file).some(isForbiddenExternalPackage));
+  }
+
+  it('the matcher actually catches a known-bad import, aliased AND relative (non-vacuous)', () => {
+    // `src/libs/DB.ts` is a real file, so resolving against a fixture path
+    // in the SAME directory (`src/libs/`) exercises the real resolver, not a
+    // mocked one.
+    const resolveFromLibs = (specifier: string) => resolveModuleSpecifier('src/libs/fixture.ts', specifier, fileExists);
+
+    expect(resolveFromLibs('@/libs/DB')).toBe('src/libs/DB.ts');
+    expect(resolveFromLibs('./DB')).toBe('src/libs/DB.ts');
+    expect(isForbiddenExternalPackage('server-only')).toBe(true);
+    expect(isForbiddenExternalPackage('drizzle-orm')).toBe(true);
+    expect(isForbiddenExternalPackage('drizzle-orm/pg-core')).toBe(true);
     // A doc comment merely NAMING these must never trip the check — this
     // repo's own catalog-core files say "no `@/libs/DB`, no `server-only`"
-    // in prose (see catalogDomain.ts's module doc comment).
-    expect(importsMatching(`/** no @/libs/DB, no server-only, no drizzle-orm here */\n`, FORBIDDEN)).toBe(false);
+    // in prose (see catalogDomain.ts's module doc comment). Comments are
+    // never parsed as imports by `getValueImportSpecifiers` in the first
+    // place (it walks the AST, not source text), so there is nothing here
+    // for a doc comment to accidentally match.
   });
 
-  it('none of the catalog core files import DB, drizzle, or server-only', () => {
-    expect(offendersAmong(CATALOG_CORE_FILES, FORBIDDEN)).toEqual([]);
+  it('none of the catalog core files import DB (aliased or relative), drizzle, or server-only', () => {
+    expect(offenders()).toEqual([]);
   });
 });
 
 // =============================================================================
 // 2. Resolver core must not import React (it must stay usable in the
 //    browser AND on the server, with no rendering dependency either way).
+//    `react`/`react-dom` are npm packages with no relative-path form, so
+//    this stays a raw specifier check.
 // =============================================================================
 
 describe('resolver core has no React dependency (H5 #2)', () => {
   const RESOLVER_CORE_FILES = ['src/libs/catalogResolverCore.ts', 'src/libs/catalogDomain.ts'];
-  const FORBIDDEN = /from\s+['"]react(?:-dom)?['"]/;
+  const isForbiddenExternalPackage = (specifier: string) => specifier === 'react' || specifier === 'react-dom';
 
-  it('the pattern actually matches a known-bad import (non-vacuous)', () => {
-    expect(importsMatching(`import { useState } from 'react';\n`, FORBIDDEN)).toBe(true);
+  it('the matcher actually catches a known-bad import (non-vacuous)', () => {
+    expect(isForbiddenExternalPackage('react')).toBe(true);
+    expect(isForbiddenExternalPackage('react-dom')).toBe(true);
   });
 
   it('neither file imports react, and neither is a .tsx file (so JSX is not even syntactically possible)', () => {
-    expect(offendersAmong(RESOLVER_CORE_FILES, FORBIDDEN)).toEqual([]);
+    const offenders = RESOLVER_CORE_FILES.filter(file => rawValueImportSpecifiers(file).some(isForbiddenExternalPackage));
+
+    expect(offenders).toEqual([]);
 
     for (const file of RESOLVER_CORE_FILES) {
       expect(file.endsWith('.ts')).toBe(true);
@@ -117,16 +154,24 @@ describe('presentation does not reach into deposit internals (H5 #3)', () => {
     'src/libs/salonContent.ts',
     'src/libs/sectionRegistry.ts',
   ];
-  // Matches both `@/libs/depositXxx` and the `@/libs/deposits/*` directory.
-  const FORBIDDEN = /from\s+['"]@\/libs\/deposit/;
+  // A prefix, not a single file — the whole `deposit*`/`deposits/**` family.
+  const isForbiddenInternalTarget = (resolvedTarget: string) => resolvedTarget.startsWith('src/libs/deposit');
 
-  it('the pattern actually matches a known-bad import (non-vacuous)', () => {
-    expect(importsMatching(`import { getDepositPolicy } from '@/libs/depositPolicy';\n`, FORBIDDEN)).toBe(true);
-    expect(importsMatching(`import { releaseHold } from '@/libs/deposits/holdWriters';\n`, FORBIDDEN)).toBe(true);
+  function offenders(): string[] {
+    return PRESENTATION_FILES.filter(file => resolvedValueImportTargets(file).some(isForbiddenInternalTarget));
+  }
+
+  it('the matcher actually catches a known-bad import, aliased AND relative (non-vacuous)', () => {
+    const resolveFromLibs = (specifier: string) => resolveModuleSpecifier('src/libs/fixture.ts', specifier, fileExists);
+
+    expect(isForbiddenInternalTarget(resolveFromLibs('@/libs/depositPolicy')!)).toBe(true);
+    expect(isForbiddenInternalTarget(resolveFromLibs('./depositPolicy')!)).toBe(true);
+    expect(isForbiddenInternalTarget(resolveFromLibs('@/libs/deposits/holdWriters')!)).toBe(true);
+    expect(isForbiddenInternalTarget(resolveFromLibs('./deposits/holdWriters')!)).toBe(true);
   });
 
-  it('no presentation module imports a deposit internal', () => {
-    expect(offendersAmong(PRESENTATION_FILES, FORBIDDEN)).toEqual([]);
+  it('no presentation module imports a deposit internal, aliased or relative', () => {
+    expect(offenders()).toEqual([]);
   });
 });
 
@@ -140,14 +185,27 @@ describe('the public catalog DTO layer does not import payment/provider secrets 
   // of) check #1's "no server-only" rule: this targets specific PROVIDERS a
   // reviewer would recognize by name, so a failure reads as "why does the
   // catalog projector need Stripe/Twilio/Google?" rather than a generic hit.
-  const FORBIDDEN = /from\s+['"]@\/libs\/(?:stripe|googleCalendar|twilioMessagingSend|smsSender|email)['"]/;
+  const FORBIDDEN_INTERNAL_TARGETS = new Set([
+    'src/libs/stripe.ts',
+    'src/libs/googleCalendar.ts',
+    'src/libs/twilioMessagingSend.ts',
+    'src/libs/smsSender.ts',
+    'src/libs/email.ts',
+  ]);
 
-  it('the pattern actually matches a known-bad import (non-vacuous)', () => {
-    expect(importsMatching(`import { stripe } from '@/libs/stripe';\n`, FORBIDDEN)).toBe(true);
+  function offenders(): string[] {
+    return PUBLIC_DTO_FILES.filter(file => resolvedValueImportTargets(file).some(target => FORBIDDEN_INTERNAL_TARGETS.has(target)));
+  }
+
+  it('the matcher actually catches a known-bad import, aliased AND relative (non-vacuous)', () => {
+    const resolveFromLibs = (specifier: string) => resolveModuleSpecifier('src/libs/fixture.ts', specifier, fileExists);
+
+    expect(resolveFromLibs('@/libs/stripe')).toBe('src/libs/stripe.ts');
+    expect(resolveFromLibs('./stripe')).toBe('src/libs/stripe.ts');
   });
 
-  it('neither public DTO module imports a payment or provider secret module', () => {
-    expect(offendersAmong(PUBLIC_DTO_FILES, FORBIDDEN)).toEqual([]);
+  it('neither public DTO module imports a payment or provider secret module, aliased or relative', () => {
+    expect(offenders()).toEqual([]);
   });
 });
 
@@ -157,11 +215,12 @@ describe('the public catalog DTO layer does not import payment/provider secrets 
 // NOT re-implemented here — it is already the GENERAL CASE of
 // architectureClientServerBoundary.test.ts (H3), which flags ANY 'use
 // client' module that runtime-imports ANY `.server.ts` module, transitively,
-// repo-wide. `catalogResolver.server.ts` is exactly such a module, so it is
-// already covered by that broader guard; a second, narrower check here
-// would just be the same assertion restated. This test only pins the
-// PRECONDITION that makes that true, so the cross-reference stays honest if
-// the file is ever renamed.
+// repo-wide (and, per that guard's own MINOR-3 fix, through a dynamic
+// `import()`/`require()` too). `catalogResolver.server.ts` is exactly such a
+// module, so it is already covered by that broader guard; a second,
+// narrower check here would just be the same assertion restated. This test
+// only pins the PRECONDITION that makes that true, so the cross-reference
+// stays honest if the file is ever renamed.
 // =============================================================================
 
 describe('client presentation cannot reach the server catalog loader (H5 #5 — enforced by H3)', () => {
@@ -191,4 +250,13 @@ describe('client presentation cannot reach the server catalog loader (H5 #5 — 
 //     not be vacuous today — it is left undone only because "deposits/payments"
 //     is a domain, not a fixed file list the way `PRESENTATION_FILES` above
 //     is, and enumerating it risks the same drift a generic rule engine would.
+//   - An intermediate helper smuggling a forbidden target into one of the
+//     scoped files above via a SECOND hop (e.g. catalogDomain.ts importing a
+//     small local helper that itself imports `@/libs/DB`) is NOT caught —
+//     every check above is direct-import-only BY DESIGN (see the module doc
+//     comment), the same deliberate scoping choice H3 makes the opposite way
+//     on purpose (H3 IS transitive, because "does a client bundle end up
+//     with server code in it" only has one right answer at any depth; these
+//     domain-ownership checks are narrower on purpose so they stay reviewable
+//     and don't turn into a repo-wide dependency-graph policy engine).
 // =============================================================================

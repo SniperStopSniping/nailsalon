@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CatalogSnapshotResult, PublicCatalogSnapshot } from '@/libs/catalogDomain';
+import type {
+  CatalogRevision,
+  CatalogRuleTrigger,
+  CatalogSnapshotResult,
+  PublicCatalogAddOn,
+  PublicCatalogAddOnGroup,
+  PublicCatalogRangeSummary,
+  PublicCatalogRuleProjection,
+  PublicCatalogService,
+  PublicCatalogSnapshot,
+  PublicServiceAddOnBinding,
+} from '@/libs/catalogDomain';
 import { buildPublicCatalogSnapshot } from '@/libs/catalogResolverCore';
 import {
   CATALOG_FIXTURE_SCENARIOS,
@@ -179,6 +190,27 @@ const ALLOWED_KEYS = {
   ruleProjection: ['projectionKey', 'effect', 'trigger', 'serviceScopeId', 'targetAddOnId', 'maxQuantity', 'reasonCode', 'reasonText', 'presentation'],
   trigger: ['subjectKind', 'subjectId'],
 } as const;
+
+/**
+ * Compile-time defence against drift in the REMOVAL direction. The runtime
+ * scan above (`extraKeys`) already fails the moment a `Public*` type gains a
+ * field this allowlist doesn't know about (an ADDITION). It cannot see the
+ * other direction: if a field is ever REMOVED from a `Public*` type, the
+ * stale entry above would keep silently ALLOWING a future leak that reuses
+ * that same old name — nothing would fail, because the allowlist was never
+ * violated. `satisfies keyof T` makes that a compile error instead: every
+ * name in every list below must be an actual key of its real type, today, or
+ * `tsc --noEmit` fails right here.
+ */
+ALLOWED_KEYS.revision satisfies readonly (keyof CatalogRevision)[];
+ALLOWED_KEYS.snapshot satisfies readonly (keyof PublicCatalogSnapshot)[];
+ALLOWED_KEYS.service satisfies readonly (keyof PublicCatalogService)[];
+ALLOWED_KEYS.rangeSummary satisfies readonly (keyof PublicCatalogRangeSummary)[];
+ALLOWED_KEYS.addOnGroup satisfies readonly (keyof PublicCatalogAddOnGroup)[];
+ALLOWED_KEYS.addOn satisfies readonly (keyof PublicCatalogAddOn)[];
+ALLOWED_KEYS.binding satisfies readonly (keyof PublicServiceAddOnBinding)[];
+ALLOWED_KEYS.ruleProjection satisfies readonly (keyof PublicCatalogRuleProjection)[];
+ALLOWED_KEYS.trigger satisfies readonly (keyof CatalogRuleTrigger)[];
 
 /** Every key on `obj` not present in `allowed`, or `[]` if `obj` is null/absent. */
 function extraKeys(obj: object | null | undefined, allowed: readonly string[]): string[] {

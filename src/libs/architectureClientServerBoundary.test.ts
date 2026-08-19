@@ -146,6 +146,35 @@ describe('import classification (getValueImportSpecifiers)', () => {
     expect(getValueImportSpecifiers(`import db from '@/libs/DB';\n`, 'fixture.ts')).toEqual(['@/libs/DB']);
     expect(getValueImportSpecifiers(`import * as DB from '@/libs/DB';\n`, 'fixture.ts')).toEqual(['@/libs/DB']);
   });
+
+  it('counts a dynamic `import()` with a static string literal, anywhere in the tree', () => {
+    // Not a top-level ImportDeclaration — nested inside a function body, the
+    // exact shape a top-level-statements-only scan would miss.
+    const source = `export async function loadDb() {\n  const { db } = await import('@/libs/DB');\n  return db;\n}\n`;
+
+    expect(getValueImportSpecifiers(source, 'fixture.ts')).toEqual(['@/libs/DB']);
+  });
+
+  it('counts a CommonJS `require()` with a static string literal', () => {
+    const source = `const { db } = require('@/libs/DB');\n`;
+
+    expect(getValueImportSpecifiers(source, 'fixture.ts')).toEqual(['@/libs/DB']);
+  });
+
+  it('skips a dynamic `import()`/`require()` whose argument is not a static string (cannot be resolved without running the program)', () => {
+    expect(getValueImportSpecifiers(`const mod = await import(someVariable);\n`, 'fixture.ts')).toEqual([]);
+    // The fixture source text itself deliberately contains a template
+    // literal WITH a substitution (`./${name}`) — not a mistaken plain
+    // string, so the interpolation-typo lint rule is disabled for this line.
+    // eslint-disable-next-line no-template-curly-in-string
+    expect(getValueImportSpecifiers('const mod = require(`./${name}`);\n', 'fixture.ts')).toEqual([]);
+  });
+
+  it('does NOT treat a type-position `import(...)` as a value edge (it is a different AST node, not a CallExpression)', () => {
+    const source = `type Foo = import('@/libs/DB').SomeType;\n`;
+
+    expect(getValueImportSpecifiers(source, 'fixture.ts')).toEqual([]);
+  });
 });
 
 // =============================================================================
@@ -203,6 +232,51 @@ describe('client/server boundary — synthetic SalonProvider-style regression fi
 });
 
 // =============================================================================
+// Synthetic regression fixture — the SAME leak shape, but via a dynamic
+// `import()` instead of a top-level `import` statement. `await import(...)`
+// is a real leak shape a top-level-statements-only scan cannot see; a
+// non-literal argument is deliberately unresolvable and must NOT be flagged.
+// =============================================================================
+
+describe('client/server boundary — dynamic import() regression fixture', () => {
+  const fixtureFiles = new Map<string, string>([
+    [
+      'src/libs/fixtureDb.server.ts',
+      `import 'server-only';\n\nexport const db = {} as unknown;\n`,
+    ],
+    [
+      'src/providers/FixtureClientDynamicImportBad.tsx',
+      `'use client';\n\n`
+      + `export async function loadIt() {\n  const { db } = await import('@/libs/fixtureDb.server');\n  return db;\n}\n`,
+    ],
+    [
+      // A non-literal argument can't be resolved statically — must not be
+      // treated as reaching the seed just because SOME dynamic import exists.
+      'src/providers/FixtureClientDynamicImportUnresolvable.tsx',
+      `'use client';\n\n`
+      + `export async function loadIt(moduleName: string) {\n  return import(moduleName);\n}\n`,
+    ],
+  ]);
+
+  it('flags a client component that reaches a server-only module through a dynamic import()', () => {
+    const violations = findClientServerBoundaryViolations(fixtureFiles);
+    const bad = violations.find(v => v.clientFile === 'src/providers/FixtureClientDynamicImportBad.tsx');
+
+    expect(bad).toBeDefined();
+    expect(bad!.chain).toEqual([
+      'src/providers/FixtureClientDynamicImportBad.tsx',
+      'src/libs/fixtureDb.server.ts',
+    ]);
+  });
+
+  it('does NOT flag a dynamic import() whose argument cannot be resolved statically', () => {
+    const violations = findClientServerBoundaryViolations(fixtureFiles);
+
+    expect(violations.find(v => v.clientFile === 'src/providers/FixtureClientDynamicImportUnresolvable.tsx')).toBeUndefined();
+  });
+});
+
+// =============================================================================
 // Repo-wide enforcement — the actual CI-enforced guard, over real src/ files.
 // =============================================================================
 
@@ -240,5 +314,21 @@ describe('client/server boundary — repo-wide enforcement', () => {
     const violations = findClientServerBoundaryViolations(allFiles);
 
     expect(violations.find(v => v.clientFile === salonProvider)).toBeUndefined();
+  });
+
+  it('regression anchor: lusterSecurity.ts (AES-256-GCM/HMAC key derivation from Env secrets) is recognized as a seed', () => {
+    // Adversarial review found this as a real, nameable escape: it derives
+    // encryption/HMAC keys from `Env.INTEGRATION_ENCRYPTION_KEY` /
+    // `Env.CLERK_SECRET_KEY`, but was neither `.server.ts` nor
+    // self-declaring `import 'server-only'` — and imports no OTHER seed
+    // module (only `node:crypto` and `@/libs/Env`, which is deliberately
+    // client-importable t3-env), so nothing about it was structurally
+    // detectable before its own `import 'server-only'` was added. This
+    // pins that fix so a future edit can't silently drop it back into the
+    // guard's blind spot.
+    const file = 'src/libs/lusterSecurity.ts';
+
+    expect(allFiles.has(file)).toBe(true);
+    expect(isServerOnlySeed(file, allFiles.get(file)!)).toBe(true);
   });
 });

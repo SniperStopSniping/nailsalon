@@ -18,7 +18,10 @@ import ts from 'typescript';
  *   1. Does this file start with a `'use client'` directive?
  *   2. Which of this file's imports bring in a RUNTIME VALUE (as opposed to
  *      an `import type` — erased at compile time, and deliberately allowed
- *      to cross the client/server boundary; see `SalonProvider.tsx`)?
+ *      to cross the client/server boundary; see `SalonProvider.tsx`)? This
+ *      includes a statically-resolvable dynamic `import('...')` or
+ *      `require('...')` — those can smuggle a value edge past a scan that
+ *      only looks at top-level `ImportDeclaration`s.
  *   3. Given an import specifier and the file that wrote it, which file on
  *      disk (if any, under `src/`) does it resolve to?
  *
@@ -143,6 +146,48 @@ export function getValueImportSpecifiers(sourceText: string, repoRelativePath: s
       }
     }
   }
+
+  specifiers.push(...collectDynamicSpecifiers(sourceFile));
+
+  return specifiers;
+}
+
+/**
+ * Dynamic `import('...')` and CommonJS `require('...')` calls are a REAL
+ * value-import shape — unlike a top-level `ImportDeclaration`, they can
+ * appear anywhere in the tree (inside a function body, a conditional, an
+ * event handler), so this walks every node rather than just
+ * `sourceFile.statements`.
+ *
+ * Only a STATIC STRING (or no-substitution template) argument is resolvable
+ * — `import(someVariable)` or `require(\`./${name}\`)` can't be resolved
+ * without running the program, so those are deliberately skipped rather than
+ * guessed at. A type-position `import('...')` (e.g. `type Foo =
+ * import('./x').Foo`) is a DIFFERENT AST node (`ImportTypeNode`, not a
+ * `CallExpression`) and is correctly never visited here — it stays exempt,
+ * same as `import type`.
+ */
+function collectDynamicSpecifiers(sourceFile: ts.SourceFile): string[] {
+  const specifiers: string[] = [];
+
+  const visit = (node: ts.Node) => {
+    if (ts.isCallExpression(node)) {
+      // `ts.isImportCall` exists at runtime but isn't part of the public
+      // `typescript.d.ts` surface, so this checks the same thing the public
+      // way: a dynamic `import(...)` call's callee is the bare `import`
+      // keyword token, not an identifier or property access.
+      const isDynamicImport = node.expression.kind === ts.SyntaxKind.ImportKeyword;
+      const isRequireCall = ts.isIdentifier(node.expression) && node.expression.text === 'require';
+      if (isDynamicImport || isRequireCall) {
+        const arg = node.arguments[0];
+        if (arg && (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg))) {
+          specifiers.push(arg.text);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
 
   return specifiers;
 }
