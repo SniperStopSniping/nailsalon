@@ -96,6 +96,7 @@ export type NonProductionDatabaseGuardErrorCode =
   | 'MARKER_ENVIRONMENT_MISMATCH'
   | 'MARKER_INITIALIZATION_FAILED'
   | 'MARKER_QUERY_FAILED'
+  | 'MARKER_RESULT_INVALID'
   | 'MARKER_ROW_MISSING'
   | 'MARKER_ROW_MULTIPLE'
   | 'MARKER_TABLE_MISSING'
@@ -129,6 +130,8 @@ const ERROR_MESSAGES: Record<NonProductionDatabaseGuardErrorCode, string> = {
     'Non-Production database marker initialization failed safely.',
   MARKER_QUERY_FAILED:
     'Development database rejected: the environment marker could not be read.',
+  MARKER_RESULT_INVALID:
+    'Development database rejected: the environment marker result is invalid.',
   MARKER_ROW_MISSING:
     'Development database rejected: the environment marker row is missing.',
   MARKER_ROW_MULTIPLE:
@@ -155,11 +158,19 @@ const ERROR_MESSAGES: Record<NonProductionDatabaseGuardErrorCode, string> = {
 
 export class NonProductionDatabaseGuardError extends Error {
   readonly code: NonProductionDatabaseGuardErrorCode;
+  // Only ever populated for the two "query could not execute" codes
+  // (MARKER_QUERY_FAILED / PRODUCTION_MARKER_QUERY_FAILED), so a caller one
+  // layer up (runtimeDatabaseGuard.ts) can distinguish a genuine
+  // connection/timeout/quota failure from some OTHER query failure (a
+  // permission error, a schema mismatch) that reached a real, reachable —
+  // just wrong — database. Never included in this error's own message.
+  readonly cause?: unknown;
 
-  constructor(code: NonProductionDatabaseGuardErrorCode) {
+  constructor(code: NonProductionDatabaseGuardErrorCode, cause?: unknown) {
     super(ERROR_MESSAGES[code]);
     this.name = 'NonProductionDatabaseGuardError';
     this.code = code;
+    this.cause = cause;
   }
 }
 
@@ -182,8 +193,8 @@ export type MarkerInitializationOptions = {
 
 type UnknownRow = Record<string, unknown>;
 
-function reject(code: NonProductionDatabaseGuardErrorCode): never {
-  throw new NonProductionDatabaseGuardError(code);
+function reject(code: NonProductionDatabaseGuardErrorCode, cause?: unknown): never {
+  throw new NonProductionDatabaseGuardError(code, cause);
 }
 
 function normalizeUrlHost(hostname: string): string {
@@ -323,12 +334,20 @@ async function readNonProductionDatabaseEnvironment(
     if (postgresErrorCode(error) === '42P01') {
       reject('MARKER_TABLE_MISSING');
     }
-    reject('MARKER_QUERY_FAILED');
+    reject('MARKER_QUERY_FAILED', error);
   }
 
   const rows = rowsFromResult(result);
   if (!rows) {
-    reject('MARKER_QUERY_FAILED');
+    // The query RESOLVED — the database is demonstrably reachable — it just
+    // answered with a shape we cannot read. That is a marker/identity problem,
+    // never an availability one, so it must not reuse MARKER_QUERY_FAILED:
+    // runtimeDatabaseGuard.ts classifies that code as availability and would
+    // report a reachable-but-wrong database as "temporarily unavailable",
+    // telling an operator to wait out a recovery that will never come. This
+    // mirrors the Production path, which already uses PRODUCTION_MARKER_INVALID
+    // for exactly this case.
+    reject('MARKER_RESULT_INVALID');
   }
   if (rows.length === 0) {
     reject('MARKER_ROW_MISSING');
@@ -382,7 +401,7 @@ export async function rejectNonProductionMarkerForProduction(
     if (postgresErrorCode(error) === '42P01') {
       return;
     }
-    reject('PRODUCTION_MARKER_QUERY_FAILED');
+    reject('PRODUCTION_MARKER_QUERY_FAILED', error);
   }
 
   const rows = rowsFromResult(result);

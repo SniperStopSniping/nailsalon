@@ -18,7 +18,9 @@ import {
   requireMatchingCachedDatabaseTarget,
   requireRuntimeDatabaseTarget,
   RuntimeDatabaseGuardError,
+  type RuntimePostgresTarget,
 } from './runtimeDatabaseGuard';
+import { createRuntimeDatabaseVerificationCooldown } from './runtimeDatabasePoolRecovery';
 
 type VerifiedPoolConfig = PoolConfig & {
   // pg-pool supports a per-client verifier, but @types/pg does not currently
@@ -27,6 +29,11 @@ type VerifiedPoolConfig = PoolConfig & {
     client: PoolClient,
     callback: (error?: Error) => void,
   ) => void;
+};
+
+type PostgresRuntimeConnection = {
+  pool: Pool;
+  drizzle: NodePgDatabase<typeof schema>;
 };
 
 // Global type for caching database connections across hot reloads
@@ -167,6 +174,98 @@ async function initializeBusinessData(db: PgliteDatabase<typeof schema>) {
   // No console.warn - silent initialization
 }
 
+function classifyPostgresRuntimeFailure(error: unknown): RuntimeDatabaseGuardError {
+  // A RuntimeDatabaseGuardError already carries the correct classification
+  // (attestation vs. availability — see runtimeDatabaseGuard.ts's H1 fix).
+  // Anything else reached this point without ever making an identity claim
+  // (e.g. the physical TCP connect failing before the per-client verifier
+  // could even run), so it is always availability, never a security finding.
+  return error instanceof RuntimeDatabaseGuardError
+    ? error
+    : new RuntimeDatabaseGuardError('DATABASE_UNAVAILABLE');
+}
+
+// A cooldown, not a timeout: bounds how often a failing target's live
+// attestation may be retried, so a sustained provider outage cannot turn
+// into a fresh network round-trip on every single new physical connection
+// pg-pool wants to open. See runtimeDatabasePoolRecovery.ts for the full
+// incident-hotfix rationale — including why this is a per-connection
+// cooldown rather than a proxy standing in for `db` itself.
+const POSTGRES_RUNTIME_RECONNECT_COOLDOWN_MS = 5_000;
+
+/**
+ * Wraps the real per-connection live-attestation verifier with the bounded
+ * cooldown above. pg-pool invokes `verify` for every NEW physical
+ * connection it opens — not once for the whole pool's lifetime — which is
+ * what already lets a live, never-destroyed Pool self-heal once the
+ * provider recovers: the next query that needs a fresh connection
+ * re-attempts it, and this re-attests it, with no other code involved. The
+ * cooldown only bounds HOW OFTEN a failing target may attempt a fresh
+ * round-trip; it never changes WHETHER a connection is accepted — the real
+ * verifier underneath still runs on every attempt that clears the cooldown,
+ * so a genuinely wrong database keeps failing every single one, forever.
+ */
+function createGuardedPoolVerifier(
+  target: RuntimePostgresTarget,
+): VerifiedPoolConfig['verify'] {
+  const verify = createRuntimeDatabasePoolVerifier(target);
+  const cooldown = createRuntimeDatabaseVerificationCooldown({
+    classify: classifyPostgresRuntimeFailure,
+    cooldownMs: POSTGRES_RUNTIME_RECONNECT_COOLDOWN_MS,
+  });
+
+  return (client, callback) => {
+    void cooldown.guard(() => new Promise<void>((resolve, reject) => {
+      verify(client, (error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    })).then(
+      () => callback(),
+      (error: unknown) => callback(classifyPostgresRuntimeFailure(error)),
+    );
+  };
+}
+
+/**
+ * Builds the runtime Postgres Pool and Drizzle handle. Construction itself
+ * never touches the network — `new Pool()` is synchronous — so this can
+ * never fail on a provider outage, and callers never need to catch it. Live
+ * attestation happens per physical connection (see createGuardedPoolVerifier
+ * above), exactly the way every OTHER connection this pool ever opens is
+ * already attested.
+ */
+function createPostgresRuntimeConnection(
+  target: RuntimePostgresTarget,
+): PostgresRuntimeConnection {
+  const poolConfig: VerifiedPoolConfig = {
+    connectionString: target.connectionString,
+    // Pool configuration for resilience
+    max: getPoolMax(),
+    idleTimeoutMillis: 10000,
+    // Do not keep Vitest worker threads alive after their assertions finish.
+    allowExitOnIdle: process.env.NODE_ENV === 'test',
+    // Remote Neon cold starts can exceed 5s in local/staging-like environments.
+    // Use a slightly longer connect window to reduce false startup/request failures.
+    connectionTimeoutMillis: 15000,
+    keepAlive: true,
+    keepAliveInitialDelayMillis: 10000,
+    verify: createGuardedPoolVerifier(target),
+  };
+  const pool = new Pool(poolConfig);
+
+  // Runtime pool errors are intentionally fixed-text so connection metadata
+  // and provider diagnostics cannot reach application logs.
+  pool.on('error', () => {
+    console.error('[DB] Unexpected pool error.');
+  });
+
+  return { pool, drizzle: drizzlePg(pool, { schema }) };
+}
+
 // =============================================================================
 // DATABASE INITIALIZATION
 // =============================================================================
@@ -206,47 +305,36 @@ if (runtimeTarget) {
       globalForDb.pgTargetFingerprint,
       runtimeTarget,
     );
+    drizzle = globalForDb.pgDrizzle;
   } else {
-    const poolVerifier = createRuntimeDatabasePoolVerifier(runtimeTarget);
-    const poolConfig: VerifiedPoolConfig = {
-      connectionString: runtimeTarget.connectionString,
-      // Pool configuration for resilience
-      max: getPoolMax(),
-      idleTimeoutMillis: 10000,
-      // Do not keep Vitest worker threads alive after their assertions finish.
-      allowExitOnIdle: process.env.NODE_ENV === 'test',
-      // Remote Neon cold starts can exceed 5s in local/staging-like environments.
-      // Use a slightly longer connect window to reduce false startup/request failures.
-      connectionTimeoutMillis: 15000,
-      keepAlive: true,
-      keepAliveInitialDelayMillis: 10000,
-      verify(client, callback) {
-        poolVerifier(client, callback);
-      },
-    };
-    const pool = new Pool(poolConfig);
-
-    // Runtime pool errors are intentionally fixed-text so connection metadata
-    // and provider diagnostics cannot reach application logs.
-    pool.on('error', () => {
-      console.error('[DB] Unexpected pool error.');
-    });
-
-    try {
-      // Forces initial connection plus the per-client verifier before the pool
-      // and Drizzle handle become globally reachable.
-      await pool.query('SELECT 1');
-    } catch {
-      await pool.end().catch(() => undefined);
-      throw new RuntimeDatabaseGuardError('DATABASE_ATTESTATION_REJECTED');
-    }
-
-    globalForDb.pgPool = pool;
-    globalForDb.pgDrizzle = drizzlePg(pool, { schema });
+    const connection = createPostgresRuntimeConnection(runtimeTarget);
+    globalForDb.pgPool = connection.pool;
+    globalForDb.pgDrizzle = connection.drizzle;
     globalForDb.pgTargetFingerprint = runtimeTarget.fingerprint;
-  }
+    // `db` is bound to this REAL Drizzle handle unconditionally, below —
+    // never a stand-in, never re-bound later. A lazy proxy was tried and
+    // reverted: Drizzle's chainable builders (`db.select().from().where()`)
+    // are not promises, and a `Proxy` `apply` trap that defers via
+    // `ensure().then(...)` hands back a `Promise` instead of a builder,
+    // breaking every chained call site in this codebase. See
+    // DB.recovery.test.ts for the regression test pinning this.
+    drizzle = connection.drizzle;
 
-  drizzle = globalForDb.pgDrizzle!;
+    // Best-effort warm-up: pre-establishes and attests the first physical
+    // connection so a HEALTHY cold start pays this cost once, up front,
+    // exactly like before this fix — the fast path is unchanged. A failure
+    // here is expected during a provider outage and is harmless: it is
+    // already recorded by the cooldown inside the guarded verifier above,
+    // and it must NEVER throw out of module evaluation — doing that is
+    // exactly what poisoned this module for a warm instance's entire
+    // remaining lifetime during the incident this fixes (see
+    // runtimeDatabasePoolRecovery.ts). `connection.pool` stays live and
+    // published either way, so the very next query — whenever it arrives,
+    // even long after this module finished loading — retries through the
+    // SAME cooldown-gated verifier and recovers on its own once the
+    // provider is back, with no redeploy required.
+    await connection.pool.query('SELECT 1').catch(() => undefined);
+  }
 } else {
   if (
     globalForDb.pgPool
@@ -297,6 +385,13 @@ export async function withDedicatedDatabaseSession<T>(
   if (!runtimeTarget) {
     return work(db);
   }
+  // `globalForDb.pgPool` is always set once `runtimeTarget` is truthy —
+  // module initialization above never leaves it unset, even when the
+  // provider was unavailable at load time (see the comment there). A
+  // dedicated session's `pool.connect()` below goes through the exact same
+  // cooldown-gated live-attestation verifier as every other connection this
+  // pool opens, so it recovers from a transient provider outage the same
+  // way ordinary queries do — no special-casing needed here.
   const pool = globalForDb.pgPool;
   if (!pool) {
     throw new RuntimeDatabaseGuardError('CACHED_DATABASE_TARGET_MISMATCH');

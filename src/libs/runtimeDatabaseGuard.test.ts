@@ -1,7 +1,10 @@
 import { PGlite } from '@electric-sql/pglite';
 import { describe, expect, it, vi } from 'vitest';
 
-import { initializeNonProductionDatabaseMarker } from './nonProductionDatabaseGuard';
+import {
+  type DatabaseQueryable,
+  initializeNonProductionDatabaseMarker,
+} from './nonProductionDatabaseGuard';
 import {
   createRuntimeDatabasePoolVerifier,
   requireMatchingCachedDatabaseTarget,
@@ -228,7 +231,13 @@ describe('runtime database live attestation', () => {
     });
   });
 
-  it('sanitizes unexpected connection and query failures', async () => {
+  it('sanitizes unexpected connection and query failures as availability, not attestation', async () => {
+    // CI/test targets carry no marker/identity claim (static loopback policy
+    // already establishes identity) — a query failure here is always a
+    // connectivity problem, never a wrong-database finding, so it must
+    // classify as DATABASE_UNAVAILABLE rather than DATABASE_ATTESTATION_REJECTED.
+    // See the classification describe block below for the full H1 matrix
+    // (production/dev/preview marker-path classification).
     const secret = ['runtime', 'query', 'secret'].join('-');
     const target = requireRuntimeDatabaseTarget({
       CI: 'true',
@@ -248,7 +257,7 @@ describe('runtime database live attestation', () => {
     }
 
     expect(rejection).toMatchObject({
-      code: 'DATABASE_ATTESTATION_REJECTED',
+      code: 'DATABASE_UNAVAILABLE',
     });
     expect(rejection?.message).not.toContain(secret);
   });
@@ -281,11 +290,218 @@ describe('runtime database live attestation', () => {
       }, resolve);
     });
 
+    // A CI/test target has no identity claim to fail — a broken connection
+    // here is availability, not a security/attestation mismatch.
     expect(failure).toMatchObject({
       name: 'RuntimeDatabaseGuardError',
-      code: 'DATABASE_ATTESTATION_REJECTED',
+      code: 'DATABASE_UNAVAILABLE',
     });
     expect(failure?.message).not.toContain('private connection detail');
+  });
+});
+
+// =============================================================================
+// H1 — incident hotfix: availability vs. attestation classification.
+//
+// Reproduces the exact failure this fixes: a Neon `53000` quota error made
+// `rejectNonProductionMarkerForProduction`'s marker query fail to execute,
+// which the OLD bare catch in `verifyRuntimeDatabaseConnection` collapsed
+// into `DATABASE_ATTESTATION_REJECTED` — reporting a provider outage as a
+// wrong-database/security failure. These tests pin that a query that never
+// executed (quota, connection refused, any other provider/network failure)
+// is always `DATABASE_UNAVAILABLE`, while a query that DID execute and
+// proved the wrong identity (or an identity that can never be established)
+// always stays `DATABASE_ATTESTATION_REJECTED` and fails closed.
+// =============================================================================
+
+describe('H1 classification — availability vs. attestation', () => {
+  function pgErrorLike(message: string, code?: string): Error {
+    const error = new Error(message);
+    if (code !== undefined) {
+      (error as Error & { code?: string }).code = code;
+    }
+    return error;
+  }
+
+  function queryThrows(error: Error): DatabaseQueryable {
+    return {
+      async query() {
+        throw error;
+      },
+    };
+  }
+
+  const productionTarget = requireRuntimeDatabaseTarget({
+    APP_ENV: 'production',
+    VERCEL: '1',
+    VERCEL_ENV: 'production',
+    DATABASE_URL: loopbackUrl('luster_production'),
+  })!;
+
+  const developmentTarget = requireRuntimeDatabaseTarget({
+    APP_ENV: 'development',
+    DATABASE_URL: loopbackUrl('luster_development'),
+  })!;
+
+  it.each([
+    ['production', () => productionTarget],
+    ['development', () => developmentTarget],
+  ] as const)(
+    'classifies a Postgres 53000 (quota exhausted) marker query failure as availability in %s',
+    async (_label, getTarget) => {
+      const secret = ['neon', 'quota', 'connection', 'string'].join('-');
+      const error = pgErrorLike(`exceeded the compute time quota: ${secret}`, '53000');
+
+      await expect(
+        verifyRuntimeDatabaseConnection(queryThrows(error), getTarget()),
+      ).rejects.toMatchObject({ code: 'DATABASE_UNAVAILABLE' });
+    },
+  );
+
+  it.each([
+    ['production', () => productionTarget],
+    ['development', () => developmentTarget],
+  ] as const)(
+    'classifies a connection-refused marker query failure as availability in %s',
+    async (_label, getTarget) => {
+      const error = pgErrorLike('connect ECONNREFUSED 127.0.0.1:5432', 'ECONNREFUSED');
+
+      await expect(
+        verifyRuntimeDatabaseConnection(queryThrows(error), getTarget()),
+      ).rejects.toMatchObject({ code: 'DATABASE_UNAVAILABLE' });
+    },
+  );
+
+  it.each([
+    ['production', () => productionTarget],
+    ['development', () => developmentTarget],
+  ] as const)(
+    'classifies an unlabeled/transient provider query failure as availability in %s',
+    async (_label, getTarget) => {
+      const error = pgErrorLike('the server unexpectedly closed the connection');
+
+      await expect(
+        verifyRuntimeDatabaseConnection(queryThrows(error), getTarget()),
+      ).rejects.toMatchObject({ code: 'DATABASE_UNAVAILABLE' });
+    },
+  );
+
+  it.each([
+    ['production', () => productionTarget],
+    ['development', () => developmentTarget],
+  ] as const)(
+    'fails closed as attestation — never availability — on a permission error (42501) in %s',
+    async (_label, getTarget) => {
+      // The query REACHED a real server and got a real Postgres answer back
+      // — insufficient_privilege — which is evidence the database is
+      // reachable, just wrong or misconfigured (e.g. a stale/incorrect
+      // DATABASE_URL role). Reporting this as "temporarily unavailable"
+      // would tell an operator to wait for a recovery that will never come.
+      const error = pgErrorLike('permission denied for table luster_environment', '42501');
+
+      await expect(
+        verifyRuntimeDatabaseConnection(queryThrows(error), getTarget()),
+      ).rejects.toMatchObject({ code: 'DATABASE_ATTESTATION_REJECTED' });
+    },
+  );
+
+  it.each([
+    ['production', () => productionTarget],
+    ['development', () => developmentTarget],
+  ] as const)(
+    'fails closed as attestation — never availability — on an undefined-column error (42703) in %s',
+    async (_label, getTarget) => {
+      // A reachable database whose schema does not match — e.g. the
+      // connection landed on the wrong logical database — must never be
+      // reported as merely unavailable.
+      const error = pgErrorLike('column "environment" does not exist', '42703');
+
+      await expect(
+        verifyRuntimeDatabaseConnection(queryThrows(error), getTarget()),
+      ).rejects.toMatchObject({ code: 'DATABASE_ATTESTATION_REJECTED' });
+    },
+  );
+
+  it.each([
+    ['production', () => productionTarget],
+    ['development', () => developmentTarget],
+  ] as const)(
+    'fails closed as attestation — never availability — on an unreadable-but-resolved marker result in %s',
+    async (_label, getTarget) => {
+      // The query RESOLVED — nothing was thrown, so the database is
+      // demonstrably reachable — but the driver answered with a shape the
+      // guard cannot read. Identity can never be established from it, so it
+      // is an attestation failure, not an availability one.
+      //
+      // Both environments must agree here. They did NOT before: the
+      // Development/Preview path reused MARKER_QUERY_FAILED (an availability
+      // code) for this case while Production used PRODUCTION_MARKER_INVALID,
+      // so the same reachable-but-wrong database reported "temporarily
+      // unavailable" in one environment and "attestation failed" in the other.
+      const unreadableResult: DatabaseQueryable = {
+        async query() {
+          return { rows: 'not-an-array' };
+        },
+      };
+
+      await expect(
+        verifyRuntimeDatabaseConnection(unreadableResult, getTarget()),
+      ).rejects.toMatchObject({ code: 'DATABASE_ATTESTATION_REJECTED' });
+    },
+  );
+
+  it('fails closed as attestation (never availability) when the Production marker row is malformed', async () => {
+    // The query EXECUTES and returns an answer — two rows instead of exactly
+    // one — so identity can never be established from it. This is the
+    // "malformed state" case, and it must never be relaxed by a retry.
+    const malformedDatabase: DatabaseQueryable = {
+      async query() {
+        return {
+          rows: [
+            { environment: 'production' },
+            { environment: 'production' },
+          ],
+        };
+      },
+    };
+
+    await expect(
+      verifyRuntimeDatabaseConnection(malformedDatabase, productionTarget),
+    ).rejects.toMatchObject({ code: 'DATABASE_ATTESTATION_REJECTED' });
+  });
+
+  it('fails closed as attestation (never availability) when the Development marker table is missing', async () => {
+    // 42P01 (undefined_table) means the query executed fine — the connection
+    // is live — but this database was never marked, which is exactly the
+    // "wrong/unverified database" case Development and Preview must reject.
+    const missingMarkerTable: DatabaseQueryable = {
+      async query() {
+        throw pgErrorLike('relation "public.luster_environment" does not exist', '42P01');
+      },
+    };
+
+    await expect(
+      verifyRuntimeDatabaseConnection(missingMarkerTable, developmentTarget),
+    ).rejects.toMatchObject({ code: 'DATABASE_ATTESTATION_REJECTED' });
+  });
+
+  it('never leaks connection details through either classification', async () => {
+    const secret = ['runtime', 'availability', 'secret'].join('-');
+    const availabilityError = pgErrorLike(`connection failed: ${secret}`, '53000');
+
+    let rejection: RuntimeDatabaseGuardError | undefined;
+    try {
+      await verifyRuntimeDatabaseConnection(
+        queryThrows(availabilityError),
+        productionTarget,
+      );
+    } catch (error) {
+      rejection = error as RuntimeDatabaseGuardError;
+    }
+
+    expect(rejection).toMatchObject({ code: 'DATABASE_UNAVAILABLE' });
+    expect(rejection?.message).not.toContain(secret);
+    expect(JSON.stringify(rejection)).not.toContain(secret);
   });
 });
 

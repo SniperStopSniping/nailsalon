@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { RuntimeDatabaseGuardError } from '@/libs/runtimeDatabaseGuard';
+
 import { GET } from './route';
+
+vi.mock('server-only', () => ({}));
 
 const {
   executeMock,
@@ -198,6 +202,53 @@ describe('GET /api/health', () => {
     expect(body.status).toBe('degraded');
     expect(body.checks.db).toBe(false);
     expect(body.clientLifecycleSchema).toBe('unavailable');
+  });
+
+  // Incident hotfix (H1/H2) — /api/health must treat a provider outage
+  // exactly the same as a wrong-database finding: both are simply "db: false"
+  // here. The route does not need to know, or care, which classification
+  // fired — it already stayed a bare catch on purpose (README above: "DB
+  // failure -> status = degraded"). These pin that guarantee explicitly, for
+  // BOTH of runtimeDatabaseGuard's post-fix classifications, plus that a
+  // later successful call (the provider recovering) flips status back to
+  // 'ok' without any special-casing.
+  it('reports non-ready for a provider-unavailable classification (quota/connection outage), not just a generic error', async () => {
+    executeMock.mockRejectedValue(new RuntimeDatabaseGuardError('DATABASE_UNAVAILABLE'));
+    isRedisAvailableMock.mockResolvedValue(false);
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.status).toBe('degraded');
+    expect(body.checks.db).toBe(false);
+  });
+
+  it('reports non-ready for a wrong-database (attestation-rejected) classification', async () => {
+    executeMock.mockRejectedValue(new RuntimeDatabaseGuardError('DATABASE_ATTESTATION_REJECTED'));
+    isRedisAvailableMock.mockResolvedValue(false);
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.status).toBe('degraded');
+    expect(body.checks.db).toBe(false);
+  });
+
+  it('reports ready again once a recovered provider lets the next probe succeed — no special recovery handling needed here', async () => {
+    executeMock.mockRejectedValueOnce(new RuntimeDatabaseGuardError('DATABASE_UNAVAILABLE'));
+    isRedisAvailableMock.mockResolvedValue(false);
+
+    const degraded = await GET();
+
+    expect(degraded.status).toBe(503);
+
+    executeMock.mockResolvedValueOnce([{ '?column?': 1 }]);
+    const recovered = await GET();
+    const recoveredBody = await recovered.json();
+
+    expect(recoveredBody.checks.db).toBe(true);
   });
 
   it('returns 503 in hosted Production when lifecycle schema is not ready', async () => {

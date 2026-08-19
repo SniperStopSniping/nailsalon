@@ -15,3 +15,4 @@ An ADR is not a plan. It records what was settled, not what is intended.
 | [0005](0005-catalog-revision-and-fingerprint.md) | Revision vs material fingerprint | `catalogFingerprint*.test.ts` |
 | [0006](0006-draft-live-resolution.md) | Draft/live source selection | `catalogResolver.server.test.ts` |
 | [0007](0007-production-schema-readiness.md) | Production schema readiness | `schemaReadinessCore.test.ts` |
+| [0008](0008-database-guard-classification-and-recovery.md) | DB guard: attestation vs. availability classification, bounded warm-runtime recovery | `runtimeDatabaseGuard.test.ts`, `runtimeDatabasePoolRecovery.test.ts` |
