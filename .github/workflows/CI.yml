@@ -103,6 +103,14 @@ jobs:
 
     name: Run all tests
     runs-on: ubuntu-latest
+    # Every other long-running job here is bounded (15-25m). This one was not,
+    # so it inherited GitHub's 6-hour default. When the Playwright install step
+    # below stalled on main, the job sat for 5h54m before that default killed
+    # it, which cancelled the whole CI run -- and because Release gates on
+    # `workflow_run.conclusion == 'success'`, a cancelled CI silently skipped
+    # the release. Generous versus the ~12m this job actually takes, because
+    # the point is to bound a hang, not to police normal variance.
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:16-alpine
@@ -468,8 +476,59 @@ jobs:
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
+      # `npx playwright install --with-deps` does unbounded external work: an
+      # apt-get pass against the Ubuntu/Microsoft/Google mirrors, then a browser
+      # download from Playwright's CDN. It normally finishes in ~3 minutes, but
+      # it has stalled indefinitely three separate times -- twice on main and
+      # once on a pull request -- with no output and no failure. Nothing bounded
+      # it, so a transient network stall consumed an entire CI run instead of
+      # failing fast.
+      #
+      # Each attempt is capped, and a stalled attempt is retried rather than
+      # waited on. Test coverage is unchanged: the same command installs the
+      # same browsers, and a genuine install failure still fails the job after
+      # the final attempt (`exit 1`) rather than being swallowed.
       - name: Install Playwright (used for Storybook and E2E tests)
-        run: npx playwright install --with-deps
+        timeout-minutes: 27
+        run: |
+          # Root cause, read off the stalled runs: GitHub points apt at
+          # azure.archive.ubuntu.com, and that mirror is intermittently
+          # unreachable from the runner. apt's default per-request timeout is
+          # long enough that working through every index file stalls the step
+          # for hours before it falls back to archive.ubuntu.com -- which the
+          # very same run then reaches successfully. Capping the per-request
+          # wait makes apt fail over in seconds instead of hours.
+          # Non-fatal on purpose: this is a speed-up, not a requirement, so a
+          # runner that will not accept it must not fail the build over it.
+          printf 'Acquire::http::Timeout "15";\nAcquire::https::Timeout "15";\nAcquire::Retries "2";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-fast-mirror-failover >/dev/null \
+            || echo "warning: could not write apt timeout config; continuing without it"
+
+          for attempt in 1 2 3; do
+            echo "::group::Playwright install attempt ${attempt}/3"
+            status=0
+            timeout --kill-after=30 480 npx playwright install --with-deps || status=$?
+            echo "::endgroup::"
+            if [ "${status}" -eq 0 ]; then
+              echo "Playwright install succeeded on attempt ${attempt}."
+              exit 0
+            fi
+            if [ "${status}" -eq 124 ]; then
+              echo "Attempt ${attempt} exceeded the 480s cap and was terminated."
+            else
+              echo "Attempt ${attempt} failed with exit status ${status}."
+            fi
+            # Terminating an attempt mid-apt leaves dpkg/apt part-way through a
+            # transaction, after which EVERY later apt-get exits 100 regardless
+            # of the network -- observed exactly this way in run 32301794993,
+            # where attempts 2 and 3 each failed in seconds. Without this repair
+            # the retry cannot possibly succeed.
+            sudo dpkg --configure -a || true
+            sudo apt-get update || true
+            sleep 5
+          done
+          echo "Playwright install did not succeed in 3 bounded attempts."
+          exit 1
 
       - name: Run storybook tests
         run: npm run test-storybook:ci
