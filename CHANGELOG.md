@@ -1,3 +1,11 @@
+## [1.76.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.76.0...v1.76.1) (2026-08-19)
+
+
+### Bug Fixes
+
+* **db:** classify provider outages and recover warm runtimes ([0c30468](https://github.com/SniperStopSniping/nailsalon/commit/0c3046892f42c05118d3d532bcd0b8c792ecd427))
+* **db:** classify unreadable marker results as attestation failures ([24f5de6](https://github.com/SniperStopSniping/nailsalon/commit/24f5de6ca21e661c16fa1c69a8c4b8d98e2d2eb1))
+
 # [1.76.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.75.0...v1.76.0) (2026-08-19)
 
 
