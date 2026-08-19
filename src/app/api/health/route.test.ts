@@ -295,6 +295,82 @@ describe('GET /api/health', () => {
     expect(serializedBody).not.toContain('0068');
   });
 
+  // MAJOR-2 (adversarial review, ADR 0007 Consequences): dev and production
+  // share one Neon database, and this repo's safe deploy order is manual
+  // migrate-then-deploy, so a count-ahead reading is routine, safe operation
+  // — not an incident. Checkly pages on any non-'ok' status every 10 minutes
+  // (checkly.config.ts, tests/e2e/Sanity.check.e2e.ts), so gating on `ahead`
+  // would page for the entire manual migrate-then-deploy window on every
+  // migration-bearing release, and for any developer migrating the shared
+  // database with no release involved at all — training the on-call owner
+  // that "degraded" usually just means "the process is working", which is
+  // exactly how a real `behind` incident gets ignored. `ahead` must stay
+  // visible in the body without paging.
+  it('reports schemaDrift: ahead in the body but does NOT degrade status in hosted Production', async () => {
+    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    isRedisAvailableMock.mockResolvedValue(true);
+    isResendSenderVerifiedMock.mockResolvedValue(true);
+    schemaDriftStatusMock.mockResolvedValue('ahead');
+
+    process.env.VERCEL_ENV = 'production';
+    process.env.CLERK_SECRET_KEY = 'clerk-secret';
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'clerk-public';
+    process.env.SUPER_ADMIN_AUTH_MODE = 'password';
+    process.env.SUPER_ADMIN_TEST_LOGIN_ENABLED = 'true';
+    process.env.SUPER_ADMIN_TEST_PHONE = '+14165550123';
+    process.env.SUPER_ADMIN_TEST_PASSWORD = 'fake-test-passcode';
+    process.env.LEGACY_OTP_AUTH_ENABLED = 'false';
+    process.env.RESEND_API_KEY = 'resend-key';
+    process.env.RESEND_FROM_EMAIL = 'hello@example.com';
+    process.env.GOOGLE_OAUTH_CLIENT_ID = 'google-client';
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'google-secret';
+    process.env.GOOGLE_OAUTH_REDIRECT_URI = 'https://example.com/oauth';
+    process.env.INTEGRATION_ENCRYPTION_KEY = 'integration-key';
+    process.env.OAUTH_STATE_SECRET = 'oauth-secret';
+
+    const response = await GET();
+    const body = await response.json();
+
+    // Visible and diagnosable...
+    expect(body.schemaDrift).toBe('ahead');
+    // ...but does NOT page.
+    expect(response.status).toBe(200);
+    expect(body.status).toBe('ok');
+  });
+
+  it('still degrades hosted Production for "not_ready" — only "ahead" is excluded from gating', async () => {
+    // Pins the boundary of the MAJOR-2 exclusion: `behind` (surfaced to the
+    // route as generic "not_ready") is the actual incident class and MUST
+    // still page. Only `ahead` gets the exemption.
+    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    isRedisAvailableMock.mockResolvedValue(true);
+    isResendSenderVerifiedMock.mockResolvedValue(true);
+    schemaDriftStatusMock.mockResolvedValue('not_ready');
+
+    process.env.VERCEL_ENV = 'production';
+    process.env.CLERK_SECRET_KEY = 'clerk-secret';
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'clerk-public';
+    process.env.SUPER_ADMIN_AUTH_MODE = 'password';
+    process.env.SUPER_ADMIN_TEST_LOGIN_ENABLED = 'true';
+    process.env.SUPER_ADMIN_TEST_PHONE = '+14165550123';
+    process.env.SUPER_ADMIN_TEST_PASSWORD = 'fake-test-passcode';
+    process.env.LEGACY_OTP_AUTH_ENABLED = 'false';
+    process.env.RESEND_API_KEY = 'resend-key';
+    process.env.RESEND_FROM_EMAIL = 'hello@example.com';
+    process.env.GOOGLE_OAUTH_CLIENT_ID = 'google-client';
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'google-secret';
+    process.env.GOOGLE_OAUTH_REDIRECT_URI = 'https://example.com/oauth';
+    process.env.INTEGRATION_ENCRYPTION_KEY = 'integration-key';
+    process.env.OAUTH_STATE_SECRET = 'oauth-secret';
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(body.schemaDrift).toBe('not_ready');
+    expect(response.status).toBe(503);
+    expect(body.status).toBe('degraded');
+  });
+
   it('does NOT degrade status outside of hosted Production when schema drift is not ready', async () => {
     // Preview/local environments may legitimately run ahead of an
     // un-migrated database during development. Only real production gates

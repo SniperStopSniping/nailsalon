@@ -4,9 +4,14 @@
  * at 0068 — /api/health still reported `status: "ok"`).
  *
  * `getSchemaTailReadiness` compares the repository's expected migration tail
- * (migrations/meta/_journal.json) against how many migrations the database
- * has actually applied (drizzle.__drizzle_migrations). The ledger stores
- * hashes, not tags, so comparing COUNTS is the robust, deterministic signal.
+ * (migrations/meta/_journal.json) against what the database has actually
+ * applied (drizzle.__drizzle_migrations) — by COUNT, and, when the counts
+ * agree, by the applied tail's `created_at` timestamp. The ledger stores
+ * hashes, not tags, so counts are the primary signal, but counts alone
+ * cannot tell two different migration histories of the same length apart —
+ * exactly what happens when two branches each apply their own
+ * same-numbered migration against a shared database. The timestamp check
+ * (`applied_tail_millis`) closes that gap.
  */
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -27,6 +32,8 @@ import {
 
 let migrated: ReturnType<typeof drizzle<typeof schema>>;
 
+const EXPECTED_TAIL_MILLIS = DEFAULT_JOURNAL_ENTRIES[DEFAULT_JOURNAL_ENTRIES.length - 1]!.when;
+
 beforeAll(async () => {
   const client = new PGlite();
   await client.waitReady;
@@ -34,8 +41,8 @@ beforeAll(async () => {
   await migrate(migrated, { migrationsFolder: path.join(process.cwd(), 'migrations') });
 });
 
-function syntheticEntry(tag: string): JournalEntry {
-  return { idx: 0, version: '7', when: 0, tag, breakpoints: true };
+function syntheticEntry(tag: string, when = 0): JournalEntry {
+  return { idx: 0, version: '7', when, tag, breakpoints: true };
 }
 
 describe('DEFAULT_JOURNAL_ENTRIES (expected-tail source)', () => {
@@ -50,11 +57,13 @@ describe('DEFAULT_JOURNAL_ENTRIES (expected-tail source)', () => {
     expect(DEFAULT_JOURNAL_ENTRIES.length).toBe(onDisk.entries.length);
     expect(DEFAULT_JOURNAL_ENTRIES[DEFAULT_JOURNAL_ENTRIES.length - 1]?.tag)
       .toBe(onDisk.entries[onDisk.entries.length - 1]?.tag);
+    expect(DEFAULT_JOURNAL_ENTRIES[DEFAULT_JOURNAL_ENTRIES.length - 1]?.when)
+      .toBe(onDisk.entries[onDisk.entries.length - 1]?.when);
   });
 });
 
 describe('getSchemaTailReadiness — match', () => {
-  it('is ready against a database migrated to exactly the expected tail', async () => {
+  it('is ready against a database migrated to exactly the expected tail (count AND timestamp)', async () => {
     const readiness = await getSchemaTailReadiness(
       migrated as unknown as SchemaReadinessSqlHandle,
     );
@@ -66,6 +75,25 @@ describe('getSchemaTailReadiness — match', () => {
     expect(readiness.expectedTail).toBe(
       DEFAULT_JOURNAL_ENTRIES[DEFAULT_JOURNAL_ENTRIES.length - 1]?.tag,
     );
+    // The real Drizzle migrator wrote each journal entry's own `when` into
+    // `created_at`, so the applied tail's timestamp legitimately equals the
+    // expected tail's timestamp here.
+    expect(readiness.appliedTailMillis).toBe(EXPECTED_TAIL_MILLIS);
+    expect(readiness.expectedTailMillis).toBe(EXPECTED_TAIL_MILLIS);
+  });
+
+  it('is ready (synthetic handle) when the count AND the tail timestamp both match', async () => {
+    const handle: SchemaReadinessSqlHandle = {
+      execute: vi.fn().mockResolvedValue([{
+        applied_count: DEFAULT_JOURNAL_ENTRIES.length,
+        applied_tail_millis: EXPECTED_TAIL_MILLIS,
+      }]),
+    };
+
+    const readiness = await getSchemaTailReadiness(handle);
+
+    expect(readiness.state).toBe('match');
+    expect(readiness.ready).toBe(true);
   });
 });
 
@@ -106,12 +134,13 @@ describe('getSchemaTailReadiness — DB behind', () => {
     expect(readiness.expectedCount - (readiness.appliedCount ?? 0)).toBe(4);
   });
 
-  it('treats a genuinely empty ledger as "behind", explicitly distinct from "unavailable"', async () => {
+  it('treats a genuinely empty ledger as "behind", explicitly distinct from "unavailable" — max() over an empty ledger is NULL, not malformed', async () => {
     // An empty-but-present ledger (table exists, zero rows applied) is a
     // legitimate, explicit "behind" reading — not the same failure mode as a
-    // database the probe cannot query at all.
+    // database the probe cannot query at all, and NOT "malformed_ledger":
+    // `max(created_at)` legitimately returns SQL NULL over zero rows.
     const handle: SchemaReadinessSqlHandle = {
-      execute: vi.fn().mockResolvedValue([{ applied_count: 0 }]),
+      execute: vi.fn().mockResolvedValue([{ applied_count: 0, applied_tail_millis: null }]),
     };
 
     const readiness = await getSchemaTailReadiness(handle);
@@ -119,6 +148,7 @@ describe('getSchemaTailReadiness — DB behind', () => {
     expect(readiness.state).toBe('behind');
     expect(readiness.ready).toBe(false);
     expect(readiness.appliedCount).toBe(0);
+    expect(readiness.appliedTailMillis).toBeNull();
   });
 
   it('REGRESSION: reproduces the actual 0068-vs-0072 incident (68 applied, 72 expected)', async () => {
@@ -128,7 +158,7 @@ describe('getSchemaTailReadiness — DB behind', () => {
     // counting comparison catches exactly that shape of drift.
     const expectedEntries = DEFAULT_JOURNAL_ENTRIES.slice(0, 72);
     const handle: SchemaReadinessSqlHandle = {
-      execute: vi.fn().mockResolvedValue([{ applied_count: 68 }]),
+      execute: vi.fn().mockResolvedValue([{ applied_count: 68, applied_tail_millis: 1786297234998 }]),
     };
 
     const readiness = await getSchemaTailReadiness(handle, { expectedEntries });
@@ -159,6 +189,45 @@ describe('getSchemaTailReadiness — DB ahead', () => {
     expect(readiness.ready).toBe(false);
     expect(readiness.appliedCount).toBe(DEFAULT_JOURNAL_ENTRIES.length);
     expect(readiness.expectedCount).toBe(DEFAULT_JOURNAL_ENTRIES.length - 4);
+  });
+});
+
+describe('getSchemaTailReadiness — tail mismatch (equal counts, different content)', () => {
+  it('is NOT ready when the applied count matches but the applied tail timestamp does not — the false-match case', async () => {
+    // The scenario this exists to close: branch B's 0074 gets applied to the
+    // shared database; branch A deploys expecting ITS OWN 0074. Counts agree
+    // (both 75), but they are different migrations. A count-only comparison
+    // would report this as "match" against a schema the code was never built
+    // for — this must not happen.
+    const handle: SchemaReadinessSqlHandle = {
+      execute: vi.fn().mockResolvedValue([{
+        applied_count: DEFAULT_JOURNAL_ENTRIES.length,
+        applied_tail_millis: EXPECTED_TAIL_MILLIS + 1,
+      }]),
+    };
+
+    const readiness = await getSchemaTailReadiness(handle);
+
+    expect(readiness.state).toBe('tail_mismatch');
+    expect(readiness.ready).toBe(false);
+    expect(readiness.appliedCount).toBe(readiness.expectedCount);
+    expect(readiness.appliedTailMillis).not.toBe(readiness.expectedTailMillis);
+  });
+
+  it('is NOT the same state as a plain count mismatch', async () => {
+    const matchingCountDivergentTail: SchemaReadinessSqlHandle = {
+      execute: vi.fn().mockResolvedValue([{
+        applied_count: DEFAULT_JOURNAL_ENTRIES.length,
+        applied_tail_millis: 1,
+      }]),
+    };
+
+    const readiness = await getSchemaTailReadiness(matchingCountDivergentTail);
+
+    expect(readiness.state).toBe('tail_mismatch');
+    expect(readiness.state).not.toBe('behind');
+    expect(readiness.state).not.toBe('ahead');
+    expect(readiness.state).not.toBe('match');
   });
 });
 
@@ -197,8 +266,41 @@ describe('getSchemaTailReadiness — malformed ledger', () => {
     expect(readiness.ready).toBe(false);
   });
 
+  it('is not ready when counts match but the applied tail timestamp is unparseable', async () => {
+    // Decisive, unlike behind/ahead: without a valid applied timestamp we
+    // cannot rule out the false-match scenario tail_mismatch exists to catch.
+    const handle: SchemaReadinessSqlHandle = {
+      execute: vi.fn().mockResolvedValue([{
+        applied_count: DEFAULT_JOURNAL_ENTRIES.length,
+        applied_tail_millis: 'garbage',
+      }]),
+    };
+
+    const readiness = await getSchemaTailReadiness(handle);
+
+    expect(readiness.state).toBe('malformed_ledger');
+    expect(readiness.ready).toBe(false);
+    expect(readiness.appliedTailMillis).toBeNull();
+  });
+
+  it('is not ready when counts match but the applied tail timestamp is unexpectedly NULL', async () => {
+    // count(*) > 0 implies max(created_at) cannot legitimately be NULL. A
+    // ledger reporting otherwise is malformed, not a valid "empty ledger".
+    const handle: SchemaReadinessSqlHandle = {
+      execute: vi.fn().mockResolvedValue([{
+        applied_count: DEFAULT_JOURNAL_ENTRIES.length,
+        applied_tail_millis: null,
+      }]),
+    };
+
+    const readiness = await getSchemaTailReadiness(handle);
+
+    expect(readiness.state).toBe('malformed_ledger');
+    expect(readiness.ready).toBe(false);
+  });
+
   it('is not ready when the expected journal itself is empty, and never queries the database', async () => {
-    const execute = vi.fn().mockResolvedValue([{ applied_count: 74 }]);
+    const execute = vi.fn().mockResolvedValue([{ applied_count: 74, applied_tail_millis: 1 }]);
     const handle: SchemaReadinessSqlHandle = { execute };
 
     const readiness = await getSchemaTailReadiness(handle, { expectedEntries: [] });
@@ -232,7 +334,7 @@ describe('getSchemaTailReadiness — query failure', () => {
       execute: vi.fn().mockRejectedValue(new Error('connection terminated')),
     };
     const empty: SchemaReadinessSqlHandle = {
-      execute: vi.fn().mockResolvedValue([{ applied_count: 0 }]),
+      execute: vi.fn().mockResolvedValue([{ applied_count: 0, applied_tail_millis: null }]),
     };
 
     const failingReadiness = await getSchemaTailReadiness(failing);
@@ -256,7 +358,10 @@ describe('getSchemaTailReadiness — no mutation, ever', () => {
           .map(chunk => (Array.isArray(chunk?.value) ? chunk.value.join('') : ''))
           .join('');
         executedQueries.push(text);
-        return [{ applied_count: DEFAULT_JOURNAL_ENTRIES.length }];
+        return [{
+          applied_count: DEFAULT_JOURNAL_ENTRIES.length,
+          applied_tail_millis: EXPECTED_TAIL_MILLIS,
+        }];
       }),
     };
 
@@ -272,6 +377,8 @@ describe('getSchemaTailReadiness — no mutation, ever', () => {
     expect(normalized.trim().startsWith('select')).toBe(true);
     // ...against only the migration ledger, never a tenant/customer table...
     expect(normalized).toContain('drizzle.__drizzle_migrations');
+    expect(normalized).toContain('applied_count');
+    expect(normalized).toContain('applied_tail_millis');
     expect(normalized).not.toMatch(/\bsalon\b/);
     expect(normalized).not.toMatch(/\bappointment\b/);
     expect(normalized).not.toMatch(/\bclient\b/);
