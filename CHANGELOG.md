@@ -1,3 +1,16 @@
+# [1.74.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.73.0...v1.74.0) (2026-08-19)
+
+
+### Bug Fixes
+
+* **catalog:** repair 12 correctness defects found by adversarial review ([9a78d14](https://github.com/SniperStopSniping/nailsalon/commit/9a78d140a1aa9eeb5d37d48d445097cf25bfad71))
+
+
+### Features
+
+* **catalog:** inert shared resolver core, rule graph, SHA-256 fingerprint ([18a2836](https://github.com/SniperStopSniping/nailsalon/commit/18a28363dfa21c22d1daa98273cee23476ac9bc4))
+* **catalog:** server wrapper, inert seam, fixture harness, resolution fingerprint ([6e7ea7e](https://github.com/SniperStopSniping/nailsalon/commit/6e7ea7ea7ebdfe2f3576f854e98518e98b682661))
+
 # [1.73.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.72.0...v1.73.0) (2026-08-18)
 
 
