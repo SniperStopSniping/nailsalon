@@ -87,6 +87,17 @@ Ambiguous or unrecognized codes fail closed as attestation-rejected, never
 availability. No error or log carries the underlying message, connection string, or
 credentials in either classification.
 
+A related asymmetry, found by adversarial review of this change and fixed with it:
+when the marker query **resolves** but returns a shape the guard cannot read, the
+database is demonstrably reachable, so this is an identity failure. Production already
+treated it that way (`PRODUCTION_MARKER_INVALID`), but the Development/Preview path
+reused `MARKER_QUERY_FAILED` — an availability code — so the *same* reachable-but-wrong
+database reported "temporarily unavailable" in one environment and "attestation failed"
+in the other. Development/Preview now rejects with a distinct `MARKER_RESULT_INVALID`,
+and both environments are pinned to `DATABASE_ATTESTATION_REJECTED` by the same test.
+Not reachable through `pg` today (a real driver either resolves `{rows: [...]}` or
+throws), but it is precisely the misdiagnosis harm this ADR exists to remove.
+
 ### Recovery: bounded, concurrency-safe, never bypassing attestation, no proxy
 
 An early draft of this fix made `db` a lazy stand-in (a `Proxy`) while the initial
@@ -145,14 +156,14 @@ a compute-quota outage, not a storage or data event.
 
 ## Environments (for on-call reference)
 
-| | **Production** | **Preview** |
-|---|---|---|
-| Neon org | Timothy (`org-sweet-water-43908227`) | Vercel-managed workspace |
-| Project | `raspy-dust-88266097` ("nail-salon-no5") | `luster-preview` |
-| Branch | `production` (`br-lucky-shape-a4fizifo`) | — |
-| Endpoint | `ep-patient-wind-a404fmqu` | `ep-fragrant-rice-auhbcdwf` |
-| Database | `neondb` | — |
-| Plan | Launch | Launch |
+Production and Preview are **separate Neon projects in separate orgs**: Production
+lives in a personal org, Preview under the Vercel-managed workspace. Both are on the
+Launch plan. Production and local development share the Production project, which is
+why local usage draws down the same compute budget.
+
+Exact org/project/branch/endpoint identifiers are deliberately **not recorded here** —
+this repository is public. Read them from the Neon console or the deployment's
+configured environment when responding to an incident.
 
 ## Consequences / follow-ups (recorded only — not implemented here)
 
@@ -160,10 +171,16 @@ a compute-quota outage, not a storage or data event.
   treats an absent marker table as valid for Production (no marker required) — this
   incident did not change that, but it is a deliberate decision that deserves its own
   review. **No migration is created by this change.**
-- Neon project/org ownership consolidation (Production sits under a personal org
-  named "Timothy," Preview under the Vercel-managed workspace) is deferred.
+- Neon project/org ownership consolidation (Production sits under a personal org,
+  Preview under the Vercel-managed workspace) is deferred.
 - `luster-preview` is provisioned on the Launch plan; it likely only needs Free.
   Owner billing decision, not made here.
+- **No `statement_timeout`/`query_timeout` is configured on the pool** (pre-existing,
+  unchanged by this ADR). `connectionTimeoutMillis` bounds the *connect* phase, so a
+  refused or unreachable provider is bounded — but a backend that accepts a connection
+  and then stalls is not. That leaves the module-load warm-up probe, and any ordinary
+  query, unbounded in the stalled-backend case. Worth fixing; deliberately out of
+  scope for an incident hotfix.
 - Checkly's ~10-minute production probes prevent Neon's autosuspend, so Production
   compute is effectively always-on — roughly $19–20/mo of compute by itself,
   independent of this incident's quota spike. Worth revisiting as a cost decision.

@@ -96,6 +96,7 @@ export type NonProductionDatabaseGuardErrorCode =
   | 'MARKER_ENVIRONMENT_MISMATCH'
   | 'MARKER_INITIALIZATION_FAILED'
   | 'MARKER_QUERY_FAILED'
+  | 'MARKER_RESULT_INVALID'
   | 'MARKER_ROW_MISSING'
   | 'MARKER_ROW_MULTIPLE'
   | 'MARKER_TABLE_MISSING'
@@ -129,6 +130,8 @@ const ERROR_MESSAGES: Record<NonProductionDatabaseGuardErrorCode, string> = {
     'Non-Production database marker initialization failed safely.',
   MARKER_QUERY_FAILED:
     'Development database rejected: the environment marker could not be read.',
+  MARKER_RESULT_INVALID:
+    'Development database rejected: the environment marker result is invalid.',
   MARKER_ROW_MISSING:
     'Development database rejected: the environment marker row is missing.',
   MARKER_ROW_MULTIPLE:
@@ -336,7 +339,15 @@ async function readNonProductionDatabaseEnvironment(
 
   const rows = rowsFromResult(result);
   if (!rows) {
-    reject('MARKER_QUERY_FAILED');
+    // The query RESOLVED — the database is demonstrably reachable — it just
+    // answered with a shape we cannot read. That is a marker/identity problem,
+    // never an availability one, so it must not reuse MARKER_QUERY_FAILED:
+    // runtimeDatabaseGuard.ts classifies that code as availability and would
+    // report a reachable-but-wrong database as "temporarily unavailable",
+    // telling an operator to wait out a recovery that will never come. This
+    // mirrors the Production path, which already uses PRODUCTION_MARKER_INVALID
+    // for exactly this case.
+    reject('MARKER_RESULT_INVALID');
   }
   if (rows.length === 0) {
     reject('MARKER_ROW_MISSING');

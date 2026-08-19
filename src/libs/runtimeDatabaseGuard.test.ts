@@ -422,6 +422,34 @@ describe('H1 classification — availability vs. attestation', () => {
     },
   );
 
+  it.each([
+    ['production', () => productionTarget],
+    ['development', () => developmentTarget],
+  ] as const)(
+    'fails closed as attestation — never availability — on an unreadable-but-resolved marker result in %s',
+    async (_label, getTarget) => {
+      // The query RESOLVED — nothing was thrown, so the database is
+      // demonstrably reachable — but the driver answered with a shape the
+      // guard cannot read. Identity can never be established from it, so it
+      // is an attestation failure, not an availability one.
+      //
+      // Both environments must agree here. They did NOT before: the
+      // Development/Preview path reused MARKER_QUERY_FAILED (an availability
+      // code) for this case while Production used PRODUCTION_MARKER_INVALID,
+      // so the same reachable-but-wrong database reported "temporarily
+      // unavailable" in one environment and "attestation failed" in the other.
+      const unreadableResult: DatabaseQueryable = {
+        async query() {
+          return { rows: 'not-an-array' };
+        },
+      };
+
+      await expect(
+        verifyRuntimeDatabaseConnection(unreadableResult, getTarget()),
+      ).rejects.toMatchObject({ code: 'DATABASE_ATTESTATION_REJECTED' });
+    },
+  );
+
   it('fails closed as attestation (never availability) when the Production marker row is malformed', async () => {
     // The query EXECUTES and returns an answer — two rows instead of exactly
     // one — so identity can never be established from it. This is the
