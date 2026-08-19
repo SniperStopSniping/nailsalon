@@ -214,6 +214,21 @@ export type PublicCatalogService = {
   selectionMode: 'direct' | 'guided' | null;
   /** Resolved by `confirmationMode.ts` — always one of the three values, never null. */
   effectiveConfirmationMode: EffectiveConfirmationMode;
+  /**
+   * The SAME resolved value as `effectiveConfirmationMode`, but ONLY when it
+   * came from a real stored value — this service's own `confirmationMode`,
+   * or (for a `child`) its parent's — never the `DEFAULT_EFFECTIVE_
+   * CONFIRMATION_MODE` fallback a legacy NULL row resolves to. `null` means
+   * "this is the default, not an owner decision".
+   *
+   * Exists so `catalogResolutionFingerprint` (`catalogResolverCore.ts`) can
+   * tell a genuinely-legacy service (NULL everywhere in its family) apart
+   * from one an owner explicitly set to `'instant'` — `effectiveConfirmationMode`
+   * alone cannot, since both resolve to the identical `'instant'` value.
+   * Two materially different configurations must never collide in that
+   * fingerprint.
+   */
+  explicitConfirmationMode: EffectiveConfirmationMode | null;
   /** Only ever non-null on a `kind: 'parent'` entry with at least one child. */
   rangeSummary: PublicCatalogRangeSummary | null;
 };
@@ -466,6 +481,89 @@ export type CatalogResolutionResult =
 export type CatalogSnapshotResult =
   | { ok: true; snapshot: PublicCatalogSnapshot }
   | { ok: false; failure: CatalogCorruptionFailure };
+
+// =============================================================================
+// RESOLUTION FINGERPRINT — SELECTION-level, distinct from CatalogRevision
+// =============================================================================
+
+/**
+ * Bumped only when the SHAPE of `CatalogResolutionFingerprintInput` changes,
+ * so a fingerprint computed under an older shape can never be compared —
+ * and mistaken as equal or unequal — against one computed under a newer one.
+ */
+export const CATALOG_RESOLUTION_FINGERPRINT_SCHEMA_VERSION = 1;
+
+export type CatalogResolutionFingerprintAddOnLine = {
+  addOnId: string;
+  quantity: number;
+  unitPriceCents: number;
+  lineTotalCents: number;
+  unitDurationMinutes: number;
+  lineDurationMinutes: number;
+};
+
+/**
+ * `reasonCode` only — never `reasonText`. This is what makes "a localized
+ * (en -> fr) reason swap must not move the fingerprint" true BY THE SHAPE
+ * ITSELF, not by a filter applied after the fact: there is no field here
+ * for translated prose to occupy.
+ */
+export type CatalogResolutionFingerprintAutoAddition = {
+  addOnId: string;
+  reasonCode: CatalogRuleReasonCode;
+};
+
+/**
+ * The MATERIAL subset of ONE RESOLVED SELECTION — never a whole snapshot.
+ * Answers "did THIS customer's configuration materially change?", the
+ * selection-level counterpart to `CatalogRevision` (`revision.canonical` /
+ * `.fingerprint`), which answers the SNAPSHOT-level question "did the
+ * salon's catalog change?". This is the value that gates a
+ * `409 CATALOG_SELECTION_CHANGED` conflict at submission time; `CatalogRevision`
+ * gates a different, coarser conflict.
+ *
+ * Built by `buildCatalogResolutionFingerprintInput` (`catalogResolverCore.ts`)
+ * from a `ResolvedCatalogSelection` plus the `PublicCatalogSnapshot` it was
+ * resolved against — never re-implemented ad hoc by a caller — and hashed
+ * via the SAME SHA-256 rails as `CatalogRevision`
+ * (`hashCatalogFingerprintWebCrypto` / `hashCatalogFingerprintNode`), so
+ * browser and server agree on identical bytes.
+ *
+ * Deliberately EXCLUDES: `generatedAt`, any localized or presentational text
+ * (`reasonText`, `presentation`), internal rule ids, `projectionKey`,
+ * analytics, and private capability metadata — none of those fields are
+ * reachable from this type's shape at all, not merely omitted by
+ * convention.
+ */
+export type CatalogResolutionFingerprintInput = {
+  schemaVersion: number;
+  /**
+   * Null for a legacy flat service (`kind: 'legacy'`) — there is no family,
+   * and none is invented. For a `parent` or `child`, this is the FAMILY's
+   * id (the parent's own id either way).
+   */
+  familyId: string | null;
+  /**
+   * The concrete service actually selected — the legacy service's own id,
+   * the parent's own id (when the parent itself is booked directly), or the
+   * child's own id. Always present; this is what carries a legacy service's
+   * identity now that `familyId` cannot.
+   */
+  selectedVariantId: string;
+  /** Every resolved add-on line — client-selected AND auto-added alike. */
+  addOns: CatalogResolutionFingerprintAddOnLine[];
+  /** Which of the lines above were auto-added, and why (code only). */
+  autoAdditions: CatalogResolutionFingerprintAutoAddition[];
+  catalogSubtotalCents: number;
+  totalDurationMinutes: number;
+  /** See `PublicCatalogService.explicitConfirmationMode` — null means "the default", never a real owner decision. */
+  explicitConfirmationMode: EffectiveConfirmationMode | null;
+};
+
+export type CatalogResolutionFingerprint = {
+  canonical: string;
+  fingerprint?: string;
+};
 
 // =============================================================================
 // SMALL DETERMINISTIC COMPARATORS

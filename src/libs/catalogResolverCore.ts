@@ -1,10 +1,15 @@
 import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import {
+  CATALOG_RESOLUTION_FINGERPRINT_SCHEMA_VERSION,
   CATALOG_RULE_REASON_TEXT,
   type CatalogCorruptionFailure,
   type CatalogEligibilityInput,
   type CatalogExplanation,
   type CatalogProjectionEffect,
+  type CatalogResolutionFingerprint,
+  type CatalogResolutionFingerprintAddOnLine,
+  type CatalogResolutionFingerprintAutoAddition,
+  type CatalogResolutionFingerprintInput,
   type CatalogResolutionResult,
   type CatalogRuleCoreInput,
   type CatalogRuleTrigger,
@@ -40,7 +45,11 @@ import {
   detectAutoAddCycle,
   expandAutoAddClosure,
 } from '@/libs/catalogRuleGraph';
-import { resolveEffectivePublicConfirmationMode } from '@/libs/confirmationMode';
+import {
+  EFFECTIVE_CONFIRMATION_MODES,
+  type EffectiveConfirmationMode,
+  resolveEffectivePublicConfirmationMode,
+} from '@/libs/confirmationMode';
 import type {
   AddOn,
   AddOnGroup,
@@ -513,6 +522,14 @@ export function buildPublicCatalogSnapshot(input: BuildPublicCatalogSnapshotInpu
       ownConfirmationMode: service.confirmationMode,
       parentConfirmationMode: parent?.confirmationMode ?? null,
     });
+    // A real stored value — this service's own, or (for a child) its
+    // parent's — counts as explicit; the DEFAULT_EFFECTIVE_CONFIRMATION_MODE
+    // fallback (what a legacy NULL-everywhere row resolves to) does not. See
+    // `PublicCatalogService.explicitConfirmationMode`'s doc comment.
+    const explicitConfirmationMode = isRecognizedConfirmationMode(service.confirmationMode)
+      || isRecognizedConfirmationMode(parent?.confirmationMode)
+      ? effectiveConfirmationMode
+      : null;
 
     const rangeSummary = kind === 'parent'
       ? computeRangeSummary(service, activeChildrenByParentId.get(service.id) ?? [])
@@ -536,6 +553,7 @@ export function buildPublicCatalogSnapshot(input: BuildPublicCatalogSnapshotInpu
       variantKind: service.variantKind ?? null,
       selectionMode: normalizeSelectionMode(service.selectionMode),
       effectiveConfirmationMode,
+      explicitConfirmationMode,
       rangeSummary,
     });
 
@@ -659,6 +677,114 @@ export async function finalizeCatalogRevision(
 
 function normalizeSelectionMode(value: string | null | undefined): 'direct' | 'guided' | null {
   return value === 'direct' || value === 'guided' ? value : null;
+}
+
+/** True only for a real, recognized stored value — never for null/undefined/garbage, which is exactly what "explicit" must exclude. */
+function isRecognizedConfirmationMode(value: string | null | undefined): value is EffectiveConfirmationMode {
+  return typeof value === 'string' && (EFFECTIVE_CONFIRMATION_MODES as readonly string[]).includes(value);
+}
+
+// =============================================================================
+// RESOLUTION FINGERPRINT — SELECTION-level, distinct from CatalogRevision
+// =============================================================================
+
+/**
+ * Extracts the family/variant identity `CatalogResolutionFingerprintInput`
+ * needs from the `PublicCatalogService` a resolved selection's `serviceId`
+ * points at. See that type's doc comment for what each field means; the
+ * short version: `familyId` is null for `kind: 'legacy'` (no synthetic
+ * family), and `selectedVariantId` is always the concrete service actually
+ * selected, family or not.
+ */
+function resolveFingerprintServiceIdentity(service: PublicCatalogService): { familyId: string | null; selectedVariantId: string } {
+  if (service.kind === 'legacy') {
+    return { familyId: null, selectedVariantId: service.id };
+  }
+  const familyId = service.kind === 'parent' ? service.id : service.parentServiceId;
+  return { familyId, selectedVariantId: service.id };
+}
+
+/**
+ * Builds the MATERIAL subset of one resolved selection — see
+ * `CatalogResolutionFingerprintInput`'s doc comment for exactly what that
+ * means and excludes. Pure and synchronous, like the rest of this core;
+ * hashing it into a `CatalogResolutionFingerprint.fingerprint` is a
+ * separate async step (`finalizeCatalogResolutionFingerprint`), for the
+ * same reason `finalizeCatalogRevision` is separate from
+ * `buildPublicCatalogSnapshot`.
+ *
+ * `selection` MUST have been resolved against `snapshot` itself — passing a
+ * mismatched pair (a caller bug, never a data-corruption case) throws
+ * rather than silently returning a wrong or partial fingerprint.
+ */
+export function buildCatalogResolutionFingerprintInput(
+  snapshot: PublicCatalogSnapshot,
+  selection: ResolvedCatalogSelection,
+): CatalogResolutionFingerprintInput {
+  const service = snapshot.services.find(s => s.id === selection.serviceId);
+  if (!service) {
+    throw new Error(
+      `buildCatalogResolutionFingerprintInput: serviceId "${selection.serviceId}" is not present in the given snapshot — `
+      + 'the selection must be resolved against this exact snapshot first.',
+    );
+  }
+
+  const { familyId, selectedVariantId } = resolveFingerprintServiceIdentity(service);
+
+  const addOns: CatalogResolutionFingerprintAddOnLine[] = [...selection.addOns]
+    .sort((a, b) => compareIds(a.addOnId, b.addOnId))
+    .map(line => ({
+      addOnId: line.addOnId,
+      quantity: line.quantity,
+      unitPriceCents: line.unitPriceCents,
+      lineTotalCents: line.lineTotalCents,
+      unitDurationMinutes: line.unitDurationMinutes,
+      lineDurationMinutes: line.lineDurationMinutes,
+    }));
+
+  // `reasonCode` only, read off each `add_on_auto_added` explanation — never
+  // `reasonText`, never the explanation's `presentation`. This is the whole
+  // structural proof that a localized-text swap cannot move this fingerprint:
+  // there is no field here for it to occupy.
+  const autoAdditions: CatalogResolutionFingerprintAutoAddition[] = [];
+  for (const explanation of selection.explanations) {
+    if (explanation.kind === 'add_on_auto_added' && explanation.anchor.kind === 'addOn') {
+      autoAdditions.push({ addOnId: explanation.anchor.addOnId, reasonCode: explanation.reasonCode });
+    }
+  }
+  autoAdditions.sort((a, b) => compareIds(a.addOnId, b.addOnId));
+
+  return {
+    schemaVersion: CATALOG_RESOLUTION_FINGERPRINT_SCHEMA_VERSION,
+    familyId,
+    selectedVariantId,
+    addOns,
+    autoAdditions,
+    catalogSubtotalCents: selection.subtotalCents,
+    totalDurationMinutes: selection.totalDurationMinutes,
+    explicitConfirmationMode: service.explicitConfirmationMode,
+  };
+}
+
+/**
+ * Turns a resolved selection into a `CatalogResolutionFingerprint`: the
+ * synchronous `canonical` string (via the frozen `canonicalizeCatalogPayload`
+ * — the SAME canonicalization `CatalogRevision.canonical` uses, so this is
+ * not a second implementation), then its SHA-256 hash via an injected
+ * hasher — `hashCatalogFingerprintWebCrypto` (`catalogFingerprint.ts`,
+ * browser) or `hashCatalogFingerprintNode` (`catalogFingerprint.server.ts`,
+ * server) — exactly mirroring `finalizeCatalogRevision`'s shape, so both
+ * fingerprints are computed, hashed, and verified the same way.
+ */
+export async function finalizeCatalogResolutionFingerprint(
+  snapshot: PublicCatalogSnapshot,
+  selection: ResolvedCatalogSelection,
+  hasher: (bytes: Uint8Array) => Promise<string>,
+): Promise<{ input: CatalogResolutionFingerprintInput; revision: CatalogResolutionFingerprint }> {
+  const input = buildCatalogResolutionFingerprintInput(snapshot, selection);
+  const canonical = canonicalizeCatalogPayload(input);
+  const fingerprint = await hasher(catalogCanonicalBytes(canonical));
+  return { input, revision: { canonical, fingerprint } };
 }
 
 /** Mirrors `normalizeDescriptionItems` in `bookingCatalog.ts` closely enough for this DTO's purposes, without importing that module (keeps this core independent, per its header note). */
