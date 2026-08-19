@@ -491,10 +491,23 @@ jobs:
       - name: Install Playwright (used for Storybook and E2E tests)
         timeout-minutes: 27
         run: |
+          # Root cause, read off the stalled runs: GitHub points apt at
+          # azure.archive.ubuntu.com, and that mirror is intermittently
+          # unreachable from the runner. apt's default per-request timeout is
+          # long enough that working through every index file stalls the step
+          # for hours before it falls back to archive.ubuntu.com -- which the
+          # very same run then reaches successfully. Capping the per-request
+          # wait makes apt fail over in seconds instead of hours.
+          # Non-fatal on purpose: this is a speed-up, not a requirement, so a
+          # runner that will not accept it must not fail the build over it.
+          printf 'Acquire::http::Timeout "15";\nAcquire::https::Timeout "15";\nAcquire::Retries "2";\n' \
+            | sudo tee /etc/apt/apt.conf.d/99-ci-fast-mirror-failover >/dev/null \
+            || echo "warning: could not write apt timeout config; continuing without it"
+
           for attempt in 1 2 3; do
             echo "::group::Playwright install attempt ${attempt}/3"
             status=0
-            timeout 480 npx playwright install --with-deps || status=$?
+            timeout --kill-after=30 480 npx playwright install --with-deps || status=$?
             echo "::endgroup::"
             if [ "${status}" -eq 0 ]; then
               echo "Playwright install succeeded on attempt ${attempt}."
@@ -505,7 +518,14 @@ jobs:
             else
               echo "Attempt ${attempt} failed with exit status ${status}."
             fi
-            sleep 10
+            # Terminating an attempt mid-apt leaves dpkg/apt part-way through a
+            # transaction, after which EVERY later apt-get exits 100 regardless
+            # of the network -- observed exactly this way in run 32301794993,
+            # where attempts 2 and 3 each failed in seconds. Without this repair
+            # the retry cannot possibly succeed.
+            sudo dpkg --configure -a || true
+            sudo apt-get update || true
+            sleep 5
           done
           echo "Playwright install did not succeed in 3 bounded attempts."
           exit 1
