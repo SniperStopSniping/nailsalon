@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   createOpaqueToken,
@@ -8,6 +8,14 @@ import {
   signOAuthState,
   verifyOAuthState,
 } from './lusterSecurity';
+
+// lusterSecurity.ts now declares `import 'server-only'` (architecture
+// hardening H3 fix, MINOR-2: it derives AES-256-GCM/HMAC keys from Env
+// secrets but had no structural marker, so a 'use client' module could
+// value-import it undetected). Same repo-wide convention every other
+// `.server.ts`/`server-only`-declaring module's own test file already
+// follows (e.g. `depositPolicy.server.test.ts`, `catalogResolver.server.test.ts`).
+vi.mock('server-only', () => ({}));
 
 describe('Luster integration security', () => {
   it('stores only a stable hash for opaque capabilities', () => {
