@@ -1,14 +1,16 @@
 import { z } from 'zod';
 
+import { resolveEntitlement } from '@/libs/featureEntitlements';
 import type {
   AddOn,
   AddOnCategory,
   AddOnPricingType,
   Service,
   ServiceAddOn,
-  ServiceCategory,
   ServiceAddOnSelectionMode,
+  ServiceCategory,
 } from '@/models/Schema';
+import type { SalonFeatures } from '@/types/salonPolicy';
 
 export const DESCRIPTION_ITEM_MAX_COUNT = 10;
 export const DESCRIPTION_ITEM_MAX_LENGTH = 120;
@@ -138,3 +140,41 @@ export function mapServiceAddOnRule(rule: ServiceAddOn): ServiceAddOnRuleSummary
   };
 }
 
+// =============================================================================
+// CATALOG DOMAIN VIEW — Luster L1 PR3's one narrow, inert seam in this file.
+//
+// This is a PURE, feature-flag-driven decision between two shapes a caller
+// could assemble a catalog response DTO from:
+//   - `'legacy'` — the flat view this file has always produced
+//     (`mapServiceToCatalogSummary` / `mapAddOnToCatalogSummary` /
+//     `mapServiceAddOnRule` above), consumed today by `bookingQuote.ts` and
+//     the owner `salon/services` + `salon/add-ons` API routes, all of them
+//     UNCHANGED by this addition.
+//   - `'l1'` — the richer DTO `catalogResolverCore.ts` /
+//     `catalogResolver.server.ts` can assemble (variants, add-on groups,
+//     declarative rules).
+//
+// Every one of the three L1 catalog feature keys — catalogVariantsV1,
+// catalogAddOnGroupsV1, catalogBookingModesV1 — is dark: `resolveEntitlement`
+// returns false for every salon, on every tier, even under the widest Super
+// Admin preset (see `l1CatalogFeatureKeys.test.ts`). `resolveCatalogDomainView`
+// can therefore only ever return `'legacy'` today, for every real salon —
+// proven by this file's own test below. NOTHING calls this function yet
+// (confirmed by search; see the PR3 report); it exists so a later PR that
+// switches a salon onto the L1 resolver has one already-tested place to ask
+// the question, instead of duplicating flag-reading logic ad hoc at each
+// call site.
+// =============================================================================
+
+export const CATALOG_DOMAIN_VIEWS = ['legacy', 'l1'] as const;
+export type CatalogDomainView = typeof CATALOG_DOMAIN_VIEWS[number];
+
+export function resolveCatalogDomainView(
+  features: SalonFeatures | null | undefined,
+): CatalogDomainView {
+  const anyL1CatalogFeatureOn = resolveEntitlement(features, 'catalog', 'variantsV1')
+    || resolveEntitlement(features, 'catalog', 'addOnGroupsV1')
+    || resolveEntitlement(features, 'catalog', 'bookingModesV1');
+
+  return anyL1CatalogFeatureOn ? 'l1' : 'legacy';
+}
