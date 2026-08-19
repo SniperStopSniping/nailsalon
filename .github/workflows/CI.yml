@@ -615,6 +615,15 @@ jobs:
           npm run db:migrate:client-lifecycle
           npm run db:verify:client-lifecycle
 
+      # schemaDrift compares the expected migration tail
+      # (migrations/meta/_journal.json) against how many migrations this
+      # real, disposable Postgres has actually applied. Asserting "ready"
+      # here, against a genuinely migrated database rather than a mock, is
+      # deployment visibility for the class of incident where code shipped
+      # expecting migrations through 0072 while the database was still at
+      # 0068. The dedicated behind/ahead/malformed/query-failure states are
+      # proven deterministically in src/libs/schemaReadinessCore.test.ts,
+      # which every PR already runs via the standard Vitest jobs.
       - name: Smoke stabilization health against the migrated schema
         env:
           DATABASE_URL: postgresql://lifecycle_ci@127.0.0.1:5432/lifecycle_ci
@@ -654,6 +663,7 @@ jobs:
                     process.exit(
                       body?.checks?.db === true
                       && body?.clientLifecycleSchema === "ready"
+                      && body?.schemaDrift === "ready"
                         ? 0
                         : 1,
                     );
@@ -669,7 +679,7 @@ jobs:
           done
 
           test "$HEALTH_READY" = true
-          echo '{"database":"ready","clientLifecycleSchema":"ready"}'
+          echo '{"database":"ready","clientLifecycleSchema":"ready","schemaDrift":"ready"}'
           cleanup_health
           trap - EXIT
 

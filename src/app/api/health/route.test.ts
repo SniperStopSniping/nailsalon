@@ -6,10 +6,12 @@ const {
   executeMock,
   isRedisAvailableMock,
   schemaReadyMock,
+  schemaDriftStatusMock,
 } = vi.hoisted(() => ({
   executeMock: vi.fn(),
   isRedisAvailableMock: vi.fn(),
   schemaReadyMock: vi.fn(),
+  schemaDriftStatusMock: vi.fn(),
 }));
 
 const { isResendSenderVerifiedMock } = vi.hoisted(() => ({
@@ -35,6 +37,10 @@ vi.mock('@/libs/clientLifecycleSchema', () => ({
   isClientLifecycleSchemaReady: schemaReadyMock,
 }));
 
+vi.mock('@/libs/schemaReadiness', () => ({
+  getSchemaDriftStatus: schemaDriftStatusMock,
+}));
+
 describe('GET /api/health', () => {
   const originalEnv = { ...process.env };
 
@@ -42,6 +48,7 @@ describe('GET /api/health', () => {
     vi.clearAllMocks();
     isResendSenderVerifiedMock.mockResolvedValue(false);
     schemaReadyMock.mockResolvedValue(true);
+    schemaDriftStatusMock.mockResolvedValue('ready');
     process.env = { ...originalEnv };
     delete process.env.CLOUDINARY_CLOUD_NAME;
     delete process.env.CLOUDINARY_API_KEY;
@@ -155,6 +162,7 @@ describe('GET /api/health', () => {
       // Reported but deliberately excluded from `criticalChecksPass`: the
       // deposits foundation must never be able to degrade production health.
       depositsSchema: expect.any(String),
+      schemaDrift: 'ready',
       timestamp: expect.any(String),
       gitSha: 'abcdef1',
     });
@@ -242,6 +250,170 @@ describe('GET /api/health', () => {
     expect(body.clientLifecycleSchema).toBe('unavailable');
     expect(JSON.stringify(body)).not.toContain(
       'private catalog detail must not escape',
+    );
+  });
+
+  // Schema-drift readiness (production schema-drift incident hardening). This
+  // is what would have caught code deployed expecting migrations through
+  // 0072 while the database was still at 0068: the release must not report
+  // full readiness when the expected migration tail is newer than what the
+  // database has applied.
+  it('returns 503 in hosted Production when schema drift is not ready', async () => {
+    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    isRedisAvailableMock.mockResolvedValue(true);
+    isResendSenderVerifiedMock.mockResolvedValue(true);
+    schemaDriftStatusMock.mockResolvedValue('not_ready');
+
+    process.env.VERCEL_ENV = 'production';
+    process.env.CLERK_SECRET_KEY = 'clerk-secret';
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'clerk-public';
+    process.env.SUPER_ADMIN_AUTH_MODE = 'password';
+    process.env.SUPER_ADMIN_TEST_LOGIN_ENABLED = 'true';
+    process.env.SUPER_ADMIN_TEST_PHONE = '+14165550123';
+    process.env.SUPER_ADMIN_TEST_PASSWORD = 'fake-test-passcode';
+    process.env.LEGACY_OTP_AUTH_ENABLED = 'false';
+    process.env.RESEND_API_KEY = 'resend-key';
+    process.env.RESEND_FROM_EMAIL = 'hello@example.com';
+    process.env.GOOGLE_OAUTH_CLIENT_ID = 'google-client';
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'google-secret';
+    process.env.GOOGLE_OAUTH_REDIRECT_URI = 'https://example.com/oauth';
+    process.env.INTEGRATION_ENCRYPTION_KEY = 'integration-key';
+    process.env.OAUTH_STATE_SECRET = 'oauth-secret';
+
+    const response = await GET();
+    const body = await response.json();
+    const serializedBody = JSON.stringify(body);
+
+    expect(response.status).toBe(503);
+    expect(body.status).toBe('degraded');
+    expect(body.checks.db).toBe(true);
+    expect(body.schemaDrift).toBe('not_ready');
+    // Bounded status only — never raw migration tags/filenames or counts.
+    expect(serializedBody).not.toContain('migration');
+    expect(serializedBody).not.toContain('journal');
+    expect(serializedBody).not.toContain('0072');
+    expect(serializedBody).not.toContain('0068');
+  });
+
+  // MAJOR-2 (adversarial review, ADR 0007 Consequences): dev and production
+  // share one Neon database, and this repo's safe deploy order is manual
+  // migrate-then-deploy, so a count-ahead reading is routine, safe operation
+  // — not an incident. Checkly pages on any non-'ok' status every 10 minutes
+  // (checkly.config.ts, tests/e2e/Sanity.check.e2e.ts), so gating on `ahead`
+  // would page for the entire manual migrate-then-deploy window on every
+  // migration-bearing release, and for any developer migrating the shared
+  // database with no release involved at all — training the on-call owner
+  // that "degraded" usually just means "the process is working", which is
+  // exactly how a real `behind` incident gets ignored. `ahead` must stay
+  // visible in the body without paging.
+  it('reports schemaDrift: ahead in the body but does NOT degrade status in hosted Production', async () => {
+    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    isRedisAvailableMock.mockResolvedValue(true);
+    isResendSenderVerifiedMock.mockResolvedValue(true);
+    schemaDriftStatusMock.mockResolvedValue('ahead');
+
+    process.env.VERCEL_ENV = 'production';
+    process.env.CLERK_SECRET_KEY = 'clerk-secret';
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'clerk-public';
+    process.env.SUPER_ADMIN_AUTH_MODE = 'password';
+    process.env.SUPER_ADMIN_TEST_LOGIN_ENABLED = 'true';
+    process.env.SUPER_ADMIN_TEST_PHONE = '+14165550123';
+    process.env.SUPER_ADMIN_TEST_PASSWORD = 'fake-test-passcode';
+    process.env.LEGACY_OTP_AUTH_ENABLED = 'false';
+    process.env.RESEND_API_KEY = 'resend-key';
+    process.env.RESEND_FROM_EMAIL = 'hello@example.com';
+    process.env.GOOGLE_OAUTH_CLIENT_ID = 'google-client';
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'google-secret';
+    process.env.GOOGLE_OAUTH_REDIRECT_URI = 'https://example.com/oauth';
+    process.env.INTEGRATION_ENCRYPTION_KEY = 'integration-key';
+    process.env.OAUTH_STATE_SECRET = 'oauth-secret';
+
+    const response = await GET();
+    const body = await response.json();
+
+    // Visible and diagnosable...
+    expect(body.schemaDrift).toBe('ahead');
+    // ...but does NOT page.
+    expect(response.status).toBe(200);
+    expect(body.status).toBe('ok');
+  });
+
+  it('still degrades hosted Production for "not_ready" — only "ahead" is excluded from gating', async () => {
+    // Pins the boundary of the MAJOR-2 exclusion: `behind` (surfaced to the
+    // route as generic "not_ready") is the actual incident class and MUST
+    // still page. Only `ahead` gets the exemption.
+    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    isRedisAvailableMock.mockResolvedValue(true);
+    isResendSenderVerifiedMock.mockResolvedValue(true);
+    schemaDriftStatusMock.mockResolvedValue('not_ready');
+
+    process.env.VERCEL_ENV = 'production';
+    process.env.CLERK_SECRET_KEY = 'clerk-secret';
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'clerk-public';
+    process.env.SUPER_ADMIN_AUTH_MODE = 'password';
+    process.env.SUPER_ADMIN_TEST_LOGIN_ENABLED = 'true';
+    process.env.SUPER_ADMIN_TEST_PHONE = '+14165550123';
+    process.env.SUPER_ADMIN_TEST_PASSWORD = 'fake-test-passcode';
+    process.env.LEGACY_OTP_AUTH_ENABLED = 'false';
+    process.env.RESEND_API_KEY = 'resend-key';
+    process.env.RESEND_FROM_EMAIL = 'hello@example.com';
+    process.env.GOOGLE_OAUTH_CLIENT_ID = 'google-client';
+    process.env.GOOGLE_OAUTH_CLIENT_SECRET = 'google-secret';
+    process.env.GOOGLE_OAUTH_REDIRECT_URI = 'https://example.com/oauth';
+    process.env.INTEGRATION_ENCRYPTION_KEY = 'integration-key';
+    process.env.OAUTH_STATE_SECRET = 'oauth-secret';
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(body.schemaDrift).toBe('not_ready');
+    expect(response.status).toBe(503);
+    expect(body.status).toBe('degraded');
+  });
+
+  it('does NOT degrade status outside of hosted Production when schema drift is not ready', async () => {
+    // Preview/local environments may legitimately run ahead of an
+    // un-migrated database during development. Only real production gates
+    // overall status on this — the same scoping clientLifecycleSchema uses.
+    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    schemaDriftStatusMock.mockResolvedValue('not_ready');
+    isResendSenderVerifiedMock.mockResolvedValue(true);
+
+    // Deliberately unhosted: no VERCEL_ENV/APP_ENV. clerkEnv/passwordAuthEnv
+    // are required unconditionally, so they still need to be set for the
+    // baseline to actually be `ok` — otherwise this assertion would be
+    // vacuously true regardless of schema drift's effect.
+    process.env.CLERK_SECRET_KEY = 'clerk-secret';
+    process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY = 'clerk-public';
+    process.env.SUPER_ADMIN_AUTH_MODE = 'password';
+    process.env.SUPER_ADMIN_TEST_LOGIN_ENABLED = 'true';
+    process.env.SUPER_ADMIN_TEST_PHONE = '+14165550123';
+    process.env.SUPER_ADMIN_TEST_PASSWORD = 'fake-test-passcode';
+    process.env.LEGACY_OTP_AUTH_ENABLED = 'false';
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(body.schemaDrift).toBe('not_ready');
+    expect(response.status).toBe(200);
+    expect(body.status).toBe('ok');
+  });
+
+  it('reports schemaDrift: unavailable, and still degrades production, when the probe throws', async () => {
+    executeMock.mockResolvedValue([{ '?column?': 1 }]);
+    schemaDriftStatusMock.mockRejectedValue(
+      new Error('drizzle.__drizzle_migrations detail must not escape'),
+    );
+    process.env.VERCEL_ENV = 'production';
+
+    const response = await GET();
+    const body = await response.json();
+
+    expect(response.status).toBe(503);
+    expect(body.checks.db).toBe(true);
+    expect(body.schemaDrift).toBe('unavailable');
+    expect(JSON.stringify(body)).not.toContain(
+      'drizzle.__drizzle_migrations detail must not escape',
     );
   });
 });

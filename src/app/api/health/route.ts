@@ -6,6 +6,7 @@ import type { LifecycleReadinessSqlHandle } from '@/libs/clientLifecycleSchemaCo
 import { db } from '@/libs/DB';
 import { type DepositsReadinessSqlHandle, isDepositsSchemaReady } from '@/libs/depositsSchema';
 import { isResendSenderVerified } from '@/libs/resendHealth';
+import { getSchemaDriftStatus, type SchemaReadinessSqlHandle } from '@/libs/schemaReadiness';
 
 // =============================================================================
 // HEALTH CHECK ENDPOINT
@@ -54,6 +55,20 @@ type HealthResponse = {
   // booleans only. This is the proof the owner's manual production migration
   // actually landed.
   depositsSchema: 'ready' | 'not_ready' | 'unavailable';
+  // Sibling of clientLifecycleSchema/depositsSchema. Compares the repository's
+  // expected migration tail (migrations/meta/_journal.json) against what the
+  // database has actually applied (drizzle.__drizzle_migrations), by count
+  // AND by the applied tail's timestamp. This is the general-purpose version
+  // of the same proof clientLifecycleSchema and depositsSchema each hand-roll
+  // for one migration: it is what would have caught code deployed expecting
+  // migrations through 0072 while the database was still at 0068.
+  // Deliberately a bounded status, never raw migration tags/counts — see
+  // getSchemaDriftStatus in @/libs/schemaReadiness.
+  //
+  // `ahead` is broken out from `not_ready` (see ADR 0007): it is still not
+  // ready semantically, but is deliberately excluded from `criticalChecksPass`
+  // below — see that comment.
+  schemaDrift: 'ready' | 'not_ready' | 'ahead' | 'unavailable';
   timestamp: string;
   gitSha?: string;
 };
@@ -117,6 +132,22 @@ export async function GET(): Promise<Response> {
       depositsSchema = depositsReady ? 'ready' : 'not_ready';
     } catch {
       depositsSchema = 'unavailable';
+    }
+  }
+
+  // Schema-drift readiness (production schema-drift incident hardening). Read
+  // only, and — unlike depositsSchema — gated into criticalChecksPass below
+  // (production only, and excluding `ahead` — see that comment), because the
+  // whole point is that a release must not report full readiness when it
+  // expects a migration tail newer than the database has applied.
+  let schemaDrift: HealthResponse['schemaDrift'] = 'unavailable';
+  if (checks.db) {
+    try {
+      schemaDrift = await getSchemaDriftStatus(
+        db as SchemaReadinessSqlHandle,
+      );
+    } catch {
+      schemaDrift = 'unavailable';
     }
   }
 
@@ -240,9 +271,23 @@ export async function GET(): Promise<Response> {
   const productionHosted
     = process.env.VERCEL_ENV === 'production'
     || process.env.APP_ENV === 'production';
+  // `ahead` deliberately does NOT gate here (ADR 0007). Dev and production
+  // share one Neon database and the safe deploy order is manual
+  // migrate-then-deploy, so a count-ahead reading is routinely produced by
+  // normal, safe operation — mid-deploy-window, or a developer migrating the
+  // shared database with no release involved at all. Checkly probes
+  // production every 10 minutes and pages on a non-'ok' status
+  // (checkly.config.ts, tests/e2e/Sanity.check.e2e.ts); paging on `ahead`
+  // would teach the on-call owner that "degraded" usually just means "the
+  // process is working", which is exactly how a real `behind` incident gets
+  // ignored. `behind`, `tail_mismatch`, `malformed_ledger`, and `unavailable`
+  // all still map to `not_ready`/`unavailable` here and DO gate — those are
+  // the actual incident class.
+  const schemaDriftGatesOk = schemaDrift === 'ready' || schemaDrift === 'ahead';
   const criticalChecksPass
     = checks.db
     && (!productionHosted || clientLifecycleSchema === 'ready')
+    && (!productionHosted || schemaDriftGatesOk)
     && checks.clerkEnv
     && checks.passwordAuthEnv
     && (!hosted
@@ -254,6 +299,7 @@ export async function GET(): Promise<Response> {
     checks,
     clientLifecycleSchema,
     depositsSchema,
+    schemaDrift,
     timestamp: new Date().toISOString(),
   };
 
