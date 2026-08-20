@@ -40,9 +40,9 @@ import { requireAppointmentAccess } from '@/libs/routeAccessGuards';
 import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
 import { sendCancellationConfirmation } from '@/libs/SMS';
 import {
+  APPOINTMENT_CANCELLATION_REASONS,
   APPOINTMENT_STATUSES,
   appointmentSchema,
-  CANCEL_REASONS,
   rewardSchema,
   salonClientSchema,
 } from '@/models/Schema';
@@ -54,7 +54,12 @@ import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 const updateAppointmentSchema = z.object({
   status: z.enum(APPOINTMENT_STATUSES).optional(),
-  cancelReason: z.enum(CANCEL_REASONS).optional(),
+  // L1 PR5 — widened from CANCEL_REASONS to also accept the dark
+  // request-lifecycle reasons. `request_expired` is finalizer-only (rejected
+  // below regardless of caller) and `declined_by_salon` is only valid for a
+  // pending row with a non-null request_expires_at (also enforced below) —
+  // this schema only bounds the VOCABULARY, not eligibility.
+  cancelReason: z.enum(APPOINTMENT_CANCELLATION_REASONS).optional(),
 });
 
 const CANCELLABLE_STATUSES: Array<(typeof APPOINTMENT_STATUSES)[number]> = [
@@ -173,6 +178,17 @@ function reactivationConflictResponse(status?: string | null): Response {
         error: {
           code: 'DEPOSIT_FORFEITURE_REACTIVATION_BLOCKED',
           message: 'This no-show retained a deposit. Refund and reconcile it before reactivating the appointment.',
+        },
+      } satisfies ErrorResponse,
+      { status: 409 },
+    );
+  }
+  if (status === 'request_expired') {
+    return Response.json(
+      {
+        error: {
+          code: 'REQUEST_EXPIRED',
+          message: 'This request has passed its review deadline and can no longer be confirmed.',
         },
       } satisfies ErrorResponse,
       { status: 409 },
@@ -346,6 +362,39 @@ export async function PATCH(
       );
     }
 
+    // 4a. `declined_by_salon` must always go through the cancellation
+    // transition below — never through the reason-only rewrite at the
+    // bottom of this handler (reachable when `cancelReason` is provided
+    // WITHOUT `status`, which rule 4 above does not itself forbid), which
+    // does not change status and would leave a non-pending row carrying a
+    // "declined" reason it never actually transitioned into.
+    if (data.cancelReason === 'declined_by_salon' && data.status !== 'cancelled') {
+      return Response.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'declined_by_salon requires status: "cancelled"',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
+
+    // 4b. `request_expired` is the finalizer's exclusive vocabulary
+    // (expireApprovalRequest.ts) — no HTTP caller, staff or client, may set
+    // it directly.
+    if (data.cancelReason === 'request_expired') {
+      return Response.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'request_expired cannot be set directly; it is applied automatically when a request lapses.',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
+
     // 5. Cancellation is a compare-and-set transaction. Two requests may both
     // authorize against the same snapshot, but only one may transition the
     // appointment and perform dependent economic mutations.
@@ -367,6 +416,23 @@ export async function PATCH(
         )
       ) {
         return cancellationConflictResponse(existingAppointment.status);
+      } else if (
+        data.cancelReason === 'declined_by_salon'
+        && !(existingAppointment.status === 'pending' && existingAppointment.requestExpiresAt !== null)
+      ) {
+        // L1 PR5 — declining is only meaningful for a pending explicit
+        // request-approval booking. A legacy pending row (NULL expiry) or
+        // any confirmed/in_progress appointment is not a "request" to
+        // decline — the ordinary cancellation reasons cover those.
+        return Response.json(
+          {
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: 'declined_by_salon can only be used to decline a pending request-approval booking.',
+            },
+          } satisfies ErrorResponse,
+          { status: 400 },
+        );
       } else {
         const transition = await withClientLifecycleTransactionRetry(() =>
           db.transaction(async (tx): Promise<CancellationTransition> => {
@@ -784,6 +850,25 @@ export async function PATCH(
               applied: false,
               appointment: lockedAppointment,
               conflictStatus: lockedAppointment.status,
+            };
+          }
+          // L1 PR5 — strict REQUEST_EXPIRED on confirm. A `pending` request
+          // whose deadline has passed must never be confirmable merely
+          // because the slot happens to be free (appointmentBlocking.ts
+          // already stopped it from blocking) — availability freeing up and
+          // the salon's right to still accept it are different questions.
+          // Legacy NULL `requestExpiresAt` and an unexpired explicit
+          // deadline both fall through and confirm exactly as today.
+          if (
+            data.status === 'confirmed'
+            && lockedAppointment.status === 'pending'
+            && lockedAppointment.requestExpiresAt !== null
+            && lockedAppointment.requestExpiresAt.getTime() <= Date.now()
+          ) {
+            return {
+              applied: false,
+              appointment: lockedAppointment,
+              conflictStatus: 'request_expired',
             };
           }
           if (lockedAppointment.status === 'completed') {
