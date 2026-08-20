@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, desc, eq, gt, gte, inArray, isNull, lt, sql } from 'drizzle-orm';
+import { and, desc, eq, gt, gte, isNull, lt, sql } from 'drizzle-orm';
 
 import { buildAppointmentManageUrl } from '@/libs/appointmentManageUrl';
 import { mintAppointmentManageCapability } from '@/libs/bookingCommitEffects';
@@ -20,6 +20,7 @@ import { resolveActiveReminderRules, resolveEventChannels } from '@/libs/communi
 import { db } from '@/libs/DB';
 import { normalizePhone } from '@/libs/phone';
 import { getAppointmentServiceNames } from '@/libs/queries';
+import { isReminderEligibleAppointment, reminderEligibleAppointmentCondition } from '@/libs/reminderEligibility';
 import { isSmsEnabled } from '@/libs/salonStatus';
 import { sendAppointmentReminder } from '@/libs/SMS';
 import {
@@ -371,7 +372,10 @@ async function loadReminderCandidates(now: Date): Promise<ReminderCandidate[]> {
     )
     .where(
       and(
-        inArray(appointmentSchema.status, ['pending', 'confirmed']),
+        // L1 PR5 — an unapproved explicit request-approval booking (pending
+        // + non-null request_expires_at) is excluded here; see
+        // reminderEligibility.ts for why.
+        reminderEligibleAppointmentCondition(),
         isNull(appointmentSchema.deletedAt),
         gt(appointmentSchema.startTime, now),
         lt(appointmentSchema.startTime, latestRelevantStartTime),
@@ -421,6 +425,7 @@ async function isCurrentReminderCandidate(args: {
       startTime: appointmentSchema.startTime,
       status: appointmentSchema.status,
       deletedAt: appointmentSchema.deletedAt,
+      requestExpiresAt: appointmentSchema.requestExpiresAt,
       dayBeforeReminderSentAt: appointmentSchema.dayBeforeReminderSentAt,
       sameDayReminderSentAt: appointmentSchema.sameDayReminderSentAt,
       salonSettings: salonSchema.settings,
@@ -441,7 +446,8 @@ async function isCurrentReminderCandidate(args: {
   if (
     !current
     || current.deletedAt
-    || !['pending', 'confirmed'].includes(current.status)
+    // L1 PR5 — must agree with reminderEligibleAppointmentCondition() above.
+    || !isReminderEligibleAppointment(current)
     || current.startTime.getTime() !== args.candidate.startTime.getTime()
   ) {
     return false;
@@ -973,7 +979,8 @@ async function markReminderSent(args: {
           eq(appointmentSchema.id, args.appointmentId),
           eq(appointmentSchema.salonId, args.salonId),
           eq(appointmentSchema.startTime, args.startTime),
-          inArray(appointmentSchema.status, ['pending', 'confirmed']),
+          // L1 PR5 — must agree with reminderEligibleAppointmentCondition() above.
+          reminderEligibleAppointmentCondition(),
           isNull(appointmentSchema.deletedAt),
           isNull(appointmentSchema.dayBeforeReminderSentAt),
         ),
@@ -994,7 +1001,8 @@ async function markReminderSent(args: {
         eq(appointmentSchema.id, args.appointmentId),
         eq(appointmentSchema.salonId, args.salonId),
         eq(appointmentSchema.startTime, args.startTime),
-        inArray(appointmentSchema.status, ['pending', 'confirmed']),
+        // L1 PR5 — must agree with reminderEligibleAppointmentCondition() above.
+        reminderEligibleAppointmentCondition(),
         isNull(appointmentSchema.deletedAt),
         isNull(appointmentSchema.sameDayReminderSentAt),
       ),
