@@ -5,6 +5,8 @@ import { buildAddOnPayload } from '@/libs/addOnPayload';
 import { requireAdminSalon } from '@/libs/adminAuth';
 import { normalizeDescriptionItems } from '@/libs/bookingCatalog';
 import { db } from '@/libs/DB';
+import { OwnerCatalogConfigError, ownerCatalogErrorResponse } from '@/libs/ownerCatalogErrors.server';
+import { assertAddOnGroupBelongsToSalon } from '@/libs/ownerCatalogGroups.server';
 import { serviceAddOnRowId } from '@/libs/starterMenu';
 import { addOnSchema, serviceAddOnSchema, serviceSchema } from '@/models/Schema';
 
@@ -34,6 +36,12 @@ const updateAddOnSchema = z.object({
    * exactly as they are; an explicit [] clears them.
    */
   serviceIds: z.array(z.string().min(1)).max(200).optional(),
+  /**
+   * `add_on_group` membership. Omitted ⇒ left exactly as stored; an
+   * explicit `null` un-groups the add-on; a string is validated same-salon
+   * before it is written (see `ownerCatalogGroups.server.ts`).
+   */
+  groupId: z.string().min(1).nullable().optional(),
 });
 
 /**
@@ -72,6 +80,10 @@ export async function PATCH(
   const addOnId = context.params.id;
 
   try {
+    if (input.groupId) {
+      await assertAddOnGroupBelongsToSalon(salon.id, input.groupId);
+    }
+
     const result = await db.transaction(async (tx) => {
       const [updated] = await tx
         .update(addOnSchema)
@@ -89,6 +101,9 @@ export async function PATCH(
           // is set or cleared deliberately rather than carried over.
           maxQuantity: input.maxQuantity,
           isActive: input.isActive,
+          // Drizzle skips `undefined` (omitted ⇒ unchanged); an explicit
+          // `null` un-groups the add-on. Validated same-salon above.
+          groupId: input.groupId,
           updatedAt: new Date(),
         })
         .where(
@@ -191,6 +206,9 @@ export async function PATCH(
         },
         { status: 400 },
       );
+    }
+    if (updateError instanceof OwnerCatalogConfigError) {
+      return ownerCatalogErrorResponse(updateError);
     }
     console.error(
       'Add-on update failed:',
