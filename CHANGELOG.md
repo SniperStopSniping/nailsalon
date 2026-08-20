@@ -1,3 +1,11 @@
+## [1.78.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.78.0...v1.78.1) (2026-08-20)
+
+
+### Bug Fixes
+
+* **stage1:** apply adversarial review findings ([ae05af8](https://github.com/SniperStopSniping/nailsalon/commit/ae05af83f9dd4671b92db0ae744d60079f6b692d))
+* **stage1:** public truth and safety repair ([623edea](https://github.com/SniperStopSniping/nailsalon/commit/623edea5f895f4fbd3439b556c058ff267ec816a))
+
 # [1.78.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.77.0...v1.78.0) (2026-08-20)
 
 
