@@ -3558,18 +3558,71 @@ suite('POST /api/appointments — genuine concurrency', () => {
     expect(await policyAcknowledgments()).toHaveLength(0);
   });
 
-  it('creates no acknowledgment when customization entitlement is disabled', async () => {
+  /**
+   * S1 (Stage 1) — CONTRACT INVERTED, deliberately.
+   *
+   * This test previously asserted that a salon without the customization
+   * entitlement could display a required acknowledgment that the server then
+   * declined to enforce: the booking was accepted 201 and no evidence row was
+   * written. That was the defect, not the contract. An owner-authored
+   * acknowledgment is a legal artefact, and whether it binds must not depend
+   * on a billing flag.
+   *
+   * Stage 1 removed the entitlement short-circuit from
+   * `resolveRequiredBookingPolicy`, so enforcement is now universal. Both
+   * directions are asserted below, because "always refuses" would be as wrong
+   * as "never enforces".
+   */
+  it('enforces a required policy even when the customization entitlement is DISABLED', async () => {
     await configureRequiredPolicy();
     await db
       .update(schema.salonSchema)
       .set({ features: { booking: { customization: false } } })
       .where(eq(schema.salonSchema.id, SALON_ID));
     const { POST } = await import('./route');
-    const response = await POST(bookingRequest());
 
-    expect(response.status).toBe(201);
-    expect(await activeAppointments()).toHaveLength(1);
+    // 1. Unacknowledged -> refused, and nothing is persisted.
+    const refused = await POST(bookingRequest());
+
+    expect(refused.status).toBe(400);
+    await expect(refused.json()).resolves.toMatchObject({
+      error: 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED',
+      bookingPolicy: {
+        title: POLICY_TITLE,
+        text: POLICY_TEXT,
+        acknowledgment: { required: true, text: ACKNOWLEDGMENT_TEXT },
+        version: policyVersion(),
+      },
+    });
+    expect(await activeAppointments()).toHaveLength(0);
     expect(await policyAcknowledgments()).toHaveLength(0);
+    expect(await db.select().from(schema.salonClientSchema)).toHaveLength(0);
+
+    // 2. Acknowledged -> accepted, with durable evidence for the SAME
+    //    unentitled salon. This half is what stops the fix degrading into a
+    //    blanket refusal that merely happens to make step 1 pass.
+    const attemptId = randomUUID();
+    const accepted = await POST(bookingRequest({
+      bookingPolicyAcknowledgment: policyAcknowledgment(attemptId),
+    }));
+
+    expect(accepted.status).toBe(201);
+
+    const appointments = await activeAppointments();
+    const acknowledgments = await policyAcknowledgments();
+
+    expect(appointments).toHaveLength(1);
+    expect(acknowledgments).toHaveLength(1);
+    expect(acknowledgments[0]).toMatchObject({
+      salonId: SALON_ID,
+      appointmentId: appointments[0]!.id,
+      policyVersion: policyVersion(),
+      policyTitleSnapshot: POLICY_TITLE,
+      policyTextSnapshot: POLICY_TEXT,
+      acknowledgmentTextSnapshot: ACKNOWLEDGMENT_TEXT,
+      source: 'public_booking',
+      attemptId,
+    });
   });
 
   it('never manufactures public acknowledgment evidence for staff or admin bookings', async () => {

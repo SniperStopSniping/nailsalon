@@ -1,11 +1,16 @@
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
-import { getSalonBySlug } from '@/libs/queries';
 import { applyPhoneDisplayMode } from '@/libs/salonContent';
+import { requirePublishedTenantSalon } from '@/libs/tenant';
 
 import { FindBookingForm } from './FindBookingForm';
 
 export default async function FindBookingPage({ params }: { params: { slug: string } }) {
-  const salon = await getSalonBySlug(params.slug);
+  // S3 (Stage 1): this anonymous salon-by-slug route had NO gate of any kind —
+  // no publication check, no owner-preview gate — so an unpublished salon
+  // rendered here at HTTP 200 and exposed its identity and phone number. The
+  // guard 404s exactly as an unresolvable slug already does, so unpublished and
+  // nonexistent stay indistinguishable.
+  const salon = await requirePublishedTenantSalon(params.slug);
   // Post-launch privacy fix: this public, unauthenticated page previously
   // passed `salon.phone` straight through with no redaction at all — no
   // owner-preview gate exists on this route, so it always reads the LIVE
@@ -15,8 +20,8 @@ export default async function FindBookingPage({ params }: { params: { slug: stri
   // this costs nothing. Reuses `applyPhoneDisplayMode` (`@/libs/salonContent`)
   // — the exact same scalar redaction `book/confirm/page.tsx`'s `salonPhone`
   // now uses — never a second, independently-decided rule.
-  const locationDisplayMode = resolveBookingPageContent(salon?.settings ?? null).live.locationDisplayMode;
-  const salonPhone = applyPhoneDisplayMode(salon?.phone ?? null, locationDisplayMode);
+  const locationDisplayMode = resolveBookingPageContent(salon.settings ?? null).live.locationDisplayMode;
+  const salonPhone = applyPhoneDisplayMode(salon.phone ?? null, locationDisplayMode);
   return (
     <main className="min-h-[calc(100vh-60px)] bg-[#fbf6f1] px-4 py-14">
       <div className="mx-auto max-w-md">

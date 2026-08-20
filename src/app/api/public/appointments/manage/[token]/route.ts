@@ -164,7 +164,9 @@ async function loadManagedAppointment(token: string) {
       salonName: salonSchema.name,
       salonSlug: salonSchema.slug,
       salonCustomDomain: salonSchema.customDomain,
-      salonEmail: salonSchema.email,
+      // S7 (Stage 1): `salonEmail` was selected here but never serialized — the
+      // response's `salon` object is `{ name, slug }`. Removed so the query
+      // stops pulling contact PII this route has no use for.
       technicianName: technicianSchema.name,
     })
     .from(appointmentSchema)

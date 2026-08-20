@@ -13,7 +13,6 @@ import {
 import { resolveAppointmentOperationalEmailRecipient } from '@/libs/clientLifecycleStabilization';
 import { db } from '@/libs/DB';
 import type { TransactionalEmailResult } from '@/libs/email';
-import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import { createOpaqueToken } from '@/libs/lusterSecurity';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 import {
@@ -201,7 +200,7 @@ async function loadCurrentBookingEmailCustomization(
       settings: salonSchema.settings,
     }).from(salonSchema).where(eq(salonSchema.id, salonId)).limit(1);
 
-    return resolveEntitledBookingEmailCustomization({
+    return resolveBookingEmailCustomization({
       storedPlan: salon?.plan,
       features: salon?.features,
       settings: salon?.settings,
@@ -213,20 +212,24 @@ async function loadCurrentBookingEmailCustomization(
   }
 }
 
-function resolveEntitledBookingEmailCustomization(input: {
+/**
+ * Exported for S1 (Stage 1) verification. Pure — no DB, no provider, no
+ * dispatch — so the email-alignment tests can prove authored universal content
+ * reaches the confirmation email without sending anything.
+ */
+export function resolveBookingEmailCustomization(input: {
   storedPlan: unknown;
   features: SalonFeatures | null | undefined;
   settings: SalonSettings | null | undefined;
 }): BookingEmailCustomization {
   try {
-    const entitlement = resolveBookingExperienceEntitlement({
-      storedPlan: input.storedPlan,
-      features: input.features,
-    });
-    if (!entitlement.entitled) {
-      return NO_BOOKING_EMAIL_CUSTOMIZATION;
-    }
-
+    // UX-OD-02 (Stage 1): confirmation message and booking policy are
+    // UNIVERSAL owner-authored content. Suppressing them here while the public
+    // page rendered them would leave a free-plan salon's confirmation email
+    // silently inconsistent with its own booking page. Absent content still
+    // resolves to absent below, so a salon that authored nothing sends exactly
+    // the email it sends today. No template, provider or dispatch topology
+    // changes.
     const experience = resolveBookingExperience(input.settings);
     return {
       confirmationMessage: experience.confirmationMessage,
@@ -241,8 +244,8 @@ function resolveEntitledBookingEmailCustomization(input: {
         : NO_CONFIRMATION_POLICY,
     };
   } catch {
-    // Entitlement failures fail closed for customization without blocking the
-    // unchanged operational email.
+    // A resolver or legacy-data failure fails closed for customization without
+    // blocking the unchanged operational email.
     return NO_BOOKING_EMAIL_CUSTOMIZATION;
   }
 }
@@ -813,7 +816,7 @@ export async function retryCustomerBookingConfirmationEmail(input: {
     const services = await db.select({ name: appointmentServicesSchema.nameSnapshot }).from(appointmentServicesSchema).where(eq(appointmentServicesSchema.appointmentId, input.appointmentId));
     const { resolveBookingConfigFromSettings } = await import('@/libs/bookingConfig');
     const config = resolveBookingConfigFromSettings(row.salonSettings);
-    const currentCustomization = resolveEntitledBookingEmailCustomization({
+    const currentCustomization = resolveBookingEmailCustomization({
       storedPlan: row.salonPlan,
       features: row.salonFeatures,
       settings: row.salonSettings,

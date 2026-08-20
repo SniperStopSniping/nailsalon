@@ -11,13 +11,13 @@ import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
+import { mapPublicTechnician } from '@/libs/publicBookingTechnicians';
 import { getActiveAddOnsBySalonId, getActiveLocationsBySalonId, getServiceAddOnRulesBySalonId, getServicesBySalonId, getTechniciansBySalonId } from '@/libs/queries';
 import { applyLocationDisplayMode } from '@/libs/salonContent';
 import { resolveMerchandisingSettings } from '@/libs/salonMerchandisingSettings';
 import { buildTenantRedirectPath, checkFeatureEnabled, checkSalonStatus } from '@/libs/salonStatus';
 import { getPublicBookableServiceIds } from '@/libs/serviceAssignments';
 import { resolveServiceCardImage } from '@/libs/serviceImage';
-import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
 import { getPublicPageContext } from '@/libs/tenant';
 import type { SalonOwnerPreviewState } from '@/providers/SalonProvider';
 import type { SalonSettings } from '@/types/salonPolicy';
@@ -198,17 +198,12 @@ export default async function BookServicePage({
     displayOrder: rule.displayOrder ?? 0,
   }));
 
-  const technicians = dbTechnicians.map(technician => ({
-    id: technician.id,
-    name: technician.name,
-    imageUrl: normalizePublicAvatarUrl(technician.avatarUrl),
-    specialties: technician.specialties ?? [],
-    rating: technician.rating ? Number(technician.rating) : null,
-    reviewCount: technician.reviewCount ?? 0,
-    enabledServiceIds: technician.enabledServiceIds ?? [],
-    serviceIds: technician.serviceIds ?? [],
-    primaryLocationId: technician.primaryLocationId ?? null,
-  }));
+  // S5 (Stage 1): this used to be a second, hand-maintained copy of
+  // `mapPublicTechnician` — same input type, byte-identical output keys. Two
+  // independent allowlists over the same unrestricted technician row is one
+  // more place a sensitive field can be added by accident, so this now reuses
+  // the single shared projector.
+  const technicians = dbTechnicians.map(mapPublicTechnician);
 
   // Get the booking flow for this salon
   const bookingFlow = normalizeBookingFlow(salon.bookingFlow as BookingStep[] | null);

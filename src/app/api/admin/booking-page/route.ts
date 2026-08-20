@@ -14,9 +14,14 @@
  *
  * `config.hiddenSections`/`sectionOrder` are re-validated server-side by
  * `validateSectionOrder` inside `updateBookingPageDraft` regardless of what
- * this route is sent — `serviceMenu`/`bookingCta` can never end up hidden or
+ * this route is sent — the floor-protected ids can never end up hidden or
  * removed through this endpoint, even given a hand-crafted request that
  * never went through the owner UI's toggle list.
+ *
+ * S6 (Stage 1) comment correction: this previously named only
+ * `serviceMenu`/`bookingCta`. `REQUIRED_SECTION_IDS` has since gained
+ * `salonProfile`, so THREE ids are protected. The list is read from
+ * `bookingPageConfig.ts` rather than restated here so it cannot drift again.
  */
 
 import { z } from 'zod';

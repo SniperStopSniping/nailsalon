@@ -956,15 +956,34 @@ describe('BookServiceClient', () => {
     ).toBeNull();
   });
 
+  /**
+   * S1 (Stage 1) — BEHAVIOUR CHANGE, deliberately replacing five previously
+   * green assertions.
+   *
+   * These cases asserted that `PublicSalonPageShell` fell back to
+   * `BOOKING_EXPERIENCE_DEFAULTS` whenever the plan was free, unknown, missing,
+   * or entitlement resolution threw — i.e. that owner-authored booking message,
+   * policy, social links, quick facts, confirmation message and accent colour
+   * were suppressed on the public page.
+   *
+   * Under UX-OD-02 all six are UNIVERSAL owner content, so the shell no longer
+   * consults `booking_experience_customization` at all. What it still does — and
+   * what these rewrites now pin — is resolve defensively: a salon that authored
+   * nothing, or whose persisted blob is malformed, still gets the canonical
+   * defaults and nothing is fabricated. That last property is covered by the
+   * malformed-blob case immediately below, which is unchanged and still green.
+   */
   it.each([
     ['a missing plan', { includePlan: false }],
     ['an unknown plan', { plan: 'legacy_unknown' }],
-  ])('fails closed for %s', (_label, options) => {
+    ['a free plan', { plan: 'free' }],
+  ])('renders authored customization regardless of plan — %s', (_label, options) => {
     const salon = buildPublicShellSalon(
       { bookingExperience: CONFIGURED_BOOKING_EXPERIENCE },
       options,
     );
-    const { container } = render(
+
+    render(
       <PublicSalonPageShell
         appearance={{ mode: 'custom', themeKey: null }}
         pageName="book-service"
@@ -974,19 +993,17 @@ describe('BookServiceClient', () => {
       </PublicSalonPageShell>,
     );
 
-    expect(
-      container.querySelector('[data-booking-experience-theme]'),
-    ).toBeNull();
-    expect(salonProviderPropsMock.bookingExperience).toEqual(
-      DEFAULT_BOOKING_EXPERIENCE,
+    expect(salonProviderPropsMock.bookingExperience).toMatchObject(
+      CONFIGURED_BOOKING_EXPERIENCE,
     );
   });
 
-  it('passes canonical defaults to public booking and confirmation consumers when the plan is locked', () => {
+  it('passes authored content to public booking and confirmation consumers on a FREE plan', () => {
     const salon = buildPublicShellSalon(
       { bookingExperience: CONFIGURED_BOOKING_EXPERIENCE },
       { plan: 'free' },
     );
+
     render(
       <PublicSalonPageShell
         appearance={{ mode: 'custom', themeKey: null }}
@@ -997,16 +1014,16 @@ describe('BookServiceClient', () => {
       </PublicSalonPageShell>,
     );
 
-    expect(salonProviderPropsMock.bookingExperience).toEqual(
-      DEFAULT_BOOKING_EXPERIENCE,
+    expect(salonProviderPropsMock.bookingExperience).toMatchObject(
+      CONFIGURED_BOOKING_EXPERIENCE,
     );
     expect(
       (salonProviderPropsMock.bookingExperience as BookingExperience)
         .confirmationMessage,
-    ).toBeNull();
+    ).toBe(CONFIGURED_BOOKING_EXPERIENCE.confirmationMessage);
   });
 
-  it('restores saved public customization on the next render when entitlement returns', () => {
+  it('renders identically across a plan change — the plan no longer decides this', () => {
     const settings = {
       bookingExperience: CONFIGURED_BOOKING_EXPERIENCE,
     };
@@ -1020,8 +1037,8 @@ describe('BookServiceClient', () => {
       </PublicSalonPageShell>,
     );
 
-    expect(salonProviderPropsMock.bookingExperience).toEqual(
-      DEFAULT_BOOKING_EXPERIENCE,
+    expect(salonProviderPropsMock.bookingExperience).toMatchObject(
+      CONFIGURED_BOOKING_EXPERIENCE,
     );
 
     rerender(
@@ -1039,7 +1056,7 @@ describe('BookServiceClient', () => {
     );
   });
 
-  it('fails closed to canonical defaults if entitlement resolution throws', () => {
+  it('a hostile `features` object no longer suppresses content, because features are not read', () => {
     const features = Object.defineProperty({}, 'booking', {
       get() {
         throw new Error('unexpected entitlement failure');
@@ -1050,6 +1067,8 @@ describe('BookServiceClient', () => {
       { features },
     );
 
+    // The page still renders — that invariant is unchanged. What changed is
+    // that a throwing `features` getter is never touched.
     expect(() => render(
       <PublicSalonPageShell
         appearance={{ mode: 'custom', themeKey: null }}
@@ -1059,8 +1078,8 @@ describe('BookServiceClient', () => {
         <div>Booking content</div>
       </PublicSalonPageShell>,
     )).not.toThrow();
-    expect(salonProviderPropsMock.bookingExperience).toEqual(
-      DEFAULT_BOOKING_EXPERIENCE,
+    expect(salonProviderPropsMock.bookingExperience).toMatchObject(
+      CONFIGURED_BOOKING_EXPERIENCE,
     );
   });
 

@@ -83,8 +83,10 @@
  *                              Dormant for every real salon regardless: it
  *                              only fires once a resolved service's
  *                              `confirmationMode` is explicitly
- *                              `'request_approval'` — impossible today, no
- *                              owner editor exists (PR6).
+ *                              `'request_approval'`. S6 (Stage 1) correction:
+ *                              "no owner editor exists (PR6)" is now false —
+ *                              PR6 shipped it. Still dormant for every real
+ *                              salon via `resolveCatalogDomainView` alone.
  *   6. persistence           — EXISTING. The appointment insert + snapshots.
  *
  * Steps 2-4 keep their EXISTING relative order in `route.ts` — the spec

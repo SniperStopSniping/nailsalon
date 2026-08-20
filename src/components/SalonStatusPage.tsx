@@ -1,6 +1,8 @@
 import type { LucideIcon } from 'lucide-react';
 import Link from 'next/link';
 
+import type { PublicSalonStatusIdentity } from '@/libs/salonContent';
+
 /**
  * SalonStatusPage
  *
@@ -22,6 +24,15 @@ type SalonStatusPageProps = {
   description: string;
   actions?: SalonStatusAction[];
   footer?: string;
+  /**
+   * S6b (Stage 1) — optional, and deliberately NOT a salon row.
+   *
+   * Only `resolvePublicSalonStatusIdentity`'s narrow projection may be passed:
+   * salon name plus a city/state label, never a street address, postal code,
+   * phone or email. Omitted entirely on `/not-found`, which is shared by
+   * "does not exist" and "unpublished" and must stay generic.
+   */
+  salonIdentity?: PublicSalonStatusIdentity | null;
 };
 
 const NO_ACTIONS: SalonStatusAction[] = [];
@@ -32,6 +43,7 @@ export function SalonStatusPage({
   description,
   actions = NO_ACTIONS,
   footer,
+  salonIdentity = null,
 }: SalonStatusPageProps) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#faf3ea] p-4">
@@ -39,6 +51,19 @@ export function SalonStatusPage({
         <div className="mx-auto mb-6 flex size-16 items-center justify-center rounded-full bg-[#f5e6d3]">
           <Icon className="size-8 text-[#d6a249]" />
         </div>
+
+        {salonIdentity && (
+          <div className="mb-3">
+            <p className="text-base font-semibold text-neutral-800">
+              {salonIdentity.name}
+            </p>
+            {salonIdentity.locationLabel && (
+              <p className="text-xs text-neutral-500">
+                {salonIdentity.locationLabel}
+              </p>
+            )}
+          </div>
+        )}
 
         <h1 className="mb-2 text-2xl font-semibold text-[#7b4ea3]">
           {title}

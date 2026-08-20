@@ -366,6 +366,61 @@ export function applyPhoneDisplayMode(phone: string | null, mode: LocationDispla
   return applyLocationDisplayMode({ address: null, zipCode: null, phone }, mode).phone ?? null;
 }
 
+/**
+ * S6b (Stage 1) — the only salon identity this STATUS PAGE COMPONENT renders.
+ *
+ * Scope note, so the next reader does not over-trust this: it is not the whole
+ * exposure surface of those routes. `[locale]/[slug]/layout.tsx` already wraps
+ * every route beneath it in a `'use client'` `SalonProvider` that serializes
+ * salonId, salonName, salonSlug, themeKey, the internal status enum and the
+ * resolved bookingPage side to any visitor who reaches the layout. This
+ * projection governs what the status page itself draws; auditing the layout
+ * payload is separate, unchanged by Stage 1, and recorded in the register.
+ *
+ * `/booking-disabled`, `/suspended` and `/cancelled` are reached only AFTER the
+ * publication check has passed (`checkSalonStatus` evaluates publication before
+ * status), so these URLs already disclose that the salon exists. Rendering the
+ * salon's name there is therefore not a new disclosure — it just stops the page
+ * looking like it belongs to no one.
+ *
+ * The projection is deliberately narrow and is built field-by-field, never by
+ * spreading a salon row:
+ *   - `name` only.
+ *   - `locationLabel` is city/state ONLY, and never a street address or postal
+ *     code under ANY display mode — a status page has no need for either, so
+ *     the conservative shape is also the correct one. Under `city_only` this is
+ *     exactly what the owner already agreed to publish.
+ *   - `null` when the salon has no public city. Nothing is ever fabricated.
+ *   - phone and email are never included.
+ *
+ * NOT used on `/not-found`. That destination is shared by "salon does not
+ * exist" and "salon exists but is unpublished", so adding identity there would
+ * turn it into an existence oracle for draft salons at guessed slugs.
+ */
+export type PublicSalonStatusIdentity = {
+  name: string;
+  locationLabel: string | null;
+};
+
+export function resolvePublicSalonStatusIdentity(input: {
+  name: string;
+  city: string | null | undefined;
+  state: string | null | undefined;
+}): PublicSalonStatusIdentity {
+  const city = typeof input.city === 'string' && input.city.trim() !== ''
+    ? input.city.trim()
+    : null;
+  const state = typeof input.state === 'string' && input.state.trim() !== ''
+    ? input.state.trim()
+    : null;
+
+  const locationLabel = city
+    ? (state ? `${city}, ${state}` : city)
+    : null;
+
+  return { name: input.name, locationLabel };
+}
+
 function toNumberOrNull(value: number | string | null | undefined): number | null {
   if (value === null || value === undefined) {
     return null;

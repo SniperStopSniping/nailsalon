@@ -6,7 +6,6 @@ import {
 } from '@/libs/bookingExperience';
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
-import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import type { PageAppearanceResult } from '@/libs/pageAppearance';
 import type {
   SalonContentAddOnInput,
@@ -60,14 +59,16 @@ type PublicSalonPageShellProps = {
   /**
    * Raw ingredients for the server-resolved `SalonContent` (Luster UI/UX
    * plan rev 3, section 4A.A) — everything the content contract needs that
-   * this shell does not already have (`salon` and the entitlement-resolved
+   * this shell does not already have (`salon` and the resolved
    * `bookingExperience` below cover the rest). Resolved via
    * `resolveSalonContent` right here, once per render, so
-   * `salonContent.policies`/`.social` always come from the SAME
-   * entitlement-gated `bookingExperience` value this shell already computes
-   * for the page itself — never a second, independently-resolved copy that
-   * could drift out of sync with the entitlement gate. Omitted fields
-   * default to empty, which is always safe to render.
+   * `salonContent.policies`/`.social` always come from the SAME resolved
+   * `bookingExperience` value this shell already computes for the page
+   * itself — never a second, independently-resolved copy that could drift.
+   * (S1/Stage 1 correction: this previously said "entitlement-resolved" and
+   * "entitlement-gated". There is no entitlement gate in this file any more —
+   * the reason for single resolution is consistency, not entitlement.)
+   * Omitted fields default to empty, which is always safe to render.
    */
   salonContentInput?: {
     technicians?: SalonContentTechnicianInput[];
@@ -121,20 +122,26 @@ export function PublicSalonPageShell({
   salonContentInput,
   previewBannerVariant,
 }: PublicSalonPageShellProps) {
+  // UX-OD-02 (Stage 1): owner-authored operational content — booking message,
+  // policy, social links, quick facts, confirmation message — and the single
+  // brand accent colour are UNIVERSAL. They are salon content, not premium
+  // style, so no entitlement is consulted here. `resolveBookingExperience` is
+  // the defensive canonical resolver: an absent field stays absent, so a salon
+  // that authored nothing still renders exactly the neutral default it renders
+  // today. Nothing is fabricated and no salon is auto-populated.
+  //
+  // Premium style (`stylePack` / `tokenOverrides`) lives in `bookingPageConfig`,
+  // is currently writable-but-inert, and is deliberately NOT touched here. The
+  // binding deferred invariant: the first PR that gives either field a
+  // production renderer reader must add the premium entitlement boundary in
+  // that same PR, before activation.
   let bookingExperience = resolveBookingExperience(null);
 
   try {
-    const entitlement = resolveBookingExperienceEntitlement({
-      storedPlan: salon.plan,
-      features: salon.features,
-    });
-
-    if (entitlement.entitled) {
-      bookingExperience = resolveBookingExperience(salon.settings);
-    }
+    bookingExperience = resolveBookingExperience(salon.settings);
   } catch {
-    // Customization is optional. If entitlement resolution ever fails, keep
-    // public pages available with the canonical, uncustomized experience.
+    // Customization is optional. If resolution ever fails, keep public pages
+    // available with the canonical, uncustomized experience.
   }
 
   const bookingExperienceStyles = pageName.startsWith('book-')

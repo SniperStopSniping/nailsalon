@@ -1,10 +1,10 @@
 import 'server-only';
 
-import { resolvePublicBookingSelection, type ResolvedPublicBookingSelection } from '@/libs/publicBookingSelection';
+import { type ResolvedPublicBookingSelection, resolvePublicBookingSelection } from '@/libs/publicBookingSelection';
 import {
   getPublicTechnicianCompatibility,
-  technicianSupportsPublicLocation,
   type PublicTechnicianPreview,
+  technicianSupportsPublicLocation,
 } from '@/libs/publicTechnicianCompatibility';
 import { getTechniciansBySalonId } from '@/libs/queries';
 import { normalizePublicAvatarUrl } from '@/libs/technicianAvatar';
@@ -25,7 +25,24 @@ export type ResolvedPublicBookingTechnicianContext = {
   shouldAutoSkipTech: boolean;
 };
 
-function mapPublicTechnician(technician: Awaited<ReturnType<typeof getTechniciansBySalonId>>[number]): PublicTechnicianPreview {
+/**
+ * S5 (Stage 1) — the SINGLE public projector for a raw technician row.
+ *
+ * `getTechniciansBySalonId` runs an unrestricted `select()` over a table that
+ * carries `email`, `phone`, `payType`, `commissionRate`, `hourlyRate`,
+ * `salaryAmount` and internal `notes`. Nothing but an explicit allowlist stands
+ * between that row and a public response, so this function is a privacy
+ * boundary, not a convenience mapper: build the result field-by-field and NEVER
+ * spread the input.
+ *
+ * Exported because `book/service/page.tsx` previously kept a second, hand-
+ * maintained copy of this exact projection — same input type, byte-identical
+ * output keys. Two independent whitelists over the same row is one more place
+ * for a sensitive field to be added by accident, so they are now one.
+ *
+ * Pinned by an exact-shape test in `stage1.technicianProjections.test.ts`.
+ */
+export function mapPublicTechnician(technician: Awaited<ReturnType<typeof getTechniciansBySalonId>>[number]): PublicTechnicianPreview {
   return {
     id: technician.id,
     name: technician.name,
@@ -73,7 +90,7 @@ export async function resolvePublicBookingTechnicianContext(args: {
     }),
   );
 
-  const compatibleTechnicians = activeTechnicians.filter((technician) =>
+  const compatibleTechnicians = activeTechnicians.filter(technician =>
     getPublicTechnicianCompatibility({
       selectionMode: resolvedSelection.mode,
       technician,
