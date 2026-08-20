@@ -1,3 +1,20 @@
+# [1.78.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.77.0...v1.78.0) (2026-08-20)
+
+
+### Bug Fixes
+
+* **l1:** enforce the parent-active invariant from both sides ([079ae0f](https://github.com/SniperStopSniping/nailsalon/commit/079ae0fd9bbf4f4a108c1d90b3443db591bf8861))
+
+
+### Features
+
+* **l1:** add authenticated owner catalog preview endpoint ([8fdc5a9](https://github.com/SniperStopSniping/nailsalon/commit/8fdc5a94d137000f67fe7d116c915f8387073e8f))
+* **l1:** add capability and technician-assignment CRUD ([af35b32](https://github.com/SniperStopSniping/nailsalon/commit/af35b32531d8da0e3725f082bf01a7aefc486e8b))
+* **l1:** add owner catalog configuration UI (PR6 admin surface) ([af3faa9](https://github.com/SniperStopSniping/nailsalon/commit/af3faa9813de62753f05a8d9dac4d444b8c2e2f5))
+* **l1:** add owner CRUD for add-on groups and add-on group binding ([958e029](https://github.com/SniperStopSniping/nailsalon/commit/958e029b916d96979030cfe34f3828a02ab09050))
+* **l1:** add owner-intent catalog rule API with cycle validation ([976a487](https://github.com/SniperStopSniping/nailsalon/commit/976a487e4cb2e8bb289cf317e1296a251c23bde0))
+* **l1:** add service family/variant grouping and confirmation mode writes ([6b350e3](https://github.com/SniperStopSniping/nailsalon/commit/6b350e3a6f507365a6d0c47bf5fc4b240e46305a))
+
 # [1.77.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.76.1...v1.77.0) (2026-08-20)
 
 
