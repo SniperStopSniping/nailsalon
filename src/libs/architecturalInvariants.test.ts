@@ -170,6 +170,17 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
       importer: 'src/libs/ownerCatalogGroups.server.ts',
       imports: 'src/libs/catalogRuleContract.ts',
     },
+    // L1 PR6 — owner-intent rule writes reuse the whole-row contract...
+    {
+      importer: 'src/libs/ownerCatalogRules.server.ts',
+      imports: 'src/libs/catalogRuleContract.ts',
+    },
+    // ...and the auto-add cycle detector, over edges derived from raw
+    // `catalog_rule` rows at write time.
+    {
+      importer: 'src/libs/ownerCatalogRules.server.ts',
+      imports: 'src/libs/catalogRuleGraph.ts',
+    },
   ];
   const isAuthorized = (importer: string, imported: string) =>
     AUTHORIZED_PRODUCTION_IMPORTS.some(edge => edge.importer === importer && edge.imports === imported);
