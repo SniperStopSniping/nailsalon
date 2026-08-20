@@ -1,6 +1,5 @@
-import { isPendingRequestBlocking } from '@/libs/appointmentBlocking';
+import { resolveEffectiveRequestApprovalStatus } from '@/libs/requestApprovalStatus';
 import { requireAppointmentAccess } from '@/libs/routeAccessGuards';
-import type { Appointment } from '@/models/Schema';
 
 /**
  * Luster L1 PR5 — D. Read-only EFFECTIVE request-approval status.
@@ -31,40 +30,6 @@ type ErrorResponse = {
     message: string;
   };
 };
-
-export type EffectiveRequestApprovalStatus =
-  | 'pending'
-  | 'expired'
-  | 'declined'
-  | 'confirmed'
-  | 'in_progress'
-  | 'awaiting_payment'
-  | 'completed'
-  | 'no_show'
-  | 'cancelled';
-
-/**
- * Exported for direct unit testing — pure, no I/O. `now` must be the
- * caller's own instant (never re-derived internally) so a test can pin it.
- */
-export function resolveEffectiveRequestApprovalStatus(
-  appointment: Pick<Appointment, 'status' | 'cancelReason' | 'requestExpiresAt'>,
-  now: Date,
-): EffectiveRequestApprovalStatus {
-  if (appointment.status === 'pending') {
-    return isPendingRequestBlocking(appointment.requestExpiresAt, now) ? 'pending' : 'expired';
-  }
-  if (appointment.status === 'cancelled') {
-    if (appointment.cancelReason === 'declined_by_salon') {
-      return 'declined';
-    }
-    if (appointment.cancelReason === 'request_expired') {
-      return 'expired';
-    }
-    return 'cancelled';
-  }
-  return appointment.status as EffectiveRequestApprovalStatus;
-}
 
 export async function GET(
   request: Request,

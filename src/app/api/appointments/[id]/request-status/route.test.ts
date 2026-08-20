@@ -17,7 +17,9 @@ vi.mock('@/libs/routeAccessGuards', () => ({
 }));
 
 /* eslint-disable import/first */
-import { GET, resolveEffectiveRequestApprovalStatus } from './route';
+import { resolveEffectiveRequestApprovalStatus } from '@/libs/requestApprovalStatus';
+
+import { GET } from './route';
 /* eslint-enable import/first */
 
 describe('resolveEffectiveRequestApprovalStatus (pure)', () => {
