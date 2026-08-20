@@ -159,11 +159,16 @@ export function mapServiceAddOnRule(rule: ServiceAddOn): ServiceAddOnRuleSummary
 // returns false for every salon, on every tier, even under the widest Super
 // Admin preset (see `l1CatalogFeatureKeys.test.ts`). `resolveCatalogDomainView`
 // can therefore only ever return `'legacy'` today, for every real salon —
-// proven by this file's own test below. NOTHING calls this function yet
-// (confirmed by search; see the PR3 report); it exists so a later PR that
-// switches a salon onto the L1 resolver has one already-tested place to ask
-// the question, instead of duplicating flag-reading logic ad hoc at each
-// call site.
+// proven by this file's own test below. It is the single place a caller asks
+// the question, instead of duplicating flag-reading logic ad hoc at each call
+// site.
+//
+// S6 (Stage 1) comment correction: this previously read "NOTHING calls this
+// function yet (confirmed by search; see the PR3 report)". That was true when
+// written and is no longer — PR4 added `catalogSubmissionReconciliation.server.ts`
+// as a caller. The DARK claim above is unchanged and still holds: every one of
+// the three keys is off for every salon, so this still only ever returns
+// `'legacy'` in production.
 // =============================================================================
 
 export const CATALOG_DOMAIN_VIEWS = ['legacy', 'l1'] as const;

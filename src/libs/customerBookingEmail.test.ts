@@ -750,7 +750,9 @@ describe('customer booking operational email', () => {
     ['the email placement is off', 'single_salon', settingsWithEmailPolicy({
       showInConfirmationEmail: false,
     })],
-    ['the salon entitlement is locked', 'free', settingsWithEmailPolicy()],
+    ['the email placement is off on a free plan too', 'free', settingsWithEmailPolicy({
+      showInConfirmationEmail: false,
+    })],
   ])('omits the informational policy when %s', async (
     _reason,
     plan,
@@ -768,7 +770,43 @@ describe('customer booking operational email', () => {
     expect(email.html).not.toContain('Deposit &amp; cancellation policy');
   });
 
-  it('omits the saved message from an initial email when the salon plan is locked', async () => {
+  /**
+   * S1 (Stage 1) — BEHAVIOUR CHANGE, deliberately replacing a previously green
+   * assertion.
+   *
+   * Confirmation message and booking policy are UNIVERSAL owner-authored content
+   * under UX-OD-02. Suppressing them in the email while the public page rendered
+   * them left a free-plan salon's confirmation silently inconsistent with its own
+   * booking page. `customerBookingEmail.ts` no longer consults
+   * `booking_experience_customization`.
+   */
+  it('includes the informational policy on a FREE plan when placement is on', async () => {
+    state.insertQueue.push([{ id: 'delivery_1' }]);
+    state.settingsQueue.push([{
+      plan: 'free',
+      features: null,
+      settings: settingsWithEmailPolicy(),
+    }]);
+
+    await expect(sendCustomerBookingConfirmationEmail(initialInput()))
+      .resolves.toBe(true);
+
+    const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+
+    expect(email.text).toContain('Deposit & cancellation policy');
+  });
+
+  /**
+   * S1 (Stage 1) — BEHAVIOUR CHANGE, deliberately replacing a previously green
+   * assertion.
+   *
+   * Confirmation message and booking policy are UNIVERSAL owner-authored content
+   * under UX-OD-02. Suppressing them in the email while the public page rendered
+   * them left a free-plan salon's confirmation silently inconsistent with its own
+   * booking page. `customerBookingEmail.ts` no longer consults
+   * `booking_experience_customization`.
+   */
+  it('includes the saved message in an initial email on a FREE plan', async () => {
     state.insertQueue.push([{ id: 'delivery_1' }]);
     state.settingsQueue.push([{
       plan: 'free',
@@ -781,11 +819,21 @@ describe('customer booking operational email', () => {
 
     const email = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
 
-    expect(email.text).not.toContain('Saved free-plan note.');
-    expect(email.html).not.toContain('Saved free-plan note.');
+    expect(email.text).toContain('Saved free-plan note.');
+    expect(email.html).toContain('Saved free-plan note.');
   });
 
-  it('restores the saved initial-email message as soon as plan entitlement returns', async () => {
+  /**
+   * S1 (Stage 1) — BEHAVIOUR CHANGE, deliberately replacing a previously green
+   * assertion.
+   *
+   * Confirmation message and booking policy are UNIVERSAL owner-authored content
+   * under UX-OD-02. Suppressing them in the email while the public page rendered
+   * them left a free-plan salon's confirmation silently inconsistent with its own
+   * booking page. `customerBookingEmail.ts` no longer consults
+   * `booking_experience_customization`.
+   */
+  it('renders the saved initial-email message identically on free and paid plans', async () => {
     state.insertQueue.push([{ id: 'delivery_1' }], [{ id: 'delivery_2' }]);
     const settings = settingsWithConfirmationMessage('Preserved salon note.');
     state.settingsQueue.push(
@@ -798,12 +846,14 @@ describe('customer booking operational email', () => {
     await expect(sendCustomerBookingConfirmationEmail(initialInput()))
       .resolves.toBe(true);
 
-    const lockedEmail = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
-    const restoredEmail = state.sendTransactionalEmailDetailed.mock.calls[1]?.[0];
+    const freeEmail = state.sendTransactionalEmailDetailed.mock.calls[0]?.[0];
+    const paidEmail = state.sendTransactionalEmailDetailed.mock.calls[1]?.[0];
 
-    expect(lockedEmail.text).not.toContain('Preserved salon note.');
-    expect(restoredEmail.text).toContain('\n\nPreserved salon note.');
-    expect(restoredEmail.html).toContain('<p>Preserved salon note.</p>');
+    // The point of the change: the plan no longer decides this.
+    expect(freeEmail.text).toContain('\n\nPreserved salon note.');
+    expect(freeEmail.html).toContain('<p>Preserved salon note.</p>');
+    expect(paidEmail.text).toContain('\n\nPreserved salon note.');
+    expect(paidEmail.html).toContain('<p>Preserved salon note.</p>');
   });
 
   it('honors an explicit enable override for an initial email on the free plan', async () => {
@@ -850,7 +900,17 @@ describe('customer booking operational email', () => {
     });
   });
 
-  it('fails closed without blocking the initial email when entitlement resolution throws', async () => {
+  /**
+   * S1 (Stage 1) — BEHAVIOUR CHANGE, deliberately replacing a previously green
+   * assertion.
+   *
+   * Confirmation message and booking policy are UNIVERSAL owner-authored content
+   * under UX-OD-02. Suppressing them in the email while the public page rendered
+   * them left a free-plan salon's confirmation silently inconsistent with its own
+   * booking page. `customerBookingEmail.ts` no longer consults
+   * `booking_experience_customization`.
+   */
+  it('a hostile `features` object no longer affects the initial email, because features are not read', async () => {
     state.insertQueue.push([{ id: 'delivery_1' }]);
     const features = Object.defineProperty({}, 'booking', {
       get() {
@@ -860,16 +920,18 @@ describe('customer booking operational email', () => {
     state.settingsQueue.push([{
       plan: 'single_salon',
       features,
-      settings: settingsWithConfirmationMessage('Must not be rendered.'),
+      settings: settingsWithConfirmationMessage('Rendered regardless.'),
     }]);
 
+    // The operational email still sends — that invariant is unchanged. What
+    // changed is that a throwing `features` getter is simply never touched, so
+    // it can no longer suppress the owner's own content.
     await expect(sendCustomerBookingConfirmationEmail(initialInput()))
       .resolves.toBe(true);
 
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.not.stringContaining('Must not be rendered.'),
-        html: expect.not.stringContaining('Must not be rendered.'),
+        text: expect.stringContaining('Rendered regardless.'),
       }),
     );
   });
@@ -1250,7 +1312,17 @@ describe('customer booking operational email', () => {
     }));
   });
 
-  it('omits the saved message from a retry when the salon plan is locked', async () => {
+  /**
+   * S1 (Stage 1) — BEHAVIOUR CHANGE, deliberately replacing a previously green
+   * assertion.
+   *
+   * Confirmation message and booking policy are UNIVERSAL owner-authored content
+   * under UX-OD-02. Suppressing them in the email while the public page rendered
+   * them left a free-plan salon's confirmation silently inconsistent with its own
+   * booking page. `customerBookingEmail.ts` no longer consults
+   * `booking_experience_customization`.
+   */
+  it('includes the saved message in a retry on a FREE plan', async () => {
     state.selectQueue.push(
       [{ status: 'failed', retryable: true }],
       [{
@@ -1271,13 +1343,23 @@ describe('customer booking operational email', () => {
 
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.not.stringContaining('Saved locked retry note.'),
-        html: expect.not.stringContaining('Saved locked retry note.'),
+        text: expect.stringContaining('Saved locked retry note.'),
+        html: expect.stringContaining('Saved locked retry note.'),
       }),
     );
   });
 
-  it('honors an explicit disable override for a retry on an entitled plan', async () => {
+  /**
+   * S1 (Stage 1) — BEHAVIOUR CHANGE, deliberately replacing a previously green
+   * assertion.
+   *
+   * Confirmation message and booking policy are UNIVERSAL owner-authored content
+   * under UX-OD-02. Suppressing them in the email while the public page rendered
+   * them left a free-plan salon's confirmation silently inconsistent with its own
+   * booking page. `customerBookingEmail.ts` no longer consults
+   * `booking_experience_customization`.
+   */
+  it('an explicit customization disable override no longer suppresses retry content', async () => {
     state.selectQueue.push(
       [{ status: 'failed', retryable: true }],
       [{
@@ -1296,15 +1378,27 @@ describe('customer booking operational email', () => {
       deliveryId: 'delivery_1',
     })).resolves.toMatchObject({ ok: true });
 
+    // The override governs PREMIUM STYLE entitlement, which this path no longer
+    // consults. Owner-authored confirmation content is universal.
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.not.stringContaining('Disabled override note.'),
-        html: expect.not.stringContaining('Disabled override note.'),
+        text: expect.stringContaining('Disabled override note.'),
+        html: expect.stringContaining('Disabled override note.'),
       }),
     );
   });
 
-  it('fails closed without blocking a retry when entitlement resolution throws', async () => {
+  /**
+   * S1 (Stage 1) — BEHAVIOUR CHANGE, deliberately replacing a previously green
+   * assertion.
+   *
+   * Confirmation message and booking policy are UNIVERSAL owner-authored content
+   * under UX-OD-02. Suppressing them in the email while the public page rendered
+   * them left a free-plan salon's confirmation silently inconsistent with its own
+   * booking page. `customerBookingEmail.ts` no longer consults
+   * `booking_experience_customization`.
+   */
+  it('a hostile `features` object no longer affects a retry, because features are not read', async () => {
     const features = Object.defineProperty({}, 'booking', {
       get() {
         throw new Error('unexpected entitlement failure');
@@ -1315,13 +1409,16 @@ describe('customer booking operational email', () => {
       [{
         ...appointmentRow,
         salonFeatures: features,
-        salonSettings: settingsWithConfirmationMessage('Must not be rendered.'),
+        salonSettings: settingsWithConfirmationMessage('Rendered regardless.'),
       }],
       [{ name: 'Manicure' }],
       [],
     );
     state.insertQueue.push([{}]);
 
+    // The retry still succeeds — that invariant is unchanged. What changed is
+    // that a throwing `features` getter is never touched, so it can no longer
+    // suppress the owner's own content.
     await expect(retryCustomerBookingConfirmationEmail({
       salonId: 'salon_1',
       appointmentId: 'appointment_1',
@@ -1330,8 +1427,7 @@ describe('customer booking operational email', () => {
 
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.not.stringContaining('Must not be rendered.'),
-        html: expect.not.stringContaining('Must not be rendered.'),
+        text: expect.stringContaining('Rendered regardless.'),
       }),
     );
   });
@@ -2247,7 +2343,17 @@ describe('customer booking operational email', () => {
     )).toEqual(['deliveryId']);
   });
 
-  it('omits the saved message from a manual resend while the salon is locked', async () => {
+  /**
+   * S1 (Stage 1) — BEHAVIOUR CHANGE, deliberately replacing a previously green
+   * assertion.
+   *
+   * Confirmation message and booking policy are UNIVERSAL owner-authored content
+   * under UX-OD-02. Suppressing them in the email while the public page rendered
+   * them left a free-plan salon's confirmation silently inconsistent with its own
+   * booking page. `customerBookingEmail.ts` no longer consults
+   * `booking_experience_customization`.
+   */
+  it('includes the saved message in a manual resend on a FREE plan', async () => {
     state.insertQueue.push([{}], [{}]);
     state.selectQueue.push(
       [{
@@ -2273,8 +2379,8 @@ describe('customer booking operational email', () => {
 
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: expect.not.stringContaining('Saved manual-resend note.'),
-        html: expect.not.stringContaining('Saved manual-resend note.'),
+        text: expect.stringContaining('Saved manual-resend note.'),
+        html: expect.stringContaining('Saved manual-resend note.'),
       }),
     );
   });

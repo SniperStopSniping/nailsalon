@@ -262,6 +262,28 @@ function resolveWithDefault<T>(schema: z.ZodType<T>, value: unknown, fallback: T
 }
 
 const layoutSchema = z.enum(BOOKING_PAGE_LAYOUTS);
+
+/**
+ * S4 (Stage 1) — the layouts a NEW write may set.
+ *
+ * `BOOKING_PAGE_LAYOUTS` still declares all five keys and `layoutSchema` still
+ * ACCEPTS all five on READ, deliberately: `resolveBookingPageConfig` resolves a
+ * stored layout through `resolveWithDefault(layoutSchema, ...)`, so a legacy row
+ * holding `tech_profile` / `portfolio` / `catalogue` keeps parsing and keeps
+ * rendering through the documented shared fallback. Nothing 500s and no
+ * migration is required.
+ *
+ * What changes is only that the three unimplemented keys can no longer be
+ * WRITTEN. The admin UI already refuses them; this closes the API-level gap so
+ * a direct PATCH can no longer persist a layout that silently renders something
+ * else. Add a key here in the same PR that gives it a real renderer.
+ */
+export const WRITABLE_BOOKING_PAGE_LAYOUTS = [
+  'quick_book',
+  'editorial',
+] as const satisfies readonly BookingPageLayout[];
+
+const writableLayoutSchema = z.enum(WRITABLE_BOOKING_PAGE_LAYOUTS);
 const businessModeSchema = z.enum(BUSINESS_MODES);
 const startModeSchema = z.enum(START_MODES);
 const sectionIdSchema = z.enum(SECTION_IDS);
@@ -336,9 +358,24 @@ const bookingPageSideSchema = z.object({
   startMode: startModeSchema,
 });
 
-export type BookingPageDraftPatch = Partial<BookingPageConfigSide>;
+export type BookingPageDraftPatch = Partial<BookingPageConfigSide> & {
+  /**
+   * S2 (Stage 1) — the ONLY way to replace `sectionOrder`/`hiddenSections`
+   * with the selected layout's defaults. Absent means preserve.
+   */
+  resetPresentation?: true;
+};
 
-export const bookingPageDraftPatchSchema = bookingPageSideSchema.partial();
+export const bookingPageDraftPatchSchema = bookingPageSideSchema
+  .partial()
+  .extend({
+    // S4: writes are restricted to implemented layouts. Reads are not.
+    layout: writableLayoutSchema.optional(),
+    // S2: an explicit, narrowly named intent. `z.literal(true)` means a caller
+    // cannot ask for a reset by accident with a falsy value, and the key is
+    // never persisted into the stored side — it only selects a branch below.
+    resetPresentation: z.literal(true).optional(),
+  });
 
 // =============================================================================
 // C.2 — validateSectionOrder (safety critical)
@@ -725,24 +762,29 @@ export async function updateBookingPageDraft(
   if (validatedPatch.startMode !== undefined) {
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,startMode}', ${JSON.stringify(validatedPatch.startMode)}::jsonb)`;
   }
-  // PR 6 finding: a stored `sectionOrder` from the PREVIOUS layout is a
-  // valid, non-empty array of real section IDs for the layout being
-  // switched AWAY from — so validateSectionOrder's "empty → layout default"
-  // fallback never triggers on a bare `{ layout }` patch, and an owner
-  // switching from Quick Book to Editorial (or any other layout) would
-  // silently keep Quick Book's section order forever. A layout change with
-  // no explicit sectionOrder/hiddenSections in THIS patch resets both to
-  // the new layout's own default instead — the one case a caller sending
-  // only `{ layout }` could not reasonably intend otherwise. A patch that
-  // explicitly sets sectionOrder/hiddenSections alongside layout keeps full
-  // control below and is never overridden by this reset.
-  const layoutChangedWithoutExplicitOrder = validatedPatch.layout !== undefined
-    && validatedPatch.layout !== currentConfig.draft.layout
-    && validatedPatch.sectionOrder === undefined
-    && validatedPatch.hiddenSections === undefined;
+  // S2 (Stage 1) — SUPERSEDES the PR 6 reset-on-layout-change behaviour.
+  //
+  // PR 6 reasoned that a caller sending only `{ layout }` could not reasonably
+  // intend to keep the previous layout's order, and reset `sectionOrder` and
+  // `hiddenSections` to the new layout's defaults. The frozen post-reconciliation
+  // Owner contract (Stage 1, Amendment B) supersedes that: an ordinary layout
+  // change must NEVER silently discard owner state. Hidden sections in
+  // particular were being silently un-hidden, which is destructive and was not
+  // visible to the owner at the moment of the click.
+  //
+  // Presentation state is therefore preserved exactly unless the caller sends
+  // the explicit `resetPresentation: true` intent. Deciding WHICH overrides are
+  // "compatible" with a destination layout is deliberately NOT attempted here —
+  // that analysis belongs to the later builder/preset-switch stage together with
+  // its preview-and-diff workflow. This is preserve-or-reset, nothing more.
+  //
+  // The ordinary admin layout selector does not send the intent, so selecting
+  // another layout keeps existing order and visibility.
+  const resetPresentationRequested = validatedPatch.resetPresentation === true;
 
-  if (layoutChangedWithoutExplicitOrder) {
-    const { sectionOrder, hiddenSections } = validateSectionOrder([], [], validatedPatch.layout!);
+  if (resetPresentationRequested) {
+    const resetLayout = validatedPatch.layout ?? currentConfig.draft.layout;
+    const { sectionOrder, hiddenSections } = validateSectionOrder([], [], resetLayout);
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,sectionOrder}', ${JSON.stringify(sectionOrder)}::jsonb)`;
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,hiddenSections}', ${JSON.stringify(hiddenSections)}::jsonb)`;
   } else if (validatedPatch.sectionOrder !== undefined || validatedPatch.hiddenSections !== undefined) {

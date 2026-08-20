@@ -4,9 +4,11 @@ import { CalendarDays, Clock, Download, ExternalLink, Scissors, Sparkles, User }
 import { describeAppointmentAccessFailure, verifyAppointmentAccessToken } from '@/libs/appointmentAccess';
 import { getClientChangePolicy, resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { loadBookingEmailFinancialSummary } from '@/libs/bookingEmailFinancialSummary.server';
+import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
 import { formatMoney } from '@/libs/formatMoney';
 import { resolveManageDepositCheckout } from '@/libs/manageDepositCheckout';
+import { applyPhoneDisplayMode } from '@/libs/salonContent';
 import { formatDateInTimeZone, formatTimeInTimeZone } from '@/libs/timeZone';
 import { appointmentAddOnSchema, appointmentDepositSchema, appointmentServicesSchema, technicianSchema } from '@/models/Schema';
 import type { SalonSettings } from '@/types/salonPolicy';
@@ -432,8 +434,10 @@ export async function ManageAppointmentView({
               isActive={isActive}
               canChange={changePolicy.canChange}
               cutoffHours={bookingConfig.clientChangeCutoffHours}
-              salonEmail={capability.salonEmail}
-              salonPhone={capability.salonPhone}
+              salonPhone={applyPhoneDisplayMode(
+                capability.salonPhone,
+                resolveBookingPageContent(capability.salonSettings).live.locationDisplayMode,
+              )}
             />
           </div>
         </div>

@@ -132,6 +132,24 @@ vi.mock('@/libs/serviceAssignments', () => ({
   getPublicBookableServiceIds,
 }));
 
+// S5 (Stage 1): the page now projects technicians through the shared
+// `mapPublicTechnician` instead of an inline copy. That module starts with
+// `import 'server-only'`, so it is mocked here with the identical projection;
+// its exact output shape is pinned in `src/libs/stage1.technicianProjections.test.ts`.
+vi.mock('@/libs/publicBookingTechnicians', () => ({
+  mapPublicTechnician: (technician: Record<string, any>) => ({
+    id: technician.id,
+    name: technician.name,
+    imageUrl: technician.avatarUrl ?? null,
+    specialties: technician.specialties ?? [],
+    rating: technician.rating ? Number(technician.rating) : null,
+    reviewCount: technician.reviewCount ?? 0,
+    enabledServiceIds: technician.enabledServiceIds ?? [],
+    serviceIds: technician.serviceIds ?? [],
+    primaryLocationId: technician.primaryLocationId ?? null,
+  }),
+}));
+
 vi.mock('@/libs/tenant', () => ({
   getPublicPageContext,
 }));

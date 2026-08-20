@@ -666,7 +666,22 @@ describe('SettingsModal index', () => {
     });
   });
 
-  it('shows preserved booking settings read-only and marks the public preview inactive when locked', async () => {
+  /**
+   * S1 (Stage 1) — BEHAVIOUR CHANGE, deliberately replacing two previously green
+   * assertions.
+   *
+   * These asserted that an unentitled ("locked") salon saw its own booking
+   * message, confirmation message and policy rendered READ-ONLY behind a
+   * "locked for this plan" banner, with the public preview marked inactive and
+   * Save disabled.
+   *
+   * Under UX-OD-02 every field these two editors write is UNIVERSAL owner
+   * content, so the entitlement prop, the locked banners and the
+   * preview-inactive states were removed rather than left as dead chrome
+   * telling a free owner their own content is not public. The server-side write
+   * gate was removed in the same change.
+   */
+  it('a free/unentitled salon can EDIT its booking settings — no locked state remains', async () => {
     fetchMock.mockReset();
     mockEndpoints({
       bookingExperience: CONFIGURED_BOOKING_EXPERIENCE,
@@ -676,42 +691,34 @@ describe('SettingsModal index', () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
     fireEvent.click(await screen.findByText('Branding & appearance'));
+    await screen.findByTestId('booking-experience-preview');
 
-    expect(await screen.findByTestId('booking-experience-locked')).toHaveTextContent(
-      'Your saved settings are preserved',
-    );
+    // The locked banner and the inactive-preview notice are gone entirely.
+    expect(screen.queryByTestId('booking-experience-locked')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('booking-experience-preview-inactive')).not.toBeInTheDocument();
+
+    // Saved values still load...
     expect(
       screen.getByRole('textbox', { name: 'Booking message' }),
     ).toHaveValue('Welcome to online booking.');
     expect(
-      screen.getByRole('textbox', { name: 'Booking message' }),
-    ).toBeDisabled();
-    expect(
       screen.getByRole('textbox', { name: 'Confirmation message' }),
     ).toHaveValue('We look forward to seeing you.');
+
+    // ...and are now editable rather than read-only.
+    expect(
+      screen.getByRole('textbox', { name: 'Booking message' }),
+    ).toBeEnabled();
     expect(
       screen.getByRole('textbox', { name: 'Confirmation message' }),
-    ).toBeDisabled();
-    expect(
-      screen.getByTestId('booking-experience-preview-inactive'),
-    ).toHaveTextContent('The saved configuration above is not currently public.');
-    expect(
-      screen.getByTestId('booking-experience-preview'),
-    ).not.toBeVisible();
+    ).toBeEnabled();
+    expect(screen.getByTestId('booking-experience-preview')).toBeVisible();
     expect(
       screen.getByRole('button', { name: 'Reset to Default' }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole('button', { name: 'Save booking experience' }),
-    ).toBeDisabled();
-    expect(
-      fetchMock.mock.calls.filter(([input, init]) =>
-        String(input).includes('/api/admin/salon/settings')
-        && (init as RequestInit | undefined)?.method === 'PATCH'),
-    ).toHaveLength(0);
+    ).toBeEnabled();
   });
 
-  it('keeps preserved policy values read-only and its public preview inactive when locked', async () => {
+  it('a free/unentitled salon can EDIT its booking policy — no locked state remains', async () => {
     fetchMock.mockReset();
     mockEndpoints({
       bookingExperience: CONFIGURED_BOOKING_EXPERIENCE,
@@ -721,24 +728,22 @@ describe('SettingsModal index', () => {
     render(<SettingsModal onClose={vi.fn()} salonSlug="salon-a" userName="Daniela" />);
 
     fireEvent.click(await screen.findByText('Booking policy'));
+    await screen.findByTestId('booking-policy-preview');
 
-    expect(await screen.findByTestId('booking-policy-locked')).toHaveTextContent(
-      'Your saved policy is preserved',
-    );
+    expect(screen.queryByTestId('booking-policy-locked')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('booking-policy-preview-inactive')).not.toBeInTheDocument();
+
     expect(screen.getByRole('textbox', { name: 'Policy title' })).toHaveValue(
       'Before you book',
     );
-    expect(screen.getByRole('textbox', { name: 'Policy title' })).toBeDisabled();
+    expect(screen.getByRole('textbox', { name: 'Policy title' })).toBeEnabled();
     expect(screen.getByRole('checkbox', {
       name: 'Require acknowledgment',
-    })).toBeDisabled();
+    })).toBeEnabled();
     expect(screen.getByRole('textbox', {
       name: 'Acknowledgment wording',
-    })).toBeDisabled();
-    expect(screen.getByTestId('booking-policy-preview-inactive')).toBeVisible();
-    expect(screen.getByTestId('booking-policy-preview')).not.toBeVisible();
-    expect(screen.getByRole('button', { name: 'Save booking policy' }))
-      .toBeDisabled();
+    })).toBeEnabled();
+    expect(screen.getByTestId('booking-policy-preview')).toBeVisible();
   });
 
   it('updates every appearance preview element from the unsaved draft', async () => {
@@ -959,7 +964,12 @@ describe('SettingsModal index', () => {
     expect(bookingMessage).toBeEnabled();
   });
 
-  it('locks immediately after a stale entitled editor receives UPGRADE_REQUIRED', async () => {
+  /**
+   * S1 (Stage 1) — BEHAVIOUR CHANGE, deliberately replacing a previously green
+   * assertion. The editors are no longer entitlement-gated (UX-OD-02), so the
+   * "locked" chrome this asserted no longer exists.
+   */
+  it('surfaces the server error but no longer locks the editor when a PATCH is refused', async () => {
     fetchMock.mockReset();
     mockEndpoints({
       bookingExperience: CONFIGURED_BOOKING_EXPERIENCE,
@@ -981,37 +991,33 @@ describe('SettingsModal index', () => {
       name: 'Booking message',
     });
     fireEvent.change(bookingMessage, {
-      target: { value: 'Preserve this draft after downgrade.' },
+      target: { value: 'Preserve this draft after a refused save.' },
     });
     fireEvent.click(
       screen.getByRole('button', { name: 'Save booking experience' }),
     );
 
-    expect(
-      await screen.findByTestId('booking-experience-locked'),
-    ).toHaveTextContent('Your saved settings are preserved');
-    expect(bookingMessage).toHaveValue(
-      'Preserve this draft after downgrade.',
-    );
-    expect(bookingMessage).toBeDisabled();
-    expect(
-      screen.getByTestId('booking-experience-preview-inactive'),
-    ).toHaveTextContent('The saved configuration above is not currently public.');
-    expect(
-      screen.getByTestId('booking-experience-preview'),
-    ).not.toBeVisible();
-    expect(
-      screen.getByRole('button', { name: 'Reset to Default' }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole('button', { name: 'Save booking experience' }),
-    ).toBeDisabled();
+    // The error is still surfaced honestly...
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Booking Experience Customization requires an eligible plan.',
     );
+    // ...the unsaved draft is still preserved...
+    expect(bookingMessage).toHaveValue(
+      'Preserve this draft after a refused save.',
+    );
+    // ...but the editor is NOT locked, because these fields are universal.
+    // (The server no longer returns this code for them; the 403 branch is
+    // retained so a future gated field still degrades honestly.)
+    expect(screen.queryByTestId('booking-experience-locked')).not.toBeInTheDocument();
+    expect(bookingMessage).toBeEnabled();
   });
 
-  it('uses entitlement metadata returned by a successful Save', async () => {
+  /**
+   * S1 (Stage 1) — BEHAVIOUR CHANGE, deliberately replacing a previously green
+   * assertion. The editors are no longer entitlement-gated (UX-OD-02), so the
+   * "locked" chrome this asserted no longer exists.
+   */
+  it('a successful Save keeps the editor usable even when the response reports no entitlement', async () => {
     fetchMock.mockReset();
     mockEndpoints({
       bookingExperience: CONFIGURED_BOOKING_EXPERIENCE,
@@ -1047,15 +1053,15 @@ describe('SettingsModal index', () => {
     );
 
     expect(
-      await screen.findByTestId('booking-experience-locked'),
+      await screen.findByText('Booking experience saved.'),
     ).toBeInTheDocument();
     expect(bookingMessage).toHaveValue(
       'Saved immediately before access changed.',
     );
-    expect(bookingMessage).toBeDisabled();
-    expect(
-      await screen.findByText('Booking experience saved.'),
-    ).toBeInTheDocument();
+    // The response still carries entitlement metadata for the super-admin
+    // surfaces, but it no longer gates this editor.
+    expect(screen.queryByTestId('booking-experience-locked')).not.toBeInTheDocument();
+    expect(bookingMessage).toBeEnabled();
   });
 
   it('guards unsaved booking-experience navigation and discards only the draft', async () => {

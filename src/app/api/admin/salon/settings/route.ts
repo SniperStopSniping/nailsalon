@@ -418,28 +418,26 @@ export async function PATCH(request: Request): Promise<Response> {
     }
 
     const updates = validated.data;
+    // UX-OD-02 (Stage 1): the write gate that used to stand here covered
+    // exactly `bookingExperienceAppearance` and `bookingPolicy`, whose schemas
+    // carry exactly the six fields that are now universal — primaryColor,
+    // bookingMessage, socialLinks, confirmationMessage, policy, quickFacts.
+    // With no protected field left it guarded nothing, so it is removed rather
+    // than kept as an empty shell that would read as protection.
+    //
+    // This is NOT the premium boundary. Premium style is `stylePack` /
+    // `tokenOverrides`, written through `api/admin/booking-page/route.ts` and
+    // read by no renderer yet. Their entitlement boundary belongs at that
+    // configuration/renderer seam and must be added by the first PR that gives
+    // either field a reader.
+    //
+    // The entitlement is still resolved and reported in this route's responses
+    // for the super-admin surfaces — purely descriptive here, gating nothing.
     const bookingExperienceEntitlement
       = resolveBookingExperienceEntitlement({
         storedPlan: salon.plan,
         features: salon.features,
       });
-    if (
-      (
-        updates.bookingExperienceAppearance !== undefined
-        || updates.bookingPolicy !== undefined
-      )
-      && !bookingExperienceEntitlement.entitled
-    ) {
-      return Response.json(
-        {
-          error: {
-            code: 'UPGRADE_REQUIRED',
-            message: 'Booking Experience Customization requires an eligible plan.',
-          },
-        },
-        { status: 403 },
-      );
-    }
 
     if (salon.freeSoloEnabled && (updates.reviewsEnabled !== undefined || updates.rewardsEnabled !== undefined)) {
       return Response.json(

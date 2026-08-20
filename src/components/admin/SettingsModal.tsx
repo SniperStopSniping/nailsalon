@@ -1096,9 +1096,19 @@ function getBookingExperienceSaveError(responseBody: unknown): string {
   );
 }
 
+/**
+ * S1 (Stage 1) — these editors are no longer entitlement-gated.
+ *
+ * Every field they write (primaryColor, bookingMessage, socialLinks,
+ * confirmationMessage, policy, quickFacts) is UNIVERSAL owner-authored content
+ * under UX-OD-02, so the `entitlement` prop and the "locked for this plan" /
+ * "preview inactive" states it drove were removed rather than left as dead
+ * chrome that still tells a free owner their own content is not public. The
+ * server-side write gate was removed in the same change, and booking-time
+ * acknowledgment enforcement was aligned in `bookingPolicyAcknowledgment.ts`.
+ */
 type BookingExperienceEditorProps = {
   draft: BookingExperienceFormState;
-  entitlement: ResolvedSubscriptionFeatureEntitlement;
   loading: boolean;
   saving: boolean;
   saved: boolean;
@@ -1113,7 +1123,6 @@ type BookingExperienceEditorProps = {
 
 function BookingExperienceEditor({
   draft,
-  entitlement,
   loading,
   saving,
   saved,
@@ -1172,24 +1181,8 @@ function BookingExperienceEditor({
     <fieldset
       aria-label="Booking experience editor"
       className="m-0 min-w-0 space-y-5 border-0 p-4"
-      disabled={saving || !entitlement.entitled}
+      disabled={saving}
     >
-      {!entitlement.entitled && (
-        <div
-          className="rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
-          data-testid="booking-experience-locked"
-          role="status"
-        >
-          <p className="font-semibold">
-            Booking Experience Customization is locked for this plan.
-          </p>
-          <p className="mt-1">
-            Your saved settings are preserved, but they are not currently
-            applied to public booking, confirmations, or emails. They will be
-            restored automatically if access returns.
-          </p>
-        </div>
-      )}
       {error && (
         <div
           className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700"
@@ -1332,26 +1325,9 @@ function BookingExperienceEditor({
         </label>
       </div>
 
-      {!entitlement.entitled && (
-        <div
-          aria-label="Booking experience preview inactive"
-          className="rounded-[14px] border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-700"
-          data-testid="booking-experience-preview-inactive"
-        >
-          <p className="font-semibold">Public preview inactive</p>
-          <p className="mt-1">
-            The saved configuration above is not currently public.
-          </p>
-        </div>
-      )}
-
       <div
-        aria-hidden={!entitlement.entitled}
         data-testid="booking-experience-preview"
-        hidden={!entitlement.entitled}
-        className={`space-y-4 rounded-[14px] border border-gray-200 bg-[#FFF8F5] p-4 ${
-          entitlement.entitled ? '' : 'hidden'
-        }`}
+        className="space-y-4 rounded-[14px] border border-gray-200 bg-[#FFF8F5] p-4"
       >
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -1439,7 +1415,6 @@ function BookingExperienceEditor({
         <button
           type="button"
           onClick={onReset}
-          disabled={!entitlement.entitled}
           className="inline-flex items-center gap-2 rounded-[10px] border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
         >
           <RotateCcw className="size-4" />
@@ -1457,7 +1432,7 @@ function BookingExperienceEditor({
           <button
             type="button"
             onClick={onSave}
-            disabled={saving || !dirty || !entitlement.entitled}
+            disabled={saving || !dirty}
             className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Save className="size-4" />
@@ -1473,7 +1448,6 @@ type BookingPolicyEditorProps = BookingExperienceEditorProps;
 
 function BookingPolicyEditor({
   draft,
-  entitlement,
   loading,
   saving,
   saved,
@@ -1568,23 +1542,8 @@ function BookingPolicyEditor({
     <fieldset
       aria-label="Booking policy editor"
       className="m-0 min-w-0 space-y-5 border-0 p-4"
-      disabled={saving || !entitlement.entitled}
+      disabled={saving}
     >
-      {!entitlement.entitled && (
-        <div
-          className="rounded-[10px] border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
-          data-testid="booking-policy-locked"
-          role="status"
-        >
-          <p className="font-semibold">
-            Booking Experience Customization is locked for this plan.
-          </p>
-          <p className="mt-1">
-            Your saved policy is preserved, but it is not currently shown on
-            public booking pages or in confirmation emails.
-          </p>
-        </div>
-      )}
 
       {error && (
         <div
@@ -1919,24 +1878,9 @@ function BookingPolicyEditor({
         })}
       </div>
 
-      {!entitlement.entitled && (
-        <div
-          aria-label="Booking policy preview inactive"
-          className="rounded-[14px] border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-700"
-          data-testid="booking-policy-preview-inactive"
-        >
-          <p className="font-semibold">Public preview inactive</p>
-          <p className="mt-1">The saved policy remains available to edit when access returns.</p>
-        </div>
-      )}
-
       <div
-        aria-hidden={!entitlement.entitled}
         data-testid="booking-policy-preview"
-        hidden={!entitlement.entitled}
-        className={`space-y-3 rounded-[14px] border border-gray-200 bg-[#FFF8F5] p-4 ${
-          entitlement.entitled ? '' : 'hidden'
-        }`}
+        className="space-y-3 rounded-[14px] border border-gray-200 bg-[#FFF8F5] p-4"
       >
         <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">
           Confirmation preview
@@ -2004,7 +1948,6 @@ function BookingPolicyEditor({
         <button
           type="button"
           onClick={onReset}
-          disabled={!entitlement.entitled}
           className="inline-flex items-center gap-2 rounded-[10px] border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
         >
           <RotateCcw className="size-4" />
@@ -2022,7 +1965,6 @@ function BookingPolicyEditor({
             disabled={
               saving
               || !dirty
-              || !entitlement.entitled
               || !acknowledgmentDependenciesValid
             }
             className="inline-flex items-center gap-2 rounded-[10px] bg-rose-800 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-900 disabled:cursor-not-allowed disabled:opacity-50"
@@ -2524,7 +2466,7 @@ export function SettingsModal({
   const [bookingPolicySaved, setBookingPolicySaved] = useState(false);
   const [bookingPolicyError, setBookingPolicyError]
     = useState<string | null>(null);
-  const [bookingExperienceEntitlement, setBookingExperienceEntitlement]
+  const [, setBookingExperienceEntitlement]
     = useState<ResolvedSubscriptionFeatureEntitlement>(
       LOCKED_BOOKING_EXPERIENCE_ENTITLEMENT,
     );
@@ -3298,7 +3240,6 @@ export function SettingsModal({
       !salonSlug
       || bookingExperienceSaving
       || !bookingExperienceDirty
-      || !bookingExperienceEntitlement.entitled
     ) {
       return;
     }
@@ -3363,7 +3304,6 @@ export function SettingsModal({
     bookingExperienceSaving,
     bookingExperienceDirty,
     bookingExperienceDraft,
-    bookingExperienceEntitlement.entitled,
     router,
   ]);
 
@@ -3372,7 +3312,6 @@ export function SettingsModal({
       !salonSlug
       || bookingPolicySaving
       || !bookingPolicyDirty
-      || !bookingExperienceEntitlement.entitled
     ) {
       return;
     }
@@ -3455,7 +3394,6 @@ export function SettingsModal({
     bookingPolicySaving,
     bookingPolicyDirty,
     bookingExperienceDraft,
-    bookingExperienceEntitlement.entitled,
     router,
   ]);
 
@@ -4159,7 +4097,6 @@ export function SettingsModal({
             >
               <BookingExperienceEditor
                 draft={bookingExperienceDraft}
-                entitlement={bookingExperienceEntitlement}
                 loading={bookingExperienceLoading}
                 saving={bookingExperienceSaving}
                 saved={bookingExperienceSaved}
@@ -4200,7 +4137,6 @@ export function SettingsModal({
           >
             <BookingPolicyEditor
               draft={bookingExperienceDraft}
-              entitlement={bookingExperienceEntitlement}
               loading={bookingExperienceLoading}
               saving={bookingPolicySaving}
               saved={bookingPolicySaved}

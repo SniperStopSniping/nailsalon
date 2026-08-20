@@ -2640,8 +2640,12 @@ export async function POST(request: Request): Promise<Response> {
     // `resolveCatalogDomainView(features) === 'l1'` (unreachable for any
     // real salon — see catalogSubmissionReconciliation.server.ts), and this
     // ALSO requires the resolved service's `confirmationMode` to be
-    // EXPLICITLY `'request_approval'` (impossible today — no owner editor
-    // exists to set it, PR6). Computed PRE-TRANSACTION, before every other
+    // EXPLICITLY `'request_approval'`. S6 (Stage 1) comment correction: this
+    // previously said that was "impossible today — no owner editor exists to
+    // set it, PR6". The second half is now false — PR6 shipped the owner
+    // editor and the value persists. The path is still unreachable, but for
+    // the FIRST reason alone: `resolveCatalogDomainView(features)` is
+    // `'legacy'` for every real salon. Computed PRE-TRANSACTION, before every other
     // check below, so an ineligible/not-request-bookable slot is rejected
     // "before creating anything" (§15) — matches where catalog
     // reconciliation (§13) already runs, for the same reason (PR3's

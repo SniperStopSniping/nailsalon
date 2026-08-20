@@ -6,7 +6,6 @@ import {
   DEFAULT_BOOKING_POLICY_TITLE,
   resolveBookingExperience,
 } from '@/libs/bookingExperience';
-import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 export const BOOKING_POLICY_ACKNOWLEDGMENT_SOURCE = 'public_booking' as const;
@@ -39,22 +38,24 @@ export type CustomerBookingPolicyProjection = RequiredBookingPolicy;
 
 /**
  * Resolve the only policy that can require a public-booking acknowledgment.
- * Entitlement is evaluated from trusted salon state, and every accepted
- * content field comes from the defensive canonical resolver.
+ * Every accepted content field comes from the defensive canonical resolver.
+ *
+ * UX-OD-02 (Stage 1): booking policy is UNIVERSAL owner-authored content, so
+ * this no longer consults `booking_experience_customization`. Enforcement now
+ * agrees with what the public page renders: previously a free-plan salon could
+ * author and display an acknowledgment-requiring policy that the server then
+ * declined to enforce. Every other condition below is unchanged — a salon that
+ * has authored no policy, or has not enabled acknowledgment, still returns
+ * `null` here and sees no new rejection.
+ *
+ * `storedPlan` and `features` remain on the input type: callers pass trusted
+ * salon state and the signature is shared, but neither now affects the result.
  */
 export function resolveRequiredBookingPolicy(input: {
   storedPlan: unknown;
   features: SalonFeatures | null | undefined;
   settings: SalonSettings | null | undefined;
 }): RequiredBookingPolicy | null {
-  const entitlement = resolveBookingExperienceEntitlement({
-    storedPlan: input.storedPlan,
-    features: input.features,
-  });
-  if (!entitlement.entitled) {
-    return null;
-  }
-
   const experience = resolveBookingExperience(
     input.settings,
     { includeAcknowledgmentConfiguration: true },

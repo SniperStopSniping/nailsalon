@@ -6,7 +6,6 @@ import {
 } from '@/libs/bookingExperience';
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
-import { resolveBookingExperienceEntitlement } from '@/libs/featureEntitlements';
 import type { PageAppearanceResult } from '@/libs/pageAppearance';
 import type {
   SalonContentAddOnInput,
@@ -121,20 +120,26 @@ export function PublicSalonPageShell({
   salonContentInput,
   previewBannerVariant,
 }: PublicSalonPageShellProps) {
+  // UX-OD-02 (Stage 1): owner-authored operational content — booking message,
+  // policy, social links, quick facts, confirmation message — and the single
+  // brand accent colour are UNIVERSAL. They are salon content, not premium
+  // style, so no entitlement is consulted here. `resolveBookingExperience` is
+  // the defensive canonical resolver: an absent field stays absent, so a salon
+  // that authored nothing still renders exactly the neutral default it renders
+  // today. Nothing is fabricated and no salon is auto-populated.
+  //
+  // Premium style (`stylePack` / `tokenOverrides`) lives in `bookingPageConfig`,
+  // is currently writable-but-inert, and is deliberately NOT touched here. The
+  // binding deferred invariant: the first PR that gives either field a
+  // production renderer reader must add the premium entitlement boundary in
+  // that same PR, before activation.
   let bookingExperience = resolveBookingExperience(null);
 
   try {
-    const entitlement = resolveBookingExperienceEntitlement({
-      storedPlan: salon.plan,
-      features: salon.features,
-    });
-
-    if (entitlement.entitled) {
-      bookingExperience = resolveBookingExperience(salon.settings);
-    }
+    bookingExperience = resolveBookingExperience(salon.settings);
   } catch {
-    // Customization is optional. If entitlement resolution ever fails, keep
-    // public pages available with the canonical, uncustomized experience.
+    // Customization is optional. If resolution ever fails, keep public pages
+    // available with the canonical, uncustomized experience.
   }
 
   const bookingExperienceStyles = pageName.startsWith('book-')

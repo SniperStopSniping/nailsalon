@@ -3256,7 +3256,23 @@ describe('/api/admin/salon/settings booking experience', () => {
     });
   });
 
-  it('rejects targeted customization PATCHes before required acknowledgment validation when locked', async () => {
+  /**
+   * S1 (Stage 1) — BEHAVIOUR CHANGE, deliberately replacing a previously green
+   * assertion.
+   *
+   * This case asserted that a FREE-plan salon received 403 UPGRADE_REQUIRED for
+   * every targeted `bookingExperienceAppearance` / `bookingPolicy` PATCH.
+   *
+   * Under UX-OD-02 those two request keys carry exactly the six fields that are
+   * now universal — primaryColor, bookingMessage, socialLinks,
+   * confirmationMessage, policy, quickFacts — so the gate that stood here had no
+   * protected field left and was removed rather than kept as an empty shell.
+   * A free-plan owner may now author their own operational content.
+   *
+   * Premium style (`stylePack` / `tokenOverrides`) is NOT written through this
+   * route and is unaffected.
+   */
+  it('accepts targeted customization PATCHes on a FREE plan — the six universal fields are no longer gated', async () => {
     const savedBookingExperience = {
       ...createBookingExperience(),
       bookingMessage: 'Keep this saved message.',
@@ -3277,7 +3293,7 @@ describe('/api/admin/salon/settings booking experience', () => {
       },
     });
 
-    for (const update of [
+    const updates = [
       {
         bookingExperienceAppearance: {
           ...createBookingExperienceAppearance(),
@@ -3293,7 +3309,19 @@ describe('/api/admin/salon/settings booking experience', () => {
           text: acknowledgmentText,
         }),
       },
-    ]) {
+    ];
+
+    for (const update of updates) {
+      // `returning` splices the whole queue, so prime exactly one row per call.
+      updatedRows.push({
+        ...baseSalon,
+        plan: 'free',
+        settings: {
+          bookingExperience: createBookingExperience(),
+          unrelatedFutureKey: { keep: true },
+        },
+      });
+
       const response = await PATCH(
         new Request('http://localhost/api/admin/salon/settings?salonSlug=salon-a', {
           method: 'PATCH',
@@ -3303,20 +3331,13 @@ describe('/api/admin/salon/settings booking experience', () => {
       );
       const body = await response.json();
 
-      expect(response.status).toBe(403);
-      expect(body).toEqual({
-        error: {
-          code: 'UPGRADE_REQUIRED',
-          message: 'Booking Experience Customization requires an eligible plan.',
-        },
-      });
+      expect(response.status).toBe(200);
+      // The specific rejection this route used to return is gone.
+      expect(body?.error?.code).not.toBe('UPGRADE_REQUIRED');
     }
 
-    expect(db.update).not.toHaveBeenCalled();
-    expect(logAuditEvent).not.toHaveBeenCalled();
-    expect(savedBookingExperience.policy.acknowledgment.text).toBe(
-      'Keep this saved acknowledgment draft.',
-    );
+    // The write actually happens now, where before it was refused outright.
+    expect(db.update).toHaveBeenCalled();
   });
 
   it('chains booking and customization writes without serializing unrelated settings', async () => {

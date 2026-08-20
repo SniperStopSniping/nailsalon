@@ -196,7 +196,17 @@ export const SECTION_REGISTRY: Record<SectionId, SectionRegistryEntry> = {
     id: 'bookingCta',
     // Future: inline, both.
     variants: ['sticky'],
-    // Non-removable — the only always-available entry point into booking.
+    // Floor-protected in `REQUIRED_SECTION_IDS`, and `canRender` is
+    // unconditionally true.
+    //
+    // S6 (Stage 1) comment correction: this previously called it "the only
+    // always-available entry point into booking". That overstates what the id
+    // does. `bookingCta` is a key in NEITHER renderer map in
+    // `BookServiceClient.tsx`, so it emits no pixels of its own; the booking
+    // affordances the customer actually uses are rendered outside the
+    // section-order flow entirely. The id is retained for floor compatibility.
+    // Anything reasoning about guaranteed booking access should reason about
+    // those affordances and about `serviceMenu`, not about this entry.
     canRender: () => true,
   },
 };

@@ -147,7 +147,7 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
     await expect(revertBookingPageDraft('does-not-exist')).resolves.toBeNull();
   });
 
-  describe('PR 6: layout switch resets sectionOrder to the new layout default', () => {
+  describe('S2 (Stage 1): a bare layout switch PRESERVES presentation state', () => {
     const LAYOUT_SWITCH_SALON_ID = 'salon_booking_page_layout_switch';
 
     beforeAll(async () => {
@@ -159,10 +159,41 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
       });
     });
 
-    it('a bare `{ layout }` patch resets sectionOrder to the new layout default, discarding the previous layout\'s order', async () => {
-      // Establish a real, customized quick_book order first — a stored,
-      // non-empty array that would otherwise never hit validateSectionOrder's
-      // "empty input" fallback.
+    /**
+     * DELIBERATE REVERSAL OF A PREVIOUSLY GREEN TEST.
+     *
+     * This block was `PR 6: layout switch resets sectionOrder to the new layout
+     * default`, and it asserted the exact opposite of what it now asserts.
+     *
+     * OLD BEHAVIOUR (PR 6): a bare `{ layout }` patch reset BOTH `sectionOrder`
+     * and `hiddenSections` to the destination layout's defaults. PR 6's reasoning
+     * was that a caller sending only `{ layout }` could not reasonably intend to
+     * keep the previous layout's order.
+     *
+     * WHY IT CHANGED: the frozen post-reconciliation Owner contract (Stage 1,
+     * Amendment B) supersedes that. An ordinary layout change must never silently
+     * discard owner state — hidden sections in particular were being silently
+     * un-hidden by a single unconfirmed click, which is destructive and invisible
+     * at the moment it happens.
+     *
+     * NEW BEHAVIOUR: presentation state is preserved exactly unless the caller
+     * sends the explicit `resetPresentation: true` intent, covered below. The
+     * ordinary admin layout selector does not send it.
+     */
+    it('a bare `{ layout }` patch preserves sectionOrder byte-for-byte', async () => {
+      const seeded = await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, {
+        layout: 'quick_book',
+        sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'bookingCta'],
+      });
+      const orderBefore = seeded?.draft.sectionOrder;
+
+      const switched = await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, { layout: 'editorial' });
+
+      expect(switched?.draft.layout).toBe('editorial');
+      expect(switched?.draft.sectionOrder).toEqual(orderBefore);
+    });
+
+    it('a bare `{ layout }` patch preserves hiddenSections byte-for-byte', async () => {
       const withHiddenPolicies = await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, {
         layout: 'quick_book',
         hiddenSections: ['policies'],
@@ -173,7 +204,24 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
       const switched = await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, { layout: 'editorial' });
 
       expect(switched?.draft.layout).toBe('editorial');
-      expect(switched?.draft.sectionOrder).toEqual([
+      // The owner hid this section. Changing layout is not consent to un-hide it.
+      expect(switched?.draft.hiddenSections).toEqual(['policies']);
+    });
+
+    it('an explicit `resetPresentation: true` DOES replace both with the selected layout defaults', async () => {
+      await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, {
+        layout: 'quick_book',
+        hiddenSections: ['policies'],
+      });
+
+      const reset = await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, {
+        layout: 'editorial',
+        resetPresentation: true,
+      });
+
+      expect(reset?.draft.layout).toBe('editorial');
+      expect(reset?.draft.hiddenSections).toEqual([]);
+      expect(reset?.draft.sectionOrder).toEqual([
         'salonProfile',
         'featuredServices',
         'technicianProfile',
@@ -184,9 +232,28 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
         'policies',
         'bookingCta',
       ]);
-      // hiddenSections resets too — 'policies' was a quick_book-era
-      // customization, not something the new layout inherits blindly.
-      expect(switched?.draft.hiddenSections).toEqual([]);
+    });
+
+    it('`resetPresentation: true` without a layout resets to the CURRENT layout defaults', async () => {
+      await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, {
+        layout: 'quick_book',
+        hiddenSections: ['policies', 'socialLinks'],
+      });
+
+      const reset = await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, { resetPresentation: true });
+
+      expect(reset?.draft.layout).toBe('quick_book');
+      expect(reset?.draft.hiddenSections).toEqual([]);
+    });
+
+    it('`resetPresentation` is never persisted into the stored side', async () => {
+      const result = await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, {
+        layout: 'quick_book',
+        resetPresentation: true,
+      });
+
+      expect(result?.draft).not.toHaveProperty('resetPresentation');
+      expect(result?.live).not.toHaveProperty('resetPresentation');
     });
 
     it('a patch that sets layout AND an explicit sectionOrder keeps that explicit order — the reset never overrides it', async () => {
