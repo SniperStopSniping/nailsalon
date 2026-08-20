@@ -16,13 +16,20 @@ import { appointmentAuditLogSchema, appointmentSchema } from '@/models/Schema';
  * `resolveExplicitRequestApprovalActivation`) and stops a lapsed one from
  * BLOCKING the slot (`appointmentBlocking.ts`'s `request_expires_at > now`
  * predicate). Neither of those writes anything — a lapsed request stays
- * `status = 'pending'` forever unless something calls this function. Both
- * callers in this PR — the confirm-time strict rejection in
- * `[id]/route.ts` (which finalizes inline, in its OWN transaction, before
- * returning `REQUEST_EXPIRED`) and the bounded sweep
- * (`approvalRequestSweeper.ts`, invoked from the reminders cron) — share
- * this ONE finalizer so there is exactly one place the CAS, the audit
- * record, and the notification intent are written together.
+ * `status = 'pending'` forever unless something calls this function. The
+ * bounded sweep (`approvalRequestSweeper.ts`, invoked from the reminders
+ * cron) is its ONLY caller, so there is exactly one place the CAS, the
+ * audit record, and the notification intent are written together.
+ *
+ * The confirm-time strict rejection in `[id]/route.ts` deliberately does
+ * NOT call this. It REJECTS a lapsed request with a typed
+ * `REQUEST_EXPIRED` conflict and leaves the row exactly as it found it:
+ * refusing a confirm must not mutate the appointment as a side effect of
+ * being refused. The row is finalized by the next sweep tick either way.
+ * A lapsed row therefore keeps `status = 'pending'` until that tick — but
+ * no caller observes it as an open request in the meantime, because the
+ * authoritative status endpoint computes the EFFECTIVE state through the
+ * same cutoff and already reports it as `expired`.
  *
  * EXACTLY-ONCE, by construction rather than by locking discipline alone:
  *

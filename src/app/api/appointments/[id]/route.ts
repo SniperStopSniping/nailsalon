@@ -775,6 +775,12 @@ export async function PATCH(
     ) {
       const transition = await withClientLifecycleTransactionRetry(() =>
         db.transaction(async (tx): Promise<ReactivationTransition> => {
+          // ONE transaction-stable instant for every time-sensitive decision
+          // in this write. Re-reading the clock mid-transaction is exactly
+          // what the L1 timestamp contract forbids: the request-expiry check
+          // below and any later write must agree on "now", and a test that
+          // pins the clock must see a single consistent value.
+          const transactionNow = new Date();
           // Global order for active-state writes:
           // terminal client -> technician advisory lock -> appointment row ->
           // lineage-wide active check -> compare-and-set.
@@ -863,7 +869,7 @@ export async function PATCH(
             data.status === 'confirmed'
             && lockedAppointment.status === 'pending'
             && lockedAppointment.requestExpiresAt !== null
-            && lockedAppointment.requestExpiresAt.getTime() <= Date.now()
+            && lockedAppointment.requestExpiresAt.getTime() <= transactionNow.getTime()
           ) {
             return {
               applied: false,
