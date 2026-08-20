@@ -59,14 +59,16 @@ type PublicSalonPageShellProps = {
   /**
    * Raw ingredients for the server-resolved `SalonContent` (Luster UI/UX
    * plan rev 3, section 4A.A) — everything the content contract needs that
-   * this shell does not already have (`salon` and the entitlement-resolved
+   * this shell does not already have (`salon` and the resolved
    * `bookingExperience` below cover the rest). Resolved via
    * `resolveSalonContent` right here, once per render, so
-   * `salonContent.policies`/`.social` always come from the SAME
-   * entitlement-gated `bookingExperience` value this shell already computes
-   * for the page itself — never a second, independently-resolved copy that
-   * could drift out of sync with the entitlement gate. Omitted fields
-   * default to empty, which is always safe to render.
+   * `salonContent.policies`/`.social` always come from the SAME resolved
+   * `bookingExperience` value this shell already computes for the page
+   * itself — never a second, independently-resolved copy that could drift.
+   * (S1/Stage 1 correction: this previously said "entitlement-resolved" and
+   * "entitlement-gated". There is no entitlement gate in this file any more —
+   * the reason for single resolution is consistency, not entitlement.)
+   * Omitted fields default to empty, which is always safe to render.
    */
   salonContentInput?: {
     technicians?: SalonContentTechnicianInput[];

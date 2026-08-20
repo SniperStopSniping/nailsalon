@@ -367,7 +367,15 @@ export function applyPhoneDisplayMode(phone: string | null, mode: LocationDispla
 }
 
 /**
- * S6b (Stage 1) — the ONLY salon identity permitted on a generic status page.
+ * S6b (Stage 1) — the only salon identity this STATUS PAGE COMPONENT renders.
+ *
+ * Scope note, so the next reader does not over-trust this: it is not the whole
+ * exposure surface of those routes. `[locale]/[slug]/layout.tsx` already wraps
+ * every route beneath it in a `'use client'` `SalonProvider` that serializes
+ * salonId, salonName, salonSlug, themeKey, the internal status enum and the
+ * resolved bookingPage side to any visitor who reaches the layout. This
+ * projection governs what the status page itself draws; auditing the layout
+ * payload is separate, unchanged by Stage 1, and recorded in the register.
  *
  * `/booking-disabled`, `/suspended` and `/cancelled` are reached only AFTER the
  * publication check has passed (`checkSalonStatus` evaluates publication before

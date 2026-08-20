@@ -29,7 +29,10 @@ export async function verifyAppointmentAccessToken(token: string, options?: {
       appointment: appointmentSchema,
       salonSlug: salonSchema.slug,
       salonName: salonSchema.name,
-      salonEmail: salonSchema.email,
+      // S7 (Stage 1): `salonEmail` was selected here and had zero consumers
+      // after the manage view stopped serializing it. Removed on the same
+      // principle applied to the manage API route — the capability resolver
+      // should not pull contact PII nothing reads.
       salonPhone: salonSchema.phone,
       salonSettings: salonSchema.settings,
     })

@@ -13,6 +13,23 @@
  * The controls in this file matter as much as the assertions: an "it renders"
  * test that would also pass on a fabricated default proves nothing, so every
  * positive case is paired with a no-op control on the same resolver.
+ *
+ * WHAT THIS FILE DOES AND DOES NOT PROVE — read before trusting it as evidence.
+ *
+ * `resolveBookingExperience` was NEVER entitlement-gated; the gate lived in its
+ * three CALLERS. So the render and no-op blocks below are premise pins and
+ * regression guards for the unchanged resolver — they pass identically on
+ * origin/main and cannot observe the Stage 1 change. They are here because the
+ * "nothing is fabricated" property is load-bearing once the callers stop
+ * filtering, not because they demonstrate the seam moved.
+ *
+ * The seam itself is discriminated elsewhere, verified by reverting each seam
+ * and observing the failures:
+ *   - public render      -> 8 failures in book/service/BookServiceClient.test.tsx
+ *   - confirmation email -> 18 failures in customerBookingEmail.test.ts and
+ *                           stage1.publicSurfaces.test.ts
+ *   - policy enforcement -> the acknowledgment block IN THIS FILE, which is the
+ *                           one block here that does discriminate.
  */
 import { describe, expect, it, vi } from 'vitest';
 

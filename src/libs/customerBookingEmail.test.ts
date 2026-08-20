@@ -932,6 +932,7 @@ describe('customer booking operational email', () => {
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining('Rendered regardless.'),
+        html: expect.stringContaining('Rendered regardless.'),
       }),
     );
   });
@@ -1378,8 +1379,11 @@ describe('customer booking operational email', () => {
       deliveryId: 'delivery_1',
     })).resolves.toMatchObject({ ok: true });
 
-    // The override governs PREMIUM STYLE entitlement, which this path no longer
-    // consults. Owner-authored confirmation content is universal.
+    // Stated plainly: the per-salon `booking.customization` override is now
+    // ENFORCEMENT-DEAD for this path. It is not that it governs something else
+    // here — this path simply no longer consults it, because owner-authored
+    // confirmation content is universal. The override survives only as a
+    // descriptive field in the settings/super-admin responses.
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining('Disabled override note.'),
@@ -1428,6 +1432,7 @@ describe('customer booking operational email', () => {
     expect(state.sendTransactionalEmailDetailed).toHaveBeenCalledWith(
       expect.objectContaining({
         text: expect.stringContaining('Rendered regardless.'),
+        html: expect.stringContaining('Rendered regardless.'),
       }),
     );
   });

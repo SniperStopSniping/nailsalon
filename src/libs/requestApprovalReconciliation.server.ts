@@ -43,8 +43,10 @@ import type {
  * unless a salon has explicitly opted into a dark `catalog.*` feature key
  * (unreachable by any preset); (b) even on a gated fixture salon, this only
  * activates when a service/variant's `confirmation_mode` is explicitly
- * `'request_approval'` — impossible for any real row today since no owner
- * editor exists to set it (PR6).
+ * `'request_approval'`. S6 (Stage 1) correction: this previously added "since
+ * no owner editor exists to set it (PR6)". That half is now false — PR6 shipped
+ * the editor and the value persists. Reason (a) alone still makes the path
+ * unreachable for every real salon.
  *
  * WHAT THIS MODULE REUSES, NOT REINVENTS: `canTechnicianTakeAppointment`
  * (`bookingPolicy.ts`) — the EXACT SAME weekly-schedule / override / time-off

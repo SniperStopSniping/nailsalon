@@ -1006,8 +1006,9 @@ describe('SettingsModal index', () => {
       'Preserve this draft after a refused save.',
     );
     // ...but the editor is NOT locked, because these fields are universal.
-    // (The server no longer returns this code for them; the 403 branch is
-    // retained so a future gated field still degrades honestly.)
+    // The server no longer returns this code for them, and the client-side
+    // lock branch was removed entirely — the only remaining degradation is
+    // this error alert.
     expect(screen.queryByTestId('booking-experience-locked')).not.toBeInTheDocument();
     expect(bookingMessage).toBeEnabled();
   });

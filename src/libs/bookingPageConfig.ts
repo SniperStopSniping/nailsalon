@@ -358,7 +358,15 @@ const bookingPageSideSchema = z.object({
   startMode: startModeSchema,
 });
 
-export type BookingPageDraftPatch = Partial<BookingPageConfigSide> & {
+export type WritableBookingPageLayout = (typeof WRITABLE_BOOKING_PAGE_LAYOUTS)[number];
+
+export type BookingPageDraftPatch = Omit<Partial<BookingPageConfigSide>, 'layout'> & {
+  /**
+   * S4 (Stage 1) — narrowed at the TYPE level as well as at runtime, so a
+   * direct `updateBookingPageDraft` caller writing an unimplemented layout is
+   * a compile error rather than a runtime zod throw.
+   */
+  layout?: WritableBookingPageLayout;
   /**
    * S2 (Stage 1) — the ONLY way to replace `sectionOrder`/`hiddenSections`
    * with the selected layout's defaults. Absent means preserve.
@@ -606,9 +614,15 @@ export function resolveBookingPageConfig(settings: unknown): BookingPageConfig {
  *   3. This module's own `bookingPage.{draft,live}.tokenOverrides.accentColor`
  *      — an explicit override the owner set through the modular config.
  *   4. The legacy `bookingExperience.primaryColor` (src/libs/
- *      bookingExperience.ts), entitlement-gated and validated with the same
- *      CANONICAL_HEX_COLOR pattern reused here. Weakest link in the chain:
- *      pure fallback for salons that never touched anything newer.
+ *      bookingExperience.ts) — UNIVERSAL owner content as of Stage 1
+ *      (UX-OD-02), validated with the same CANONICAL_HEX_COLOR pattern reused
+ *      here. Weakest link in the chain: pure fallback for salons that never
+ *      touched anything newer.
+ *
+ *      S1 (Stage 1) correction: this step previously said "entitlement-gated".
+ *      It is not, and the distinction matters for the PR that adds the premium
+ *      boundary — step 4 is NOT already protected and must be considered
+ *      separately from steps 1-3.
  *
  * Steps 1–2 read from a theme key / a separate DB table, not from a
  * BookingPageConfig value, so they are out of this function's two-parameter

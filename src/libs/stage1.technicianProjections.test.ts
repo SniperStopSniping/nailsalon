@@ -7,10 +7,14 @@
  * internal `notes`. Nothing but an explicit allowlist keeps those out of a
  * public response.
  *
- * Stage 1 reduced five hand-maintained projections to four by collapsing the
+ * Stage 1 reduced SIX hand-maintained projections to FIVE by collapsing the
  * `book/service` inline copy onto the shared `mapPublicTechnician` (identical
- * input type, byte-identical output keys). The four that remain are pinned two
- * ways:
+ * input type, byte-identical output keys). The five that remain are pinned two
+ * ways.
+ *
+ * Count correction: an earlier revision of this file said five-reduced-to-four.
+ * Adversarial review found a further projection in `appointmentManage.ts` over
+ * the same unrestricted row; it is guarded below.
  *
  *   1. RUNTIME exact-shape, where the projector is importable and pure. A
  *      superset fails — that is the point, and it is what catches a field being
@@ -167,6 +171,12 @@ describe('S5 — source-level guards for in-route projections', () => {
       file: 'src/app/api/appointments/route.ts',
       start: '        technician: technician',
       end: '        salon: {',
+    },
+    {
+      label: 'appointmentManage technicianOptions',
+      file: 'src/libs/appointmentManage.ts',
+      start: '    technicianOptions: loaded.technicians',
+      end: '    financial:',
     },
   ] as const;
 

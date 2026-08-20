@@ -134,8 +134,11 @@ vi.mock('@/libs/serviceAssignments', () => ({
 
 // S5 (Stage 1): the page now projects technicians through the shared
 // `mapPublicTechnician` instead of an inline copy. That module starts with
-// `import 'server-only'`, so it is mocked here with the identical projection;
-// its exact output shape is pinned in `src/libs/stage1.technicianProjections.test.ts`.
+// `import 'server-only'`, so it is mocked here with a SIMPLIFIED stand-in —
+// it emits the same key set but omits `normalizePublicAvatarUrl`, so avatar
+// normalization is deliberately NOT exercised by this page test. The real
+// projector's exact output shape is pinned in
+// `src/libs/stage1.technicianProjections.test.ts`.
 vi.mock('@/libs/publicBookingTechnicians', () => ({
   mapPublicTechnician: (technician: Record<string, any>) => ({
     id: technician.id,

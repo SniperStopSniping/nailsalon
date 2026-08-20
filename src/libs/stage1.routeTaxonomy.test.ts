@@ -3,7 +3,10 @@
  *
  * The nine tenant routes that returned HTTP 200 for
  * `publicationStatus: 'draft'` + `freeSoloEnabled: false` are not equivalent,
- * and Stage 1 deliberately treats them differently:
+ * and Stage 1 deliberately treats them differently. (The matrix below also
+ * covers `manage/[token]/calendar.ics`, a Route Handler that inherits no
+ * layout and is therefore listed with the token class even though it is not
+ * one of the nine page routes.)
  *
  *   A  anonymous salon-by-slug   -> publication-gated (find-booking)
  *   B  capability-token          -> NOT publication-gated; projection minimized

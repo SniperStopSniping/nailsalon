@@ -25,5 +25,5 @@ export default async function TenantRewardsDisabledPage({
 }) {
   await requirePublishedTenantSalon(params.slug);
 
-  return RewardsDisabledPage({ params, searchParams });
+  return <RewardsDisabledPage params={params} searchParams={searchParams} />;
 }

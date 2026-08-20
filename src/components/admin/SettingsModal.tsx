@@ -75,7 +75,6 @@ import type {
   BookingExperience,
   ModuleKey,
   ResolvedModules,
-  ResolvedSubscriptionFeatureEntitlement,
   SalonVisibilityPolicy,
 } from '@/types/salonPolicy';
 
@@ -935,91 +934,12 @@ function bookingPoliciesMatch(
 const BOOKING_EXPERIENCE_SAVE_ERROR
   = 'Failed to save booking experience settings.';
 
-const LOCKED_BOOKING_EXPERIENCE_ENTITLEMENT:
-ResolvedSubscriptionFeatureEntitlement = {
-  featureKey: 'booking_experience_customization',
-  entitled: false,
-  source: 'plan',
-  planKey: 'free',
-  storedPlan: null,
-  lockedReason: 'upgrade_required',
-};
-
-function readBookingExperienceEntitlement(
-  responseBody: unknown,
-): ResolvedSubscriptionFeatureEntitlement | null {
-  if (
-    typeof responseBody !== 'object'
-    || responseBody === null
-    || Array.isArray(responseBody)
-  ) {
-    return null;
-  }
-
-  const candidate = (
-    responseBody as Record<string, unknown>
-  ).bookingExperienceEntitlement;
-  if (
-    typeof candidate !== 'object'
-    || candidate === null
-    || Array.isArray(candidate)
-  ) {
-    return null;
-  }
-
-  const entitlement = candidate as Record<string, unknown>;
-  if (
-    entitlement.featureKey !== 'booking_experience_customization'
-    || typeof entitlement.entitled !== 'boolean'
-    || (
-      entitlement.source !== 'plan'
-      && entitlement.source !== 'override'
-    )
-    || (
-      entitlement.planKey !== 'free'
-      && entitlement.planKey !== 'tier_1'
-      && entitlement.planKey !== 'tier_2'
-      && entitlement.planKey !== 'enterprise'
-    )
-    || (
-      typeof entitlement.storedPlan !== 'string'
-      && entitlement.storedPlan !== null
-    )
-    || (
-      entitlement.lockedReason !== null
-      && entitlement.lockedReason !== 'upgrade_required'
-    )
-  ) {
-    return null;
-  }
-
-  return {
-    featureKey: entitlement.featureKey,
-    entitled: entitlement.entitled,
-    source: entitlement.source,
-    planKey: entitlement.planKey,
-    storedPlan: entitlement.storedPlan,
-    lockedReason: entitlement.lockedReason,
-  };
-}
-
-function isBookingExperienceUpgradeRequired(responseBody: unknown): boolean {
-  if (
-    typeof responseBody !== 'object'
-    || responseBody === null
-    || Array.isArray(responseBody)
-  ) {
-    return false;
-  }
-
-  const error = (responseBody as Record<string, unknown>).error;
-  return (
-    typeof error === 'object'
-    && error !== null
-    && !Array.isArray(error)
-    && (error as Record<string, unknown>).code === 'UPGRADE_REQUIRED'
-  );
-}
+// S1 (Stage 1): `LOCKED_BOOKING_EXPERIENCE_ENTITLEMENT`,
+// `readBookingExperienceEntitlement` and `isBookingExperienceUpgradeRequired`
+// were removed here. They existed only to drive the booking-experience
+// "locked for this plan" chrome, which is gone now that those fields are
+// universal. The super-admin surfaces read the entitlement from their own
+// routes and are unaffected.
 
 function normalizeBookingExperienceSaveError(value: unknown): string | null {
   if (typeof value !== 'string') {
@@ -2466,10 +2386,6 @@ export function SettingsModal({
   const [bookingPolicySaved, setBookingPolicySaved] = useState(false);
   const [bookingPolicyError, setBookingPolicyError]
     = useState<string | null>(null);
-  const [, setBookingExperienceEntitlement]
-    = useState<ResolvedSubscriptionFeatureEntitlement>(
-      LOCKED_BOOKING_EXPERIENCE_ENTITLEMENT,
-    );
   const [savedBookingExperience, setSavedBookingExperience]
     = useState<BookingExperienceFormState>(() =>
       copyBookingExperience(BOOKING_EXPERIENCE_DEFAULTS));
@@ -2686,10 +2602,6 @@ export function SettingsModal({
         setSavedBookingExperience(loadedBookingExperience);
         setBookingExperienceDraft(
           copyBookingExperience(loadedBookingExperience),
-        );
-        setBookingExperienceEntitlement(
-          readBookingExperienceEntitlement(data)
-          ?? LOCKED_BOOKING_EXPERIENCE_ENTITLEMENT,
         );
         setBookingExperienceDirty(false);
         setBookingPolicyDirty(false);
@@ -3267,24 +3179,15 @@ export function SettingsModal({
       const body = await response.json().catch(() => null);
 
       if (!response.ok) {
-        if (
-          response.status === 403
-          && isBookingExperienceUpgradeRequired(body)
-        ) {
-          setBookingExperienceEntitlement(
-            LOCKED_BOOKING_EXPERIENCE_ENTITLEMENT,
-          );
-        }
+        // S1 (Stage 1): the server no longer returns 403 UPGRADE_REQUIRED for
+        // these fields — they are universal. The message is surfaced through
+        // the normal error alert; there is no locked chrome to switch to.
         throw new Error(getBookingExperienceSaveError(body));
       }
 
       const persisted = copyBookingExperience(
         body?.bookingExperience ?? bookingExperienceDraft,
       );
-      const returnedEntitlement = readBookingExperienceEntitlement(body);
-      if (returnedEntitlement) {
-        setBookingExperienceEntitlement(returnedEntitlement);
-      }
       setSavedBookingExperience(persisted);
       setBookingExperienceDraft(copyBookingExperience(persisted));
       setBookingExperienceDirty(false);
@@ -3357,24 +3260,15 @@ export function SettingsModal({
       const body = await response.json().catch(() => null);
 
       if (!response.ok) {
-        if (
-          response.status === 403
-          && isBookingExperienceUpgradeRequired(body)
-        ) {
-          setBookingExperienceEntitlement(
-            LOCKED_BOOKING_EXPERIENCE_ENTITLEMENT,
-          );
-        }
+        // S1 (Stage 1): the server no longer returns 403 UPGRADE_REQUIRED for
+        // these fields — they are universal. The message is surfaced through
+        // the normal error alert; there is no locked chrome to switch to.
         throw new Error(getBookingExperienceSaveError(body));
       }
 
       const persisted = copyBookingExperience(
         body?.bookingExperience ?? bookingExperienceDraft,
       );
-      const returnedEntitlement = readBookingExperienceEntitlement(body);
-      if (returnedEntitlement) {
-        setBookingExperienceEntitlement(returnedEntitlement);
-      }
       setSavedBookingExperience(persisted);
       setBookingExperienceDraft(copyBookingExperience(persisted));
       setBookingPolicyDirty(false);
