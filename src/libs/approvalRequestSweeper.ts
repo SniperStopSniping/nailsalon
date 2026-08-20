@@ -21,6 +21,22 @@ import { appointmentSchema } from '@/models/Schema';
  * (`vercel.json` stays zero-diff — see the route for why a new cron entry
  * is not needed and would not be allowed).
  *
+ * KNOWN LIMITATION — no per-row failure backoff. Candidates are re-queried
+ * fresh every tick (`ORDER BY request_expires_at ASC LIMIT n`) with no memory
+ * of prior failures, so a row that throws on every attempt is re-selected
+ * first on every subsequent tick, forever. Below the batch cap that wastes
+ * one slot per tick and is harmless; at or above it, a full batch of
+ * permanently-failing rows would starve newer lapsed requests until the bad
+ * rows are resolved out of band. That is acceptable here because it takes a
+ * systemic fault to produce that many simultaneously-failing rows, and
+ * because nothing depends on this sweep for CORRECTNESS —
+ * `appointmentBlocking.ts` already stops a lapsed request from occupying its
+ * slot in real time. Adding failure memory (an attempt counter with backoff)
+ * is the fix if that assumption ever stops holding; it is deliberately not
+ * built now. `approvalRequestSweeper.test.ts` pins the isolation half of
+ * this: one throwing row is skipped, left standing, and never blocks the
+ * rest of the batch.
+ *
  * `APPROVAL_REQUEST_SWEEP_BATCH` is deliberately generous relative to
  * `DEPOSIT_REAP_BATCH` (16): with no provider round trips in the loop, the
  * limiting factor is simply "don't scan an unbounded table in one pass."

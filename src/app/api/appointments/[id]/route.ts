@@ -512,6 +512,29 @@ export async function PATCH(
               };
             }
 
+            // L1 PR5 — re-validate decline eligibility against the LOCKED row.
+            // The pre-transaction check above ran against an unlocked snapshot,
+            // and `CANCELLABLE_STATUSES` admits 'confirmed' and 'in_progress',
+            // so on its own it would let a decline that was eligible when the
+            // request was authorized still apply after another staff member
+            // confirmed the appointment in between — silently cancelling a
+            // genuinely accepted booking, freeing the slot, deleting the
+            // calendar event, and telling the client it was declined.
+            if (
+              requestedReason === 'declined_by_salon'
+              && !(
+                lockedAppointment.status === 'pending'
+                && lockedAppointment.requestExpiresAt !== null
+              )
+            ) {
+              return {
+                applied: false,
+                appointment: lockedAppointment,
+                conflictStatus: lockedAppointment.status,
+                operationalClientPhone: currentPhone,
+              };
+            }
+
             const pointsToRefund = pointsRedeemedFromNotes(
               lockedAppointment.notes,
             );

@@ -205,16 +205,57 @@ describe('PATCH /api/appointments/:id — strict REQUEST_EXPIRED on confirm', ()
   });
 
   it('rejects confirming AT exactly the deadline instant (at-or-after, matching appointmentBlocking.ts\'s cutoff)', async () => {
-    const requestExpiresAt = new Date(Date.now() - 1000);
+    // The clock must be PINNED to the deadline for this to test what its name
+    // claims. Seeding `Date.now() - 1000` only proves "well after the
+    // deadline", which `<` satisfies just as well as `<=` — so that version
+    // could not distinguish the two, and a refactor flipping the operator on
+    // the single line enforcing the strict-deadline invariant would ship
+    // undetected. Only `Date` is faked: PGlite's async I/O needs real timers.
+    const requestExpiresAt = new Date(Date.now() - 60 * 60 * 1000);
     await seedAppointment('pending', requestExpiresAt);
     holder.access = accessFor('pending', requestExpiresAt);
 
-    const response = await PATCH(patchRequest({ status: 'confirmed' }), {
-      params: { id: APPT_ID },
-    });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      // `transactionNow` inside the handler is now EXACTLY requestExpiresAt,
+      // so this exercises equality — the boundary itself, not one side of it.
+      vi.setSystemTime(requestExpiresAt);
+
+      const response = await PATCH(patchRequest({ status: 'confirmed' }), {
+        params: { id: APPT_ID },
+      });
+
+      expect(response.status).toBe(409);
+      expect((await response.json()).error.code).toBe('REQUEST_EXPIRED');
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect((await readBack())?.status).toBe('pending');
+  });
+
+  it('refuses to decline a row CONFIRMED after the request was authorized (TOCTOU)', async () => {
+    // Same hazard as the cancel route: the eligibility check outside the
+    // transaction reads an UNLOCKED snapshot, and CANCELLABLE_STATUSES admits
+    // 'confirmed'. Diverging the snapshot from the stored row reproduces
+    // another staff member confirming the request mid-flight. Without a
+    // decline-specific re-check against the LOCKED row, a genuinely accepted
+    // booking would be cancelled and the client told it was declined.
+    const requestExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    await seedAppointment('confirmed', requestExpiresAt);
+    holder.access = accessFor('pending', requestExpiresAt);
+
+    const response = await PATCH(
+      patchRequest({ status: 'cancelled', cancelReason: 'declined_by_salon' }),
+      { params: { id: APPT_ID } },
+    );
 
     expect(response.status).toBe(409);
-    expect((await response.json()).error.code).toBe('REQUEST_EXPIRED');
+
+    const after = await readBack();
+
+    expect(after?.status).toBe('confirmed');
+    expect(after?.cancelReason).toBeNull();
   });
 
   it('CONTROL: confirms normally when the explicit deadline has not yet passed', async () => {

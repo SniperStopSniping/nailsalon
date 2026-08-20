@@ -187,6 +187,66 @@ describe('sweepExpiredApprovalRequests', () => {
     expect((await readAppointment('appt_sweep_multi_b'))?.status).toBe('cancelled');
   });
 
+  it('a row whose transaction THROWS is isolated: it is counted as skipped, left standing, and the rest of the batch still completes', async () => {
+    // The "no longer pending" case below exercises a row the finalizer
+    // declines to touch — not a row that genuinely blows up. This is the
+    // other half: prove the per-row try/catch actually contains a thrown
+    // error so one poisoned row cannot take down every other salon's sweep.
+    const now = new Date('2099-07-05T12:00:00.000Z');
+    await seedAppointment({
+      id: 'appt_sweep_throws',
+      status: 'pending',
+      requestExpiresAt: new Date('2099-07-05T08:00:00.000Z'),
+      startTime: new Date('2099-07-05T14:00:00.000Z'),
+    });
+    await seedAppointment({
+      id: 'appt_sweep_survivor',
+      status: 'pending',
+      requestExpiresAt: new Date('2099-07-05T09:00:00.000Z'),
+      startTime: new Date('2099-07-05T15:00:00.000Z'),
+    });
+
+    // The sweep is expected to log this failure; assert it does rather than
+    // letting vitest-fail-on-console reject the run. A silently swallowed
+    // per-row failure would be its own defect.
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const realDb = db;
+    let transactionCalls = 0;
+    holder.db = {
+      select: realDb.select.bind(realDb),
+      transaction: async (fn: Parameters<typeof realDb.transaction>[0]) => {
+        transactionCalls += 1;
+        // The oldest deadline sorts first, so this is `appt_sweep_throws`.
+        if (transactionCalls === 1) {
+          throw new Error('simulated per-row finalizer failure');
+        }
+        return realDb.transaction(fn);
+      },
+    };
+
+    try {
+      const summary = await sweepExpiredApprovalRequests({ now });
+
+      expect(summary.scanned).toBe(2);
+      expect(summary.skipped).toBe(1);
+      expect(summary.expired).toBe(1);
+      // Asserted before the `finally` restores the spy — mockRestore() clears
+      // the recorded calls, so checking afterwards would always see zero.
+      expect(consoleError).toHaveBeenCalledTimes(1);
+    } finally {
+      holder.db = realDb;
+      consoleError.mockRestore();
+    }
+
+    // The failing row is left exactly as it was — never half-transitioned.
+    const failed = await readAppointment('appt_sweep_throws');
+
+    expect(failed?.status).toBe('pending');
+    expect(failed?.cancelReason).toBeNull();
+    // ...and the batch still made forward progress on the healthy row.
+    expect((await readAppointment('appt_sweep_survivor'))?.status).toBe('cancelled');
+  });
+
   it('a row that is no longer pending at scan time is excluded from the batch, and does not stop the rest of it from being processed', async () => {
     const now = new Date('2099-07-05T12:00:00.000Z');
     await seedAppointment({

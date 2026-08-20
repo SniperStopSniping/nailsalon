@@ -41,6 +41,12 @@ const cancelAppointmentSchema = z.object({
 
 const CANCELLABLE_STATUSES: string[] = ['pending', 'confirmed', 'in_progress'];
 
+/**
+ * Sentinel conflict marker: the row was still cancellable, but stopped being a
+ *  declinable request between authorization and the row lock.
+ */
+const DECLINE_NO_LONGER_ELIGIBLE = 'decline_no_longer_eligible';
+
 // =============================================================================
 // RESPONSE TYPES
 // =============================================================================
@@ -322,6 +328,28 @@ export async function PATCH(
             };
           }
 
+          // L1 PR5 — re-validate decline eligibility against the LOCKED row.
+          // The pre-transaction check ran against an unlocked snapshot, and
+          // `CANCELLABLE_STATUSES` admits 'confirmed' and 'in_progress', so on
+          // its own it would let a decline that was eligible when the request
+          // was authorized still apply after another staff member confirmed
+          // the appointment in between — silently cancelling a genuinely
+          // accepted booking, freeing the slot, deleting the calendar event,
+          // and telling the client it was declined.
+          if (
+            validated.data.cancelReason === 'declined_by_salon'
+            && !(
+              lockedAppointment.status === 'pending'
+              && lockedAppointment.requestExpiresAt !== null
+            )
+          ) {
+            return {
+              applied: false,
+              conflictStatus: DECLINE_NO_LONGER_ELIGIBLE,
+              cancelledAt: now,
+            };
+          }
+
           const pointsToRefund = pointsRedeemedFromNotes(
             lockedAppointment.notes,
           );
@@ -444,6 +472,23 @@ export async function PATCH(
       );
     }
 
+    if (transition.conflictStatus === DECLINE_NO_LONGER_ELIGIBLE) {
+      // Distinct from invalidStateResponse on purpose: that message
+      // ("Must be pending, confirmed, or in_progress") is actively
+      // contradictory here, because the row IS in one of those statuses —
+      // it simply stopped being a declinable REQUEST while this call was in
+      // flight. The caller needs to know the request was answered, not that
+      // its status is unsupported.
+      return Response.json(
+        {
+          error: {
+            code: 'REQUEST_NO_LONGER_DECLINABLE',
+            message: 'This request is no longer pending — it was answered before this decline was applied.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
     if (transition.conflictStatus) {
       return invalidStateResponse(transition.conflictStatus);
     }

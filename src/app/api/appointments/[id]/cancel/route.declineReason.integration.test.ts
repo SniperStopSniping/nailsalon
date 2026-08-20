@@ -190,6 +190,35 @@ describe('PATCH /api/appointments/:id/cancel — request-lifecycle reason guards
     expect(after?.cancelReason).toBe('declined_by_salon');
   });
 
+  it('refuses to decline a row that was CONFIRMED after the request was authorized (TOCTOU)', async () => {
+    // The eligibility check outside the transaction runs against an UNLOCKED
+    // snapshot. Diverging that snapshot from the stored row reproduces the
+    // real interleaving: staff member A opens a genuinely pending request and
+    // clicks decline; staff member B confirms it and commits while A's request
+    // is still in flight; A's transaction then locks a row that is now
+    // `confirmed`. Since CANCELLABLE_STATUSES admits 'confirmed', only a
+    // decline-specific re-check against the LOCKED row can stop A from
+    // cancelling a genuinely accepted booking and telling the client it was
+    // declined. Every other test in this file keeps the snapshot and the row
+    // in sync, which is exactly why this was missed.
+    const requestExpiresAt = new Date(Date.now() + 60 * 60 * 1000);
+    await seedAppointment('confirmed', requestExpiresAt);
+    holder.access = accessFor('pending', requestExpiresAt);
+
+    const response = await PATCH(patchRequest({ cancelReason: 'declined_by_salon' }), {
+      params: { id: APPT_ID },
+    });
+
+    expect(response.status).toBe(409);
+
+    const after = await readBack();
+
+    // The accepted booking must survive untouched — still confirmed, no
+    // "declined" reason written, slot never freed.
+    expect(after?.status).toBe('confirmed');
+    expect(after?.cancelReason).toBeNull();
+  });
+
   it('rejects declined_by_salon on a legacy pending row (NULL requestExpiresAt) — nothing to decline', async () => {
     await seedAppointment('pending', null);
     holder.access = accessFor('pending', null);
