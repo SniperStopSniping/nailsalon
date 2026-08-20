@@ -117,6 +117,25 @@ describe('invariant 4 — client/server import boundary (see architectureClientS
 // below — the allowlist is a closed, explicit (importer -> imported) edge
 // list, not a blanket exemption for a file or a directory. Widening it
 // again requires touching this test, on purpose, exactly like this PR did.
+//
+// L1 PR6 (owner/admin catalog configuration surface) widens it again, for
+// the FIRST write paths these tables have ever had:
+//
+//   * `ownerCatalogGroups.server.ts` reuses `addOnGroupBoundsSchema`
+//     (`catalogRuleContract.ts`) to validate add-on group selection bounds
+//     against the exact CHECKs migration 0073 enforces.
+//   * `ownerCatalogRules.server.ts` reuses `catalogRuleWriteSchema`
+//     (`catalogRuleContract.ts`) to map owner INTENT onto the six landed
+//     rule types, and `detectAutoAddCycle` (`catalogRuleGraph.ts`) to
+//     reject a bundling rule that would introduce an auto-add cycle.
+//   * `ownerCatalogPreview.server.ts` calls `resolvePublicCatalogSnapshot` /
+//     `resolveCatalogSelectionForSalon` (`catalogResolver.server.ts`) so an
+//     authenticated owner preview resolves through the SAME engine booking
+//     uses — never a second price/duration calculation.
+//
+// None of these three files write through anywhere but the server wrapper
+// (`catalogResolver.server.ts`) or the pure contract/graph modules — never
+// `catalogResolverCore.ts`/`catalogDomain.ts` directly.
 // =============================================================================
 
 describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED production hot-path invocation', () => {
@@ -143,6 +162,29 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
   const AUTHORIZED_PRODUCTION_IMPORTS: ReadonlyArray<{ importer: string; imports: string }> = [
     {
       importer: 'src/libs/catalogSubmissionReconciliation.server.ts',
+      imports: 'src/libs/catalogResolver.server.ts',
+    },
+    // L1 PR6 — add-on group bounds validation reuses the same Zod contract
+    // the database CHECKs mirror.
+    {
+      importer: 'src/libs/ownerCatalogGroups.server.ts',
+      imports: 'src/libs/catalogRuleContract.ts',
+    },
+    // L1 PR6 — owner-intent rule writes reuse the whole-row contract...
+    {
+      importer: 'src/libs/ownerCatalogRules.server.ts',
+      imports: 'src/libs/catalogRuleContract.ts',
+    },
+    // ...and the auto-add cycle detector, over edges derived from raw
+    // `catalog_rule` rows at write time.
+    {
+      importer: 'src/libs/ownerCatalogRules.server.ts',
+      imports: 'src/libs/catalogRuleGraph.ts',
+    },
+    // L1 PR6 — the authenticated owner preview resolves through the exact
+    // same server wrapper booking uses; there is no second resolver.
+    {
+      importer: 'src/libs/ownerCatalogPreview.server.ts',
       imports: 'src/libs/catalogResolver.server.ts',
     },
   ];

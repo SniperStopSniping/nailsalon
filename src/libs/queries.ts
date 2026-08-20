@@ -15,6 +15,8 @@ import {
 import { loadAppointmentDepositCreditRows } from '@/libs/depositCredit.server';
 import {
   type AddOn,
+  type AddOnGroup,
+  addOnGroupSchema,
   addOnSchema,
   type Appointment,
   appointmentAuditLogSchema,
@@ -234,6 +236,19 @@ export async function getAllAddOnsBySalonId(salonId: string): Promise<AddOn[]> {
     .from(addOnSchema)
     .where(eq(addOnSchema.salonId, salonId))
     .orderBy(addOnSchema.displayOrder, addOnSchema.createdAt);
+}
+
+/**
+ * Every `add_on_group` for a salon, including inactive ones — the admin-only
+ * view an owner editor needs so it can show and reactivate a disabled group.
+ * `add_on_group` is Luster L1's grouping table (dark; migration 0073).
+ */
+export async function getAllAddOnGroupsBySalonId(salonId: string): Promise<AddOnGroup[]> {
+  return db
+    .select()
+    .from(addOnGroupSchema)
+    .where(eq(addOnGroupSchema.salonId, salonId))
+    .orderBy(addOnGroupSchema.sortOrder, addOnGroupSchema.createdAt);
 }
 
 export async function getServiceAddOnRulesBySalonId(salonId: string) {

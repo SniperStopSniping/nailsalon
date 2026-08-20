@@ -8,13 +8,13 @@ import {
 } from '@/libs/bookingCatalog';
 import { deriveBookingCategory } from '@/libs/bookingCategory';
 import { db } from '@/libs/DB';
+import { OwnerCatalogConfigError, ownerCatalogErrorResponse } from '@/libs/ownerCatalogErrors.server';
+import { buildServicePayload } from '@/libs/servicePayload';
 import {
   BOOKING_CATEGORIES,
-  type Service,
   SERVICE_CATEGORIES,
   serviceSchema,
 } from '@/models/Schema';
-import type { ServiceResponse } from '@/types/admin';
 
 export const dynamic = 'force-dynamic';
 
@@ -24,6 +24,15 @@ const optionalText = z
     const trimmed = typeof value === 'string' ? value.trim() : '';
     return trimmed || null;
   });
+
+// ---- Luster L1 catalog foundation (dark; migration 0072) ------------------
+// The full DB-CHECK vocabulary (`service_confirmation_mode_check`) is
+// accepted by the SCHEMA — `'consultation'` is a real, storable value at the
+// database layer — but rejected by APPLICATION logic below as
+// not-yet-available (deferred to L7). That split is deliberate: a bogus
+// string ("consultatio") and a real-but-unshipped value ("consultation")
+// are different failures and get different, specific error codes.
+const CONFIRMATION_MODE_VALUES = ['instant', 'request_approval', 'consultation'] as const;
 
 const updateServiceSchema = z.object({
   salonSlug: z.string().min(1),
@@ -41,32 +50,15 @@ const updateServiceSchema = z.object({
   isIntroPrice: z.boolean().default(false),
   introPriceLabel: optionalText,
   isActive: z.boolean().default(true),
+  /**
+   * Omitted ⇒ left exactly as stored (never auto-converted off NULL); an
+   * explicit `null` clears a previously-set mode back to NULL. Both are
+   * legitimate owner actions, distinct from one another only by whether the
+   * key was sent at all — Drizzle's `.set()` mirrors that distinction by
+   * skipping `undefined` and writing `null`.
+   */
+  confirmationMode: z.enum(CONFIRMATION_MODE_VALUES).nullable().optional(),
 });
-
-function buildServicePayload(service: Service): ServiceResponse {
-  return {
-    id: service.id,
-    name: service.name,
-    slug: service.slug,
-    description: service.description,
-    descriptionItems: service.descriptionItems,
-    price: service.price,
-    priceDisplayText: service.priceDisplayText,
-    durationMinutes: service.durationMinutes,
-    preparationBufferMinutes: service.preparationBufferMinutes,
-    cleanupBufferMinutes: service.cleanupBufferMinutes,
-    category: service.category,
-    bookingCategory: service.bookingCategory,
-    templateKey: service.templateKey ?? null,
-    imageUrl: service.imageUrl,
-    sortOrder: service.sortOrder,
-    featuredOrder: service.featuredOrder ?? null,
-    isActive: service.isActive,
-    isIntroPrice: service.isIntroPrice,
-    introPriceLabel: service.introPriceLabel,
-    introPriceExpiresAt: service.introPriceExpiresAt?.toISOString() || null,
-  };
-}
 
 export async function PATCH(
   request: Request,
@@ -87,6 +79,17 @@ export async function PATCH(
     );
   }
   const { salonSlug, ...input } = parsed.data;
+  if (input.confirmationMode === 'consultation') {
+    return Response.json(
+      {
+        error: {
+          code: 'CONFIRMATION_MODE_NOT_AVAILABLE',
+          message: 'Consultation confirmation mode is not available yet.',
+        },
+      },
+      { status: 400 },
+    );
+  }
   const { salon, error } = await requireAdminSalon(salonSlug);
   if (error || !salon) {
     return error!;
@@ -96,6 +99,76 @@ export async function PATCH(
     ? descriptionItemsToLegacyText(descriptionItems)
     : input.description;
   try {
+    // Luster L1 catalog foundation (dark; migration 0072): a publicly
+    // bookable variant needs an active parent — enforced here too (not just
+    // in `ownerCatalogFamilies.server.ts`'s attach path) so deactivating a
+    // parent through this generic editor cannot silently strand an active
+    // child behind an inactive family. A legacy service (no children) never
+    // hits this query's WHERE clause producing a match, so this is a no-op
+    // for every service that isn't a family parent.
+    if (input.isActive === false) {
+      const [activeChild] = await db
+        .select({ id: serviceSchema.id })
+        .from(serviceSchema)
+        .where(
+          and(
+            eq(serviceSchema.salonId, salon.id),
+            eq(serviceSchema.parentServiceId, context.params.id),
+            eq(serviceSchema.isActive, true),
+          ),
+        )
+        .limit(1);
+      if (activeChild) {
+        return ownerCatalogErrorResponse(new OwnerCatalogConfigError({
+          code: 'PARENT_HAS_ACTIVE_CHILDREN',
+          message: 'This service has an active variant. Deactivate its variants first, or deactivate the whole family from the variant editor.',
+          anchor: { kind: 'service', serviceId: context.params.id },
+          status: 409,
+        }));
+      }
+    }
+
+    // The same invariant, from the OTHER side of the relationship. Guarding
+    // only the parent-deactivation direction left it trivially reachable:
+    // deactivate the child, deactivate the now-childless parent, then
+    // reactivate the child — three ordinary edits, each individually legal,
+    // ending with an active variant stranded under an inactive family. There
+    // is no DB CHECK behind this (0072 says nothing about `isActive`), so the
+    // application is the only thing enforcing it and it has to hold both ways.
+    if (input.isActive === true) {
+      const [selfWithParent] = await db
+        .select({ parentServiceId: serviceSchema.parentServiceId })
+        .from(serviceSchema)
+        .where(
+          and(
+            eq(serviceSchema.id, context.params.id),
+            eq(serviceSchema.salonId, salon.id),
+          ),
+        )
+        .limit(1);
+      if (selfWithParent?.parentServiceId) {
+        const [activeParent] = await db
+          .select({ id: serviceSchema.id })
+          .from(serviceSchema)
+          .where(
+            and(
+              eq(serviceSchema.id, selfWithParent.parentServiceId),
+              eq(serviceSchema.salonId, salon.id),
+              eq(serviceSchema.isActive, true),
+            ),
+          )
+          .limit(1);
+        if (!activeParent) {
+          return ownerCatalogErrorResponse(new OwnerCatalogConfigError({
+            code: 'PARENT_NOT_ACTIVE',
+            message: 'This variant belongs to a service that is currently inactive. Reactivate the main service first, then reactivate this variant.',
+            anchor: { kind: 'service', serviceId: context.params.id },
+            status: 409,
+          }));
+        }
+      }
+    }
+
     const [updated] = await db
       .update(serviceSchema)
       .set({
@@ -122,6 +195,9 @@ export async function PATCH(
         isIntroPrice: input.isIntroPrice,
         introPriceLabel: input.isIntroPrice ? input.introPriceLabel : null,
         isActive: input.isActive,
+        // Drizzle skips `undefined` (omitted ⇒ unchanged) and writes `null`
+        // (explicit clear) — see the schema comment above.
+        confirmationMode: input.confirmationMode,
         updatedAt: new Date(),
       })
       .where(

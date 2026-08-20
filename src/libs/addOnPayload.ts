@@ -28,6 +28,7 @@ export function buildAddOnPayload(
     isActive: addOn.isActive,
     templateKey: addOn.templateKey ?? null,
     compatibleServiceIds,
+    groupId: addOn.groupId ?? null,
   };
 }
 

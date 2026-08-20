@@ -14,10 +14,10 @@ import {
   ensureServiceAssignments,
   InvalidTechnicianAssignmentError,
 } from '@/libs/serviceAssignments';
+import { buildServicePayload } from '@/libs/servicePayload';
 import { getTemplateByKey } from '@/libs/serviceTemplateCatalog';
 import {
   BOOKING_CATEGORIES,
-  type Service,
   SERVICE_CATEGORIES,
   serviceSchema,
   technicianSchema,
@@ -92,33 +92,6 @@ type ErrorResponse = {
     details?: unknown;
   };
 };
-
-function buildServicePayload(service: Service): ServiceResponse {
-  return {
-    id: service.id,
-    name: service.name,
-    slug: service.slug ?? null,
-    description: service.description,
-    descriptionItems: service.descriptionItems ?? null,
-    price: service.price,
-    priceDisplayText: service.priceDisplayText ?? null,
-    durationMinutes: service.durationMinutes,
-    preparationBufferMinutes: service.preparationBufferMinutes,
-    cleanupBufferMinutes: service.cleanupBufferMinutes,
-    category: service.category,
-    bookingCategory: service.bookingCategory,
-    templateKey: service.templateKey ?? null,
-    imageUrl: service.imageUrl,
-    sortOrder: service.sortOrder,
-    featuredOrder: service.featuredOrder ?? null,
-    isActive: service.isActive,
-    isIntroPrice: service.isIntroPrice ?? false,
-    introPriceLabel: service.introPriceLabel ?? null,
-    introPriceExpiresAt: service.introPriceExpiresAt
-      ? service.introPriceExpiresAt.toISOString()
-      : null,
-  };
-}
 
 function uniqueSlugFromName(name: string): string {
   const base

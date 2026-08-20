@@ -26,6 +26,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AdminDetailCard } from '@/components/admin/AdminDetailCard';
+import { CatalogConfigTab } from '@/components/admin/catalogConfig/CatalogConfigTab';
 import { AsyncStatePanel } from '@/components/ui/async-state-panel';
 import { Button } from '@/components/ui/button';
 import { DialogShell } from '@/components/ui/dialog-shell';
@@ -1948,7 +1949,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
   const [showServiceImagesError, setShowServiceImagesError] = useState<string | null>(null);
   const showServiceImagesSaveInFlight = useRef(false);
   const showServiceImagesSaveAbort = useRef<AbortController | null>(null);
-  const [activeTab, setActiveTab] = useState<'menu' | 'library' | 'addons'>('menu');
+  const [activeTab, setActiveTab] = useState<'menu' | 'library' | 'addons' | 'catalog'>('menu');
   const [ownedTemplateKeys, setOwnedTemplateKeys] = useState<Set<string>>(new Set());
   const [bulkAddBusy, setBulkAddBusy] = useState(false);
   const [toggleActiveBusy, setToggleActiveBusy] = useState(false);
@@ -2441,14 +2442,14 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
           )}
         />
         <div className="px-4 pb-2">
-          <div className="grid grid-cols-3 gap-1 rounded-full bg-gray-100 p-1" role="tablist">
+          <div className="grid grid-cols-4 gap-1 rounded-full bg-gray-100 p-1" role="tablist">
             <button
               type="button"
               role="tab"
               aria-selected={activeTab === 'menu'}
               data-testid="services-tab-menu"
               onClick={() => setActiveTab('menu')}
-              className={`rounded-full px-3 py-2 text-[14px] font-semibold transition-all ${
+              className={`rounded-full p-2 text-[13px] font-semibold transition-all ${
                 activeTab === 'menu' ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#8E8E93]'
               }`}
             >
@@ -2460,7 +2461,7 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               aria-selected={activeTab === 'addons'}
               data-testid="services-tab-addons"
               onClick={() => setActiveTab('addons')}
-              className={`rounded-full px-3 py-2 text-[14px] font-semibold transition-all ${
+              className={`rounded-full p-2 text-[13px] font-semibold transition-all ${
                 activeTab === 'addons' ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#8E8E93]'
               }`}
             >
@@ -2472,11 +2473,23 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               aria-selected={activeTab === 'library'}
               data-testid="services-tab-library"
               onClick={() => setActiveTab('library')}
-              className={`rounded-full px-3 py-2 text-[14px] font-semibold transition-all ${
+              className={`rounded-full p-2 text-[13px] font-semibold transition-all ${
                 activeTab === 'library' ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#8E8E93]'
               }`}
             >
               Library
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={activeTab === 'catalog'}
+              data-testid="services-tab-catalog"
+              onClick={() => setActiveTab('catalog')}
+              className={`rounded-full p-2 text-[13px] font-semibold transition-all ${
+                activeTab === 'catalog' ? 'bg-white text-[#1C1C1E] shadow-sm' : 'text-[#8E8E93]'
+              }`}
+            >
+              Catalog
             </button>
           </div>
         </div>
@@ -2682,6 +2695,9 @@ export function ServicesModal({ onClose, salonSlug, onOpenStaff }: ServicesModal
               setShowAddDialog(true);
             }}
           />
+        )}
+        {activeTab === 'catalog' && (
+          <CatalogConfigTab salonSlug={salonSlug} />
         )}
         {activeTab === 'menu' && !loading && !error && libraryIntroDismissed === false && (
           <div
