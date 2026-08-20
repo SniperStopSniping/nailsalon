@@ -18,10 +18,10 @@ import {
   addOnSchema,
   type Appointment,
   appointmentAuditLogSchema,
+  type AppointmentCancellationReason,
   appointmentDepositSchema,
   appointmentSchema,
   appointmentServicesSchema,
-  type CancelReason,
   type Client,
   clientSchema,
   type Salon,
@@ -581,7 +581,7 @@ export async function updateAppointmentStatus(
   appointmentId: string,
   salonId: string,
   status: Appointment['status'],
-  cancelReason?: CancelReason,
+  cancelReason?: AppointmentCancellationReason,
 ): Promise<Appointment | null> {
   const [updated] = await db
     .update(appointmentSchema)

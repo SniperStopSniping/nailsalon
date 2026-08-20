@@ -1161,6 +1161,82 @@ jobs:
           'src/models/l1CatalogRulesFoundation.integration.test.ts'
           'src/models/l1CatalogFoundation.integration.test.ts'
 
+  l1-pr5-approval-lifecycle-postgres:
+    name: L1 PR5 approval lifecycle PostgreSQL races (zero skips)
+    needs: secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+
+    # The expiry lifecycle's guarantees are all concurrency guarantees --
+    # exactly-once finalization, decline racing expiry, a retry after a
+    # crash-after-commit producing no duplicate notification. PGlite has one
+    # physical connection and cannot exercise any of them, so without this job
+    # the suite would silently skip and the races would never actually run.
+    # Constants below identify only this job's loopback-published service; the
+    # live server address is independently attested against Docker metadata.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: luster_e2e_ci_disposable
+          POSTGRES_USER: luster_e2e_ci
+          POSTGRES_PASSWORD: luster-e2e-ci-only-password
+        ports:
+          - '127.0.0.1:55432:5432'
+        options: >-
+          --health-cmd "pg_isready -U luster_e2e_ci -d luster_e2e_ci_disposable"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      CONCURRENCY_TEST_DATABASE_URL: postgresql://luster_e2e_ci:luster-e2e-ci-only-password@127.0.0.1:55432/luster_e2e_ci_disposable?application_name=luster-e2e-ci-disposable
+      LUSTER_DISPOSABLE_DATABASE: 'true'
+      # Absent a usable target this suite skips. Requiring it turns that skip
+      # into a hard failure, so the races can never quietly stop running.
+      L1_PR5_CONCURRENCY_REQUIRED: 'true'
+      BILLING_PLAN_ENV: test
+      CLERK_SECRET_KEY: ci-placeholder-not-a-secret
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_Y2kubHVzdGVyLmludmFsaWQk
+      NEXT_PUBLIC_CLERK_SIGN_IN_URL: /sign-in
+      STRIPE_SECRET_KEY: ci-placeholder-not-a-secret
+      STRIPE_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+      STRIPE_CONNECT_WEBHOOK_SECRET: ci-placeholder-not-a-secret
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: ci-placeholder-not-a-secret
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Exercise the reviewed PR commit, never GitHub's synthetic merge ref.
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: npm
+
+      - name: Install dependencies
+        run: HUSKY=0 npm ci
+
+      # The suite migrates and truncates the disposable target itself, so no
+      # separate preparation step is needed.
+      - name: Run the L1 PR5 race matrix and prove zero skips
+        shell: bash
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism \
+            src/libs/expireApprovalRequest.concurrency.integration.test.ts \
+            | tee l1-pr5-postgres-concurrency.log
+          grep -Fqx \
+            'L1_PR5_CONCURRENCY_POSTGRES_TESTS_EXECUTED=8 L1_PR5_CONCURRENCY_POSTGRES_TESTS_SKIPPED=0' \
+            l1-pr5-postgres-concurrency.log
+
   synchronize-with-crowdin:
     name: Crowdin sync excluded from PR-head
     runs-on: ubuntu-latest

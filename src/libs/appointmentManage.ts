@@ -87,6 +87,8 @@ export type ManagePermissions = {
   canMarkCompleted: boolean;
   canStart: boolean;
   canConfirm: boolean;
+  /** L1 PR5 — only a pending request-approval booking (non-null `requestExpiresAt`) can be declined. */
+  canDecline: boolean;
   canMarkNoShow: boolean;
   canReassignTechnician: boolean;
 };
@@ -391,6 +393,7 @@ function buildPermissions(
       canMarkCompleted: false,
       canStart: false,
       canConfirm: false,
+      canDecline: false,
       canMarkNoShow: false,
       canReassignTechnician: false,
     };
@@ -405,6 +408,12 @@ function buildPermissions(
     canMarkCompleted: ['confirmed', 'in_progress'].includes(appointment.status),
     canStart: appointment.status === 'confirmed' && !appointment.lockedAt,
     canConfirm: appointment.status === 'pending' && !appointment.lockedAt,
+    // L1 PR5 — only a PENDING EXPLICIT request-approval booking is
+    // "declinable"; a legacy pending row (NULL requestExpiresAt) has no
+    // salon decision to decline — the ordinary cancel flow covers it.
+    canDecline: appointment.status === 'pending'
+      && appointment.requestExpiresAt !== null
+      && !appointment.lockedAt,
     canMarkNoShow: ['pending', 'confirmed', 'in_progress'].includes(appointment.status),
     canReassignTechnician: canReassignTechnician && !terminal && !isLocked,
   };

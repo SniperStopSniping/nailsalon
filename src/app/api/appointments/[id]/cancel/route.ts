@@ -22,19 +22,30 @@ import {
 import { requireAppointmentManagerAccess } from '@/libs/routeAccessGuards';
 import { sendSalonNotificationEmail } from '@/libs/salonNotificationEmail';
 import { sendCancellationConfirmation } from '@/libs/SMS';
-import { appointmentSchema, CANCEL_REASONS, rewardSchema, salonClientSchema } from '@/models/Schema';
+import { APPOINTMENT_CANCELLATION_REASONS, type AppointmentCancellationReason, appointmentSchema, rewardSchema, salonClientSchema } from '@/models/Schema';
 import type { SalonFeatures, SalonSettings } from '@/types/salonPolicy';
 
 // =============================================================================
 // REQUEST VALIDATION
 // =============================================================================
 
+// L1 PR5 — widened from CANCEL_REASONS to also accept the dark
+// request-lifecycle reasons. `request_expired` is finalizer-only (rejected
+// below regardless of caller) and `declined_by_salon` is only valid for a
+// pending row with a non-null request_expires_at (also enforced below) —
+// this schema only bounds the VOCABULARY, not eligibility.
 const cancelAppointmentSchema = z.object({
-  cancelReason: z.enum(CANCEL_REASONS),
+  cancelReason: z.enum(APPOINTMENT_CANCELLATION_REASONS),
   notes: z.string().optional(),
 });
 
 const CANCELLABLE_STATUSES: string[] = ['pending', 'confirmed', 'in_progress'];
+
+/**
+ * Sentinel conflict marker: the row was still cancellable, but stopped being a
+ *  declinable request between authorization and the row lock.
+ */
+const DECLINE_NO_LONGER_ELIGIBLE = 'decline_no_longer_eligible';
 
 // =============================================================================
 // RESPONSE TYPES
@@ -68,7 +79,7 @@ type CancellationTransition = {
 function isSameCancellation(
   appointment: { status: string; cancelReason: string | null },
   status: 'cancelled' | 'no_show',
-  cancelReason: (typeof CANCEL_REASONS)[number],
+  cancelReason: AppointmentCancellationReason,
 ): boolean {
   return appointment.status === status && appointment.cancelReason === cancelReason;
 }
@@ -150,6 +161,20 @@ export async function PATCH(
       );
     }
 
+    // 1b. `request_expired` is the finalizer's exclusive vocabulary
+    // (expireApprovalRequest.ts) — no HTTP caller may set it directly.
+    if (validated.data.cancelReason === 'request_expired') {
+      return Response.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'request_expired cannot be set directly; it is applied automatically when a request lapses.',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
+    }
+
     // 2. Verify appointment exists
     const appointment = access.appointment;
 
@@ -165,6 +190,25 @@ export async function PATCH(
     );
     if (!CANCELLABLE_STATUSES.includes(appointment.status) && !alreadyCancelled) {
       return invalidStateResponse(appointment.status);
+    }
+
+    // 3b. L1 PR5 — declining is only meaningful for a pending explicit
+    // request-approval booking. Skipped on an idempotent replay of an
+    // already-declined row, matching the CANCELLABLE_STATUSES guard above.
+    if (
+      validated.data.cancelReason === 'declined_by_salon'
+      && !alreadyCancelled
+      && !(appointment.status === 'pending' && appointment.requestExpiresAt !== null)
+    ) {
+      return Response.json(
+        {
+          error: {
+            code: 'VALIDATION_ERROR',
+            message: 'declined_by_salon can only be used to decline a pending request-approval booking.',
+          },
+        } satisfies ErrorResponse,
+        { status: 400 },
+      );
     }
 
     // The terminal transition and every balance mutation are one atomic unit.
@@ -280,6 +324,28 @@ export async function PATCH(
             return {
               applied: false,
               conflictStatus: lockedAppointment.status,
+              cancelledAt: now,
+            };
+          }
+
+          // L1 PR5 — re-validate decline eligibility against the LOCKED row.
+          // The pre-transaction check ran against an unlocked snapshot, and
+          // `CANCELLABLE_STATUSES` admits 'confirmed' and 'in_progress', so on
+          // its own it would let a decline that was eligible when the request
+          // was authorized still apply after another staff member confirmed
+          // the appointment in between — silently cancelling a genuinely
+          // accepted booking, freeing the slot, deleting the calendar event,
+          // and telling the client it was declined.
+          if (
+            validated.data.cancelReason === 'declined_by_salon'
+            && !(
+              lockedAppointment.status === 'pending'
+              && lockedAppointment.requestExpiresAt !== null
+            )
+          ) {
+            return {
+              applied: false,
+              conflictStatus: DECLINE_NO_LONGER_ELIGIBLE,
               cancelledAt: now,
             };
           }
@@ -406,6 +472,23 @@ export async function PATCH(
       );
     }
 
+    if (transition.conflictStatus === DECLINE_NO_LONGER_ELIGIBLE) {
+      // Distinct from invalidStateResponse on purpose: that message
+      // ("Must be pending, confirmed, or in_progress") is actively
+      // contradictory here, because the row IS in one of those statuses —
+      // it simply stopped being a declinable REQUEST while this call was in
+      // flight. The caller needs to know the request was answered, not that
+      // its status is unsupported.
+      return Response.json(
+        {
+          error: {
+            code: 'REQUEST_NO_LONGER_DECLINABLE',
+            message: 'This request is no longer pending — it was answered before this decline was applied.',
+          },
+        } satisfies ErrorResponse,
+        { status: 409 },
+      );
+    }
     if (transition.conflictStatus) {
       return invalidStateResponse(transition.conflictStatus);
     }

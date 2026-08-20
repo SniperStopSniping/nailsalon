@@ -63,7 +63,9 @@ const {
     const keys = Object.keys(fields ?? {}).sort().join(',');
     if (
       keys
-      === 'dayBeforeReminderSentAt,deletedAt,salonSettings,sameDayReminderSentAt,startTime,status'
+      // L1 PR5 — isCurrentReminderCandidate now also selects requestExpiresAt
+      // (reminderEligibility.ts's freshness re-check).
+      === 'dayBeforeReminderSentAt,deletedAt,requestExpiresAt,salonSettings,sameDayReminderSentAt,startTime,status'
     ) {
       return staticResult(() => {
         const current = currentReminderState.values().next().value;

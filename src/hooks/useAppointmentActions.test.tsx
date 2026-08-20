@@ -274,6 +274,20 @@ describe('useAppointmentActions', () => {
     expect(onCancelled).toHaveBeenCalledWith('appt_1', 'no_show');
   });
 
+  it('L1 PR5 — declines a pending request through the cancel endpoint with the declined_by_salon reason', async () => {
+    const onCancelled = vi.fn();
+    const { result } = await renderOpenHook({ onCancelled });
+    fetchMock.mockResolvedValueOnce(jsonResponse({ data: { ok: true } }));
+
+    await act(async () => result.current.declineAppointment());
+
+    const [url, init] = fetchMock.mock.calls.at(-1)!;
+
+    expect(url).toBe('/api/appointments/appt_1/cancel');
+    expect(JSON.parse(init.body).cancelReason).toBe('declined_by_salon');
+    expect(onCancelled).toHaveBeenCalledWith('appt_1', 'cancelled');
+  });
+
   it('surfaces resend-confirmation failures in detailError', async () => {
     const { result } = await renderOpenHook();
     fetchMock.mockResolvedValueOnce(jsonResponse({ error: { message: 'Email provider unavailable' } }, 502));

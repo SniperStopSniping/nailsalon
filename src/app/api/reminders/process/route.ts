@@ -1,4 +1,5 @@
 import { processAppointmentReminders } from '@/libs/appointmentReminders';
+import { sweepExpiredApprovalRequests } from '@/libs/approvalRequestSweeper';
 
 type ErrorResponse = {
   error: {
@@ -37,7 +38,12 @@ async function handleProcess(request: Request): Promise<Response> {
     }
 
     const result = await processAppointmentReminders();
-    return Response.json({ data: result });
+    // L1 PR5 — the lapsed request-approval sweep piggybacks on this EXISTING
+    // cron rather than adding a new one (vercel.json's cron allowlist stays
+    // zero-diff). See approvalRequestSweeper.ts for why this is a latency
+    // optimization, never a correctness dependency.
+    const approvalRequests = await sweepExpiredApprovalRequests();
+    return Response.json({ data: { ...result, approvalRequests } });
   } catch (error) {
     console.error('[REMINDERS] Failed to process appointment reminders:', error);
     return Response.json(

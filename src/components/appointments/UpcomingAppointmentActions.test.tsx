@@ -96,6 +96,7 @@ const baseDetail: AppointmentManageDetail = {
     canMarkCompleted: true,
     canStart: true,
     canConfirm: false,
+    canDecline: false,
     canMarkNoShow: true,
     canReassignTechnician: false,
   },
