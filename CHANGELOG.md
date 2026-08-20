@@ -1,3 +1,21 @@
+# [1.77.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.76.1...v1.77.0) (2026-08-20)
+
+
+### Bug Fixes
+
+* **l1:** move the effective-status resolver out of the route module ([11a4e33](https://github.com/SniperStopSniping/nailsalon/commit/11a4e338df789ffeb41ad0becb0519d5aef47ae3))
+* **l1:** re-validate decline eligibility against the locked row ([015e209](https://github.com/SniperStopSniping/nailsalon/commit/015e20971a5cdb6ed320d8805e7fceeb04296fe4))
+* **l1:** use a transaction-stable clock for the expiry check ([e5cf35b](https://github.com/SniperStopSniping/nailsalon/commit/e5cf35bd23d949495bebedc486f9bcbffe600a2d))
+
+
+### Features
+
+* **l1:** add admin decline action for request-approval bookings ([e92965e](https://github.com/SniperStopSniping/nailsalon/commit/e92965e98e888eb6e5e37e8ad4dd63159a9aaf3c))
+* **l1:** add authoritative request-approval status endpoint ([9434943](https://github.com/SniperStopSniping/nailsalon/commit/94349432bb4c72fe192099af2bde364bf1d69d5b))
+* **l1:** add request-approval expiry finalizer and bounded sweep ([5acc1ef](https://github.com/SniperStopSniping/nailsalon/commit/5acc1ef95efd9b2d7385b9fc8a06c828b5d0d333))
+* **l1:** exclude unapproved requests from appointment reminders ([eca3287](https://github.com/SniperStopSniping/nailsalon/commit/eca3287552fa9be1e0f91f5c46d01c9b20e955e4))
+* **l1:** reject expired confirms and support declining request-approval bookings ([e55218b](https://github.com/SniperStopSniping/nailsalon/commit/e55218bdff1ce1e84d6c8c9bad437e0d016f11fc))
+
 ## [1.76.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.76.0...v1.76.1) (2026-08-19)
 
 
