@@ -181,6 +181,12 @@ describe('invariant 5 — the L1 PR3 catalog core has zero UNAUTHORIZED producti
       importer: 'src/libs/ownerCatalogRules.server.ts',
       imports: 'src/libs/catalogRuleGraph.ts',
     },
+    // L1 PR6 — the authenticated owner preview resolves through the exact
+    // same server wrapper booking uses; there is no second resolver.
+    {
+      importer: 'src/libs/ownerCatalogPreview.server.ts',
+      imports: 'src/libs/catalogResolver.server.ts',
+    },
   ];
   const isAuthorized = (importer: string, imported: string) =>
     AUTHORIZED_PRODUCTION_IMPORTS.some(edge => edge.importer === importer && edge.imports === imported);
