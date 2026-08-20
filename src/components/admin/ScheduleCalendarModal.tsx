@@ -1134,6 +1134,7 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
         onMarkCompleted={() => actions.openCheckout()}
         onStartAppointment={actions.startAppointment}
         onConfirmAppointment={actions.confirmAppointment}
+        onDeclineAppointment={actions.declineAppointment}
         onMarkNoShow={actions.markNoShow}
         onResendConfirmation={actions.resendConfirmation}
         onViewReceipt={actions.openReceipt}

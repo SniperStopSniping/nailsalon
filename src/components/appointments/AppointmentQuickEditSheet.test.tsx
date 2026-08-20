@@ -97,6 +97,7 @@ const baseDetail: AppointmentManageDetail = {
     canMarkCompleted: true,
     canStart: true,
     canConfirm: false,
+    canDecline: false,
     canMarkNoShow: true,
     canReassignTechnician: false,
   },
@@ -397,6 +398,57 @@ describe('AppointmentQuickEditSheet', () => {
     expect(confirmSpy).not.toHaveBeenCalled();
 
     confirmSpy.mockRestore();
+  });
+
+  it('L1 PR5 — declines a pending request through a confirmation dialog when canDecline is granted', async () => {
+    const onDeclineAppointment = vi.fn(async () => {});
+
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={{
+          ...baseDetail,
+          appointment: { ...baseDetail.appointment, status: 'pending' },
+          permissions: { ...baseDetail.permissions, canDecline: true },
+        }}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+        onDeclineAppointment={onDeclineAppointment}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('appointment-sheet-decline'));
+    fireEvent.click(screen.getByTestId('confirm-dialog-confirm'));
+
+    await waitFor(() => expect(onDeclineAppointment).toHaveBeenCalledTimes(1));
+  });
+
+  it('L1 PR5 — hides the decline button when canDecline is not granted', () => {
+    render(
+      <AppointmentQuickEditSheet
+        isOpen
+        onClose={vi.fn()}
+        detail={baseDetail}
+        loading={false}
+        saving={false}
+        actionError={null}
+        onSaveEdits={vi.fn(async () => {})}
+        onMoveToNextAvailable={vi.fn(async () => {})}
+        onCancelAppointment={vi.fn(async () => {})}
+        onMarkCompleted={vi.fn(async () => {})}
+        onStartAppointment={vi.fn(async () => {})}
+        onDeclineAppointment={vi.fn(async () => {})}
+      />,
+    );
+
+    expect(screen.queryByTestId('appointment-sheet-decline')).not.toBeInTheDocument();
   });
 
   it('blocks backdrop dismissal while edits are unsaved', () => {

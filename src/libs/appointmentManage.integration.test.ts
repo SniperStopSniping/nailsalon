@@ -1176,6 +1176,7 @@ describe('§5.8 — a deposit hold is not manageable', () => {
       canMarkCompleted: false,
       canStart: false,
       canConfirm: false,
+      canDecline: false,
       canMarkNoShow: false,
       canReassignTechnician: false,
     });

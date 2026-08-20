@@ -13,7 +13,10 @@ export type AppointmentMutationResult = {
 };
 
 export type CancelArgs = {
-  reason: 'client_request' | 'no_show' | 'rescheduled';
+  // 'declined_by_salon' — L1 PR5: declining a pending request-approval
+  // booking. It routes through the same cancel endpoint/CAS as every other
+  // reason (see declineAppointment below).
+  reason: 'client_request' | 'no_show' | 'rescheduled' | 'declined_by_salon';
   /** Optional internal note, appended to the appointment notes (never sent to the client). */
   internalNote?: string;
 };
@@ -366,6 +369,11 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     await cancelAppointment({ reason: 'no_show' });
   }, [cancelAppointment]);
 
+  /** L1 PR5 — declines a pending request-approval booking via the same cancel endpoint/CAS as every other terminal reason. */
+  const declineAppointment = useCallback(async () => {
+    await cancelAppointment({ reason: 'declined_by_salon' });
+  }, [cancelAppointment]);
+
   const resendConfirmation = useCallback(async () => {
     if (!selectedAppointmentId) {
       return;
@@ -423,6 +431,7 @@ export function useAppointmentActions(options: UseAppointmentActionsOptions = {}
     confirmAppointment,
     cancelAppointment,
     markNoShow,
+    declineAppointment,
     resendConfirmation,
     buildRebookPrefill,
     setAttemptedTimeLabel,

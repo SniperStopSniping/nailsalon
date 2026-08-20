@@ -2380,6 +2380,7 @@ function ClientDetail({
         onMarkCompleted={() => appointmentActions.openCheckout()}
         onStartAppointment={appointmentActions.startAppointment}
         onConfirmAppointment={appointmentActions.confirmAppointment}
+        onDeclineAppointment={appointmentActions.declineAppointment}
         onMarkNoShow={appointmentActions.markNoShow}
         onResendConfirmation={appointmentActions.resendConfirmation}
         onViewReceipt={appointmentActions.openReceipt}

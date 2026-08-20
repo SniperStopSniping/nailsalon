@@ -40,6 +40,8 @@ type AppointmentQuickEditSheetProps = {
   onMarkCompleted: () => void | Promise<void>;
   onStartAppointment: () => Promise<void>;
   onConfirmAppointment?: () => Promise<void>;
+  /** Declines a pending request-approval booking. Absent unless the surface wires request-lifecycle actions. */
+  onDeclineAppointment?: () => Promise<void>;
   onMarkNoShow?: () => Promise<void>;
   onResendConfirmation?: () => Promise<void>;
   onRebook?: () => void;
@@ -97,6 +99,7 @@ export function AppointmentQuickEditSheet({
   onMarkCompleted,
   onStartAppointment,
   onConfirmAppointment,
+  onDeclineAppointment,
   onMarkNoShow,
   onResendConfirmation,
   onRebook,
@@ -111,7 +114,7 @@ export function AppointmentQuickEditSheet({
   const [startTime, setStartTime] = useState('');
   const [cancelReason, setCancelReason] = useState('client_request');
   const [internalNote, setInternalNote] = useState('');
-  const [pendingConfirm, setPendingConfirm] = useState<'cancel' | 'no_show' | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<'cancel' | 'no_show' | 'decline' | null>(null);
   const editSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -691,6 +694,17 @@ export function AppointmentQuickEditSheet({
                               Confirm appointment
                             </button>
                           )}
+                          {detail.permissions.canDecline && onDeclineAppointment && (
+                            <button
+                              type="button"
+                              data-testid="appointment-sheet-decline"
+                              onClick={() => setPendingConfirm('decline')}
+                              disabled={saving}
+                              className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-medium text-amber-900"
+                            >
+                              Decline request
+                            </button>
+                          )}
                           {detail.permissions.canMarkCompleted && (
                             <button
                               type="button"
@@ -828,6 +842,21 @@ export function AppointmentQuickEditSheet({
         onConfirm={() => {
           setPendingConfirm(null);
           void onMarkNoShow?.();
+        }}
+      />
+
+      <ConfirmDialog
+        isOpen={pendingConfirm === 'decline'}
+        title="Decline this request?"
+        tone="danger"
+        busy={saving}
+        confirmLabel="Decline request"
+        cancelLabel="Keep request"
+        description="The client will be notified their requested time was not accepted. This frees the slot for other clients."
+        onClose={() => setPendingConfirm(null)}
+        onConfirm={() => {
+          setPendingConfirm(null);
+          void onDeclineAppointment?.();
         }}
       />
     </DialogShell>
