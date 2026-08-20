@@ -128,6 +128,47 @@ export async function PATCH(
       }
     }
 
+    // The same invariant, from the OTHER side of the relationship. Guarding
+    // only the parent-deactivation direction left it trivially reachable:
+    // deactivate the child, deactivate the now-childless parent, then
+    // reactivate the child — three ordinary edits, each individually legal,
+    // ending with an active variant stranded under an inactive family. There
+    // is no DB CHECK behind this (0072 says nothing about `isActive`), so the
+    // application is the only thing enforcing it and it has to hold both ways.
+    if (input.isActive === true) {
+      const [selfWithParent] = await db
+        .select({ parentServiceId: serviceSchema.parentServiceId })
+        .from(serviceSchema)
+        .where(
+          and(
+            eq(serviceSchema.id, context.params.id),
+            eq(serviceSchema.salonId, salon.id),
+          ),
+        )
+        .limit(1);
+      if (selfWithParent?.parentServiceId) {
+        const [activeParent] = await db
+          .select({ id: serviceSchema.id })
+          .from(serviceSchema)
+          .where(
+            and(
+              eq(serviceSchema.id, selfWithParent.parentServiceId),
+              eq(serviceSchema.salonId, salon.id),
+              eq(serviceSchema.isActive, true),
+            ),
+          )
+          .limit(1);
+        if (!activeParent) {
+          return ownerCatalogErrorResponse(new OwnerCatalogConfigError({
+            code: 'PARENT_NOT_ACTIVE',
+            message: 'This variant belongs to a service that is currently inactive. Reactivate the main service first, then reactivate this variant.',
+            anchor: { kind: 'service', serviceId: context.params.id },
+            status: 409,
+          }));
+        }
+      }
+    }
+
     const [updated] = await db
       .update(serviceSchema)
       .set({

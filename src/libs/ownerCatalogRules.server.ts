@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, ne, sql } from 'drizzle-orm';
 import { nanoid } from 'nanoid';
 import { z } from 'zod';
 
@@ -242,7 +242,7 @@ async function assertRuleReferences(
  * check over raw rows, not a read-time resolution.
  */
 async function assertNoAutoAddCycle(
-  tx: Pick<typeof db, 'select'>,
+  tx: Pick<typeof db, 'select' | 'execute'>,
   salonId: string,
   candidate: { ruleType: string; subjectServiceId: string | null; subjectAddOnId: string | null; objectAddOnId: string | null; params?: unknown; isActive: boolean },
   excludeRuleId?: string,
@@ -250,8 +250,20 @@ async function assertNoAutoAddCycle(
   const candidateParams = (candidate.params ?? {}) as Record<string, unknown>;
   const candidateAutoAdd = candidate.ruleType === 'include' && candidate.isActive && candidateParams.autoAdd === true;
   if (!candidateAutoAdd || !candidate.objectAddOnId) {
+    // This write introduces no auto-add edge, so it cannot participate in a
+    // cycle no matter what else commits concurrently — no lock needed.
     return;
   }
+
+  // Serialize auto-add rule writes per salon. Without this the check is a
+  // read-then-write race: under READ COMMITTED, two transactions each adding
+  // one edge of a 2-cycle (X->Y and Y->X) both read the pre-existing edge set,
+  // each sees an acyclic result, and both commit — leaving a cycle no single
+  // request ever saw. The resolver fails closed on it (`cyclic_auto_add`), so
+  // the damage is not a bad booking but a salon whose catalog stops resolving
+  // until an owner finds the offending rule by hand. `hashtext(salonId)`
+  // matches the locking idiom already used by bookingConflictGuard.ts.
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${salonId}))`);
 
   const existing = await tx
     .select()

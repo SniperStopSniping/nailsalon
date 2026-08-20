@@ -165,4 +165,42 @@ describe('PATCH /api/salon/services/[id] — parent must stay active while a pub
 
     expect(response.status).toBe(200);
   });
+
+  it('blocks reactivating a child whose parent is inactive — the same invariant from the other side', async () => {
+    // Guarding only the parent-deactivation direction left this trivially
+    // reachable with three ordinary, individually-legal edits: deactivate the
+    // child, deactivate the now-childless parent, reactivate the child. That
+    // ended with an active variant stranded under an inactive family, and no
+    // DB CHECK backs the invariant, so the application is the only guard.
+    await PATCH(...patchRequest(CHILD_ID, { ...BASE_BODY, isActive: false }));
+    await PATCH(...patchRequest(PARENT_ID, { ...BASE_BODY, isActive: false }));
+
+    const response = await PATCH(...patchRequest(CHILD_ID, { ...BASE_BODY, isActive: true }));
+    const body = await response.json();
+
+    expect(response.status).toBe(409);
+    expect(body.error.code).toBe('PARENT_NOT_ACTIVE');
+
+    const [child] = await db.select().from(schema.serviceSchema).where(eq(schema.serviceSchema.id, CHILD_ID));
+
+    expect(child!.isActive).toBe(false);
+  });
+
+  it('allows reactivating a child once its parent is active again', async () => {
+    await PATCH(...patchRequest(CHILD_ID, { ...BASE_BODY, isActive: false }));
+    await PATCH(...patchRequest(PARENT_ID, { ...BASE_BODY, isActive: false }));
+    await PATCH(...patchRequest(PARENT_ID, { ...BASE_BODY, isActive: true }));
+
+    const response = await PATCH(...patchRequest(CHILD_ID, { ...BASE_BODY, isActive: true }));
+
+    expect(response.status).toBe(200);
+  });
+
+  it('never applies the parent-active check to a legacy service with no parent', async () => {
+    await PATCH(...patchRequest(LEGACY_ID, { ...BASE_BODY, isActive: false }));
+
+    const response = await PATCH(...patchRequest(LEGACY_ID, { ...BASE_BODY, isActive: true }));
+
+    expect(response.status).toBe(200);
+  });
 });
