@@ -1,3 +1,10 @@
+## [1.79.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.79.1...v1.79.2) (2026-08-21)
+
+
+### Bug Fixes
+
+* **booking:** align customer state semantics ([0fa53a7](https://github.com/SniperStopSniping/nailsalon/commit/0fa53a7dda9fd8136aa9e6527b288293aed38a2d))
+
 ## [1.79.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.79.0...v1.79.1) (2026-08-21)
 
 
