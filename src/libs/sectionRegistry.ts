@@ -1,256 +1,143 @@
-/**
- * Section registry (Luster UI/UX plan rev 3, section 4A.B).
- *
- * 12 registered modules — the closed `SectionId` set from `@/libs/bookingPageConfig`
- * (PR 2), imported rather than redefined here. Each entry exports its `id`,
- * the variant keys actually implemented in this PR, and a `canRender`
- * predicate over `SalonContent` (`@/libs/salonContent`).
- *
- * "A section whose content requirement fails is omitted, never rendered as
- * an empty frame" — every `canRender` below is the enforcement of that rule
- * for its section, not documentation of it.
- *
- * `serviceMenu` hosts the ONE shared booking engine and is never re-authored
- * per layout — this registry only decides WHETHER a section may render, never
- * HOW; the actual JSX for each section lives with its consumer (Quick Book's
- * consumer is `BookServiceClient.tsx`, which renders `serviceMenu` as a
- * single opaque, unmodified block — see that file's own comments).
- */
-
 import type { SectionId } from '@/libs/bookingPageConfig';
 import type { SalonContent } from '@/libs/salonContent';
 
-export type SectionRegistryEntry = {
-  id: SectionId;
-  /**
-   * Variant keys actually built in this PR — deliberately at most one today
-   * ("build only the one variant Quick Book actually uses per section for
-   * now"). The plan's other documented v1 variants per section are listed as
-   * comments, not implemented, so a future PR extends this array rather than
-   * guessing at a shape.
-   */
-  variants: readonly string[];
-  canRender: (content: SalonContent) => boolean;
+export type ContentSectionId = SectionId | 'announcement' | 'bookingFacts';
+export type SectionReadiness = 'ready' | 'partial' | 'missing' | 'invalid' | 'unsupported';
+export type SectionPublicOutcome = 'render' | 'render_partial' | 'omit';
+export type ProtectedCapability = 'identity' | 'serviceDiscovery' | 'bookingAccess';
+export type PublicSurfaceClassification = 'content' | 'systemAffordance' | 'bookingFlowControl' | 'unsupported';
+export type PublicSurfaceInventoryEntry = {
+  classification: PublicSurfaceClassification;
+  sectionId?: ContentSectionId;
+  reason: string;
 };
+export type SectionDecision = { id: ContentSectionId; configuredOrder: number | null; ownerHidden: boolean; readiness: SectionReadiness; publicOutcome: SectionPublicOutcome; capabilities: readonly ProtectedCapability[]; classification: 'content' | 'systemCompatibility' };
+export type SectionDecisionPlan = {
+  orderedIds: SectionId[];
+  decisions: Record<ContentSectionId, SectionDecision>;
+  unfulfilledCapabilities: ProtectedCapability[];
+};
+export type SectionDecisionInput = { order: readonly SectionId[]; hiddenSections: readonly SectionId[]; content: SalonContent; announcement?: string | null };
+type ReadinessResolver = (input: SectionDecisionInput) => SectionReadiness;
+export type SectionRegistryEntry = { id: ContentSectionId; variants: readonly string[]; capabilities: readonly ProtectedCapability[]; classification: 'content' | 'systemCompatibility'; ownerConfigurable: boolean; resolveReadiness: ReadinessResolver };
+
+/** Closed inventory of public booking-page surfaces, including non-content chrome. */
+export const PUBLIC_SURFACE_INVENTORY = {
+  salonProfile: { classification: 'content', sectionId: 'salonProfile', reason: 'Public salon identity.' },
+  technicianProfile: { classification: 'content', sectionId: 'technicianProfile', reason: 'Public technician story.' },
+  featuredServices: { classification: 'content', sectionId: 'featuredServices', reason: 'Curated service content.' },
+  serviceMenu: { classification: 'content', sectionId: 'serviceMenu', reason: 'Protected service discovery.' },
+  hoursLocation: { classification: 'content', sectionId: 'hoursLocation', reason: 'Public visit context.' },
+  policies: { classification: 'content', sectionId: 'policies', reason: 'Service-page policy content.' },
+  socialLinks: { classification: 'content', sectionId: 'socialLinks', reason: 'Salon-authored social content.' },
+  announcement: { classification: 'content', sectionId: 'announcement', reason: 'Salon-authored booking message.' },
+  bookingFacts: { classification: 'content', sectionId: 'bookingFacts', reason: 'Salon-authored booking facts on service and confirmation pages.' },
+  whatsIncluded: { classification: 'unsupported', sectionId: 'whatsIncluded', reason: 'No canonical inclusions data path.' },
+  technicianList: { classification: 'unsupported', sectionId: 'technicianList', reason: 'Registered for compatibility; no public renderer.' },
+  portfolio: { classification: 'unsupported', sectionId: 'portfolio', reason: 'No public-safe portfolio projection.' },
+  reviews: { classification: 'unsupported', sectionId: 'reviews', reason: 'No featured-review projection.' },
+  bookingCtaCompatibility: { classification: 'systemAffordance', sectionId: 'bookingCta', reason: 'Symbolic hard-floor ID; emits no pixels.' },
+  editorialStickyBookingCta: { classification: 'systemAffordance', reason: 'Viewport-fixed booking access governed by scroll and booking state.' },
+  selectedServiceContinueBar: { classification: 'systemAffordance', reason: 'Viewport-fixed booking access governed by selection state.' },
+  appointmentSummaryCard: { classification: 'bookingFlowControl', reason: 'Appointment summary on technician and time steps, governed by selected booking state.' },
+  bookingProgressHeader: { classification: 'bookingFlowControl', reason: 'Progress/back controls governed by booking flow.' },
+  serviceSelectionControls: { classification: 'bookingFlowControl', reason: 'Search, category and selection controls inside the protected service engine.' },
+  smartFitAvailabilitySection: { classification: 'bookingFlowControl', reason: 'Availability recommendation governed by time-selection state.' },
+  confirmationPolicyDisclosure: { classification: 'bookingFlowControl', reason: 'Checkout acknowledgment disclosure governed by booking policy, not page ordering.' },
+  depositDisclosure: { classification: 'bookingFlowControl', reason: 'System financial disclosure deliberately independent from salon booking facts.' },
+} as const satisfies Record<string, PublicSurfaceInventoryEntry>;
 
 function hasText(value: string | null | undefined): boolean {
-  return Boolean(value && value.trim() !== '');
+  return Boolean(value?.trim());
 }
 
-/**
- * The one canonical resolution of "what does the Visit section (hoursLocation)
- * actually have to show" — the same address/city fallback
- * (`place.address` → primary location → nothing) BookServiceClient.tsx's
- * editorial `hoursLocation` renderer performs to build its address paragraph.
- * Exported and shared (rather than duplicated) so `canRender` below and that
- * renderer's own guard can never independently drift the way they did before
- * this was extracted: `canRender` used to allow `content.place.hours` alone
- * to satisfy it even though no renderer anywhere puts `hours` on the page,
- * which produced a `<h2>Visit</h2>` frame with nothing under it whenever a
- * salon had hours but no address. `hours` is deliberately excluded here for
- * the same reason — this predicate reflects what actually renders, not what
- * data happens to exist.
- */
-export function resolveVisitContent(content: SalonContent): {
-  resolvedAddress: string | null;
-  resolvedCity: string | null;
-  hasVisitableContent: boolean;
-} {
+export function resolveVisitContent(content: SalonContent): { resolvedAddress: string | null; resolvedCity: string | null; hasVisitableContent: boolean } {
   const { address, locations, entranceInstructions } = content.place;
   const primaryLocation = locations.find(location => location.isPrimary) ?? locations[0] ?? null;
   const resolvedAddress = address?.address ?? primaryLocation?.address ?? null;
   const resolvedCity = address?.city ?? primaryLocation?.city ?? null;
-  const hasAddress = Boolean(resolvedAddress || resolvedCity);
-  return {
-    resolvedAddress,
-    resolvedCity,
-    hasVisitableContent: hasAddress || Boolean(entranceInstructions),
-  };
+  return { resolvedAddress, resolvedCity, hasVisitableContent: Boolean(resolvedAddress || resolvedCity || entranceInstructions) };
 }
 
-export const SECTION_REGISTRY: Record<SectionId, SectionRegistryEntry> = {
-  salonProfile: {
-    id: 'salonProfile',
-    // 'hero' added in PR 6 (Editorial's hero/profile band, with a
-    // documented fallback to the 'compact' identity band when no hero image
-    // is set). Future: portrait.
-    variants: ['compact', 'hero'],
-    // "name (always satisfiable)" — a resolved salon always has a name.
-    canRender: content => hasText(content.identity.name),
-  },
+function quickFactState(content: SalonContent): SectionReadiness {
+  const enabled = Object.values(content.policies.quickFacts).filter(fact => fact.enabled);
+  if (enabled.length === 0) {
+    return 'missing';
+  }
+  const meaningful = enabled.filter(fact => hasText(fact.label));
+  if (meaningful.length === 0) {
+    return 'invalid';
+  }
+  return meaningful.length < enabled.length ? 'partial' : 'ready';
+}
 
-  technicianProfile: {
-    id: 'technicianProfile',
-    // 'full' added in PR 6 (Editorial's About section: avatar, name,
-    // specialties, languages, bio).
-    variants: ['card', 'full'],
-    // "≥1 tech with bio or avatar".
-    canRender: content =>
-      content.people.technicians.some(
-        technician => hasText(technician.bio) || hasText(technician.avatarUrl),
-      ),
-  },
-
-  featuredServices: {
-    id: 'featuredServices',
-    // Future: grid.
-    variants: ['carousel'],
-    // "≥1 featured service". In Quick Book this PR, featured services stay
-    // structurally embedded inside the serviceMenu opaque block (the
-    // existing booking-engine JSX already renders them there) — this entry
-    // exists for canRender/testing and for future layouts that render
-    // featuredServices as its own standalone section.
-    canRender: content => content.catalog.featuredServices.length > 0,
-  },
-
-  serviceMenu: {
-    id: 'serviceMenu',
-    // Future: imageGrid, dense.
-    variants: ['list'],
-    // Non-removable (PR 2's REQUIRED_SECTION_IDS) — always renderable. With
-    // zero services the existing booking engine already renders its own
-    // "not ready yet" empty state rather than nothing, so the section itself
-    // is never omitted.
-    canRender: () => true,
-  },
-
-  whatsIncluded: {
-    id: 'whatsIncluded',
-    // Future: bullets, prose.
-    variants: [],
-    // Data gap 17 (plan section 11): no per-service inclusions field exists
-    // yet, and SalonContent (this PR) does not carry one. Always omitted
-    // until that field exists — never guessed at from description text.
-    canRender: () => false,
-  },
-
-  technicianList: {
-    id: 'technicianList',
-    // Future: avatars, profileCards.
-    variants: [],
-    // "≥2 technicians".
-    canRender: content => content.people.technicians.length >= 2,
-  },
-
-  portfolio: {
-    id: 'portfolio',
-    // Future: grid, masonry, strip.
-    variants: [],
-    // "curated images" — PR 10. content.proof.portfolio is always empty in
-    // this PR, so this always resolves false (correctly omitted).
-    canRender: content => content.proof.portfolio.length > 0,
-  },
-
-  reviews: {
-    id: 'reviews',
-    // Future: quotes, compact.
-    variants: [],
-    // "genuine featured review rows" — PR 10. Always empty in this PR.
-    canRender: content => content.proof.reviews.length > 0,
-  },
-
-  hoursLocation: {
-    id: 'hoursLocation',
-    // 'full' added in PR 6 (Editorial's Visit section: location, hours, and
-    // entrance instructions when present).
-    variants: ['compact', 'full'],
-    // "resolved address/city, or entrance instructions" — see
-    // resolveVisitContent above. Post-launch fix: this used to also accept
-    // `content.place.hours !== null` and `content.place.locations.length > 0`
-    // on their own, which allowed canRender to pass (and, combined with the
-    // renderer's own separately-drifted guard, actually render) an empty
-    // `<h2>Visit</h2>` frame for a salon with hours/locations but no
-    // renderable address text and no entrance instructions — nothing in
-    // either layout has ever put raw `hours` on the page.
-    canRender: content => resolveVisitContent(content).hasVisitableContent,
-  },
-
-  policies: {
-    id: 'policies',
-    // Future: collapsed.
-    variants: ['inline'],
-    // "policy enabled AND shown on the service page" — mirrors
-    // bookingExperience.policy.{enabled,showOnServicePage}, the existing
-    // per-content toggles (this section governs placement only, per the
-    // plan's "does not duplicate existing content switches" rule). Post-launch
-    // fix: `showOnServicePage` used to be checked by Quick Book's own embedded
-    // policy card but not here, so an owner who turned it off was obeyed on
-    // Quick Book and ignored on Editorial (whose dedicated `policies`
-    // renderer is gated by this registry entry) — one owner setting, one
-    // enforcement point, not a per-layout fork.
-    canRender: content => content.policies.policy.enabled === true
-      && content.policies.policy.showOnServicePage === true,
-  },
-
-  socialLinks: {
-    id: 'socialLinks',
-    // Future: labelled.
-    variants: ['icons'],
-    // "≥1 link".
-    canRender: content => Boolean(
-      content.social.instagram || content.social.facebook || content.social.tiktok,
-    ),
-  },
-
-  bookingCta: {
-    id: 'bookingCta',
-    // Future: inline, both.
-    variants: ['sticky'],
-    // Floor-protected in `REQUIRED_SECTION_IDS`, and `canRender` is
-    // unconditionally true.
-    //
-    // S6 (Stage 1) comment correction: this previously called it "the only
-    // always-available entry point into booking". That overstates what the id
-    // does. `bookingCta` is a key in NEITHER renderer map in
-    // `BookServiceClient.tsx`, so it emits no pixels of its own; the booking
-    // affordances the customer actually uses are rendered outside the
-    // section-order flow entirely. The id is retained for floor compatibility.
-    // Anything reasoning about guaranteed booking access should reason about
-    // those affordances and about `serviceMenu`, not about this entry.
-    canRender: () => true,
-  },
+const SECTION_DEFINITIONS: Record<ContentSectionId, SectionRegistryEntry> = {
+  salonProfile: { id: 'salonProfile', variants: ['compact', 'hero'], capabilities: ['identity'], classification: 'content', ownerConfigurable: false, resolveReadiness: ({ content }) => hasText(content.identity.name) ? 'ready' : 'invalid' },
+  technicianProfile: { id: 'technicianProfile', variants: ['card', 'full'], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => content.people.technicians.some(t => hasText(t.bio) || hasText(t.avatarUrl)) ? 'ready' : 'missing' },
+  featuredServices: { id: 'featuredServices', variants: ['carousel'], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => content.catalog.featuredServices.length > 0 ? 'ready' : 'missing' },
+  serviceMenu: { id: 'serviceMenu', variants: ['list'], capabilities: ['serviceDiscovery'], classification: 'content', ownerConfigurable: false, resolveReadiness: ({ content }) => content.catalog.services.length > 0 ? 'ready' : 'partial' },
+  whatsIncluded: { id: 'whatsIncluded', variants: [], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: () => 'unsupported' },
+  technicianList: { id: 'technicianList', variants: [], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: () => 'unsupported' },
+  portfolio: { id: 'portfolio', variants: [], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: () => 'unsupported' },
+  reviews: { id: 'reviews', variants: [], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: () => 'unsupported' },
+  hoursLocation: { id: 'hoursLocation', variants: ['compact', 'full'], capabilities: ['identity'], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => resolveVisitContent(content).hasVisitableContent ? 'ready' : 'missing' },
+  policies: { id: 'policies', variants: ['inline'], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => {
+    const policy = content.policies.policy;
+    if (!policy.enabled || !policy.showOnServicePage) {
+      return 'missing';
+    }
+    return hasText(policy.text) ? 'ready' : 'partial';
+  } },
+  socialLinks: { id: 'socialLinks', variants: ['icons'], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => Object.values(content.social).some(hasText) ? 'ready' : 'missing' },
+  bookingCta: { id: 'bookingCta', variants: ['sticky'], capabilities: ['bookingAccess'], classification: 'systemCompatibility', ownerConfigurable: false, resolveReadiness: () => 'ready' },
+  announcement: { id: 'announcement', variants: ['inline'], capabilities: [], classification: 'content', ownerConfigurable: false, resolveReadiness: ({ announcement }) => hasText(announcement) ? 'ready' : 'missing' },
+  bookingFacts: { id: 'bookingFacts', variants: ['badges'], capabilities: [], classification: 'content', ownerConfigurable: false, resolveReadiness: ({ content }) => quickFactState(content) },
 };
 
-/**
- * Filters a resolved `sectionOrder` (e.g. `bookingPage.{draft,live}.sectionOrder`
- * from `@/libs/bookingPageConfig`) down to the ids that are simultaneously:
- * NOT present in the resolved `hiddenSections` (e.g. the same side's
- * `.hiddenSections`), registered, and satisfying their own
- * `canRender(content)` — the ONE canonical section-visibility rule.
- * `SectionOrderRenderer` (`@/components/booking/SectionOrderRenderer`) is
- * this function's production caller, so this is the single choke point both
- * a draft owner-preview render and a live public render go through — never
- * two competing "is this section visible" algorithms.
- *
- * `hiddenSections` is trusted as already having gone through
- * `validateSectionOrder` (`@/libs/bookingPageConfig`) — the one place
- * `salonProfile`/`serviceMenu`/`bookingCta` are stripped out and can never be
- * hidden. This function deliberately does NOT re-implement that floor (no
- * second rule): every real caller (`resolveBookingPageConfig` →
- * `SalonProvider` → `BookServiceClient`) only ever hands this function an
- * already-validated `hiddenSections`, so none of the three ever actually
- * appear in it in production.
- */
-export function resolveVisibleSectionOrder(
-  order: readonly SectionId[],
-  hiddenSections: readonly SectionId[],
-  content: SalonContent,
-): SectionId[] {
-  const hiddenSet = new Set(hiddenSections);
-  return order.filter((id) => {
-    if (hiddenSet.has(id)) {
-      return false;
-    }
-    const entry = SECTION_REGISTRY[id];
-    return entry !== undefined && entry.canRender(content);
-  });
+function publicOutcome(id: ContentSectionId, readiness: SectionReadiness, ownerHidden: boolean): SectionPublicOutcome {
+  if (ownerHidden || readiness === 'missing' || readiness === 'invalid' || readiness === 'unsupported') {
+    return 'omit';
+  }
+  if (readiness === 'partial') {
+    return id === 'serviceMenu' || id === 'bookingFacts' ? 'render_partial' : 'omit';
+  }
+  return 'render';
 }
 
-// Exported for tests/documentation that want to assert registry completeness
-// against the PR 2 SectionId union. Derived from this registry's own keys
-// (rather than importing bookingPageConfig's runtime SECTION_IDS constant)
-// so this module only depends on that one for its *type*, keeping it free of
-// bookingPageConfig's own server-only DB import chain.
-export const REGISTERED_SECTION_IDS: readonly SectionId[] = Object.keys(
-  SECTION_REGISTRY,
-) as SectionId[];
+export const SECTION_REGISTRY = Object.fromEntries(
+  Object.values(SECTION_DEFINITIONS).map(entry => [entry.id, {
+    ...entry,
+    /** @deprecated Production visibility must use resolveSectionDecisionPlan. */
+    canRender: (content: SalonContent) => publicOutcome(entry.id, entry.resolveReadiness({ order: [], hiddenSections: [], content }), false) !== 'omit',
+  }]),
+) as Record<ContentSectionId, SectionRegistryEntry & { canRender: (content: SalonContent) => boolean }>;
+
+/** The sole public content visibility/readiness owner. Pure, DB-free and tenant-neutral. */
+export function resolveSectionDecisionPlan(input: SectionDecisionInput): SectionDecisionPlan {
+  const hidden = new Set(input.hiddenSections);
+  const orderIndex = new Map(input.order.map((id, index) => [id, index]));
+  const decisions = {} as Record<ContentSectionId, SectionDecision>;
+  for (const entry of Object.values(SECTION_REGISTRY)) {
+    const configuredOrder = orderIndex.get(entry.id as SectionId) ?? null;
+    const ownerHidden = entry.ownerConfigurable && hidden.has(entry.id as SectionId);
+    const readiness = entry.resolveReadiness(input);
+    decisions[entry.id] = { id: entry.id, configuredOrder, ownerHidden, readiness, publicOutcome: publicOutcome(entry.id, readiness, ownerHidden), capabilities: entry.capabilities, classification: entry.classification };
+  }
+  const orderedIds = input.order.filter(id => Boolean(decisions[id]) && decisions[id].publicOutcome !== 'omit');
+  const providedCapabilities = new Set(
+    orderedIds.flatMap(id => decisions[id].capabilities),
+  );
+  const unfulfilledCapabilities = (['identity', 'serviceDiscovery', 'bookingAccess'] as ProtectedCapability[])
+    .filter(capability => !providedCapabilities.has(capability));
+  return { orderedIds, decisions, unfulfilledCapabilities };
+}
+
+export function shouldRenderSection(plan: SectionDecisionPlan, id: ContentSectionId): boolean {
+  return plan.decisions[id].publicOutcome !== 'omit';
+}
+export const REGISTERED_SECTION_IDS: readonly ContentSectionId[] = Object.keys(SECTION_REGISTRY) as ContentSectionId[];
+
+/** @deprecated Compatibility seam for tests/older callers; delegates to the canonical plan. */
+export function resolveVisibleSectionOrder(order: readonly SectionId[], hiddenSections: readonly SectionId[], content: SalonContent): SectionId[] {
+  return resolveSectionDecisionPlan({ order, hiddenSections, content }).orderedIds;
+}

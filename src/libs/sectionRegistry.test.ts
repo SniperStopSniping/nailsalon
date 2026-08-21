@@ -3,12 +3,12 @@ import { describe, expect, it } from 'vitest';
 import type { SectionId } from '@/libs/bookingPageConfig';
 import { EMPTY_SALON_CONTENT, type SalonContent } from '@/libs/salonContent';
 
-import { REGISTERED_SECTION_IDS, resolveVisibleSectionOrder, resolveVisitContent, SECTION_REGISTRY } from './sectionRegistry';
+import { type ContentSectionId, REGISTERED_SECTION_IDS, resolveVisibleSectionOrder, resolveVisitContent, SECTION_REGISTRY } from './sectionRegistry';
 
 // Kept independent of `SECTION_IDS` from bookingPageConfig.ts (which pulls in
 // a server-only DB import chain this test file does not want) — this is the
 // same 12-id literal list the plan's section registry table enumerates.
-const ALL_SECTION_IDS: SectionId[] = [
+const ALL_SECTION_IDS: ContentSectionId[] = [
   'salonProfile',
   'technicianProfile',
   'featuredServices',
@@ -21,6 +21,8 @@ const ALL_SECTION_IDS: SectionId[] = [
   'policies',
   'socialLinks',
   'bookingCta',
+  'announcement',
+  'bookingFacts',
 ];
 
 const QUICK_BOOK_ORDER: SectionId[] = [
@@ -37,7 +39,7 @@ function withContent(overrides: Partial<SalonContent>): SalonContent {
 }
 
 describe('SECTION_REGISTRY', () => {
-  it('covers exactly the 12 SectionId values', () => {
+  it('covers every stored section plus the two governed legacy embedded sections', () => {
     expect(Object.keys(SECTION_REGISTRY).sort()).toEqual([...ALL_SECTION_IDS].sort());
     expect(REGISTERED_SECTION_IDS.slice().sort()).toEqual([...ALL_SECTION_IDS].sort());
   });
@@ -91,7 +93,7 @@ describe('SECTION_REGISTRY', () => {
     expect(SECTION_REGISTRY.featuredServices.canRender(content)).toBe(true);
   });
 
-  it('technicianList requires at least two technicians', () => {
+  it('keeps technicianList unsupported until a public renderer exists', () => {
     const oneTech = withContent({
       people: { technicians: [{ id: 't1', name: 'Ava', bio: null, avatarUrl: null, specialties: [], languages: [], rating: null, reviewCount: 0, skillLevel: null, acceptingNewClients: true }] },
     });
@@ -107,7 +109,12 @@ describe('SECTION_REGISTRY', () => {
       },
     });
 
-    expect(SECTION_REGISTRY.technicianList.canRender(twoTechs)).toBe(true);
+    expect(SECTION_REGISTRY.technicianList.canRender(twoTechs)).toBe(false);
+    expect(SECTION_REGISTRY.technicianList.resolveReadiness({
+      order: ['technicianList'],
+      hiddenSections: [],
+      content: twoTechs,
+    })).toBe('unsupported');
   });
 
   it('policies mirrors bookingExperience.policy.enabled — placement, not a second content switch', () => {
@@ -115,7 +122,7 @@ describe('SECTION_REGISTRY', () => {
 
     expect(SECTION_REGISTRY.policies.canRender(disabled)).toBe(false);
 
-    const enabled = withContent({ policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true } } });
+    const enabled = withContent({ policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true, showOnServicePage: true, text: 'Policy' } } });
 
     expect(SECTION_REGISTRY.policies.canRender(enabled)).toBe(true);
   });
@@ -294,7 +301,7 @@ describe('resolveVisibleSectionOrder', () => {
   it('renders the full Quick Book order against a fully populated SalonContent when nothing is hidden', () => {
     const content = withContent({
       identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
-      policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true } },
+      policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true, showOnServicePage: true, text: 'Policy' } },
       social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
       catalog: {
         ...EMPTY_SALON_CONTENT.catalog,
@@ -347,7 +354,7 @@ describe('resolveVisibleSectionOrder', () => {
   it('omits a hidden section even though it passes canRender', () => {
     const content = withContent({
       identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
-      policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true } },
+      policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true, showOnServicePage: true, text: 'Policy' } },
       social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
     });
 
@@ -360,7 +367,7 @@ describe('resolveVisibleSectionOrder', () => {
   it('omits multiple hidden sections at once, independent of canRender', () => {
     const content = withContent({
       identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
-      policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true } },
+      policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true, showOnServicePage: true, text: 'Policy' } },
       social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
       catalog: {
         ...EMPTY_SALON_CONTENT.catalog,

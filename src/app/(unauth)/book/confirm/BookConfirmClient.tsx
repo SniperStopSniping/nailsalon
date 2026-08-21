@@ -31,6 +31,8 @@ import { buildGoogleMapsDirectionsUrl, openGoogleMapsDirections } from '@/libs/d
 import { formatMoney } from '@/libs/formatMoney';
 import { triggerHaptic } from '@/libs/haptics';
 import { computeEarnedPointsFromCents } from '@/libs/pointsCalculation';
+import { EMPTY_SALON_CONTENT } from '@/libs/salonContent';
+import { resolveSectionDecisionPlan, shouldRenderSection } from '@/libs/sectionRegistry';
 import {
   buildSmartFitExpectationFields,
   buildSmartFitSuggestionContextKey,
@@ -383,6 +385,7 @@ const PolicyCard = ({
 
   return (
     <section
+      data-public-surface="confirmationPolicyDisclosure"
       data-testid={isCompact
         ? 'booking-policy-after-confirmation'
         : 'booking-policy-before-confirmation'}
@@ -445,23 +448,36 @@ const QuickFactBadges = ({
    */
   suppressDepositNotice?: boolean;
 }) => {
+  const effectiveQuickFacts: ConfirmationQuickFacts = suppressDepositNotice
+    ? {
+        ...quickFacts,
+        depositNotice: { ...quickFacts.depositNotice, enabled: false },
+      }
+    : quickFacts;
+  const bookingFactsPlan = resolveSectionDecisionPlan({
+    order: [],
+    hiddenSections: [],
+    content: {
+      ...EMPTY_SALON_CONTENT,
+      policies: { ...EMPTY_SALON_CONTENT.policies, quickFacts: effectiveQuickFacts },
+    },
+  });
   const enabledFacts = [
-    { key: 'appointmentOnly', ...quickFacts.appointmentOnly },
-    ...(suppressDepositNotice
-      ? []
-      : [{ key: 'depositNotice', ...quickFacts.depositNotice }]),
-    { key: 'cancellationNotice', ...quickFacts.cancellationNotice },
+    { key: 'appointmentOnly', ...effectiveQuickFacts.appointmentOnly },
+    { key: 'depositNotice', ...effectiveQuickFacts.depositNotice },
+    { key: 'cancellationNotice', ...effectiveQuickFacts.cancellationNotice },
   ].filter(
     (fact): fact is { key: string; enabled: true; label: string } =>
-      fact.enabled && typeof fact.label === 'string' && fact.label.length > 0,
-  );
+      fact.enabled && typeof fact.label === 'string' && fact.label.trim().length > 0,
+  ).map(fact => ({ ...fact, label: fact.label.trim() }));
 
-  if (enabledFacts.length === 0) {
+  if (!shouldRenderSection(bookingFactsPlan, 'bookingFacts')) {
     return null;
   }
 
   return (
     <ul
+      data-public-surface="bookingFacts"
       data-testid="booking-quick-facts"
       aria-label="Booking quick facts"
       className="flex flex-wrap gap-2"
@@ -1135,6 +1151,7 @@ const ConfirmContent = ({
   return (
     <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
       <nav
+        data-public-surface="bookingProgressHeader"
         className="fixed inset-x-0 top-0 z-40 flex items-center justify-between border-b px-5 pb-2 pt-12 backdrop-blur-md"
         style={{
           backgroundColor: 'color-mix(in srgb, var(--n5-bg-page) 80%, transparent)',
@@ -1418,6 +1435,7 @@ const ConfirmContent = ({
           */}
           {depositDisclosure && (
             <p
+              data-public-surface="depositDisclosure"
               data-testid="booking-deposit-disclosure"
               className="font-body rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-sm text-[var(--n5-ink-main)]"
             >
@@ -1639,6 +1657,7 @@ const SuccessContent = ({
     <div className="min-h-screen bg-[var(--n5-bg-page)]" style={{ fontFamily: n5.fontBody }}>
       {/* Navbar */}
       <nav
+        data-public-surface="bookingProgressHeader"
         className="fixed inset-x-0 top-0 z-40 flex items-center justify-between border-b px-5 pb-2 pt-12 backdrop-blur-md"
         style={{
           backgroundColor: 'color-mix(in srgb, var(--n5-bg-page) 80%, transparent)',

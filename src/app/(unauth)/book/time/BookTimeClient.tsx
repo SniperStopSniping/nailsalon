@@ -1079,6 +1079,7 @@ export function BookTimeClient({
             {/* Smart Fit qualifying times (P7.3) — server-derived offers only */}
             {hasSmartFitSlots && !loadingSlots && (
               <section
+                data-public-surface="smartFitAvailabilitySection"
                 ref={smartFitSlotsRef}
                 tabIndex={-1}
                 aria-label={SMART_FIT_SECTION_TITLE}
