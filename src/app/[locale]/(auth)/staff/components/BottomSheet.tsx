@@ -62,6 +62,7 @@ export function BottomSheet({
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
   const isDraggingRef = useRef(false);
+  const activePointerIdRef = useRef<number | null>(null);
   const startYRef = useRef(0);
   const currentYRef = useRef(0);
   const previousOverflowRef = useRef<string>('');
@@ -69,11 +70,22 @@ export function BottomSheet({
   const renderedSnapRef = useRef<OpenSnapPoint>(renderedSnap);
   renderedSnapRef.current = renderedSnap;
 
+  const releasePointerCapture = useCallback(() => {
+    const pointerId = activePointerIdRef.current;
+    const handle = resizeHandleRef.current;
+    activePointerIdRef.current = null;
+    if (pointerId === null || !handle?.hasPointerCapture?.(pointerId)) {
+      return;
+    }
+    handle.releasePointerCapture(pointerId);
+  }, []);
+
   const cancelDrag = useCallback(() => {
+    releasePointerCapture();
     isDraggingRef.current = false;
     setIsDragging(false);
     setDragOffset(0);
-  }, []);
+  }, [releasePointerCapture]);
 
   const closeSheet = useCallback(() => {
     cancelDrag();
@@ -122,36 +134,31 @@ export function BottomSheet({
     setCurrentSnap(nextSnap);
   }, [closeSheet]);
 
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    if (!touch) {
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || isDraggingRef.current) {
       return;
     }
-    startYRef.current = touch.clientY;
-    currentYRef.current = touch.clientY;
+
+    activePointerIdRef.current = event.pointerId;
+    startYRef.current = event.clientY;
+    currentYRef.current = event.clientY;
     isDraggingRef.current = true;
     setIsDragging(true);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
   }, []);
 
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!isDraggingRef.current) {
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current || activePointerIdRef.current !== event.pointerId) {
       return;
     }
 
-    const touch = e.touches[0];
-    if (!touch) {
-      return;
-    }
-
-    const currentY = touch.clientY;
+    const currentY = event.clientY;
     const deltaY = currentY - startYRef.current;
     currentYRef.current = currentY;
-
-    // Only allow dragging down (positive deltaY) or up (negative deltaY)
     setDragOffset(deltaY);
   }, []);
 
-  const handleTouchEnd = useCallback(() => {
+  const commitPointerDrag = useCallback(() => {
     if (!isDraggingRef.current) {
       return;
     }
@@ -210,8 +217,19 @@ export function BottomSheet({
     commitSnap(newSnap);
   }, [commitSnap]);
 
-  const handleTouchEndRef = useRef(handleTouchEnd);
-  handleTouchEndRef.current = handleTouchEnd;
+  const handlePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (activePointerIdRef.current !== event.pointerId) {
+      return;
+    }
+    releasePointerCapture();
+    commitPointerDrag();
+  }, [commitPointerDrag, releasePointerCapture]);
+
+  const handlePointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (activePointerIdRef.current === event.pointerId) {
+      cancelDrag();
+    }
+  }, [cancelDrag]);
 
   const handleResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     const currentIndex = RESIZABLE_SNAPS.indexOf(renderedSnap);
@@ -232,43 +250,6 @@ export function BottomSheet({
       commitSnap(nextSnap);
     }
   }, [commitSnap, renderedSnap]);
-
-  // =============================================================================
-  // Mouse Handlers (for desktop testing)
-  // =============================================================================
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    startYRef.current = e.clientY;
-    currentYRef.current = e.clientY;
-    isDraggingRef.current = true;
-    setIsDragging(true);
-  }, []);
-
-  // Track the full desktop gesture at the window level. A meaningful resize moves
-  // beyond the 44px handle, so handle-local mousemove events are not sufficient.
-  useEffect(() => {
-    const handleGlobalMouseMove = (event: MouseEvent) => {
-      if (!isDraggingRef.current) {
-        return;
-      }
-
-      currentYRef.current = event.clientY;
-      setDragOffset(event.clientY - startYRef.current);
-    };
-
-    const handleGlobalMouseUp = () => {
-      if (isDraggingRef.current) {
-        handleTouchEndRef.current();
-      }
-    };
-
-    window.addEventListener('mousemove', handleGlobalMouseMove);
-    window.addEventListener('mouseup', handleGlobalMouseUp);
-    return () => {
-      window.removeEventListener('mousemove', handleGlobalMouseMove);
-      window.removeEventListener('mouseup', handleGlobalMouseUp);
-    };
-  }, []);
 
   // =============================================================================
   // Backdrop Click
@@ -339,12 +320,13 @@ export function BottomSheet({
           aria-valuemax={SNAP_HEIGHTS.full}
           aria-valuenow={SNAP_HEIGHTS[renderedSnap]}
           aria-valuetext={`${SNAP_LABELS[renderedSnap]}, ${SNAP_HEIGHTS[renderedSnap]}% of viewport`}
-          className="flex h-11 min-h-11 cursor-grab items-center justify-center rounded-t-3xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#4B2E1E] active:cursor-grabbing"
+          className="flex h-11 min-h-11 cursor-grab touch-none items-center justify-center rounded-t-3xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#4B2E1E] active:cursor-grabbing"
           onKeyDown={handleResizeKeyDown}
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onMouseDown={handleMouseDown}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
+          onLostPointerCapture={handlePointerCancel}
         >
           <div
             className="h-1 w-10 rounded-full"

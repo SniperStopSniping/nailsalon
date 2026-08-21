@@ -7,6 +7,16 @@ import { BottomSheet } from './BottomSheet';
 
 const noop = () => {};
 
+function dispatchPointer(
+  target: Element,
+  type: 'pointerdown' | 'pointermove' | 'pointerup',
+  { pointerId, clientY, button = 0 }: { pointerId: number; clientY: number; button?: number },
+) {
+  const event = new MouseEvent(type, { bubbles: true, button, clientY });
+  Object.defineProperty(event, 'pointerId', { value: pointerId });
+  fireEvent(target, event);
+}
+
 function Harness({ onClose = noop }: { onClose?: () => void }) {
   const [open, setOpen] = useState(false);
   return (
@@ -93,17 +103,17 @@ describe('BottomSheet', () => {
     // A browser can deliver the first move before React commits the visual
     // dragging state. Gesture ownership therefore needs synchronous ref state.
     act(() => {
-      handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientY: 300 }));
-      window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientY: 140 }));
-      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientY: 140 }));
+      dispatchPointer(handle, 'pointerdown', { pointerId: 1, clientY: 300 });
+      dispatchPointer(handle, 'pointermove', { pointerId: 1, clientY: 140 });
+      dispatchPointer(handle, 'pointerup', { pointerId: 1, clientY: 140 });
     });
 
     await waitFor(() => expect(sheet).toHaveAttribute('data-snap-point', 'full'));
 
     act(() => {
-      handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientY: 140 }));
-      window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientY: 300 }));
-      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientY: 300 }));
+      dispatchPointer(handle, 'pointerdown', { pointerId: 2, clientY: 140 });
+      dispatchPointer(handle, 'pointermove', { pointerId: 2, clientY: 300 });
+      dispatchPointer(handle, 'pointerup', { pointerId: 2, clientY: 300 });
     });
 
     await waitFor(() => expect(sheet).toHaveAttribute('data-snap-point', 'half'));
@@ -122,9 +132,9 @@ describe('BottomSheet', () => {
 
     expect(handle).toHaveAttribute('aria-valuenow', '30');
 
-    fireEvent.mouseDown(handle, { clientY: 100 });
-    fireEvent.mouseMove(handle, { clientY: 240 });
-    fireEvent.mouseUp(handle, { clientY: 240 });
+    dispatchPointer(handle, 'pointerdown', { pointerId: 3, clientY: 100 });
+    dispatchPointer(handle, 'pointermove', { pointerId: 3, clientY: 240 });
+    dispatchPointer(handle, 'pointerup', { pointerId: 3, clientY: 240 });
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
@@ -136,10 +146,10 @@ describe('BottomSheet', () => {
     await user.click(screen.getByRole('button', { name: 'Open details' }));
 
     const handle = await screen.findByRole('slider', { name: 'Resize Appointment details' });
-    fireEvent.mouseDown(handle, { clientY: 200 });
-    fireEvent.mouseMove(window, { clientY: 330 });
+    dispatchPointer(handle, 'pointerdown', { pointerId: 4, clientY: 200 });
+    dispatchPointer(handle, 'pointermove', { pointerId: 4, clientY: 330 });
     fireEvent.keyDown(window, { key: 'Escape' });
-    fireEvent.mouseUp(window, { clientY: 330 });
+    dispatchPointer(handle, 'pointerup', { pointerId: 4, clientY: 330 });
 
     await waitFor(() => {
       expect(screen.queryByRole('dialog', { name: 'Appointment details' })).not.toBeInTheDocument();
