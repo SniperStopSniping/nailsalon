@@ -424,7 +424,7 @@ const PolicyCard = ({
               aria-controls={contentId}
               aria-expanded={expanded}
               onClick={() => setExpanded(current => !current)}
-              className="font-body mt-2 rounded-sm text-xs font-semibold text-[var(--n5-ink-main)] underline decoration-current underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--n5-ink-main)]"
+              className="font-body mt-2 inline-flex min-h-11 items-center rounded-sm text-xs font-semibold text-[var(--n5-ink-main)] underline decoration-current underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--n5-ink-main)]"
             >
               {expanded ? 'Show less' : 'View full policy'}
             </button>
@@ -913,7 +913,7 @@ const DepositHoldNotice = ({
       </p>
       {resumeUrl && (
         <a
-          className="mt-3 inline-flex rounded-full bg-stone-950 px-5 py-2.5 text-sm font-semibold text-white"
+          className="mt-3 inline-flex min-h-11 items-center rounded-full bg-stone-950 px-5 py-2.5 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
           href={resumeUrl}
         >
           Continue payment
@@ -1164,14 +1164,14 @@ const ConfirmContent = ({
             triggerHaptic('select');
             onEditSelection();
           }}
-          className="font-body text-sm font-medium text-[var(--n5-ink-muted)]"
+          className="font-body inline-flex min-h-11 min-w-11 items-center text-sm font-medium text-[var(--n5-ink-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
         >
           Edit
         </button>
         <span className="font-heading text-lg font-semibold tracking-tight text-[var(--n5-ink-main)]">
           Confirm
         </span>
-        <div className="w-10" />
+        <div className="w-11" />
       </nav>
 
       <main className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-28">
@@ -1256,7 +1256,7 @@ const ConfirmContent = ({
                     triggerHaptic('confirm');
                     handleAcceptSuggestion();
                   }}
-                  className="font-body rounded-xl bg-[var(--n5-accent)] px-4 py-2.5 text-sm font-bold text-[var(--n5-ink-inverse)] transition-all active:scale-[0.98]"
+                  className="font-body min-h-11 rounded-xl bg-[var(--n5-accent)] px-4 py-2.5 text-sm font-bold text-[var(--n5-ink-inverse)] transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:transform-none"
                 >
                   Choose this time
                 </button>
@@ -1266,7 +1266,7 @@ const ConfirmContent = ({
                     triggerHaptic('select');
                     handleDismissSuggestion();
                   }}
-                  className="font-body rounded-xl border border-emerald-300 px-4 py-2.5 text-sm font-semibold text-emerald-900 transition-all active:scale-[0.98]"
+                  className="font-body min-h-11 rounded-xl border border-emerald-300 px-4 py-2.5 text-sm font-semibold text-emerald-900 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:transform-none"
                 >
                   Keep my time
                 </button>
@@ -1770,7 +1770,7 @@ const SuccessContent = ({
                   </p>
                   <a
                     href={findBookingUrl}
-                    className="mt-3 inline-flex font-semibold text-[var(--n5-accent)] underline underline-offset-2"
+                    className="mt-3 inline-flex min-h-11 items-center font-semibold text-[var(--n5-accent)] underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                   >
                     Find my booking to receive a secure management link
                   </a>

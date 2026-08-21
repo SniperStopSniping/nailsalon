@@ -898,7 +898,7 @@ export function BookTimeClient({
 
         {/* Calendar Card */}
         <div
-          className="mb-4 overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)]"
+          className="mb-4 overflow-hidden rounded-2xl bg-white shadow-[0_4px_20px_rgba(0,0,0,0.06)] max-[339px]:-mx-3"
           style={{
             borderWidth: '1px',
             borderStyle: 'solid',
@@ -914,7 +914,7 @@ export function BookTimeClient({
               type="button"
               onClick={handlePrevMonth}
               aria-label="Previous month"
-              className="flex size-10 items-center justify-center rounded-full transition-all hover:bg-neutral-100 active:scale-95"
+              className="flex size-11 items-center justify-center rounded-full transition-all hover:bg-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95 motion-reduce:transition-none motion-reduce:active:transform-none"
             >
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M10 12L6 8L10 4" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -931,7 +931,7 @@ export function BookTimeClient({
               type="button"
               onClick={handleNextMonth}
               aria-label="Next month"
-              className="flex size-10 items-center justify-center rounded-full transition-all hover:bg-neutral-100 active:scale-95"
+              className="flex size-11 items-center justify-center rounded-full transition-all hover:bg-neutral-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95 motion-reduce:transition-none motion-reduce:active:transform-none"
             >
               <svg width="18" height="18" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
@@ -940,7 +940,7 @@ export function BookTimeClient({
           </div>
 
           {/* Day Names */}
-          <div className="grid grid-cols-7 px-4 pt-3">
+          <div className="grid grid-cols-7 px-4 pt-3 max-[339px]:px-0">
             {dayNames.map(day => (
               <div key={day.key} className="py-2 text-center text-xs font-bold text-neutral-400">
                 {day.label}
@@ -949,7 +949,7 @@ export function BookTimeClient({
           </div>
 
           {/* Calendar Grid */}
-          <div className="grid grid-cols-7 gap-1 px-4 pb-4">
+          <div className="grid grid-cols-7 px-4 pb-4 max-[339px]:px-0">
             {calendarDays.map(({ key, date }) => {
               if (!date) {
                 return <div key={key} className="h-11" />;
@@ -966,7 +966,7 @@ export function BookTimeClient({
                   data-testid={`calendar-day-${getDateKey(date)}`}
                   onClick={() => handleDateSelect(date)}
                   disabled={Boolean(isPast || loadingSlots || isSelected)}
-                  className="h-11 rounded-xl text-sm font-semibold transition-all duration-200"
+                  className="h-11 min-w-11 rounded-xl text-sm font-semibold transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:transition-none"
                   style={{
                     transform: isSelected ? 'scale(1.1)' : undefined,
                     zIndex: isSelected ? 10 : undefined,
@@ -1014,13 +1014,13 @@ export function BookTimeClient({
             description={availabilityError.message}
             action={availabilityError.canReselectTechnician
               ? (
-                  <button type="button" onClick={handleChooseAnotherTechnician} className="mt-2 rounded-full bg-red-900 px-5 py-2.5 text-sm font-semibold text-white">
+                  <button type="button" onClick={handleChooseAnotherTechnician} className="mt-2 min-h-11 rounded-full bg-red-900 px-5 py-2.5 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
                     Choose another technician
                   </button>
                 )
               : availabilityError.canRetry
                 ? (
-                    <button type="button" onClick={() => selectedDate && void fetchBookedSlots(selectedDate)} className="mt-2 rounded-full bg-red-900 px-5 py-2.5 text-sm font-semibold text-white">
+                    <button type="button" onClick={() => selectedDate && void fetchBookedSlots(selectedDate)} className="mt-2 min-h-11 rounded-full bg-red-900 px-5 py-2.5 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
                       Retry
                     </button>
                   )
@@ -1039,7 +1039,7 @@ export function BookTimeClient({
               : 'This day is fully booked.'}
             description={nextAvailableMessage || 'Choose another date or let Luster find the next opening.'}
             action={(
-              <button type="button" onClick={() => void findNextAvailableDate()} disabled={findingNextAvailable} className="mt-2 rounded-full bg-amber-900 px-5 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+              <button type="button" onClick={() => void findNextAvailableDate()} disabled={findingNextAvailable} className="mt-2 min-h-11 rounded-full bg-amber-900 px-5 py-2.5 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:opacity-60">
                 {findingNextAvailable ? 'Checking the next 30 days…' : 'Find next available'}
               </button>
             )}
