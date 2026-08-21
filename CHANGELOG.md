@@ -1,3 +1,10 @@
+## [1.79.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.79.2...v1.79.3) (2026-08-21)
+
+
+### Bug Fixes
+
+* **booking:** satisfy current public UIQI semantics ([c512426](https://github.com/SniperStopSniping/nailsalon/commit/c512426f2642be8d17d91dffa40644fc3a9ba877))
+
 ## [1.79.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.79.1...v1.79.2) (2026-08-21)
 
 
