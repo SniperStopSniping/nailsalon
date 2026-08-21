@@ -85,7 +85,7 @@ async function expectPracticalBookingTargets(page: Page): Promise<TargetMeasurem
   });
 
   const unnamed = targets.filter(target => !target.label);
-  const undersized = targets.filter(target => target.width < 43.5 || target.height < 43.5);
+  const undersized = targets.filter(target => target.width < 44 || target.height < 44);
 
   expect(unnamed, 'Every visible booking target needs an accessible name or visible label.').toEqual([]);
   expect(undersized, `Sub-44px booking targets: ${JSON.stringify(undersized)}`).toEqual([]);
