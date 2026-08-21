@@ -56,7 +56,7 @@ export function BookingStepHeader({
             type="button"
             onClick={onBack}
             aria-label="Go back"
-            className="z-10 flex size-10 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 active:scale-95"
+            className="z-10 flex size-11 items-center justify-center rounded-full transition-all duration-200 hover:bg-white/60 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-95 motion-reduce:transition-none motion-reduce:active:transform-none"
           >
             <svg width="22" height="22" viewBox="0 0 20 20" fill="none" aria-hidden="true">
               <path d="M12.5 15L7.5 10L12.5 5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />

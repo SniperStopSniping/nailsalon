@@ -118,12 +118,29 @@ test('iPhone Safari keeps upcoming appointment actions and edit controls reachab
       });
 
       await openAdminBookings(page);
-      await openAdminAppointmentSheet(page, appointment.id, appointment.dateString);
+      await page.emulateMedia({ reducedMotion: 'reduce' });
+      const opener = await openAdminAppointmentSheet(page, appointment.id, appointment.dateString);
 
       const sheet = page.getByTestId('appointment-quick-edit-sheet');
       const actions = sheet.getByTestId('upcoming-appointment-actions');
       const scrollRegion = sheet.getByTestId('appointment-sheet-scroll-region');
       const close = sheet.getByTestId('appointment-sheet-close');
+      const focusable = sheet.locator(
+        'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      const firstFocusable = focusable.first();
+      const lastFocusable = focusable.last();
+
+      await expect.poll(() => sheet.evaluate(element => element.contains(document.activeElement))).toBe(true);
+      await expect(firstFocusable).toBeFocused();
+
+      await page.keyboard.press('Shift+Tab');
+
+      await expect(lastFocusable).toBeFocused();
+
+      await page.keyboard.press('Tab');
+
+      await expect(firstFocusable).toBeFocused();
 
       await expect(actions).toBeVisible();
       await expect(actions.getByRole('button', { name: 'Call', exact: true })).toBeVisible();
@@ -156,9 +173,10 @@ test('iPhone Safari keeps upcoming appointment actions and edit controls reachab
       expect(Math.abs(closeAfterScroll!.y - closeBeforeScroll!.y)).toBeLessThanOrEqual(2);
       expect(reminderRequests).toEqual([]);
 
-      await close.click();
+      await page.keyboard.press('Escape');
 
       await expect(sheet).toBeHidden();
+      await expect(opener).toBeFocused();
     } finally {
       await customerContext.close();
     }

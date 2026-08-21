@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import React from 'react';
+import userEvent from '@testing-library/user-event';
+import React, { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { AppointmentManageDetail } from '@/libs/appointmentManage';
@@ -106,6 +107,42 @@ const baseDetail: AppointmentManageDetail = {
 };
 
 describe('AppointmentQuickEditSheet', () => {
+  it('uses the shared focus lifecycle and restores the invoking control', async () => {
+    const user = userEvent.setup();
+
+    function QuickEditHarness() {
+      const [isOpen, setIsOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setIsOpen(true)}>Open quick edit</button>
+          <AppointmentQuickEditSheet
+            isOpen={isOpen}
+            onClose={() => setIsOpen(false)}
+            detail={baseDetail}
+            loading={false}
+            saving={false}
+            actionError={null}
+            onSaveEdits={vi.fn(async () => {})}
+            onMoveToNextAvailable={vi.fn(async () => {})}
+            onCancelAppointment={vi.fn(async () => {})}
+            onMarkCompleted={vi.fn(async () => {})}
+            onStartAppointment={vi.fn(async () => {})}
+          />
+        </>
+      );
+    }
+
+    render(<QuickEditHarness />);
+    const opener = screen.getByRole('button', { name: 'Open quick edit' });
+    await user.click(opener);
+
+    const sheet = await screen.findByTestId('appointment-quick-edit-sheet');
+    await waitFor(() => expect(sheet).toContainElement(document.activeElement as HTMLElement));
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+
   it('shows the canonical tax-inclusive estimate and deposit credit instead of the booked subtotal mutant', () => {
     render(
       <AppointmentQuickEditSheet

@@ -77,11 +77,11 @@ export default async function SlugTenantLayout({
           >
             Free booking by
             {' '}
-            <a href="https://lusterstudio.ca" className="font-semibold text-stone-700 underline underline-offset-2">Luster</a>
+            <a href="https://lusterstudio.ca" className="inline-flex min-h-11 min-w-11 items-center justify-center font-semibold text-stone-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Luster</a>
             <span className="mx-2">·</span>
-            <a href={`/${params.locale}/${params.slug}/find-booking`} className="font-semibold text-stone-700 underline underline-offset-2">Find my booking</a>
+            <a href={`/${params.locale}/${params.slug}/find-booking`} className="inline-flex min-h-11 items-center font-semibold text-stone-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Find my booking</a>
             <span className="mx-2">·</span>
-            <a href={`${getCanonicalAppOrigin()}/owner`} className="font-semibold text-stone-700 underline underline-offset-2">Salon owner login</a>
+            <a href={`${getCanonicalAppOrigin()}/owner`} className="inline-flex min-h-11 items-center font-semibold text-stone-700 underline underline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">Salon owner login</a>
           </footer>
         )}
       </SalonProvider>

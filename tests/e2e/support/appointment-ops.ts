@@ -435,12 +435,14 @@ export async function openAdminAppointmentSheet(page: Page, appointmentId: strin
     await appointment.click();
     await waitForSheet(page);
 
-    return;
+    return appointment;
   }
 
   const block = await getAppointmentBlock(page, appointmentId);
   await block.click();
   await waitForSheet(page);
+
+  return block;
 }
 
 export async function openStaffAppointmentSheet(page: Page, appointmentId: string, dateString: string) {

@@ -473,6 +473,7 @@ function DayDetailPanel({
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: idx * 0.05 }}
                         data-testid={isCrmAppointment ? `day-detail-appointment-${appt.id}` : `day-detail-google-${appt.id}`}
+                        data-dialog-return-focus-key={isCrmAppointment ? `appointment-${appt.id}` : undefined}
                         role={isCrmAppointment ? 'button' : undefined}
                         tabIndex={isCrmAppointment ? 0 : undefined}
                         onClick={isCrmAppointment ? () => onSelectAppointment(appt.id) : undefined}

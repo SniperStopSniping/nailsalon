@@ -154,6 +154,7 @@ export function ChangeSalonSlugModal({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const wasOpen = useRef(false);
+  const slugInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const justOpened = isOpen && !wasOpen.current;
@@ -255,6 +256,7 @@ export function ChangeSalonSlugModal({
     <DialogShell
       isOpen={isOpen}
       onClose={handleClose}
+      initialFocusRef={slugInputRef}
       closeOnBackdrop={!saving}
       closeOnEscape={!saving}
       maxWidthClassName="max-w-lg"
@@ -303,7 +305,7 @@ export function ChangeSalonSlugModal({
               Website address
             </label>
             <input
-              autoFocus
+              ref={slugInputRef}
               id="salon-website-slug"
               type="text"
               value={slugInput}

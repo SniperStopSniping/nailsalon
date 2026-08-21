@@ -1313,7 +1313,7 @@ export function BookServiceClient({
                   transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
                 }}
               >
-                <Card className="flex items-center px-4 py-3 shadow-sm">
+                <Card className="flex items-center px-4 py-0.5 shadow-sm">
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" className="mr-3 text-neutral-400">
                     <circle cx="11" cy="11" r="8" stroke="currentColor" strokeWidth="2" />
                     <path d="M21 21L16.65 16.65" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
@@ -1324,14 +1324,14 @@ export function BookServiceClient({
                     onChange={e => setSearchQuery(e.target.value)}
                     onFocus={handleSearchFocus}
                     placeholder="Search services..."
-                    className="h-auto flex-1 border-0 bg-transparent p-0 text-base text-neutral-800 shadow-none focus-visible:ring-0"
+                    className="h-11 flex-1 border-0 bg-transparent p-0 text-base text-neutral-800 shadow-none focus-visible:ring-0"
                   />
                   {searchQuery && (
                     <button
                       type="button"
                       onClick={() => setSearchQuery('')}
                       aria-label="Clear search"
-                      className="ml-2 flex size-6 items-center justify-center rounded-full bg-neutral-100 transition-colors hover:bg-neutral-200"
+                      className="ml-2 flex size-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 transition-colors hover:bg-neutral-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:transition-none"
                     >
                       <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                         <path d="M9 3L3 9M3 3L9 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -1365,7 +1365,7 @@ export function BookServiceClient({
                   <button
                     type="button"
                     onClick={() => setShowLocationFallbackToast(false)}
-                    className="ml-2 text-amber-600 hover:text-amber-800"
+                    className="ml-2 flex size-11 shrink-0 items-center justify-center rounded-full text-amber-600 hover:text-amber-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
                     aria-label="Dismiss"
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
@@ -1690,7 +1690,7 @@ export function BookServiceClient({
                                       triggerHaptic('select');
                                     }
                                   }}
-                                  className={`flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 md:gap-2 md:px-5 ${
+                                  className={`flex min-h-11 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3.5 py-2.5 text-sm font-semibold transition-all duration-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 motion-reduce:transition-none md:gap-2 md:px-5 ${
                                     active && hasBookingBrandColor
                                       ? 'bg-[var(--booking-brand-primary)] text-[var(--booking-brand-foreground)]'
                                       : ''
@@ -1970,7 +1970,7 @@ export function BookServiceClient({
                                                       type="button"
                                                       onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, quantity - 1) : Math.max(0, quantity - 1))}
                                                       disabled={isRequired ? quantity <= 1 : quantity <= 0}
-                                                      className="flex size-7 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                                      className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
                                                     >
                                                       -
                                                     </button>
@@ -1981,7 +1981,7 @@ export function BookServiceClient({
                                                       type="button"
                                                       onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, Math.max(quantity, 0) + 1))}
                                                       disabled={quantity >= maxQuantity}
-                                                      className="flex size-7 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 disabled:cursor-not-allowed disabled:opacity-40"
+                                                      className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
                                                     >
                                                       +
                                                     </button>
@@ -1992,7 +1992,7 @@ export function BookServiceClient({
                                                     type="button"
                                                     onClick={() => handleAddOnToggle(addOn.id)}
                                                     disabled={isRequired}
-                                                    className="rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors disabled:cursor-not-allowed"
+                                                    className="min-h-11 min-w-11 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none"
                                                     style={{
                                                       backgroundColor: isSelected || isRequired
                                                         ? hasBookingBrandColor
@@ -2225,7 +2225,7 @@ export function BookServiceClient({
                       <a
                         href="#services"
                         data-testid="editorial-hero-book-cta"
-                        className="rounded-full px-6 py-2.5 text-sm font-bold shadow-lg lg:px-8 lg:py-3 lg:text-base"
+                        className="inline-flex min-h-11 items-center rounded-full px-6 py-2.5 text-sm font-bold shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 lg:px-8 lg:py-3 lg:text-base"
                         style={{ background: themeVars.accent, color: '#1a1a1a' }}
                       >
                         Book appointment
@@ -2233,7 +2233,7 @@ export function BookServiceClient({
                       <a
                         href="#services"
                         data-testid="editorial-skip-to-services"
-                        className="text-xs font-medium text-white/80 underline underline-offset-4 lg:text-sm"
+                        className="inline-flex min-h-11 items-center text-xs font-medium text-white/80 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 lg:text-sm"
                       >
                         Skip to services ↓
                       </a>
@@ -2478,7 +2478,7 @@ export function BookServiceClient({
               type="button"
               onClick={handleContinue}
               data-testid="service-continue-button"
-              className={`flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg active:scale-[0.98] sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
+              className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-[14px] font-bold shadow-md transition-all hover:scale-[1.02] hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:hover:transform-none motion-reduce:active:transform-none sm:gap-2 sm:px-5 sm:py-2.5 sm:text-[15px] ${
                 hasBookingBrandColor
                   ? 'text-[var(--booking-brand-foreground)]'
                   : 'text-neutral-900'

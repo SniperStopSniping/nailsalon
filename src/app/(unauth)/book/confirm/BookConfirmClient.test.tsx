@@ -1325,7 +1325,19 @@ describe('BookConfirmClient', () => {
       expect(suggestion).toHaveTextContent('10:30 AM · $58.50 instead of $65.00');
       expect(screen.getAllByTestId('smart-fit-suggestion')).toHaveLength(1);
 
-      fireEvent.click(screen.getByRole('button', { name: 'Choose this time' }));
+      const accept = screen.getByRole('button', { name: 'Choose this time' });
+      const dismiss = screen.getByRole('button', { name: 'Keep my time' });
+
+      expect(accept).toHaveClass(
+        'motion-reduce:transition-none',
+        'motion-reduce:active:transform-none',
+      );
+      expect(dismiss).toHaveClass(
+        'motion-reduce:transition-none',
+        'motion-reduce:active:transform-none',
+      );
+
+      fireEvent.click(accept);
 
       expect(routerReplace).toHaveBeenCalledTimes(1);
 
