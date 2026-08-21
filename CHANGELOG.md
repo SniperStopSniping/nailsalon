@@ -1,3 +1,10 @@
+## [1.79.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.79.0...v1.79.1) (2026-08-21)
+
+
+### Bug Fixes
+
+* **a11y:** repair booking focus and touch targets ([763d010](https://github.com/SniperStopSniping/nailsalon/commit/763d0105e980a4e220dbf1d07e7006228cba6a9f))
+
 # [1.79.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.78.1...v1.79.0) (2026-08-21)
 
 
