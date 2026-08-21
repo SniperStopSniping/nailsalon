@@ -12,9 +12,10 @@
  */
 
 import { useParams, useRouter } from 'next/navigation';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ModuleSkeleton, StaffBottomNav, StaffHeader, UpgradeRequiredState } from '@/components/staff';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { useStaffCapabilities } from '@/hooks/useStaffCapabilities';
 import { useSalon } from '@/providers/SalonProvider';
 import { themeVars } from '@/theme';
@@ -367,7 +368,7 @@ function OverrideCard({
 }: {
   override: ScheduleOverride;
   onEdit: (override: ScheduleOverride) => void;
-  onDelete: (id: string) => void;
+  onDelete: () => void;
   isDeleting: boolean;
 }) {
   const formatDate = (dateStr: string) => {
@@ -415,15 +416,15 @@ function OverrideCard({
         <button
           type="button"
           onClick={() => onEdit(override)}
-          className="rounded-lg px-2 py-1 text-sm text-neutral-600 transition-colors hover:bg-neutral-100"
+          className="min-h-11 rounded-lg px-3 py-2 text-sm text-neutral-600 transition-colors hover:bg-neutral-100"
         >
           Edit
         </button>
         <button
           type="button"
-          onClick={() => onDelete(override.id)}
+          onClick={onDelete}
           disabled={isDeleting}
-          className="rounded-lg px-2 py-1 text-sm text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
+          className="min-h-11 rounded-lg px-3 py-2 text-sm text-red-500 transition-colors hover:bg-red-50 disabled:opacity-50"
         >
           Remove
         </button>
@@ -859,6 +860,8 @@ export default function StaffSchedulePage() {
   const [editingOverride, setEditingOverride] = useState<ScheduleOverride | null>(null);
   const [savingOverride, setSavingOverride] = useState(false);
   const [deletingOverrideId, setDeletingOverrideId] = useState<string | null>(null);
+  const [overridePendingDeletion, setOverridePendingDeletion] = useState<ScheduleOverride | null>(null);
+  const overrideDeleteInFlightRef = useRef(false);
   const [overridesUpgradeRequired, setOverridesUpgradeRequired] = useState(false);
 
   // Module capabilities
@@ -1093,6 +1096,10 @@ export default function StaffSchedulePage() {
 
   // Delete schedule override
   const handleDeleteOverride = async (id: string) => {
+    if (overrideDeleteInFlightRef.current) {
+      return;
+    }
+    overrideDeleteInFlightRef.current = true;
     setDeletingOverrideId(id);
     try {
       const response = await fetch(`/api/staff/overrides/${id}`, {
@@ -1101,10 +1108,12 @@ export default function StaffSchedulePage() {
 
       if (response.ok) {
         setOverrides(prev => prev.filter(o => o.id !== id));
+        setOverridePendingDeletion(null);
       }
     } catch (error) {
       console.error('Failed to delete override:', error);
     } finally {
+      overrideDeleteInFlightRef.current = false;
       setDeletingOverrideId(null);
     }
   };
@@ -1295,7 +1304,7 @@ export default function StaffSchedulePage() {
                                             key={override.id}
                                             override={override}
                                             onEdit={handleEditOverride}
-                                            onDelete={handleDeleteOverride}
+                                            onDelete={() => setOverridePendingDeletion(override)}
                                             isDeleting={deletingOverrideId === override.id}
                                           />
                                         ))}
@@ -1361,6 +1370,22 @@ export default function StaffSchedulePage() {
       </div>
 
       <StaffBottomNav activeItem="schedule" />
+      <ConfirmDialog
+        isOpen={overridePendingDeletion !== null}
+        title="Remove this schedule change?"
+        description={overridePendingDeletion
+          ? `The saved change for ${overridePendingDeletion.date} will be permanently removed.`
+          : undefined}
+        confirmLabel="Remove schedule change"
+        tone="danger"
+        busy={deletingOverrideId !== null}
+        onClose={() => setOverridePendingDeletion(null)}
+        onConfirm={() => {
+          if (overridePendingDeletion) {
+            void handleDeleteOverride(overridePendingDeletion.id);
+          }
+        }}
+      />
     </div>
   );
 }

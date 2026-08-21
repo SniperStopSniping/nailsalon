@@ -4,6 +4,7 @@ import Image from 'next/image';
 import { useParams, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 
+import { DialogShell } from '@/components/ui/dialog-shell';
 import { appointmentStatusChipClasses, formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import { formatMoney } from '@/libs/formatMoney';
 import { useSalon } from '@/providers/SalonProvider';
@@ -638,19 +639,15 @@ export default function StaffClientProfilePage() {
       </div>
 
       {/* Photo Lightbox */}
-      {selectedPhoto && (
-        <div
-          role="button"
-          tabIndex={0}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4"
-          onClick={() => setSelectedPhoto(null)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              setSelectedPhoto(null);
-            }
-          }}
-        >
-          <div className="relative max-h-[90vh] max-w-[90vw]">
+      <DialogShell
+        isOpen={selectedPhoto !== null}
+        onClose={() => setSelectedPhoto(null)}
+        maxWidthClassName="max-w-[90vw]"
+        contentClassName="relative max-h-[90vh]"
+        overlayClassName="bg-black/90"
+      >
+        {selectedPhoto && (
+          <div role="dialog" aria-modal="true" aria-label="Photo preview">
             <Image
               src={selectedPhoto}
               alt="Full size"
@@ -660,14 +657,15 @@ export default function StaffClientProfilePage() {
             />
             <button
               type="button"
+              aria-label="Close photo preview"
               onClick={() => setSelectedPhoto(null)}
-              className="absolute -right-2 -top-2 flex size-8 items-center justify-center rounded-full bg-white text-lg shadow-lg"
+              className="absolute -right-2 -top-2 flex size-11 items-center justify-center rounded-full bg-white text-lg shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
             >
               ×
             </button>
           </div>
-        </div>
-      )}
+        )}
+      </DialogShell>
     </div>
   );
 }

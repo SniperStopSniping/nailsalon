@@ -11,7 +11,7 @@
  * - Approve/Deny actions with confirmation
  */
 
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import {
   AlertTriangle,
   Calendar,
@@ -23,6 +23,8 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
+
+import { DialogShell } from '@/components/ui/dialog-shell';
 
 // =============================================================================
 // TYPES
@@ -192,6 +194,9 @@ function RequestRow({
 
   return (
     <motion.div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="time-off-request-details-title"
       initial={{ opacity: 0, x: -10 }}
       animate={{ opacity: 1, x: 0 }}
       className="flex min-h-[72px] cursor-pointer items-center pl-4 transition-colors active:bg-gray-50"
@@ -294,20 +299,20 @@ function RequestDetailPanel({
       animate={{ x: 0 }}
       exit={{ x: '100%' }}
       transition={{ type: 'spring', damping: 30, stiffness: 300 }}
-      className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col bg-white shadow-2xl"
+      className="flex size-full flex-col bg-white shadow-2xl"
     >
       {/* Header */}
       <div className="flex h-[56px] items-center justify-between border-b border-gray-100 px-4">
         <button
           type="button"
           onClick={onClose}
-          className="text-[17px] font-medium text-[#007AFF]"
+          className="min-h-11 px-2 text-[17px] font-medium text-[#007AFF]"
         >
           Close
         </button>
-        <span className="text-[17px] font-semibold text-[#1C1C1E]">
+        <h2 id="time-off-request-details-title" className="text-[17px] font-semibold text-[#1C1C1E]">
           Request Details
-        </span>
+        </h2>
         <div className="w-12" />
       </div>
 
@@ -631,26 +636,24 @@ export function TimeOffRequestsInbox() {
       </div>
 
       {/* Detail Panel */}
-      <AnimatePresence>
+      <DialogShell
+        isOpen={selectedRequest !== null}
+        onClose={() => setSelectedRequest(null)}
+        closeOnBackdrop={!isSubmitting}
+        closeOnEscape={!isSubmitting}
+        alignClassName="items-stretch justify-end p-0"
+        maxWidthClassName="max-w-md"
+        contentClassName="h-full max-h-full touch-pan-y overflow-hidden overscroll-contain bg-white"
+      >
         {selectedRequest && (
-          <>
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="fixed inset-0 z-40 bg-black/40"
-              onClick={() => setSelectedRequest(null)}
-            />
-            <RequestDetailPanel
-              request={selectedRequest}
-              onClose={() => setSelectedRequest(null)}
-              onDecision={handleDecision}
-              isSubmitting={isSubmitting}
-            />
-          </>
+          <RequestDetailPanel
+            request={selectedRequest}
+            onClose={() => setSelectedRequest(null)}
+            onDecision={handleDecision}
+            isSubmitting={isSubmitting}
+          />
         )}
-      </AnimatePresence>
+      </DialogShell>
     </div>
   );
 }

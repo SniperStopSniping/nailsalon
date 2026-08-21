@@ -83,7 +83,7 @@ function TabButton({
       type="button"
       data-testid={`staff-dashboard-tab-${id}`}
       onClick={() => onClick(id)}
-      className={`relative flex flex-1 items-center justify-center gap-2 rounded-xl border p-3 text-center text-sm font-semibold transition-all duration-200 ${
+      className={`relative flex min-w-0 flex-1 items-center justify-center gap-2 rounded-xl border px-2 py-3 text-center text-sm font-semibold transition-all duration-200 min-[340px]:p-3 ${
         isActive
           ? 'shadow-sm'
           : 'bg-white hover:bg-neutral-50'
@@ -607,26 +607,28 @@ export default function StaffDashboardPage() {
       </div>
 
       {/* Bottom Navigation */}
-      <StaffBottomNav activeItem="home" />
-
-      {/* Floating Action Bar */}
-      {!showActionBar && !showPhotoModal && !showDrawer && (
-        <FloatingActionBar
-          appointment={activeAppointment}
-          onOpenPhotos={() => {
-            if (activeAppointment) {
-              setSelectedAppointment(activeAppointment);
-              setShowPhotoModal(true);
-            }
-          }}
-          onOpenCheckout={() => {
-            if (activeAppointment) {
-              handleOpenActions(activeAppointment);
-            }
-          }}
-          onSuccess={fetchAppointments}
-        />
-      )}
+      <StaffBottomNav
+        activeItem="home"
+        action={!showActionBar && !showPhotoModal && !showDrawer
+          ? (
+              <FloatingActionBar
+                appointment={activeAppointment}
+                onOpenPhotos={() => {
+                  if (activeAppointment) {
+                    setSelectedAppointment(activeAppointment);
+                    setShowPhotoModal(true);
+                  }
+                }}
+                onOpenCheckout={() => {
+                  if (activeAppointment) {
+                    handleOpenActions(activeAppointment);
+                  }
+                }}
+                onSuccess={fetchAppointments}
+              />
+            )
+          : undefined}
+      />
 
       {/* Action Bar Modal */}
       {showActionBar && selectedAppointment && (
@@ -643,6 +645,7 @@ export default function StaffDashboardPage() {
       <BottomSheet
         isOpen={showDrawer}
         onClose={handleCloseDrawer}
+        ariaLabel="Appointment details"
         initialSnap="half"
       >
         {selectedAppointment && (

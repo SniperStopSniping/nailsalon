@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 
+import { DialogShell } from '@/components/ui/dialog-shell';
 import type { ReviewFollowupAction } from '@/libs/reviewFollowup';
 
 // Cappuccino tokens (match ActionBar)
@@ -80,15 +81,34 @@ export function ReviewFollowupModal({ appointmentId, clientName, onDone }: Props
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 sm:items-center">
+    <DialogShell
+      isOpen
+      onClose={onDone}
+      closeOnBackdrop={false}
+      closeOnEscape={submitting === null}
+      alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
+      maxWidthClassName="max-w-md"
+      contentClassName="max-h-[90vh] touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl shadow-2xl sm:rounded-2xl"
+    >
       <div
-        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-2xl shadow-2xl sm:rounded-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="review-followup-title"
+        className="w-full"
         style={{ backgroundColor: c.cardBg }}
       >
         <div className="p-6">
           <div className="mb-1 flex items-center justify-between">
-            <h2 className="text-xl font-semibold" style={{ color: c.title }}>Appointment completed ✓</h2>
-            <button type="button" onClick={onDone} className="text-2xl text-neutral-400 hover:text-neutral-600">×</button>
+            <h2 id="review-followup-title" className="text-xl font-semibold" style={{ color: c.title }}>Appointment completed ✓</h2>
+            <button
+              type="button"
+              aria-label="Close review follow-up"
+              onClick={onDone}
+              disabled={submitting !== null}
+              className="flex size-11 items-center justify-center rounded-lg text-2xl text-neutral-400 hover:text-neutral-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4B2E1E] disabled:opacity-50"
+            >
+              ×
+            </button>
           </div>
 
           {error && (
@@ -177,7 +197,7 @@ export function ReviewFollowupModal({ appointmentId, clientName, onDone }: Props
               )}
         </div>
       </div>
-    </div>
+    </DialogShell>
   );
 }
 

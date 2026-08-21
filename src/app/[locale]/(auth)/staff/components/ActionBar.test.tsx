@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -162,5 +163,54 @@ describe('ActionBar', () => {
     await waitFor(() => {
       expect(onClose).toHaveBeenCalled();
     });
+  });
+
+  it('confirms appointment cancellation before one existing transition mutation', async () => {
+    const user = userEvent.setup();
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(JSON.stringify({ data: {} }), { status: 200 })));
+    vi.stubGlobal('fetch', fetchMock);
+    const onClose = vi.fn();
+
+    render(
+      <ActionBar
+        appointment={{
+          id: 'appt_cancel',
+          clientPhone: '+14165551234',
+          status: 'confirmed',
+          canvasState: 'waiting',
+          technicianId: 'tech_1',
+          clientName: 'Ava',
+          startTime: '2026-03-20T10:00:00.000Z',
+          endTime: '2026-03-20T11:15:00.000Z',
+          totalPrice: 6500,
+          services: [{ name: 'BIAB Short' }],
+          photos: [],
+        }}
+        onOpenPhotos={vi.fn()}
+        onClose={onClose}
+      />,
+    );
+
+    const cancelAppointment = await screen.findByRole('button', { name: 'Cancel Appointment' });
+    await user.click(cancelAppointment);
+
+    expect(screen.getByText('Cancel Ava\'s appointment?')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await user.click(screen.getByTestId('confirm-dialog-cancel'));
+    await waitFor(() => expect(cancelAppointment).toHaveFocus());
+
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    await user.click(cancelAppointment);
+    await user.click(screen.getByTestId('confirm-dialog-confirm'));
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/appointments/appt_cancel/transition', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ to: 'cancelled' }),
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

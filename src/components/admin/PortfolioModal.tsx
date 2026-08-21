@@ -3,6 +3,7 @@
 import { AlertTriangle, Check, ImagePlus, Loader2, Trash2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   ASSIGNABLE_DISCOVER_NAIL_LENGTHS,
   ASSIGNABLE_DISCOVER_SERVICE_FAMILIES,
@@ -84,6 +85,8 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [photoPendingDeletion, setPhotoPendingDeletion] = useState<PortfolioPhoto | null>(null);
+  const photoDeleteInFlightRef = useRef(false);
 
   const load = useCallback(async () => {
     if (!salonSlug) {
@@ -164,10 +167,11 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
 
   const removePhoto = useCallback(
     async (photoId: string) => {
-      if (!salonSlug) {
+      if (!salonSlug || photoDeleteInFlightRef.current) {
         return;
       }
 
+      photoDeleteInFlightRef.current = true;
       setBusy(true);
 
       try {
@@ -176,7 +180,9 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
           { method: 'DELETE' },
         );
         await load();
+        setPhotoPendingDeletion(null);
       } finally {
+        photoDeleteInFlightRef.current = false;
         setBusy(false);
       }
     },
@@ -567,10 +573,10 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
                             </span>
                             <button
                               type="button"
-                              aria-label="Delete photo"
+                              aria-label={`Delete ${photo.altText || 'portfolio photo'}`}
                               disabled={busy}
-                              onClick={() => void removePhoto(photo.id)}
-                              className="p-1 text-gray-400 disabled:opacity-40"
+                              onClick={() => setPhotoPendingDeletion(photo)}
+                              className="flex size-11 items-center justify-center rounded-lg text-gray-400 hover:bg-red-50 hover:text-red-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-40"
                             >
                               <Trash2 className="size-4" aria-hidden="true" />
                             </button>
@@ -583,6 +589,22 @@ export function PortfolioModal({ onClose }: PortfolioModalProps) {
           </>
         )}
       </div>
+      <ConfirmDialog
+        isOpen={photoPendingDeletion !== null}
+        title="Delete this portfolio photo?"
+        description={photoPendingDeletion?.altText
+          ? `“${photoPendingDeletion.altText}” will be permanently removed.`
+          : 'This portfolio photo will be permanently removed.'}
+        confirmLabel="Delete photo"
+        tone="danger"
+        busy={busy}
+        onClose={() => setPhotoPendingDeletion(null)}
+        onConfirm={() => {
+          if (photoPendingDeletion) {
+            void removePhoto(photoPendingDeletion.id);
+          }
+        }}
+      />
     </div>
   );
 }

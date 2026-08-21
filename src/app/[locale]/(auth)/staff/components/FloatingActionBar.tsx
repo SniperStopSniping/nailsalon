@@ -140,16 +140,15 @@ export function FloatingActionBar({
 
   return (
     <div
-      className="fixed inset-x-0 bottom-20 z-50 flex justify-center px-4"
-      style={{
-        animation: 'slideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1)',
-      }}
+      data-testid="staff-floating-action"
+      data-staff-floating-action="true"
+      className="flex justify-center"
     >
       <button
         type="button"
         onClick={() => primaryAction?.action()}
         disabled={isLoading}
-        className="flex items-center gap-2 rounded-full px-6 py-3 shadow-lg transition-all active:scale-95 disabled:opacity-50"
+        className="flex min-h-11 items-center gap-2 rounded-full px-6 py-3 shadow-lg transition-all active:scale-95 disabled:opacity-50 motion-reduce:transform-none motion-reduce:transition-none"
         style={{
           backgroundColor: primaryAction.color,
           boxShadow: `0 8px 24px -8px ${primaryAction.color}80`,
@@ -180,6 +179,14 @@ export function FloatingActionBar({
           to {
             opacity: 1;
             transform: translateY(0);
+          }
+        }
+        [data-staff-floating-action='true'] {
+          animation: slideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+        }
+        @media (prefers-reduced-motion: reduce) {
+          [data-staff-floating-action='true'] {
+            animation: none;
           }
         }
       `}

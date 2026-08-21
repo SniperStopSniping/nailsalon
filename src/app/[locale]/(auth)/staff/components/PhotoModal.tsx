@@ -4,6 +4,8 @@ import { nanoid } from 'nanoid';
 import Image from 'next/image';
 import { useRef, useState } from 'react';
 
+import { DialogShell } from '@/components/ui/dialog-shell';
+
 import type { AppointmentData, AppointmentPhoto } from './StaffAppointmentCard';
 
 // =============================================================================
@@ -176,29 +178,27 @@ export function PhotoModal({ appointment, onClose }: PhotoModalProps) {
   const isUploading = beforeUpload.uploading || afterUpload.uploading;
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isUploading) {
-          onClose();
-        }
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape' && !isUploading) {
-          onClose();
-        }
-      }}
+    <DialogShell
+      isOpen
+      onClose={onClose}
+      closeOnBackdrop={!isUploading}
+      closeOnEscape={!isUploading}
+      alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
+      maxWidthClassName="max-w-md"
+      contentClassName="max-h-[90vh] touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl shadow-2xl sm:rounded-2xl"
     >
       <div
-        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-2xl shadow-2xl sm:rounded-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="staff-photos-title"
+        className="w-full"
         style={{ backgroundColor: cappuccino.cardBg }}
       >
         <div className="p-6">
           {/* Header */}
           <div className="mb-4 flex items-center justify-between">
             <h2
+              id="staff-photos-title"
               className="text-xl font-semibold"
               style={{ color: cappuccino.title }}
             >
@@ -206,9 +206,10 @@ export function PhotoModal({ appointment, onClose }: PhotoModalProps) {
             </h2>
             <button
               type="button"
+              aria-label="Close photos"
               onClick={onClose}
               disabled={isUploading}
-              className="text-2xl text-neutral-400 transition-colors hover:text-neutral-600 disabled:opacity-50"
+              className="flex size-11 items-center justify-center rounded-lg text-2xl text-neutral-400 transition-colors hover:text-neutral-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4B2E1E] disabled:opacity-50"
             >
               ×
             </button>
@@ -363,7 +364,7 @@ export function PhotoModal({ appointment, onClose }: PhotoModalProps) {
           </button>
         </div>
       </div>
-    </div>
+    </DialogShell>
   );
 }
 

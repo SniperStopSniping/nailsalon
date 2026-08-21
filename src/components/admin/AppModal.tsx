@@ -13,10 +13,11 @@
 
 import type { PanInfo } from 'framer-motion';
 import { AnimatePresence, motion, useAnimation, useDragControls } from 'framer-motion';
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import { useBodyScrollLock } from '@/hooks/useBodyScrollLock';
+import { useModalFocusLifecycle } from '@/hooks/useModalFocusLifecycle';
 
 // Dismiss threshold in pixels
 const DISMISS_THRESHOLD = 100;
@@ -45,25 +46,22 @@ export function AppModal({
   const controls = useAnimation();
   const dragControls = useDragControls();
   const [portalReady, setPortalReady] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setPortalReady(true);
   }, []);
 
-  // Close on escape key
-  useEffect(() => {
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && isOpen) {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [isOpen, onClose]);
-
   // Lock body scroll when modal is open
   useBodyScrollLock(isOpen);
+  useModalFocusLifecycle({
+    isOpen: isOpen && portalReady,
+    onClose,
+    rootRef: panelRef,
+    contentRef,
+    initialFocusRef: contentRef,
+  });
 
   const handleDragEnd = useCallback(
     (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
@@ -100,6 +98,11 @@ export function AppModal({
 
           {/* Modal */}
           <motion.div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-label={title}
+            data-modal-focus-root="true"
             data-testid="app-modal-panel"
             className="fixed inset-x-0 bottom-0 z-50 flex min-h-0 flex-col overflow-hidden rounded-t-[20px] bg-white shadow-2xl"
             initial={{ y: '100%' }}
@@ -147,6 +150,10 @@ export function AppModal({
 
             {/* Content */}
             <div
+              ref={contentRef}
+              tabIndex={-1}
+              data-dialog-initial-focus="true"
+              data-modal-focus-content="true"
               data-testid="app-modal-scroll-region"
               className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain"
             >

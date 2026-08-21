@@ -52,6 +52,7 @@ import {
   useState,
 } from 'react';
 
+import { DialogShell } from '@/components/ui/dialog-shell';
 import {
   BOOKING_EXPERIENCE_DEFAULTS,
   BOOKING_EXPERIENCE_LIMITS,
@@ -2025,22 +2026,31 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center">
+    <DialogShell
+      isOpen={isOpen}
+      onClose={onClose}
+      alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
+      maxWidthClassName="max-w-2xl"
+      contentClassName="max-h-[90vh] overflow-hidden rounded-t-[20px] bg-white shadow-xl supports-[height:100dvh]:max-h-[90dvh] sm:rounded-[20px]"
+    >
       <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="compare-plans-title"
         initial={{ opacity: 0, y: 100 }}
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: 100 }}
         transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-        className="max-h-[90vh] w-full max-w-2xl overflow-hidden rounded-t-[20px] bg-white shadow-xl supports-[height:100dvh]:max-h-[90dvh] sm:rounded-[20px]"
+        className="w-full"
       >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-          <h2 className="text-lg font-semibold text-gray-900">Compare Plans</h2>
+          <h2 id="compare-plans-title" className="text-lg font-semibold text-gray-900">Compare Plans</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close compare plans modal"
-            className="flex size-8 items-center justify-center rounded-full bg-gray-100 transition-colors hover:bg-gray-200"
+            className="flex size-11 items-center justify-center rounded-full bg-gray-100 transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950"
           >
             <X className="size-4 text-gray-600" />
           </button>
@@ -2091,7 +2101,7 @@ function ComparePlansModal({ isOpen, onClose }: ComparePlansModalProps) {
           </p>
         </div>
       </motion.div>
-    </div>
+    </DialogShell>
   );
 }
 

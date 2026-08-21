@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { useModalFocusLifecycle } from '@/hooks/useModalFocusLifecycle';
+
 // =============================================================================
 // Cappuccino Design Tokens
 // =============================================================================
@@ -16,13 +18,16 @@ const cappuccino = {
 // =============================================================================
 
 type SnapPoint = 'peek' | 'half' | 'full' | 'closed';
+type OpenSnapPoint = Exclude<SnapPoint, 'closed'>;
 
 type BottomSheetProps = {
   isOpen: boolean;
   onClose: () => void;
   children: React.ReactNode;
+  /** Accessible name for the sheet and its resize control. */
+  ariaLabel: string;
   /** Initial snap point when opening */
-  initialSnap?: SnapPoint;
+  initialSnap?: OpenSnapPoint;
 };
 
 // Snap point heights as percentage of viewport
@@ -31,6 +36,12 @@ const SNAP_HEIGHTS: Record<SnapPoint, number> = {
   half: 60,
   full: 92,
   closed: 0,
+};
+const RESIZABLE_SNAPS: SnapPoint[] = ['peek', 'half', 'full'];
+const SNAP_LABELS: Record<Exclude<SnapPoint, 'closed'>, string> = {
+  peek: 'Peek height',
+  half: 'Half height',
+  full: 'Full height',
 };
 
 // =============================================================================
@@ -41,15 +52,54 @@ export function BottomSheet({
   isOpen,
   onClose,
   children,
+  ariaLabel,
   initialSnap = 'half',
 }: BottomSheetProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
+  const resizeHandleRef = useRef<HTMLDivElement>(null);
   const [currentSnap, setCurrentSnap] = useState<SnapPoint>('closed');
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
+  const isDraggingRef = useRef(false);
+  const activePointerIdRef = useRef<number | null>(null);
   const startYRef = useRef(0);
   const currentYRef = useRef(0);
   const previousOverflowRef = useRef<string>('');
+  const renderedSnap: OpenSnapPoint = currentSnap === 'closed' ? initialSnap : currentSnap;
+  const renderedSnapRef = useRef<OpenSnapPoint>(renderedSnap);
+  renderedSnapRef.current = renderedSnap;
+
+  const releasePointerCapture = useCallback(() => {
+    const pointerId = activePointerIdRef.current;
+    const handle = resizeHandleRef.current;
+    activePointerIdRef.current = null;
+    if (pointerId === null || !handle?.hasPointerCapture?.(pointerId)) {
+      return;
+    }
+    handle.releasePointerCapture(pointerId);
+  }, []);
+
+  const cancelDrag = useCallback(() => {
+    releasePointerCapture();
+    isDraggingRef.current = false;
+    setIsDragging(false);
+    setDragOffset(0);
+  }, [releasePointerCapture]);
+
+  const closeSheet = useCallback(() => {
+    cancelDrag();
+    setCurrentSnap('closed');
+    onClose();
+  }, [cancelDrag, onClose]);
+
+  useModalFocusLifecycle({
+    isOpen,
+    onClose: closeSheet,
+    rootRef,
+    contentRef: sheetRef,
+    initialFocusRef: resizeHandleRef,
+  });
 
   // =============================================================================
   // Scroll Lock
@@ -61,6 +111,7 @@ export function BottomSheet({
       document.body.style.overflow = 'hidden';
       setCurrentSnap(initialSnap);
     } else {
+      cancelDrag();
       document.body.style.overflow = previousOverflowRef.current;
       setCurrentSnap('closed');
     }
@@ -68,72 +119,79 @@ export function BottomSheet({
     return () => {
       document.body.style.overflow = previousOverflowRef.current;
     };
-  }, [isOpen, initialSnap]);
+  }, [cancelDrag, isOpen, initialSnap]);
 
   // =============================================================================
   // Drag Handlers
   // =============================================================================
 
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    if (!touch) {
+  const commitSnap = useCallback((nextSnap: SnapPoint) => {
+    setDragOffset(0);
+    if (nextSnap === 'closed') {
+      closeSheet();
       return;
     }
-    startYRef.current = touch.clientY;
-    currentYRef.current = touch.clientY;
+    setCurrentSnap(nextSnap);
+  }, [closeSheet]);
+
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || isDraggingRef.current) {
+      return;
+    }
+
+    activePointerIdRef.current = event.pointerId;
+    startYRef.current = event.clientY;
+    currentYRef.current = event.clientY;
+    isDraggingRef.current = true;
     setIsDragging(true);
+    event.currentTarget.setPointerCapture?.(event.pointerId);
   }, []);
 
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!isDragging) {
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (!isDraggingRef.current || activePointerIdRef.current !== event.pointerId) {
       return;
     }
 
-    const touch = e.touches[0];
-    if (!touch) {
-      return;
-    }
-
-    const currentY = touch.clientY;
+    const currentY = event.clientY;
     const deltaY = currentY - startYRef.current;
     currentYRef.current = currentY;
-
-    // Only allow dragging down (positive deltaY) or up (negative deltaY)
     setDragOffset(deltaY);
-  }, [isDragging]);
+  }, []);
 
-  const handleTouchEnd = useCallback(() => {
-    if (!isDragging) {
+  const commitPointerDrag = useCallback(() => {
+    if (!isDraggingRef.current) {
       return;
     }
+    isDraggingRef.current = false;
     setIsDragging(false);
 
+    const settledDragOffset = currentYRef.current - startYRef.current;
     const viewportHeight = window.innerHeight;
-    const currentHeight = SNAP_HEIGHTS[currentSnap];
+    const activeSnap = renderedSnapRef.current;
+    const currentHeight = SNAP_HEIGHTS[activeSnap];
     const currentPixelHeight = (currentHeight / 100) * viewportHeight;
-    const newPixelHeight = currentPixelHeight - dragOffset;
+    const newPixelHeight = currentPixelHeight - settledDragOffset;
     const newPercentHeight = (newPixelHeight / viewportHeight) * 100;
 
     // Determine which snap point to go to based on velocity and position
-    const velocity = dragOffset / 100; // Simple velocity approximation
+    const velocity = settledDragOffset / 100; // Simple velocity approximation
 
-    let newSnap: SnapPoint = currentSnap;
+    let newSnap: SnapPoint = activeSnap;
 
-    if (dragOffset > 100 || velocity > 1.5) {
+    if (settledDragOffset > 100 || velocity > 1.5) {
       // Dragged down significantly - go to lower snap or close
-      if (currentSnap === 'full') {
+      if (activeSnap === 'full') {
         newSnap = 'half';
-      } else if (currentSnap === 'half') {
+      } else if (activeSnap === 'half') {
         newSnap = 'peek';
       } else {
         newSnap = 'closed';
-        onClose();
       }
-    } else if (dragOffset < -100 || velocity < -1.5) {
+    } else if (settledDragOffset < -100 || velocity < -1.5) {
       // Dragged up significantly - go to higher snap
-      if (currentSnap === 'peek') {
+      if (activeSnap === 'peek') {
         newSnap = 'half';
-      } else if (currentSnap === 'half') {
+      } else if (activeSnap === 'half') {
         newSnap = 'full';
       } else {
         newSnap = 'full';
@@ -153,99 +211,97 @@ export function BottomSheet({
         return Math.abs(newPercentHeight - snapHeight) < Math.abs(newPercentHeight - closestHeight)
           ? snap
           : closest;
-      }, currentSnap);
+      }, activeSnap);
     }
 
-    if (newSnap === 'closed') {
-      onClose();
-    } else {
-      setCurrentSnap(newSnap);
-    }
+    commitSnap(newSnap);
+  }, [commitSnap]);
 
-    setDragOffset(0);
-  }, [isDragging, currentSnap, dragOffset, onClose]);
-
-  // =============================================================================
-  // Mouse Handlers (for desktop testing)
-  // =============================================================================
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    startYRef.current = e.clientY;
-    currentYRef.current = e.clientY;
-    setIsDragging(true);
-  }, []);
-
-  const handleMouseMove = useCallback((e: React.MouseEvent) => {
-    if (!isDragging) {
+  const handlePointerUp = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (activePointerIdRef.current !== event.pointerId) {
       return;
     }
-    const deltaY = e.clientY - startYRef.current;
-    setDragOffset(deltaY);
-  }, [isDragging]);
+    releasePointerCapture();
+    commitPointerDrag();
+  }, [commitPointerDrag, releasePointerCapture]);
 
-  const handleMouseUp = useCallback(() => {
-    if (isDragging) {
-      handleTouchEnd();
+  const handlePointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (activePointerIdRef.current === event.pointerId) {
+      cancelDrag();
     }
-  }, [isDragging, handleTouchEnd]);
+  }, [cancelDrag]);
 
-  // Global mouse up listener
-  useEffect(() => {
-    const handleGlobalMouseUp = () => {
-      if (isDragging) {
-        handleTouchEnd();
-      }
-    };
+  const handleResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    const currentIndex = RESIZABLE_SNAPS.indexOf(renderedSnap);
+    let nextSnap: SnapPoint | null = null;
 
-    if (isDragging) {
-      window.addEventListener('mouseup', handleGlobalMouseUp);
-      return () => window.removeEventListener('mouseup', handleGlobalMouseUp);
+    if (event.key === 'ArrowUp' || event.key === 'ArrowRight') {
+      nextSnap = RESIZABLE_SNAPS[Math.min(currentIndex + 1, RESIZABLE_SNAPS.length - 1)]!;
+    } else if (event.key === 'ArrowDown' || event.key === 'ArrowLeft') {
+      nextSnap = RESIZABLE_SNAPS[Math.max(currentIndex - 1, 0)]!;
+    } else if (event.key === 'Home') {
+      nextSnap = 'peek';
+    } else if (event.key === 'End') {
+      nextSnap = 'full';
     }
-    return undefined;
-  }, [isDragging, handleTouchEnd]);
+
+    if (nextSnap) {
+      event.preventDefault();
+      commitSnap(nextSnap);
+    }
+  }, [commitSnap, renderedSnap]);
 
   // =============================================================================
   // Backdrop Click
   // =============================================================================
 
   const handleBackdropClick = useCallback(() => {
-    onClose();
-  }, [onClose]);
+    closeSheet();
+  }, [closeSheet]);
 
   // =============================================================================
   // Render
   // =============================================================================
 
-  if (!isOpen && currentSnap === 'closed') {
+  if (!isOpen) {
     return null;
   }
 
-  const targetHeight = SNAP_HEIGHTS[currentSnap];
+  const targetHeight = SNAP_HEIGHTS[renderedSnap];
   const translateY = isDragging
     ? `calc(${100 - targetHeight}vh + ${dragOffset}px)`
     : `${100 - targetHeight}vh`;
 
   return (
-    <div className="fixed inset-0 z-50">
+    <div
+      ref={rootRef}
+      role="presentation"
+      data-modal-focus-root="true"
+      data-testid="staff-bottom-sheet-root"
+      className="fixed inset-0 z-50"
+    >
       {/* Backdrop */}
       <div
-        role="button"
-        tabIndex={0}
+        aria-hidden="true"
         className="absolute inset-0 bg-black transition-opacity duration-300"
         style={{
           opacity: isOpen ? 0.5 : 0,
           pointerEvents: isOpen ? 'auto' : 'none',
         }}
         onClick={handleBackdropClick}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') handleBackdropClick();
-        }}
       />
 
       {/* Sheet */}
       <div
         ref={sheetRef}
-        className="absolute inset-x-0 bottom-0 rounded-t-3xl shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label={ariaLabel}
+        tabIndex={-1}
+        data-modal-focus-content="true"
+        data-snap-point={renderedSnap}
+        data-testid="staff-bottom-sheet"
+        className="absolute inset-x-0 bottom-0 rounded-t-3xl shadow-2xl motion-reduce:!transition-none"
         style={{
           backgroundColor: cappuccino.cardBg,
           height: '100vh',
@@ -256,18 +312,21 @@ export function BottomSheet({
       >
         {/* Drag Handle */}
         <div
+          ref={resizeHandleRef}
           role="slider"
           tabIndex={0}
-          aria-label="Drag to resize"
-          aria-valuemin={0}
-          aria-valuemax={100}
-          className="flex h-8 cursor-grab items-center justify-center active:cursor-grabbing"
-          onTouchStart={handleTouchStart}
-          onTouchMove={handleTouchMove}
-          onTouchEnd={handleTouchEnd}
-          onMouseDown={handleMouseDown}
-          onMouseMove={handleMouseMove}
-          onMouseUp={handleMouseUp}
+          aria-label={`Resize ${ariaLabel}`}
+          aria-valuemin={SNAP_HEIGHTS.peek}
+          aria-valuemax={SNAP_HEIGHTS.full}
+          aria-valuenow={SNAP_HEIGHTS[renderedSnap]}
+          aria-valuetext={`${SNAP_LABELS[renderedSnap]}, ${SNAP_HEIGHTS[renderedSnap]}% of viewport`}
+          className="flex h-11 min-h-11 cursor-grab touch-none items-center justify-center rounded-t-3xl outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#4B2E1E] active:cursor-grabbing"
+          onKeyDown={handleResizeKeyDown}
+          onPointerDown={handlePointerDown}
+          onPointerMove={handlePointerMove}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerCancel}
+          onLostPointerCapture={handlePointerCancel}
         >
           <div
             className="h-1 w-10 rounded-full"
@@ -278,7 +337,10 @@ export function BottomSheet({
         {/* Content */}
         <div
           className="h-full overflow-y-auto overscroll-contain px-4 pb-8"
-          style={{ maxHeight: 'calc(100vh - 32px)' }}
+          style={{
+            maxHeight: 'calc(100vh - 44px)',
+            paddingBottom: 'max(2rem, env(safe-area-inset-bottom, 0px))',
+          }}
         >
           {children}
         </div>

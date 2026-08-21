@@ -60,6 +60,7 @@ describe('ConfirmDialog', () => {
   it('renders title, description, and fires confirm/cancel callbacks', () => {
     const handlers = renderDialog();
 
+    expect(screen.getByRole('alertdialog', { name: 'Cancel appointment?' })).toBeInTheDocument();
     expect(screen.getByText('Cancel appointment?')).toBeInTheDocument();
     expect(screen.getByText('This frees the time slot.')).toBeInTheDocument();
 

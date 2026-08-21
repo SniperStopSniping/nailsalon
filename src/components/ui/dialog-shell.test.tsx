@@ -247,6 +247,48 @@ describe('DialogShell', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Open remounting dialog' })).toHaveFocus());
   });
 
+  it('restores a keyed opener after its parent surface remounts and places initial focus', async () => {
+    const user = userEvent.setup();
+
+    function RemountedParentHarness() {
+      const [parentOpen, setParentOpen] = useState(false);
+      const [childOpen, setChildOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setParentOpen(true)}>Open parent dialog</button>
+          <DialogShell
+            isOpen={parentOpen && !childOpen}
+            onClose={() => setParentOpen(false)}
+          >
+            <button type="button">Parent first action</button>
+            <button
+              type="button"
+              data-dialog-return-focus-key="remounted-parent-opener"
+              onClick={() => setChildOpen(true)}
+            >
+              Open remounting child
+            </button>
+          </DialogShell>
+          <DialogShell isOpen={childOpen} onClose={() => setChildOpen(false)}>
+            <button type="button">Child action</button>
+          </DialogShell>
+        </>
+      );
+    }
+
+    render(<RemountedParentHarness />);
+    await user.click(screen.getByRole('button', { name: 'Open parent dialog' }));
+    const childOpener = screen.getByRole('button', { name: 'Open remounting child' });
+    await user.click(childOpener);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Child action' })).toHaveFocus());
+
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open remounting child' })).toHaveFocus());
+
+    expect(screen.getByRole('button', { name: 'Parent first action' })).not.toHaveFocus();
+  });
+
   it('does not throw or focus a stale opener that was removed during close', async () => {
     const user = userEvent.setup();
 

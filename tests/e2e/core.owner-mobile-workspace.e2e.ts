@@ -200,11 +200,36 @@ test('owner mobile navigation opens visible top-aligned workspaces and day detai
       .toBe(0);
 
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
-    await page.getByTestId('owner-nav-services').click();
+    const servicesOpener = page.getByTestId('owner-nav-services');
+    await servicesOpener.click();
 
     await expect(page.getByRole('button', { name: 'Add' })).toBeVisible();
 
-    await page.getByRole('button', { name: 'Back' }).first().click();
+    const servicesPanel = page.getByTestId('app-modal-panel');
+    const servicesScrollRegion = page.getByTestId('app-modal-scroll-region');
+    const servicesFocusables = servicesPanel.locator(
+      'a[href]:visible, button:not([disabled]):visible, input:not([disabled]):not([type="hidden"]):visible, select:not([disabled]):visible, textarea:not([disabled]):visible, [tabindex]:not([tabindex="-1"]):visible',
+    );
+
+    await expect(servicesScrollRegion).toBeFocused();
+
+    await page.keyboard.press('Tab');
+
+    await expect(servicesFocusables.first()).toBeFocused();
+
+    await servicesFocusables.last().focus();
+    await page.keyboard.press('Tab');
+
+    await expect(servicesFocusables.first()).toBeFocused();
+
+    await page.keyboard.press('Shift+Tab');
+
+    await expect(servicesFocusables.last()).toBeFocused();
+
+    await page.keyboard.press('Escape');
+
+    await expect(servicesPanel).not.toBeInViewport();
+    await expect(servicesOpener).toBeFocused();
 
     await expect
       .poll(() => page.evaluate(() => Math.round(window.scrollY)))

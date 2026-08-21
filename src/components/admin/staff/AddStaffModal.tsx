@@ -1,9 +1,10 @@
 'use client';
 
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Camera, Check, Loader2 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
+import { DialogShell } from '@/components/ui/dialog-shell';
 import { BOOKING_CATEGORY_META, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
 import type { BookingCategory, SkillLevel, StaffRole } from '@/models/Schema';
 
@@ -299,311 +300,310 @@ export function AddStaffModal({ isOpen, salonSlug, onClose, onSuccess }: AddStaf
   }
 
   return (
-    <AnimatePresence>
+    <DialogShell
+      isOpen={isOpen}
+      onClose={onClose}
+      alignClassName="items-end justify-center p-0"
+      maxWidthClassName="max-w-lg"
+      contentClassName="max-h-[90vh] overflow-hidden rounded-t-[20px] bg-[#F2F2F7] supports-[height:100dvh]:max-h-[90dvh]"
+    >
       <motion.div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="add-staff-title"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-end justify-center bg-black/50"
-        onClick={onClose}
+        className="flex min-h-0 w-full flex-col"
       >
-        <motion.div
-          initial={{ y: '100%' }}
-          animate={{ y: 0 }}
-          exit={{ y: '100%' }}
-          transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-          className="flex max-h-[90vh] min-h-0 w-full max-w-lg flex-col overflow-hidden rounded-t-[20px] bg-[#F2F2F7] supports-[height:100dvh]:max-h-[90dvh]"
-          onClick={e => e.stopPropagation()}
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="min-h-11 px-2 text-[17px] text-[#007AFF]"
+          >
+            Cancel
+          </button>
+          <h2 id="add-staff-title" className="text-[17px] font-semibold text-[#1C1C1E]">Add Staff</h2>
+          <button
+            type="button"
+            onClick={handleSubmit}
+            disabled={isSubmitting || !name.trim()}
+            className={`min-h-11 px-2 text-[17px] font-semibold ${
+              isSubmitting || !name.trim() ? 'text-[#8E8E93]' : 'text-[#007AFF]'
+            }`}
+          >
+            {isSubmitting ? 'Adding...' : 'Add'}
+          </button>
+        </div>
+
+        {/* Form Content */}
+        <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain">
+          {error && (
+            <div className="mx-4 mt-4 rounded-lg bg-red-100 p-3">
+              <p className="text-[13px] text-red-600">{error}</p>
+            </div>
+          )}
+
+          {/* Avatar Upload */}
+          <div className="flex justify-center pb-2 pt-6">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleAvatarChange}
+              className="hidden"
+              aria-label="Upload profile photo"
+            />
             <button
               type="button"
-              onClick={onClose}
-              className="text-[17px] text-[#007AFF]"
+              onClick={handleAvatarClick}
+              disabled={uploadingAvatar}
+              className="group relative"
             >
-              Cancel
-            </button>
-            <h2 className="text-[17px] font-semibold text-[#1C1C1E]">Add Staff</h2>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={isSubmitting || !name.trim()}
-              className={`text-[17px] font-semibold ${
-                isSubmitting || !name.trim() ? 'text-[#8E8E93]' : 'text-[#007AFF]'
-              }`}
-            >
-              {isSubmitting ? 'Adding...' : 'Add'}
-            </button>
-          </div>
-
-          {/* Form Content */}
-          <div className="min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain">
-            {error && (
-              <div className="mx-4 mt-4 rounded-lg bg-red-100 p-3">
-                <p className="text-[13px] text-red-600">{error}</p>
-              </div>
-            )}
-
-            {/* Avatar Upload */}
-            <div className="flex justify-center pb-2 pt-6">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={handleAvatarChange}
-                className="hidden"
-                aria-label="Upload profile photo"
-              />
-              <button
-                type="button"
-                onClick={handleAvatarClick}
-                disabled={uploadingAvatar}
-                className="group relative"
-              >
-                {avatarPreviewUrl
-                  ? (
-                      <img
-                        src={avatarPreviewUrl}
-                        alt="Avatar preview"
-                        className="size-24 rounded-full object-cover"
-                      />
-                    )
-                  : (
-                      <div className="flex size-24 items-center justify-center rounded-full bg-gradient-to-br from-[#a18cd1] to-[#fbc2eb]">
-                        <Camera className="size-8 text-white/80" />
-                      </div>
-                    )}
-                {/* Hover/Loading Overlay */}
-                <div
-                  className={`
+              {avatarPreviewUrl
+                ? (
+                    <img
+                      src={avatarPreviewUrl}
+                      alt="Avatar preview"
+                      className="size-24 rounded-full object-cover"
+                    />
+                  )
+                : (
+                    <div className="flex size-24 items-center justify-center rounded-full bg-gradient-to-br from-[#a18cd1] to-[#fbc2eb]">
+                      <Camera className="size-8 text-white/80" />
+                    </div>
+                  )}
+              {/* Hover/Loading Overlay */}
+              <div
+                className={`
                     absolute inset-0 flex items-center justify-center rounded-full transition-opacity
                     ${uploadingAvatar ? 'bg-black/50' : 'bg-black/0 group-hover:bg-black/40'}
                   `}
-                >
-                  {uploadingAvatar
-                    ? (
-                        <Loader2 className="size-6 animate-spin text-white" />
-                      )
-                    : (
-                        <Camera className="size-6 text-white opacity-0 transition-opacity group-hover:opacity-100" />
-                      )}
-                </div>
-              </button>
-            </div>
-            <p className="mb-2 text-center text-[13px] text-[#8E8E93]">
-              {avatarPreviewUrl ? 'Tap to change photo' : 'Add photo'}
-            </p>
+              >
+                {uploadingAvatar
+                  ? (
+                      <Loader2 className="size-6 animate-spin text-white" />
+                    )
+                  : (
+                      <Camera className="size-6 text-white opacity-0 transition-opacity group-hover:opacity-100" />
+                    )}
+              </div>
+            </button>
+          </div>
+          <p className="mb-2 text-center text-[13px] text-[#8E8E93]">
+            {avatarPreviewUrl ? 'Tap to change photo' : 'Add photo'}
+          </p>
 
-            {/* Basic Info */}
-            <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white">
-              <div className="border-b border-gray-100 p-4">
-                <label htmlFor="add-staff-name" className="mb-1 block text-[13px] text-[#8E8E93]">Name *</label>
-                <input
-                  id="add-staff-name"
-                  type="text"
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="Enter name"
-                  className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
-                />
-              </div>
-              <div className="border-b border-gray-100 p-4">
-                <label htmlFor="add-staff-email" className="mb-1 block text-[13px] text-[#8E8E93]">Email</label>
-                <input
-                  id="add-staff-email"
-                  type="email"
-                  value={email}
-                  onChange={e => setEmail(e.target.value)}
-                  placeholder="Enter email"
-                  className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
-                />
-              </div>
-              <div className="p-4">
-                <label htmlFor="add-staff-phone" className="mb-1 block text-[13px] text-[#8E8E93]">Phone</label>
-                <input
-                  id="add-staff-phone"
-                  type="tel"
-                  value={phone}
-                  onChange={e => setPhone(e.target.value)}
-                  placeholder="Enter phone"
-                  className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
-                />
-              </div>
-            </div>
-
-            {/* Role & Skill */}
-            <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white">
-              <div className="border-b border-gray-100 p-4">
-                {/* Button group, not a single control: labelled via role=group. */}
-                <span id="add-staff-role-label" className="mb-2 block text-[13px] text-[#8E8E93]">Role</span>
-                <div role="group" aria-labelledby="add-staff-role-label" className="flex flex-wrap gap-2">
-                  {ROLE_OPTIONS.map(option => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setRole(option.value)}
-                      className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                        role === option.value
-                          ? 'bg-[#007AFF] text-white'
-                          : 'bg-[#E5E5EA] text-[#1C1C1E]'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="p-4">
-                <span id="add-staff-skill-label" className="mb-2 block text-[13px] text-[#8E8E93]">Skill Level</span>
-                <div role="group" aria-labelledby="add-staff-skill-label" className="flex flex-wrap gap-2">
-                  {SKILL_OPTIONS.map(option => (
-                    <button
-                      key={option.value}
-                      type="button"
-                      onClick={() => setSkillLevel(option.value)}
-                      className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                        skillLevel === option.value
-                          ? 'bg-[#007AFF] text-white'
-                          : 'bg-[#E5E5EA] text-[#1C1C1E]'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {/* Commission */}
-            <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white p-4">
-              <label className="mb-2 block text-[13px] text-[#8E8E93]">
-                Commission Rate:
-                {' '}
-                {commissionRate}
-                %
-              </label>
+          {/* Basic Info */}
+          <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white">
+            <div className="border-b border-gray-100 p-4">
+              <label htmlFor="add-staff-name" className="mb-1 block text-[13px] text-[#8E8E93]">Name *</label>
               <input
-                type="range"
-                min="0"
-                max="100"
-                value={commissionRate}
-                onChange={e => setCommissionRate(e.target.value)}
-                className="w-full accent-[#007AFF]"
-                aria-label="Commission rate percentage"
+                id="add-staff-name"
+                type="text"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="Enter name"
+                className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
               />
-              <div className="mt-1 flex justify-between text-[11px] text-[#8E8E93]">
-                <span>0%</span>
-                <span>50%</span>
-                <span>100%</span>
-              </div>
             </div>
+            <div className="border-b border-gray-100 p-4">
+              <label htmlFor="add-staff-email" className="mb-1 block text-[13px] text-[#8E8E93]">Email</label>
+              <input
+                id="add-staff-email"
+                type="email"
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+                placeholder="Enter email"
+                className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+              />
+            </div>
+            <div className="p-4">
+              <label htmlFor="add-staff-phone" className="mb-1 block text-[13px] text-[#8E8E93]">Phone</label>
+              <input
+                id="add-staff-phone"
+                type="tel"
+                value={phone}
+                onChange={e => setPhone(e.target.value)}
+                placeholder="Enter phone"
+                className="w-full bg-white text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+              />
+            </div>
+          </div>
 
-            {/* Languages */}
-            <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white p-4">
-              <span id="add-staff-languages-label" className="mb-2 block text-[13px] text-[#8E8E93]">Languages</span>
-              <div role="group" aria-labelledby="add-staff-languages-label" className="flex flex-wrap gap-2">
-                {LANGUAGE_OPTIONS.map(lang => (
+          {/* Role & Skill */}
+          <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white">
+            <div className="border-b border-gray-100 p-4">
+              {/* Button group, not a single control: labelled via role=group. */}
+              <span id="add-staff-role-label" className="mb-2 block text-[13px] text-[#8E8E93]">Role</span>
+              <div role="group" aria-labelledby="add-staff-role-label" className="flex flex-wrap gap-2">
+                {ROLE_OPTIONS.map(option => (
                   <button
-                    key={lang}
+                    key={option.value}
                     type="button"
-                    onClick={() => toggleLanguage(lang)}
+                    onClick={() => setRole(option.value)}
                     className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                      languages.includes(lang)
-                        ? 'bg-[#34C759] text-white'
+                      role === option.value
+                        ? 'bg-[#007AFF] text-white'
                         : 'bg-[#E5E5EA] text-[#1C1C1E]'
                     }`}
                   >
-                    {lang}
+                    {option.label}
                   </button>
                 ))}
               </div>
             </div>
-
-            {/* Settings */}
-            <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white">
-              <div className="flex items-center justify-between p-4">
-                <span className="text-[17px] text-[#1C1C1E]">Accept New Clients</span>
-                <button
-                  type="button"
-                  onClick={() => setAcceptingNewClients(!acceptingNewClients)}
-                  aria-label={acceptingNewClients ? 'Disable accepting new clients' : 'Enable accepting new clients'}
-                  className={`h-[31px] w-[51px] rounded-full p-[2px] transition-colors ${
-                    acceptingNewClients ? 'bg-[#34C759]' : 'bg-[#E5E5EA]'
-                  }`}
-                >
-                  <motion.div
-                    className="size-[27px] rounded-full bg-white shadow-sm"
-                    animate={{ x: acceptingNewClients ? 20 : 0 }}
-                    transition={{ type: 'spring', stiffness: 500, damping: 30 }}
-                  />
-                </button>
-              </div>
-            </div>
-
-            {/* Bio */}
-            <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white p-4">
-              <label htmlFor="add-staff-bio" className="mb-1 block text-[13px] text-[#8E8E93]">Bio</label>
-              <textarea
-                id="add-staff-bio"
-                value={bio}
-                onChange={e => setBio(e.target.value)}
-                placeholder="Short bio or description..."
-                rows={3}
-                className="w-full resize-none bg-white text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
-              />
-            </div>
-
-            {/* Services */}
-            <div className="mx-4 mb-8 mt-4">
-              <h3 className="mb-2 px-2 text-[13px] font-semibold uppercase text-[#8E8E93]">
-                Services They Can Perform
-              </h3>
-              <div className="overflow-hidden rounded-[12px] bg-white">
-                {loadingServices
-                  ? (
-                      <div className="p-4 text-center text-[#8E8E93]">Loading services...</div>
-                    )
-                  : services.length === 0
-                    ? (
-                        <div className="p-4 text-center text-[#8E8E93]">No services available</div>
-                      )
-                    : (
-                        services.map((service, index) => (
-                          <button
-                            key={service.id}
-                            type="button"
-                            onClick={() => toggleService(service.id)}
-                            className={`flex w-full items-center justify-between p-4 ${
-                              index !== services.length - 1 ? 'border-b border-gray-100' : ''
-                            }`}
-                          >
-                            <div>
-                              <span className="text-[17px] text-[#1C1C1E]">{service.name}</span>
-                              <span className="ml-2 text-[13px] text-[#8E8E93]">
-                                {BOOKING_CATEGORY_META[resolveVisibleBookingCategory({
-                                  bookingCategory: service.bookingCategory ?? null,
-                                  category: service.category,
-                                })].label}
-                              </span>
-                            </div>
-                            <div
-                              className={`flex size-6 items-center justify-center rounded-full border-2 ${
-                                service.selected
-                                  ? 'border-[#007AFF] bg-[#007AFF]'
-                                  : 'border-[#C7C7CC]'
-                              }`}
-                            >
-                              {service.selected && <Check className="size-4 text-white" />}
-                            </div>
-                          </button>
-                        ))
-                      )}
+            <div className="p-4">
+              <span id="add-staff-skill-label" className="mb-2 block text-[13px] text-[#8E8E93]">Skill Level</span>
+              <div role="group" aria-labelledby="add-staff-skill-label" className="flex flex-wrap gap-2">
+                {SKILL_OPTIONS.map(option => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setSkillLevel(option.value)}
+                    className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                      skillLevel === option.value
+                        ? 'bg-[#007AFF] text-white'
+                        : 'bg-[#E5E5EA] text-[#1C1C1E]'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
               </div>
             </div>
           </div>
-        </motion.div>
+
+          {/* Commission */}
+          <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white p-4">
+            <label className="mb-2 block text-[13px] text-[#8E8E93]">
+              Commission Rate:
+              {' '}
+              {commissionRate}
+              %
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={commissionRate}
+              onChange={e => setCommissionRate(e.target.value)}
+              className="w-full accent-[#007AFF]"
+              aria-label="Commission rate percentage"
+            />
+            <div className="mt-1 flex justify-between text-[11px] text-[#8E8E93]">
+              <span>0%</span>
+              <span>50%</span>
+              <span>100%</span>
+            </div>
+          </div>
+
+          {/* Languages */}
+          <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white p-4">
+            <span id="add-staff-languages-label" className="mb-2 block text-[13px] text-[#8E8E93]">Languages</span>
+            <div role="group" aria-labelledby="add-staff-languages-label" className="flex flex-wrap gap-2">
+              {LANGUAGE_OPTIONS.map(lang => (
+                <button
+                  key={lang}
+                  type="button"
+                  onClick={() => toggleLanguage(lang)}
+                  className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                    languages.includes(lang)
+                      ? 'bg-[#34C759] text-white'
+                      : 'bg-[#E5E5EA] text-[#1C1C1E]'
+                  }`}
+                >
+                  {lang}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Settings */}
+          <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white">
+            <div className="flex items-center justify-between p-4">
+              <span className="text-[17px] text-[#1C1C1E]">Accept New Clients</span>
+              <button
+                type="button"
+                onClick={() => setAcceptingNewClients(!acceptingNewClients)}
+                aria-label={acceptingNewClients ? 'Disable accepting new clients' : 'Enable accepting new clients'}
+                className={`h-[31px] w-[51px] rounded-full p-[2px] transition-colors ${
+                  acceptingNewClients ? 'bg-[#34C759]' : 'bg-[#E5E5EA]'
+                }`}
+              >
+                <motion.div
+                  className="size-[27px] rounded-full bg-white shadow-sm"
+                  animate={{ x: acceptingNewClients ? 20 : 0 }}
+                  transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                />
+              </button>
+            </div>
+          </div>
+
+          {/* Bio */}
+          <div className="mx-4 mt-4 overflow-hidden rounded-[12px] bg-white p-4">
+            <label htmlFor="add-staff-bio" className="mb-1 block text-[13px] text-[#8E8E93]">Bio</label>
+            <textarea
+              id="add-staff-bio"
+              value={bio}
+              onChange={e => setBio(e.target.value)}
+              placeholder="Short bio or description..."
+              rows={3}
+              className="w-full resize-none bg-white text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+            />
+          </div>
+
+          {/* Services */}
+          <div className="mx-4 mb-8 mt-4">
+            <h3 className="mb-2 px-2 text-[13px] font-semibold uppercase text-[#8E8E93]">
+              Services They Can Perform
+            </h3>
+            <div className="overflow-hidden rounded-[12px] bg-white">
+              {loadingServices
+                ? (
+                    <div className="p-4 text-center text-[#8E8E93]">Loading services...</div>
+                  )
+                : services.length === 0
+                  ? (
+                      <div className="p-4 text-center text-[#8E8E93]">No services available</div>
+                    )
+                  : (
+                      services.map((service, index) => (
+                        <button
+                          key={service.id}
+                          type="button"
+                          onClick={() => toggleService(service.id)}
+                          className={`flex w-full items-center justify-between p-4 ${
+                            index !== services.length - 1 ? 'border-b border-gray-100' : ''
+                          }`}
+                        >
+                          <div>
+                            <span className="text-[17px] text-[#1C1C1E]">{service.name}</span>
+                            <span className="ml-2 text-[13px] text-[#8E8E93]">
+                              {BOOKING_CATEGORY_META[resolveVisibleBookingCategory({
+                                bookingCategory: service.bookingCategory ?? null,
+                                category: service.category,
+                              })].label}
+                            </span>
+                          </div>
+                          <div
+                            className={`flex size-6 items-center justify-center rounded-full border-2 ${
+                              service.selected
+                                ? 'border-[#007AFF] bg-[#007AFF]'
+                                : 'border-[#C7C7CC]'
+                            }`}
+                          >
+                            {service.selected && <Check className="size-4 text-white" />}
+                          </div>
+                        </button>
+                      ))
+                    )}
+            </div>
+          </div>
+        </div>
       </motion.div>
-    </AnimatePresence>
+    </DialogShell>
   );
 }
