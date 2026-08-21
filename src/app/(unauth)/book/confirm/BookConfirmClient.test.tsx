@@ -48,6 +48,12 @@ const { routerBack, routerPush, routerReplace, syncFromUrl, fetchMock, windowOpe
 }));
 
 const { confettiMock } = vi.hoisted(() => ({ confettiMock: vi.fn() }));
+const BOOKING_CONFIRM_FALLBACK_MESSAGE_FOR_TEST
+  = 'We couldn\'t confirm this appointment just now. Please try again.';
+const SMART_FIT_STALE_FALLBACK_MESSAGE_FOR_TEST
+  = 'This discounted time is no longer available. Please choose from the latest times.';
+const HOSTILE_SERVER_MESSAGE_FOR_TEST
+  = 'SQLSTATE 23505 /api/appointments internal conflict';
 
 vi.mock('canvas-confetti', () => ({
   default: confettiMock,
@@ -149,6 +155,25 @@ describe('BookConfirmClient', () => {
     });
   });
 
+  const renderBasicConfirm = (
+    overrides: Partial<React.ComponentProps<typeof BookConfirmClient>> = {},
+  ) => render(
+    <BookConfirmClient
+      services={[{ id: 'srv_1', name: 'Gel Manicure', price: 65, duration: 75 }]}
+      subtotalBeforeDiscount={65}
+      discountAmount={0}
+      totalPrice={65}
+      totalDuration={75}
+      technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+      salonSlug="salon-a"
+      dateStr="2026-03-20"
+      timeStr="10:00"
+      bookingFlow={[]}
+      location={null}
+      {...overrides}
+    />,
+  );
+
   it('shows the shared salon message only after unchanged confirmed appointment details', async () => {
     bookingExperienceMock.confirmationMessage = 'Please arrive 10 minutes early.\nWe look forward to seeing you.';
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
@@ -215,6 +240,55 @@ describe('BookConfirmClient', () => {
     expect(syncFromUrl).toHaveBeenCalledWith(expect.objectContaining({ techId: 'tech_1' }));
   });
 
+  it('retains known review facts and locks material edits while submission is unresolved', async () => {
+    let resolveBooking!: (response: Response) => void;
+    const unresolvedBooking = new Promise<Response>((resolve) => {
+      resolveBooking = resolve;
+    });
+    fetchMock.mockReturnValueOnce(unresolvedBooking);
+
+    renderBasicConfirm({
+      depositDisclosure: {
+        label: '$25.00 deposit required to book — applied to your service total.',
+        amountCents: 2500,
+      },
+    });
+
+    const confirm = screen.getByRole('button', { name: /confirm appointment/i });
+    fireEvent.click(confirm);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+    expect(screen.getByTestId('booking-submit-pending')).toHaveTextContent(
+      'Confirming your appointment. Your booking details remain below',
+    );
+    expect(screen.getByText('Appointment summary')).toBeInTheDocument();
+    expect(screen.getByText('Gel Manicure')).toBeInTheDocument();
+    expect(screen.getAllByText('1h 15m')).not.toHaveLength(0);
+    expect(screen.getByText('$65')).toBeInTheDocument();
+    expect(screen.getByTestId('booking-deposit-disclosure')).toHaveTextContent('$25.00');
+    expect(screen.getByLabelText('Customer name')).toHaveValue('Ava');
+    expect(screen.getByLabelText('Customer name')).toBeDisabled();
+    expect(screen.getByLabelText('Customer email')).toBeDisabled();
+    expect(screen.getByLabelText('Customer phone')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Edit' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: /change time or services/i })).toBeDisabled();
+    expect(confirm).toBeDisabled();
+
+    fireEvent.click(confirm);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveBooking(new Response(JSON.stringify({
+      data: {
+        appointment: { id: 'appt_pending_request', status: 'pending' },
+        manageUrl: 'https://salon-a.test/en/salon-a/manage/request-token',
+      },
+    }), { status: 201 }));
+
+    expect(await screen.findByRole('heading', { name: 'Request received' })).toBeInTheDocument();
+  });
+
   it('keeps guest details available after a generic booking failure', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
@@ -242,14 +316,196 @@ describe('BookConfirmClient', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'We could not confirm this appointment yet.',
-    );
+    const alert = await screen.findByRole('alert');
+
+    expect(alert).toHaveTextContent(BOOKING_CONFIRM_FALLBACK_MESSAGE_FOR_TEST);
+    expect(alert).not.toHaveTextContent('BOOKING_FAILED');
     expect(screen.getByLabelText('Customer name')).toHaveValue('Ava');
     expect(screen.getByLabelText('Customer email')).toHaveValue('ava@example.com');
     expect(screen.getByLabelText('Customer phone')).toHaveValue('4165550101');
     expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled();
     expect(screen.queryByText('Appointment confirmed')).not.toBeInTheDocument();
+  });
+
+  it('puts durable confirmed status and receipt before supporting celebration', async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: {
+        appointment: { id: 'appt_confirmed', status: 'confirmed' },
+        manageUrl: 'https://salon-a.test/en/salon-a/manage/confirmed-token',
+      },
+    }), { status: 201 }));
+
+    renderBasicConfirm();
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    const statusHeading = await screen.findByRole('heading', { name: 'Appointment confirmed' });
+    const summary = screen.getByText('Appointment summary');
+    const celebration = screen.getByTestId('booking-success-celebration');
+
+    expect(statusHeading.compareDocumentPosition(summary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(summary.compareDocumentPosition(celebration) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByText('Your time is reserved.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /manage this appointment/i })).toBeInTheDocument();
+  });
+
+  it('renders an approval request as pending without confirmed/checkmark celebration semantics', async () => {
+    bookingExperienceMock.confirmationMessage
+      = 'Your appointment is confirmed. We look forward to seeing you.';
+    Object.assign(bookingExperienceMock.policy, {
+      enabled: true,
+      title: 'Confirmed appointment policy',
+      text: 'This policy applies after confirmation.',
+      showBeforeConfirmation: false,
+      showAfterConfirmation: true,
+    });
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+      data: {
+        appointment: { id: 'appt_pending', status: 'pending' },
+        manageUrl: 'https://salon-a.test/en/salon-a/manage/pending-token',
+      },
+    }), { status: 201 }));
+
+    const { container } = renderBasicConfirm({
+      smsEnabled: true,
+      clientChangeCutoffHours: 48,
+    });
+    fireEvent.click(screen.getByRole('checkbox', { name: 'SMS consent' }));
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    expect(await screen.findByRole('heading', { name: 'Request received' })).toBeInTheDocument();
+    expect(screen.getByText(/awaiting salon approval/i)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /manage this request/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('booking-success-celebration')).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Appointment confirmed' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Your time is reserved.')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /google calendar/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('booking-confirmation-message')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('booking-policy-after-confirmation')).not.toBeInTheDocument();
+    expect(screen.queryByText(/Your appointment is confirmed/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/This policy applies after confirmation/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/We’ll text you before your visit|We'll text you before your visit/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/You can change or cancel up to 48 hours before/)).not.toBeInTheDocument();
+    expect(container.querySelector('.lucide-sparkles')).not.toBeInTheDocument();
+  });
+
+  it.each([400, 409, 422, 500, 503])(
+    'keeps HTTP %s in diagnostics but never exposes it or a technical code in public fallback copy',
+    async (status) => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        error: {
+          code: `HTTP_${status}`,
+          message: `Request failed with status ${status}`,
+        },
+      }), { status }));
+
+      renderBasicConfirm();
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+      const alert = await screen.findByRole('alert');
+
+      expect(alert).toHaveTextContent(BOOKING_CONFIRM_FALLBACK_MESSAGE_FOR_TEST);
+      expect(alert).not.toHaveTextContent(String(status));
+      expect(alert).not.toHaveTextContent(`HTTP_${status}`);
+      expect(screen.getByRole('button', { name: /confirm appointment/i })).toBeEnabled();
+      expect(consoleError).toHaveBeenCalledWith(
+        'Booking API error:',
+        expect.objectContaining({ status }),
+      );
+
+      consoleError.mockRestore();
+    },
+  );
+
+  it.each([
+    {
+      code: 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED',
+      status: 400,
+      body: {
+        error: {
+          code: 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED',
+          message: HOSTILE_SERVER_MESSAGE_FOR_TEST,
+        },
+        bookingPolicy: {
+          enabled: true,
+          title: 'Current booking policy',
+          text: 'Review the current cancellation policy.',
+          showAfterConfirmation: true,
+          acknowledgment: {
+            required: true,
+            text: 'I understand the current booking policy.',
+          },
+          version: `policy-v1:${'a'.repeat(64)}`,
+        },
+      },
+      expected: 'Review and acknowledge the booking policy before confirming.',
+    },
+    {
+      code: 'ACKNOWLEDGMENT_ATTEMPT_REUSED',
+      status: 409,
+      body: {
+        error: {
+          code: 'ACKNOWLEDGMENT_ATTEMPT_REUSED',
+          message: HOSTILE_SERVER_MESSAGE_FOR_TEST,
+        },
+      },
+      expected: 'This booking attempt changed. Please confirm the appointment again.',
+    },
+    {
+      code: 'EXISTING_APPOINTMENT',
+      status: 409,
+      body: {
+        error: {
+          code: 'EXISTING_APPOINTMENT',
+          message: HOSTILE_SERVER_MESSAGE_FOR_TEST,
+        },
+      },
+      expected: 'You already have a booking',
+    },
+    {
+      code: 'DEPOSIT_HOLD_ACTIVE',
+      status: 409,
+      body: {
+        error: {
+          code: 'DEPOSIT_HOLD_ACTIVE',
+          message: HOSTILE_SERVER_MESSAGE_FOR_TEST,
+          details: { holdExpiresAt: '2030-03-20T15:35:00.000Z' },
+        },
+      },
+      expected: 'You already have a booking',
+    },
+    {
+      code: 'SMART_FIT_CHANGED',
+      status: 409,
+      body: {
+        error: {
+          code: 'SMART_FIT_CHANGED',
+          message: HOSTILE_SERVER_MESSAGE_FOR_TEST,
+          details: {
+            refreshAvailability: true,
+            breakdown: {
+              subtotalBeforeDiscountCents: 6500,
+              discountAmountCents: 0,
+              discountType: null,
+              discountLabel: null,
+              finalTotalCents: 6500,
+            },
+          },
+        },
+      },
+      expected: SMART_FIT_STALE_FALLBACK_MESSAGE_FOR_TEST,
+    },
+  ])('maps recognized $code failures to client-owned copy', async ({ status, body, expected }) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify(body), { status }));
+
+    renderBasicConfirm();
+    fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
+
+    expect(await screen.findByText(expected, { exact: false })).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent(HOSTILE_SERVER_MESSAGE_FOR_TEST);
+    expect(document.body).not.toHaveTextContent('SQLSTATE 23505');
+    expect(document.body).not.toHaveTextContent('/api/appointments');
   });
 
   it('transitions an existing-appointment response to safe management options', async () => {
@@ -794,7 +1050,7 @@ describe('BookConfirmClient', () => {
         name: /confirm appointment/i,
       }));
 
-      await screen.findByText(/network unavailable/i);
+      await screen.findByText(new RegExp(BOOKING_CONFIRM_FALLBACK_MESSAGE_FOR_TEST, 'i'));
       fireEvent.click(screen.getByRole('button', {
         name: /confirm appointment/i,
       }));
@@ -806,7 +1062,7 @@ describe('BookConfirmClient', () => {
       expect(exactRetry.bookingPolicyAcknowledgment.attemptId)
         .toBe(firstRequest.bookingPolicyAcknowledgment.attemptId);
 
-      await screen.findByText(/network unavailable/i);
+      await screen.findByText(new RegExp(BOOKING_CONFIRM_FALLBACK_MESSAGE_FOR_TEST, 'i'));
       fireEvent.change(screen.getByLabelText('Customer name'), {
         target: { value: 'Ava Changed' },
       });
@@ -997,9 +1253,8 @@ describe('BookConfirmClient', () => {
     fireEvent.click(screen.getByRole('button', { name: /confirm appointment/i }));
 
     expect(await screen.findByText('Appointment confirmed')).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent(
-      /private management link is not available on this screen/i,
-    );
+    expect(screen.getByText(/private management link is not available on this screen/i))
+      .toBeInTheDocument();
     expect(screen.getByRole('link', { name: /find my booking to receive a secure management link/i }))
       .toHaveAttribute('href', '/en/salon-a/find-booking');
     expect(screen.queryByRole('link', { name: /manage this appointment/i })).not.toBeInTheDocument();
@@ -1387,7 +1642,7 @@ describe('BookConfirmClient', () => {
       expect(screen.queryByTestId('smart-fit-suggestion')).not.toBeInTheDocument();
     });
 
-    it('handles SMART_FIT_CHANGED with the exact message, a refresh path, and no silent booking', async () => {
+    it('handles SMART_FIT_CHANGED with fixed customer-safe copy, a refresh path, and no silent booking', async () => {
       // The client logs non-OK booking responses for debugging.
       vi.spyOn(console, 'error').mockImplementation(() => {});
       navigationMock.searchParams = new URLSearchParams(
@@ -1396,8 +1651,17 @@ describe('BookConfirmClient', () => {
       fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
         error: {
           code: 'SMART_FIT_CHANGED',
-          message: 'This discounted time is no longer available. Please choose from the latest times.',
-          details: { refreshAvailability: true },
+          message: HOSTILE_SERVER_MESSAGE_FOR_TEST,
+          details: {
+            refreshAvailability: true,
+            breakdown: {
+              subtotalBeforeDiscountCents: 6500,
+              discountAmountCents: 0,
+              discountType: null,
+              discountLabel: null,
+              finalTotalCents: 6500,
+            },
+          },
         },
       }), { status: 409 }));
 
@@ -1405,10 +1669,20 @@ describe('BookConfirmClient', () => {
 
       fireEvent.click(screen.getByRole('button', { name: /confirm appointment · \$58\.50/i }));
 
-      // The exact approved message renders in the accessible alert pattern.
+      // Client-owned approved copy renders instead of response detail.
       const alert = await screen.findByRole('alert');
 
-      expect(alert).toHaveTextContent('This discounted time is no longer available. Please choose from the latest times.');
+      expect(alert).toHaveTextContent(SMART_FIT_STALE_FALLBACK_MESSAGE_FOR_TEST);
+      expect(alert).not.toHaveTextContent('SQLSTATE');
+      expect(alert).not.toHaveTextContent('/api/appointments');
+
+      const priceChange = screen.getByTestId('smart-fit-price-change');
+
+      expect(priceChange).toHaveTextContent('Previously shown');
+      expect(priceChange).toHaveTextContent('$58.50');
+      expect(priceChange).toHaveTextContent('Current service price');
+      expect(priceChange).toHaveTextContent('$65.00');
+      expect(document.body).not.toHaveTextContent(/SMART_FIT_CHANGED/);
       // No booking was created or presented as successful.
       expect(screen.queryByText('Appointment confirmed')).not.toBeInTheDocument();
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -1457,7 +1731,13 @@ describe('BookConfirmClient', () => {
       const alert = await screen.findByRole('alert');
 
       expect(alert).toHaveTextContent('This discounted time is no longer available. Please choose from the latest times.');
-      expect(alert).toHaveTextContent('Current price for this time: $48.75 (First visit discount)');
+
+      const priceChange = screen.getByTestId('smart-fit-price-change');
+
+      expect(priceChange).toHaveTextContent('Previously shown');
+      expect(priceChange).toHaveTextContent('$58.50');
+      expect(priceChange).toHaveTextContent('Current service price');
+      expect(priceChange).toHaveTextContent('$48.75 (First visit discount)');
       // The session now suppresses Smart Fit promises for this salon, so the
       // same 409 cannot loop.
       expect(sessionStorage.getItem('luster_smart_fit_outranked')).toBe('salon-a');
@@ -1481,6 +1761,68 @@ describe('BookConfirmClient', () => {
 
       expect(retryBody).not.toHaveProperty('expectedDiscountType');
       expect(retryBody).not.toHaveProperty('expectedTotalCents');
+    });
+
+    it('does not present an unchanged Smart Fit price as an old-to-current change', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      navigationMock.searchParams = new URLSearchParams(
+        'techId=tech_1&serviceIds=srv_1&smartFitDiscountCents=650&smartFitTotalCents=5850',
+      );
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        error: {
+          code: 'SMART_FIT_CHANGED',
+          message: 'This discounted time is no longer available. Please choose from the latest times.',
+          details: {
+            refreshAvailability: true,
+            breakdown: {
+              subtotalBeforeDiscountCents: 6500,
+              discountAmountCents: 650,
+              discountType: 'smart_fit',
+              discountLabel: 'Smart Fit Discount',
+              finalTotalCents: 5850,
+            },
+          },
+        },
+      }), { status: 409 }));
+
+      renderConfirm();
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment · \$58\.50/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'This discounted time is no longer available.',
+      );
+      expect(screen.queryByTestId('smart-fit-price-change')).not.toBeInTheDocument();
+      expect(screen.queryByText('Previously shown')).not.toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Choose another time' })).toBeEnabled();
+    });
+
+    it('does not fabricate an old price when no Smart Fit price was shown to the client', async () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
+        error: {
+          code: 'SMART_FIT_CHANGED',
+          message: 'This discounted time is no longer available. Please choose from the latest times.',
+          details: {
+            refreshAvailability: true,
+            breakdown: {
+              subtotalBeforeDiscountCents: 6500,
+              discountAmountCents: 0,
+              discountType: null,
+              discountLabel: null,
+              finalTotalCents: 6500,
+            },
+          },
+        },
+      }), { status: 409 }));
+
+      renderConfirm();
+      fireEvent.click(screen.getByRole('button', { name: /confirm appointment · \$65/i }));
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'This discounted time is no longer available.',
+      );
+      expect(screen.queryByTestId('smart-fit-price-change')).not.toBeInTheDocument();
+      expect(screen.queryByText('Previously shown')).not.toBeInTheDocument();
     });
 
     it('leaves another flow\'s dismissal untouched on a legacy confirm mount', () => {
@@ -2134,7 +2476,7 @@ describe('BookConfirmClient deposit disclosure', () => {
     });
 
     it('the OWNING tab gets a live countdown and Continue payment from its own stored record', async () => {
-      const holdExpiresAt = new Date(Date.now() + 5 * 60_000).toISOString();
+      const holdExpiresAt = '2030-03-20T15:35:00.000Z';
       sessionStorage.setItem('luster_deposit_resume', JSON.stringify({
         checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_1',
         holdExpiresAt,
@@ -2148,10 +2490,13 @@ describe('BookConfirmClient deposit disclosure', () => {
         },
       }), { status: 409 }));
 
-      renderDeposit();
+      renderDeposit({ salonTimeZone: 'America/Vancouver' });
       confirm();
 
       expect(await screen.findByTestId('hold-countdown')).toBeInTheDocument();
+      expect(screen.getByTestId('hold-deadline')).toHaveAttribute('datetime', holdExpiresAt);
+      expect(screen.getByTestId('hold-deadline')).toHaveTextContent(/8:35.*PDT/i);
+      expect(screen.getByText(/salon local time/i)).toBeInTheDocument();
       expect(screen.getByRole('link', { name: 'Continue payment' })).toHaveAttribute(
         'href',
         'https://checkout.stripe.com/c/pay/cs_1',

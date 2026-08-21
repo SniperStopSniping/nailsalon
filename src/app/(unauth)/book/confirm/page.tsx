@@ -431,6 +431,7 @@ export default async function BookConfirmPage({
           dateStr={dateStr}
           timeStr={timeStr}
           canonicalStartTime={canonicalStartTime}
+          salonTimeZone={bookingConfig.timezone}
           technicianSelectionSource={resolvedTechnicianContext.effectiveTechnicianSelectionSource}
           bookingFlow={effectiveBookingFlow}
           location={locationSummary}

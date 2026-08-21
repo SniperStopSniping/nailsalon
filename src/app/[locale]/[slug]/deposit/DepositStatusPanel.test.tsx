@@ -1,6 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { SalonProvider } from '@/providers/SalonProvider';
+
 import { DepositStatusPanel } from './DepositStatusPanel';
 
 const { fetchMock } = vi.hoisted(() => ({ fetchMock: vi.fn() }));
@@ -20,15 +22,23 @@ describe('DepositStatusPanel — hold countdown and resume', () => {
   });
 
   it('counts down from the endpoint\'s authoritative expiry and offers resume while live', async () => {
+    const holdExpiresAt = '2030-03-20T15:35:00.000Z';
     mockSessionStatus({
       state: 'awaiting_payment',
-      holdExpiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      holdExpiresAt,
       checkoutUrl: 'https://checkout.stripe.com/c/pay/cs_test_1',
     });
 
-    render(<DepositStatusPanel variant="cancel" />);
+    render(
+      <SalonProvider bookingTimeZone="America/Vancouver">
+        <DepositStatusPanel variant="cancel" />
+      </SalonProvider>,
+    );
 
     expect(await screen.findByTestId('hold-countdown')).toBeInTheDocument();
+    expect(screen.getByTestId('hold-deadline')).toHaveAttribute('datetime', holdExpiresAt);
+    expect(screen.getByTestId('hold-deadline')).toHaveTextContent(/8:35.*PDT/i);
+    expect(screen.getByText(/salon local time/i)).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Resume payment' })).toHaveAttribute(
       'href',
       'https://checkout.stripe.com/c/pay/cs_test_1',

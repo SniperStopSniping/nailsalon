@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation';
 
+import { resolveBookingConfigFromSettings } from '@/libs/bookingConfig';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveDraftSalonAccess } from '@/libs/ownerPreview';
 import { getCanonicalAppOrigin } from '@/libs/publicUrl';
@@ -50,6 +51,7 @@ export default async function SlugTenantLayout({
   }
 
   const bookingPageConfig = resolveBookingPageConfig(salon.settings);
+  const bookingTimeZone = resolveBookingConfigFromSettings(salon.settings).timezone;
   const activeBookingPageSide = previewGate.isPreviewingDraftConfig
     ? bookingPageConfig.draft
     : bookingPageConfig.live;
@@ -62,6 +64,7 @@ export default async function SlugTenantLayout({
         salonSlug={salon?.slug}
         themeKey={salon?.themeKey ?? undefined}
         status={(salon?.status ?? null) as SalonStatus | null}
+        bookingTimeZone={bookingTimeZone}
         bookingPage={activeBookingPageSide}
         ownerPreview={{
           isPreviewing: previewGate.isPreviewingDraftSalon || previewGate.isPreviewingDraftConfig,

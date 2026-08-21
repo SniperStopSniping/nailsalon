@@ -41,9 +41,9 @@ export const SMART_FIT_OTHER_TIMES_TITLE = 'Other available times';
 export const SMART_FIT_REVIEW_DISCOUNT_LABEL = SMART_FIT_DISCOUNT_LABEL;
 
 /**
- * Fallback for the stale-offer alert. Must stay byte-identical to
- * SMART_FIT_STALE_MESSAGE in `src/app/api/appointments/route.ts` (the server
- * message is preferred at runtime; this covers a missing message field only).
+ * Client-owned stale-offer alert copy. Keep it byte-identical to the server's
+ * approved SMART_FIT_STALE_MESSAGE, but never render a response message: a
+ * recognized error code may still arrive with technical or hostile detail.
  */
 export const SMART_FIT_STALE_FALLBACK_MESSAGE
   = 'This discounted time is no longer available. Please choose from the latest times.';

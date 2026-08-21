@@ -11,6 +11,7 @@ import { BOOKING_EXPERIENCE_DEFAULTS } from '@/libs/bookingExperience';
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
 import type { OwnerPreviewActorType } from '@/libs/ownerPreview';
 import { EMPTY_SALON_CONTENT, type SalonContent } from '@/libs/salonContent';
+import { DEFAULT_BOOKING_TIME_ZONE } from '@/libs/timeZone';
 import type { SalonStatus } from '@/models/Schema';
 import type { BookingExperience } from '@/types/salonPolicy';
 
@@ -55,6 +56,7 @@ const EMPTY_SALON = {
   themeKey: '',
   status: null as SalonStatus | null,
   bookingExperience: BOOKING_EXPERIENCE_DEFAULTS,
+  bookingTimeZone: DEFAULT_BOOKING_TIME_ZONE,
   // The resolved bookingPage side (draft or live — PR3 owns *which* side
   // gets resolved, not what renders from it; nothing reads this yet, the
   // section registry in PR4 is the first consumer). Defaults to the live
@@ -85,6 +87,8 @@ export type SalonContextValue = {
   status: SalonStatus | null;
   /** Resolved public booking-page customization with safe defaults applied */
   bookingExperience: BookingExperience;
+  /** Validated IANA timezone used for salon-local booking deadlines. */
+  bookingTimeZone: string;
   /**
    * The resolved `bookingPage` draft/live side for this request, already
    * chosen server-side by the owner-preview gate in
@@ -116,6 +120,7 @@ const SalonContext = createContext<SalonContextValue>({
   themeKey: EMPTY_SALON.themeKey,
   status: EMPTY_SALON.status,
   bookingExperience: EMPTY_SALON.bookingExperience,
+  bookingTimeZone: EMPTY_SALON.bookingTimeZone,
   bookingPage: EMPTY_SALON.bookingPage,
   ownerPreview: EMPTY_SALON.ownerPreview,
   salonContent: EMPTY_SALON.salonContent,
@@ -136,6 +141,8 @@ export type SalonProviderProps = {
   status?: SalonStatus | null;
   /** Resolved public booking-page customization */
   bookingExperience?: BookingExperience;
+  /** Validated IANA timezone used for salon-local booking deadlines */
+  bookingTimeZone?: string;
   /** The resolved bookingPage draft/live side, already gated server-side */
   bookingPage?: BookingPageConfigSide;
   /** Owner-preview state, already gated server-side */
@@ -176,6 +183,7 @@ export function SalonProvider({
   themeKey,
   status,
   bookingExperience,
+  bookingTimeZone,
   bookingPage,
   ownerPreview,
   salonContent,
@@ -192,12 +200,13 @@ export function SalonProvider({
       themeKey: themeKey || EMPTY_SALON.themeKey,
       status: currentStatus,
       bookingExperience: bookingExperience ?? EMPTY_SALON.bookingExperience,
+      bookingTimeZone: bookingTimeZone ?? EMPTY_SALON.bookingTimeZone,
       bookingPage: bookingPage ?? EMPTY_SALON.bookingPage,
       ownerPreview: ownerPreview ?? EMPTY_SALON.ownerPreview,
       salonContent: salonContent ?? EMPTY_SALON.salonContent,
       isAccessible,
     };
-  }, [bookingExperience, bookingPage, ownerPreview, salonContent, salonId, salonName, salonSlug, themeKey, status]);
+  }, [bookingExperience, bookingPage, bookingTimeZone, ownerPreview, salonContent, salonId, salonName, salonSlug, themeKey, status]);
 
   return (
     <SalonContext.Provider value={value}>{children}</SalonContext.Provider>
