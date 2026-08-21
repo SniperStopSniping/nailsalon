@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 
 import { useHoldCountdown } from '@/components/deposits/HoldCountdown';
+import { useSalon } from '@/providers/SalonProvider';
 
 /**
  * Shared client panel for both deposit landing pages.
@@ -23,23 +24,14 @@ type SessionStatus = {
   checkoutUrl?: string;
 };
 
-function formatTime(iso: string | null): string | null {
-  if (!iso) {
-    return null;
-  }
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  return date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-}
-
 export function DepositStatusPanel({ variant }: { variant: 'return' | 'cancel' }) {
+  const { bookingTimeZone } = useSalon();
   const [status, setStatus] = useState<SessionStatus | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'ready' | 'unknown'>('loading');
   // Ticks from the endpoint's authoritative expiry; inert until a live hold loads.
   const countdown = useHoldCountdown(
     status?.state === 'awaiting_payment' ? status.holdExpiresAt : null,
+    { timeZone: bookingTimeZone },
   );
 
   useEffect(() => {
@@ -85,8 +77,6 @@ export function DepositStatusPanel({ variant }: { variant: 'return' | 'cancel' }
     );
   }
 
-  const holdTime = formatTime(status.holdExpiresAt);
-
   if (status.state === 'confirmed') {
     return (
       <p className="mt-3 text-sm leading-6 text-stone-600">
@@ -118,10 +108,19 @@ export function DepositStatusPanel({ variant }: { variant: 'return' | 'cancel' }
                 <>
                   {' — your slot is held for another '}
                   <span data-testid="hold-countdown" className="font-semibold tabular-nums">{countdown.label}</span>
-                  {holdTime ? ` (until ${holdTime}).` : '.'}
+                  .
                 </>
               )
-            : (holdTime ? ` — your slot is held until ${holdTime}.` : '.')}
+            : '.'}
+          {countdown.absoluteLabel && countdown.dateTime && (
+            <>
+              {' The hold ends at '}
+              <time data-testid="hold-deadline" dateTime={countdown.dateTime}>
+                {countdown.absoluteLabel}
+              </time>
+              {' (salon local time).'}
+            </>
+          )}
         </p>
         {status.checkoutUrl
           ? (

@@ -52,7 +52,7 @@ import {
   type SmartFitStaleBreakdown,
   syncSmartFitSuggestionDismissal,
 } from '@/libs/smartFitCustomer';
-import { zonedTimeToUtc } from '@/libs/timeZone';
+import { DEFAULT_BOOKING_TIME_ZONE, zonedTimeToUtc } from '@/libs/timeZone';
 import { useSalon } from '@/providers/SalonProvider';
 import { n5 } from '@/theme';
 import { formatDuration } from '@/utils/Helpers';
@@ -127,6 +127,8 @@ type BookConfirmClientProps = {
   dateStr: string;
   timeStr: string;
   canonicalStartTime?: string | null;
+  /** Validated IANA timezone used for absolute salon-local deadlines. */
+  salonTimeZone?: string;
   bookingFlow: BookingStep[];
   location: LocationSummary;
   /** Whether the salon's rewards program is enabled — hides points messaging when false */
@@ -175,6 +177,17 @@ function defaultNavigateToCheckout(url: string): void {
 const EMPTY_ADD_ONS: AddOnSummary[] = [];
 const EMPTY_SELECTED_ADD_ONS: NonNullable<BookConfirmClientProps['selectedAddOns']> = [];
 const DEFAULT_BOOKING_CURRENCY = DEPOSIT_CURRENCY.toUpperCase();
+const BOOKING_CONFIRM_FALLBACK_MESSAGE
+  = 'We couldn\'t confirm this appointment just now. Please try again.';
+
+type BookingResultStatus = 'confirmed' | 'pending';
+
+class CustomerSafeBookingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CustomerSafeBookingError';
+  }
+}
 
 /** One nearby Smart Fit alternative, carried from the time step's availability response. */
 type SmartFitSuggestion = {
@@ -554,7 +567,7 @@ const BookingCard = ({
   pointsEarned,
   location,
   rewardsEnabled = true,
-  confirmed = false,
+  resultStatus = 'review',
   totalPriceDisplay,
 }: {
   services: ServiceSummary[];
@@ -567,7 +580,7 @@ const BookingCard = ({
   pointsEarned: number;
   location: LocationSummary;
   rewardsEnabled?: boolean;
-  confirmed?: boolean;
+  resultStatus?: 'review' | BookingResultStatus;
   /** Preformatted total (Smart Fit pricing) — falls back to the legacy `$n` render. */
   totalPriceDisplay?: string;
 }) => {
@@ -601,9 +614,11 @@ const BookingCard = ({
     <motion.div className="relative z-10 w-full">
       <SectionCard
         title="Appointment summary"
-        description={confirmed
+        description={resultStatus === 'confirmed'
           ? 'You’re all set — here are your appointment details.'
-          : 'Review the details below before you confirm.'}
+          : resultStatus === 'pending'
+            ? 'Your request was sent — these details are awaiting salon approval.'
+            : 'Review the details below before you confirm.'}
         className="border-[var(--n5-border)] bg-[var(--n5-bg-card)]"
         actions={(
           <div className="text-right">
@@ -689,50 +704,6 @@ const BookingCard = ({
     </motion.div>
   );
 };
-
-/**
- * Loading State - High-end spa aesthetic
- */
-const LoadingState = () => (
-  <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--n5-bg-page)]">
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      transition={{ duration: 0.5 }}
-      className="flex flex-col items-center"
-    >
-      {/* Elegant pulsing dots */}
-      <div className="mb-8 flex items-center gap-2">
-        {[0, 1, 2].map(i => (
-          <motion.div
-            key={i}
-            className="size-2 rounded-full bg-[var(--n5-accent)]"
-            animate={{
-              scale: [1, 1.3, 1],
-              opacity: [0.4, 1, 0.4],
-            }}
-            transition={{
-              duration: 1.2,
-              repeat: Infinity,
-              delay: i * 0.2,
-              ease: 'easeInOut',
-            }}
-          />
-        ))}
-      </div>
-
-      {/* Refined typography */}
-      <motion.p
-        initial={{ opacity: 0, y: 5 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3, duration: 0.5 }}
-        className="font-heading text-sm uppercase tracking-[0.2em] text-[var(--n5-ink-muted)]"
-      >
-        Confirming your appointment
-      </motion.p>
-    </motion.div>
-  </div>
-);
 
 /**
  * Error State - Premium Design
@@ -882,11 +853,15 @@ function readStoredDepositResume(): StoredDepositResume | null {
 const DepositHoldNotice = ({
   expiresAt,
   resumeUrl,
+  salonTimeZone,
 }: {
   expiresAt: string | null;
   resumeUrl: string | null;
+  salonTimeZone: string;
 }) => {
-  const { label, expired } = useHoldCountdown(expiresAt);
+  const { label, expired, absoluteLabel, dateTime } = useHoldCountdown(expiresAt, {
+    timeZone: salonTimeZone,
+  });
 
   if (expired) {
     return (
@@ -911,6 +886,13 @@ const DepositHoldNotice = ({
             )
           : '.'}
       </p>
+      {absoluteLabel && dateTime && (
+        <p className="mt-1">
+          {'The hold ends at '}
+          <time data-testid="hold-deadline" dateTime={dateTime}>{absoluteLabel}</time>
+          {' (salon local time).'}
+        </p>
+      )}
       {resumeUrl && (
         <a
           className="mt-3 inline-flex min-h-11 items-center rounded-full bg-stone-950 px-5 py-2.5 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
@@ -969,10 +951,14 @@ const SlotTakenState = ({
 const SmartFitStaleState = ({
   message,
   breakdown,
+  previousTotalCents,
+  currency,
   onChooseAnotherTime,
 }: {
   message: string;
   breakdown: SmartFitStaleBreakdown | null;
+  previousTotalCents: number | null;
+  currency: string;
   onChooseAnotherTime: () => void;
 }) => {
   // Keyboard users arrive here from the now-unmounted Confirm button; land
@@ -983,6 +969,9 @@ const SmartFitStaleState = ({
   }, []);
 
   const replacedByBetterDiscount = smartFitReplacedByHigherPriorityDiscount(breakdown);
+  const priceChanged = previousTotalCents !== null
+    && breakdown !== null
+    && breakdown.finalTotalCents !== previousTotalCents;
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--n5-bg-page)] px-5">
@@ -995,12 +984,33 @@ const SmartFitStaleState = ({
             description={(
               <>
                 <p>{message}</p>
-                {replacedByBetterDiscount && breakdown && (
-                  <p className="mt-2">
-                    {`A different offer now applies to your booking. Current price for this time: ${formatMoney(breakdown.finalTotalCents)}`}
-                    {breakdown.discountLabel ? ` (${breakdown.discountLabel})` : ''}
-                    .
-                  </p>
+                {priceChanged && breakdown && previousTotalCents !== null && (
+                  <div className="mt-3">
+                    <p>
+                      {replacedByBetterDiscount
+                        ? 'A different offer now applies to this time.'
+                        : 'The service price for this time changed.'}
+                    </p>
+                    <dl
+                      data-testid="smart-fit-price-change"
+                      className="mt-2 grid grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-xl border border-red-200 bg-white/70 p-3 text-left"
+                    >
+                      <div>
+                        <dt className="text-xs font-medium text-[var(--n5-ink-muted)]">Previously shown</dt>
+                        <dd className="font-semibold text-[var(--n5-ink-main)]">
+                          {formatMoney(previousTotalCents, currency)}
+                        </dd>
+                      </div>
+                      <span aria-hidden="true" className="text-[var(--n5-ink-muted)]">→</span>
+                      <div>
+                        <dt className="text-xs font-medium text-[var(--n5-ink-muted)]">Current service price</dt>
+                        <dd className="font-semibold text-[var(--n5-ink-main)]">
+                          {formatMoney(breakdown.finalTotalCents, currency)}
+                          {breakdown.discountLabel ? ` (${breakdown.discountLabel})` : ''}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
                 )}
               </>
             )}
@@ -1160,11 +1170,12 @@ const ConfirmContent = ({
       >
         <button
           type="button"
+          disabled={isSubmitting}
           onClick={() => {
             triggerHaptic('select');
             onEditSelection();
           }}
-          className="font-body inline-flex min-h-11 min-w-11 items-center text-sm font-medium text-[var(--n5-ink-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
+          className="font-body inline-flex min-h-11 min-w-11 items-center text-sm font-medium text-[var(--n5-ink-muted)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
         >
           Edit
         </button>
@@ -1174,7 +1185,7 @@ const ConfirmContent = ({
         <div className="w-11" />
       </nav>
 
-      <main className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-28">
+      <main aria-busy={isSubmitting} className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-28">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -1190,7 +1201,9 @@ const ConfirmContent = ({
               borderRadius: n5.radiusPill,
             }}
           >
-            <Check className="size-9 text-[var(--n5-accent)]" strokeWidth={2.5} />
+            {isSubmitting
+              ? <RefreshCw aria-hidden="true" className="size-9 animate-spin text-[var(--n5-accent)]" />
+              : <Check aria-hidden="true" className="size-9 text-[var(--n5-accent)]" strokeWidth={2.5} />}
           </motion.div>
           <h1 className="font-heading mb-2 text-2xl font-bold text-[var(--n5-ink-main)]">
             Review your appointment
@@ -1201,6 +1214,17 @@ const ConfirmContent = ({
               : 'Nothing is booked yet. Confirm below to reserve this time.'}
           </p>
         </motion.div>
+
+        {isSubmitting && (
+          <div
+            data-testid="booking-submit-pending"
+            role="status"
+            aria-live="polite"
+            className="rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] px-4 py-3 text-sm leading-6 text-[var(--n5-ink-main)]"
+          >
+            Confirming your appointment. Your booking details remain below while we finish.
+          </div>
+        )}
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -1252,21 +1276,23 @@ const ConfirmContent = ({
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={() => {
                     triggerHaptic('confirm');
                     handleAcceptSuggestion();
                   }}
-                  className="font-body min-h-11 rounded-xl bg-[var(--n5-accent)] px-4 py-2.5 text-sm font-bold text-[var(--n5-ink-inverse)] transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:transform-none"
+                  className="font-body min-h-11 rounded-xl bg-[var(--n5-accent)] px-4 py-2.5 text-sm font-bold text-[var(--n5-ink-inverse)] transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none motion-reduce:active:transform-none"
                 >
                   Choose this time
                 </button>
                 <button
                   type="button"
+                  disabled={isSubmitting}
                   onClick={() => {
                     triggerHaptic('select');
                     handleDismissSuggestion();
                   }}
-                  className="font-body min-h-11 rounded-xl border border-emerald-300 px-4 py-2.5 text-sm font-semibold text-emerald-900 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:transform-none"
+                  className="font-body min-h-11 rounded-xl border border-emerald-300 px-4 py-2.5 text-sm font-semibold text-emerald-900 transition-all focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none motion-reduce:active:transform-none"
                 >
                   Keep my time
                 </button>
@@ -1292,25 +1318,25 @@ const ConfirmContent = ({
                 Name
                 <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)]">Required</span>
               </span>
-              <input aria-label="Customer name" required aria-required="true" autoComplete="name" value={guestName} onChange={event => onGuestNameChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
+              <input aria-label="Customer name" required aria-required="true" autoComplete="name" disabled={isSubmitting} value={guestName} onChange={event => onGuestNameChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
             </label>
             <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
               <span className="flex items-baseline justify-between gap-2">
                 Email
                 <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)]">Required</span>
               </span>
-              <input aria-label="Customer email" required aria-required="true" type="email" autoComplete="email" value={guestEmail} onChange={event => onGuestEmailChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
+              <input aria-label="Customer email" required aria-required="true" type="email" autoComplete="email" disabled={isSubmitting} value={guestEmail} onChange={event => onGuestEmailChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
             </label>
             <label className="block text-xs font-semibold text-[var(--n5-ink-muted)]">
               <span className="flex items-baseline justify-between gap-2">
                 Mobile phone
                 <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--n5-ink-muted)]">Required</span>
               </span>
-              <input aria-label="Customer phone" required aria-required="true" type="tel" inputMode="tel" autoComplete="tel" value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)]" />
+              <input aria-label="Customer phone" required aria-required="true" type="tel" inputMode="tel" autoComplete="tel" disabled={isSubmitting} value={guestPhone} onChange={event => onGuestPhoneChange(event.target.value)} className="mt-1 w-full rounded-xl border border-[var(--n5-border)] bg-[var(--n5-bg-page)] p-3 text-sm text-[var(--n5-ink-main)] outline-none focus:border-[var(--n5-accent)] disabled:cursor-not-allowed disabled:opacity-60" />
             </label>
             {smsEnabled && (
               <label className="flex items-start gap-3 rounded-xl border border-[var(--n5-border-muted)] p-3 text-xs leading-5 text-[var(--n5-ink-muted)]">
-                <input aria-label="SMS consent" type="checkbox" checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="mt-1" />
+                <input aria-label="SMS consent" type="checkbox" disabled={isSubmitting} checked={smsConsent} onChange={event => onSmsConsentChange(event.target.checked)} className="mt-1 disabled:cursor-not-allowed" />
                 <span>I agree to receive transactional appointment confirmations and reminders by text. Consent is optional, message/data rates may apply, and I can reply STOP at any time.</span>
               </label>
             )}
@@ -1510,6 +1536,7 @@ const ConfirmContent = ({
                   aria-required="true"
                   required
                   type="checkbox"
+                  disabled={isSubmitting}
                   checked={policyAcknowledged}
                   onChange={event =>
                     onPolicyAcknowledgmentChange(event.target.checked)}
@@ -1574,11 +1601,12 @@ const ConfirmContent = ({
 
           <button
             type="button"
+            disabled={isSubmitting}
             onClick={() => {
               triggerHaptic('select');
               onEditSelection();
             }}
-            className="font-body flex w-full items-center justify-center gap-2 border py-3 font-bold text-[var(--n5-accent)] transition-all active:scale-[0.98]"
+            className="font-body flex w-full items-center justify-center gap-2 border py-3 font-bold text-[var(--n5-accent)] transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
             style={{
               borderRadius: n5.radiusMd,
               borderColor: 'var(--n5-accent)',
@@ -1597,6 +1625,7 @@ const ConfirmContent = ({
  * Success State - Premium Design
  */
 const SuccessContent = ({
+  bookingStatus,
   services,
   addOns,
   technician,
@@ -1619,6 +1648,7 @@ const SuccessContent = ({
   confirmationMessage,
   policy,
 }: {
+  bookingStatus: BookingResultStatus;
   services: ServiceSummary[];
   addOns: AddOnSummary[];
   technician: TechnicianSummary;
@@ -1641,6 +1671,7 @@ const SuccessContent = ({
   confirmationMessage: string | null;
   policy: ConfirmationPolicy;
 }) => {
+  const isPending = bookingStatus === 'pending';
   const directionsUrl = buildGoogleMapsDirectionsUrl(location);
   const calendarStart = canonicalStartTime ? new Date(canonicalStartTime) : null;
   const calendarEnd = calendarStart ? new Date(calendarStart.getTime() + totalDuration * 60 * 1000) : null;
@@ -1666,59 +1697,71 @@ const SuccessContent = ({
       >
         <div className="w-10" />
         <span className="font-heading text-lg font-semibold tracking-tight text-[var(--n5-ink-main)]">
-          Confirmed
+          {isPending ? 'Request received' : 'Confirmed'}
         </span>
         <div className="w-10" />
       </nav>
 
       {/* Main Content */}
       <main className="mx-auto max-w-lg space-y-5 px-5 pb-10 pt-28">
-        {/* Success Header */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="text-center"
-        >
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
-            className="mx-auto mb-4 flex size-20 items-center justify-center bg-[var(--n5-success)]"
-            style={{ borderRadius: n5.radiusPill }}
+        <div data-testid="booking-result-receipt" className="space-y-5">
+          <motion.header
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-center"
+            role="status"
           >
-            <Check className="size-10 text-white" strokeWidth={3} />
+            <h1 className="font-heading mb-1 text-2xl font-bold text-[var(--n5-ink-main)]">
+              {isPending ? 'Request received' : 'Appointment confirmed'}
+            </h1>
+            <p className="font-body text-sm text-[var(--n5-ink-muted)]">
+              {isPending
+                ? 'The salon will review your request before the appointment is confirmed.'
+                : 'Your time is reserved.'}
+            </p>
+          </motion.header>
+
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+          >
+            <BookingCard
+              services={services}
+              addOns={addOns}
+              technician={technician}
+              totalPrice={totalPrice}
+              totalDuration={totalDuration}
+              dateStr={dateStr}
+              timeStr={timeStr}
+              pointsEarned={pointsEarned}
+              location={location}
+              rewardsEnabled={rewardsEnabled}
+              resultStatus={bookingStatus}
+              totalPriceDisplay={totalPriceDisplay}
+            />
           </motion.div>
-          <h1 className="font-heading mb-1 text-2xl font-bold text-[var(--n5-ink-main)]">
-            Appointment confirmed
-          </h1>
-          <p className="font-body text-sm text-[var(--n5-ink-muted)]">
-            Your time is reserved
-          </p>
-        </motion.div>
+        </div>
 
-        {/* Booking Card */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-        >
-          <BookingCard
-            services={services}
-            addOns={addOns}
-            technician={technician}
-            totalPrice={totalPrice}
-            totalDuration={totalDuration}
-            dateStr={dateStr}
-            timeStr={timeStr}
-            pointsEarned={pointsEarned}
-            location={location}
-            rewardsEnabled={rewardsEnabled}
-            confirmed
-            totalPriceDisplay={totalPriceDisplay}
-          />
-        </motion.div>
+        {!isPending && (
+          <motion.div
+            data-testid="booking-success-celebration"
+            aria-hidden="true"
+            initial={{ opacity: 0, scale: 0.8 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.3, type: 'spring', stiffness: 200 }}
+            className="text-center"
+          >
+            <div
+              className="mx-auto flex size-20 items-center justify-center bg-[var(--n5-success)]"
+              style={{ borderRadius: n5.radiusPill }}
+            >
+              <Check className="size-10 text-white" strokeWidth={3} />
+            </div>
+          </motion.div>
+        )}
 
-        {policy.enabled && policy.showAfterConfirmation && policy.text && (
+        {!isPending && policy.enabled && policy.showAfterConfirmation && policy.text && (
           <PolicyCard
             title="Please remember"
             text={policy.text}
@@ -1726,7 +1769,7 @@ const SuccessContent = ({
           />
         )}
 
-        {confirmationMessage && (
+        {!isPending && confirmationMessage && (
           <motion.div
             data-testid="booking-confirmation-message"
             initial={{ opacity: 0, y: 20 }}
@@ -1756,7 +1799,7 @@ const SuccessContent = ({
                   }}
                 >
                   <RefreshCw className="size-5" />
-                  <span>Manage this appointment</span>
+                  <span>{isPending ? 'Manage this request' : 'Manage this appointment'}</span>
                 </a>
               )
             : (
@@ -1765,8 +1808,9 @@ const SuccessContent = ({
                   className="rounded-2xl border border-[var(--n5-border)] bg-[var(--n5-bg-card)] p-4 text-sm leading-relaxed text-[var(--n5-ink-muted)]"
                 >
                   <p>
-                    Your appointment is confirmed, but its private management link is not
-                    available on this screen.
+                    {isPending
+                      ? 'Your request was received, but its private management link is not available on this screen.'
+                      : 'Your appointment is confirmed, but its private management link is not available on this screen.'}
                   </p>
                   <a
                     href={findBookingUrl}
@@ -1777,7 +1821,7 @@ const SuccessContent = ({
                 </div>
               )}
 
-          {(googleCalendarUrl || manageUrl) && (
+          {!isPending && (googleCalendarUrl || manageUrl) && (
             <div className="grid grid-cols-2 gap-3">
               {googleCalendarUrl && (
                 <a href={googleCalendarUrl} target="_blank" rel="noreferrer" className="font-body flex items-center justify-center gap-2 rounded-xl border py-3 text-center text-sm font-semibold text-[var(--n5-ink-main)]" style={{ borderColor: 'var(--n5-border)' }}>
@@ -1838,22 +1882,28 @@ const SuccessContent = ({
           className="pt-4 text-center"
         >
           <div className="mb-2 flex items-center justify-center gap-2">
-            <Sparkles className="size-4 text-[var(--n5-accent)]" />
-            <span className="font-body text-sm text-[var(--n5-ink-muted)]">We&apos;re looking forward to your visit.</span>
-            <Sparkles className="size-4 text-[var(--n5-accent)]" />
+            {!isPending && <Sparkles className="size-4 text-[var(--n5-accent)]" />}
+            <span className="font-body text-sm text-[var(--n5-ink-muted)]">
+              {isPending ? 'The salon will review your request.' : 'We’re looking forward to your visit.'}
+            </span>
+            {!isPending && <Sparkles className="size-4 text-[var(--n5-accent)]" />}
           </div>
-          {smsEnabled && smsConsentGranted && (
-            <p className="font-body text-xs text-[var(--n5-ink-muted)]">
-              We&apos;ll text you before your visit
-            </p>
+          {!isPending && (
+            <>
+              {smsEnabled && smsConsentGranted && (
+                <p className="font-body text-xs text-[var(--n5-ink-muted)]">
+                  We&apos;ll text you before your visit
+                </p>
+              )}
+              <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
+                You can change or cancel up to
+                {' '}
+                {clientChangeCutoffHours}
+                {' '}
+                hours before
+              </p>
+            </>
           )}
-          <p className="font-body mt-0.5 text-xs text-[var(--n5-ink-muted)]">
-            You can change or cancel up to
-            {' '}
-            {clientChangeCutoffHours}
-            {' '}
-            hours before
-          </p>
         </motion.div>
       </main>
 
@@ -1884,6 +1934,7 @@ export function BookConfirmClient({
   dateStr,
   timeStr,
   canonicalStartTime = null,
+  salonTimeZone = DEFAULT_BOOKING_TIME_ZONE,
   // bookingFlow is passed for consistency but not used in confirm step
   bookingFlow: _bookingFlow,
   location,
@@ -1964,11 +2015,14 @@ export function BookConfirmClient({
 
   const [isBooking, setIsBooking] = useState(false);
   const [bookingComplete, setBookingComplete] = useState(false);
+  const [bookingResultStatus, setBookingResultStatus]
+    = useState<BookingResultStatus>('confirmed');
   const [bookingError, setBookingError] = useState<string | null>(null);
   const [slotTaken, setSlotTaken] = useState(false);
   const [smartFitStale, setSmartFitStale] = useState<{
     message: string;
     breakdown: SmartFitStaleBreakdown | null;
+    previousTotalCents: number | null;
   } | null>(null);
   const [smartFitSuggestionDismissed, setSmartFitSuggestionDismissed] = useState(false);
   // Set once the booking API has proven a higher-priority discount out-ranks
@@ -2338,16 +2392,12 @@ export function BookConfirmClient({
           errorData = JSON.parse(responseText);
         } catch {
           // Never surface raw server output (HTML error pages, stack traces).
-          throw new Error('Something went wrong on our end while confirming your appointment. Please try again in a moment.');
+          throw new CustomerSafeBookingError(BOOKING_CONFIRM_FALLBACK_MESSAGE);
         }
 
         const errorCode = typeof errorData?.error === 'string'
           ? errorData.error
           : errorData?.error?.code;
-        const errorMessage = typeof errorData?.message === 'string'
-          ? errorData.message
-          : errorData?.error?.message;
-
         if (
           errorCode === 'BOOKING_POLICY_CHANGED'
           || errorCode === 'BOOKING_POLICY_ACKNOWLEDGMENT_REQUIRED'
@@ -2357,7 +2407,7 @@ export function BookConfirmClient({
             displayedPolicy,
           );
           if (!latestPolicy) {
-            throw new Error(
+            throw new CustomerSafeBookingError(
               errorCode === 'BOOKING_POLICY_CHANGED'
                 ? 'The salon updated its booking policy. Refresh the page to review it before confirming.'
                 : 'The salon now requires booking-policy acknowledgment. Refresh the page to review it before confirming.',
@@ -2371,10 +2421,7 @@ export function BookConfirmClient({
           setBookingError(
             errorCode === 'BOOKING_POLICY_CHANGED'
               ? 'The salon updated its booking policy. Please review it and confirm again.'
-              : (
-                  errorMessage
-                  || 'Review and acknowledge the booking policy before confirming.'
-                ),
+              : 'Review and acknowledge the booking policy before confirming.',
           );
           bookingInitiatedRef.current = false;
           return;
@@ -2432,17 +2479,14 @@ export function BookConfirmClient({
           setPolicyAcknowledged(false);
           acknowledgmentAttemptIdRef.current = crypto.randomUUID();
           idempotencyKeyRef.current = crypto.randomUUID();
-          setBookingError(
-            errorMessage
-            || 'This booking attempt changed. Please confirm the appointment again.',
-          );
+          setBookingError('This booking attempt changed. Please confirm the appointment again.');
           bookingInitiatedRef.current = false;
           return;
         }
 
         if (errorCode === 'EXISTING_APPOINTMENT') {
           setHasExistingAppointment(true);
-          setBookingError(errorMessage || 'You already have an upcoming appointment.');
+          setBookingError('You already have an upcoming appointment.');
           bookingInitiatedRef.current = false;
           return;
         }
@@ -2470,10 +2514,7 @@ export function BookConfirmClient({
             : null;
           setDepositHold({ expiresAt: holdExpiresAt, resumeUrl });
           setHasExistingAppointment(true);
-          setBookingError(
-            errorMessage
-            || 'You already have a booking waiting for its deposit. Finish that payment, or wait for the hold to expire.',
-          );
+          setBookingError('You already have a booking waiting for its deposit. Finish that payment, or wait for the hold to expire.');
           bookingInitiatedRef.current = false;
           return;
         }
@@ -2513,16 +2554,19 @@ export function BookConfirmClient({
             setSmartFitOutranked(true);
           }
           setSmartFitStale({
-            message: typeof errorMessage === 'string' && errorMessage
-              ? errorMessage
-              : SMART_FIT_STALE_FALLBACK_MESSAGE,
+            message: SMART_FIT_STALE_FALLBACK_MESSAGE,
             breakdown,
+            // Capture the exact total this visitor reviewed and echoed to the
+            // server. The higher-priority response branch changes Smart Fit
+            // session state immediately, so deriving this later would lose the
+            // only honest "old" side of the comparison.
+            previousTotalCents: smartFitOffer?.discountedPriceCents ?? null,
           });
           bookingInitiatedRef.current = false;
           return;
         }
 
-        throw new Error(errorMessage || `We couldn't confirm this booking (code ${response.status}). Please try again.`);
+        throw new CustomerSafeBookingError(BOOKING_CONFIRM_FALLBACK_MESSAGE);
       }
 
       const data = await response.json();
@@ -2554,7 +2598,10 @@ export function BookConfirmClient({
         return;
       }
 
+      const resultStatus: BookingResultStatus
+        = data?.data?.appointment?.status === 'pending' ? 'pending' : 'confirmed';
       setManageUrl(data.data.manageUrl || null);
+      setBookingResultStatus(resultStatus);
       setBookingComplete(true);
       try {
         sessionStorage.removeItem(GUEST_CONTACT_STORAGE_KEY);
@@ -2562,14 +2609,21 @@ export function BookConfirmClient({
         // Storage unavailable — nothing to clear.
       }
 
-      // Trigger confetti
-      setTimeout(() => {
-        triggerHaptic('success');
-        triggerLuxuryConfetti();
-      }, 300);
+      // A request awaiting salon approval is deliberately not given the
+      // confirmed-success check/confetti treatment.
+      if (resultStatus === 'confirmed') {
+        setTimeout(() => {
+          triggerHaptic('success');
+          triggerLuxuryConfetti();
+        }, 300);
+      }
     } catch (error) {
       console.error('Booking error:', error);
-      setBookingError(error instanceof Error ? error.message : 'Failed to create booking');
+      setBookingError(
+        error instanceof CustomerSafeBookingError
+          ? error.message
+          : BOOKING_CONFIRM_FALLBACK_MESSAGE,
+      );
       bookingInitiatedRef.current = false;
     } finally {
       setIsBooking(false);
@@ -2579,11 +2633,6 @@ export function BookConfirmClient({
   const handleOpenDirections = useCallback(() => {
     openGoogleMapsDirections(location);
   }, [location]);
-
-  // Loading state
-  if (isBooking) {
-    return <LoadingState />;
-  }
 
   // Existing appointment error: the server (never browser state) confirmed an
   // active appointment for this phone. Offer every path forward instead of a
@@ -2596,6 +2645,7 @@ export function BookConfirmClient({
           <DepositHoldNotice
             expiresAt={depositHold.expiresAt}
             resumeUrl={depositHold.resumeUrl}
+            salonTimeZone={salonTimeZone}
           />
         )}
         <ExistingAppointmentOptions
@@ -2636,6 +2686,8 @@ export function BookConfirmClient({
       <SmartFitStaleState
         message={smartFitStale.message}
         breakdown={smartFitStale.breakdown}
+        previousTotalCents={smartFitStale.previousTotalCents}
+        currency={currency}
         onChooseAnotherTime={() => {
           markSmartFitAvailabilityRefresh(salonSlug);
           router.back();
@@ -2658,6 +2710,7 @@ export function BookConfirmClient({
   if (bookingComplete) {
     return (
       <SuccessContent
+        bookingStatus={bookingResultStatus}
         services={services}
         addOns={addOns}
         technician={technician}

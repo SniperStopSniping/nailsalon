@@ -269,6 +269,7 @@ describe('BookConfirmPage directions fallback', () => {
 
     expect(screen.getByText('Book confirm client')).toBeInTheDocument();
     expect(bookConfirmClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+      salonTimeZone: 'America/Toronto',
       location: {
         id: 'loc_primary',
         name: 'Isla Nail Salon',
@@ -277,6 +278,29 @@ describe('BookConfirmPage directions fallback', () => {
         state: 'ON',
         zipCode: 'M2J 2C1',
       },
+    }));
+  });
+
+  it('passes the validated salon timezone to the client deadline presenter', async () => {
+    getSalonById.mockResolvedValue({
+      id: 'salon_1',
+      settings: { booking: { timezone: 'America/Vancouver' } },
+    });
+
+    const element = await BookConfirmPage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        serviceIds: 'srv_1',
+        techId: 'any',
+        date: '2026-03-20',
+        time: '10:00',
+      },
+    });
+
+    render(element);
+
+    expect(bookConfirmClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+      salonTimeZone: 'America/Vancouver',
     }));
   });
 

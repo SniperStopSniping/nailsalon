@@ -129,6 +129,9 @@ const PAST = new Date('2020-01-01T00:00:00.000Z');
 // and is not yet part of the declared `SalonSettings` type, hence the cast —
 // this fixture only needs to round-trip through the real jsonb column.
 const PUBLISHED_SALON_SETTINGS = {
+  booking: {
+    timezone: 'America/Vancouver',
+  },
   bookingPage: {
     version: 1,
     live: { layout: 'quick_book' },
@@ -148,10 +151,10 @@ function impersonationCookieFor(salonId: string, salonSlug: string, adminId: str
 }
 
 function ContextProbe() {
-  const { bookingPage, ownerPreview } = useSalon();
+  const { bookingPage, bookingTimeZone, ownerPreview } = useSalon();
   return (
     <div data-testid="context-probe">
-      {JSON.stringify({ layout: bookingPage.layout, ownerPreview })}
+      {JSON.stringify({ layout: bookingPage.layout, bookingTimeZone, ownerPreview })}
     </div>
   );
 }
@@ -325,6 +328,7 @@ describe('SlugTenantLayout — draft bookingPage config on an already-published 
     const probe = JSON.parse(screen.getByTestId('context-probe').textContent ?? '{}');
 
     expect(probe.layout).toBe('quick_book');
+    expect(probe.bookingTimeZone).toBe('America/Vancouver');
     expect(probe.ownerPreview).toEqual({ isPreviewing: false, actorType: null });
   });
 

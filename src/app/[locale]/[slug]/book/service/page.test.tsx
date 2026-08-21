@@ -164,6 +164,9 @@ vi.mock('@/libs/salonStatus', () => ({
 
 vi.mock('@/libs/bookingConfig', () => ({
   getBookingConfigForSalon,
+  resolveBookingConfigFromSettings: vi.fn(() => ({
+    timezone: 'America/Toronto',
+  })),
   resolveIntroPriceLabel: vi.fn(() => null),
 }));
 
