@@ -1,9 +1,10 @@
 'use client';
 
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { AlertTriangle, Check, Send, Trash2, UserCheck } from 'lucide-react';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
+import { DialogShell } from '@/components/ui/dialog-shell';
 import type { SkillLevel, StaffRole } from '@/models/Schema';
 
 // =============================================================================
@@ -89,6 +90,8 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
   const [showReenableModal, setShowReenableModal] = useState(false);
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [reenabling, setReenabling] = useState(false);
+  const [destructiveActionBusy, setDestructiveActionBusy] = useState<'disable' | 'delete' | null>(null);
+  const destructiveActionInFlightRef = useRef(false);
   const [destructiveActionError, setDestructiveActionError] = useState<string | null>(null);
 
   // Resend invite state
@@ -183,10 +186,12 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
   };
 
   const handleDisable = async () => {
-    if (!salonSlug) {
+    if (!salonSlug || destructiveActionInFlightRef.current) {
       return;
     }
 
+    destructiveActionInFlightRef.current = true;
+    setDestructiveActionBusy('disable');
     try {
       setDestructiveActionError(null);
       const response = await fetch(
@@ -206,14 +211,19 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
       setDestructiveActionError(
         err instanceof Error ? err.message : 'Failed to disable staff member',
       );
+    } finally {
+      destructiveActionInFlightRef.current = false;
+      setDestructiveActionBusy(null);
     }
   };
 
   const handlePermanentDelete = async () => {
-    if (!salonSlug || deleteConfirmText !== 'DELETE') {
+    if (!salonSlug || deleteConfirmText !== 'DELETE' || destructiveActionInFlightRef.current) {
       return;
     }
 
+    destructiveActionInFlightRef.current = true;
+    setDestructiveActionBusy('delete');
     try {
       setDestructiveActionError(null);
       const response = await fetch(
@@ -234,6 +244,9 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
       setDestructiveActionError(
         err instanceof Error ? err.message : 'Failed to permanently delete staff member',
       );
+    } finally {
+      destructiveActionInFlightRef.current = false;
+      setDestructiveActionBusy(null);
     }
   };
 
@@ -682,195 +695,193 @@ export function SettingsTab({ salonSlug, technician, onUpdate, onDelete }: Setti
       </div>
 
       {/* Disable Confirmation Modal */}
-      <AnimatePresence>
-        {showDisableModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-            onClick={() => {
-              setShowDisableModal(false);
-              setDestructiveActionError(null);
-            }}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="max-h-[calc(100vh-2rem)] w-full max-w-sm touch-pan-y overflow-y-auto overscroll-contain rounded-[20px] bg-white p-6 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
-              onClick={e => e.stopPropagation()}
+      <DialogShell
+        isOpen={showDisableModal}
+        onClose={() => {
+          setShowDisableModal(false);
+          setDestructiveActionError(null);
+        }}
+        closeOnBackdrop={destructiveActionBusy === null}
+        closeOnEscape={destructiveActionBusy === null}
+        maxWidthClassName="max-w-sm"
+        contentClassName="max-h-[calc(100vh-2rem)] touch-pan-y overflow-y-auto overscroll-contain rounded-[20px] bg-white p-6 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
+      >
+        <motion.div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="disable-staff-title"
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.9, opacity: 0 }}
+          className="w-full"
+        >
+          <div className="mb-4 flex justify-center">
+            <div className="flex size-16 items-center justify-center rounded-full bg-[#FF9500]/10">
+              <AlertTriangle className="size-8 text-[#FF9500]" />
+            </div>
+          </div>
+          <h3 id="disable-staff-title" className="mb-2 text-center text-[20px] font-bold text-[#1C1C1E]">
+            Disable Staff Member?
+          </h3>
+          <p className="mb-6 text-center text-[15px] text-[#8E8E93]">
+            {technician.name}
+            {' '}
+            will be hidden from booking. Their data and history will be preserved. You can re-enable them anytime.
+          </p>
+          {destructiveActionError && (
+            <p className="mb-4 text-center text-[13px] text-[#FF3B30]">
+              {destructiveActionError}
+            </p>
+          )}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setShowDisableModal(false);
+                setDestructiveActionError(null);
+              }}
+              className="flex-1 rounded-xl bg-[#E5E5EA] py-3 text-[17px] font-medium text-[#1C1C1E]"
             >
-              <div className="mb-4 flex justify-center">
-                <div className="flex size-16 items-center justify-center rounded-full bg-[#FF9500]/10">
-                  <AlertTriangle className="size-8 text-[#FF9500]" />
-                </div>
-              </div>
-              <h3 className="mb-2 text-center text-[20px] font-bold text-[#1C1C1E]">
-                Disable Staff Member?
-              </h3>
-              <p className="mb-6 text-center text-[15px] text-[#8E8E93]">
-                {technician.name}
-                {' '}
-                will be hidden from booking. Their data and history will be preserved. You can re-enable them anytime.
-              </p>
-              {destructiveActionError && (
-                <p className="mb-4 text-center text-[13px] text-[#FF3B30]">
-                  {destructiveActionError}
-                </p>
-              )}
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowDisableModal(false);
-                    setDestructiveActionError(null);
-                  }}
-                  className="flex-1 rounded-xl bg-[#E5E5EA] py-3 text-[17px] font-medium text-[#1C1C1E]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDisable}
-                  className="flex-1 rounded-xl bg-[#FF9500] py-3 text-[17px] font-medium text-white"
-                >
-                  Disable
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleDisable}
+              disabled={destructiveActionBusy !== null}
+              className="flex-1 rounded-xl bg-[#FF9500] py-3 text-[17px] font-medium text-white"
+            >
+              Disable
+            </button>
+          </div>
+        </motion.div>
+      </DialogShell>
 
       {/* Permanent Delete Confirmation Modal */}
-      <AnimatePresence>
-        {showDeleteModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-            onClick={() => {
-              setShowDeleteModal(false);
-              setDeleteConfirmText('');
-              setDestructiveActionError(null);
-            }}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="max-h-[calc(100vh-2rem)] w-full max-w-sm touch-pan-y overflow-y-auto overscroll-contain rounded-[20px] bg-white p-6 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
-              onClick={e => e.stopPropagation()}
+      <DialogShell
+        isOpen={showDeleteModal}
+        onClose={() => {
+          setShowDeleteModal(false);
+          setDeleteConfirmText('');
+          setDestructiveActionError(null);
+        }}
+        closeOnBackdrop={destructiveActionBusy === null}
+        closeOnEscape={destructiveActionBusy === null}
+        maxWidthClassName="max-w-sm"
+        contentClassName="max-h-[calc(100vh-2rem)] touch-pan-y overflow-y-auto overscroll-contain rounded-[20px] bg-white p-6 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
+      >
+        <motion.div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-staff-title"
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.9, opacity: 0 }}
+          className="w-full"
+        >
+          <div className="mb-4 flex justify-center">
+            <div className="flex size-16 items-center justify-center rounded-full bg-[#FF3B30]/10">
+              <AlertTriangle className="size-8 text-[#FF3B30]" />
+            </div>
+          </div>
+          <h3 id="delete-staff-title" className="mb-2 text-center text-[20px] font-bold text-[#1C1C1E]">
+            Permanently Remove?
+          </h3>
+          <p className="mb-4 text-center text-[15px] text-[#8E8E93]">
+            This will permanently delete
+            {' '}
+            {technician.name}
+            {' '}
+            and all their data. This action cannot be undone.
+          </p>
+          <p className="mb-3 text-center text-[13px] font-medium text-[#FF3B30]">
+            Type DELETE to confirm
+          </p>
+          <input
+            type="text"
+            value={deleteConfirmText}
+            onChange={e => setDeleteConfirmText(e.target.value.toUpperCase())}
+            placeholder="DELETE"
+            className="mb-4 w-full rounded-xl bg-[#F2F2F7] px-4 py-3 text-center text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none focus:ring-2 focus:ring-[#FF3B30]/30"
+          />
+          {destructiveActionError && (
+            <p className="mb-4 text-center text-[13px] text-[#FF3B30]">
+              {destructiveActionError}
+            </p>
+          )}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => {
+                setShowDeleteModal(false);
+                setDeleteConfirmText('');
+                setDestructiveActionError(null);
+              }}
+              className="flex-1 rounded-xl bg-[#E5E5EA] py-3 text-[17px] font-medium text-[#1C1C1E]"
             >
-              <div className="mb-4 flex justify-center">
-                <div className="flex size-16 items-center justify-center rounded-full bg-[#FF3B30]/10">
-                  <AlertTriangle className="size-8 text-[#FF3B30]" />
-                </div>
-              </div>
-              <h3 className="mb-2 text-center text-[20px] font-bold text-[#1C1C1E]">
-                Permanently Remove?
-              </h3>
-              <p className="mb-4 text-center text-[15px] text-[#8E8E93]">
-                This will permanently delete
-                {' '}
-                {technician.name}
-                {' '}
-                and all their data. This action cannot be undone.
-              </p>
-              <p className="mb-3 text-center text-[13px] font-medium text-[#FF3B30]">
-                Type DELETE to confirm
-              </p>
-              <input
-                type="text"
-                value={deleteConfirmText}
-                onChange={e => setDeleteConfirmText(e.target.value.toUpperCase())}
-                placeholder="DELETE"
-                className="mb-4 w-full rounded-xl bg-[#F2F2F7] px-4 py-3 text-center text-[17px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none focus:ring-2 focus:ring-[#FF3B30]/30"
-              />
-              {destructiveActionError && (
-                <p className="mb-4 text-center text-[13px] text-[#FF3B30]">
-                  {destructiveActionError}
-                </p>
-              )}
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowDeleteModal(false);
-                    setDeleteConfirmText('');
-                    setDestructiveActionError(null);
-                  }}
-                  className="flex-1 rounded-xl bg-[#E5E5EA] py-3 text-[17px] font-medium text-[#1C1C1E]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handlePermanentDelete}
-                  disabled={deleteConfirmText !== 'DELETE'}
-                  className="flex-1 rounded-xl bg-[#FF3B30] py-3 text-[17px] font-medium text-white disabled:opacity-50"
-                >
-                  Remove
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handlePermanentDelete}
+              disabled={deleteConfirmText !== 'DELETE' || destructiveActionBusy !== null}
+              className="flex-1 rounded-xl bg-[#FF3B30] py-3 text-[17px] font-medium text-white disabled:opacity-50"
+            >
+              Remove
+            </button>
+          </div>
+        </motion.div>
+      </DialogShell>
 
       {/* Re-enable Confirmation Modal */}
-      <AnimatePresence>
-        {showReenableModal && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-            onClick={() => setShowReenableModal(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="max-h-[calc(100vh-2rem)] w-full max-w-sm touch-pan-y overflow-y-auto overscroll-contain rounded-[20px] bg-white p-6 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
-              onClick={e => e.stopPropagation()}
+      <DialogShell
+        isOpen={showReenableModal}
+        onClose={() => setShowReenableModal(false)}
+        closeOnBackdrop={!reenabling}
+        closeOnEscape={!reenabling}
+        maxWidthClassName="max-w-sm"
+        contentClassName="max-h-[calc(100vh-2rem)] touch-pan-y overflow-y-auto overscroll-contain rounded-[20px] bg-white p-6 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
+      >
+        <motion.div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reenable-staff-title"
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0.9, opacity: 0 }}
+          className="w-full"
+        >
+          <div className="mb-4 flex justify-center">
+            <div className="flex size-16 items-center justify-center rounded-full bg-[#34C759]/10">
+              <UserCheck className="size-8 text-[#34C759]" />
+            </div>
+          </div>
+          <h3 id="reenable-staff-title" className="mb-2 text-center text-[20px] font-bold text-[#1C1C1E]">
+            Re-enable Staff Member?
+          </h3>
+          <p className="mb-6 text-center text-[15px] text-[#8E8E93]">
+            {technician.name}
+            {' '}
+            will be visible in booking again and can start accepting appointments immediately.
+          </p>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={() => setShowReenableModal(false)}
+              className="flex-1 rounded-xl bg-[#E5E5EA] py-3 text-[17px] font-medium text-[#1C1C1E]"
             >
-              <div className="mb-4 flex justify-center">
-                <div className="flex size-16 items-center justify-center rounded-full bg-[#34C759]/10">
-                  <UserCheck className="size-8 text-[#34C759]" />
-                </div>
-              </div>
-              <h3 className="mb-2 text-center text-[20px] font-bold text-[#1C1C1E]">
-                Re-enable Staff Member?
-              </h3>
-              <p className="mb-6 text-center text-[15px] text-[#8E8E93]">
-                {technician.name}
-                {' '}
-                will be visible in booking again and can start accepting appointments immediately.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowReenableModal(false)}
-                  className="flex-1 rounded-xl bg-[#E5E5EA] py-3 text-[17px] font-medium text-[#1C1C1E]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleReenable}
-                  disabled={reenabling}
-                  className="flex-1 rounded-xl bg-[#34C759] py-3 text-[17px] font-medium text-white disabled:opacity-50"
-                >
-                  {reenabling ? 'Enabling...' : 'Re-enable'}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleReenable}
+              disabled={reenabling}
+              className="flex-1 rounded-xl bg-[#34C759] py-3 text-[17px] font-medium text-white disabled:opacity-50"
+            >
+              {reenabling ? 'Enabling...' : 'Re-enable'}
+            </button>
+          </div>
+        </motion.div>
+      </DialogShell>
     </div>
   );
 }

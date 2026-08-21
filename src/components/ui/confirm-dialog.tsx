@@ -1,5 +1,7 @@
 'use client';
 
+import { useId } from 'react';
+
 import { DialogShell } from '@/components/ui/dialog-shell';
 
 type ConfirmDialogProps = {
@@ -30,6 +32,8 @@ export function ConfirmDialog({
   onConfirm,
   onClose,
 }: ConfirmDialogProps) {
+  const titleId = useId();
+
   return (
     <DialogShell
       isOpen={isOpen}
@@ -39,8 +43,13 @@ export function ConfirmDialog({
       maxWidthClassName="max-w-sm"
       contentClassName="max-h-[calc(100vh-2rem)] touch-pan-y overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-2xl supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
     >
-      <div data-testid="confirm-dialog">
-        <div className="text-base font-semibold text-neutral-900">{title}</div>
+      <div
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        data-testid="confirm-dialog"
+      >
+        <h2 id={titleId} className="text-base font-semibold text-neutral-900">{title}</h2>
         {description && (
           <div className="mt-2 text-sm leading-6 text-neutral-600">{description}</div>
         )}

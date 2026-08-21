@@ -14,6 +14,8 @@
 import { X } from 'lucide-react';
 import React, { useCallback, useEffect, useState } from 'react';
 
+import { DialogShell } from '@/components/ui/dialog-shell';
+
 type UsagePayload = {
   salonId: string;
   usage: {
@@ -162,15 +164,21 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
   const usage = data?.usage ?? null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center">
-      <div className="max-h-[90vh] w-full max-w-xl overflow-hidden rounded-t-[20px] bg-white shadow-xl sm:rounded-[20px]">
+    <DialogShell
+      isOpen
+      onClose={onClose}
+      alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
+      maxWidthClassName="max-w-xl"
+      contentClassName="max-h-[90vh] overflow-hidden rounded-t-[20px] bg-white shadow-xl sm:rounded-[20px]"
+    >
+      <div role="dialog" aria-modal="true" aria-labelledby="usage-billing-title">
         <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-          <h2 className="text-lg font-semibold text-gray-900">Usage & billing</h2>
+          <h2 id="usage-billing-title" className="text-lg font-semibold text-gray-900">Usage & billing</h2>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close usage and billing"
-            className="flex size-8 items-center justify-center rounded-full bg-gray-100 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
+            className="flex size-11 items-center justify-center rounded-full bg-gray-100 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gray-950 motion-reduce:transition-none"
           >
             <X className="size-4 text-gray-600" />
           </button>
@@ -320,6 +328,6 @@ export function UsageBillingModal({ salonSlug, onClose }: UsageBillingModalProps
           )}
         </div>
       </div>
-    </div>
+    </DialogShell>
   );
 }

@@ -47,5 +47,6 @@ describe('FloatingActionBar', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(onSuccess).not.toHaveBeenCalled();
+    expect(screen.getByTestId('staff-floating-action')).not.toHaveClass('fixed');
   });
 });

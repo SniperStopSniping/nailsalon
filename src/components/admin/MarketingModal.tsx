@@ -18,6 +18,7 @@ import {
   useState,
 } from 'react';
 
+import { DialogShell } from '@/components/ui/dialog-shell';
 import { buildClientSmsMessage, buildNativeSmsUrl, detectNativeSmsPlatform } from '@/libs/clientSmsComposer';
 import { formatMoney } from '@/libs/formatMoney';
 import { firstNameForMessage, formatPromotionOffer, renderPromotionMessage } from '@/libs/promotionMessage';
@@ -1452,10 +1453,18 @@ export function MarketingModal({
             : null}
 
       {/* Message preview — editable draft with friendly insertion chips */}
-      {preview && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 sm:items-center" role="dialog" aria-modal="true">
-          <div className="max-h-[90vh] w-full max-w-md touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-4 supports-[height:100dvh]:max-h-[90dvh] sm:rounded-2xl" data-testid="marketing-message-preview">
-            <h3 className="text-[17px] font-semibold text-[#1C1C1E]">
+      <DialogShell
+        isOpen={preview !== null}
+        onClose={() => setPreview(null)}
+        closeOnBackdrop={false}
+        alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
+        maxWidthClassName="max-w-md"
+        contentClassName="max-h-[90vh] touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-4 supports-[height:100dvh]:max-h-[90dvh] sm:rounded-2xl"
+        contentTestId="marketing-message-preview"
+      >
+        {preview && (
+          <div role="dialog" aria-modal="true" aria-labelledby="marketing-preview-title">
+            <h3 id="marketing-preview-title" className="text-[17px] font-semibold text-[#1C1C1E]">
               Review and text
             </h3>
             <p className="mt-0.5 text-[13px] text-[#8E8E93]">
@@ -1536,14 +1545,23 @@ export function MarketingModal({
               </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </DialogShell>
 
       {/* "Did you send?" — opening the composer is a decision point, not proof */}
-      {pendingAsk && (
-        <div className="fixed inset-0 z-[70] flex items-end justify-center bg-black/50 sm:items-center" role="dialog" aria-modal="true">
-          <div className="max-h-[calc(100vh-2rem)] w-full max-w-md touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-4 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)] sm:rounded-2xl" data-testid="marketing-did-you-send">
-            <h3 className="text-[17px] font-semibold text-[#1C1C1E]">
+      <DialogShell
+        isOpen={pendingAsk !== null}
+        onClose={() => undefined}
+        closeOnBackdrop={false}
+        closeOnEscape={false}
+        alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
+        maxWidthClassName="max-w-md"
+        contentClassName="max-h-[calc(100vh-2rem)] touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl bg-white p-4 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)] sm:rounded-2xl"
+        contentTestId="marketing-did-you-send"
+      >
+        {pendingAsk && (
+          <div role="dialog" aria-modal="true" aria-labelledby="marketing-send-status-title">
+            <h3 id="marketing-send-status-title" className="text-[17px] font-semibold text-[#1C1C1E]">
               Did you send the
               {' '}
               {pendingAsk.label}
@@ -1574,8 +1592,8 @@ export function MarketingModal({
               </button>
             </div>
           </div>
-        </div>
-      )}
+        )}
+      </DialogShell>
     </div>
   );
 }

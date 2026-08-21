@@ -1,9 +1,11 @@
 'use client';
 
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Calendar, Check, Copy, Plus, Trash2, X } from 'lucide-react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { DialogShell } from '@/components/ui/dialog-shell';
 import { hasWorkingHours, normalizeWeeklySchedule } from '@/libs/weeklySchedule';
 import type { TimeOffReason } from '@/models/Schema';
 
@@ -112,6 +114,9 @@ export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate 
   const [timeOff, setTimeOff] = useState<TimeOffEntry[]>([]);
   const [loadingTimeOff, setLoadingTimeOff] = useState(true);
   const [showAddTimeOff, setShowAddTimeOff] = useState(false);
+  const [timeOffPendingDeletion, setTimeOffPendingDeletion] = useState<TimeOffEntry | null>(null);
+  const [deletingTimeOffId, setDeletingTimeOffId] = useState<string | null>(null);
+  const timeOffDeleteInFlightRef = useRef(false);
   const [newTimeOff, setNewTimeOff] = useState({
     startDate: '',
     endDate: '',
@@ -190,10 +195,12 @@ export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate 
   };
 
   const handleDeleteTimeOff = async (id: string) => {
-    if (!salonSlug) {
+    if (!salonSlug || timeOffDeleteInFlightRef.current) {
       return;
     }
 
+    timeOffDeleteInFlightRef.current = true;
+    setDeletingTimeOffId(id);
     try {
       const response = await fetch(`/api/staff/time-off/${id}?salonSlug=${salonSlug}`, {
         method: 'DELETE',
@@ -201,9 +208,13 @@ export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate 
 
       if (response.ok) {
         setTimeOff(prev => prev.filter(t => t.id !== id));
+        setTimeOffPendingDeletion(null);
       }
     } catch (err) {
       console.error('Error deleting time off:', err);
+    } finally {
+      timeOffDeleteInFlightRef.current = false;
+      setDeletingTimeOffId(null);
     }
   };
 
@@ -443,7 +454,8 @@ export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate 
                       key={entry.id}
                       entry={entry}
                       isLast={index === timeOff.length - 1}
-                      onDelete={() => handleDeleteTimeOff(entry.id)}
+                      onDelete={() => setTimeOffPendingDeletion(entry)}
+                      isDeleting={deletingTimeOffId === entry.id}
                     />
                   ))}
                 </div>
@@ -451,117 +463,120 @@ export function ScheduleTab({ salonSlug, technicianId, weeklySchedule, onUpdate 
       </div>
 
       {/* Add Time Off Modal */}
-      <AnimatePresence>
-        {showAddTimeOff && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-            onClick={() => setShowAddTimeOff(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.9, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.9, opacity: 0 }}
-              className="max-h-[calc(100vh-2rem)] w-full max-w-sm touch-pan-y overflow-y-auto overscroll-contain rounded-[20px] bg-white p-6 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
-              onClick={e => e.stopPropagation()}
+      <DialogShell
+        isOpen={showAddTimeOff}
+        onClose={() => setShowAddTimeOff(false)}
+        maxWidthClassName="max-w-sm"
+        contentClassName="max-h-[calc(100vh-2rem)] touch-pan-y overflow-y-auto overscroll-contain rounded-[20px] bg-white p-6 supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
+      >
+        <div role="dialog" aria-modal="true" aria-labelledby="add-time-off-title">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 id="add-time-off-title" className="text-[20px] font-bold text-[#1C1C1E]">Add Time Off</h3>
+            <button
+              type="button"
+              onClick={() => setShowAddTimeOff(false)}
+              aria-label="Close add time off"
+              className="flex size-11 items-center justify-center rounded-lg text-[#8E8E93] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#007AFF]"
             >
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-[20px] font-bold text-[#1C1C1E]">Add Time Off</h3>
-                <button
-                  type="button"
-                  onClick={() => setShowAddTimeOff(false)}
-                  aria-label="Close"
-                  className="p-1 text-[#8E8E93]"
-                >
-                  <X className="size-5" />
-                </button>
+              <X className="size-5" />
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            {/* Start Date */}
+            <div>
+              <label htmlFor="timeoff-start" className="mb-1 block text-[13px] text-[#8E8E93]">Start Date</label>
+              <input
+                id="timeoff-start"
+                type="date"
+                value={newTimeOff.startDate}
+                onChange={e => setNewTimeOff(prev => ({ ...prev, startDate: e.target.value }))}
+                min={new Date().toISOString().split('T')[0]}
+                className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2.5 text-[15px] text-[#1C1C1E] focus:outline-none"
+              />
+            </div>
+
+            {/* End Date */}
+            <div>
+              <label htmlFor="timeoff-end" className="mb-1 block text-[13px] text-[#8E8E93]">End Date</label>
+              <input
+                id="timeoff-end"
+                type="date"
+                value={newTimeOff.endDate}
+                onChange={e => setNewTimeOff(prev => ({ ...prev, endDate: e.target.value }))}
+                min={newTimeOff.startDate || new Date().toISOString().split('T')[0]}
+                className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2.5 text-[15px] text-[#1C1C1E] focus:outline-none"
+              />
+            </div>
+
+            {/* Reason */}
+            <div>
+              <div className="mb-1 text-[13px] text-[#8E8E93]">Reason</div>
+              <div className="flex flex-wrap gap-2">
+                {REASON_OPTIONS.map(option => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    onClick={() => setNewTimeOff(prev => ({ ...prev, reason: option.value }))}
+                    className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
+                      newTimeOff.reason === option.value
+                        ? 'bg-[#007AFF] text-white'
+                        : 'bg-[#E5E5EA] text-[#1C1C1E]'
+                    }`}
+                  >
+                    {option.label}
+                  </button>
+                ))}
               </div>
+            </div>
 
-              <div className="space-y-4">
-                {/* Start Date */}
-                <div>
-                  <label htmlFor="timeoff-start" className="mb-1 block text-[13px] text-[#8E8E93]">Start Date</label>
-                  <input
-                    id="timeoff-start"
-                    type="date"
-                    value={newTimeOff.startDate}
-                    onChange={e => setNewTimeOff(prev => ({ ...prev, startDate: e.target.value }))}
-                    min={new Date().toISOString().split('T')[0]}
-                    className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2.5 text-[15px] text-[#1C1C1E] focus:outline-none"
-                  />
-                </div>
+            {/* Notes */}
+            <div>
+              <label htmlFor="timeoff-notes" className="mb-1 block text-[13px] text-[#8E8E93]">Notes (optional)</label>
+              <textarea
+                id="timeoff-notes"
+                value={newTimeOff.notes}
+                onChange={e => setNewTimeOff(prev => ({ ...prev, notes: e.target.value }))}
+                placeholder="Additional details..."
+                rows={2}
+                className="w-full resize-none rounded-lg bg-[#F2F2F7] px-3 py-2.5 text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
+              />
+            </div>
+          </div>
 
-                {/* End Date */}
-                <div>
-                  <label htmlFor="timeoff-end" className="mb-1 block text-[13px] text-[#8E8E93]">End Date</label>
-                  <input
-                    id="timeoff-end"
-                    type="date"
-                    value={newTimeOff.endDate}
-                    onChange={e => setNewTimeOff(prev => ({ ...prev, endDate: e.target.value }))}
-                    min={newTimeOff.startDate || new Date().toISOString().split('T')[0]}
-                    className="w-full rounded-lg bg-[#F2F2F7] px-3 py-2.5 text-[15px] text-[#1C1C1E] focus:outline-none"
-                  />
-                </div>
-
-                {/* Reason */}
-                <div>
-                  <div className="mb-1 text-[13px] text-[#8E8E93]">Reason</div>
-                  <div className="flex flex-wrap gap-2">
-                    {REASON_OPTIONS.map(option => (
-                      <button
-                        key={option.value}
-                        type="button"
-                        onClick={() => setNewTimeOff(prev => ({ ...prev, reason: option.value }))}
-                        className={`rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors ${
-                          newTimeOff.reason === option.value
-                            ? 'bg-[#007AFF] text-white'
-                            : 'bg-[#E5E5EA] text-[#1C1C1E]'
-                        }`}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Notes */}
-                <div>
-                  <label htmlFor="timeoff-notes" className="mb-1 block text-[13px] text-[#8E8E93]">Notes (optional)</label>
-                  <textarea
-                    id="timeoff-notes"
-                    value={newTimeOff.notes}
-                    onChange={e => setNewTimeOff(prev => ({ ...prev, notes: e.target.value }))}
-                    placeholder="Additional details..."
-                    rows={2}
-                    className="w-full resize-none rounded-lg bg-[#F2F2F7] px-3 py-2.5 text-[15px] text-[#1C1C1E] placeholder-[#C7C7CC] focus:outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="mt-6 flex gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowAddTimeOff(false)}
-                  className="flex-1 rounded-xl bg-[#E5E5EA] py-3 text-[17px] font-medium text-[#1C1C1E]"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleAddTimeOff}
-                  disabled={addingTimeOff || !newTimeOff.startDate || !newTimeOff.endDate}
-                  className="flex-1 rounded-xl bg-[#007AFF] py-3 text-[17px] font-medium text-white disabled:opacity-50"
-                >
-                  {addingTimeOff ? 'Adding...' : 'Add'}
-                </button>
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          <div className="mt-6 flex gap-3">
+            <button
+              type="button"
+              onClick={() => setShowAddTimeOff(false)}
+              className="flex-1 rounded-xl bg-[#E5E5EA] py-3 text-[17px] font-medium text-[#1C1C1E]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={handleAddTimeOff}
+              disabled={addingTimeOff || !newTimeOff.startDate || !newTimeOff.endDate}
+              className="flex-1 rounded-xl bg-[#007AFF] py-3 text-[17px] font-medium text-white disabled:opacity-50"
+            >
+              {addingTimeOff ? 'Adding...' : 'Add'}
+            </button>
+          </div>
+        </div>
+      </DialogShell>
+      <ConfirmDialog
+        isOpen={timeOffPendingDeletion !== null}
+        title="Delete this time-off entry?"
+        description="This saved time-off entry will be permanently removed."
+        confirmLabel="Delete time off"
+        tone="danger"
+        busy={deletingTimeOffId !== null}
+        onClose={() => setTimeOffPendingDeletion(null)}
+        onConfirm={() => {
+          if (timeOffPendingDeletion) {
+            void handleDeleteTimeOff(timeOffPendingDeletion.id);
+          }
+        }}
+      />
     </div>
   );
 }
@@ -574,10 +589,12 @@ function TimeOffRow({
   entry,
   isLast,
   onDelete,
+  isDeleting,
 }: {
   entry: TimeOffEntry;
   isLast: boolean;
   onDelete: () => void;
+  isDeleting: boolean;
 }) {
   const formatDate = (dateStr: string) => {
     return new Date(dateStr).toLocaleDateString('en-US', {
@@ -629,7 +646,8 @@ function TimeOffRow({
         type="button"
         onClick={onDelete}
         aria-label="Delete time off"
-        className="rounded-lg p-2 text-[#FF3B30] hover:bg-red-50"
+        disabled={isDeleting}
+        className="flex size-11 items-center justify-center rounded-lg text-[#FF3B30] hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#FF3B30] disabled:opacity-50"
       >
         <Trash2 className="size-4" />
       </button>

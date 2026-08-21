@@ -1,7 +1,9 @@
-import React from 'react';
-
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { ScheduleTab } from './ScheduleTab';
 
 const { fetchMock } = vi.hoisted(() => ({
   fetchMock: vi.fn(),
@@ -13,8 +15,6 @@ vi.mock('framer-motion', () => ({
     get: () => (props: React.HTMLAttributes<HTMLDivElement>) => <div {...props} />,
   }),
 }));
-
-import { ScheduleTab } from './ScheduleTab';
 
 describe('ScheduleTab', () => {
   beforeEach(() => {
@@ -36,6 +36,7 @@ describe('ScheduleTab', () => {
     );
 
     const mondayStart = await screen.findByLabelText('Monday start time') as HTMLSelectElement;
+
     expect(mondayStart.value).toBe('09:00');
 
     rerender(
@@ -86,5 +87,56 @@ describe('ScheduleTab', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Save Schedule' }));
 
     expect(await screen.findByText('Unable to save this schedule right now.')).toBeInTheDocument();
+  });
+
+  it('requires contextual confirmation before deleting saved time off', async () => {
+    const user = userEvent.setup();
+    fetchMock.mockImplementation((_input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'DELETE') {
+        return Promise.resolve(new Response(null, { status: 204 }));
+      }
+      return Promise.resolve(new Response(JSON.stringify({
+        data: {
+          timeOff: [{
+            id: 'time-off-1',
+            startDate: '2026-08-25T00:00:00.000Z',
+            endDate: '2026-08-26T00:00:00.000Z',
+            reason: 'vacation',
+            notes: 'Family trip',
+          }],
+        },
+      }), { status: 200 }));
+    });
+
+    render(
+      <ScheduleTab
+        salonSlug="salon-a"
+        technicianId="tech_1"
+        weeklySchedule={null}
+        onUpdate={vi.fn()}
+      />,
+    );
+
+    const deleteButton = await screen.findByRole('button', { name: 'Delete time off' });
+    await user.click(deleteButton);
+
+    expect(screen.getByText('Delete this time-off entry?')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(0);
+
+    await user.click(screen.getByTestId('confirm-dialog-cancel'));
+
+    expect(deleteButton).toHaveFocus();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(0);
+
+    await user.click(deleteButton);
+    await user.click(screen.getByTestId('confirm-dialog-confirm'));
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'DELETE')).toHaveLength(1);
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/staff/time-off/time-off-1?salonSlug=salon-a',
+      { method: 'DELETE' },
+    );
   });
 });

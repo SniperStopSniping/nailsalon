@@ -1,8 +1,10 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { DialogShell } from '@/components/ui/dialog-shell';
 import { formatMoney } from '@/libs/formatMoney';
 
 import { ReviewFollowupModal } from './ReviewFollowupModal';
@@ -48,6 +50,8 @@ export function ActionBar({
 }: ActionBarProps) {
   const [isTransitioning, setIsTransitioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showCancelConfirmation, setShowCancelConfirmation] = useState(false);
+  const transitionInFlightRef = useRef(false);
   // 'actions' = status buttons; 'completing' = complete form; 'review' = review prompt
   const [view, setView] = useState<'actions' | 'completing' | 'review'>('actions');
 
@@ -65,10 +69,11 @@ export function ActionBar({
   // =============================================================================
 
   const handleTransition = async (to: 'working' | 'cancelled' | 'no_show') => {
-    if (isTransitioning) {
+    if (transitionInFlightRef.current) {
       return;
     }
 
+    transitionInFlightRef.current = true;
     setIsTransitioning(true);
     setError(null);
 
@@ -101,6 +106,7 @@ export function ActionBar({
       setError('Something went wrong. Please try again.');
       console.error('Transition error:', err);
     } finally {
+      transitionInFlightRef.current = false;
       setIsTransitioning(false);
     }
   };
@@ -153,29 +159,27 @@ export function ActionBar({
   }
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center"
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !isTransitioning) {
-          onClose();
-        }
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape' && !isTransitioning) {
-          onClose();
-        }
-      }}
+    <DialogShell
+      isOpen
+      onClose={onClose}
+      closeOnBackdrop={!isTransitioning}
+      closeOnEscape={!isTransitioning}
+      alignClassName="items-end justify-center p-0 sm:items-center sm:p-4"
+      maxWidthClassName="max-w-md"
+      contentClassName="max-h-[90vh] touch-pan-y overflow-y-auto overscroll-contain rounded-t-2xl shadow-2xl sm:rounded-2xl"
     >
       <div
-        className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-2xl shadow-2xl sm:rounded-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="staff-appointment-actions-title"
+        className="w-full"
         style={{ backgroundColor: cappuccino.cardBg }}
       >
         <div className="p-6">
           {/* Header */}
           <div className="mb-4 flex items-center justify-between">
             <h2
+              id="staff-appointment-actions-title"
               className="text-xl font-semibold"
               style={{ color: cappuccino.title }}
             >
@@ -183,9 +187,10 @@ export function ActionBar({
             </h2>
             <button
               type="button"
+              aria-label="Close appointment actions"
               onClick={onClose}
               disabled={isTransitioning}
-              className="text-2xl text-neutral-400 transition-colors hover:text-neutral-600 disabled:opacity-50"
+              className="flex size-11 items-center justify-center rounded-lg text-2xl text-neutral-400 transition-colors hover:text-neutral-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#4B2E1E] disabled:opacity-50"
             >
               ×
             </button>
@@ -297,9 +302,9 @@ export function ActionBar({
             {['waiting', 'working', 'wrap_up'].includes(canvasState) && (
               <button
                 type="button"
-                onClick={() => handleTransition('cancelled')}
+                onClick={() => setShowCancelConfirmation(true)}
                 disabled={isTransitioning}
-                className="w-full rounded-xl py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 disabled:opacity-50"
+                className="min-h-11 w-full rounded-xl px-4 py-2 text-sm font-medium text-red-600 transition-colors hover:bg-red-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-600 disabled:opacity-50"
               >
                 Cancel Appointment
               </button>
@@ -317,7 +322,17 @@ export function ActionBar({
           )}
         </div>
       </div>
-    </div>
+      <ConfirmDialog
+        isOpen={showCancelConfirmation}
+        title={`Cancel ${appointment.clientName || 'this client'}'s appointment?`}
+        description="This will mark the appointment as cancelled."
+        confirmLabel="Cancel appointment"
+        tone="danger"
+        busy={isTransitioning}
+        onClose={() => setShowCancelConfirmation(false)}
+        onConfirm={() => void handleTransition('cancelled')}
+      />
+    </DialogShell>
   );
 }
 

@@ -21,11 +21,11 @@ import {
   X,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { createPortal } from 'react-dom';
 
 import { DepositPanel } from '@/components/admin/DepositPanel';
 import { AppointmentQuickEditSheet } from '@/components/appointments/AppointmentQuickEditSheet';
 import { CheckoutSheet } from '@/components/appointments/CheckoutSheet';
+import { DialogShell } from '@/components/ui/dialog-shell';
 import { type CancelArgs, type RebookPrefill, useAppointmentActions } from '@/hooks/useAppointmentActions';
 import { formatAppointmentStatus } from '@/libs/appointmentStatusDisplay';
 import { useSalon } from '@/providers/SalonProvider';
@@ -384,24 +384,27 @@ function DayDetailPanel({
 
   return (
     <motion.div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="calendar-day-details-title"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: 20 }}
       transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-      className="relative max-h-[70dvh] w-full overflow-hidden rounded-t-[24px] bg-white shadow-2xl"
+      className="relative w-full overflow-hidden"
     >
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-gray-100 bg-white px-5 pb-4 pt-5">
         <div className="mb-2 flex items-center justify-between">
           <div>
-            <h3 className="text-xl font-bold text-gray-900">{dayName}</h3>
+            <h3 id="calendar-day-details-title" className="text-xl font-bold text-gray-900">{dayName}</h3>
             <p className="text-sm text-gray-500">{dateStr}</p>
           </div>
           <button
             type="button"
             onClick={onClose}
             aria-label="Close day details"
-            className="flex size-9 items-center justify-center rounded-full bg-gray-100 transition-colors hover:bg-gray-200"
+            className="flex size-11 items-center justify-center rounded-full bg-gray-100 transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950"
           >
             <X className="size-5 text-gray-600" />
           </button>
@@ -586,11 +589,6 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
   const [googleEventPrefill, setGoogleEventPrefill]
     = useState<AppointmentSummary | null>(null);
   const [rebookPrefill, setRebookPrefill] = useState<RebookPrefill | null>(null);
-  const [portalReady, setPortalReady] = useState(false);
-
-  useEffect(() => {
-    setPortalReady(true);
-  }, []);
 
   // Calculate date range based on view mode
   const dateRange = useMemo(() => {
@@ -1090,35 +1088,28 @@ export function ScheduleCalendarModal({ onClose }: ScheduleCalendarModalProps) {
       </button>
 
       {/* Day Detail Panel */}
-      {portalReady
-      && createPortal(
+      <DialogShell
+        isOpen={Boolean(selectedDate && !showNewAppointmentModal && !actions.selectedAppointmentId)}
+        onClose={() => setSelectedDate(null)}
+        alignClassName="items-end justify-center p-0"
+        maxWidthClassName="max-w-none"
+        contentClassName="max-h-[70dvh] overflow-hidden rounded-t-[24px] bg-white shadow-2xl"
+      >
         <AnimatePresence>
-          {selectedDate && !showNewAppointmentModal && !actions.selectedAppointmentId && (
-            <>
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 z-[70] bg-black/30"
-                onClick={() => setSelectedDate(null)}
-              />
-              <div className="fixed inset-x-0 bottom-0 z-[80]">
-                <DayDetailPanel
-                  date={selectedDate}
-                  appointments={selectedAppointments}
-                  onClose={() => setSelectedDate(null)}
-                  onConvertGoogleEvent={(appointment) => {
-                    setGoogleEventPrefill(appointment);
-                    setShowNewAppointmentModal(true);
-                  }}
-                  onSelectAppointment={actions.openAppointment}
-                />
-              </div>
-            </>
+          {selectedDate && (
+            <DayDetailPanel
+              date={selectedDate}
+              appointments={selectedAppointments}
+              onClose={() => setSelectedDate(null)}
+              onConvertGoogleEvent={(appointment) => {
+                setGoogleEventPrefill(appointment);
+                setShowNewAppointmentModal(true);
+              }}
+              onSelectAppointment={actions.openAppointment}
+            />
           )}
-        </AnimatePresence>,
-        document.body,
-      )}
+        </AnimatePresence>
+      </DialogShell>
 
       <AppointmentQuickEditSheet
         isOpen={Boolean(actions.selectedAppointmentId)}

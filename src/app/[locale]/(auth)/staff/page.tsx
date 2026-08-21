@@ -607,26 +607,28 @@ export default function StaffDashboardPage() {
       </div>
 
       {/* Bottom Navigation */}
-      <StaffBottomNav activeItem="home" />
-
-      {/* Floating Action Bar */}
-      {!showActionBar && !showPhotoModal && !showDrawer && (
-        <FloatingActionBar
-          appointment={activeAppointment}
-          onOpenPhotos={() => {
-            if (activeAppointment) {
-              setSelectedAppointment(activeAppointment);
-              setShowPhotoModal(true);
-            }
-          }}
-          onOpenCheckout={() => {
-            if (activeAppointment) {
-              handleOpenActions(activeAppointment);
-            }
-          }}
-          onSuccess={fetchAppointments}
-        />
-      )}
+      <StaffBottomNav
+        activeItem="home"
+        action={!showActionBar && !showPhotoModal && !showDrawer
+          ? (
+              <FloatingActionBar
+                appointment={activeAppointment}
+                onOpenPhotos={() => {
+                  if (activeAppointment) {
+                    setSelectedAppointment(activeAppointment);
+                    setShowPhotoModal(true);
+                  }
+                }}
+                onOpenCheckout={() => {
+                  if (activeAppointment) {
+                    handleOpenActions(activeAppointment);
+                  }
+                }}
+                onSuccess={fetchAppointments}
+              />
+            )
+          : undefined}
+      />
 
       {/* Action Bar Modal */}
       {showActionBar && selectedAppointment && (
@@ -643,6 +645,7 @@ export default function StaffDashboardPage() {
       <BottomSheet
         isOpen={showDrawer}
         onClose={handleCloseDrawer}
+        ariaLabel="Appointment details"
         initialSnap="half"
       >
         {selectedAppointment && (

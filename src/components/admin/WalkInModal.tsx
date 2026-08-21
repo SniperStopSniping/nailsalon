@@ -10,10 +10,11 @@
  * 4. Enter client info & book
  */
 
-import { AnimatePresence, motion } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Check, ChevronRight, Clock, Loader2, Phone, Search, User, X, Zap } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
+import { DialogShell } from '@/components/ui/dialog-shell';
 import { BOOKING_CATEGORY_META, resolveVisibleBookingCategory } from '@/libs/bookingCategory';
 import { notifyAppointmentDataChanged } from '@/libs/dashboardEvents';
 import type { BookingCategory } from '@/models/Schema';
@@ -506,554 +507,543 @@ export function WalkInModal({ isOpen, onClose, onSuccess }: WalkInModalProps) {
   }
 
   return (
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          {/* Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm"
-            onClick={onClose}
-          />
-
-          {/* Modal */}
-          <motion.div
-            initial={{ opacity: 0, y: 50, scale: 0.95 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 50, scale: 0.95 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
-            className="fixed inset-x-4 inset-y-[5%] z-50 mx-auto flex max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between border-b border-gray-100 bg-white px-5 py-4">
-              <div className="flex items-center gap-2">
-                <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-green-400 to-emerald-600">
-                  <Zap className="size-4 text-white" />
-                </div>
-                <h2 className="text-lg font-semibold text-gray-900">Quick Walk-in</h2>
-              </div>
-              <button
-                type="button"
-                onClick={onClose}
-                aria-label="Close modal"
-                className="flex size-8 items-center justify-center rounded-full bg-gray-100 transition-colors hover:bg-gray-200"
-              >
-                <X className="size-5 text-gray-600" />
-              </button>
+    <DialogShell
+      isOpen={isOpen}
+      onClose={onClose}
+      maxWidthClassName="max-w-lg"
+      contentClassName="h-[90vh] max-h-[90vh] overflow-hidden rounded-2xl bg-white shadow-2xl supports-[height:100dvh]:h-[90dvh] supports-[height:100dvh]:max-h-[90dvh]"
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="walk-in-modal-title"
+        className="flex h-full flex-col"
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-gray-100 bg-white px-5 py-4">
+          <div className="flex items-center gap-2">
+            <div className="flex size-8 items-center justify-center rounded-full bg-gradient-to-br from-green-400 to-emerald-600">
+              <Zap className="size-4 text-white" />
             </div>
+            <h2 id="walk-in-modal-title" className="text-lg font-semibold text-gray-900">Quick Walk-in</h2>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close modal"
+            className="flex size-11 items-center justify-center rounded-full bg-gray-100 transition-colors hover:bg-gray-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-950"
+          >
+            <X className="size-5 text-gray-600" />
+          </button>
+        </div>
 
-            {/* Progress Steps */}
-            <div className="flex items-center justify-center gap-1 border-b border-gray-100 bg-gray-50 px-4 py-3">
-              {['services', 'tech', 'time', 'confirm'].map((s, idx) => {
-                const stepNum = idx + 1;
-                const isActive = s === step;
-                const isPast = ['services', 'tech', 'time', 'confirm'].indexOf(step) > idx;
-                const labels = ['Services', 'Tech', 'Time', 'Book'];
+        {/* Progress Steps */}
+        <div className="flex items-center justify-center gap-1 border-b border-gray-100 bg-gray-50 px-4 py-3">
+          {['services', 'tech', 'time', 'confirm'].map((s, idx) => {
+            const stepNum = idx + 1;
+            const isActive = s === step;
+            const isPast = ['services', 'tech', 'time', 'confirm'].indexOf(step) > idx;
+            const labels = ['Services', 'Tech', 'Time', 'Book'];
 
-                return (
-                  <div key={s} className="flex items-center">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isPast) {
-                          setStep(s as typeof step);
-                        }
-                      }}
-                      disabled={!isPast && !isActive}
-                      className={`
+            return (
+              <div key={s} className="flex items-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (isPast) {
+                      setStep(s as typeof step);
+                    }
+                  }}
+                  disabled={!isPast && !isActive}
+                  className={`
                         flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-all
                         ${isActive
-                    ? 'bg-[#007AFF] text-white'
-                    : isPast
-                      ? 'cursor-pointer bg-green-100 text-green-700 hover:bg-green-200'
-                      : 'bg-gray-100 text-gray-400'
-                  }
+                ? 'bg-[#007AFF] text-white'
+                : isPast
+                  ? 'cursor-pointer bg-green-100 text-green-700 hover:bg-green-200'
+                  : 'bg-gray-100 text-gray-400'
+              }
                       `}
-                    >
-                      {isPast ? <Check className="size-3" /> : <span>{stepNum}</span>}
-                      <span>{labels[idx]}</span>
-                    </button>
-                    {idx < 3 && <ChevronRight className="mx-1 size-4 text-gray-300" />}
-                  </div>
-                );
-              })}
-            </div>
+                >
+                  {isPast ? <Check className="size-3" /> : <span>{stepNum}</span>}
+                  <span>{labels[idx]}</span>
+                </button>
+                {idx < 3 && <ChevronRight className="mx-1 size-4 text-gray-300" />}
+              </div>
+            );
+          })}
+        </div>
 
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto bg-white p-5">
-              {loading
-                ? (
-                    <div className="flex items-center justify-center py-20">
-                      <Loader2 className="size-8 animate-spin text-gray-400" />
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto bg-white p-5">
+          {loading
+            ? (
+                <div className="flex items-center justify-center py-20">
+                  <Loader2 className="size-8 animate-spin text-gray-400" />
+                </div>
+              )
+            : (
+                <>
+                  {/* Error Message */}
+                  {error && (
+                    <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3">
+                      <p className="text-sm text-red-700">{error}</p>
                     </div>
-                  )
-                : (
-                    <>
-                      {/* Error Message */}
-                      {error && (
-                        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 p-3">
-                          <p className="text-sm text-red-700">{error}</p>
-                        </div>
-                      )}
+                  )}
 
-                      {/* Step 1: Services Selection */}
-                      {step === 'services' && (
-                        <div className="space-y-4">
-                          <div>
-                            <h3 className="font-semibold text-gray-900">What services today?</h3>
-                            <p className="text-sm text-gray-500">Select all services needed</p>
-                          </div>
+                  {/* Step 1: Services Selection */}
+                  {step === 'services' && (
+                    <div className="space-y-4">
+                      <div>
+                        <h3 className="font-semibold text-gray-900">What services today?</h3>
+                        <p className="text-sm text-gray-500">Select all services needed</p>
+                      </div>
 
-                          {/* Search */}
-                          <div className="relative">
-                            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
-                            <input
-                              type="text"
-                              value={serviceSearch}
-                              onChange={e => setServiceSearch(e.target.value)}
-                              placeholder="Search services..."
-                              className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                            />
-                          </div>
+                      {/* Search */}
+                      <div className="relative">
+                        <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400" />
+                        <input
+                          type="text"
+                          value={serviceSearch}
+                          onChange={e => setServiceSearch(e.target.value)}
+                          placeholder="Search services..."
+                          className="w-full rounded-xl border border-gray-200 bg-white py-2.5 pl-10 pr-4 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        />
+                      </div>
 
-                          {/* Service List */}
-                          <div className="space-y-4">
-                            {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
-                              <div key={category}>
-                                <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
-                                  {BOOKING_CATEGORY_META[category as BookingCategory].label}
-                                </h4>
-                                <div className="space-y-2">
-                                  {categoryServices.map((service) => {
-                                    const isSelected = selectedServiceIds.includes(service.id);
-                                    return (
-                                      <button
-                                        key={service.id}
-                                        type="button"
-                                        onClick={() => toggleService(service.id)}
-                                        className={`
+                      {/* Service List */}
+                      <div className="space-y-4">
+                        {Object.entries(servicesByCategory).map(([category, categoryServices]) => (
+                          <div key={category}>
+                            <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-gray-500">
+                              {BOOKING_CATEGORY_META[category as BookingCategory].label}
+                            </h4>
+                            <div className="space-y-2">
+                              {categoryServices.map((service) => {
+                                const isSelected = selectedServiceIds.includes(service.id);
+                                return (
+                                  <button
+                                    key={service.id}
+                                    type="button"
+                                    onClick={() => toggleService(service.id)}
+                                    className={`
                                       flex w-full items-center justify-between rounded-xl border-2 p-3 text-left transition-all
                                       ${isSelected
-                                        ? 'border-blue-500 bg-blue-50'
-                                        : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
-                                      }
+                                    ? 'border-blue-500 bg-blue-50'
+                                    : 'border-gray-200 bg-white hover:border-gray-300 hover:bg-gray-50'
+                                  }
                                     `}
-                                      >
-                                        <div className="flex items-center gap-3">
-                                          <div className={`
+                                  >
+                                    <div className="flex items-center gap-3">
+                                      <div className={`
                                         flex size-6 items-center justify-center rounded-full border-2 transition-colors
                                         ${isSelected
-                                        ? 'border-blue-500 bg-blue-500 text-white'
-                                        : 'border-gray-300 bg-white'
-                                      }
+                                    ? 'border-blue-500 bg-blue-500 text-white'
+                                    : 'border-gray-300 bg-white'
+                                  }
                                       `}
-                                          >
-                                            {isSelected && <Check className="size-4" />}
-                                          </div>
-                                          <div>
-                                            <p className={`font-medium ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
-                                              {service.name}
-                                            </p>
-                                            <p className="text-xs text-gray-500">
-                                              <Clock className="mr-1 inline-block size-3" />
-                                              {formatDuration(service.durationMinutes)}
-                                            </p>
-                                          </div>
-                                        </div>
-                                        <span className={`font-semibold ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
-                                          {formatCurrency(service.price)}
-                                        </span>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Step 2: Technician Selection */}
-                      {step === 'tech' && (
-                        <div className="space-y-4">
-                          {/* Summary of selected services */}
-                          <div className="rounded-xl bg-blue-50 p-3">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="text-sm font-medium text-blue-900">
-                                  {selectedServices.length}
-                                  {' '}
-                                  service
-                                  {selectedServices.length !== 1 ? 's' : ''}
-                                </p>
-                                <p className="text-xs text-blue-700">
-                                  {formatDuration(totalDuration)}
-                                  {' '}
-                                  total •
-                                  {formatCurrency(totalPrice)}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setStep('services')}
-                                className="text-xs font-medium text-blue-600 hover:text-blue-800"
-                              >
-                                Edit
-                              </button>
+                                      >
+                                        {isSelected && <Check className="size-4" />}
+                                      </div>
+                                      <div>
+                                        <p className={`font-medium ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                                          {service.name}
+                                        </p>
+                                        <p className="text-xs text-gray-500">
+                                          <Clock className="mr-1 inline-block size-3" />
+                                          {formatDuration(service.durationMinutes)}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    <span className={`font-semibold ${isSelected ? 'text-blue-900' : 'text-gray-900'}`}>
+                                      {formatCurrency(service.price)}
+                                    </span>
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
 
+                  {/* Step 2: Technician Selection */}
+                  {step === 'tech' && (
+                    <div className="space-y-4">
+                      {/* Summary of selected services */}
+                      <div className="rounded-xl bg-blue-50 p-3">
+                        <div className="flex items-center justify-between">
                           <div>
-                            <h3 className="font-semibold text-gray-900">Who would they like?</h3>
-                            <p className="text-sm text-gray-500">Select a technician</p>
+                            <p className="text-sm font-medium text-blue-900">
+                              {selectedServices.length}
+                              {' '}
+                              service
+                              {selectedServices.length !== 1 ? 's' : ''}
+                            </p>
+                            <p className="text-xs text-blue-700">
+                              {formatDuration(totalDuration)}
+                              {' '}
+                              total •
+                              {formatCurrency(totalPrice)}
+                            </p>
                           </div>
+                          <button
+                            type="button"
+                            onClick={() => setStep('services')}
+                            className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      </div>
 
-                          {/* Any Available Option */}
-                          {(() => {
-                            // Count how many techs work today and have availability
-                            const workingTechs = technicians.filter(t => getTechScheduleForToday(t) !== null);
-                            const anySlots = generateTimeSlots(existingAppointments, null, totalDuration, technicians);
-                            const firstSlot = anySlots[0];
+                      <div>
+                        <h3 className="font-semibold text-gray-900">Who would they like?</h3>
+                        <p className="text-sm text-gray-500">Select a technician</p>
+                      </div>
 
-                            return (
-                              <button
-                                type="button"
-                                onClick={() => handleTechSelect(null)}
-                                disabled={anySlots.length === 0}
-                                className={`
+                      {/* Any Available Option */}
+                      {(() => {
+                        // Count how many techs work today and have availability
+                        const workingTechs = technicians.filter(t => getTechScheduleForToday(t) !== null);
+                        const anySlots = generateTimeSlots(existingAppointments, null, totalDuration, technicians);
+                        const firstSlot = anySlots[0];
+
+                        return (
+                          <button
+                            type="button"
+                            onClick={() => handleTechSelect(null)}
+                            disabled={anySlots.length === 0}
+                            className={`
                               flex w-full items-center gap-3 rounded-xl border-2 p-4 text-left transition-all
                               ${anySlots.length > 0
-                                ? 'border-green-200 bg-green-50 hover:border-green-400 hover:bg-green-100'
-                                : 'cursor-not-allowed border-gray-100 bg-gray-50 opacity-60'
-                              }
+                            ? 'border-green-200 bg-green-50 hover:border-green-400 hover:bg-green-100'
+                            : 'cursor-not-allowed border-gray-100 bg-gray-50 opacity-60'
+                          }
                             `}
-                              >
-                                <div className={`
+                          >
+                            <div className={`
                               flex size-12 items-center justify-center rounded-full
                               ${anySlots.length > 0
-                                ? 'bg-gradient-to-br from-green-400 to-emerald-600'
-                                : 'bg-gray-400'
-                              }
+                            ? 'bg-gradient-to-br from-green-400 to-emerald-600'
+                            : 'bg-gray-400'
+                          }
                             `}
-                                >
-                                  <User className="size-6 text-white" />
-                                </div>
-                                <div className="flex-1">
-                                  <p className={`font-semibold ${anySlots.length > 0 ? 'text-gray-900' : 'text-gray-500'}`}>
-                                    Any Available
-                                  </p>
-                                  {anySlots.length > 0
-                                    ? (
-                                        <p className="text-sm text-green-600">
-                                          {workingTechs.length}
-                                          {' '}
-                                          tech
-                                          {workingTechs.length !== 1 ? 's' : ''}
-                                          {' '}
-                                          working • Next:
-                                          {firstSlot?.label}
-                                        </p>
-                                      )
-                                    : (
-                                        <p className="text-sm text-gray-400">
-                                          No availability today
-                                        </p>
-                                      )}
-                                </div>
-                                {anySlots.length > 0 && <ChevronRight className="size-5 text-gray-400" />}
-                              </button>
-                            );
-                          })()}
+                            >
+                              <User className="size-6 text-white" />
+                            </div>
+                            <div className="flex-1">
+                              <p className={`font-semibold ${anySlots.length > 0 ? 'text-gray-900' : 'text-gray-500'}`}>
+                                Any Available
+                              </p>
+                              {anySlots.length > 0
+                                ? (
+                                    <p className="text-sm text-green-600">
+                                      {workingTechs.length}
+                                      {' '}
+                                      tech
+                                      {workingTechs.length !== 1 ? 's' : ''}
+                                      {' '}
+                                      working • Next:
+                                      {firstSlot?.label}
+                                    </p>
+                                  )
+                                : (
+                                    <p className="text-sm text-gray-400">
+                                      No availability today
+                                    </p>
+                                  )}
+                            </div>
+                            {anySlots.length > 0 && <ChevronRight className="size-5 text-gray-400" />}
+                          </button>
+                        );
+                      })()}
 
-                          {/* Technician List */}
-                          {technicians.map((tech) => {
-                            // Check if tech works today
-                            const schedule = getTechScheduleForToday(tech);
-                            const worksToday = schedule !== null;
+                      {/* Technician List */}
+                      {technicians.map((tech) => {
+                        // Check if tech works today
+                        const schedule = getTechScheduleForToday(tech);
+                        const worksToday = schedule !== null;
 
-                            // Check if this tech has ANY available slot for the required duration
-                            const techSlots = worksToday
-                              ? generateTimeSlots(existingAppointments, tech.id, totalDuration, technicians)
-                              : [];
-                            const nextAvailable = techSlots[0];
+                        // Check if this tech has ANY available slot for the required duration
+                        const techSlots = worksToday
+                          ? generateTimeSlots(existingAppointments, tech.id, totalDuration, technicians)
+                          : [];
+                        const nextAvailable = techSlots[0];
 
-                            return (
-                              <button
-                                key={tech.id}
-                                type="button"
-                                onClick={() => handleTechSelect(tech.id)}
-                                disabled={!worksToday}
-                                className={`
+                        return (
+                          <button
+                            key={tech.id}
+                            type="button"
+                            onClick={() => handleTechSelect(tech.id)}
+                            disabled={!worksToday}
+                            className={`
                               flex w-full items-center gap-3 rounded-xl border-2 p-4 text-left transition-all
                               ${worksToday
-                                ? 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50'
-                                : 'cursor-not-allowed border-gray-100 bg-gray-50 opacity-60'
-                              }
+                            ? 'border-gray-200 bg-white hover:border-blue-300 hover:bg-blue-50'
+                            : 'cursor-not-allowed border-gray-100 bg-gray-50 opacity-60'
+                          }
                             `}
-                              >
-                                <div className={`
+                          >
+                            <div className={`
                               flex size-12 items-center justify-center rounded-full text-sm font-bold text-white
                               ${worksToday
-                                ? 'bg-gradient-to-br from-blue-400 to-blue-600'
-                                : 'bg-gray-400'
-                              }
+                            ? 'bg-gradient-to-br from-blue-400 to-blue-600'
+                            : 'bg-gray-400'
+                          }
                             `}
-                                >
-                                  {getInitials(tech.name)}
-                                </div>
-                                <div className="flex-1">
-                                  <p className={`font-semibold ${worksToday ? 'text-gray-900' : 'text-gray-500'}`}>
-                                    {tech.name}
-                                  </p>
-                                  {!worksToday
-                                    ? (
-                                        <p className="text-sm text-gray-400">
-                                          Off today
-                                        </p>
-                                      )
-                                    : nextAvailable
-                                      ? (
-                                          <p className="text-sm text-green-600">
-                                            Next:
-                                            {' '}
-                                            {nextAvailable.label}
-                                            {' '}
-                                            (
-                                            {techSlots.length}
-                                            {' '}
-                                            slot
-                                            {techSlots.length !== 1 ? 's' : ''}
-                                            )
-                                          </p>
+                            >
+                              {getInitials(tech.name)}
+                            </div>
+                            <div className="flex-1">
+                              <p className={`font-semibold ${worksToday ? 'text-gray-900' : 'text-gray-500'}`}>
+                                {tech.name}
+                              </p>
+                              {!worksToday
+                                ? (
+                                    <p className="text-sm text-gray-400">
+                                      Off today
+                                    </p>
+                                  )
+                                : nextAvailable
+                                  ? (
+                                      <p className="text-sm text-green-600">
+                                        Next:
+                                        {' '}
+                                        {nextAvailable.label}
+                                        {' '}
+                                        (
+                                        {techSlots.length}
+                                        {' '}
+                                        slot
+                                        {techSlots.length !== 1 ? 's' : ''}
                                         )
-                                      : (
-                                          <p className="text-sm text-orange-600">
-                                            Fully booked today
-                                          </p>
-                                        )}
-                                </div>
-                                {worksToday && <ChevronRight className="size-5 text-gray-400" />}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      )}
+                                      </p>
+                                    )
+                                  : (
+                                      <p className="text-sm text-orange-600">
+                                        Fully booked today
+                                      </p>
+                                    )}
+                            </div>
+                            {worksToday && <ChevronRight className="size-5 text-gray-400" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
 
-                      {/* Step 3: Time Slot Selection */}
-                      {step === 'time' && (
-                        <div className="space-y-4">
-                          {/* Summary */}
-                          <div className="rounded-xl bg-blue-50 p-3">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="text-sm font-medium text-blue-900">
-                                  {selectedTechnician?.name || 'Any Available'}
-                                </p>
-                                <p className="text-xs text-blue-700">
-                                  {formatDuration(totalDuration)}
-                                  {' '}
-                                  needed •
-                                  {formatCurrency(totalPrice)}
-                                </p>
-                              </div>
+                  {/* Step 3: Time Slot Selection */}
+                  {step === 'time' && (
+                    <div className="space-y-4">
+                      {/* Summary */}
+                      <div className="rounded-xl bg-blue-50 p-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-blue-900">
+                              {selectedTechnician?.name || 'Any Available'}
+                            </p>
+                            <p className="text-xs text-blue-700">
+                              {formatDuration(totalDuration)}
+                              {' '}
+                              needed •
+                              {formatCurrency(totalPrice)}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setStep('tech')}
+                            className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                          >
+                            Change
+                          </button>
+                        </div>
+                      </div>
+
+                      <div>
+                        <h3 className="font-semibold text-gray-900">Pick a time</h3>
+                        <p className="text-sm text-gray-500">
+                          {availableSlots.length}
+                          {' '}
+                          slot
+                          {availableSlots.length !== 1 ? 's' : ''}
+                          {' '}
+                          available today
+                        </p>
+                      </div>
+
+                      {availableSlots.length === 0
+                        ? (
+                            <div className="rounded-xl bg-orange-50 p-6 text-center">
+                              <p className="font-medium text-orange-800">No slots available</p>
+                              <p className="mt-1 text-sm text-orange-600">
+                                No
+                                {' '}
+                                {formatDuration(totalDuration)}
+                                {' '}
+                                slots available today for
+                                {' '}
+                                {selectedTechnician?.name || 'any tech'}
+                              </p>
                               <button
                                 type="button"
                                 onClick={() => setStep('tech')}
-                                className="text-xs font-medium text-blue-600 hover:text-blue-800"
+                                className="mt-3 text-sm font-medium text-orange-700 hover:text-orange-900"
                               >
-                                Change
+                                Try another technician →
                               </button>
                             </div>
-                          </div>
-
-                          <div>
-                            <h3 className="font-semibold text-gray-900">Pick a time</h3>
-                            <p className="text-sm text-gray-500">
-                              {availableSlots.length}
-                              {' '}
-                              slot
-                              {availableSlots.length !== 1 ? 's' : ''}
-                              {' '}
-                              available today
-                            </p>
-                          </div>
-
-                          {availableSlots.length === 0
-                            ? (
-                                <div className="rounded-xl bg-orange-50 p-6 text-center">
-                                  <p className="font-medium text-orange-800">No slots available</p>
-                                  <p className="mt-1 text-sm text-orange-600">
-                                    No
-                                    {' '}
-                                    {formatDuration(totalDuration)}
-                                    {' '}
-                                    slots available today for
-                                    {' '}
-                                    {selectedTechnician?.name || 'any tech'}
-                                  </p>
-                                  <button
-                                    type="button"
-                                    onClick={() => setStep('tech')}
-                                    className="mt-3 text-sm font-medium text-orange-700 hover:text-orange-900"
-                                  >
-                                    Try another technician →
-                                  </button>
-                                </div>
-                              )
-                            : (
-                                <div className="grid grid-cols-3 gap-2">
-                                  {availableSlots.map((slot, idx) => (
-                                    <motion.button
-                                      key={idx}
-                                      type="button"
-                                      onClick={() => handleTimeSelect(slot)}
-                                      initial={{ opacity: 0, y: 10 }}
-                                      animate={{ opacity: 1, y: 0 }}
-                                      transition={{ delay: idx * 0.02 }}
-                                      className="rounded-xl border-2 border-gray-200 bg-white p-3 text-center font-medium text-gray-900 transition-all hover:border-green-400 hover:bg-green-50"
-                                    >
-                                      <Clock className="mx-auto mb-1 size-4 text-green-500" />
-                                      <span className="text-sm">{slot.label}</span>
-                                    </motion.button>
-                                  ))}
-                                </div>
-                              )}
-                        </div>
-                      )}
-
-                      {/* Step 4: Confirm & Client Details */}
-                      {step === 'confirm' && (
-                        <div className="space-y-5">
-                          {/* Booking Summary */}
-                          <div className="rounded-xl bg-green-50 p-4">
-                            <div className="mb-3 flex items-center justify-between">
-                              <div>
-                                <p className="text-sm font-medium text-green-800">
-                                  {selectedTechnician?.name || 'Any Available'}
-                                </p>
-                                <p className="text-2xl font-bold text-green-900">
-                                  {selectedTimeSlot && formatTimeSlot(selectedTimeSlot)}
-                                </p>
-                              </div>
-                              <button
-                                type="button"
-                                onClick={() => setStep('time')}
-                                className="text-sm font-medium text-green-700 hover:text-green-900"
-                              >
-                                Change
-                              </button>
+                          )
+                        : (
+                            <div className="grid grid-cols-3 gap-2">
+                              {availableSlots.map((slot, idx) => (
+                                <motion.button
+                                  key={idx}
+                                  type="button"
+                                  onClick={() => handleTimeSelect(slot)}
+                                  initial={{ opacity: 0, y: 10 }}
+                                  animate={{ opacity: 1, y: 0 }}
+                                  transition={{ delay: idx * 0.02 }}
+                                  className="rounded-xl border-2 border-gray-200 bg-white p-3 text-center font-medium text-gray-900 transition-all hover:border-green-400 hover:bg-green-50"
+                                >
+                                  <Clock className="mx-auto mb-1 size-4 text-green-500" />
+                                  <span className="text-sm">{slot.label}</span>
+                                </motion.button>
+                              ))}
                             </div>
-                            <div className="border-t border-green-200 pt-3">
-                              <p className="text-sm text-green-700">
-                                {selectedServices.map(s => s.name).join(', ')}
-                              </p>
-                              <p className="mt-1 text-sm font-medium text-green-800">
-                                {formatDuration(totalDuration)}
-                                {' '}
-                                •
-                                {formatCurrency(totalPrice)}
-                              </p>
-                            </div>
-                          </div>
-
-                          {/* Client Info */}
-                          <div className="space-y-4">
-                            <h3 className="font-semibold text-gray-900">Client details</h3>
-
-                            <div>
-                              <label htmlFor="walkin-phone" className="mb-1.5 block text-sm font-medium text-gray-700">
-                                <Phone className="mr-1.5 inline-block size-4" />
-                                Phone Number *
-                              </label>
-                              <input
-                                id="walkin-phone"
-                                type="tel"
-                                value={formatPhoneDisplay(clientPhone)}
-                                onChange={e => handlePhoneChange(e.target.value)}
-                                placeholder="(555) 123-4567"
-                                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
-                              />
-                            </div>
-
-                            <div>
-                              <label htmlFor="walkin-client-name" className="mb-1.5 block text-sm font-medium text-gray-700">
-                                <User className="mr-1.5 inline-block size-4" />
-                                Client Name (optional)
-                              </label>
-                              <input
-                                id="walkin-client-name"
-                                type="text"
-                                value={clientName}
-                                onChange={e => setClientName(e.target.value)}
-                                placeholder="Jane Doe"
-                                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </>
-                  )}
-            </div>
-
-            {/* Footer */}
-            <div className="border-t border-gray-100 bg-gray-50 px-5 py-4">
-              {step === 'services' && (
-                <div className="space-y-3">
-                  {selectedServices.length > 0 && (
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-gray-600">
-                        {selectedServices.length}
-                        {' '}
-                        selected •
-                        {formatDuration(totalDuration)}
-                      </span>
-                      <span className="font-semibold text-gray-900">
-                        {formatCurrency(totalPrice)}
-                      </span>
+                          )}
                     </div>
                   )}
-                  <button
-                    type="button"
-                    onClick={handleServicesNext}
-                    disabled={selectedServiceIds.length === 0}
-                    className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#007AFF] px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-[#0066CC] disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    Choose Technician
-                    <ChevronRight className="size-4" />
-                  </button>
+
+                  {/* Step 4: Confirm & Client Details */}
+                  {step === 'confirm' && (
+                    <div className="space-y-5">
+                      {/* Booking Summary */}
+                      <div className="rounded-xl bg-green-50 p-4">
+                        <div className="mb-3 flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-medium text-green-800">
+                              {selectedTechnician?.name || 'Any Available'}
+                            </p>
+                            <p className="text-2xl font-bold text-green-900">
+                              {selectedTimeSlot && formatTimeSlot(selectedTimeSlot)}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setStep('time')}
+                            className="text-sm font-medium text-green-700 hover:text-green-900"
+                          >
+                            Change
+                          </button>
+                        </div>
+                        <div className="border-t border-green-200 pt-3">
+                          <p className="text-sm text-green-700">
+                            {selectedServices.map(s => s.name).join(', ')}
+                          </p>
+                          <p className="mt-1 text-sm font-medium text-green-800">
+                            {formatDuration(totalDuration)}
+                            {' '}
+                            •
+                            {formatCurrency(totalPrice)}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Client Info */}
+                      <div className="space-y-4">
+                        <h3 className="font-semibold text-gray-900">Client details</h3>
+
+                        <div>
+                          <label htmlFor="walkin-phone" className="mb-1.5 block text-sm font-medium text-gray-700">
+                            <Phone className="mr-1.5 inline-block size-4" />
+                            Phone Number *
+                          </label>
+                          <input
+                            id="walkin-phone"
+                            type="tel"
+                            value={formatPhoneDisplay(clientPhone)}
+                            onChange={e => handlePhoneChange(e.target.value)}
+                            placeholder="(555) 123-4567"
+                            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                          />
+                        </div>
+
+                        <div>
+                          <label htmlFor="walkin-client-name" className="mb-1.5 block text-sm font-medium text-gray-700">
+                            <User className="mr-1.5 inline-block size-4" />
+                            Client Name (optional)
+                          </label>
+                          <input
+                            id="walkin-client-name"
+                            type="text"
+                            value={clientName}
+                            onChange={e => setClientName(e.target.value)}
+                            placeholder="Jane Doe"
+                            className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm text-gray-900 placeholder:text-gray-400 focus:border-green-500 focus:outline-none focus:ring-1 focus:ring-green-500"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-gray-100 bg-gray-50 px-5 py-4">
+          {step === 'services' && (
+            <div className="space-y-3">
+              {selectedServices.length > 0 && (
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">
+                    {selectedServices.length}
+                    {' '}
+                    selected •
+                    {formatDuration(totalDuration)}
+                  </span>
+                  <span className="font-semibold text-gray-900">
+                    {formatCurrency(totalPrice)}
+                  </span>
                 </div>
               )}
-
-              {step === 'confirm' && (
-                <button
-                  type="button"
-                  onClick={handleSubmit}
-                  disabled={submitting || clientPhone.length !== 10}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-500 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {submitting
-                    ? (
-                        <>
-                          <Loader2 className="size-4 animate-spin" />
-                          Booking...
-                        </>
-                      )
-                    : (
-                        <>
-                          <Check className="size-5" />
-                          Book Walk-in Now
-                        </>
-                      )}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={handleServicesNext}
+                disabled={selectedServiceIds.length === 0}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#007AFF] px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-[#0066CC] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Choose Technician
+                <ChevronRight className="size-4" />
+              </button>
             </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>
+          )}
+
+          {step === 'confirm' && (
+            <button
+              type="button"
+              onClick={handleSubmit}
+              disabled={submitting || clientPhone.length !== 10}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-green-500 px-4 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-green-600 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {submitting
+                ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      Booking...
+                    </>
+                  )
+                : (
+                    <>
+                      <Check className="size-5" />
+                      Book Walk-in Now
+                    </>
+                  )}
+            </button>
+          )}
+        </div>
+      </div>
+    </DialogShell>
   );
 }

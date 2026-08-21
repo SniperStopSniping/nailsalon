@@ -125,7 +125,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-webkit',
-      testMatch: /mobile-(?:booking-footer|admin-appointment-sheet)\.e2e\.ts/,
+      testMatch: /mobile-(?:booking-footer|admin-appointment-sheet|staff-uiqi)\.e2e\.ts/,
       grep: /@mobile-safari/,
       use: { ...devices['iPhone 13'] },
       dependencies: ['setup'],
