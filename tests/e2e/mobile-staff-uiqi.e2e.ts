@@ -165,6 +165,18 @@ async function assertOneUsableBottomRegion(page: Page) {
         };
       })
       .filter(({ width, height }) => width < 44 || height < 44);
+    const overflowingElements = Array.from(document.body.querySelectorAll<HTMLElement>('*'))
+      .map((element) => {
+        const rect = element.getBoundingClientRect();
+        return {
+          name: element.dataset.testid
+            ?? element.getAttribute('aria-label')
+            ?? element.tagName.toLowerCase(),
+          left: Math.round(rect.left * 100) / 100,
+          right: Math.round(rect.right * 100) / 100,
+        };
+      })
+      .filter(({ left, right }) => left < -0.5 || right > document.documentElement.clientWidth + 0.5);
 
     return {
       actionDoesNotOverlapNav: actionRect.bottom <= navRect.top + 0.5,
@@ -172,6 +184,7 @@ async function assertOneUsableBottomRegion(page: Page) {
       documentClientWidth: document.documentElement.clientWidth,
       documentScrollWidth: document.documentElement.scrollWidth,
       navSafeAreaPadding: getComputedStyle(nav).paddingBottom,
+      overflowingElements,
       regionBottom: Math.round(regionRect.bottom * 100) / 100,
       regionLeft: Math.round(regionRect.left * 100) / 100,
       regionRight: Math.round(regionRect.right * 100) / 100,
@@ -187,6 +200,7 @@ async function assertOneUsableBottomRegion(page: Page) {
   expect(result!.actionDoesNotOverlapNav).toBe(true);
   expect(result!.appointmentClearsRegion).toBe(true);
   expect(result!.undersizedTargets).toEqual([]);
+  expect(result!.overflowingElements).toEqual([]);
   expect(result!.documentScrollWidth).toBe(result!.documentClientWidth);
   expect(result!.regionLeft).toBeGreaterThanOrEqual(0);
   expect(result!.regionRight).toBeLessThanOrEqual(result!.viewportWidth);
