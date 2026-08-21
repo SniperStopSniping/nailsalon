@@ -44,6 +44,13 @@ async function expectNoPageHorizontalOverflow(page: Page): Promise<void> {
   expect(overflow.bodyScroll, 'body must not scroll horizontally').toBeLessThanOrEqual(overflow.bodyClient);
 }
 
+async function expectSingleBookingMain(page: Page): Promise<void> {
+  await expect(page.locator('main')).toHaveCount(1);
+  await expect(page.locator('main main')).toHaveCount(0);
+  await expect(page.locator('h1')).toHaveCount(1);
+  await expect(page.locator('main h1')).toHaveCount(1);
+}
+
 type TargetMeasurement = {
   height: number;
   label: string;
@@ -248,6 +255,8 @@ async function completeRequiredConfirmFields(page: Page): Promise<void> {
 
   const acknowledgment = page.getByTestId('booking-policy-acknowledgment');
   if (await acknowledgment.isVisible().catch(() => false)) {
+    await expect(acknowledgment.getByText('Required', { exact: true })).toBeVisible();
+
     await acknowledgment.getByRole('checkbox').check();
   }
 
@@ -281,6 +290,7 @@ async function expectResultReceiptLeads(page: Page): Promise<void> {
 
 async function walkReadOnlyBookingTargets(page: Page): Promise<void> {
   await openServicePage(page);
+  await expectSingleBookingMain(page);
 
   const search = page.getByPlaceholder(/search services/i);
 
@@ -310,6 +320,7 @@ async function walkReadOnlyBookingTargets(page: Page): Promise<void> {
   await page.waitForURL(/\/book\/(?:tech|time)(?:\?|$)/);
 
   if (appPathPattern('/book/tech').test(page.url())) {
+    await expectSingleBookingMain(page);
     await expectPracticalBookingTargets(page);
     const back = page.getByRole('button', { name: 'Go back' });
 
@@ -324,11 +335,13 @@ async function walkReadOnlyBookingTargets(page: Page): Promise<void> {
     });
     const technician = await configuredTechnician.isVisible().catch(() => false)
       ? configuredTechnician
-      : page.getByRole('button', { name: /surprise me/i });
+      : page.getByRole('button', { name: 'Any eligible technician — maximum availability' });
     await technician.click();
   }
 
   await expect(page).toHaveURL(appPathPattern('/book/time'));
+
+  await expectSingleBookingMain(page);
 
   await expectPracticalBookingTargets(page);
   await expectReducedMotionControl(page.getByRole('button', { name: 'Previous month' }));
@@ -410,6 +423,80 @@ for (const { label, viewport } of ACCESSIBILITY_VIEWPORTS) {
     }
   });
 }
+
+test('named add-on quantity controls announce the resulting canonical totals @mobile-layout', async ({
+  browser,
+  baseURL,
+}) => {
+  const context = await browser.newContext({
+    baseURL,
+    viewport: { height: 600, width: 375 },
+    reducedMotion: 'reduce',
+  });
+  const attemptedWrites: string[] = [];
+
+  try {
+    const page = await context.newPage();
+    await page.route('**/*', async (route) => {
+      const method = route.request().method();
+      if (method !== 'GET' && method !== 'HEAD') {
+        attemptedWrites.push(`${method} ${route.request().url()}`);
+        await route.abort('blockedbyclient');
+        return;
+      }
+      await route.continue();
+    });
+
+    await openServicePage(page);
+    await expectSingleBookingMain(page);
+    const announcement = page.getByTestId('service-addon-announcement');
+
+    await expect(announcement).toHaveText('');
+
+    await selectConfiguredService(page);
+
+    const decrease = page.getByRole('button', { name: 'Decrease Nail Repair quantity' });
+    const increase = page.getByRole('button', { name: 'Increase Nail Repair quantity' });
+
+    await expect(decrease).toBeVisible();
+    await expect(decrease).toBeDisabled();
+    await expect(increase).toBeEnabled();
+
+    for (const control of [decrease, increase]) {
+      const bounds = await control.boundingBox();
+
+      expect(bounds).not.toBeNull();
+      expect(bounds!.width).toBeGreaterThanOrEqual(44);
+      expect(bounds!.height).toBeGreaterThanOrEqual(44);
+    }
+
+    await increase.click();
+
+    await expect(announcement).toHaveText(
+      'Booking total updated. Price $70. Duration 1h 25m.',
+    );
+
+    await expect(page.getByTestId('service-sticky-bar').getByText('$70')).toBeVisible();
+    await expect(page.getByTestId('service-sticky-bar').getByText('1h 25m')).toBeVisible();
+
+    await expectNoTargetOverlap([decrease, increase]);
+
+    await decrease.click();
+
+    await expect(announcement).toHaveText(
+      'Booking total updated. Price $65. Duration 1h 15m.',
+    );
+
+    await expect(page.getByTestId('service-sticky-bar').getByText('$65')).toBeVisible();
+    await expect(page.getByTestId('service-sticky-bar').getByText('1h 15m')).toBeVisible();
+
+    await expectNoPageHorizontalOverflow(page);
+
+    expect(attemptedWrites, 'The add-on accessibility check must remain read-only.').toEqual([]);
+  } finally {
+    await context.close();
+  }
+});
 
 test('public booking targets remain usable under the Chromium 200% CSS zoom approximation @mobile-layout', async ({
   browser,

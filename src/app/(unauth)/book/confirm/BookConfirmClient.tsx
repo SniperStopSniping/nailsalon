@@ -1545,6 +1545,9 @@ const ConfirmContent = ({
                 <span className="min-w-0 whitespace-pre-line break-words">
                   {policy.acknowledgment.text}
                 </span>
+                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--n5-ink-muted)]">
+                  Required
+                </span>
               </label>
               {!policyAcknowledged && (
                 <p

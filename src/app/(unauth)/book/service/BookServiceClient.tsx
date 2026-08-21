@@ -373,6 +373,7 @@ export function BookServiceClient({
   const [selectedCategory, setSelectedCategory] = useState<BookingCategory>(initialCategory);
   const [selectedBaseServiceId, setSelectedBaseServiceIdState] = useState<string | null>(initialBaseServiceId);
   const [selectedAddOnsState, setSelectedAddOnsState] = useState<SelectedAddOnParam[]>(initialSelectedAddOns);
+  const [addOnAnnouncement, setAddOnAnnouncement] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [mounted, setMounted] = useState(false);
   const [campaignOffer, setCampaignOffer] = useState<{
@@ -383,6 +384,7 @@ export function BookServiceClient({
   const [campaignUnavailable, setCampaignUnavailable] = useState(false);
   const hasUserChangedSelectionRef = useRef(false);
   const hasAppliedHydratedBookingStateRef = useRef(false);
+  const hasPendingAddOnAnnouncementRef = useRef(false);
   const searchCardRef = useRef<HTMLDivElement>(null);
   // Editorial's sticky-CTA handoff (Rev 3 plan section 6): "the sticky Book
   // CTA scrolls to #services then hands over to the sticky Continue bar —
@@ -866,6 +868,18 @@ export function BookServiceClient({
     })
     .filter(Boolean);
   const hasVisibleAddOns = Boolean(selectedService && allowedAddOns.length > 0);
+  const hasRequiredAddOns = allowedAddOns.some(item => item?.rule.selectionMode === 'required');
+  const hasOptionalAddOns = allowedAddOns.some(item => item?.rule.selectionMode === 'optional');
+  const addOnCompositionLabel = hasRequiredAddOns && hasOptionalAddOns
+    ? 'Required and optional add-ons'
+    : hasRequiredAddOns
+      ? 'Required add-ons'
+      : 'Optional add-ons';
+  const addOnStickyLabel = hasRequiredAddOns && hasOptionalAddOns
+    ? 'Required and optional add-ons'
+    : hasRequiredAddOns
+      ? 'Required add-ons included'
+      : 'Optional add-ons available';
   const locationCompatiblePreviewTechnicians = technicians.filter(technician =>
     technicianSupportsPublicLocation({
       technician,
@@ -989,6 +1003,20 @@ export function BookServiceClient({
     },
     0,
   );
+  const totalPriceLabel = formatMoney(totalPriceCents, currency);
+  const totalDurationLabel = formatDuration(totalDurationMinutes);
+
+  useEffect(() => {
+    if (!hasPendingAddOnAnnouncementRef.current) {
+      return;
+    }
+
+    hasPendingAddOnAnnouncementRef.current = false;
+    setAddOnAnnouncement(
+      `Booking total updated. Price ${totalPriceLabel}. Duration ${totalDurationLabel}.`,
+    );
+  }, [selectedAddOnsState, totalDurationLabel, totalPriceLabel]);
+
   const featuredServices = getFeaturedServices(services, { lusterFeaturingEnabled });
   // The embedded blocks render these exact public-safe values. Overlay them
   // so readiness and pixels cannot consult different projections; the
@@ -1142,13 +1170,14 @@ export function BookServiceClient({
       });
 
     hasUserChangedSelectionRef.current = true;
+    hasPendingAddOnAnnouncementRef.current = true;
     setSelectedAddOnsState(normalized);
     setSelectedAddOns(normalized);
     triggerHaptic('select');
   };
 
   return (
-    <div
+    <main
       className="service-page-viewport"
       style={{
         background: hasBookingBrandColor
@@ -1156,6 +1185,15 @@ export function BookServiceClient({
           : `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
       }}
     >
+      <span
+        data-testid="service-addon-announcement"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        className="sr-only"
+      >
+        {addOnAnnouncement}
+      </span>
       <div
         className={
           // Rev 3 plan section 6 (PR 6): Editorial's front-of-page content
@@ -1894,7 +1932,9 @@ export function BookServiceClient({
                                       Customize your service
                                     </div>
                                     <div className="mt-0.5 text-[11px] leading-4 text-neutral-500">
-                                      Optional add-ons for
+                                      {addOnCompositionLabel}
+                                      {' '}
+                                      for
                                       {' '}
                                       {selectedService.name}
                                     </div>
@@ -1968,6 +2008,7 @@ export function BookServiceClient({
                                                   <div className="flex items-center gap-1">
                                                     <button
                                                       type="button"
+                                                      aria-label={`Decrease ${addOn.name} quantity`}
                                                       onClick={() => handleAddOnToggle(addOn.id, isRequired ? Math.max(1, quantity - 1) : Math.max(0, quantity - 1))}
                                                       disabled={isRequired ? quantity <= 1 : quantity <= 0}
                                                       className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1979,6 +2020,7 @@ export function BookServiceClient({
                                                     </div>
                                                     <button
                                                       type="button"
+                                                      aria-label={`Increase ${addOn.name} quantity`}
                                                       onClick={() => handleAddOnToggle(addOn.id, Math.min(maxQuantity, Math.max(quantity, 0) + 1))}
                                                       disabled={quantity >= maxQuantity}
                                                       className="flex size-11 items-center justify-center rounded-full border border-neutral-200 text-neutral-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed disabled:opacity-40"
@@ -1990,6 +2032,9 @@ export function BookServiceClient({
                                               : (
                                                   <button
                                                     type="button"
+                                                    aria-label={isRequired
+                                                      ? `${addOn.name} included`
+                                                      : `${isSelected ? 'Remove' : 'Add'} ${addOn.name}`}
                                                     onClick={() => handleAddOnToggle(addOn.id)}
                                                     disabled={isRequired}
                                                     className="min-h-11 min-w-11 rounded-lg px-2.5 py-1 text-[11px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 disabled:cursor-not-allowed motion-reduce:transition-none"
@@ -2462,15 +2507,15 @@ export function BookServiceClient({
                   className="truncate text-[9px] font-medium leading-none"
                   style={{ color: themeVars.accent }}
                 >
-                  Optional add-ons available
+                  {addOnStickyLabel}
                 </div>
               )}
               <div className="flex items-baseline gap-2 pt-0.5">
                 <div className="text-[17px] font-bold leading-none text-neutral-900">
-                  {formatMoney(totalPriceCents, currency)}
+                  {totalPriceLabel}
                 </div>
                 <div className="text-[11px] leading-none text-neutral-500">
-                  {formatDuration(totalDurationMinutes)}
+                  {totalDurationLabel}
                 </div>
               </div>
             </div>
@@ -2498,6 +2543,6 @@ export function BookServiceClient({
           </div>
         </div>
       )}
-    </div>
+    </main>
   );
 }

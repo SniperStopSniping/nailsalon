@@ -237,7 +237,13 @@ describe('BookTechClient', () => {
     expect(container.querySelector('.h-16')).not.toBeInTheDocument();
     expect(legacyAuthFetch).not.toHaveBeenCalled();
 
-    const anyArtistButton = screen.getByRole('button', { name: /surprise me/i });
+    const anyArtistButton = screen.getByRole('button', {
+      name: 'Any eligible technician — maximum availability',
+    });
+
+    expect(anyArtistButton).toBeInTheDocument();
+    expect(screen.queryByText(/surprise me|🎲/iu)).not.toBeInTheDocument();
+
     fireEvent.mouseEnter(anyArtistButton);
     fireEvent.mouseLeave(anyArtistButton);
 
@@ -289,7 +295,9 @@ describe('BookTechClient', () => {
       />,
     );
 
-    fireEvent.click(screen.getByRole('button', { name: /surprise me/i }));
+    fireEvent.click(screen.getByRole('button', {
+      name: 'Any eligible technician — maximum availability',
+    }));
 
     expect(setTechnicianId).toHaveBeenNthCalledWith(1, null, null);
     expect(routerPush).not.toHaveBeenCalled();
@@ -303,5 +311,21 @@ describe('BookTechClient', () => {
     expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('/book/time'));
     expect(routerPush).toHaveBeenCalledWith(expect.stringContaining('techId=any'));
     expect(legacyAuthFetch).not.toHaveBeenCalled();
+  });
+
+  it('provides one non-nested main landmark for the technician step', () => {
+    const { container } = render(
+      <BookTechClient
+        technicians={[]}
+        services={[{ id: 'svc_1', name: 'Gel Manicure', price: 45, duration: 45 }]}
+        totalPrice={45}
+        totalDuration={45}
+        locationName="Isla Nail Studio"
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+      />,
+    );
+
+    expect(screen.getAllByRole('main')).toHaveLength(1);
+    expect(container.querySelector('main main')).toBeNull();
   });
 });

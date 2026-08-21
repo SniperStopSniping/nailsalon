@@ -181,7 +181,7 @@ export function BookTechClient({
   };
 
   return (
-    <div
+    <main
       className="min-h-screen"
       style={{
         background: `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
@@ -363,7 +363,7 @@ export function BookTechClient({
         >
           <span className="text-base font-medium text-neutral-600">
             {hasBookableTechnicians
-              ? '🎲 Surprise me with any available artist'
+              ? 'Any eligible technician — maximum availability'
               : 'No compatible artists are assigned to this service yet'}
           </span>
         </button>
@@ -381,6 +381,6 @@ export function BookTechClient({
           </p>
         </div>
       </div>
-    </div>
+    </main>
   );
 }

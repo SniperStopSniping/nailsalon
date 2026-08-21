@@ -13,9 +13,11 @@ import {
   resolveDisposableDatabaseServerExpectation,
 } from '../src/libs/disposableDatabaseTarget';
 import {
+  addOnSchema,
   adminUserSchema,
   salonLocationSchema,
   salonSchema,
+  serviceAddOnSchema,
   serviceSchema,
   technicianSchema,
   technicianServicesSchema,
@@ -24,6 +26,9 @@ import { SALON, SERVICES, TECHNICIANS } from './fixtures/nail-salon-no5';
 
 const PROVISIONABLE_SLUG = SALON.slug;
 const E2E_PRIMARY_LOCATION_ID = 'location_nail-salon-no5_primary';
+const E2E_ACCESSIBLE_ADD_ON_ID = 'addon_e2e_nail-repair';
+const E2E_ACCESSIBLE_ADD_ON_RULE_ID = 'service-addon_e2e_biab-short_nail-repair';
+const E2E_ACCESSIBLE_ADD_ON_SERVICE_ID = 'svc_biab-short';
 const E2E_STAFF_TECHNICIAN_ID = 'tech_daniela';
 const E2E_STAFF_TECH_NAME = 'Daniela';
 const E2E_STAFF_PHONE = '4165550201';
@@ -142,6 +147,74 @@ async function provisionSalon(db: Db) {
         },
       });
   }
+
+  await db
+    .insert(addOnSchema)
+    .values({
+      id: E2E_ACCESSIBLE_ADD_ON_ID,
+      salonId: SALON.id!,
+      name: 'Nail Repair',
+      slug: 'e2e-nail-repair',
+      category: 'repair',
+      templateKey: null,
+      descriptionItems: ['Per nail'],
+      priceCents: 500,
+      priceDisplayText: null,
+      durationMinutes: 10,
+      pricingType: 'per_unit',
+      unitLabel: 'nail',
+      maxQuantity: 2,
+      isActive: true,
+      displayOrder: 999,
+    })
+    .onConflictDoUpdate({
+      target: addOnSchema.id,
+      set: {
+        category: 'repair',
+        descriptionItems: ['Per nail'],
+        displayOrder: 999,
+        durationMinutes: 10,
+        isActive: true,
+        maxQuantity: 2,
+        name: 'Nail Repair',
+        priceCents: 500,
+        priceDisplayText: null,
+        pricingType: 'per_unit',
+        salonId: SALON.id!,
+        slug: 'e2e-nail-repair',
+        templateKey: null,
+        unitLabel: 'nail',
+        updatedAt: new Date(),
+      },
+    });
+
+  await db
+    .insert(serviceAddOnSchema)
+    .values({
+      id: E2E_ACCESSIBLE_ADD_ON_RULE_ID,
+      salonId: SALON.id!,
+      serviceId: E2E_ACCESSIBLE_ADD_ON_SERVICE_ID,
+      addOnId: E2E_ACCESSIBLE_ADD_ON_ID,
+      selectionMode: 'optional',
+      conditions: null,
+      defaultQuantity: null,
+      maxQuantityOverride: 2,
+      displayOrder: 999,
+    })
+    .onConflictDoUpdate({
+      target: serviceAddOnSchema.id,
+      set: {
+        addOnId: E2E_ACCESSIBLE_ADD_ON_ID,
+        conditions: null,
+        defaultQuantity: null,
+        displayOrder: 999,
+        maxQuantityOverride: 2,
+        salonId: SALON.id!,
+        selectionMode: 'optional',
+        serviceId: E2E_ACCESSIBLE_ADD_ON_SERVICE_ID,
+        updatedAt: new Date(),
+      },
+    });
 
   for (const technician of TECHNICIANS) {
     await db
@@ -316,6 +389,30 @@ async function verifyFixtureReadiness(
         inArray(technicianServicesSchema.serviceId, serviceIds),
       ),
     );
+  const [accessibleAddOn] = await db
+    .select({ id: addOnSchema.id })
+    .from(addOnSchema)
+    .where(
+      and(
+        eq(addOnSchema.id, E2E_ACCESSIBLE_ADD_ON_ID),
+        eq(addOnSchema.salonId, SALON.id!),
+        eq(addOnSchema.isActive, true),
+      ),
+    )
+    .limit(1);
+  const [accessibleAddOnRule] = await db
+    .select({ id: serviceAddOnSchema.id })
+    .from(serviceAddOnSchema)
+    .where(
+      and(
+        eq(serviceAddOnSchema.id, E2E_ACCESSIBLE_ADD_ON_RULE_ID),
+        eq(serviceAddOnSchema.salonId, SALON.id!),
+        eq(serviceAddOnSchema.serviceId, E2E_ACCESSIBLE_ADD_ON_SERVICE_ID),
+        eq(serviceAddOnSchema.addOnId, E2E_ACCESSIBLE_ADD_ON_ID),
+        eq(serviceAddOnSchema.selectionMode, 'optional'),
+      ),
+    )
+    .limit(1);
   const [staff] = await db
     .select({ email: technicianSchema.email, phone: technicianSchema.phone })
     .from(technicianSchema)
@@ -356,6 +453,8 @@ async function verifyFixtureReadiness(
     && salon.publicationStatus === 'published'
     && serviceCount?.count === SERVICES.length
     && assignmentCount?.count === SERVICES.length * TECHNICIANS.length
+    && Boolean(accessibleAddOn)
+    && Boolean(accessibleAddOnRule)
     && staff?.phone === E2E_STAFF_PHONE
     && staff.email === 'daniela-fixture@example.invalid'
     && Boolean(location)

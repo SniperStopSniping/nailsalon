@@ -673,7 +673,7 @@ describe('BookConfirmClient', () => {
       const policy = screen.getByTestId('booking-policy-before-confirmation');
       const acknowledgment = screen.getByTestId('booking-policy-acknowledgment');
       const checkbox = within(acknowledgment).getByRole('checkbox', {
-        name: acknowledgmentText,
+        name: /I understand this appointment reserves the technician’s time[\s\S]*Required/iu,
       });
       const confirm = screen.getByRole('button', {
         name: /confirm appointment/i,
@@ -685,6 +685,8 @@ describe('BookConfirmClient', () => {
       expect(checkbox).toBeRequired();
       expect(confirm).toBeDisabled();
       expect(acknowledgment).toHaveTextContent(acknowledgmentText);
+      expect(within(acknowledgment).getByText('Required', { exact: true })).toBeVisible();
+      expect(checkbox).toHaveAccessibleName(`${acknowledgmentText} Required`);
       expect(
         within(acknowledgment).getByText(acknowledgmentText),
       ).toHaveClass('whitespace-pre-line');
@@ -821,7 +823,7 @@ describe('BookConfirmClient', () => {
         'booking-policy-acknowledgment',
       );
       const checkbox = within(acknowledgment).getByRole('checkbox', {
-        name: /I understand this appointment reserves the technician’s time\.\s+I will contact the salon if I cannot attend\./i,
+        name: /I understand this appointment reserves the technician’s time[\s\S]*I will contact the salon if I cannot attend\.[\s\S]*Required/iu,
       });
       const acknowledgmentLabel = checkbox.closest('label')?.querySelector(
         'span',
@@ -836,6 +838,7 @@ describe('BookConfirmClient', () => {
       expect(acknowledgmentLabel?.textContent).toBe(
         newlyRequiredAcknowledgment,
       );
+      expect(within(acknowledgment).getByText('Required', { exact: true })).toBeVisible();
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
       const firstRequest = JSON.parse(
@@ -972,7 +975,7 @@ describe('BookConfirmClient', () => {
         target: { value: 'Ava Chen' },
       });
       fireEvent.click(screen.getByRole('checkbox', {
-        name: acknowledgmentText,
+        name: /I understand this appointment reserves the technician’s time[\s\S]*Required/iu,
       }));
       fireEvent.click(screen.getByRole('button', {
         name: /confirm appointment/i,
@@ -987,7 +990,7 @@ describe('BookConfirmClient', () => {
       expect(screen.getByLabelText('Customer email')).toHaveValue('ava@example.com');
       expect(screen.getByLabelText('Customer phone')).toHaveValue('4165550101');
       expect(screen.getByRole('checkbox', {
-        name: 'I reviewed the latest booking policy.',
+        name: 'I reviewed the latest booking policy. Required',
       })).not.toBeChecked();
       expect(screen.getByRole('button', {
         name: /confirm appointment/i,
@@ -996,7 +999,7 @@ describe('BookConfirmClient', () => {
 
       const firstRequest = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body));
       fireEvent.click(screen.getByRole('checkbox', {
-        name: 'I reviewed the latest booking policy.',
+        name: 'I reviewed the latest booking policy. Required',
       }));
       await waitFor(() => expect(screen.getByRole('button', {
         name: /confirm appointment/i,
@@ -1041,7 +1044,7 @@ describe('BookConfirmClient', () => {
 
       renderReview();
       fireEvent.click(screen.getByRole('checkbox', {
-        name: acknowledgmentText,
+        name: /I understand this appointment reserves the technician’s time[\s\S]*Required/iu,
       }));
       await waitFor(() => expect(screen.getByRole('button', {
         name: /confirm appointment/i,
