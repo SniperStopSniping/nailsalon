@@ -1,3 +1,14 @@
+## [1.79.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.79.3...v1.79.4) (2026-08-21)
+
+
+### Bug Fixes
+
+* capture staff sheet resize pointers ([10a3c8c](https://github.com/SniperStopSniping/nailsalon/commit/10a3c8c4841ca4788ab86e266a1ef7e426f3be24))
+* close staff modal lifecycle races ([9571884](https://github.com/SniperStopSniping/nailsalon/commit/95718848b334e0db94d19c92648a011de851be3a))
+* keep staff dashboard within narrow viewports ([57bf067](https://github.com/SniperStopSniping/nailsalon/commit/57bf067255137da808a3c1915c3a0be2c94a00ef))
+* repair owner and staff interaction accessibility ([58284c6](https://github.com/SniperStopSniping/nailsalon/commit/58284c6466709b594d8d7c8148d6de738d47cb16))
+* stabilize consecutive sheet pointer gestures ([a4d3893](https://github.com/SniperStopSniping/nailsalon/commit/a4d3893572ddf8dec83c272f3b4d8a8cfe11f699))
+
 ## [1.79.3](https://github.com/SniperStopSniping/nailsalon/compare/v1.79.2...v1.79.3) (2026-08-21)
 
 
