@@ -858,7 +858,7 @@ export function BookTimeClient({
   const allSlotsBooked = selectedDate && availableTimeSlots.length > 0 && availableTimeSlots.every(s => isSlotBooked(s.time));
 
   return (
-    <div
+    <main
       className="min-h-screen"
       style={{
         background: `linear-gradient(to bottom, color-mix(in srgb, ${themeVars.background} 95%, white), ${themeVars.background}, color-mix(in srgb, ${themeVars.background} 95%, ${themeVars.primaryDark}))`,
@@ -1324,6 +1324,6 @@ export function BookTimeClient({
         </div>
 
       </div>
-    </div>
+    </main>
   );
 }

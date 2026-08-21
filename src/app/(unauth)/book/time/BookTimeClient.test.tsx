@@ -128,6 +128,26 @@ describe('BookTimeClient', () => {
     expect(fetchMock).toHaveBeenCalledTimes(initialCallCount);
   });
 
+  it('provides one non-nested main landmark for the time step', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({
+      visibleSlots: ['09:00'],
+      bookedSlots: [],
+    }), { status: 200 }));
+
+    const { container } = render(
+      <BookTimeClient
+        services={[{ id: 'srv_1', name: 'Gel', price: 65, duration: 60 }]}
+        totalPrice={65}
+        totalDuration={60}
+        technician={{ id: 'tech_1', name: 'Taylor', imageUrl: '/tech.jpg' }}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+      />,
+    );
+
+    expect(screen.getAllByRole('main')).toHaveLength(1);
+    expect(container.querySelector('main main')).toBeNull();
+  });
+
   it('prefers the URL technician when fetching availability for a specific artist', async () => {
     fetchMock.mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
       visibleSlots: ['09:00'],

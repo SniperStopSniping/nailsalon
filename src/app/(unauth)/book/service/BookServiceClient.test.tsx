@@ -524,7 +524,7 @@ describe('BookServiceClient', () => {
   });
 
   it('keeps the existing service-page experience unchanged when customization is unconfigured', () => {
-    render(
+    const { container } = render(
       <BookServiceClient
         services={[services[0]!]}
         bookingFlow={['service', 'tech', 'time', 'confirm']}
@@ -541,6 +541,8 @@ describe('BookServiceClient', () => {
 
     expect(activeCategory).not.toHaveClass('bg-[var(--booking-brand-primary)]');
     expect(activeCategory).toHaveStyle({ color: 'rgb(255, 255, 255)' });
+    expect(screen.getAllByRole('main')).toHaveLength(1);
+    expect(container.querySelector('main main')).toBeNull();
   });
 
   it('renders the configured booking content as plain text with safe social links above the sticky clearance', () => {
@@ -1893,6 +1895,178 @@ describe('BookServiceClient', () => {
     expect(screen.queryByTestId('service-card-addon-cue-svc-2')).not.toBeInTheDocument();
   });
 
+  it('describes required-only and mixed add-on groups without calling required choices optional', () => {
+    const requiredRule = {
+      id: 'rule-required',
+      serviceId: 'svc-1',
+      addOnId: 'addon-1',
+      selectionMode: 'required' as const,
+      defaultQuantity: 1,
+      maxQuantityOverride: null,
+      displayOrder: 1,
+    };
+    const optionalRule = {
+      id: 'rule-optional',
+      serviceId: 'svc-1',
+      addOnId: 'addon-2',
+      selectionMode: 'optional' as const,
+      defaultQuantity: null,
+      maxQuantityOverride: null,
+      displayOrder: 2,
+    };
+    const { rerender } = render(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={[requiredRule]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+
+    const requiredOnlyPanel = screen.getByTestId('service-inline-addons-panel');
+
+    expect(within(requiredOnlyPanel).getByText('Required add-ons for Colour Change')).toBeInTheDocument();
+    expect(within(requiredOnlyPanel).queryByText(/Optional add-ons for/i)).not.toBeInTheDocument();
+    expect(within(requiredOnlyPanel).getByText('Required')).toBeInTheDocument();
+    expect(screen.getByTestId('service-sticky-addon-note')).toHaveTextContent('Required add-ons included');
+
+    rerender(
+      <BookServiceClient
+        services={services}
+        addOns={addOns}
+        serviceAddOnRules={[requiredRule, optionalRule]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const mixedPanel = screen.getByTestId('service-inline-addons-panel');
+
+    expect(within(mixedPanel).getByText('Required and optional add-ons for Colour Change')).toBeInTheDocument();
+    expect(screen.getByTestId('service-sticky-addon-note')).toHaveTextContent('Required and optional add-ons');
+  });
+
+  it('announces canonical price and duration totals after named add-on quantity changes without initial chatter', async () => {
+    const accessibleAddOns = [
+      {
+        id: 'addon-price-only',
+        name: 'Luster Product Upgrade',
+        descriptionItems: ['Premium product'],
+        category: 'nail_art' as const,
+        pricingType: 'fixed' as const,
+        unitLabel: null,
+        maxQuantity: 1,
+        durationMinutes: 0,
+        priceCents: 500,
+        priceDisplayText: null,
+        isActive: true,
+      },
+      {
+        id: 'addon-duration-only',
+        name: 'Base Coat',
+        descriptionItems: ['Extra preparation'],
+        category: 'nail_art' as const,
+        pricingType: 'fixed' as const,
+        unitLabel: null,
+        maxQuantity: 1,
+        durationMinutes: 5,
+        priceCents: 0,
+        priceDisplayText: null,
+        isActive: true,
+      },
+      {
+        id: 'addon-combined',
+        name: 'Nail Repair',
+        descriptionItems: ['Per nail'],
+        category: 'repair' as const,
+        pricingType: 'per_unit' as const,
+        unitLabel: 'nail',
+        maxQuantity: 2,
+        durationMinutes: 10,
+        priceCents: 500,
+        priceDisplayText: null,
+        isActive: true,
+      },
+    ];
+    const accessibleRules = accessibleAddOns.map((addOn, index) => ({
+      id: `rule-accessible-${index}`,
+      serviceId: 'svc-1',
+      addOnId: addOn.id,
+      selectionMode: 'optional' as const,
+      defaultQuantity: null,
+      maxQuantityOverride: null,
+      displayOrder: index,
+    }));
+
+    render(
+      <BookServiceClient
+        services={services}
+        addOns={accessibleAddOns}
+        serviceAddOnRules={accessibleRules}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+      />,
+    );
+
+    const announcement = screen.getByTestId('service-addon-announcement');
+
+    expect(announcement).toHaveAttribute('role', 'status');
+    expect(announcement).toHaveAttribute('aria-live', 'polite');
+    expect(announcement).toHaveAttribute('aria-atomic', 'true');
+    expect(announcement).toBeEmptyDOMElement();
+
+    fireEvent.click(screen.getByTestId('service-card-svc-1'));
+
+    expect(announcement).toBeEmptyDOMElement();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Luster Product Upgrade' }));
+    await waitFor(() => expect(announcement).toHaveTextContent(
+      'Booking total updated. Price $45. Duration 30 min.',
+    ));
+
+    expect(within(screen.getByTestId('service-sticky-bar')).getByText('$45')).toBeInTheDocument();
+    expect(within(screen.getByTestId('service-sticky-bar')).getByText('30 min')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Base Coat' }));
+    await waitFor(() => expect(announcement).toHaveTextContent(
+      'Booking total updated. Price $45. Duration 35 min.',
+    ));
+
+    const decreaseRepair = screen.getByRole('button', { name: 'Decrease Nail Repair quantity' });
+    const increaseRepair = screen.getByRole('button', { name: 'Increase Nail Repair quantity' });
+
+    expect(decreaseRepair).toBeDisabled();
+
+    fireEvent.click(increaseRepair);
+    await waitFor(() => expect(announcement).toHaveTextContent(
+      'Booking total updated. Price $50. Duration 45 min.',
+    ));
+
+    expect(decreaseRepair).toBeEnabled();
+
+    fireEvent.click(increaseRepair);
+    await waitFor(() => expect(announcement).toHaveTextContent(
+      'Booking total updated. Price $55. Duration 55 min.',
+    ));
+
+    expect(increaseRepair).toBeDisabled();
+
+    fireEvent.click(decreaseRepair);
+    await waitFor(() => expect(announcement).toHaveTextContent(
+      'Booking total updated. Price $50. Duration 45 min.',
+    ));
+
+    fireEvent.click(decreaseRepair);
+    await waitFor(() => expect(announcement).toHaveTextContent(
+      'Booking total updated. Price $45. Duration 35 min.',
+    ));
+
+    expect(decreaseRepair).toBeDisabled();
+  });
+
   it('keeps footer clearance aligned with the changing iPhone Chrome visual viewport', () => {
     const originalInnerHeight = window.innerHeight;
     const originalInnerWidth = window.innerWidth;
@@ -2308,6 +2482,7 @@ describe('BookServiceClient', () => {
     expect(screen.getByTestId('service-card-addon-cue-svc-1')).toBeInTheDocument();
     expect(screen.getByTestId('service-sticky-addon-note')).toHaveTextContent('Optional add-ons available');
     expect(screen.queryByText(/Optional add-ons for Gel X/i)).not.toBeInTheDocument();
+    expect(screen.getByTestId('service-addon-announcement')).toBeEmptyDOMElement();
 
     await waitFor(() => {
       expect(bookingStateMock.syncFromUrl).toHaveBeenCalledWith(expect.objectContaining({

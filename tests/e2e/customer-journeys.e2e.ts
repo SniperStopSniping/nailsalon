@@ -387,10 +387,15 @@ test.describe('Customer journeys', () => {
     await page.goto(`${appPath('/book/tech')}?salonSlug=${e2eConfig.salonSlug}&serviceIds=${serviceId}`);
 
     await expect(page.getByRole('heading', { name: /choose your artist/i })).toBeVisible();
+    await expect(page.locator('main')).toHaveCount(1);
+    await expect(page.locator('main main')).toHaveCount(0);
+    await expect(page.locator('main h1')).toHaveCount(1);
     await expect(page.getByRole('navigation', { name: /bottom navigation/i })).toHaveCount(0);
     await expect(page.getByRole('button', { name: /go to invite|go to rewards|go to profile/i })).toHaveCount(0);
 
-    const anyArtist = page.getByRole('button', { name: /surprise me with any available artist/i });
+    const anyArtist = page.getByRole('button', {
+      name: 'Any eligible technician — maximum availability',
+    });
 
     await expect(anyArtist).toBeEnabled();
 
