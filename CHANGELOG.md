@@ -1,3 +1,10 @@
+# [1.79.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.78.1...v1.79.0) (2026-08-21)
+
+
+### Features
+
+* **booking:** centralize public section readiness ([401ebd6](https://github.com/SniperStopSniping/nailsalon/commit/401ebd6a1f9b19ef7a59806ef69d7a74e25a0361))
+
 ## [1.78.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.78.0...v1.78.1) (2026-08-20)
 
 
