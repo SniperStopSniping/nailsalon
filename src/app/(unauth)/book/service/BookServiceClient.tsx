@@ -24,7 +24,7 @@ import {
   technicianSupportsPublicLocation,
 } from '@/libs/publicTechnicianCompatibility';
 import { EMPTY_SALON_CONTENT } from '@/libs/salonContent';
-import { resolveVisitContent } from '@/libs/sectionRegistry';
+import { resolveSectionDecisionPlan, resolveVisitContent, shouldRenderSection } from '@/libs/sectionRegistry';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
 import { BOOKING_CATEGORIES, type BookingCategory } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
@@ -271,7 +271,6 @@ export function BookServiceClient({
   // own doc comment for why SectionOrderRenderer alone cannot govern that
   // embedded content.
   const quickBookHiddenSections = bookingPage?.hiddenSections ?? [];
-  const isSectionHidden = (id: SectionId) => quickBookHiddenSections.includes(id);
   // EMPTY_SALON_CONTENT's identity.name is '' by design (see its own doc
   // comment) — patched in with the real salonName here so the fallback path
   // still satisfies salonProfile's canRender (name-based) exactly like the
@@ -991,6 +990,32 @@ export function BookServiceClient({
     0,
   );
   const featuredServices = getFeaturedServices(services, { lusterFeaturingEnabled });
+  // The embedded blocks render these exact public-safe values. Overlay them
+  // so readiness and pixels cannot consult different projections; the
+  // fallbacks also keep partial unit-test contexts honest.
+  const directPolicyIsAuthored = bookingExperience.policy.enabled || Boolean(bookingExperience.policy.text?.trim());
+  const directFactsAreAuthored = Object.values(bookingExperience.quickFacts).some(fact => fact.enabled || Boolean(fact.label?.trim()));
+  const directSocialIsAuthored = Object.values(bookingExperience.socialLinks).some(Boolean);
+  const sectionDecisionContent = {
+    ...quickBookContent,
+    catalog: {
+      ...quickBookContent.catalog,
+      featuredServices: quickBookContent.catalog.featuredServices.length > 0
+        ? quickBookContent.catalog.featuredServices
+        : featuredServices,
+    },
+    policies: {
+      policy: directPolicyIsAuthored ? bookingExperience.policy : quickBookContent.policies.policy,
+      quickFacts: directFactsAreAuthored ? bookingExperience.quickFacts : quickBookContent.policies.quickFacts,
+    },
+    social: directSocialIsAuthored ? bookingExperience.socialLinks : quickBookContent.social,
+  };
+  const sectionPlan = resolveSectionDecisionPlan({
+    order: quickBookSectionOrder,
+    hiddenSections: quickBookHiddenSections,
+    content: sectionDecisionContent,
+    announcement: bookingExperience.bookingMessage,
+  });
   const serviceRows = buildServiceRows(filteredServices);
   const soleCompatiblePreviewRating = soleCompatiblePreviewTechnician
     ? getPublicTechnicianRatingDisplay({
@@ -1204,14 +1229,16 @@ export function BookServiceClient({
             showSocialLinks: boolean;
           }) => (
             <>
-              {(bookingExperience.bookingMessage || serviceQuickFacts.length > 0) && (
+              {(shouldRenderSection(sectionPlan, 'announcement') || shouldRenderSection(sectionPlan, 'bookingFacts')) && (
                 <section
+                  data-public-surfaces="announcement bookingFacts"
                   data-testid="booking-experience-intro"
                   aria-label="Booking information"
                   className="mb-4 space-y-2.5"
                 >
-                  {serviceQuickFacts.length > 0 && (
+                  {shouldRenderSection(sectionPlan, 'bookingFacts') && serviceQuickFacts.length > 0 && (
                     <ul
+                      data-public-surface="bookingFacts"
                       data-testid="booking-quick-facts"
                       aria-label="Booking quick facts"
                       className="flex flex-wrap gap-2"
@@ -1237,7 +1264,7 @@ export function BookServiceClient({
                       ))}
                     </ul>
                   )}
-                  {bookingExperience.bookingMessage && (
+                  {shouldRenderSection(sectionPlan, 'announcement') && bookingExperience.bookingMessage && (
                     <div
                       data-testid="booking-message-card"
                       className="flex items-start gap-2.5 rounded-xl border px-3 py-2.5"
@@ -1277,6 +1304,7 @@ export function BookServiceClient({
               )}
 
               <div
+                data-public-surface="serviceSelectionControls"
                 ref={searchCardRef}
                 className="mb-4 scroll-mt-3"
                 style={{
@@ -2001,6 +2029,7 @@ export function BookServiceClient({
                     Featured services / Policies rendering. */}
               {showPolicyCard && servicePagePolicyText && (
                 <section
+                  data-public-surface="policies"
                   data-testid="booking-policy"
                   aria-labelledby={bookingExperience.policy.title ? 'booking-policy-title' : undefined}
                   aria-label={bookingExperience.policy.title ? undefined : 'Booking policy'}
@@ -2040,6 +2069,7 @@ export function BookServiceClient({
 
               {showSocialLinks && configuredSocialLinks.length > 0 && (
                 <nav
+                  data-public-surface="socialLinks"
                   data-testid="booking-social-links"
                   aria-label="Salon social links"
                   className="mt-4 flex items-center justify-center gap-3"
@@ -2128,9 +2158,9 @@ export function BookServiceClient({
             // `hiddenSections` here rather than by SectionOrderRenderer
             // (which only governs ids that HAVE a renderer entry).
             serviceMenu: () => renderServiceMenuContent({
-              showFeaturedCarousel: !isSectionHidden('featuredServices'),
-              showPolicyCard: !isSectionHidden('policies'),
-              showSocialLinks: !isSectionHidden('socialLinks'),
+              showFeaturedCarousel: shouldRenderSection(sectionPlan, 'featuredServices'),
+              showPolicyCard: shouldRenderSection(sectionPlan, 'policies'),
+              showSocialLinks: shouldRenderSection(sectionPlan, 'socialLinks'),
             }),
           };
 
@@ -2175,7 +2205,7 @@ export function BookServiceClient({
                 // banner reads as a mistake, not a desktop hero. Shorter,
                 // wider aspect ratio and larger type at `lg` for real desktop
                 // proportions rather than a stretched-out mobile card.
-                <section data-testid="editorial-hero" className="-mx-4 -mt-4 mb-4 lg:mx-0 lg:mb-8 lg:mt-0">
+                <section data-public-surface="salonProfile" data-testid="editorial-hero" className="-mx-4 -mt-4 mb-4 lg:mx-0 lg:mb-8 lg:mt-0">
                   <div className="relative aspect-[4/5] w-full overflow-hidden sm:aspect-video lg:aspect-[21/9] lg:rounded-3xl">
                     <img
                       src={heroImageUrl}
@@ -2213,15 +2243,12 @@ export function BookServiceClient({
               );
             },
             featuredServices: () => {
-              if (quickBookContent.catalog.featuredServices.length === 0) {
-                return null;
-              }
               return (
                 // Desktop (`lg`): a horizontal scroll strip of fixed-width
                 // cards is a mobile pattern — at `lg` it becomes a real grid
                 // that uses the wider shell's width instead of still
                 // scrolling sideways inside a 1024px+ column.
-                <section data-testid="editorial-featured-services" className="mb-6 lg:mb-10">
+                <section data-public-surface="featuredServices" data-testid="editorial-featured-services" className="mb-6 lg:mb-10">
                   <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-4 lg:text-xs">
                     Signature services
                   </h2>
@@ -2259,14 +2286,11 @@ export function BookServiceClient({
               const profiledTechnicians = quickBookContent.people.technicians.filter(
                 technician => Boolean(technician.bio?.trim()) || Boolean(technician.avatarUrl?.trim()),
               );
-              if (profiledTechnicians.length === 0) {
-                return null;
-              }
               return (
                 // Desktop (`lg`): the stacked mobile list becomes a
                 // multi-column grid so profiles sit side by side across the
                 // wider shell instead of one long single-file column.
-                <section data-testid="editorial-about" className="mb-6 lg:mb-10">
+                <section data-public-surface="technicianProfile" data-testid="editorial-about" className="mb-6 lg:mb-10">
                   <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-4 lg:text-xs">
                     About
                   </h2>
@@ -2315,7 +2339,7 @@ export function BookServiceClient({
                 {renderServiceMenuContent({
                   showFeaturedCarousel: false,
                   showPolicyCard: false,
-                  showSocialLinks: !isSectionHidden('socialLinks'),
+                  showSocialLinks: shouldRenderSection(sectionPlan, 'socialLinks'),
                 })}
               </div>
             ),
@@ -2331,17 +2355,14 @@ export function BookServiceClient({
               // section used to produce an `<h2>Visit</h2>` frame with no
               // address/entrance paragraph beneath it whenever a salon had
               // hours but no address.
-              const { resolvedAddress, resolvedCity, hasVisitableContent } = resolveVisitContent(quickBookContent);
-              if (!hasVisitableContent) {
-                return null;
-              }
+              const { resolvedAddress, resolvedCity } = resolveVisitContent(quickBookContent);
               return (
                 // Desktop (`lg`): full-width 1024px+ paragraphs of short
                 // address/policy text read poorly at that line length —
                 // capped to a comfortable reading column instead of
                 // stretching edge to edge, still far wider than the mobile
                 // 430px column.
-                <section data-testid="editorial-visit" className="mb-6 lg:mb-10 lg:max-w-2xl">
+                <section data-public-surface="hoursLocation" data-testid="editorial-visit" className="mb-6 lg:mb-10 lg:max-w-2xl">
                   <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-3 lg:text-xs">
                     Visit
                   </h2>
@@ -2367,19 +2388,12 @@ export function BookServiceClient({
               // `quickBookContent.policies.policy` is `resolveSalonContent`'s
               // copy of the exact same `bookingExperience.policy` — so this
               // is now the same three-part condition Quick Book uses.
-              if (
-                !quickBookContent.policies.policy.enabled
-                || !quickBookContent.policies.policy.showOnServicePage
-                || !quickBookContent.policies.policy.text
-              ) {
-                return null;
-              }
               return (
-                <section data-testid="editorial-policies" className="mb-6 lg:mb-10 lg:max-w-2xl">
+                <section data-public-surface="policies" data-testid="editorial-policies" className="mb-6 lg:mb-10 lg:max-w-2xl">
                   <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-3 lg:text-xs">
                     Policies
                   </h2>
-                  <p className="text-sm text-neutral-700 lg:text-base">{quickBookContent.policies.policy.text}</p>
+                  <p className="text-sm text-neutral-700 lg:text-base">{sectionDecisionContent.policies.policy.text}</p>
                 </section>
               );
             },
@@ -2388,8 +2402,7 @@ export function BookServiceClient({
           return (
             <SectionOrderRenderer
               order={quickBookSectionOrder}
-              hiddenSections={quickBookHiddenSections}
-              content={quickBookContent}
+              plan={sectionPlan}
               renderers={isEditorialLayout ? editorialRenderers : quickBookRenderers}
             />
           );
@@ -2398,6 +2411,7 @@ export function BookServiceClient({
 
       {isEditorialLayout && !hasReachedServicesAnchor && !(selectedService && isServicesAnchorUnreachable) && (
         <a
+          data-public-surface="editorialStickyBookingCta"
           href="#services"
           data-testid="editorial-sticky-cta"
           className="fixed inset-x-0 bottom-0 z-[60] block border-t bg-white/90 px-4 py-3 text-center text-[15px] font-bold shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg"
@@ -2414,6 +2428,7 @@ export function BookServiceClient({
 
       {selectedService && (!isEditorialLayout || hasReachedServicesAnchor || isServicesAnchorUnreachable) && (
         <div
+          data-public-surface="selectedServiceContinueBar"
           data-testid="service-sticky-bar"
           className="supports-[backdrop-filter]:bg-white/82 fixed inset-x-0 bottom-0 z-[60] border-t border-white/40 bg-white/85 shadow-[0_-8px_30px_rgba(0,0,0,0.08)] backdrop-blur-lg"
           style={{

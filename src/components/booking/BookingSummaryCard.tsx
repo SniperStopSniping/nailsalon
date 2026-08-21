@@ -27,6 +27,7 @@ export function BookingSummaryCard({
 }: BookingSummaryCardProps) {
   return (
     <Card
+      data-public-surface="appointmentSummaryCard"
       data-testid="booking-summary-card"
       className="mb-6 overflow-hidden border-0 shadow-xl"
       style={{

@@ -1837,6 +1837,35 @@ describe('BookConfirmClient deposit disclosure', () => {
     expect(screen.getByTestId('booking-deposit-disclosure')).toBeInTheDocument();
   });
 
+  it('omits the booking-facts frame when deposit suppression removes its only meaningful fact', () => {
+    Object.assign(bookingExperienceMock.quickFacts.depositNotice, {
+      enabled: true,
+      label: 'A deposit may be required',
+    });
+
+    renderClient({ depositNoticeSuppressed: true, depositDisclosure: DISCLOSURE });
+
+    expect(screen.queryByTestId('booking-quick-facts')).not.toBeInTheDocument();
+  });
+
+  it('renders only trimmed meaningful fragments for partial booking facts', () => {
+    Object.assign(bookingExperienceMock.quickFacts.appointmentOnly, {
+      enabled: true,
+      label: '  Appointment only  ',
+    });
+    Object.assign(bookingExperienceMock.quickFacts.cancellationNotice, {
+      enabled: true,
+      label: '   ',
+    });
+
+    renderClient();
+
+    const facts = screen.getByTestId('booking-quick-facts');
+
+    expect(within(facts).getAllByRole('listitem')).toHaveLength(1);
+    expect(within(facts).getByText('Appointment only')).toBeInTheDocument();
+  });
+
   function okResponse() {
     return new Response(JSON.stringify({
       data: { appointment: { id: 'appt_1' }, manageUrl: 'https://x.test/m' },

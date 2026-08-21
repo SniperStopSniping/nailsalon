@@ -3,8 +3,9 @@ import { describe, expect, it } from 'vitest';
 
 import type { SectionId } from '@/libs/bookingPageConfig';
 import { EMPTY_SALON_CONTENT, type SalonContent } from '@/libs/salonContent';
+import { resolveSectionDecisionPlan } from '@/libs/sectionRegistry';
 
-import { SectionOrderRenderer } from './SectionOrderRenderer';
+import { SectionOrderRenderer as CanonicalSectionOrderRenderer, type SectionRenderers } from './SectionOrderRenderer';
 
 const QUICK_BOOK_ORDER: SectionId[] = [
   'salonProfile',
@@ -14,9 +15,25 @@ const QUICK_BOOK_ORDER: SectionId[] = [
   'socialLinks',
   'bookingCta',
 ];
+const NO_HIDDEN_SECTIONS: readonly SectionId[] = [];
 
 function withContent(overrides: Partial<SalonContent>): SalonContent {
   return { ...EMPTY_SALON_CONTENT, ...overrides };
+}
+
+function SectionOrderRenderer({
+  order,
+  hiddenSections = NO_HIDDEN_SECTIONS,
+  content,
+  renderers,
+}: {
+  order: readonly SectionId[];
+  hiddenSections?: readonly SectionId[];
+  content: SalonContent;
+  renderers: SectionRenderers;
+}) {
+  const plan = resolveSectionDecisionPlan({ order, hiddenSections, content });
+  return <CanonicalSectionOrderRenderer order={order} plan={plan} renderers={renderers} />;
 }
 
 describe('SectionOrderRenderer', () => {
@@ -110,7 +127,7 @@ describe('SectionOrderRenderer', () => {
     it('omits a hidden section even though both canRender and a renderer are present', () => {
       const content = withContent({
         identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
-        policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true } },
+        policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true, showOnServicePage: true, text: 'Policy' } },
       });
 
       render(
@@ -135,7 +152,7 @@ describe('SectionOrderRenderer', () => {
     it('re-enabling a previously hidden section (empty hiddenSections again) restores it at its original order position', () => {
       const content = withContent({
         identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
-        policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true } },
+        policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true, showOnServicePage: true, text: 'Policy' } },
         social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
       });
       const renderers = {
