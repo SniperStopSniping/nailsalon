@@ -81,7 +81,7 @@ describe('BottomSheet', () => {
     expect(sheet).toHaveAttribute('data-snap-point', 'full');
   });
 
-  it('keeps pointer drag on the same valid snap states', async () => {
+  it('keeps consecutive pointer drags on the same valid snap states', async () => {
     const user = userEvent.setup();
     render(<Harness />);
     await user.click(screen.getByRole('button', { name: 'Open details' }));
@@ -100,7 +100,15 @@ describe('BottomSheet', () => {
 
     await waitFor(() => expect(sheet).toHaveAttribute('data-snap-point', 'full'));
 
-    expect(handle).toHaveAttribute('aria-valuenow', '92');
+    act(() => {
+      handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientY: 140 }));
+      window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientY: 300 }));
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientY: 300 }));
+    });
+
+    await waitFor(() => expect(sheet).toHaveAttribute('data-snap-point', 'half'));
+
+    expect(handle).toHaveAttribute('aria-valuenow', '60');
   });
 
   it('commits one close when a pointer release bubbles from the resize handle', async () => {

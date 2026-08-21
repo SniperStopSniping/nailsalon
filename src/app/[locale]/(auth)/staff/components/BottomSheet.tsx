@@ -66,6 +66,8 @@ export function BottomSheet({
   const currentYRef = useRef(0);
   const previousOverflowRef = useRef<string>('');
   const renderedSnap: OpenSnapPoint = currentSnap === 'closed' ? initialSnap : currentSnap;
+  const renderedSnapRef = useRef<OpenSnapPoint>(renderedSnap);
+  renderedSnapRef.current = renderedSnap;
 
   const cancelDrag = useCallback(() => {
     isDraggingRef.current = false;
@@ -158,7 +160,8 @@ export function BottomSheet({
 
     const settledDragOffset = currentYRef.current - startYRef.current;
     const viewportHeight = window.innerHeight;
-    const currentHeight = SNAP_HEIGHTS[renderedSnap];
+    const activeSnap = renderedSnapRef.current;
+    const currentHeight = SNAP_HEIGHTS[activeSnap];
     const currentPixelHeight = (currentHeight / 100) * viewportHeight;
     const newPixelHeight = currentPixelHeight - settledDragOffset;
     const newPercentHeight = (newPixelHeight / viewportHeight) * 100;
@@ -166,22 +169,22 @@ export function BottomSheet({
     // Determine which snap point to go to based on velocity and position
     const velocity = settledDragOffset / 100; // Simple velocity approximation
 
-    let newSnap: SnapPoint = renderedSnap;
+    let newSnap: SnapPoint = activeSnap;
 
     if (settledDragOffset > 100 || velocity > 1.5) {
       // Dragged down significantly - go to lower snap or close
-      if (renderedSnap === 'full') {
+      if (activeSnap === 'full') {
         newSnap = 'half';
-      } else if (renderedSnap === 'half') {
+      } else if (activeSnap === 'half') {
         newSnap = 'peek';
       } else {
         newSnap = 'closed';
       }
     } else if (settledDragOffset < -100 || velocity < -1.5) {
       // Dragged up significantly - go to higher snap
-      if (renderedSnap === 'peek') {
+      if (activeSnap === 'peek') {
         newSnap = 'half';
-      } else if (renderedSnap === 'half') {
+      } else if (activeSnap === 'half') {
         newSnap = 'full';
       } else {
         newSnap = 'full';
@@ -201,11 +204,14 @@ export function BottomSheet({
         return Math.abs(newPercentHeight - snapHeight) < Math.abs(newPercentHeight - closestHeight)
           ? snap
           : closest;
-      }, renderedSnap);
+      }, activeSnap);
     }
 
     commitSnap(newSnap);
-  }, [commitSnap, renderedSnap]);
+  }, [commitSnap]);
+
+  const handleTouchEndRef = useRef(handleTouchEnd);
+  handleTouchEndRef.current = handleTouchEnd;
 
   const handleResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     const currentIndex = RESIZABLE_SNAPS.indexOf(renderedSnap);
@@ -252,7 +258,7 @@ export function BottomSheet({
 
     const handleGlobalMouseUp = () => {
       if (isDraggingRef.current) {
-        handleTouchEnd();
+        handleTouchEndRef.current();
       }
     };
 
@@ -262,7 +268,7 @@ export function BottomSheet({
       window.removeEventListener('mousemove', handleGlobalMouseMove);
       window.removeEventListener('mouseup', handleGlobalMouseUp);
     };
-  }, [handleTouchEnd]);
+  }, []);
 
   // =============================================================================
   // Backdrop Click
