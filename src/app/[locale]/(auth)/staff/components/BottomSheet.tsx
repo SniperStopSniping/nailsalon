@@ -61,14 +61,27 @@ export function BottomSheet({
   const [currentSnap, setCurrentSnap] = useState<SnapPoint>('closed');
   const [isDragging, setIsDragging] = useState(false);
   const [dragOffset, setDragOffset] = useState(0);
+  const isDraggingRef = useRef(false);
   const startYRef = useRef(0);
   const currentYRef = useRef(0);
   const previousOverflowRef = useRef<string>('');
   const renderedSnap: OpenSnapPoint = currentSnap === 'closed' ? initialSnap : currentSnap;
 
+  const cancelDrag = useCallback(() => {
+    isDraggingRef.current = false;
+    setIsDragging(false);
+    setDragOffset(0);
+  }, []);
+
+  const closeSheet = useCallback(() => {
+    cancelDrag();
+    setCurrentSnap('closed');
+    onClose();
+  }, [cancelDrag, onClose]);
+
   useModalFocusLifecycle({
     isOpen,
-    onClose,
+    onClose: closeSheet,
     rootRef,
     contentRef: sheetRef,
     initialFocusRef: resizeHandleRef,
@@ -84,6 +97,7 @@ export function BottomSheet({
       document.body.style.overflow = 'hidden';
       setCurrentSnap(initialSnap);
     } else {
+      cancelDrag();
       document.body.style.overflow = previousOverflowRef.current;
       setCurrentSnap('closed');
     }
@@ -91,7 +105,7 @@ export function BottomSheet({
     return () => {
       document.body.style.overflow = previousOverflowRef.current;
     };
-  }, [isOpen, initialSnap]);
+  }, [cancelDrag, isOpen, initialSnap]);
 
   // =============================================================================
   // Drag Handlers
@@ -100,11 +114,11 @@ export function BottomSheet({
   const commitSnap = useCallback((nextSnap: SnapPoint) => {
     setDragOffset(0);
     if (nextSnap === 'closed') {
-      onClose();
+      closeSheet();
       return;
     }
     setCurrentSnap(nextSnap);
-  }, [onClose]);
+  }, [closeSheet]);
 
   const handleTouchStart = useCallback((e: React.TouchEvent) => {
     const touch = e.touches[0];
@@ -113,11 +127,12 @@ export function BottomSheet({
     }
     startYRef.current = touch.clientY;
     currentYRef.current = touch.clientY;
+    isDraggingRef.current = true;
     setIsDragging(true);
   }, []);
 
   const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!isDragging) {
+    if (!isDraggingRef.current) {
       return;
     }
 
@@ -132,12 +147,13 @@ export function BottomSheet({
 
     // Only allow dragging down (positive deltaY) or up (negative deltaY)
     setDragOffset(deltaY);
-  }, [isDragging]);
+  }, []);
 
   const handleTouchEnd = useCallback(() => {
-    if (!isDragging) {
+    if (!isDraggingRef.current) {
       return;
     }
+    isDraggingRef.current = false;
     setIsDragging(false);
 
     const settledDragOffset = currentYRef.current - startYRef.current;
@@ -189,7 +205,7 @@ export function BottomSheet({
     }
 
     commitSnap(newSnap);
-  }, [commitSnap, isDragging, renderedSnap]);
+  }, [commitSnap, renderedSnap]);
 
   const handleResizeKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
     const currentIndex = RESIZABLE_SNAPS.indexOf(renderedSnap);
@@ -218,6 +234,7 @@ export function BottomSheet({
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     startYRef.current = e.clientY;
     currentYRef.current = e.clientY;
+    isDraggingRef.current = true;
     setIsDragging(true);
   }, []);
 
@@ -225,7 +242,7 @@ export function BottomSheet({
   // beyond the 44px handle, so handle-local mousemove events are not sufficient.
   useEffect(() => {
     const handleGlobalMouseMove = (event: MouseEvent) => {
-      if (!isDragging) {
+      if (!isDraggingRef.current) {
         return;
       }
 
@@ -234,35 +251,32 @@ export function BottomSheet({
     };
 
     const handleGlobalMouseUp = () => {
-      if (isDragging) {
+      if (isDraggingRef.current) {
         handleTouchEnd();
       }
     };
 
-    if (isDragging) {
-      window.addEventListener('mousemove', handleGlobalMouseMove);
-      window.addEventListener('mouseup', handleGlobalMouseUp);
-      return () => {
-        window.removeEventListener('mousemove', handleGlobalMouseMove);
-        window.removeEventListener('mouseup', handleGlobalMouseUp);
-      };
-    }
-    return undefined;
-  }, [isDragging, handleTouchEnd]);
+    window.addEventListener('mousemove', handleGlobalMouseMove);
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleGlobalMouseMove);
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [handleTouchEnd]);
 
   // =============================================================================
   // Backdrop Click
   // =============================================================================
 
   const handleBackdropClick = useCallback(() => {
-    onClose();
-  }, [onClose]);
+    closeSheet();
+  }, [closeSheet]);
 
   // =============================================================================
   // Render
   // =============================================================================
 
-  if (!isOpen && currentSnap === 'closed') {
+  if (!isOpen) {
     return null;
   }
 

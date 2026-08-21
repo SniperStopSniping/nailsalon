@@ -257,6 +257,24 @@ function findReplacementOpener(opener: HTMLElement | null): HTMLElement | null {
 
 function restoreFocusAfterClose(opener: HTMLElement | null, closingRoot: HTMLElement): void {
   const activeElement = document.activeElement;
+  const connectedOpener = opener && isVisibleAndEnabled(opener)
+    ? opener
+    : findReplacementOpener(opener);
+  const parentSurface = getTopmostSurface();
+
+  // A parent surface can remount and place its own initial focus during the
+  // same commit that removes a nested surface. In that one bounded case, the
+  // unique keyed opener is still the more precise restoration target.
+  if (
+    connectedOpener
+    && parentSurface?.root.contains(connectedOpener)
+    && activeElement instanceof HTMLElement
+    && parentSurface.root.contains(activeElement)
+  ) {
+    focusWithoutScrolling(connectedOpener);
+    return;
+  }
+
   const focusMovedElsewhere = activeElement instanceof HTMLElement
     && activeElement !== document.body
     && !closingRoot.contains(activeElement);
@@ -264,15 +282,11 @@ function restoreFocusAfterClose(opener: HTMLElement | null, closingRoot: HTMLEle
     return;
   }
 
-  const connectedOpener = opener && isVisibleAndEnabled(opener)
-    ? opener
-    : findReplacementOpener(opener);
   if (connectedOpener) {
     focusWithoutScrolling(connectedOpener);
     return;
   }
 
-  const parentSurface = getTopmostSurface();
   if (parentSurface) {
     focusInsideSurface(parentSurface.root, parentSurface.content);
   }

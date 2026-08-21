@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { type ReactElement, useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -90,9 +90,13 @@ describe('BottomSheet', () => {
     const handle = screen.getByRole('slider', { name: 'Resize Appointment details' });
     await waitFor(() => expect(sheet).toHaveAttribute('data-snap-point', 'half'));
 
-    fireEvent.mouseDown(handle, { clientY: 300 });
-    fireEvent.mouseMove(handle, { clientY: 140 });
-    fireEvent.mouseUp(handle, { clientY: 140 });
+    // A browser can deliver the first move before React commits the visual
+    // dragging state. Gesture ownership therefore needs synchronous ref state.
+    act(() => {
+      handle.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, clientY: 300 }));
+      window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientY: 140 }));
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientY: 140 }));
+    });
 
     await waitFor(() => expect(sheet).toHaveAttribute('data-snap-point', 'full'));
 
@@ -115,6 +119,25 @@ describe('BottomSheet', () => {
     fireEvent.mouseUp(handle, { clientY: 240 });
 
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it('cancels an active drag before Escape closes and ignores the later release', async () => {
+    const user = userEvent.setup();
+    const onClose = vi.fn();
+    render(<Harness onClose={onClose} />);
+    await user.click(screen.getByRole('button', { name: 'Open details' }));
+
+    const handle = await screen.findByRole('slider', { name: 'Resize Appointment details' });
+    fireEvent.mouseDown(handle, { clientY: 200 });
+    fireEvent.mouseMove(window, { clientY: 330 });
+    fireEvent.keyDown(window, { key: 'Escape' });
+    fireEvent.mouseUp(window, { clientY: 330 });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Appointment details' })).not.toBeInTheDocument();
+    });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('contains focus, closes only the active sheet with Escape, and restores its opener', async () => {
