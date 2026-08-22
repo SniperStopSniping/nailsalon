@@ -15,7 +15,9 @@ const {
   publishBookingPageContent,
   revertBookingPageContentDraft,
   resolveBookingPageContent,
+  applyBookingPageBuilderOperation,
   stubDraftPatchSchema,
+  stubBuilderOperationSchema,
   stubContentPatchSchema,
 } = vi.hoisted(() => {
   // Minimal stand-in schemas: real validation strictness (unknown layout
@@ -52,6 +54,30 @@ const {
     locationDisplayMode: zLocal.string().optional(),
   }).strict();
 
+  const stubBuilderOperationSchemaInner = zLocal.discriminatedUnion('type', [
+    zLocal.object({
+      type: zLocal.literal('set_visibility'),
+      sectionId: zLocal.string(),
+      visible: zLocal.boolean(),
+    }).strict(),
+    zLocal.object({
+      type: zLocal.literal('move_section'),
+      sectionId: zLocal.string(),
+      targetSectionId: zLocal.string(),
+      direction: zLocal.enum(['up', 'down']),
+    }).strict(),
+    zLocal.object({
+      type: zLocal.literal('set_variant'),
+      sectionId: zLocal.string(),
+      variant: zLocal.string().min(1).nullable(),
+    }).strict(),
+    zLocal.object({
+      type: zLocal.literal('reset_section'),
+      sectionId: zLocal.string(),
+    }).strict(),
+    zLocal.object({ type: zLocal.literal('reset_all') }).strict(),
+  ]);
+
   return {
     requireAdmin: vi.fn(),
     getSalonBySlug: vi.fn(),
@@ -65,7 +91,9 @@ const {
     publishBookingPageContent: vi.fn(),
     revertBookingPageContentDraft: vi.fn(),
     resolveBookingPageContent: vi.fn(),
+    applyBookingPageBuilderOperation: vi.fn(),
     stubDraftPatchSchema: stubDraftPatchSchemaInner,
+    stubBuilderOperationSchema: stubBuilderOperationSchemaInner,
     stubContentPatchSchema: stubContentPatchSchemaInner,
   };
 });
@@ -83,7 +111,12 @@ vi.mock('@/libs/queries', () => ({
   getSalonById,
 }));
 
+vi.mock('@/libs/bookingPageBuilder', () => ({
+  applyBookingPageBuilderOperation,
+}));
+
 vi.mock('@/libs/bookingPageConfig', () => ({
+  bookingPageBuilderOperationSchema: stubBuilderOperationSchema,
   bookingPageDraftPatchSchema: stubDraftPatchSchema,
   updateBookingPageDraft,
   publishBookingPageConfig,
@@ -113,6 +146,14 @@ describe('admin booking-page route', () => {
     requireAdmin.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
     resolveBookingPageConfig.mockReturnValue({ version: 1, draft: { layout: 'quick_book' }, live: { layout: 'quick_book' } });
     resolveBookingPageContent.mockReturnValue({ version: 1, draft: { bio: null }, live: { bio: null } });
+    applyBookingPageBuilderOperation.mockReturnValue({
+      ok: true,
+      patch: {
+        sectionOrder: ['salonProfile', 'serviceMenu', 'bookingCta'],
+        sectionVariants: {},
+        hiddenSections: [],
+      },
+    });
   });
 
   describe('auth / salon resolution', () => {
@@ -182,6 +223,106 @@ describe('admin booking-page route', () => {
       }));
 
       expect(response.status).toBe(400);
+    });
+
+    it('strictly rejects malformed or unknown builder operations before applying them', async () => {
+      for (const builderOperation of [
+        { type: 'move_section', sectionId: 'policies', direction: 'sideways' },
+        { type: 'reset_all', arbitraryCss: 'body { display: none }' },
+        { type: 'inject_markup', html: '<script />' },
+      ]) {
+        const response = await PATCH(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+          method: 'PATCH',
+          body: JSON.stringify({ builderOperation }),
+        }));
+
+        expect(response.status).toBe(400);
+      }
+
+      expect(applyBookingPageBuilderOperation).not.toHaveBeenCalled();
+      expect(updateBookingPageDraft).not.toHaveBeenCalled();
+    });
+
+    it('rejects combining a semantic builder operation with raw config or content writes', async () => {
+      const response = await PATCH(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          builderOperation: { type: 'reset_all' },
+          config: { businessMode: 'team' },
+        }),
+      }));
+
+      expect(response.status).toBe(400);
+      expect(applyBookingPageBuilderOperation).not.toHaveBeenCalled();
+      expect(updateBookingPageDraft).not.toHaveBeenCalled();
+    });
+
+    it('applies a semantic builder operation to the current draft and persists only its validated patch', async () => {
+      const currentConfig = {
+        version: 1,
+        draft: {
+          layout: 'editorial',
+          sectionOrder: ['salonProfile', 'hoursLocation', 'policies', 'serviceMenu', 'bookingCta'],
+          sectionVariants: {},
+          hiddenSections: [],
+        },
+        live: { layout: 'editorial' },
+      };
+      const operation = {
+        type: 'move_section',
+        sectionId: 'hoursLocation',
+        targetSectionId: 'policies',
+        direction: 'down',
+      } as const;
+      const patch = {
+        sectionOrder: ['salonProfile', 'policies', 'hoursLocation', 'serviceMenu', 'bookingCta'],
+        sectionVariants: {},
+        hiddenSections: [],
+      };
+      resolveBookingPageConfig.mockReturnValue(currentConfig);
+      applyBookingPageBuilderOperation.mockReturnValue({ ok: true, patch });
+
+      const response = await PATCH(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+        method: 'PATCH',
+        body: JSON.stringify({ builderOperation: operation }),
+      }));
+
+      expect(response.status).toBe(200);
+      expect(applyBookingPageBuilderOperation).toHaveBeenCalledWith(currentConfig.draft, operation);
+      expect(updateBookingPageDraft).toHaveBeenCalledTimes(1);
+      expect(updateBookingPageDraft).toHaveBeenCalledWith('salon_1', patch, {
+        builderOperation: operation,
+      });
+      expect(updateBookingPageContentDraft).not.toHaveBeenCalled();
+      expect(logAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+        metadata: expect.objectContaining({ builderOperation: 'move_section' }),
+      }));
+    });
+
+    it('returns 400 and performs no write when the pure builder rejects an operation', async () => {
+      applyBookingPageBuilderOperation.mockReturnValue({
+        ok: false,
+        code: 'SECTION_NOT_CONFIGURABLE',
+      });
+
+      const response = await PATCH(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          builderOperation: {
+            type: 'set_visibility',
+            sectionId: 'salonProfile',
+            visible: false,
+          },
+        }),
+      }));
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({
+        error: 'Invalid builder operation',
+        code: 'SECTION_NOT_CONFIGURABLE',
+      });
+      expect(updateBookingPageDraft).not.toHaveBeenCalled();
+      expect(updateBookingPageContentDraft).not.toHaveBeenCalled();
     });
 
     it('applies a config-only patch through updateBookingPageDraft, not the content writer', async () => {

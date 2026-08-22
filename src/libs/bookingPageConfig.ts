@@ -22,6 +22,12 @@ import {
   getBookingExperienceCssVariables,
   getColorContrastRatio,
 } from '@/libs/bookingExperience';
+import {
+  applyBookingPageBuilderOperation,
+  type BookingPageBuilderOperation,
+  type BookingPagePresentationPatch,
+  resolveBookingPageStartingPresentation,
+} from '@/libs/bookingPageBuilder';
 import { db } from '@/libs/DB';
 import {
   isSupportedSectionVariant,
@@ -176,14 +182,8 @@ export type BookingPageConfig = {
  * five layout keys intentionally share this array. Recorded as a documented
  * decision, not an oversight.
  */
-const DEFAULT_SECTION_ORDER: readonly SectionId[] = [
-  'salonProfile',
-  'serviceMenu',
-  'featuredServices',
-  'policies',
-  'socialLinks',
-  'bookingCta',
-];
+const DEFAULT_SECTION_ORDER: readonly SectionId[]
+  = resolveBookingPageStartingPresentation('quick_book').sectionOrder;
 
 /**
  * Editorial's own default section order (Luster UI/UX plan rev 3, PR 6,
@@ -199,18 +199,8 @@ const DEFAULT_SECTION_ORDER: readonly SectionId[] = [
  * is rendered outside the section-order flow entirely, same as Quick Book's
  * sticky Continue bar; see BookServiceClient.tsx).
  */
-const EDITORIAL_SECTION_ORDER: readonly SectionId[] = [
-  'salonProfile',
-  'featuredServices',
-  'technicianProfile',
-  'portfolio',
-  'reviews',
-  'serviceMenu',
-  'hoursLocation',
-  'policies',
-  'socialLinks',
-  'bookingCta',
-];
+const EDITORIAL_SECTION_ORDER: readonly SectionId[]
+  = resolveBookingPageStartingPresentation('editorial').sectionOrder;
 
 // PR 6's Editorial default omitted socialLinks from the stored order even
 // though the renderer always embedded authored links inside serviceMenu.
@@ -417,7 +407,75 @@ export const bookingPageDraftPatchSchema = bookingPageSideSchema
     // cannot ask for a reset by accident with a falsy value, and the key is
     // never persisted into the stored side — it only selects a branch below.
     resetPresentation: z.literal(true).optional(),
-  });
+  })
+  .strict();
+
+export const bookingPageBuilderOperationSchema: z.ZodType<BookingPageBuilderOperation> = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('set_visibility'),
+    sectionId: sectionIdSchema,
+    visible: z.boolean(),
+  }).strict(),
+  z.object({
+    type: z.literal('move_section'),
+    sectionId: sectionIdSchema,
+    targetSectionId: sectionIdSchema,
+    direction: z.enum(['up', 'down']),
+  }).strict(),
+  z.object({
+    type: z.literal('set_variant'),
+    sectionId: sectionIdSchema,
+    variant: z.string().min(1).nullable(),
+  }).strict(),
+  z.object({
+    type: z.literal('reset_section'),
+    sectionId: sectionIdSchema,
+  }).strict(),
+  z.object({ type: z.literal('reset_all') }).strict(),
+]);
+
+type BookingPageBuilderWriteOptions = {
+  builderOperation: BookingPageBuilderOperation;
+};
+
+type PersistableBookingPageDraftPatch = Omit<BookingPageDraftPatch, 'sectionVariants'> & {
+  sectionVariants?: Partial<Record<SectionId, string>>;
+};
+
+const preservedSectionVariantsSchema = z.record(sectionIdSchema, z.string().min(1));
+
+function validateBuilderSectionVariantSnapshot(
+  value: unknown,
+  current: BookingPageConfigSide['sectionVariants'],
+  operation: BookingPageBuilderOperation,
+): BookingPageConfigSide['sectionVariants'] {
+  const next = preservedSectionVariantsSchema.parse(value);
+  const targetMayChange = operation.type === 'set_variant' || operation.type === 'reset_section'
+    ? operation.sectionId
+    : null;
+
+  for (const sectionId of SECTION_IDS) {
+    const currentValue = current[sectionId];
+    const nextValue = next[sectionId];
+
+    if (operation.type !== 'reset_all'
+      && sectionId !== targetMayChange
+      && currentValue !== nextValue) {
+      throw new Error(`Builder operation changed unrelated ${sectionId} presentation state`);
+    }
+
+    // A semantic builder operation may carry an unsupported value only when
+    // it is preserving the exact legacy/future string already stored for
+    // that known section. New values still require the canonical contract.
+    if (nextValue !== undefined
+      && !isSupportedSectionVariant(sectionId, nextValue)
+      && currentValue !== nextValue) {
+      throw new Error(`Builder operation introduced unsupported ${sectionId} presentation state`);
+    }
+  }
+
+  return next;
+}
 
 // =============================================================================
 // C.2 — validateSectionOrder (safety critical)
@@ -731,28 +789,30 @@ export function foldLegacyAppearanceInputs(
  * caller contract violation and throws here rather than being silently
  * partially applied.
  *
- * Known accepted limitation: `layout` used to validate a sectionOrder/
- * hiddenSections-only patch (when the patch does not itself change layout)
- * is read from a SELECT issued before the UPDATE, so a concurrent layout
- * change landing in between could validate the new order against a
- * just-stale layout. This mirrors an already-accepted risk elsewhere in the
- * settings route (e.g. its own pre-fetched currentBookingExperience used to
- * merge bookingPolicy) and does not clobber any other field — recorded as
- * debt, not silently ignored.
+ * The read/validate/write sequence runs under one transaction after locking
+ * the salon row. That lock is shared with publish/revert below, so semantic
+ * builder operations are always applied to the latest committed draft and
+ * concurrent lifecycle requests cannot overwrite one another from stale
+ * snapshots. Ordinary raw patches keep their existing targeted-field
+ * semantics; the lock only makes the snapshot used for their joint
+ * order/visibility validation authoritative.
  *
  * Returns the resolved config after the write, or null if the salon id does
  * not exist.
  */
-export async function updateBookingPageDraft(
-  salonId: string,
-  patch: BookingPageDraftPatch,
-): Promise<BookingPageConfig | null> {
-  const validatedPatch = bookingPageDraftPatchSchema.parse(patch);
+type BookingPageConfigTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-  const [existing] = await db
+async function updateBookingPageDraftInTransaction(
+  tx: BookingPageConfigTransaction,
+  salonId: string,
+  validatedOrdinaryPatch: BookingPageDraftPatch | null,
+  options?: BookingPageBuilderWriteOptions,
+): Promise<BookingPageConfig | null> {
+  const [existing] = await tx
     .select({ settings: salonSchema.settings })
     .from(salonSchema)
     .where(eq(salonSchema.id, salonId))
+    .for('update')
     .limit(1);
 
   if (!existing) {
@@ -760,6 +820,43 @@ export async function updateBookingPageDraft(
   }
 
   const currentConfig = resolveBookingPageConfig(existing.settings);
+  let validatedPatch: PersistableBookingPageDraftPatch;
+
+  if (options) {
+    // Re-apply the semantic operation to the freshest row snapshot available
+    // to this writer. The route performs an earlier application to return a
+    // useful 400 for an invalid request, but persisting that older full-array
+    // snapshot could undo a hide or reorder performed in another tab between
+    // authorization and this write.
+    const currentResult = applyBookingPageBuilderOperation(
+      currentConfig.draft,
+      options.builderOperation,
+    );
+    if (!currentResult.ok) {
+      throw new Error(`Builder state changed before persistence: ${currentResult.code}`);
+    }
+    const {
+      sectionVariants,
+      ...nonVariantPatch
+    } = currentResult.patch;
+    const validatedNonVariantPatch = bookingPageDraftPatchSchema.parse(nonVariantPatch);
+    validatedPatch = {
+      ...validatedNonVariantPatch,
+      ...(sectionVariants === undefined
+        ? {}
+        : {
+            sectionVariants: validateBuilderSectionVariantSnapshot(
+              sectionVariants,
+              currentConfig.draft.sectionVariants,
+              options.builderOperation,
+            ),
+          }),
+    };
+  } else {
+    // Ordinary callers retain the strict canonical-write contract and are
+    // validated before the database read, exactly as before Stage 6.
+    validatedPatch = validatedOrdinaryPatch!;
+  }
 
   // Ensure `settings` is a JSON object (legacy non-object JSONB cannot accept
   // a jsonb_set path).
@@ -852,7 +949,7 @@ export async function updateBookingPageDraft(
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,hiddenSections}', ${JSON.stringify(hiddenSections)}::jsonb)`;
   }
 
-  const [updated] = await db
+  const [updated] = await tx
     .update(salonSchema)
     .set({ settings: settingsExpression })
     .where(eq(salonSchema.id, salonId))
@@ -863,6 +960,35 @@ export async function updateBookingPageDraft(
   }
 
   return resolveBookingPageConfig(updated.settings);
+}
+
+export function updateBookingPageDraft(
+  salonId: string,
+  patch: BookingPageDraftPatch,
+): Promise<BookingPageConfig | null>;
+export function updateBookingPageDraft(
+  salonId: string,
+  patch: BookingPagePresentationPatch,
+  options: BookingPageBuilderWriteOptions,
+): Promise<BookingPageConfig | null>;
+export async function updateBookingPageDraft(
+  salonId: string,
+  patch: BookingPageDraftPatch | BookingPagePresentationPatch,
+  options?: BookingPageBuilderWriteOptions,
+): Promise<BookingPageConfig | null> {
+  // Preserve the ordinary caller contract: malformed raw patches fail before
+  // any database work. Builder snapshots remain intentionally ignored here;
+  // the semantic operation is re-applied after acquiring the row lock.
+  const validatedOrdinaryPatch = options
+    ? null
+    : bookingPageDraftPatchSchema.parse(patch);
+
+  return db.transaction(tx => updateBookingPageDraftInTransaction(
+    tx,
+    salonId,
+    validatedOrdinaryPatch,
+    options,
+  ));
 }
 
 // =============================================================================
@@ -887,20 +1013,21 @@ export async function updateBookingPageDraft(
 //     documented equivalent named in the PR spec — not a version history or
 //     an undo stack, just draft := live.
 //
-// Same accepted concurrency limitation as updateBookingPageDraft: the SELECT
-// used to read the current config happens before the UPDATE, so a
-// concurrent write landing in between is not serialized against this one.
-// Each write is still a single targeted jsonb_set against the live settings
-// column expression (never the JS snapshot), so it can never clobber any
-// sibling settings key.
+// Publish and revert use the same salon-row lock as updateBookingPageDraft.
+// This serializes the complete read/copy/write lifecycle across browser tabs
+// while each write remains a targeted jsonb_set against the live settings
+// column expression (never the JS snapshot), so sibling settings keys remain
+// untouched.
 
 async function readCurrentBookingPageConfig(
+  tx: BookingPageConfigTransaction,
   salonId: string,
 ): Promise<BookingPageConfig | null> {
-  const [existing] = await db
+  const [existing] = await tx
     .select({ settings: salonSchema.settings })
     .from(salonSchema)
     .where(eq(salonSchema.id, salonId))
+    .for('update')
     .limit(1);
 
   if (!existing) {
@@ -911,6 +1038,7 @@ async function readCurrentBookingPageConfig(
 }
 
 async function writeBookingPageSide(
+  tx: BookingPageConfigTransaction,
   salonId: string,
   targetSide: 'draft' | 'live',
   value: BookingPageConfigSide,
@@ -941,7 +1069,7 @@ async function writeBookingPageSide(
     : sql.raw(`'{bookingPage,live}'`);
   settingsExpression = sql`jsonb_set(${settingsExpression}, ${targetPath}, ${JSON.stringify(value)}::jsonb)`;
 
-  const [updated] = await db
+  const [updated] = await tx
     .update(salonSchema)
     .set({ settings: settingsExpression })
     .where(eq(salonSchema.id, salonId))
@@ -956,18 +1084,22 @@ async function writeBookingPageSide(
 
 /** Copies the resolved `draft` side into `live`. Returns null if the salon id does not exist. */
 export async function publishBookingPageConfig(salonId: string): Promise<BookingPageConfig | null> {
-  const current = await readCurrentBookingPageConfig(salonId);
-  if (!current) {
-    return null;
-  }
-  return writeBookingPageSide(salonId, 'live', current.draft);
+  return db.transaction(async (tx) => {
+    const current = await readCurrentBookingPageConfig(tx, salonId);
+    if (!current) {
+      return null;
+    }
+    return writeBookingPageSide(tx, salonId, 'live', current.draft);
+  });
 }
 
 /** Resets `draft` to match the current `live` side. Returns null if the salon id does not exist. */
 export async function revertBookingPageDraft(salonId: string): Promise<BookingPageConfig | null> {
-  const current = await readCurrentBookingPageConfig(salonId);
-  if (!current) {
-    return null;
-  }
-  return writeBookingPageSide(salonId, 'draft', current.live);
+  return db.transaction(async (tx) => {
+    const current = await readCurrentBookingPageConfig(tx, salonId);
+    if (!current) {
+      return null;
+    }
+    return writeBookingPageSide(tx, salonId, 'draft', current.live);
+  });
 }

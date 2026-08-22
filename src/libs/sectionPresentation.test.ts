@@ -5,6 +5,9 @@ import { EMPTY_SALON_CONTENT } from '@/libs/salonContent';
 
 import {
   deriveSalonProfileHeroAlt,
+  getAllowedSectionVariants,
+  getSectionPresentationPlacement,
+  isSectionVariantAllowedForLayout,
   isSupportedSectionVariant,
   resolveRenderableLayout,
   resolveSectionPresentation,
@@ -148,6 +151,35 @@ describe('typed section presentation contract', () => {
       policies: 'card',
       salonProfile: 'compact',
     });
+  });
+
+  it('exposes the renderer compatibility matrix to builder callers without widening it', () => {
+    expect(getAllowedSectionVariants('salonProfile', 'quick_book')).toEqual(['compact']);
+    expect(getAllowedSectionVariants('salonProfile', 'editorial')).toEqual([
+      'compact',
+      'hero_image',
+    ]);
+    expect(getAllowedSectionVariants('featuredServices', 'quick_book')).toEqual(['carousel']);
+    expect(getAllowedSectionVariants('featuredServices', 'editorial')).toEqual([
+      'carousel',
+      'signature',
+    ]);
+    expect(getAllowedSectionVariants('portfolio', 'editorial')).toEqual([]);
+
+    expect(isSectionVariantAllowedForLayout('salonProfile', 'compact', 'quick_book')).toBe(true);
+    expect(isSectionVariantAllowedForLayout('salonProfile', 'hero_image', 'quick_book')).toBe(false);
+    expect(isSectionVariantAllowedForLayout('salonProfile', 'hero_image', 'editorial')).toBe(true);
+    expect(isSectionVariantAllowedForLayout('serviceMenu', 'cards', 'editorial')).toBe(false);
+    expect(isSectionVariantAllowedForLayout('serviceMenu', 'future_menu', 'editorial')).toBe(false);
+  });
+
+  it('exposes canonical placement so the builder cannot reorder nested or system controls', () => {
+    expect(getSectionPresentationPlacement('hoursLocation', 'editorial')).toBe('flow');
+    expect(getSectionPresentationPlacement('featuredServices', 'quick_book')).toBe('serviceMenuSlot');
+    expect(getSectionPresentationPlacement('socialLinks', 'editorial')).toBe('serviceMenuSlot');
+    expect(getSectionPresentationPlacement('bookingCta', 'editorial')).toBe('system');
+    expect(getSectionPresentationPlacement('portfolio', 'editorial')).toBe('unsupported');
+    expect(getSectionPresentationPlacement('featuredServices', 'unknown-layout')).toBe('serviceMenuSlot');
   });
 
   it.each(['quick_book', 'editorial'] as const)(

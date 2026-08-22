@@ -145,6 +145,36 @@ export function isSupportedSectionVariant<S extends SectionId>(
     && (SECTION_PRESENTATION_CONTRACT[sectionId].variants as readonly string[]).includes(value);
 }
 
+/**
+ * Client-safe owner/builder view of the same compatibility matrix the public
+ * resolver enforces. A control must never advertise a variant that the
+ * renderer would immediately replace with a layout fallback.
+ */
+export function getAllowedSectionVariants<S extends SectionId>(
+  sectionId: S,
+  rawLayout: ResolveSectionPresentationInput['layout'],
+): readonly SectionVariantId<S>[] {
+  const layout = resolveRenderableLayout(rawLayout);
+
+  return SECTION_VARIANT_LAYOUT_ALLOWLIST[sectionId][layout] as readonly SectionVariantId<S>[];
+}
+
+export function isSectionVariantAllowedForLayout<S extends SectionId>(
+  sectionId: S,
+  variant: unknown,
+  rawLayout: ResolveSectionPresentationInput['layout'],
+): variant is SectionVariantId<S> {
+  return isSupportedSectionVariant(sectionId, variant)
+    && (getAllowedSectionVariants(sectionId, rawLayout) as readonly string[]).includes(variant);
+}
+
+export function getSectionPresentationPlacement(
+  sectionId: SectionId,
+  rawLayout: ResolveSectionPresentationInput['layout'],
+): SectionPlacementKind {
+  return SECTION_PRESENTATION_CONTRACT[sectionId].placement[resolveRenderableLayout(rawLayout)];
+}
+
 export function deriveSalonProfileHeroAlt(identity: Pick<SalonContent['identity'], 'name'>): string {
   return `${identity.name.trim()} salon`;
 }
@@ -202,8 +232,7 @@ export function resolveSectionPresentation({
     const resolvedRequest = resolveRequestedVariant(sectionId, requested[sectionId]);
     const layoutDefault = definition.defaults[layout];
     const requestedVariantIsLayoutCompatible = resolvedRequest !== null
-      && (SECTION_VARIANT_LAYOUT_ALLOWLIST[sectionId][layout] as readonly string[])
-        .includes(resolvedRequest);
+      && isSectionVariantAllowedForLayout(sectionId, resolvedRequest, layout);
     let variant = requestedVariantIsLayoutCompatible ? resolvedRequest : layoutDefault;
 
     // The hero is a presentation enhancement, never a readiness/visibility

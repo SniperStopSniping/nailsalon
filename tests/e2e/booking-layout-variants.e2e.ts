@@ -9,6 +9,7 @@ import {
 } from '../../src/libs/disposableDatabaseTarget';
 import {
   appPath,
+  authStatePaths,
   e2eConfig,
   usingExternalBaseUrl,
 } from './support/config';
@@ -35,6 +36,30 @@ const STAGE5_SECTION_ORDER = [
   'policies',
   'socialLinks',
   'bookingCta',
+] as const;
+
+const STAGE6_EDITORIAL_STARTING_ORDER = [
+  'salonProfile',
+  'featuredServices',
+  'technicianProfile',
+  'portfolio',
+  'reviews',
+  'serviceMenu',
+  'hoursLocation',
+  'policies',
+  'socialLinks',
+  'bookingCta',
+] as const;
+
+// These are the current supported editorial flow sections that produce a
+// durable `data-public-surface` root. The service menu is intentionally not
+// included: it is the canonical booking engine host rather than a wrapper
+// introduced solely for test observability.
+const STAGE6_FLOW_ORDER_PROOF_IDS = [
+  'technicianProfile',
+  'featuredServices',
+  'hoursLocation',
+  'policies',
 ] as const;
 
 const VIEWPORT_SCENARIOS = [
@@ -216,6 +241,28 @@ type Stage5ProfileSnapshot = {
   structure: string;
 };
 
+type BuilderOperation =
+  | {
+    type: 'move_section';
+    sectionId: string;
+    targetSectionId: string;
+    direction: 'up' | 'down';
+  }
+  | { type: 'set_variant'; sectionId: string; variant: string | null }
+  | { type: 'reset_all' };
+
+type BuilderApiState = {
+  config: {
+    draft: {
+      hiddenSections: string[];
+      sectionOrder: string[];
+      sectionVariants: Record<string, string>;
+    };
+    live: unknown;
+  };
+  content: unknown;
+};
+
 const STAGE5_STRUCTURAL_MARKERS = [
   'booking-step-header',
   'editorial-hero',
@@ -363,6 +410,108 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   expect(overflow.bodyScrollWidth, 'body must not scroll horizontally').toBeLessThanOrEqual(
     overflow.bodyClientWidth,
   );
+}
+
+async function expectBuilderTargetsAtLeast44px(page: Page): Promise<void> {
+  const inspection = await page
+    .getByTestId('booking-page-builder')
+    .locator('button, select')
+    .evaluateAll((elements) => {
+      const visible = elements
+        .map((element) => {
+          const bounds = element.getBoundingClientRect();
+          return {
+            height: bounds.height,
+            label: element.getAttribute('aria-label')
+              ?? element.getAttribute('data-testid')
+              ?? element.textContent?.replace(/\s+/g, ' ').trim()
+              ?? element.tagName,
+            width: bounds.width,
+          };
+        })
+        .filter(target => target.width > 0 && target.height > 0);
+
+      return {
+        count: visible.length,
+        // Chromium can report a CSS 44px DOMRect just below 44 due to
+        // fractional device-pixel conversion. Rounding proves the declared
+        // practical target without lowering the 44px product threshold.
+        tooSmall: visible.filter(target => (
+          Math.round(target.width) < 44 || Math.round(target.height) < 44
+        )),
+      };
+    });
+
+  expect(inspection.count, 'the owner builder must expose usable controls').toBeGreaterThan(0);
+  expect(inspection.tooSmall, 'every visible builder control must provide a practical 44px target').toEqual([]);
+}
+
+async function readBuilderFlowOrder(page: Page): Promise<string[]> {
+  const order = await page
+    .getByTestId('booking-page-builder-section-list')
+    .locator('[data-section-id]')
+    .evaluateAll(elements => elements.map(element => element.getAttribute('data-section-id')));
+  const proofIds = new Set<string>(STAGE6_FLOW_ORDER_PROOF_IDS);
+
+  return order.filter((sectionId): sectionId is string => (
+    sectionId !== null && proofIds.has(sectionId)
+  ));
+}
+
+async function readDraftPreviewFlowOrder(page: Page): Promise<string[]> {
+  const order = await page
+    .frameLocator('iframe[title="Live booking page preview"]')
+    .locator('[data-public-surface]')
+    .evaluateAll(elements => elements.map(element => element.getAttribute('data-public-surface')));
+  const proofIds = new Set<string>(STAGE6_FLOW_ORDER_PROOF_IDS);
+
+  return order.filter((sectionId): sectionId is string => (
+    sectionId !== null && proofIds.has(sectionId)
+  ));
+}
+
+async function expectBuilderAndDraftPreviewOrder(
+  page: Page,
+  expectedOrder: readonly string[],
+): Promise<void> {
+  await expect.poll(() => readBuilderFlowOrder(page)).toEqual(expectedOrder);
+  await expect.poll(() => readDraftPreviewFlowOrder(page)).toEqual(expectedOrder);
+}
+
+async function applyBuilderOperationFromPage(
+  page: Page,
+  operation: BuilderOperation,
+  action: () => Promise<void>,
+): Promise<BuilderApiState> {
+  const responsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === 'PATCH'
+      && url.pathname === '/api/admin/booking-page';
+  });
+
+  await action();
+
+  const response = await responsePromise;
+  const responseText = await response.text();
+
+  expect(response.ok(), responseText).toBe(true);
+  expect(response.request().postDataJSON()).toEqual({ builderOperation: operation });
+  await expect(page.locator('div[role="status"][aria-live="polite"]')).toHaveText('Saved');
+
+  return JSON.parse(responseText) as BuilderApiState;
+}
+
+async function fetchBuilderApiState(
+  page: Page,
+): Promise<BuilderApiState> {
+  const response = await page.request.get(
+    `/api/admin/booking-page?salonSlug=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}`,
+  );
+  const responseText = await response.text();
+
+  expect(response.ok(), responseText).toBe(true);
+
+  return JSON.parse(responseText) as BuilderApiState;
 }
 
 async function expectDocumentOrder(page: Page, selectors: string[]): Promise<void> {
@@ -910,6 +1059,319 @@ test('Stage 5 variants express four reusable profiles with canonical content acr
     expect(profileSnapshots.size).toBe(4);
     expect(new Set([...profileSnapshots.values()].map(snapshot => snapshot.structure)).size).toBe(4);
     expect(new Set([...profileSnapshots.values()].map(snapshot => snapshot.serviceText)).size).toBe(1);
+  } finally {
+    try {
+      if (fixtureLoaded) {
+        const restoreResult = await client.query(
+          'UPDATE salon SET settings = $1::jsonb WHERE id = $2',
+          [originalSettings === null ? null : JSON.stringify(originalSettings), SYNTHETIC_SALON_ID],
+        );
+
+        expect(restoreResult.rowCount).toBe(1);
+
+        const restoredResult = await client.query<SalonFixtureRow>(
+          'SELECT id, name, settings FROM salon WHERE id = $1',
+          [SYNTHETIC_SALON_ID],
+        );
+
+        expect(restoredResult.rows).toHaveLength(1);
+        expect(restoredResult.rows[0]?.settings ?? null).toEqual(originalSettings);
+      }
+    } finally {
+      await client.end();
+    }
+  }
+});
+
+test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, and targets honest across mobile and zoom @mobile-layout', async ({
+  baseURL,
+  browser,
+}) => {
+  test.slow();
+
+  assertLocalSyntheticTarget(baseURL);
+
+  const target = requireDisposableDatabaseTarget();
+  const expectedServer = resolveDisposableDatabaseServerExpectation(target);
+  const client = new Client({ connectionString: target.connectionString });
+  let originalSettings: unknown = null;
+  let fixtureLoaded = false;
+
+  await client.connect();
+
+  try {
+    // Authentication alone is not authority to mutate a browser fixture.
+    // Attest the connected disposable session before the first salon read,
+    // impersonation, direct fixture update, or semantic builder PATCH.
+    await attestDisposableDatabaseSession(client, target, expectedServer);
+
+    const fixtureResult = await client.query<SalonFixtureRow>(
+      'SELECT id, name, settings FROM salon WHERE slug = $1',
+      [SYNTHETIC_SALON_SLUG],
+    );
+
+    expect(fixtureResult.rows).toHaveLength(1);
+    expect(fixtureResult.rows[0]?.id).toBe(SYNTHETIC_SALON_ID);
+
+    originalSettings = fixtureResult.rows[0]?.settings ?? null;
+    fixtureLoaded = true;
+
+    for (const scenario of VIEWPORT_SCENARIOS) {
+      const heroImageUrl = new URL('/assets/images/nextjs-starter-banner.png', baseURL).toString();
+      const fixtureSettings = buildFixtureSettings(
+        originalSettings,
+        'editorial',
+        heroImageUrl,
+        {
+          businessMode: 'team',
+          hiddenSections: [],
+          sectionOrder: STAGE5_SECTION_ORDER,
+          sectionVariants: {
+            salonProfile: 'compact',
+            technicianProfile: 'full',
+            featuredServices: 'carousel',
+            serviceMenu: 'list',
+            hoursLocation: 'full',
+            policies: 'card',
+            socialLinks: 'icons',
+            bookingCta: 'sticky',
+          },
+        },
+      );
+      const fixtureUpdate = await client.query(
+        'UPDATE salon SET settings = $1::jsonb WHERE id = $2',
+        [JSON.stringify(fixtureSettings), SYNTHETIC_SALON_ID],
+      );
+
+      expect(fixtureUpdate.rowCount).toBe(1);
+
+      const context = await browser.newContext({
+        baseURL,
+        reducedMotion: 'reduce',
+        storageState: authStatePaths.superAdmin,
+        viewport: scenario.viewport,
+      });
+      let impersonating = false;
+
+      if (scenario.zoom === 2) {
+        await context.addInitScript(() => {
+          document.addEventListener('DOMContentLoaded', () => {
+            document.documentElement.style.zoom = '2';
+          });
+        });
+      }
+
+      try {
+        const impersonation = await context.request.post('/api/super-admin/impersonate', {
+          data: { salonId: SYNTHETIC_SALON_ID },
+        });
+
+        expect(impersonation.ok(), await impersonation.text()).toBe(true);
+
+        impersonating = true;
+
+        const page = await context.newPage();
+        const expectedOrigin = new URL(baseURL).origin;
+        const allowedBuilderPatches: unknown[] = [];
+        const blockedWrites: string[] = [];
+        const externalRequests: string[] = [];
+
+        await page.route('**/*', async (route) => {
+          const request = route.request();
+          const method = request.method();
+          const requestUrl = request.url();
+          const parsedUrl = new URL(requestUrl);
+
+          if (parsedUrl.origin !== expectedOrigin) {
+            externalRequests.push(requestUrl);
+            await route.abort('blockedbyclient');
+            return;
+          }
+
+          if (method === 'PATCH' && parsedUrl.pathname === '/api/admin/booking-page') {
+            allowedBuilderPatches.push(request.postDataJSON());
+            await route.continue();
+            return;
+          }
+
+          if (method !== 'GET' && method !== 'HEAD') {
+            blockedWrites.push(`${method} ${requestUrl}`);
+            await route.abort('blockedbyclient');
+            return;
+          }
+
+          await route.continue();
+        });
+
+        const response = await page.goto(
+          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&stage6Evidence=${encodeURIComponent(scenario.label)}`,
+          { waitUntil: 'domcontentloaded' },
+        );
+
+        expect(response?.ok(), await response?.text()).toBe(true);
+
+        const builder = page.getByTestId('booking-page-builder');
+        const previewIframe = page.locator('iframe[title="Live booking page preview"]');
+        const preview = page.frameLocator('iframe[title="Live booking page preview"]');
+
+        await expect(builder).toBeVisible();
+        await expect(builder.getByRole('heading', { level: 2, name: 'Make it yours' })).toBeVisible();
+        await expect(page.getByTestId('booking-page-customization-state')).toHaveText('Customized');
+        await expect(previewIframe).toBeVisible();
+        await expect(previewIframe).toHaveAttribute(
+          'src',
+          new RegExp(`/${e2eConfig.locale}/${SYNTHETIC_SALON_SLUG}/book/service\\?builderPreview=\\d+`),
+        );
+        await expect(previewIframe).toHaveAttribute('sandbox', 'allow-same-origin');
+        await expect(previewIframe).toHaveAttribute('aria-hidden', 'true');
+        await expect(previewIframe).toHaveAttribute('tabindex', '-1');
+        await expect(previewIframe).toHaveCSS('pointer-events', 'none');
+        await expect(preview.getByTestId('service-menu-list')).toBeVisible();
+        await expect(preview.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
+
+        for (const protectedSectionId of ['salonProfile', 'serviceMenu', 'bookingCta']) {
+          await expect(page.getByTestId(`builder-visibility-${protectedSectionId}`)).toHaveCount(0);
+          await expect(page.getByTestId(`builder-section-status-${protectedSectionId}`)).toHaveText('Protected');
+        }
+
+        await expectNoHorizontalOverflow(page);
+        await expectBuilderTargetsAtLeast44px(page);
+
+        const beforeState = await fetchBuilderApiState(page);
+        const canonicalContent = beforeState.content;
+        const livePresentation = beforeState.config.live;
+        const serviceTextBefore = (
+          await preview.getByTestId(`service-card-${e2eConfig.serviceId}`).textContent()
+          ?? ''
+        ).replace(/\s+/g, ' ').trim();
+        const initialFlowOrder = beforeState.config.draft.sectionOrder.filter(sectionId => (
+          (STAGE6_FLOW_ORDER_PROOF_IDS as readonly string[]).includes(sectionId)
+        ));
+
+        await expectBuilderAndDraftPreviewOrder(page, initialFlowOrder);
+
+        const moveOperation = {
+          type: 'move_section',
+          sectionId: 'policies',
+          targetSectionId: 'hoursLocation',
+          direction: 'up',
+        } as const;
+        const moveButton = page.getByRole('button', { name: 'Move Policies up' });
+
+        await expect(moveButton).toBeEnabled();
+
+        await moveButton.focus();
+
+        await expect(moveButton).toBeFocused();
+
+        const movedState = await applyBuilderOperationFromPage(
+          page,
+          moveOperation,
+          () => page.keyboard.press('Enter'),
+        );
+        const movedFlowOrder = movedState.config.draft.sectionOrder.filter(sectionId => (
+          (STAGE6_FLOW_ORDER_PROOF_IDS as readonly string[]).includes(sectionId)
+        ));
+
+        expect(movedFlowOrder.indexOf('policies')).toBeLessThan(movedFlowOrder.indexOf('hoursLocation'));
+
+        await expectBuilderAndDraftPreviewOrder(page, movedFlowOrder);
+
+        const groupedOperation = {
+          type: 'set_variant',
+          sectionId: 'serviceMenu',
+          variant: 'grouped_categories',
+        } as const;
+
+        await applyBuilderOperationFromPage(
+          page,
+          groupedOperation,
+          () => page.getByTestId('builder-variant-serviceMenu').selectOption('grouped_categories'),
+        );
+
+        await expect(preview.getByTestId('service-menu-grouped-categories')).toBeVisible();
+        await expect(preview.getByTestId('service-menu-list')).toHaveCount(0);
+        await expect(preview.locator('h2', { hasText: /^Services$/ })).toHaveCount(1);
+        await expect(preview.getByTestId(`service-card-${e2eConfig.serviceId}`)).toContainText(
+          e2eConfig.serviceName,
+        );
+
+        const resetOperation = { type: 'reset_all' } as const;
+        const resetState = await applyBuilderOperationFromPage(
+          page,
+          resetOperation,
+          async () => {
+            const dialogPromise = page.waitForEvent('dialog');
+            await page.getByTestId('builder-reset-all').click();
+            const dialog = await dialogPromise;
+
+            expect(dialog.type()).toBe('confirm');
+            expect(dialog.message()).toContain('Your salon content will not be deleted.');
+
+            await dialog.accept();
+          },
+        );
+
+        expect(resetState.config.draft).toMatchObject({
+          hiddenSections: [],
+          sectionOrder: [...STAGE6_EDITORIAL_STARTING_ORDER],
+          sectionVariants: {},
+        });
+        await expect(page.getByTestId('booking-page-customization-state')).toHaveText('Using starting design');
+        await expect(page.getByTestId('builder-reset-all')).toBeDisabled();
+        await expect(preview.getByTestId('service-menu-list')).toBeVisible();
+        await expect(preview.getByTestId('service-menu-grouped-categories')).toHaveCount(0);
+
+        const resetFlowOrder = resetState.config.draft.sectionOrder.filter(sectionId => (
+          (STAGE6_FLOW_ORDER_PROOF_IDS as readonly string[]).includes(sectionId)
+        ));
+        await expectBuilderAndDraftPreviewOrder(page, resetFlowOrder);
+
+        const afterState = await fetchBuilderApiState(page);
+        const serviceTextAfter = (
+          await preview.getByTestId(`service-card-${e2eConfig.serviceId}`).textContent()
+          ?? ''
+        ).replace(/\s+/g, ' ').trim();
+
+        expect(afterState.content, 'reset must not rewrite canonical booking-page content').toEqual(canonicalContent);
+        expect(afterState.config.live, 'draft builder operations must not rewrite published presentation').toEqual(livePresentation);
+        expect(serviceTextAfter, 'the same canonical service must survive move, variant, and reset').toBe(serviceTextBefore);
+
+        const persistedResult = await client.query<SalonFixtureRow>(
+          'SELECT id, name, settings FROM salon WHERE id = $1',
+          [SYNTHETIC_SALON_ID],
+        );
+        const persistedSettings = persistedResult.rows[0]?.settings;
+
+        if (!isRecord(persistedSettings)) {
+          throw new Error('The synthetic builder fixture settings must remain a JSON object.');
+        }
+
+        expect(persistedSettings.bookingExperience).toEqual(fixtureSettings.bookingExperience);
+        expect(persistedSettings.bookingPageContent).toEqual(fixtureSettings.bookingPageContent);
+
+        expect(allowedBuilderPatches).toEqual([
+          { builderOperation: moveOperation },
+          { builderOperation: groupedOperation },
+          { builderOperation: resetOperation },
+        ]);
+        expect(blockedWrites, 'The owner builder lane must not attempt any non-builder browser mutation.').toEqual([]);
+        expect(externalRequests, 'The owner builder lane must remain independent from hosted resources.').toEqual([]);
+
+        await expectNoHorizontalOverflow(page);
+        await expectBuilderTargetsAtLeast44px(page);
+      } finally {
+        try {
+          if (impersonating) {
+            const stopImpersonating = await context.request.delete('/api/super-admin/impersonate');
+
+            expect(stopImpersonating.ok(), await stopImpersonating.text()).toBe(true);
+          }
+        } finally {
+          await context.close();
+        }
+      }
+    }
   } finally {
     try {
       if (fixtureLoaded) {

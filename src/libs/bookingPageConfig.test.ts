@@ -21,6 +21,7 @@ vi.mock('@/libs/DB', () => ({
 import {
   BOOKING_PAGE_CONFIG_DEFAULTS,
   BOOKING_PAGE_CONFIG_SIDE_DEFAULTS,
+  bookingPageBuilderOperationSchema,
   bookingPageDraftPatchSchema,
   createDefaultBookingPageConfig,
   foldLegacyAppearanceInputs,
@@ -115,6 +116,41 @@ describe('bookingPageDraftPatchSchema typed section-variant writes', () => {
     ['an unknown section id', { notASection: 'list' }],
   ])('rejects %s on new writes', (_caseName, sectionVariants) => {
     expect(bookingPageDraftPatchSchema.safeParse({ sectionVariants }).success).toBe(false);
+  });
+
+  it('rejects unknown patch keys instead of silently stripping untrusted input', () => {
+    expect(bookingPageDraftPatchSchema.safeParse({
+      sectionOrder: ['salonProfile', 'serviceMenu', 'bookingCta'],
+      arbitraryCss: '.booking-page { display: none }',
+    }).success).toBe(false);
+  });
+});
+
+describe('bookingPageBuilderOperationSchema', () => {
+  it.each([
+    { type: 'set_visibility', sectionId: 'policies', visible: false },
+    {
+      type: 'move_section',
+      sectionId: 'hoursLocation',
+      targetSectionId: 'technicianProfile',
+      direction: 'up',
+    },
+    { type: 'set_variant', sectionId: 'serviceMenu', variant: 'grouped_categories' },
+    { type: 'set_variant', sectionId: 'serviceMenu', variant: null },
+    { type: 'reset_section', sectionId: 'socialLinks' },
+    { type: 'reset_all' },
+  ])('accepts the semantic builder operation $type', (operation) => {
+    expect(bookingPageBuilderOperationSchema.safeParse(operation).success).toBe(true);
+  });
+
+  it.each([
+    ['an unknown operation', { type: 'inject_markup', html: '<script />' }],
+    ['an unknown section', { type: 'set_visibility', sectionId: 'futureSection', visible: false }],
+    ['an unsupported direction', { type: 'move_section', sectionId: 'policies', direction: 'first' }],
+    ['an empty variant', { type: 'set_variant', sectionId: 'policies', variant: '' }],
+    ['an unknown extra key', { type: 'reset_all', stylePack: 'future-premium-pack' }],
+  ])('strictly rejects %s', (_label, operation) => {
+    expect(bookingPageBuilderOperationSchema.safeParse(operation).success).toBe(false);
   });
 });
 

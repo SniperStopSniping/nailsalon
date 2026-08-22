@@ -1,5 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { applyBookingPageBuilderOperation } from '@/libs/bookingPageBuilder';
 
 import BookingPageOwnerSurface from './page';
 
@@ -19,6 +22,7 @@ function baseConfig(overrides: Partial<{
   stylePack: string;
   businessMode: string;
   sectionOrder: string[];
+  sectionVariants: Partial<Record<string, string>>;
   hiddenSections: string[];
 }> = {}) {
   const side = {
@@ -26,7 +30,7 @@ function baseConfig(overrides: Partial<{
     stylePack: 'default',
     tokenOverrides: null,
     sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
-    sectionVariants: {},
+    sectionVariants: {} as Partial<Record<string, string>>,
     hiddenSections: [] as string[],
     businessMode: 'solo',
     startMode: 'services_first',
@@ -96,6 +100,16 @@ describe('BookingPageOwnerSurface', () => {
         }
         if (method === 'PATCH') {
           const body = JSON.parse(String(init?.body));
+          if (body.builderOperation) {
+            const result = applyBookingPageBuilderOperation(
+              config.draft as never,
+              body.builderOperation,
+            );
+            if (!result.ok) {
+              return Promise.resolve(new Response(JSON.stringify({ error: result.code }), { status: 400 }));
+            }
+            config = { ...config, draft: { ...config.draft, ...result.patch } };
+          }
           if (body.config) {
             config = { ...config, draft: { ...config.draft, ...body.config } };
           }
@@ -159,6 +173,49 @@ describe('BookingPageOwnerSurface', () => {
     });
   });
 
+  it('does not start a reset while a layout presentation write is pending', async () => {
+    config = baseConfig({ hiddenSections: ['policies'] });
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releaseLayoutWrite: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.config?.layout === 'editorial') {
+        return new Promise<Response>((resolve) => {
+          releaseLayoutWrite = () => {
+            config = {
+              ...config,
+              draft: { ...config.draft, layout: 'editorial' },
+            };
+            resolve(new Response(JSON.stringify({
+              config,
+              content,
+              salon: { publicationStatus: salonPublicationStatus },
+            }), { status: 200 }));
+          };
+        });
+      }
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+    const editorial = await screen.findByTestId('layout-option-editorial');
+    const reset = screen.getByTestId('builder-reset-all');
+
+    fireEvent.click(editorial);
+
+    await waitFor(() => expect(editorial).toBeDisabled());
+
+    expect(reset).toBeDisabled();
+
+    fireEvent.click(reset);
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1);
+
+    releaseLayoutWrite?.();
+    await waitFor(() => expect(editorial).toBeEnabled());
+  });
+
   it('does not PATCH when a disabled (unimplemented) layout option is clicked', async () => {
     render(<BookingPageOwnerSurface />);
     const techProfile = await screen.findByTestId('layout-option-tech_profile');
@@ -171,14 +228,14 @@ describe('BookingPageOwnerSurface', () => {
     });
   });
 
-  it('never renders a toggle control for serviceMenu or bookingCta', async () => {
+  it('shows service discovery and booking access as protected without hide controls', async () => {
     render(<BookingPageOwnerSurface />);
     await screen.findByTestId('layout-option-quick_book');
 
-    expect(screen.queryByTestId('section-toggle-serviceMenu')).not.toBeInTheDocument();
-    expect(screen.queryByTestId('section-toggle-bookingCta')).not.toBeInTheDocument();
-    expect(screen.queryByText(/service menu/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/booking cta/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('builder-visibility-serviceMenu')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('builder-visibility-bookingCta')).not.toBeInTheDocument();
+    expect(screen.getByTestId('builder-section-status-serviceMenu')).toHaveTextContent('Protected');
+    expect(screen.getByTestId('builder-section-status-bookingCta')).toHaveTextContent('Protected');
   });
 
   // Repair A4: salonProfile hosts the page's only <h1> on both layouts and
@@ -189,25 +246,22 @@ describe('BookingPageOwnerSurface', () => {
   // defense against a crafted request bypassing this UI, proven in
   // bookingPageConfig.test.ts's "salonProfile floor" and full-pipeline
   // coverage.
-  it('never renders a toggle control for salonProfile', async () => {
+  it('shows salon identity as protected without a hide control', async () => {
     render(<BookingPageOwnerSurface />);
     await screen.findByTestId('layout-option-quick_book');
 
-    expect(screen.queryByTestId('section-toggle-salonProfile')).not.toBeInTheDocument();
-    expect(screen.queryByText(/salon profile/i)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('builder-visibility-salonProfile')).not.toBeInTheDocument();
+    expect(screen.getByTestId('builder-section-status-salonProfile')).toHaveTextContent('Protected');
   });
 
-  it('renders portfolio and reviews as disabled, marked coming soon', async () => {
+  it('renders portfolio and reviews as unavailable without inert controls', async () => {
     render(<BookingPageOwnerSurface />);
     await screen.findByTestId('layout-option-quick_book');
 
-    const portfolio = screen.getByTestId('section-toggle-portfolio');
-    const reviews = screen.getByTestId('section-toggle-reviews');
-
-    expect(portfolio).toBeDisabled();
-    expect(reviews).toBeDisabled();
-    expect(screen.getByText('Portfolio (coming soon)')).toBeInTheDocument();
-    expect(screen.getByText('Reviews (coming soon)')).toBeInTheDocument();
+    expect(screen.getByTestId('builder-section-status-portfolio')).toHaveTextContent('Unavailable');
+    expect(screen.getByTestId('builder-section-status-reviews')).toHaveTextContent('Unavailable');
+    expect(screen.queryByTestId('builder-visibility-portfolio')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('builder-visibility-reviews')).not.toBeInTheDocument();
   });
 
   // Post-launch audit fix: whatsIncluded (SECTION_REGISTRY.whatsIncluded's
@@ -217,24 +271,21 @@ describe('BookingPageOwnerSurface', () => {
   // indication to the owner. Both now render disabled and clearly labelled,
   // same treatment as portfolio/reviews above, rather than silently doing
   // nothing when clicked.
-  it('renders whatsIncluded and technicianList as disabled, marked coming soon (no inert toggle may remain)', async () => {
+  it('renders whatsIncluded and technicianList as unavailable without inert controls', async () => {
     render(<BookingPageOwnerSurface />);
     await screen.findByTestId('layout-option-quick_book');
 
-    const whatsIncluded = screen.getByTestId('section-toggle-whatsIncluded');
-    const technicianList = screen.getByTestId('section-toggle-technicianList');
-
-    expect(whatsIncluded).toBeDisabled();
-    expect(technicianList).toBeDisabled();
-    expect(screen.getByText('What\'s included (coming soon)')).toBeInTheDocument();
-    expect(screen.getByText('Technician list (coming soon)')).toBeInTheDocument();
+    expect(screen.getByTestId('builder-section-status-whatsIncluded')).toHaveTextContent('Unavailable');
+    expect(screen.getByTestId('builder-section-status-technicianList')).toHaveTextContent('Unavailable');
+    expect(screen.queryByTestId('builder-visibility-whatsIncluded')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('builder-visibility-technicianList')).not.toBeInTheDocument();
   });
 
   it('toggling an optional section PATCHes sectionOrder/hiddenSections and reflects the new state', async () => {
     render(<BookingPageOwnerSurface />);
-    const toggle = await screen.findByTestId('section-toggle-technicianProfile');
+    const toggle = await screen.findByTestId('builder-visibility-technicianProfile');
 
-    expect(toggle).not.toBeChecked();
+    expect(toggle).toHaveAttribute('aria-pressed', 'false');
 
     fireEvent.click(toggle);
 
@@ -245,19 +296,22 @@ describe('BookingPageOwnerSurface', () => {
 
       const body = JSON.parse(String(patchCall?.[1]?.body));
 
-      expect(body.config.sectionOrder).toContain('technicianProfile');
-      expect(body.config.hiddenSections).not.toContain('technicianProfile');
+      expect(body.builderOperation).toEqual({
+        type: 'set_visibility',
+        sectionId: 'technicianProfile',
+        visible: true,
+      });
     });
 
-    await waitFor(() => expect(screen.getByTestId('section-toggle-technicianProfile')).toBeChecked());
+    await waitFor(() => expect(screen.getByTestId('builder-visibility-technicianProfile')).toHaveAttribute('aria-pressed', 'true'));
   });
 
   it('toggling a shown section off adds it to hiddenSections', async () => {
     config = baseConfig({ sectionOrder: [...baseConfig().draft.sectionOrder] });
     render(<BookingPageOwnerSurface />);
-    const toggle = await screen.findByTestId('section-toggle-featuredServices');
+    const toggle = await screen.findByTestId('builder-visibility-featuredServices');
 
-    expect(toggle).toBeChecked();
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
 
     fireEvent.click(toggle);
 
@@ -265,8 +319,192 @@ describe('BookingPageOwnerSurface', () => {
       const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
       const body = JSON.parse(String(patchCall?.[1]?.body));
 
-      expect(body.config.hiddenSections).toContain('featuredServices');
+      expect(body.builderOperation).toEqual({
+        type: 'set_visibility',
+        sectionId: 'featuredServices',
+        visible: false,
+      });
     });
+  });
+
+  it('persists keyboard-operable movement and renders the returned configuration in the same DOM order', async () => {
+    const user = userEvent.setup();
+    config = baseConfig({
+      layout: 'editorial',
+      sectionOrder: [
+        'salonProfile',
+        'featuredServices',
+        'technicianProfile',
+        'serviceMenu',
+        'hoursLocation',
+        'policies',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+    render(<BookingPageOwnerSurface />);
+
+    const moveDown = await screen.findByRole('button', { name: 'Move Featured services down' });
+    moveDown.focus();
+    await user.keyboard('{Enter}');
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
+
+      expect(JSON.parse(String(patchCall?.[1]?.body))).toEqual({
+        builderOperation: {
+          type: 'move_section',
+          sectionId: 'featuredServices',
+          targetSectionId: 'technicianProfile',
+          direction: 'down',
+        },
+      });
+    });
+
+    await waitFor(() => {
+      const rows = within(screen.getByTestId('booking-page-builder-section-list'))
+        .getAllByRole('listitem')
+        .map(row => row.getAttribute('data-section-id'));
+
+      expect(rows.slice(0, 3)).toEqual([
+        'salonProfile',
+        'technicianProfile',
+        'featuredServices',
+      ]);
+    });
+  });
+
+  it('embeds the authenticated real booking route and derives availability from rendered Stage 2 surfaces', async () => {
+    render(<BookingPageOwnerSurface />);
+
+    const preview = await screen.findByTitle('Live booking page preview');
+
+    expect(preview).toHaveAttribute(
+      'src',
+      '/en/salon-a/book/service?builderPreview=0',
+    );
+    expect(preview).toHaveAttribute('sandbox', 'allow-same-origin');
+    expect(preview).toHaveAttribute('aria-hidden', 'true');
+    expect(preview).toHaveAttribute('tabindex', '-1');
+    expect(preview).toHaveClass('pointer-events-none');
+    expect(screen.getByText(/view-only preview using your real salon content/i)).toBeInTheDocument();
+
+    Object.defineProperty(preview, 'contentDocument', {
+      configurable: true,
+      value: {
+        querySelectorAll: () => [
+          { dataset: { publicSurface: 'salonProfile' } },
+          { dataset: { publicSurface: 'serviceMenu' } },
+          { dataset: { publicSurface: 'featuredServices' } },
+        ],
+      },
+    });
+    fireEvent.load(preview);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('builder-section-status-featuredServices')).toHaveTextContent('Visible');
+      expect(screen.getByTestId('builder-section-status-policies')).toHaveTextContent('Unavailable');
+    });
+  });
+
+  it('requires confirmation before resetting presentation and sends no canonical content fields', async () => {
+    config = baseConfig({ hiddenSections: ['policies'] });
+    const confirmMock = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirmMock);
+    render(<BookingPageOwnerSurface />);
+
+    fireEvent.click(await screen.findByTestId('builder-reset-all'));
+
+    expect(confirmMock).toHaveBeenCalledWith(expect.stringMatching(/content will not be deleted/i));
+
+    await waitFor(() => {
+      const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
+      const body = JSON.parse(String(patchCall?.[1]?.body));
+
+      expect(body).toEqual({ builderOperation: { type: 'reset_all' } });
+      expect(body).not.toHaveProperty('content');
+      expect(body).not.toHaveProperty('config');
+    });
+  });
+
+  it('does not publish or change layout while a builder presentation write is pending', async () => {
+    config = baseConfig({ hiddenSections: ['policies'] });
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releaseBuilderWrite: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.builderOperation?.type === 'reset_all') {
+        return new Promise<Response>((resolve) => {
+          releaseBuilderWrite = () => {
+            const result = applyBookingPageBuilderOperation(
+              config.draft as never,
+              body.builderOperation,
+            );
+            if (result.ok) {
+              config = { ...config, draft: { ...config.draft, ...result.patch } };
+            }
+            resolve(new Response(JSON.stringify({
+              config,
+              content,
+              salon: { publicationStatus: salonPublicationStatus },
+            }), { status: 200 }));
+          };
+        });
+      }
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+    const reset = await screen.findByTestId('builder-reset-all');
+    fireEvent.click(reset);
+
+    const publish = screen.getByTestId('booking-page-publish');
+    const editorial = screen.getByTestId('layout-option-editorial');
+    await waitFor(() => {
+      expect(publish).toBeDisabled();
+      expect(editorial).toBeDisabled();
+    });
+
+    fireEvent.click(publish);
+    fireEvent.click(editorial);
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1);
+
+    releaseBuilderWrite?.();
+    await waitFor(() => expect(publish).toBeEnabled());
+  });
+
+  it('does not start a builder operation while Publish is pending', async () => {
+    config = baseConfig({ hiddenSections: ['policies'] });
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releasePublish: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === 'POST' && String(input).includes('/api/admin/booking-page')) {
+        return new Promise<Response>((resolve) => {
+          releasePublish = () => resolve(new Response(JSON.stringify({
+            config,
+            content,
+            salon: { publicationStatus: salonPublicationStatus },
+          }), { status: 200 }));
+        });
+      }
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+    fireEvent.click(await screen.findByTestId('booking-page-publish'));
+
+    const reset = screen.getByTestId('builder-reset-all');
+    await waitFor(() => expect(reset).toBeDisabled());
+    fireEvent.click(reset);
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
+
+    releasePublish?.();
+    await waitFor(() => expect(reset).toBeEnabled());
   });
 
   it('business mode picker PATCHes businessMode', async () => {
