@@ -52,6 +52,8 @@ type ViolationKind =
   | 'multiple-renderer-registries'
   | 'malformed-renderer-registry'
   | 'independent-layout-fork'
+  | 'preset-recipe-identity-read'
+  | 'premium-style-read'
   | 'hero-derived-alt-bypass'
   | 'grouped-service-menu-heading-bypass';
 type Violation = { kind: ViolationKind; text: string };
@@ -949,6 +951,45 @@ function stringLiteralSectionId(node: ts.Expression | undefined): ContentSection
     : null;
 }
 
+function normalizedPropertyName(value: string): string {
+  return value.toLowerCase().replaceAll(/[^a-z0-9]/g, '');
+}
+
+function forbiddenPublicRendererReadKind(
+  propertyName: string,
+): Extract<ViolationKind, 'preset-recipe-identity-read' | 'premium-style-read'> | null {
+  const normalized = normalizedPropertyName(propertyName);
+
+  if (normalized.includes('preset') || normalized.includes('recipe')) {
+    return 'preset-recipe-identity-read';
+  }
+  if (normalized === 'stylepack' || normalized === 'tokenoverrides') {
+    return 'premium-style-read';
+  }
+
+  return null;
+}
+
+function propertyReadName(node: ts.Node, file: ts.SourceFile): string | null {
+  if (ts.isPropertyAccessExpression(node)) {
+    return node.name.text;
+  }
+  if (ts.isElementAccessExpression(node)) {
+    const argument = unwrapExpression(node.argumentExpression);
+    return ts.isStringLiteral(argument) || ts.isNoSubstitutionTemplateLiteral(argument)
+      ? argument.text
+      : null;
+  }
+  if (ts.isBindingElement(node)) {
+    const property = node.propertyName ?? node.name;
+    return ts.isIdentifier(property) || ts.isStringLiteral(property)
+      ? property.text
+      : property.getText(file);
+  }
+
+  return null;
+}
+
 function inspectPublicRendererDetailed(source: string): RendererInspection {
   const file = ts.createSourceFile('public-renderer.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
   const inspection: RendererInspection = { violations: [], approvedRendererSeams: [], canonicalRendererRegistries: 0 };
@@ -957,6 +998,22 @@ function inspectPublicRendererDetailed(source: string): RendererInspection {
   const rawLayoutAliases = collectRawLayoutAliases(file);
 
   const visit = (node: ts.Node) => {
+    if (ts.isImportDeclaration(node)
+      && ts.isStringLiteral(node.moduleSpecifier)
+      && node.moduleSpecifier.text.includes('bookingPagePresetRecipes')) {
+      inspection.violations.push({
+        kind: 'preset-recipe-identity-read',
+        text: node.getText(file),
+      });
+    }
+    const readPropertyName = propertyReadName(node, file);
+    const forbiddenReadKind = readPropertyName === null
+      ? null
+      : forbiddenPublicRendererReadKind(readPropertyName);
+    if (forbiddenReadKind) {
+      inspection.violations.push({ kind: forbiddenReadKind, text: node.getText(file) });
+    }
+
     if (ts.isVariableDeclaration(node)) {
       const registryObject = rendererRegistryObject(node);
       if (registryObject && isTypedSectionVariantRendererRegistry(node)) {
@@ -1069,19 +1126,21 @@ function inspectPublicRenderer(source: string): Violation[] {
 
 function publicRendererFiles(): string[] {
   const roots = ['src/app/(unauth)/book', 'src/app/[locale]/[slug]/book', 'src/components/booking'];
-  const files: string[] = [];
+  const files = new Set<string>([
+    path.join(process.cwd(), 'src/components/PublicSalonPageShell.tsx'),
+  ]);
   const walk = (directory: string) => {
     for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
       const target = path.join(directory, entry.name);
       if (entry.isDirectory()) {
         walk(target);
       } else if (entry.name.endsWith('.tsx') && !entry.name.includes('.test.')) {
-        files.push(target);
+        files.add(target);
       }
     }
   };
   roots.forEach(root => walk(path.join(process.cwd(), root)));
-  return files;
+  return [...files];
 }
 
 function canonicalRegistryFixture(name = 'sectionRenderers'): string {
@@ -1174,6 +1233,7 @@ describe('public section architecture guard', () => {
     let canonicalRendererRegistries = 0;
 
     expect(files.length).toBeGreaterThan(10);
+    expect(files).toContain(path.join(process.cwd(), 'src/components/PublicSalonPageShell.tsx'));
 
     for (const rendererPath of files) {
       const renderer = fs.readFileSync(rendererPath, 'utf8');
@@ -1293,6 +1353,57 @@ describe('public section architecture guard', () => {
     expect(adapter.filter(violation => violation.kind === 'independent-layout-fork')).toEqual([]);
     expect(mutated).toContainEqual(expect.objectContaining({ kind: 'independent-layout-fork' }));
     expect(mutated.filter(violation => violation.kind === 'readiness-bypass').length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('keeps preset identity and premium style outside anonymous public renderers', () => {
+    const presetResolverPath = path.join(process.cwd(), 'src/libs/bookingPagePresetRecipes.ts');
+    const concretePresentationAdapter = inspectPublicRenderer(`
+      const layout = bookingPage?.layout ?? 'quick_book';
+      const presentation = resolveSectionPresentation({
+        layout,
+        sectionVariants: bookingPage?.sectionVariants,
+        content,
+      });
+    `);
+    const identityReads = inspectPublicRenderer(`
+      const exactBase = bookingPage.presetBase;
+      const bookingAlias = bookingPage;
+      const aliasedBase = bookingAlias['presetBase'];
+      const { presetBase: activeDesign } = bookingPage;
+      const runtimeRecipe = activeDesign.recipeVersion;
+    `);
+    const directRecipeResolver = inspectPublicRenderer(`
+      import { resolveBookingPagePresetRecipe } from '@/libs/bookingPagePresetRecipes';
+      const design = resolveBookingPagePresetRecipe({
+        presetId: 'menu',
+        recipeVersion: 1,
+      });
+      const presentation = resolveSectionPresentation({
+        layout: design.layout,
+        sectionVariants: design.sectionVariants,
+        content,
+      });
+    `);
+    const styleReads = inspectPublicRenderer(`
+      const style = bookingPage.stylePack;
+      const bookingAlias = bookingPage;
+      const tokens = bookingAlias['tokenOverrides'];
+      const { stylePack: activeStyle, tokenOverrides } = bookingPage;
+    `);
+
+    expect(fs.existsSync(presetResolverPath)).toBe(true);
+    expect(publicRendererFiles()).not.toContain(presetResolverPath);
+    expect(concretePresentationAdapter.filter(violation => (
+      violation.kind === 'preset-recipe-identity-read'
+      || violation.kind === 'premium-style-read'
+    ))).toEqual([]);
+    expect(identityReads.filter(violation => violation.kind === 'preset-recipe-identity-read'))
+      .toHaveLength(4);
+    expect(directRecipeResolver.filter(
+      violation => violation.kind === 'preset-recipe-identity-read',
+    )).toHaveLength(1);
+    expect(styleReads.filter(violation => violation.kind === 'premium-style-read'))
+      .toHaveLength(4);
   });
 
   it('is non-vacuous across hidden aliases, unclassified blocks, missing metadata and local guards', () => {

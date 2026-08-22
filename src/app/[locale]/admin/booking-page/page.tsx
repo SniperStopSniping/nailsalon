@@ -23,10 +23,13 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { BookingPageBuilder } from '@/components/admin/BookingPageBuilder';
+import {
+  BookingPagePresetPicker,
+  type BookingPagePresetPickerStatus,
+} from '@/components/admin/BookingPagePresetPicker';
 import type { BookingPageBuilderOperation } from '@/libs/bookingPageBuilder';
 import type {
   BookingPageConfig,
-  BookingPageLayout,
   BusinessMode,
   SectionId,
   StylePack,
@@ -48,21 +51,6 @@ import { SECTION_PRESENTATION_SECTION_IDS } from '@/libs/sectionPresentation';
 // rule for `QUICK_BOOK_SECTION_ORDER_FALLBACK`; these lists are this route's
 // equivalent same-shape duplicates of the server enums.
 // =============================================================================
-
-/**
- * Mirrors `BOOKING_PAGE_LAYOUTS` in `@/libs/bookingPageConfig`. `quick_book`
- * and, as of PR 6, `editorial` are implemented — extended additively here
- * (only the `editorial` entry's `implemented` flag flips; the array's shape
- * and every other entry are unchanged) rather than restructuring this list.
- * `tech_profile`/`portfolio`/`catalogue` remain PR 21/22/23's job.
- */
-const LAYOUT_OPTIONS: Array<{ id: BookingPageLayout; label: string; implemented: boolean }> = [
-  { id: 'quick_book', label: 'Quick Book', implemented: true },
-  { id: 'editorial', label: 'Editorial Luxury', implemented: true },
-  { id: 'tech_profile', label: 'Tech Profile', implemented: false },
-  { id: 'portfolio', label: 'Portfolio', implemented: false },
-  { id: 'catalogue', label: 'Catalogue', implemented: false },
-];
 
 /** Mirrors `REGISTERED_STYLE_PACKS`. Only `default` is implemented today (Rev 3 plan PR 20 adds the rest). */
 const STYLE_PACK_OPTIONS: Array<{ id: StylePack; label: string; implemented: boolean }> = [
@@ -119,10 +107,24 @@ async function patchBookingPage(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
+  const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(`Failed to save (${response.status})`);
+    throw new BookingPageRequestError(
+      response.status,
+      typeof payload?.code === 'string' ? payload.code : null,
+    );
   }
-  return response.json();
+  return payload;
+}
+
+class BookingPageRequestError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string | null,
+  ) {
+    super(`Failed to save (${status})`);
+    this.name = 'BookingPageRequestError';
+  }
 }
 
 async function postBookingPageAction(
@@ -245,10 +247,18 @@ export default function BookingPageOwnerSurface() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [saveStatus, setSaveStatus]
+    = useState<'idle' | 'saving' | 'saved' | 'stale' | 'error'>('idle');
   const [presentationPending, setPresentationPending] = useState(false);
+  const [presetStatus, setPresetStatus]
+    = useState<BookingPagePresetPickerStatus>('idle');
   const [previewRevision, setPreviewRevision] = useState(0);
-  const [previewedSectionIds, setPreviewedSectionIds] = useState<Set<SectionId> | null>(null);
+  const [previewAdmission, setPreviewAdmission] = useState<{
+    revision: number;
+    reorderableSectionOrder: SectionId[];
+    sectionIds: Set<SectionId>;
+  } | null>(null);
+  const [completedMoveRevision, setCompletedMoveRevision] = useState<number | null>(null);
   const [actionStatus, setActionStatus] = useState<'idle' | 'publishing' | 'reverting'>('idle');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
@@ -266,10 +276,22 @@ export default function BookingPageOwnerSurface() {
 
   const saveTokenRef = useRef(0);
   const presentationWritePendingRef = useRef(false);
-  const previewFrameRef = useRef<HTMLIFrameElement>(null);
-  const refreshPreview = useCallback(() => {
-    setPreviewedSectionIds(null);
-    setPreviewRevision(revision => revision + 1);
+  const previewRevisionRef = useRef(previewRevision);
+  previewRevisionRef.current = previewRevision;
+  const refreshPreview = useCallback((preserveAdmission = false) => {
+    setCompletedMoveRevision(null);
+    // Reordering changes canonical order, never Stage 2 admission. Preserve
+    // the last renderer-attested set for that one refresh so the moved row's
+    // focused controls remain mounted. Every operation that can change
+    // admission still fails closed until the replacement iframe reports its
+    // current public surfaces.
+    if (!preserveAdmission) {
+      setPreviewAdmission(null);
+    }
+    const nextRevision = previewRevisionRef.current + 1;
+    previewRevisionRef.current = nextRevision;
+    setPreviewRevision(nextRevision);
+    return nextRevision;
   }, []);
 
   useEffect(() => {
@@ -330,6 +352,7 @@ export default function BookingPageOwnerSurface() {
     if (!salonSlug) {
       return;
     }
+    setCompletedMoveRevision(null);
     const token = ++saveTokenRef.current;
     setSaveStatus('saving');
     try {
@@ -350,6 +373,7 @@ export default function BookingPageOwnerSurface() {
     if (!salonSlug) {
       return;
     }
+    setCompletedMoveRevision(null);
     const token = ++saveTokenRef.current;
     setSaveStatus('saving');
     try {
@@ -365,22 +389,6 @@ export default function BookingPageOwnerSurface() {
       }
     }
   }, [refreshPreview, salonSlug]);
-
-  const handleLayoutSelect = async (layout: BookingPageLayout) => {
-    const option = LAYOUT_OPTIONS.find(l => l.id === layout);
-    if (!option?.implemented || presentationWritePendingRef.current) {
-      return;
-    }
-
-    presentationWritePendingRef.current = true;
-    setPresentationPending(true);
-    try {
-      await saveConfigPatch({ layout });
-    } finally {
-      presentationWritePendingRef.current = false;
-      setPresentationPending(false);
-    }
-  };
 
   const handleStylePackSelect = (stylePack: StylePack) => {
     const option = STYLE_PACK_OPTIONS.find(p => p.id === stylePack);
@@ -403,20 +411,53 @@ export default function BookingPageOwnerSurface() {
       return;
     }
     if (operation.type === 'reset_all' && !window.confirm(
-      'Reset page customization to this layout’s starting arrangement? Your salon content will not be deleted.',
+      'Reset page customization to its starting design? Your salon content will not be deleted.',
     )) {
       return;
     }
 
     presentationWritePendingRef.current = true;
+    setCompletedMoveRevision(null);
     setPresentationPending(true);
+    setPresetStatus('idle');
     setSaveStatus('saving');
     try {
       const state = await patchBookingPage(salonSlug, { builderOperation: operation });
       setConfig(state.config);
       setSaveStatus('saved');
-      refreshPreview();
-    } catch {
+      if (operation.type === 'apply_preset') {
+        setPresetStatus('success');
+      }
+      const refreshedRevision = refreshPreview(operation.type === 'move_section');
+      if (operation.type === 'move_section') {
+        setCompletedMoveRevision(refreshedRevision);
+      }
+    } catch (operationError) {
+      const isSignatureGuardedOperation = operation.type === 'apply_preset'
+        || operation.type === 'reset_all';
+      if (isSignatureGuardedOperation
+        && operationError instanceof BookingPageRequestError
+        && operationError.status === 409
+        && operationError.code === 'STALE_PRESENTATION') {
+        try {
+          const latest = await fetchBookingPageState(salonSlug);
+          setConfig(latest.config);
+          if (operation.type === 'apply_preset') {
+            setPresetStatus('stale');
+            setSaveStatus('idle');
+          } else {
+            setSaveStatus('stale');
+          }
+          refreshPreview();
+          return;
+        } catch {
+          if (operation.type === 'apply_preset') {
+            setPresetStatus('error');
+          }
+        }
+      } else if (operation.type === 'apply_preset') {
+        setPresetStatus('error');
+      }
       setSaveStatus('error');
     } finally {
       presentationWritePendingRef.current = false;
@@ -424,20 +465,54 @@ export default function BookingPageOwnerSurface() {
     }
   }, [refreshPreview, salonSlug]);
 
-  const handlePreviewLoad = useCallback(() => {
-    const document = previewFrameRef.current?.contentDocument;
-    if (!document) {
+  const handlePreviewLoad = useCallback((frame: HTMLIFrameElement, revision: number) => {
+    if (revision !== previewRevisionRef.current) {
+      return;
+    }
+    const previewDocument = frame.contentDocument;
+    if (!previewDocument) {
+      return;
+    }
+    const canonicalBookingSurface = previewDocument.querySelector(
+      '[data-public-surface="serviceSelectionControls"]',
+    );
+    const authorizedDraftPreview = previewDocument.querySelector(
+      '[data-preview-variant="draft-config"], [data-preview-variant="draft-salon"]',
+    );
+    const completedRenderer = previewDocument.querySelector(
+      '[data-builder-reorderable-section-order]',
+    );
+    if (!canonicalBookingSurface || !authorizedDraftPreview || !completedRenderer) {
       return;
     }
     const knownIds = new Set<string>(SECTION_PRESENTATION_SECTION_IDS);
     const rendered = new Set<SectionId>();
-    for (const element of document.querySelectorAll<HTMLElement>('[data-public-surface]')) {
+    for (const element of previewDocument.querySelectorAll<HTMLElement>('[data-public-surface]')) {
       const sectionId = element.dataset.publicSurface;
-      if (sectionId && knownIds.has(sectionId)) {
-        rendered.add(sectionId as SectionId);
+      if (sectionId && knownIds.has(sectionId) && !rendered.has(sectionId as SectionId)) {
+        const knownSectionId = sectionId as SectionId;
+        rendered.add(knownSectionId);
       }
     }
-    setPreviewedSectionIds(rendered);
+    const attestedOrderValue = completedRenderer.getAttribute(
+      'data-builder-reorderable-section-order',
+    );
+    if (attestedOrderValue === null) {
+      return;
+    }
+    const reorderableSectionOrder: SectionId[] = [];
+    const attestedIds = new Set<SectionId>();
+    for (const rawSectionId of attestedOrderValue.split(/\s+/).filter(Boolean)) {
+      if (!knownIds.has(rawSectionId)
+        || attestedIds.has(rawSectionId as SectionId)
+        || !rendered.has(rawSectionId as SectionId)) {
+        return;
+      }
+      const sectionId = rawSectionId as SectionId;
+      attestedIds.add(sectionId);
+      reorderableSectionOrder.push(sectionId);
+    }
+    setPreviewAdmission({ revision, reorderableSectionOrder, sectionIds: rendered });
   }, []);
 
   const handlePublish = async () => {
@@ -446,6 +521,8 @@ export default function BookingPageOwnerSurface() {
     }
     presentationWritePendingRef.current = true;
     setPresentationPending(true);
+    setPresetStatus('idle');
+    setCompletedMoveRevision(null);
     setActionStatus('publishing');
     setActionMessage(null);
     try {
@@ -477,6 +554,8 @@ export default function BookingPageOwnerSurface() {
     }
     presentationWritePendingRef.current = true;
     setPresentationPending(true);
+    setPresetStatus('idle');
+    setCompletedMoveRevision(null);
     setActionStatus('reverting');
     setActionMessage(null);
     try {
@@ -582,6 +661,7 @@ export default function BookingPageOwnerSurface() {
         <div className="mt-3 h-5 text-xs text-stone-500" role="status" aria-live="polite">
           {saveStatus === 'saving' && 'Saving…'}
           {saveStatus === 'saved' && 'Saved'}
+          {saveStatus === 'stale' && 'Your draft changed elsewhere. The latest presentation is loaded; review it before trying again.'}
           {saveStatus === 'error' && 'Could not save — please retry.'}
         </div>
 
@@ -594,13 +674,13 @@ export default function BookingPageOwnerSurface() {
               {previewFrameSrc
                 ? (
                     <iframe
-                      ref={previewFrameRef}
+                      key={previewRevision}
                       title="Live booking page preview"
                       src={previewFrameSrc}
                       aria-hidden="true"
                       sandbox="allow-same-origin"
                       tabIndex={-1}
-                      onLoad={handlePreviewLoad}
+                      onLoad={event => handlePreviewLoad(event.currentTarget, previewRevision)}
                       className="pointer-events-none block h-[620px] w-full bg-white"
                     />
                   )
@@ -616,7 +696,7 @@ export default function BookingPageOwnerSurface() {
               <button
                 type="button"
                 data-testid="booking-page-preview-refresh"
-                onClick={refreshPreview}
+                onClick={() => refreshPreview()}
                 className="min-h-11 rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
               >
                 Refresh preview
@@ -624,32 +704,13 @@ export default function BookingPageOwnerSurface() {
             </div>
           </SectionCard>
 
-          <SectionCard title="Layout" description="Quick Book and Editorial Luxury are available today. The rest are on the way.">
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {LAYOUT_OPTIONS.map(option => (
-                <button
-                  key={option.id}
-                  type="button"
-                  disabled={!option.implemented || presentationPending}
-                  data-testid={`layout-option-${option.id}`}
-                  aria-pressed={draft.layout === option.id}
-                  onClick={() => void handleLayoutSelect(option.id)}
-                  className={`rounded-2xl border p-3 text-left text-sm font-medium transition-colors ${
-                    draft.layout === option.id
-                      ? 'border-rose-600 bg-rose-50 text-rose-800'
-                      : 'border-stone-200 bg-white text-stone-700'
-                  } ${!option.implemented || presentationPending
-                    ? 'cursor-not-allowed opacity-50'
-                    : 'hover:border-rose-300'}`}
-                >
-                  {option.label}
-                  {!option.implemented && (
-                    <span className="mt-1 block text-[11px] font-normal text-stone-400">Coming soon</span>
-                  )}
-                </button>
-              ))}
-            </div>
-          </SectionCard>
+          <BookingPagePresetPicker
+            draft={{ ...draft, presetBase: config.draftPresetBase }}
+            pending={presentationPending}
+            status={presetStatus}
+            previewBaseUrl={previewFrameSrc}
+            onOperation={operation => void handleBuilderOperation(operation)}
+          />
 
           <SectionCard title="Style pack" description="Only Default is available today.">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -698,8 +759,13 @@ export default function BookingPageOwnerSurface() {
 
           <BookingPageBuilder
             draft={draft}
+            completedMoveRevision={completedMoveRevision}
             pending={presentationPending}
-            previewedSectionIds={previewedSectionIds}
+            presetBase={config.draftPresetBase}
+            previewAdmissionRevision={previewAdmission?.revision ?? null}
+            previewRequestRevision={previewRevision}
+            previewedSectionIds={previewAdmission?.sectionIds ?? null}
+            previewedReorderableSectionOrder={previewAdmission?.reorderableSectionOrder ?? null}
             onOperation={operation => void handleBuilderOperation(operation)}
           />
 

@@ -1,5 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
+// @ts-expect-error -- React DOM's server runtime ships with Next.js, while this
+// repository intentionally does not carry the separate @types/react-dom package.
+import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { PublicSalonPageShell } from '@/components/PublicSalonPageShell';
@@ -521,6 +524,45 @@ describe('BookServiceClient', () => {
 
     expect(screen.getByText('Online booking is not ready yet')).toBeInTheDocument();
     expect(screen.getByText(/does not have any active services available to book right now/i)).toBeInTheDocument();
+  });
+
+  it('server-renders opaque real content for the authorized script-blocked builder preview only', () => {
+    const renderBeforeHydration = (isEmbeddedBuilderPreview: boolean) => {
+      const root = document.createElement('div');
+
+      root.innerHTML = renderToStaticMarkup(
+        <BookServiceClient
+          services={[services[0]!]}
+          bookingFlow={['service', 'tech', 'time', 'confirm']}
+          locations={[]}
+          isEmbeddedBuilderPreview={isEmbeddedBuilderPreview}
+        />,
+      );
+
+      return root;
+    };
+
+    const embeddedPreview = renderBeforeHydration(true);
+    const embeddedControls = embeddedPreview.querySelector<HTMLElement>(
+      '[data-public-surface="serviceSelectionControls"]',
+    );
+    const embeddedCard = embeddedPreview.querySelector<HTMLElement>(
+      '[data-testid="service-card-svc-1"]',
+    );
+
+    expect(embeddedControls).toHaveStyle({ opacity: '1', transform: 'translateY(0)' });
+    expect(embeddedCard).toHaveStyle({ opacity: '1', transform: 'translateY(0)' });
+
+    const ordinaryPage = renderBeforeHydration(false);
+    const ordinaryControls = ordinaryPage.querySelector<HTMLElement>(
+      '[data-public-surface="serviceSelectionControls"]',
+    );
+    const ordinaryCard = ordinaryPage.querySelector<HTMLElement>(
+      '[data-testid="service-card-svc-1"]',
+    );
+
+    expect(ordinaryControls).toHaveStyle({ opacity: '0', transform: 'translateY(10px)' });
+    expect(ordinaryCard).toHaveStyle({ opacity: '0', transform: 'translateY(15px)' });
   });
 
   it('keeps the existing service-page experience unchanged when customization is unconfigured', () => {

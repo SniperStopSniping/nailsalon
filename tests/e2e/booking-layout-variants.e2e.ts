@@ -1,12 +1,21 @@
 /* eslint-disable playwright/no-conditional-expect, playwright/no-conditional-in-test */
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type FrameLocator, type Page, test } from '@playwright/test';
 import { Client, type QueryResultRow } from 'pg';
 
+import {
+  BOOKING_PAGE_PRESET_IDS,
+  BOOKING_PAGE_PRESET_RECIPE_VERSION,
+  type BookingPagePresetId,
+  type BookingPagePresetReference,
+  getBookingPagePresentationSignature,
+  resolveBookingPagePresetRecipe,
+} from '../../src/libs/bookingPagePresetRecipes';
 import {
   attestDisposableDatabaseSession,
   requireDisposableDatabaseTarget,
   resolveDisposableDatabaseServerExpectation,
 } from '../../src/libs/disposableDatabaseTarget';
+import { formatDuration } from '../../src/utils/Helpers';
 import {
   appPath,
   authStatePaths,
@@ -18,6 +27,14 @@ const SYNTHETIC_SALON_ID = 'salon_nail-salon-no5';
 const SYNTHETIC_SALON_SLUG = 'nail-salon-no5';
 const SYNTHETIC_CI_CLERK_BOOTSTRAP_URL
   = 'https://ci.luster.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
+const SYNTHETIC_ACCESSIBLE_ADD_ON_ID = 'addon_e2e_nail-repair';
+
+const STAGE7_PRESET_LABELS = {
+  quick_book: 'Quick Book',
+  signature: 'Signature',
+  menu: 'Menu',
+  collective: 'Collective',
+} as const satisfies Record<BookingPagePresetId, string>;
 
 const SECTION_ORDER = [
   'salonProfile',
@@ -29,23 +46,10 @@ const SECTION_ORDER = [
   'bookingCta',
 ] as const;
 
-const STAGE5_SECTION_ORDER = [
+const ALL_PRESENTATION_SECTION_ORDER = [
   'salonProfile',
   'technicianProfile',
   'featuredServices',
-  'serviceMenu',
-  'hoursLocation',
-  'policies',
-  'socialLinks',
-  'bookingCta',
-] as const;
-
-const STAGE6_EDITORIAL_STARTING_ORDER = [
-  'salonProfile',
-  'featuredServices',
-  'technicianProfile',
-  'portfolio',
-  'reviews',
   'serviceMenu',
   'hoursLocation',
   'policies',
@@ -74,59 +78,39 @@ const VIEWPORT_SCENARIOS = [
 
 type Layout = 'editorial' | 'quick_book';
 
-type Stage5Profile = 'booking_led' | 'identity_led' | 'service_led' | 'team_led';
-
 type FixtureOptions = {
   businessMode?: 'solo' | 'team';
   hiddenSections?: readonly string[];
+  presetBase?: BookingPagePresetReference | null;
   sectionOrder?: readonly string[];
   sectionVariants?: Readonly<Record<string, string>>;
 };
 
-const STAGE5_PROFILES = {
-  booking_led: {
-    layout: 'quick_book',
-    sectionVariants: {
-      salonProfile: 'compact',
-      technicianProfile: 'full',
-      featuredServices: 'carousel',
-      serviceMenu: 'list',
-      hoursLocation: 'full',
-      policies: 'card',
-      socialLinks: 'icons',
-      bookingCta: 'sticky',
-    },
+// Kept deliberately independent from the production recipe catalog. The
+// recipes supply the fixture configuration; this table states the observable
+// DOM contract that each named product experience must satisfy.
+const STAGE7_PRESET_DOM_EXPECTATIONS = {
+  quick_book: {
     present: [
       'booking-step-header',
-      'editorial-about',
       'featured-services-scroll',
       'service-menu-list',
-      'editorial-visit',
       'booking-policy',
       'booking-social-links',
     ],
     absent: [
       'editorial-hero',
+      'editorial-about',
       'technician-profile-cards',
       'editorial-featured-services',
       'service-menu-grouped-categories',
+      'editorial-visit',
       'location-cards',
       'editorial-policies',
       'booking-social-links-labeled',
     ],
   },
-  identity_led: {
-    layout: 'editorial',
-    sectionVariants: {
-      salonProfile: 'hero_image',
-      technicianProfile: 'full',
-      featuredServices: 'signature',
-      serviceMenu: 'list',
-      hoursLocation: 'full',
-      policies: 'inline',
-      socialLinks: 'icons',
-      bookingCta: 'sticky',
-    },
+  signature: {
     present: [
       'editorial-hero',
       'editorial-about',
@@ -146,28 +130,28 @@ const STAGE5_PROFILES = {
       'booking-social-links-labeled',
     ],
   },
-  service_led: {
-    layout: 'editorial',
-    sectionVariants: {
-      salonProfile: 'compact',
-      technicianProfile: 'full',
-      featuredServices: 'carousel',
-      serviceMenu: 'grouped_categories',
-      hoursLocation: 'full',
-      policies: 'card',
-      socialLinks: 'icons',
-      bookingCta: 'sticky',
-    },
+  menu: {
     present: [
-      'booking-step-header',
-      'editorial-about',
+      'editorial-hero',
       'featured-services-scroll',
       'service-menu-grouped-categories',
-      'editorial-visit',
-      'booking-policy',
+      'editorial-policies',
       'booking-social-links',
     ],
     absent: [
+      'booking-step-header',
+      'editorial-about',
+      'technician-profile-cards',
+      'editorial-featured-services',
+      'service-menu-list',
+      'editorial-visit',
+      'location-cards',
+      'booking-policy',
+      'booking-social-links-labeled',
+    ],
+  },
+  collective: {
+    present: [
       'editorial-hero',
       'technician-profile-cards',
       'editorial-featured-services',
@@ -176,43 +160,19 @@ const STAGE5_PROFILES = {
       'editorial-policies',
       'booking-social-links-labeled',
     ],
-  },
-  team_led: {
-    layout: 'editorial',
-    sectionVariants: {
-      salonProfile: 'compact',
-      technicianProfile: 'cards',
-      featuredServices: 'carousel',
-      serviceMenu: 'list',
-      hoursLocation: 'location_cards',
-      policies: 'card',
-      socialLinks: 'labeled',
-      bookingCta: 'sticky',
-    },
-    present: [
-      'booking-step-header',
-      'technician-profile-cards',
-      'featured-services-scroll',
-      'service-menu-list',
-      'location-cards',
-      'booking-policy',
-      'booking-social-links-labeled',
-    ],
     absent: [
-      'editorial-hero',
+      'booking-step-header',
       'editorial-about',
-      'editorial-featured-services',
+      'featured-services-scroll',
       'service-menu-grouped-categories',
       'editorial-visit',
-      'editorial-policies',
+      'booking-policy',
       'booking-social-links',
     ],
   },
-} as const satisfies Record<Stage5Profile, {
+} as const satisfies Record<BookingPagePresetId, {
   absent: readonly string[];
-  layout: Layout;
   present: readonly string[];
-  sectionVariants: Readonly<Record<string, string>>;
 }>;
 
 type SalonFixtureRow = QueryResultRow & {
@@ -222,8 +182,11 @@ type SalonFixtureRow = QueryResultRow & {
 };
 
 type ServiceFixtureRow = QueryResultRow & {
+  duration_minutes: number;
   id: string;
   name: string;
+  price: number;
+  price_display_text: string | null;
 };
 
 type TechnicianFixtureRow = QueryResultRow & {
@@ -233,14 +196,23 @@ type TechnicianFixtureRow = QueryResultRow & {
   phone: string | null;
 };
 
+type AddOnFixtureRow = QueryResultRow & {
+  duration_minutes: number;
+  name: string;
+  price_cents: number;
+};
+
 type FeaturedServiceSnapshot = {
   id: string;
   text: string;
 };
 
-type Stage5ProfileSnapshot = {
+type Stage7PresetSnapshot = {
+  policyText: string;
   serviceText: string;
+  socialHref: string;
   structure: string;
+  technicianNames: string[];
 };
 
 type BuilderOperation =
@@ -251,21 +223,33 @@ type BuilderOperation =
     direction: 'up' | 'down';
   }
   | { type: 'set_variant'; sectionId: string; variant: string | null }
-  | { type: 'reset_all' };
+  | {
+    type: 'reset_all';
+    expectedPresentationSignature: string;
+  }
+  | {
+    type: 'apply_preset';
+    presetId: BookingPagePresetId;
+    presetVersion: typeof BOOKING_PAGE_PRESET_RECIPE_VERSION;
+    expectedPresentationSignature: string;
+  };
 
 type BuilderApiState = {
   config: {
     draft: {
       hiddenSections: string[];
+      layout: Layout;
       sectionOrder: string[];
       sectionVariants: Record<string, string>;
     };
     live: unknown;
+    draftPresetBase: BookingPagePresetReference | null;
+    livePresetBase: BookingPagePresetReference | null;
   };
   content: unknown;
 };
 
-const STAGE5_STRUCTURAL_MARKERS = [
+const STAGE7_STRUCTURAL_MARKERS = [
   'booking-step-header',
   'editorial-hero',
   'editorial-about',
@@ -389,6 +373,12 @@ function buildFixtureSettings(
       version: 1,
       draft: side,
       live: side,
+      ...(options.presetBase === undefined
+        ? {}
+        : {
+            draftPresetBase: options.presetBase,
+            livePresetBase: options.presetBase,
+          }),
     },
     bookingPageContent: {
       version: 1,
@@ -670,13 +660,13 @@ async function expectLayoutStructure(
   ));
 }
 
-async function expectStage5ProfileStructure(
+async function expectStage7PresetStructure(
   page: Page,
-  profile: Stage5Profile,
+  presetId: BookingPagePresetId,
   salonName: string,
   technicians: TechnicianFixtureRow[],
-): Promise<Stage5ProfileSnapshot> {
-  const definition = STAGE5_PROFILES[profile];
+): Promise<Stage7PresetSnapshot> {
+  const expectation = STAGE7_PRESET_DOM_EXPECTATIONS[presetId];
 
   await expect(page.locator('main')).toHaveCount(1);
   await expect(page.locator('main main')).toHaveCount(0);
@@ -686,24 +676,22 @@ async function expectStage5ProfileStructure(
   await expect(page.getByTestId('booking-experience-intro')).toHaveCount(1);
   await expect(page.getByTestId('booking-appointment-only')).toHaveText('Synthetic appointment only');
 
-  for (const testId of definition.present) {
-    await expect(page.getByTestId(testId), `${profile} must render ${testId} exactly once`).toHaveCount(1);
-    await expect(page.getByTestId(testId), `${profile} must visibly render ${testId}`).toBeVisible();
+  for (const testId of expectation.present) {
+    await expect(page.getByTestId(testId), `${presetId} must render ${testId} exactly once`).toHaveCount(1);
+    await expect(page.getByTestId(testId), `${presetId} must visibly render ${testId}`).toBeVisible();
   }
-  for (const testId of definition.absent) {
-    await expect(page.getByTestId(testId), `${profile} must not render ${testId}`).toHaveCount(0);
+  for (const testId of expectation.absent) {
+    await expect(page.getByTestId(testId), `${presetId} must not render ${testId}`).toHaveCount(0);
   }
 
-  await expect(page.locator('[data-public-surface="technicianProfile"]')).toHaveCount(1);
-  await expect(page.locator('[data-public-surface="hoursLocation"]')).toHaveCount(1);
   await expect(page.locator('[data-public-surface="socialLinks"]')).toHaveCount(1);
 
-  if (profile === 'identity_led') {
+  if (presetId !== 'quick_book') {
     await expect(page.getByRole('heading', { level: 1 })).toHaveText(salonName);
     await expect(page.getByTestId('editorial-hero-image')).toHaveAttribute('alt', `${salonName} salon`);
   }
 
-  if (profile === 'service_led') {
+  if (presetId === 'menu') {
     await expect(page.getByTestId('service-category-scroll')).toHaveCount(0);
     await expect(page.getByRole('heading', { level: 2, name: 'Services' })).toHaveCount(1);
 
@@ -722,16 +710,20 @@ async function expectStage5ProfileStructure(
     await expect(page.getByTestId('service-category-scroll')).toHaveCount(1);
   }
 
-  for (const technician of technicians) {
-    const profileSurface = profile === 'team_led'
-      ? page.getByTestId(`technician-profile-card-${technician.id}`)
-      : page.getByTestId(`editorial-technician-${technician.id}`);
+  if (presetId === 'signature' || presetId === 'collective') {
+    for (const technician of technicians) {
+      const profileSurface = presetId === 'collective'
+        ? page.getByTestId(`technician-profile-card-${technician.id}`)
+        : page.getByTestId(`editorial-technician-${technician.id}`);
 
-    await expect(profileSurface).toHaveCount(1);
-    await expect(profileSurface).toContainText(technician.name);
+      await expect(profileSurface).toHaveCount(1);
+      await expect(profileSurface).toContainText(technician.name);
+    }
+  } else {
+    await expect(page.locator('[data-public-surface="technicianProfile"]')).toHaveCount(0);
   }
 
-  if (profile === 'team_led') {
+  if (presetId === 'collective') {
     await expect(page.getByTestId('technician-profile-cards').getByRole('listitem')).toHaveCount(technicians.length);
     await expect(page.getByTestId('location-cards').getByRole('listitem')).not.toHaveCount(0);
 
@@ -742,15 +734,15 @@ async function expectStage5ProfileStructure(
     await expect(labeledSocialLink).toHaveAttribute('href', 'https://www.instagram.com/luster-stage4-fixture');
     expect(socialTarget).not.toBeNull();
     expect(socialTarget!.height).toBeGreaterThanOrEqual(44);
+  }
 
-    const publicText = await page.locator('body').textContent() ?? '';
-    for (const technician of technicians) {
-      if (technician.email) {
-        expect(publicText).not.toContain(technician.email);
-      }
-      if (technician.phone) {
-        expect(publicText).not.toContain(technician.phone);
-      }
+  const publicText = await page.locator('body').textContent() ?? '';
+  for (const technician of technicians) {
+    if (technician.email) {
+      expect(publicText).not.toContain(technician.email);
+    }
+    if (technician.phone) {
+      expect(publicText).not.toContain(technician.phone);
     }
   }
 
@@ -758,18 +750,110 @@ async function expectStage5ProfileStructure(
   await expectNoHorizontalOverflow(page);
 
   const actualMarkers: string[] = [];
-  for (const testId of STAGE5_STRUCTURAL_MARKERS) {
+  for (const testId of STAGE7_STRUCTURAL_MARKERS) {
     if (await page.getByTestId(testId).count()) {
       actualMarkers.push(testId);
     }
   }
 
+  const policy = presetId === 'quick_book'
+    ? page.getByTestId('booking-policy').locator('p')
+    : page.getByTestId('editorial-policies').locator('p');
+  const social = presetId === 'collective'
+    ? page.getByTestId('booking-social-links-labeled').getByRole('link').first()
+    : page.getByTestId('booking-social-links').getByRole('link').first();
+
   return {
+    policyText: (await policy.textContent() ?? '').replace(/\s+/g, ' ').trim(),
     serviceText: (await page.getByTestId(`service-card-${e2eConfig.serviceId}`).textContent() ?? '')
       .replace(/\s+/g, ' ')
       .trim(),
+    socialHref: await social.getAttribute('href') ?? '',
     structure: actualMarkers.join('|'),
+    technicianNames: presetId === 'signature' || presetId === 'collective'
+      ? technicians.map(technician => technician.name)
+      : [],
   };
+}
+
+async function expectOpaquePreviewServiceCard(
+  preview: FrameLocator,
+  serviceId: string,
+  evidenceLabel: string,
+): Promise<void> {
+  const serviceCard = preview.getByTestId(`service-card-${serviceId}`);
+
+  await expect(serviceCard).toBeVisible();
+  await expect.poll(
+    () => serviceCard.evaluate(element => getComputedStyle(element).opacity),
+    { message: `${evidenceLabel} must reveal real renderer pixels without iframe scripts` },
+  ).toBe('1');
+  await expect(serviceCard).not.toHaveText('');
+}
+
+async function expectSelectedServiceSummary({
+  addOn,
+  page,
+  presetId,
+  service,
+}: {
+  addOn: AddOnFixtureRow;
+  page: Page;
+  presetId: BookingPagePresetId;
+  service: ServiceFixtureRow;
+}): Promise<void> {
+  const serviceCard = page.getByTestId(`service-card-${service.id}`);
+  const stickyBar = page.getByTestId('service-sticky-bar');
+  const formatPrice = (cents: number) => new Intl.NumberFormat('en-CA', {
+    style: 'currency',
+    currency: 'CAD',
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
+
+  await expect.poll(
+    () => serviceCard.evaluate(element => !(element as HTMLButtonElement).disabled),
+  ).toBe(true);
+
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  if (presetId === 'quick_book') {
+    await expect(page.getByTestId('editorial-sticky-cta')).toHaveCount(0);
+  } else {
+    await expect(page.getByTestId('editorial-sticky-cta')).toBeVisible();
+  }
+
+  await expect(stickyBar).toHaveCount(0);
+
+  // Trigger the real hydrated service-card handler without scrolling the
+  // Editorial anchor into its handoff position. This discriminates the Fable
+  // regression: selection itself must outrank the marketing jump CTA.
+  await serviceCard.evaluate(element => (element as HTMLButtonElement).click());
+
+  await expect(page.getByTestId('editorial-sticky-cta')).toHaveCount(0);
+  await expect(stickyBar).toBeVisible();
+  await expect(stickyBar).toContainText('1 service');
+  await expect(stickyBar).toContainText(formatPrice(service.price));
+  await expect(stickyBar).toContainText(formatDuration(service.duration_minutes));
+  await expect(page.getByTestId('service-continue-button')).toBeVisible();
+
+  const increaseAddOn = page.getByRole('button', {
+    name: `Increase ${addOn.name} quantity`,
+  });
+
+  await expect(increaseAddOn).toBeEnabled();
+
+  await increaseAddOn.click();
+
+  await expect(stickyBar).toContainText('1 service + 1 add-on');
+  await expect(stickyBar).toContainText(formatPrice(service.price + addOn.price_cents));
+  await expect(stickyBar).toContainText(formatDuration(
+    service.duration_minutes + addOn.duration_minutes,
+  ));
+  await expect.poll(() => new URL(page.url()).searchParams.get('baseServiceId'))
+    .toBe(service.id);
+  await expect.poll(() => new URL(page.url()).searchParams.get('selectedAddOns'))
+    .toContain(SYNTHETIC_ACCESSIBLE_ADD_ON_ID);
 }
 
 test.describe.configure({ mode: 'serial' });
@@ -927,7 +1011,7 @@ test('Quick Book and Editorial keep one canonical booking spine across mobile an
   }
 });
 
-test('Stage 5 variants express four reusable profiles with canonical content across mobile and zoom @mobile-layout', async ({
+test('Stage 7 production recipes express four curated structures with one canonical content truth across mobile and zoom @mobile-layout', async ({
   baseURL,
   browser,
 }) => {
@@ -962,8 +1046,14 @@ test('Stage 5 variants express four reusable profiles with canonical content acr
     fixtureLoaded = true;
 
     const serviceResult = await client.query<ServiceFixtureRow>(
-      'SELECT id, name FROM service WHERE salon_id = $1 AND id = $2',
+      'SELECT id, name, price, price_display_text, duration_minutes FROM service WHERE salon_id = $1 AND id = $2',
       [SYNTHETIC_SALON_ID, e2eConfig.serviceId],
+    );
+    const addOnResult = await client.query<AddOnFixtureRow>(
+      `SELECT name, price_cents, duration_minutes
+       FROM add_on
+       WHERE salon_id = $1 AND id = $2 AND is_active = true`,
+      [SYNTHETIC_SALON_ID, SYNTHETIC_ACCESSIBLE_ADD_ON_ID],
     );
     const technicianResult = await client.query<TechnicianFixtureRow>(
       `SELECT id, name, email, phone
@@ -976,23 +1066,38 @@ test('Stage 5 variants express four reusable profiles with canonical content acr
     );
 
     expect(serviceResult.rows).toHaveLength(1);
+    expect(addOnResult.rows).toHaveLength(1);
     expect(technicianResult.rows.length).toBeGreaterThan(0);
 
     const canonicalServiceName = serviceResult.rows[0]!.name;
-    const profileSnapshots = new Map<Stage5Profile, Stage5ProfileSnapshot>();
+    const canonicalDuration = formatDuration(serviceResult.rows[0]!.duration_minutes);
+    const canonicalPrice = serviceResult.rows[0]!.price_display_text ?? new Intl.NumberFormat('en-CA', {
+      style: 'currency',
+      currency: 'CAD',
+      minimumFractionDigits: serviceResult.rows[0]!.price % 100 === 0 ? 0 : 2,
+      maximumFractionDigits: 2,
+    }).format(serviceResult.rows[0]!.price / 100);
+    const presetSnapshots = new Map<BookingPagePresetId, Stage7PresetSnapshot>();
 
-    for (const profile of Object.keys(STAGE5_PROFILES) as Stage5Profile[]) {
-      const definition = STAGE5_PROFILES[profile];
+    for (const presetId of BOOKING_PAGE_PRESET_IDS) {
+      const recipe = resolveBookingPagePresetRecipe({
+        presetId,
+        recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+      });
+
+      expect(recipe, `${presetId} must resolve through the production recipe contract`).not.toBeNull();
+
       const heroImageUrl = new URL('/assets/images/nextjs-starter-banner.png', baseURL).toString();
       const fixtureSettings = buildFixtureSettings(
         originalSettings,
-        definition.layout,
+        recipe!.layout,
         heroImageUrl,
         {
           businessMode: 'team',
-          hiddenSections: [],
-          sectionOrder: STAGE5_SECTION_ORDER,
-          sectionVariants: definition.sectionVariants,
+          hiddenSections: recipe!.hiddenSections,
+          presetBase: recipe!.presetBase,
+          sectionOrder: recipe!.sectionOrder,
+          sectionVariants: recipe!.sectionVariants,
         },
       );
       const updateResult = await client.query(
@@ -1044,40 +1149,56 @@ test('Stage 5 variants express four reusable profiles with canonical content acr
           });
 
           const response = await page.goto(
-            `${appPath(`/${SYNTHETIC_SALON_SLUG}/book/service`)}?stage5Evidence=${profile}-${scenario.label}`,
+            `${appPath(`/${SYNTHETIC_SALON_SLUG}/book/service`)}?stage7Evidence=${presetId}-${scenario.label}`,
             { waitUntil: 'domcontentloaded' },
           );
 
           expect(response?.ok(), await response?.text()).toBe(true);
           await expect(page.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
 
-          const snapshot = await expectStage5ProfileStructure(
+          const snapshot = await expectStage7PresetStructure(
             page,
-            profile,
+            presetId,
             salonName!,
             technicianResult.rows,
           );
 
           expect(snapshot.serviceText).toContain(canonicalServiceName);
+          expect(snapshot.serviceText).toContain(canonicalDuration);
+          expect(snapshot.serviceText).toContain(canonicalPrice);
+          expect(snapshot.policyText).toBe('Please arrive five minutes before your synthetic appointment.');
+          expect(snapshot.socialHref).toBe('https://www.instagram.com/luster-stage4-fixture');
 
-          const baseline = profileSnapshots.get(profile);
+          await expectSelectedServiceSummary({
+            addOn: addOnResult.rows[0]!,
+            page,
+            presetId,
+            service: serviceResult.rows[0]!,
+          });
+
+          const baseline = presetSnapshots.get(presetId);
           if (baseline) {
-            expect(snapshot, `${profile} must remain stable at ${scenario.label}`).toEqual(baseline);
+            expect(snapshot, `${presetId} must remain stable at ${scenario.label}`).toEqual(baseline);
           } else {
-            profileSnapshots.set(profile, snapshot);
+            presetSnapshots.set(presetId, snapshot);
           }
 
-          expect(attemptedWrites, 'The Stage 5 browser walk must not create appointments or payments.').toEqual([]);
-          expect(externalRequests, 'The deterministic Stage 5 lane must not depend on hosted resources.').toEqual([]);
+          expect(attemptedWrites, 'The Stage 7 browser walk must not create appointments or payments.').toEqual([]);
+          expect(externalRequests, 'The deterministic Stage 7 lane must not depend on hosted resources.').toEqual([]);
         } finally {
           await context.close();
         }
       }
     }
 
-    expect(profileSnapshots.size).toBe(4);
-    expect(new Set([...profileSnapshots.values()].map(snapshot => snapshot.structure)).size).toBe(4);
-    expect(new Set([...profileSnapshots.values()].map(snapshot => snapshot.serviceText)).size).toBe(1);
+    expect(presetSnapshots.size).toBe(4);
+    expect(new Set([...presetSnapshots.values()].map(snapshot => snapshot.structure)).size).toBe(4);
+    expect(new Set([...presetSnapshots.values()].map(snapshot => snapshot.serviceText)).size).toBe(1);
+    expect(new Set([...presetSnapshots.values()].map(snapshot => snapshot.policyText)).size).toBe(1);
+    expect(new Set([...presetSnapshots.values()].map(snapshot => snapshot.socialHref)).size).toBe(1);
+    expect(presetSnapshots.get('signature')?.technicianNames).toEqual(
+      presetSnapshots.get('collective')?.technicianNames,
+    );
   } finally {
     try {
       if (fixtureLoaded) {
@@ -1102,7 +1223,7 @@ test('Stage 5 variants express four reusable profiles with canonical content acr
   }
 });
 
-test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, and targets honest across mobile and zoom @mobile-layout', async ({
+test('Stage 7 owner preset confirmation updates only the real draft preview and preserves Stage 6 keyboard/reset evidence @mobile-layout', async ({
   baseURL,
   browser,
 }) => {
@@ -1132,6 +1253,15 @@ test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, an
     expect(fixtureResult.rows).toHaveLength(1);
     expect(fixtureResult.rows[0]?.id).toBe(SYNTHETIC_SALON_ID);
 
+    const serviceResult = await client.query<Pick<ServiceFixtureRow, 'name'>>(
+      'SELECT name FROM service WHERE salon_id = $1 AND id = $2',
+      [SYNTHETIC_SALON_ID, e2eConfig.serviceId],
+    );
+
+    expect(serviceResult.rows).toHaveLength(1);
+
+    const canonicalServiceName = serviceResult.rows[0]!.name;
+
     originalSettings = fixtureResult.rows[0]?.settings ?? null;
     fixtureLoaded = true;
 
@@ -1144,7 +1274,7 @@ test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, an
         {
           businessMode: 'team',
           hiddenSections: [],
-          sectionOrder: STAGE5_SECTION_ORDER,
+          sectionOrder: ALL_PRESENTATION_SECTION_ORDER,
           sectionVariants: {
             salonProfile: 'compact',
             technicianProfile: 'full',
@@ -1229,7 +1359,7 @@ test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, an
         });
 
         const response = await page.goto(
-          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&stage6Evidence=${encodeURIComponent(scenario.label)}`,
+          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&stage7Evidence=${encodeURIComponent(scenario.label)}`,
           { waitUntil: 'domcontentloaded' },
         );
 
@@ -1254,6 +1384,12 @@ test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, an
         await expect(preview.getByTestId('service-menu-list')).toBeVisible();
         await expect(preview.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
 
+        await expectOpaquePreviewServiceCard(
+          preview,
+          e2eConfig.serviceId,
+          `${scenario.label} embedded live preview`,
+        );
+
         for (const protectedSectionId of ['salonProfile', 'serviceMenu', 'bookingCta']) {
           await expect(page.getByTestId(`builder-visibility-${protectedSectionId}`)).toHaveCount(0);
           await expect(page.getByTestId(`builder-section-status-${protectedSectionId}`)).toHaveText('Protected');
@@ -1265,11 +1401,147 @@ test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, an
         const beforeState = await fetchBuilderApiState(page);
         const canonicalContent = beforeState.content;
         const livePresentation = beforeState.config.live;
+        const livePresetBase = beforeState.config.livePresetBase;
         const serviceTextBefore = (
           await preview.getByTestId(`service-card-${e2eConfig.serviceId}`).textContent()
           ?? ''
         ).replace(/\s+/g, ' ').trim();
-        const initialFlowOrder = beforeState.config.draft.sectionOrder.filter(sectionId => (
+        const collectiveRecipe = resolveBookingPagePresetRecipe({
+          presetId: 'collective',
+          recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+        });
+
+        expect(collectiveRecipe).not.toBeNull();
+        expect(beforeState.config.draftPresetBase).toBeNull();
+        await expect(page.getByTestId('booking-page-preset-state'))
+          .toHaveText('Custom · existing design');
+
+        for (const presetId of ['quick_book', 'signature', 'menu'] as const) {
+          const presetLabel = STAGE7_PRESET_LABELS[presetId];
+
+          await page.getByRole('button', {
+            name: `${presetLabel} starting design`,
+          }).click();
+
+          const reviewDialog = page.getByRole('alertdialog', {
+            name: `Switch to ${presetLabel}?`,
+          });
+          const reviewFrameTitle = `${presetLabel} design preview`;
+          const reviewIframe = reviewDialog.locator(`iframe[title="${reviewFrameTitle}"]`);
+          const reviewPreview = page.frameLocator(`iframe[title="${reviewFrameTitle}"]`);
+
+          await expect(reviewDialog).toBeVisible();
+          await expect(reviewIframe).toHaveAttribute('sandbox', 'allow-same-origin');
+          await expect(reviewPreview.getByTestId(
+            STAGE7_PRESET_DOM_EXPECTATIONS[presetId].present[0],
+          )).toBeVisible();
+
+          await expectOpaquePreviewServiceCard(
+            reviewPreview,
+            e2eConfig.serviceId,
+            `${scenario.label} ${presetLabel} preset-switch preview`,
+          );
+          await reviewDialog.getByRole('button', { name: 'Cancel' }).click();
+
+          await expect(reviewDialog).toHaveCount(0);
+        }
+
+        const applyPresetOperation = {
+          type: 'apply_preset',
+          presetId: 'collective',
+          presetVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+          expectedPresentationSignature: getBookingPagePresentationSignature({
+            ...beforeState.config.draft,
+            presetBase: beforeState.config.draftPresetBase,
+          }),
+        } as const;
+        const collectiveCard = page.getByRole('button', { name: 'Collective starting design' });
+
+        await collectiveCard.click();
+
+        const presetDialog = page.getByRole('alertdialog', { name: 'Switch to Collective?' });
+
+        await expect(presetDialog).toBeVisible();
+        await expect(presetDialog.getByRole('button', { name: 'Cancel' })).toBeFocused();
+        await expect(presetDialog).toContainText(
+          'Only the draft’s layout, section order, section visibility, and section presentations will change.',
+        );
+        await expect(presetDialog).toContainText('Your live booking page will not change until you publish.');
+
+        const targetPreviewIframe = presetDialog.locator(
+          'iframe[title="Collective design preview"]',
+        );
+        const targetPreview = page.frameLocator(
+          'iframe[title="Collective design preview"]',
+        );
+
+        await expect(targetPreviewIframe).toHaveAttribute(
+          'src',
+          new RegExp(
+            `/${e2eConfig.locale}/${SYNTHETIC_SALON_SLUG}/book/service\\?builderPreview=\\d+&presetPreview=collective&presetPreviewVersion=1`,
+          ),
+        );
+        await expect(targetPreviewIframe).toHaveAttribute('sandbox', 'allow-same-origin');
+        await expect(targetPreview.getByTestId('technician-profile-cards')).toBeVisible();
+        await expect(targetPreview.getByTestId('editorial-featured-services')).toBeVisible();
+        await expect(targetPreview.getByTestId('location-cards')).toBeVisible();
+        await expect(targetPreview.getByTestId('booking-social-links-labeled')).toBeVisible();
+        await expect(targetPreview.getByTestId('service-menu-list')).toBeVisible();
+        await expect(targetPreview.getByTestId(`service-card-${e2eConfig.serviceId}`))
+          .toContainText(canonicalServiceName);
+
+        await expectOpaquePreviewServiceCard(
+          targetPreview,
+          e2eConfig.serviceId,
+          `${scenario.label} Collective preset-switch preview`,
+        );
+
+        const dialogBox = await page.getByTestId('booking-page-preset-dialog-content')
+          .boundingBox();
+
+        expect(dialogBox, `${scenario.label} preset dialog must have a rendered viewport box`)
+          .not.toBeNull();
+        expect(dialogBox!.y, `${scenario.label} preset dialog must start inside the viewport`)
+          .toBeGreaterThanOrEqual(0);
+        expect(
+          dialogBox!.y + dialogBox!.height,
+          `${scenario.label} preset dialog must end inside the viewport`,
+        ).toBeLessThanOrEqual(scenario.viewport.height);
+        expect(allowedBuilderPatches, 'opening the preset review must not mutate the draft').toEqual([]);
+
+        const appliedPresetState = await applyBuilderOperationFromPage(
+          page,
+          applyPresetOperation,
+          () => presetDialog.getByRole('button', { name: 'Use Collective' }).click(),
+        );
+
+        expect(appliedPresetState.config.draft).toMatchObject({
+          hiddenSections: [...collectiveRecipe!.hiddenSections],
+          layout: collectiveRecipe!.layout,
+          sectionOrder: [...collectiveRecipe!.sectionOrder],
+          sectionVariants: { ...collectiveRecipe!.sectionVariants },
+        });
+        expect(appliedPresetState.config.draftPresetBase).toEqual(collectiveRecipe!.presetBase);
+        expect(appliedPresetState.config.live).toEqual(livePresentation);
+        expect(appliedPresetState.config.livePresetBase).toEqual(livePresetBase);
+        await expect(page.getByRole('heading', { name: 'Starting design' })).toBeFocused();
+        await expect(page.getByTestId('booking-page-preset-state')).toHaveText('Collective');
+        await expect(page.getByTestId('booking-page-preset-picker').getByRole('status')).toContainText(
+          'Starting design applied to your draft. Review the preview, then publish when you’re ready.',
+        );
+        await expect(preview.getByTestId('technician-profile-cards')).toBeVisible();
+        await expect(preview.getByTestId('editorial-featured-services')).toBeVisible();
+        await expect(preview.getByTestId('location-cards')).toBeVisible();
+        await expect(preview.getByTestId('booking-social-links-labeled')).toBeVisible();
+        await expect(preview.getByTestId('service-menu-list')).toBeVisible();
+
+        await expectOpaquePreviewServiceCard(
+          preview,
+          e2eConfig.serviceId,
+          `${scenario.label} applied Collective live preview`,
+        );
+
+        const initialFlowOrder = appliedPresetState.config.draft.sectionOrder.filter(sectionId => (
           (STAGE6_FLOW_ORDER_PROOF_IDS as readonly string[]).includes(sectionId)
         ));
 
@@ -1302,13 +1574,18 @@ test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, an
 
         await expectBuilderAndDraftPreviewOrder(page, movedFlowOrder);
 
+        await expect(page.getByRole('button', { name: 'Move Policies up' })).toBeFocused();
+        await expect(builder.getByTestId('builder-reorder-status')).toHaveText(
+          'Policies moved to position 3 of 4 movable sections.',
+        );
+
         const groupedOperation = {
           type: 'set_variant',
           sectionId: 'serviceMenu',
           variant: 'grouped_categories',
         } as const;
 
-        await applyBuilderOperationFromPage(
+        const groupedState = await applyBuilderOperationFromPage(
           page,
           groupedOperation,
           () => page.getByTestId('builder-variant-serviceMenu').selectOption('grouped_categories'),
@@ -1321,7 +1598,13 @@ test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, an
           e2eConfig.serviceName,
         );
 
-        const resetOperation = { type: 'reset_all' } as const;
+        const resetOperation = {
+          type: 'reset_all',
+          expectedPresentationSignature: getBookingPagePresentationSignature({
+            ...groupedState.config.draft,
+            presetBase: groupedState.config.draftPresetBase,
+          }),
+        } as const;
         const resetState = await applyBuilderOperationFromPage(
           page,
           resetOperation,
@@ -1339,14 +1622,19 @@ test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, an
         );
 
         expect(resetState.config.draft).toMatchObject({
-          hiddenSections: [],
-          sectionOrder: [...STAGE6_EDITORIAL_STARTING_ORDER],
-          sectionVariants: {},
+          hiddenSections: [...collectiveRecipe!.hiddenSections],
+          layout: collectiveRecipe!.layout,
+          sectionOrder: [...collectiveRecipe!.sectionOrder],
+          sectionVariants: { ...collectiveRecipe!.sectionVariants },
         });
+        expect(resetState.config.draftPresetBase).toEqual(collectiveRecipe!.presetBase);
         await expect(page.getByTestId('booking-page-customization-state')).toHaveText('Using starting design');
+        await expect(page.getByTestId('booking-page-preset-state')).toHaveText('Collective');
         await expect(page.getByTestId('builder-reset-all')).toBeDisabled();
         await expect(preview.getByTestId('service-menu-list')).toBeVisible();
         await expect(preview.getByTestId('service-menu-grouped-categories')).toHaveCount(0);
+        await expect(preview.getByTestId('technician-profile-cards')).toBeVisible();
+        await expect(preview.getByTestId('location-cards')).toBeVisible();
 
         const resetFlowOrder = resetState.config.draft.sectionOrder.filter(sectionId => (
           (STAGE6_FLOW_ORDER_PROOF_IDS as readonly string[]).includes(sectionId)
@@ -1361,7 +1649,10 @@ test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, an
 
         expect(afterState.content, 'reset must not rewrite canonical booking-page content').toEqual(canonicalContent);
         expect(afterState.config.live, 'draft builder operations must not rewrite published presentation').toEqual(livePresentation);
-        expect(serviceTextAfter, 'the same canonical service must survive move, variant, and reset').toBe(serviceTextBefore);
+        expect(afterState.config.livePresetBase, 'draft preset operations must not rewrite published provenance')
+          .toEqual(livePresetBase);
+        expect(serviceTextAfter, 'the same canonical service must survive preset, move, variant, and reset')
+          .toBe(serviceTextBefore);
 
         const persistedResult = await client.query<SalonFixtureRow>(
           'SELECT id, name, settings FROM salon WHERE id = $1',
@@ -1375,8 +1666,13 @@ test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, an
 
         expect(persistedSettings.bookingExperience).toEqual(fixtureSettings.bookingExperience);
         expect(persistedSettings.bookingPageContent).toEqual(fixtureSettings.bookingPageContent);
+        expect(persistedSettings.bookingPage).toMatchObject({
+          draftPresetBase: collectiveRecipe!.presetBase,
+          live: (fixtureSettings.bookingPage as Record<string, unknown>).live,
+        });
 
         expect(allowedBuilderPatches).toEqual([
+          { builderOperation: applyPresetOperation },
           { builderOperation: moveOperation },
           { builderOperation: groupedOperation },
           { builderOperation: resetOperation },

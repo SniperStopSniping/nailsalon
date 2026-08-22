@@ -564,6 +564,33 @@ describe('BookServicePage owner-preview wiring', () => {
     }));
   });
 
+  it('ignores a valid target-preset query for an ordinary visitor and keeps the active live side', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: false,
+      isPreviewingDraftConfig: false,
+      actorType: null,
+    });
+
+    const element = await BookServicePage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        presetPreview: 'collective',
+        presetPreviewVersion: '1',
+      },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(element);
+
+    expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+      ownerPreview: { isPreviewing: false, actorType: null },
+      bookingPage: expect.objectContaining({
+        layout: 'quick_book',
+        sectionVariants: {},
+      }),
+    }));
+  });
+
   it('threads ownerPreview/bookingPage/previewBannerVariant through to PublicSalonPageShell for an authorized owner previewing a draft salon', async () => {
     resolveDraftSalonAccess.mockResolvedValue({
       allowed: true,
@@ -605,6 +632,210 @@ describe('BookServicePage owner-preview wiring', () => {
       bookingPage: expect.objectContaining({ layout: 'quick_book' }),
     }));
   });
+
+  it.each(['0', '8'])(
+    'enables static entrance rendering for authorized embedded builder revision %s',
+    async (builderPreview) => {
+      resolveDraftSalonAccess.mockResolvedValue({
+        allowed: true,
+        isPreviewingDraftSalon: false,
+        isPreviewingDraftConfig: true,
+        actorType: 'owner',
+      });
+
+      const element = await BookServicePage({
+        searchParams: {
+          salonSlug: 'salon-a',
+          builderPreview: typeof builderPreview === 'string' || builderPreview === undefined
+            ? builderPreview
+            : [...builderPreview],
+        },
+        params: { locale: 'en', slug: 'salon-a' },
+      });
+      render(element);
+
+      expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+        isEmbeddedBuilderPreview: true,
+      }));
+    },
+  );
+
+  it('does not let an ordinary live-page visitor opt into embedded builder rendering by query', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: false,
+      isPreviewingDraftConfig: false,
+      actorType: null,
+    });
+
+    const element = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a', builderPreview: '8' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(element);
+
+    expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+      isEmbeddedBuilderPreview: false,
+    }));
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+    ['negative', '-1'],
+    ['decimal', '1.5'],
+    ['leading-zero', '01'],
+    ['whitespace', ' 1'],
+    ['repeated-single', ['1']],
+    ['repeated-multiple', ['1', '2']],
+  ] as const)(
+    'fails closed for %s embedded builder preview input',
+    async (_caseName, builderPreview) => {
+      resolveDraftSalonAccess.mockResolvedValue({
+        allowed: true,
+        isPreviewingDraftSalon: false,
+        isPreviewingDraftConfig: true,
+        actorType: 'owner',
+      });
+
+      const element = await BookServicePage({
+        searchParams: {
+          salonSlug: 'salon-a',
+          builderPreview: typeof builderPreview === 'string' || builderPreview === undefined
+            ? builderPreview
+            : [...builderPreview],
+        },
+        params: { locale: 'en', slug: 'salon-a' },
+      });
+      render(element);
+
+      expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+        isEmbeddedBuilderPreview: false,
+      }));
+    },
+  );
+
+  it('renders an exact versioned target recipe in memory through the existing public shell only for an authorized draft preview', async () => {
+    const canonicalService = {
+      id: 'svc-preset-preview',
+      name: 'Synthetic Structured Manicure',
+      description: 'Canonical service content',
+      descriptionItems: [],
+      durationMinutes: 75,
+      price: 7300,
+      priceDisplayText: null,
+      category: 'manicure',
+      bookingCategory: 'manicure',
+      templateKey: null,
+      featuredOrder: null,
+      imageUrl: null,
+      isIntroPrice: false,
+      introPriceExpiresAt: null,
+      introPriceLabel: null,
+      sortOrder: 1,
+    };
+    const canonicalServiceSnapshot = structuredClone(canonicalService);
+    getServicesBySalonId.mockResolvedValue([canonicalService]);
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: false,
+      isPreviewingDraftConfig: true,
+      actorType: 'owner',
+    });
+
+    const element = await BookServicePage({
+      searchParams: {
+        salonSlug: 'salon-a',
+        presetPreview: 'collective',
+        presetPreviewVersion: '1',
+      },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(element);
+
+    expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+      ownerPreview: { isPreviewing: true, actorType: 'owner' },
+      previewBannerVariant: 'draft-config',
+      bookingPage: {
+        layout: 'editorial',
+        stylePack: 'default',
+        tokenOverrides: null,
+        sectionOrder: [
+          'salonProfile',
+          'technicianProfile',
+          'featuredServices',
+          'serviceMenu',
+          'hoursLocation',
+          'policies',
+          'socialLinks',
+          'bookingCta',
+        ],
+        sectionVariants: {
+          salonProfile: 'hero_image',
+          technicianProfile: 'cards',
+          featuredServices: 'signature',
+          serviceMenu: 'list',
+          hoursLocation: 'location_cards',
+          policies: 'inline',
+          socialLinks: 'labeled',
+          bookingCta: 'sticky',
+        },
+        hiddenSections: [],
+        businessMode: 'solo',
+        startMode: 'services_first',
+      },
+    }));
+    expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+      services: [expect.objectContaining({
+        id: 'svc-preset-preview',
+        name: 'Synthetic Structured Manicure',
+        description: 'Canonical service content',
+        durationMinutes: 75,
+        priceCents: 7300,
+      })],
+    }));
+    expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+      salonContentInput: expect.objectContaining({
+        services: [expect.objectContaining({
+          id: 'svc-preset-preview',
+          name: 'Synthetic Structured Manicure',
+          durationMinutes: 75,
+          priceCents: 7300,
+        })],
+      }),
+    }));
+    expect(canonicalService).toEqual(canonicalServiceSnapshot);
+  });
+
+  it.each([
+    ['collective', undefined],
+    ['collective', '2'],
+    ['lookbook', '1'],
+    [' collective', '1'],
+  ])(
+    'ignores malformed, future, or unknown target recipe %s v%s for an authorized preview',
+    async (presetPreview, presetPreviewVersion) => {
+      resolveDraftSalonAccess.mockResolvedValue({
+        allowed: true,
+        isPreviewingDraftSalon: false,
+        isPreviewingDraftConfig: true,
+        actorType: 'owner',
+      });
+
+      const element = await BookServicePage({
+        searchParams: { salonSlug: 'salon-a', presetPreview, presetPreviewVersion },
+        params: { locale: 'en', slug: 'salon-a' },
+      });
+      render(element);
+
+      expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+        bookingPage: expect.objectContaining({
+          layout: 'quick_book',
+          sectionVariants: {},
+        }),
+      }));
+    },
+  );
 
   it('threads heroImageUrl/specialtyLine/bio through to salonContentInput.content, and forwards isPreviewingDraftConfig — but no longer threads locationDisplayMode itself', async () => {
     // Post-launch privacy fix: `locationDisplayMode` moved from a

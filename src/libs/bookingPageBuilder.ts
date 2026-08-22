@@ -4,6 +4,13 @@ import type {
   SectionId,
 } from '@/libs/bookingPageConfig';
 import {
+  type BookingPagePresetId,
+  type BookingPagePresetRecipeVersion,
+  type BookingPagePresetReference,
+  getBookingPagePresentationSignature,
+  resolveBookingPagePresetRecipe,
+} from '@/libs/bookingPagePresetRecipes';
+import {
   getAllowedSectionVariants,
   getSectionPresentationPlacement,
   isSectionVariantAllowedForLayout,
@@ -23,15 +30,21 @@ import { SECTION_REGISTRY } from '@/libs/sectionRegistry';
  * contract.
  */
 
-export type BookingPagePresentationState = Pick<
-  BookingPageConfigSide,
-  'layout' | 'sectionOrder' | 'sectionVariants' | 'hiddenSections'
->;
+export type BookingPagePresentationState = {
+  layout: BookingPageConfigSide['layout'];
+  sectionOrder: readonly SectionId[];
+  sectionVariants: Readonly<BookingPageConfigSide['sectionVariants']>;
+  hiddenSections: readonly SectionId[];
+  /** Admin-only recipe provenance; never part of the anonymous renderer side. */
+  presetBase?: BookingPagePresetReference | null;
+};
 
 export type BookingPagePresentationPatch = {
+  layout?: BookingPageLayout;
   sectionOrder?: SectionId[];
   sectionVariants?: BookingPageConfigSide['sectionVariants'];
   hiddenSections?: SectionId[];
+  presetBase?: BookingPagePresetReference | null;
 };
 
 export type BookingPageBuilderOperation =
@@ -44,14 +57,22 @@ export type BookingPageBuilderOperation =
   }
   | { type: 'set_variant'; sectionId: SectionId; variant: string | null }
   | { type: 'reset_section'; sectionId: SectionId }
-  | { type: 'reset_all' };
+  | { type: 'reset_all'; expectedPresentationSignature: string }
+  | {
+    type: 'apply_preset';
+    presetId: BookingPagePresetId;
+    presetVersion: BookingPagePresetRecipeVersion;
+    expectedPresentationSignature: string;
+  };
 
 export type BookingPageBuilderErrorCode =
   | 'SECTION_NOT_CONFIGURABLE'
   | 'SECTION_NOT_REORDERABLE'
   | 'SECTION_NOT_IN_ORDER'
   | 'MOVE_OUT_OF_BOUNDS'
-  | 'VARIANT_NOT_ALLOWED';
+  | 'VARIANT_NOT_ALLOWED'
+  | 'PRESET_NOT_FOUND'
+  | 'STALE_PRESENTATION';
 
 export type BookingPageBuilderResult =
   | { ok: true; patch: BookingPagePresentationPatch }
@@ -132,8 +153,38 @@ type MutableBuilderState = {
   hiddenSections: SectionId[];
 };
 
+function stateWithPresetBase(
+  state: BookingPagePresentationState,
+): BookingPagePresentationState & { presetBase: BookingPagePresetReference | null } {
+  return {
+    ...state,
+    presetBase: state.presetBase ?? null,
+  };
+}
+
+function resolveInheritedPresentation(
+  state: BookingPagePresentationState,
+): BookingPagePresentationState & { presetBase: BookingPagePresetReference | null } {
+  const recipe = resolveBookingPagePresetRecipe(state.presetBase);
+  if (recipe) {
+    return {
+      layout: recipe.layout,
+      sectionOrder: [...recipe.sectionOrder],
+      sectionVariants: { ...recipe.sectionVariants },
+      hiddenSections: [...recipe.hiddenSections],
+      presetBase: { ...recipe.presetBase },
+    };
+  }
+
+  return {
+    layout: state.layout,
+    ...resolveBookingPageStartingPresentation(state.layout),
+    presetBase: null,
+  };
+}
+
 function cloneVariantOverrides(
-  variants: BookingPageConfigSide['sectionVariants'],
+  variants: Readonly<BookingPageConfigSide['sectionVariants']>,
 ): BookingPageConfigSide['sectionVariants'] {
   const result: BookingPageConfigSide['sectionVariants'] = {};
   for (const sectionId of SECTION_PRESENTATION_SECTION_IDS) {
@@ -213,23 +264,71 @@ function sameRecord(
   return [...keys].every(key => left[key] === right[key]);
 }
 
+function comparisonVariant(
+  state: BookingPagePresentationState,
+  sectionId: SectionId,
+): string | null {
+  const requested = state.sectionVariants[sectionId];
+  if (isSectionVariantAllowedForLayout(sectionId, requested, state.layout)) {
+    return requested;
+  }
+
+  // A stored but incompatible value still represents an owner-visible
+  // override: the renderer falls back safely, while the builder must keep a
+  // reset path instead of silently treating malformed or historical state as
+  // inherited. Missing values continue to compare by their effective default
+  // so sparse legacy rows can match a complete preset recipe truthfully.
+  if (requested !== undefined) {
+    return `unsupported:${requested}`;
+  }
+
+  return SECTION_PRESENTATION_CONTRACT[sectionId].defaults[resolveRenderableLayout(state.layout)];
+}
+
+function sameEffectiveVariants(
+  left: BookingPagePresentationState,
+  right: BookingPagePresentationState,
+): boolean {
+  return SECTION_PRESENTATION_SECTION_IDS.every(sectionId => (
+    comparisonVariant(left, sectionId) === comparisonVariant(right, sectionId)
+  ));
+}
+
 export function isBookingPagePresentationCustomized(
   state: BookingPagePresentationState,
-  inherited = resolveBookingPageStartingPresentation(state.layout),
+  inheritedOverride?: MutableBuilderState,
 ): boolean {
+  const normalizedState = stateWithPresetBase(state);
+  const inherited = inheritedOverride
+    ? {
+        layout: state.layout,
+        ...inheritedOverride,
+        presetBase: state.presetBase ?? null,
+      }
+    : resolveInheritedPresentation(state);
   return !sameValues(state.sectionOrder, inherited.sectionOrder)
     || !sameValues(state.hiddenSections, inherited.hiddenSections)
-    || !sameRecord(state.sectionVariants, inherited.sectionVariants);
+    || !sameEffectiveVariants(normalizedState, inherited)
+    || normalizedState.layout !== inherited.layout
+    || normalizedState.presetBase?.presetId !== inherited.presetBase?.presetId
+    || normalizedState.presetBase?.recipeVersion !== inherited.presetBase?.recipeVersion;
 }
 
 export function isBookingPageSectionCustomized(
   state: BookingPagePresentationState,
   sectionId: SectionId,
-  inherited = resolveBookingPageStartingPresentation(state.layout),
+  inheritedOverride?: MutableBuilderState,
 ): boolean {
+  const inherited = inheritedOverride
+    ? {
+        layout: state.layout,
+        ...inheritedOverride,
+        presetBase: state.presetBase ?? null,
+      }
+    : resolveInheritedPresentation(state);
   return state.sectionOrder.indexOf(sectionId) !== inherited.sectionOrder.indexOf(sectionId)
     || state.hiddenSections.includes(sectionId) !== inherited.hiddenSections.includes(sectionId)
-    || state.sectionVariants[sectionId] !== inherited.sectionVariants[sectionId];
+    || comparisonVariant(state, sectionId) !== comparisonVariant(inherited, sectionId);
 }
 
 function insertAtInheritedPosition(
@@ -265,15 +364,57 @@ function insertAtInheritedPosition(
 export function applyBookingPageBuilderOperation(
   current: BookingPagePresentationState,
   operation: BookingPageBuilderOperation,
-  inherited = resolveBookingPageStartingPresentation(current.layout),
+  inheritedOverride?: MutableBuilderState,
 ): BookingPageBuilderResult {
-  if (operation.type === 'reset_all') {
+  const inherited = inheritedOverride
+    ? {
+        layout: current.layout,
+        ...inheritedOverride,
+        presetBase: current.presetBase ?? null,
+      }
+    : resolveInheritedPresentation(current);
+  if (operation.type === 'apply_preset') {
+    if (operation.expectedPresentationSignature !== getBookingPagePresentationSignature(
+      stateWithPresetBase(current),
+    )) {
+      return { ok: false, code: 'STALE_PRESENTATION' };
+    }
+
+    const recipe = resolveBookingPagePresetRecipe({
+      presetId: operation.presetId,
+      recipeVersion: operation.presetVersion,
+    });
+    if (!recipe) {
+      return { ok: false, code: 'PRESET_NOT_FOUND' };
+    }
+
     return {
       ok: true,
       patch: {
+        layout: recipe.layout,
+        sectionOrder: [...recipe.sectionOrder],
+        sectionVariants: { ...recipe.sectionVariants },
+        hiddenSections: [...recipe.hiddenSections],
+        presetBase: { ...recipe.presetBase },
+      },
+    };
+  }
+
+  if (operation.type === 'reset_all') {
+    if (operation.expectedPresentationSignature !== getBookingPagePresentationSignature(
+      stateWithPresetBase(current),
+    )) {
+      return { ok: false, code: 'STALE_PRESENTATION' };
+    }
+
+    return {
+      ok: true,
+      patch: {
+        layout: inherited.layout,
         sectionOrder: [...inherited.sectionOrder],
         sectionVariants: { ...inherited.sectionVariants },
         hiddenSections: [...inherited.hiddenSections],
+        presetBase: inherited.presetBase ? { ...inherited.presetBase } : null,
       },
     };
   }

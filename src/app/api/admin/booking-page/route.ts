@@ -32,7 +32,9 @@ import { logAuditEvent } from '@/libs/auditLog';
 import { applyBookingPageBuilderOperation } from '@/libs/bookingPageBuilder';
 import {
   bookingPageBuilderOperationSchema,
+  BookingPageBuilderWriteError,
   bookingPageDraftPatchSchema,
+  getBookingPageDraftPresentationState,
   publishBookingPageConfig,
   resolveBookingPageConfig,
   revertBookingPageDraft,
@@ -158,14 +160,29 @@ export async function PATCH(request: Request): Promise<Response> {
 
   if (builderOperation) {
     const current = resolveBookingPageConfig(salon.settings);
-    const result = applyBookingPageBuilderOperation(current.draft, builderOperation);
+    const result = applyBookingPageBuilderOperation(
+      getBookingPageDraftPresentationState(current),
+      builderOperation,
+    );
     if (!result.ok) {
+      const status = result.code === 'STALE_PRESENTATION' ? 409 : 400;
       return Response.json(
         { error: 'Invalid builder operation', code: result.code },
-        { status: 400 },
+        { status },
       );
     }
-    await updateBookingPageDraft(salon.id, result.patch, { builderOperation });
+    try {
+      await updateBookingPageDraft(salon.id, result.patch, { builderOperation });
+    } catch (error) {
+      if (error instanceof BookingPageBuilderWriteError) {
+        const status = error.code === 'STALE_PRESENTATION' ? 409 : 400;
+        return Response.json(
+          { error: 'Invalid builder operation', code: error.code },
+          { status },
+        );
+      }
+      throw error;
+    }
   } else if (configPatch) {
     await updateBookingPageDraft(salon.id, configPatch);
   }
@@ -184,6 +201,12 @@ export async function PATCH(request: Request): Promise<Response> {
       configFields: configPatch ? Object.keys(configPatch) : [],
       contentFields: contentPatch ? Object.keys(contentPatch) : [],
       builderOperation: builderOperation?.type ?? null,
+      presetId: builderOperation?.type === 'apply_preset'
+        ? builderOperation.presetId
+        : null,
+      presetVersion: builderOperation?.type === 'apply_preset'
+        ? builderOperation.presetVersion
+        : null,
     },
   });
 

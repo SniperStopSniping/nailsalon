@@ -7,6 +7,7 @@ import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/booking
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
+import { resolveBookingPagePresetPreviewSide } from '@/libs/bookingPagePresetPreview';
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
@@ -55,7 +56,14 @@ export default async function BookServicePage({
   searchParams,
   params,
 }: {
-  searchParams: { locationId?: string; salonSlug?: string; campaign?: string };
+  searchParams: {
+    locationId?: string;
+    salonSlug?: string;
+    campaign?: string;
+    builderPreview?: string | string[];
+    presetPreview?: string;
+    presetPreviewVersion?: string;
+  };
   params?: { locale?: string; slug?: string };
 }) {
   const context = await getPublicPageContext('book-service', searchParams, params);
@@ -80,6 +88,25 @@ export default async function BookServicePage({
     redirect(buildTenantRedirectPath('/not-found', tenantRoute) ?? '/not-found');
   }
 
+  // The embedded owner-builder iframe deliberately blocks scripts. Mark only
+  // its exact, generated numeric revision URL as static-preview rendering so
+  // the canonical client renderer can expose its server-rendered pixels
+  // without waiting for a hydration-only entrance reveal. The existing owner
+  // preview gate remains the authority: an anonymous/live request cannot opt
+  // into this mode by adding a public query parameter, and repeated or
+  // malformed values fail closed.
+  const isEmbeddedBuilderPreview = previewGate.isPreviewingDraftConfig
+    && typeof searchParams.builderPreview === 'string'
+    && /^(?:0|[1-9]\d*)$/.test(searchParams.builderPreview);
+  const repairableSearchParams: Record<string, string | undefined> = {
+    ...searchParams,
+    // A repeated builder-preview key is not an authorized preview revision
+    // and must not be propagated through an unrelated location repair.
+    builderPreview: typeof searchParams.builderPreview === 'string'
+      ? searchParams.builderPreview
+      : undefined,
+  };
+
   // Thread the same gate result into the SalonProvider PublicSalonPageShell
   // mounts below (Luster UI/UX plan rev 3, PR3). `[locale]/[slug]/layout.tsx`
   // resolves this same gate and enforces its own notFound()/redirect above
@@ -90,9 +117,14 @@ export default async function BookServicePage({
   // at all) or via `[locale]/[slug]/book/service`, which re-exports this
   // exact page and IS nested under the layout.
   const bookingPageConfig = resolveBookingPageConfig(salon.settings);
-  const activeBookingPageSide = previewGate.isPreviewingDraftConfig
+  const selectedBookingPageSide = previewGate.isPreviewingDraftConfig
     ? bookingPageConfig.draft
     : bookingPageConfig.live;
+  const activeBookingPageSide = resolveBookingPagePresetPreviewSide({
+    currentSide: selectedBookingPageSide,
+    isPreviewingDraftConfig: previewGate.isPreviewingDraftConfig,
+    previewQuery: searchParams,
+  });
   // PR 6: the same draft/live selection the bookingPage config above already
   // makes, applied to its sibling bookingPageContent side (PR 5's
   // heroImageUrl/specialtyLine/bio) — never a second, independently-decided
@@ -222,7 +254,7 @@ export default async function BookServicePage({
     const isValidLocation = activeLocations.some(l => l.id === searchParams.locationId);
     if (!isValidLocation && shouldRepairBookingUrl(searchParams.locationId, primaryLocation.id)) {
       // Invalid locationId - redirect with primary (preserves all other params)
-      redirect(repairBookingUrl('/book/service', searchParams, primaryLocation.id, {
+      redirect(repairBookingUrl('/book/service', repairableSearchParams, primaryLocation.id, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
       }));
@@ -292,6 +324,7 @@ export default async function BookServicePage({
           showNewClientPromo={showNewClientPromo}
           lusterFeaturingEnabled={merchandising.featureLusterManicure}
           showServiceImages={merchandising.showServiceImages}
+          isEmbeddedBuilderPreview={isEmbeddedBuilderPreview}
         />
       </Suspense>
     </PublicSalonPageShell>

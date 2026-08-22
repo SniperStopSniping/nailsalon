@@ -18,6 +18,7 @@ vi.mock('@/libs/DB', () => ({
 }));
 
 /* eslint-disable import/first */
+import { isBookingPagePresentationCustomized } from './bookingPageBuilder';
 import {
   BOOKING_PAGE_CONFIG_DEFAULTS,
   BOOKING_PAGE_CONFIG_SIDE_DEFAULTS,
@@ -29,6 +30,7 @@ import {
   SECTION_IDS,
   validateSectionOrder,
 } from './bookingPageConfig';
+import { BOOKING_PAGE_PRESET_RECIPES } from './bookingPagePresetRecipes';
 import { EMPTY_SALON_CONTENT } from './salonContent';
 import { resolveSectionPresentation } from './sectionPresentation';
 import { resolveVisibleSectionOrder } from './sectionRegistry';
@@ -61,6 +63,12 @@ describe('bookingPageConfig defaults', () => {
     expect(config.version).toBe(1);
     expect(config.draft).toEqual(BOOKING_PAGE_CONFIG_SIDE_DEFAULTS);
     expect(config.live).toEqual(BOOKING_PAGE_CONFIG_SIDE_DEFAULTS);
+    expect(config.draftPresetBase).toEqual(BOOKING_PAGE_PRESET_RECIPES.quick_book.reference);
+    expect(config.livePresetBase).toEqual(BOOKING_PAGE_PRESET_RECIPES.quick_book.reference);
+    expect(isBookingPagePresentationCustomized({
+      ...config.draft,
+      presetBase: config.draftPresetBase,
+    })).toBe(false);
   });
 
   it('exposes exactly the 12 registered section ids', () => {
@@ -138,7 +146,13 @@ describe('bookingPageBuilderOperationSchema', () => {
     { type: 'set_variant', sectionId: 'serviceMenu', variant: 'grouped_categories' },
     { type: 'set_variant', sectionId: 'serviceMenu', variant: null },
     { type: 'reset_section', sectionId: 'socialLinks' },
-    { type: 'reset_all' },
+    { type: 'reset_all', expectedPresentationSignature: 'current-signature' },
+    {
+      type: 'apply_preset',
+      presetId: 'menu',
+      presetVersion: 1,
+      expectedPresentationSignature: 'current-signature',
+    },
   ])('accepts the semantic builder operation $type', (operation) => {
     expect(bookingPageBuilderOperationSchema.safeParse(operation).success).toBe(true);
   });
@@ -148,7 +162,23 @@ describe('bookingPageBuilderOperationSchema', () => {
     ['an unknown section', { type: 'set_visibility', sectionId: 'futureSection', visible: false }],
     ['an unsupported direction', { type: 'move_section', sectionId: 'policies', direction: 'first' }],
     ['an empty variant', { type: 'set_variant', sectionId: 'policies', variant: '' }],
-    ['an unknown extra key', { type: 'reset_all', stylePack: 'future-premium-pack' }],
+    ['an unknown extra key', {
+      type: 'reset_all',
+      expectedPresentationSignature: 'current-signature',
+      stylePack: 'future-premium-pack',
+    }],
+    ['an unknown preset', {
+      type: 'apply_preset',
+      presetId: 'lookbook',
+      presetVersion: 1,
+      expectedPresentationSignature: 'current-signature',
+    }],
+    ['a future preset version', {
+      type: 'apply_preset',
+      presetId: 'menu',
+      presetVersion: 2,
+      expectedPresentationSignature: 'current-signature',
+    }],
   ])('strictly rejects %s', (_label, operation) => {
     expect(bookingPageBuilderOperationSchema.safeParse(operation).success).toBe(false);
   });
