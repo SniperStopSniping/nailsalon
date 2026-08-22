@@ -1345,6 +1345,18 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         await expect(targetPreview.getByTestId('service-menu-list')).toBeVisible();
         await expect(targetPreview.getByTestId(`service-card-${e2eConfig.serviceId}`))
           .toContainText(canonicalServiceName);
+
+        const dialogBox = await page.getByTestId('booking-page-preset-dialog-content')
+          .boundingBox();
+
+        expect(dialogBox, `${scenario.label} preset dialog must have a rendered viewport box`)
+          .not.toBeNull();
+        expect(dialogBox!.y, `${scenario.label} preset dialog must start inside the viewport`)
+          .toBeGreaterThanOrEqual(0);
+        expect(
+          dialogBox!.y + dialogBox!.height,
+          `${scenario.label} preset dialog must end inside the viewport`,
+        ).toBeLessThanOrEqual(scenario.viewport.height);
         expect(allowedBuilderPatches, 'opening the preset review must not mutate the draft').toEqual([]);
 
         const appliedPresetState = await applyBuilderOperationFromPage(

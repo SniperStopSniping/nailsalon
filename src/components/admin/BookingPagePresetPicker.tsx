@@ -336,8 +336,8 @@ export function BookingPagePresetPicker({
         initialFocusRef={cancelRef}
         closeOnBackdrop={!controlsDisabled}
         closeOnEscape={!controlsDisabled}
-        maxWidthClassName="max-w-lg"
-        contentClassName="max-h-[calc(100vh-2rem)] touch-pan-y overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-2xl supports-[height:100dvh]:max-h-[calc(100dvh-2rem)]"
+        maxWidthClassName="max-h-full max-w-lg"
+        contentClassName="max-h-full touch-pan-y overflow-y-auto overscroll-contain rounded-2xl bg-white p-5 shadow-2xl"
         overlayTestId="booking-page-preset-dialog-overlay"
         contentTestId="booking-page-preset-dialog-content"
       >

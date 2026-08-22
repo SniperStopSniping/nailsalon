@@ -88,6 +88,11 @@ describe('BookingPagePresetPicker', () => {
     );
     expect(dialog).toHaveTextContent('Your live booking page will not change until you publish.');
     expect(within(dialog).queryByRole('button', { name: /publish/i })).not.toBeInTheDocument();
+    expect(screen.getByTestId('dialog-shell-container')).toHaveClass('max-h-full');
+    expect(screen.getByTestId('booking-page-preset-dialog-content')).toHaveClass(
+      'max-h-full',
+      'overflow-y-auto',
+    );
   });
 
   it('focuses Cancel first and returns focus to the card when cancelled', async () => {
