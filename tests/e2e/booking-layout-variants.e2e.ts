@@ -1145,6 +1145,15 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
     expect(fixtureResult.rows).toHaveLength(1);
     expect(fixtureResult.rows[0]?.id).toBe(SYNTHETIC_SALON_ID);
 
+    const serviceResult = await client.query<Pick<ServiceFixtureRow, 'name'>>(
+      'SELECT name FROM service WHERE salon_id = $1 AND id = $2',
+      [SYNTHETIC_SALON_ID, e2eConfig.serviceId],
+    );
+
+    expect(serviceResult.rows).toHaveLength(1);
+
+    const canonicalServiceName = serviceResult.rows[0]!.name;
+
     originalSettings = fixtureResult.rows[0]?.settings ?? null;
     fixtureLoaded = true;
 
