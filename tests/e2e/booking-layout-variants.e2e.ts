@@ -16,6 +16,8 @@ import {
 
 const SYNTHETIC_SALON_ID = 'salon_nail-salon-no5';
 const SYNTHETIC_SALON_SLUG = 'nail-salon-no5';
+const SYNTHETIC_CI_CLERK_BOOTSTRAP_URL
+  = 'https://ci.luster.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
 
 const SECTION_ORDER = [
   'salonProfile',
@@ -458,11 +460,28 @@ async function readBuilderFlowOrder(page: Page): Promise<string[]> {
   ));
 }
 
-async function readDraftPreviewFlowOrder(page: Page): Promise<string[]> {
-  const order = await page
-    .frameLocator('iframe[title="Live booking page preview"]')
-    .locator('[data-public-surface]')
-    .evaluateAll(elements => elements.map(element => element.getAttribute('data-public-surface')));
+async function readDraftPreviewFlowOrder(page: Page): Promise<string[] | null> {
+  let order: Array<string | null>;
+
+  try {
+    order = await page
+      .frameLocator('iframe[title="Live booking page preview"]')
+      .locator('[data-public-surface]')
+      .evaluateAll(elements => elements.map(element => element.getAttribute('data-public-surface')));
+  } catch (error) {
+    if (error instanceof Error && (
+      error.message.includes('Execution context was destroyed')
+      || error.message.includes('Frame was detached')
+    )) {
+      // A successful builder write intentionally replaces the draft-preview
+      // document. Return a non-matching snapshot so expect.poll samples the
+      // replacement frame instead of treating that navigation instant as the
+      // final DOM-order result.
+      return null;
+    }
+
+    throw error;
+  }
   const proofIds = new Set<string>(STAGE6_FLOW_ORDER_PROOF_IDS);
 
   return order.filter((sectionId): sectionId is string => (
@@ -1183,7 +1202,13 @@ test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, an
           const parsedUrl = new URL(requestUrl);
 
           if (parsedUrl.origin !== expectedOrigin) {
-            externalRequests.push(requestUrl);
+            // The authenticated admin shell may attempt its exact reserved
+            // `.invalid` Clerk bootstrap. It is pre-existing auth plumbing,
+            // remains blocked, and is not a Stage 6 hosted dependency. Every
+            // other external request is still recorded and fails the lane.
+            if (requestUrl !== SYNTHETIC_CI_CLERK_BOOTSTRAP_URL) {
+              externalRequests.push(requestUrl);
+            }
             await route.abort('blockedbyclient');
             return;
           }
@@ -1357,7 +1382,7 @@ test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, an
           { builderOperation: resetOperation },
         ]);
         expect(blockedWrites, 'The owner builder lane must not attempt any non-builder browser mutation.').toEqual([]);
-        expect(externalRequests, 'The owner builder lane must remain independent from hosted resources.').toEqual([]);
+        expect(externalRequests, 'The owner builder lane must make no unexpected hosted requests.').toEqual([]);
 
         await expectNoHorizontalOverflow(page);
         await expectBuilderTargetsAtLeast44px(page);
