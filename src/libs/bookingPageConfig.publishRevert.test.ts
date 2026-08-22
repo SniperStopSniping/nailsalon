@@ -17,6 +17,7 @@ import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import * as schema from '@/models/Schema';
+import type { SalonSettings } from '@/types/salonPolicy';
 
 vi.mock('server-only', () => ({}));
 
@@ -30,8 +31,12 @@ vi.mock('@/libs/DB', () => ({
 
 /* eslint-disable import/first */
 import {
+  applyBookingPageBuilderOperation,
+} from './bookingPageBuilder';
+import {
   BOOKING_PAGE_CONFIG_SIDE_DEFAULTS,
   publishBookingPageConfig,
+  resolveBookingPageConfig,
   revertBookingPageDraft,
   updateBookingPageDraft,
 } from './bookingPageConfig';
@@ -41,6 +46,85 @@ const SALON_ID = 'salon_booking_page_lifecycle';
 
 let client: PGlite;
 let db: PgliteDatabase<typeof schema>;
+
+function wrapAwaitableSelectWithBarrier<T extends object>(
+  value: T,
+  arrive: () => Promise<void>,
+): T {
+  return new Proxy(value, {
+    get(target, property) {
+      const member = Reflect.get(target, property, target) as unknown;
+
+      if (property === 'then' && typeof member === 'function') {
+        return (
+          onFulfilled?: (result: unknown) => unknown,
+          onRejected?: (reason: unknown) => unknown,
+        ) => Reflect.apply(member, target, [
+          async (result: unknown) => {
+            await arrive();
+            return onFulfilled ? onFulfilled(result) : result;
+          },
+          onRejected,
+        ]);
+      }
+
+      if (typeof member !== 'function') {
+        return member;
+      }
+
+      return (...args: unknown[]) => {
+        const result = Reflect.apply(member, target, args) as unknown;
+        if ((typeof result === 'object' && result !== null) || typeof result === 'function') {
+          return wrapAwaitableSelectWithBarrier(result as object, arrive);
+        }
+        return result;
+      };
+    },
+  });
+}
+
+/**
+ * Makes exactly two top-level Drizzle reads resolve before either caller may
+ * continue to its write. That deterministically opens the stale-snapshot
+ * window in the old read/apply/write implementation without sleeping or
+ * depending on query timing. A transaction-scoped repair performs its read
+ * through the transaction object instead, so PGlite serializes the two real
+ * operations and this outer proxy remains inert.
+ */
+function createTwoReadBarrierDatabase(database: PgliteDatabase<typeof schema>): {
+  database: PgliteDatabase<typeof schema>;
+  arrivalCount: () => number;
+} {
+  let arrivals = 0;
+  let release: (() => void) | undefined;
+  const bothReadsResolved = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  const arrive = async () => {
+    arrivals += 1;
+    if (arrivals === 2) {
+      release?.();
+    }
+    await bothReadsResolved;
+  };
+
+  return {
+    database: new Proxy(database, {
+      get(target, property) {
+        const member = Reflect.get(target, property, target) as unknown;
+        if (property === 'select' && typeof member === 'function') {
+          return (...args: unknown[]) => wrapAwaitableSelectWithBarrier(
+            Reflect.apply(member, target, args) as object,
+            arrive,
+          );
+        }
+        return typeof member === 'function' ? member.bind(target) : member;
+      },
+    }),
+    arrivalCount: () => arrivals,
+  };
+}
 
 beforeAll(async () => {
   client = new PGlite();
@@ -357,6 +441,198 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
           draft: { layout: 'editorial', sectionVariants },
         },
       });
+    });
+  });
+
+  describe('Stage 6 semantic builder persistence', () => {
+    const BUILDER_VARIANT_SALON_ID = 'salon_booking_page_builder_variants';
+    const BUILDER_CONCURRENCY_SALON_ID = 'salon_booking_page_builder_concurrency';
+
+    beforeAll(async () => {
+      await db.insert(schema.salonSchema).values([
+        {
+          id: BUILDER_VARIANT_SALON_ID,
+          name: 'Builder Variant Preservation Salon',
+          slug: 'builder-variant-preservation-salon',
+          settings: {
+            bookingPage: {
+              version: 1,
+              draft: {
+                layout: 'editorial',
+                sectionVariants: {
+                  salonProfile: 'hero',
+                  serviceMenu: 'future_menu',
+                  policies: 'inline',
+                },
+              },
+            },
+          } as unknown as SalonSettings,
+        },
+        {
+          id: BUILDER_CONCURRENCY_SALON_ID,
+          name: 'Builder Concurrency Salon',
+          slug: 'builder-concurrency-salon',
+          settings: {
+            bookingPage: {
+              version: 1,
+              draft: {
+                layout: 'editorial',
+              },
+            },
+          } as unknown as SalonSettings,
+        },
+      ]);
+    });
+
+    it('preserves unrelated legacy/future values while persisting a targeted variant choice', async () => {
+      const stored = await readStoredSettings(BUILDER_VARIANT_SALON_ID);
+      const current = resolveBookingPageConfig(stored).draft;
+      const builderOperation = {
+        type: 'set_variant',
+        sectionId: 'socialLinks',
+        variant: 'labeled',
+      } as const;
+      const result = applyBookingPageBuilderOperation(current, builderOperation);
+
+      expect(result.ok).toBe(true);
+
+      if (!result.ok) {
+        throw new Error('Expected the canonical social-links variant to be accepted');
+      }
+
+      const updated = await updateBookingPageDraft(
+        BUILDER_VARIANT_SALON_ID,
+        result.patch,
+        { builderOperation },
+      );
+
+      expect(updated?.draft.sectionVariants).toEqual({
+        salonProfile: 'hero',
+        serviceMenu: 'future_menu',
+        policies: 'inline',
+        socialLinks: 'labeled',
+      });
+    });
+
+    it('reapplies the semantic operation and ignores a stale/tampered route snapshot', async () => {
+      const updated = await updateBookingPageDraft(
+        BUILDER_VARIANT_SALON_ID,
+        {
+          sectionVariants: {
+            salonProfile: 'new_unknown_value',
+            serviceMenu: 'future_menu',
+            policies: 'inline',
+            socialLinks: 'icons',
+          },
+        },
+        {
+          builderOperation: {
+            type: 'set_variant',
+            sectionId: 'socialLinks',
+            variant: 'icons',
+          },
+        },
+      );
+
+      expect(updated?.draft.sectionVariants).toEqual({
+        salonProfile: 'hero',
+        serviceMenu: 'future_menu',
+        policies: 'inline',
+        socialLinks: 'icons',
+      });
+    });
+
+    it('does not undo a concurrent hide when a stale reorder reaches persistence later', async () => {
+      const beforeHide = resolveBookingPageConfig(
+        await readStoredSettings(BUILDER_VARIANT_SALON_ID),
+      ).draft;
+      const builderOperation = {
+        type: 'move_section',
+        sectionId: 'hoursLocation',
+        targetSectionId: 'technicianProfile',
+        direction: 'up',
+      } as const;
+      const staleResult = applyBookingPageBuilderOperation(beforeHide, builderOperation);
+
+      expect(staleResult.ok).toBe(true);
+
+      if (!staleResult.ok) {
+        throw new Error('Expected the initial reorder to be valid');
+      }
+
+      await updateBookingPageDraft(BUILDER_VARIANT_SALON_ID, {
+        hiddenSections: ['policies'],
+      });
+      const updated = await updateBookingPageDraft(
+        BUILDER_VARIANT_SALON_ID,
+        staleResult.patch,
+        { builderOperation },
+      );
+
+      expect(updated?.draft.hiddenSections).toEqual(['policies']);
+      expect(updated?.draft.sectionOrder.indexOf('hoursLocation')).toBeLessThan(
+        updated?.draft.sectionOrder.indexOf('technicianProfile') ?? -1,
+      );
+    });
+
+    it('serializes truly overlapping move and hide operations without losing either edit', async () => {
+      const moveOperation = {
+        type: 'move_section',
+        sectionId: 'hoursLocation',
+        targetSectionId: 'technicianProfile',
+        direction: 'up',
+      } as const;
+      const hideOperation = {
+        type: 'set_visibility',
+        sectionId: 'policies',
+        visible: false,
+      } as const;
+      const initial = resolveBookingPageConfig(
+        await readStoredSettings(BUILDER_CONCURRENCY_SALON_ID),
+      ).draft;
+      const moveResult = applyBookingPageBuilderOperation(initial, moveOperation);
+      const hideResult = applyBookingPageBuilderOperation(initial, hideOperation);
+
+      expect(moveResult.ok).toBe(true);
+      expect(hideResult.ok).toBe(true);
+
+      if (!moveResult.ok || !hideResult.ok) {
+        throw new Error('Expected both independent builder operations to be valid');
+      }
+
+      const originalDatabase = holder.db;
+      const barrier = createTwoReadBarrierDatabase(db);
+      holder.db = barrier.database;
+      try {
+        await Promise.all([
+          updateBookingPageDraft(
+            BUILDER_CONCURRENCY_SALON_ID,
+            moveResult.patch,
+            { builderOperation: moveOperation },
+          ),
+          updateBookingPageDraft(
+            BUILDER_CONCURRENCY_SALON_ID,
+            hideResult.patch,
+            { builderOperation: hideOperation },
+          ),
+        ]);
+      } finally {
+        holder.db = originalDatabase;
+      }
+
+      // The old implementation reaches both top-level reads and is forced
+      // through the barrier. The fixed implementation reads under a serialized
+      // transaction instead, for which zero outer reads is the expected path.
+      expect([0, 2]).toContain(barrier.arrivalCount());
+
+      const persisted = resolveBookingPageConfig(
+        await readStoredSettings(BUILDER_CONCURRENCY_SALON_ID),
+      ).draft;
+
+      expect(persisted.hiddenSections).toContain('policies');
+      expect(persisted.sectionOrder.indexOf('hoursLocation')).toBeLessThan(
+        persisted.sectionOrder.indexOf('technicianProfile'),
+      );
     });
   });
 });

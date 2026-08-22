@@ -1,3 +1,4 @@
+import { BOOKING_PAGE_BUILDER_UIQI_CAPABILITIES } from '@/libs/bookingPageBuilder';
 import { SECTION_PRESENTATION_UIQI_CAPABILITIES } from '@/libs/sectionPresentation';
 
 export const UIQI_CONTRACT_VERSION = '1.0.0' as const;
@@ -105,12 +106,17 @@ export const UIQI_AUTOMATED_EVIDENCE = {
       'src/libs/sectionRegistry.test.ts',
       'src/libs/sectionArchitecture.test.ts',
       'src/libs/sectionPresentation.test.ts',
+      'src/libs/bookingPageBuilder.test.ts',
+      'src/libs/bookingPageConfig.publishRevert.test.ts',
+      'src/components/admin/BookingPageBuilder.test.tsx',
+      'src/app/[locale]/admin/booking-page/page.test.tsx',
+      'src/app/api/admin/booking-page/route.test.ts',
       'src/components/booking/SectionOrderRenderer.test.tsx',
       'src/app/(unauth)/book/service/BookServiceClient.editorial.test.tsx',
     ],
-    command: `npx vitest run src/libs/sectionDecisionPlan.test.ts src/libs/sectionRegistry.test.ts src/libs/sectionArchitecture.test.ts src/libs/sectionPresentation.test.ts src/components/booking/SectionOrderRenderer.test.tsx 'src/app/(unauth)/book/service/BookServiceClient.editorial.test.tsx'`,
+    command: `npx vitest run src/libs/sectionDecisionPlan.test.ts src/libs/sectionRegistry.test.ts src/libs/sectionArchitecture.test.ts src/libs/sectionPresentation.test.ts src/libs/bookingPageBuilder.test.ts src/libs/bookingPageConfig.publishRevert.test.ts src/components/admin/BookingPageBuilder.test.tsx 'src/app/[locale]/admin/booking-page/page.test.tsx' src/app/api/admin/booking-page/route.test.ts src/components/booking/SectionOrderRenderer.test.tsx 'src/app/(unauth)/book/service/BookServiceClient.editorial.test.tsx'`,
     ciContext: 'Full Vitest Suite',
-    proves: 'The canonical decision owner controls readiness, hidden intent, and admission while typed presentation resolution, the one renderer, and the activated hero-alt and grouped-service heading obligations remain downstream structural boundaries.',
+    proves: 'The canonical decision owner controls readiness, hidden intent, and admission while validated owner builder operations, typed presentation resolution, the one renderer, DOM-order persistence, and the activated hero-alt, grouped-service heading, and keyboard-reorder obligations remain downstream structural boundaries.',
   },
   'public-dto-boundary': {
     id: 'public-dto-boundary',
@@ -470,9 +476,9 @@ export const UIQI_CONDITIONS: readonly UIQICondition[] = [
   automated({ id: 'a11y.persistent-labels', requirement: 'Keep operational labels persistent and tied to their controls.', category: 'ACCESSIBILITY', surface: 'SHARED', rationale: 'Stage 3C1 pins add-on-specific accessible names and persistent booking labels.' }, ['stage3c1-public-booking']),
   automated({ id: 'a11y.required-optional-written', requirement: 'Write Required and Optional explicitly where the distinction applies.', category: 'ACCESSIBILITY', surface: 'CLIENT', rationale: 'Stage 3C1 verifies required policy status and truthful required-only, optional-only, and mixed add-on wording.' }, ['stage3c1-public-booking']),
   automated({ id: 'a11y.current-drag-keyboard-alternative', requirement: 'Provide a keyboard and assistive-technology alternative for every currently shipped drag action.', category: 'ACCESSIBILITY', surface: 'OWNER', rationale: 'Stage 3C2 proves truthful keyboard slider semantics and pointer/keyboard convergence for BottomSheet resizing.' }, ['stage3c2-bottom-sheet']),
-  future({ id: 'a11y.builder-drag-keyboard-alternative', requirement: 'Require a keyboard and assistive-technology alternative when builder drag reorder ships.', category: 'ACCESSIBILITY', surface: 'OWNER', rationale: 'The builder does not exist yet; this trigger prevents Stage 6 from shipping drag-only reorder.' }, 'builder-keyboard-reorder'),
+  future({ id: 'a11y.builder-drag-keyboard-alternative', requirement: 'Require a keyboard and assistive-technology alternative when builder drag reorder ships.', category: 'ACCESSIBILITY', surface: 'OWNER', rationale: 'Stage 6 activates this trigger and proves the same validated reorder operation is available through named native keyboard controls.' }, 'builder-keyboard-reorder'),
   structural({ id: 'a11y.current-dom-visual-order', requirement: 'Keep current DOM order aligned with visual reading order.', category: 'ACCESSIBILITY', surface: 'SHARED', rationale: 'Canonical section ordering and semantic receipt/overlay tests pin current reading order at structural seams.' }, ['stage2-canonical-sections', 'stage3b-booking-states', 'stage3c2-modal-focus']),
-  future({ id: 'a11y.builder-dom-visual-order', requirement: 'Require published DOM order to match visual order after builder reorder.', category: 'ACCESSIBILITY', surface: 'OWNER', rationale: 'The builder does not exist yet; this trigger activates with reorder capability.' }, 'builder-dom-visual-order'),
+  future({ id: 'a11y.builder-dom-visual-order', requirement: 'Require published DOM order to match visual order after builder reorder.', category: 'ACCESSIBILITY', surface: 'OWNER', rationale: 'Stage 6 activates this trigger and proves persisted canonical order drives both owner feedback and the shared public renderer DOM.' }, 'builder-dom-visual-order'),
   manual({ id: 'a11y.no-color-alone', requirement: 'Never communicate required meaning through color alone.', category: 'ACCESSIBILITY', surface: 'SHARED', rationale: 'Representative text semantics are automated, while the complete rendered state inventory requires manual evidence.' }, 'manual-color-independence'),
   automated({ id: 'a11y.price-time-change-announcement', requirement: 'Textually announce material price and time changes.', category: 'ACCESSIBILITY', surface: 'CLIENT', rationale: 'Stage 3C1 asserts one atomic add-on update derived from the same visible canonical totals.' }, ['stage3c1-public-booking']),
   automated({ id: 'a11y.sheet-focus-containment-return', requirement: 'Contain sheet focus and return it safely on close.', category: 'ACCESSIBILITY', surface: 'SHARED', rationale: 'Stage 3A and 3C2 jointly cover public, owner, and staff overlay primitives using one topmost lifecycle.' }, ['stage3a-dialog-focus', 'stage3c2-modal-focus']),
@@ -508,9 +514,9 @@ export const UIQI_DEFAULT_FUTURE_CAPABILITIES: UIQIFutureCapabilities = {
   salonProfileHeroDerivedAlt: SECTION_PRESENTATION_UIQI_CAPABILITIES.salonProfileHeroDerivedAlt,
   serviceMenuGroupedCategories: SECTION_PRESENTATION_UIQI_CAPABILITIES.serviceMenuGroupedCategories,
   serviceMenuGroupedSemanticHeadings: SECTION_PRESENTATION_UIQI_CAPABILITIES.serviceMenuGroupedSemanticHeadings,
-  builderReorder: false,
-  builderKeyboardReorder: false,
-  builderDomVisualOrder: false,
+  builderReorder: BOOKING_PAGE_BUILDER_UIQI_CAPABILITIES.builderReorder,
+  builderKeyboardReorder: BOOKING_PAGE_BUILDER_UIQI_CAPABILITIES.builderKeyboardReorder,
+  builderDomVisualOrder: BOOKING_PAGE_BUILDER_UIQI_CAPABILITIES.builderDomVisualOrder,
 };
 
 export const UIQI_MANUAL_EVIDENCE: readonly UIQIManualEvidenceRecord[] = UIQI_CONDITIONS

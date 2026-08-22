@@ -29,7 +29,9 @@ import { z } from 'zod';
 import type { AdminWithSalons } from '@/libs/adminAuth';
 import { requireAdmin } from '@/libs/adminAuth';
 import { logAuditEvent } from '@/libs/auditLog';
+import { applyBookingPageBuilderOperation } from '@/libs/bookingPageBuilder';
 import {
+  bookingPageBuilderOperationSchema,
   bookingPageDraftPatchSchema,
   publishBookingPageConfig,
   resolveBookingPageConfig,
@@ -51,7 +53,15 @@ export const dynamic = 'force-dynamic';
 const patchBodySchema = z.object({
   config: bookingPageDraftPatchSchema.optional(),
   content: bookingPageContentPatchSchema.optional(),
-}).strict();
+  builderOperation: bookingPageBuilderOperationSchema.optional(),
+}).strict().superRefine((value, context) => {
+  if (value.builderOperation && (value.config || value.content)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'A builder operation cannot be combined with raw config or content changes.',
+    });
+  }
+});
 
 const postBodySchema = z.object({
   action: z.enum(['publish', 'revert']),
@@ -136,13 +146,27 @@ export async function PATCH(request: Request): Promise<Response> {
     );
   }
 
-  const { config: configPatch, content: contentPatch } = validated.data;
+  const {
+    config: configPatch,
+    content: contentPatch,
+    builderOperation,
+  } = validated.data;
 
-  if (!configPatch && !contentPatch) {
+  if (!configPatch && !contentPatch && !builderOperation) {
     return Response.json({ error: 'No fields to update' }, { status: 400 });
   }
 
-  if (configPatch) {
+  if (builderOperation) {
+    const current = resolveBookingPageConfig(salon.settings);
+    const result = applyBookingPageBuilderOperation(current.draft, builderOperation);
+    if (!result.ok) {
+      return Response.json(
+        { error: 'Invalid builder operation', code: result.code },
+        { status: 400 },
+      );
+    }
+    await updateBookingPageDraft(salon.id, result.patch, { builderOperation });
+  } else if (configPatch) {
     await updateBookingPageDraft(salon.id, configPatch);
   }
   if (contentPatch) {
@@ -159,6 +183,7 @@ export async function PATCH(request: Request): Promise<Response> {
     metadata: {
       configFields: configPatch ? Object.keys(configPatch) : [],
       contentFields: contentPatch ? Object.keys(contentPatch) : [],
+      builderOperation: builderOperation?.type ?? null,
     },
   });
 

@@ -17,10 +17,10 @@
 - FUTURE_TRIGGERED: 5
 - STRUCTURAL_INVARIANT: 5
 - NOT_CURRENTLY_APPLICABLE: 0
-- PASS: 27
+- PASS: 29
 - FAIL: 0
 - PENDING_MANUAL: 21
-- FUTURE_TRIGGERED: 3
+- FUTURE_TRIGGERED: 1
 - NOT_APPLICABLE: 0
 
 Manual evidence remains visibly pending and is not counted as PASS. Inactive future triggers are not implemented features and are not counted as current failures.
@@ -62,9 +62,9 @@ Manual evidence remains visibly pending and is not counted as PASS. Inactive fut
 | a11y.persistent-labels | Keep operational labels persistent and tied to their controls. | AUTOMATED_CURRENT | PASS | SHARED | stage3c1-public-booking |
 | a11y.required-optional-written | Write Required and Optional explicitly where the distinction applies. | AUTOMATED_CURRENT | PASS | CLIENT | stage3c1-public-booking |
 | a11y.current-drag-keyboard-alternative | Provide a keyboard and assistive-technology alternative for every currently shipped drag action. | AUTOMATED_CURRENT | PASS | OWNER | stage3c2-bottom-sheet |
-| a11y.builder-drag-keyboard-alternative | Require a keyboard and assistive-technology alternative when builder drag reorder ships. | FUTURE_TRIGGERED | FUTURE_TRIGGERED | OWNER | builder-keyboard-reorder |
+| a11y.builder-drag-keyboard-alternative | Require a keyboard and assistive-technology alternative when builder drag reorder ships. | FUTURE_TRIGGERED | PASS | OWNER | builder-keyboard-reorder |
 | a11y.current-dom-visual-order | Keep current DOM order aligned with visual reading order. | STRUCTURAL_INVARIANT | PASS | SHARED | stage2-canonical-sections, stage3b-booking-states, stage3c2-modal-focus |
-| a11y.builder-dom-visual-order | Require published DOM order to match visual order after builder reorder. | FUTURE_TRIGGERED | FUTURE_TRIGGERED | OWNER | builder-dom-visual-order |
+| a11y.builder-dom-visual-order | Require published DOM order to match visual order after builder reorder. | FUTURE_TRIGGERED | PASS | OWNER | builder-dom-visual-order |
 | a11y.no-color-alone | Never communicate required meaning through color alone. | MANUAL_CURRENT | PENDING_MANUAL | SHARED | manual-color-independence |
 | a11y.price-time-change-announcement | Textually announce material price and time changes. | AUTOMATED_CURRENT | PASS | CLIENT | stage3c1-public-booking |
 | a11y.sheet-focus-containment-return | Contain sheet focus and return it safely on close. | AUTOMATED_CURRENT | PASS | SHARED | stage3a-dialog-focus, stage3c2-modal-focus |

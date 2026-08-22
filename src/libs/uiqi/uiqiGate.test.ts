@@ -3,6 +3,8 @@ import path from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
+import { BOOKING_PAGE_BUILDER_UIQI_CAPABILITIES } from '@/libs/bookingPageBuilder';
+
 import {
   UIQI_AUTOMATED_EVIDENCE,
   UIQI_CONDITIONS,
@@ -114,10 +116,10 @@ describe('UIQI canonical release contract', () => {
         NOT_CURRENTLY_APPLICABLE: 0,
       },
       statuses: {
-        PASS: 27,
+        PASS: 29,
         FAIL: 0,
         PENDING_MANUAL: 21,
-        FUTURE_TRIGGERED: 3,
+        FUTURE_TRIGGERED: 1,
         NOT_APPLICABLE: 0,
       },
     });
@@ -141,6 +143,8 @@ describe('UIQI canonical release contract', () => {
       'responsive-reduced-motion',
     ]));
     expect(UIQI_AUTOMATED_EVIDENCE['stage2-canonical-sections'].paths).toEqual(expect.arrayContaining([
+      'src/libs/bookingPageBuilder.test.ts',
+      'src/components/admin/BookingPageBuilder.test.tsx',
       'src/libs/sectionPresentation.test.ts',
       'src/components/booking/SectionOrderRenderer.test.tsx',
       'src/app/(unauth)/book/service/BookServiceClient.editorial.test.tsx',
@@ -162,7 +166,9 @@ describe('UIQI canonical release contract', () => {
 
     expect(committed).toBe(generated);
     expect(generated).toContain(`Contract version: \`${UIQI_CONTRACT_VERSION}\``);
+    expect(generated).toContain('PASS: 29');
     expect(generated).toContain('PENDING_MANUAL: 21');
+    expect(generated).toContain('FUTURE_TRIGGERED: 1');
     expect(generated).toContain('Manual evidence remains visibly pending and is not counted as PASS.');
   });
 
@@ -186,6 +192,27 @@ describe('UIQI canonical release contract', () => {
       status: 'PASS',
       triggerActive: true,
     });
+  });
+
+  it('activates both shipped builder reorder obligations from the real builder contract', () => {
+    expect(BOOKING_PAGE_BUILDER_UIQI_CAPABILITIES).toEqual({
+      builderReorder: true,
+      builderKeyboardReorder: true,
+      builderDomVisualOrder: true,
+    });
+    expect(UIQI_DEFAULT_FUTURE_CAPABILITIES).toMatchObject(
+      BOOKING_PAGE_BUILDER_UIQI_CAPABILITIES,
+    );
+
+    for (const conditionId of [
+      'a11y.builder-drag-keyboard-alternative',
+      'a11y.builder-dom-visual-order',
+    ]) {
+      expect(statusFor(conditionId)).toMatchObject({
+        status: 'PASS',
+        triggerActive: true,
+      });
+    }
   });
 });
 
@@ -258,6 +285,34 @@ describe('UIQI aggregate-gate non-vacuity', () => {
       conditionId: 'future.portfolio-alt-authoring',
     }));
   });
+
+  it.each([
+    ['a11y.builder-drag-keyboard-alternative', 'builderKeyboardReorder'],
+    ['a11y.builder-dom-visual-order', 'builderDomVisualOrder'],
+  ] as const)(
+    'fails current compliance when %s is active without %s',
+    (conditionId, missingPrerequisite) => {
+      const evaluation = evaluateUIQIGate({
+        futureCapabilities: {
+          builderReorder: true,
+          [missingPrerequisite]: false,
+        },
+      });
+
+      expect(evaluation.foundationIntegrityPass).toBe(true);
+      expect(evaluation.currentProductCompliancePass).toBe(false);
+      expect(evaluation.releaseGatePass).toBe(false);
+      expect(statusFor(conditionId, {
+        futureCapabilities: {
+          builderReorder: true,
+          [missingPrerequisite]: false,
+        },
+      })).toMatchObject({
+        status: 'FAIL',
+        triggerActive: true,
+      });
+    },
+  );
 });
 
 describe('UIQI named future-trigger discrimination', () => {

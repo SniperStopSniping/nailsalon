@@ -3,14 +3,12 @@
 /**
  * Owner Booking Page surface (Luster UI/UX plan rev 3, PR 5).
  *
- * The small, non-builder owner destination over the PR 2 `bookingPage`
- * config: layout picker, style pack picker, business mode, section
- * show/hide, hero image / specialty line / bio / location presentation, an
- * owner preview link (reusing PR 3's owner-preview primitive — see the
- * comment on `previewHref` below), and Publish/Revert on the draft/live
- * pair. Explicitly NOT a drag-and-drop or free-form layout builder — every
- * control here is a plain picker, toggle, or text field over a value the
- * server already validates.
+ * The guarded owner builder over the PR 2 `bookingPage` config: layout and
+ * business-mode pickers, bounded section presentation operations, content
+ * fields, a real-renderer draft preview, and Publish/Revert on the draft/live
+ * pair. It is deliberately not a drag-and-drop or free-form page builder:
+ * every presentation action is a typed operation that the server validates
+ * against the canonical section contract.
  *
  * `salonProfile`, `serviceMenu`, and `bookingCta` are never rendered as
  * toggle controls here — see OPTIONAL_SECTIONS below, which deliberately
@@ -24,6 +22,8 @@ import { ArrowLeft, ExternalLink } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { BookingPageBuilder } from '@/components/admin/BookingPageBuilder';
+import type { BookingPageBuilderOperation } from '@/libs/bookingPageBuilder';
 import type {
   BookingPageConfig,
   BookingPageLayout,
@@ -35,6 +35,7 @@ import type {
   BookingPageContent,
   LocationDisplayMode,
 } from '@/libs/bookingPageContent';
+import { SECTION_PRESENTATION_SECTION_IDS } from '@/libs/sectionPresentation';
 
 // =============================================================================
 // Client-safe option lists.
@@ -78,49 +79,6 @@ const LOCATION_DISPLAY_MODE_OPTIONS: Array<{ id: LocationDisplayMode; label: str
   { id: 'city_only', label: 'City only' },
 ];
 
-/**
- * The nine OPTIONAL sections from the PR 4 registry, per this PR's spec.
- * `serviceMenu` and `bookingCta` are intentionally absent — this is the one
- * and only list this component reads to build toggle controls, so there is
- * no code path here that can ever render a toggle for either.
- *
- * `comingSoon` sections are disabled here because turning them on has no
- * possible visible effect anywhere, and are shown that way rather than left
- * as a silently-inert toggle (post-launch audit finding — "no inert toggle
- * may remain"):
- *   - `portfolio`/`reviews`: PR 4's registry always resolves both to empty
- *     (`content.proof.{portfolio,reviews}` are `[]` until PR 10).
- *   - `whatsIncluded`: `SECTION_REGISTRY.whatsIncluded.canRender` is
- *     `() => false` unconditionally (`@/libs/sectionRegistry`) — data gap
- *     17, no per-service inclusions field exists yet in `SalonContent`.
- *   - `technicianList`: no layout has a `technicianList` renderer yet (only
- *     `canRender` — "≥2 technicians" — is implemented; see
- *     `BookServiceClient.tsx`'s `quickBookRenderers`/`editorialRenderers`,
- *     neither of which defines one).
- *
- * `technicianProfile`/`hoursLocation` are NOT marked `comingSoon`: both have
- * a real, working renderer today — in the `editorial` layout only
- * (`BookServiceClient.tsx`'s `editorialRenderers`). Quick Book has no
- * renderer for either, so toggling them on while on `quick_book` currently
- * has no visible effect there — a known, separately-tracked gap (not fixed
- * by this PR: layout-gating them here would disable the SAME toggle this
- * surface's own regression test exercises against the default `quick_book`
- * config, and building new Quick Book sections for them is a larger,
- * untested change outside this PR's scope). Recorded as deferred debt, not
- * silently accepted.
- */
-const OPTIONAL_SECTIONS: Array<{ id: SectionId; label: string; comingSoon: boolean }> = [
-  { id: 'technicianProfile', label: 'Technician profile', comingSoon: false },
-  { id: 'featuredServices', label: 'Featured services', comingSoon: false },
-  { id: 'whatsIncluded', label: 'What\'s included', comingSoon: true },
-  { id: 'technicianList', label: 'Technician list', comingSoon: true },
-  { id: 'portfolio', label: 'Portfolio', comingSoon: true },
-  { id: 'reviews', label: 'Reviews', comingSoon: true },
-  { id: 'hoursLocation', label: 'Hours & location', comingSoon: false },
-  { id: 'policies', label: 'Policies', comingSoon: false },
-  { id: 'socialLinks', label: 'Social links', comingSoon: false },
-];
-
 // =============================================================================
 // Fetch helpers
 // =============================================================================
@@ -150,7 +108,11 @@ async function fetchBookingPageState(salonSlug: string): Promise<BookingPageApiR
 
 async function patchBookingPage(
   salonSlug: string,
-  body: { config?: Record<string, unknown>; content?: Record<string, unknown> },
+  body: {
+    config?: Record<string, unknown>;
+    content?: Record<string, unknown>;
+    builderOperation?: BookingPageBuilderOperation;
+  },
 ): Promise<BookingPageApiResponse> {
   const response = await fetch(`/api/admin/booking-page?salonSlug=${encodeURIComponent(salonSlug)}`, {
     method: 'PATCH',
@@ -211,49 +173,6 @@ function SectionCard({ title, description, children }: { title: string; descript
       {description && <p className="mt-1 text-sm text-stone-500">{description}</p>}
       <div className="mt-4">{children}</div>
     </section>
-  );
-}
-
-function Toggle({
-  checked,
-  disabled,
-  onChange,
-  label,
-  testId,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  onChange: (next: boolean) => void;
-  label: string;
-  testId?: string;
-}) {
-  return (
-    <label className={`flex items-center justify-between gap-3 py-2.5 ${disabled ? 'opacity-50' : ''}`}>
-      <span className="text-sm font-medium text-stone-800">{label}</span>
-      <input
-        type="checkbox"
-        role="switch"
-        aria-checked={checked}
-        data-testid={testId}
-        checked={checked}
-        disabled={disabled}
-        onChange={event => onChange(event.target.checked)}
-        className="peer sr-only"
-      />
-      <span
-        aria-hidden="true"
-        onClick={() => !disabled && onChange(!checked)}
-        className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors ${
-          checked ? 'bg-rose-600' : 'bg-stone-300'
-        } ${disabled ? 'cursor-not-allowed' : ''}`}
-      >
-        <span
-          className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-transform ${
-            checked ? 'translate-x-5' : 'translate-x-0.5'
-          }`}
-        />
-      </span>
-    </label>
   );
 }
 
@@ -327,6 +246,9 @@ export default function BookingPageOwnerSurface() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+  const [presentationPending, setPresentationPending] = useState(false);
+  const [previewRevision, setPreviewRevision] = useState(0);
+  const [previewedSectionIds, setPreviewedSectionIds] = useState<Set<SectionId> | null>(null);
   const [actionStatus, setActionStatus] = useState<'idle' | 'publishing' | 'reverting'>('idle');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
@@ -343,6 +265,12 @@ export default function BookingPageOwnerSurface() {
   const [heroImageDraft, setHeroImageDraft] = useState('');
 
   const saveTokenRef = useRef(0);
+  const presentationWritePendingRef = useRef(false);
+  const previewFrameRef = useRef<HTMLIFrameElement>(null);
+  const refreshPreview = useCallback(() => {
+    setPreviewedSectionIds(null);
+    setPreviewRevision(revision => revision + 1);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -409,13 +337,14 @@ export default function BookingPageOwnerSurface() {
       if (saveTokenRef.current === token) {
         setConfig(state.config);
         setSaveStatus('saved');
+        refreshPreview();
       }
     } catch {
       if (saveTokenRef.current === token) {
         setSaveStatus('error');
       }
     }
-  }, [salonSlug]);
+  }, [refreshPreview, salonSlug]);
 
   const saveContentPatch = useCallback(async (patch: Record<string, unknown>) => {
     if (!salonSlug) {
@@ -428,20 +357,29 @@ export default function BookingPageOwnerSurface() {
       if (saveTokenRef.current === token) {
         setContent(state.content);
         setSaveStatus('saved');
+        refreshPreview();
       }
     } catch {
       if (saveTokenRef.current === token) {
         setSaveStatus('error');
       }
     }
-  }, [salonSlug]);
+  }, [refreshPreview, salonSlug]);
 
-  const handleLayoutSelect = (layout: BookingPageLayout) => {
+  const handleLayoutSelect = async (layout: BookingPageLayout) => {
     const option = LAYOUT_OPTIONS.find(l => l.id === layout);
-    if (!option?.implemented) {
+    if (!option?.implemented || presentationWritePendingRef.current) {
       return;
     }
-    void saveConfigPatch({ layout });
+
+    presentationWritePendingRef.current = true;
+    setPresentationPending(true);
+    try {
+      await saveConfigPatch({ layout });
+    } finally {
+      presentationWritePendingRef.current = false;
+      setPresentationPending(false);
+    }
   };
 
   const handleStylePackSelect = (stylePack: StylePack) => {
@@ -460,47 +398,54 @@ export default function BookingPageOwnerSurface() {
     void saveContentPatch({ locationDisplayMode });
   };
 
-  /**
-   * "shown" = the id is present in sectionOrder AND absent from
-   * hiddenSections. Turning a section on both removes it from
-   * hiddenSections and ensures it is present in sectionOrder (inserted
-   * before `bookingCta`, or appended if `bookingCta` is somehow absent) —
-   * several of the nine toggleable ids (technicianProfile, whatsIncluded,
-   * technicianList, hoursLocation) are not in today's default sectionOrder
-   * at all, so "on" must add them, not just un-hide them. Turning a section
-   * off adds it to hiddenSections and leaves sectionOrder untouched, so its
-   * position is preserved if the owner re-enables it later. The server
-   * (`validateSectionOrder`) re-validates and re-strips serviceMenu/
-   * bookingCta from hiddenSections regardless of what is sent here.
-   */
-  const handleSectionToggle = (id: SectionId, show: boolean) => {
-    if (!config) {
+  const handleBuilderOperation = useCallback(async (operation: BookingPageBuilderOperation) => {
+    if (!salonSlug || presentationWritePendingRef.current) {
       return;
     }
-    const hiddenSet = new Set(config.draft.hiddenSections);
-    let sectionOrder = [...config.draft.sectionOrder];
-
-    if (show) {
-      hiddenSet.delete(id);
-      if (!sectionOrder.includes(id)) {
-        const ctaIndex = sectionOrder.indexOf('bookingCta');
-        if (ctaIndex === -1) {
-          sectionOrder = [...sectionOrder, id];
-        } else {
-          sectionOrder = [...sectionOrder.slice(0, ctaIndex), id, ...sectionOrder.slice(ctaIndex)];
-        }
-      }
-    } else {
-      hiddenSet.add(id);
+    if (operation.type === 'reset_all' && !window.confirm(
+      'Reset page customization to this layout’s starting arrangement? Your salon content will not be deleted.',
+    )) {
+      return;
     }
 
-    void saveConfigPatch({ sectionOrder, hiddenSections: [...hiddenSet] });
-  };
+    presentationWritePendingRef.current = true;
+    setPresentationPending(true);
+    setSaveStatus('saving');
+    try {
+      const state = await patchBookingPage(salonSlug, { builderOperation: operation });
+      setConfig(state.config);
+      setSaveStatus('saved');
+      refreshPreview();
+    } catch {
+      setSaveStatus('error');
+    } finally {
+      presentationWritePendingRef.current = false;
+      setPresentationPending(false);
+    }
+  }, [refreshPreview, salonSlug]);
+
+  const handlePreviewLoad = useCallback(() => {
+    const document = previewFrameRef.current?.contentDocument;
+    if (!document) {
+      return;
+    }
+    const knownIds = new Set<string>(SECTION_PRESENTATION_SECTION_IDS);
+    const rendered = new Set<SectionId>();
+    for (const element of document.querySelectorAll<HTMLElement>('[data-public-surface]')) {
+      const sectionId = element.dataset.publicSurface;
+      if (sectionId && knownIds.has(sectionId)) {
+        rendered.add(sectionId as SectionId);
+      }
+    }
+    setPreviewedSectionIds(rendered);
+  }, []);
 
   const handlePublish = async () => {
-    if (!salonSlug) {
+    if (!salonSlug || presentationWritePendingRef.current) {
       return;
     }
+    presentationWritePendingRef.current = true;
+    setPresentationPending(true);
     setActionStatus('publishing');
     setActionMessage(null);
     try {
@@ -510,16 +455,19 @@ export default function BookingPageOwnerSurface() {
       setBioDraft(state.content.draft.bio ?? '');
       setSpecialtyDraft(state.content.draft.specialtyLine ?? '');
       setHeroImageDraft(state.content.draft.heroImageUrl ?? '');
+      refreshPreview();
       setActionMessage('Published. Your live booking page now matches your draft.');
     } catch {
       setActionMessage('Publish failed. Please try again.');
     } finally {
       setActionStatus('idle');
+      presentationWritePendingRef.current = false;
+      setPresentationPending(false);
     }
   };
 
   const handleRevert = async () => {
-    if (!salonSlug) {
+    if (!salonSlug || presentationWritePendingRef.current) {
       return;
     }
 
@@ -527,6 +475,8 @@ export default function BookingPageOwnerSurface() {
     if (!confirmed) {
       return;
     }
+    presentationWritePendingRef.current = true;
+    setPresentationPending(true);
     setActionStatus('reverting');
     setActionMessage(null);
     try {
@@ -536,11 +486,14 @@ export default function BookingPageOwnerSurface() {
       setBioDraft(state.content.draft.bio ?? '');
       setSpecialtyDraft(state.content.draft.specialtyLine ?? '');
       setHeroImageDraft(state.content.draft.heroImageUrl ?? '');
+      refreshPreview();
       setActionMessage('Reverted. Your draft now matches what is live.');
     } catch {
       setActionMessage('Revert failed. Please try again.');
     } finally {
       setActionStatus('idle');
+      presentationWritePendingRef.current = false;
+      setPresentationPending(false);
     }
   };
 
@@ -582,8 +535,9 @@ export default function BookingPageOwnerSurface() {
   }
 
   const draft = config.draft;
-  const hiddenSet = new Set(draft.hiddenSections);
-  const isShown = (id: SectionId) => draft.sectionOrder.includes(id) && !hiddenSet.has(id);
+  const previewFrameSrc = salonSlug
+    ? `/${locale}/${encodeURIComponent(salonSlug)}/book/service?builderPreview=${previewRevision}`
+    : null;
 
   return (
     <main className="min-h-screen bg-[#F8F3F0] px-4 pb-16 pt-8 text-stone-900">
@@ -632,21 +586,61 @@ export default function BookingPageOwnerSurface() {
         </div>
 
         <div className="mt-6 space-y-6">
+          <SectionCard
+            title="Live preview"
+            description="This is your real draft booking page. Saved presentation changes refresh here before anything is published."
+          >
+            <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
+              {previewFrameSrc
+                ? (
+                    <iframe
+                      ref={previewFrameRef}
+                      title="Live booking page preview"
+                      src={previewFrameSrc}
+                      aria-hidden="true"
+                      sandbox="allow-same-origin"
+                      tabIndex={-1}
+                      onLoad={handlePreviewLoad}
+                      className="pointer-events-none block h-[620px] w-full bg-white"
+                    />
+                  )
+                : (
+                    <p className="p-4 text-sm text-stone-500">Preview is unavailable until a salon is selected.</p>
+                  )}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-stone-500">
+                View-only preview using your real salon content and the same booking renderer clients see.
+                Use Open preview for the fully interactive page.
+              </p>
+              <button
+                type="button"
+                data-testid="booking-page-preview-refresh"
+                onClick={refreshPreview}
+                className="min-h-11 rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+              >
+                Refresh preview
+              </button>
+            </div>
+          </SectionCard>
+
           <SectionCard title="Layout" description="Quick Book and Editorial Luxury are available today. The rest are on the way.">
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
               {LAYOUT_OPTIONS.map(option => (
                 <button
                   key={option.id}
                   type="button"
-                  disabled={!option.implemented}
+                  disabled={!option.implemented || presentationPending}
                   data-testid={`layout-option-${option.id}`}
                   aria-pressed={draft.layout === option.id}
-                  onClick={() => handleLayoutSelect(option.id)}
+                  onClick={() => void handleLayoutSelect(option.id)}
                   className={`rounded-2xl border p-3 text-left text-sm font-medium transition-colors ${
                     draft.layout === option.id
                       ? 'border-rose-600 bg-rose-50 text-rose-800'
                       : 'border-stone-200 bg-white text-stone-700'
-                  } ${!option.implemented ? 'cursor-not-allowed opacity-50' : 'hover:border-rose-300'}`}
+                  } ${!option.implemented || presentationPending
+                    ? 'cursor-not-allowed opacity-50'
+                    : 'hover:border-rose-300'}`}
                 >
                   {option.label}
                   {!option.implemented && (
@@ -702,23 +696,12 @@ export default function BookingPageOwnerSurface() {
             </div>
           </SectionCard>
 
-          <SectionCard
-            title="Sections"
-            description="Show or hide optional sections. Services and the booking button are always shown and can't be hidden here."
-          >
-            <div className="divide-y divide-stone-100">
-              {OPTIONAL_SECTIONS.map(section => (
-                <Toggle
-                  key={section.id}
-                  testId={`section-toggle-${section.id}`}
-                  label={section.comingSoon ? `${section.label} (coming soon)` : section.label}
-                  checked={section.comingSoon ? false : isShown(section.id)}
-                  disabled={section.comingSoon}
-                  onChange={next => handleSectionToggle(section.id, next)}
-                />
-              ))}
-            </div>
-          </SectionCard>
+          <BookingPageBuilder
+            draft={draft}
+            pending={presentationPending}
+            previewedSectionIds={previewedSectionIds}
+            onOperation={operation => void handleBuilderOperation(operation)}
+          />
 
           <SectionCard title="Content" description="Hero image, specialty line, bio and how your location is shown.">
             <div className="space-y-4">
@@ -806,7 +789,7 @@ export default function BookingPageOwnerSurface() {
             <button
               type="button"
               data-testid="booking-page-publish"
-              disabled={actionStatus !== 'idle'}
+              disabled={actionStatus !== 'idle' || presentationPending}
               onClick={() => void handlePublish()}
               className="rounded-full bg-rose-700 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-rose-800 disabled:opacity-50"
             >
@@ -815,7 +798,7 @@ export default function BookingPageOwnerSurface() {
             <button
               type="button"
               data-testid="booking-page-revert"
-              disabled={actionStatus !== 'idle'}
+              disabled={actionStatus !== 'idle' || presentationPending}
               onClick={() => void handleRevert()}
               className="rounded-full border border-stone-300 bg-white px-5 py-2.5 text-sm font-semibold text-stone-700 transition-colors hover:bg-stone-50 disabled:opacity-50"
             >
