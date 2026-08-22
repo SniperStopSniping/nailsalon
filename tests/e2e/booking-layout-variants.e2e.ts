@@ -1,5 +1,5 @@
 /* eslint-disable playwright/no-conditional-expect, playwright/no-conditional-in-test */
-import { expect, type Page, test } from '@playwright/test';
+import { expect, type FrameLocator, type Page, test } from '@playwright/test';
 import { Client, type QueryResultRow } from 'pg';
 
 import {
@@ -27,6 +27,14 @@ const SYNTHETIC_SALON_ID = 'salon_nail-salon-no5';
 const SYNTHETIC_SALON_SLUG = 'nail-salon-no5';
 const SYNTHETIC_CI_CLERK_BOOTSTRAP_URL
   = 'https://ci.luster.invalid/npm/@clerk/clerk-js@5/dist/clerk.browser.js';
+const SYNTHETIC_ACCESSIBLE_ADD_ON_ID = 'addon_e2e_nail-repair';
+
+const STAGE7_PRESET_LABELS = {
+  quick_book: 'Quick Book',
+  signature: 'Signature',
+  menu: 'Menu',
+  collective: 'Collective',
+} as const satisfies Record<BookingPagePresetId, string>;
 
 const SECTION_ORDER = [
   'salonProfile',
@@ -186,6 +194,12 @@ type TechnicianFixtureRow = QueryResultRow & {
   id: string;
   name: string;
   phone: string | null;
+};
+
+type AddOnFixtureRow = QueryResultRow & {
+  duration_minutes: number;
+  name: string;
+  price_cents: number;
 };
 
 type FeaturedServiceSnapshot = {
@@ -762,6 +776,86 @@ async function expectStage7PresetStructure(
   };
 }
 
+async function expectOpaquePreviewServiceCard(
+  preview: FrameLocator,
+  serviceId: string,
+  evidenceLabel: string,
+): Promise<void> {
+  const serviceCard = preview.getByTestId(`service-card-${serviceId}`);
+
+  await expect(serviceCard).toBeVisible();
+  await expect.poll(
+    () => serviceCard.evaluate(element => getComputedStyle(element).opacity),
+    { message: `${evidenceLabel} must reveal real renderer pixels without iframe scripts` },
+  ).toBe('1');
+  await expect(serviceCard).not.toHaveText('');
+}
+
+async function expectSelectedServiceSummary({
+  addOn,
+  page,
+  presetId,
+  service,
+}: {
+  addOn: AddOnFixtureRow;
+  page: Page;
+  presetId: BookingPagePresetId;
+  service: ServiceFixtureRow;
+}): Promise<void> {
+  const serviceCard = page.getByTestId(`service-card-${service.id}`);
+  const stickyBar = page.getByTestId('service-sticky-bar');
+  const formatPrice = (cents: number) => new Intl.NumberFormat('en-CA', {
+    style: 'currency',
+    currency: 'CAD',
+    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
+
+  await expect.poll(
+    () => serviceCard.evaluate(element => !(element as HTMLButtonElement).disabled),
+  ).toBe(true);
+
+  await page.evaluate(() => window.scrollTo(0, 0));
+
+  if (presetId === 'quick_book') {
+    await expect(page.getByTestId('editorial-sticky-cta')).toHaveCount(0);
+  } else {
+    await expect(page.getByTestId('editorial-sticky-cta')).toBeVisible();
+  }
+
+  await expect(stickyBar).toHaveCount(0);
+
+  // Trigger the real hydrated service-card handler without scrolling the
+  // Editorial anchor into its handoff position. This discriminates the Fable
+  // regression: selection itself must outrank the marketing jump CTA.
+  await serviceCard.evaluate(element => (element as HTMLButtonElement).click());
+
+  await expect(page.getByTestId('editorial-sticky-cta')).toHaveCount(0);
+  await expect(stickyBar).toBeVisible();
+  await expect(stickyBar).toContainText('1 service');
+  await expect(stickyBar).toContainText(formatPrice(service.price));
+  await expect(stickyBar).toContainText(formatDuration(service.duration_minutes));
+  await expect(page.getByTestId('service-continue-button')).toBeVisible();
+
+  const increaseAddOn = page.getByRole('button', {
+    name: `Increase ${addOn.name} quantity`,
+  });
+
+  await expect(increaseAddOn).toBeEnabled();
+
+  await increaseAddOn.click();
+
+  await expect(stickyBar).toContainText('1 service + 1 add-on');
+  await expect(stickyBar).toContainText(formatPrice(service.price + addOn.price_cents));
+  await expect(stickyBar).toContainText(formatDuration(
+    service.duration_minutes + addOn.duration_minutes,
+  ));
+  await expect.poll(() => new URL(page.url()).searchParams.get('baseServiceId'))
+    .toBe(service.id);
+  await expect.poll(() => new URL(page.url()).searchParams.get('selectedAddOns'))
+    .toContain(SYNTHETIC_ACCESSIBLE_ADD_ON_ID);
+}
+
 test.describe.configure({ mode: 'serial' });
 
 test('Quick Book and Editorial keep one canonical booking spine across mobile and 200% zoom @mobile-layout', async ({
@@ -955,6 +1049,12 @@ test('Stage 7 production recipes express four curated structures with one canoni
       'SELECT id, name, price, price_display_text, duration_minutes FROM service WHERE salon_id = $1 AND id = $2',
       [SYNTHETIC_SALON_ID, e2eConfig.serviceId],
     );
+    const addOnResult = await client.query<AddOnFixtureRow>(
+      `SELECT name, price_cents, duration_minutes
+       FROM add_on
+       WHERE salon_id = $1 AND id = $2 AND is_active = true`,
+      [SYNTHETIC_SALON_ID, SYNTHETIC_ACCESSIBLE_ADD_ON_ID],
+    );
     const technicianResult = await client.query<TechnicianFixtureRow>(
       `SELECT id, name, email, phone
        FROM technician
@@ -966,6 +1066,7 @@ test('Stage 7 production recipes express four curated structures with one canoni
     );
 
     expect(serviceResult.rows).toHaveLength(1);
+    expect(addOnResult.rows).toHaveLength(1);
     expect(technicianResult.rows.length).toBeGreaterThan(0);
 
     const canonicalServiceName = serviceResult.rows[0]!.name;
@@ -1067,6 +1168,13 @@ test('Stage 7 production recipes express four curated structures with one canoni
           expect(snapshot.serviceText).toContain(canonicalPrice);
           expect(snapshot.policyText).toBe('Please arrive five minutes before your synthetic appointment.');
           expect(snapshot.socialHref).toBe('https://www.instagram.com/luster-stage4-fixture');
+
+          await expectSelectedServiceSummary({
+            addOn: addOnResult.rows[0]!,
+            page,
+            presetId,
+            service: serviceResult.rows[0]!,
+          });
 
           const baseline = presetSnapshots.get(presetId);
           if (baseline) {
@@ -1276,6 +1384,12 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         await expect(preview.getByTestId('service-menu-list')).toBeVisible();
         await expect(preview.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
 
+        await expectOpaquePreviewServiceCard(
+          preview,
+          e2eConfig.serviceId,
+          `${scenario.label} embedded live preview`,
+        );
+
         for (const protectedSectionId of ['salonProfile', 'serviceMenu', 'bookingCta']) {
           await expect(page.getByTestId(`builder-visibility-${protectedSectionId}`)).toHaveCount(0);
           await expect(page.getByTestId(`builder-section-status-${protectedSectionId}`)).toHaveText('Protected');
@@ -1301,6 +1415,36 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         expect(beforeState.config.draftPresetBase).toBeNull();
         await expect(page.getByTestId('booking-page-preset-state'))
           .toHaveText('Custom · existing design');
+
+        for (const presetId of ['quick_book', 'signature', 'menu'] as const) {
+          const presetLabel = STAGE7_PRESET_LABELS[presetId];
+
+          await page.getByRole('button', {
+            name: `${presetLabel} starting design`,
+          }).click();
+
+          const reviewDialog = page.getByRole('alertdialog', {
+            name: `Switch to ${presetLabel}?`,
+          });
+          const reviewFrameTitle = `${presetLabel} design preview`;
+          const reviewIframe = reviewDialog.locator(`iframe[title="${reviewFrameTitle}"]`);
+          const reviewPreview = page.frameLocator(`iframe[title="${reviewFrameTitle}"]`);
+
+          await expect(reviewDialog).toBeVisible();
+          await expect(reviewIframe).toHaveAttribute('sandbox', 'allow-same-origin');
+          await expect(reviewPreview.getByTestId(
+            STAGE7_PRESET_DOM_EXPECTATIONS[presetId].present[0],
+          )).toBeVisible();
+
+          await expectOpaquePreviewServiceCard(
+            reviewPreview,
+            e2eConfig.serviceId,
+            `${scenario.label} ${presetLabel} preset-switch preview`,
+          );
+          await reviewDialog.getByRole('button', { name: 'Cancel' }).click();
+
+          await expect(reviewDialog).toHaveCount(0);
+        }
 
         const applyPresetOperation = {
           type: 'apply_preset',
@@ -1346,6 +1490,12 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         await expect(targetPreview.getByTestId(`service-card-${e2eConfig.serviceId}`))
           .toContainText(canonicalServiceName);
 
+        await expectOpaquePreviewServiceCard(
+          targetPreview,
+          e2eConfig.serviceId,
+          `${scenario.label} Collective preset-switch preview`,
+        );
+
         const dialogBox = await page.getByTestId('booking-page-preset-dialog-content')
           .boundingBox();
 
@@ -1385,6 +1535,12 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         await expect(preview.getByTestId('booking-social-links-labeled')).toBeVisible();
         await expect(preview.getByTestId('service-menu-list')).toBeVisible();
 
+        await expectOpaquePreviewServiceCard(
+          preview,
+          e2eConfig.serviceId,
+          `${scenario.label} applied Collective live preview`,
+        );
+
         const initialFlowOrder = appliedPresetState.config.draft.sectionOrder.filter(sectionId => (
           (STAGE6_FLOW_ORDER_PROOF_IDS as readonly string[]).includes(sectionId)
         ));
@@ -1417,6 +1573,11 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         expect(movedFlowOrder.indexOf('policies')).toBeLessThan(movedFlowOrder.indexOf('hoursLocation'));
 
         await expectBuilderAndDraftPreviewOrder(page, movedFlowOrder);
+
+        await expect(page.getByRole('button', { name: 'Move Policies up' })).toBeFocused();
+        await expect(builder.getByTestId('builder-reorder-status')).toHaveText(
+          'Policies moved to position 3 of 4 movable sections.',
+        );
 
         const groupedOperation = {
           type: 'set_variant',

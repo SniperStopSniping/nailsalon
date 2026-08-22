@@ -253,7 +253,12 @@ export default function BookingPageOwnerSurface() {
   const [presetStatus, setPresetStatus]
     = useState<BookingPagePresetPickerStatus>('idle');
   const [previewRevision, setPreviewRevision] = useState(0);
-  const [previewedSectionIds, setPreviewedSectionIds] = useState<Set<SectionId> | null>(null);
+  const [previewAdmission, setPreviewAdmission] = useState<{
+    revision: number;
+    reorderableSectionOrder: SectionId[];
+    sectionIds: Set<SectionId>;
+  } | null>(null);
+  const [completedMoveRevision, setCompletedMoveRevision] = useState<number | null>(null);
   const [actionStatus, setActionStatus] = useState<'idle' | 'publishing' | 'reverting'>('idle');
   const [actionMessage, setActionMessage] = useState<string | null>(null);
 
@@ -271,10 +276,22 @@ export default function BookingPageOwnerSurface() {
 
   const saveTokenRef = useRef(0);
   const presentationWritePendingRef = useRef(false);
-  const previewFrameRef = useRef<HTMLIFrameElement>(null);
-  const refreshPreview = useCallback(() => {
-    setPreviewedSectionIds(null);
-    setPreviewRevision(revision => revision + 1);
+  const previewRevisionRef = useRef(previewRevision);
+  previewRevisionRef.current = previewRevision;
+  const refreshPreview = useCallback((preserveAdmission = false) => {
+    setCompletedMoveRevision(null);
+    // Reordering changes canonical order, never Stage 2 admission. Preserve
+    // the last renderer-attested set for that one refresh so the moved row's
+    // focused controls remain mounted. Every operation that can change
+    // admission still fails closed until the replacement iframe reports its
+    // current public surfaces.
+    if (!preserveAdmission) {
+      setPreviewAdmission(null);
+    }
+    const nextRevision = previewRevisionRef.current + 1;
+    previewRevisionRef.current = nextRevision;
+    setPreviewRevision(nextRevision);
+    return nextRevision;
   }, []);
 
   useEffect(() => {
@@ -335,6 +352,7 @@ export default function BookingPageOwnerSurface() {
     if (!salonSlug) {
       return;
     }
+    setCompletedMoveRevision(null);
     const token = ++saveTokenRef.current;
     setSaveStatus('saving');
     try {
@@ -355,6 +373,7 @@ export default function BookingPageOwnerSurface() {
     if (!salonSlug) {
       return;
     }
+    setCompletedMoveRevision(null);
     const token = ++saveTokenRef.current;
     setSaveStatus('saving');
     try {
@@ -398,6 +417,7 @@ export default function BookingPageOwnerSurface() {
     }
 
     presentationWritePendingRef.current = true;
+    setCompletedMoveRevision(null);
     setPresentationPending(true);
     setPresetStatus('idle');
     setSaveStatus('saving');
@@ -408,7 +428,10 @@ export default function BookingPageOwnerSurface() {
       if (operation.type === 'apply_preset') {
         setPresetStatus('success');
       }
-      refreshPreview();
+      const refreshedRevision = refreshPreview(operation.type === 'move_section');
+      if (operation.type === 'move_section') {
+        setCompletedMoveRevision(refreshedRevision);
+      }
     } catch (operationError) {
       const isSignatureGuardedOperation = operation.type === 'apply_preset'
         || operation.type === 'reset_all';
@@ -442,20 +465,54 @@ export default function BookingPageOwnerSurface() {
     }
   }, [refreshPreview, salonSlug]);
 
-  const handlePreviewLoad = useCallback(() => {
-    const document = previewFrameRef.current?.contentDocument;
-    if (!document) {
+  const handlePreviewLoad = useCallback((frame: HTMLIFrameElement, revision: number) => {
+    if (revision !== previewRevisionRef.current) {
+      return;
+    }
+    const previewDocument = frame.contentDocument;
+    if (!previewDocument) {
+      return;
+    }
+    const canonicalBookingSurface = previewDocument.querySelector(
+      '[data-public-surface="serviceSelectionControls"]',
+    );
+    const authorizedDraftPreview = previewDocument.querySelector(
+      '[data-preview-variant="draft-config"], [data-preview-variant="draft-salon"]',
+    );
+    const completedRenderer = previewDocument.querySelector(
+      '[data-builder-reorderable-section-order]',
+    );
+    if (!canonicalBookingSurface || !authorizedDraftPreview || !completedRenderer) {
       return;
     }
     const knownIds = new Set<string>(SECTION_PRESENTATION_SECTION_IDS);
     const rendered = new Set<SectionId>();
-    for (const element of document.querySelectorAll<HTMLElement>('[data-public-surface]')) {
+    for (const element of previewDocument.querySelectorAll<HTMLElement>('[data-public-surface]')) {
       const sectionId = element.dataset.publicSurface;
-      if (sectionId && knownIds.has(sectionId)) {
-        rendered.add(sectionId as SectionId);
+      if (sectionId && knownIds.has(sectionId) && !rendered.has(sectionId as SectionId)) {
+        const knownSectionId = sectionId as SectionId;
+        rendered.add(knownSectionId);
       }
     }
-    setPreviewedSectionIds(rendered);
+    const attestedOrderValue = completedRenderer.getAttribute(
+      'data-builder-reorderable-section-order',
+    );
+    if (attestedOrderValue === null) {
+      return;
+    }
+    const reorderableSectionOrder: SectionId[] = [];
+    const attestedIds = new Set<SectionId>();
+    for (const rawSectionId of attestedOrderValue.split(/\s+/).filter(Boolean)) {
+      if (!knownIds.has(rawSectionId)
+        || attestedIds.has(rawSectionId as SectionId)
+        || !rendered.has(rawSectionId as SectionId)) {
+        return;
+      }
+      const sectionId = rawSectionId as SectionId;
+      attestedIds.add(sectionId);
+      reorderableSectionOrder.push(sectionId);
+    }
+    setPreviewAdmission({ revision, reorderableSectionOrder, sectionIds: rendered });
   }, []);
 
   const handlePublish = async () => {
@@ -465,6 +522,7 @@ export default function BookingPageOwnerSurface() {
     presentationWritePendingRef.current = true;
     setPresentationPending(true);
     setPresetStatus('idle');
+    setCompletedMoveRevision(null);
     setActionStatus('publishing');
     setActionMessage(null);
     try {
@@ -497,6 +555,7 @@ export default function BookingPageOwnerSurface() {
     presentationWritePendingRef.current = true;
     setPresentationPending(true);
     setPresetStatus('idle');
+    setCompletedMoveRevision(null);
     setActionStatus('reverting');
     setActionMessage(null);
     try {
@@ -615,13 +674,13 @@ export default function BookingPageOwnerSurface() {
               {previewFrameSrc
                 ? (
                     <iframe
-                      ref={previewFrameRef}
+                      key={previewRevision}
                       title="Live booking page preview"
                       src={previewFrameSrc}
                       aria-hidden="true"
                       sandbox="allow-same-origin"
                       tabIndex={-1}
-                      onLoad={handlePreviewLoad}
+                      onLoad={event => handlePreviewLoad(event.currentTarget, previewRevision)}
                       className="pointer-events-none block h-[620px] w-full bg-white"
                     />
                   )
@@ -637,7 +696,7 @@ export default function BookingPageOwnerSurface() {
               <button
                 type="button"
                 data-testid="booking-page-preview-refresh"
-                onClick={refreshPreview}
+                onClick={() => refreshPreview()}
                 className="min-h-11 rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
               >
                 Refresh preview
@@ -700,9 +759,13 @@ export default function BookingPageOwnerSurface() {
 
           <BookingPageBuilder
             draft={draft}
+            completedMoveRevision={completedMoveRevision}
             pending={presentationPending}
             presetBase={config.draftPresetBase}
-            previewedSectionIds={previewedSectionIds}
+            previewAdmissionRevision={previewAdmission?.revision ?? null}
+            previewRequestRevision={previewRevision}
+            previewedSectionIds={previewAdmission?.sectionIds ?? null}
+            previewedReorderableSectionOrder={previewAdmission?.reorderableSectionOrder ?? null}
             onOperation={operation => void handleBuilderOperation(operation)}
           />
 

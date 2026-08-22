@@ -2,7 +2,10 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { applyBookingPageBuilderOperation } from '@/libs/bookingPageBuilder';
+import {
+  applyBookingPageBuilderOperation,
+  listBookingPageBuilderSections,
+} from '@/libs/bookingPageBuilder';
 import {
   BOOKING_PAGE_PRESET_RECIPES,
   getBookingPagePresentationSignature,
@@ -57,6 +60,56 @@ function baseContent() {
     locationDisplayMode: string;
   } = { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' };
   return { version: 1, draft: side, live: side };
+}
+
+const CANONICAL_BOOKING_SURFACE_SELECTOR = '[data-public-surface="serviceSelectionControls"]';
+const AUTHORIZED_DRAFT_PREVIEW_SELECTOR
+  = '[data-preview-variant="draft-config"], [data-preview-variant="draft-salon"]';
+const COMPLETED_RENDERER_SELECTOR = '[data-builder-reorderable-section-order]';
+
+function previewDocumentForSections(
+  sectionIds: readonly string[],
+  {
+    authorizedDraft = true,
+    canonical = true,
+    complete = true,
+    layout = 'quick_book',
+    reorderableSectionOrder = sectionIds.filter(sectionId => (
+      listBookingPageBuilderSections(layout)
+        .some(definition => definition.id === sectionId && definition.reorderable)
+    )),
+  }: {
+    authorizedDraft?: boolean;
+    canonical?: boolean;
+    complete?: boolean;
+    layout?: string;
+    reorderableSectionOrder?: readonly string[];
+  } = {},
+) {
+  return {
+    querySelector: (selector: string) => {
+      if (selector === CANONICAL_BOOKING_SURFACE_SELECTOR) {
+        return canonical ? { dataset: { publicSurface: 'serviceSelectionControls' } } : null;
+      }
+      if (selector === AUTHORIZED_DRAFT_PREVIEW_SELECTOR) {
+        return authorizedDraft ? { dataset: { previewVariant: 'draft-config' } } : null;
+      }
+      if (selector === COMPLETED_RENDERER_SELECTOR) {
+        return complete
+          ? {
+              getAttribute: (attribute: string) => attribute
+                === 'data-builder-reorderable-section-order'
+                ? reorderableSectionOrder.join(' ')
+                : null,
+            }
+          : null;
+      }
+      return null;
+    },
+    querySelectorAll: () => sectionIds.map(sectionId => ({
+      dataset: { publicSurface: sectionId },
+    })),
+  };
 }
 
 describe('BookingPageOwnerSurface', () => {
@@ -439,6 +492,15 @@ describe('BookingPageOwnerSurface', () => {
     });
     render(<BookingPageOwnerSurface />);
 
+    const preview = await screen.findByTitle('Live booking page preview');
+    Object.defineProperty(preview, 'contentDocument', {
+      configurable: true,
+      value: previewDocumentForSections(config.draft.sectionOrder, {
+        layout: config.draft.layout,
+      }),
+    });
+    fireEvent.load(preview);
+
     const moveDown = await screen.findByRole('button', { name: 'Move Featured services down' });
     moveDown.focus();
     await user.keyboard('{Enter}');
@@ -467,6 +529,66 @@ describe('BookingPageOwnerSurface', () => {
         'featuredServices',
       ]);
     });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('builder-section-featuredServices')).toHaveFocus();
+    });
+
+    expect(screen.getByTestId('builder-reorder-status')).toBeEmptyDOMElement();
+    expect(screen.getByRole('button', { name: 'Move Featured services down' })).toBeDisabled();
+
+    const replacementPreview = await screen.findByTitle('Live booking page preview');
+
+    expect(replacementPreview).not.toBe(preview);
+    expect(replacementPreview).toHaveAttribute(
+      'src',
+      '/en/salon-a/book/service?builderPreview=1',
+    );
+
+    // An expired owner session can return the canonical LIVE renderer, but
+    // without the authorization-bound draft marker it is not Stage 2 evidence
+    // for this draft move and must not produce a false announcement.
+    Object.defineProperty(replacementPreview, 'contentDocument', {
+      configurable: true,
+      value: previewDocumentForSections(config.live.sectionOrder, {
+        authorizedDraft: false,
+        layout: config.live.layout,
+      }),
+    });
+    fireEvent.load(replacementPreview);
+
+    expect(screen.getByTestId('builder-section-featuredServices')).toHaveFocus();
+    expect(screen.getByTestId('builder-reorder-status')).toBeEmptyDOMElement();
+
+    // An authorized response that stops before the canonical renderer's
+    // terminal attestation cannot prove the complete movable set.
+    Object.defineProperty(replacementPreview, 'contentDocument', {
+      configurable: true,
+      value: previewDocumentForSections(config.draft.sectionOrder, {
+        complete: false,
+        layout: config.draft.layout,
+      }),
+    });
+    fireEvent.load(replacementPreview);
+
+    expect(screen.getByTestId('builder-section-featuredServices')).toHaveFocus();
+    expect(screen.getByTestId('builder-reorder-status')).toBeEmptyDOMElement();
+
+    // The canonical replacement iframe reports the Stage 2 surfaces. The row
+    // remained mounted while stale, then keyboard focus returns to its enabled
+    // movement controls once the exact revision is attested.
+    Object.defineProperty(replacementPreview, 'contentDocument', {
+      configurable: true,
+      value: previewDocumentForSections(config.draft.sectionOrder, {
+        layout: config.draft.layout,
+      }),
+    });
+    fireEvent.load(replacementPreview);
+
+    expect(screen.getByRole('button', { name: 'Move Featured services down' })).toHaveFocus();
+    expect(screen.getByTestId('builder-reorder-status')).toHaveTextContent(
+      'Featured services moved to position 2 of 4 movable sections.',
+    );
   });
 
   it('embeds the authenticated real booking route and derives availability from rendered Stage 2 surfaces', async () => {
@@ -486,13 +608,11 @@ describe('BookingPageOwnerSurface', () => {
 
     Object.defineProperty(preview, 'contentDocument', {
       configurable: true,
-      value: {
-        querySelectorAll: () => [
-          { dataset: { publicSurface: 'salonProfile' } },
-          { dataset: { publicSurface: 'serviceMenu' } },
-          { dataset: { publicSurface: 'featuredServices' } },
-        ],
-      },
+      value: previewDocumentForSections([
+        'salonProfile',
+        'serviceMenu',
+        'featuredServices',
+      ]),
     });
     fireEvent.load(preview);
 
