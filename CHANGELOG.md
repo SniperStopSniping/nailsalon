@@ -1,3 +1,15 @@
+# [1.80.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.79.4...v1.80.0) (2026-08-22)
+
+
+### Bug Fixes
+
+* **ci:** attest Stage 4 browser database ([69b53e0](https://github.com/SniperStopSniping/nailsalon/commit/69b53e01c1737b09e9aec98443b0e2963542424c))
+
+
+### Features
+
+* **booking:** add canonical section variant renderer ([0c7347c](https://github.com/SniperStopSniping/nailsalon/commit/0c7347cdd5f104530ae8965bf594b451af5bb4c6))
+
 ## [1.79.4](https://github.com/SniperStopSniping/nailsalon/compare/v1.79.3...v1.79.4) (2026-08-21)
 
 
