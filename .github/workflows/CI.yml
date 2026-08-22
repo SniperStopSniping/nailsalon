@@ -620,12 +620,17 @@ jobs:
       # trusted main retains hosted snapshot publication.
       - name: Run E2E tests against disposable PostgreSQL
         if: github.event_name == 'pull_request'
+        env:
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
         run: npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts
 
       - name: Run E2E with trusted-main Percy coverage
         if: github.event_name == 'push'
         env:
           PERCY_TOKEN: ${{ secrets.PERCY_TOKEN }}
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
         run: |
           if [ -n "$PERCY_TOKEN" ]; then
             npx percy exec -- npm run test:e2e -- tests/e2e/mobile-staff-uiqi.e2e.ts tests/e2e/booking-layout-variants.e2e.ts
