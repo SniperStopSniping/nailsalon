@@ -272,8 +272,15 @@ export default function BookingPageOwnerSurface() {
   const saveTokenRef = useRef(0);
   const presentationWritePendingRef = useRef(false);
   const previewFrameRef = useRef<HTMLIFrameElement>(null);
-  const refreshPreview = useCallback(() => {
-    setPreviewedSectionIds(null);
+  const refreshPreview = useCallback((preserveAdmission = false) => {
+    // Reordering changes canonical order, never Stage 2 admission. Preserve
+    // the last renderer-attested set for that one refresh so the moved row's
+    // focused controls remain mounted. Every operation that can change
+    // admission still fails closed until the replacement iframe reports its
+    // current public surfaces.
+    if (!preserveAdmission) {
+      setPreviewedSectionIds(null);
+    }
     setPreviewRevision(revision => revision + 1);
   }, []);
 
@@ -408,7 +415,7 @@ export default function BookingPageOwnerSurface() {
       if (operation.type === 'apply_preset') {
         setPresetStatus('success');
       }
-      refreshPreview();
+      refreshPreview(operation.type === 'move_section');
     } catch (operationError) {
       const isSignatureGuardedOperation = operation.type === 'apply_preset'
         || operation.type === 'reset_all';
@@ -637,7 +644,7 @@ export default function BookingPageOwnerSurface() {
               <button
                 type="button"
                 data-testid="booking-page-preview-refresh"
-                onClick={refreshPreview}
+                onClick={() => refreshPreview()}
                 className="min-h-11 rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
               >
                 Refresh preview

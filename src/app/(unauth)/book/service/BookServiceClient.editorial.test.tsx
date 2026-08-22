@@ -14,6 +14,10 @@ import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BookingPageConfigSide } from '@/libs/bookingPageConfig';
+import {
+  BOOKING_PAGE_PRESET_RECIPES,
+  type BookingPagePresetId,
+} from '@/libs/bookingPagePresetRecipes';
 import { EMPTY_SALON_CONTENT, type SalonContent } from '@/libs/salonContent';
 import type { BookingExperience } from '@/types/salonPolicy';
 
@@ -77,6 +81,26 @@ const EDITORIAL_BOOKING_PAGE_SIDE: BookingPageConfigSide = {
   businessMode: 'solo',
   startMode: 'services_first',
 };
+
+const EDITORIAL_PRESET_IDS = [
+  'signature',
+  'menu',
+  'collective',
+] as const satisfies readonly BookingPagePresetId[];
+
+function bookingPageSideForPreset(
+  presetId: (typeof EDITORIAL_PRESET_IDS)[number],
+): BookingPageConfigSide {
+  const recipe = BOOKING_PAGE_PRESET_RECIPES[presetId];
+
+  return {
+    ...EDITORIAL_BOOKING_PAGE_SIDE,
+    layout: recipe.layout,
+    sectionOrder: [...recipe.sectionOrder],
+    sectionVariants: { ...recipe.sectionVariants },
+    hiddenSections: [...recipe.hiddenSections],
+  };
+}
 
 vi.mock('next/image', () => ({
   default: ({
@@ -231,6 +255,30 @@ const service = {
   featuredOrder: 1,
   imageUrl: '/service-1.jpg',
   resolvedIntroPriceLabel: null,
+};
+
+const chromeAddOn = {
+  id: 'addon-chrome',
+  name: 'Chrome Finish',
+  descriptionItems: ['Mirror shine'],
+  category: 'nail_art' as const,
+  pricingType: 'fixed' as const,
+  unitLabel: null,
+  maxQuantity: 1,
+  durationMinutes: 10,
+  priceCents: 1500,
+  priceDisplayText: null,
+  isActive: true,
+};
+
+const chromeAddOnRule = {
+  id: 'rule-chrome',
+  serviceId: service.id,
+  addOnId: chromeAddOn.id,
+  selectionMode: 'optional' as const,
+  defaultQuantity: null,
+  maxQuantityOverride: null,
+  displayOrder: 1,
 };
 
 function buildContent(overrides: Partial<SalonContent> = {}): SalonContent {
@@ -1018,39 +1066,77 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
   });
 
   describe('sticky CTA handoff', () => {
-    it('shows only the editorial sticky CTA before the services anchor is reached, even with a service pre-selected from the URL', () => {
-      navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+    it.each(EDITORIAL_PRESET_IDS)(
+      '%s replaces discovery with the selected-service summary and preserves add-ons through Continue',
+      async (presetId) => {
+        salonContextMock.bookingPage = bookingPageSideForPreset(presetId);
 
-      render(
-        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
-      );
+        render(
+          <BookServiceClient
+            services={[service]}
+            addOns={[chromeAddOn]}
+            serviceAddOnRules={[chromeAddOnRule]}
+            bookingFlow={['service', 'tech', 'time', 'confirm']}
+            locations={[]}
+          />,
+        );
 
-      expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
-      expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
-    });
+        expect(screen.getByTestId('editorial-sticky-cta')).toHaveTextContent('Book appointment');
+        expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
 
-    it('hands off to the sticky Continue bar once the services anchor is reached — the two are never both visible', async () => {
-      navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+        // Selection happens while the services anchor is still below the
+        // handoff threshold: no observer callback has fired in this test.
+        fireEvent.click(screen.getByTestId(`service-card-${service.id}`));
 
-      render(
-        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
-      );
+        const selectedSummary = screen.getByTestId('service-sticky-bar');
 
-      // Before: editorial CTA only.
-      expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
-      expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
-
-      // Simulate scrolling to/past #services (its top edge reaches the
-      // viewport's top edge).
-      fireAnchorIntersection(-10);
-
-      await waitFor(() => {
         expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
-      });
+        expect(within(selectedSummary).getByText('1 service')).toBeInTheDocument();
+        expect(within(selectedSummary).getByText('$90')).toBeInTheDocument();
+        expect(within(selectedSummary).getByText('1h 30m')).toBeInTheDocument();
+        expect(within(selectedSummary).getByRole('button', { name: /Continue/i })).toBeInTheDocument();
 
+        fireEvent.click(screen.getByRole('button', { name: 'Add Chrome Finish' }));
+
+        await waitFor(() => {
+          expect(within(selectedSummary).getByText('1 service + 1 add-on')).toBeInTheDocument();
+          expect(within(selectedSummary).getByText('$105')).toBeInTheDocument();
+          expect(within(selectedSummary).getByText('1h 40m')).toBeInTheDocument();
+        });
+
+        fireEvent.click(within(selectedSummary).getByRole('button', { name: /Continue/i }));
+
+        const nextUrl = new URL(
+          navigationMock.routerPush.mock.calls.at(-1)?.[0] as string,
+          'https://example.test',
+        );
+
+        expect(nextUrl.pathname).toBe('/en/salon-a/book/tech');
+        expect(nextUrl.searchParams.get('baseServiceId')).toBe(service.id);
+        expect(JSON.parse(nextUrl.searchParams.get('selectedAddOns') ?? 'null')).toEqual([
+          { addOnId: chromeAddOn.id, quantity: 1 },
+        ]);
+      },
+    );
+
+    it('shows the selected-service summary immediately for URL-restored state and keeps it while scrolling', () => {
+      navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
       expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
 
-      // Never both visible at once, in either state.
+      fireAnchorIntersection(-10);
+
+      expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+      expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
+
+      fireAnchorIntersection(300);
+
+      expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
       expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
     });
 
@@ -1121,7 +1207,7 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
         };
       }
 
-      it('shows the Continue bar immediately, never the dead jump link, when the anchor can never geometrically reach the threshold', () => {
+      it('shows the selected-service summary immediately when the anchor can never geometrically reach the threshold', () => {
         const restore = stubShortPageGeometry();
         navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
 
@@ -1130,9 +1216,8 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
             <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
           );
 
-          // No `fireAnchorIntersection` call anywhere in this test — the
-          // handoff must happen from geometry alone, on mount, without ever
-          // needing a "reached" intersection entry.
+          // No `fireAnchorIntersection` call anywhere in this test: active
+          // selection alone must take precedence over the jump-link CTA.
           expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
           expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
         } finally {
@@ -1177,7 +1262,7 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
         }
       });
 
-      it('ignores a stale "not reached" intersection entry while geometry still forces the handoff, but stays subscribed so a later geometry change can still be observed', () => {
+      it('keeps the observer subscribed on an unreachable page without letting a stale entry replace the selected summary', () => {
         const restore = stubShortPageGeometry();
         navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
 
@@ -1197,10 +1282,8 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
           // observer setup the moment the first read comes back negative.
           expect(observerCallback).not.toBeNull();
 
-          // A stale "not reached" entry must not matter either way here:
-          // geometry (stubbed unreachable throughout this test) still wins,
-          // so the Continue bar stays up and never flips back to the dead
-          // jump link.
+          // Selection presentation is independent of the stale geometry
+          // reading, so the summary never flips back to the jump link.
           fireAnchorIntersection(215.75);
 
           expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
@@ -1210,23 +1293,27 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
         }
       });
 
-      it('does not affect the reachable case: a normal-length page still uses the geometry-driven intersection handoff', () => {
+      it('keeps discovery visible on a reachable page until the services anchor is actually reached', () => {
         // window.innerHeight/scrollY are left at jsdom defaults (0) here —
         // only scrollHeight/getBoundingClientRect are stubbed, to a page
         // whose anchor top-at-max-scroll comfortably clears the threshold.
         const scrollHeightSpy = vi.spyOn(Element.prototype, 'scrollHeight', 'get').mockReturnValue(2000);
         const rectSpy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ top: 10 } as DOMRect);
-        navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
-
         try {
           render(
             <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
           );
 
-          // Reachable: the component still waits for the real
-          // intersection-observer-driven handoff rather than jumping
-          // straight to the Continue bar.
+          // Reachability alone does not imply that the visitor has reached
+          // the service controls, so discovery remains available.
           expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
+          expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+
+          fireAnchorIntersection(-10);
+
+          // There is no selected service to summarize after the discovery
+          // CTA hands off at the actual anchor.
+          expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
           expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
         } finally {
           scrollHeightSpy.mockRestore();
@@ -1277,16 +1364,16 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
         };
       }
 
-      const assertExactlyOneStickyCtaVisible = () => {
+      const assertSelectedSummaryIsOnlyStickyCta = () => {
         const editorialCta = screen.queryByTestId('editorial-sticky-cta');
         const continueBar = screen.queryByTestId('service-sticky-bar');
 
-        // Never zero, never two.
+        expect(continueBar).toBeInTheDocument();
+        expect(editorialCta).not.toBeInTheDocument();
         expect([editorialCta, continueBar].filter(Boolean)).toHaveLength(1);
       };
 
       it('recovers from a false-negative mount measurement once the page grows enough (real repro: 1773px -> 1849px)', () => {
-        navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
         const geometry = stubGeometry({ scrollHeight: 1773, rectTop: 1000 });
 
         try {
@@ -1294,11 +1381,10 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
             <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
           );
 
-          // Mount-time measurement, matching the real repro's pre-settle
-          // 1773px: the anchor is not yet geometrically reachable, so the
-          // Continue bar shows immediately as the fallback.
-          expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
-          expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
+          // With no selection, discovery remains visible even when the
+          // mount-time geometry says the anchor is unreachable.
+          expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
+          expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
 
           // The ResizeObserver must already be attached at this point — the
           // fix requirement is that it is attached independently of the
@@ -1313,9 +1399,8 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
           geometry.setScrollHeight(1849);
           fireResizeObserverCallback();
 
-          // Corrected: the anchor is now geometrically reachable, and the
-          // user has not scrolled to it yet, so the persistent Editorial
-          // CTA is what should show.
+          // The anchor is now reachable, but discovery remains until a real
+          // intersection says that the visitor reached the controls.
           expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
           expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
 
@@ -1324,13 +1409,13 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
           fireAnchorIntersection(-10);
 
           expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
-          expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+          expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
         } finally {
           geometry.restore();
         }
       });
 
-      it('stays in the Continue-bar fallback when a resize-triggered recheck still finds the page too short (genuinely unreachable page)', () => {
+      it('keeps the selected-service summary when a resize-triggered recheck still finds the page too short', () => {
         navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
         const geometry = stubGeometry({ scrollHeight: 1773, rectTop: 1200 });
 
@@ -1343,8 +1428,8 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
           expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
 
           // Modest growth, still nowhere near enough to make the anchor
-          // reachable — the fallback must correctly stay put rather than
-          // flipping just because a recheck happened.
+          // reachable — presentation must not flip just because a recheck
+          // happened.
           geometry.setScrollHeight(1800);
           fireResizeObserverCallback();
 
@@ -1356,7 +1441,6 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
       });
 
       it('recalculates on a viewport resize occurring after mount (window "resize" event, not just content growth)', () => {
-        navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
         // A short page (700px) that already fits within a tall 812px
         // viewport — there is no room to scroll at all, so the anchor
         // (100px down) is genuinely unreachable.
@@ -1367,8 +1451,14 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
             <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
           );
 
-          expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
-          expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
+          expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
+          expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
+
+          // Even an intersection reading at the threshold cannot clear the
+          // discovery fallback while geometry still says it is unreachable.
+          fireAnchorIntersection(-5);
+
+          expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
 
           // The viewport shrinks after mount (on-screen keyboard opening,
           // browser chrome changing, or an actual window resize) — the page
@@ -1380,7 +1470,7 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
             window.dispatchEvent(new Event('resize'));
           });
 
-          expect(screen.getByTestId('editorial-sticky-cta')).toBeInTheDocument();
+          expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
           expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
         } finally {
           geometry.restore();
@@ -1396,14 +1486,14 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
             <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
           );
 
-          assertExactlyOneStickyCtaVisible(); // mount: forced Continue bar (short page)
+          assertSelectedSummaryIsOnlyStickyCta();
 
           geometry.setScrollHeight(1849);
           fireResizeObserverCallback();
-          assertExactlyOneStickyCtaVisible(); // corrected: Editorial CTA
+          assertSelectedSummaryIsOnlyStickyCta();
 
           fireAnchorIntersection(-10);
-          assertExactlyOneStickyCtaVisible(); // scrolled past: Continue bar
+          assertSelectedSummaryIsOnlyStickyCta();
         } finally {
           geometry.restore();
         }
@@ -1425,9 +1515,7 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
       // keeps "reached" correctly persisting after scrolling further past
       // the anchor (its top only gets more negative) while still correctly
       // reverting if the user scrolls back up above it.
-      it('keeps reporting reached after scrolling further past the anchor, and correctly reverts if scrolled back above it', () => {
-        navigationMock.searchParams = new URLSearchParams('salonSlug=salon-a&baseServiceId=svc-1');
-
+      it('keeps reporting reached after scrolling further past the anchor, and restores discovery if scrolled back above it without a selection', () => {
         render(
           <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
         );
@@ -1435,14 +1523,14 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
         // Scrolled to the anchor: reached.
         fireAnchorIntersection(16);
 
-        expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+        expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
         expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
 
         // Scrolled well past it (its top is now far above the viewport,
         // deep negative) — must still read as reached, not revert.
         fireAnchorIntersection(-900);
 
-        expect(screen.getByTestId('service-sticky-bar')).toBeInTheDocument();
+        expect(screen.queryByTestId('service-sticky-bar')).not.toBeInTheDocument();
         expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
 
         // Scrolled back up above the anchor — correctly reverts.

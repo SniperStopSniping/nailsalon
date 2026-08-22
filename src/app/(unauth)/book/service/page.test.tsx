@@ -633,6 +633,88 @@ describe('BookServicePage owner-preview wiring', () => {
     }));
   });
 
+  it.each(['0', '8'])(
+    'enables static entrance rendering for authorized embedded builder revision %s',
+    async (builderPreview) => {
+      resolveDraftSalonAccess.mockResolvedValue({
+        allowed: true,
+        isPreviewingDraftSalon: false,
+        isPreviewingDraftConfig: true,
+        actorType: 'owner',
+      });
+
+      const element = await BookServicePage({
+        searchParams: {
+          salonSlug: 'salon-a',
+          builderPreview: typeof builderPreview === 'string' || builderPreview === undefined
+            ? builderPreview
+            : [...builderPreview],
+        },
+        params: { locale: 'en', slug: 'salon-a' },
+      });
+      render(element);
+
+      expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+        isEmbeddedBuilderPreview: true,
+      }));
+    },
+  );
+
+  it('does not let an ordinary live-page visitor opt into embedded builder rendering by query', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: false,
+      isPreviewingDraftConfig: false,
+      actorType: null,
+    });
+
+    const element = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a', builderPreview: '8' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(element);
+
+    expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+      isEmbeddedBuilderPreview: false,
+    }));
+  });
+
+  it.each([
+    ['missing', undefined],
+    ['empty', ''],
+    ['negative', '-1'],
+    ['decimal', '1.5'],
+    ['leading-zero', '01'],
+    ['whitespace', ' 1'],
+    ['repeated-single', ['1']],
+    ['repeated-multiple', ['1', '2']],
+  ] as const)(
+    'fails closed for %s embedded builder preview input',
+    async (_caseName, builderPreview) => {
+      resolveDraftSalonAccess.mockResolvedValue({
+        allowed: true,
+        isPreviewingDraftSalon: false,
+        isPreviewingDraftConfig: true,
+        actorType: 'owner',
+      });
+
+      const element = await BookServicePage({
+        searchParams: {
+          salonSlug: 'salon-a',
+          builderPreview: typeof builderPreview === 'string' || builderPreview === undefined
+            ? builderPreview
+            : [...builderPreview],
+        },
+        params: { locale: 'en', slug: 'salon-a' },
+      });
+      render(element);
+
+      expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+        isEmbeddedBuilderPreview: false,
+      }));
+    },
+  );
+
   it('renders an exact versioned target recipe in memory through the existing public shell only for an authorized draft preview', async () => {
     const canonicalService = {
       id: 'svc-preset-preview',

@@ -1,6 +1,7 @@
 'use client';
 
 import { ArrowDown, ArrowUp, RotateCcw } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
 
 import {
   applyBookingPageBuilderOperation,
@@ -32,6 +33,17 @@ export type BookingPageBuilderProps = {
 };
 
 type SectionDefinition = ReturnType<typeof listBookingPageBuilderSections>[number];
+type MoveDirection = 'up' | 'down';
+
+type PendingMoveIntent = {
+  direction: MoveDirection;
+  participantIds: SectionId[];
+  previousSectionOrder: SectionId[];
+  sawPending: boolean;
+  sectionId: SectionId;
+};
+
+type CompletedMoveResult = Pick<PendingMoveIntent, 'direction' | 'sectionId'>;
 
 const CONTROL_CLASS = 'min-h-11 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm font-semibold text-stone-700 transition-colors hover:border-rose-300 hover:bg-rose-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none';
 
@@ -66,6 +78,10 @@ function projectedReorderableFlowOrder(
   definitions: ReadonlyMap<SectionId, SectionDefinition>,
   previewedSectionIds: ReadonlySet<SectionId> | null,
 ): SectionId[] {
+  if (previewedSectionIds === null) {
+    return [];
+  }
+
   const hidden = new Set(state.hiddenSections);
 
   return state.sectionOrder.filter((sectionId) => {
@@ -75,7 +91,7 @@ function projectedReorderableFlowOrder(
       definition
       && definition.reorderable
       && !hidden.has(sectionId)
-      && (previewedSectionIds === null || previewedSectionIds.has(sectionId)),
+      && previewedSectionIds.has(sectionId),
     );
   });
 }
@@ -188,11 +204,153 @@ export function BookingPageBuilder({
   const orderedDefinitions = orderSectionDefinitions(draft, sectionDefinitions);
   const hidden = new Set(draft.hiddenSections);
   const pageCustomized = isBookingPagePresentationCustomized(presentationState);
+  const moveControlRefs = useRef(new Map<string, HTMLButtonElement>());
+  const sectionRowRefs = useRef(new Map<SectionId, HTMLLIElement>());
+  const pendingMoveIntentRef = useRef<PendingMoveIntent | null>(null);
+  const completedMoveResultRef = useRef<CompletedMoveResult | null>(null);
+  const latestDraftRef = useRef(draft);
+  const latestDefinitionsRef = useRef(definitionsById);
+  const [reorderAnnouncement, setReorderAnnouncement] = useState('');
+  latestDraftRef.current = draft;
+  latestDefinitionsRef.current = definitionsById;
+
+  useEffect(() => {
+    const intent = pendingMoveIntentRef.current;
+    if (!intent) {
+      return;
+    }
+    if (pending) {
+      intent.sawPending = true;
+      return;
+    }
+
+    const participants = new Set(intent.participantIds);
+    const resultingOrder = draft.sectionOrder.filter(sectionId => participants.has(sectionId));
+    const resultingPosition = resultingOrder.indexOf(intent.sectionId);
+    const orderChanged = draft.sectionOrder.length !== intent.previousSectionOrder.length
+      || draft.sectionOrder.some(
+        (sectionId, index) => sectionId !== intent.previousSectionOrder[index],
+      );
+    const moveCompleted = resultingPosition !== -1 && orderChanged;
+
+    // A successful save can place the moved section at a boundary, disabling
+    // the control that initiated the move. Keep the keyboard workflow in the
+    // same row by preferring that control, then its enabled counterpart.
+    const oppositeDirection = intent.direction === 'up' ? 'down' : 'up';
+    const preferredControl = moveControlRefs.current.get(
+      `${intent.sectionId}:${intent.direction}`,
+    );
+    const oppositeControl = moveControlRefs.current.get(
+      `${intent.sectionId}:${oppositeDirection}`,
+    );
+    const focusTarget = preferredControl && !preferredControl.disabled
+      ? preferredControl
+      : oppositeControl && !oppositeControl.disabled
+        ? oppositeControl
+        : null;
+
+    if (moveCompleted || intent.sawPending) {
+      focusTarget?.focus();
+    }
+    if (moveCompleted) {
+      const label = listBookingPageBuilderSections(draft.layout)
+        .find(definition => definition.id === intent.sectionId)?.label
+        ?? intent.sectionId;
+      completedMoveResultRef.current = {
+        direction: intent.direction,
+        sectionId: intent.sectionId,
+      };
+      setReorderAnnouncement(
+        `${label} moved to position ${resultingPosition + 1} of ${resultingOrder.length} movable sections.`,
+      );
+    }
+    pendingMoveIntentRef.current = null;
+  }, [draft, pending]);
+
+  useEffect(() => {
+    const completed = completedMoveResultRef.current;
+    if (!completed || previewedSectionIds === null) {
+      return;
+    }
+
+    const currentDraft = latestDraftRef.current;
+    const currentOrder = projectedReorderableFlowOrder(
+      currentDraft,
+      latestDefinitionsRef.current,
+      previewedSectionIds,
+    );
+    const currentPosition = currentOrder.indexOf(completed.sectionId);
+    const label = listBookingPageBuilderSections(currentDraft.layout)
+      .find(definition => definition.id === completed.sectionId)?.label
+      ?? completed.sectionId;
+    const activeElement = document.activeElement;
+    const focusWasLost = activeElement === document.body
+      || (activeElement instanceof HTMLElement && !document.contains(activeElement));
+
+    if (focusWasLost) {
+      const oppositeDirection = completed.direction === 'up' ? 'down' : 'up';
+      const preferredControl = moveControlRefs.current.get(
+        `${completed.sectionId}:${completed.direction}`,
+      );
+      const oppositeControl = moveControlRefs.current.get(
+        `${completed.sectionId}:${oppositeDirection}`,
+      );
+      const row = sectionRowRefs.current.get(completed.sectionId);
+      const focusTarget = preferredControl && !preferredControl.disabled
+        ? preferredControl
+        : oppositeControl && !oppositeControl.disabled
+          ? oppositeControl
+          : row;
+
+      focusTarget?.focus();
+    }
+
+    setReorderAnnouncement(currentPosition === -1
+      ? `${label} is no longer available to reorder in the current preview.`
+      : `${label} moved to position ${currentPosition + 1} of ${currentOrder.length} movable sections.`);
+    completedMoveResultRef.current = null;
+  }, [previewedSectionIds]);
 
   const dispatch = (operation: BookingPageBuilderOperation) => {
     if (!pending) {
       onOperation(operation);
     }
+  };
+
+  const dispatchMove = (
+    sectionId: SectionId,
+    targetSectionId: SectionId,
+    direction: MoveDirection,
+  ) => {
+    if (pending) {
+      return;
+    }
+    const participantIds = projectedReorderableFlowOrder(
+      draft,
+      definitionsById,
+      previewedSectionIds,
+    );
+    const previousPosition = participantIds.indexOf(sectionId);
+    if (previousPosition === -1) {
+      return;
+    }
+
+    pendingMoveIntentRef.current = {
+      direction,
+      participantIds,
+      previousSectionOrder: [...draft.sectionOrder],
+      sawPending: false,
+      sectionId,
+    };
+    // Clearing first ensures moving away and then back to the same position
+    // still produces a fresh live-region change for assistive technology.
+    setReorderAnnouncement('');
+    onOperation({
+      type: 'move_section',
+      sectionId,
+      targetSectionId,
+      direction,
+    });
   };
 
   return (
@@ -237,7 +395,8 @@ export function BookingPageBuilder({
           const selectedVariant = explicitVariantIsAllowed ? explicitVariant : '';
           const canMove = definition.reorderable
             && configuredVisible
-            && (previewedSectionIds === null || previewedSectionIds.has(definition.id));
+            && previewedSectionIds !== null
+            && previewedSectionIds.has(definition.id);
           const moveUpTarget = canMove
             ? moveTargetForSection({
               draft,
@@ -260,10 +419,18 @@ export function BookingPageBuilder({
 
           return (
             <li
+              ref={(row) => {
+                if (row) {
+                  sectionRowRefs.current.set(definition.id, row);
+                } else {
+                  sectionRowRefs.current.delete(definition.id);
+                }
+              }}
               key={definition.id}
               className="rounded-2xl border border-stone-200 p-4"
               data-section-id={definition.id}
               data-testid={`builder-section-${definition.id}`}
+              tabIndex={-1}
             >
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -361,33 +528,47 @@ export function BookingPageBuilder({
                         ? (
                             <>
                               <button
+                                ref={(control) => {
+                                  const key = `${definition.id}:up`;
+                                  if (control) {
+                                    moveControlRefs.current.set(key, control);
+                                  } else {
+                                    moveControlRefs.current.delete(key);
+                                  }
+                                }}
                                 type="button"
                                 aria-label={`Move ${definition.label} up`}
                                 className={`${CONTROL_CLASS} inline-flex items-center gap-2`}
                                 data-testid={`builder-move-up-${definition.id}`}
                                 disabled={pending || moveUpTarget === null}
-                                onClick={() => dispatch({
-                                  type: 'move_section',
-                                  sectionId: definition.id,
-                                  targetSectionId: moveUpTarget!,
-                                  direction: 'up',
-                                })}
+                                onClick={() => dispatchMove(
+                                  definition.id,
+                                  moveUpTarget!,
+                                  'up',
+                                )}
                               >
                                 <ArrowUp aria-hidden="true" className="size-4" />
                                 Move up
                               </button>
                               <button
+                                ref={(control) => {
+                                  const key = `${definition.id}:down`;
+                                  if (control) {
+                                    moveControlRefs.current.set(key, control);
+                                  } else {
+                                    moveControlRefs.current.delete(key);
+                                  }
+                                }}
                                 type="button"
                                 aria-label={`Move ${definition.label} down`}
                                 className={`${CONTROL_CLASS} inline-flex items-center gap-2`}
                                 data-testid={`builder-move-down-${definition.id}`}
                                 disabled={pending || moveDownTarget === null}
-                                onClick={() => dispatch({
-                                  type: 'move_section',
-                                  sectionId: definition.id,
-                                  targetSectionId: moveDownTarget!,
-                                  direction: 'down',
-                                })}
+                                onClick={() => dispatchMove(
+                                  definition.id,
+                                  moveDownTarget!,
+                                  'down',
+                                )}
                               >
                                 <ArrowDown aria-hidden="true" className="size-4" />
                                 Move down
@@ -418,6 +599,16 @@ export function BookingPageBuilder({
           );
         })}
       </ol>
+
+      <p
+        aria-atomic="true"
+        aria-live="polite"
+        className="sr-only"
+        data-testid="builder-reorder-status"
+        role="status"
+      >
+        {reorderAnnouncement}
+      </p>
 
       <div className="mt-5 border-t border-stone-200 pt-5">
         <button

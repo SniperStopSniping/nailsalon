@@ -439,6 +439,17 @@ describe('BookingPageOwnerSurface', () => {
     });
     render(<BookingPageOwnerSurface />);
 
+    const preview = await screen.findByTitle('Live booking page preview');
+    Object.defineProperty(preview, 'contentDocument', {
+      configurable: true,
+      value: {
+        querySelectorAll: () => config.draft.sectionOrder.map(sectionId => ({
+          dataset: { publicSurface: sectionId },
+        })),
+      },
+    });
+    fireEvent.load(preview);
+
     const moveDown = await screen.findByRole('button', { name: 'Move Featured services down' });
     moveDown.focus();
     await user.keyboard('{Enter}');
@@ -467,6 +478,25 @@ describe('BookingPageOwnerSurface', () => {
         'featuredServices',
       ]);
     });
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Move Featured services down' })).toHaveFocus();
+    });
+
+    expect(screen.getByTestId('builder-reorder-status')).toHaveTextContent(
+      'Featured services moved to position 2 of 4 movable sections.',
+    );
+    expect(preview).toHaveAttribute(
+      'src',
+      '/en/salon-a/book/service?builderPreview=1',
+    );
+
+    // The replacement iframe reports the canonical Stage 2 surfaces again.
+    // Reorder controls remain stable throughout the refresh instead of being
+    // re-created from a guessed/null admission set and dropping focus.
+    fireEvent.load(preview);
+
+    expect(screen.getByRole('button', { name: 'Move Featured services down' })).toHaveFocus();
   });
 
   it('embeds the authenticated real booking route and derives availability from rendered Stage 2 surfaces', async () => {

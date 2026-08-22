@@ -60,6 +60,7 @@ export default async function BookServicePage({
     locationId?: string;
     salonSlug?: string;
     campaign?: string;
+    builderPreview?: string | string[];
     presetPreview?: string;
     presetPreviewVersion?: string;
   };
@@ -86,6 +87,25 @@ export default async function BookServicePage({
   if (!previewGate.allowed) {
     redirect(buildTenantRedirectPath('/not-found', tenantRoute) ?? '/not-found');
   }
+
+  // The embedded owner-builder iframe deliberately blocks scripts. Mark only
+  // its exact, generated numeric revision URL as static-preview rendering so
+  // the canonical client renderer can expose its server-rendered pixels
+  // without waiting for a hydration-only entrance reveal. The existing owner
+  // preview gate remains the authority: an anonymous/live request cannot opt
+  // into this mode by adding a public query parameter, and repeated or
+  // malformed values fail closed.
+  const isEmbeddedBuilderPreview = previewGate.isPreviewingDraftConfig
+    && typeof searchParams.builderPreview === 'string'
+    && /^(?:0|[1-9]\d*)$/.test(searchParams.builderPreview);
+  const repairableSearchParams: Record<string, string | undefined> = {
+    ...searchParams,
+    // A repeated builder-preview key is not an authorized preview revision
+    // and must not be propagated through an unrelated location repair.
+    builderPreview: typeof searchParams.builderPreview === 'string'
+      ? searchParams.builderPreview
+      : undefined,
+  };
 
   // Thread the same gate result into the SalonProvider PublicSalonPageShell
   // mounts below (Luster UI/UX plan rev 3, PR3). `[locale]/[slug]/layout.tsx`
@@ -234,7 +254,7 @@ export default async function BookServicePage({
     const isValidLocation = activeLocations.some(l => l.id === searchParams.locationId);
     if (!isValidLocation && shouldRepairBookingUrl(searchParams.locationId, primaryLocation.id)) {
       // Invalid locationId - redirect with primary (preserves all other params)
-      redirect(repairBookingUrl('/book/service', searchParams, primaryLocation.id, {
+      redirect(repairBookingUrl('/book/service', repairableSearchParams, primaryLocation.id, {
         routeSalonSlug: params?.slug,
         locale: params?.locale,
       }));
@@ -304,6 +324,7 @@ export default async function BookServicePage({
           showNewClientPromo={showNewClientPromo}
           lusterFeaturingEnabled={merchandising.featureLusterManicure}
           showServiceImages={merchandising.showServiceImages}
+          isEmbeddedBuilderPreview={isEmbeddedBuilderPreview}
         />
       </Suspense>
     </PublicSalonPageShell>

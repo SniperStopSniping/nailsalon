@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { BookingPageConfigSide, SectionId } from '@/libs/bookingPageConfig';
@@ -31,6 +31,15 @@ function sectionRowIds(): string[] {
   return within(screen.getByTestId('booking-page-builder-section-list'))
     .getAllByRole('listitem')
     .map(row => row.getAttribute('data-section-id') ?? '');
+}
+
+function modelBrowserFocusLossToBody(): void {
+  document.body.tabIndex = -1;
+  document.body.focus();
+
+  expect(document.body).toHaveFocus();
+
+  document.body.removeAttribute('tabindex');
 }
 
 describe('BookingPageBuilder', () => {
@@ -174,6 +183,499 @@ describe('BookingPageBuilder', () => {
     expect(screen.getByTestId('builder-section-socialLinks')).toHaveTextContent(
       'Position is fixed with Services in this layout.',
     );
+  });
+
+  it('waits for real preview admission before exposing reorder controls', () => {
+    const draft = side({
+      layout: 'editorial',
+      sectionOrder: [
+        'salonProfile',
+        'featuredServices',
+        'technicianProfile',
+        'serviceMenu',
+        'hoursLocation',
+        'policies',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+    const view = render(
+      <BookingPageBuilder
+        draft={draft}
+        previewedSectionIds={null}
+        pending={false}
+        onOperation={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Move Featured services down' }))
+      .not.toBeInTheDocument();
+
+    view.rerender(
+      <BookingPageBuilder
+        draft={draft}
+        previewedSectionIds={new Set<SectionId>(draft.sectionOrder)}
+        pending={false}
+        onOperation={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Move Featured services down' })).toBeEnabled();
+  });
+
+  it('restores focus after the pending save and announces the resulting movable position', async () => {
+    const onOperation = vi.fn();
+    const initialDraft = side({
+      layout: 'editorial',
+      sectionOrder: [
+        'salonProfile',
+        'featuredServices',
+        'technicianProfile',
+        'serviceMenu',
+        'hoursLocation',
+        'policies',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+    const movedDraft = side({
+      layout: 'editorial',
+      sectionOrder: [
+        'salonProfile',
+        'technicianProfile',
+        'featuredServices',
+        'serviceMenu',
+        'hoursLocation',
+        'policies',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+    const previewed = new Set<SectionId>(initialDraft.sectionOrder);
+    const view = render(
+      <BookingPageBuilder
+        draft={initialDraft}
+        previewedSectionIds={previewed}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    const moveDown = screen.getByRole('button', { name: 'Move Featured services down' });
+    moveDown.focus();
+    fireEvent.click(moveDown);
+
+    view.rerender(
+      <BookingPageBuilder
+        draft={initialDraft}
+        previewedSectionIds={previewed}
+        pending
+        onOperation={onOperation}
+      />,
+    );
+    // Browsers move focus to BODY when a focused button becomes disabled;
+    // JSDOM does not implement that behavior, so model it explicitly.
+    modelBrowserFocusLossToBody();
+
+    view.rerender(
+      <BookingPageBuilder
+        draft={movedDraft}
+        previewedSectionIds={previewed}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Move Featured services down' })).toHaveFocus();
+    });
+
+    expect(sectionRowIds().slice(0, 3)).toEqual([
+      'salonProfile',
+      'technicianProfile',
+      'featuredServices',
+    ]);
+    expect(screen.getByTestId('builder-reorder-status')).toHaveTextContent(
+      'Featured services moved to position 2 of 4 movable sections.',
+    );
+    expect(screen.getByTestId('builder-reorder-status')).toHaveAttribute('role', 'status');
+    expect(screen.getByTestId('builder-reorder-status')).toHaveAttribute('aria-live', 'polite');
+    expect(screen.getByTestId('builder-reorder-status')).toHaveAttribute('aria-atomic', 'true');
+  });
+
+  it('moves focus to the stable section row when refreshed Stage 2 admission omits the moved section', async () => {
+    const onOperation = vi.fn();
+    const initialDraft = side({
+      layout: 'editorial',
+      sectionOrder: [
+        'salonProfile',
+        'featuredServices',
+        'technicianProfile',
+        'serviceMenu',
+        'hoursLocation',
+        'policies',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+    const movedDraft = side({
+      layout: 'editorial',
+      sectionOrder: [
+        'salonProfile',
+        'technicianProfile',
+        'featuredServices',
+        'serviceMenu',
+        'hoursLocation',
+        'policies',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+    const initiallyPreviewed = new Set<SectionId>(initialDraft.sectionOrder);
+    const view = render(
+      <BookingPageBuilder
+        draft={initialDraft}
+        previewedSectionIds={initiallyPreviewed}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    const moveDown = screen.getByRole('button', { name: 'Move Featured services down' });
+    moveDown.focus();
+    fireEvent.click(moveDown);
+    view.rerender(
+      <BookingPageBuilder
+        draft={initialDraft}
+        previewedSectionIds={initiallyPreviewed}
+        pending
+        onOperation={onOperation}
+      />,
+    );
+    modelBrowserFocusLossToBody();
+    view.rerender(
+      <BookingPageBuilder
+        draft={movedDraft}
+        previewedSectionIds={initiallyPreviewed}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Move Featured services down' })).toHaveFocus();
+    });
+
+    view.rerender(
+      <BookingPageBuilder
+        draft={movedDraft}
+        previewedSectionIds={new Set<SectionId>(
+          movedDraft.sectionOrder.filter(sectionId => sectionId !== 'featuredServices'),
+        )}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('builder-section-featuredServices')).toHaveFocus();
+    });
+
+    expect(screen.queryByRole('button', { name: 'Move Featured services down' }))
+      .not.toBeInTheDocument();
+    expect(screen.getByTestId('builder-reorder-status')).toHaveTextContent(
+      'Featured services is no longer available to reorder in the current preview.',
+    );
+  });
+
+  it('tracks a server-rebased move when the semantic order changes but its numeric position does not', async () => {
+    const onOperation = vi.fn();
+    const staleClientDraft = side({
+      layout: 'editorial',
+      sectionOrder: [
+        'salonProfile',
+        'technicianProfile',
+        'featuredServices',
+        'policies',
+        'serviceMenu',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+    const rebasedServerDraft = side({
+      layout: 'editorial',
+      sectionOrder: [
+        'salonProfile',
+        'policies',
+        'featuredServices',
+        'technicianProfile',
+        'serviceMenu',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+    const initiallyPreviewed = new Set<SectionId>(staleClientDraft.sectionOrder);
+    const view = render(
+      <BookingPageBuilder
+        draft={staleClientDraft}
+        previewedSectionIds={initiallyPreviewed}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    const moveDown = screen.getByRole('button', { name: 'Move Featured services down' });
+    moveDown.focus();
+    fireEvent.click(moveDown);
+
+    expect(onOperation).toHaveBeenCalledWith({
+      type: 'move_section',
+      sectionId: 'featuredServices',
+      targetSectionId: 'policies',
+      direction: 'down',
+    });
+
+    view.rerender(
+      <BookingPageBuilder
+        draft={staleClientDraft}
+        previewedSectionIds={initiallyPreviewed}
+        pending
+        onOperation={onOperation}
+      />,
+    );
+    modelBrowserFocusLossToBody();
+    view.rerender(
+      <BookingPageBuilder
+        draft={rebasedServerDraft}
+        previewedSectionIds={initiallyPreviewed}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Move Featured services down' })).toHaveFocus();
+    });
+
+    expect(screen.getByTestId('builder-reorder-status')).toHaveTextContent(
+      'Featured services moved to position 2 of 3 movable sections.',
+    );
+
+    view.rerender(
+      <BookingPageBuilder
+        draft={rebasedServerDraft}
+        previewedSectionIds={new Set<SectionId>(
+          rebasedServerDraft.sectionOrder.filter(sectionId => sectionId !== 'featuredServices'),
+        )}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('builder-section-featuredServices')).toHaveFocus();
+    });
+
+    expect(screen.getByTestId('builder-reorder-status')).toHaveTextContent(
+      'Featured services is no longer available to reorder in the current preview.',
+    );
+  });
+
+  it('updates the announced position when refreshed Stage 2 admission changes the movable set', async () => {
+    const onOperation = vi.fn();
+    const initialDraft = side({
+      layout: 'editorial',
+      sectionOrder: [
+        'salonProfile',
+        'featuredServices',
+        'technicianProfile',
+        'serviceMenu',
+        'hoursLocation',
+        'policies',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+    const movedDraft = side({
+      layout: 'editorial',
+      sectionOrder: [
+        'salonProfile',
+        'technicianProfile',
+        'featuredServices',
+        'serviceMenu',
+        'hoursLocation',
+        'policies',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+    const initiallyPreviewed = new Set<SectionId>(initialDraft.sectionOrder);
+    const view = render(
+      <BookingPageBuilder
+        draft={initialDraft}
+        previewedSectionIds={initiallyPreviewed}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Move Featured services down' }));
+    view.rerender(
+      <BookingPageBuilder
+        draft={initialDraft}
+        previewedSectionIds={initiallyPreviewed}
+        pending
+        onOperation={onOperation}
+      />,
+    );
+    view.rerender(
+      <BookingPageBuilder
+        draft={movedDraft}
+        previewedSectionIds={initiallyPreviewed}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    expect(screen.getByTestId('builder-reorder-status')).toHaveTextContent(
+      'Featured services moved to position 2 of 4 movable sections.',
+    );
+
+    view.rerender(
+      <BookingPageBuilder
+        draft={movedDraft}
+        previewedSectionIds={new Set<SectionId>(
+          movedDraft.sectionOrder.filter(sectionId => sectionId !== 'technicianProfile'),
+        )}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    expect(screen.getByTestId('builder-reorder-status')).toHaveTextContent(
+      'Featured services moved to position 1 of 3 movable sections.',
+    );
+  });
+
+  it('keeps focus in the moved row when the initiating direction becomes a boundary', async () => {
+    const onOperation = vi.fn();
+    const initialDraft = side({
+      layout: 'editorial',
+      sectionOrder: [
+        'salonProfile',
+        'featuredServices',
+        'policies',
+        'serviceMenu',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+    const movedDraft = side({
+      layout: 'editorial',
+      sectionOrder: [
+        'salonProfile',
+        'policies',
+        'featuredServices',
+        'serviceMenu',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+    const previewed = new Set<SectionId>(initialDraft.sectionOrder);
+    const view = render(
+      <BookingPageBuilder
+        draft={initialDraft}
+        previewedSectionIds={previewed}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    const moveDown = screen.getByRole('button', { name: 'Move Featured services down' });
+    moveDown.focus();
+    fireEvent.click(moveDown);
+    view.rerender(
+      <BookingPageBuilder
+        draft={initialDraft}
+        previewedSectionIds={previewed}
+        pending
+        onOperation={onOperation}
+      />,
+    );
+    modelBrowserFocusLossToBody();
+    view.rerender(
+      <BookingPageBuilder
+        draft={movedDraft}
+        previewedSectionIds={previewed}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Move Featured services up' })).toHaveFocus();
+    });
+
+    expect(screen.getByRole('button', { name: 'Move Featured services down' })).toBeDisabled();
+    expect(screen.getByTestId('builder-reorder-status')).toHaveTextContent(
+      'Featured services moved to position 2 of 2 movable sections.',
+    );
+  });
+
+  it('restores focus without a false position announcement when the saved order is unchanged', async () => {
+    const onOperation = vi.fn();
+    const draft = side({
+      layout: 'editorial',
+      sectionOrder: [
+        'salonProfile',
+        'featuredServices',
+        'technicianProfile',
+        'serviceMenu',
+        'hoursLocation',
+        'policies',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+    const previewed = new Set<SectionId>(draft.sectionOrder);
+    const view = render(
+      <BookingPageBuilder
+        draft={draft}
+        previewedSectionIds={previewed}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    const moveDown = screen.getByRole('button', { name: 'Move Featured services down' });
+    moveDown.focus();
+    fireEvent.click(moveDown);
+    view.rerender(
+      <BookingPageBuilder
+        draft={draft}
+        previewedSectionIds={previewed}
+        pending
+        onOperation={onOperation}
+      />,
+    );
+    modelBrowserFocusLossToBody();
+    view.rerender(
+      <BookingPageBuilder
+        draft={draft}
+        previewedSectionIds={previewed}
+        pending={false}
+        onOperation={onOperation}
+      />,
+    );
+
+    await waitFor(() => expect(moveDown).toHaveFocus());
+
+    expect(screen.getByTestId('builder-reorder-status')).toBeEmptyDOMElement();
+    expect(sectionRowIds().slice(0, 3)).toEqual([
+      'salonProfile',
+      'featuredServices',
+      'technicianProfile',
+    ]);
   });
 
   it('does not expose movement for a configured section that Stage 2 omitted from the preview', () => {

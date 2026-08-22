@@ -113,6 +113,12 @@ type BookServiceClientProps = {
   showNewClientPromo?: boolean;
   lusterFeaturingEnabled?: boolean;
   showServiceImages?: boolean;
+  /**
+   * Authorized owner-builder iframe rendering blocks scripts by design. Keep
+   * the real hydration lifecycle untouched while making its server-rendered
+   * entrance state visible without waiting for an effect that cannot run.
+   */
+  isEmbeddedBuilderPreview?: boolean;
 };
 
 // Height reserved for the fixed CTA bar. The in-page spacer and the tenant
@@ -250,6 +256,7 @@ export function BookServiceClient({
   showNewClientPromo = false,
   lusterFeaturingEnabled = true,
   showServiceImages = true,
+  isEmbeddedBuilderPreview = false,
 }: BookServiceClientProps) {
   const router = useRouter();
   const params = useParams();
@@ -392,6 +399,10 @@ export function BookServiceClient({
   const [addOnAnnouncement, setAddOnAnnouncement] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [mounted, setMounted] = useState(false);
+  // Display-only readiness for the view-only, script-blocked builder iframe.
+  // `mounted` itself must remain the hydration gate for URL synchronization
+  // and every booking interaction below.
+  const previewContentReady = isEmbeddedBuilderPreview || mounted;
   const [campaignOffer, setCampaignOffer] = useState<{
     name: string;
     displayOffer: string;
@@ -1320,8 +1331,8 @@ export function BookServiceClient({
                 ref={searchCardRef}
                 className="mb-4 scroll-mt-3"
                 style={{
-                  opacity: mounted ? 1 : 0,
-                  transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+                  opacity: previewContentReady ? 1 : 0,
+                  transform: previewContentReady ? 'translateY(0)' : 'translateY(10px)',
                   transition: 'opacity 300ms ease-out 100ms, transform 300ms ease-out 100ms',
                 }}
               >
@@ -1360,8 +1371,8 @@ export function BookServiceClient({
                     borderWidth: '1px',
                     borderStyle: 'solid',
                     borderColor: '#fbbf24',
-                    opacity: mounted ? 1 : 0,
-                    transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+                    opacity: previewContentReady ? 1 : 0,
+                    transform: previewContentReady ? 'translateY(0)' : 'translateY(10px)',
                     transition: 'opacity 300ms ease-out 110ms, transform 300ms ease-out 110ms',
                   }}
                 >
@@ -1391,8 +1402,8 @@ export function BookServiceClient({
                 <div
                   className="mb-4"
                   style={{
-                    opacity: mounted ? 1 : 0,
-                    transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+                    opacity: previewContentReady ? 1 : 0,
+                    transform: previewContentReady ? 'translateY(0)' : 'translateY(10px)',
                     transition: 'opacity 300ms ease-out 120ms, transform 300ms ease-out 120ms',
                   }}
                 >
@@ -1493,8 +1504,8 @@ export function BookServiceClient({
                     borderColor: hasBookingBrandColor
                       ? 'var(--booking-brand-state-border, var(--theme-card-border))'
                       : `color-mix(in srgb, ${themeVars.primary} 20%, ${themeVars.cardBorder})`,
-                    opacity: mounted ? 1 : 0,
-                    transform: mounted ? 'translateY(0)' : 'translateY(10px)',
+                    opacity: previewContentReady ? 1 : 0,
+                    transform: previewContentReady ? 'translateY(0)' : 'translateY(10px)',
                     transition: 'opacity 300ms ease-out 130ms, transform 300ms ease-out 130ms',
                   }}
                 >
@@ -1559,7 +1570,7 @@ export function BookServiceClient({
                         <div
                           className="scrollbar-hide -mx-4 mb-5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 md:mx-0 md:w-full md:overflow-visible md:px-0"
                           style={{
-                            opacity: mounted ? 1 : 0,
+                            opacity: previewContentReady ? 1 : 0,
                             transition: 'opacity 300ms ease-out 150ms',
                           }}
                           data-testid="service-category-scroll"
@@ -1709,8 +1720,8 @@ export function BookServiceClient({
                                                 service.bookingCategory === 'combo' ? 'col-span-full' : ''
                                               }`}
                                               style={{
-                                                transform: mounted ? 'translateY(0)' : 'translateY(15px)',
-                                                opacity: mounted ? 1 : 0,
+                                                transform: previewContentReady ? 'translateY(0)' : 'translateY(15px)',
+                                                opacity: previewContentReady ? 1 : 0,
                                                 background: isSelected
                                                   ? hasBookingBrandColor
                                                     ? 'var(--booking-brand-selection-background, #fdf8f1)'
@@ -1988,7 +1999,7 @@ export function BookServiceClient({
               compact: () => (
                 <BookingStepHeader
                   salonName={salonName}
-                  mounted={mounted}
+                  mounted={previewContentReady}
                   salonNameVariant="editorial"
                   announcement={campaignOffer
                     ? (
@@ -2152,7 +2163,7 @@ export function BookServiceClient({
                       data-public-surface="featuredServices"
                       className="scrollbar-hide -mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
                       style={{
-                        opacity: mounted ? 1 : 0,
+                        opacity: previewContentReady ? 1 : 0,
                         transition: 'opacity 300ms ease-out 150ms',
                       }}
                       data-testid="featured-services-scroll"
@@ -2520,7 +2531,7 @@ export function BookServiceClient({
         })()}
       </div>
 
-      {usesEditorialBookingHandoff && !hasReachedServicesAnchor && !(selectedService && isServicesAnchorUnreachable) && (
+      {usesEditorialBookingHandoff && !selectedService && (!hasReachedServicesAnchor || isServicesAnchorUnreachable) && (
         <a
           data-public-surface="editorialStickyBookingCta"
           href="#services"
@@ -2537,7 +2548,7 @@ export function BookServiceClient({
         </a>
       )}
 
-      {selectedService && (!usesEditorialBookingHandoff || hasReachedServicesAnchor || isServicesAnchorUnreachable) && (
+      {selectedService && (
         <div
           data-public-surface="selectedServiceContinueBar"
           data-testid="service-sticky-bar"
