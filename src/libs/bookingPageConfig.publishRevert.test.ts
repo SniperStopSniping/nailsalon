@@ -61,11 +61,11 @@ afterAll(async () => {
   await client.close();
 });
 
-async function readStoredSettings(): Promise<unknown> {
+async function readStoredSettings(salonId = SALON_ID): Promise<unknown> {
   const [row] = await db
     .select({ settings: schema.salonSchema.settings })
     .from(schema.salonSchema)
-    .where(eq(schema.salonSchema.id, SALON_ID));
+    .where(eq(schema.salonSchema.id, salonId));
   return row?.settings;
 }
 
@@ -230,6 +230,7 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
         'serviceMenu',
         'hoursLocation',
         'policies',
+        'socialLinks',
         'bookingCta',
       ]);
     });
@@ -275,6 +276,84 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
       const after = await updateBookingPageDraft(LAYOUT_SWITCH_SALON_ID, { layout: 'quick_book' });
 
       expect(after?.draft.sectionOrder).toEqual(['salonProfile', 'serviceMenu', 'bookingCta']);
+    });
+  });
+
+  describe('Stage 4 section-variant lifecycle', () => {
+    const VARIANT_PUBLISH_SALON_ID = 'salon_booking_page_variant_publish';
+    const VARIANT_LAYOUT_SALON_ID = 'salon_booking_page_variant_layout';
+
+    beforeAll(async () => {
+      await db.insert(schema.salonSchema).values([
+        {
+          id: VARIANT_PUBLISH_SALON_ID,
+          name: 'Variant Publish Salon',
+          slug: 'variant-publish-salon',
+          settings: {},
+        },
+        {
+          id: VARIANT_LAYOUT_SALON_ID,
+          name: 'Variant Layout Salon',
+          slug: 'variant-layout-salon',
+          settings: {},
+        },
+      ]);
+    });
+
+    it('round-trips valid same-section variants from draft through publish/live storage', async () => {
+      const sectionVariants = {
+        salonProfile: 'hero_image',
+        featuredServices: 'signature',
+        policies: 'inline',
+        socialLinks: 'icons',
+        bookingCta: 'sticky',
+      } as const;
+
+      const drafted = await updateBookingPageDraft(VARIANT_PUBLISH_SALON_ID, {
+        layout: 'editorial',
+        sectionVariants,
+      });
+
+      expect(drafted?.draft.sectionVariants).toEqual(sectionVariants);
+      expect(drafted?.live.sectionVariants).toEqual({});
+
+      const published = await publishBookingPageConfig(VARIANT_PUBLISH_SALON_ID);
+
+      expect(published?.draft.sectionVariants).toEqual(sectionVariants);
+      expect(published?.live.sectionVariants).toEqual(sectionVariants);
+      expect(await readStoredSettings(VARIANT_PUBLISH_SALON_ID)).toMatchObject({
+        bookingPage: {
+          draft: { sectionVariants },
+          live: { sectionVariants },
+        },
+      });
+    });
+
+    it('preserves sectionVariants byte-for-byte across a bare layout switch', async () => {
+      const sectionVariants = {
+        salonProfile: 'compact',
+        featuredServices: 'carousel',
+        policies: 'card',
+      } as const;
+
+      const seeded = await updateBookingPageDraft(VARIANT_LAYOUT_SALON_ID, {
+        layout: 'quick_book',
+        sectionVariants,
+      });
+
+      expect(seeded?.draft.sectionVariants).toEqual(sectionVariants);
+
+      const switched = await updateBookingPageDraft(VARIANT_LAYOUT_SALON_ID, {
+        layout: 'editorial',
+      });
+
+      expect(switched?.draft.layout).toBe('editorial');
+      expect(switched?.draft.sectionVariants).toEqual(sectionVariants);
+      expect(await readStoredSettings(VARIANT_LAYOUT_SALON_ID)).toMatchObject({
+        bookingPage: {
+          draft: { layout: 'editorial', sectionVariants },
+        },
+      });
     });
   });
 });

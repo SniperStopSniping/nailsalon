@@ -1,11 +1,15 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { SectionId } from '@/libs/bookingPageConfig';
 import { EMPTY_SALON_CONTENT, type SalonContent } from '@/libs/salonContent';
+import { resolveSectionPresentation } from '@/libs/sectionPresentation';
 import { resolveSectionDecisionPlan } from '@/libs/sectionRegistry';
 
-import { SectionOrderRenderer as CanonicalSectionOrderRenderer, type SectionRenderers } from './SectionOrderRenderer';
+import {
+  SectionOrderRenderer,
+  type SectionVariantRenderers,
+} from './SectionOrderRenderer';
 
 const QUICK_BOOK_ORDER: SectionId[] = [
   'salonProfile',
@@ -15,199 +19,280 @@ const QUICK_BOOK_ORDER: SectionId[] = [
   'socialLinks',
   'bookingCta',
 ];
-const NO_HIDDEN_SECTIONS: readonly SectionId[] = [];
 
-function withContent(overrides: Partial<SalonContent>): SalonContent {
-  return { ...EMPTY_SALON_CONTENT, ...overrides };
+function content(overrides: Partial<SalonContent> = {}): SalonContent {
+  return {
+    ...EMPTY_SALON_CONTENT,
+    identity: {
+      ...EMPTY_SALON_CONTENT.identity,
+      name: 'Isla Nail Studio',
+      heroImageUrl: 'https://images.example/hero.jpg',
+    },
+    catalog: {
+      ...EMPTY_SALON_CONTENT.catalog,
+      services: [{
+        id: 'service-1',
+        name: 'Gel manicure',
+        description: null,
+        durationMinutes: 60,
+        priceCents: 5000,
+        priceDisplayText: null,
+        category: 'manicure',
+        bookingCategory: null,
+        imageUrl: null,
+        featuredOrder: 1,
+      }],
+      featuredServices: [{
+        id: 'service-1',
+        name: 'Gel manicure',
+        description: null,
+        durationMinutes: 60,
+        priceCents: 5000,
+        priceDisplayText: null,
+        category: 'manicure',
+        bookingCategory: null,
+        imageUrl: null,
+        featuredOrder: 1,
+      }],
+    },
+    policies: {
+      ...EMPTY_SALON_CONTENT.policies,
+      policy: {
+        ...EMPTY_SALON_CONTENT.policies.policy,
+        enabled: true,
+        showOnServicePage: true,
+        text: '24-hour notice.',
+      },
+    },
+    social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
+    ...overrides,
+  };
 }
 
-function SectionOrderRenderer({
-  order,
-  hiddenSections = NO_HIDDEN_SECTIONS,
-  content,
-  renderers,
+function makeRenderers(spies: Partial<Record<string, ReturnType<typeof vi.fn>>> = {}): SectionVariantRenderers {
+  const render = (id: string, variant: string) => {
+    spies[id]?.(variant);
+    return <div data-testid={`section-${id}`} data-variant={variant}>{id}</div>;
+  };
+
+  return {
+    salonProfile: {
+      compact: () => render('salonProfile', 'compact'),
+      hero_image: () => render('salonProfile', 'hero_image'),
+    },
+    technicianProfile: {
+      full: () => render('technicianProfile', 'full'),
+    },
+    featuredServices: {
+      carousel: () => render('featuredServices', 'carousel'),
+      signature: () => render('featuredServices', 'signature'),
+    },
+    serviceMenu: {
+      list: ({ renderSlot }) => {
+        spies.serviceMenu?.('list');
+        return (
+          <div data-testid="section-serviceMenu" data-variant="list">
+            <span data-testid="menu-start">menu start</span>
+            {renderSlot('featuredServices')}
+            <span data-testid="menu-middle">menu middle</span>
+            {renderSlot('policies')}
+            {renderSlot('socialLinks')}
+          </div>
+        );
+      },
+    },
+    hoursLocation: {
+      full: () => render('hoursLocation', 'full'),
+    },
+    policies: {
+      card: () => render('policies', 'card'),
+      inline: () => render('policies', 'inline'),
+    },
+    socialLinks: {
+      icons: () => render('socialLinks', 'icons'),
+    },
+  };
+}
+
+function renderCanonical({
+  order = QUICK_BOOK_ORDER,
+  hiddenSections = [],
+  layout = 'quick_book',
+  value = content(),
+  sectionVariants = {},
+  renderers = makeRenderers(),
 }: {
-  order: readonly SectionId[];
-  hiddenSections?: readonly SectionId[];
-  content: SalonContent;
-  renderers: SectionRenderers;
-}) {
-  const plan = resolveSectionDecisionPlan({ order, hiddenSections, content });
-  return <CanonicalSectionOrderRenderer order={order} plan={plan} renderers={renderers} />;
+  order?: SectionId[];
+  hiddenSections?: SectionId[];
+  layout?: 'quick_book' | 'editorial';
+  value?: SalonContent;
+  sectionVariants?: unknown;
+  renderers?: SectionVariantRenderers;
+} = {}) {
+  const plan = resolveSectionDecisionPlan({ order, hiddenSections, content: value });
+  const presentation = resolveSectionPresentation({ layout, sectionVariants, content: value });
+  return render(<SectionOrderRenderer plan={plan} presentation={presentation} renderers={renderers} />);
 }
 
-describe('SectionOrderRenderer', () => {
-  it('renders every section with both a passing canRender and a supplied renderer, in order', () => {
-    const content = withContent({
-      identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
-      social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
-    });
+function expectCanonicalRenderToThrow(
+  action: () => unknown,
+  expected: RegExp,
+) {
+  const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    expect(action).toThrow(expected);
+  } finally {
+    consoleError.mockRestore();
+  }
+}
 
-    render(
-      <SectionOrderRenderer
-        order={QUICK_BOOK_ORDER}
-        content={content}
-        renderers={{
-          salonProfile: () => <div data-testid="section-salonProfile">profile</div>,
-          serviceMenu: () => <div data-testid="section-serviceMenu">menu</div>,
-          socialLinks: () => <div data-testid="section-socialLinks">social</div>,
-          bookingCta: () => <div data-testid="section-bookingCta">cta</div>,
-        }}
-      />,
-    );
+describe('SectionOrderRenderer canonical dispatch', () => {
+  it('uses Stage 2 orderedIds as its only admission/order authority', () => {
+    const spies = Object.fromEntries([
+      'salonProfile',
+      'serviceMenu',
+      'featuredServices',
+      'policies',
+      'socialLinks',
+    ].map(id => [id, vi.fn()]));
 
-    const rendered = screen.getAllByTestId(/^section-/).map(node => node.dataset.testid);
+    // The helper has no raw `order` route into the component itself, only
+    // into Stage 2 plan construction.
+    renderCanonical({ renderers: makeRenderers(spies) });
 
-    // featuredServices/policies are dropped: featuredServices has no
-    // renderer supplied here (Quick Book folds it into serviceMenu), and
-    // policies fails canRender (policy.enabled is false on this content).
-    expect(rendered).toEqual([
+    for (const spy of Object.values(spies)) {
+      expect(spy).toHaveBeenCalledTimes(1);
+    }
+
+    expect(screen.getAllByTestId(/^section-/).map(node => node.dataset.testid)).toEqual([
       'section-salonProfile',
       'section-serviceMenu',
+      'section-featuredServices',
+      'section-policies',
       'section-socialLinks',
-      'section-bookingCta',
     ]);
   });
 
-  it('renders only the non-removable sections against a minimally populated SalonContent', () => {
-    render(
-      <SectionOrderRenderer
-        order={QUICK_BOOK_ORDER}
-        content={EMPTY_SALON_CONTENT}
-        renderers={{
-          salonProfile: () => <div data-testid="section-salonProfile">profile</div>,
-          serviceMenu: () => <div data-testid="section-serviceMenu">menu</div>,
-          featuredServices: () => <div data-testid="section-featuredServices">featured</div>,
-          policies: () => <div data-testid="section-policies">policies</div>,
-          socialLinks: () => <div data-testid="section-socialLinks">social</div>,
-          bookingCta: () => <div data-testid="section-bookingCta">cta</div>,
-        }}
-      />,
-    );
+  it('preserves Quick Book embedded DOM positions through the same dispatcher', () => {
+    renderCanonical();
 
-    // EMPTY_SALON_CONTENT has no name, so even salonProfile is omitted here
-    // — only the two non-removable sections survive, and the page is still
-    // bookable (serviceMenu hosts the engine, bookingCta is its entry point).
-    expect(screen.queryByTestId('section-salonProfile')).not.toBeInTheDocument();
-    expect(screen.getByTestId('section-serviceMenu')).toBeInTheDocument();
+    const serviceMenu = screen.getByTestId('section-serviceMenu');
+
+    expect([...serviceMenu.children].map(node => (node as HTMLElement).dataset.testid)).toEqual([
+      'menu-start',
+      'section-featuredServices',
+      'menu-middle',
+      'section-policies',
+      'section-socialLinks',
+    ]);
+  });
+
+  it('renders Editorial flow sections and the shared service-menu slot exactly once', () => {
+    renderCanonical({
+      layout: 'editorial',
+      order: [
+        'salonProfile',
+        'featuredServices',
+        'serviceMenu',
+        'policies',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+
+    expect(screen.getByTestId('section-salonProfile')).toHaveAttribute('data-variant', 'hero_image');
+    expect(screen.getByTestId('section-featuredServices')).toHaveAttribute('data-variant', 'signature');
+    expect(screen.getByTestId('section-policies')).toHaveAttribute('data-variant', 'inline');
+    expect(screen.getByTestId('section-serviceMenu')).toContainElement(screen.getByTestId('section-socialLinks'));
+
+    for (const id of ['salonProfile', 'featuredServices', 'serviceMenu', 'policies', 'socialLinks']) {
+      expect(screen.getAllByTestId(`section-${id}`), id).toHaveLength(1);
+    }
+  });
+
+  it('cannot resurrect a Stage-2-hidden or omitted section through a slot', () => {
+    renderCanonical({ hiddenSections: ['featuredServices', 'policies', 'socialLinks'] });
+
     expect(screen.queryByTestId('section-featuredServices')).not.toBeInTheDocument();
     expect(screen.queryByTestId('section-policies')).not.toBeInTheDocument();
     expect(screen.queryByTestId('section-socialLinks')).not.toBeInTheDocument();
-    expect(screen.getByTestId('section-bookingCta')).toBeInTheDocument();
+    expect(screen.getByTestId('section-serviceMenu')).toBeInTheDocument();
   });
 
-  it('never renders a section as an empty frame when its own renderer is omitted, even if canRender passes', () => {
-    const content = withContent({
-      identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
+  it('does not render ready content that Stage 2 did not admit into orderedIds', () => {
+    renderCanonical({ order: ['salonProfile', 'serviceMenu', 'bookingCta'] });
+
+    expect(screen.queryByTestId('section-featuredServices')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('section-policies')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('section-socialLinks')).not.toBeInTheDocument();
+  });
+
+  it('renders explicitly ordered technician and visit content in Quick Book rather than silently deleting it', () => {
+    const value = content({
+      people: {
+        technicians: [{
+          id: 'tech-1',
+          name: 'Ava',
+          bio: 'Structured manicure specialist',
+          avatarUrl: null,
+          specialties: [],
+          languages: [],
+          rating: null,
+          reviewCount: 0,
+          skillLevel: null,
+          acceptingNewClients: true,
+        }],
+      },
+      place: {
+        ...EMPTY_SALON_CONTENT.place,
+        address: { address: null, city: 'Toronto', state: null, zipCode: null },
+      },
     });
 
-    render(
-      <SectionOrderRenderer
-        order={['salonProfile', 'serviceMenu', 'bookingCta']}
-        content={content}
-        renderers={{
-          serviceMenu: () => <div data-testid="section-serviceMenu">menu</div>,
-          bookingCta: () => <div data-testid="section-bookingCta">cta</div>,
-        }}
-      />,
+    renderCanonical({
+      value,
+      order: ['salonProfile', 'technicianProfile', 'hoursLocation', 'serviceMenu', 'bookingCta'],
+    });
+
+    expect(screen.getByTestId('section-technicianProfile')).toHaveAttribute('data-variant', 'full');
+    expect(screen.getByTestId('section-hoursLocation')).toHaveAttribute('data-variant', 'full');
+  });
+
+  it('fails closed when an admitted slot is not dispatched by its canonical host', () => {
+    const renderers = makeRenderers();
+    renderers.serviceMenu.list = () => <div data-testid="section-serviceMenu">menu</div>;
+
+    expectCanonicalRenderToThrow(
+      () => renderCanonical({ renderers }),
+      /did not dispatch admitted sections: featuredServices, policies, socialLinks/,
+    );
+  });
+
+  it('fails closed when a registered handler is missing or returns no output', () => {
+    const missing = makeRenderers() as unknown as Record<string, Record<string, unknown>>;
+    delete missing.salonProfile!.compact;
+    expectCanonicalRenderToThrow(
+      () => renderCanonical({ renderers: missing as unknown as SectionVariantRenderers }),
+      /No salonProfile renderer is registered for variant compact/,
     );
 
-    // salonProfile passes canRender but has no renderer supplied — omitted,
-    // not rendered as an empty placeholder.
-    expect(screen.queryByTestId('section-salonProfile')).not.toBeInTheDocument();
-    expect(screen.getByTestId('section-serviceMenu')).toBeInTheDocument();
-    expect(screen.getByTestId('section-bookingCta')).toBeInTheDocument();
+    const empty = makeRenderers();
+    empty.salonProfile.compact = () => null;
+    expectCanonicalRenderToThrow(
+      () => renderCanonical({ renderers: empty }),
+      /rendered no durable output/,
+    );
   });
 
-  // Regression coverage: hiddenSections used to be written and validated but
-  // never read at render time (every fixture above uses the default `[]`
-  // hiddenSections, which is exactly why this shipped broken). These use a
-  // NON-EMPTY hiddenSections to actually exercise the fix.
-  describe('hiddenSections', () => {
-    it('omits a hidden section even though both canRender and a renderer are present', () => {
-      const content = withContent({
-        identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
-        policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true, showOnServicePage: true, text: 'Policy' } },
-      });
-
-      render(
-        <SectionOrderRenderer
-          order={QUICK_BOOK_ORDER}
-          hiddenSections={['policies']}
-          content={content}
-          renderers={{
-            salonProfile: () => <div data-testid="section-salonProfile">profile</div>,
-            serviceMenu: () => <div data-testid="section-serviceMenu">menu</div>,
-            policies: () => <div data-testid="section-policies">policies</div>,
-            bookingCta: () => <div data-testid="section-bookingCta">cta</div>,
-          }}
-        />,
-      );
-
-      expect(screen.getByTestId('section-salonProfile')).toBeInTheDocument();
-      expect(screen.queryByTestId('section-policies')).not.toBeInTheDocument();
-      expect(screen.getByTestId('section-bookingCta')).toBeInTheDocument();
+  it('routes a valid same-section override through the same registry', () => {
+    renderCanonical({
+      layout: 'editorial',
+      sectionVariants: { salonProfile: 'compact', featuredServices: 'carousel', policies: 'card' },
+      order: ['salonProfile', 'featuredServices', 'serviceMenu', 'policies', 'bookingCta'],
     });
 
-    it('re-enabling a previously hidden section (empty hiddenSections again) restores it at its original order position', () => {
-      const content = withContent({
-        identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
-        policies: { ...EMPTY_SALON_CONTENT.policies, policy: { ...EMPTY_SALON_CONTENT.policies.policy, enabled: true, showOnServicePage: true, text: 'Policy' } },
-        social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
-      });
-      const renderers = {
-        salonProfile: () => <div data-testid="section-salonProfile">profile</div>,
-        serviceMenu: () => <div data-testid="section-serviceMenu">menu</div>,
-        policies: () => <div data-testid="section-policies">policies</div>,
-        socialLinks: () => <div data-testid="section-socialLinks">social</div>,
-        bookingCta: () => <div data-testid="section-bookingCta">cta</div>,
-      };
-
-      const { rerender } = render(
-        <SectionOrderRenderer order={QUICK_BOOK_ORDER} hiddenSections={['policies']} content={content} renderers={renderers} />,
-      );
-
-      // Hiding does not touch sectionOrder — the position between
-      // salonProfile/serviceMenu and socialLinks/bookingCta survives while
-      // hidden, and QUICK_BOOK_ORDER itself is passed through unchanged.
-      expect(screen.queryByTestId('section-policies')).not.toBeInTheDocument();
-
-      rerender(
-        <SectionOrderRenderer order={QUICK_BOOK_ORDER} hiddenSections={[]} content={content} renderers={renderers} />,
-      );
-
-      const rendered = screen.getAllByTestId(/^section-/).map(node => node.dataset.testid);
-
-      expect(rendered).toEqual([
-        'section-salonProfile',
-        'section-serviceMenu',
-        'section-policies',
-        'section-socialLinks',
-        'section-bookingCta',
-      ]);
-    });
-
-    it('defaults to hiding nothing when hiddenSections is omitted (existing callers keep working unchanged)', () => {
-      const content = withContent({
-        identity: { ...EMPTY_SALON_CONTENT.identity, name: 'Isla Nail Studio' },
-        social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
-      });
-
-      render(
-        <SectionOrderRenderer
-          order={QUICK_BOOK_ORDER}
-          content={content}
-          renderers={{
-            salonProfile: () => <div data-testid="section-salonProfile">profile</div>,
-            serviceMenu: () => <div data-testid="section-serviceMenu">menu</div>,
-            socialLinks: () => <div data-testid="section-socialLinks">social</div>,
-            bookingCta: () => <div data-testid="section-bookingCta">cta</div>,
-          }}
-        />,
-      );
-
-      expect(screen.getByTestId('section-salonProfile')).toBeInTheDocument();
-      expect(screen.getByTestId('section-socialLinks')).toBeInTheDocument();
-    });
+    expect(screen.getByTestId('section-salonProfile')).toHaveAttribute('data-variant', 'compact');
+    expect(screen.getByTestId('section-featuredServices')).toHaveAttribute('data-variant', 'carousel');
+    expect(screen.getByTestId('section-policies')).toHaveAttribute('data-variant', 'card');
   });
 });

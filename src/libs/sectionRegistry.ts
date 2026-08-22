@@ -1,5 +1,6 @@
 import type { SectionId } from '@/libs/bookingPageConfig';
 import type { SalonContent } from '@/libs/salonContent';
+import { SECTION_PRESENTATION_CONTRACT } from '@/libs/sectionPresentation';
 
 export type ContentSectionId = SectionId | 'announcement' | 'bookingFacts';
 export type SectionReadiness = 'ready' | 'partial' | 'missing' | 'invalid' | 'unsupported';
@@ -72,24 +73,24 @@ function quickFactState(content: SalonContent): SectionReadiness {
 }
 
 const SECTION_DEFINITIONS: Record<ContentSectionId, SectionRegistryEntry> = {
-  salonProfile: { id: 'salonProfile', variants: ['compact', 'hero'], capabilities: ['identity'], classification: 'content', ownerConfigurable: false, resolveReadiness: ({ content }) => hasText(content.identity.name) ? 'ready' : 'invalid' },
-  technicianProfile: { id: 'technicianProfile', variants: ['card', 'full'], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => content.people.technicians.some(t => hasText(t.bio) || hasText(t.avatarUrl)) ? 'ready' : 'missing' },
-  featuredServices: { id: 'featuredServices', variants: ['carousel'], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => content.catalog.featuredServices.length > 0 ? 'ready' : 'missing' },
-  serviceMenu: { id: 'serviceMenu', variants: ['list'], capabilities: ['serviceDiscovery'], classification: 'content', ownerConfigurable: false, resolveReadiness: ({ content }) => content.catalog.services.length > 0 ? 'ready' : 'partial' },
-  whatsIncluded: { id: 'whatsIncluded', variants: [], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: () => 'unsupported' },
-  technicianList: { id: 'technicianList', variants: [], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: () => 'unsupported' },
-  portfolio: { id: 'portfolio', variants: [], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: () => 'unsupported' },
-  reviews: { id: 'reviews', variants: [], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: () => 'unsupported' },
-  hoursLocation: { id: 'hoursLocation', variants: ['compact', 'full'], capabilities: ['identity'], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => resolveVisitContent(content).hasVisitableContent ? 'ready' : 'missing' },
-  policies: { id: 'policies', variants: ['inline'], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => {
+  salonProfile: { id: 'salonProfile', variants: SECTION_PRESENTATION_CONTRACT.salonProfile.variants, capabilities: ['identity'], classification: 'content', ownerConfigurable: false, resolveReadiness: ({ content }) => hasText(content.identity.name) ? 'ready' : 'invalid' },
+  technicianProfile: { id: 'technicianProfile', variants: SECTION_PRESENTATION_CONTRACT.technicianProfile.variants, capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => content.people.technicians.some(t => hasText(t.bio) || hasText(t.avatarUrl)) ? 'ready' : 'missing' },
+  featuredServices: { id: 'featuredServices', variants: SECTION_PRESENTATION_CONTRACT.featuredServices.variants, capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => content.catalog.featuredServices.length > 0 ? 'ready' : 'missing' },
+  serviceMenu: { id: 'serviceMenu', variants: SECTION_PRESENTATION_CONTRACT.serviceMenu.variants, capabilities: ['serviceDiscovery'], classification: 'content', ownerConfigurable: false, resolveReadiness: ({ content }) => content.catalog.services.length > 0 ? 'ready' : 'partial' },
+  whatsIncluded: { id: 'whatsIncluded', variants: SECTION_PRESENTATION_CONTRACT.whatsIncluded.variants, capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: () => 'unsupported' },
+  technicianList: { id: 'technicianList', variants: SECTION_PRESENTATION_CONTRACT.technicianList.variants, capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: () => 'unsupported' },
+  portfolio: { id: 'portfolio', variants: SECTION_PRESENTATION_CONTRACT.portfolio.variants, capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: () => 'unsupported' },
+  reviews: { id: 'reviews', variants: SECTION_PRESENTATION_CONTRACT.reviews.variants, capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: () => 'unsupported' },
+  hoursLocation: { id: 'hoursLocation', variants: SECTION_PRESENTATION_CONTRACT.hoursLocation.variants, capabilities: ['identity'], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => resolveVisitContent(content).hasVisitableContent ? 'ready' : 'missing' },
+  policies: { id: 'policies', variants: SECTION_PRESENTATION_CONTRACT.policies.variants, capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => {
     const policy = content.policies.policy;
     if (!policy.enabled || !policy.showOnServicePage) {
       return 'missing';
     }
     return hasText(policy.text) ? 'ready' : 'partial';
   } },
-  socialLinks: { id: 'socialLinks', variants: ['icons'], capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => Object.values(content.social).some(hasText) ? 'ready' : 'missing' },
-  bookingCta: { id: 'bookingCta', variants: ['sticky'], capabilities: ['bookingAccess'], classification: 'systemCompatibility', ownerConfigurable: false, resolveReadiness: () => 'ready' },
+  socialLinks: { id: 'socialLinks', variants: SECTION_PRESENTATION_CONTRACT.socialLinks.variants, capabilities: [], classification: 'content', ownerConfigurable: true, resolveReadiness: ({ content }) => Object.values(content.social).some(hasText) ? 'ready' : 'missing' },
+  bookingCta: { id: 'bookingCta', variants: SECTION_PRESENTATION_CONTRACT.bookingCta.variants, capabilities: ['bookingAccess'], classification: 'systemCompatibility', ownerConfigurable: false, resolveReadiness: () => 'ready' },
   announcement: { id: 'announcement', variants: ['inline'], capabilities: [], classification: 'content', ownerConfigurable: false, resolveReadiness: ({ announcement }) => hasText(announcement) ? 'ready' : 'missing' },
   bookingFacts: { id: 'bookingFacts', variants: ['badges'], capabilities: [], classification: 'content', ownerConfigurable: false, resolveReadiness: ({ content }) => quickFactState(content) },
 };
