@@ -273,6 +273,132 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
     vi.restoreAllMocks();
   });
 
+  it('renders structurally different identity variants from the same immutable canonical content', () => {
+    const canonicalContent = buildContent({
+      identity: {
+        ...EMPTY_SALON_CONTENT.identity,
+        name: 'Isla Nail Studio',
+        heroImageUrl: 'https://example.com/hero.jpg',
+        specialtyLine: 'Russian manicure & BIAB · Toronto',
+      },
+    });
+    const snapshot = structuredClone(canonicalContent);
+    salonContextMock.salonContent = canonicalContent;
+
+    const first = render(
+      <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+    );
+
+    expect(screen.getByTestId('editorial-hero')).toBeInTheDocument();
+    expect(screen.queryByTestId('booking-step-header')).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search services...')).toBeInTheDocument();
+
+    first.unmount();
+
+    salonContextMock.bookingPage = {
+      ...EDITORIAL_BOOKING_PAGE_SIDE,
+      sectionVariants: { salonProfile: 'compact' },
+    };
+    render(
+      <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+    );
+
+    expect(screen.queryByTestId('editorial-hero')).not.toBeInTheDocument();
+    expect(screen.getByTestId('booking-step-header')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Search services...')).toBeInTheDocument();
+    expect(canonicalContent).toEqual(snapshot);
+  });
+
+  it('routes signature and carousel presentations of the same featured service through the shared renderer', () => {
+    const canonicalFeaturedService = {
+      id: service.id,
+      name: service.name,
+      description: service.description,
+      durationMinutes: service.durationMinutes,
+      priceCents: service.priceCents,
+      priceDisplayText: service.priceDisplayText,
+      category: service.category,
+      bookingCategory: service.bookingCategory,
+      imageUrl: service.imageUrl,
+      featuredOrder: service.featuredOrder,
+    };
+    const canonicalContent = buildContent({
+      catalog: {
+        ...EMPTY_SALON_CONTENT.catalog,
+        services: [canonicalFeaturedService],
+        featuredServices: [canonicalFeaturedService],
+      },
+    });
+    const snapshot = structuredClone(canonicalContent);
+    salonContextMock.salonContent = canonicalContent;
+
+    const first = render(
+      <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+    );
+
+    expect(screen.getByTestId('editorial-featured-services')).toBeInTheDocument();
+    expect(screen.queryByTestId('featured-services-scroll')).not.toBeInTheDocument();
+
+    first.unmount();
+
+    salonContextMock.bookingPage = {
+      ...EDITORIAL_BOOKING_PAGE_SIDE,
+      sectionVariants: { featuredServices: 'carousel' },
+    };
+    render(
+      <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+    );
+
+    expect(screen.queryByTestId('editorial-featured-services')).not.toBeInTheDocument();
+    expect(screen.getByTestId('featured-services-scroll')).toBeInTheDocument();
+    expect(screen.getByTestId(`featured-service-card-${service.id}`)).toHaveTextContent(service.name);
+    expect(canonicalContent).toEqual(snapshot);
+  });
+
+  it('falls back to same-section Editorial defaults for unknown and wrong-section stored values', () => {
+    salonContextMock.salonContent = buildContent({
+      identity: {
+        ...EMPTY_SALON_CONTENT.identity,
+        name: 'Isla Nail Studio',
+        heroImageUrl: 'https://example.com/hero.jpg',
+      },
+    });
+    salonContextMock.bookingPage = {
+      ...EDITORIAL_BOOKING_PAGE_SIDE,
+      sectionVariants: {
+        salonProfile: 'signature',
+        serviceMenu: 'future_menu',
+      } as BookingPageConfigSide['sectionVariants'],
+    };
+
+    render(
+      <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+    );
+
+    expect(screen.getByTestId('editorial-hero')).toBeInTheDocument();
+    expect(document.getElementById('services')).toContainElement(screen.getByPlaceholderText('Search services...'));
+  });
+
+  it.each(['tech_profile', 'portfolio', 'catalogue'] as const)(
+    'preserves Quick Book public behavior for the historical %s layout',
+    (layout) => {
+      salonContextMock.bookingPage = {
+        ...EDITORIAL_BOOKING_PAGE_SIDE,
+        layout,
+        sectionOrder: ['salonProfile', 'serviceMenu', 'featuredServices', 'policies', 'socialLinks', 'bookingCta'],
+      };
+
+      render(
+        <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+      );
+
+      expect(screen.getByTestId('booking-step-header')).toBeInTheDocument();
+      expect(screen.queryByTestId('editorial-hero')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('editorial-sticky-cta')).not.toBeInTheDocument();
+      expect(screen.getByPlaceholderText('Search services...')).toBeInTheDocument();
+    },
+  );
+
   it('renders the hero when a hero image is present', () => {
     salonContextMock.salonContent = buildContent({
       identity: {
@@ -289,6 +415,7 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
 
     expect(screen.getByTestId('editorial-hero')).toBeInTheDocument();
     expect(screen.getByTestId('editorial-hero-image')).toHaveAttribute('src', 'https://example.com/hero.jpg');
+    expect(screen.getByTestId('editorial-hero-image')).toHaveAttribute('alt', 'Isla Nail Studio salon');
     expect(screen.getByTestId('editorial-specialty-line')).toHaveTextContent('Russian manicure & BIAB · Toronto');
     expect(screen.queryByTestId('booking-step-header')).not.toBeInTheDocument();
   });

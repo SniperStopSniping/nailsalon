@@ -21,6 +21,7 @@ vi.mock('@/libs/DB', () => ({
 import {
   BOOKING_PAGE_CONFIG_DEFAULTS,
   BOOKING_PAGE_CONFIG_SIDE_DEFAULTS,
+  bookingPageDraftPatchSchema,
   createDefaultBookingPageConfig,
   foldLegacyAppearanceInputs,
   resolveBookingPageConfig,
@@ -28,6 +29,7 @@ import {
   validateSectionOrder,
 } from './bookingPageConfig';
 import { EMPTY_SALON_CONTENT } from './salonContent';
+import { resolveSectionPresentation } from './sectionPresentation';
 import { resolveVisibleSectionOrder } from './sectionRegistry';
 /* eslint-enable import/first */
 
@@ -75,6 +77,40 @@ describe('bookingPageConfig defaults', () => {
       'socialLinks',
       'bookingCta',
     ]);
+  });
+});
+
+describe('bookingPageDraftPatchSchema Stage 4 section-variant writes', () => {
+  it('accepts canonical variants only on the section that owns them', () => {
+    const sectionVariants = {
+      salonProfile: 'hero_image',
+      technicianProfile: 'full',
+      featuredServices: 'signature',
+      serviceMenu: 'list',
+      hoursLocation: 'full',
+      policies: 'inline',
+      socialLinks: 'icons',
+      bookingCta: 'sticky',
+    };
+
+    const result = bookingPageDraftPatchSchema.safeParse({ sectionVariants });
+
+    expect(result.success).toBe(true);
+
+    if (result.success) {
+      expect(result.data.sectionVariants).toEqual(sectionVariants);
+    }
+  });
+
+  it.each([
+    ['a canonical variant assigned to the wrong section', { salonProfile: 'list' }],
+    ['a second cross-section canonical variant', { policies: 'signature' }],
+    ['the legacy pre-Stage-4 alias', { salonProfile: 'hero' }],
+    ['an unknown future variant', { serviceMenu: 'future_menu' }],
+    ['a variant on a section with no variant contract', { reviews: 'card' }],
+    ['an unknown section id', { notASection: 'list' }],
+  ])('rejects %s on new writes', (_caseName, sectionVariants) => {
+    expect(bookingPageDraftPatchSchema.safeParse({ sectionVariants }).success).toBe(false);
   });
 });
 
@@ -201,9 +237,86 @@ describe('resolveBookingPageConfig', () => {
       'serviceMenu',
       'hoursLocation',
       'policies',
+      'socialLinks',
       'bookingCta',
     ]);
   });
+
+  it('preserves raw legacy/unknown known-section strings on read, then resolves them safely', () => {
+    const resolved = resolveBookingPageConfig({
+      bookingPage: {
+        draft: {
+          layout: 'editorial',
+          sectionVariants: {
+            salonProfile: 'hero',
+            serviceMenu: 'future_menu',
+            policies: 'signature',
+            socialLinks: '',
+            reviews: 42,
+            notASection: 'list',
+          },
+        },
+      },
+    });
+
+    // Reads preserve non-empty strings for known sections so old/future data
+    // can be interpreted by the compatibility layer instead of being erased.
+    expect(resolved.draft.sectionVariants).toEqual({
+      salonProfile: 'hero',
+      serviceMenu: 'future_menu',
+      policies: 'signature',
+    });
+
+    const presentation = resolveSectionPresentation({
+      layout: resolved.draft.layout,
+      sectionVariants: resolved.draft.sectionVariants,
+      content: {
+        ...EMPTY_SALON_CONTENT,
+        identity: {
+          ...EMPTY_SALON_CONTENT.identity,
+          name: 'Luster',
+          heroImageUrl: 'https://example.com/hero.jpg',
+        },
+      },
+    });
+
+    expect(presentation.variants.salonProfile).toBe('hero_image');
+    expect(presentation.variants.serviceMenu).toBe('list');
+    expect(presentation.variants.policies).toBe('inline');
+  });
+
+  it.each(['tech_profile', 'portfolio', 'catalogue'] as const)(
+    'preserves legacy layout %s while the presentation layer safely selects Quick Book behavior',
+    (layout) => {
+      const resolved = resolveBookingPageConfig({
+        bookingPage: {
+          draft: {
+            layout,
+            sectionVariants: { salonProfile: 'hero' },
+          },
+        },
+      });
+
+      expect(resolved.draft.layout).toBe(layout);
+      expect(resolved.draft.sectionVariants).toEqual({ salonProfile: 'hero' });
+
+      const presentation = resolveSectionPresentation({
+        layout: resolved.draft.layout,
+        sectionVariants: resolved.draft.sectionVariants,
+        content: {
+          ...EMPTY_SALON_CONTENT,
+          identity: {
+            ...EMPTY_SALON_CONTENT.identity,
+            name: 'Luster',
+            heroImageUrl: 'https://example.com/hero.jpg',
+          },
+        },
+      });
+
+      expect(presentation.layout).toBe('quick_book');
+      expect(presentation.variants.salonProfile).toBe('compact');
+    },
+  );
 
   it('falls back editorial + staff_first to services_first (PR 6: editorial requires services_first)', () => {
     const resolved = resolveBookingPageConfig({
@@ -272,8 +385,56 @@ describe('validateSectionOrder', () => {
       'serviceMenu',
       'hoursLocation',
       'policies',
+      'socialLinks',
       'bookingCta',
     ]);
+  });
+
+  it('repairs the exact pre-Stage-4 Editorial default by inserting socialLinks before bookingCta', () => {
+    const result = validateSectionOrder(
+      [
+        'salonProfile',
+        'featuredServices',
+        'technicianProfile',
+        'portfolio',
+        'reviews',
+        'serviceMenu',
+        'hoursLocation',
+        'policies',
+        'bookingCta',
+      ],
+      [],
+      'editorial',
+    );
+
+    expect(result.sectionOrder).toEqual([
+      'salonProfile',
+      'featuredServices',
+      'technicianProfile',
+      'portfolio',
+      'reviews',
+      'serviceMenu',
+      'hoursLocation',
+      'policies',
+      'socialLinks',
+      'bookingCta',
+    ]);
+  });
+
+  it('does not rewrite a customized Editorial order merely because socialLinks is absent', () => {
+    const customizedOrder = [
+      'salonProfile',
+      'featuredServices',
+      'serviceMenu',
+      'hoursLocation',
+      'policies',
+      'bookingCta',
+    ];
+
+    const result = validateSectionOrder(customizedOrder, [], 'editorial');
+
+    expect(result.sectionOrder).toEqual(customizedOrder);
+    expect(result.sectionOrder).not.toContain('socialLinks');
   });
 
   it('falls back entirely to the layout default order for non-array input', () => {

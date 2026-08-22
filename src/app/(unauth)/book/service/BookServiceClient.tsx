@@ -2,10 +2,13 @@
 
 import { Facebook, Info, Instagram, Music2, ShieldCheck } from 'lucide-react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { type CSSProperties, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useRef, useState } from 'react';
 
 import { BookingStepHeader } from '@/components/booking/BookingStepHeader';
-import { SectionOrderRenderer, type SectionRenderers } from '@/components/booking/SectionOrderRenderer';
+import {
+  SectionOrderRenderer,
+  type SectionVariantRenderers,
+} from '@/components/booking/SectionOrderRenderer';
 import { ServiceCardImage } from '@/components/booking/ServiceCardImage';
 import { TechnicianAvatar } from '@/components/booking/TechnicianAvatar';
 import { Card } from '@/components/ui/card';
@@ -24,6 +27,7 @@ import {
   technicianSupportsPublicLocation,
 } from '@/libs/publicTechnicianCompatibility';
 import { EMPTY_SALON_CONTENT } from '@/libs/salonContent';
+import { deriveSalonProfileHeroAlt, resolveSectionPresentation } from '@/libs/sectionPresentation';
 import { resolveSectionDecisionPlan, resolveVisitContent, shouldRenderSection } from '@/libs/sectionRegistry';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
 import { BOOKING_CATEGORIES, type BookingCategory } from '@/models/Schema';
@@ -271,50 +275,62 @@ export function BookServiceClient({
   // own doc comment for why SectionOrderRenderer alone cannot govern that
   // embedded content.
   const quickBookHiddenSections = bookingPage?.hiddenSections ?? [];
-  // EMPTY_SALON_CONTENT's identity.name is '' by design (see its own doc
-  // comment) — patched in with the real salonName here so the fallback path
-  // still satisfies salonProfile's canRender (name-based) exactly like the
-  // real resolved SalonContent would, instead of silently omitting the
-  // identity band whenever a caller has not threaded salonContent through
-  // yet.
+  const featuredServices = getFeaturedServices(services, { lusterFeaturingEnabled });
+  // The real SalonProvider always supplies one public-safe canonical content
+  // object. The fallback exists only for narrow legacy test doubles which
+  // omit that provider field; it mirrors the same public projections so the
+  // renderer never overlays or rewrites an existing canonical object.
   const quickBookContent = salonContent
-    ?? { ...EMPTY_SALON_CONTENT, identity: { ...EMPTY_SALON_CONTENT.identity, name: salonName } };
-  // Luster UI/UX plan rev 3, PR 6: Editorial is a second section order +
-  // variant set on this SAME engine, selected here only to pick which
-  // `renderers` map SectionOrderRenderer reads below — never a branch on
-  // booking-engine behaviour (search/selection/quoting/availability/
-  // checkout are untouched and shared by both layouts).
+    ?? {
+      ...EMPTY_SALON_CONTENT,
+      identity: { ...EMPTY_SALON_CONTENT.identity, name: salonName },
+      catalog: {
+        ...EMPTY_SALON_CONTENT.catalog,
+        services,
+        featuredServices,
+      },
+      policies: {
+        policy: bookingExperience.policy,
+        quickFacts: bookingExperience.quickFacts,
+      },
+      social: bookingExperience.socialLinks,
+    };
   const layout = bookingPage?.layout ?? 'quick_book';
-  const isEditorialLayout = layout === 'editorial';
+  const sectionPresentation = resolveSectionPresentation({
+    layout,
+    sectionVariants: bookingPage?.sectionVariants,
+    content: quickBookContent,
+  });
+  const usesEditorialBookingHandoff = sectionPresentation.bookingAccess === 'editorial-handoff';
   const hasBookingBrandColor = bookingExperience.primaryColor !== null;
   const bookingBrandForeground = hasBookingBrandColor
     ? 'var(--booking-brand-foreground, #000000)'
     : undefined;
   const configuredSocialLinks = SOCIAL_LINKS.flatMap(({ key, label, Icon }) => {
-    const href = bookingExperience.socialLinks[key];
+    const href = quickBookContent.social[key];
     return href ? [{ key, label, Icon, href }] : [];
   });
   const serviceQuickFacts = [
     {
       key: 'appointment-only',
-      ...bookingExperience.quickFacts.appointmentOnly,
+      ...quickBookContent.policies.quickFacts.appointmentOnly,
     },
     {
       key: 'deposit-notice',
-      ...bookingExperience.quickFacts.depositNotice,
+      ...quickBookContent.policies.quickFacts.depositNotice,
     },
     {
       key: 'cancellation-notice',
-      ...bookingExperience.quickFacts.cancellationNotice,
+      ...quickBookContent.policies.quickFacts.cancellationNotice,
     },
   ].flatMap(fact =>
     fact.enabled && fact.label?.trim()
       ? [{ key: fact.key, label: fact.label }]
       : []);
-  const servicePagePolicyText = bookingExperience.policy.enabled
-    && bookingExperience.policy.showOnServicePage
-    && bookingExperience.policy.text?.trim()
-    ? bookingExperience.policy.text
+  const servicePagePolicyText = quickBookContent.policies.policy.enabled
+    && quickBookContent.policies.policy.showOnServicePage
+    && quickBookContent.policies.policy.text?.trim()
+    ? quickBookContent.policies.policy.text
     : null;
 
   const isFirstStep = getFirstStep(bookingFlow) === 'service';
@@ -480,7 +496,7 @@ export function BookServiceClient({
   // notification fires exactly when the anchor's top edge crosses that
   // strip, regardless of the anchor's own height relative to the viewport.
   useEffect(() => {
-    if (!isEditorialLayout) {
+    if (!usesEditorialBookingHandoff) {
       setHasReachedServicesAnchor(false);
       setIsServicesAnchorUnreachable(false);
       return undefined;
@@ -611,7 +627,7 @@ export function BookServiceClient({
       resizeObserver?.disconnect();
       observer?.disconnect();
     };
-  }, [isEditorialLayout]);
+  }, [usesEditorialBookingHandoff]);
 
   useEffect(() => {
     if (!campaignToken || !salonSlug) {
@@ -1017,31 +1033,10 @@ export function BookServiceClient({
     );
   }, [selectedAddOnsState, totalDurationLabel, totalPriceLabel]);
 
-  const featuredServices = getFeaturedServices(services, { lusterFeaturingEnabled });
-  // The embedded blocks render these exact public-safe values. Overlay them
-  // so readiness and pixels cannot consult different projections; the
-  // fallbacks also keep partial unit-test contexts honest.
-  const directPolicyIsAuthored = bookingExperience.policy.enabled || Boolean(bookingExperience.policy.text?.trim());
-  const directFactsAreAuthored = Object.values(bookingExperience.quickFacts).some(fact => fact.enabled || Boolean(fact.label?.trim()));
-  const directSocialIsAuthored = Object.values(bookingExperience.socialLinks).some(Boolean);
-  const sectionDecisionContent = {
-    ...quickBookContent,
-    catalog: {
-      ...quickBookContent.catalog,
-      featuredServices: quickBookContent.catalog.featuredServices.length > 0
-        ? quickBookContent.catalog.featuredServices
-        : featuredServices,
-    },
-    policies: {
-      policy: directPolicyIsAuthored ? bookingExperience.policy : quickBookContent.policies.policy,
-      quickFacts: directFactsAreAuthored ? bookingExperience.quickFacts : quickBookContent.policies.quickFacts,
-    },
-    social: directSocialIsAuthored ? bookingExperience.socialLinks : quickBookContent.social,
-  };
   const sectionPlan = resolveSectionDecisionPlan({
     order: quickBookSectionOrder,
     hiddenSections: quickBookHiddenSections,
-    content: sectionDecisionContent,
+    content: quickBookContent,
     announcement: bookingExperience.bookingMessage,
   });
   const serviceRows = buildServiceRows(filteredServices);
@@ -1201,70 +1196,36 @@ export function BookServiceClient({
           // desktop-width column at the `lg` breakpoint instead of staying
           // pinned to Quick Book's mobile column — the shared `serviceMenu`
           // engine block re-narrows itself back to `max-w-[430px]` inside
-          // this wider shell (see `editorialRenderers.serviceMenu` below),
+          // this wider shell (see the `serviceMenu.list` variant below),
           // since that booking engine is explicitly out of scope for this
-          // PR's redesign. This is a page-shell width choice, the same kind
-          // already made by the `renderers={isEditorialLayout ? ... }`
-          // selection below — not a conditional inside the shared engine
-          // body itself.
-          isEditorialLayout
+          // PR's redesign. This is presentation-plan chrome, not a second
+          // conditional booking-engine body.
+          sectionPresentation.pageFrame === 'editorial'
             ? 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10 lg:max-w-5xl lg:px-10'
             : 'mx-auto flex w-full max-w-[430px] flex-col px-4 pb-10'
         }
       >
         {/*
-          Luster UI/UX plan rev 3, PR 4 (BUILD step 4): the identity/header
-          region is the ONLY thing extracted into the section registry's
-          thin rendering wrapper. `serviceMenu` renders every remaining line
-          of this file's existing return JSX — search, category pills,
-          service cards, the inline add-on panel — as one shared engine
-          body (`renderServiceMenuContent`, defined below, PR 6 made it a
-          small parameterized function so Quick Book and Editorial can each
-          opt in/out of its inline Featured-services carousel and policy
-          card by configuration rather than by a layout-name conditional —
-          everything else in it is unchanged from before this PR).
-          `featuredServices`/`policies`/`socialLinks`/`bookingCta` stay
-          structurally embedded inside that same shared block (they already
-          rendered there) rather than being pulled into their own renderers,
-          so `quickBookSectionOrder`'s entries for those ids are
-          intentionally left without a mapped renderer below and are
-          skipped — see `SectionOrderRenderer`'s own doc comment. The sticky
-          Continue bar further down (`service-sticky-bar`) is also left
-          completely untouched in its original position, outside this
-          wrapper, since it is a viewport-fixed element structurally
-          independent of in-flow section order.
+          Stage 4 keeps one service-selection engine and gives the canonical
+          renderer typed insertion slots at its existing Featured, policy,
+          and social positions. The Stage 2 decision plan admits each slot;
+          the Stage 4 presentation plan decides only whether that admitted
+          section is in flow or hosted by this service-menu variant. The
+          sticky Continue bar remains a system affordance outside owner-
+          authored section pixels.
         */}
         {(() => {
-          // Shared by both `quickBookRenderers.serviceMenu` and
-          // `editorialRenderers.serviceMenu` below (Luster UI/UX plan rev 3,
-          // PR 6): the exact same search/pills/cards/add-on-panel engine block,
-          // called directly by each renderer map with explicit configuration for
-          // whether ITS caller already renders a dedicated Featured
-          // services/Policies section elsewhere in that layout's section order.
-          // Quick Book has no dedicated renderer for either, so it asks for both
-          // inline; Editorial has its own `featuredServices`/`policies` renderers
-          // further down, so it asks for neither, avoiding duplicate content
-          // (PR6 review finding). The choice is expressed as configuration passed
-          // in by each variant's own renderer map, not as a layout-name
-          // conditional inside this shared body.
+          // Every presentation calls this exact search/pills/cards/add-on
+          // engine. Typed slot nodes preserve legacy DOM positions without a
+          // Quick Book or Editorial renderer fork.
           const renderServiceMenuContent = ({
-            showFeaturedCarousel,
-            showPolicyCard,
-            showSocialLinks,
+            featuredServicesSlot,
+            policiesSlot,
+            socialLinksSlot,
           }: {
-            showFeaturedCarousel: boolean;
-            showPolicyCard: boolean;
-            /**
-             * Post-launch fix: `configuredSocialLinks` used to render
-             * unconditionally here regardless of `hiddenSections` — the
-             * `socialLinks` section id has no dedicated renderer in EITHER
-             * layout's renderers map (see both maps' own doc comments), so
-             * hiding it via the admin toggle previously had no effect at
-             * all, in both Quick Book and Editorial. Both callers below now
-             * pass `!isSectionHidden('socialLinks')`, same pattern as
-             * `showFeaturedCarousel`/`showPolicyCard`.
-             */
-            showSocialLinks: boolean;
+            featuredServicesSlot: ReactNode;
+            policiesSlot: ReactNode;
+            socialLinksSlot: ReactNode;
           }) => (
             <>
               {(shouldRenderSection(sectionPlan, 'announcement') || shouldRenderSection(sectionPlan, 'bookingFacts')) && (
@@ -1577,126 +1538,7 @@ export function BookServiceClient({
                   )
                 : (
                     <>
-                      {/* Featured is hidden while searching so matches sit directly under
-                    the search bar instead of below the carousel (mobile keyboard). Also
-                    hidden whenever the caller passes `showFeaturedCarousel: false` —
-                    Editorial does this (see `editorialRenderers.serviceMenu` above)
-                    because it renders its own dedicated "Signature services" section
-                    from this same underlying featured-services data, so this reused
-                    engine block must not render its copy too — see PR6 review finding
-                    on duplicate Featured services / Policies rendering. */}
-                      {!isSearching && showFeaturedCarousel && featuredServices.length > 0 && (
-                        <div
-                          className="scrollbar-hide -mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
-                          style={{
-                            opacity: mounted ? 1 : 0,
-                            transition: 'opacity 300ms ease-out 150ms',
-                          }}
-                          data-testid="featured-services-scroll"
-                        >
-                          <div className="mb-2.5">
-                            <div className="mb-1 px-4 sm:px-0">
-                              <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
-                                Featured services
-                              </div>
-                              <div className="mt-0.5 text-[13px] font-semibold text-neutral-900">
-                                Popular premium sets and combo appointments
-                              </div>
-                            </div>
-                            <div
-                              className="scrollbar-hide -mx-4 overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:px-0"
-                              role="region"
-                              aria-label="Featured services"
-                            >
-                              <div className="flex min-w-max gap-2">
-                                {featuredServices.map((service, featuredIndex) => {
-                                  const isSelected = selectedBaseServiceId === service.id;
-                                  const featuredBadgeLabel = featuredIndex === 0 && service.bookingCategory === 'combo'
-                                    ? 'Best value'
-                                    : BOOKING_CATEGORY_META[service.bookingCategory].label;
-                                  return (
-                                    <button
-                                      key={`featured-${service.id}`}
-                                      type="button"
-                                      disabled={!isHydrated}
-                                      onClick={() => handleServiceSelection(service)}
-                                      data-testid={`featured-service-card-${service.id}`}
-                                      aria-pressed={isSelected}
-                                      aria-label={`${service.name}, ${formatDuration(service.durationMinutes)}, ${service.priceDisplayText || formatMoney(service.priceCents, currency)}`}
-                                      className={`relative w-[min(272px,calc(100vw-4rem))] shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
-                                        service.bookingCategory === 'combo' ? 'sm:w-[320px]' : 'sm:w-[280px]'
-                                      }`}
-                                      style={{
-                                        background: isSelected
-                                          ? hasBookingBrandColor
-                                            ? 'var(--booking-brand-selection-background, white)'
-                                            : `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 24%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 12%, transparent))`
-                                          : 'white',
-                                        boxShadow: isSelected
-                                          ? '0 14px 28px rgba(0,0,0,0.14)'
-                                          : '0 4px 20px rgba(0,0,0,0.06)',
-                                        borderWidth: '1px',
-                                        borderStyle: 'solid',
-                                        borderColor: isSelected
-                                          ? hasBookingBrandColor
-                                            ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                                            : themeVars.primary
-                                          : themeVars.cardBorder,
-                                      }}
-                                    >
-                                      {showServiceImages && (
-                                        <div
-                                          data-testid={`featured-service-card-image-container-${service.id}`}
-                                          className="relative h-[80px] overflow-hidden sm:h-[96px]"
-                                        >
-                                          <ServiceCardImage
-                                            src={service.imageUrl}
-                                            alt={`${service.name} nail service`}
-                                            imageTestId={`featured-service-card-image-${service.id}`}
-                                            className="object-cover transition-transform duration-300"
-                                          />
-                                          <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/45 to-transparent sm:h-20" />
-                                          <div
-                                            data-testid={`featured-service-card-badge-${service.id}`}
-                                            className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm"
-                                          >
-                                            {/* "Best value" only on the lead card — a badge on every card means nothing */}
-                                            {featuredBadgeLabel}
-                                          </div>
-                                        </div>
-                                      )}
-                                      <div className="p-2">
-                                        {!showServiceImages && (
-                                          <div
-                                            data-testid={`featured-service-card-badge-${service.id}`}
-                                            className="mb-1 w-fit max-w-full whitespace-normal break-words rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-semibold uppercase leading-tight tracking-[0.08em] text-neutral-800"
-                                          >
-                                            {featuredBadgeLabel}
-                                          </div>
-                                        )}
-                                        <div className="line-clamp-2 break-words text-[13px] font-bold leading-tight text-neutral-900 sm:text-[14px]">
-                                          {service.name}
-                                        </div>
-                                        <div className="mt-0.5 line-clamp-1 text-[10px] leading-[1.35] text-neutral-500 sm:line-clamp-2">
-                                          {service.descriptionItems[0] ?? service.description ?? 'Bookable base service'}
-                                        </div>
-                                        <div className="mt-0.5 flex items-center justify-between gap-3 sm:mt-1">
-                                          <span className="text-[12px] text-neutral-500">
-                                            {formatDuration(service.durationMinutes)}
-                                          </span>
-                                          <span className="text-[15px] font-bold" style={{ color: themeVars.accent }}>
-                                            {service.priceDisplayText || formatMoney(service.priceCents, currency)}
-                                          </span>
-                                        </div>
-                                      </div>
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      )}
+                      {featuredServicesSlot}
 
                       {/* Category chips are useless during a search (results already span
                     every category), so they collapse too — only results remain. */}
@@ -2066,81 +1908,9 @@ export function BookServiceClient({
                     </>
                   )}
 
-              {/* Hidden whenever the caller passes `showPolicyCard: false` —
-                    Editorial does this (see `editorialRenderers.serviceMenu` above)
-                    because it renders its own dedicated "Policies" section from this
-                    same underlying policy content, so this reused engine block must
-                    not render its copy too — see PR6 review finding on duplicate
-                    Featured services / Policies rendering. */}
-              {showPolicyCard && servicePagePolicyText && (
-                <section
-                  data-public-surface="policies"
-                  data-testid="booking-policy"
-                  aria-labelledby={bookingExperience.policy.title ? 'booking-policy-title' : undefined}
-                  aria-label={bookingExperience.policy.title ? undefined : 'Booking policy'}
-                  className="mt-5 rounded-xl border px-3.5 py-3"
-                  style={{
-                    borderColor: hasBookingBrandColor
-                      ? 'color-mix(in srgb, var(--booking-brand-state-border, var(--theme-primary)) 34%, transparent)'
-                      : `color-mix(in srgb, ${themeVars.accent} 20%, ${themeVars.cardBorder})`,
-                    backgroundColor: hasBookingBrandColor
-                      ? 'color-mix(in srgb, var(--booking-brand-primary) 6%, white)'
-                      : `color-mix(in srgb, white 92%, ${themeVars.accent})`,
-                  }}
-                >
-                  <div className="flex items-start gap-2.5">
-                    <ShieldCheck
-                      aria-hidden="true"
-                      className="mt-0.5 size-4 shrink-0"
-                      style={{
-                        color: hasBookingBrandColor
-                          ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                          : themeVars.primaryDark,
-                      }}
-                    />
-                    <div className="min-w-0">
-                      {bookingExperience.policy.title && (
-                        <h2 id="booking-policy-title" className="mb-1 min-w-0 break-words text-sm font-semibold text-neutral-900">
-                          {bookingExperience.policy.title}
-                        </h2>
-                      )}
-                      <p className="whitespace-pre-line break-words text-sm leading-5 text-neutral-700">
-                        {servicePagePolicyText}
-                      </p>
-                    </div>
-                  </div>
-                </section>
-              )}
+              {policiesSlot}
 
-              {showSocialLinks && configuredSocialLinks.length > 0 && (
-                <nav
-                  data-public-surface="socialLinks"
-                  data-testid="booking-social-links"
-                  aria-label="Salon social links"
-                  className="mt-4 flex items-center justify-center gap-3"
-                >
-                  {configuredSocialLinks.map(({ key, label, Icon, href }) => (
-                    <a
-                      key={key}
-                      href={href}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      aria-label={`Visit ${salonName} on ${label}`}
-                      className="flex size-11 items-center justify-center rounded-full border bg-white text-neutral-800 shadow-sm transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
-                      style={{
-                        'borderColor': hasBookingBrandColor
-                          ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                          : themeVars.cardBorder,
-                        '--tw-ring-color': hasBookingBrandColor
-                          ? 'var(--booking-brand-state-border, var(--theme-primary))'
-                          : themeVars.selectedRing,
-                      } as CSSProperties}
-                    >
-                      <Icon className="size-5" aria-hidden="true" />
-                    </a>
-                  ))}
-                </nav>
-              )}
+              {socialLinksSlot}
 
               {selectedService && (
                 <div
@@ -2152,109 +1922,58 @@ export function BookServiceClient({
             </>
           );
 
-          const quickBookRenderers: SectionRenderers = {
-            salonProfile: () => (
-              <BookingStepHeader
-                salonName={salonName}
-                mounted={mounted}
-                salonNameVariant="editorial"
-                announcement={campaignOffer
-                  ? (
-                      <div
-                        className="inline-flex max-w-full items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-center text-[11px] font-semibold leading-tight text-emerald-900 shadow-[0_4px_14px_rgba(0,0,0,0.04)]"
-                      >
-                        ✨
-                        {' '}
-                        {campaignOffer.name}
-                        {' · '}
-                        {campaignOffer.displayOffer}
-                        {campaignOffer.code ? ` · ${campaignOffer.code}` : ''}
-                      </div>
-                    )
-                  : showNewClientPromo
+          // Stage 4: one section-keyed registry with real, section-compatible
+          // presentation variants. Layout identity is absent from this tree;
+          // it resolves defaults/placement in `sectionPresentation` above.
+          const sectionRenderers: SectionVariantRenderers = {
+            salonProfile: {
+              compact: () => (
+                <BookingStepHeader
+                  salonName={salonName}
+                  mounted={mounted}
+                  salonNameVariant="editorial"
+                  announcement={campaignOffer
                     ? (
-                        <div
-                          className="inline-flex max-w-full items-center justify-center rounded-full border px-3 py-1.5 text-center text-[11px] font-medium leading-tight shadow-[0_4px_14px_rgba(0,0,0,0.04)]"
-                          style={{
-                            borderColor: `color-mix(in srgb, ${themeVars.accent} 18%, ${themeVars.cardBorder})`,
-                            backgroundColor: `color-mix(in srgb, white 84%, ${themeVars.accent} 16%)`,
-                            color: hasBookingBrandColor
-                              ? themeVars.accent
-                              : `color-mix(in srgb, ${themeVars.primaryDark} 74%, ${themeVars.accent})`,
-                          }}
-                        >
-                          ✨ 25% off for new clients — until April 30
+                        <div className="inline-flex max-w-full items-center justify-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-center text-[11px] font-semibold leading-tight text-emerald-900 shadow-[0_4px_14px_rgba(0,0,0,0.04)]">
+                          ✨
+                          {' '}
+                          {campaignOffer.name}
+                          {' · '}
+                          {campaignOffer.displayOffer}
+                          {campaignOffer.code ? ` · ${campaignOffer.code}` : ''}
                         </div>
                       )
-                    : undefined}
-                title="Choose Your Service"
-                description="Pick your main service, then add optional extras."
-                bookingFlow={effectiveBookingFlow}
-                currentStep="service"
-                isFirstStep={isFirstStep}
-                onBack={handleBack}
-                className="-mb-1"
-              />
-            ),
-            // Post-launch fix: featuredServices/policies/socialLinks stay
-            // structurally embedded inside this shared block (they have no
-            // dedicated renderer in this layout's map — see the block
-            // comment above), so their visibility is driven directly from
-            // `hiddenSections` here rather than by SectionOrderRenderer
-            // (which only governs ids that HAVE a renderer entry).
-            serviceMenu: () => renderServiceMenuContent({
-              showFeaturedCarousel: shouldRenderSection(sectionPlan, 'featuredServices'),
-              showPolicyCard: shouldRenderSection(sectionPlan, 'policies'),
-              showSocialLinks: shouldRenderSection(sectionPlan, 'socialLinks'),
-            }),
-          };
-
-          // Luster UI/UX plan rev 3, PR 6: Editorial's own renderers map for
-          // the SAME SectionOrderRenderer wrapper PR 4 built — a second
-          // section order + variant set, not a new component or a new
-          // booking engine. `serviceMenu` below calls the shared
-          // `renderServiceMenuContent` directly (never a copy) so both
-          // layouts share the exact same search/pills/cards/add-on-panel
-          // engine block; only the id="services" anchor wrapper is new.
-          // `portfolio`/`reviews` intentionally have no renderer here — PR
-          // 4's registry already omits both via `canRender` (SalonContent's
-          // proof groups are always empty until PR 10), so no placeholder
-          // UI is built for them (Rev 3 plan section 6).
-          // Post-launch fix: `renderServiceMenuContent`'s "Featured services"
-          // carousel and "booking-policy" section are gated by the
-          // `showFeaturedCarousel`/`showPolicyCard` configuration each
-          // renderer map passes in (see that function's own doc comment),
-          // not by a layout-name conditional. Editorial passes `false` for
-          // both here because it has its own dedicated `featuredServices`/
-          // `policies` renderers below that render the same underlying
-          // content — passing `true` as well would duplicate it on the page.
-          // `socialLinks`/`bookingCta` still stay embedded unconditionally in
-          // the shared block — Editorial has no dedicated renderer for
-          // either, so no duplication there.
-          const editorialRenderers: SectionRenderers = {
-            salonProfile: () => {
-              const heroImageUrl = quickBookContent.identity.heroImageUrl;
-              if (!heroImageUrl) {
-                // No hero image: degrade to the Quick Book identity band
-                // rather than an empty frame (Rev 3 plan section 6: "A
-                // salon with no hero image degrades to the Quick Book
-                // identity band").
-                return quickBookRenderers.salonProfile?.() ?? null;
-              }
-
-              return (
-                // Desktop (`lg`): bleeds edge-to-edge on mobile (`-mx-4 -mt-4`
-                // cancels the shell's mobile `px-4`) but sits inset with
-                // rounded corners inside the wider shell at `lg` instead of
-                // cancelling that shell's `lg:px-10` too — a full-bleed 1024px+
-                // banner reads as a mistake, not a desktop hero. Shorter,
-                // wider aspect ratio and larger type at `lg` for real desktop
-                // proportions rather than a stretched-out mobile card.
+                    : showNewClientPromo
+                      ? (
+                          <div
+                            className="inline-flex max-w-full items-center justify-center rounded-full border px-3 py-1.5 text-center text-[11px] font-medium leading-tight shadow-[0_4px_14px_rgba(0,0,0,0.04)]"
+                            style={{
+                              borderColor: `color-mix(in srgb, ${themeVars.accent} 18%, ${themeVars.cardBorder})`,
+                              backgroundColor: `color-mix(in srgb, white 84%, ${themeVars.accent} 16%)`,
+                              color: hasBookingBrandColor
+                                ? themeVars.accent
+                                : `color-mix(in srgb, ${themeVars.primaryDark} 74%, ${themeVars.accent})`,
+                            }}
+                          >
+                            ✨ 25% off for new clients — until April 30
+                          </div>
+                        )
+                      : undefined}
+                  title="Choose Your Service"
+                  description="Pick your main service, then add optional extras."
+                  bookingFlow={effectiveBookingFlow}
+                  currentStep="service"
+                  isFirstStep={isFirstStep}
+                  onBack={handleBack}
+                  className="-mb-1"
+                />
+              ),
+              hero_image: () => (
                 <section data-public-surface="salonProfile" data-testid="editorial-hero" className="-mx-4 -mt-4 mb-4 lg:mx-0 lg:mb-8 lg:mt-0">
                   <div className="relative aspect-[4/5] w-full overflow-hidden sm:aspect-video lg:aspect-[21/9] lg:rounded-3xl">
                     <img
-                      src={heroImageUrl}
-                      alt={`${salonName} hero`}
+                      src={quickBookContent.identity.heroImageUrl!}
+                      alt={deriveSalonProfileHeroAlt(quickBookContent.identity)}
                       data-testid="editorial-hero-image"
                       className="absolute inset-0 size-full object-cover"
                       loading="lazy"
@@ -2285,14 +2004,161 @@ export function BookServiceClient({
                     </div>
                   </div>
                 </section>
-              );
+              ),
             },
-            featuredServices: () => {
-              return (
-                // Desktop (`lg`): a horizontal scroll strip of fixed-width
-                // cards is a mobile pattern — at `lg` it becomes a real grid
-                // that uses the wider shell's width instead of still
-                // scrolling sideways inside a 1024px+ column.
+            technicianProfile: {
+              full: () => {
+                const profiledTechnicians = quickBookContent.people.technicians.filter(
+                  technician => Boolean(technician.bio?.trim()) || Boolean(technician.avatarUrl?.trim()),
+                );
+                return (
+                  <section data-public-surface="technicianProfile" data-testid="editorial-about" className="mb-6 lg:mb-10">
+                    <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-4 lg:text-xs">
+                      About
+                    </h2>
+                    <div className="space-y-4 lg:grid lg:grid-cols-2 lg:gap-x-8 lg:gap-y-6 lg:space-y-0">
+                      {profiledTechnicians.map(technician => (
+                        <div key={technician.id} data-testid={`editorial-technician-${technician.id}`} className="flex gap-3 lg:gap-4">
+                          <TechnicianAvatar
+                            name={technician.name}
+                            imageUrl={technician.avatarUrl}
+                            className="size-16 shrink-0 lg:size-20"
+                            sizes="64px"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="font-semibold text-neutral-900 lg:text-lg">{technician.name}</div>
+                            {(technician.specialties.length > 0 || technician.languages.length > 0) && (
+                              <div className="mt-0.5 text-[12px] text-neutral-500 lg:text-sm">
+                                {[...technician.specialties, ...technician.languages].join(' · ')}
+                              </div>
+                            )}
+                            {technician.bio && (
+                              <p className="mt-1.5 text-sm text-neutral-700 lg:text-base">{technician.bio}</p>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </section>
+                );
+              },
+            },
+            featuredServices: {
+              carousel: () => (
+                <>
+                  {!isSearching && featuredServices.length > 0 && (
+                    <div
+                      data-public-surface="featuredServices"
+                      className="scrollbar-hide -mx-4 mb-2.5 w-[calc(100%+2rem)] overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:w-full sm:overflow-visible sm:px-0"
+                      style={{
+                        opacity: mounted ? 1 : 0,
+                        transition: 'opacity 300ms ease-out 150ms',
+                      }}
+                      data-testid="featured-services-scroll"
+                    >
+                      <div className="mb-2.5">
+                        <div className="mb-1 px-4 sm:px-0">
+                          <div className="text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
+                            Featured services
+                          </div>
+                          <div className="mt-0.5 text-[13px] font-semibold text-neutral-900">
+                            Popular premium sets and combo appointments
+                          </div>
+                        </div>
+                        <div
+                          className="scrollbar-hide -mx-4 overflow-x-auto overflow-y-hidden px-4 sm:mx-0 sm:px-0"
+                          role="region"
+                          aria-label="Featured services"
+                        >
+                          <div className="flex min-w-max gap-2">
+                            {featuredServices.map((service, featuredIndex) => {
+                              const isSelected = selectedBaseServiceId === service.id;
+                              const featuredBadgeLabel = featuredIndex === 0 && service.bookingCategory === 'combo'
+                                ? 'Best value'
+                                : BOOKING_CATEGORY_META[service.bookingCategory].label;
+                              return (
+                                <button
+                                  key={`featured-${service.id}`}
+                                  type="button"
+                                  disabled={!isHydrated}
+                                  onClick={() => handleServiceSelection(service)}
+                                  data-testid={`featured-service-card-${service.id}`}
+                                  aria-pressed={isSelected}
+                                  aria-label={`${service.name}, ${formatDuration(service.durationMinutes)}, ${service.priceDisplayText || formatMoney(service.priceCents, currency)}`}
+                                  className={`relative w-[min(272px,calc(100vw-4rem))] shrink-0 overflow-hidden rounded-2xl text-left transition-all duration-200 ${
+                                    service.bookingCategory === 'combo' ? 'sm:w-[320px]' : 'sm:w-[280px]'
+                                  }`}
+                                  style={{
+                                    background: isSelected
+                                      ? hasBookingBrandColor
+                                        ? 'var(--booking-brand-selection-background, white)'
+                                        : `linear-gradient(to bottom right, color-mix(in srgb, ${themeVars.primary} 24%, transparent), color-mix(in srgb, ${themeVars.primaryDark} 12%, transparent))`
+                                      : 'white',
+                                    boxShadow: isSelected ? '0 14px 28px rgba(0,0,0,0.14)' : '0 4px 20px rgba(0,0,0,0.06)',
+                                    borderWidth: '1px',
+                                    borderStyle: 'solid',
+                                    borderColor: isSelected
+                                      ? hasBookingBrandColor
+                                        ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                                        : themeVars.primary
+                                      : themeVars.cardBorder,
+                                  }}
+                                >
+                                  {showServiceImages && (
+                                    <div
+                                      data-testid={`featured-service-card-image-container-${service.id}`}
+                                      className="relative h-[80px] overflow-hidden sm:h-[96px]"
+                                    >
+                                      <ServiceCardImage
+                                        src={service.imageUrl}
+                                        alt={`${service.name} nail service`}
+                                        imageTestId={`featured-service-card-image-${service.id}`}
+                                        className="object-cover transition-transform duration-300"
+                                      />
+                                      <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-black/45 to-transparent sm:h-20" />
+                                      <div
+                                        data-testid={`featured-service-card-badge-${service.id}`}
+                                        className="absolute left-3 top-3 rounded-full bg-white/90 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-neutral-800 shadow-sm"
+                                      >
+                                        {featuredBadgeLabel}
+                                      </div>
+                                    </div>
+                                  )}
+                                  <div className="p-2">
+                                    {!showServiceImages && (
+                                      <div
+                                        data-testid={`featured-service-card-badge-${service.id}`}
+                                        className="mb-1 w-fit max-w-full whitespace-normal break-words rounded-full bg-neutral-100 px-2 py-1 text-[10px] font-semibold uppercase leading-tight tracking-[0.08em] text-neutral-800"
+                                      >
+                                        {featuredBadgeLabel}
+                                      </div>
+                                    )}
+                                    <div className="line-clamp-2 break-words text-[13px] font-bold leading-tight text-neutral-900 sm:text-[14px]">
+                                      {service.name}
+                                    </div>
+                                    <div className="mt-0.5 line-clamp-1 text-[10px] leading-[1.35] text-neutral-500 sm:line-clamp-2">
+                                      {service.descriptionItems[0] ?? service.description ?? 'Bookable base service'}
+                                    </div>
+                                    <div className="mt-0.5 flex items-center justify-between gap-3 sm:mt-1">
+                                      <span className="text-[12px] text-neutral-500">
+                                        {formatDuration(service.durationMinutes)}
+                                      </span>
+                                      <span className="text-[15px] font-bold" style={{ color: themeVars.accent }}>
+                                        {service.priceDisplayText || formatMoney(service.priceCents, currency)}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </>
+              ),
+              signature: () => (
                 <section data-public-surface="featuredServices" data-testid="editorial-featured-services" className="mb-6 lg:mb-10">
                   <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-4 lg:text-xs">
                     Signature services
@@ -2306,11 +2172,7 @@ export function BookServiceClient({
                         style={{ borderColor: themeVars.cardBorder }}
                       >
                         <div className="relative h-24 lg:h-40">
-                          <ServiceCardImage
-                            src={service.imageUrl}
-                            alt={`${service.name} nail service`}
-                            className="object-cover"
-                          />
+                          <ServiceCardImage src={service.imageUrl} alt={`${service.name} nail service`} className="object-cover" />
                         </div>
                         <div className="p-2.5 lg:p-4">
                           <div className="line-clamp-1 text-[13px] font-semibold text-neutral-900 lg:text-sm">{service.name}</div>
@@ -2325,136 +2187,140 @@ export function BookServiceClient({
                     ))}
                   </div>
                 </section>
-              );
+              ),
             },
-            technicianProfile: () => {
-              const profiledTechnicians = quickBookContent.people.technicians.filter(
-                technician => Boolean(technician.bio?.trim()) || Boolean(technician.avatarUrl?.trim()),
-              );
-              return (
-                // Desktop (`lg`): the stacked mobile list becomes a
-                // multi-column grid so profiles sit side by side across the
-                // wider shell instead of one long single-file column.
-                <section data-public-surface="technicianProfile" data-testid="editorial-about" className="mb-6 lg:mb-10">
-                  <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-4 lg:text-xs">
-                    About
-                  </h2>
-                  <div className="space-y-4 lg:grid lg:grid-cols-2 lg:gap-x-8 lg:gap-y-6 lg:space-y-0">
-                    {profiledTechnicians.map(technician => (
-                      <div key={technician.id} data-testid={`editorial-technician-${technician.id}`} className="flex gap-3 lg:gap-4">
-                        <TechnicianAvatar
-                          name={technician.name}
-                          imageUrl={technician.avatarUrl}
-                          className="size-16 shrink-0 lg:size-20"
-                          sizes="64px"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <div className="font-semibold text-neutral-900 lg:text-lg">{technician.name}</div>
-                          {(technician.specialties.length > 0 || technician.languages.length > 0) && (
-                            <div className="mt-0.5 text-[12px] text-neutral-500 lg:text-sm">
-                              {[...technician.specialties, ...technician.languages].join(' · ')}
-                            </div>
-                          )}
-                          {technician.bio && (
-                            <p className="mt-1.5 text-sm text-neutral-700 lg:text-base">{technician.bio}</p>
-                          )}
-                        </div>
+            serviceMenu: {
+              list: ({ renderSlot }) => {
+                const serviceMenu = renderServiceMenuContent({
+                  featuredServicesSlot: renderSlot('featuredServices'),
+                  policiesSlot: renderSlot('policies'),
+                  socialLinksSlot: renderSlot('socialLinks'),
+                });
+                return sectionPresentation.serviceMenuFrame === 'services-anchor'
+                  ? (
+                      <div id="services" ref={servicesAnchorRef} className="scroll-mt-4 lg:mx-auto lg:w-full lg:max-w-[430px]">
+                        {serviceMenu}
                       </div>
-                    ))}
+                    )
+                  : serviceMenu;
+              },
+            },
+            hoursLocation: {
+              full: () => {
+                const { entranceInstructions } = quickBookContent.place;
+                const { resolvedAddress, resolvedCity } = resolveVisitContent(quickBookContent);
+                return (
+                  <section data-public-surface="hoursLocation" data-testid="editorial-visit" className="mb-6 lg:mb-10 lg:max-w-2xl">
+                    <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-3 lg:text-xs">
+                      Visit
+                    </h2>
+                    {(resolvedAddress || resolvedCity) && (
+                      <p data-testid="editorial-visit-address" className="text-sm text-neutral-700 lg:text-base">
+                        {[resolvedAddress, resolvedCity].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                    {entranceInstructions && (
+                      <p data-testid="editorial-visit-entrance" className="mt-1 text-sm text-neutral-500 lg:text-base">
+                        {entranceInstructions}
+                      </p>
+                    )}
+                  </section>
+                );
+              },
+            },
+            policies: {
+              card: () => (
+                <section
+                  data-public-surface="policies"
+                  data-testid="booking-policy"
+                  aria-labelledby={quickBookContent.policies.policy.title ? 'booking-policy-title' : undefined}
+                  aria-label={quickBookContent.policies.policy.title ? undefined : 'Booking policy'}
+                  className="mt-5 rounded-xl border px-3.5 py-3"
+                  style={{
+                    borderColor: hasBookingBrandColor
+                      ? 'color-mix(in srgb, var(--booking-brand-state-border, var(--theme-primary)) 34%, transparent)'
+                      : `color-mix(in srgb, ${themeVars.accent} 20%, ${themeVars.cardBorder})`,
+                    backgroundColor: hasBookingBrandColor
+                      ? 'color-mix(in srgb, var(--booking-brand-primary) 6%, white)'
+                      : `color-mix(in srgb, white 92%, ${themeVars.accent})`,
+                  }}
+                >
+                  <div className="flex items-start gap-2.5">
+                    <ShieldCheck
+                      aria-hidden="true"
+                      className="mt-0.5 size-4 shrink-0"
+                      style={{
+                        color: hasBookingBrandColor
+                          ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                          : themeVars.primaryDark,
+                      }}
+                    />
+                    <div className="min-w-0">
+                      {quickBookContent.policies.policy.title && (
+                        <h2 id="booking-policy-title" className="mb-1 min-w-0 break-words text-sm font-semibold text-neutral-900">
+                          {quickBookContent.policies.policy.title}
+                        </h2>
+                      )}
+                      <p className="whitespace-pre-line break-words text-sm leading-5 text-neutral-700">
+                        {servicePagePolicyText}
+                      </p>
+                    </div>
                   </div>
                 </section>
-              );
-            },
-            // Same engine block as Quick Book — see `renderServiceMenuContent`'s
-            // own doc comment above. `id="services"` is the Skip-to-services
-            // target; `servicesAnchorRef` drives the sticky-CTA handoff below.
-            // Passes `false` for both carousel/policy-card flags since this
-            // layout renders both as their own dedicated sections instead
-            // (`featuredServices`/`policies` above/below). Re-narrows itself
-            // back to `max-w-[430px]` at `lg` (Rev 3 plan section 6): the
-            // wider outer shell above is Editorial's front-of-page content
-            // only — this shared booking engine keeps its existing narrow
-            // geometry unchanged, since it is explicitly out of scope for
-            // this PR's redesign.
-            // socialLinks has no dedicated Editorial renderer either (unlike
-            // featuredServices/policies above), so — same as Quick Book —
-            // its visibility is driven directly from `hiddenSections` here.
-            serviceMenu: () => (
-              <div id="services" ref={servicesAnchorRef} className="scroll-mt-4 lg:mx-auto lg:w-full lg:max-w-[430px]">
-                {renderServiceMenuContent({
-                  showFeaturedCarousel: false,
-                  showPolicyCard: false,
-                  showSocialLinks: shouldRenderSection(sectionPlan, 'socialLinks'),
-                })}
-              </div>
-            ),
-            hoursLocation: () => {
-              const { entranceInstructions } = quickBookContent.place;
-              // Post-launch fix: resolveVisitContent (`@/libs/sectionRegistry`)
-              // is the same predicate `SECTION_REGISTRY.hoursLocation.canRender`
-              // gates this renderer's very invocation with — sharing it here
-              // (rather than a second, locally-recomputed hasAddress) is what
-              // keeps this guard from drifting away from canRender's again.
-              // `hours` is intentionally not part of that resolution: nothing
-              // below renders it, so treating it as sufficient to justify the
-              // section used to produce an `<h2>Visit</h2>` frame with no
-              // address/entrance paragraph beneath it whenever a salon had
-              // hours but no address.
-              const { resolvedAddress, resolvedCity } = resolveVisitContent(quickBookContent);
-              return (
-                // Desktop (`lg`): full-width 1024px+ paragraphs of short
-                // address/policy text read poorly at that line length —
-                // capped to a comfortable reading column instead of
-                // stretching edge to edge, still far wider than the mobile
-                // 430px column.
-                <section data-public-surface="hoursLocation" data-testid="editorial-visit" className="mb-6 lg:mb-10 lg:max-w-2xl">
-                  <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-3 lg:text-xs">
-                    Visit
-                  </h2>
-                  {(resolvedAddress || resolvedCity) && (
-                    <p data-testid="editorial-visit-address" className="text-sm text-neutral-700 lg:text-base">
-                      {[resolvedAddress, resolvedCity].filter(Boolean).join(' · ')}
-                    </p>
-                  )}
-                  {entranceInstructions && (
-                    <p data-testid="editorial-visit-entrance" className="mt-1 text-sm text-neutral-500 lg:text-base">
-                      {entranceInstructions}
-                    </p>
-                  )}
-                </section>
-              );
-            },
-            policies: () => {
-              // Post-launch fix: this used to omit the `showOnServicePage`
-              // check Quick Book's own embedded policy card already applies
-              // (see `servicePagePolicyText` above), so an owner who turned
-              // "show on service page" off was obeyed on Quick Book and
-              // ignored here on Editorial. Same source object either way —
-              // `quickBookContent.policies.policy` is `resolveSalonContent`'s
-              // copy of the exact same `bookingExperience.policy` — so this
-              // is now the same three-part condition Quick Book uses.
-              return (
+              ),
+              inline: () => (
                 <section data-public-surface="policies" data-testid="editorial-policies" className="mb-6 lg:mb-10 lg:max-w-2xl">
                   <h2 className="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-neutral-500 lg:mb-3 lg:text-xs">
                     Policies
                   </h2>
-                  <p className="text-sm text-neutral-700 lg:text-base">{sectionDecisionContent.policies.policy.text}</p>
+                  <p className="text-sm text-neutral-700 lg:text-base">{quickBookContent.policies.policy.text}</p>
                 </section>
-              );
+              ),
+            },
+            socialLinks: {
+              icons: () => (
+                <nav
+                  data-public-surface="socialLinks"
+                  data-testid="booking-social-links"
+                  aria-label="Salon social links"
+                  className="mt-4 flex items-center justify-center gap-3"
+                >
+                  {configuredSocialLinks.map(({ key, label, Icon, href }) => (
+                    <a
+                      key={key}
+                      href={href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      aria-label={`Visit ${salonName} on ${label}`}
+                      className="flex size-11 items-center justify-center rounded-full border bg-white text-neutral-800 shadow-sm transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2"
+                      style={{
+                        'borderColor': hasBookingBrandColor
+                          ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                          : themeVars.cardBorder,
+                        '--tw-ring-color': hasBookingBrandColor
+                          ? 'var(--booking-brand-state-border, var(--theme-primary))'
+                          : themeVars.selectedRing,
+                      } as CSSProperties}
+                    >
+                      <Icon className="size-5" aria-hidden="true" />
+                    </a>
+                  ))}
+                </nav>
+              ),
             },
           };
 
           return (
             <SectionOrderRenderer
-              order={quickBookSectionOrder}
               plan={sectionPlan}
-              renderers={isEditorialLayout ? editorialRenderers : quickBookRenderers}
+              presentation={sectionPresentation}
+              renderers={sectionRenderers}
             />
           );
         })()}
       </div>
 
-      {isEditorialLayout && !hasReachedServicesAnchor && !(selectedService && isServicesAnchorUnreachable) && (
+      {usesEditorialBookingHandoff && !hasReachedServicesAnchor && !(selectedService && isServicesAnchorUnreachable) && (
         <a
           data-public-surface="editorialStickyBookingCta"
           href="#services"
@@ -2471,7 +2337,7 @@ export function BookServiceClient({
         </a>
       )}
 
-      {selectedService && (!isEditorialLayout || hasReachedServicesAnchor || isServicesAnchorUnreachable) && (
+      {selectedService && (!usesEditorialBookingHandoff || hasReachedServicesAnchor || isServicesAnchorUnreachable) && (
         <div
           data-public-surface="selectedServiceContinueBar"
           data-testid="service-sticky-bar"

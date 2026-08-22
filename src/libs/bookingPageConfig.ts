@@ -1,11 +1,11 @@
 /**
  * bookingPage modular config contract (Luster UI/UX plan rev 3, section 4A.C).
  *
- * This is a pure library addition. Nothing reads or renders `bookingPage` yet
- * — the section registry (PR 4), the preview surface (PR 3) and the owner
- * editor route all land in later PRs of this stack. Until then this module
- * only defines the versioned shape, a safe resolver, the section-order safety
- * net, and a targeted DB writer for the draft side.
+ * This module owns the versioned persisted shape, safe resolution,
+ * section-order safety net, and targeted draft writer. The public renderer
+ * consumes only the validated layout/order/visibility and `sectionVariants`
+ * presentation seam; `stylePack` and `tokenOverrides` deliberately remain
+ * renderer-inert until their separately entitled release boundary.
  *
  * Mirrors the pattern in src/libs/bookingExperience.ts: a DEFAULTS constant,
  * zod schemas, a resolver that uses zod safeParse with a documented
@@ -23,6 +23,10 @@ import {
   getColorContrastRatio,
 } from '@/libs/bookingExperience';
 import { db } from '@/libs/DB';
+import {
+  isSupportedSectionVariant,
+  type SectionVariantOverrides,
+} from '@/libs/sectionPresentation';
 import { salonSchema } from '@/models/Schema';
 
 // The full "one appearance pipeline" (plan section 4A.D) is:
@@ -45,9 +49,9 @@ export {
 // =============================================================================
 
 /**
- * The 12 section IDs from the rev 3 plan's section registry (PR 4 will add
- * the registry itself: id, variants, canRender, degrade). This module only
- * needs the closed ID set to type and validate sectionOrder/hiddenSections.
+ * The 12 stable section IDs shared by persistence, the Stage 2 semantic
+ * registry and the Stage 4 presentation contract. This module owns the
+ * closed persisted ID set used to validate sectionOrder/hiddenSections.
  */
 export const SECTION_IDS = [
   'salonProfile',
@@ -204,6 +208,24 @@ const EDITORIAL_SECTION_ORDER: readonly SectionId[] = [
   'serviceMenu',
   'hoursLocation',
   'policies',
+  'socialLinks',
+  'bookingCta',
+];
+
+// PR 6's Editorial default omitted socialLinks from the stored order even
+// though the renderer always embedded authored links inside serviceMenu.
+// Stage 4 makes every pixel-producing stored section flow through the
+// canonical plan, so the exact legacy default signature is repaired on read
+// to preserve those existing pixels without keeping the renderer bypass.
+const LEGACY_EDITORIAL_SECTION_ORDER: readonly SectionId[] = [
+  'salonProfile',
+  'featuredServices',
+  'technicianProfile',
+  'portfolio',
+  'reviews',
+  'serviceMenu',
+  'hoursLocation',
+  'policies',
   'bookingCta',
 ];
 
@@ -337,7 +359,17 @@ const sectionIdArraySchema = z.array(sectionIdSchema);
 // z.record already treats every key as optional at parse time (an empty
 // object and a partial object both pass) while rejecting any key outside the
 // enum, which is exactly Partial<Record<SectionId, string>>.
-const sectionVariantsSchema = z.record(sectionIdSchema, z.string().min(1));
+const sectionVariantsSchema = z.record(sectionIdSchema, z.string().min(1)).superRefine((value, context) => {
+  for (const [sectionId, variant] of Object.entries(value)) {
+    if (!isSupportedSectionVariant(sectionId as SectionId, variant)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [sectionId],
+        message: `${variant} is not a supported ${sectionId} presentation variant`,
+      });
+    }
+  }
+}).transform(value => value as SectionVariantOverrides);
 
 /**
  * Full, non-partial side schema. Used to validate a caller-supplied draft
@@ -360,13 +392,15 @@ const bookingPageSideSchema = z.object({
 
 export type WritableBookingPageLayout = (typeof WRITABLE_BOOKING_PAGE_LAYOUTS)[number];
 
-export type BookingPageDraftPatch = Omit<Partial<BookingPageConfigSide>, 'layout'> & {
+export type BookingPageDraftPatch = Omit<Partial<BookingPageConfigSide>, 'layout' | 'sectionVariants'> & {
   /**
    * S4 (Stage 1) — narrowed at the TYPE level as well as at runtime, so a
    * direct `updateBookingPageDraft` caller writing an unimplemented layout is
    * a compile error rather than a runtime zod throw.
    */
   layout?: WritableBookingPageLayout;
+  /** New writes accept only section-compatible canonical variant IDs. */
+  sectionVariants?: SectionVariantOverrides;
   /**
    * S2 (Stage 1) — the ONLY way to replace `sectionOrder`/`hiddenSections`
    * with the selected layout's defaults. Absent means preserve.
@@ -445,6 +479,14 @@ export function validateSectionOrder(
   const finalOrder = cleanedOrder.length > 0
     ? cleanedOrder
     : layoutDefaultSectionOrder(layout);
+
+  if (
+    layout === 'editorial'
+    && finalOrder.length === LEGACY_EDITORIAL_SECTION_ORDER.length
+    && finalOrder.every((id, index) => id === LEGACY_EDITORIAL_SECTION_ORDER[index])
+  ) {
+    finalOrder.splice(finalOrder.indexOf('bookingCta'), 0, 'socialLinks');
+  }
 
   // salonProfile carries the page's only <h1> on both layouts. Repairing it
   // back in the SAME way serviceMenu/bookingCta are repaired below —

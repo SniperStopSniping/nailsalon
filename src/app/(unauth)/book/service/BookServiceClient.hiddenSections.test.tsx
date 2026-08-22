@@ -170,6 +170,11 @@ describe('BookServiceClient — Quick Book layout hiddenSections', () => {
   it('shows the embedded featured-services carousel, policy card, and social links by default (positive control)', () => {
     salonContextMock.salonContent = buildContent({
       catalog: { ...EMPTY_SALON_CONTENT.catalog, featuredServices: [FEATURED_SERVICE] },
+      policies: {
+        ...EMPTY_SALON_CONTENT.policies,
+        policy: { ...BASE_BOOKING_EXPERIENCE.policy, enabled: true, text: 'Please arrive 5 minutes early.' },
+      },
+      social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
     });
     salonContextMock.bookingExperience = {
       ...BASE_BOOKING_EXPERIENCE,
@@ -190,6 +195,11 @@ describe('BookServiceClient — Quick Book layout hiddenSections', () => {
     salonContextMock.bookingPage = { ...QUICK_BOOK_BOOKING_PAGE_SIDE, hiddenSections: ['featuredServices'] };
     salonContextMock.salonContent = buildContent({
       catalog: { ...EMPTY_SALON_CONTENT.catalog, featuredServices: [FEATURED_SERVICE] },
+      policies: {
+        ...EMPTY_SALON_CONTENT.policies,
+        policy: { ...BASE_BOOKING_EXPERIENCE.policy, enabled: true, text: 'Please arrive 5 minutes early.' },
+      },
+      social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
     });
 
     render(
@@ -201,6 +211,12 @@ describe('BookServiceClient — Quick Book layout hiddenSections', () => {
 
   it('hides the embedded policy card when policies is hidden, even with the policy enabled and text present', () => {
     salonContextMock.bookingPage = { ...QUICK_BOOK_BOOKING_PAGE_SIDE, hiddenSections: ['policies'] };
+    salonContextMock.salonContent = buildContent({
+      policies: {
+        ...EMPTY_SALON_CONTENT.policies,
+        policy: { ...BASE_BOOKING_EXPERIENCE.policy, enabled: true, text: 'Please arrive 5 minutes early.' },
+      },
+    });
     salonContextMock.bookingExperience = {
       ...BASE_BOOKING_EXPERIENCE,
       policy: { ...BASE_BOOKING_EXPERIENCE.policy, enabled: true, text: 'Please arrive 5 minutes early.' },
@@ -216,6 +232,9 @@ describe('BookServiceClient — Quick Book layout hiddenSections', () => {
 
   it('hides the embedded social links when socialLinks is hidden, even with a link configured', () => {
     salonContextMock.bookingPage = { ...QUICK_BOOK_BOOKING_PAGE_SIDE, hiddenSections: ['socialLinks'] };
+    salonContextMock.salonContent = buildContent({
+      social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
+    });
     salonContextMock.bookingExperience = {
       ...BASE_BOOKING_EXPERIENCE,
       socialLinks: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
@@ -232,6 +251,11 @@ describe('BookServiceClient — Quick Book layout hiddenSections', () => {
     salonContextMock.bookingPage = { ...QUICK_BOOK_BOOKING_PAGE_SIDE, hiddenSections: ['featuredServices'] };
     salonContextMock.salonContent = buildContent({
       catalog: { ...EMPTY_SALON_CONTENT.catalog, featuredServices: [FEATURED_SERVICE] },
+      policies: {
+        ...EMPTY_SALON_CONTENT.policies,
+        policy: { ...BASE_BOOKING_EXPERIENCE.policy, enabled: true, text: 'Please arrive 5 minutes early.' },
+      },
+      social: { instagram: 'https://instagram.com/isla', facebook: null, tiktok: null },
     });
     salonContextMock.bookingExperience = {
       ...BASE_BOOKING_EXPERIENCE,
@@ -250,6 +274,12 @@ describe('BookServiceClient — Quick Book layout hiddenSections', () => {
 
   it('re-enabling a hidden embedded control restores it', () => {
     salonContextMock.bookingPage = { ...QUICK_BOOK_BOOKING_PAGE_SIDE, hiddenSections: ['policies'] };
+    salonContextMock.salonContent = buildContent({
+      policies: {
+        ...EMPTY_SALON_CONTENT.policies,
+        policy: { ...BASE_BOOKING_EXPERIENCE.policy, enabled: true, text: 'Please arrive 5 minutes early.' },
+      },
+    });
     salonContextMock.bookingExperience = {
       ...BASE_BOOKING_EXPERIENCE,
       policy: { ...BASE_BOOKING_EXPERIENCE.policy, enabled: true, text: 'Please arrive 5 minutes early.' },

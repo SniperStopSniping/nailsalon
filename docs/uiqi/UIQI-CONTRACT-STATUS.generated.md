@@ -17,10 +17,10 @@
 - FUTURE_TRIGGERED: 5
 - STRUCTURAL_INVARIANT: 5
 - NOT_CURRENTLY_APPLICABLE: 0
-- PASS: 25
+- PASS: 26
 - FAIL: 0
 - PENDING_MANUAL: 21
-- FUTURE_TRIGGERED: 5
+- FUTURE_TRIGGERED: 4
 - NOT_APPLICABLE: 0
 
 Manual evidence remains visibly pending and is not counted as PASS. Inactive future triggers are not implemented features and are not counted as current failures.
@@ -78,7 +78,7 @@ Manual evidence remains visibly pending and is not counted as PASS. Inactive fut
 | a11y.short-height-keyboard | Keep controls and facts usable at short-height keyboard-oriented viewports. | AUTOMATED_CURRENT | PASS | SHARED | stage3a-target-geometry, stage3c2-bottom-region |
 | a11y.instagram-tiktok-webview | Validate the public experience in real Instagram and TikTok WebViews. | MANUAL_CURRENT | PENDING_MANUAL | CLIENT | manual-social-webview |
 | future.portfolio-alt-authoring | Block any portfolio variant until informative alt text is authorable in the actual owner workflow. | FUTURE_TRIGGERED | FUTURE_TRIGGERED | OWNER | portfolio-alt-authoring |
-| future.salon-profile-hero-derived-alt | Require salonProfile:hero_image alt to derive from canonical salon identity and context. | FUTURE_TRIGGERED | FUTURE_TRIGGERED | CLIENT | salon-profile-hero-derived-alt |
+| future.salon-profile-hero-derived-alt | Require salonProfile:hero_image alt to derive from canonical salon identity and context. | FUTURE_TRIGGERED | PASS | CLIENT | salon-profile-hero-derived-alt |
 | future.service-menu-grouped-headings | Require real semantic headings for serviceMenu:grouped_categories groups. | FUTURE_TRIGGERED | FUTURE_TRIGGERED | CLIENT | service-menu-grouped-headings |
 
 ## Pending manual evidence
