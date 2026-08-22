@@ -1,3 +1,10 @@
+# [1.82.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.81.0...v1.82.0) (2026-08-22)
+
+
+### Features
+
+* **booking:** add guarded owner builder ([ff01bf1](https://github.com/SniperStopSniping/nailsalon/commit/ff01bf178ab54239b7dcfaf0f39d63fee323f5c5))
+
 # [1.81.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.80.0...v1.81.0) (2026-08-22)
 
 
