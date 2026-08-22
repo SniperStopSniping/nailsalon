@@ -1302,13 +1302,14 @@ test('Stage 6 owner builder keeps semantic edits, draft preview order, reset, an
           resetOperation,
           async () => {
             const dialogPromise = page.waitForEvent('dialog');
-            await page.getByTestId('builder-reset-all').click();
+            const clickPromise = page.getByTestId('builder-reset-all').click();
             const dialog = await dialogPromise;
 
             expect(dialog.type()).toBe('confirm');
             expect(dialog.message()).toContain('Your salon content will not be deleted.');
 
             await dialog.accept();
+            await clickPromise;
           },
         );
 
