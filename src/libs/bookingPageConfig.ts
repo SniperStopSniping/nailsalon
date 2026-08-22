@@ -24,10 +24,19 @@ import {
 } from '@/libs/bookingExperience';
 import {
   applyBookingPageBuilderOperation,
+  type BookingPageBuilderErrorCode,
   type BookingPageBuilderOperation,
   type BookingPagePresentationPatch,
+  type BookingPagePresentationState,
   resolveBookingPageStartingPresentation,
 } from '@/libs/bookingPageBuilder';
+import {
+  BOOKING_PAGE_PRESET_IDS,
+  BOOKING_PAGE_PRESET_RECIPE_VERSION,
+  type BookingPagePresetReference,
+  isBookingPagePresetRecipeVersion,
+  resolveBookingPagePresetRecipe,
+} from '@/libs/bookingPagePresetRecipes';
 import { db } from '@/libs/DB';
 import {
   isSupportedSectionVariant,
@@ -167,6 +176,10 @@ export type BookingPageConfig = {
   version: 1;
   draft: BookingPageConfigSide;
   live: BookingPageConfigSide;
+  /** Admin-only recipe provenance, kept outside the anonymous renderer side. */
+  draftPresetBase: BookingPagePresetReference | null;
+  /** Published counterpart copied atomically with `live`. */
+  livePresetBase: BookingPagePresetReference | null;
 };
 
 // =============================================================================
@@ -247,10 +260,17 @@ function createDefaultSide(): BookingPageConfigSide {
 export const BOOKING_PAGE_CONFIG_SIDE_DEFAULTS: BookingPageConfigSide = createDefaultSide();
 
 export function createDefaultBookingPageConfig(): BookingPageConfig {
+  const quickBookPresetBase = {
+    presetId: 'quick_book',
+    recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+  } as const satisfies BookingPagePresetReference;
+
   return {
     version: 1,
     draft: createDefaultSide(),
     live: createDefaultSide(),
+    draftPresetBase: { ...quickBookPresetBase },
+    livePresetBase: { ...quickBookPresetBase },
   };
 }
 
@@ -299,6 +319,13 @@ const writableLayoutSchema = z.enum(WRITABLE_BOOKING_PAGE_LAYOUTS);
 const businessModeSchema = z.enum(BUSINESS_MODES);
 const startModeSchema = z.enum(START_MODES);
 const sectionIdSchema = z.enum(SECTION_IDS);
+const bookingPagePresetReferenceSchema = z.object({
+  presetId: z.enum(BOOKING_PAGE_PRESET_IDS),
+  recipeVersion: z.custom<BookingPagePresetReference['recipeVersion']>(
+    isBookingPagePresetRecipeVersion,
+    'Unsupported preset recipe version',
+  ),
+}).strict();
 
 /**
  * Registered-only for now: an unregistered key is treated the same as a
@@ -431,15 +458,35 @@ export const bookingPageBuilderOperationSchema: z.ZodType<BookingPageBuilderOper
     type: z.literal('reset_section'),
     sectionId: sectionIdSchema,
   }).strict(),
-  z.object({ type: z.literal('reset_all') }).strict(),
+  z.object({
+    type: z.literal('reset_all'),
+    expectedPresentationSignature: z.string().min(1),
+  }).strict(),
+  z.object({
+    type: z.literal('apply_preset'),
+    presetId: z.enum(BOOKING_PAGE_PRESET_IDS),
+    presetVersion: z.literal(BOOKING_PAGE_PRESET_RECIPE_VERSION),
+    expectedPresentationSignature: z.string().min(1),
+  }).strict(),
 ]);
 
 type BookingPageBuilderWriteOptions = {
   builderOperation: BookingPageBuilderOperation;
 };
 
+export class BookingPageBuilderWriteError extends Error {
+  readonly code: BookingPageBuilderErrorCode;
+
+  constructor(code: BookingPageBuilderErrorCode) {
+    super(`Booking page builder write failed: ${code}`);
+    this.name = 'BookingPageBuilderWriteError';
+    this.code = code;
+  }
+}
+
 type PersistableBookingPageDraftPatch = Omit<BookingPageDraftPatch, 'sectionVariants'> & {
   sectionVariants?: Partial<Record<SectionId, string>>;
+  presetBase?: BookingPagePresetReference | null;
 };
 
 const preservedSectionVariantsSchema = z.record(sectionIdSchema, z.string().min(1));
@@ -459,6 +506,7 @@ function validateBuilderSectionVariantSnapshot(
     const nextValue = next[sectionId];
 
     if (operation.type !== 'reset_all'
+      && operation.type !== 'apply_preset'
       && sectionId !== targetMayChange
       && currentValue !== nextValue) {
       throw new Error(`Builder operation changed unrelated ${sectionId} presentation state`);
@@ -605,6 +653,14 @@ function resolveSectionVariants(value: unknown): Partial<Record<SectionId, strin
   return result;
 }
 
+function resolvePresetBase(value: unknown): BookingPagePresetReference | null {
+  const result = bookingPagePresetReferenceSchema.safeParse(value);
+  if (!result.success || !resolveBookingPagePresetRecipe(result.data)) {
+    return null;
+  }
+  return result.data;
+}
+
 function resolveStylePack(value: unknown): StylePack {
   if (typeof value !== 'string') {
     return DEFAULT_STYLE_PACK;
@@ -689,6 +745,26 @@ export function resolveBookingPageConfig(settings: unknown): BookingPageConfig {
     version,
     draft: resolveSide(rawBookingPage.draft),
     live: resolveSide(rawBookingPage.live),
+    draftPresetBase: hasOwn(rawBookingPage, 'draftPresetBase')
+      ? resolvePresetBase(rawBookingPage.draftPresetBase)
+      : (isRecord(rawBookingPage.draft)
+          ? null
+          : { ...BOOKING_PAGE_CONFIG_DEFAULTS.draftPresetBase! }),
+    livePresetBase: hasOwn(rawBookingPage, 'livePresetBase')
+      ? resolvePresetBase(rawBookingPage.livePresetBase)
+      : (isRecord(rawBookingPage.live)
+          ? null
+          : { ...BOOKING_PAGE_CONFIG_DEFAULTS.livePresetBase! }),
+  };
+}
+
+/** Admin-only logical presentation state used by guarded builder operations. */
+export function getBookingPageDraftPresentationState(
+  config: BookingPageConfig,
+): BookingPagePresentationState {
+  return {
+    ...config.draft,
+    presetBase: config.draftPresetBase,
   };
 }
 
@@ -829,13 +905,14 @@ async function updateBookingPageDraftInTransaction(
     // snapshot could undo a hide or reorder performed in another tab between
     // authorization and this write.
     const currentResult = applyBookingPageBuilderOperation(
-      currentConfig.draft,
+      getBookingPageDraftPresentationState(currentConfig),
       options.builderOperation,
     );
     if (!currentResult.ok) {
-      throw new Error(`Builder state changed before persistence: ${currentResult.code}`);
+      throw new BookingPageBuilderWriteError(currentResult.code);
     }
     const {
+      presetBase,
       sectionVariants,
       ...nonVariantPatch
     } = currentResult.patch;
@@ -851,6 +928,9 @@ async function updateBookingPageDraftInTransaction(
               options.builderOperation,
             ),
           }),
+      ...(presetBase === undefined
+        ? {}
+        : { presetBase: bookingPagePresetReferenceSchema.nullable().parse(presetBase) }),
     };
   } else {
     // Ordinary callers retain the strict canonical-write contract and are
@@ -914,6 +994,9 @@ async function updateBookingPageDraftInTransaction(
   }
   if (validatedPatch.startMode !== undefined) {
     settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draft,startMode}', ${JSON.stringify(validatedPatch.startMode)}::jsonb)`;
+  }
+  if (validatedPatch.presetBase !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPage,draftPresetBase}', ${JSON.stringify(validatedPatch.presetBase)}::jsonb)`;
   }
   // S2 (Stage 1) — SUPERSEDES the PR 6 reset-on-layout-change behaviour.
   //
@@ -1042,6 +1125,7 @@ async function writeBookingPageSide(
   salonId: string,
   targetSide: 'draft' | 'live',
   value: BookingPageConfigSide,
+  presetBase: BookingPagePresetReference | null,
 ): Promise<BookingPageConfig | null> {
   let settingsExpression = sql`
     CASE
@@ -1068,6 +1152,10 @@ async function writeBookingPageSide(
     ? sql.raw(`'{bookingPage,draft}'`)
     : sql.raw(`'{bookingPage,live}'`);
   settingsExpression = sql`jsonb_set(${settingsExpression}, ${targetPath}, ${JSON.stringify(value)}::jsonb)`;
+  const targetPresetBasePath = targetSide === 'draft'
+    ? sql.raw(`'{bookingPage,draftPresetBase}'`)
+    : sql.raw(`'{bookingPage,livePresetBase}'`);
+  settingsExpression = sql`jsonb_set(${settingsExpression}, ${targetPresetBasePath}, ${JSON.stringify(presetBase)}::jsonb)`;
 
   const [updated] = await tx
     .update(salonSchema)
@@ -1089,7 +1177,13 @@ export async function publishBookingPageConfig(salonId: string): Promise<Booking
     if (!current) {
       return null;
     }
-    return writeBookingPageSide(tx, salonId, 'live', current.draft);
+    return writeBookingPageSide(
+      tx,
+      salonId,
+      'live',
+      current.draft,
+      current.draftPresetBase,
+    );
   });
 }
 
@@ -1100,6 +1194,12 @@ export async function revertBookingPageDraft(salonId: string): Promise<BookingPa
     if (!current) {
       return null;
     }
-    return writeBookingPageSide(tx, salonId, 'draft', current.live);
+    return writeBookingPageSide(
+      tx,
+      salonId,
+      'draft',
+      current.live,
+      current.livePresetBase,
+    );
   });
 }

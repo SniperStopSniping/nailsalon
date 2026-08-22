@@ -12,6 +12,10 @@ import {
   listBookingPageBuilderSections,
 } from '@/libs/bookingPageBuilder';
 import type { BookingPageConfigSide, SectionId } from '@/libs/bookingPageConfig';
+import {
+  type BookingPagePresetReference,
+  getBookingPagePresentationSignature,
+} from '@/libs/bookingPagePresetRecipes';
 
 export type BookingPageBuilderProps = {
   draft: BookingPageConfigSide;
@@ -21,6 +25,8 @@ export type BookingPageBuilderProps = {
    * configured content is missing.
    */
   previewedSectionIds?: ReadonlySet<SectionId> | null;
+  /** Admin-only base recipe provenance; never passed to the public renderer. */
+  presetBase?: BookingPagePresetReference | null;
   pending: boolean;
   onOperation: (operation: BookingPageBuilderOperation) => void;
 };
@@ -170,16 +176,18 @@ function statusForSection({
 export function BookingPageBuilder({
   draft,
   previewedSectionIds = null,
+  presetBase = null,
   pending,
   onOperation,
 }: BookingPageBuilderProps) {
+  const presentationState = { ...draft, presetBase };
   const sectionDefinitions = listBookingPageBuilderSections(draft.layout);
   const definitionsById = new Map(
     sectionDefinitions.map(definition => [definition.id, definition]),
   );
   const orderedDefinitions = orderSectionDefinitions(draft, sectionDefinitions);
   const hidden = new Set(draft.hiddenSections);
-  const pageCustomized = isBookingPagePresentationCustomized(draft);
+  const pageCustomized = isBookingPagePresentationCustomized(presentationState);
 
   const dispatch = (operation: BookingPageBuilderOperation) => {
     if (!pending) {
@@ -222,7 +230,7 @@ export function BookingPageBuilder({
             configuredVisible,
             previewedSectionIds,
           });
-          const customized = isBookingPageSectionCustomized(draft, definition.id);
+          const customized = isBookingPageSectionCustomized(presentationState, definition.id);
           const explicitVariant = draft.sectionVariants[definition.id];
           const explicitVariantIsAllowed = explicitVariant !== undefined
             && (definition.allowedVariants as readonly string[]).includes(explicitVariant);
@@ -417,7 +425,10 @@ export function BookingPageBuilder({
           className={`${CONTROL_CLASS} inline-flex items-center gap-2`}
           data-testid="builder-reset-all"
           disabled={pending || !pageCustomized}
-          onClick={() => dispatch({ type: 'reset_all' })}
+          onClick={() => dispatch({
+            type: 'reset_all',
+            expectedPresentationSignature: getBookingPagePresentationSignature(presentationState),
+          })}
         >
           <RotateCcw aria-hidden="true" className="size-4" />
           Reset page customization

@@ -3,6 +3,10 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { applyBookingPageBuilderOperation } from '@/libs/bookingPageBuilder';
+import {
+  BOOKING_PAGE_PRESET_RECIPES,
+  getBookingPagePresentationSignature,
+} from '@/libs/bookingPagePresetRecipes';
 
 import BookingPageOwnerSurface from './page';
 
@@ -36,11 +40,22 @@ function baseConfig(overrides: Partial<{
     startMode: 'services_first',
     ...overrides,
   };
-  return { version: 1, draft: side, live: side };
+  return {
+    version: 1,
+    draft: side,
+    live: side,
+    draftPresetBase: { presetId: 'quick_book', recipeVersion: 1 } as const,
+    livePresetBase: { presetId: 'quick_book', recipeVersion: 1 } as const,
+  };
 }
 
 function baseContent() {
-  const side = { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' };
+  const side: {
+    heroImageUrl: string | null;
+    specialtyLine: string | null;
+    bio: string | null;
+    locationDisplayMode: string;
+  } = { heroImageUrl: null, specialtyLine: null, bio: null, locationDisplayMode: 'full_address' };
   return { version: 1, draft: side, live: side };
 }
 
@@ -102,13 +117,23 @@ describe('BookingPageOwnerSurface', () => {
           const body = JSON.parse(String(init?.body));
           if (body.builderOperation) {
             const result = applyBookingPageBuilderOperation(
-              config.draft as never,
+              {
+                ...config.draft,
+                presetBase: config.draftPresetBase,
+              } as never,
               body.builderOperation,
             );
             if (!result.ok) {
               return Promise.resolve(new Response(JSON.stringify({ error: result.code }), { status: 400 }));
             }
-            config = { ...config, draft: { ...config.draft, ...result.patch } };
+            const { presetBase, ...draftPatch } = result.patch;
+            config = {
+              ...config,
+              draft: { ...config.draft, ...draftPatch },
+              draftPresetBase: presetBase === undefined
+                ? config.draftPresetBase
+                : presetBase,
+            } as typeof config;
           }
           if (body.config) {
             config = { ...config, draft: { ...config.draft, ...body.config } };
@@ -121,10 +146,18 @@ describe('BookingPageOwnerSurface', () => {
         if (method === 'POST') {
           const body = JSON.parse(String(init?.body));
           if (body.action === 'publish') {
-            config = { ...config, live: config.draft };
+            config = {
+              ...config,
+              live: config.draft,
+              livePresetBase: config.draftPresetBase,
+            };
             content = { ...content, live: content.draft };
           } else if (body.action === 'revert') {
-            config = { ...config, draft: config.live };
+            config = {
+              ...config,
+              draft: config.live,
+              draftPresetBase: config.livePresetBase,
+            };
             content = { ...content, draft: content.live };
           }
           return Promise.resolve(new Response(JSON.stringify({ config, content, salon: { publicationStatus: salonPublicationStatus } }), { status: 200 }));
@@ -137,56 +170,119 @@ describe('BookingPageOwnerSurface', () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
   });
 
-  it('renders the layout picker with Quick Book and Editorial Luxury selectable, the rest disabled as coming soon (PR 6)', async () => {
+  it('renders exactly the four curated starting designs without a Custom recipe', async () => {
     render(<BookingPageOwnerSurface />);
 
-    const quickBook = await screen.findByTestId('layout-option-quick_book');
+    const picker = await screen.findByTestId('booking-page-preset-picker');
 
-    expect(quickBook).toBeEnabled();
-    expect(quickBook).toHaveAttribute('aria-pressed', 'true');
-
-    const editorial = screen.getByTestId('layout-option-editorial');
-
-    expect(editorial).toBeEnabled();
-    expect(editorial).toHaveAttribute('aria-pressed', 'false');
-    expect(within(editorial).queryByText('Coming soon')).not.toBeInTheDocument();
-
-    for (const id of ['tech_profile', 'portfolio', 'catalogue']) {
-      const option = screen.getByTestId(`layout-option-${id}`);
-
-      expect(option).toBeDisabled();
-      expect(within(option).getByText('Coming soon')).toBeInTheDocument();
-    }
+    expect(within(picker).getAllByRole('button')).toHaveLength(4);
+    expect(within(picker).getByRole('button', { name: /Quick Book starting design/ }))
+      .toBeDisabled();
+    expect(within(picker).getByRole('button', { name: 'Signature starting design' })).toBeEnabled();
+    expect(within(picker).getByRole('button', { name: 'Menu starting design' })).toBeEnabled();
+    expect(within(picker).getByRole('button', { name: 'Collective starting design' })).toBeEnabled();
+    expect(within(picker).queryByRole('button', { name: /Custom/i })).not.toBeInTheDocument();
   });
 
-  it('PATCHes layout when Editorial Luxury is selected (PR 6: no longer a disabled option)', async () => {
+  it('previews a guarded switch and PATCHes one semantic preset operation only after confirmation', async () => {
     render(<BookingPageOwnerSurface />);
-    const editorial = await screen.findByTestId('layout-option-editorial');
+    const signature = await screen.findByRole('button', { name: 'Signature starting design' });
+    const expectedPresentationSignature = getBookingPagePresentationSignature({
+      ...config.draft,
+      presetBase: config.draftPresetBase,
+    } as never);
 
-    fireEvent.click(editorial);
+    fireEvent.click(signature);
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
 
     await waitFor(() => {
       const patchCalls = fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH');
 
       expect(patchCalls).toHaveLength(1);
-      expect(JSON.parse(String(patchCalls[0]?.[1]?.body))).toEqual({ config: { layout: 'editorial' } });
+      expect(JSON.parse(String(patchCalls[0]?.[1]?.body))).toEqual({
+        builderOperation: {
+          type: 'apply_preset',
+          presetId: 'signature',
+          presetVersion: 1,
+          expectedPresentationSignature,
+        },
+      });
     });
+
+    expect(screen.getByText(/starting design applied to your draft/i)).toBeInTheDocument();
+    expect(config.live).not.toEqual(config.draft);
   });
 
-  it('does not start a reset while a layout presentation write is pending', async () => {
-    config = baseConfig({ hiddenSections: ['policies'] });
+  it('refreshes authoritative state after a stale preset confirmation without retrying or publishing', async () => {
     const fallbackFetch = fetchMock.getMockImplementation()!;
-    let releaseLayoutWrite: (() => void) | undefined;
 
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const body = init?.body ? JSON.parse(String(init.body)) : null;
-      if (init?.method === 'PATCH' && body?.config?.layout === 'editorial') {
+      if (init?.method === 'PATCH' && body?.builderOperation?.type === 'apply_preset') {
+        config = baseConfig({ sectionVariants: { policies: 'inline' } });
+        content = {
+          ...content,
+          draft: {
+            ...content.draft,
+            bio: 'A newer bio from another tab',
+            locationDisplayMode: 'city_only',
+          },
+        };
+        return Promise.resolve(new Response(JSON.stringify({
+          error: 'Invalid builder operation',
+          code: 'STALE_PRESENTATION',
+        }), { status: 409 }));
+      }
+
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Signature starting design' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
+
+    expect(await screen.findByText(/draft changed since you opened the confirmation/i))
+      .toBeInTheDocument();
+    expect(screen.getByTestId('booking-page-preset-state'))
+      .toHaveTextContent('Custom · based on Quick Book');
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+    expect(fetchMock.mock.calls.filter(([input, init]) => (
+      String(input).includes('/api/admin/booking-page') && (init?.method ?? 'GET') === 'GET'
+    )).length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByRole('button', { name: 'Signature starting design' })).toBeEnabled();
+    expect(screen.getByTestId('location-display-mode-full_address'))
+      .toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByTestId('location-display-mode-city-only-warning'))
+      .not.toBeInTheDocument();
+    expect(screen.getByTestId('content-bio')).toHaveValue('');
+  });
+
+  it('does not start a reset while a preset presentation write is pending', async () => {
+    config = baseConfig({ hiddenSections: ['policies'] });
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releasePresetWrite: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.builderOperation?.type === 'apply_preset') {
         return new Promise<Response>((resolve) => {
-          releaseLayoutWrite = () => {
+          releasePresetWrite = () => {
+            const recipe = BOOKING_PAGE_PRESET_RECIPES.signature;
             config = {
               ...config,
-              draft: { ...config.draft, layout: 'editorial' },
-            };
+              draft: {
+                ...config.draft,
+                layout: recipe.layout,
+                sectionOrder: [...recipe.sectionOrder],
+                hiddenSections: [...recipe.hiddenSections],
+                sectionVariants: { ...recipe.sectionVariants },
+              },
+              draftPresetBase: { ...recipe.presetBase },
+            } as typeof config;
             resolve(new Response(JSON.stringify({
               config,
               content,
@@ -199,12 +295,13 @@ describe('BookingPageOwnerSurface', () => {
     });
 
     render(<BookingPageOwnerSurface />);
-    const editorial = await screen.findByTestId('layout-option-editorial');
+    const signature = await screen.findByRole('button', { name: 'Signature starting design' });
     const reset = screen.getByTestId('builder-reset-all');
 
-    fireEvent.click(editorial);
+    fireEvent.click(signature);
+    fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
 
-    await waitFor(() => expect(editorial).toBeDisabled());
+    await waitFor(() => expect(signature).toBeDisabled());
 
     expect(reset).toBeDisabled();
 
@@ -212,25 +309,23 @@ describe('BookingPageOwnerSurface', () => {
 
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1);
 
-    releaseLayoutWrite?.();
-    await waitFor(() => expect(editorial).toBeEnabled());
+    releasePresetWrite?.();
+    await waitFor(() => expect(screen.getByTestId('booking-page-preset-state'))
+      .toHaveTextContent('Signature'));
   });
 
-  it('does not PATCH when a disabled (unimplemented) layout option is clicked', async () => {
+  it('does not expose a direct layout or Custom action that bypasses recipes', async () => {
     render(<BookingPageOwnerSurface />);
-    const techProfile = await screen.findByTestId('layout-option-tech_profile');
+    await screen.findByTestId('booking-page-preset-picker');
 
-    fireEvent.click(techProfile);
-
-    // Only the initial GET calls (booking-page + auth/me) should have fired.
-    await waitFor(() => {
-      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
-    });
+    expect(screen.queryByTestId('layout-option-editorial')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Custom starting design/i })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
   });
 
   it('shows service discovery and booking access as protected without hide controls', async () => {
     render(<BookingPageOwnerSurface />);
-    await screen.findByTestId('layout-option-quick_book');
+    await screen.findByTestId('booking-page-preset-picker');
 
     expect(screen.queryByTestId('builder-visibility-serviceMenu')).not.toBeInTheDocument();
     expect(screen.queryByTestId('builder-visibility-bookingCta')).not.toBeInTheDocument();
@@ -248,7 +343,7 @@ describe('BookingPageOwnerSurface', () => {
   // coverage.
   it('shows salon identity as protected without a hide control', async () => {
     render(<BookingPageOwnerSurface />);
-    await screen.findByTestId('layout-option-quick_book');
+    await screen.findByTestId('booking-page-preset-picker');
 
     expect(screen.queryByTestId('builder-visibility-salonProfile')).not.toBeInTheDocument();
     expect(screen.getByTestId('builder-section-status-salonProfile')).toHaveTextContent('Protected');
@@ -256,7 +351,7 @@ describe('BookingPageOwnerSurface', () => {
 
   it('renders portfolio and reviews as unavailable without inert controls', async () => {
     render(<BookingPageOwnerSurface />);
-    await screen.findByTestId('layout-option-quick_book');
+    await screen.findByTestId('booking-page-preset-picker');
 
     expect(screen.getByTestId('builder-section-status-portfolio')).toHaveTextContent('Unavailable');
     expect(screen.getByTestId('builder-section-status-reviews')).toHaveTextContent('Unavailable');
@@ -273,7 +368,7 @@ describe('BookingPageOwnerSurface', () => {
   // nothing when clicked.
   it('renders whatsIncluded and technicianList as unavailable without inert controls', async () => {
     render(<BookingPageOwnerSurface />);
-    await screen.findByTestId('layout-option-quick_book');
+    await screen.findByTestId('booking-page-preset-picker');
 
     expect(screen.getByTestId('builder-section-status-whatsIncluded')).toHaveTextContent('Unavailable');
     expect(screen.getByTestId('builder-section-status-technicianList')).toHaveTextContent('Unavailable');
@@ -421,13 +516,78 @@ describe('BookingPageOwnerSurface', () => {
       const patchCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'PATCH');
       const body = JSON.parse(String(patchCall?.[1]?.body));
 
-      expect(body).toEqual({ builderOperation: { type: 'reset_all' } });
+      expect(body).toEqual({
+        builderOperation: {
+          type: 'reset_all',
+          expectedPresentationSignature: getBookingPagePresentationSignature({
+            ...baseConfig({ hiddenSections: ['policies'] }).draft,
+            presetBase: baseConfig().draftPresetBase,
+          } as never),
+        },
+      });
       expect(body).not.toHaveProperty('content');
       expect(body).not.toHaveProperty('config');
     });
   });
 
-  it('does not publish or change layout while a builder presentation write is pending', async () => {
+  it('refreshes the latest presentation after a stale reset and lets the owner review then retry', async () => {
+    config = baseConfig({ hiddenSections: ['policies'] });
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let returnStale = true;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (returnStale
+        && init?.method === 'PATCH'
+        && body?.builderOperation?.type === 'reset_all') {
+        returnStale = false;
+        config = baseConfig({
+          hiddenSections: ['socialLinks'],
+          sectionVariants: { policies: 'inline' },
+        });
+        return Promise.resolve(new Response(JSON.stringify({
+          error: 'Invalid builder operation',
+          code: 'STALE_PRESENTATION',
+        }), { status: 409 }));
+      }
+
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+    fireEvent.click(await screen.findByTestId('builder-reset-all'));
+
+    expect(await screen.findByText(/latest presentation is loaded/i)).toBeInTheDocument();
+    expect(screen.getByTestId('builder-visibility-socialLinks'))
+      .toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByTestId('builder-visibility-policies'))
+      .toHaveAttribute('aria-pressed', 'true');
+
+    const latestSignature = getBookingPagePresentationSignature({
+      ...config.draft,
+      presetBase: config.draftPresetBase,
+    } as never);
+    fireEvent.click(screen.getByTestId('builder-reset-all'));
+
+    await waitFor(() => {
+      const resetCalls = fetchMock.mock.calls.filter(([, init]) => {
+        const body = init?.body ? JSON.parse(String(init.body)) : null;
+        return init?.method === 'PATCH' && body?.builderOperation?.type === 'reset_all';
+      });
+
+      expect(resetCalls).toHaveLength(2);
+      expect(JSON.parse(String(resetCalls[1]?.[1]?.body))).toEqual({
+        builderOperation: {
+          type: 'reset_all',
+          expectedPresentationSignature: latestSignature,
+        },
+      });
+    });
+
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+  });
+
+  it('does not publish or switch presets while a builder presentation write is pending', async () => {
     config = baseConfig({ hiddenSections: ['policies'] });
     const fallbackFetch = fetchMock.getMockImplementation()!;
     let releaseBuilderWrite: (() => void) | undefined;
@@ -438,11 +598,18 @@ describe('BookingPageOwnerSurface', () => {
         return new Promise<Response>((resolve) => {
           releaseBuilderWrite = () => {
             const result = applyBookingPageBuilderOperation(
-              config.draft as never,
+              { ...config.draft, presetBase: config.draftPresetBase } as never,
               body.builderOperation,
             );
             if (result.ok) {
-              config = { ...config, draft: { ...config.draft, ...result.patch } };
+              const { presetBase, ...draftPatch } = result.patch;
+              config = {
+                ...config,
+                draft: { ...config.draft, ...draftPatch },
+                draftPresetBase: presetBase === undefined
+                  ? config.draftPresetBase
+                  : presetBase,
+              } as typeof config;
             }
             resolve(new Response(JSON.stringify({
               config,
@@ -460,14 +627,14 @@ describe('BookingPageOwnerSurface', () => {
     fireEvent.click(reset);
 
     const publish = screen.getByTestId('booking-page-publish');
-    const editorial = screen.getByTestId('layout-option-editorial');
+    const signature = screen.getByRole('button', { name: 'Signature starting design' });
     await waitFor(() => {
       expect(publish).toBeDisabled();
-      expect(editorial).toBeDisabled();
+      expect(signature).toBeDisabled();
     });
 
     fireEvent.click(publish);
-    fireEvent.click(editorial);
+    fireEvent.click(signature);
 
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1);
@@ -631,7 +798,7 @@ describe('BookingPageOwnerSurface', () => {
       salonPublicationStatus = 'published';
       render(<BookingPageOwnerSurface />);
 
-      await screen.findByTestId('layout-option-quick_book');
+      await screen.findByTestId('booking-page-preset-picker');
 
       expect(screen.queryByTestId('salon-publish-banner')).not.toBeInTheDocument();
     });

@@ -9,6 +9,11 @@ import {
   resolveBookingPageStartingPresentation,
 } from './bookingPageBuilder';
 import type { SectionId } from './bookingPageConfig';
+import {
+  BOOKING_PAGE_PRESET_RECIPE_VERSION,
+  BOOKING_PAGE_PRESET_RECIPES,
+  getBookingPagePresentationSignature,
+} from './bookingPagePresetRecipes';
 
 function editorialState(
   overrides: Partial<BookingPagePresentationState> = {},
@@ -293,9 +298,22 @@ describe('booking-page builder operations', () => {
       hiddenSections: ['policies'],
     });
 
-    const result = applyBookingPageBuilderOperation(current, { type: 'reset_all' }, inherited);
+    const result = applyBookingPageBuilderOperation(current, {
+      type: 'reset_all',
+      expectedPresentationSignature: getBookingPagePresentationSignature({
+        ...current,
+        presetBase: null,
+      }),
+    }, inherited);
 
-    expect(result).toEqual({ ok: true, patch: inherited });
+    expect(result).toEqual({
+      ok: true,
+      patch: {
+        layout: 'editorial',
+        ...inherited,
+        presetBase: null,
+      },
+    });
 
     if (!result.ok) {
       throw new Error('Expected reset_all to succeed');
@@ -303,16 +321,60 @@ describe('booking-page builder operations', () => {
 
     expect(Object.keys(result.patch).sort()).toEqual([
       'hiddenSections',
+      'layout',
+      'presetBase',
       'sectionOrder',
       'sectionVariants',
     ]);
-    expect(result.patch).not.toHaveProperty('layout');
     expect(result.patch).not.toHaveProperty('stylePack');
     expect(result.patch).not.toHaveProperty('tokenOverrides');
     expect(isBookingPagePresentationCustomized(
       { ...current, ...result.patch },
       inherited,
     )).toBe(false);
+  });
+
+  it('applies an exact versioned recipe from a fresh signature and rejects stale or unavailable recipes', () => {
+    const currentRecipe = BOOKING_PAGE_PRESET_RECIPES.quick_book;
+    const current = {
+      layout: currentRecipe.layout,
+      sectionOrder: [...currentRecipe.sectionOrder],
+      sectionVariants: { ...currentRecipe.sectionVariants },
+      hiddenSections: [...currentRecipe.hiddenSections],
+      presetBase: { ...currentRecipe.presetBase },
+    };
+    const currentSnapshot = structuredClone(current);
+    const expectedPresentationSignature = getBookingPagePresentationSignature(current);
+    const target = BOOKING_PAGE_PRESET_RECIPES.collective;
+
+    expect(applyBookingPageBuilderOperation(current, {
+      type: 'apply_preset',
+      presetId: 'collective',
+      presetVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+      expectedPresentationSignature,
+    })).toEqual({
+      ok: true,
+      patch: {
+        layout: target.layout,
+        sectionOrder: [...target.sectionOrder],
+        sectionVariants: { ...target.sectionVariants },
+        hiddenSections: [...target.hiddenSections],
+        presetBase: { ...target.presetBase },
+      },
+    });
+    expect(applyBookingPageBuilderOperation(current, {
+      type: 'apply_preset',
+      presetId: 'collective',
+      presetVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+      expectedPresentationSignature: `${expectedPresentationSignature}-stale`,
+    })).toEqual({ ok: false, code: 'STALE_PRESENTATION' });
+    expect(applyBookingPageBuilderOperation(current, {
+      type: 'apply_preset',
+      presetId: 'collective',
+      presetVersion: 2,
+      expectedPresentationSignature,
+    } as never)).toEqual({ ok: false, code: 'PRESET_NOT_FOUND' });
+    expect(current).toEqual(currentSnapshot);
   });
 
   it('never mutates the current or inherited inputs', () => {

@@ -144,6 +144,7 @@ describe('UIQI canonical release contract', () => {
     ]));
     expect(UIQI_AUTOMATED_EVIDENCE['stage2-canonical-sections'].paths).toEqual(expect.arrayContaining([
       'src/libs/bookingPageBuilder.test.ts',
+      'src/libs/bookingPagePresetRecipes.test.ts',
       'src/components/admin/BookingPageBuilder.test.tsx',
       'src/libs/sectionPresentation.test.ts',
       'src/components/booking/SectionOrderRenderer.test.tsx',

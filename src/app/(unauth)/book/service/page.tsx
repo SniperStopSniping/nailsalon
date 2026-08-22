@@ -7,6 +7,7 @@ import { getBookingConfigForSalon, resolveIntroPriceLabel } from '@/libs/booking
 import { type BookingStep, normalizeBookingFlow } from '@/libs/bookingFlow';
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
+import { resolveBookingPagePresetPreviewSide } from '@/libs/bookingPagePresetPreview';
 import { repairBookingUrl, shouldRepairBookingUrl } from '@/libs/bookingParams';
 import { getClientSession } from '@/libs/clientAuth';
 import { isClientEligibleForFirstVisitDiscount } from '@/libs/firstVisitDiscount';
@@ -55,7 +56,13 @@ export default async function BookServicePage({
   searchParams,
   params,
 }: {
-  searchParams: { locationId?: string; salonSlug?: string; campaign?: string };
+  searchParams: {
+    locationId?: string;
+    salonSlug?: string;
+    campaign?: string;
+    presetPreview?: string;
+    presetPreviewVersion?: string;
+  };
   params?: { locale?: string; slug?: string };
 }) {
   const context = await getPublicPageContext('book-service', searchParams, params);
@@ -90,9 +97,14 @@ export default async function BookServicePage({
   // at all) or via `[locale]/[slug]/book/service`, which re-exports this
   // exact page and IS nested under the layout.
   const bookingPageConfig = resolveBookingPageConfig(salon.settings);
-  const activeBookingPageSide = previewGate.isPreviewingDraftConfig
+  const selectedBookingPageSide = previewGate.isPreviewingDraftConfig
     ? bookingPageConfig.draft
     : bookingPageConfig.live;
+  const activeBookingPageSide = resolveBookingPagePresetPreviewSide({
+    currentSide: selectedBookingPageSide,
+    isPreviewingDraftConfig: previewGate.isPreviewingDraftConfig,
+    previewQuery: searchParams,
+  });
   // PR 6: the same draft/live selection the bookingPage config above already
   // makes, applied to its sibling bookingPageContent side (PR 5's
   // heroImageUrl/specialtyLine/bio) — never a second, independently-decided

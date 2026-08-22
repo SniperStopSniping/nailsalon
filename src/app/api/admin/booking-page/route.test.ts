@@ -16,6 +16,8 @@ const {
   revertBookingPageContentDraft,
   resolveBookingPageContent,
   applyBookingPageBuilderOperation,
+  getBookingPageDraftPresentationState,
+  BookingPageBuilderWriteError,
   stubDraftPatchSchema,
   stubBuilderOperationSchema,
   stubContentPatchSchema,
@@ -75,8 +77,26 @@ const {
       type: zLocal.literal('reset_section'),
       sectionId: zLocal.string(),
     }).strict(),
-    zLocal.object({ type: zLocal.literal('reset_all') }).strict(),
+    zLocal.object({
+      type: zLocal.literal('reset_all'),
+      expectedPresentationSignature: zLocal.string().min(1),
+    }).strict(),
+    zLocal.object({
+      type: zLocal.literal('apply_preset'),
+      presetId: zLocal.enum(['quick_book', 'signature', 'menu', 'collective']),
+      presetVersion: zLocal.literal(1),
+      expectedPresentationSignature: zLocal.string().min(1),
+    }).strict(),
   ]);
+
+  class StubBookingPageBuilderWriteError extends Error {
+    code: string;
+
+    constructor(code: string) {
+      super(code);
+      this.code = code;
+    }
+  }
 
   return {
     requireAdmin: vi.fn(),
@@ -92,6 +112,11 @@ const {
     revertBookingPageContentDraft: vi.fn(),
     resolveBookingPageContent: vi.fn(),
     applyBookingPageBuilderOperation: vi.fn(),
+    getBookingPageDraftPresentationState: vi.fn(config => ({
+      ...config.draft,
+      presetBase: config.draftPresetBase ?? null,
+    })),
+    BookingPageBuilderWriteError: StubBookingPageBuilderWriteError,
     stubDraftPatchSchema: stubDraftPatchSchemaInner,
     stubBuilderOperationSchema: stubBuilderOperationSchemaInner,
     stubContentPatchSchema: stubContentPatchSchemaInner,
@@ -116,12 +141,14 @@ vi.mock('@/libs/bookingPageBuilder', () => ({
 }));
 
 vi.mock('@/libs/bookingPageConfig', () => ({
+  BookingPageBuilderWriteError,
   bookingPageBuilderOperationSchema: stubBuilderOperationSchema,
   bookingPageDraftPatchSchema: stubDraftPatchSchema,
   updateBookingPageDraft,
   publishBookingPageConfig,
   revertBookingPageDraft,
   resolveBookingPageConfig,
+  getBookingPageDraftPresentationState,
 }));
 
 vi.mock('@/libs/bookingPageContent', () => ({
@@ -247,7 +274,10 @@ describe('admin booking-page route', () => {
       const response = await PATCH(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
         method: 'PATCH',
         body: JSON.stringify({
-          builderOperation: { type: 'reset_all' },
+          builderOperation: {
+            type: 'reset_all',
+            expectedPresentationSignature: 'current-signature',
+          },
           config: { businessMode: 'team' },
         }),
       }));
@@ -267,6 +297,8 @@ describe('admin booking-page route', () => {
           hiddenSections: [],
         },
         live: { layout: 'editorial' },
+        draftPresetBase: null,
+        livePresetBase: null,
       };
       const operation = {
         type: 'move_section',
@@ -288,7 +320,10 @@ describe('admin booking-page route', () => {
       }));
 
       expect(response.status).toBe(200);
-      expect(applyBookingPageBuilderOperation).toHaveBeenCalledWith(currentConfig.draft, operation);
+      expect(applyBookingPageBuilderOperation).toHaveBeenCalledWith({
+        ...currentConfig.draft,
+        presetBase: null,
+      }, operation);
       expect(updateBookingPageDraft).toHaveBeenCalledTimes(1);
       expect(updateBookingPageDraft).toHaveBeenCalledWith('salon_1', patch, {
         builderOperation: operation,
@@ -297,6 +332,97 @@ describe('admin booking-page route', () => {
       expect(logAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
         metadata: expect.objectContaining({ builderOperation: 'move_section' }),
       }));
+    });
+
+    it('persists one config-only preset operation and records its exact versioned identity', async () => {
+      const operation = {
+        type: 'apply_preset',
+        presetId: 'menu',
+        presetVersion: 1,
+        expectedPresentationSignature: 'reviewed-signature',
+      } as const;
+      const patch = {
+        layout: 'editorial',
+        sectionOrder: ['salonProfile', 'serviceMenu', 'bookingCta'],
+        sectionVariants: { serviceMenu: 'grouped_categories' },
+        hiddenSections: [],
+        presetBase: { presetId: 'menu', recipeVersion: 1 },
+      } as const;
+      applyBookingPageBuilderOperation.mockReturnValue({ ok: true, patch });
+
+      const response = await PATCH(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+        method: 'PATCH',
+        body: JSON.stringify({ builderOperation: operation }),
+      }));
+
+      expect(response.status).toBe(200);
+      expect(updateBookingPageDraft).toHaveBeenCalledWith('salon_1', patch, {
+        builderOperation: operation,
+      });
+      expect(updateBookingPageContentDraft).not.toHaveBeenCalled();
+      expect(logAuditEvent).toHaveBeenCalledWith(expect.objectContaining({
+        metadata: expect.objectContaining({
+          builderOperation: 'apply_preset',
+          presetId: 'menu',
+          presetVersion: 1,
+        }),
+      }));
+    });
+
+    it('returns 409 without writing when the reviewed presentation is already stale', async () => {
+      applyBookingPageBuilderOperation.mockReturnValue({
+        ok: false,
+        code: 'STALE_PRESENTATION',
+      });
+
+      const response = await PATCH(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          builderOperation: {
+            type: 'apply_preset',
+            presetId: 'signature',
+            presetVersion: 1,
+            expectedPresentationSignature: 'stale-signature',
+          },
+        }),
+      }));
+
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({
+        error: 'Invalid builder operation',
+        code: 'STALE_PRESENTATION',
+      });
+      expect(updateBookingPageDraft).not.toHaveBeenCalled();
+      expect(logAuditEvent).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 when the authoritative transactional recheck detects a stale preset', async () => {
+      applyBookingPageBuilderOperation.mockReturnValue({
+        ok: true,
+        patch: { sectionOrder: ['salonProfile', 'serviceMenu', 'bookingCta'] },
+      });
+      updateBookingPageDraft.mockRejectedValueOnce(
+        new BookingPageBuilderWriteError('STALE_PRESENTATION'),
+      );
+
+      const response = await PATCH(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          builderOperation: {
+            type: 'apply_preset',
+            presetId: 'signature',
+            presetVersion: 1,
+            expectedPresentationSignature: 'reviewed-signature',
+          },
+        }),
+      }));
+
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({
+        error: 'Invalid builder operation',
+        code: 'STALE_PRESENTATION',
+      });
+      expect(logAuditEvent).not.toHaveBeenCalled();
     });
 
     it('returns 400 and performs no write when the pure builder rejects an operation', async () => {

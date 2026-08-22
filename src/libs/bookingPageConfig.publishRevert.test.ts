@@ -32,14 +32,23 @@ vi.mock('@/libs/DB', () => ({
 /* eslint-disable import/first */
 import {
   applyBookingPageBuilderOperation,
+  type BookingPageBuilderOperation,
 } from './bookingPageBuilder';
 import {
   BOOKING_PAGE_CONFIG_SIDE_DEFAULTS,
+  BookingPageBuilderWriteError,
+  getBookingPageDraftPresentationState,
   publishBookingPageConfig,
   resolveBookingPageConfig,
   revertBookingPageDraft,
   updateBookingPageDraft,
 } from './bookingPageConfig';
+import {
+  BOOKING_PAGE_PRESET_RECIPE_VERSION,
+  type BookingPagePresetId,
+  getBookingPagePresentationSignature,
+  resolveBookingPagePresetRecipe,
+} from './bookingPagePresetRecipes';
 /* eslint-enable import/first */
 
 const SALON_ID = 'salon_booking_page_lifecycle';
@@ -633,6 +642,467 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
       expect(persisted.sectionOrder.indexOf('hoursLocation')).toBeLessThan(
         persisted.sectionOrder.indexOf('technicianProfile'),
       );
+    });
+  });
+
+  describe('Stage 7 curated preset persistence', () => {
+    const PRESET_APPLY_SALON_ID = 'salon_booking_page_preset_apply';
+    const PRESET_LIFECYCLE_SALON_ID = 'salon_booking_page_preset_lifecycle';
+    const PRESET_RESET_SALON_ID = 'salon_booking_page_preset_reset';
+    const PRESET_STALE_SALON_ID = 'salon_booking_page_preset_stale';
+    const PRESET_UNSUPPORTED_SALON_ID = 'salon_booking_page_preset_unsupported';
+    const PRESET_LEGACY_SALON_ID = 'salon_booking_page_preset_legacy';
+    const PRESET_MALFORMED_SALON_ID = 'salon_booking_page_preset_malformed';
+
+    beforeAll(async () => {
+      await db.insert(schema.salonSchema).values([
+        {
+          id: PRESET_APPLY_SALON_ID,
+          name: 'Preset Apply Salon',
+          slug: 'preset-apply-salon',
+          settings: {
+            bookingPage: {
+              version: 1,
+              draft: {
+                layout: 'quick_book',
+                stylePack: 'default',
+                tokenOverrides: {
+                  accentColor: '#123456',
+                  fontPairing: 'classic',
+                },
+                sectionOrder: [
+                  'salonProfile',
+                  'serviceMenu',
+                  'featuredServices',
+                  'policies',
+                  'socialLinks',
+                  'bookingCta',
+                ],
+                sectionVariants: {
+                  featuredServices: 'carousel',
+                  policies: 'card',
+                  socialLinks: 'icons',
+                },
+                hiddenSections: ['socialLinks'],
+                businessMode: 'team',
+                startMode: 'services_first',
+              },
+              live: {
+                layout: 'quick_book',
+                stylePack: 'default',
+                tokenOverrides: {
+                  accentColor: '#654321',
+                  cardStyle: 'legacy-card',
+                },
+                sectionOrder: [
+                  'salonProfile',
+                  'serviceMenu',
+                  'featuredServices',
+                  'policies',
+                  'socialLinks',
+                  'bookingCta',
+                ],
+                sectionVariants: {
+                  featuredServices: 'carousel',
+                  policies: 'card',
+                },
+                hiddenSections: ['policies'],
+                businessMode: 'solo',
+                startMode: 'services_first',
+              },
+              draftPresetBase: null,
+              livePresetBase: {
+                presetId: 'quick_book',
+                recipeVersion: 1,
+              },
+            },
+            bookingPageContent: {
+              version: 1,
+              draft: {
+                specialtyLine: 'Canonical nail art content',
+                bookingMessage: 'This content must survive presentation changes.',
+              },
+              live: {
+                specialtyLine: 'Published canonical nail art content',
+              },
+            },
+            unrelatedFeature: {
+              sentinel: 'preserve-me',
+            },
+          } as unknown as SalonSettings,
+        },
+        {
+          id: PRESET_LIFECYCLE_SALON_ID,
+          name: 'Preset Lifecycle Salon',
+          slug: 'preset-lifecycle-salon',
+          settings: {},
+        },
+        {
+          id: PRESET_RESET_SALON_ID,
+          name: 'Preset Reset Salon',
+          slug: 'preset-reset-salon',
+          settings: {},
+        },
+        {
+          id: PRESET_STALE_SALON_ID,
+          name: 'Preset Stale Salon',
+          slug: 'preset-stale-salon',
+          settings: {},
+        },
+        {
+          id: PRESET_UNSUPPORTED_SALON_ID,
+          name: 'Preset Unsupported Salon',
+          slug: 'preset-unsupported-salon',
+          settings: {},
+        },
+        {
+          id: PRESET_LEGACY_SALON_ID,
+          name: 'Preset Legacy Salon',
+          slug: 'preset-legacy-salon',
+          settings: {
+            bookingPage: {
+              version: 1,
+              draft: {
+                layout: 'editorial',
+                sectionOrder: ['salonProfile', 'serviceMenu', 'bookingCta'],
+              },
+              live: {
+                layout: 'quick_book',
+              },
+            },
+          } as unknown as SalonSettings,
+        },
+        {
+          id: PRESET_MALFORMED_SALON_ID,
+          name: 'Preset Malformed Salon',
+          slug: 'preset-malformed-salon',
+          settings: {
+            bookingPage: {
+              version: 1,
+              draft: {
+                layout: 'editorial',
+              },
+              live: {
+                layout: 'quick_book',
+              },
+              draftPresetBase: {
+                presetId: 'menu',
+                recipeVersion: 2,
+              },
+              livePresetBase: {
+                presetId: 'lookbook',
+                recipeVersion: 1,
+              },
+            },
+          } as unknown as SalonSettings,
+        },
+      ]);
+    });
+
+    function requiredRecipe(presetId: BookingPagePresetId) {
+      const recipe = resolveBookingPagePresetRecipe({
+        presetId,
+        recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+      });
+      if (!recipe) {
+        throw new Error(`Expected ${presetId} v${BOOKING_PAGE_PRESET_RECIPE_VERSION} to resolve`);
+      }
+      return recipe;
+    }
+
+    async function persistBuilderOperation(
+      salonId: string,
+      operation: BookingPageBuilderOperation,
+    ) {
+      const current = resolveBookingPageConfig(await readStoredSettings(salonId));
+      const result = applyBookingPageBuilderOperation(
+        getBookingPageDraftPresentationState(current),
+        operation,
+      );
+
+      expect(result.ok).toBe(true);
+
+      if (!result.ok) {
+        throw new Error(`Expected ${operation.type} to be valid, got ${result.code}`);
+      }
+
+      return updateBookingPageDraft(salonId, result.patch, {
+        builderOperation: operation,
+      });
+    }
+
+    async function applyPreset(
+      salonId: string,
+      presetId: BookingPagePresetId,
+    ) {
+      const config = resolveBookingPageConfig(await readStoredSettings(salonId));
+      const state = getBookingPageDraftPresentationState(config);
+
+      return persistBuilderOperation(salonId, {
+        type: 'apply_preset',
+        presetId,
+        presetVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+        expectedPresentationSignature: getBookingPagePresentationSignature({
+          ...state,
+          presetBase: state.presetBase ?? null,
+        }),
+      });
+    }
+
+    it('applies one exact server-owned recipe under the semantic write lock without changing content, live state, or non-presentation draft fields', async () => {
+      const beforeStored = await readStoredSettings(PRESET_APPLY_SALON_ID) as {
+        bookingPage?: { live?: unknown };
+        bookingPageContent?: unknown;
+        unrelatedFeature?: unknown;
+      };
+      const before = resolveBookingPageConfig(beforeStored);
+      const recipe = requiredRecipe('menu');
+
+      const updated = await applyPreset(PRESET_APPLY_SALON_ID, 'menu');
+
+      expect(updated).not.toBeNull();
+
+      if (!updated) {
+        throw new Error('Expected the preset draft write to return the resolved config');
+      }
+
+      expect(updated.draft).toEqual({
+        ...before.draft,
+        layout: recipe.layout,
+        sectionOrder: [...recipe.sectionOrder],
+        sectionVariants: { ...recipe.sectionVariants },
+        hiddenSections: [...recipe.hiddenSections],
+      });
+      expect(updated.draftPresetBase).toEqual(recipe.presetBase);
+      expect(updated.live).toEqual(before.live);
+      expect(updated.livePresetBase).toEqual(before.livePresetBase);
+      expect(updated.draft.stylePack).toBe(before.draft.stylePack);
+      expect(updated.draft.tokenOverrides).toEqual(before.draft.tokenOverrides);
+      expect(updated.draft.businessMode).toBe(before.draft.businessMode);
+      expect(updated.draft.startMode).toBe(before.draft.startMode);
+
+      const afterStored = await readStoredSettings(PRESET_APPLY_SALON_ID) as {
+        bookingPage?: { draft?: unknown; live?: unknown; draftPresetBase?: unknown };
+        bookingPageContent?: unknown;
+        unrelatedFeature?: unknown;
+      };
+
+      expect(afterStored.bookingPage?.draft).toMatchObject({
+        layout: recipe.layout,
+        sectionOrder: [...recipe.sectionOrder],
+        sectionVariants: { ...recipe.sectionVariants },
+        hiddenSections: [...recipe.hiddenSections],
+        stylePack: 'default',
+        tokenOverrides: {
+          accentColor: '#123456',
+          fontPairing: 'classic',
+        },
+        businessMode: 'team',
+        startMode: 'services_first',
+      });
+      expect(afterStored.bookingPage?.draftPresetBase).toEqual(recipe.presetBase);
+      expect(afterStored.bookingPage?.live).toEqual(beforeStored.bookingPage?.live);
+      expect(afterStored.bookingPageContent).toEqual(beforeStored.bookingPageContent);
+      expect(afterStored.unrelatedFeature).toEqual(beforeStored.unrelatedFeature);
+    });
+
+    it('publishes preset provenance with the draft and restores it with the live side on revert', async () => {
+      const menu = requiredRecipe('menu');
+      const collective = requiredRecipe('collective');
+      const menuDraft = await applyPreset(PRESET_LIFECYCLE_SALON_ID, 'menu');
+
+      expect(menuDraft?.draftPresetBase).toEqual(menu.presetBase);
+
+      const published = await publishBookingPageConfig(PRESET_LIFECYCLE_SALON_ID);
+
+      expect(published?.live).toEqual(menuDraft?.draft);
+      expect(published?.livePresetBase).toEqual(menu.presetBase);
+      expect(published?.draftPresetBase).toEqual(menu.presetBase);
+
+      const collectiveDraft = await applyPreset(PRESET_LIFECYCLE_SALON_ID, 'collective');
+
+      expect(collectiveDraft?.draftPresetBase).toEqual(collective.presetBase);
+      expect(collectiveDraft?.livePresetBase).toEqual(menu.presetBase);
+      expect(collectiveDraft?.live).toEqual(published?.live);
+
+      const reverted = await revertBookingPageDraft(PRESET_LIFECYCLE_SALON_ID);
+
+      expect(reverted?.draft).toEqual(reverted?.live);
+      expect(reverted?.draftPresetBase).toEqual(menu.presetBase);
+      expect(reverted?.livePresetBase).toEqual(menu.presetBase);
+      expect(await readStoredSettings(PRESET_LIFECYCLE_SALON_ID)).toMatchObject({
+        bookingPage: {
+          draftPresetBase: menu.presetBase,
+          livePresetBase: menu.presetBase,
+        },
+      });
+    });
+
+    it('reset_section and reset_all restore the exact inherited preset recipe rather than generic layout defaults', async () => {
+      const menu = requiredRecipe('menu');
+      await applyPreset(PRESET_RESET_SALON_ID, 'menu');
+      await persistBuilderOperation(PRESET_RESET_SALON_ID, {
+        type: 'set_variant',
+        sectionId: 'policies',
+        variant: 'card',
+      });
+      await persistBuilderOperation(PRESET_RESET_SALON_ID, {
+        type: 'move_section',
+        sectionId: 'policies',
+        targetSectionId: 'featuredServices',
+        direction: 'up',
+      });
+      await persistBuilderOperation(PRESET_RESET_SALON_ID, {
+        type: 'set_visibility',
+        sectionId: 'policies',
+        visible: false,
+      });
+
+      const sectionReset = await persistBuilderOperation(PRESET_RESET_SALON_ID, {
+        type: 'reset_section',
+        sectionId: 'policies',
+      });
+
+      expect(sectionReset?.draft.sectionOrder).toEqual([...menu.sectionOrder]);
+      expect(sectionReset?.draft.hiddenSections).toEqual([...menu.hiddenSections]);
+      expect(sectionReset?.draft.sectionVariants.policies).toBe(menu.sectionVariants.policies);
+      expect(sectionReset?.draftPresetBase).toEqual(menu.presetBase);
+
+      await persistBuilderOperation(PRESET_RESET_SALON_ID, {
+        type: 'set_variant',
+        sectionId: 'socialLinks',
+        variant: 'labeled',
+      });
+      await persistBuilderOperation(PRESET_RESET_SALON_ID, {
+        type: 'set_visibility',
+        sectionId: 'featuredServices',
+        visible: false,
+      });
+      const customized = resolveBookingPageConfig(
+        await readStoredSettings(PRESET_RESET_SALON_ID),
+      );
+      const customizedState = getBookingPageDraftPresentationState(customized);
+      const resetAll = await persistBuilderOperation(PRESET_RESET_SALON_ID, {
+        type: 'reset_all',
+        expectedPresentationSignature: getBookingPagePresentationSignature({
+          ...customizedState,
+          presetBase: customizedState.presetBase ?? null,
+        }),
+      });
+
+      expect(resetAll?.draft).toMatchObject({
+        layout: menu.layout,
+        sectionOrder: [...menu.sectionOrder],
+        sectionVariants: { ...menu.sectionVariants },
+        hiddenSections: [...menu.hiddenSections],
+      });
+      expect(resetAll?.draftPresetBase).toEqual(menu.presetBase);
+    });
+
+    it('treats missing, malformed, unknown, and future preset provenance as safe legacy Custom state', async () => {
+      const legacyStored = await readStoredSettings(PRESET_LEGACY_SALON_ID);
+      const malformedStored = await readStoredSettings(PRESET_MALFORMED_SALON_ID);
+
+      expect(() => resolveBookingPageConfig(legacyStored)).not.toThrow();
+      expect(() => resolveBookingPageConfig(malformedStored)).not.toThrow();
+
+      const legacy = resolveBookingPageConfig(legacyStored);
+      const malformed = resolveBookingPageConfig(malformedStored);
+
+      expect(legacy.draftPresetBase).toBeNull();
+      expect(legacy.livePresetBase).toBeNull();
+      expect(legacy.draft.layout).toBe('editorial');
+      expect(malformed.draftPresetBase).toBeNull();
+      expect(malformed.livePresetBase).toBeNull();
+      expect(malformed.draft.layout).toBe('editorial');
+      expect(malformed.live.layout).toBe('quick_book');
+    });
+
+    it('rejects a stale preset replacement after another tab commits newer presentation state', async () => {
+      const staleConfig = resolveBookingPageConfig(
+        await readStoredSettings(PRESET_STALE_SALON_ID),
+      );
+      const staleState = getBookingPageDraftPresentationState(staleConfig);
+      const staleOperation = {
+        type: 'apply_preset',
+        presetId: 'menu',
+        presetVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+        expectedPresentationSignature: getBookingPagePresentationSignature({
+          ...staleState,
+          presetBase: staleState.presetBase ?? null,
+        }),
+      } as const satisfies BookingPageBuilderOperation;
+      const stalePreview = applyBookingPageBuilderOperation(staleState, staleOperation);
+
+      expect(stalePreview.ok).toBe(true);
+
+      if (!stalePreview.ok) {
+        throw new Error('Expected the stale tab to produce a locally valid preset preview');
+      }
+
+      // A second tab commits a genuine presentation change before the first
+      // tab's request acquires the row lock.
+      await persistBuilderOperation(PRESET_STALE_SALON_ID, {
+        type: 'set_visibility',
+        sectionId: 'policies',
+        visible: false,
+      });
+      const newer = resolveBookingPageConfig(await readStoredSettings(PRESET_STALE_SALON_ID));
+
+      try {
+        await updateBookingPageDraft(
+          PRESET_STALE_SALON_ID,
+          stalePreview.patch,
+          { builderOperation: staleOperation },
+        );
+        throw new Error('Expected the stale preset replacement to be rejected');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BookingPageBuilderWriteError);
+        expect((error as BookingPageBuilderWriteError).code).toBe('STALE_PRESENTATION');
+      }
+
+      const after = resolveBookingPageConfig(await readStoredSettings(PRESET_STALE_SALON_ID));
+
+      expect(after.draft).toEqual(newer.draft);
+      expect(after.draftPresetBase).toEqual(newer.draftPresetBase);
+      expect(after.draft.hiddenSections).toContain('policies');
+      expect(after.draft.layout).toBe('quick_book');
+    });
+
+    it.each([
+      ['an unknown preset id', 'lookbook', 1],
+      ['a future recipe version', 'menu', 2],
+    ] as const)('does not write %s through the trusted semantic persistence helper', async (
+      _label,
+      presetId,
+      presetVersion,
+    ) => {
+      const beforeStored = await readStoredSettings(PRESET_UNSUPPORTED_SALON_ID);
+      const current = resolveBookingPageConfig(beforeStored);
+      const state = getBookingPageDraftPresentationState(current);
+      const unsupportedOperation = {
+        type: 'apply_preset',
+        presetId,
+        presetVersion,
+        expectedPresentationSignature: getBookingPagePresentationSignature({
+          ...state,
+          presetBase: state.presetBase ?? null,
+        }),
+      } as unknown as BookingPageBuilderOperation;
+
+      try {
+        await updateBookingPageDraft(
+          PRESET_UNSUPPORTED_SALON_ID,
+          {},
+          { builderOperation: unsupportedOperation },
+        );
+        throw new Error('Expected the unavailable preset recipe to be rejected');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BookingPageBuilderWriteError);
+        expect((error as BookingPageBuilderWriteError).code).toBe('PRESET_NOT_FOUND');
+      }
+
+      expect(await readStoredSettings(PRESET_UNSUPPORTED_SALON_ID)).toEqual(beforeStored);
     });
   });
 });

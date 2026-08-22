@@ -2,6 +2,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { BookingPageConfigSide, SectionId } from '@/libs/bookingPageConfig';
+import { getBookingPagePresentationSignature } from '@/libs/bookingPagePresetRecipes';
 
 import { BookingPageBuilder } from './BookingPageBuilder';
 
@@ -286,7 +287,16 @@ describe('BookingPageBuilder', () => {
       type: 'reset_section',
       sectionId: 'policies',
     });
-    expect(onOperation).toHaveBeenNthCalledWith(2, { type: 'reset_all' });
+    expect(onOperation).toHaveBeenNthCalledWith(2, {
+      type: 'reset_all',
+      expectedPresentationSignature: getBookingPagePresentationSignature({
+        ...side({
+          hiddenSections: ['policies'],
+          sectionVariants: { socialLinks: 'labeled' },
+        }),
+        presetBase: null,
+      }),
+    });
     expect(screen.getByText(/services, prices, and policies stay saved/i)).toBeInTheDocument();
   });
 
