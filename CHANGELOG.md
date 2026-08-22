@@ -1,3 +1,10 @@
+# [1.81.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.80.0...v1.81.0) (2026-08-22)
+
+
+### Features
+
+* **booking:** add shared section variants ([3e1b463](https://github.com/SniperStopSniping/nailsalon/commit/3e1b46305b6567c15c5b0aa9aa8971591be26604))
+
 # [1.80.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.79.4...v1.80.0) (2026-08-22)
 
 
