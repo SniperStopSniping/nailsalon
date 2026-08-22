@@ -1,3 +1,18 @@
+# [1.83.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.82.0...v1.83.0) (2026-08-22)
+
+
+### Bug Fixes
+
+* **booking:** attest reorder announcements ([dbb70b8](https://github.com/SniperStopSniping/nailsalon/commit/dbb70b8aa3ee849eaca4a033fb33d98520ec7bfe))
+* **booking:** bind preset dialog to viewport ([bdc36b7](https://github.com/SniperStopSniping/nailsalon/commit/bdc36b715e9658da992180aa5154b0d62be37997))
+* **booking:** keep preset review reachable at zoom ([6def468](https://github.com/SniperStopSniping/nailsalon/commit/6def4684889f8d87e03bf671bb80864d1b733b70))
+* **booking:** repair preview CTA and reorder focus ([6908209](https://github.com/SniperStopSniping/nailsalon/commit/6908209e112f9631144f9370e5984226dacd4e01))
+
+
+### Features
+
+* **booking:** add curated preset recipes ([ef30873](https://github.com/SniperStopSniping/nailsalon/commit/ef3087376aa1fcffcc4bb74fa12ef097848183ad))
+
 # [1.82.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.81.0...v1.82.0) (2026-08-22)
 
 
