@@ -9,7 +9,7 @@
  * relying on BookServiceClient's own documented quick-book fallback). This
  * file supplies the two extra fields directly.
  */
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -352,6 +352,210 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
     expect(screen.queryByTestId('editorial-featured-services')).not.toBeInTheDocument();
     expect(screen.getByTestId('featured-services-scroll')).toBeInTheDocument();
     expect(screen.getByTestId(`featured-service-card-${service.id}`)).toHaveTextContent(service.name);
+    expect(canonicalContent).toEqual(snapshot);
+  });
+
+  it('groups the same canonical services under semantic category headings without changing selection', () => {
+    const pedicureService = {
+      ...service,
+      id: 'svc-pedicure',
+      name: 'Spa Pedicure',
+      descriptionItems: ['Restorative foot care'],
+      durationMinutes: 60,
+      priceCents: 6500,
+      category: 'pedicure' as const,
+      bookingCategory: 'pedicure' as const,
+      featuredOrder: null,
+    };
+    const comboService = {
+      ...service,
+      id: 'svc-combo',
+      name: 'Hands and Feet',
+      descriptionItems: ['Coordinated manicure and pedicure'],
+      durationMinutes: 120,
+      priceCents: 14000,
+      category: 'combo' as const,
+      bookingCategory: 'combo' as const,
+      featuredOrder: null,
+    };
+    const richServices = [service, pedicureService, comboService];
+    const canonicalContent = buildContent({
+      catalog: {
+        ...EMPTY_SALON_CONTENT.catalog,
+        services: richServices.map(item => ({
+          id: item.id,
+          name: item.name,
+          description: item.description,
+          durationMinutes: item.durationMinutes,
+          priceCents: item.priceCents,
+          priceDisplayText: item.priceDisplayText,
+          category: item.category,
+          bookingCategory: item.bookingCategory,
+          imageUrl: item.imageUrl,
+          featuredOrder: item.featuredOrder,
+        })),
+        featuredServices: [],
+      },
+    });
+    const snapshot = structuredClone(canonicalContent);
+    salonContextMock.salonContent = canonicalContent;
+    salonContextMock.bookingPage = {
+      ...EDITORIAL_BOOKING_PAGE_SIDE,
+      sectionVariants: { serviceMenu: 'grouped_categories' },
+    };
+
+    render(
+      <BookServiceClient services={richServices} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+    );
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Services' })).toBeInTheDocument();
+
+    for (const [heading, id] of [
+      ['Manicure', service.id],
+      ['Pedicure', pedicureService.id],
+      ['Combos', comboService.id],
+    ] as const) {
+      const group = screen.getByRole('group', { name: heading });
+
+      expect(within(group).getByRole('heading', { level: 3, name: heading })).toBeInTheDocument();
+      expect(within(group).getByTestId(`service-card-${id}`)).toBeInTheDocument();
+    }
+
+    expect(screen.queryByTestId('service-category-scroll')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId(`service-card-${pedicureService.id}`));
+
+    expect(screen.getByTestId(`service-card-${pedicureService.id}`)).toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.change(screen.getByPlaceholderText('Search services...'), {
+      target: { value: 'Spa Pedicure' },
+    });
+
+    expect(screen.getByRole('group', { name: 'Pedicure' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Manicure' })).not.toBeInTheDocument();
+    expect(canonicalContent).toEqual(snapshot);
+  });
+
+  it('renders full and card technician structures from the same public projection only', () => {
+    const secondTechnician = {
+      ...TECHNICIAN_DANIELA,
+      id: 'tech-maya',
+      name: 'Maya',
+      bio: 'Known for precise natural-nail finishes.',
+      avatarUrl: null,
+      specialties: ['Natural nails'],
+      languages: ['English'],
+    };
+    const canonicalContent = buildContent({
+      people: {
+        technicians: [
+          { ...TECHNICIAN_DANIELA, email: 'private@example.test' },
+          secondTechnician,
+        ],
+      },
+    } as Partial<SalonContent>);
+    const snapshot = structuredClone(canonicalContent);
+    salonContextMock.salonContent = canonicalContent;
+
+    const full = render(
+      <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+    );
+
+    expect(screen.getByTestId('editorial-about')).toHaveTextContent('Daniela');
+    expect(screen.queryByTestId('technician-profile-cards')).not.toBeInTheDocument();
+
+    full.unmount();
+
+    salonContextMock.bookingPage = {
+      ...EDITORIAL_BOOKING_PAGE_SIDE,
+      sectionVariants: { technicianProfile: 'cards' },
+    };
+    render(
+      <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+    );
+
+    const cards = screen.getByTestId('technician-profile-cards');
+
+    expect(within(cards).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(cards).getByRole('heading', { level: 3, name: 'Daniela' })).toBeInTheDocument();
+    expect(within(cards).getByRole('heading', { level: 3, name: 'Maya' })).toBeInTheDocument();
+    expect(screen.queryByText('private@example.test')).not.toBeInTheDocument();
+    expect(canonicalContent).toEqual(snapshot);
+  });
+
+  it('renders privacy-preserving location cards from the same canonical visit content', () => {
+    const canonicalContent = buildContent({
+      place: {
+        ...EMPTY_SALON_CONTENT.place,
+        locations: [{
+          id: 'location-downtown',
+          name: 'Downtown studio',
+          address: '100 King Street',
+          city: 'Toronto',
+          state: 'ON',
+          zipCode: 'M5H 1J9',
+          phone: '+1 416 555 0100',
+          isPrimary: true,
+          hours: null,
+        }],
+        address: {
+          address: '100 King Street',
+          city: 'Toronto',
+          state: 'ON',
+          zipCode: 'M5H 1J9',
+        },
+        entranceInstructions: 'Use the east entrance.',
+      },
+    });
+    const snapshot = structuredClone(canonicalContent);
+    salonContextMock.salonContent = canonicalContent;
+    salonContextMock.bookingPage = {
+      ...EDITORIAL_BOOKING_PAGE_SIDE,
+      sectionVariants: { hoursLocation: 'location_cards' },
+    };
+
+    render(
+      <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+    );
+
+    const cards = screen.getByTestId('location-cards');
+
+    expect(within(cards).getByRole('listitem')).toHaveTextContent('Downtown studio');
+    expect(within(cards).getByRole('listitem')).toHaveTextContent('100 King Street · Toronto · ON');
+    expect(cards).toHaveTextContent('Use the east entrance.');
+    expect(cards).not.toHaveTextContent('+1 416 555 0100');
+    expect(cards).not.toHaveTextContent('M5H 1J9');
+    expect(canonicalContent).toEqual(snapshot);
+  });
+
+  it('preserves canonical social destinations while switching from icons to labeled links', () => {
+    const canonicalContent = buildContent({
+      social: {
+        instagram: 'https://instagram.com/isla',
+        facebook: 'https://facebook.com/isla',
+        tiktok: null,
+      },
+    });
+    const snapshot = structuredClone(canonicalContent);
+    salonContextMock.salonContent = canonicalContent;
+    salonContextMock.bookingPage = {
+      ...EDITORIAL_BOOKING_PAGE_SIDE,
+      sectionOrder: [...EDITORIAL_BOOKING_PAGE_SIDE.sectionOrder, 'socialLinks'],
+      sectionVariants: { socialLinks: 'labeled' },
+    };
+
+    render(
+      <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+    );
+
+    const social = screen.getByRole('navigation', { name: 'Salon social links' });
+
+    expect(within(social).getByRole('link', { name: 'Visit Isla Nail Studio on Instagram' }))
+      .toHaveAttribute('href', canonicalContent.social.instagram);
+    expect(within(social).getByRole('link', { name: 'Visit Isla Nail Studio on Facebook' }))
+      .toHaveAttribute('href', canonicalContent.social.facebook);
+    expect(within(social).getByText('Instagram')).toBeVisible();
+    expect(within(social).getByText('Facebook')).toBeVisible();
     expect(canonicalContent).toEqual(snapshot);
   });
 

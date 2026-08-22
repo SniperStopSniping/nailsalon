@@ -26,6 +26,17 @@ const SECTION_ORDER = [
   'bookingCta',
 ] as const;
 
+const STAGE5_SECTION_ORDER = [
+  'salonProfile',
+  'technicianProfile',
+  'featuredServices',
+  'serviceMenu',
+  'hoursLocation',
+  'policies',
+  'socialLinks',
+  'bookingCta',
+] as const;
+
 const VIEWPORT_SCENARIOS = [
   { label: '320px', viewport: { width: 320, height: 700 }, zoom: 1 },
   { label: '375x600', viewport: { width: 375, height: 600 }, zoom: 1 },
@@ -35,6 +46,147 @@ const VIEWPORT_SCENARIOS = [
 ] as const;
 
 type Layout = 'editorial' | 'quick_book';
+
+type Stage5Profile = 'booking_led' | 'identity_led' | 'service_led' | 'team_led';
+
+type FixtureOptions = {
+  businessMode?: 'solo' | 'team';
+  hiddenSections?: readonly string[];
+  sectionOrder?: readonly string[];
+  sectionVariants?: Readonly<Record<string, string>>;
+};
+
+const STAGE5_PROFILES = {
+  booking_led: {
+    layout: 'quick_book',
+    sectionVariants: {
+      salonProfile: 'compact',
+      technicianProfile: 'full',
+      featuredServices: 'carousel',
+      serviceMenu: 'list',
+      hoursLocation: 'full',
+      policies: 'card',
+      socialLinks: 'icons',
+      bookingCta: 'sticky',
+    },
+    present: [
+      'booking-step-header',
+      'editorial-about',
+      'featured-services-scroll',
+      'service-menu-list',
+      'editorial-visit',
+      'booking-policy',
+      'booking-social-links',
+    ],
+    absent: [
+      'editorial-hero',
+      'technician-profile-cards',
+      'editorial-featured-services',
+      'service-menu-grouped-categories',
+      'location-cards',
+      'editorial-policies',
+      'booking-social-links-labeled',
+    ],
+  },
+  identity_led: {
+    layout: 'editorial',
+    sectionVariants: {
+      salonProfile: 'hero_image',
+      technicianProfile: 'full',
+      featuredServices: 'signature',
+      serviceMenu: 'list',
+      hoursLocation: 'full',
+      policies: 'inline',
+      socialLinks: 'icons',
+      bookingCta: 'sticky',
+    },
+    present: [
+      'editorial-hero',
+      'editorial-about',
+      'editorial-featured-services',
+      'service-menu-list',
+      'editorial-visit',
+      'editorial-policies',
+      'booking-social-links',
+    ],
+    absent: [
+      'booking-step-header',
+      'technician-profile-cards',
+      'featured-services-scroll',
+      'service-menu-grouped-categories',
+      'location-cards',
+      'booking-policy',
+      'booking-social-links-labeled',
+    ],
+  },
+  service_led: {
+    layout: 'editorial',
+    sectionVariants: {
+      salonProfile: 'compact',
+      technicianProfile: 'full',
+      featuredServices: 'carousel',
+      serviceMenu: 'grouped_categories',
+      hoursLocation: 'full',
+      policies: 'card',
+      socialLinks: 'icons',
+      bookingCta: 'sticky',
+    },
+    present: [
+      'booking-step-header',
+      'editorial-about',
+      'featured-services-scroll',
+      'service-menu-grouped-categories',
+      'editorial-visit',
+      'booking-policy',
+      'booking-social-links',
+    ],
+    absent: [
+      'editorial-hero',
+      'technician-profile-cards',
+      'editorial-featured-services',
+      'service-menu-list',
+      'location-cards',
+      'editorial-policies',
+      'booking-social-links-labeled',
+    ],
+  },
+  team_led: {
+    layout: 'editorial',
+    sectionVariants: {
+      salonProfile: 'compact',
+      technicianProfile: 'cards',
+      featuredServices: 'carousel',
+      serviceMenu: 'list',
+      hoursLocation: 'location_cards',
+      policies: 'card',
+      socialLinks: 'labeled',
+      bookingCta: 'sticky',
+    },
+    present: [
+      'booking-step-header',
+      'technician-profile-cards',
+      'featured-services-scroll',
+      'service-menu-list',
+      'location-cards',
+      'booking-policy',
+      'booking-social-links-labeled',
+    ],
+    absent: [
+      'editorial-hero',
+      'editorial-about',
+      'editorial-featured-services',
+      'service-menu-grouped-categories',
+      'editorial-visit',
+      'editorial-policies',
+      'booking-social-links',
+    ],
+  },
+} as const satisfies Record<Stage5Profile, {
+  absent: readonly string[];
+  layout: Layout;
+  present: readonly string[];
+  sectionVariants: Readonly<Record<string, string>>;
+}>;
 
 type SalonFixtureRow = QueryResultRow & {
   id: string;
@@ -47,10 +199,39 @@ type ServiceFixtureRow = QueryResultRow & {
   name: string;
 };
 
+type TechnicianFixtureRow = QueryResultRow & {
+  email: string | null;
+  id: string;
+  name: string;
+  phone: string | null;
+};
+
 type FeaturedServiceSnapshot = {
   id: string;
   text: string;
 };
+
+type Stage5ProfileSnapshot = {
+  serviceText: string;
+  structure: string;
+};
+
+const STAGE5_STRUCTURAL_MARKERS = [
+  'booking-step-header',
+  'editorial-hero',
+  'editorial-about',
+  'technician-profile-cards',
+  'featured-services-scroll',
+  'editorial-featured-services',
+  'service-menu-list',
+  'service-menu-grouped-categories',
+  'editorial-visit',
+  'location-cards',
+  'booking-policy',
+  'editorial-policies',
+  'booking-social-links',
+  'booking-social-links-labeled',
+] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -74,35 +255,39 @@ function buildFixtureSettings(
   originalSettings: unknown,
   layout: Layout,
   heroImageUrl: string,
+  options: FixtureOptions = {},
 ): Record<string, unknown> {
   const base = isRecord(originalSettings) ? originalSettings : {};
   const editorial = layout === 'editorial';
+  const defaultSectionVariants = editorial
+    ? {
+        salonProfile: 'hero_image',
+        featuredServices: 'signature',
+        serviceMenu: 'list',
+        policies: 'inline',
+        socialLinks: 'icons',
+        bookingCta: 'sticky',
+      }
+    : {
+        salonProfile: 'compact',
+        featuredServices: 'carousel',
+        serviceMenu: 'list',
+        policies: 'card',
+        socialLinks: 'icons',
+        bookingCta: 'sticky',
+      };
   const side = {
     layout,
     stylePack: 'default',
     tokenOverrides: null,
-    sectionOrder: [...SECTION_ORDER],
-    sectionVariants: editorial
-      ? {
-          salonProfile: 'hero_image',
-          featuredServices: 'signature',
-          serviceMenu: 'list',
-          policies: 'inline',
-          socialLinks: 'icons',
-          bookingCta: 'sticky',
-        }
-      : {
-          salonProfile: 'compact',
-          featuredServices: 'carousel',
-          serviceMenu: 'list',
-          policies: 'card',
-          socialLinks: 'icons',
-          bookingCta: 'sticky',
-        },
+    sectionOrder: [...(options.sectionOrder ?? SECTION_ORDER)],
+    sectionVariants: options.sectionVariants
+      ? { ...options.sectionVariants }
+      : defaultSectionVariants,
     // Keep a content-ready section in the order but hidden, so the browser
     // proves Stage 2 admission survives the Stage 4 presentation variants.
-    hiddenSections: ['hoursLocation'],
-    businessMode: 'solo',
+    hiddenSections: [...(options.hiddenSections ?? ['hoursLocation'])],
+    businessMode: options.businessMode ?? 'solo',
     startMode: 'services_first',
   };
   const contentSide = {
@@ -317,6 +502,108 @@ async function expectLayoutStructure(
   ));
 }
 
+async function expectStage5ProfileStructure(
+  page: Page,
+  profile: Stage5Profile,
+  salonName: string,
+  technicians: TechnicianFixtureRow[],
+): Promise<Stage5ProfileSnapshot> {
+  const definition = STAGE5_PROFILES[profile];
+
+  await expect(page.locator('main')).toHaveCount(1);
+  await expect(page.locator('main main')).toHaveCount(0);
+  await expect(page.locator('h1')).toHaveCount(1);
+  await expect(page.locator('main h1')).toHaveCount(1);
+  await expect(page.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
+  await expect(page.getByTestId('booking-experience-intro')).toHaveCount(1);
+  await expect(page.getByTestId('booking-appointment-only')).toHaveText('Synthetic appointment only');
+
+  for (const testId of definition.present) {
+    await expect(page.getByTestId(testId), `${profile} must render ${testId} exactly once`).toHaveCount(1);
+    await expect(page.getByTestId(testId), `${profile} must visibly render ${testId}`).toBeVisible();
+  }
+  for (const testId of definition.absent) {
+    await expect(page.getByTestId(testId), `${profile} must not render ${testId}`).toHaveCount(0);
+  }
+
+  await expect(page.locator('[data-public-surface="technicianProfile"]')).toHaveCount(1);
+  await expect(page.locator('[data-public-surface="hoursLocation"]')).toHaveCount(1);
+  await expect(page.locator('[data-public-surface="socialLinks"]')).toHaveCount(1);
+
+  if (profile === 'identity_led') {
+    await expect(page.getByRole('heading', { level: 1 })).toHaveText(salonName);
+    await expect(page.getByTestId('editorial-hero-image')).toHaveAttribute('alt', `${salonName} salon`);
+  }
+
+  if (profile === 'service_led') {
+    await expect(page.getByTestId('service-category-scroll')).toHaveCount(0);
+    await expect(page.getByRole('heading', { level: 2, name: 'Services' })).toHaveCount(1);
+
+    for (const [category, label] of [
+      ['manicure', 'Manicure'],
+      ['pedicure', 'Pedicure'],
+      ['combo', 'Combos'],
+    ] as const) {
+      const group = page.getByTestId(`service-category-group-${category}`);
+
+      await expect(group).toHaveCount(1);
+      await expect(group).toHaveAttribute('aria-labelledby', `service-category-heading-${category}`);
+      await expect(group.getByRole('heading', { level: 3, name: label })).toHaveCount(1);
+    }
+  } else {
+    await expect(page.getByTestId('service-category-scroll')).toHaveCount(1);
+  }
+
+  for (const technician of technicians) {
+    const profileSurface = profile === 'team_led'
+      ? page.getByTestId(`technician-profile-card-${technician.id}`)
+      : page.getByTestId(`editorial-technician-${technician.id}`);
+
+    await expect(profileSurface).toHaveCount(1);
+    await expect(profileSurface).toContainText(technician.name);
+  }
+
+  if (profile === 'team_led') {
+    await expect(page.getByTestId('technician-profile-cards').getByRole('listitem')).toHaveCount(technicians.length);
+    await expect(page.getByTestId('location-cards').getByRole('listitem')).not.toHaveCount(0);
+
+    const labeledSocialLink = page.getByRole('link', { name: `Visit ${salonName} on Instagram` });
+    const socialTarget = await labeledSocialLink.boundingBox();
+
+    await expect(labeledSocialLink).toContainText('Instagram');
+    await expect(labeledSocialLink).toHaveAttribute('href', 'https://www.instagram.com/luster-stage4-fixture');
+    expect(socialTarget).not.toBeNull();
+    expect(socialTarget!.height).toBeGreaterThanOrEqual(44);
+
+    const publicText = await page.locator('body').textContent() ?? '';
+    for (const technician of technicians) {
+      if (technician.email) {
+        expect(publicText).not.toContain(technician.email);
+      }
+      if (technician.phone) {
+        expect(publicText).not.toContain(technician.phone);
+      }
+    }
+  }
+
+  await expectNoDuplicateOrEmptyPublicSurfaces(page);
+  await expectNoHorizontalOverflow(page);
+
+  const actualMarkers: string[] = [];
+  for (const testId of STAGE5_STRUCTURAL_MARKERS) {
+    if (await page.getByTestId(testId).count()) {
+      actualMarkers.push(testId);
+    }
+  }
+
+  return {
+    serviceText: (await page.getByTestId(`service-card-${e2eConfig.serviceId}`).textContent() ?? '')
+      .replace(/\s+/g, ' ')
+      .trim(),
+    structure: actualMarkers.join('|'),
+  };
+}
+
 test.describe.configure({ mode: 'serial' });
 
 test('Quick Book and Editorial keep one canonical booking spine across mobile and 200% zoom @mobile-layout', async ({
@@ -465,6 +752,181 @@ test('Quick Book and Editorial keep one canonical booking spine across mobile an
           'UPDATE salon SET settings = $1::jsonb WHERE id = $2',
           [originalSettings === null ? null : JSON.stringify(originalSettings), SYNTHETIC_SALON_ID],
         );
+      }
+    } finally {
+      await client.end();
+    }
+  }
+});
+
+test('Stage 5 variants express four reusable profiles with canonical content across mobile and zoom @mobile-layout', async ({
+  baseURL,
+  browser,
+}) => {
+  test.slow();
+
+  assertLocalSyntheticTarget(baseURL);
+
+  const target = requireDisposableDatabaseTarget();
+  const expectedServer = resolveDisposableDatabaseServerExpectation(target);
+  const client = new Client({ connectionString: target.connectionString });
+  let originalSettings: unknown = null;
+  let fixtureLoaded = false;
+
+  await client.connect();
+
+  try {
+    await attestDisposableDatabaseSession(client, target, expectedServer);
+
+    const fixtureResult = await client.query<SalonFixtureRow>(
+      'SELECT id, name, settings FROM salon WHERE slug = $1',
+      [SYNTHETIC_SALON_SLUG],
+    );
+
+    expect(fixtureResult.rows).toHaveLength(1);
+    expect(fixtureResult.rows[0]?.id).toBe(SYNTHETIC_SALON_ID);
+
+    const salonName = fixtureResult.rows[0]?.name;
+
+    expect(salonName).toBeTruthy();
+
+    originalSettings = fixtureResult.rows[0]?.settings ?? null;
+    fixtureLoaded = true;
+
+    const serviceResult = await client.query<ServiceFixtureRow>(
+      'SELECT id, name FROM service WHERE salon_id = $1 AND id = $2',
+      [SYNTHETIC_SALON_ID, e2eConfig.serviceId],
+    );
+    const technicianResult = await client.query<TechnicianFixtureRow>(
+      `SELECT id, name, email, phone
+       FROM technician
+       WHERE salon_id = $1
+         AND is_active = true
+         AND (NULLIF(BTRIM(bio), '') IS NOT NULL OR NULLIF(BTRIM(avatar_url), '') IS NOT NULL)
+       ORDER BY id`,
+      [SYNTHETIC_SALON_ID],
+    );
+
+    expect(serviceResult.rows).toHaveLength(1);
+    expect(technicianResult.rows.length).toBeGreaterThan(0);
+
+    const canonicalServiceName = serviceResult.rows[0]!.name;
+    const profileSnapshots = new Map<Stage5Profile, Stage5ProfileSnapshot>();
+
+    for (const profile of Object.keys(STAGE5_PROFILES) as Stage5Profile[]) {
+      const definition = STAGE5_PROFILES[profile];
+      const heroImageUrl = new URL('/assets/images/nextjs-starter-banner.png', baseURL).toString();
+      const fixtureSettings = buildFixtureSettings(
+        originalSettings,
+        definition.layout,
+        heroImageUrl,
+        {
+          businessMode: 'team',
+          hiddenSections: [],
+          sectionOrder: STAGE5_SECTION_ORDER,
+          sectionVariants: definition.sectionVariants,
+        },
+      );
+      const updateResult = await client.query(
+        'UPDATE salon SET settings = $1::jsonb WHERE id = $2',
+        [JSON.stringify(fixtureSettings), SYNTHETIC_SALON_ID],
+      );
+
+      expect(updateResult.rowCount).toBe(1);
+
+      for (const scenario of VIEWPORT_SCENARIOS) {
+        const context = await browser.newContext({
+          baseURL,
+          reducedMotion: 'reduce',
+          viewport: scenario.viewport,
+        });
+
+        if (scenario.zoom === 2) {
+          await context.addInitScript(() => {
+            document.addEventListener('DOMContentLoaded', () => {
+              document.documentElement.style.zoom = '2';
+            });
+          });
+        }
+
+        const attemptedWrites: string[] = [];
+        const externalRequests: string[] = [];
+
+        try {
+          const page = await context.newPage();
+          const expectedOrigin = new URL(baseURL).origin;
+
+          await page.route('**/*', async (route) => {
+            const request = route.request();
+            const method = request.method();
+            const requestUrl = request.url();
+
+            if (method !== 'GET' && method !== 'HEAD') {
+              attemptedWrites.push(`${method} ${requestUrl}`);
+              await route.abort('blockedbyclient');
+              return;
+            }
+            if (new URL(requestUrl).origin !== expectedOrigin) {
+              externalRequests.push(requestUrl);
+              await route.abort('blockedbyclient');
+              return;
+            }
+
+            await route.continue();
+          });
+
+          const response = await page.goto(
+            `${appPath(`/${SYNTHETIC_SALON_SLUG}/book/service`)}?stage5Evidence=${profile}-${scenario.label}`,
+            { waitUntil: 'domcontentloaded' },
+          );
+
+          expect(response?.ok(), await response?.text()).toBe(true);
+          await expect(page.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
+
+          const snapshot = await expectStage5ProfileStructure(
+            page,
+            profile,
+            salonName!,
+            technicianResult.rows,
+          );
+
+          expect(snapshot.serviceText).toContain(canonicalServiceName);
+
+          const baseline = profileSnapshots.get(profile);
+          if (baseline) {
+            expect(snapshot, `${profile} must remain stable at ${scenario.label}`).toEqual(baseline);
+          } else {
+            profileSnapshots.set(profile, snapshot);
+          }
+
+          expect(attemptedWrites, 'The Stage 5 browser walk must not create appointments or payments.').toEqual([]);
+          expect(externalRequests, 'The deterministic Stage 5 lane must not depend on hosted resources.').toEqual([]);
+        } finally {
+          await context.close();
+        }
+      }
+    }
+
+    expect(profileSnapshots.size).toBe(4);
+    expect(new Set([...profileSnapshots.values()].map(snapshot => snapshot.structure)).size).toBe(4);
+    expect(new Set([...profileSnapshots.values()].map(snapshot => snapshot.serviceText)).size).toBe(1);
+  } finally {
+    try {
+      if (fixtureLoaded) {
+        const restoreResult = await client.query(
+          'UPDATE salon SET settings = $1::jsonb WHERE id = $2',
+          [originalSettings === null ? null : JSON.stringify(originalSettings), SYNTHETIC_SALON_ID],
+        );
+
+        expect(restoreResult.rowCount).toBe(1);
+
+        const restoredResult = await client.query<SalonFixtureRow>(
+          'SELECT id, name, settings FROM salon WHERE id = $1',
+          [SYNTHETIC_SALON_ID],
+        );
+
+        expect(restoredResult.rows).toHaveLength(1);
+        expect(restoredResult.rows[0]?.settings ?? null).toEqual(originalSettings);
       }
     } finally {
       await client.end();

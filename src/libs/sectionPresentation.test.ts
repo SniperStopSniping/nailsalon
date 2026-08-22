@@ -13,6 +13,7 @@ import {
   SECTION_PRESENTATION_UIQI_CAPABILITIES,
   type SectionVariantId,
   type SectionVariantOverrides,
+  SERVICE_MENU_GROUPED_CATEGORIES_CONTRACT,
 } from './sectionPresentation';
 
 function content(heroImageUrl: string | null = 'https://images.example/hero.jpg') {
@@ -30,11 +31,17 @@ describe('typed section presentation contract', () => {
     expect(Object.keys(SECTION_PRESENTATION_CONTRACT)).toEqual(SECTION_PRESENTATION_SECTION_IDS);
 
     expectTypeOf<SectionVariantId<'salonProfile'>>().toEqualTypeOf<'compact' | 'hero_image'>();
-    expectTypeOf<SectionVariantId<'serviceMenu'>>().toEqualTypeOf<'list'>();
+    expectTypeOf<SectionVariantId<'technicianProfile'>>().toEqualTypeOf<'full' | 'cards'>();
+    expectTypeOf<SectionVariantId<'serviceMenu'>>().toEqualTypeOf<'list' | 'grouped_categories'>();
+    expectTypeOf<SectionVariantId<'hoursLocation'>>().toEqualTypeOf<'full' | 'location_cards'>();
+    expectTypeOf<SectionVariantId<'socialLinks'>>().toEqualTypeOf<'icons' | 'labeled'>();
     expectTypeOf<SectionVariantId<'portfolio'>>().toEqualTypeOf<never>();
     expectTypeOf<SectionVariantOverrides>().toMatchTypeOf<{
       salonProfile?: 'compact' | 'hero_image';
-      serviceMenu?: 'list';
+      technicianProfile?: 'full' | 'cards';
+      serviceMenu?: 'list' | 'grouped_categories';
+      hoursLocation?: 'full' | 'location_cards';
+      socialLinks?: 'icons' | 'labeled';
     }>();
 
     for (const sectionId of SECTION_PRESENTATION_SECTION_IDS) {
@@ -143,6 +150,117 @@ describe('typed section presentation contract', () => {
     });
   });
 
+  it.each(['quick_book', 'editorial'] as const)(
+    'admits every Stage 5 shared variant on the %s layout without changing defaults',
+    (layout) => {
+      const resolved = resolveSectionPresentation({
+        layout,
+        sectionVariants: {
+          technicianProfile: 'cards',
+          serviceMenu: 'grouped_categories',
+          hoursLocation: 'location_cards',
+          socialLinks: 'labeled',
+        },
+        content: content(),
+      });
+
+      expect(resolved.variants).toMatchObject({
+        technicianProfile: 'cards',
+        serviceMenu: 'grouped_categories',
+        hoursLocation: 'location_cards',
+        socialLinks: 'labeled',
+      });
+    },
+  );
+
+  it('keeps new-family fallback deterministic for missing, malformed, and wrong-section values', () => {
+    const resolved = resolveSectionPresentation({
+      layout: 'editorial',
+      sectionVariants: {
+        technicianProfile: 'grouped_categories',
+        serviceMenu: 'cards',
+        hoursLocation: 42,
+        socialLinks: 'future_labels',
+      },
+      content: content(),
+    });
+
+    expect(resolved.variants).toMatchObject({
+      technicianProfile: 'full',
+      serviceMenu: 'list',
+      hoursLocation: 'full',
+      socialLinks: 'icons',
+    });
+  });
+
+  it('expresses four materially different test-only composition profiles through the same contract', () => {
+    const profiles = {
+      bookingLed: {
+        layout: 'quick_book',
+        variants: {},
+      },
+      identityLed: {
+        layout: 'editorial',
+        variants: {
+          salonProfile: 'hero_image',
+          featuredServices: 'signature',
+          technicianProfile: 'full',
+        },
+      },
+      serviceLed: {
+        layout: 'editorial',
+        variants: {
+          serviceMenu: 'grouped_categories',
+          featuredServices: 'carousel',
+          policies: 'inline',
+        },
+      },
+      teamLed: {
+        layout: 'editorial',
+        variants: {
+          technicianProfile: 'cards',
+          hoursLocation: 'location_cards',
+          socialLinks: 'labeled',
+        },
+      },
+    } as const satisfies Record<string, {
+      layout: BookingPageLayout;
+      variants: SectionVariantOverrides;
+    }>;
+    const signatures = Object.values(profiles).map(profile =>
+      JSON.stringify(resolveSectionPresentation({
+        layout: profile.layout,
+        sectionVariants: profile.variants,
+        content: content(),
+      })));
+
+    expect(new Set(signatures)).toHaveLength(4);
+  });
+
+  it('resolves Stage 5 variants without mutating canonical content or stored overrides', () => {
+    const immutableContent = content();
+    const overrides = {
+      technicianProfile: 'cards',
+      serviceMenu: 'grouped_categories',
+      hoursLocation: 'location_cards',
+      socialLinks: 'labeled',
+    } as const;
+    Object.freeze(immutableContent.identity);
+    Object.freeze(immutableContent);
+    Object.freeze(overrides);
+    const contentSnapshot = structuredClone(immutableContent);
+    const overridesSnapshot = structuredClone(overrides);
+
+    resolveSectionPresentation({
+      layout: 'editorial',
+      sectionVariants: overrides,
+      content: immutableContent,
+    });
+
+    expect(immutableContent).toEqual(contentSnapshot);
+    expect(overrides).toEqual(overridesSnapshot);
+  });
+
   it.each([
     ['unknown string', { salonProfile: 'future_variant' }],
     ['whitespace', { salonProfile: '   ' }],
@@ -207,12 +325,18 @@ describe('typed section presentation contract', () => {
     expect(immutableContent).toEqual(snapshot);
   });
 
-  it('activates the Stage 3 hero obligation with derived canonical alt text', () => {
+  it('activates the shipped hero and grouped-service UIQI obligations', () => {
     expect(SECTION_PRESENTATION_UIQI_CAPABILITIES).toEqual({
       salonProfileHeroImage: true,
       salonProfileHeroDerivedAlt: true,
+      serviceMenuGroupedCategories: true,
+      serviceMenuGroupedSemanticHeadings: true,
     });
     expect(deriveSalonProfileHeroAlt(content().identity)).toBe('Isla Nail Studio salon');
+    expect(SERVICE_MENU_GROUPED_CATEGORIES_CONTRACT).toEqual({
+      variant: 'grouped_categories',
+      headingStrategy: 'semantic-heading-structure',
+    });
   });
 
   it('never accepts a variant belonging to another section', () => {
