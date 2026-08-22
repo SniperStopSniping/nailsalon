@@ -4,7 +4,6 @@ import { ArrowDown, ArrowUp, RotateCcw } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 
 import {
-  applyBookingPageBuilderOperation,
   type BookingPageBuilderOperation,
   type BookingPagePresentationState,
   getBookingPageBuilderVariantLabel,
@@ -20,12 +19,20 @@ import {
 
 export type BookingPageBuilderProps = {
   draft: BookingPageConfigSide;
+  /** Preview revision issued only after the server accepted the latest move. */
+  completedMoveRevision?: number | null;
   /**
-   * IDs Stage 2 currently admits for the real owner preview. `null` means the
-   * preview result is still unavailable, so the builder does not guess that
-   * configured content is missing.
+   * Revision-bound IDs Stage 2 admits for the real owner preview. `null`
+   * means the preview result is still unavailable, so the builder does not
+   * guess that configured content is missing.
    */
   previewedSectionIds?: ReadonlySet<SectionId> | null;
+  /** Ordered movable flow from the same completed canonical preview. */
+  previewedReorderableSectionOrder?: readonly SectionId[] | null;
+  /** Revision that produced `previewedSectionIds`; null means unattested. */
+  previewAdmissionRevision?: number | null;
+  /** Current revision requested from the real owner preview iframe. */
+  previewRequestRevision?: number;
   /** Admin-only base recipe provenance; never passed to the public renderer. */
   presetBase?: BookingPagePresetReference | null;
   pending: boolean;
@@ -37,13 +44,15 @@ type MoveDirection = 'up' | 'down';
 
 type PendingMoveIntent = {
   direction: MoveDirection;
-  participantIds: SectionId[];
   previousSectionOrder: SectionId[];
+  previewRequestRevision: number;
   sawPending: boolean;
   sectionId: SectionId;
 };
 
-type CompletedMoveResult = Pick<PendingMoveIntent, 'direction' | 'sectionId'>;
+type CompletedMoveResult = Pick<PendingMoveIntent, 'direction' | 'sectionId'> & {
+  requiredPreviewRevision: number;
+};
 
 const CONTROL_CLASS = 'min-h-11 rounded-xl border border-stone-300 bg-white px-3 py-2 text-sm font-semibold text-stone-700 transition-colors hover:border-rose-300 hover:bg-rose-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700 disabled:cursor-not-allowed disabled:opacity-50 motion-reduce:transition-none';
 
@@ -96,49 +105,76 @@ function projectedReorderableFlowOrder(
   });
 }
 
+function attestedReorderableFlowOrder(
+  previewedSectionIds: ReadonlySet<SectionId>,
+  previewedReorderableSectionOrder: readonly SectionId[],
+): SectionId[] {
+  const seen = new Set<SectionId>();
+
+  return previewedReorderableSectionOrder.filter((sectionId) => {
+    if (seen.has(sectionId)) {
+      return false;
+    }
+    seen.add(sectionId);
+
+    return previewedSectionIds.has(sectionId);
+  });
+}
+
+function restoreMoveFocusIfLost({
+  direction,
+  moveControls,
+  restoreFromSectionRow = false,
+  sectionId,
+  sectionRows,
+}: {
+  direction: MoveDirection;
+  moveControls: ReadonlyMap<string, HTMLButtonElement>;
+  restoreFromSectionRow?: boolean;
+  sectionId: SectionId;
+  sectionRows: ReadonlyMap<SectionId, HTMLLIElement>;
+}): void {
+  const activeElement = document.activeElement;
+  const oppositeDirection = direction === 'up' ? 'down' : 'up';
+  const preferredControl = moveControls.get(`${sectionId}:${direction}`);
+  const oppositeControl = moveControls.get(`${sectionId}:${oppositeDirection}`);
+  const sectionRow = sectionRows.get(sectionId);
+  const focusWasLost = activeElement === null
+    || activeElement === document.body
+    || activeElement === document.documentElement
+    || !document.contains(activeElement);
+  const focusNeedsRepair = focusWasLost
+    || (activeElement === preferredControl && preferredControl.disabled)
+    || (activeElement === oppositeControl && oppositeControl.disabled)
+    || (restoreFromSectionRow && activeElement === sectionRow);
+
+  // A slow save must not pull focus back from another control the owner
+  // deliberately reached while the request was pending.
+  if (!focusNeedsRepair) {
+    return;
+  }
+
+  const focusTarget = preferredControl && !preferredControl.disabled
+    ? preferredControl
+    : oppositeControl && !oppositeControl.disabled
+      ? oppositeControl
+      : sectionRow;
+
+  focusTarget?.focus();
+}
+
 function moveTargetForSection({
-  draft,
   sectionId,
   direction,
-  definitions,
-  previewedSectionIds,
+  reorderableSectionOrder,
 }: {
-  draft: BookingPageConfigSide;
   sectionId: SectionId;
   direction: 'up' | 'down';
-  definitions: ReadonlyMap<SectionId, SectionDefinition>;
-  previewedSectionIds: ReadonlySet<SectionId> | null;
+  reorderableSectionOrder: readonly SectionId[];
 }): SectionId | null {
-  const flowOrder = projectedReorderableFlowOrder(draft, definitions, previewedSectionIds);
-  const currentIndex = flowOrder.indexOf(sectionId);
+  const currentIndex = reorderableSectionOrder.indexOf(sectionId);
   const targetIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-  const targetSectionId = flowOrder[targetIndex];
-  if (!targetSectionId) {
-    return null;
-  }
-
-  const result = applyBookingPageBuilderOperation(draft, {
-    type: 'move_section',
-    sectionId,
-    targetSectionId,
-    direction,
-  });
-  if (!result.ok) {
-    return null;
-  }
-
-  const after = projectedReorderableFlowOrder(
-    {
-      layout: draft.layout,
-      sectionOrder: result.patch.sectionOrder ?? draft.sectionOrder,
-      sectionVariants: result.patch.sectionVariants ?? draft.sectionVariants,
-      hiddenSections: result.patch.hiddenSections ?? draft.hiddenSections,
-    },
-    definitions,
-    previewedSectionIds,
-  );
-
-  return after.indexOf(sectionId) === targetIndex ? targetSectionId : null;
+  return reorderableSectionOrder[targetIndex] ?? null;
 }
 
 function statusForSection({
@@ -191,7 +227,11 @@ function statusForSection({
 
 export function BookingPageBuilder({
   draft,
+  completedMoveRevision,
   previewedSectionIds = null,
+  previewedReorderableSectionOrder = null,
+  previewAdmissionRevision = null,
+  previewRequestRevision = 0,
   presetBase = null,
   pending,
   onOperation,
@@ -203,16 +243,23 @@ export function BookingPageBuilder({
   );
   const orderedDefinitions = orderSectionDefinitions(draft, sectionDefinitions);
   const hidden = new Set(draft.hiddenSections);
+  const previewAdmissionIsCurrent = previewedSectionIds !== null
+    && (previewAdmissionRevision === null
+      || previewAdmissionRevision === previewRequestRevision);
+  const unversionedReorderableSectionOrder = previewAdmissionRevision === null
+    ? projectedReorderableFlowOrder(draft, definitionsById, previewedSectionIds)
+    : null;
+  const currentPreviewedReorderableSectionOrder = previewAdmissionIsCurrent
+    ? previewedReorderableSectionOrder ?? unversionedReorderableSectionOrder
+    : null;
   const pageCustomized = isBookingPagePresentationCustomized(presentationState);
   const moveControlRefs = useRef(new Map<string, HTMLButtonElement>());
   const sectionRowRefs = useRef(new Map<SectionId, HTMLLIElement>());
   const pendingMoveIntentRef = useRef<PendingMoveIntent | null>(null);
   const completedMoveResultRef = useRef<CompletedMoveResult | null>(null);
   const latestDraftRef = useRef(draft);
-  const latestDefinitionsRef = useRef(definitionsById);
   const [reorderAnnouncement, setReorderAnnouncement] = useState('');
   latestDraftRef.current = draft;
-  latestDefinitionsRef.current = definitionsById;
 
   useEffect(() => {
     const intent = pendingMoveIntentRef.current;
@@ -224,92 +271,87 @@ export function BookingPageBuilder({
       return;
     }
 
-    const participants = new Set(intent.participantIds);
-    const resultingOrder = draft.sectionOrder.filter(sectionId => participants.has(sectionId));
-    const resultingPosition = resultingOrder.indexOf(intent.sectionId);
     const orderChanged = draft.sectionOrder.length !== intent.previousSectionOrder.length
       || draft.sectionOrder.some(
         (sectionId, index) => sectionId !== intent.previousSectionOrder[index],
       );
-    const moveCompleted = resultingPosition !== -1 && orderChanged;
-
-    // A successful save can place the moved section at a boundary, disabling
-    // the control that initiated the move. Keep the keyboard workflow in the
-    // same row by preferring that control, then its enabled counterpart.
-    const oppositeDirection = intent.direction === 'up' ? 'down' : 'up';
-    const preferredControl = moveControlRefs.current.get(
-      `${intent.sectionId}:${intent.direction}`,
-    );
-    const oppositeControl = moveControlRefs.current.get(
-      `${intent.sectionId}:${oppositeDirection}`,
-    );
-    const focusTarget = preferredControl && !preferredControl.disabled
-      ? preferredControl
-      : oppositeControl && !oppositeControl.disabled
-        ? oppositeControl
-        : null;
+    const moveCompleted = completedMoveRevision === undefined
+      ? draft.sectionOrder.includes(intent.sectionId) && orderChanged
+      : completedMoveRevision !== null
+        && completedMoveRevision > intent.previewRequestRevision;
 
     if (moveCompleted || intent.sawPending) {
-      focusTarget?.focus();
+      restoreMoveFocusIfLost({
+        direction: intent.direction,
+        moveControls: moveControlRefs.current,
+        sectionId: intent.sectionId,
+        sectionRows: sectionRowRefs.current,
+      });
     }
-    if (moveCompleted) {
-      const label = listBookingPageBuilderSections(draft.layout)
-        .find(definition => definition.id === intent.sectionId)?.label
-        ?? intent.sectionId;
+    const requiredPreviewRevision = completedMoveRevision ?? previewRequestRevision;
+    if (moveCompleted && requiredPreviewRevision > intent.previewRequestRevision) {
       completedMoveResultRef.current = {
         direction: intent.direction,
+        requiredPreviewRevision,
         sectionId: intent.sectionId,
       };
-      setReorderAnnouncement(
-        `${label} moved to position ${resultingPosition + 1} of ${resultingOrder.length} movable sections.`,
-      );
     }
     pendingMoveIntentRef.current = null;
-  }, [draft, pending]);
+  }, [completedMoveRevision, draft, pending, previewRequestRevision]);
 
   useEffect(() => {
     const completed = completedMoveResultRef.current;
-    if (!completed || previewedSectionIds === null) {
+    if (!completed) {
+      return;
+    }
+    if (completedMoveRevision !== undefined
+      && completedMoveRevision !== completed.requiredPreviewRevision) {
+      completedMoveResultRef.current = null;
+      return;
+    }
+    if (previewRequestRevision > completed.requiredPreviewRevision) {
+      // Another presentation refresh superseded this move before its exact
+      // Stage 2 result arrived. Silence is safer than attributing the newer
+      // configuration's position to the older operation.
+      completedMoveResultRef.current = null;
+      return;
+    }
+    if (previewedSectionIds === null
+      || previewedReorderableSectionOrder === null
+      || previewAdmissionRevision !== completed.requiredPreviewRevision
+      || previewRequestRevision !== completed.requiredPreviewRevision) {
       return;
     }
 
     const currentDraft = latestDraftRef.current;
-    const currentOrder = projectedReorderableFlowOrder(
-      currentDraft,
-      latestDefinitionsRef.current,
+    const currentOrder = attestedReorderableFlowOrder(
       previewedSectionIds,
+      previewedReorderableSectionOrder,
     );
     const currentPosition = currentOrder.indexOf(completed.sectionId);
     const label = listBookingPageBuilderSections(currentDraft.layout)
       .find(definition => definition.id === completed.sectionId)?.label
       ?? completed.sectionId;
-    const activeElement = document.activeElement;
-    const focusWasLost = activeElement === document.body
-      || (activeElement instanceof HTMLElement && !document.contains(activeElement));
-
-    if (focusWasLost) {
-      const oppositeDirection = completed.direction === 'up' ? 'down' : 'up';
-      const preferredControl = moveControlRefs.current.get(
-        `${completed.sectionId}:${completed.direction}`,
-      );
-      const oppositeControl = moveControlRefs.current.get(
-        `${completed.sectionId}:${oppositeDirection}`,
-      );
-      const row = sectionRowRefs.current.get(completed.sectionId);
-      const focusTarget = preferredControl && !preferredControl.disabled
-        ? preferredControl
-        : oppositeControl && !oppositeControl.disabled
-          ? oppositeControl
-          : row;
-
-      focusTarget?.focus();
-    }
+    restoreMoveFocusIfLost({
+      direction: completed.direction,
+      moveControls: moveControlRefs.current,
+      restoreFromSectionRow: true,
+      sectionId: completed.sectionId,
+      sectionRows: sectionRowRefs.current,
+    });
 
     setReorderAnnouncement(currentPosition === -1
       ? `${label} is no longer available to reorder in the current preview.`
       : `${label} moved to position ${currentPosition + 1} of ${currentOrder.length} movable sections.`);
     completedMoveResultRef.current = null;
-  }, [previewedSectionIds]);
+  }, [
+    completedMoveRevision,
+    previewAdmissionRevision,
+    pending,
+    previewedSectionIds,
+    previewedReorderableSectionOrder,
+    previewRequestRevision,
+  ]);
 
   const dispatch = (operation: BookingPageBuilderOperation) => {
     if (!pending) {
@@ -325,20 +367,19 @@ export function BookingPageBuilder({
     if (pending) {
       return;
     }
-    const participantIds = projectedReorderableFlowOrder(
-      draft,
-      definitionsById,
-      previewedSectionIds,
-    );
+    const participantIds = currentPreviewedReorderableSectionOrder ?? [];
     const previousPosition = participantIds.indexOf(sectionId);
     if (previousPosition === -1) {
       return;
     }
 
+    // A newer move supersedes any older result still waiting for its preview
+    // attestation, so a late iframe load cannot announce the older action.
+    completedMoveResultRef.current = null;
     pendingMoveIntentRef.current = {
       direction,
-      participantIds,
       previousSectionOrder: [...draft.sectionOrder],
+      previewRequestRevision,
       sawPending: false,
       sectionId,
     };
@@ -393,26 +434,25 @@ export function BookingPageBuilder({
           const explicitVariantIsAllowed = explicitVariant !== undefined
             && (definition.allowedVariants as readonly string[]).includes(explicitVariant);
           const selectedVariant = explicitVariantIsAllowed ? explicitVariant : '';
-          const canMove = definition.reorderable
+          const showMoveControls = definition.reorderable
             && configuredVisible
             && previewedSectionIds !== null
             && previewedSectionIds.has(definition.id);
+          const canMove = showMoveControls
+            && currentPreviewedReorderableSectionOrder !== null
+            && currentPreviewedReorderableSectionOrder.includes(definition.id);
           const moveUpTarget = canMove
             ? moveTargetForSection({
-              draft,
               sectionId: definition.id,
               direction: 'up',
-              definitions: definitionsById,
-              previewedSectionIds,
+              reorderableSectionOrder: currentPreviewedReorderableSectionOrder,
             })
             : null;
           const moveDownTarget = canMove
             ? moveTargetForSection({
-              draft,
               sectionId: definition.id,
               direction: 'down',
-              definitions: definitionsById,
-              previewedSectionIds,
+              reorderableSectionOrder: currentPreviewedReorderableSectionOrder,
             })
             : null;
           const variantSelectId = `booking-page-variant-${definition.id}`;
@@ -521,10 +561,10 @@ export function BookingPageBuilder({
                   )
                 : null}
 
-              {(canMove || customized)
+              {(showMoveControls || customized)
                 ? (
                     <div className="mt-4 flex flex-wrap gap-2">
-                      {canMove
+                      {showMoveControls
                         ? (
                             <>
                               <button

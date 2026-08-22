@@ -28,7 +28,12 @@ import {
 } from '@/libs/publicTechnicianCompatibility';
 import { EMPTY_SALON_CONTENT } from '@/libs/salonContent';
 import { deriveSalonProfileHeroAlt, resolveSectionPresentation } from '@/libs/sectionPresentation';
-import { resolveSectionDecisionPlan, resolveVisitContent, shouldRenderSection } from '@/libs/sectionRegistry';
+import {
+  resolveSectionDecisionPlan,
+  resolveVisitContent,
+  SECTION_REGISTRY,
+  shouldRenderSection,
+} from '@/libs/sectionRegistry';
 import { getPublicTechnicianRatingDisplay } from '@/libs/technicianRating';
 import { BOOKING_CATEGORIES, type BookingCategory } from '@/models/Schema';
 import { useSalon } from '@/providers/SalonProvider';
@@ -2521,12 +2526,28 @@ export function BookServiceClient({
             },
           };
 
+          const reorderableSectionOrder = sectionPlan.orderedIds.filter(sectionId => (
+            SECTION_REGISTRY[sectionId].ownerConfigurable
+            && sectionPresentation.placements[sectionId] === 'flow'
+          ));
+
           return (
-            <SectionOrderRenderer
-              plan={sectionPlan}
-              presentation={sectionPresentation}
-              renderers={sectionRenderers}
-            />
+            <>
+              <SectionOrderRenderer
+                plan={sectionPlan}
+                presentation={sectionPresentation}
+                renderers={sectionRenderers}
+              />
+              {isEmbeddedBuilderPreview
+                ? (
+                    <span
+                      aria-hidden="true"
+                      data-builder-reorderable-section-order={reorderableSectionOrder.join(' ')}
+                      hidden
+                    />
+                  )
+                : null}
+            </>
           );
         })()}
       </div>

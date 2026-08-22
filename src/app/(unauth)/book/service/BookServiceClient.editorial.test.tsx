@@ -321,6 +321,76 @@ describe('BookServiceClient — Editorial Luxury layout', () => {
     vi.restoreAllMocks();
   });
 
+  it('attests the completed canonical renderer movable order from Stage 2 and placement truth', () => {
+    salonContextMock.bookingPage = {
+      ...EDITORIAL_BOOKING_PAGE_SIDE,
+      sectionOrder: [
+        'salonProfile',
+        'featuredServices',
+        'technicianProfile',
+        'serviceMenu',
+        'hoursLocation',
+        'policies',
+        'socialLinks',
+        'bookingCta',
+      ],
+    };
+    salonContextMock.salonContent = buildContent({
+      people: { technicians: [TECHNICIAN_DANIELA] },
+      place: {
+        ...EMPTY_SALON_CONTENT.place,
+        address: {
+          address: '100 King Street',
+          city: 'Toronto',
+          state: 'ON',
+          zipCode: 'M5H 1J9',
+        },
+      },
+      policies: {
+        ...EMPTY_SALON_CONTENT.policies,
+        policy: {
+          ...EMPTY_SALON_CONTENT.policies.policy,
+          enabled: true,
+          text: '24h cancellation notice required.',
+        },
+      },
+      social: {
+        instagram: 'https://instagram.com/isla',
+        facebook: null,
+        tiktok: null,
+      },
+    });
+
+    const embedded = render(
+      <BookServiceClient
+        services={[service]}
+        bookingFlow={['service', 'tech', 'time', 'confirm']}
+        locations={[]}
+        isEmbeddedBuilderPreview
+      />,
+    );
+
+    const attestation = embedded.container.querySelector(
+      '[data-builder-reorderable-section-order]',
+    );
+
+    expect(attestation).toHaveAttribute(
+      'data-builder-reorderable-section-order',
+      'technicianProfile hoursLocation policies',
+    );
+    expect(attestation).toHaveAttribute('hidden');
+    expect(attestation).toHaveAttribute('aria-hidden', 'true');
+
+    embedded.unmount();
+
+    const ordinary = render(
+      <BookServiceClient services={[service]} bookingFlow={['service', 'tech', 'time', 'confirm']} locations={[]} />,
+    );
+
+    expect(ordinary.container.querySelector('[data-builder-reorderable-section-order]'))
+      .not.toBeInTheDocument();
+  });
+
   it('renders structurally different identity variants from the same immutable canonical content', () => {
     const canonicalContent = buildContent({
       identity: {
