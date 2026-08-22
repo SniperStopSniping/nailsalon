@@ -82,6 +82,7 @@ function makeRenderers(spies: Partial<Record<string, ReturnType<typeof vi.fn>>> 
     },
     technicianProfile: {
       full: () => render('technicianProfile', 'full'),
+      cards: () => render('technicianProfile', 'cards'),
     },
     featuredServices: {
       carousel: () => render('featuredServices', 'carousel'),
@@ -100,9 +101,22 @@ function makeRenderers(spies: Partial<Record<string, ReturnType<typeof vi.fn>>> 
           </div>
         );
       },
+      grouped_categories: ({ renderSlot }) => {
+        spies.serviceMenu?.('grouped_categories');
+        return (
+          <div data-testid="section-serviceMenu" data-variant="grouped_categories">
+            <span data-testid="menu-start">menu start</span>
+            {renderSlot('featuredServices')}
+            <span data-testid="menu-middle">menu middle</span>
+            {renderSlot('policies')}
+            {renderSlot('socialLinks')}
+          </div>
+        );
+      },
     },
     hoursLocation: {
       full: () => render('hoursLocation', 'full'),
+      location_cards: () => render('hoursLocation', 'location_cards'),
     },
     policies: {
       card: () => render('policies', 'card'),
@@ -110,6 +124,7 @@ function makeRenderers(spies: Partial<Record<string, ReturnType<typeof vi.fn>>> 
     },
     socialLinks: {
       icons: () => render('socialLinks', 'icons'),
+      labeled: () => render('socialLinks', 'labeled'),
     },
   };
 }
@@ -294,5 +309,58 @@ describe('SectionOrderRenderer canonical dispatch', () => {
     expect(screen.getByTestId('section-salonProfile')).toHaveAttribute('data-variant', 'compact');
     expect(screen.getByTestId('section-featuredServices')).toHaveAttribute('data-variant', 'carousel');
     expect(screen.getByTestId('section-policies')).toHaveAttribute('data-variant', 'card');
+  });
+
+  it('dispatches every Stage 5 family through the same Stage-2-admitted registry', () => {
+    const value = content({
+      people: {
+        technicians: [{
+          id: 'tech-1',
+          name: 'Ava',
+          bio: 'Structured manicure specialist',
+          avatarUrl: null,
+          specialties: [],
+          languages: [],
+          rating: null,
+          reviewCount: 0,
+          skillLevel: null,
+          acceptingNewClients: true,
+        }],
+      },
+      place: {
+        ...EMPTY_SALON_CONTENT.place,
+        address: { address: '100 Test Street', city: 'Toronto', state: 'ON', zipCode: 'M5V 1A1' },
+      },
+    });
+
+    renderCanonical({
+      layout: 'editorial',
+      value,
+      sectionVariants: {
+        technicianProfile: 'cards',
+        serviceMenu: 'grouped_categories',
+        hoursLocation: 'location_cards',
+        socialLinks: 'labeled',
+      },
+      order: [
+        'salonProfile',
+        'technicianProfile',
+        'serviceMenu',
+        'featuredServices',
+        'hoursLocation',
+        'policies',
+        'socialLinks',
+        'bookingCta',
+      ],
+    });
+
+    expect(screen.getByTestId('section-technicianProfile')).toHaveAttribute('data-variant', 'cards');
+    expect(screen.getByTestId('section-serviceMenu')).toHaveAttribute('data-variant', 'grouped_categories');
+    expect(screen.getByTestId('section-hoursLocation')).toHaveAttribute('data-variant', 'location_cards');
+    expect(screen.getByTestId('section-socialLinks')).toHaveAttribute('data-variant', 'labeled');
+
+    for (const id of ['technicianProfile', 'serviceMenu', 'hoursLocation', 'socialLinks']) {
+      expect(screen.getAllByTestId(`section-${id}`), id).toHaveLength(1);
+    }
   });
 });

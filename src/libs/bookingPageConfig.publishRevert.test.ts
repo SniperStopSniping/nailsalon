@@ -279,7 +279,7 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
     });
   });
 
-  describe('Stage 4 section-variant lifecycle', () => {
+  describe('typed section-variant lifecycle', () => {
     const VARIANT_PUBLISH_SALON_ID = 'salon_booking_page_variant_publish';
     const VARIANT_LAYOUT_SALON_ID = 'salon_booking_page_variant_layout';
 
@@ -303,9 +303,12 @@ describe('bookingPage draft/publish/revert lifecycle (PGlite)', () => {
     it('round-trips valid same-section variants from draft through publish/live storage', async () => {
       const sectionVariants = {
         salonProfile: 'hero_image',
+        technicianProfile: 'cards',
         featuredServices: 'signature',
+        serviceMenu: 'grouped_categories',
+        hoursLocation: 'location_cards',
         policies: 'inline',
-        socialLinks: 'icons',
+        socialLinks: 'labeled',
         bookingCta: 'sticky',
       } as const;
 

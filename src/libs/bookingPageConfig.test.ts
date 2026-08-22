@@ -80,16 +80,16 @@ describe('bookingPageConfig defaults', () => {
   });
 });
 
-describe('bookingPageDraftPatchSchema Stage 4 section-variant writes', () => {
+describe('bookingPageDraftPatchSchema typed section-variant writes', () => {
   it('accepts canonical variants only on the section that owns them', () => {
     const sectionVariants = {
       salonProfile: 'hero_image',
-      technicianProfile: 'full',
+      technicianProfile: 'cards',
       featuredServices: 'signature',
-      serviceMenu: 'list',
-      hoursLocation: 'full',
+      serviceMenu: 'grouped_categories',
+      hoursLocation: 'location_cards',
       policies: 'inline',
-      socialLinks: 'icons',
+      socialLinks: 'labeled',
       bookingCta: 'sticky',
     };
 
@@ -105,6 +105,10 @@ describe('bookingPageDraftPatchSchema Stage 4 section-variant writes', () => {
   it.each([
     ['a canonical variant assigned to the wrong section', { salonProfile: 'list' }],
     ['a second cross-section canonical variant', { policies: 'signature' }],
+    ['a technician variant assigned to the service menu', { serviceMenu: 'cards' }],
+    ['a grouped-menu variant assigned to the technician profile', { technicianProfile: 'grouped_categories' }],
+    ['a location variant assigned to social links', { socialLinks: 'location_cards' }],
+    ['a labeled-links variant assigned to hours/location', { hoursLocation: 'labeled' }],
     ['the legacy pre-Stage-4 alias', { salonProfile: 'hero' }],
     ['an unknown future variant', { serviceMenu: 'future_menu' }],
     ['a variant on a section with no variant contract', { reviews: 'card' }],
@@ -250,8 +254,11 @@ describe('resolveBookingPageConfig', () => {
           sectionVariants: {
             salonProfile: 'hero',
             serviceMenu: 'future_menu',
+            technicianProfile: 'future_team',
+            hoursLocation: 'future_location',
+            socialLinks: 'future_social',
             policies: 'signature',
-            socialLinks: '',
+            bookingCta: '',
             reviews: 42,
             notASection: 'list',
           },
@@ -264,6 +271,9 @@ describe('resolveBookingPageConfig', () => {
     expect(resolved.draft.sectionVariants).toEqual({
       salonProfile: 'hero',
       serviceMenu: 'future_menu',
+      technicianProfile: 'future_team',
+      hoursLocation: 'future_location',
+      socialLinks: 'future_social',
       policies: 'signature',
     });
 
@@ -282,6 +292,9 @@ describe('resolveBookingPageConfig', () => {
 
     expect(presentation.variants.salonProfile).toBe('hero_image');
     expect(presentation.variants.serviceMenu).toBe('list');
+    expect(presentation.variants.technicianProfile).toBe('full');
+    expect(presentation.variants.hoursLocation).toBe('full');
+    expect(presentation.variants.socialLinks).toBe('icons');
     expect(presentation.variants.policies).toBe('inline');
   });
 

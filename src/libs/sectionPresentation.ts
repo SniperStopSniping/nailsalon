@@ -20,7 +20,7 @@ export const SECTION_PRESENTATION_CONTRACT = {
     placement: { quick_book: 'flow', editorial: 'flow' },
   },
   technicianProfile: {
-    variants: ['full'],
+    variants: ['full', 'cards'],
     defaults: { quick_book: 'full', editorial: 'full' },
     placement: { quick_book: 'flow', editorial: 'flow' },
   },
@@ -30,7 +30,7 @@ export const SECTION_PRESENTATION_CONTRACT = {
     placement: { quick_book: 'serviceMenuSlot', editorial: 'flow' },
   },
   serviceMenu: {
-    variants: ['list'],
+    variants: ['list', 'grouped_categories'],
     defaults: { quick_book: 'list', editorial: 'list' },
     placement: { quick_book: 'flow', editorial: 'flow' },
   },
@@ -55,7 +55,7 @@ export const SECTION_PRESENTATION_CONTRACT = {
     placement: { quick_book: 'unsupported', editorial: 'unsupported' },
   },
   hoursLocation: {
-    variants: ['full'],
+    variants: ['full', 'location_cards'],
     defaults: { quick_book: 'full', editorial: 'full' },
     placement: { quick_book: 'flow', editorial: 'flow' },
   },
@@ -65,7 +65,7 @@ export const SECTION_PRESENTATION_CONTRACT = {
     placement: { quick_book: 'serviceMenuSlot', editorial: 'flow' },
   },
   socialLinks: {
-    variants: ['icons'],
+    variants: ['icons', 'labeled'],
     defaults: { quick_book: 'icons', editorial: 'icons' },
     placement: { quick_book: 'serviceMenuSlot', editorial: 'serviceMenuSlot' },
   },
@@ -109,16 +109,16 @@ export type ResolveSectionPresentationInput = {
 export const SECTION_PRESENTATION_SECTION_IDS = Object.keys(SECTION_PRESENTATION_CONTRACT) as SectionId[];
 const SECTION_VARIANT_LAYOUT_ALLOWLIST = {
   salonProfile: { quick_book: ['compact'], editorial: ['compact', 'hero_image'] },
-  technicianProfile: { quick_book: ['full'], editorial: ['full'] },
+  technicianProfile: { quick_book: ['full', 'cards'], editorial: ['full', 'cards'] },
   featuredServices: { quick_book: ['carousel'], editorial: ['carousel', 'signature'] },
-  serviceMenu: { quick_book: ['list'], editorial: ['list'] },
+  serviceMenu: { quick_book: ['list', 'grouped_categories'], editorial: ['list', 'grouped_categories'] },
   whatsIncluded: { quick_book: [], editorial: [] },
   technicianList: { quick_book: [], editorial: [] },
   portfolio: { quick_book: [], editorial: [] },
   reviews: { quick_book: [], editorial: [] },
-  hoursLocation: { quick_book: ['full'], editorial: ['full'] },
+  hoursLocation: { quick_book: ['full', 'location_cards'], editorial: ['full', 'location_cards'] },
   policies: { quick_book: ['card'], editorial: ['card', 'inline'] },
-  socialLinks: { quick_book: ['icons'], editorial: ['icons'] },
+  socialLinks: { quick_book: ['icons', 'labeled'], editorial: ['icons', 'labeled'] },
   bookingCta: { quick_book: ['sticky'], editorial: ['sticky'] },
 } as const satisfies Record<SectionId, Record<RenderableLayout, readonly string[]>>;
 const LEGACY_VARIANT_ALIASES: Partial<Record<SectionId, Readonly<Record<string, string>>>> = {
@@ -152,6 +152,16 @@ export function deriveSalonProfileHeroAlt(identity: Pick<SalonContent['identity'
 export const SALON_PROFILE_HERO_IMAGE_CONTRACT = {
   variant: 'hero_image',
   altStrategy: 'derived-canonical-identity',
+} as const;
+
+/**
+ * Stage 5's grouped service vocabulary carries its UIQI obligation beside the
+ * variant that activates it. The renderer evidence must use real headings;
+ * styled generic containers cannot satisfy this strategy declaration.
+ */
+export const SERVICE_MENU_GROUPED_CATEGORIES_CONTRACT = {
+  variant: 'grouped_categories',
+  headingStrategy: 'semantic-heading-structure',
 } as const;
 
 function resolveRequestedVariant(
@@ -221,8 +231,9 @@ export function resolveSectionPresentation({
  * Stage 3 named obligations become real release inputs here. The capability
  * declaration is enforced against the shipped renderer by the UIQI evidence
  * bundle: the architecture guard requires the canonical helper at the hero
- * image seam and the full renderer test pins its resulting accessible name.
- * No owner alt field exists or crosses the anonymous boundary.
+ * image seam, pins its resulting accessible name, and verifies that grouped
+ * service categories use labelled semantic headings. No owner alt field exists
+ * or crosses the anonymous boundary.
  */
 export const SECTION_PRESENTATION_UIQI_CAPABILITIES = {
   salonProfileHeroImage: SECTION_PRESENTATION_CONTRACT.salonProfile.variants.includes(
@@ -230,4 +241,9 @@ export const SECTION_PRESENTATION_UIQI_CAPABILITIES = {
   ),
   salonProfileHeroDerivedAlt:
     SALON_PROFILE_HERO_IMAGE_CONTRACT.altStrategy === 'derived-canonical-identity',
+  serviceMenuGroupedCategories: SECTION_PRESENTATION_CONTRACT.serviceMenu.variants.includes(
+    SERVICE_MENU_GROUPED_CATEGORIES_CONTRACT.variant,
+  ),
+  serviceMenuGroupedSemanticHeadings:
+    SERVICE_MENU_GROUPED_CATEGORIES_CONTRACT.headingStrategy === 'semantic-heading-structure',
 } as const;

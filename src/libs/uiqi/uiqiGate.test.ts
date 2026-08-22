@@ -114,10 +114,10 @@ describe('UIQI canonical release contract', () => {
         NOT_CURRENTLY_APPLICABLE: 0,
       },
       statuses: {
-        PASS: 26,
+        PASS: 27,
         FAIL: 0,
         PENDING_MANUAL: 21,
-        FUTURE_TRIGGERED: 4,
+        FUTURE_TRIGGERED: 3,
         NOT_APPLICABLE: 0,
       },
     });
@@ -172,6 +172,17 @@ describe('UIQI canonical release contract', () => {
       salonProfileHeroDerivedAlt: true,
     });
     expect(statusFor('future.salon-profile-hero-derived-alt')).toMatchObject({
+      status: 'PASS',
+      triggerActive: true,
+    });
+  });
+
+  it('activates the shipped grouped-service obligation with semantic headings', () => {
+    expect(UIQI_DEFAULT_FUTURE_CAPABILITIES).toMatchObject({
+      serviceMenuGroupedCategories: true,
+      serviceMenuGroupedSemanticHeadings: true,
+    });
+    expect(statusFor('future.service-menu-grouped-headings')).toMatchObject({
       status: 'PASS',
       triggerActive: true,
     });

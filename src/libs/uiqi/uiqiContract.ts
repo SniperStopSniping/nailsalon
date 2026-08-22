@@ -110,7 +110,7 @@ export const UIQI_AUTOMATED_EVIDENCE = {
     ],
     command: `npx vitest run src/libs/sectionDecisionPlan.test.ts src/libs/sectionRegistry.test.ts src/libs/sectionArchitecture.test.ts src/libs/sectionPresentation.test.ts src/components/booking/SectionOrderRenderer.test.tsx 'src/app/(unauth)/book/service/BookServiceClient.editorial.test.tsx'`,
     ciContext: 'Full Vitest Suite',
-    proves: 'The canonical decision owner controls readiness, hidden intent, and admission while typed presentation resolution, the one renderer, and its activated hero-alt obligation remain downstream structural boundaries.',
+    proves: 'The canonical decision owner controls readiness, hidden intent, and admission while typed presentation resolution, the one renderer, and the activated hero-alt and grouped-service heading obligations remain downstream structural boundaries.',
   },
   'public-dto-boundary': {
     id: 'public-dto-boundary',
@@ -488,7 +488,7 @@ export const UIQI_CONDITIONS: readonly UIQICondition[] = [
 
   future({ id: 'future.portfolio-alt-authoring', requirement: 'Block any portfolio variant until informative alt text is authorable in the actual owner workflow.', category: 'NAMED_OBLIGATION', surface: 'OWNER', rationale: 'Portfolio presentation remains a future capability and must activate this prerequisite before release.' }, 'portfolio-alt-authoring'),
   future({ id: 'future.salon-profile-hero-derived-alt', requirement: 'Require salonProfile:hero_image alt to derive from canonical salon identity and context.', category: 'NAMED_OBLIGATION', surface: 'CLIENT', rationale: 'Stage 4 ships the hero-image variant, so its active trigger requires canonical identity-derived alt before release.' }, 'salon-profile-hero-derived-alt'),
-  future({ id: 'future.service-menu-grouped-headings', requirement: 'Require real semantic headings for serviceMenu:grouped_categories groups.', category: 'NAMED_OBLIGATION', surface: 'CLIENT', rationale: 'The grouped-categories variant is not implemented; isolated trigger fixtures enforce its prerequisite.' }, 'service-menu-grouped-headings'),
+  future({ id: 'future.service-menu-grouped-headings', requirement: 'Require real semantic headings for serviceMenu:grouped_categories groups.', category: 'NAMED_OBLIGATION', surface: 'CLIENT', rationale: 'Stage 5 ships the grouped-categories variant, so its active trigger requires real semantic group headings before release.' }, 'service-menu-grouped-headings'),
 ] as const;
 
 export const UIQI_CONTRACT_METADATA = {
@@ -506,8 +506,8 @@ export const UIQI_DEFAULT_FUTURE_CAPABILITIES: UIQIFutureCapabilities = {
   portfolioAltAuthoring: false,
   salonProfileHeroImage: SECTION_PRESENTATION_UIQI_CAPABILITIES.salonProfileHeroImage,
   salonProfileHeroDerivedAlt: SECTION_PRESENTATION_UIQI_CAPABILITIES.salonProfileHeroDerivedAlt,
-  serviceMenuGroupedCategories: false,
-  serviceMenuGroupedSemanticHeadings: false,
+  serviceMenuGroupedCategories: SECTION_PRESENTATION_UIQI_CAPABILITIES.serviceMenuGroupedCategories,
+  serviceMenuGroupedSemanticHeadings: SECTION_PRESENTATION_UIQI_CAPABILITIES.serviceMenuGroupedSemanticHeadings,
   builderReorder: false,
   builderKeyboardReorder: false,
   builderDomVisualOrder: false,

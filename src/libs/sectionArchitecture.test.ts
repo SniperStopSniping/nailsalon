@@ -52,14 +52,18 @@ type ViolationKind =
   | 'multiple-renderer-registries'
   | 'malformed-renderer-registry'
   | 'independent-layout-fork'
-  | 'hero-derived-alt-bypass';
+  | 'hero-derived-alt-bypass'
+  | 'grouped-service-menu-heading-bypass';
 type Violation = { kind: ViolationKind; text: string };
 type ApprovedRendererSeam =
   | 'salonProfile:BookingStepHeader'
   | 'featuredServices:marked-fragment'
   | 'serviceMenu:renderServiceMenuContent-declaration'
-  | 'serviceMenu:renderServiceMenuContent-call'
-  | 'serviceMenu:services-anchor-wrapper';
+  | 'serviceMenu:list:renderServiceMenuContent-call'
+  | 'serviceMenu:grouped_categories:renderServiceMenuContent-call'
+  | 'serviceMenu:list:services-anchor-wrapper'
+  | 'serviceMenu:grouped_categories:services-anchor-wrapper';
+type AuditedServiceMenuVariant = 'list' | 'grouped_categories';
 type RendererInspection = {
   violations: Violation[];
   approvedRendererSeams: ApprovedRendererSeam[];
@@ -292,34 +296,62 @@ function isRenderSlotCall(expression: ts.Expression, sectionId: ContentSectionId
     && unwrapped.arguments[0]!.text === sectionId;
 }
 
-function isRenderServiceMenuCall(expression: ts.Expression): boolean {
+function renderServiceMenuCallVariant(expression: ts.Expression): AuditedServiceMenuVariant | null {
   const unwrapped = unwrapExpression(expression);
   if (!ts.isCallExpression(unwrapped)
     || !ts.isIdentifier(unwrapped.expression)
     || unwrapped.expression.text !== 'renderServiceMenuContent'
     || unwrapped.arguments.length !== 1) {
-    return false;
+    return null;
   }
   const argument = unwrapExpression(unwrapped.arguments[0]!);
   if (!ts.isObjectLiteralExpression(argument)) {
-    return false;
+    return null;
   }
   const expectedSlots = new Map<string, ContentSectionId>([
     ['featuredServicesSlot', 'featuredServices'],
     ['policiesSlot', 'policies'],
     ['socialLinksSlot', 'socialLinks'],
   ]);
-  if (argument.properties.length !== expectedSlots.size) {
-    return false;
+  if (argument.properties.length !== expectedSlots.size + 1) {
+    return null;
   }
-  return argument.properties.every((property) => {
+  let menuVariant: AuditedServiceMenuVariant | null = null;
+  const seenProperties = new Set<string>();
+  const valid = argument.properties.every((property) => {
     if (!ts.isPropertyAssignment(property)) {
       return false;
     }
     const propertyName = property.name.getText().replaceAll(/['"]/g, '');
+    if (seenProperties.has(propertyName)) {
+      return false;
+    }
+    seenProperties.add(propertyName);
+    if (propertyName === 'menuVariant') {
+      const value = unwrapExpression(property.initializer);
+      if (!ts.isStringLiteral(value) || !['list', 'grouped_categories'].includes(value.text)) {
+        return false;
+      }
+      menuVariant = value.text as AuditedServiceMenuVariant;
+      return true;
+    }
     const sectionId = expectedSlots.get(propertyName);
     return sectionId !== undefined && isRenderSlotCall(property.initializer, sectionId);
   });
+  return valid
+    && seenProperties.has('featuredServicesSlot')
+    && seenProperties.has('policiesSlot')
+    && seenProperties.has('socialLinksSlot')
+    ? menuVariant
+    : null;
+}
+
+function isRenderServiceMenuCall(
+  expression: ts.Expression,
+  expectedVariant?: AuditedServiceMenuVariant,
+): boolean {
+  const actualVariant = renderServiceMenuCallVariant(expression);
+  return actualVariant !== null && (expectedVariant === undefined || actualVariant === expectedVariant);
 }
 
 function isApprovedBookingStepHeader(
@@ -348,6 +380,7 @@ function isApprovedServicesAnchorWrapper(
   expression: ts.Expression,
   file: ts.SourceFile,
   sharedLeafBindings: ReadonlySet<string>,
+  expectedVariant: AuditedServiceMenuVariant | undefined,
 ): boolean {
   const unwrapped = unwrapExpression(expression);
   if (sectionId !== 'serviceMenu' || !ts.isJsxElement(unwrapped)) {
@@ -375,7 +408,7 @@ function isApprovedServicesAnchorWrapper(
     && ts.isJsxExpression(meaningfulChildren[0]!)
     && !!meaningfulChildren[0]!.expression
     && (
-      isRenderServiceMenuCall(meaningfulChildren[0]!.expression)
+      isRenderServiceMenuCall(meaningfulChildren[0]!.expression, expectedVariant)
       || (ts.isIdentifier(unwrapExpression(meaningfulChildren[0]!.expression!))
         && sharedLeafBindings.has(unwrapExpression(meaningfulChildren[0]!.expression!).getText(file)))
     );
@@ -391,24 +424,28 @@ function isApprovedServiceMenuDeclaration(name: string, initializer: ts.Expressi
     return false;
   }
   const closedProps = parameter.elements.map(element => element.name.getText()).sort();
-  if (closedProps.join(',') !== 'featuredServicesSlot,policiesSlot,socialLinksSlot') {
+  if (closedProps.join(',') !== 'featuredServicesSlot,menuVariant,policiesSlot,socialLinksSlot') {
     return false;
   }
   if (ts.isBlock(unwrapped.body) || !ts.isJsxFragment(unwrapExpression(unwrapped.body))) {
     return false;
   }
   let readsRawContentObject = false;
+  let readsMenuVariant = false;
   const inspectBody = (node: ts.Node) => {
     if (ts.isIdentifier(node) && node.text === 'content') {
       readsRawContentObject = true;
       return;
+    }
+    if (ts.isIdentifier(node) && node.text === 'menuVariant') {
+      readsMenuVariant = true;
     }
     if (!readsRawContentObject) {
       ts.forEachChild(node, inspectBody);
     }
   };
   inspectBody(unwrapped.body);
-  return !readsRawContentObject;
+  return !readsRawContentObject && readsMenuVariant;
 }
 
 function inspectRendererDefinition(
@@ -416,6 +453,7 @@ function inspectRendererDefinition(
   node: ts.Node,
   file: ts.SourceFile,
   inspection: RendererInspection,
+  variantId?: string,
 ): void {
   const returnedExpressions = rendererReturnedExpressions(node);
   if (returnedExpressions.length === 0) {
@@ -434,14 +472,20 @@ function inspectRendererDefinition(
     if (ts.isVariableDeclaration(child)
       && ts.isIdentifier(child.name)
       && child.initializer
-      && isRenderServiceMenuCall(child.initializer)) {
+      && isRenderServiceMenuCall(
+        child.initializer,
+        variantId === 'list' || variantId === 'grouped_categories' ? variantId : undefined,
+      )) {
       sharedLeafBindings.add(child.name.text);
     }
     ts.forEachChild(child, inspectBindings);
   };
   inspectBindings(rendererDefinitionBody(node));
-  if (sectionId === 'serviceMenu' && sharedLeafBindings.size === 1) {
-    inspection.approvedRendererSeams.push('serviceMenu:renderServiceMenuContent-call');
+  const auditedMenuVariant = variantId === 'list' || variantId === 'grouped_categories'
+    ? variantId
+    : null;
+  if (sectionId === 'serviceMenu' && auditedMenuVariant && sharedLeafBindings.size === 1) {
+    inspection.approvedRendererSeams.push(`serviceMenu:${auditedMenuVariant}:renderServiceMenuContent-call`);
   } else if (sharedLeafBindings.size > 0) {
     inspection.violations.push({ kind: 'unclassified-section', text: node.getText(file) });
   }
@@ -468,12 +512,22 @@ function inspectRendererDefinition(
       continue;
     }
     if (sectionId === 'serviceMenu' && isRenderServiceMenuCall(expression)) {
-      inspection.approvedRendererSeams.push('serviceMenu:renderServiceMenuContent-call');
-      continue;
+      if (auditedMenuVariant && isRenderServiceMenuCall(expression, auditedMenuVariant)) {
+        inspection.approvedRendererSeams.push(`serviceMenu:${auditedMenuVariant}:renderServiceMenuContent-call`);
+        continue;
+      }
     }
-    if (isApprovedServicesAnchorWrapper(sectionId, expression, file, sharedLeafBindings)) {
-      inspection.approvedRendererSeams.push('serviceMenu:services-anchor-wrapper');
-      continue;
+    if (isApprovedServicesAnchorWrapper(
+      sectionId,
+      expression,
+      file,
+      sharedLeafBindings,
+      auditedMenuVariant ?? undefined,
+    )) {
+      if (auditedMenuVariant) {
+        inspection.approvedRendererSeams.push(`serviceMenu:${auditedMenuVariant}:services-anchor-wrapper`);
+        continue;
+      }
     }
     inspection.violations.push({ kind: 'unclassified-section', text: expression.getText(file) });
   }
@@ -573,6 +627,186 @@ function heroRendererUsesCanonicalDerivedAlt(node: ts.Node, file: ts.SourceFile)
   return imageCount > 0 && canonicalAltCount === imageCount;
 }
 
+function comparisonResultForGroupedMenu(expression: ts.Expression): boolean | null {
+  const value = unwrapExpression(expression);
+  if (!ts.isBinaryExpression(value)) {
+    return null;
+  }
+  const left = unwrapExpression(value.left);
+  const right = unwrapExpression(value.right);
+  const menuVariant = ts.isIdentifier(left) && left.text === 'menuVariant'
+    ? right
+    : ts.isIdentifier(right) && right.text === 'menuVariant'
+      ? left
+      : null;
+  if (!menuVariant || !ts.isStringLiteral(menuVariant)) {
+    return null;
+  }
+  if (menuVariant.text !== 'list' && menuVariant.text !== 'grouped_categories') {
+    return null;
+  }
+  const equal = value.operatorToken.kind === ts.SyntaxKind.EqualsEqualsEqualsToken
+    || value.operatorToken.kind === ts.SyntaxKind.EqualsEqualsToken;
+  const unequal = value.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsEqualsToken
+    || value.operatorToken.kind === ts.SyntaxKind.ExclamationEqualsToken;
+  if (!equal && !unequal) {
+    return null;
+  }
+  const comparisonMatchesGrouped = menuVariant.text === 'grouped_categories';
+  return equal ? comparisonMatchesGrouped : !comparisonMatchesGrouped;
+}
+
+function isInsideGroupedMenuBranch(node: ts.Node, boundary: ts.Node): boolean {
+  let child = node;
+  while (child !== boundary && child.parent) {
+    const parent = child.parent;
+    if (ts.isConditionalExpression(parent)) {
+      const groupedResult = comparisonResultForGroupedMenu(parent.condition);
+      if (groupedResult !== null) {
+        return groupedResult ? child === parent.whenTrue : child === parent.whenFalse;
+      }
+    }
+    if (ts.isIfStatement(parent)) {
+      const groupedResult = comparisonResultForGroupedMenu(parent.expression);
+      if (groupedResult !== null) {
+        return groupedResult ? child === parent.thenStatement : child === parent.elseStatement;
+      }
+    }
+    if (ts.isBinaryExpression(parent)
+      && parent.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken
+      && comparisonResultForGroupedMenu(parent.left) === true
+      && child === parent.right) {
+      return true;
+    }
+    child = parent;
+  }
+  return false;
+}
+
+function normalizedJsxText(node: ts.Node): string {
+  const text: string[] = [];
+  const visit = (child: ts.Node) => {
+    if (ts.isJsxText(child)) {
+      text.push(child.text);
+      return;
+    }
+    ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return text.join(' ').replaceAll(/\s+/g, ' ').trim();
+}
+
+function jsxAttribute(
+  node: ts.JsxOpeningLikeElement,
+  name: string,
+): ts.JsxAttribute | null {
+  return node.attributes.properties.find(attribute =>
+    ts.isJsxAttribute(attribute) && attribute.name.getText() === name) as ts.JsxAttribute | undefined ?? null;
+}
+
+function hasMapCallbackAncestor(node: ts.Node, boundary: ts.Node): boolean {
+  let child = node;
+  while (child !== boundary && child.parent) {
+    const parent = child.parent;
+    if ((ts.isArrowFunction(parent) || ts.isFunctionExpression(parent))
+      && parent.parent
+      && ts.isCallExpression(parent.parent)
+      && ts.isPropertyAccessExpression(parent.parent.expression)
+      && parent.parent.expression.name.text === 'map') {
+      return true;
+    }
+    child = parent;
+  }
+  return false;
+}
+
+function hasGroupedMenuMapCallbackAncestor(node: ts.Node, boundary: ts.Node): boolean {
+  let child = node;
+  while (child !== boundary && child.parent) {
+    const parent = child.parent;
+    if ((ts.isArrowFunction(parent) || ts.isFunctionExpression(parent))
+      && parent.parent
+      && ts.isCallExpression(parent.parent)
+      && ts.isPropertyAccessExpression(parent.parent.expression)
+      && parent.parent.expression.name.text === 'map') {
+      const collection = unwrapExpression(parent.parent.expression.expression);
+      if (!ts.isConditionalExpression(collection)) {
+        return false;
+      }
+      const groupedResult = comparisonResultForGroupedMenu(collection.condition);
+      return groupedResult !== null;
+    }
+    child = parent;
+  }
+  return false;
+}
+
+function groupedHeadingOwnsLabelledGroup(
+  heading: ts.JsxElement,
+  boundary: ts.Node,
+  file: ts.SourceFile,
+): boolean {
+  const headingId = jsxAttribute(heading.openingElement, 'id');
+  const idValue = headingId ? attributeValue(headingId, file) : null;
+  if (!idValue || !hasMapCallbackAncestor(heading, boundary)) {
+    return false;
+  }
+  let child: ts.Node = heading;
+  while (child !== boundary && child.parent) {
+    const parent = child.parent;
+    if (ts.isJsxElement(parent)) {
+      const labelledBy = jsxAttribute(parent.openingElement, 'aria-labelledby');
+      if (labelledBy && attributeValue(labelledBy, file) === idValue) {
+        return true;
+      }
+    }
+    child = parent;
+  }
+  return false;
+}
+
+function groupedServiceMenuUsesSemanticHeadings(file: ts.SourceFile): boolean {
+  const findDeclaration = (node: ts.Node): ts.ArrowFunction | undefined => {
+    if (ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.name.text === 'renderServiceMenuContent'
+      && node.initializer) {
+      const initializer = unwrapExpression(node.initializer);
+      if (ts.isArrowFunction(initializer)) {
+        return initializer;
+      }
+    }
+    return ts.forEachChild(node, findDeclaration);
+  };
+  const declaration = findDeclaration(file);
+  if (!declaration) {
+    return false;
+  }
+
+  const groupedH2s: ts.JsxElement[] = [];
+  const groupedH3s: ts.JsxElement[] = [];
+  const inspect = (node: ts.Node) => {
+    if (ts.isJsxElement(node)
+      && (isInsideGroupedMenuBranch(node, declaration)
+        || hasGroupedMenuMapCallbackAncestor(node, declaration))) {
+      const tagName = node.openingElement.tagName.getText(file);
+      if (tagName === 'h2') {
+        groupedH2s.push(node);
+      } else if (tagName === 'h3') {
+        groupedH3s.push(node);
+      }
+    }
+    ts.forEachChild(node, inspect);
+  };
+  inspect(declaration.body);
+
+  const servicesHeading = groupedH2s.find(heading => normalizedJsxText(heading) === 'Services');
+  return servicesHeading !== undefined
+    && groupedH3s.length > 0
+    && groupedH3s.every(heading => servicesHeading.getStart(file) < heading.getStart(file))
+    && groupedH3s.every(heading => groupedHeadingOwnsLabelledGroup(heading, declaration, file));
+}
+
 function inspectCanonicalRendererRegistry(
   object: ts.ObjectLiteralExpression,
   file: ts.SourceFile,
@@ -620,7 +854,15 @@ function inspectCanonicalRendererRegistry(
         && !heroRendererUsesCanonicalDerivedAlt(variantProperty.initializer, file)) {
         inspection.violations.push({ kind: 'hero-derived-alt-bypass', text: variantProperty.getText(file) });
       }
-      inspectRendererDefinition(sectionId, variantProperty.initializer, file, inspection);
+      if (sectionId === 'serviceMenu'
+        && variantId === 'grouped_categories'
+        && !groupedServiceMenuUsesSemanticHeadings(file)) {
+        inspection.violations.push({
+          kind: 'grouped-service-menu-heading-bypass',
+          text: variantProperty.getText(file),
+        });
+      }
+      inspectRendererDefinition(sectionId, variantProperty.initializer, file, inspection, variantId);
     }
   }
 }
@@ -844,6 +1086,25 @@ function publicRendererFiles(): string[] {
 
 function canonicalRegistryFixture(name = 'sectionRenderers'): string {
   return `
+    const renderServiceMenuContent = ({ featuredServicesSlot, menuVariant, policiesSlot, socialLinksSlot }) => (
+      <>
+        {menuVariant === 'grouped_categories'
+          ? (
+              <div data-public-surface="serviceMenu">
+                <h2>Services</h2>
+                {groups.map(group => (
+                  <div key={group.id} aria-labelledby={\`service-group-\${group.id}\`}>
+                    <h3 id={\`service-group-\${group.id}\`}>{group.label}</h3>
+                  </div>
+                ))}
+              </div>
+            )
+          : <div data-public-surface="serviceMenu" />}
+        {featuredServicesSlot}
+        {policiesSlot}
+        {socialLinksSlot}
+      </>
+    );
     const ${name}: SectionVariantRenderers = {
       salonProfile: {
         compact: () => <section data-public-surface="salonProfile" />,
@@ -851,16 +1112,29 @@ function canonicalRegistryFixture(name = 'sectionRenderers'): string {
       },
       technicianProfile: {
         full: () => <section data-public-surface="technicianProfile" />,
+        cards: () => <section data-public-surface="technicianProfile" />,
       },
       featuredServices: {
         carousel: () => <div data-public-surface="featuredServices" />,
         signature: () => <section data-public-surface="featuredServices" />,
       },
       serviceMenu: {
-        list: () => <section data-public-surface="serviceMenu" />,
+        list: ({ renderSlot }) => renderServiceMenuContent({
+          featuredServicesSlot: renderSlot('featuredServices'),
+          menuVariant: 'list',
+          policiesSlot: renderSlot('policies'),
+          socialLinksSlot: renderSlot('socialLinks'),
+        }),
+        grouped_categories: ({ renderSlot }) => renderServiceMenuContent({
+          featuredServicesSlot: renderSlot('featuredServices'),
+          menuVariant: 'grouped_categories',
+          policiesSlot: renderSlot('policies'),
+          socialLinksSlot: renderSlot('socialLinks'),
+        }),
       },
       hoursLocation: {
         full: () => <section data-public-surface="hoursLocation" />,
+        location_cards: () => <section data-public-surface="hoursLocation" />,
       },
       policies: {
         card: () => <section data-public-surface="policies" />,
@@ -868,6 +1142,7 @@ function canonicalRegistryFixture(name = 'sectionRenderers'): string {
       },
       socialLinks: {
         icons: () => <nav data-public-surface="socialLinks" />,
+        labeled: () => <nav data-public-surface="socialLinks" />,
       },
     };
   `;
@@ -914,9 +1189,11 @@ describe('public section architecture guard', () => {
         expect(inspection.approvedRendererSeams.sort(), 'closed-prop/shared renderer seams are pinned exactly').toEqual([
           'featuredServices:marked-fragment',
           'salonProfile:BookingStepHeader',
-          'serviceMenu:renderServiceMenuContent-call',
+          'serviceMenu:grouped_categories:renderServiceMenuContent-call',
+          'serviceMenu:grouped_categories:services-anchor-wrapper',
+          'serviceMenu:list:renderServiceMenuContent-call',
+          'serviceMenu:list:services-anchor-wrapper',
           'serviceMenu:renderServiceMenuContent-declaration',
-          'serviceMenu:services-anchor-wrapper',
         ]);
       } else {
         expect(inspection.approvedRendererSeams, `${rendererPath} must not grow an unreviewed renderer exception`).toEqual([]);
@@ -964,6 +1241,37 @@ describe('public section architecture guard', () => {
     }));
     expect(inspectPublicRenderer(arbitraryAlt)).toContainEqual(expect.objectContaining({
       kind: 'hero-derived-alt-bypass',
+    }));
+  });
+
+  it('binds grouped service categories to real labelled semantic heading groups', () => {
+    const canonical = canonicalRegistryFixture();
+    const genericCategoryLabel = canonical
+      .replace('<h3 id=', '<div id=')
+      .replace('</h3>', '</div>');
+
+    expect(genericCategoryLabel).not.toBe(canonical);
+    expect(inspectPublicRenderer(canonical)).not.toContainEqual(expect.objectContaining({
+      kind: 'grouped-service-menu-heading-bypass',
+    }));
+    expect(inspectPublicRenderer(genericCategoryLabel)).toContainEqual(expect.objectContaining({
+      kind: 'grouped-service-menu-heading-bypass',
+    }));
+  });
+
+  it('pins service-menu presentation literals to their matching registry arms', () => {
+    const canonical = canonicalRegistryFixture();
+    const mismatchedListArm = canonical.replace('menuVariant: \'list\'', 'menuVariant: \'grouped_categories\'');
+    const dynamicListArm = canonical.replace('menuVariant: \'list\'', 'menuVariant');
+
+    expect(mismatchedListArm).not.toBe(canonical);
+    expect(dynamicListArm).not.toBe(canonical);
+    expect(inspectPublicRenderer(canonical)).toEqual([]);
+    expect(inspectPublicRenderer(mismatchedListArm)).toContainEqual(expect.objectContaining({
+      kind: 'unclassified-section',
+    }));
+    expect(inspectPublicRenderer(dynamicListArm)).toContainEqual(expect.objectContaining({
+      kind: 'unclassified-section',
     }));
   });
 
@@ -1065,9 +1373,20 @@ describe('public section architecture guard', () => {
 
   it('allows only the audited closed-prop and shared service-menu seams', () => {
     const approved = inspectPublicRendererDetailed(`
-      const renderServiceMenuContent = ({ featuredServicesSlot, policiesSlot, socialLinksSlot }) => (
+      const renderServiceMenuContent = ({ featuredServicesSlot, menuVariant, policiesSlot, socialLinksSlot }) => (
         <>
-          <div data-public-surface="serviceMenu" />
+          {menuVariant === 'grouped_categories'
+            ? (
+                <div data-public-surface="serviceMenu">
+                  <h2>Services</h2>
+                  {groups.map(group => (
+                    <div key={group.id} aria-labelledby={\`service-group-\${group.id}\`}>
+                      <h3 id={\`service-group-\${group.id}\`}>{group.label}</h3>
+                    </div>
+                  ))}
+                </div>
+              )
+            : <div data-public-surface="serviceMenu" />}
           {featuredServicesSlot}
           {policiesSlot}
           {socialLinksSlot}
@@ -1078,7 +1397,10 @@ describe('public section architecture guard', () => {
           compact: () => <BookingStepHeader salonName="Luster" mounted={true} title="Book" bookingFlow={flow} currentStep="service" isFirstStep={true} />,
           hero_image: () => <section data-public-surface="salonProfile"><img alt={deriveSalonProfileHeroAlt(content.identity)} /></section>,
         },
-        technicianProfile: { full: () => <section data-public-surface="technicianProfile" /> },
+        technicianProfile: {
+          full: () => <section data-public-surface="technicianProfile" />,
+          cards: () => <section data-public-surface="technicianProfile" />,
+        },
         featuredServices: {
           carousel: () => <>{!isSearching && <div data-public-surface="featuredServices" />}</>,
           signature: () => <section data-public-surface="featuredServices" />,
@@ -1087,6 +1409,18 @@ describe('public section architecture guard', () => {
           list: ({ renderSlot }) => {
             const serviceMenu = renderServiceMenuContent({
               featuredServicesSlot: renderSlot('featuredServices'),
+              menuVariant: 'list',
+              policiesSlot: renderSlot('policies'),
+              socialLinksSlot: renderSlot('socialLinks'),
+            });
+            return sectionPresentation.serviceMenuFrame === 'services-anchor'
+              ? <div id="services" ref={servicesAnchorRef} className="shell">{serviceMenu}</div>
+              : serviceMenu;
+          },
+          grouped_categories: ({ renderSlot }) => {
+            const serviceMenu = renderServiceMenuContent({
+              featuredServicesSlot: renderSlot('featuredServices'),
+              menuVariant: 'grouped_categories',
               policiesSlot: renderSlot('policies'),
               socialLinksSlot: renderSlot('socialLinks'),
             });
@@ -1095,12 +1429,18 @@ describe('public section architecture guard', () => {
               : serviceMenu;
           },
         },
-        hoursLocation: { full: () => <section data-public-surface="hoursLocation" /> },
+        hoursLocation: {
+          full: () => <section data-public-surface="hoursLocation" />,
+          location_cards: () => <section data-public-surface="hoursLocation" />,
+        },
         policies: {
           card: () => <section data-public-surface="policies" />,
           inline: () => <section data-public-surface="policies" />,
         },
-        socialLinks: { icons: () => <nav data-public-surface="socialLinks" /> },
+        socialLinks: {
+          icons: () => <nav data-public-surface="socialLinks" />,
+          labeled: () => <nav data-public-surface="socialLinks" />,
+        },
       };
     `);
     const rejected = inspectPublicRenderer(`
@@ -1123,9 +1463,11 @@ describe('public section architecture guard', () => {
     expect(approved.approvedRendererSeams.sort()).toEqual([
       'featuredServices:marked-fragment',
       'salonProfile:BookingStepHeader',
-      'serviceMenu:renderServiceMenuContent-call',
+      'serviceMenu:grouped_categories:renderServiceMenuContent-call',
+      'serviceMenu:grouped_categories:services-anchor-wrapper',
+      'serviceMenu:list:renderServiceMenuContent-call',
+      'serviceMenu:list:services-anchor-wrapper',
       'serviceMenu:renderServiceMenuContent-declaration',
-      'serviceMenu:services-anchor-wrapper',
     ]);
     expect(rejected.filter(violation => violation.kind === 'unclassified-section').length).toBeGreaterThanOrEqual(6);
   });
