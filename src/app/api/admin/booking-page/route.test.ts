@@ -12,6 +12,7 @@ const {
   updateBookingPageContentDraft,
   resolveBookingPageContent,
   synchronizeBookingPageLifecycle,
+  updateBookingPageDraftState,
   applyBookingPageBuilderOperation,
   getBookingPageDraftPresentationState,
   BookingPageBuilderWriteError,
@@ -105,6 +106,7 @@ const {
     updateBookingPageContentDraft: vi.fn(),
     resolveBookingPageContent: vi.fn(),
     synchronizeBookingPageLifecycle: vi.fn(),
+    updateBookingPageDraftState: vi.fn(),
     applyBookingPageBuilderOperation: vi.fn(),
     getBookingPageDraftPresentationState: vi.fn(config => ({
       ...config.draft,
@@ -151,6 +153,7 @@ vi.mock('@/libs/bookingPageContent', () => ({
 
 vi.mock('@/libs/bookingPageLifecycle', () => ({
   synchronizeBookingPageLifecycle,
+  updateBookingPageDraftState,
 }));
 
 const SALON = { id: 'salon_1', slug: 'salon-a', settings: { some: 'settings' }, publicationStatus: 'published' };
@@ -168,6 +171,7 @@ describe('admin booking-page route', () => {
     resolveBookingPageConfig.mockReturnValue({ version: 1, draft: { layout: 'quick_book' }, live: { layout: 'quick_book' } });
     resolveBookingPageContent.mockReturnValue({ version: 1, draft: { bio: null }, live: { bio: null } });
     synchronizeBookingPageLifecycle.mockResolvedValue(SALON.settings);
+    updateBookingPageDraftState.mockResolvedValue(SALON.settings);
     applyBookingPageBuilderOperation.mockReturnValue({
       ok: true,
       patch: {
@@ -471,6 +475,42 @@ describe('admin booking-page route', () => {
       expect(response.status).toBe(200);
       expect(updateBookingPageContentDraft).toHaveBeenCalledWith('salon_1', { bio: 'Hello' });
       expect(updateBookingPageDraft).not.toHaveBeenCalled();
+    });
+
+    it('applies a combined config/content PATCH through one atomic draft-state transaction', async () => {
+      const response = await PATCH(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          config: { businessMode: 'team' },
+          content: { bio: 'One owner action' },
+        }),
+      }));
+
+      expect(response.status).toBe(200);
+      expect(updateBookingPageDraftState).toHaveBeenCalledWith('salon_1', {
+        config: { businessMode: 'team' },
+        content: { bio: 'One owner action' },
+      });
+      expect(updateBookingPageDraft).not.toHaveBeenCalled();
+      expect(updateBookingPageContentDraft).not.toHaveBeenCalled();
+    });
+
+    it('returns 409 when a combined PATCH loses the salon before its locked write', async () => {
+      updateBookingPageDraftState.mockResolvedValueOnce(null);
+
+      const response = await PATCH(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          config: { businessMode: 'team' },
+          content: { bio: 'One owner action' },
+        }),
+      }));
+
+      expect(response.status).toBe(409);
+      expect(await response.json()).toEqual({
+        error: 'Booking page state changed before the update completed',
+      });
+      expect(logAuditEvent).not.toHaveBeenCalled();
     });
 
     it('a request carrying sectionOrder/hiddenSections is forwarded verbatim — server-side stripping of serviceMenu/bookingCta is `updateBookingPageDraft`\'s job, proven in bookingPageConfig.publishRevert.test.ts', async () => {

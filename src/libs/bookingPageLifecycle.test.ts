@@ -35,7 +35,10 @@ import {
   resolveBookingPageContent,
   updateBookingPageContentDraft,
 } from './bookingPageContent';
-import { synchronizeBookingPageLifecycle } from './bookingPageLifecycle';
+import {
+  synchronizeBookingPageLifecycle,
+  updateBookingPageDraftState,
+} from './bookingPageLifecycle';
 import {
   BOOKING_PAGE_PRESET_RECIPE_VERSION,
   type BookingPagePresetId,
@@ -45,76 +48,6 @@ import {
 
 let client: PGlite;
 let database: PgliteDatabase<typeof schema>;
-
-function wrapAwaitableSelectWithPause<T extends object>(
-  value: T,
-  pause: () => Promise<void>,
-): T {
-  return new Proxy(value, {
-    get(target, property) {
-      const member = Reflect.get(target, property, target) as unknown;
-
-      if (property === 'then' && typeof member === 'function') {
-        return (
-          onFulfilled?: (result: unknown) => unknown,
-          onRejected?: (reason: unknown) => unknown,
-        ) => Reflect.apply(member, target, [
-          async (result: unknown) => {
-            await pause();
-            return onFulfilled ? onFulfilled(result) : result;
-          },
-          onRejected,
-        ]);
-      }
-
-      if (typeof member !== 'function') {
-        return member;
-      }
-
-      return (...args: unknown[]) => {
-        const result = Reflect.apply(member, target, args) as unknown;
-        if ((typeof result === 'object' && result !== null) || typeof result === 'function') {
-          return wrapAwaitableSelectWithPause(result as object, pause);
-        }
-        return result;
-      };
-    },
-  });
-}
-
-/** Pauses one non-transactional read after PostgreSQL has returned its snapshot. */
-function createFirstTopLevelReadGate(targetDatabase: PgliteDatabase<typeof schema>) {
-  let firstRead = true;
-  let announceRead: (() => void) | undefined;
-  let releaseRead: (() => void) | undefined;
-  const readResolved = new Promise<void>((resolve) => {
-    announceRead = resolve;
-  });
-  const released = new Promise<void>((resolve) => {
-    releaseRead = resolve;
-  });
-
-  return {
-    database: new Proxy(targetDatabase, {
-      get(target, property) {
-        const member = Reflect.get(target, property, target) as unknown;
-        if (property === 'select' && typeof member === 'function' && firstRead) {
-          firstRead = false;
-          return (...args: unknown[]) => wrapAwaitableSelectWithPause(
-            Reflect.apply(member, target, args) as object,
-            async () => {
-              announceRead?.();
-              await released;
-            },
-          );
-        }
-        return typeof member === 'function' ? member.bind(target) : member;
-      },
-    }),
-    readResolved,
-    release: () => releaseRead?.(),
-  };
-}
 
 /** Pauses the first transaction before it begins while later transactions run normally. */
 function createFirstTransactionGate(targetDatabase: PgliteDatabase<typeof schema>) {
@@ -346,14 +279,14 @@ describe('booking-page lifecycle synchronization (PGlite)', () => {
     const salonId = 'lifecycle_publish_pending_content';
     await insertSalon(salonId, coherentGenerationSettings('one'));
 
-    const gate = createFirstTopLevelReadGate(database);
+    const gate = createFirstTransactionGate(database);
     holder.db = gate.database;
     const pendingContentWrite = updateBookingPageContentDraft(salonId, {
       bio: 'Edit completed after Publish',
     });
 
     try {
-      await gate.readResolved;
+      await gate.transactionWaiting;
       const published = await synchronizeBookingPageLifecycle(salonId, 'publish');
       gate.release();
       await pendingContentWrite;
@@ -519,6 +452,75 @@ describe('booking-page lifecycle synchronization (PGlite)', () => {
     expect(await readSettings(salonId)).toEqual(before);
   });
 
+  it('commits a combined raw config/content PATCH as one coherent draft operation', async () => {
+    const salonId = 'lifecycle_combined_patch';
+    await insertSalon(salonId, coherentGenerationSettings('one'));
+
+    const updated = await updateBookingPageDraftState(salonId, {
+      config: { businessMode: 'team' },
+      content: { bio: 'Combined owner edit' },
+    });
+
+    const config = resolveBookingPageConfig(updated);
+    const content = resolveBookingPageContent(updated);
+
+    expect(config.draft.businessMode).toBe('team');
+    expect(config.live.businessMode).toBe('solo');
+    expect(content.draft).toMatchObject({
+      bio: 'Combined owner edit',
+      locationDisplayMode: 'full_address',
+    });
+    expect(content.live.bio).toBe('Generation one');
+  });
+
+  it('rolls back the first half of a combined PATCH when the second update fails', async () => {
+    const salonId = 'lifecycle_combined_patch_rollback';
+    await insertSalon(salonId, coherentGenerationSettings('one'));
+    const before = await readSettings(salonId);
+    let updateCount = 0;
+    const rollbackDatabase = new Proxy(database, {
+      get(target, property, receiver) {
+        if (property === 'transaction') {
+          return (callback: Parameters<typeof database.transaction>[0]) =>
+            database.transaction(tx => callback(new Proxy(tx, {
+              get(transaction, transactionProperty, transactionReceiver) {
+                const value = Reflect.get(
+                  transaction,
+                  transactionProperty,
+                  transactionReceiver,
+                ) as unknown;
+                if (transactionProperty === 'update' && typeof value === 'function') {
+                  return (...args: unknown[]) => {
+                    updateCount += 1;
+                    if (updateCount === 2) {
+                      throw new Error('INJECTED_COMBINED_PATCH_FAILURE');
+                    }
+                    return Reflect.apply(value, transaction, args);
+                  };
+                }
+                return typeof value === 'function' ? value.bind(transaction) : value;
+              },
+            })));
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    holder.db = rollbackDatabase;
+
+    try {
+      await expect(updateBookingPageDraftState(salonId, {
+        config: { businessMode: 'team' },
+        content: { bio: 'Must roll back' },
+      })).rejects.toThrow('INJECTED_COMBINED_PATCH_FAILURE');
+    } finally {
+      holder.db = database;
+    }
+
+    expect(updateCount).toBe(2);
+    expect(await readSettings(salonId)).toEqual(before);
+  });
+
   it('lets a draft write already pending at Revert become the next unpublished edit', async () => {
     const salonId = 'lifecycle_revert_pending_content';
     const initial = coherentGenerationSettings('one');
@@ -526,22 +528,35 @@ describe('booking-page lifecycle synchronization (PGlite)', () => {
       ...initial.bookingPage.draft,
       businessMode: 'team',
     };
+    initial.bookingPageContent.draft = {
+      ...initial.bookingPageContent.draft,
+      bio: 'Draft',
+      locationDisplayMode: 'city_only',
+    };
+    initial.bookingPageContent.live = {
+      ...initial.bookingPageContent.live,
+      bio: 'Live',
+      locationDisplayMode: 'full_address',
+    };
     await insertSalon(salonId, initial);
 
-    const gate = createFirstTopLevelReadGate(database);
+    const gate = createFirstTransactionGate(database);
     holder.db = gate.database;
     const pendingContentWrite = updateBookingPageContentDraft(salonId, {
       bio: 'Edit completed after Revert',
     });
 
     try {
-      await gate.readResolved;
+      await gate.transactionWaiting;
       const reverted = await synchronizeBookingPageLifecycle(salonId, 'revert');
       gate.release();
       await pendingContentWrite;
 
       expect(resolveBookingPageConfig(reverted).draft.businessMode).toBe('solo');
-      expect(resolveBookingPageContent(reverted).draft.bio).toBe('Generation one');
+      expect(resolveBookingPageContent(reverted).draft).toMatchObject({
+        bio: 'Live',
+        locationDisplayMode: 'full_address',
+      });
     } finally {
       gate.release();
       holder.db = database;
@@ -554,8 +569,12 @@ describe('booking-page lifecycle synchronization (PGlite)', () => {
 
     expect(config.draft).toEqual(config.live);
     expect(config.draftPresetBase).toEqual(config.livePresetBase);
-    expect(content.live.bio).toBe('Generation one');
+    expect(content.live).toMatchObject({
+      bio: 'Live',
+      locationDisplayMode: 'full_address',
+    });
     expect(content.draft.bio).toBe('Edit completed after Revert');
+    expect(content.draft.locationDisplayMode).toBe('full_address');
   });
 
   it('normalizes malformed nested storage without touching unrelated settings', async () => {

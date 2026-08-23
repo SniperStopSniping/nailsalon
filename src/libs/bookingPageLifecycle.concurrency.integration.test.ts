@@ -73,6 +73,7 @@ import {
 import {
   BOOKING_PAGE_CONTENT_SIDE_DEFAULTS,
   resolveBookingPageContent,
+  updateBookingPageContentDraft,
 } from './bookingPageContent';
 import { synchronizeBookingPageLifecycle } from './bookingPageLifecycle';
 import {
@@ -102,7 +103,7 @@ type CoherentGenerationSettings = SalonSettings & {
 };
 
 const SALON_ID = 'booking_page_lifecycle_concurrency';
-const EXPECTED_EXECUTED_TESTS = 3;
+const EXPECTED_EXECUTED_TESTS = 10;
 
 let pool: pg.Pool;
 let database: TestDatabase;
@@ -331,6 +332,56 @@ function coherentGenerationSettings(generation: 'one' | 'two'): CoherentGenerati
   } as unknown as CoherentGenerationSettings;
 }
 
+function divergentDraftLiveSettings(): CoherentGenerationSettings {
+  const settings = coherentGenerationSettings('one');
+  settings.bookingPageContent.draft = {
+    ...BOOKING_PAGE_CONTENT_SIDE_DEFAULTS,
+    bio: 'Draft',
+    locationDisplayMode: 'city_only',
+  };
+  settings.bookingPageContent.live = {
+    ...BOOKING_PAGE_CONTENT_SIDE_DEFAULTS,
+    bio: 'Live',
+    locationDisplayMode: 'full_address',
+  };
+  return settings;
+}
+
+async function seedSettings(settings: CoherentGenerationSettings): Promise<void> {
+  await database
+    .update(schema.salonSchema)
+    .set({ settings })
+    .where(eq(schema.salonSchema.id, SALON_ID));
+}
+
+function createRollbackAfterCallbackDatabase(targetDatabase: TestDatabase): TestDatabase {
+  let firstTransaction = true;
+
+  return new Proxy(targetDatabase, {
+    get(target, property) {
+      const member = Reflect.get(target, property, target) as unknown;
+      if (property === 'transaction' && typeof member === 'function') {
+        return (...args: unknown[]) => {
+          if (!firstTransaction) {
+            return Reflect.apply(member, target, args);
+          }
+
+          firstTransaction = false;
+          const callback = args[0] as TransactionCallback;
+          return Reflect.apply(member, target, [
+            async (transaction: TestTransaction) => {
+              await callback(transaction);
+              throw new Error('Injected failure after the content write.');
+            },
+            ...args.slice(1),
+          ]);
+        };
+      }
+      return typeof member === 'function' ? member.bind(target) : member;
+    },
+  }) as TestDatabase;
+}
+
 function expectLiveGeneration(settings: unknown, generation: 'one' | 'two') {
   const isSecond = generation === 'two';
   const config = resolveBookingPageConfig(settings);
@@ -437,6 +488,10 @@ suite('booking-page lifecycle — genuine PostgreSQL row-lock serialization', ()
     }
 
     expect(executedTests).toBe(EXPECTED_EXECUTED_TESTS);
+
+    process.stdout.write(
+      `BOOKING_PAGE_LIFECYCLE_POSTGRES_TESTS_EXECUTED=${executedTests} BOOKING_PAGE_LIFECYCLE_POSTGRES_TESTS_SKIPPED=0\n`,
+    );
   });
 
   it('makes Publish wait for a preset apply lock and then publishes that preset', async () => {
@@ -614,5 +669,344 @@ suite('booking-page lifecycle — genuine PostgreSQL row-lock serialization', ()
       ]);
       holder.db = database;
     }
+  }, 30_000);
+
+  it('makes a content PATCH wait for Revert and preserve every post-Revert sibling', async () => {
+    executedTests += 1;
+    await seedSettings(divergentDraftLiveSettings());
+
+    const gate = createFirstLockedSelectGate(database);
+    holder.db = gate.database;
+    const revert = synchronizeBookingPageLifecycle(SALON_ID, 'revert');
+    let contentPatch: ReturnType<typeof updateBookingPageContentDraft> | undefined;
+
+    try {
+      const lockHolderPid = await waitForLockHeld(gate.lockHeld, 'Revert');
+      let contentPatchSettled = false;
+      contentPatch = updateBookingPageContentDraft(SALON_ID, {
+        bio: 'Edit completed after Revert',
+      });
+      observeSettlement(contentPatch, () => {
+        contentPatchSettled = true;
+      });
+
+      const waitingPid = await waitForProductionForUpdateWait({
+        lockHolderPid,
+        secondSettled: () => contentPatchSettled,
+      });
+
+      expect(waitingPid).not.toBeNull();
+      expect(waitingPid).not.toBe(lockHolderPid);
+
+      gate.release();
+      const [reverted, patched] = await Promise.all([revert, contentPatch]);
+      const revertedContent = resolveBookingPageContent(reverted);
+      const storedContent = resolveBookingPageContent(await readSettings());
+
+      expect(revertedContent.draft).toEqual(revertedContent.live);
+      expect(revertedContent.draft).toMatchObject({
+        bio: 'Live',
+        locationDisplayMode: 'full_address',
+      });
+      expect(patched?.draft).toMatchObject({
+        bio: 'Edit completed after Revert',
+        locationDisplayMode: 'full_address',
+      });
+      expect(storedContent.draft).toEqual(patched?.draft);
+      expect(storedContent.live).toEqual(revertedContent.live);
+    } finally {
+      gate.release();
+      await Promise.allSettled([
+        revert,
+        ...(contentPatch ? [contentPatch] : []),
+      ]);
+      holder.db = database;
+    }
+  }, 30_000);
+
+  it('publishes the coherent patched draft when content PATCH acquires the lock first', async () => {
+    executedTests += 1;
+    await seedSettings(divergentDraftLiveSettings());
+
+    const gate = createFirstLockedSelectGate(database);
+    holder.db = gate.database;
+    const contentPatch = updateBookingPageContentDraft(SALON_ID, {
+      bio: 'Patched before Publish',
+    });
+    let publish: Promise<unknown | null> | undefined;
+
+    try {
+      const lockHolderPid = await waitForLockHeld(gate.lockHeld, 'Content PATCH');
+      let publishSettled = false;
+      publish = synchronizeBookingPageLifecycle(SALON_ID, 'publish');
+      observeSettlement(publish, () => {
+        publishSettled = true;
+      });
+
+      const waitingPid = await waitForProductionForUpdateWait({
+        lockHolderPid,
+        secondSettled: () => publishSettled,
+      });
+
+      expect(waitingPid).not.toBeNull();
+      expect(waitingPid).not.toBe(lockHolderPid);
+
+      gate.release();
+      const [patched, published] = await Promise.all([contentPatch, publish]);
+      const publishedContent = resolveBookingPageContent(published);
+      const storedContent = resolveBookingPageContent(await readSettings());
+
+      expect(patched?.draft).toMatchObject({
+        bio: 'Patched before Publish',
+        locationDisplayMode: 'city_only',
+      });
+      expect(publishedContent.live).toEqual(patched?.draft);
+      expect(storedContent.live).toEqual(storedContent.draft);
+      expect(storedContent.live).toEqual(publishedContent.live);
+    } finally {
+      gate.release();
+      await Promise.allSettled([
+        contentPatch,
+        ...(publish ? [publish] : []),
+      ]);
+      holder.db = database;
+    }
+  }, 30_000);
+
+  it('leaves the later content PATCH as one coherent unpublished edit when Publish locks first', async () => {
+    executedTests += 1;
+    await seedSettings(divergentDraftLiveSettings());
+
+    const gate = createFirstLockedSelectGate(database);
+    holder.db = gate.database;
+    const publish = synchronizeBookingPageLifecycle(SALON_ID, 'publish');
+    let contentPatch: ReturnType<typeof updateBookingPageContentDraft> | undefined;
+
+    try {
+      const lockHolderPid = await waitForLockHeld(gate.lockHeld, 'Publish');
+      let contentPatchSettled = false;
+      contentPatch = updateBookingPageContentDraft(SALON_ID, {
+        bio: 'Patched after Publish',
+      });
+      observeSettlement(contentPatch, () => {
+        contentPatchSettled = true;
+      });
+
+      const waitingPid = await waitForProductionForUpdateWait({
+        lockHolderPid,
+        secondSettled: () => contentPatchSettled,
+      });
+
+      expect(waitingPid).not.toBeNull();
+      expect(waitingPid).not.toBe(lockHolderPid);
+
+      gate.release();
+      const [published, patched] = await Promise.all([publish, contentPatch]);
+      const publishedContent = resolveBookingPageContent(published);
+      const storedContent = resolveBookingPageContent(await readSettings());
+
+      expect(publishedContent.live).toMatchObject({
+        bio: 'Draft',
+        locationDisplayMode: 'city_only',
+      });
+      expect(patched?.draft).toMatchObject({
+        bio: 'Patched after Publish',
+        locationDisplayMode: 'city_only',
+      });
+      expect(storedContent.live).toEqual(publishedContent.live);
+      expect(storedContent.draft).toEqual(patched?.draft);
+      expect(storedContent.draft).not.toEqual(storedContent.live);
+    } finally {
+      gate.release();
+      await Promise.allSettled([
+        publish,
+        ...(contentPatch ? [contentPatch] : []),
+      ]);
+      holder.db = database;
+    }
+  }, 30_000);
+
+  it('serializes preset apply after content PATCH without losing presentation or owner content', async () => {
+    executedTests += 1;
+    await seedSettings(divergentDraftLiveSettings());
+
+    const gate = createFirstLockedSelectGate(database);
+    holder.db = gate.database;
+    const contentPatch = updateBookingPageContentDraft(SALON_ID, {
+      bio: 'Content before preset',
+    });
+    let presetApply: ReturnType<typeof applyPreset> | undefined;
+
+    try {
+      const lockHolderPid = await waitForLockHeld(gate.lockHeld, 'Content PATCH');
+      let presetSettled = false;
+      presetApply = applyPreset('menu');
+      observeSettlement(presetApply, () => {
+        presetSettled = true;
+      });
+
+      const waitingPid = await waitForProductionForUpdateWait({
+        lockHolderPid,
+        secondSettled: () => presetSettled,
+      });
+
+      expect(waitingPid).not.toBeNull();
+      expect(waitingPid).not.toBe(lockHolderPid);
+
+      gate.release();
+      const [patched, applied] = await Promise.all([contentPatch, presetApply]);
+      const stored = await readSettings();
+      const storedConfig = resolveBookingPageConfig(stored);
+      const storedContent = resolveBookingPageContent(stored);
+
+      expect(applied?.draftPresetBase?.presetId).toBe('menu');
+      expect(storedConfig.draftPresetBase?.presetId).toBe('menu');
+      expect(storedConfig.livePresetBase?.presetId).toBe('quick_book');
+      expect(storedContent.draft).toEqual(patched?.draft);
+      expect(storedContent.draft).toMatchObject({
+        bio: 'Content before preset',
+        locationDisplayMode: 'city_only',
+      });
+      expect(storedContent.live).toMatchObject({
+        bio: 'Live',
+        locationDisplayMode: 'full_address',
+      });
+    } finally {
+      gate.release();
+      await Promise.allSettled([
+        contentPatch,
+        ...(presetApply ? [presetApply] : []),
+      ]);
+      holder.db = database;
+    }
+  }, 30_000);
+
+  it('serializes content PATCH after preset apply without losing presentation or owner content', async () => {
+    executedTests += 1;
+    await seedSettings(divergentDraftLiveSettings());
+
+    const gate = createFirstLockedSelectGate(database);
+    holder.db = gate.database;
+    const presetApply = applyPreset('menu');
+    let contentPatch: ReturnType<typeof updateBookingPageContentDraft> | undefined;
+
+    try {
+      const lockHolderPid = await waitForLockHeld(gate.lockHeld, 'Preset apply');
+      let contentPatchSettled = false;
+      contentPatch = updateBookingPageContentDraft(SALON_ID, {
+        bio: 'Content after preset',
+      });
+      observeSettlement(contentPatch, () => {
+        contentPatchSettled = true;
+      });
+
+      const waitingPid = await waitForProductionForUpdateWait({
+        lockHolderPid,
+        secondSettled: () => contentPatchSettled,
+      });
+
+      expect(waitingPid).not.toBeNull();
+      expect(waitingPid).not.toBe(lockHolderPid);
+
+      gate.release();
+      const [applied, patched] = await Promise.all([presetApply, contentPatch]);
+      const stored = await readSettings();
+      const storedConfig = resolveBookingPageConfig(stored);
+      const storedContent = resolveBookingPageContent(stored);
+
+      expect(applied?.draftPresetBase?.presetId).toBe('menu');
+      expect(storedConfig.draftPresetBase?.presetId).toBe('menu');
+      expect(storedConfig.livePresetBase?.presetId).toBe('quick_book');
+      expect(storedContent.draft).toEqual(patched?.draft);
+      expect(storedContent.draft).toMatchObject({
+        bio: 'Content after preset',
+        locationDisplayMode: 'city_only',
+      });
+      expect(storedContent.live).toMatchObject({
+        bio: 'Live',
+        locationDisplayMode: 'full_address',
+      });
+    } finally {
+      gate.release();
+      await Promise.allSettled([
+        presetApply,
+        ...(contentPatch ? [contentPatch] : []),
+      ]);
+      holder.db = database;
+    }
+  }, 30_000);
+
+  it('serializes disjoint content PATCHes so neither can resurrect a stale sibling', async () => {
+    executedTests += 1;
+    await seedSettings(divergentDraftLiveSettings());
+
+    const gate = createFirstLockedSelectGate(database);
+    holder.db = gate.database;
+    const bioPatch = updateBookingPageContentDraft(SALON_ID, {
+      bio: 'First session bio',
+    });
+    let locationPatch: ReturnType<typeof updateBookingPageContentDraft> | undefined;
+
+    try {
+      const lockHolderPid = await waitForLockHeld(gate.lockHeld, 'First content PATCH');
+      let locationPatchSettled = false;
+      locationPatch = updateBookingPageContentDraft(SALON_ID, {
+        locationDisplayMode: 'full_address',
+      });
+      observeSettlement(locationPatch, () => {
+        locationPatchSettled = true;
+      });
+
+      const waitingPid = await waitForProductionForUpdateWait({
+        lockHolderPid,
+        secondSettled: () => locationPatchSettled,
+      });
+
+      expect(waitingPid).not.toBeNull();
+      expect(waitingPid).not.toBe(lockHolderPid);
+
+      gate.release();
+      const [bioResult, locationResult] = await Promise.all([bioPatch, locationPatch]);
+      const storedContent = resolveBookingPageContent(await readSettings());
+
+      expect(bioResult?.draft).toMatchObject({
+        bio: 'First session bio',
+        locationDisplayMode: 'city_only',
+      });
+      expect(locationResult?.draft).toMatchObject({
+        bio: 'First session bio',
+        locationDisplayMode: 'full_address',
+      });
+      expect(storedContent.draft).toEqual(locationResult?.draft);
+      expect(storedContent.live).toMatchObject({
+        bio: 'Live',
+        locationDisplayMode: 'full_address',
+      });
+    } finally {
+      gate.release();
+      await Promise.allSettled([
+        bioPatch,
+        ...(locationPatch ? [locationPatch] : []),
+      ]);
+      holder.db = database;
+    }
+  }, 30_000);
+
+  it('rolls back the complete content PATCH transaction when failure is injected before commit', async () => {
+    executedTests += 1;
+    await seedSettings(divergentDraftLiveSettings());
+    const before = await readSettings();
+
+    holder.db = createRollbackAfterCallbackDatabase(database);
+    try {
+      await expect(updateBookingPageContentDraft(SALON_ID, {
+        bio: 'Must roll back',
+        locationDisplayMode: 'full_address',
+      })).rejects.toThrow('Injected failure after the content write.');
+    } finally {
+      holder.db = database;
+    }
+
+    expect(await readSettings()).toEqual(before);
   }, 30_000);
 });

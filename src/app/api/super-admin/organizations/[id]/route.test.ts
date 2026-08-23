@@ -87,6 +87,11 @@ function renderFeatureUpdateSql(): string {
   return new PgDialect().sqlToQuery(payload.features as SQL).sql;
 }
 
+function renderSettingsUpdateSql() {
+  const payload = getLastUpdatePayload() as { settings?: unknown };
+  return new PgDialect().sqlToQuery(payload.settings as SQL);
+}
+
 describe('GET/PUT /api/super-admin/organizations/[id]', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -238,6 +243,7 @@ describe('GET/PUT /api/super-admin/organizations/[id]', () => {
       settings: {
         booking: { timezone: 'America/Toronto' },
         modules: { analyticsDashboard: false, rewards: false },
+        bookingPageContent: { draft: { bio: 'must remain current' } },
       },
       onlineBookingEnabled: true,
       smsRemindersEnabled: false,
@@ -273,18 +279,22 @@ describe('GET/PUT /api/super-admin/organizations/[id]', () => {
     );
 
     expect(response.status).toBe(200);
-    expect(getLastUpdatePayload()).toMatchObject({
-      settings: {
-        booking: { timezone: 'America/Toronto' },
-        modules: {
-          analyticsDashboard: true,
-          utilization: true,
-          rewards: true,
-          referrals: false,
-          smsReminders: false,
-        },
-      },
+
+    const settingsQuery = renderSettingsUpdateSql();
+
+    expect(settingsQuery.sql).toContain('jsonb_set');
+    expect(settingsQuery.sql).toContain('\'{modules}\'');
+    expect(settingsQuery.sql).toContain('"salon"."settings"');
+    expect(settingsQuery.params).toHaveLength(1);
+    expect(JSON.parse(String(settingsQuery.params[0]))).toMatchObject({
+      analyticsDashboard: true,
+      utilization: true,
+      rewards: true,
+      referrals: false,
+      smsReminders: false,
     });
+    expect(JSON.stringify(settingsQuery.params)).not.toContain('must remain current');
+    expect(JSON.stringify(settingsQuery.params)).not.toContain('bookingPageContent');
     expect(renderFeatureUpdateSql()).toContain(`- 'customization'`);
   });
 

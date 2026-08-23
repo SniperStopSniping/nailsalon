@@ -501,14 +501,29 @@ export async function PUT(
     const updates: Partial<typeof salonSchema.$inferInsert> = { ...validatedUpdates };
 
     if (syncFeatureModules && requestedFeatures) {
-      const existingSettings = (existing.settings as SalonSettings | null) ?? {};
-      updates.settings = {
-        ...existingSettings,
-        modules: {
-          ...(existingSettings.modules ?? {}),
-          ...getEntitledModules(requestedFeatures),
-        },
-      };
+      const entitledModules = getEntitledModules(requestedFeatures);
+      // Resolve the modules object from the live column at UPDATE time. A
+      // request-start snapshot may predate an owner booking-page write; a
+      // whole-settings replacement here would then erase that unrelated
+      // DRAFT/LIVE state. JSONB concatenation preserves existing module keys
+      // while the right-hand entitlement values remain authoritative.
+      updates.settings = sql`
+        jsonb_set(
+          CASE
+            WHEN jsonb_typeof(${salonSchema.settings}) = 'object'
+              THEN ${salonSchema.settings}
+            ELSE '{}'::jsonb
+          END,
+          '{modules}',
+          (
+            CASE
+              WHEN jsonb_typeof(${salonSchema.settings}->'modules') = 'object'
+                THEN ${salonSchema.settings}->'modules'
+              ELSE '{}'::jsonb
+            END
+          ) || ${JSON.stringify(entitledModules)}::jsonb
+        )
+      ` as unknown as SalonSettings;
     }
 
     if (requestedFeatures) {

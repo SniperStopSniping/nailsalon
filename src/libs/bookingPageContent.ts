@@ -189,14 +189,20 @@ export function resolveBookingPageContent(settings: unknown): BookingPageContent
 }
 
 // =============================================================================
-// WRITES — targeted, concurrency-safe jsonb_set (mirrors bookingPageConfig.ts)
+// WRITES — transaction-scoped, targeted jsonb_set (mirrors bookingPageConfig.ts)
 // =============================================================================
 
-async function readCurrentBookingPageContent(salonId: string): Promise<BookingPageContent | null> {
-  const [existing] = await db
+export type BookingPageContentTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+async function readCurrentBookingPageContent(
+  tx: BookingPageContentTransaction,
+  salonId: string,
+): Promise<BookingPageContent | null> {
+  const [existing] = await tx
     .select({ settings: salonSchema.settings })
     .from(salonSchema)
     .where(eq(salonSchema.id, salonId))
+    .for('update')
     .limit(1);
 
   if (!existing) {
@@ -207,6 +213,7 @@ async function readCurrentBookingPageContent(salonId: string): Promise<BookingPa
 }
 
 async function writeContentSide(
+  tx: BookingPageContentTransaction,
   salonId: string,
   targetSide: 'draft' | 'live',
   value: BookingPageContentSide,
@@ -237,7 +244,7 @@ async function writeContentSide(
     : sql.raw(`'{bookingPageContent,live}'`);
   settingsExpression = sql`jsonb_set(${settingsExpression}, ${targetPath}, ${JSON.stringify(value)}::jsonb)`;
 
-  const [updated] = await db
+  const [updated] = await tx
     .update(salonSchema)
     .set({ settings: settingsExpression })
     .where(eq(salonSchema.id, salonId))
@@ -251,6 +258,81 @@ async function writeContentSide(
 }
 
 /**
+ * Transaction-aware content PATCH primitive. The caller owns `tx`; this
+ * function acquires the same salon-row lock used by presentation writes and
+ * Publish/Revert, resolves DRAFT only after that lock is held, and changes
+ * only keys explicitly supplied by the validated patch.
+ *
+ * Keeping the field updates targeted is intentional defense in depth: the
+ * row lock provides cross-session serialization, while the jsonb_set chain
+ * makes it impossible for this writer to replace an unrelated content key
+ * from a stale whole-side snapshot.
+ */
+export async function updateBookingPageContentDraftInTransaction(
+  tx: BookingPageContentTransaction,
+  salonId: string,
+  validatedPatch: BookingPageContentPatch,
+): Promise<BookingPageContent | null> {
+  const current = await readCurrentBookingPageContent(tx, salonId);
+  if (!current) {
+    return null;
+  }
+
+  let settingsExpression = sql`
+    CASE
+      WHEN jsonb_typeof(${salonSchema.settings}) = 'object'
+        THEN ${salonSchema.settings}
+      ELSE '{}'::jsonb
+    END
+  `;
+
+  settingsExpression = sql`
+    jsonb_set(
+      ${settingsExpression},
+      '{bookingPageContent}',
+      CASE
+        WHEN jsonb_typeof(${settingsExpression}->'bookingPageContent') = 'object'
+          THEN ${settingsExpression}->'bookingPageContent'
+        ELSE '{}'::jsonb
+      END
+    )
+  `;
+  settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,version}', '1'::jsonb)`;
+  settingsExpression = sql`
+    jsonb_set(
+      ${settingsExpression},
+      '{bookingPageContent,draft}',
+      CASE
+        WHEN jsonb_typeof(${settingsExpression}#>'{bookingPageContent,draft}') = 'object'
+          THEN ${settingsExpression}#>'{bookingPageContent,draft}'
+        ELSE ${JSON.stringify(current.draft)}::jsonb
+      END
+    )
+  `;
+
+  if (validatedPatch.heroImageUrl !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,draft,heroImageUrl}', ${JSON.stringify(validatedPatch.heroImageUrl)}::jsonb)`;
+  }
+  if (validatedPatch.specialtyLine !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,draft,specialtyLine}', ${JSON.stringify(validatedPatch.specialtyLine)}::jsonb)`;
+  }
+  if (validatedPatch.bio !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,draft,bio}', ${JSON.stringify(validatedPatch.bio)}::jsonb)`;
+  }
+  if (validatedPatch.locationDisplayMode !== undefined) {
+    settingsExpression = sql`jsonb_set(${settingsExpression}, '{bookingPageContent,draft,locationDisplayMode}', ${JSON.stringify(validatedPatch.locationDisplayMode)}::jsonb)`;
+  }
+
+  const [updated] = await tx
+    .update(salonSchema)
+    .set({ settings: settingsExpression })
+    .where(eq(salonSchema.id, salonId))
+    .returning();
+
+  return updated ? resolveBookingPageContent(updated.settings) : null;
+}
+
+/**
  * Writes a patch into `salon.settings.bookingPageContent.draft` only. The
  * patch must already be valid (validate with `bookingPageContentPatchSchema`
  * upstream) — an invalid patch throws here, same contract as
@@ -261,30 +343,31 @@ export async function updateBookingPageContentDraft(
   patch: BookingPageContentPatch,
 ): Promise<BookingPageContent | null> {
   const validatedPatch = bookingPageContentPatchSchema.parse(patch);
-
-  const current = await readCurrentBookingPageContent(salonId);
-  if (!current) {
-    return null;
-  }
-
-  const nextDraft: BookingPageContentSide = { ...current.draft, ...validatedPatch };
-  return writeContentSide(salonId, 'draft', nextDraft);
+  return db.transaction(tx => updateBookingPageContentDraftInTransaction(
+    tx,
+    salonId,
+    validatedPatch,
+  ));
 }
 
 /** Copies the resolved `draft` side into `live`. Same semantics as `publishBookingPageConfig`. */
 export async function publishBookingPageContent(salonId: string): Promise<BookingPageContent | null> {
-  const current = await readCurrentBookingPageContent(salonId);
-  if (!current) {
-    return null;
-  }
-  return writeContentSide(salonId, 'live', current.draft);
+  return db.transaction(async (tx) => {
+    const current = await readCurrentBookingPageContent(tx, salonId);
+    if (!current) {
+      return null;
+    }
+    return writeContentSide(tx, salonId, 'live', current.draft);
+  });
 }
 
 /** Resets `draft` to match `live`. Same semantics as `revertBookingPageDraft`. */
 export async function revertBookingPageContentDraft(salonId: string): Promise<BookingPageContent | null> {
-  const current = await readCurrentBookingPageContent(salonId);
-  if (!current) {
-    return null;
-  }
-  return writeContentSide(salonId, 'draft', current.live);
+  return db.transaction(async (tx) => {
+    const current = await readCurrentBookingPageContent(tx, salonId);
+    if (!current) {
+      return null;
+    }
+    return writeContentSide(tx, salonId, 'draft', current.live);
+  });
 }

@@ -133,6 +133,24 @@ describe('bookingPageContent draft/publish/revert lifecycle (PGlite)', () => {
     expect(result?.draft.specialtyLine).toBeNull();
   });
 
+  it('changes only supplied keys while preserving explicit clear semantics', async () => {
+    await updateBookingPageContentDraft(SALON_ID, {
+      heroImageUrl: 'https://example.com/current.jpg',
+      specialtyLine: 'Current specialty',
+      bio: 'Current bio',
+      locationDisplayMode: 'city_only',
+    });
+
+    const cleared = await updateBookingPageContentDraft(SALON_ID, { bio: null });
+
+    expect(cleared?.draft).toEqual({
+      heroImageUrl: 'https://example.com/current.jpg',
+      specialtyLine: 'Current specialty',
+      bio: null,
+      locationDisplayMode: 'city_only',
+    });
+  });
+
   it('publishBookingPageContent copies draft into live and leaves draft untouched', async () => {
     await updateBookingPageContentDraft(SALON_ID, {
       bio: 'Published bio',

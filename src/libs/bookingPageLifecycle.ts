@@ -2,12 +2,81 @@ import 'server-only';
 
 import { eq, sql } from 'drizzle-orm';
 
-import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
-import { resolveBookingPageContent } from '@/libs/bookingPageContent';
+import {
+  type BookingPageDraftPatch,
+  bookingPageDraftPatchSchema,
+  resolveBookingPageConfig,
+  updateBookingPageDraftInTransaction,
+} from '@/libs/bookingPageConfig';
+import {
+  type BookingPageContentPatch,
+  bookingPageContentPatchSchema,
+  resolveBookingPageContent,
+  updateBookingPageContentDraftInTransaction,
+} from '@/libs/bookingPageContent';
 import { db } from '@/libs/DB';
 import { salonSchema } from '@/models/Schema';
 
 export type BookingPageLifecycleAction = 'publish' | 'revert';
+
+type BookingPageDraftStatePatch = {
+  config?: BookingPageDraftPatch;
+  content?: BookingPageContentPatch;
+};
+
+/**
+ * Applies a raw owner draft request through one transaction. The route allows
+ * config and content subsets in the same PATCH, so committing those subsets in
+ * separate transactions would let Publish/Revert split one HTTP operation.
+ * Both transaction-aware primitives acquire the same salon-row lock (a
+ * repeated lock by the same transaction is harmless), and the transaction
+ * rolls both updates back if either fails.
+ */
+export async function updateBookingPageDraftState(
+  salonId: string,
+  patch: BookingPageDraftStatePatch,
+): Promise<unknown | null> {
+  // Caller data is validated before the transaction begins, keeping the lock
+  // duration bounded and preserving the existing strict API contract.
+  const configPatch = patch.config === undefined
+    ? undefined
+    : bookingPageDraftPatchSchema.parse(patch.config);
+  const contentPatch = patch.content === undefined
+    ? undefined
+    : bookingPageContentPatchSchema.parse(patch.content);
+
+  return db.transaction(async (tx) => {
+    if (configPatch !== undefined) {
+      const updatedConfig = await updateBookingPageDraftInTransaction(
+        tx,
+        salonId,
+        configPatch,
+      );
+      if (!updatedConfig) {
+        return null;
+      }
+    }
+
+    if (contentPatch !== undefined) {
+      const updatedContent = await updateBookingPageContentDraftInTransaction(
+        tx,
+        salonId,
+        contentPatch,
+      );
+      if (!updatedContent) {
+        return null;
+      }
+    }
+
+    const [updated] = await tx
+      .select({ settings: salonSchema.settings })
+      .from(salonSchema)
+      .where(eq(salonSchema.id, salonId))
+      .limit(1);
+
+    return updated?.settings ?? null;
+  });
+}
 
 /**
  * Publishes or reverts presentation and owner-editable page content from one

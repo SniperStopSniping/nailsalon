@@ -42,7 +42,10 @@ import {
   resolveBookingPageContent,
   updateBookingPageContentDraft,
 } from '@/libs/bookingPageContent';
-import { synchronizeBookingPageLifecycle } from '@/libs/bookingPageLifecycle';
+import {
+  synchronizeBookingPageLifecycle,
+  updateBookingPageDraftState,
+} from '@/libs/bookingPageLifecycle';
 import { getSalonById, getSalonBySlug } from '@/libs/queries';
 import type { Salon } from '@/models/Schema';
 
@@ -179,10 +182,20 @@ export async function PATCH(request: Request): Promise<Response> {
       }
       throw error;
     }
+  } else if (configPatch && contentPatch) {
+    const updated = await updateBookingPageDraftState(salon.id, {
+      config: configPatch,
+      content: contentPatch,
+    });
+    if (!updated) {
+      return Response.json(
+        { error: 'Booking page state changed before the update completed' },
+        { status: 409 },
+      );
+    }
   } else if (configPatch) {
     await updateBookingPageDraft(salon.id, configPatch);
-  }
-  if (contentPatch) {
+  } else if (contentPatch) {
     await updateBookingPageContentDraft(salon.id, contentPatch);
   }
 
