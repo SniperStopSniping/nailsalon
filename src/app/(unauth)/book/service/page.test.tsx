@@ -22,6 +22,7 @@ const {
   resolveDraftSalonAccess,
   bookServiceClientSpy,
   publicSalonPageShellSpy,
+  notFound,
 } = vi.hoisted(() => ({
   buildTenantRedirectPath: vi.fn((path: string | null) => path),
   checkFeatureEnabled: vi.fn(),
@@ -44,13 +45,19 @@ const {
   isClientEligibleForFirstVisitDiscount: vi.fn(),
   bookServiceClientSpy: vi.fn(),
   publicSalonPageShellSpy: vi.fn(),
+  notFound: vi.fn(() => {
+    throw new Error('NOT_FOUND_SENTINEL');
+  }),
 }));
 
 vi.mock('next/navigation', () => ({
+  notFound,
   redirect: vi.fn((url: string) => {
     throw new Error(`REDIRECT:${url}`);
   }),
 }));
+
+vi.mock('server-only', () => ({}));
 
 vi.mock('@/components/PublicSalonPageShell', () => ({
   PublicSalonPageShell: (props: { children: React.ReactNode } & Record<string, unknown>) => {
@@ -167,6 +174,7 @@ vi.mock('./BookServiceClient', () => ({
 import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 
+import { renderBookServicePage } from './BookServicePageServer';
 import BookServicePage from './page';
 
 describe('BookServicePage first-visit offer visibility', () => {
@@ -761,6 +769,89 @@ describe('BookServicePage owner-preview wiring', () => {
       }));
     },
   );
+
+  it.each([
+    [
+      'anonymous, wrong-owner, or expired access on a published salon',
+      {
+        allowed: true,
+        isPreviewingDraftSalon: false,
+        isPreviewingDraftConfig: false,
+        actorType: null,
+      } satisfies DraftSalonGateResult,
+    ],
+    [
+      'denied access to an unpublished salon',
+      { allowed: false, reason: 'no_session' } satisfies DraftSalonGateResult,
+    ],
+  ])('never downgrades required Owner Preview to LIVE for %s', async (_label, gate) => {
+    resolveDraftSalonAccess.mockResolvedValue(gate);
+
+    await expect(renderBookServicePage({
+      searchParams: { builderPreview: '0' },
+      params: { locale: 'en', slug: 'salon-a' },
+    }, { requireOwnerDraftPreview: true })).rejects.toThrow('NOT_FOUND_SENTINEL');
+
+    expect(bookServiceClientSpy).not.toHaveBeenCalled();
+    expect(publicSalonPageShellSpy).not.toHaveBeenCalled();
+  });
+
+  it('renders the authorized DRAFT in static scriptless mode from one gate decision', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: false,
+      isPreviewingDraftConfig: true,
+      actorType: 'owner',
+    });
+
+    const element = await renderBookServicePage({
+      searchParams: { builderPreview: '0' },
+      params: { locale: 'en', slug: 'salon-a' },
+    }, { requireOwnerDraftPreview: true });
+    render(element);
+
+    expect(resolveDraftSalonAccess).toHaveBeenCalledTimes(1);
+    expect(publicSalonPageShellSpy).toHaveBeenCalledWith(expect.objectContaining({
+      isPreviewingDraftConfig: true,
+      previewBannerVariant: 'draft-config',
+    }));
+    expect(bookServiceClientSpy).toHaveBeenCalledWith(expect.objectContaining({
+      isEmbeddedBuilderPreview: true,
+    }));
+  });
+
+  it('repairs an invalid location inside the private DRAFT route instead of downgrading to public LIVE', async () => {
+    resolveDraftSalonAccess.mockResolvedValue({
+      allowed: true,
+      isPreviewingDraftSalon: false,
+      isPreviewingDraftConfig: true,
+      actorType: 'owner',
+    });
+    getActiveLocationsBySalonId.mockResolvedValueOnce([{
+      id: 'location-primary',
+      name: 'Main studio',
+      address: '1 Studio Way',
+      city: 'Toronto',
+      state: 'ON',
+      zipCode: 'M1M 1M1',
+      phone: null,
+      isPrimary: true,
+    }]);
+
+    await expect(renderBookServicePage({
+      searchParams: {
+        builderPreview: '12',
+        locationId: 'stale-location',
+        salonSlug: 'wrong-public-salon',
+      },
+      params: { locale: 'en', slug: 'salon-a' },
+    }, { requireOwnerDraftPreview: true })).rejects.toThrow(
+      'REDIRECT:/en/admin/booking-page/preview/salon-a?builderPreview=12&locationId=location-primary',
+    );
+
+    expect(bookServiceClientSpy).not.toHaveBeenCalled();
+    expect(publicSalonPageShellSpy).not.toHaveBeenCalled();
+  });
 
   it('does not let an ordinary live-page visitor opt into embedded builder rendering by query', async () => {
     resolveDraftSalonAccess.mockResolvedValue({

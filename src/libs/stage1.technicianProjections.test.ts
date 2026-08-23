@@ -205,7 +205,11 @@ describe('S5 — source-level guards for in-route projections', () => {
   );
 
   it('book/service reuses the shared projector rather than keeping a fourth copy', () => {
-    const source = readSource('src/app/(unauth)/book/service/page.tsx');
+    const routeSource = readSource('src/app/(unauth)/book/service/page.tsx');
+    const source = readSource('src/app/(unauth)/book/service/BookServicePageServer.tsx');
+
+    expect(routeSource).toContain('from \'./BookServicePageServer\'');
+    expect(routeSource).toContain('return renderBookServicePage(props)');
 
     expect(source).toContain('dbTechnicians.map(mapPublicTechnician)');
     expect(source).not.toMatch(/dbTechnicians\.map\(technician => \(\{/);

@@ -33,11 +33,16 @@ import * as schema from '@/models/Schema';
 vi.mock('server-only', () => ({}));
 
 const holder = vi.hoisted(() => ({ db: null as unknown }));
+const clerkAuth = vi.hoisted(() => vi.fn());
 
 vi.mock('@/libs/DB', () => ({
   get db() {
     return holder.db;
   },
+}));
+
+vi.mock('@clerk/nextjs/server', () => ({
+  auth: clerkAuth,
 }));
 
 // Dev-mode role override must be inert in tests — mirrors the mock already
@@ -90,6 +95,8 @@ const OTHER_SALON_ID = 'salon_preview_other';
 const OWNER_ADMIN_ID = 'admin_preview_owner';
 const OTHER_OWNER_ADMIN_ID = 'admin_preview_other_owner';
 const SUPER_ADMIN_ID = 'admin_preview_super';
+const OWNER_CLERK_ID = 'user_preview_owner';
+const OTHER_OWNER_CLERK_ID = 'user_preview_other_owner';
 
 const OWNER_SESSION_ID = 'session_preview_owner_valid';
 const OTHER_OWNER_SESSION_ID = 'session_preview_other_owner_valid';
@@ -134,8 +141,8 @@ beforeAll(async () => {
   ]);
 
   await db.insert(schema.adminUserSchema).values([
-    { id: OWNER_ADMIN_ID, phoneE164: '+15550000001', name: 'Target Owner', isSuperAdmin: false },
-    { id: OTHER_OWNER_ADMIN_ID, phoneE164: '+15550000002', name: 'Other Owner', isSuperAdmin: false },
+    { id: OWNER_ADMIN_ID, phoneE164: '+15550000001', name: 'Target Owner', isSuperAdmin: false, clerkUserId: OWNER_CLERK_ID },
+    { id: OTHER_OWNER_ADMIN_ID, phoneE164: '+15550000002', name: 'Other Owner', isSuperAdmin: false, clerkUserId: OTHER_OWNER_CLERK_ID },
     { id: SUPER_ADMIN_ID, phoneE164: '+15550000003', name: 'Sam Super', isSuperAdmin: true },
   ]);
 
@@ -159,6 +166,8 @@ afterAll(async () => {
 describe('resolveOwnerPreviewContext — authorization matrix', () => {
   beforeEach(() => {
     clearCookies();
+    clerkAuth.mockReset();
+    clerkAuth.mockResolvedValue({ userId: null });
   });
 
   it('1. anonymous (no session) fails closed', async () => {
@@ -226,9 +235,69 @@ describe('resolveOwnerPreviewContext — authorization matrix', () => {
   });
 });
 
+describe('resolveOwnerPreviewContext — Production Clerk-only Owner path', () => {
+  beforeEach(() => {
+    clearCookies();
+    setCookie('__session', 'opaque-clerk-session-cookie');
+    clerkAuth.mockReset();
+  });
+
+  it('authorizes the linked owner with no legacy admin cookie', async () => {
+    clerkAuth.mockResolvedValue({ userId: OWNER_CLERK_ID });
+
+    await expect(resolveOwnerPreviewContext(SALON_ID)).resolves.toEqual({
+      isPreviewing: true,
+      actorType: 'owner',
+      reason: 'owner_match',
+    });
+    expect(cookieJar.has(ADMIN_SESSION_COOKIE)).toBe(false);
+  });
+
+  it('denies a Clerk owner linked only to another salon', async () => {
+    clerkAuth.mockResolvedValue({ userId: OTHER_OWNER_CLERK_ID });
+
+    await expect(resolveOwnerPreviewContext(SALON_ID)).resolves.toEqual({
+      isPreviewing: false,
+      actorType: null,
+      reason: 'wrong_owner',
+    });
+  });
+
+  it('fails closed when the Clerk session is missing, expired, or revoked', async () => {
+    clerkAuth.mockResolvedValueOnce({ userId: OWNER_CLERK_ID });
+
+    await expect(resolveOwnerPreviewContext(SALON_ID)).resolves.toMatchObject({
+      isPreviewing: true,
+    });
+
+    clerkAuth.mockResolvedValue({ userId: null });
+
+    await expect(resolveOwnerPreviewContext(SALON_ID)).resolves.toEqual({
+      isPreviewing: false,
+      actorType: null,
+      reason: 'no_session',
+    });
+  });
+
+  it('fails closed when Clerk middleware context is absent or throws', async () => {
+    clerkAuth.mockRejectedValue(new Error('Clerk auth() was called without middleware context'));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    await expect(resolveOwnerPreviewContext(SALON_ID)).resolves.toEqual({
+      isPreviewing: false,
+      actorType: null,
+      reason: 'no_session',
+    });
+
+    consoleError.mockRestore();
+  });
+});
+
 describe('resolveDraftSalonAccess — draft salon rendering (the 404 gate)', () => {
   beforeEach(() => {
     clearCookies();
+    clerkAuth.mockReset();
+    clerkAuth.mockResolvedValue({ userId: null });
   });
 
   it('1. anonymous gets 404 (not allowed)', async () => {
@@ -280,6 +349,8 @@ describe('resolveDraftSalonAccess — draft salon rendering (the 404 gate)', () 
 describe('resolveDraftSalonAccess — draft config on an otherwise-published salon', () => {
   beforeEach(() => {
     clearCookies();
+    clerkAuth.mockReset();
+    clerkAuth.mockResolvedValue({ userId: null });
   });
 
   it('1. anonymous still renders the page, on the LIVE config', async () => {

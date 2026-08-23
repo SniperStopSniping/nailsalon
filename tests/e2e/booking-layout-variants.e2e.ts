@@ -10,6 +10,7 @@ import {
   test,
 } from '@playwright/test';
 import { Client, type QueryResultRow } from 'pg';
+import sharp from 'sharp';
 
 import {
   BOOKING_PAGE_PRESET_IDS,
@@ -867,9 +868,14 @@ async function expectOpaquePreviewServiceCard(
 type PreviewViewportMetrics = Readonly<{
   bodyScrollTop: number;
   documentScrollTop: number;
+  frameAncestorsAreSafe: boolean;
+  frameHasPixels: boolean;
+  frameHasVisibleArea: boolean;
+  frameIsOpaque: boolean;
   footerIntersects: boolean;
   scrollY: number;
   surfaceScrollTop: number;
+  topContentAncestorsAreSafe: boolean;
   topContentHasPixels: boolean;
   topContentIsOpaque: boolean;
   topContentIsVisible: boolean;
@@ -882,7 +888,7 @@ async function readPreviewViewportMetrics(
   topMarkerTestId: string,
 ): Promise<PreviewViewportMetrics> {
   const scrollSurface = iframe.locator('xpath=ancestor::*[@data-booking-page-preview-scroll][1]');
-  const [childMetrics, surfaceScrollTop] = await Promise.all([
+  const [childMetrics, frameMetrics, surfaceScrollTop] = await Promise.all([
     preview.locator('html').evaluate((html, markerTestId) => {
       const topMarker = document.querySelector<HTMLElement>(
         `[data-testid="${CSS.escape(markerTestId)}"]`,
@@ -909,14 +915,39 @@ async function readPreviewViewportMetrics(
         : [];
       const topContentMetrics = topContentCandidates.map((candidate) => {
         const box = candidate.getBoundingClientRect();
-        const style = getComputedStyle(candidate);
         let effectiveOpacity = 1;
+        let ancestorsAreSafe = true;
+        let visibleLeft = Math.max(0, box.left);
+        let visibleTop = Math.max(0, box.top);
+        let visibleRight = Math.min(window.innerWidth, box.right);
+        let visibleBottom = Math.min(window.innerHeight, box.bottom);
         let ancestor: HTMLElement | null = candidate;
 
         while (ancestor) {
-          const opacity = Number.parseFloat(getComputedStyle(ancestor).opacity);
+          const style = getComputedStyle(ancestor);
+          const opacity = Number.parseFloat(style.opacity);
+          const ancestorBox = ancestor.getBoundingClientRect();
 
           effectiveOpacity *= Number.isFinite(opacity) ? opacity : 1;
+          ancestorsAreSafe = ancestorsAreSafe
+          && style.display !== 'none'
+          && style.visibility !== 'hidden'
+          && style.visibility !== 'collapse'
+          && style.contentVisibility !== 'hidden'
+          && (!style.clipPath || style.clipPath === 'none')
+          && (style.display === 'contents'
+            || ancestor === document.body
+            || ancestor === document.documentElement
+            || (ancestorBox.width > 0 && ancestorBox.height > 0));
+
+          if (/auto|clip|hidden|scroll/.test(style.overflowX)) {
+            visibleLeft = Math.max(visibleLeft, ancestorBox.left);
+            visibleRight = Math.min(visibleRight, ancestorBox.right);
+          }
+          if (/auto|clip|hidden|scroll/.test(style.overflowY)) {
+            visibleTop = Math.max(visibleTop, ancestorBox.top);
+            visibleBottom = Math.min(visibleBottom, ancestorBox.bottom);
+          }
           ancestor = ancestor.parentElement;
         }
 
@@ -925,10 +956,13 @@ async function readPreviewViewportMetrics(
             candidate.textContent?.trim()
             || (candidate instanceof HTMLImageElement && candidate.alt.trim()),
           ),
+          ancestorsAreSafe,
           hasPixels: box.width > 0 && box.height > 0,
-          intersects: intersectsChildViewport(candidate),
+          intersects: intersectsChildViewport(candidate)
+            && visibleRight > visibleLeft
+            && visibleBottom > visibleTop,
           isOpaque: effectiveOpacity > 0,
-          isVisible: style.display !== 'none' && style.visibility === 'visible',
+          isVisible: ancestorsAreSafe,
         };
       });
 
@@ -937,6 +971,9 @@ async function readPreviewViewportMetrics(
         documentScrollTop: html.scrollTop,
         footerIntersects: intersectsChildViewport(footer),
         scrollY: window.scrollY,
+        topContentAncestorsAreSafe: topContentMetrics.some(metric => (
+          metric.hasMeaning && metric.hasPixels && metric.ancestorsAreSafe
+        )),
         topContentHasPixels: topContentMetrics.some(metric => (
           metric.hasMeaning && metric.hasPixels
         )),
@@ -955,12 +992,82 @@ async function readPreviewViewportMetrics(
         )),
       };
     }, topMarkerTestId),
+    iframe.evaluate((frame) => {
+      let effectiveOpacity = 1;
+      let ancestorsAreSafe = true;
+      let hasPixels = true;
+      const frameBox = frame.getBoundingClientRect();
+      let visibleLeft = frameBox.left;
+      let visibleTop = frameBox.top;
+      let visibleRight = frameBox.right;
+      let visibleBottom = frameBox.bottom;
+      let reachedPreviewViewport = false;
+      let ancestor: HTMLElement | null = frame;
+
+      while (ancestor) {
+        const style = getComputedStyle(ancestor);
+        const opacity = Number.parseFloat(style.opacity);
+        const box = ancestor.getBoundingClientRect();
+
+        effectiveOpacity *= Number.isFinite(opacity) ? opacity : 1;
+        const ancestorHasPixels = style.display === 'contents'
+          || ancestor === document.body
+          || ancestor === document.documentElement
+          || (box.width > 0 && box.height > 0);
+        hasPixels = hasPixels && ancestorHasPixels;
+        ancestorsAreSafe = ancestorsAreSafe
+        && style.display !== 'none'
+        && style.visibility !== 'hidden'
+        && style.visibility !== 'collapse'
+        && style.contentVisibility !== 'hidden'
+        && (!style.clipPath || style.clipPath === 'none')
+        && ancestorHasPixels;
+        if (
+          !reachedPreviewViewport
+          && ancestor !== frame
+          && /auto|clip|hidden|scroll/.test(style.overflowX)
+        ) {
+          visibleLeft = Math.max(visibleLeft, box.left);
+          visibleRight = Math.min(visibleRight, box.right);
+        }
+        if (
+          !reachedPreviewViewport
+          && ancestor !== frame
+          && /auto|clip|hidden|scroll/.test(style.overflowY)
+        ) {
+          visibleTop = Math.max(visibleTop, box.top);
+          visibleBottom = Math.min(visibleBottom, box.bottom);
+        }
+        if (ancestor.hasAttribute('data-booking-page-preview-scroll')) {
+          reachedPreviewViewport = true;
+        }
+        ancestor = ancestor.parentElement;
+      }
+
+      return {
+        frameAncestorsAreSafe: ancestorsAreSafe,
+        frameHasPixels: hasPixels,
+        frameHasVisibleArea: visibleRight > visibleLeft && visibleBottom > visibleTop,
+        frameIsOpaque: effectiveOpacity > 0,
+      };
+    }),
     scrollSurface.evaluate(element => element.scrollTop),
   ]);
 
   return {
     ...childMetrics,
+    ...frameMetrics,
     surfaceScrollTop,
+    topContentAncestorsAreSafe: childMetrics.topContentAncestorsAreSafe
+      && frameMetrics.frameAncestorsAreSafe,
+    topContentHasPixels: childMetrics.topContentHasPixels && frameMetrics.frameHasPixels,
+    topContentIsOpaque: childMetrics.topContentIsOpaque && frameMetrics.frameIsOpaque,
+    topContentIsVisible: childMetrics.topContentIsVisible && frameMetrics.frameAncestorsAreSafe,
+    topIntersects: childMetrics.topIntersects
+      && frameMetrics.frameAncestorsAreSafe
+      && frameMetrics.frameHasPixels
+      && frameMetrics.frameHasVisibleArea
+      && frameMetrics.frameIsOpaque,
   };
 }
 
@@ -976,14 +1083,101 @@ async function expectPreviewStartsAtTop(
   ).toEqual({
     bodyScrollTop: 0,
     documentScrollTop: 0,
+    frameAncestorsAreSafe: true,
+    frameHasPixels: true,
+    frameHasVisibleArea: true,
+    frameIsOpaque: true,
     footerIntersects: false,
     scrollY: 0,
     surfaceScrollTop: 0,
+    topContentAncestorsAreSafe: true,
     topContentHasPixels: true,
     topContentIsOpaque: true,
     topContentIsVisible: true,
     topIntersects: true,
   });
+}
+
+async function expectOpacityZeroAncestorIsRejected(
+  iframe: Locator,
+  preview: FrameLocator,
+  topMarkerTestId: string,
+  evidenceLabel: string,
+): Promise<void> {
+  const marker = preview.getByTestId(topMarkerTestId);
+
+  await marker.evaluate((element) => {
+    element.dataset.testOriginalOpacity = element.style.opacity;
+    element.style.opacity = '0';
+  });
+
+  const concealed = await readPreviewViewportMetrics(iframe, preview, topMarkerTestId);
+
+  expect(concealed.topContentHasPixels, `${evidenceLabel} negative control keeps canonical DOM geometry`)
+    .toBe(true);
+  expect(concealed.topContentIsOpaque, `${evidenceLabel} must reject opacity:0 on a relevant ancestor`)
+    .toBe(false);
+  expect(concealed.topIntersects, `${evidenceLabel} hidden pixels cannot satisfy first-viewport proof`)
+    .toBe(false);
+
+  await marker.evaluate((element) => {
+    element.style.opacity = element.dataset.testOriginalOpacity ?? '';
+    delete element.dataset.testOriginalOpacity;
+  });
+
+  const scrollHost = iframe.locator('xpath=ancestor::*[@data-booking-page-preview-scroll][1]');
+  await scrollHost.evaluate((element) => {
+    element.dataset.testOriginalOpacity = (element as HTMLElement).style.opacity;
+    (element as HTMLElement).style.opacity = '0';
+  });
+
+  const outerConcealed = await readPreviewViewportMetrics(iframe, preview, topMarkerTestId);
+
+  expect(outerConcealed.topContentHasPixels, `${evidenceLabel} outer negative control keeps canonical geometry`)
+    .toBe(true);
+  expect(outerConcealed.frameIsOpaque, `${evidenceLabel} must reject opacity:0 outside the child document`)
+    .toBe(false);
+  expect(outerConcealed.topIntersects, `${evidenceLabel} an opaque child inside a hidden preview host is not visible`)
+    .toBe(false);
+
+  await scrollHost.evaluate((element) => {
+    (element as HTMLElement).style.opacity = element.dataset.testOriginalOpacity ?? '';
+    delete element.dataset.testOriginalOpacity;
+  });
+
+  await expectPreviewStartsAtTop(iframe, preview, topMarkerTestId, evidenceLabel);
+}
+
+async function captureNonblankPreviewViewport(
+  iframe: Locator,
+  evidenceLabel: string,
+): Promise<Buffer> {
+  const screenshot = await iframe.screenshot();
+  const { data, info } = await sharp(screenshot)
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  let meaningfullyDarkPixels = 0;
+
+  for (let offset = 0; offset < data.length; offset += info.channels) {
+    const red = data[offset] ?? 255;
+    const green = data[offset + 1] ?? 255;
+    const blue = data[offset + 2] ?? 255;
+    const alpha = data[offset + 3] ?? 255;
+
+    if (alpha > 0 && (red < 215 || green < 215 || blue < 215)) {
+      meaningfullyDarkPixels += 1;
+    }
+  }
+
+  const pixelCount = info.width * info.height;
+
+  expect(
+    meaningfullyDarkPixels / pixelCount,
+    `${evidenceLabel} must contain visible non-background page pixels`,
+  ).toBeGreaterThan(0.002);
+
+  return screenshot;
 }
 
 async function expectPreviewDocumentMatchesFrameSource(
@@ -1030,12 +1224,12 @@ async function expectRestoredPreviewScrollIsNormalized({
       const metrics = await readPreviewViewportMetrics(iframe, preview, topMarkerTestId);
 
       return {
-        footerIntersects: metrics.footerIntersects,
         restoredScrollPresent: metrics.scrollY > 0,
+        topContentNoLongerIntersects: !metrics.topIntersects,
       };
     },
-    { message: `${evidenceLabel} fixture must reproduce a bottom-restored frame state` },
-  ).toEqual({ footerIntersects: true, restoredScrollPresent: true });
+    { message: `${evidenceLabel} fixture must reproduce a restored frame away from its top content` },
+  ).toEqual({ restoredScrollPresent: true, topContentNoLongerIntersects: true });
 
   // Replay the browser's child-frame load boundary after parking it at the
   // restored position. The real parent handler must normalize this state;
@@ -1158,7 +1352,7 @@ async function expectPreAttestationPreviewCannotActivate({
   const slowResourceStarted = new Promise<void>((resolve) => {
     reportSlowResource = resolve;
   });
-  const previewRoute = /\/book\/service\?.*builderPreview=/;
+  const previewRoute = /\/admin\/booking-page\/preview\/[^?]+\?.*builderPreview=/;
   const slowResourceRoute = /\/__luster-preview-preload-probe\.svg$/;
   const handlePreviewRoute = async (route: Route) => {
     if (!interceptNextPreview) {
@@ -1850,11 +2044,15 @@ test('Stage 7 production recipes express four curated structures with one canoni
   }
 });
 
-test('owner preset previews start at the real page top and refresh from authoritative draft state @owner-preview-webkit', async ({
+test('Production-split DRAFT Signature / LIVE Quick Book previews stay visible, private, and no-Publish across presets @owner-preview-webkit', async ({
   baseURL,
   browser,
 }, testInfo) => {
-  test.setTimeout(3 * 60 * 1000);
+  // WebKit executes four isolated mobile/zoom contexts serially and performs
+  // substantially more process-bound cleanup than Chromium. Keep the same
+  // assertions, but leave enough time for the fourth context and its explicit
+  // impersonation teardown to complete on CI runners.
+  test.setTimeout((testInfo.project.name === 'mobile-webkit' ? 5 : 3) * 60 * 1000);
 
   assertLocalSyntheticTarget(baseURL);
 
@@ -1880,28 +2078,52 @@ test('owner preset previews start at the real page top and refresh from authorit
     originalSettings = fixtureResult.rows[0]?.settings ?? null;
     fixtureLoaded = true;
 
-    for (const scenario of OWNER_PREVIEW_VIEWPORT_SCENARIOS) {
+    const signatureRecipe = resolveBookingPagePresetRecipe({
+      presetId: 'signature',
+      recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+    });
+    const quickBookRecipe = resolveBookingPagePresetRecipe({
+      presetId: 'quick_book',
+      recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+    });
+
+    expect(signatureRecipe).not.toBeNull();
+    expect(quickBookRecipe).not.toBeNull();
+
+    // Keep the complete auth/state/persistence matrix in one real mobile
+    // viewport. The remaining viewport shapes run in the lighter scriptless
+    // visibility matrix below so WebKit does not hide a functional result
+    // behind one oversized multi-context timeout.
+    for (const scenario of OWNER_PREVIEW_VIEWPORT_SCENARIOS.slice(0, 1)) {
       const heroImageUrl = new URL('/assets/images/nextjs-starter-banner.png', baseURL).toString();
       const fixtureSettings = buildFixtureSettings(
         originalSettings,
-        'editorial',
+        signatureRecipe!.layout,
         heroImageUrl,
         {
           businessMode: 'team',
-          hiddenSections: [],
-          sectionOrder: ALL_PRESENTATION_SECTION_ORDER,
-          sectionVariants: {
-            salonProfile: 'compact',
-            technicianProfile: 'full',
-            featuredServices: 'carousel',
-            serviceMenu: 'list',
-            hoursLocation: 'full',
-            policies: 'card',
-            socialLinks: 'icons',
-            bookingCta: 'sticky',
-          },
+          hiddenSections: signatureRecipe!.hiddenSections,
+          presetBase: signatureRecipe!.presetBase,
+          sectionOrder: signatureRecipe!.sectionOrder,
+          sectionVariants: signatureRecipe!.sectionVariants,
         },
       );
+      const bookingPage = isRecord(fixtureSettings.bookingPage)
+        ? fixtureSettings.bookingPage
+        : {};
+      const draftSide = isRecord(bookingPage.draft) ? bookingPage.draft : {};
+
+      fixtureSettings.bookingPage = {
+        ...bookingPage,
+        live: {
+          ...draftSide,
+          hiddenSections: [...quickBookRecipe!.hiddenSections],
+          layout: quickBookRecipe!.layout,
+          sectionOrder: [...quickBookRecipe!.sectionOrder],
+          sectionVariants: { ...quickBookRecipe!.sectionVariants },
+        },
+        livePresetBase: quickBookRecipe!.presetBase,
+      };
       const fixtureUpdate = await client.query(
         'UPDATE salon SET settings = $1::jsonb WHERE id = $2',
         [JSON.stringify(fixtureSettings), SYNTHETIC_SALON_ID],
@@ -1953,9 +2175,11 @@ test('owner preset previews start at the real page top and refresh from authorit
         );
 
         expect(response?.ok(), await response?.text()).toBe(true);
+        await expect(page.getByTestId('booking-page-preset-state')).toHaveText('Signature');
 
         const previewIframe = page.locator('iframe[title="Live booking page preview"]');
         const preview = page.frameLocator('iframe[title="Live booking page preview"]');
+        const initialTopMarkerTestId = STAGE7_PRESET_DOM_EXPECTATIONS.signature.present[0];
 
         await expect(page.getByTestId('booking-page-builder')).toBeVisible();
         await expect(previewIframe).toHaveAttribute('sandbox', 'allow-same-origin');
@@ -1965,15 +2189,47 @@ test('owner preset previews start at the real page top and refresh from authorit
         await expectPreviewStartsAtTop(
           previewIframe,
           preview,
-          'booking-step-header',
+          initialTopMarkerTestId,
           `${scenario.label} initial embedded preview`,
         );
-        await expectRestoredPreviewScrollIsNormalized({
-          evidenceLabel: `${scenario.label} initial embedded preview`,
-          iframe: previewIframe,
-          preview,
-          topMarkerTestId: 'booking-step-header',
-        });
+        if (scenario === OWNER_PREVIEW_VIEWPORT_SCENARIOS[0]) {
+          const initialState = await fetchBuilderApiState(page);
+
+          expect(initialState.config.draftPresetBase).toEqual(signatureRecipe!.presetBase);
+          expect(initialState.config.livePresetBase).toEqual(quickBookRecipe!.presetBase);
+
+          for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS.signature.present) {
+            await expect(preview.getByTestId(testId)).toBeVisible();
+          }
+          for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS.signature.absent) {
+            await expect(preview.getByTestId(testId)).toHaveCount(0);
+          }
+          await expectOpacityZeroAncestorIsRejected(
+            previewIframe,
+            preview,
+            initialTopMarkerTestId,
+            `${scenario.label} initial embedded preview`,
+          );
+          await testInfo.attach(`${testInfo.project.name}-signature-embedded.png`, {
+            body: await captureNonblankPreviewViewport(
+              previewIframe,
+              `${scenario.label} initial embedded preview`,
+            ),
+            contentType: 'image/png',
+          });
+        }
+        // Exercise the restored child-frame lifecycle once per browser engine.
+        // The 200% approximation may make the child document itself
+        // non-scrollable in WebKit, while every viewport below still proves
+        // that each real load/candidate refresh begins at visible top content.
+        if (scenario === OWNER_PREVIEW_VIEWPORT_SCENARIOS[0]) {
+          await expectRestoredPreviewScrollIsNormalized({
+            evidenceLabel: `${scenario.label} initial embedded preview`,
+            iframe: previewIframe,
+            preview,
+            topMarkerTestId: initialTopMarkerTestId,
+          });
+        }
         if (exerciseViewOnlyInput) {
           await expectViewOnlyPreviewScrollsWithoutActivation({
             evidenceLabel: `${scenario.label} initial embedded preview`,
@@ -1981,7 +2237,7 @@ test('owner preset previews start at the real page top and refresh from authorit
             page,
             preview,
             scrollInput: testInfo.project.name === 'mobile-webkit' ? 'engine' : 'wheel',
-            topMarkerTestId: 'booking-step-header',
+            topMarkerTestId: initialTopMarkerTestId,
           });
           await expectPreAttestationPreviewCannotActivate({
             baseURL,
@@ -1999,7 +2255,90 @@ test('owner preset previews start at the real page top and refresh from authorit
           await expect(page.getByTestId('booking-page-preview-refresh')).toBeFocused();
         }
 
-        for (const presetId of BOOKING_PAGE_PRESET_IDS) {
+        if (scenario === OWNER_PREVIEW_VIEWPORT_SCENARIOS[0]) {
+          const fullPreviewHref = await page.getByTestId('booking-page-preview-link').getAttribute('href');
+
+          expect(fullPreviewHref).not.toBeNull();
+
+          const fullPreview = await context.newPage();
+          try {
+            const fullResponse = await fullPreview.goto(fullPreviewHref!, { waitUntil: 'domcontentloaded' });
+
+            expect(fullResponse?.ok(), await fullResponse?.text()).toBe(true);
+            expect(fullResponse?.headers()['cache-control']).toContain('no-store');
+            expect(fullResponse?.headers()['x-robots-tag']).toBe('noindex, nofollow');
+            await expect(fullPreview.getByTestId('owner-preview-banner')).toHaveAttribute(
+              'data-preview-variant',
+              'draft-config',
+            );
+
+            for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS.signature.present) {
+              await expect(fullPreview.getByTestId(testId)).toBeVisible();
+            }
+            for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS.signature.absent) {
+              await expect(fullPreview.getByTestId(testId)).toHaveCount(0);
+            }
+            await fullPreview.reload({ waitUntil: 'domcontentloaded' });
+            for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS.signature.present) {
+              await expect(fullPreview.getByTestId(testId)).toBeVisible();
+            }
+          } finally {
+            await fullPreview.close();
+          }
+
+          const anonymousPreviewContext = await browser.newContext({
+            baseURL,
+            reducedMotion: 'reduce',
+            viewport: scenario.viewport,
+          });
+          try {
+            const anonymousPreview = await anonymousPreviewContext.newPage();
+            const embeddedPreviewHref = await previewIframe.getAttribute('src');
+
+            expect(embeddedPreviewHref).not.toBeNull();
+
+            const deniedEmbeddedResponse = await anonymousPreview.goto(embeddedPreviewHref!, {
+              waitUntil: 'domcontentloaded',
+            });
+
+            expect(deniedEmbeddedResponse?.status()).toBe(404);
+            expect(deniedEmbeddedResponse?.headers()['cache-control']).toContain('no-store');
+            expect(deniedEmbeddedResponse?.headers()['x-robots-tag']).toBe('noindex, nofollow');
+            await expect(anonymousPreview.getByTestId('owner-preview-banner')).toHaveCount(0);
+
+            for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS.signature.present) {
+              await expect(anonymousPreview.getByTestId(testId)).toHaveCount(0);
+            }
+
+            const deniedResponse = await anonymousPreview.goto(fullPreviewHref!, {
+              waitUntil: 'domcontentloaded',
+            });
+
+            expect(deniedResponse?.status()).toBe(404);
+            await expect(anonymousPreview.getByTestId('owner-preview-banner')).toHaveCount(0);
+
+            const publicResponse = await anonymousPreview.goto(
+              appPath(`/${SYNTHETIC_SALON_SLUG}/book/service`),
+              { waitUntil: 'domcontentloaded' },
+            );
+
+            expect(publicResponse?.ok(), await publicResponse?.text()).toBe(true);
+            await expect(anonymousPreview.getByTestId('owner-preview-banner')).toHaveCount(0);
+
+            for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS.quick_book.present) {
+              await expect(anonymousPreview.getByTestId(testId)).toBeVisible();
+            }
+            for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS.quick_book.absent) {
+              await expect(anonymousPreview.getByTestId(testId)).toHaveCount(0);
+            }
+          } finally {
+            await anonymousPreviewContext.close();
+          }
+        }
+
+        const noPublishPresetSequence = ['menu', 'collective', 'quick_book'] as const;
+
+        for (const presetId of noPublishPresetSequence) {
           const presetLabel = STAGE7_PRESET_LABELS[presetId];
           const beforeState = await fetchBuilderApiState(page);
           const beforePreviewSrc = await previewIframe.getAttribute('src');
@@ -2030,12 +2369,51 @@ test('owner preset previews start at the real page top and refresh from authorit
             topMarkerTestId,
             `${scenario.label} ${presetLabel} review preview`,
           );
-          await expectRestoredPreviewScrollIsNormalized({
-            evidenceLabel: `${scenario.label} ${presetLabel} review preview`,
-            iframe: reviewIframe,
-            preview: reviewPreview,
-            topMarkerTestId,
-          });
+          if (scenario === OWNER_PREVIEW_VIEWPORT_SCENARIOS[0]) {
+            await testInfo.attach(`${testInfo.project.name}-${presetId}-dialog.png`, {
+              body: await captureNonblankPreviewViewport(
+                reviewIframe,
+                `${scenario.label} ${presetLabel} review preview`,
+              ),
+              contentType: 'image/png',
+            });
+
+            if (presetId === 'menu') {
+              const candidateHref = await reviewIframe.getAttribute('src');
+              const anonymousCandidateContext = await browser.newContext({
+                baseURL,
+                reducedMotion: 'reduce',
+                viewport: scenario.viewport,
+              });
+              try {
+                expect(candidateHref).not.toBeNull();
+
+                const anonymousCandidate = await anonymousCandidateContext.newPage();
+                const deniedCandidate = await anonymousCandidate.goto(candidateHref!, {
+                  waitUntil: 'domcontentloaded',
+                });
+
+                expect(deniedCandidate?.status()).toBe(404);
+                expect(deniedCandidate?.headers()['cache-control']).toContain('no-store');
+                expect(deniedCandidate?.headers()['x-robots-tag']).toBe('noindex, nofollow');
+                await expect(anonymousCandidate.getByTestId('owner-preview-banner')).toHaveCount(0);
+
+                for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS.menu.present) {
+                  await expect(anonymousCandidate.getByTestId(testId)).toHaveCount(0);
+                }
+              } finally {
+                await anonymousCandidateContext.close();
+              }
+            }
+          }
+          if (scenario === OWNER_PREVIEW_VIEWPORT_SCENARIOS[0]) {
+            await expectRestoredPreviewScrollIsNormalized({
+              evidenceLabel: `${scenario.label} ${presetLabel} review preview`,
+              iframe: reviewIframe,
+              preview: reviewPreview,
+              topMarkerTestId,
+            });
+          }
           if (exerciseViewOnlyInput) {
             await expectViewOnlyPreviewScrollsWithoutActivation({
               evidenceLabel: `${scenario.label} ${presetLabel} review preview`,
@@ -2111,6 +2489,7 @@ test('owner preset previews start at the real page top and refresh from authorit
           });
           expect(appliedState.config.live).toEqual(beforeState.config.live);
           expect(appliedState.config.livePresetBase).toEqual(beforeState.config.livePresetBase);
+          expect(appliedState.config.livePresetBase).toEqual(quickBookRecipe!.presetBase);
           await expect(page.getByTestId('booking-page-preset-state')).toHaveText(presetLabel);
           await expect(page.getByTestId('booking-page-preset-picker').getByRole('status')).toContainText(
             'Starting design applied to your draft. Review the preview, then publish when you’re ready.',
@@ -2125,13 +2504,122 @@ test('owner preset previews start at the real page top and refresh from authorit
             topMarkerTestId,
             `${scenario.label} applied ${presetLabel} embedded preview`,
           );
-          await expectRestoredPreviewScrollIsNormalized({
-            evidenceLabel: `${scenario.label} applied ${presetLabel} embedded preview`,
-            iframe: previewIframe,
-            preview,
-            topMarkerTestId,
+          if (scenario === OWNER_PREVIEW_VIEWPORT_SCENARIOS[0]) {
+            await testInfo.attach(`${testInfo.project.name}-${presetId}-embedded.png`, {
+              body: await captureNonblankPreviewViewport(
+                previewIframe,
+                `${scenario.label} applied ${presetLabel} embedded preview`,
+              ),
+              contentType: 'image/png',
+            });
+          }
+          if (scenario === OWNER_PREVIEW_VIEWPORT_SCENARIOS[0]) {
+            await expectRestoredPreviewScrollIsNormalized({
+              evidenceLabel: `${scenario.label} applied ${presetLabel} embedded preview`,
+              iframe: previewIframe,
+              preview,
+              topMarkerTestId,
+            });
+          }
+
+          if (scenario === OWNER_PREVIEW_VIEWPORT_SCENARIOS[0]) {
+            const fullPreviewHref = await page.getByTestId('booking-page-preview-link').getAttribute('href');
+
+            expect(fullPreviewHref).not.toBeNull();
+
+            const fullPreview = await context.newPage();
+            try {
+              const fullResponse = await fullPreview.goto(fullPreviewHref!, { waitUntil: 'domcontentloaded' });
+
+              expect(fullResponse?.ok(), await fullResponse?.text()).toBe(true);
+              await expect(fullPreview.getByTestId('owner-preview-banner')).toHaveAttribute(
+                'data-preview-variant',
+                'draft-config',
+              );
+
+              for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS[presetId].present) {
+                await expect(fullPreview.getByTestId(testId)).toBeVisible();
+              }
+              for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS[presetId].absent) {
+                await expect(fullPreview.getByTestId(testId)).toHaveCount(0);
+              }
+              await fullPreview.reload({ waitUntil: 'domcontentloaded' });
+
+              await expect(fullPreview.getByTestId(topMarkerTestId)).toBeVisible();
+            } finally {
+              await fullPreview.close();
+            }
+
+            const publicContext = await browser.newContext({
+              baseURL,
+              reducedMotion: 'reduce',
+              viewport: scenario.viewport,
+            });
+            try {
+              const publicPage = await publicContext.newPage();
+              const publicResponse = await publicPage.goto(
+                appPath(`/${SYNTHETIC_SALON_SLUG}/book/service`),
+                { waitUntil: 'domcontentloaded' },
+              );
+
+              expect(publicResponse?.ok(), await publicResponse?.text()).toBe(true);
+              await expect(publicPage.getByTestId('owner-preview-banner')).toHaveCount(0);
+
+              for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS.quick_book.present) {
+                await expect(publicPage.getByTestId(testId)).toBeVisible();
+              }
+              for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS.quick_book.absent) {
+                await expect(publicPage.getByTestId(testId)).toHaveCount(0);
+              }
+            } finally {
+              await publicContext.close();
+            }
+          }
+        }
+
+        // Signature is the initial authoritative DRAFT, so its card is not
+        // reviewable until the matrix reaches Quick Book. Reopen it now to
+        // complete the four-preset dialog visibility matrix, then cancel so
+        // the exact no-Publish DRAFT=Quick Book / LIVE=Quick Book end state is
+        // preserved.
+        const beforeSignatureReview = await fetchBuilderApiState(page);
+
+        await page.getByRole('button', { name: 'Signature starting design' }).click();
+
+        const signatureReview = page.getByRole('alertdialog', { name: 'Switch to Signature?' });
+        const signatureReviewIframe = signatureReview.locator('iframe[title="Signature design preview"]');
+        const signatureReviewPreview = page.frameLocator('iframe[title="Signature design preview"]');
+
+        await expectPreviewDocumentMatchesFrameSource(
+          signatureReviewIframe,
+          signatureReviewPreview,
+          baseURL,
+        );
+        await expectPreviewStartsAtTop(
+          signatureReviewIframe,
+          signatureReviewPreview,
+          STAGE7_PRESET_DOM_EXPECTATIONS.signature.present[0],
+          `${scenario.label} Signature review preview`,
+        );
+        for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS.signature.present) {
+          await expect(signatureReviewPreview.getByTestId(testId)).toBeVisible();
+        }
+        for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS.signature.absent) {
+          await expect(signatureReviewPreview.getByTestId(testId)).toHaveCount(0);
+        }
+        if (scenario === OWNER_PREVIEW_VIEWPORT_SCENARIOS[0]) {
+          await testInfo.attach(`${testInfo.project.name}-signature-dialog.png`, {
+            body: await captureNonblankPreviewViewport(
+              signatureReviewIframe,
+              `${scenario.label} Signature review preview`,
+            ),
+            contentType: 'image/png',
           });
         }
+        await signatureReview.getByRole('button', { name: 'Cancel' }).click();
+
+        await expect(signatureReview).toHaveCount(0);
+        expect(await fetchBuilderApiState(page)).toEqual(beforeSignatureReview);
 
         await expectNoHorizontalOverflow(page);
       } finally {
@@ -2141,6 +2629,216 @@ test('owner preset previews start at the real page top and refresh from authorit
           expect(stopImpersonation.ok(), await stopImpersonation.text()).toBe(true);
         }
 
+        await context.close();
+      }
+    }
+  } finally {
+    try {
+      if (fixtureLoaded) {
+        const restoreResult = await client.query(
+          'UPDATE salon SET settings = $1::jsonb WHERE id = $2',
+          [originalSettings === null ? null : JSON.stringify(originalSettings), SYNTHETIC_SALON_ID],
+        );
+
+        expect(restoreResult.rowCount).toBe(1);
+      }
+    } finally {
+      await client.end();
+    }
+  }
+});
+
+test('scriptless embedded and dialog previews remain visible across mobile and zoom viewports @owner-preview-webkit', async ({
+  baseURL,
+  browser,
+}, testInfo) => {
+  test.setTimeout((testInfo.project.name === 'mobile-webkit' ? 4 : 2) * 60 * 1000);
+
+  assertLocalSyntheticTarget(baseURL);
+
+  const target = requireDisposableDatabaseTarget();
+  const expectedServer = resolveDisposableDatabaseServerExpectation(target);
+  const client = new Client({ connectionString: target.connectionString });
+  let originalSettings: unknown = null;
+  let fixtureLoaded = false;
+
+  await client.connect();
+
+  try {
+    await attestDisposableDatabaseSession(client, target, expectedServer);
+
+    const fixtureResult = await client.query<SalonFixtureRow>(
+      'SELECT id, name, settings FROM salon WHERE slug = $1',
+      [SYNTHETIC_SALON_SLUG],
+    );
+
+    expect(fixtureResult.rows).toHaveLength(1);
+    expect(fixtureResult.rows[0]?.id).toBe(SYNTHETIC_SALON_ID);
+
+    originalSettings = fixtureResult.rows[0]?.settings ?? null;
+    fixtureLoaded = true;
+
+    const signatureRecipe = resolveBookingPagePresetRecipe({
+      presetId: 'signature',
+      recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+    });
+    const quickBookRecipe = resolveBookingPagePresetRecipe({
+      presetId: 'quick_book',
+      recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+    });
+
+    expect(signatureRecipe).not.toBeNull();
+    expect(quickBookRecipe).not.toBeNull();
+
+    const heroImageUrl = new URL('/assets/images/nextjs-starter-banner.png', baseURL).toString();
+    const fixtureSettings = buildFixtureSettings(
+      originalSettings,
+      signatureRecipe!.layout,
+      heroImageUrl,
+      {
+        businessMode: 'team',
+        hiddenSections: signatureRecipe!.hiddenSections,
+        presetBase: signatureRecipe!.presetBase,
+        sectionOrder: signatureRecipe!.sectionOrder,
+        sectionVariants: signatureRecipe!.sectionVariants,
+      },
+    );
+    const bookingPage = isRecord(fixtureSettings.bookingPage)
+      ? fixtureSettings.bookingPage
+      : {};
+    const draftSide = isRecord(bookingPage.draft) ? bookingPage.draft : {};
+
+    fixtureSettings.bookingPage = {
+      ...bookingPage,
+      live: {
+        ...draftSide,
+        hiddenSections: [...quickBookRecipe!.hiddenSections],
+        layout: quickBookRecipe!.layout,
+        sectionOrder: [...quickBookRecipe!.sectionOrder],
+        sectionVariants: { ...quickBookRecipe!.sectionVariants },
+      },
+      livePresetBase: quickBookRecipe!.presetBase,
+    };
+
+    const fixtureUpdate = await client.query(
+      'UPDATE salon SET settings = $1::jsonb WHERE id = $2',
+      [JSON.stringify(fixtureSettings), SYNTHETIC_SALON_ID],
+    );
+
+    expect(fixtureUpdate.rowCount).toBe(1);
+
+    for (const scenario of OWNER_PREVIEW_VIEWPORT_SCENARIOS.slice(1)) {
+      const iphone = devices['iPhone 13'];
+      const mobileWebKitOptions = testInfo.project.name === 'mobile-webkit'
+        ? {
+            deviceScaleFactor: iphone.deviceScaleFactor,
+            hasTouch: iphone.hasTouch,
+            isMobile: iphone.isMobile,
+            userAgent: iphone.userAgent,
+          }
+        : {};
+      const context = await browser.newContext({
+        ...mobileWebKitOptions,
+        baseURL,
+        reducedMotion: 'reduce',
+        storageState: authStatePaths.superAdmin,
+        viewport: scenario.viewport,
+      });
+      let impersonating = false;
+
+      if (scenario.zoom === 2) {
+        await context.addInitScript(() => {
+          document.addEventListener('DOMContentLoaded', () => {
+            document.documentElement.style.zoom = '2';
+          });
+        });
+      }
+
+      try {
+        const impersonation = await context.request.post('/api/super-admin/impersonate', {
+          data: { salonId: SYNTHETIC_SALON_ID },
+        });
+
+        expect(impersonation.ok(), await impersonation.text()).toBe(true);
+
+        impersonating = true;
+
+        const page = await context.newPage();
+        const response = await page.goto(
+          `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&ownerPreviewEvidence=${encodeURIComponent(scenario.label)}`,
+          { waitUntil: 'domcontentloaded' },
+        );
+
+        expect(response?.ok(), await response?.text()).toBe(true);
+        await expect(page.getByTestId('booking-page-preset-state')).toHaveText('Signature');
+
+        const embeddedIframe = page.locator('iframe[title="Live booking page preview"]');
+        const embeddedPreview = page.frameLocator('iframe[title="Live booking page preview"]');
+
+        await expect(embeddedIframe).toHaveAttribute('sandbox', 'allow-same-origin');
+
+        await expectPreviewDocumentMatchesFrameSource(embeddedIframe, embeddedPreview, baseURL);
+        await expectPreviewStartsAtTop(
+          embeddedIframe,
+          embeddedPreview,
+          STAGE7_PRESET_DOM_EXPECTATIONS.signature.present[0],
+          `${scenario.label} Signature embedded preview`,
+        );
+        await testInfo.attach(`${testInfo.project.name}-${scenario.label}-signature-embedded.png`, {
+          body: await captureNonblankPreviewViewport(
+            embeddedIframe,
+            `${scenario.label} Signature embedded preview`,
+          ),
+          contentType: 'image/png',
+        });
+
+        for (const presetId of ['menu', 'collective', 'quick_book'] as const) {
+          const presetLabel = STAGE7_PRESET_LABELS[presetId];
+          const beforeDialogState = await fetchBuilderApiState(page);
+
+          await page.getByRole('button', { name: `${presetLabel} starting design` }).click();
+
+          const dialog = page.getByRole('alertdialog', { name: `Switch to ${presetLabel}?` });
+          const dialogIframe = dialog.locator(`iframe[title="${presetLabel} design preview"]`);
+          const dialogPreview = page.frameLocator(`iframe[title="${presetLabel} design preview"]`);
+
+          await expect(dialog).toBeVisible();
+          await expect(dialogIframe).toHaveAttribute('sandbox', 'allow-same-origin');
+
+          await expectPreviewDocumentMatchesFrameSource(dialogIframe, dialogPreview, baseURL);
+          await expectPreviewStartsAtTop(
+            dialogIframe,
+            dialogPreview,
+            STAGE7_PRESET_DOM_EXPECTATIONS[presetId].present[0],
+            `${scenario.label} ${presetLabel} dialog preview`,
+          );
+          for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS[presetId].present) {
+            await expect(dialogPreview.getByTestId(testId)).toBeVisible();
+          }
+          for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS[presetId].absent) {
+            await expect(dialogPreview.getByTestId(testId)).toHaveCount(0);
+          }
+          await testInfo.attach(`${testInfo.project.name}-${scenario.label}-${presetId}-dialog.png`, {
+            body: await captureNonblankPreviewViewport(
+              dialogIframe,
+              `${scenario.label} ${presetLabel} dialog preview`,
+            ),
+            contentType: 'image/png',
+          });
+
+          await dialog.getByRole('button', { name: 'Cancel' }).click();
+
+          await expect(dialog).toHaveCount(0);
+          expect(await fetchBuilderApiState(page)).toEqual(beforeDialogState);
+        }
+
+        await expectNoHorizontalOverflow(page);
+      } finally {
+        if (impersonating) {
+          const stopImpersonation = await context.request.delete('/api/super-admin/impersonate');
+
+          expect(stopImpersonation.ok(), await stopImpersonation.text()).toBe(true);
+        }
         await context.close();
       }
     }
@@ -2352,7 +3050,7 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
 
         expect(fullPreviewUrl.origin).toBe(new URL(builderPage.url()).origin);
         expect(fullPreviewUrl.pathname).toBe(
-          appPath(`/${SYNTHETIC_SALON_SLUG}/book/service`),
+          appPath(`/admin/booking-page/preview/${SYNTHETIC_SALON_SLUG}`),
         );
         expect(fullPreviewUrl.search).toBe('');
 
@@ -2498,7 +3196,7 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
 test('sparse Signature and Quick Book may converge visibly while every preview still resolves the authoritative draft @mobile-chrome', async ({
   baseURL,
   browser,
-}) => {
+}, testInfo) => {
   test.setTimeout(2 * 60 * 1000);
 
   assertLocalSyntheticTarget(baseURL);
@@ -2622,6 +3320,24 @@ test('sparse Signature and Quick Book may converge visibly while every preview s
         locationDisplayMode: 'full_address',
       },
     };
+    const sparseBookingPage = isRecord(sparseSettings.bookingPage)
+      ? sparseSettings.bookingPage
+      : {};
+    const sparseDraft = isRecord(sparseBookingPage.draft)
+      ? sparseBookingPage.draft
+      : {};
+    sparseSettings.bookingPage = {
+      ...sparseBookingPage,
+      draftPresetBase: signatureRecipe!.presetBase,
+      live: {
+        ...sparseDraft,
+        hiddenSections: [...quickBookRecipe!.hiddenSections],
+        layout: quickBookRecipe!.layout,
+        sectionOrder: [...quickBookRecipe!.sectionOrder],
+        sectionVariants: { ...quickBookRecipe!.sectionVariants },
+      },
+      livePresetBase: quickBookRecipe!.presetBase,
+    };
 
     await client.query(
       `UPDATE salon
@@ -2679,8 +3395,31 @@ test('sparse Signature and Quick Book may converge visibly while every preview s
       expect(builderResponse?.ok(), await builderResponse?.text()).toBe(true);
       await expect(builderPage.getByTestId('booking-page-preset-state')).toHaveText('Signature');
 
+      const embeddedIframe = builderPage.locator('iframe[title="Live booking page preview"]');
       const embeddedPreview = builderPage.frameLocator('iframe[title="Live booking page preview"]');
       const expectedSparseFingerprint = 'booking-step-header|service-menu-list';
+
+      await expect(embeddedIframe).toHaveAttribute('sandbox', 'allow-same-origin');
+
+      await expectPreviewStartsAtTop(
+        embeddedIframe,
+        embeddedPreview,
+        'booking-step-header',
+        'sparse Signature embedded preview',
+      );
+      await expectOpacityZeroAncestorIsRejected(
+        embeddedIframe,
+        embeddedPreview,
+        'booking-step-header',
+        'sparse Signature embedded preview restored after negative control',
+      );
+      await testInfo.attach('sparse-signature-scriptless-preview.png', {
+        body: await captureNonblankPreviewViewport(
+          embeddedIframe,
+          'sparse Signature scriptless preview screenshot',
+        ),
+        contentType: 'image/png',
+      });
       const signatureEmbeddedFingerprint = await readStage7StructuralFingerprint(embeddedPreview);
 
       expect(signatureEmbeddedFingerprint).toBe(expectedSparseFingerprint);
@@ -2709,12 +3448,34 @@ test('sparse Signature and Quick Book may converge visibly while every preview s
       }
 
       const beforeState = await fetchBuilderApiState(builderPage);
+
+      expect(beforeState.config.draftPresetBase).toEqual(signatureRecipe!.presetBase);
+      expect(beforeState.config.livePresetBase).toEqual(quickBookRecipe!.presetBase);
+
       const beforeEmbeddedSrc = await builderPage.locator('iframe[title="Live booking page preview"]')
         .getAttribute('src');
 
       await builderPage.getByRole('button', { name: 'Quick Book starting design' }).click();
 
       const reviewDialog = builderPage.getByRole('alertdialog', { name: 'Switch to Quick Book?' });
+      const reviewIframe = reviewDialog.locator('iframe[title="Quick Book design preview"]');
+      const reviewPreview = builderPage.frameLocator('iframe[title="Quick Book design preview"]');
+
+      await expect(reviewIframe).toHaveAttribute('sandbox', 'allow-same-origin');
+
+      await expectPreviewStartsAtTop(
+        reviewIframe,
+        reviewPreview,
+        'booking-step-header',
+        'sparse Quick Book preset-dialog preview',
+      );
+      await testInfo.attach('sparse-quick-book-dialog-preview.png', {
+        body: await captureNonblankPreviewViewport(
+          reviewIframe,
+          'sparse Quick Book preset-dialog screenshot',
+        ),
+        contentType: 'image/png',
+      });
       const quickBookState = await applyBuilderOperationFromPage(
         builderPage,
         {
@@ -2737,7 +3498,7 @@ test('sparse Signature and Quick Book may converge visibly while every preview s
       });
       expect(quickBookState.config.draftPresetBase).toEqual(quickBookRecipe!.presetBase);
       expect(quickBookState.config.live).toEqual(beforeState.config.live);
-      expect(quickBookState.config.livePresetBase).toEqual(signatureRecipe!.presetBase);
+      expect(quickBookState.config.livePresetBase).toEqual(quickBookRecipe!.presetBase);
       expect(quickBookState.content).toEqual(beforeState.content);
       await expect(builderPage.getByTestId('booking-page-preset-state')).toHaveText('Quick Book');
       await expect.poll(
@@ -2745,6 +3506,20 @@ test('sparse Signature and Quick Book may converge visibly while every preview s
       ).not.toBe(beforeEmbeddedSrc);
 
       const quickBookEmbeddedFingerprint = await readStage7StructuralFingerprint(embeddedPreview);
+
+      await expectPreviewStartsAtTop(
+        embeddedIframe,
+        embeddedPreview,
+        'booking-step-header',
+        'sparse Quick Book embedded preview',
+      );
+      await testInfo.attach('sparse-quick-book-scriptless-preview.png', {
+        body: await captureNonblankPreviewViewport(
+          embeddedIframe,
+          'sparse Quick Book scriptless preview screenshot',
+        ),
+        contentType: 'image/png',
+      });
 
       expect(quickBookEmbeddedFingerprint).toBe(expectedSparseFingerprint);
       expect(quickBookEmbeddedFingerprint).toBe(signatureEmbeddedFingerprint);
@@ -2788,13 +3563,14 @@ test('sparse Signature and Quick Book may converge visibly while every preview s
 
       // The byte-identical-looking sparse surfaces are legitimate convergence:
       // Stage 2 omitted every recipe discriminator whose canonical content is
-      // absent, while the API still proves DRAFT=Quick Book and LIVE=Signature.
+      // absent, while the API still proves the requested DRAFT provenance and
+      // the independently seeded LIVE=Quick Book provenance.
       expect(signatureFullPageFingerprint).toBe(quickBookEmbeddedFingerprint);
 
       const finalState = await fetchBuilderApiState(builderPage);
 
       expect(finalState.config.draftPresetBase).toEqual(quickBookRecipe!.presetBase);
-      expect(finalState.config.livePresetBase).toEqual(signatureRecipe!.presetBase);
+      expect(finalState.config.livePresetBase).toEqual(quickBookRecipe!.presetBase);
     } finally {
       try {
         if (impersonating) {
@@ -3017,7 +3793,7 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         await expect(previewIframe).toBeVisible();
         await expect(previewIframe).toHaveAttribute(
           'src',
-          new RegExp(`/${SYNTHETIC_SALON_SLUG}/book/service\\?builderPreview=\\d+`),
+          new RegExp(`/admin/booking-page/preview/${SYNTHETIC_SALON_SLUG}\\?builderPreview=\\d+`),
         );
         await expect(previewIframe).toHaveAttribute('sandbox', 'allow-same-origin');
         await expect(previewIframe).toHaveAttribute('aria-hidden', 'true');
@@ -3145,7 +3921,7 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         await expect(targetPreviewIframe).toHaveAttribute(
           'src',
           new RegExp(
-            `/${SYNTHETIC_SALON_SLUG}/book/service\\?builderPreview=\\d+&presetPreview=collective&presetPreviewVersion=1`,
+            `/admin/booking-page/preview/${SYNTHETIC_SALON_SLUG}\\?builderPreview=\\d+&presetPreview=collective&presetPreviewVersion=1`,
           ),
         );
         await expect(targetPreviewIframe).toHaveAttribute('sandbox', 'allow-same-origin');

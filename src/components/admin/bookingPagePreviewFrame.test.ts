@@ -7,7 +7,7 @@ import {
   normalizeBookingPagePreviewFrame,
 } from './bookingPagePreviewFrame';
 
-function authorizedPreviewFrame(src = '/en/salon-a/book/service?builderPreview=7') {
+function authorizedPreviewFrame(src = '/en/admin/booking-page/preview/salon-a?builderPreview=7') {
   const scrollSurface = document.createElement('div');
   scrollSurface.setAttribute('data-booking-page-preview-scroll', '');
   scrollSurface.style.height = '620px';
@@ -323,10 +323,10 @@ describe('normalizeBookingPagePreviewFrame', () => {
   });
 
   it.each([
-    ['stale source', '/en/salon-a/book/service?builderPreview=8', null],
-    ['anonymous/live document', '/en/salon-a/book/service?builderPreview=7', BOOKING_PAGE_PREVIEW_FRAME_SELECTORS.authorizedDraft],
-    ['noncanonical document', '/en/salon-a/book/service?builderPreview=7', BOOKING_PAGE_PREVIEW_FRAME_SELECTORS.canonicalBookingSurface],
-    ['partial renderer', '/en/salon-a/book/service?builderPreview=7', BOOKING_PAGE_PREVIEW_FRAME_SELECTORS.completedRenderer],
+    ['stale source', '/en/admin/booking-page/preview/salon-a?builderPreview=8', null],
+    ['anonymous/live document', '/en/admin/booking-page/preview/salon-a?builderPreview=7', BOOKING_PAGE_PREVIEW_FRAME_SELECTORS.authorizedDraft],
+    ['noncanonical document', '/en/admin/booking-page/preview/salon-a?builderPreview=7', BOOKING_PAGE_PREVIEW_FRAME_SELECTORS.canonicalBookingSurface],
+    ['partial renderer', '/en/admin/booking-page/preview/salon-a?builderPreview=7', BOOKING_PAGE_PREVIEW_FRAME_SELECTORS.completedRenderer],
   ])('fails closed for a %s', (_caseName, expectedSrc, removedSelector) => {
     const { frame, previewDocument, scrollTo } = authorizedPreviewFrame();
     if (removedSelector) {
@@ -346,7 +346,7 @@ describe('normalizeBookingPagePreviewFrame', () => {
     const { frame, previewDocument, scrollTo, src } = authorizedPreviewFrame();
     Object.defineProperty(previewDocument, 'URL', {
       configurable: true,
-      value: new URL('/en/salon-a/book/service?builderPreview=6', document.baseURI).href,
+      value: new URL('/en/admin/booking-page/preview/salon-a?builderPreview=6', document.baseURI).href,
     });
 
     expect(normalizeBookingPagePreviewFrame({ expectedSrc: src, frame })).toBe(false);
