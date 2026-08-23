@@ -4,8 +4,14 @@ const AUTHORIZED_DRAFT_PREVIEW_SELECTOR
   = '[data-preview-variant="draft-config"], [data-preview-variant="draft-salon"]';
 const COMPLETED_RENDERER_SELECTOR = '[data-builder-reorderable-section-order]';
 const VIEW_ONLY_PREVIEW_STYLE_ID = 'luster-view-only-preview-guard';
+const SAFE_SCROLL_SURFACE_SELECTOR = '[data-booking-page-preview-scroll]';
 
 const guardedPreviewDocuments = new WeakSet<Document>();
+const admittedPreviewByScrollSurface = new WeakMap<HTMLElement, {
+  document: Document;
+  frame: HTMLIFrameElement;
+}>();
+const guardedScrollSurfaces = new WeakSet<HTMLElement>();
 
 type NormalizeBookingPagePreviewFrameOptions = Readonly<{
   expectedSrc: string;
@@ -15,6 +21,8 @@ type NormalizeBookingPagePreviewFrameOptions = Readonly<{
 export function disableBookingPagePreviewFrameInteraction(frame: HTMLIFrameElement): void {
   frame.classList.add('pointer-events-none');
   frame.classList.remove('pointer-events-auto');
+  frame.setAttribute('inert', '');
+  frame.blur();
 }
 
 function absoluteUrl(value: string, baseUrl: string): string | null {
@@ -25,7 +33,86 @@ function absoluteUrl(value: string, baseUrl: string): string | null {
   }
 }
 
-function guardViewOnlyPreview(previewDocument: Document): void {
+function scrollPreviewBy(scrollSurface: HTMLElement, deltaY: number): boolean {
+  const admittedPreview = admittedPreviewByScrollSurface.get(scrollSurface);
+  const frame = admittedPreview?.frame;
+  if (!admittedPreview || !frame?.isConnected) {
+    return false;
+  }
+
+  try {
+    if (frame.contentDocument !== admittedPreview.document) {
+      return false;
+    }
+    const previewWindow = frame.contentWindow;
+    if (!previewWindow) {
+      return false;
+    }
+    const before = previewWindow.scrollY;
+    previewWindow.scrollBy(0, deltaY);
+    return previewWindow.scrollY !== before;
+  } catch {
+    // Cross-origin, replacing, or otherwise unreadable documents remain
+    // non-interactive. The parent page may continue its own native scroll.
+    return false;
+  }
+}
+
+function guardSafeScrollSurface(
+  scrollSurface: HTMLElement,
+  frame: HTMLIFrameElement,
+  previewDocument: Document,
+): void {
+  admittedPreviewByScrollSurface.set(scrollSurface, {
+    document: previewDocument,
+    frame,
+  });
+  if (guardedScrollSurfaces.has(scrollSurface)) {
+    return;
+  }
+
+  let lastTouchY: number | null = null;
+  scrollSurface.addEventListener('wheel', (event) => {
+    if (event.ctrlKey || event.metaKey) {
+      return;
+    }
+    if (scrollPreviewBy(scrollSurface, event.deltaY)) {
+      event.preventDefault();
+    }
+  }, { passive: false });
+  scrollSurface.addEventListener('touchstart', (event) => {
+    lastTouchY = event.touches.length === 1
+      ? event.touches[0]?.clientY ?? null
+      : null;
+  }, { passive: true });
+  scrollSurface.addEventListener('touchmove', (event) => {
+    if (event.touches.length !== 1) {
+      lastTouchY = null;
+      return;
+    }
+    const nextTouchY = event.touches[0]?.clientY ?? null;
+    if (lastTouchY === null || nextTouchY === null) {
+      return;
+    }
+    const deltaY = lastTouchY - nextTouchY;
+    lastTouchY = nextTouchY;
+    if (scrollPreviewBy(scrollSurface, deltaY)) {
+      event.preventDefault();
+    }
+  }, { passive: false });
+  const clearTouch = () => {
+    lastTouchY = null;
+  };
+  scrollSurface.addEventListener('touchend', clearTouch, { passive: true });
+  scrollSurface.addEventListener('touchcancel', clearTouch, { passive: true });
+  guardedScrollSurfaces.add(scrollSurface);
+}
+
+function guardViewOnlyPreview({
+  previewDocument,
+}: {
+  previewDocument: Document;
+}): void {
   if (guardedPreviewDocuments.has(previewDocument)) {
     return;
   }
@@ -34,9 +121,16 @@ function guardViewOnlyPreview(previewDocument: Document): void {
   // are deliberately inert in this script-disabled, view-only surface. Wheel
   // and touch scrolling do not dispatch these activation events.
   const preventActivation = (event: Event) => event.preventDefault();
+  const removeFocus = (event: Event) => {
+    const focusTarget = event.target as HTMLElement | null;
+    focusTarget?.blur?.();
+  };
   previewDocument.addEventListener('click', preventActivation, true);
   previewDocument.addEventListener('auxclick', preventActivation, true);
+  previewDocument.addEventListener('beforeinput', preventActivation, true);
+  previewDocument.addEventListener('keydown', preventActivation, true);
   previewDocument.addEventListener('submit', preventActivation, true);
+  previewDocument.addEventListener('focusin', removeFocus, true);
 
   const interactionGuard = previewDocument.createElement('style');
   interactionGuard.id = VIEW_ONLY_PREVIEW_STYLE_ID;
@@ -92,11 +186,13 @@ export function normalizeBookingPagePreviewFrame({
 
   const previewRoot = previewDocument.documentElement;
   const previewBody = previewDocument.body;
-  if (!previewRoot || !previewBody) {
+  const scrollSurface = frame.closest<HTMLElement>(SAFE_SCROLL_SURFACE_SELECTOR);
+  if (!previewRoot || !previewBody || !scrollSurface) {
     return false;
   }
 
-  guardViewOnlyPreview(previewDocument);
+  guardViewOnlyPreview({ previewDocument });
+  guardSafeScrollSurface(scrollSurface, frame, previewDocument);
 
   const normalize = () => {
     if (!frame.isConnected || frame.contentDocument !== previewDocument) {
@@ -116,11 +212,10 @@ export function normalizeBookingPagePreviewFrame({
     // Reassert the DOM offsets after scrollTo so either scroll owner is reset.
     previewRoot.scrollTop = 0;
     previewBody.scrollTop = 0;
+    scrollSurface.scrollTop = 0;
   };
 
   normalize();
-  frame.classList.remove('pointer-events-none');
-  frame.classList.add('pointer-events-auto');
 
   const parentWindow = ownerDocument.defaultView;
   if (parentWindow && typeof parentWindow.requestAnimationFrame === 'function') {
@@ -138,4 +233,5 @@ export const BOOKING_PAGE_PREVIEW_FRAME_SELECTORS = Object.freeze({
   canonicalBookingSurface: CANONICAL_BOOKING_SURFACE_SELECTOR,
   completedRenderer: COMPLETED_RENDERER_SELECTOR,
   interactionGuard: `#${VIEW_ONLY_PREVIEW_STYLE_ID}`,
+  safeScrollSurface: SAFE_SCROLL_SURFACE_SELECTOR,
 });

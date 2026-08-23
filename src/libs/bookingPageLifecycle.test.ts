@@ -21,18 +21,135 @@ vi.mock('@/libs/DB', () => ({
 
 /* eslint-disable import/first */
 import {
+  applyBookingPageBuilderOperation,
+  type BookingPageBuilderOperation,
+} from './bookingPageBuilder';
+import {
   BOOKING_PAGE_CONFIG_SIDE_DEFAULTS,
+  getBookingPageDraftPresentationState,
   resolveBookingPageConfig,
+  updateBookingPageDraft,
 } from './bookingPageConfig';
 import {
   BOOKING_PAGE_CONTENT_SIDE_DEFAULTS,
   resolveBookingPageContent,
+  updateBookingPageContentDraft,
 } from './bookingPageContent';
 import { synchronizeBookingPageLifecycle } from './bookingPageLifecycle';
+import {
+  BOOKING_PAGE_PRESET_RECIPE_VERSION,
+  type BookingPagePresetId,
+  getBookingPagePresentationSignature,
+} from './bookingPagePresetRecipes';
 /* eslint-enable import/first */
 
 let client: PGlite;
 let database: PgliteDatabase<typeof schema>;
+
+function wrapAwaitableSelectWithPause<T extends object>(
+  value: T,
+  pause: () => Promise<void>,
+): T {
+  return new Proxy(value, {
+    get(target, property) {
+      const member = Reflect.get(target, property, target) as unknown;
+
+      if (property === 'then' && typeof member === 'function') {
+        return (
+          onFulfilled?: (result: unknown) => unknown,
+          onRejected?: (reason: unknown) => unknown,
+        ) => Reflect.apply(member, target, [
+          async (result: unknown) => {
+            await pause();
+            return onFulfilled ? onFulfilled(result) : result;
+          },
+          onRejected,
+        ]);
+      }
+
+      if (typeof member !== 'function') {
+        return member;
+      }
+
+      return (...args: unknown[]) => {
+        const result = Reflect.apply(member, target, args) as unknown;
+        if ((typeof result === 'object' && result !== null) || typeof result === 'function') {
+          return wrapAwaitableSelectWithPause(result as object, pause);
+        }
+        return result;
+      };
+    },
+  });
+}
+
+/** Pauses one non-transactional read after PostgreSQL has returned its snapshot. */
+function createFirstTopLevelReadGate(targetDatabase: PgliteDatabase<typeof schema>) {
+  let firstRead = true;
+  let announceRead: (() => void) | undefined;
+  let releaseRead: (() => void) | undefined;
+  const readResolved = new Promise<void>((resolve) => {
+    announceRead = resolve;
+  });
+  const released = new Promise<void>((resolve) => {
+    releaseRead = resolve;
+  });
+
+  return {
+    database: new Proxy(targetDatabase, {
+      get(target, property) {
+        const member = Reflect.get(target, property, target) as unknown;
+        if (property === 'select' && typeof member === 'function' && firstRead) {
+          firstRead = false;
+          return (...args: unknown[]) => wrapAwaitableSelectWithPause(
+            Reflect.apply(member, target, args) as object,
+            async () => {
+              announceRead?.();
+              await released;
+            },
+          );
+        }
+        return typeof member === 'function' ? member.bind(target) : member;
+      },
+    }),
+    readResolved,
+    release: () => releaseRead?.(),
+  };
+}
+
+/** Pauses the first transaction before it begins while later transactions run normally. */
+function createFirstTransactionGate(targetDatabase: PgliteDatabase<typeof schema>) {
+  let firstTransaction = true;
+  let announceTransaction: (() => void) | undefined;
+  let releaseTransaction: (() => void) | undefined;
+  const transactionWaiting = new Promise<void>((resolve) => {
+    announceTransaction = resolve;
+  });
+  const released = new Promise<void>((resolve) => {
+    releaseTransaction = resolve;
+  });
+
+  return {
+    database: new Proxy(targetDatabase, {
+      get(target, property) {
+        const member = Reflect.get(target, property, target) as unknown;
+        if (property === 'transaction' && typeof member === 'function') {
+          return (...args: unknown[]) => {
+            if (!firstTransaction) {
+              return Reflect.apply(member, target, args);
+            }
+
+            firstTransaction = false;
+            announceTransaction?.();
+            return released.then(() => Reflect.apply(member, target, args));
+          };
+        }
+        return typeof member === 'function' ? member.bind(target) : member;
+      },
+    }),
+    transactionWaiting,
+    release: () => releaseTransaction?.(),
+  };
+}
 
 beforeAll(async () => {
   client = new PGlite();
@@ -95,7 +212,98 @@ function lifecycleSettings(): SalonSettings {
   } as unknown as SalonSettings;
 }
 
+type CoherentGenerationSettings = SalonSettings & {
+  bookingPage: {
+    version: 1;
+    draft: Record<string, unknown>;
+    live: Record<string, unknown>;
+    draftPresetBase: Record<string, unknown>;
+    livePresetBase: Record<string, unknown>;
+  };
+  bookingPageContent: {
+    version: 1;
+    draft: Record<string, unknown>;
+    live: Record<string, unknown>;
+  };
+};
+
+function coherentGenerationSettings(generation: 'one' | 'two'): CoherentGenerationSettings {
+  const isSecond = generation === 'two';
+  const side = {
+    ...BOOKING_PAGE_CONFIG_SIDE_DEFAULTS,
+    businessMode: isSecond ? 'team' as const : 'solo' as const,
+  };
+  const presetBase = isSecond
+    ? { presetId: 'collective' as const, recipeVersion: 1 as const }
+    : { presetId: 'quick_book' as const, recipeVersion: 1 as const };
+  const contentSide = {
+    ...BOOKING_PAGE_CONTENT_SIDE_DEFAULTS,
+    bio: `Generation ${generation}`,
+    locationDisplayMode: isSecond ? 'city_only' as const : 'full_address' as const,
+  };
+
+  return {
+    unrelated: { retained: true },
+    bookingPage: {
+      version: 1,
+      draft: side,
+      live: side,
+      draftPresetBase: presetBase,
+      livePresetBase: presetBase,
+    },
+    bookingPageContent: {
+      version: 1,
+      draft: contentSide,
+      live: contentSide,
+    },
+  } as unknown as CoherentGenerationSettings;
+}
+
+function expectLiveGeneration(settings: unknown, generation: 'one' | 'two') {
+  const isSecond = generation === 'two';
+  const config = resolveBookingPageConfig(settings);
+  const content = resolveBookingPageContent(settings);
+
+  expect({
+    businessMode: config.live.businessMode,
+    presetId: config.livePresetBase?.presetId,
+    bio: content.live.bio,
+    locationDisplayMode: content.live.locationDisplayMode,
+  }).toEqual({
+    businessMode: isSecond ? 'team' : 'solo',
+    presetId: isSecond ? 'collective' : 'quick_book',
+    bio: `Generation ${generation}`,
+    locationDisplayMode: isSecond ? 'city_only' : 'full_address',
+  });
+}
+
+async function applyPreset(salonId: string, presetId: BookingPagePresetId) {
+  const config = resolveBookingPageConfig(await readSettings(salonId));
+  const state = getBookingPageDraftPresentationState(config);
+  const operation = {
+    type: 'apply_preset',
+    presetId,
+    presetVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+    expectedPresentationSignature: getBookingPagePresentationSignature({
+      ...state,
+      presetBase: state.presetBase ?? null,
+    }),
+  } as const satisfies BookingPageBuilderOperation;
+  const result = applyBookingPageBuilderOperation(state, operation);
+
+  expect(result.ok).toBe(true);
+
+  if (!result.ok) {
+    throw new Error(`Expected preset ${presetId} to resolve`);
+  }
+
+  return updateBookingPageDraft(salonId, result.patch, { builderOperation: operation });
+}
+
 describe('booking-page lifecycle synchronization (PGlite)', () => {
+  // Transaction-start gates below prove deterministic application ordering,
+  // not genuine row-lock contention. The distinct-session proof lives in
+  // bookingPageLifecycle.concurrency.integration.test.ts.
   it('publishes config, preset provenance, and content from one snapshot while preserving draft and siblings', async () => {
     const salonId = 'lifecycle_publish';
     await insertSalon(salonId, lifecycleSettings());
@@ -132,6 +340,222 @@ describe('booking-page lifecycle synchronization (PGlite)', () => {
     expect(stored).toMatchObject({ unrelated: { retained: true } });
     expect(config.live.businessMode).toBe('solo');
     expect(content.live.bio).toBe('Live biography');
+  });
+
+  it('leaves a content edit that was already pending at Publish as a new unpublished draft', async () => {
+    const salonId = 'lifecycle_publish_pending_content';
+    await insertSalon(salonId, coherentGenerationSettings('one'));
+
+    const gate = createFirstTopLevelReadGate(database);
+    holder.db = gate.database;
+    const pendingContentWrite = updateBookingPageContentDraft(salonId, {
+      bio: 'Edit completed after Publish',
+    });
+
+    try {
+      await gate.readResolved;
+      const published = await synchronizeBookingPageLifecycle(salonId, 'publish');
+      gate.release();
+      await pendingContentWrite;
+
+      expectLiveGeneration(published, 'one');
+    } finally {
+      gate.release();
+      holder.db = database;
+      await pendingContentWrite.catch(() => undefined);
+    }
+
+    const stored = await readSettings(salonId);
+    const content = resolveBookingPageContent(stored);
+
+    expect(content.live.bio).toBe('Generation one');
+    expect(content.draft.bio).toBe('Edit completed after Publish');
+  });
+
+  it('applies a preset after Publish when its transaction is delayed before starting', async () => {
+    const salonId = 'lifecycle_publish_pending_preset';
+    await insertSalon(salonId, coherentGenerationSettings('one'));
+
+    const gate = createFirstTransactionGate(database);
+    holder.db = gate.database;
+    const pendingPresetApply = applyPreset(salonId, 'menu');
+
+    try {
+      await gate.transactionWaiting;
+      const published = await synchronizeBookingPageLifecycle(salonId, 'publish');
+      gate.release();
+      const applied = await pendingPresetApply;
+
+      expectLiveGeneration(published, 'one');
+
+      expect(applied?.draftPresetBase?.presetId).toBe('menu');
+    } finally {
+      gate.release();
+      holder.db = database;
+      await pendingPresetApply.catch(() => undefined);
+    }
+
+    const stored = await readSettings(salonId);
+    const config = resolveBookingPageConfig(stored);
+    const content = resolveBookingPageContent(stored);
+
+    expect(config.livePresetBase?.presetId).toBe('quick_book');
+    expect(config.live.businessMode).toBe('solo');
+    expect(content.live.bio).toBe('Generation one');
+    expect(config.draftPresetBase?.presetId).toBe('menu');
+    expect(config.draft).not.toEqual(config.live);
+  });
+
+  it('publishes a preset apply when the Publish transaction is delayed before starting', async () => {
+    const salonId = 'lifecycle_preset_before_publish';
+    await insertSalon(salonId, coherentGenerationSettings('one'));
+
+    const gate = createFirstTransactionGate(database);
+    holder.db = gate.database;
+    const pendingPublish = synchronizeBookingPageLifecycle(salonId, 'publish');
+
+    try {
+      await gate.transactionWaiting;
+      const applied = await applyPreset(salonId, 'menu');
+      gate.release();
+      const published = await pendingPublish;
+
+      expect(applied?.draftPresetBase?.presetId).toBe('menu');
+      expect(resolveBookingPageConfig(published).live).toEqual(applied?.draft);
+      expect(resolveBookingPageConfig(published).livePresetBase).toEqual(applied?.draftPresetBase);
+    } finally {
+      gate.release();
+      holder.db = database;
+      await pendingPublish.catch(() => undefined);
+    }
+
+    const stored = await readSettings(salonId);
+    const config = resolveBookingPageConfig(stored);
+
+    expect(config.live).toEqual(config.draft);
+    expect(config.livePresetBase).toEqual(config.draftPresetBase);
+    expect(config.livePresetBase?.presetId).toBe('menu');
+  });
+
+  it('makes a Publish delayed before transaction start read the latest coherent generation', async () => {
+    const salonId = 'lifecycle_two_publishes';
+    await insertSalon(salonId, coherentGenerationSettings('one'));
+
+    const gate = createFirstTransactionGate(database);
+    holder.db = gate.database;
+    const firstInvokedPublish = synchronizeBookingPageLifecycle(salonId, 'publish');
+
+    try {
+      await gate.transactionWaiting;
+      const secondInvokedPublish = await synchronizeBookingPageLifecycle(salonId, 'publish');
+      const firstGeneration = coherentGenerationSettings('one');
+      const secondGeneration = coherentGenerationSettings('two');
+
+      await database
+        .update(schema.salonSchema)
+        .set({
+          settings: {
+            ...firstGeneration,
+            bookingPage: {
+              ...firstGeneration.bookingPage,
+              draft: secondGeneration.bookingPage.draft,
+              draftPresetBase: secondGeneration.bookingPage.draftPresetBase,
+            },
+            bookingPageContent: {
+              ...firstGeneration.bookingPageContent,
+              draft: secondGeneration.bookingPageContent.draft,
+            },
+          } as SalonSettings,
+        })
+        .where(eq(schema.salonSchema.id, salonId));
+
+      gate.release();
+      const firstResult = await firstInvokedPublish;
+
+      expectLiveGeneration(secondInvokedPublish, 'one');
+      expectLiveGeneration(firstResult, 'two');
+    } finally {
+      gate.release();
+      holder.db = database;
+      await firstInvokedPublish.catch(() => undefined);
+    }
+
+    expectLiveGeneration(await readSettings(salonId), 'two');
+  });
+
+  it('rolls back the whole config, content, and provenance copy after an injected failure', async () => {
+    const salonId = 'lifecycle_publish_rollback';
+    await insertSalon(salonId, lifecycleSettings());
+    const before = await readSettings(salonId);
+    let transactionalResult: unknown;
+    const rollbackDatabase = new Proxy(database, {
+      get(target, property, receiver) {
+        if (property === 'transaction') {
+          return (callback: Parameters<typeof database.transaction>[0]) =>
+            database.transaction(async (tx) => {
+              transactionalResult = await callback(tx);
+              throw new Error('INJECTED_LIFECYCLE_ROLLBACK');
+            });
+        }
+        const value = Reflect.get(target, property, receiver);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+    });
+    holder.db = rollbackDatabase;
+
+    try {
+      await expect(synchronizeBookingPageLifecycle(salonId, 'publish'))
+        .rejects.toThrow('INJECTED_LIFECYCLE_ROLLBACK');
+    } finally {
+      holder.db = database;
+    }
+
+    const transientConfig = resolveBookingPageConfig(transactionalResult);
+    const transientContent = resolveBookingPageContent(transactionalResult);
+
+    expect(transientConfig.live).toEqual(transientConfig.draft);
+    expect(transientConfig.livePresetBase).toEqual(transientConfig.draftPresetBase);
+    expect(transientContent.live).toEqual(transientContent.draft);
+    expect(await readSettings(salonId)).toEqual(before);
+  });
+
+  it('lets a draft write already pending at Revert become the next unpublished edit', async () => {
+    const salonId = 'lifecycle_revert_pending_content';
+    const initial = coherentGenerationSettings('one');
+    initial.bookingPage.draft = {
+      ...initial.bookingPage.draft,
+      businessMode: 'team',
+    };
+    await insertSalon(salonId, initial);
+
+    const gate = createFirstTopLevelReadGate(database);
+    holder.db = gate.database;
+    const pendingContentWrite = updateBookingPageContentDraft(salonId, {
+      bio: 'Edit completed after Revert',
+    });
+
+    try {
+      await gate.readResolved;
+      const reverted = await synchronizeBookingPageLifecycle(salonId, 'revert');
+      gate.release();
+      await pendingContentWrite;
+
+      expect(resolveBookingPageConfig(reverted).draft.businessMode).toBe('solo');
+      expect(resolveBookingPageContent(reverted).draft.bio).toBe('Generation one');
+    } finally {
+      gate.release();
+      holder.db = database;
+      await pendingContentWrite.catch(() => undefined);
+    }
+
+    const stored = await readSettings(salonId);
+    const config = resolveBookingPageConfig(stored);
+    const content = resolveBookingPageContent(stored);
+
+    expect(config.draft).toEqual(config.live);
+    expect(config.draftPresetBase).toEqual(config.livePresetBase);
+    expect(content.live.bio).toBe('Generation one');
+    expect(content.draft.bio).toBe('Edit completed after Revert');
   });
 
   it('normalizes malformed nested storage without touching unrelated settings', async () => {

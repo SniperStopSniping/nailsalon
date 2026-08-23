@@ -86,8 +86,24 @@ type BookingPageApiResponse = {
    * Unrelated to `config.draft`/`config.live`: this is the salon row's own
    * `publicationStatus`, not the booking-page config draft/live pair.
    */
-  salon?: { publicationStatus: string };
+  salon: { publicationStatus: string };
 };
+
+const EDITABLE_CONTENT_FIELDS = ['bio', 'specialtyLine', 'heroImageUrl'] as const;
+
+type EditableContentField = typeof EDITABLE_CONTENT_FIELDS[number];
+
+type BookingPageRequestIdentity = {
+  requestGeneration: number;
+  savedEditGenerations: Partial<Record<EditableContentField, number>>;
+};
+
+function contentDraftValue(
+  content: BookingPageContent,
+  field: EditableContentField,
+): string {
+  return content.draft[field] ?? '';
+}
 
 async function fetchBookingPageState(salonSlug: string): Promise<BookingPageApiResponse> {
   const response = await fetch(`/api/admin/booking-page?salonSlug=${encodeURIComponent(salonSlug)}`, {
@@ -252,8 +268,8 @@ export default function BookingPageOwnerSurface() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [saveStatus, setSaveStatus]
-    = useState<'idle' | 'saving' | 'saved' | 'stale' | 'error'>('idle');
+  const [saveStatus, setSaveStatusState]
+    = useState<'idle' | 'dirty' | 'saving' | 'saved' | 'stale' | 'error'>('idle');
   const [presentationPending, setPresentationPending] = useState(false);
   const [presetStatus, setPresetStatus]
     = useState<BookingPagePresetPickerStatus>('idle');
@@ -285,6 +301,31 @@ export default function BookingPageOwnerSurface() {
   const failedOrdinaryWriteFieldsRef = useRef(new Set<string>());
   const pendingOrdinaryWritesRef = useRef(new Set<Promise<boolean>>());
   const ordinaryWriteTailRef = useRef<Promise<void>>(Promise.resolve());
+  const bookingPageRequestGenerationRef = useRef(0);
+  const contentEditGenerationRef = useRef(0);
+  const contentEditGenerationByFieldRef = useRef<Record<EditableContentField, number>>({
+    bio: 0,
+    specialtyLine: 0,
+    heroImageUrl: 0,
+  });
+  const savedContentEditGenerationByFieldRef = useRef<Record<EditableContentField, number>>({
+    bio: 0,
+    specialtyLine: 0,
+    heroImageUrl: 0,
+  });
+  const hasUnsavedContentTextEdits = useCallback(() => EDITABLE_CONTENT_FIELDS.some(field => (
+    contentEditGenerationByFieldRef.current[field]
+    > savedContentEditGenerationByFieldRef.current[field]
+  )), []);
+  const setTruthfulSaveStatus = useCallback((
+    requestedStatus: 'idle' | 'dirty' | 'saving' | 'saved' | 'stale' | 'error',
+  ) => {
+    const status = (requestedStatus === 'idle' || requestedStatus === 'saved')
+      && hasUnsavedContentTextEdits()
+      ? 'dirty'
+      : requestedStatus;
+    setSaveStatusState(status);
+  }, [hasUnsavedContentTextEdits]);
   const previewRevisionRef = useRef(previewRevision);
   previewRevisionRef.current = previewRevision;
   const refreshPreview = useCallback((preserveAdmission = false) => {
@@ -302,6 +343,103 @@ export default function BookingPageOwnerSurface() {
     setPreviewRevision(nextRevision);
     return nextRevision;
   }, []);
+
+  /**
+   * Give every request returning the complete booking-page resource an
+   * identity at the moment it starts. Ordinary writes are still serialized
+   * below; this additional boundary prevents any older, unexpectedly late
+   * response from replacing a state returned by a newer request.
+   */
+  const requestBookingPageState = useCallback(async (
+    request: () => Promise<BookingPageApiResponse>,
+    savedEditGenerations: Partial<Record<EditableContentField, number>> = {},
+  ): Promise<{ state: BookingPageApiResponse; identity: BookingPageRequestIdentity }> => {
+    const identity: BookingPageRequestIdentity = {
+      requestGeneration: ++bookingPageRequestGenerationRef.current,
+      savedEditGenerations: { ...savedEditGenerations },
+    };
+    const state = await request();
+    return { state, identity };
+  }, []);
+
+  /**
+   * The only place a complete API response enters owner-surface state.
+   * Config, content, and salon metadata always move together. Controlled
+   * text inputs follow the canonical content unless their local edit
+   * generation proves they contain a newer, not-yet-saved owner edit.
+   */
+  const adoptBookingPageState = useCallback((
+    state: BookingPageApiResponse,
+    identity: BookingPageRequestIdentity,
+    {
+      discardLocalTextEdits = false,
+      refresh = true,
+      preservePreviewAdmission = false,
+    }: {
+      discardLocalTextEdits?: boolean;
+      refresh?: boolean;
+      preservePreviewAdmission?: boolean;
+    } = {},
+  ): { previewRevision: number | null } | null => {
+    if (identity.requestGeneration !== bookingPageRequestGenerationRef.current) {
+      return null;
+    }
+
+    for (const field of EDITABLE_CONTENT_FIELDS) {
+      const savedGeneration = identity.savedEditGenerations[field];
+      if (savedGeneration !== undefined) {
+        savedContentEditGenerationByFieldRef.current[field] = Math.max(
+          savedContentEditGenerationByFieldRef.current[field],
+          savedGeneration,
+        );
+      }
+    }
+
+    setConfig(state.config);
+    setContent(state.content);
+    // Publishing a salon is irreversible on this surface. A complete booking
+    // response may have started before that independent resource was
+    // published, so its older salon snapshot must never resurrect the draft
+    // banner after this client has observed `published`.
+    setSalonPublicationStatus(currentStatus => (
+      currentStatus === 'published' ? currentStatus : state.salon.publicationStatus
+    ));
+
+    const adoptTextDraft = (
+      field: EditableContentField,
+      setter: (value: string) => void,
+    ) => {
+      const currentEditGeneration = contentEditGenerationByFieldRef.current[field];
+      if (discardLocalTextEdits) {
+        savedContentEditGenerationByFieldRef.current[field] = currentEditGeneration;
+      } else if (
+        currentEditGeneration > savedContentEditGenerationByFieldRef.current[field]
+      ) {
+        return;
+      }
+      setter(contentDraftValue(state.content, field));
+    };
+
+    adoptTextDraft('bio', setBioDraft);
+    adoptTextDraft('specialtyLine', setSpecialtyDraft);
+    adoptTextDraft('heroImageUrl', setHeroImageDraft);
+
+    return {
+      previewRevision: refresh ? refreshPreview(preservePreviewAdmission) : null,
+    };
+  }, [refreshPreview]);
+
+  const updateContentTextDraft = useCallback((
+    field: EditableContentField,
+    value: string,
+    setter: (nextValue: string) => void,
+  ) => {
+    contentEditGenerationByFieldRef.current[field] = ++contentEditGenerationRef.current;
+    setter(value);
+    setTruthfulSaveStatus(
+      failedOrdinaryWriteFieldsRef.current.size > 0 ? 'error' : 'dirty',
+    );
+  }, [setTruthfulSaveStatus]);
 
   const trackOrdinaryWrite = useCallback(async (
     fields: readonly string[],
@@ -334,12 +472,12 @@ export default function BookingPageOwnerSurface() {
     } finally {
       pendingOrdinaryWritesRef.current.delete(pendingWrite);
       if (failedOrdinaryWriteFieldsRef.current.size > 0) {
-        setSaveStatus('error');
+        setTruthfulSaveStatus('error');
       } else if (pendingOrdinaryWritesRef.current.size === 0) {
-        setSaveStatus('saved');
+        setTruthfulSaveStatus('saved');
       }
     }
-  }, []);
+  }, [setTruthfulSaveStatus]);
 
   const settleOrdinaryWrites = useCallback(async (): Promise<boolean> => {
     while (pendingOrdinaryWritesRef.current.size > 0) {
@@ -355,10 +493,11 @@ export default function BookingPageOwnerSurface() {
       let slug = salonSlug;
       if (!slug) {
         const me = await fetch('/api/admin/auth/me', { cache: 'no-store' }).then(r => r.json()).catch(() => null);
-        slug = me?.user?.salons?.[0]?.slug || '';
-        if (!cancelled) {
-          setSalonSlug(slug);
+        if (cancelled) {
+          return;
         }
+        slug = me?.user?.salons?.[0]?.slug || '';
+        setSalonSlug(slug);
       }
       if (!slug) {
         if (!cancelled) {
@@ -371,20 +510,18 @@ export default function BookingPageOwnerSurface() {
       const me = await fetch(`/api/admin/auth/me?salonSlug=${encodeURIComponent(slug)}`, { cache: 'no-store' })
         .then(r => (r.ok ? r.json() : null))
         .catch(() => null);
-      const bookingUrl = me?.user?.salons?.[0]?.bookingUrl ?? null;
-      if (!cancelled) {
-        setPreviewUrl(bookingUrl);
+      if (cancelled) {
+        return;
       }
+      const bookingUrl = me?.user?.salons?.[0]?.bookingUrl ?? null;
+      setPreviewUrl(bookingUrl);
 
       try {
-        const state = await fetchBookingPageState(slug);
+        const response = await requestBookingPageState(
+          () => fetchBookingPageState(slug),
+        );
         if (!cancelled) {
-          setConfig(state.config);
-          setContent(state.content);
-          setBioDraft(state.content.draft.bio ?? '');
-          setSpecialtyDraft(state.content.draft.specialtyLine ?? '');
-          setHeroImageDraft(state.content.draft.heroImageUrl ?? '');
-          setSalonPublicationStatus(state.salon?.publicationStatus ?? 'published');
+          adoptBookingPageState(response.state, response.identity, { refresh: false });
         }
       } catch {
         if (!cancelled) {
@@ -401,35 +538,42 @@ export default function BookingPageOwnerSurface() {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [adoptBookingPageState, requestBookingPageState]);
 
   const saveConfigPatch = useCallback(async (patch: Record<string, unknown>) => {
     if (!salonSlug || presentationWritePendingRef.current) {
       return;
     }
     setCompletedMoveRevision(null);
-    setSaveStatus('saving');
+    setTruthfulSaveStatus('saving');
     await trackOrdinaryWrite(Object.keys(patch).map(field => `config:${field}`), async () => {
-      const state = await patchBookingPage(salonSlug, { config: patch });
-      setConfig(state.config);
-      setContent(state.content);
-      refreshPreview();
+      const response = await requestBookingPageState(
+        () => patchBookingPage(salonSlug, { config: patch }),
+      );
+      adoptBookingPageState(response.state, response.identity);
     });
-  }, [refreshPreview, salonSlug, trackOrdinaryWrite]);
+  }, [adoptBookingPageState, requestBookingPageState, salonSlug, setTruthfulSaveStatus, trackOrdinaryWrite]);
 
   const saveContentPatch = useCallback(async (patch: Record<string, unknown>) => {
     if (!salonSlug || presentationWritePendingRef.current) {
       return;
     }
     setCompletedMoveRevision(null);
-    setSaveStatus('saving');
+    setTruthfulSaveStatus('saving');
+    const savedEditGenerations: Partial<Record<EditableContentField, number>> = {};
+    for (const field of EDITABLE_CONTENT_FIELDS) {
+      if (Object.prototype.hasOwnProperty.call(patch, field)) {
+        savedEditGenerations[field] = contentEditGenerationByFieldRef.current[field];
+      }
+    }
     await trackOrdinaryWrite(Object.keys(patch).map(field => `content:${field}`), async () => {
-      const state = await patchBookingPage(salonSlug, { content: patch });
-      setConfig(state.config);
-      setContent(state.content);
-      refreshPreview();
+      const response = await requestBookingPageState(
+        () => patchBookingPage(salonSlug, { content: patch }),
+        savedEditGenerations,
+      );
+      adoptBookingPageState(response.state, response.identity);
     });
-  }, [refreshPreview, salonSlug, trackOrdinaryWrite]);
+  }, [adoptBookingPageState, requestBookingPageState, salonSlug, setTruthfulSaveStatus, trackOrdinaryWrite]);
 
   const handleStylePackSelect = (stylePack: StylePack) => {
     const option = STYLE_PACK_OPTIONS.find(p => p.id === stylePack);
@@ -461,24 +605,29 @@ export default function BookingPageOwnerSurface() {
     setCompletedMoveRevision(null);
     setPresentationPending(true);
     setPresetStatus('idle');
-    setSaveStatus('saving');
+    setTruthfulSaveStatus('saving');
     try {
       if (!await settleOrdinaryWrites()) {
         if (operation.type === 'apply_preset') {
           setPresetStatus('error');
         }
-        setSaveStatus('error');
+        setTruthfulSaveStatus('error');
         return;
       }
-      const state = await patchBookingPage(salonSlug, { builderOperation: operation });
-      setConfig(state.config);
-      setSaveStatus('saved');
-      if (operation.type === 'apply_preset') {
-        setPresetStatus('success');
-      }
-      const refreshedRevision = refreshPreview(operation.type === 'move_section');
-      if (operation.type === 'move_section') {
-        setCompletedMoveRevision(refreshedRevision);
+      const response = await requestBookingPageState(
+        () => patchBookingPage(salonSlug, { builderOperation: operation }),
+      );
+      const adoption = adoptBookingPageState(response.state, response.identity, {
+        preservePreviewAdmission: operation.type === 'move_section',
+      });
+      if (adoption) {
+        setTruthfulSaveStatus('saved');
+        if (operation.type === 'apply_preset') {
+          setPresetStatus('success');
+        }
+        if (operation.type === 'move_section' && adoption.previewRevision !== null) {
+          setCompletedMoveRevision(adoption.previewRevision);
+        }
       }
     } catch (operationError) {
       const isSignatureGuardedOperation = operation.type === 'apply_preset'
@@ -488,15 +637,18 @@ export default function BookingPageOwnerSurface() {
         && operationError.status === 409
         && operationError.code === 'STALE_PRESENTATION') {
         try {
-          const latest = await fetchBookingPageState(salonSlug);
-          setConfig(latest.config);
-          if (operation.type === 'apply_preset') {
-            setPresetStatus('stale');
-            setSaveStatus('idle');
-          } else {
-            setSaveStatus('stale');
+          const response = await requestBookingPageState(
+            () => fetchBookingPageState(salonSlug),
+          );
+          const adoption = adoptBookingPageState(response.state, response.identity);
+          if (adoption) {
+            if (operation.type === 'apply_preset') {
+              setPresetStatus('stale');
+              setTruthfulSaveStatus('idle');
+            } else {
+              setTruthfulSaveStatus('stale');
+            }
           }
-          refreshPreview();
           return;
         } catch {
           if (operation.type === 'apply_preset') {
@@ -506,12 +658,12 @@ export default function BookingPageOwnerSurface() {
       } else if (operation.type === 'apply_preset') {
         setPresetStatus('error');
       }
-      setSaveStatus('error');
+      setTruthfulSaveStatus('error');
     } finally {
       presentationWritePendingRef.current = false;
       setPresentationPending(false);
     }
-  }, [refreshPreview, salonSlug, settleOrdinaryWrites]);
+  }, [adoptBookingPageState, requestBookingPageState, salonSlug, setTruthfulSaveStatus, settleOrdinaryWrites]);
 
   const handlePreviewLoad = useCallback((
     frame: HTMLIFrameElement,
@@ -580,14 +732,13 @@ export default function BookingPageOwnerSurface() {
         setActionMessage('Publish paused because a draft field could not be saved. Retry the field, then publish again.');
         return;
       }
-      const state = await postBookingPageAction(salonSlug, 'publish');
-      setConfig(state.config);
-      setContent(state.content);
-      setBioDraft(state.content.draft.bio ?? '');
-      setSpecialtyDraft(state.content.draft.specialtyLine ?? '');
-      setHeroImageDraft(state.content.draft.heroImageUrl ?? '');
-      refreshPreview();
-      setActionMessage('Published. Your live booking page now matches your draft.');
+      const response = await requestBookingPageState(
+        () => postBookingPageAction(salonSlug, 'publish'),
+      );
+      if (adoptBookingPageState(response.state, response.identity)) {
+        setTruthfulSaveStatus('saved');
+        setActionMessage('Published. Your live booking page now matches your draft.');
+      }
     } catch {
       setActionMessage('Publish failed. Please try again.');
     } finally {
@@ -617,17 +768,17 @@ export default function BookingPageOwnerSurface() {
       // confirmed the discard. A failed field does not block Revert: the
       // explicit purpose of this action is to replace unsaved draft input.
       await settleOrdinaryWrites();
-      const state = await postBookingPageAction(salonSlug, 'revert');
+      const response = await requestBookingPageState(
+        () => postBookingPageAction(salonSlug, 'revert'),
+      );
       failedOrdinaryWriteFieldsRef.current.clear();
       latestOrdinaryWriteByFieldRef.current.clear();
-      setConfig(state.config);
-      setContent(state.content);
-      setBioDraft(state.content.draft.bio ?? '');
-      setSpecialtyDraft(state.content.draft.specialtyLine ?? '');
-      setHeroImageDraft(state.content.draft.heroImageUrl ?? '');
-      setSaveStatus('saved');
-      refreshPreview();
-      setActionMessage('Reverted. Your draft now matches what is live.');
+      if (adoptBookingPageState(response.state, response.identity, {
+        discardLocalTextEdits: true,
+      })) {
+        setTruthfulSaveStatus('saved');
+        setActionMessage('Reverted. Your draft now matches what is live.');
+      }
     } catch {
       setActionMessage('Revert failed. Please try again.');
     } finally {
@@ -721,6 +872,7 @@ export default function BookingPageOwnerSurface() {
 
         <div className="mt-3 h-5 text-xs text-stone-500" role="status" aria-live="polite">
           {saveStatus === 'saving' && 'Saving…'}
+          {saveStatus === 'dirty' && 'Unsaved changes'}
           {saveStatus === 'saved' && 'Saved'}
           {saveStatus === 'stale' && 'Your draft changed elsewhere. The latest presentation is loaded; review it before trying again.'}
           {saveStatus === 'error' && 'Could not save — please retry.'}
@@ -731,7 +883,10 @@ export default function BookingPageOwnerSurface() {
             title="Live preview"
             description="This is your real draft booking page. Saved presentation changes refresh here before anything is published."
           >
-            <div className="overflow-hidden rounded-2xl border border-stone-200 bg-white">
+            <div
+              data-booking-page-preview-scroll
+              className="h-[620px] overflow-hidden overscroll-contain rounded-2xl border border-stone-200 bg-white"
+            >
               {previewFrameSrc
                 ? (
                     <iframe
@@ -739,6 +894,7 @@ export default function BookingPageOwnerSurface() {
                       title="Live booking page preview"
                       src={previewFrameSrc}
                       aria-hidden="true"
+                      inert={'' as unknown as boolean}
                       sandbox="allow-same-origin"
                       tabIndex={-1}
                       onLoad={event => handlePreviewLoad(
@@ -746,7 +902,7 @@ export default function BookingPageOwnerSurface() {
                         previewRevision,
                         previewFrameSrc,
                       )}
-                      className="pointer-events-none block h-[620px] w-full bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700"
+                      className="pointer-events-none block size-full bg-white"
                     />
                   )
                 : (
@@ -844,7 +1000,11 @@ export default function BookingPageOwnerSurface() {
                   data-testid="content-hero-image-url"
                   disabled={presentationPending}
                   value={heroImageDraft}
-                  onChange={event => setHeroImageDraft(event.target.value)}
+                  onChange={event => updateContentTextDraft(
+                    'heroImageUrl',
+                    event.target.value,
+                    setHeroImageDraft,
+                  )}
                   onBlur={() => void saveContentPatch({ heroImageUrl: heroImageDraft.trim() === '' ? null : heroImageDraft.trim() })}
                   placeholder="https://…"
                   className="mt-1 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm"
@@ -858,7 +1018,11 @@ export default function BookingPageOwnerSurface() {
                   data-testid="content-specialty-line"
                   disabled={presentationPending}
                   value={specialtyDraft}
-                  onChange={event => setSpecialtyDraft(event.target.value)}
+                  onChange={event => updateContentTextDraft(
+                    'specialtyLine',
+                    event.target.value,
+                    setSpecialtyDraft,
+                  )}
                   onBlur={() => void saveContentPatch({ specialtyLine: specialtyDraft.trim() === '' ? null : specialtyDraft })}
                   placeholder="Russian manicure & BIAB · Toronto"
                   className="mt-1 w-full rounded-xl border border-stone-200 px-3 py-2 text-sm"
@@ -871,7 +1035,11 @@ export default function BookingPageOwnerSurface() {
                   data-testid="content-bio"
                   disabled={presentationPending}
                   value={bioDraft}
-                  onChange={event => setBioDraft(event.target.value)}
+                  onChange={event => updateContentTextDraft(
+                    'bio',
+                    event.target.value,
+                    setBioDraft,
+                  )}
                   onBlur={() => void saveContentPatch({ bio: bioDraft.trim() === '' ? null : bioDraft })}
                   rows={4}
                   placeholder="Tell clients about your studio…"

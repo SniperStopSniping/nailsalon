@@ -390,19 +390,25 @@ export function BookingPagePresetPicker({
                           This view uses your real draft content and the same renderer clients see.
                           It does not save or publish the selected design.
                         </p>
-                        <iframe
-                          key={selectedPreviewUrl}
-                          title={`${selectedCopy.label} design preview`}
-                          src={selectedPreviewUrl}
-                          aria-hidden="true"
-                          sandbox="allow-same-origin"
-                          tabIndex={-1}
-                          onLoad={event => normalizeBookingPagePreviewFrame({
-                            expectedSrc: selectedPreviewUrl,
-                            frame: event.currentTarget,
-                          })}
-                          className="pointer-events-none mt-2 block h-72 w-full rounded-xl border border-stone-200 bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700"
-                        />
+                        <div
+                          data-booking-page-preview-scroll
+                          className="mt-2 h-72 overflow-hidden overscroll-contain rounded-xl border border-stone-200 bg-white"
+                        >
+                          <iframe
+                            key={selectedPreviewUrl}
+                            title={`${selectedCopy.label} design preview`}
+                            src={selectedPreviewUrl}
+                            aria-hidden="true"
+                            inert={'' as unknown as boolean}
+                            sandbox="allow-same-origin"
+                            tabIndex={-1}
+                            onLoad={event => normalizeBookingPagePreviewFrame({
+                              expectedSrc: selectedPreviewUrl,
+                              frame: event.currentTarget,
+                            })}
+                            className="pointer-events-none block size-full bg-white"
+                          />
+                        </div>
                       </div>
                     )
                   : null}

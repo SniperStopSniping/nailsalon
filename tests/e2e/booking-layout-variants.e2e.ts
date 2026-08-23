@@ -5,6 +5,7 @@ import {
   type FrameLocator,
   type Locator,
   type Page,
+  type Request,
   type Route,
   test,
 } from '@playwright/test';
@@ -811,47 +812,64 @@ type PreviewViewportMetrics = Readonly<{
   documentScrollTop: number;
   footerIntersects: boolean;
   scrollY: number;
+  surfaceScrollTop: number;
   topIntersects: boolean;
 }>;
 
 async function readPreviewViewportMetrics(
+  iframe: Locator,
   preview: FrameLocator,
   topMarkerTestId: string,
 ): Promise<PreviewViewportMetrics> {
-  return preview.locator('html').evaluate((_root, markerTestId) => {
-    const topMarker = document.querySelector(`[data-testid="${markerTestId}"]`);
-    const footer = document.querySelector('[data-testid="public-salon-footer"]');
-    const topRect = topMarker?.getBoundingClientRect() ?? null;
-    const footerRect = footer?.getBoundingClientRect() ?? null;
-    const viewportHeight = window.innerHeight;
+  const scrollSurface = iframe.locator('xpath=ancestor::*[@data-booking-page-preview-scroll][1]');
+  const [childMetrics, surfaceScrollTop] = await Promise.all([
+    preview.locator('html').evaluate((html, markerTestId) => {
+      const topMarker = document.querySelector<HTMLElement>(
+        `[data-testid="${CSS.escape(markerTestId)}"]`,
+      );
+      const footer = document.querySelector<HTMLElement>(
+        '[data-testid="public-salon-footer"]',
+      );
+      const intersectsChildViewport = (element: HTMLElement | null) => {
+        if (!element) {
+          return false;
+        }
+        const box = element.getBoundingClientRect();
+        return box.bottom > 0 && box.top < window.innerHeight;
+      };
 
-    return {
-      bodyScrollTop: document.body.scrollTop,
-      documentScrollTop: document.documentElement.scrollTop,
-      footerIntersects: Boolean(
-        footerRect && footerRect.bottom > 0 && footerRect.top < viewportHeight,
-      ),
-      scrollY: window.scrollY,
-      topIntersects: Boolean(
-        topRect && topRect.bottom > 0 && topRect.top < viewportHeight,
-      ),
-    };
-  }, topMarkerTestId);
+      return {
+        bodyScrollTop: document.body.scrollTop,
+        documentScrollTop: html.scrollTop,
+        footerIntersects: intersectsChildViewport(footer),
+        scrollY: window.scrollY,
+        topIntersects: intersectsChildViewport(topMarker),
+      };
+    }, topMarkerTestId),
+    scrollSurface.evaluate(element => element.scrollTop),
+  ]);
+
+  return {
+    ...childMetrics,
+    surfaceScrollTop,
+  };
 }
 
 async function expectPreviewStartsAtTop(
+  iframe: Locator,
   preview: FrameLocator,
   topMarkerTestId: string,
   evidenceLabel: string,
 ): Promise<void> {
   await expect.poll(
-    () => readPreviewViewportMetrics(preview, topMarkerTestId),
+    () => readPreviewViewportMetrics(iframe, preview, topMarkerTestId),
     { message: `${evidenceLabel} must begin with real top-of-page content in view` },
   ).toEqual({
     bodyScrollTop: 0,
     documentScrollTop: 0,
     footerIntersects: false,
     scrollY: 0,
+    surfaceScrollTop: 0,
     topIntersects: true,
   });
 }
@@ -897,7 +915,7 @@ async function expectRestoredPreviewScrollIsNormalized({
 
   await expect.poll(
     async () => {
-      const metrics = await readPreviewViewportMetrics(preview, topMarkerTestId);
+      const metrics = await readPreviewViewportMetrics(iframe, preview, topMarkerTestId);
 
       return {
         footerIntersects: metrics.footerIntersects,
@@ -911,7 +929,7 @@ async function expectRestoredPreviewScrollIsNormalized({
   // restored position. The real parent handler must normalize this state;
   // DOM-existence/opacity assertions alone cannot detect the regression.
   await iframe.dispatchEvent('load');
-  await expectPreviewStartsAtTop(preview, topMarkerTestId, evidenceLabel);
+  await expectPreviewStartsAtTop(iframe, preview, topMarkerTestId, evidenceLabel);
 }
 
 async function expectViewOnlyPreviewScrollsWithoutActivation({
@@ -931,7 +949,8 @@ async function expectViewOnlyPreviewScrollsWithoutActivation({
 }): Promise<void> {
   await expect(iframe).toHaveAttribute('aria-hidden', 'true');
   await expect(iframe).toHaveAttribute('tabindex', '-1');
-  await expect(iframe).toHaveCSS('pointer-events', 'auto');
+  await expect(iframe).toHaveCSS('pointer-events', 'none');
+  await expect(iframe).toHaveAttribute('inert', '');
 
   const previewUrl = await preview.locator('html').evaluate(() => window.location.href);
   const navigableLink = preview.locator('a[href]').first();
@@ -961,7 +980,7 @@ async function expectViewOnlyPreviewScrollsWithoutActivation({
   ).toBe(previewUrl);
 
   await iframe.dispatchEvent('load');
-  await expectPreviewStartsAtTop(preview, topMarkerTestId, evidenceLabel);
+  await expectPreviewStartsAtTop(iframe, preview, topMarkerTestId, evidenceLabel);
   await iframe.evaluate(() => new Promise<void>((resolve) => {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
@@ -970,19 +989,28 @@ async function expectViewOnlyPreviewScrollsWithoutActivation({
     });
   }));
 
+  const scrollSurface = iframe.locator('xpath=ancestor::*[@data-booking-page-preview-scroll][1]');
   if (scrollInput === 'wheel') {
-    await iframe.scrollIntoViewIfNeeded();
-    const frameBox = await iframe.boundingBox();
+    await scrollSurface.scrollIntoViewIfNeeded();
+    const frameBox = await scrollSurface.boundingBox();
 
     expect(frameBox, `${evidenceLabel} must expose a real scrollable viewport`).not.toBeNull();
 
-    await preview.locator('body').hover({ position: { x: 8, y: 120 } });
+    await scrollSurface.hover({ position: { x: 8, y: 120 } });
     await page.mouse.wheel(0, 600);
   } else {
     // Playwright's mobile WebKit driver does not expose a swipe or wheel API.
-    // Exercise the actual child-frame scroll owner without claiming a physical
-    // iOS touch gesture; Chromium supplies the real wheel-input proof.
-    await preview.locator('html').evaluate(() => window.scrollBy(0, 600));
+    // Dispatch the real DOM touch sequence consumed by the safe parent scroll
+    // owner without claiming a physical iOS gesture; Chromium supplies the
+    // real hardware-input wheel proof.
+    await scrollSurface.evaluate((element) => {
+      const start = new Event('touchstart', { bubbles: true, cancelable: true });
+      Object.defineProperty(start, 'touches', { value: [{ clientY: 500 }] });
+      element.dispatchEvent(start);
+      const move = new Event('touchmove', { bubbles: true, cancelable: true });
+      Object.defineProperty(move, 'touches', { value: [{ clientY: 100 }] });
+      element.dispatchEvent(move);
+    });
   }
 
   await expect.poll(
@@ -991,7 +1019,7 @@ async function expectViewOnlyPreviewScrollsWithoutActivation({
   ).toBeGreaterThan(0);
 
   await iframe.dispatchEvent('load');
-  await expectPreviewStartsAtTop(preview, topMarkerTestId, evidenceLabel);
+  await expectPreviewStartsAtTop(iframe, preview, topMarkerTestId, evidenceLabel);
 }
 
 async function expectPreAttestationPreviewCannotActivate({
@@ -1061,6 +1089,7 @@ async function expectPreAttestationPreviewCannotActivate({
 
     await expect(pendingLink).toBeVisible();
     await expect(iframe).toHaveCSS('pointer-events', 'none');
+    await expect(iframe).toHaveAttribute('inert', '');
 
     const pendingUrl = await preview.locator('html').evaluate(() => window.location.href);
     const linkBox = await pendingLink.boundingBox();
@@ -1090,74 +1119,191 @@ async function expectPreAttestationPreviewCannotActivate({
   }
 
   // The deliberately partial document fails canonical attestation and stays
-  // inert. A subsequent real refresh can become interactive only after its
+  // inert. A subsequent real refresh remains permanently inert even after its
   // exact authorized document is loaded and guarded.
   await expect(iframe).toHaveCSS('pointer-events', 'none');
 
   await refreshButton.click();
   await expectPreviewDocumentMatchesFrameSource(iframe, preview, baseURL);
 
-  await expect(iframe).toHaveCSS('pointer-events', 'auto');
+  await expect(iframe).toHaveCSS('pointer-events', 'none');
+  await expect(iframe).toHaveAttribute('inert', '');
 
-  const expiredSessionRoute = /\/__luster-preview-expired-session$/;
-  const handleExpiredSession = async (route: Route) => {
+  await expectAdmittedPreviewRelocksBeforeDelayedReplacement({
+    evidenceLabel: 'embedded live preview',
+    iframe,
+    page,
+    preview,
+    replacementKind: 'login',
+    touch,
+  });
+
+  await refreshButton.click();
+  await expectPreviewDocumentMatchesFrameSource(iframe, preview, baseURL);
+
+  await expect(iframe).toHaveCSS('pointer-events', 'none');
+  await expect(iframe).toHaveAttribute('inert', '');
+}
+
+async function expectAdmittedPreviewRelocksBeforeDelayedReplacement({
+  evidenceLabel,
+  iframe,
+  page,
+  preview,
+  replacementKind,
+  touch,
+}: {
+  evidenceLabel: string;
+  iframe: Locator;
+  page: Page;
+  preview: FrameLocator;
+  replacementKind: 'error' | 'login';
+  touch: boolean;
+}): Promise<void> {
+  let releaseSlowResource = () => {};
+  let reportSlowResource = () => {};
+  const slowResourceGate = new Promise<void>((resolve) => {
+    releaseSlowResource = resolve;
+  });
+  const slowResourceStarted = new Promise<void>((resolve) => {
+    reportSlowResource = resolve;
+  });
+
+  const replacementPath = `/__luster-preview-${replacementKind}-replacement`;
+  const slowResourcePath = `/__luster-preview-${replacementKind}-probe.svg`;
+  const replacementRoute = (url: URL) => url.pathname === replacementPath;
+  const slowResourceRoute = (url: URL) => url.pathname === slowResourcePath;
+  const navigationRequests: string[] = [];
+  const recordNavigation = (request: Request) => {
+    if (request.isNavigationRequest()) {
+      navigationRequests.push(request.url());
+    }
+  };
+  const isLoginReplacement = replacementKind === 'login';
+  const handleReplacement = async (route: Route) => {
     await route.fulfill({
       body: `<!doctype html>
         <html>
           <body style="margin:0">
-            <a data-testid="expired-session-link" href="/should-not-leave-expired-preview"
-              style="display:block;width:240px;height:120px">Owner sign in</a>
+            <h1>${isLoginReplacement ? 'Owner sign in' : 'Preview unavailable'}</h1>
+            <a data-testid="replacement-link" href="/should-not-leave-${replacementKind}-preview"
+              style="display:block;width:240px;height:120px">${isLoginReplacement ? 'Sign in' : 'Return home'}</a>
+            <form action="/should-not-submit-${replacementKind}-preview" method="get">
+              <input data-testid="replacement-input" name="email" value="owner@example.test">
+              <button data-testid="replacement-submit" type="submit"
+                style="display:block;width:240px;height:120px">${isLoginReplacement ? 'Continue' : 'Retry'}</button>
+            </form>
+            <img src="${slowResourcePath}" alt="">
           </body>
         </html>`,
       contentType: 'text/html',
       status: 200,
     });
   };
+  const handleSlowResource = async (route: Route) => {
+    reportSlowResource();
+    await slowResourceGate;
+    await route.fulfill({
+      body: '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>',
+      contentType: 'image/svg+xml',
+      status: 200,
+    });
+  };
 
-  await page.route(expiredSessionRoute, handleExpiredSession);
+  await page.route(replacementRoute, handleReplacement);
+  await page.route(slowResourceRoute, handleSlowResource);
+  page.on('request', recordNavigation);
 
   try {
     // Bypass the child activation guard to reproduce a browser/session-driven
     // replacement on the same previously attested iframe element.
-    await preview.locator('html').evaluate(() => {
-      window.location.assign('/__luster-preview-expired-session');
+    await preview.locator('html').evaluate((_root, path) => window.location.assign(path), replacementPath);
+    await slowResourceStarted;
+
+    const replacementLink = preview.getByTestId('replacement-link');
+    const replacementSubmit = preview.getByTestId('replacement-submit');
+
+    await expect(replacementLink).toBeVisible();
+    await expect(replacementSubmit).toBeVisible();
+    await expect(iframe).toHaveCSS('pointer-events', 'none');
+    await expect(iframe).toHaveAttribute('inert', '');
+
+    const replacementScrollBefore = await preview.locator('html').evaluate(() => window.scrollY);
+    const scrollSurface = iframe.locator(
+      'xpath=ancestor::*[@data-booking-page-preview-scroll][1]',
+    );
+    const replacementScrollWasCaptured = await scrollSurface.evaluate((element) => {
+      const wheel = new WheelEvent('wheel', {
+        bubbles: true,
+        cancelable: true,
+        deltaY: 200,
+      });
+      return !element.dispatchEvent(wheel);
     });
 
-    const expiredLink = preview.getByTestId('expired-session-link');
-
-    await expect(expiredLink).toBeVisible();
-    await expect(iframe).toHaveCSS('pointer-events', 'none');
-
-    const expiredUrl = await preview.locator('html').evaluate(() => window.location.href);
-    const expiredLinkBox = await expiredLink.boundingBox();
-
-    expect(expiredLinkBox, 'the expired-session frame must expose visible hit-test geometry')
-      .not.toBeNull();
-
-    if (touch) {
-      await page.touchscreen.tap(
-        expiredLinkBox!.x + expiredLinkBox!.width / 2,
-        expiredLinkBox!.y + expiredLinkBox!.height / 2,
-      );
-    } else {
-      await page.mouse.click(
-        expiredLinkBox!.x + expiredLinkBox!.width / 2,
-        expiredLinkBox!.y + expiredLinkBox!.height / 2,
-      );
-    }
-
+    expect(
+      replacementScrollWasCaptured,
+      `${evidenceLabel} must not inherit parent-scroll admission for a replacement document`,
+    ).toBe(false);
     await expect.poll(
-      () => preview.locator('html').evaluate(() => window.location.href),
-      { message: 'a same-frame expired-session replacement must remain inert' },
-    ).toBe(expiredUrl);
+      () => preview.locator('html').evaluate(() => window.scrollY),
+      { message: `${evidenceLabel} replacement document must not inherit trusted scrolling` },
+    ).toBe(replacementScrollBefore);
+
+    expect(
+      await iframe.evaluate((frame) => {
+        (frame as HTMLIFrameElement).focus();
+        return frame.ownerDocument.activeElement === frame;
+      }),
+      `${evidenceLabel} replacement iframe must reject keyboard focus before load`,
+    ).toBe(false);
+
+    const replacementUrl = await preview.locator('html').evaluate(() => window.location.href);
+    for (const control of [replacementLink, replacementSubmit]) {
+      const controlBox = await control.boundingBox();
+
+      expect(controlBox, `${replacementKind} control must expose visible hit-test geometry`)
+        .not.toBeNull();
+
+      if (touch) {
+        await page.touchscreen.tap(
+          controlBox!.x + controlBox!.width / 2,
+          controlBox!.y + controlBox!.height / 2,
+        );
+      } else {
+        await page.mouse.click(
+          controlBox!.x + controlBox!.width / 2,
+          controlBox!.y + controlBox!.height / 2,
+        );
+      }
+    }
+    await page.keyboard.press('Enter');
+
+    await page.evaluate(() => new Promise<void>((resolve) => {
+      requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(resolve, 0)));
+    }));
+
+    const settledDocumentUrl = await preview.locator('html').evaluate(() => window.location.href);
+    const currentCanonicalFrameUrl = await iframe.evaluate(
+      frame => (frame as HTMLIFrameElement).src,
+    );
+    const allowedNavigationUrls = [replacementUrl, currentCanonicalFrameUrl];
+
+    expect(
+      navigationRequests.filter(url => !allowedNavigationUrls.includes(url)),
+      `${evidenceLabel} delayed ${replacementKind} replacement must not activate or navigate anywhere except its exact canonical fail-closed source`,
+    ).toEqual([]);
+
+    expect(
+      allowedNavigationUrls,
+      `${evidenceLabel} may stay on the inert replacement or be fail-closed back to its exact canonical source`,
+    ).toContain(settledDocumentUrl);
   } finally {
-    await page.unroute(expiredSessionRoute, handleExpiredSession);
+    page.off('request', recordNavigation);
+    releaseSlowResource();
+    await page.unroute(replacementRoute, handleReplacement);
+    await page.unroute(slowResourceRoute, handleSlowResource);
   }
-
-  await refreshButton.click();
-  await expectPreviewDocumentMatchesFrameSource(iframe, preview, baseURL);
-
-  await expect(iframe).toHaveCSS('pointer-events', 'auto');
 }
 
 async function expectSelectedServiceSummary({
@@ -1705,6 +1851,7 @@ test('owner preset previews start at the real page top and refresh from authorit
         await expectPreviewDocumentMatchesFrameSource(previewIframe, preview, baseURL);
 
         await expectPreviewStartsAtTop(
+          previewIframe,
           preview,
           'booking-step-header',
           `${scenario.label} initial embedded preview`,
@@ -1766,6 +1913,7 @@ test('owner preset previews start at the real page top and refresh from authorit
           await expectPreviewDocumentMatchesFrameSource(reviewIframe, reviewPreview, baseURL);
 
           await expectPreviewStartsAtTop(
+            reviewIframe,
             reviewPreview,
             topMarkerTestId,
             `${scenario.label} ${presetLabel} review preview`,
@@ -1785,6 +1933,16 @@ test('owner preset previews start at the real page top and refresh from authorit
               scrollInput: testInfo.project.name === 'mobile-webkit' ? 'engine' : 'wheel',
               topMarkerTestId,
             });
+            if (presetId === BOOKING_PAGE_PRESET_IDS[0]) {
+              await expectAdmittedPreviewRelocksBeforeDelayedReplacement({
+                evidenceLabel: `${scenario.label} ${presetLabel} review preview`,
+                iframe: reviewIframe,
+                page,
+                preview: reviewPreview,
+                replacementKind: 'error',
+                touch: testInfo.project.name === 'mobile-webkit',
+              });
+            }
           }
           if (testInfo.project.name !== 'mobile-webkit' && exerciseViewOnlyInput) {
             await reviewDialog.getByRole('button', { name: 'Cancel' }).focus();
@@ -1813,6 +1971,7 @@ test('owner preset previews start at the real page top and refresh from authorit
           await expectPreviewDocumentMatchesFrameSource(reviewIframe, reviewPreview, baseURL);
 
           await expectPreviewStartsAtTop(
+            reviewIframe,
             reviewPreview,
             topMarkerTestId,
             `${scenario.label} reopened ${presetLabel} review preview`,
@@ -1849,6 +2008,7 @@ test('owner preset previews start at the real page top and refresh from authorit
           await expectPreviewDocumentMatchesFrameSource(previewIframe, preview, baseURL);
 
           await expectPreviewStartsAtTop(
+            previewIframe,
             preview,
             topMarkerTestId,
             `${scenario.label} applied ${presetLabel} embedded preview`,
@@ -2332,7 +2492,8 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
         await expect(previewIframe).toHaveAttribute('sandbox', 'allow-same-origin');
         await expect(previewIframe).toHaveAttribute('aria-hidden', 'true');
         await expect(previewIframe).toHaveAttribute('tabindex', '-1');
-        await expect(previewIframe).toHaveCSS('pointer-events', 'auto');
+        await expect(previewIframe).toHaveCSS('pointer-events', 'none');
+        await expect(previewIframe).toHaveAttribute('inert', '');
         await expect(preview.getByTestId('service-menu-list')).toBeVisible();
         await expect(preview.getByTestId(`service-card-${e2eConfig.serviceId}`)).toBeVisible();
 
@@ -2342,6 +2503,7 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
           `${scenario.label} embedded live preview`,
         );
         await expectPreviewStartsAtTop(
+          previewIframe,
           preview,
           'booking-step-header',
           `${scenario.label} embedded live preview`,
@@ -2405,6 +2567,7 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
             `${scenario.label} ${presetLabel} preset-switch preview`,
           );
           await expectPreviewStartsAtTop(
+            reviewIframe,
             reviewPreview,
             STAGE7_PRESET_DOM_EXPECTATIONS[presetId].present[0],
             `${scenario.label} ${presetLabel} preset-switch preview`,
@@ -2470,6 +2633,7 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
           `${scenario.label} Collective preset-switch preview`,
         );
         await expectPreviewStartsAtTop(
+          targetPreviewIframe,
           targetPreview,
           STAGE7_PRESET_DOM_EXPECTATIONS.collective.present[0],
           `${scenario.label} Collective preset-switch preview`,
@@ -2526,6 +2690,7 @@ test('Stage 7 owner preset confirmation updates only the real draft preview and 
           `${scenario.label} applied Collective live preview`,
         );
         await expectPreviewStartsAtTop(
+          previewIframe,
           preview,
           STAGE7_PRESET_DOM_EXPECTATIONS.collective.present[0],
           `${scenario.label} applied Collective live preview`,

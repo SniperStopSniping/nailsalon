@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
@@ -119,10 +120,10 @@ function installPreviewDocument(frame: HTMLElement, previewDocument: Document) {
   });
   Object.defineProperty(frame, 'contentWindow', {
     configurable: true,
-    value: {
+    value: Object.assign(new EventTarget(), {
       history: { scrollRestoration: 'auto' },
       scrollTo: vi.fn(),
-    } as unknown as Window,
+    }) as unknown as Window,
   });
 }
 
@@ -240,21 +241,84 @@ describe('BookingPageOwnerSurface', () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
   });
 
-  it('renders exactly the four curated starting designs without a Custom recipe', async () => {
+  it('does not let a cancelled StrictMode bootstrap identify a newer booking-state request', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    const releaseAuthRequests: Array<() => void> = [];
+    const releaseBookingRequests: Array<() => void> = [];
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      if (url.includes('/api/admin/auth/me')) {
+        return new Promise<Response>((resolve) => {
+          releaseAuthRequests.push(() => resolve(new Response(JSON.stringify({
+            user: { salons: [{ slug: 'salon-a', bookingUrl: 'https://salon-a.example.com/en/salon-a/book/service' }] },
+          }), { status: 200 })));
+        });
+      }
+      if (url.includes('/api/admin/booking-page') && method === 'GET') {
+        return new Promise<Response>((resolve) => {
+          releaseBookingRequests.push(() => resolve(new Response(JSON.stringify({
+            config,
+            content,
+            salon: { publicationStatus: salonPublicationStatus },
+          }), { status: 200 })));
+        });
+      }
+      return fallbackFetch(input, init);
+    });
+
+    render(
+      <StrictMode>
+        <BookingPageOwnerSurface />
+      </StrictMode>,
+    );
+
+    await waitFor(() => expect(releaseAuthRequests).toHaveLength(2));
+
+    await act(async () => {
+      releaseAuthRequests[1]?.();
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(releaseBookingRequests).toHaveLength(1));
+
+    await act(async () => {
+      releaseAuthRequests[0]?.();
+      await Promise.resolve();
+    });
+
+    expect(releaseBookingRequests).toHaveLength(1);
+
+    await act(async () => {
+      releaseBookingRequests[0]?.();
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByTestId('booking-page-preset-picker')).toBeInTheDocument();
+  });
+
+  it('renders exactly the four curated starting designs and treats the current preset as a no-op', async () => {
     render(<BookingPageOwnerSurface />);
 
     const picker = await screen.findByTestId('booking-page-preset-picker');
+    const currentPreset = within(picker).getByRole('button', { name: /Quick Book starting design/ });
 
     expect(within(picker).getAllByRole('button')).toHaveLength(4);
-    expect(within(picker).getByRole('button', { name: /Quick Book starting design/ }))
-      .toBeDisabled();
+    expect(currentPreset).toBeDisabled();
     expect(within(picker).getByRole('button', { name: 'Signature starting design' })).toBeEnabled();
     expect(within(picker).getByRole('button', { name: 'Menu starting design' })).toBeEnabled();
     expect(within(picker).getByRole('button', { name: 'Collective starting design' })).toBeEnabled();
     expect(within(picker).queryByRole('button', { name: /Custom/i })).not.toBeInTheDocument();
+
+    fireEvent.click(currentPreset);
+
+    expect(screen.queryByRole('button', { name: 'Use Quick Book' })).not.toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0);
   });
 
   it('previews a guarded switch and PATCHes one semantic preset operation only after confirmation', async () => {
+    const originalLiveConfig = structuredClone(config.live);
+    const originalLiveContent = structuredClone(content.live);
     render(<BookingPageOwnerSurface />);
     const signature = await screen.findByRole('button', { name: 'Signature starting design' });
     const expectedPresentationSignature = getBookingPagePresentationSignature({
@@ -284,6 +348,238 @@ describe('BookingPageOwnerSurface', () => {
 
     expect(screen.getByText(/starting design applied to your draft/i)).toBeInTheDocument();
     expect(config.live).not.toEqual(config.draft);
+    expect(config.live).toEqual(originalLiveConfig);
+    expect(content.live).toEqual(originalLiveContent);
+  });
+
+  it('keeps a preset confirmation valid when only canonical content changes', async () => {
+    render(<BookingPageOwnerSurface />);
+    const expectedPresentationSignature = getBookingPagePresentationSignature({
+      ...config.draft,
+      presetBase: config.draftPresetBase,
+    } as never);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Signature starting design' }));
+
+    const bio = screen.getByTestId('content-bio');
+    fireEvent.change(bio, { target: { value: 'Content does not change presentation' } });
+    fireEvent.blur(bio);
+    await waitFor(() => expect(content.draft.bio).toBe('Content does not change presentation'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use Signature' }));
+
+    await waitFor(() => expect(screen.getByTestId('booking-page-preset-state'))
+      .toHaveTextContent('Signature'));
+
+    const applyCall = fetchMock.mock.calls.find(([, init]) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      return body?.builderOperation?.type === 'apply_preset';
+    });
+
+    expect(JSON.parse(String(applyCall?.[1]?.body))).toEqual({
+      builderOperation: {
+        type: 'apply_preset',
+        presetId: 'signature',
+        presetVersion: 1,
+        expectedPresentationSignature,
+      },
+    });
+    expect(screen.getByTestId('content-bio'))
+      .toHaveValue('Content does not change presentation');
+  });
+
+  it('drains concurrent bio and location saves before adopting a preset response', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releaseBioSave: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.content?.bio === 'Bio saved before preset') {
+        content = {
+          ...content,
+          draft: { ...content.draft, bio: 'Bio saved before preset' },
+        };
+        const response = new Response(JSON.stringify({
+          config,
+          content,
+          salon: { publicationStatus: salonPublicationStatus },
+        }), { status: 200 });
+        return new Promise<Response>((resolve) => {
+          releaseBioSave = () => resolve(response);
+        });
+      }
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+
+    const bio = await screen.findByTestId('content-bio');
+    fireEvent.change(bio, { target: { value: 'Bio saved before preset' } });
+    fireEvent.blur(bio);
+    await waitFor(() => expect(releaseBioSave).toBeTypeOf('function'));
+    fireEvent.click(screen.getByTestId('location-display-mode-city_only'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Signature starting design' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1);
+
+    releaseBioSave?.();
+
+    await waitFor(() => expect(screen.getByTestId('booking-page-preset-state'))
+      .toHaveTextContent('Signature'));
+
+    expect(screen.getByTestId('content-bio')).toHaveValue('Bio saved before preset');
+    expect(screen.getByTestId('location-display-mode-city_only'))
+      .toHaveAttribute('aria-pressed', 'true');
+
+    const patchBodies = fetchMock.mock.calls
+      .filter(([, init]) => init?.method === 'PATCH')
+      .map(([, init]) => JSON.parse(String(init?.body)));
+
+    expect(patchBodies.map(body => (
+      body.content?.bio
+        ? 'bio'
+        : body.content?.locationDisplayMode
+          ? 'location'
+          : body.builderOperation?.type
+    ))).toEqual(['bio', 'location', 'apply_preset']);
+  });
+
+  it('adopts a successful preset response across the controls and preview before a later blur', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    salonPublicationStatus = 'draft';
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.builderOperation?.type === 'apply_preset') {
+        content = {
+          ...content,
+          draft: {
+            heroImageUrl: 'https://cdn.example.com/remote-hero.jpg',
+            specialtyLine: 'Remote specialty',
+            bio: 'Remote canonical bio',
+            locationDisplayMode: 'city_only',
+          },
+        };
+      }
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Signature starting design' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
+
+    await waitFor(() => expect(screen.getByTestId('booking-page-preset-state'))
+      .toHaveTextContent('Signature'));
+
+    expect(screen.getByTestId('content-hero-image-url'))
+      .toHaveValue('https://cdn.example.com/remote-hero.jpg');
+    expect(screen.getByTestId('content-specialty-line')).toHaveValue('Remote specialty');
+    expect(screen.getByTestId('content-bio')).toHaveValue('Remote canonical bio');
+    expect(screen.getByTestId('location-display-mode-city_only'))
+      .toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('salon-publish-banner')).toBeInTheDocument();
+    expect(screen.getByTitle('Live booking page preview')).toHaveAttribute(
+      'src',
+      '/salon-a/book/service?builderPreview=1',
+    );
+
+    fireEvent.blur(screen.getByTestId('content-bio'));
+
+    await waitFor(() => {
+      const contentPatches = fetchMock.mock.calls
+        .filter(([, init]) => init?.method === 'PATCH')
+        .map(([, init]) => JSON.parse(String(init?.body)))
+        .filter(body => body.content);
+
+      expect(contentPatches.at(-1)?.content).toEqual({ bio: 'Remote canonical bio' });
+    });
+
+    expect(screen.getByTestId('content-bio')).toHaveValue('Remote canonical bio');
+  });
+
+  it('preserves a newer unsaved local bio while adopting the rest of a preset response', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.builderOperation?.type === 'apply_preset') {
+        content = {
+          ...content,
+          draft: {
+            ...content.draft,
+            bio: 'Remote bio',
+            locationDisplayMode: 'city_only',
+          },
+        };
+      }
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+    const bio = await screen.findByTestId('content-bio');
+    fireEvent.change(bio, { target: { value: 'New local unsaved bio' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Signature starting design' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
+
+    await waitFor(() => expect(screen.getByTestId('booking-page-preset-state'))
+      .toHaveTextContent('Signature'));
+
+    expect(screen.getByTestId('content-bio')).toHaveValue('New local unsaved bio');
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    expect(screen.getByTestId('location-display-mode-city_only'))
+      .toHaveAttribute('aria-pressed', 'true');
+
+    fireEvent.blur(screen.getByTestId('content-bio'));
+    await waitFor(() => expect(content.draft.bio).toBe('New local unsaved bio'));
+  });
+
+  it('keeps a newer local edit unsaved after an older response and saves the current value on blur', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releaseOlderSave: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.content?.bio === 'Older server bio') {
+        content = {
+          ...content,
+          draft: { ...content.draft, bio: 'Older server bio' },
+        };
+        const response = new Response(JSON.stringify({
+          config,
+          content,
+          salon: { publicationStatus: salonPublicationStatus },
+        }), { status: 200 });
+        return new Promise<Response>((resolve) => {
+          releaseOlderSave = () => resolve(response);
+        });
+      }
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+    const bio = await screen.findByTestId('content-bio');
+    fireEvent.change(bio, { target: { value: 'Older server bio' } });
+    fireEvent.blur(bio);
+    await waitFor(() => expect(releaseOlderSave).toBeTypeOf('function'));
+
+    fireEvent.change(bio, { target: { value: 'Newer local bio' } });
+    releaseOlderSave?.();
+
+    await waitFor(() => expect(screen.getByText('Unsaved changes')).toBeInTheDocument());
+
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    expect(bio).toHaveValue('Newer local bio');
+    expect(content.draft.bio).toBe('Older server bio');
+
+    fireEvent.blur(bio);
+
+    await waitFor(() => expect(content.draft.bio).toBe('Newer local bio'));
+
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(bio).toHaveValue('Newer local bio');
   });
 
   it('serializes an older non-presentation field save before applying the authoritative Current design', async () => {
@@ -386,6 +682,56 @@ describe('BookingPageOwnerSurface', () => {
     });
   });
 
+  it('does not report Saved when the newer serialized field request fails', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releaseOlderSave: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.content?.bio === 'Older saved bio') {
+        content = {
+          ...content,
+          draft: { ...content.draft, bio: 'Older saved bio' },
+        };
+        const response = new Response(JSON.stringify({
+          config,
+          content,
+          salon: { publicationStatus: salonPublicationStatus },
+        }), { status: 200 });
+
+        return new Promise<Response>((resolve) => {
+          releaseOlderSave = () => resolve(response);
+        });
+      }
+      if (init?.method === 'PATCH' && body?.content?.bio === 'Newer failed bio') {
+        return Promise.resolve(new Response(JSON.stringify({ error: 'write failed' }), {
+          status: 500,
+        }));
+      }
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+    const bio = await screen.findByTestId('content-bio');
+    fireEvent.change(bio, { target: { value: 'Older saved bio' } });
+    fireEvent.blur(bio);
+    await waitFor(() => expect(releaseOlderSave).toBeTypeOf('function'));
+
+    fireEvent.change(bio, { target: { value: 'Newer failed bio' } });
+    fireEvent.blur(bio);
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1);
+
+    releaseOlderSave?.();
+
+    await screen.findByText('Could not save — please retry.');
+
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    expect(screen.getByTestId('content-bio')).toHaveValue('Newer failed bio');
+    expect(content.draft.bio).toBe('Older saved bio');
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(2);
+  });
+
   it('reports a failed preset save without changing Current design or publishing', async () => {
     const fallbackFetch = fetchMock.getMockImplementation()!;
     const originalDraft = structuredClone(config.draft);
@@ -412,17 +758,59 @@ describe('BookingPageOwnerSurface', () => {
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
   });
 
-  it('refreshes authoritative state after a stale preset confirmation without retrying or publishing', async () => {
+  it('does not apply a preset after a pending bio save fails', async () => {
     const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releaseFailedSave: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.content?.bio === 'Unsaved failing bio') {
+        return new Promise<Response>((resolve) => {
+          releaseFailedSave = () => resolve(new Response(
+            JSON.stringify({ error: 'write failed' }),
+            { status: 500 },
+          ));
+        });
+      }
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+    const bio = await screen.findByTestId('content-bio');
+    fireEvent.change(bio, { target: { value: 'Unsaved failing bio' } });
+    fireEvent.blur(bio);
+    await waitFor(() => expect(releaseFailedSave).toBeTypeOf('function'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Signature starting design' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
+    releaseFailedSave?.();
+
+    await screen.findByText('We couldn’t switch the starting design. Your draft was not changed.');
+
+    expect(screen.getByTestId('booking-page-preset-state')).toHaveTextContent('Quick Book');
+    expect(fetchMock.mock.calls.filter(([, init]) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      return body?.builderOperation?.type === 'apply_preset';
+    })).toHaveLength(0);
+  });
+
+  it('recovers complete authoritative state after a stale preset confirmation without retrying or publishing', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    salonPublicationStatus = 'draft';
 
     fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
       const body = init?.body ? JSON.parse(String(init.body)) : null;
       if (init?.method === 'PATCH' && body?.builderOperation?.type === 'apply_preset') {
-        config = baseConfig({ sectionVariants: { policies: 'inline' } });
+        config = baseConfig({
+          businessMode: 'team',
+          sectionVariants: { policies: 'inline' },
+        });
         content = {
           ...content,
           draft: {
             ...content.draft,
+            heroImageUrl: 'https://cdn.example.com/newer.jpg',
+            specialtyLine: 'Newer specialty',
             bio: 'A newer bio from another tab',
             locationDisplayMode: 'city_only',
           },
@@ -450,11 +838,22 @@ describe('BookingPageOwnerSurface', () => {
       String(input).includes('/api/admin/booking-page') && (init?.method ?? 'GET') === 'GET'
     )).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByRole('button', { name: 'Signature starting design' })).toBeEnabled();
-    expect(screen.getByTestId('location-display-mode-full_address'))
+    expect(screen.getByTestId('business-mode-option-team'))
       .toHaveAttribute('aria-pressed', 'true');
-    expect(screen.queryByTestId('location-display-mode-city-only-warning'))
-      .not.toBeInTheDocument();
-    expect(screen.getByTestId('content-bio')).toHaveValue('');
+    expect(screen.getByTestId('location-display-mode-city_only'))
+      .toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('location-display-mode-city-only-warning'))
+      .toBeInTheDocument();
+    expect(screen.getByTestId('content-hero-image-url'))
+      .toHaveValue('https://cdn.example.com/newer.jpg');
+    expect(screen.getByTestId('content-specialty-line')).toHaveValue('Newer specialty');
+    expect(screen.getByTestId('content-bio'))
+      .toHaveValue('A newer bio from another tab');
+    expect(screen.getByTestId('salon-publish-banner')).toBeInTheDocument();
+    expect(screen.getByTitle('Live booking page preview')).toHaveAttribute(
+      'src',
+      '/salon-a/book/service?builderPreview=1',
+    );
   });
 
   it('does not start a reset while a preset presentation write is pending', async () => {
@@ -744,8 +1143,12 @@ describe('BookingPageOwnerSurface', () => {
     ]));
     fireEvent.load(preview);
 
-    expect(preview).not.toHaveClass('pointer-events-none');
-    expect(preview).toHaveClass('pointer-events-auto');
+    expect(preview).toHaveClass('pointer-events-none');
+    expect(preview).not.toHaveClass('pointer-events-auto');
+    expect(preview).toHaveAttribute('inert');
+    expect(preview.closest('[data-booking-page-preview-scroll]')).toHaveClass(
+      'overflow-hidden',
+    );
 
     await waitFor(() => {
       expect(screen.getByTestId('builder-section-status-featuredServices')).toHaveTextContent('Visible');
@@ -1338,14 +1741,52 @@ describe('BookingPageOwnerSurface', () => {
       expect(screen.getByTestId('salon-publish-banner')).toBeInTheDocument();
     });
 
-    it('is independent of the booking-page config Publish/Revert action state (clicking one never disables the other)', async () => {
+    it('does not regress published salon metadata when an older booking-page response arrives last', async () => {
       salonPublicationStatus = 'draft';
+      const fallbackFetch = fetchMock.getMockImplementation()!;
+      let releaseBookingPagePublish: (() => void) | undefined;
+
+      fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes('/api/admin/booking-page') && init?.method === 'POST') {
+          const staleResponse = new Response(JSON.stringify({
+            config,
+            content,
+            salon: { publicationStatus: 'draft' },
+          }), { status: 200 });
+          return new Promise<Response>((resolve) => {
+            releaseBookingPagePublish = () => resolve(staleResponse);
+          });
+        }
+        return fallbackFetch(input, init);
+      });
+
       render(<BookingPageOwnerSurface />);
 
       await screen.findByTestId('salon-publish-banner');
-      const configPublishButton = screen.getByTestId('booking-page-publish');
+      fireEvent.click(screen.getByTestId('booking-page-publish'));
+      await waitFor(() => expect(releaseBookingPagePublish).toBeTypeOf('function'));
 
-      expect(configPublishButton).toBeEnabled();
+      const salonPublishButton = screen.getByTestId('salon-publish-button');
+
+      expect(salonPublishButton).toBeEnabled();
+
+      fireEvent.click(salonPublishButton);
+
+      await waitFor(() => {
+        expect(screen.queryByTestId('salon-publish-banner')).not.toBeInTheDocument();
+      });
+
+      releaseBookingPagePublish?.();
+      await screen.findByText(/Published\. Your live booking page now matches your draft\./);
+
+      expect(screen.queryByTestId('salon-publish-banner')).not.toBeInTheDocument();
+      expect(fetchMock.mock.calls.filter(([url, init]) => (
+        String(url).includes('/api/admin/salon/publish') && init?.method === 'POST'
+      ))).toHaveLength(1);
+      expect(fetchMock.mock.calls.filter(([url, init]) => (
+        String(url).includes('/api/admin/booking-page') && init?.method === 'POST'
+      ))).toHaveLength(1);
     });
   });
 });
