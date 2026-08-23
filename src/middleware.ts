@@ -36,6 +36,11 @@ const isPublicClerkRoute = createRouteMatcher([
   '/:locale/join(.*)',
 ]);
 
+const isOwnerBookingPagePreviewRoute = createRouteMatcher([
+  '/admin/booking-page/preview/(.*)',
+  '/:locale/admin/booking-page/preview/(.*)',
+]);
+
 export default async function middleware(
   request: NextRequest,
   event: NextFetchEvent,
@@ -182,6 +187,30 @@ export default async function middleware(
   // Skip middleware entirely for other API routes (booking flow, etc.)
   if (request.nextUrl.pathname.startsWith('/api')) {
     return finalizeResponse(NextResponse.next());
+  }
+
+  // The private full-page/embedded booking-page preview resolves Clerk owners
+  // through getAdminSession() on the server. Establish Clerk request context
+  // only when the request actually carries the Clerk session cookie that
+  // getAdminSession() consumes. Requests using the repository's signed legacy
+  // super-admin impersonation path must not be diverted into Clerk's dev-browser
+  // handshake, while anonymous requests need no Clerk context at all. Every
+  // path still reaches the same salon-specific server authorization gate;
+  // absence, expiry, forgery, or a wrong-salon session returns 404 before DRAFT
+  // content renders.
+  if (isOwnerBookingPagePreviewRoute(request)) {
+    const response = request.cookies.get('__session')?.value
+      ? await clerkMiddleware(
+        async (_auth, req) => intlMiddleware(req),
+        clerkOptions,
+      )(request, event)
+      : intlMiddleware(request);
+    const finalized = finalizeResponse(
+      (response as NextResponse | undefined) ?? NextResponse.next(),
+    );
+    finalized.headers.set('Cache-Control', 'private, no-store, max-age=0');
+    finalized.headers.set('X-Robots-Tag', 'noindex, nofollow');
+    return finalized;
   }
 
   // Invitation pages are public, but their server component calls Clerk auth()

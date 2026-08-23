@@ -150,7 +150,7 @@ describe('BookingPagePresetPicker', () => {
     const user = userEvent.setup();
     const onOperation = vi.fn();
     renderPicker({
-      previewBaseUrl: '/en/salon-a/book/service?builderPreview=8',
+      previewBaseUrl: '/en/admin/booking-page/preview/salon-a?builderPreview=8',
       onOperation,
     });
 
@@ -160,7 +160,7 @@ describe('BookingPagePresetPicker', () => {
 
     expect(preview).toHaveAttribute(
       'src',
-      'http://localhost:3000/en/salon-a/book/service?builderPreview=8&presetPreview=menu&presetPreviewVersion=1',
+      'http://localhost:3000/en/admin/booking-page/preview/salon-a?builderPreview=8&presetPreview=menu&presetPreviewVersion=1',
     );
     expect(preview).toHaveAttribute('sandbox', 'allow-same-origin');
     expect(preview).toHaveAttribute('aria-hidden', 'true');

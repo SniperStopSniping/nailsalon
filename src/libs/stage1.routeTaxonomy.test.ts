@@ -135,7 +135,18 @@ describe('S3 — route classification matrix', () => {
 
   it('the four booking-step pages keep their EXISTING checkSalonStatus gate, untouched', () => {
     for (const step of ['service', 'tech', 'time', 'confirm']) {
-      const source = readSource(`src/app/(unauth)/book/${step}/page.tsx`);
+      const routeSource = readSource(`src/app/(unauth)/book/${step}/page.tsx`);
+      const source = step === 'service'
+        ? readSource('src/app/(unauth)/book/service/BookServicePageServer.tsx')
+        : routeSource;
+
+      if (step === 'service') {
+        // Next route modules may export only the App Router surface. Pin the
+        // public wrapper to the one shared server implementation as well as
+        // pinning the implementation's original Stage 1 status checks.
+        expect(routeSource).toContain('from \'./BookServicePageServer\'');
+        expect(routeSource).toContain('return renderBookServicePage(props)');
+      }
 
       expect(source).toContain('checkSalonStatus');
       expect(source).toContain('allowUnpublishedPreview');

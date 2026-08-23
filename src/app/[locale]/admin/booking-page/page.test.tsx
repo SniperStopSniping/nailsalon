@@ -483,7 +483,7 @@ describe('BookingPageOwnerSurface', () => {
     expect(screen.getByTestId('salon-publish-banner')).toBeInTheDocument();
     expect(screen.getByTitle('Live booking page preview')).toHaveAttribute(
       'src',
-      '/salon-a/book/service?builderPreview=1',
+      '/admin/booking-page/preview/salon-a?builderPreview=1',
     );
 
     fireEvent.blur(screen.getByTestId('content-bio'));
@@ -632,7 +632,7 @@ describe('BookingPageOwnerSurface', () => {
     expect(screen.getByText(/starting design applied to your draft/i)).toBeInTheDocument();
     expect(screen.getByTitle('Live booking page preview')).toHaveAttribute(
       'src',
-      '/salon-a/book/service?builderPreview=2',
+      '/admin/booking-page/preview/salon-a?builderPreview=2',
     );
   });
 
@@ -853,7 +853,7 @@ describe('BookingPageOwnerSurface', () => {
     expect(screen.getByTestId('salon-publish-banner')).toBeInTheDocument();
     expect(screen.getByTitle('Live booking page preview')).toHaveAttribute(
       'src',
-      '/salon-a/book/service?builderPreview=1',
+      '/admin/booking-page/preview/salon-a?builderPreview=1',
     );
   });
 
@@ -1082,7 +1082,7 @@ describe('BookingPageOwnerSurface', () => {
     expect(replacementPreview).not.toBe(preview);
     expect(replacementPreview).toHaveAttribute(
       'src',
-      '/salon-a/book/service?builderPreview=1',
+      '/admin/booking-page/preview/salon-a?builderPreview=1',
     );
 
     // An expired owner session can return the canonical LIVE renderer, but
@@ -1129,7 +1129,7 @@ describe('BookingPageOwnerSurface', () => {
 
     expect(preview).toHaveAttribute(
       'src',
-      '/salon-a/book/service?builderPreview=0',
+      '/admin/booking-page/preview/salon-a?builderPreview=0',
     );
     expect(preview).toHaveAttribute('sandbox', 'allow-same-origin');
     expect(preview).toHaveAttribute('aria-hidden', 'true');
@@ -1410,7 +1410,7 @@ describe('BookingPageOwnerSurface', () => {
 
     const link = await screen.findByTestId('booking-page-preview-link');
     await waitFor(() => {
-      expect(link).toHaveAttribute('href', '/salon-a/book/service');
+      expect(link).toHaveAttribute('href', '/admin/booking-page/preview/salon-a');
     });
 
     expect(link.getAttribute('href')).not.toContain('salon-a.example.com');

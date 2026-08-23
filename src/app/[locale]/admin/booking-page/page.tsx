@@ -816,12 +816,13 @@ export default function BookingPageOwnerSurface() {
   }
 
   const draft = config.draft;
-  // Owner preview must stay on the dashboard origin. Public booking URLs may
-  // intentionally resolve to a custom domain or tenant subdomain, while the
-  // owner/impersonation session cookies are host-only. Sending this link to a
-  // public host would silently lose draft authorization and render LIVE.
+  // Owner preview stays on a dedicated dashboard-origin route. That route
+  // establishes Clerk context and performs an exact salon ownership /
+  // impersonation check before invoking the same canonical booking renderer.
+  // Public booking URLs may live on a custom host where the Owner's session is
+  // unavailable, and must never be treated as a privileged DRAFT capability.
   const previewPath = salonSlug
-    ? getI18nPath(`/${encodeURIComponent(salonSlug)}/book/service`, locale)
+    ? getI18nPath(`/admin/booking-page/preview/${encodeURIComponent(salonSlug)}`, locale)
     : null;
   const previewFrameSrc = previewPath
     ? `${previewPath}?builderPreview=${previewRevision}`
