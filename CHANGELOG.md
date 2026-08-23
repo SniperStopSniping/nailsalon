@@ -1,3 +1,10 @@
+## [1.83.2](https://github.com/SniperStopSniping/nailsalon/compare/v1.83.1...v1.83.2) (2026-08-23)
+
+
+### Bug Fixes
+
+* **booking:** repair owner draft previews ([886b085](https://github.com/SniperStopSniping/nailsalon/commit/886b085a5b035b63dd929e6aad31382c68a84c87))
+
 ## [1.83.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.83.0...v1.83.1) (2026-08-23)
 
 
