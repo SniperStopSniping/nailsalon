@@ -265,7 +265,6 @@ export default function BookingPageOwnerSurface() {
 
   const [config, setConfig] = useState<BookingPageConfig | null>(null);
   const [content, setContent] = useState<BookingPageContent | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saveStatus, setSaveStatusState]
@@ -506,15 +505,6 @@ export default function BookingPageOwnerSurface() {
         }
         return;
       }
-
-      const me = await fetch(`/api/admin/auth/me?salonSlug=${encodeURIComponent(slug)}`, { cache: 'no-store' })
-        .then(r => (r.ok ? r.json() : null))
-        .catch(() => null);
-      if (cancelled) {
-        return;
-      }
-      const bookingUrl = me?.user?.salons?.[0]?.bookingUrl ?? null;
-      setPreviewUrl(bookingUrl);
 
       try {
         const response = await requestBookingPageState(
@@ -826,8 +816,15 @@ export default function BookingPageOwnerSurface() {
   }
 
   const draft = config.draft;
-  const previewFrameSrc = salonSlug
-    ? `${getI18nPath(`/${encodeURIComponent(salonSlug)}/book/service`, locale)}?builderPreview=${previewRevision}`
+  // Owner preview must stay on the dashboard origin. Public booking URLs may
+  // intentionally resolve to a custom domain or tenant subdomain, while the
+  // owner/impersonation session cookies are host-only. Sending this link to a
+  // public host would silently lose draft authorization and render LIVE.
+  const previewPath = salonSlug
+    ? getI18nPath(`/${encodeURIComponent(salonSlug)}/book/service`, locale)
+    : null;
+  const previewFrameSrc = previewPath
+    ? `${previewPath}?builderPreview=${previewRevision}`
     : null;
 
   return (
@@ -850,13 +847,13 @@ export default function BookingPageOwnerSurface() {
           </div>
           <div className="flex flex-col items-end gap-1">
             <a
-              href={previewUrl ?? undefined}
+              href={previewPath ?? undefined}
               target="_blank"
               rel="noreferrer"
-              aria-disabled={!previewUrl}
+              aria-disabled={!previewPath}
               data-testid="booking-page-preview-link"
               className={`inline-flex items-center gap-1.5 rounded-full border border-rose-200 bg-rose-50 px-4 py-2 text-sm font-semibold text-rose-700 transition-colors ${
-                previewUrl ? 'hover:bg-rose-100' : 'pointer-events-none opacity-50'
+                previewPath ? 'hover:bg-rose-100' : 'pointer-events-none opacity-50'
               }`}
             >
               Preview

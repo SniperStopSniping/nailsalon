@@ -242,6 +242,7 @@ describe('BookingPageOwnerSurface', () => {
   });
 
   it('does not let a cancelled StrictMode bootstrap identify a newer booking-state request', async () => {
+    searchParamsMock.value = new URLSearchParams();
     const fallbackFetch = fetchMock.getMockImplementation()!;
     const releaseAuthRequests: Array<() => void> = [];
     const releaseBookingRequests: Array<() => void> = [];
@@ -1404,14 +1405,16 @@ describe('BookingPageOwnerSurface', () => {
     });
   });
 
-  it('the preview link points at the salon booking URL from /api/admin/auth/me', async () => {
+  it('keeps full-page draft preview on the authenticated owner origin even when auth/me advertises a public host', async () => {
     render(<BookingPageOwnerSurface />);
 
     const link = await screen.findByTestId('booking-page-preview-link');
     await waitFor(() => {
-      expect(link).toHaveAttribute('href', 'https://salon-a.example.com/en/salon-a/book/service');
+      expect(link).toHaveAttribute('href', '/salon-a/book/service');
     });
 
+    expect(link.getAttribute('href')).not.toContain('salon-a.example.com');
+    expect(link.getAttribute('href')).not.toContain('builderPreview');
     expect(link).toHaveAttribute('target', '_blank');
   });
 

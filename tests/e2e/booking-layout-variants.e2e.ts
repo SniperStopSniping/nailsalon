@@ -212,6 +212,32 @@ type TechnicianFixtureRow = QueryResultRow & {
   phone: string | null;
 };
 
+type SparseSalonFixtureRow = SalonFixtureRow & {
+  address: string | null;
+  city: string | null;
+  social_links: unknown;
+  state: string | null;
+  zip_code: string | null;
+};
+
+type SparseServiceFixtureRow = QueryResultRow & {
+  category: string;
+  featured_order: number | null;
+  id: string;
+  template_key: string | null;
+};
+
+type SparseTechnicianFixtureRow = QueryResultRow & {
+  avatar_url: string | null;
+  bio: string | null;
+  id: string;
+};
+
+type SparseLocationFixtureRow = QueryResultRow & {
+  id: string;
+  is_active: boolean | null;
+};
+
 type AddOnFixtureRow = QueryResultRow & {
   duration_minutes: number;
   name: string;
@@ -281,6 +307,37 @@ const STAGE7_STRUCTURAL_MARKERS = [
   'booking-social-links',
   'booking-social-links-labeled',
 ] as const;
+
+type TestIdSurface = {
+  getByTestId: (testId: string | RegExp) => Locator;
+};
+
+async function readStage7StructuralFingerprint(surface: TestIdSurface): Promise<string> {
+  const markers: string[] = [];
+
+  for (const testId of STAGE7_STRUCTURAL_MARKERS) {
+    const marker = surface.getByTestId(testId);
+    const markerCount = await marker.count();
+
+    if (!markerCount) {
+      continue;
+    }
+
+    expect(markerCount, `${testId} must render exactly once`).toBe(1);
+    await expect(marker, `${testId} must be visibly rendered`).toBeVisible();
+
+    markers.push(testId);
+  }
+
+  const canonicalServiceCard = surface.getByTestId(`service-card-${e2eConfig.serviceId}`);
+
+  await expect(canonicalServiceCard, 'canonical service content must remain visibly rendered')
+    .toBeVisible();
+  await expect(canonicalServiceCard, 'canonical service content must remain non-empty')
+    .toContainText(/\S/);
+
+  return markers.join('|');
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -813,6 +870,9 @@ type PreviewViewportMetrics = Readonly<{
   footerIntersects: boolean;
   scrollY: number;
   surfaceScrollTop: number;
+  topContentHasPixels: boolean;
+  topContentIsOpaque: boolean;
+  topContentIsVisible: boolean;
   topIntersects: boolean;
 }>;
 
@@ -835,15 +895,64 @@ async function readPreviewViewportMetrics(
           return false;
         }
         const box = element.getBoundingClientRect();
-        return box.bottom > 0 && box.top < window.innerHeight;
+        return box.width > 0
+          && box.height > 0
+          && box.right > 0
+          && box.left < window.innerWidth
+          && box.bottom > 0
+          && box.top < window.innerHeight;
       };
+      const topContentCandidates = topMarker
+        ? [...topMarker.querySelectorAll<HTMLElement>(
+            'h1, [data-testid="booking-salon-name"], img[alt]',
+          )]
+        : [];
+      const topContentMetrics = topContentCandidates.map((candidate) => {
+        const box = candidate.getBoundingClientRect();
+        const style = getComputedStyle(candidate);
+        let effectiveOpacity = 1;
+        let ancestor: HTMLElement | null = candidate;
+
+        while (ancestor) {
+          const opacity = Number.parseFloat(getComputedStyle(ancestor).opacity);
+
+          effectiveOpacity *= Number.isFinite(opacity) ? opacity : 1;
+          ancestor = ancestor.parentElement;
+        }
+
+        return {
+          hasMeaning: Boolean(
+            candidate.textContent?.trim()
+            || (candidate instanceof HTMLImageElement && candidate.alt.trim()),
+          ),
+          hasPixels: box.width > 0 && box.height > 0,
+          intersects: intersectsChildViewport(candidate),
+          isOpaque: effectiveOpacity > 0,
+          isVisible: style.display !== 'none' && style.visibility === 'visible',
+        };
+      });
 
       return {
         bodyScrollTop: document.body.scrollTop,
         documentScrollTop: html.scrollTop,
         footerIntersects: intersectsChildViewport(footer),
         scrollY: window.scrollY,
-        topIntersects: intersectsChildViewport(topMarker),
+        topContentHasPixels: topContentMetrics.some(metric => (
+          metric.hasMeaning && metric.hasPixels
+        )),
+        topContentIsOpaque: topContentMetrics.some(metric => (
+          metric.hasMeaning && metric.hasPixels && metric.isOpaque
+        )),
+        topContentIsVisible: topContentMetrics.some(metric => (
+          metric.hasMeaning && metric.hasPixels && metric.isVisible
+        )),
+        topIntersects: topContentMetrics.some(metric => (
+          metric.hasMeaning
+          && metric.hasPixels
+          && metric.intersects
+          && metric.isOpaque
+          && metric.isVisible
+        )),
       };
     }, topMarkerTestId),
     scrollSurface.evaluate(element => element.scrollTop),
@@ -870,6 +979,9 @@ async function expectPreviewStartsAtTop(
     footerIntersects: false,
     scrollY: 0,
     surfaceScrollTop: 0,
+    topContentHasPixels: true,
+    topContentIsOpaque: true,
+    topContentIsVisible: true,
     topIntersects: true,
   });
 }
@@ -2095,7 +2207,7 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
     fixtureLoaded = true;
 
     const startingRecipe = resolveBookingPagePresetRecipe({
-      presetId: 'collective',
+      presetId: 'signature',
       recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
     });
 
@@ -2128,6 +2240,7 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
       viewport: { width: 390, height: 664 },
     });
     let impersonating = false;
+    let crossHostAuthResponses = 0;
 
     try {
       const impersonation = await ownerContext.request.post('/api/super-admin/impersonate', {
@@ -2138,15 +2251,32 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
 
       impersonating = true;
 
+      // Reproduce a salon whose customer-facing booking URL lives on another
+      // host. Owner Preview must ignore that public destination: the admin and
+      // impersonation cookies are host-only, so crossing hosts would silently
+      // render LIVE instead of the owner's DRAFT.
+      await ownerContext.route('**/api/admin/auth/me**', async (route) => {
+        const response = await route.fetch();
+        const body = await response.json();
+
+        if (body?.user?.salons?.[0]) {
+          body.user.salons[0].bookingUrl = 'https://cross-host-preview.invalid/book/service';
+          crossHostAuthResponses += 1;
+        }
+
+        await route.fulfill({ response, json: body });
+      });
+
       const builderPage = await ownerContext.newPage();
       const builderResponse = await builderPage.goto(
-        `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&ownerPublishEvidence=1`,
+        `${appPath('/admin/booking-page')}?ownerPublishEvidence=1`,
         { waitUntil: 'domcontentloaded' },
       );
 
       expect(builderResponse?.ok(), await builderResponse?.text()).toBe(true);
+      await expect.poll(() => crossHostAuthResponses).toBeGreaterThan(0);
 
-      let currentLivePreset: BookingPagePresetId = 'collective';
+      let currentLivePreset: BookingPagePresetId = 'signature';
 
       for (const presetId of BOOKING_PAGE_PRESET_IDS) {
         const presetLabel = STAGE7_PRESET_LABELS[presetId];
@@ -2189,10 +2319,26 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
           presetId: currentLivePreset,
           recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
         });
+        expect(appliedState.content).toEqual(beforeState.content);
         await expect(builderPage.getByTestId('booking-page-preset-state')).toHaveText(presetLabel);
         await expect(builderPage.getByTestId('booking-page-preset-picker').getByRole('status')).toContainText(
           'Starting design applied to your draft. Review the preview, then publish when you’re ready.',
         );
+
+        const embeddedPreview = builderPage.frameLocator('iframe[title="Live booking page preview"]');
+
+        for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS[presetId].present) {
+          await expect(
+            embeddedPreview.getByTestId(testId),
+            `embedded draft preview must adopt ${presetId}:${testId}`,
+          ).toBeVisible();
+        }
+        for (const testId of STAGE7_PRESET_DOM_EXPECTATIONS[presetId].absent) {
+          await expect(
+            embeddedPreview.getByTestId(testId),
+            `embedded draft preview must drop the prior recipe's ${testId}`,
+          ).toHaveCount(0);
+        }
 
         const fullPreviewLink = builderPage.getByTestId('booking-page-preview-link');
 
@@ -2202,17 +2348,26 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
 
         expect(fullPreviewHref).not.toBeNull();
 
+        const fullPreviewUrl = new URL(fullPreviewHref!, builderPage.url());
+
+        expect(fullPreviewUrl.origin).toBe(new URL(builderPage.url()).origin);
+        expect(fullPreviewUrl.pathname).toBe(
+          appPath(`/${SYNTHETIC_SALON_SLUG}/book/service`),
+        );
+        expect(fullPreviewUrl.search).toBe('');
+
         const fullPreviewPage = await ownerContext.newPage();
+        let draftPreviewSnapshot: Stage7PresetSnapshot | null = null;
 
         try {
-          const fullPreviewResponse = await fullPreviewPage.goto(fullPreviewHref!, {
+          const fullPreviewResponse = await fullPreviewPage.goto(fullPreviewUrl.href, {
             waitUntil: 'domcontentloaded',
           });
 
           expect(fullPreviewResponse?.ok(), await fullPreviewResponse?.text()).toBe(true);
           await expect(fullPreviewPage.getByTestId('owner-preview-banner')).toBeVisible();
 
-          await expectStage7PresetStructure(
+          draftPreviewSnapshot = await expectStage7PresetStructure(
             fullPreviewPage,
             presetId,
             salonName!,
@@ -2244,12 +2399,15 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
           expect(unpublishedResponse?.ok(), await unpublishedResponse?.text()).toBe(true);
           await expect(unpublishedPage.getByTestId('owner-preview-banner')).toHaveCount(0);
 
-          await expectStage7PresetStructure(
+          const liveBeforePublishSnapshot = await expectStage7PresetStructure(
             unpublishedPage,
             currentLivePreset,
             salonName!,
             technicianResult.rows,
           );
+
+          expect(draftPreviewSnapshot).not.toBeNull();
+          expect(draftPreviewSnapshot!.structure).not.toBe(liveBeforePublishSnapshot.structure);
         } finally {
           await unpublishedContext.close();
         }
@@ -2292,12 +2450,14 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
           expect(publishedResponse?.ok(), await publishedResponse?.text()).toBe(true);
           await expect(publishedPage.getByTestId('owner-preview-banner')).toHaveCount(0);
 
-          await expectStage7PresetStructure(
+          const liveAfterPublishSnapshot = await expectStage7PresetStructure(
             publishedPage,
             presetId,
             salonName!,
             technicianResult.rows,
           );
+
+          expect(liveAfterPublishSnapshot).toEqual(draftPreviewSnapshot);
         } finally {
           await publishedContext.close();
         }
@@ -2328,6 +2488,376 @@ test('owner preset draft, full-page preview, publish, and fresh public state sta
         );
 
         expect(restoreResult.rowCount).toBe(1);
+      }
+    } finally {
+      await client.end();
+    }
+  }
+});
+
+test('sparse Signature and Quick Book may converge visibly while every preview still resolves the authoritative draft @mobile-chrome', async ({
+  baseURL,
+  browser,
+}) => {
+  test.setTimeout(2 * 60 * 1000);
+
+  assertLocalSyntheticTarget(baseURL);
+
+  const target = requireDisposableDatabaseTarget();
+  const expectedServer = resolveDisposableDatabaseServerExpectation(target);
+  const client = new Client({ connectionString: target.connectionString });
+  let salonSnapshot: SparseSalonFixtureRow | null = null;
+  let serviceSnapshots: SparseServiceFixtureRow[] = [];
+  let technicianSnapshots: SparseTechnicianFixtureRow[] = [];
+  let locationSnapshots: SparseLocationFixtureRow[] = [];
+
+  await client.connect();
+
+  try {
+    await attestDisposableDatabaseSession(client, target, expectedServer);
+
+    const [salonResult, serviceResult, technicianResult, locationResult] = await Promise.all([
+      client.query<SparseSalonFixtureRow>(
+        `SELECT id, name, settings, address, city, state, zip_code, social_links
+         FROM salon
+         WHERE id = $1`,
+        [SYNTHETIC_SALON_ID],
+      ),
+      client.query<SparseServiceFixtureRow>(
+        `SELECT id, category::text, featured_order, template_key
+         FROM service
+         WHERE salon_id = $1
+         ORDER BY id`,
+        [SYNTHETIC_SALON_ID],
+      ),
+      client.query<SparseTechnicianFixtureRow>(
+        `SELECT id, bio, avatar_url
+         FROM technician
+         WHERE salon_id = $1
+         ORDER BY id`,
+        [SYNTHETIC_SALON_ID],
+      ),
+      client.query<SparseLocationFixtureRow>(
+        `SELECT id, is_active
+         FROM salon_location
+         WHERE salon_id = $1
+         ORDER BY id`,
+        [SYNTHETIC_SALON_ID],
+      ),
+    ]);
+
+    expect(salonResult.rows).toHaveLength(1);
+    expect(serviceResult.rows.length).toBeGreaterThan(0);
+
+    salonSnapshot = salonResult.rows[0]!;
+    serviceSnapshots = serviceResult.rows;
+    technicianSnapshots = technicianResult.rows;
+    locationSnapshots = locationResult.rows;
+
+    const signatureRecipe = resolveBookingPagePresetRecipe({
+      presetId: 'signature',
+      recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+    });
+    const quickBookRecipe = resolveBookingPagePresetRecipe({
+      presetId: 'quick_book',
+      recipeVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+    });
+
+    expect(signatureRecipe).not.toBeNull();
+    expect(quickBookRecipe).not.toBeNull();
+
+    const sparseSettings = buildFixtureSettings(
+      salonSnapshot.settings,
+      signatureRecipe!.layout,
+      '',
+      {
+        businessMode: 'solo',
+        hiddenSections: signatureRecipe!.hiddenSections,
+        presetBase: signatureRecipe!.presetBase,
+        sectionOrder: signatureRecipe!.sectionOrder,
+        sectionVariants: signatureRecipe!.sectionVariants,
+      },
+    );
+    const existingMerchandising = isRecord(sparseSettings.merchandising)
+      ? sparseSettings.merchandising
+      : {};
+
+    sparseSettings.merchandising = {
+      ...existingMerchandising,
+      featureLusterManicure: false,
+    };
+    sparseSettings.bookingExperience = {
+      primaryColor: null,
+      bookingMessage: null,
+      policy: {
+        enabled: false,
+        title: null,
+        text: null,
+        showOnServicePage: true,
+        showBeforeConfirmation: false,
+        showAfterConfirmation: false,
+        showInConfirmationEmail: false,
+        acknowledgment: { required: false, text: null },
+      },
+      quickFacts: {
+        appointmentOnly: { enabled: false, label: null },
+        depositNotice: { enabled: false, label: null },
+        cancellationNotice: { enabled: false, label: null },
+      },
+      socialLinks: { instagram: null, facebook: null, tiktok: null },
+      confirmationMessage: null,
+    };
+    sparseSettings.bookingPageContent = {
+      version: 1,
+      draft: {
+        heroImageUrl: null,
+        specialtyLine: null,
+        bio: null,
+        locationDisplayMode: 'full_address',
+      },
+      live: {
+        heroImageUrl: null,
+        specialtyLine: null,
+        bio: null,
+        locationDisplayMode: 'full_address',
+      },
+    };
+
+    await client.query(
+      `UPDATE salon
+       SET settings = $1::jsonb,
+           address = NULL,
+           city = NULL,
+           state = NULL,
+           zip_code = NULL,
+           social_links = '{}'::jsonb
+       WHERE id = $2`,
+      [JSON.stringify(sparseSettings), SYNTHETIC_SALON_ID],
+    );
+    await client.query(
+      `UPDATE service
+       SET category = 'manicure', featured_order = NULL, template_key = NULL
+       WHERE salon_id = $1`,
+      [SYNTHETIC_SALON_ID],
+    );
+    await client.query(
+      `UPDATE technician
+       SET bio = NULL, avatar_url = NULL
+       WHERE salon_id = $1`,
+      [SYNTHETIC_SALON_ID],
+    );
+    await client.query(
+      `UPDATE salon_location
+       SET is_active = false
+       WHERE salon_id = $1`,
+      [SYNTHETIC_SALON_ID],
+    );
+
+    const ownerContext = await browser.newContext({
+      baseURL,
+      reducedMotion: 'reduce',
+      storageState: authStatePaths.superAdmin,
+      viewport: { width: 375, height: 600 },
+    });
+    let impersonating = false;
+
+    try {
+      const impersonation = await ownerContext.request.post('/api/super-admin/impersonate', {
+        data: { salonId: SYNTHETIC_SALON_ID },
+      });
+
+      expect(impersonation.ok(), await impersonation.text()).toBe(true);
+
+      impersonating = true;
+
+      const builderPage = await ownerContext.newPage();
+      const builderResponse = await builderPage.goto(
+        `${appPath('/admin/booking-page')}?salon=${encodeURIComponent(SYNTHETIC_SALON_SLUG)}&sparsePresetEvidence=1`,
+        { waitUntil: 'domcontentloaded' },
+      );
+
+      expect(builderResponse?.ok(), await builderResponse?.text()).toBe(true);
+      await expect(builderPage.getByTestId('booking-page-preset-state')).toHaveText('Signature');
+
+      const embeddedPreview = builderPage.frameLocator('iframe[title="Live booking page preview"]');
+      const expectedSparseFingerprint = 'booking-step-header|service-menu-list';
+      const signatureEmbeddedFingerprint = await readStage7StructuralFingerprint(embeddedPreview);
+
+      expect(signatureEmbeddedFingerprint).toBe(expectedSparseFingerprint);
+
+      const signaturePreviewHref = await builderPage.getByTestId('booking-page-preview-link')
+        .getAttribute('href');
+
+      expect(signaturePreviewHref).not.toBeNull();
+
+      const signaturePreviewPage = await ownerContext.newPage();
+      let signatureFullPageFingerprint = '';
+
+      try {
+        const response = await signaturePreviewPage.goto(signaturePreviewHref!, {
+          waitUntil: 'domcontentloaded',
+        });
+
+        expect(response?.ok(), await response?.text()).toBe(true);
+        await expect(signaturePreviewPage.getByTestId('owner-preview-banner')).toBeVisible();
+
+        signatureFullPageFingerprint = await readStage7StructuralFingerprint(signaturePreviewPage);
+
+        expect(signatureFullPageFingerprint).toBe(expectedSparseFingerprint);
+      } finally {
+        await signaturePreviewPage.close();
+      }
+
+      const beforeState = await fetchBuilderApiState(builderPage);
+      const beforeEmbeddedSrc = await builderPage.locator('iframe[title="Live booking page preview"]')
+        .getAttribute('src');
+
+      await builderPage.getByRole('button', { name: 'Quick Book starting design' }).click();
+
+      const reviewDialog = builderPage.getByRole('alertdialog', { name: 'Switch to Quick Book?' });
+      const quickBookState = await applyBuilderOperationFromPage(
+        builderPage,
+        {
+          type: 'apply_preset',
+          presetId: 'quick_book',
+          presetVersion: BOOKING_PAGE_PRESET_RECIPE_VERSION,
+          expectedPresentationSignature: getBookingPagePresentationSignature({
+            ...beforeState.config.draft,
+            presetBase: beforeState.config.draftPresetBase,
+          }),
+        },
+        () => reviewDialog.getByRole('button', { name: 'Use Quick Book' }).click(),
+      );
+
+      expect(quickBookState.config.draft).toMatchObject({
+        hiddenSections: [...quickBookRecipe!.hiddenSections],
+        layout: quickBookRecipe!.layout,
+        sectionOrder: [...quickBookRecipe!.sectionOrder],
+        sectionVariants: { ...quickBookRecipe!.sectionVariants },
+      });
+      expect(quickBookState.config.draftPresetBase).toEqual(quickBookRecipe!.presetBase);
+      expect(quickBookState.config.live).toEqual(beforeState.config.live);
+      expect(quickBookState.config.livePresetBase).toEqual(signatureRecipe!.presetBase);
+      expect(quickBookState.content).toEqual(beforeState.content);
+      await expect(builderPage.getByTestId('booking-page-preset-state')).toHaveText('Quick Book');
+      await expect.poll(
+        () => builderPage.locator('iframe[title="Live booking page preview"]').getAttribute('src'),
+      ).not.toBe(beforeEmbeddedSrc);
+
+      const quickBookEmbeddedFingerprint = await readStage7StructuralFingerprint(embeddedPreview);
+
+      expect(quickBookEmbeddedFingerprint).toBe(expectedSparseFingerprint);
+      expect(quickBookEmbeddedFingerprint).toBe(signatureEmbeddedFingerprint);
+
+      const quickBookPreviewHref = await builderPage.getByTestId('booking-page-preview-link')
+        .getAttribute('href');
+      const quickBookPreviewPage = await ownerContext.newPage();
+
+      try {
+        const response = await quickBookPreviewPage.goto(quickBookPreviewHref!, {
+          waitUntil: 'domcontentloaded',
+        });
+
+        expect(response?.ok(), await response?.text()).toBe(true);
+        await expect(quickBookPreviewPage.getByTestId('owner-preview-banner')).toBeVisible();
+        expect(await readStage7StructuralFingerprint(quickBookPreviewPage))
+          .toBe(expectedSparseFingerprint);
+      } finally {
+        await quickBookPreviewPage.close();
+      }
+
+      const publicContext = await browser.newContext({
+        baseURL,
+        reducedMotion: 'reduce',
+        viewport: { width: 375, height: 600 },
+      });
+
+      try {
+        const publicPage = await publicContext.newPage();
+        const response = await publicPage.goto(
+          appPath(`/${SYNTHETIC_SALON_SLUG}/book/service`),
+          { waitUntil: 'domcontentloaded' },
+        );
+
+        expect(response?.ok(), await response?.text()).toBe(true);
+        await expect(publicPage.getByTestId('owner-preview-banner')).toHaveCount(0);
+        expect(await readStage7StructuralFingerprint(publicPage)).toBe(expectedSparseFingerprint);
+      } finally {
+        await publicContext.close();
+      }
+
+      // The byte-identical-looking sparse surfaces are legitimate convergence:
+      // Stage 2 omitted every recipe discriminator whose canonical content is
+      // absent, while the API still proves DRAFT=Quick Book and LIVE=Signature.
+      expect(signatureFullPageFingerprint).toBe(quickBookEmbeddedFingerprint);
+
+      const finalState = await fetchBuilderApiState(builderPage);
+
+      expect(finalState.config.draftPresetBase).toEqual(quickBookRecipe!.presetBase);
+      expect(finalState.config.livePresetBase).toEqual(signatureRecipe!.presetBase);
+    } finally {
+      try {
+        if (impersonating) {
+          const stopImpersonation = await ownerContext.request.delete('/api/super-admin/impersonate');
+
+          expect(stopImpersonation.ok(), await stopImpersonation.text()).toBe(true);
+        }
+      } finally {
+        await ownerContext.close();
+      }
+    }
+  } finally {
+    try {
+      if (salonSnapshot) {
+        await client.query(
+          `UPDATE salon
+           SET settings = $1::jsonb,
+               address = $2,
+               city = $3,
+               state = $4,
+               zip_code = $5,
+               social_links = $6::jsonb
+           WHERE id = $7`,
+          [
+            salonSnapshot.settings === null ? null : JSON.stringify(salonSnapshot.settings),
+            salonSnapshot.address,
+            salonSnapshot.city,
+            salonSnapshot.state,
+            salonSnapshot.zip_code,
+            salonSnapshot.social_links === null ? null : JSON.stringify(salonSnapshot.social_links),
+            SYNTHETIC_SALON_ID,
+          ],
+        );
+        for (const service of serviceSnapshots) {
+          await client.query(
+            `UPDATE service
+             SET category = $1, featured_order = $2, template_key = $3
+             WHERE salon_id = $4 AND id = $5`,
+            [
+              service.category,
+              service.featured_order,
+              service.template_key,
+              SYNTHETIC_SALON_ID,
+              service.id,
+            ],
+          );
+        }
+        for (const technician of technicianSnapshots) {
+          await client.query(
+            `UPDATE technician
+             SET bio = $1, avatar_url = $2
+             WHERE salon_id = $3 AND id = $4`,
+            [technician.bio, technician.avatar_url, SYNTHETIC_SALON_ID, technician.id],
+          );
+        }
+        for (const location of locationSnapshots) {
+          await client.query(
+            `UPDATE salon_location
+             SET is_active = $1
+             WHERE salon_id = $2 AND id = $3`,
+            [location.is_active, SYNTHETIC_SALON_ID, location.id],
+          );
+        }
       }
     } finally {
       await client.end();
