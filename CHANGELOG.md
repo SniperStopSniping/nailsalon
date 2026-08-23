@@ -1,3 +1,13 @@
+## [1.83.1](https://github.com/SniperStopSniping/nailsalon/compare/v1.83.0...v1.83.1) (2026-08-23)
+
+
+### Bug Fixes
+
+* **booking:** close owner-flow authorization blockers ([227d891](https://github.com/SniperStopSniping/nailsalon/commit/227d89150eaaaf55a028001126a17e10073a5a85))
+* **booking:** keep owner draft preview authoritative ([d3b8191](https://github.com/SniperStopSniping/nailsalon/commit/d3b819163ee5f4b63d8acf3e47b474e2976393a6))
+* **booking:** serialize owner content drafts ([565d9bc](https://github.com/SniperStopSniping/nailsalon/commit/565d9bcefca158430789b27ff38ef397e4d38700))
+* **booking:** synchronize owner preset flow ([afb9040](https://github.com/SniperStopSniping/nailsalon/commit/afb90404447d8af7c585a9c078d24e368079baff))
+
 # [1.83.0](https://github.com/SniperStopSniping/nailsalon/compare/v1.82.0...v1.83.0) (2026-08-22)
 
 
