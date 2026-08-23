@@ -62,11 +62,6 @@ function baseContent() {
   return { version: 1, draft: side, live: side };
 }
 
-const CANONICAL_BOOKING_SURFACE_SELECTOR = '[data-public-surface="serviceSelectionControls"]';
-const AUTHORIZED_DRAFT_PREVIEW_SELECTOR
-  = '[data-preview-variant="draft-config"], [data-preview-variant="draft-salon"]';
-const COMPLETED_RENDERER_SELECTOR = '[data-builder-reorderable-section-order]';
-
 function previewDocumentForSections(
   sectionIds: readonly string[],
   {
@@ -86,30 +81,49 @@ function previewDocumentForSections(
     reorderableSectionOrder?: readonly string[];
   } = {},
 ) {
-  return {
-    querySelector: (selector: string) => {
-      if (selector === CANONICAL_BOOKING_SURFACE_SELECTOR) {
-        return canonical ? { dataset: { publicSurface: 'serviceSelectionControls' } } : null;
-      }
-      if (selector === AUTHORIZED_DRAFT_PREVIEW_SELECTOR) {
-        return authorizedDraft ? { dataset: { previewVariant: 'draft-config' } } : null;
-      }
-      if (selector === COMPLETED_RENDERER_SELECTOR) {
-        return complete
-          ? {
-              getAttribute: (attribute: string) => attribute
-                === 'data-builder-reorderable-section-order'
-                ? reorderableSectionOrder.join(' ')
-                : null,
-            }
-          : null;
-      }
-      return null;
-    },
-    querySelectorAll: () => sectionIds.map(sectionId => ({
-      dataset: { publicSurface: sectionId },
-    })),
-  };
+  const previewDocument = document.implementation.createHTMLDocument('booking preview');
+
+  if (authorizedDraft) {
+    const authorizedMarker = previewDocument.createElement('div');
+    authorizedMarker.dataset.previewVariant = 'draft-config';
+    previewDocument.body.append(authorizedMarker);
+  }
+  if (canonical) {
+    const canonicalSurface = previewDocument.createElement('div');
+    canonicalSurface.dataset.publicSurface = 'serviceSelectionControls';
+    previewDocument.body.append(canonicalSurface);
+  }
+  if (complete) {
+    const completedRenderer = previewDocument.createElement('div');
+    completedRenderer.dataset.builderReorderableSectionOrder = reorderableSectionOrder.join(' ');
+    previewDocument.body.append(completedRenderer);
+  }
+  for (const sectionId of sectionIds) {
+    const section = previewDocument.createElement('div');
+    section.dataset.publicSurface = sectionId;
+    previewDocument.body.append(section);
+  }
+
+  return previewDocument;
+}
+
+function installPreviewDocument(frame: HTMLElement, previewDocument: Document) {
+  const frameSrc = frame.getAttribute('src');
+  Object.defineProperty(previewDocument, 'URL', {
+    configurable: true,
+    value: frameSrc ? new URL(frameSrc, document.baseURI).href : 'about:blank',
+  });
+  Object.defineProperty(frame, 'contentDocument', {
+    configurable: true,
+    value: previewDocument,
+  });
+  Object.defineProperty(frame, 'contentWindow', {
+    configurable: true,
+    value: {
+      history: { scrollRestoration: 'auto' },
+      scrollTo: vi.fn(),
+    } as unknown as Window,
+  });
 }
 
 describe('BookingPageOwnerSurface', () => {
@@ -177,7 +191,10 @@ describe('BookingPageOwnerSurface', () => {
               body.builderOperation,
             );
             if (!result.ok) {
-              return Promise.resolve(new Response(JSON.stringify({ error: result.code }), { status: 400 }));
+              return Promise.resolve(new Response(
+                JSON.stringify({ error: result.code, code: result.code }),
+                { status: result.code === 'STALE_PRESENTATION' ? 409 : 400 },
+              ));
             }
             const { presetBase, ...draftPatch } = result.patch;
             config = {
@@ -267,6 +284,132 @@ describe('BookingPageOwnerSurface', () => {
 
     expect(screen.getByText(/starting design applied to your draft/i)).toBeInTheDocument();
     expect(config.live).not.toEqual(config.draft);
+  });
+
+  it('serializes an older non-presentation field save before applying the authoritative Current design', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releaseOlderFieldSave: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.config?.businessMode === 'team') {
+        config = {
+          ...config,
+          draft: { ...config.draft, businessMode: 'team' },
+        };
+        const olderResponse = new Response(JSON.stringify({
+          config,
+          content,
+          salon: { publicationStatus: salonPublicationStatus },
+        }), { status: 200 });
+
+        return new Promise<Response>((resolve) => {
+          releaseOlderFieldSave = () => resolve(olderResponse);
+        });
+      }
+
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+    fireEvent.click(await screen.findByTestId('business-mode-option-team'));
+    await waitFor(() => expect(releaseOlderFieldSave).toBeTypeOf('function'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Signature starting design' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
+
+    await waitFor(() => {
+      const builderCalls = fetchMock.mock.calls.filter(([, init]) => {
+        const body = init?.body ? JSON.parse(String(init.body)) : null;
+        return body?.builderOperation?.type === 'apply_preset';
+      });
+
+      expect(builderCalls).toHaveLength(0);
+    });
+
+    releaseOlderFieldSave?.();
+
+    await waitFor(() => expect(screen.getByTestId('booking-page-preset-state'))
+      .toHaveTextContent('Signature'));
+
+    expect(screen.getByText(/starting design applied to your draft/i)).toBeInTheDocument();
+    expect(screen.getByTitle('Live booking page preview')).toHaveAttribute(
+      'src',
+      '/salon-a/book/service?builderPreview=2',
+    );
+  });
+
+  it('serializes ordinary content writes so one whole-side response cannot lose another field', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releaseBioSave: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.content?.bio === 'Queued bio') {
+        content = {
+          ...content,
+          draft: { ...content.draft, bio: 'Queued bio' },
+        };
+        const response = new Response(JSON.stringify({
+          config,
+          content,
+          salon: { publicationStatus: salonPublicationStatus },
+        }), { status: 200 });
+
+        return new Promise<Response>((resolve) => {
+          releaseBioSave = () => resolve(response);
+        });
+      }
+
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+
+    const bio = await screen.findByTestId('content-bio');
+    fireEvent.change(bio, { target: { value: 'Queued bio' } });
+    fireEvent.blur(bio);
+    await waitFor(() => expect(releaseBioSave).toBeTypeOf('function'));
+
+    fireEvent.click(screen.getByTestId('location-display-mode-city_only'));
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(1);
+
+    releaseBioSave?.();
+
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(2);
+      expect(content.draft).toMatchObject({
+        bio: 'Queued bio',
+        locationDisplayMode: 'city_only',
+      });
+    });
+  });
+
+  it('reports a failed preset save without changing Current design or publishing', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    const originalDraft = structuredClone(config.draft);
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.builderOperation?.type === 'apply_preset') {
+        return Promise.resolve(new Response(JSON.stringify({ error: 'write failed' }), {
+          status: 500,
+        }));
+      }
+
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Signature starting design' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Use Signature' }));
+
+    await screen.findByText('We couldn’t switch the starting design. Your draft was not changed.');
+
+    expect(screen.getByTestId('booking-page-preset-state')).toHaveTextContent('Quick Book');
+    expect(config.draft).toEqual(originalDraft);
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
   });
 
   it('refreshes authoritative state after a stale preset confirmation without retrying or publishing', async () => {
@@ -493,12 +636,9 @@ describe('BookingPageOwnerSurface', () => {
     render(<BookingPageOwnerSurface />);
 
     const preview = await screen.findByTitle('Live booking page preview');
-    Object.defineProperty(preview, 'contentDocument', {
-      configurable: true,
-      value: previewDocumentForSections(config.draft.sectionOrder, {
-        layout: config.draft.layout,
-      }),
-    });
+    installPreviewDocument(preview, previewDocumentForSections(config.draft.sectionOrder, {
+      layout: config.draft.layout,
+    }));
     fireEvent.load(preview);
 
     const moveDown = await screen.findByRole('button', { name: 'Move Featured services down' });
@@ -542,19 +682,16 @@ describe('BookingPageOwnerSurface', () => {
     expect(replacementPreview).not.toBe(preview);
     expect(replacementPreview).toHaveAttribute(
       'src',
-      '/en/salon-a/book/service?builderPreview=1',
+      '/salon-a/book/service?builderPreview=1',
     );
 
     // An expired owner session can return the canonical LIVE renderer, but
     // without the authorization-bound draft marker it is not Stage 2 evidence
     // for this draft move and must not produce a false announcement.
-    Object.defineProperty(replacementPreview, 'contentDocument', {
-      configurable: true,
-      value: previewDocumentForSections(config.live.sectionOrder, {
-        authorizedDraft: false,
-        layout: config.live.layout,
-      }),
-    });
+    installPreviewDocument(replacementPreview, previewDocumentForSections(config.live.sectionOrder, {
+      authorizedDraft: false,
+      layout: config.live.layout,
+    }));
     fireEvent.load(replacementPreview);
 
     expect(screen.getByTestId('builder-section-featuredServices')).toHaveFocus();
@@ -562,13 +699,10 @@ describe('BookingPageOwnerSurface', () => {
 
     // An authorized response that stops before the canonical renderer's
     // terminal attestation cannot prove the complete movable set.
-    Object.defineProperty(replacementPreview, 'contentDocument', {
-      configurable: true,
-      value: previewDocumentForSections(config.draft.sectionOrder, {
-        complete: false,
-        layout: config.draft.layout,
-      }),
-    });
+    installPreviewDocument(replacementPreview, previewDocumentForSections(config.draft.sectionOrder, {
+      complete: false,
+      layout: config.draft.layout,
+    }));
     fireEvent.load(replacementPreview);
 
     expect(screen.getByTestId('builder-section-featuredServices')).toHaveFocus();
@@ -577,12 +711,9 @@ describe('BookingPageOwnerSurface', () => {
     // The canonical replacement iframe reports the Stage 2 surfaces. The row
     // remained mounted while stale, then keyboard focus returns to its enabled
     // movement controls once the exact revision is attested.
-    Object.defineProperty(replacementPreview, 'contentDocument', {
-      configurable: true,
-      value: previewDocumentForSections(config.draft.sectionOrder, {
-        layout: config.draft.layout,
-      }),
-    });
+    installPreviewDocument(replacementPreview, previewDocumentForSections(config.draft.sectionOrder, {
+      layout: config.draft.layout,
+    }));
     fireEvent.load(replacementPreview);
 
     expect(screen.getByRole('button', { name: 'Move Featured services down' })).toHaveFocus();
@@ -598,7 +729,7 @@ describe('BookingPageOwnerSurface', () => {
 
     expect(preview).toHaveAttribute(
       'src',
-      '/en/salon-a/book/service?builderPreview=0',
+      '/salon-a/book/service?builderPreview=0',
     );
     expect(preview).toHaveAttribute('sandbox', 'allow-same-origin');
     expect(preview).toHaveAttribute('aria-hidden', 'true');
@@ -606,20 +737,32 @@ describe('BookingPageOwnerSurface', () => {
     expect(preview).toHaveClass('pointer-events-none');
     expect(screen.getByText(/view-only preview using your real salon content/i)).toBeInTheDocument();
 
-    Object.defineProperty(preview, 'contentDocument', {
-      configurable: true,
-      value: previewDocumentForSections([
-        'salonProfile',
-        'serviceMenu',
-        'featuredServices',
-      ]),
-    });
+    installPreviewDocument(preview, previewDocumentForSections([
+      'salonProfile',
+      'serviceMenu',
+      'featuredServices',
+    ]));
     fireEvent.load(preview);
+
+    expect(preview).not.toHaveClass('pointer-events-none');
+    expect(preview).toHaveClass('pointer-events-auto');
 
     await waitFor(() => {
       expect(screen.getByTestId('builder-section-status-featuredServices')).toHaveTextContent('Visible');
       expect(screen.getByTestId('builder-section-status-policies')).toHaveTextContent('Unavailable');
     });
+
+    // A later login/error/partial document can reuse the same iframe element.
+    // It must not inherit the pointer-enabled state of the valid draft load.
+    installPreviewDocument(preview, previewDocumentForSections([
+      'salonProfile',
+      'serviceMenu',
+      'featuredServices',
+    ], { authorizedDraft: false }));
+    fireEvent.load(preview);
+
+    expect(preview).toHaveClass('pointer-events-none');
+    expect(preview).not.toHaveClass('pointer-events-auto');
   });
 
   it('requires confirmation before resetting presentation and sends no canonical content fields', async () => {
@@ -880,6 +1023,226 @@ describe('BookingPageOwnerSurface', () => {
     const postCall = fetchMock.mock.calls.find(([, init]) => init?.method === 'POST');
 
     expect(JSON.parse(String(postCall?.[1]?.body))).toEqual({ action: 'publish' });
+  });
+
+  it.each([
+    {
+      action: 'publish',
+      buttonTestId: 'booking-page-publish',
+      success: /Published\. Your live booking page now matches your draft\./,
+    },
+    {
+      action: 'revert',
+      buttonTestId: 'booking-page-revert',
+      success: /Reverted\. Your draft now matches what is live\./,
+    },
+  ] as const)('waits for an in-flight field save before $action', async ({
+    action,
+    buttonTestId,
+    success,
+  }) => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releaseFieldSave: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.content?.bio === 'Settled before action') {
+        content = {
+          ...content,
+          draft: { ...content.draft, bio: 'Settled before action' },
+        };
+        const response = new Response(JSON.stringify({
+          config,
+          content,
+          salon: { publicationStatus: salonPublicationStatus },
+        }), { status: 200 });
+
+        return new Promise<Response>((resolve) => {
+          releaseFieldSave = () => resolve(response);
+        });
+      }
+
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+
+    const bio = await screen.findByTestId('content-bio');
+    fireEvent.change(bio, { target: { value: 'Settled before action' } });
+    fireEvent.blur(bio);
+    await waitFor(() => expect(releaseFieldSave).toBeTypeOf('function'));
+
+    fireEvent.click(screen.getByTestId(buttonTestId));
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+
+    releaseFieldSave?.();
+    await screen.findByText(success);
+
+    const bookingPageWrites = fetchMock.mock.calls
+      .filter(([input, init]) => String(input).includes('/api/admin/booking-page')
+        && (init?.method === 'PATCH' || init?.method === 'POST'));
+
+    expect(bookingPageWrites.map(([, init]) => init?.method)).toEqual(['PATCH', 'POST']);
+    expect(JSON.parse(String(bookingPageWrites[1]?.[1]?.body))).toEqual({ action });
+  });
+
+  it('saves a focused field before Publish when the owner activates Publish directly', async () => {
+    const user = userEvent.setup();
+
+    render(<BookingPageOwnerSurface />);
+
+    const bio = await screen.findByTestId('content-bio');
+    await user.click(bio);
+    await user.type(bio, 'Publish this bio');
+    await user.click(screen.getByTestId('booking-page-publish'));
+
+    await screen.findByText(/Published\. Your live booking page now matches your draft\./);
+
+    const bookingPageWrites = fetchMock.mock.calls
+      .filter(([input, init]) => String(input).includes('/api/admin/booking-page')
+        && (init?.method === 'PATCH' || init?.method === 'POST'));
+
+    expect(bookingPageWrites.map(([, init]) => init?.method)).toEqual(['PATCH', 'POST']);
+    expect(content.live.bio).toBe('Publish this bio');
+  });
+
+  it('does not publish after a failed field save', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releaseFailedSave: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.content?.bio === 'Will fail') {
+        return new Promise<Response>((resolve) => {
+          releaseFailedSave = () => resolve(new Response(JSON.stringify({ error: 'write failed' }), {
+            status: 500,
+          }));
+        });
+      }
+
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+
+    const bio = await screen.findByTestId('content-bio');
+    fireEvent.change(bio, { target: { value: 'Will fail' } });
+    fireEvent.blur(bio);
+    await waitFor(() => expect(releaseFailedSave).toBeTypeOf('function'));
+
+    fireEvent.click(screen.getByTestId('booking-page-publish'));
+    releaseFailedSave?.();
+
+    await screen.findByText(
+      'Publish paused because a draft field could not be saved. Retry the field, then publish again.',
+    );
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+  });
+
+  it('drains a failed field request before a confirmed Revert discards it', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let releaseFailedSave: (() => void) | undefined;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.content?.bio === 'Discard me') {
+        return new Promise<Response>((resolve) => {
+          releaseFailedSave = () => resolve(new Response(JSON.stringify({ error: 'write failed' }), {
+            status: 500,
+          }));
+        });
+      }
+
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+
+    const bio = await screen.findByTestId('content-bio');
+    fireEvent.change(bio, { target: { value: 'Discard me' } });
+    fireEvent.blur(bio);
+    await waitFor(() => expect(releaseFailedSave).toBeTypeOf('function'));
+
+    fireEvent.click(screen.getByTestId('booking-page-revert'));
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+
+    releaseFailedSave?.();
+    await screen.findByText(/Reverted\. Your draft now matches what is live\./);
+
+    expect(screen.getByTestId('content-bio')).toHaveValue('');
+    expect(screen.getByText('Saved')).toBeInTheDocument();
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
+  });
+
+  it('does not let an unrelated successful field save erase a failed field', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.content?.bio === 'Unsaved bio') {
+        return Promise.resolve(new Response(JSON.stringify({ error: 'write failed' }), {
+          status: 500,
+        }));
+      }
+
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+
+    const bio = await screen.findByTestId('content-bio');
+    fireEvent.change(bio, { target: { value: 'Unsaved bio' } });
+    fireEvent.blur(bio);
+    await screen.findByText('Could not save — please retry.');
+
+    fireEvent.click(screen.getByTestId('business-mode-option-team'));
+    await waitFor(() => expect(config.draft.businessMode).toBe('team'));
+
+    expect(screen.getByText('Could not save — please retry.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('booking-page-publish'));
+    await screen.findByText(
+      'Publish paused because a draft field could not be saved. Retry the field, then publish again.',
+    );
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+  });
+
+  it('clears a failed-field guard only after that same field saves successfully', async () => {
+    const fallbackFetch = fetchMock.getMockImplementation()!;
+    let bioAttempts = 0;
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : null;
+      if (init?.method === 'PATCH' && body?.content?.bio === 'Retried bio') {
+        bioAttempts += 1;
+        if (bioAttempts === 1) {
+          return Promise.resolve(new Response(JSON.stringify({ error: 'write failed' }), {
+            status: 500,
+          }));
+        }
+      }
+
+      return fallbackFetch(input, init);
+    });
+
+    render(<BookingPageOwnerSurface />);
+
+    const bio = await screen.findByTestId('content-bio');
+    fireEvent.change(bio, { target: { value: 'Retried bio' } });
+    fireEvent.blur(bio);
+    await screen.findByText('Could not save — please retry.');
+
+    fireEvent.blur(bio);
+    await screen.findByText('Saved');
+
+    fireEvent.click(screen.getByTestId('booking-page-publish'));
+    await screen.findByText(/Published\. Your live booking page now matches your draft\./);
+
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(1);
   });
 
   it('Revert asks for confirmation, then calls the revert action and reports success', async () => {

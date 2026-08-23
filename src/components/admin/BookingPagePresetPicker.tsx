@@ -2,6 +2,7 @@
 
 import { useId, useRef, useState } from 'react';
 
+import { normalizeBookingPagePreviewFrame } from '@/components/admin/bookingPagePreviewFrame';
 import { DialogShell } from '@/components/ui/dialog-shell';
 import { isBookingPagePresentationCustomized } from '@/libs/bookingPageBuilder';
 import { formatBookingPagePresetPreviewQuery } from '@/libs/bookingPagePresetPreview';
@@ -390,12 +391,17 @@ export function BookingPagePresetPicker({
                           It does not save or publish the selected design.
                         </p>
                         <iframe
+                          key={selectedPreviewUrl}
                           title={`${selectedCopy.label} design preview`}
                           src={selectedPreviewUrl}
                           aria-hidden="true"
                           sandbox="allow-same-origin"
                           tabIndex={-1}
-                          className="pointer-events-none mt-2 block h-72 w-full rounded-xl border border-stone-200 bg-white"
+                          onLoad={event => normalizeBookingPagePreviewFrame({
+                            expectedSrc: selectedPreviewUrl,
+                            frame: event.currentTarget,
+                          })}
+                          className="pointer-events-none mt-2 block h-72 w-full rounded-xl border border-stone-200 bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-700"
                         />
                       </div>
                     )

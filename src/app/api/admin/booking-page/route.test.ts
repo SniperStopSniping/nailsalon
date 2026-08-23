@@ -8,13 +8,10 @@ const {
   getSalonById,
   logAuditEvent,
   updateBookingPageDraft,
-  publishBookingPageConfig,
-  revertBookingPageDraft,
   resolveBookingPageConfig,
   updateBookingPageContentDraft,
-  publishBookingPageContent,
-  revertBookingPageContentDraft,
   resolveBookingPageContent,
+  synchronizeBookingPageLifecycle,
   applyBookingPageBuilderOperation,
   getBookingPageDraftPresentationState,
   BookingPageBuilderWriteError,
@@ -104,13 +101,10 @@ const {
     getSalonById: vi.fn(),
     logAuditEvent: vi.fn(),
     updateBookingPageDraft: vi.fn(),
-    publishBookingPageConfig: vi.fn(),
-    revertBookingPageDraft: vi.fn(),
     resolveBookingPageConfig: vi.fn(),
     updateBookingPageContentDraft: vi.fn(),
-    publishBookingPageContent: vi.fn(),
-    revertBookingPageContentDraft: vi.fn(),
     resolveBookingPageContent: vi.fn(),
+    synchronizeBookingPageLifecycle: vi.fn(),
     applyBookingPageBuilderOperation: vi.fn(),
     getBookingPageDraftPresentationState: vi.fn(config => ({
       ...config.draft,
@@ -145,8 +139,6 @@ vi.mock('@/libs/bookingPageConfig', () => ({
   bookingPageBuilderOperationSchema: stubBuilderOperationSchema,
   bookingPageDraftPatchSchema: stubDraftPatchSchema,
   updateBookingPageDraft,
-  publishBookingPageConfig,
-  revertBookingPageDraft,
   resolveBookingPageConfig,
   getBookingPageDraftPresentationState,
 }));
@@ -154,9 +146,11 @@ vi.mock('@/libs/bookingPageConfig', () => ({
 vi.mock('@/libs/bookingPageContent', () => ({
   bookingPageContentPatchSchema: stubContentPatchSchema,
   updateBookingPageContentDraft,
-  publishBookingPageContent,
-  revertBookingPageContentDraft,
   resolveBookingPageContent,
+}));
+
+vi.mock('@/libs/bookingPageLifecycle', () => ({
+  synchronizeBookingPageLifecycle,
 }));
 
 const SALON = { id: 'salon_1', slug: 'salon-a', settings: { some: 'settings' }, publicationStatus: 'published' };
@@ -173,6 +167,7 @@ describe('admin booking-page route', () => {
     requireAdmin.mockResolvedValue({ ok: true, admin: { id: 'admin_1' } });
     resolveBookingPageConfig.mockReturnValue({ version: 1, draft: { layout: 'quick_book' }, live: { layout: 'quick_book' } });
     resolveBookingPageContent.mockReturnValue({ version: 1, draft: { bio: null }, live: { bio: null } });
+    synchronizeBookingPageLifecycle.mockResolvedValue(SALON.settings);
     applyBookingPageBuilderOperation.mockReturnValue({
       ok: true,
       patch: {
@@ -500,30 +495,45 @@ describe('admin booking-page route', () => {
       expect(response.status).toBe(400);
     });
 
-    it('publish calls both publish helpers, never the revert helpers', async () => {
+    it('publishes config, preset provenance, and content through one atomic lifecycle action', async () => {
+      const committedSettings = { committed: 'publish-snapshot' };
+      synchronizeBookingPageLifecycle.mockResolvedValue(committedSettings);
+
       const response = await POST(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
         method: 'POST',
         body: JSON.stringify({ action: 'publish' }),
       }));
 
       expect(response.status).toBe(200);
-      expect(publishBookingPageConfig).toHaveBeenCalledWith('salon_1');
-      expect(publishBookingPageContent).toHaveBeenCalledWith('salon_1');
-      expect(revertBookingPageDraft).not.toHaveBeenCalled();
-      expect(revertBookingPageContentDraft).not.toHaveBeenCalled();
+      expect(synchronizeBookingPageLifecycle).toHaveBeenCalledTimes(1);
+      expect(synchronizeBookingPageLifecycle).toHaveBeenCalledWith('salon_1', 'publish');
+      expect(resolveBookingPageConfig).toHaveBeenLastCalledWith(committedSettings);
+      expect(resolveBookingPageContent).toHaveBeenLastCalledWith(committedSettings);
+      expect(getSalonById).not.toHaveBeenCalled();
     });
 
-    it('revert calls both revert helpers, never the publish helpers', async () => {
+    it('reverts config, preset provenance, and content through one atomic lifecycle action', async () => {
       const response = await POST(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
         method: 'POST',
         body: JSON.stringify({ action: 'revert' }),
       }));
 
       expect(response.status).toBe(200);
-      expect(revertBookingPageDraft).toHaveBeenCalledWith('salon_1');
-      expect(revertBookingPageContentDraft).toHaveBeenCalledWith('salon_1');
-      expect(publishBookingPageConfig).not.toHaveBeenCalled();
-      expect(publishBookingPageContent).not.toHaveBeenCalled();
+      expect(synchronizeBookingPageLifecycle).toHaveBeenCalledTimes(1);
+      expect(synchronizeBookingPageLifecycle).toHaveBeenCalledWith('salon_1', 'revert');
+    });
+
+    it('fails closed without an audit event if the salon disappears before synchronization', async () => {
+      synchronizeBookingPageLifecycle.mockResolvedValue(null);
+
+      const response = await POST(request('https://x.test/api/admin/booking-page?salonSlug=salon-a', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'publish' }),
+      }));
+
+      expect(response.status).toBe(409);
+      expect(logAuditEvent).not.toHaveBeenCalled();
+      expect(getSalonById).not.toHaveBeenCalled();
     });
   });
 });
