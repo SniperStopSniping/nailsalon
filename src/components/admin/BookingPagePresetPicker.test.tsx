@@ -163,7 +163,9 @@ describe('BookingPagePresetPicker', () => {
       'http://localhost:3000/en/salon-a/book/service?builderPreview=8&presetPreview=menu&presetPreviewVersion=1',
     );
     expect(preview).toHaveAttribute('sandbox', 'allow-same-origin');
+    expect(preview).toHaveAttribute('aria-hidden', 'true');
     expect(preview).toHaveAttribute('tabindex', '-1');
+    expect(preview).toHaveClass('pointer-events-none');
     expect(onOperation).not.toHaveBeenCalled();
   });
 

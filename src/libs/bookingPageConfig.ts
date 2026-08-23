@@ -876,9 +876,9 @@ export function foldLegacyAppearanceInputs(
  * Returns the resolved config after the write, or null if the salon id does
  * not exist.
  */
-type BookingPageConfigTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+export type BookingPageConfigTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-async function updateBookingPageDraftInTransaction(
+export async function updateBookingPageDraftInTransaction(
   tx: BookingPageConfigTransaction,
   salonId: string,
   validatedOrdinaryPatch: BookingPageDraftPatch | null,

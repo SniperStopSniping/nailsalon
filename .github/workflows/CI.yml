@@ -1026,6 +1026,21 @@ jobs:
             'D6_1_CLIENT_STATS_POSTGRES_TESTS_EXECUTED=1 D6_1_CLIENT_STATS_POSTGRES_TESTS_SKIPPED=0' \
             d6-postgres-concurrency.log
 
+      - name: Run booking-page lifecycle row-lock races and prove zero skips
+        shell: bash
+        env:
+          BOOKING_PAGE_LIFECYCLE_CONCURRENCY_REQUIRED: 'true'
+          LUSTER_DISPOSABLE_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          LUSTER_DISPOSABLE_POSTGRES_NETWORK: ${{ job.services.postgres.network }}
+        run: |
+          set -euo pipefail
+          npx vitest run --no-file-parallelism \
+            src/libs/bookingPageLifecycle.concurrency.integration.test.ts \
+            | tee booking-page-lifecycle-postgres.log
+          grep -Fqx \
+            'BOOKING_PAGE_LIFECYCLE_POSTGRES_TESTS_EXECUTED=10 BOOKING_PAGE_LIFECYCLE_POSTGRES_TESTS_SKIPPED=0' \
+            booking-page-lifecycle-postgres.log
+
   communications-dispatch-postgres:
     needs: secret-scan
     name: Communications dispatcher PostgreSQL concurrency

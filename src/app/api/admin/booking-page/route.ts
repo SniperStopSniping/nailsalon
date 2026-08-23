@@ -5,10 +5,9 @@
  * PATCH /api/admin/booking-page?salonSlug=xxx   — write into the draft side of either pair.
  * POST  /api/admin/booking-page?salonSlug=xxx   — { action: 'publish' | 'revert' } on both pairs.
  *
- * Thin route: every write goes through the PR 2 `updateBookingPageDraft`
- * helper (and this PR's `publishBookingPageConfig`/`revertBookingPageDraft`,
- * built the same way) plus this PR's sibling `bookingPageContent.ts` module
- * — never a hand-rolled jsonb_set here. Auth and salon resolution follow the
+ * Thin route: draft writes go through the canonical booking-page config and
+ * content helpers; publish/revert goes through one transaction-scoped
+ * lifecycle helper so both pairs move atomically. Auth and salon resolution follow the
  * exact pattern in `@/app/api/admin/salon/settings/route.ts`: resolve the
  * salon by slug, then `requireAdmin(salon.id)`.
  *
@@ -35,18 +34,18 @@ import {
   BookingPageBuilderWriteError,
   bookingPageDraftPatchSchema,
   getBookingPageDraftPresentationState,
-  publishBookingPageConfig,
   resolveBookingPageConfig,
-  revertBookingPageDraft,
   updateBookingPageDraft,
 } from '@/libs/bookingPageConfig';
 import {
   bookingPageContentPatchSchema,
-  publishBookingPageContent,
   resolveBookingPageContent,
-  revertBookingPageContentDraft,
   updateBookingPageContentDraft,
 } from '@/libs/bookingPageContent';
+import {
+  synchronizeBookingPageLifecycle,
+  updateBookingPageDraftState,
+} from '@/libs/bookingPageLifecycle';
 import { getSalonById, getSalonBySlug } from '@/libs/queries';
 import type { Salon } from '@/models/Schema';
 
@@ -183,10 +182,20 @@ export async function PATCH(request: Request): Promise<Response> {
       }
       throw error;
     }
+  } else if (configPatch && contentPatch) {
+    const updated = await updateBookingPageDraftState(salon.id, {
+      config: configPatch,
+      content: contentPatch,
+    });
+    if (!updated) {
+      return Response.json(
+        { error: 'Booking page state changed before the update completed' },
+        { status: 409 },
+      );
+    }
   } else if (configPatch) {
     await updateBookingPageDraft(salon.id, configPatch);
-  }
-  if (contentPatch) {
+  } else if (contentPatch) {
     await updateBookingPageContentDraft(salon.id, contentPatch);
   }
 
@@ -247,12 +256,12 @@ export async function POST(request: Request): Promise<Response> {
 
   const { action } = validated.data;
 
-  if (action === 'publish') {
-    await publishBookingPageConfig(salon.id);
-    await publishBookingPageContent(salon.id);
-  } else {
-    await revertBookingPageDraft(salon.id);
-    await revertBookingPageContentDraft(salon.id);
+  const synchronizedSettings = await synchronizeBookingPageLifecycle(salon.id, action);
+  if (!synchronizedSettings) {
+    return Response.json(
+      { error: 'Booking page state changed before the action completed' },
+      { status: 409 },
+    );
   }
 
   void logAuditEvent({
@@ -265,9 +274,11 @@ export async function POST(request: Request): Promise<Response> {
     metadata: { bookingPageAction: action },
   });
 
-  const freshState = await resolveFreshState(salon.id);
-
-  return Response.json(freshState);
+  return Response.json({
+    config: resolveBookingPageConfig(synchronizedSettings),
+    content: resolveBookingPageContent(synchronizedSettings),
+    salon: { publicationStatus: salon.publicationStatus },
+  });
 }
 
 // =============================================================================

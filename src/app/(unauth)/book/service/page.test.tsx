@@ -164,6 +164,7 @@ vi.mock('./BookServiceClient', () => ({
   },
 }));
 
+import { resolveBookingPageConfig } from '@/libs/bookingPageConfig';
 import { resolveBookingPageContent } from '@/libs/bookingPageContent';
 
 import BookServicePage from './page';
@@ -630,6 +631,107 @@ describe('BookServicePage owner-preview wiring', () => {
       ownerPreview: { isPreviewing: true, actorType: 'super_admin' },
       previewBannerVariant: 'draft-config',
       bookingPage: expect.objectContaining({ layout: 'quick_book' }),
+    }));
+  });
+
+  it('renders DRAFT config and content for an authenticated full-page preview while the same route stays on LIVE anonymously', async () => {
+    const distinctConfig: ReturnType<typeof resolveBookingPageConfig> = {
+      version: 1,
+      draft: {
+        layout: 'quick_book',
+        stylePack: 'default',
+        tokenOverrides: null,
+        sectionOrder: ['salonProfile', 'serviceMenu', 'bookingCta'],
+        sectionVariants: { salonProfile: 'compact', serviceMenu: 'list', bookingCta: 'sticky' },
+        hiddenSections: [],
+        businessMode: 'solo',
+        startMode: 'services_first',
+      },
+      live: {
+        layout: 'editorial',
+        stylePack: 'default',
+        tokenOverrides: null,
+        sectionOrder: ['salonProfile', 'featuredServices', 'technicianProfile', 'serviceMenu', 'bookingCta'],
+        sectionVariants: { salonProfile: 'hero_image', featuredServices: 'signature', serviceMenu: 'list', bookingCta: 'sticky' },
+        hiddenSections: [],
+        businessMode: 'team',
+        startMode: 'services_first',
+      },
+      draftPresetBase: { presetId: 'quick_book', recipeVersion: 1 },
+      livePresetBase: { presetId: 'signature', recipeVersion: 1 },
+    };
+    const distinctContent: ReturnType<typeof resolveBookingPageContent> = {
+      version: 1,
+      draft: {
+        heroImageUrl: null,
+        specialtyLine: 'Draft Quick Book specialty',
+        bio: 'Draft Quick Book bio',
+        locationDisplayMode: 'city_only',
+      },
+      live: {
+        heroImageUrl: 'https://images.example.invalid/live-signature.jpg',
+        specialtyLine: 'Live Signature specialty',
+        bio: 'Live Signature bio',
+        locationDisplayMode: 'full_address',
+      },
+    };
+
+    vi.mocked(resolveBookingPageConfig)
+      .mockReturnValueOnce(distinctConfig)
+      .mockReturnValueOnce(distinctConfig);
+    vi.mocked(resolveBookingPageContent)
+      .mockReturnValueOnce(distinctContent)
+      .mockReturnValueOnce(distinctContent);
+    resolveDraftSalonAccess
+      .mockResolvedValueOnce({
+        allowed: true,
+        isPreviewingDraftSalon: false,
+        isPreviewingDraftConfig: true,
+        actorType: 'owner',
+      })
+      .mockResolvedValueOnce({
+        allowed: true,
+        isPreviewingDraftSalon: false,
+        isPreviewingDraftConfig: false,
+        actorType: null,
+      });
+
+    const previewElement = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(previewElement);
+
+    expect(publicSalonPageShellSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+      bookingPage: expect.objectContaining({ layout: 'quick_book' }),
+      isPreviewingDraftConfig: true,
+      previewBannerVariant: 'draft-config',
+      salonContentInput: expect.objectContaining({
+        content: {
+          heroImageUrl: null,
+          specialtyLine: 'Draft Quick Book specialty',
+          bio: 'Draft Quick Book bio',
+        },
+      }),
+    }));
+
+    const publicElement = await BookServicePage({
+      searchParams: { salonSlug: 'salon-a' },
+      params: { locale: 'en', slug: 'salon-a' },
+    });
+    render(publicElement);
+
+    expect(publicSalonPageShellSpy).toHaveBeenLastCalledWith(expect.objectContaining({
+      bookingPage: expect.objectContaining({ layout: 'editorial' }),
+      isPreviewingDraftConfig: false,
+      previewBannerVariant: null,
+      salonContentInput: expect.objectContaining({
+        content: {
+          heroImageUrl: 'https://images.example.invalid/live-signature.jpg',
+          specialtyLine: 'Live Signature specialty',
+          bio: 'Live Signature bio',
+        },
+      }),
     }));
   });
 
