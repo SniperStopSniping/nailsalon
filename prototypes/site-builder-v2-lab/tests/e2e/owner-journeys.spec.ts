@@ -7,7 +7,10 @@ import {
   addPage,
   addSectionAtBottom,
   chooseStarter,
+  closePagesAndStructure,
+  enterReorder,
   openFreshLab,
+  openPagesAndStructure,
   pageNames,
   removePage,
   reorderLabels,
@@ -70,16 +73,17 @@ test.describe('starter kits share the universal editor', () => {
 
       await expect(pageNames(page)).resolves.toEqual(starter.pages);
       await expect(sectionLabels(page, 'Home')).resolves.toEqual(starter.sections);
-      await expect(page.getByRole('switch', { name: 'Navigation menu' })).toHaveAttribute(
+      const structure = await openPagesAndStructure(page);
+      await expect(structure.getByRole('button', { name: 'Reorder sections' })).toBeVisible();
+      await expect(structure.getByRole('button', { name: 'Add page', exact: true })).toBeEnabled();
+      await structure.getByRole('button', { name: /^Menu/ }).click();
+      await expect(structure.getByRole('switch', { name: 'Show navigation menu' })).toHaveAttribute(
         'aria-checked',
         String(starter.navigation),
       );
 
-      const modes = page.getByRole('group', { name: 'Editor modes' });
-      await expect(modes.getByRole('button', { name: 'Edit' })).toBeVisible();
-      await expect(modes.getByRole('button', { name: 'Reorder' })).toBeVisible();
-      await expect(modes.getByRole('button', { name: 'Preview' })).toBeVisible();
-      await expect(page.getByRole('button', { name: 'Add page', exact: true })).toBeEnabled();
+      await closePagesAndStructure(structure);
+      await expect(page.getByRole('button', { name: 'Preview' })).toBeVisible();
       await expect(
         page.getByRole('button', { name: 'Add section at top of Home' }),
       ).toBeEnabled();
@@ -122,10 +126,7 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
   const section11Id = await section11.getAttribute('data-section-instance-id');
   expect(section11Id).toBeTruthy();
 
-  await page
-    .getByRole('group', { name: 'Editor modes' })
-    .getByRole('button', { name: 'Reorder' })
-    .click();
+  await enterReorder(page);
   await page
     .getByRole('button', {
       name: 'Move Section 11 by number, current position 4',
@@ -166,7 +167,7 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
     'Section 12 moved to position 4 of 8.',
   );
   await page
-    .locator('.canvas-frame > .dialog-actions')
+    .locator('.final-reorder-desktop-actions')
     .getByRole('button', { name: 'Done' })
     .click();
 
@@ -178,7 +179,7 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
   await section02.locator('.section-more-menu').getByRole('button', { name: 'Remove from this page' }).click({ force: true });
   const removalToast = page
     .getByRole('status')
-    .filter({ hasText: 'Section removed · Undo' });
+    .filter({ hasText: 'Section removed' });
   await expect(removalToast).toBeVisible();
   await expect(section02).toHaveCount(0);
   await removalToast.getByRole('button', { name: 'Undo' }).click();
@@ -199,29 +200,30 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
 
   await addPage(page, 'Gallery');
   const navigationPrompt = page.getByRole('dialog', {
-    name: 'Add navigation menu?',
+    name: 'Add a menu?',
   });
   await expect(
-    navigationPrompt.getByText(
-      'You now have more than one page. Add a navigation menu?',
-    ),
+    navigationPrompt.getByText('You now have more than one page.'),
   ).toBeVisible();
   await navigationPrompt
-    .getByRole('button', { name: 'Add navigation', exact: true })
+    .getByRole('button', { name: 'Add menu', exact: true })
     .click();
-  await expect(page.getByRole('switch', { name: 'Navigation menu' })).toHaveAttribute(
+  let structure = await openPagesAndStructure(page);
+  await structure.getByRole('button', { name: /^Menu/ }).click();
+  await expect(structure.getByRole('switch', { name: 'Show navigation menu' })).toHaveAttribute(
     'aria-checked',
     'true',
   );
+  await closePagesAndStructure(structure);
 
   await selectPage(page, 'Home');
   const section11OnHome = sectionsList(page, 'Home').getByRole('listitem', {
     name: 'Section 11 on Home',
   });
   await openSectionMoreActions(section11OnHome, 'Section 11');
-  await section11OnHome.locator('.section-more-menu').getByRole('button', { name: 'Move', exact: true }).click({ force: true });
+  await section11OnHome.locator('.section-more-menu').getByRole('button', { name: 'Move to page', exact: true }).click({ force: true });
   await page
-    .getByRole('dialog', { name: 'Move Section 11 to another page' })
+    .getByRole('dialog', { name: 'Move Section 11' })
     .getByRole('button', { name: 'Gallery', exact: true })
     .click();
   await expect(
@@ -231,28 +233,40 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
   ).toHaveAttribute('data-section-instance-id', section11Id ?? '');
 
   await addPage(page, 'Contact');
-  await page.getByRole('button', { name: 'Open navigation settings' }).click();
-  const navigationSettings = page.getByRole('dialog', {
-    name: 'Navigation settings',
-  });
-  await navigationSettings
-    .getByRole('button', { name: 'Move Contact up in navigation' })
+  structure = await openPagesAndStructure(page);
+  await structure.getByRole('button', { name: /^Menu/ }).click();
+  await structure
+    .getByRole('button', { name: 'Move Contact up in menu' })
     .click();
   await expect(
-    navigationSettings
-      .getByRole('list', { name: 'Navigation items' })
-      .locator(':scope > li .form-field > span'),
-  ).toHaveText(['1. Home', '2. Contact', '3. Gallery']);
-  await navigationSettings.getByRole('button', { name: 'Done' }).click();
+    structure
+      .getByRole('list', { name: 'Menu order' })
+      .locator('input')
+      .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value)),
+  ).resolves.toEqual(['Home', 'Contact', 'Gallery']);
+  await closePagesAndStructure(structure);
 
   await removePage(page, 'Gallery');
   await expect(pageNames(page)).resolves.toEqual(['Home', 'Contact']);
+  structure = await openPagesAndStructure(page);
+  await structure.getByRole('button', { name: /Removed sections/ }).click();
   await expect(
-    page
-      .getByRole('list', { name: 'Unused sections' })
+    structure
+      .getByRole('list', { name: 'Removed sections' })
       .locator(`[data-section-id="${section11Id}"]`),
   ).toBeVisible();
-  await page.getByRole('button', { name: 'Restore Gallery page' }).click();
+  await structure
+    .getByRole('button', { name: 'Pages & Structure', exact: true })
+    .click();
+  await structure.getByRole('button', { name: /Removed pages/ }).click();
+  const removedGallery = structure
+    .getByRole('list', { name: 'Removed pages' })
+    .locator('li')
+    .filter({ hasText: 'Gallery' });
+  await removedGallery
+    .getByRole('button', { name: 'Restore Gallery page' })
+    .click();
+  await closePagesAndStructure(structure);
   const restoredSection11 = sectionsList(page, 'Gallery').getByRole('listitem', {
     name: 'Section 11 on Gallery',
   });
@@ -260,20 +274,15 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
     'data-section-instance-id',
     section11Id ?? '',
   );
-  await expect(
-    page
-      .getByRole('list', { name: 'Unused sections' })
-      .locator(`[data-section-id="${section11Id}"]`),
-  ).toHaveCount(0);
+  structure = await openPagesAndStructure(page);
+  await expect(structure.getByRole('button', { name: /Removed sections/ })).toHaveCount(0);
+  await closePagesAndStructure(structure);
 
-  await page
-    .getByRole('group', { name: 'Editor modes' })
-    .getByRole('button', { name: 'Preview' })
-    .click();
+  await page.getByRole('button', { name: 'Preview' }).click();
   await expect(page.getByRole('button', { name: 'Add page', exact: true })).toHaveCount(0);
   await page
     .getByRole('group', { name: 'Preview viewport' })
-    .getByRole('button', { name: 'Mobile' })
+    .getByRole('button', { name: 'Phone' })
     .click();
   await expect(page.getByTestId('preview-stage')).toHaveClass(/preview-stage--mobile/);
   await page
@@ -288,7 +297,7 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
   await expect(page.getByRole('main', { name: 'Home preview' })).toContainText(
     'Booking access',
   );
-  await page.getByRole('button', { name: 'Done' }).click();
+  await page.getByRole('button', { name: 'Back to editor' }).click();
 
   await expect(page.getByRole('status', { name: 'Save status' })).toHaveText('Saved');
   const persistedBeforeReload = await page.evaluate(
@@ -298,12 +307,15 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
   expect(persistedBeforeReload).toBeTruthy();
   await page.reload();
   await expect(pageNames(page)).resolves.toEqual(['Home', 'Gallery', 'Contact']);
+  structure = await openPagesAndStructure(page);
+  await structure.getByRole('button', { name: /^Menu/ }).click();
   await expect(
-    page
-      .getByRole('list', { name: 'Navigation order' })
-      .locator(':scope > li strong')
-      .allTextContents(),
+    structure
+      .getByRole('list', { name: 'Menu order' })
+      .locator('input')
+      .evaluateAll((inputs) => inputs.map((input) => (input as HTMLInputElement).value)),
   ).resolves.toEqual(['Home', 'Contact', 'Gallery']);
+  await closePagesAndStructure(structure);
   await selectPage(page, 'Gallery');
   await expect(
     sectionsList(page, 'Gallery').getByRole('listitem', {
@@ -311,10 +323,10 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
     }),
   ).toHaveAttribute('data-section-instance-id', section11Id ?? '');
 
-  await page.getByRole('button', { name: 'Lab options' }).click();
+  await page.getByRole('button', { name: 'More site options' }).click();
   const downloadPromise = page.waitForEvent('download');
   await page
-    .getByRole('dialog', { name: 'Lab options' })
+    .getByRole('dialog', { name: 'More' })
     .getByRole('button', { name: 'Export JSON' })
     .click();
   const download = await downloadPromise;
@@ -334,9 +346,9 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
     'Contact',
   ]);
 
-  await page.getByRole('button', { name: 'Lab options' }).click();
+  await page.getByRole('button', { name: 'More site options' }).click();
   await page
-    .getByRole('dialog', { name: 'Lab options' })
+    .getByRole('dialog', { name: 'More' })
     .getByRole('button', { name: 'Reset Lab' })
     .click();
   await page
@@ -368,12 +380,15 @@ test('One-page can add pages and Multi-page can simplify to one page without los
   await openFreshLab(page);
   await chooseStarter(page, 'One-page website');
   await expect(sectionLabels(page, 'Home')).resolves.toHaveLength(6);
-  await expect(page.getByRole('switch', { name: 'Navigation menu' })).toHaveAttribute(
+  const structure = await openPagesAndStructure(page);
+  await structure.getByRole('button', { name: /^Menu/ }).click();
+  await expect(structure.getByRole('switch', { name: 'Show navigation menu' })).toHaveAttribute(
     'aria-checked',
     'true',
   );
+  await closePagesAndStructure(structure);
   await addPage(page, 'Gallery');
-  await expect(page.getByRole('dialog', { name: 'Add navigation menu?' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Add a menu?' })).toHaveCount(0);
   await addSectionAtBottom(page, 'Gallery', 11);
   await expect(sectionLabels(page, 'Gallery')).resolves.toEqual(['Section 11']);
 
@@ -391,19 +406,15 @@ test('One-page can add pages and Multi-page can simplify to one page without los
   }
   await expect(pageNames(page)).resolves.toEqual(['Home', 'Services / Book']);
 
-  await page.getByRole('button', { name: 'Remove Services / Book page' }).click();
-  await page
-    .getByRole('dialog', { name: 'Remove this page?' })
-    .getByRole('button', { name: 'Remove page' })
-    .click();
+  await removePage(page, 'Services / Book');
   const protectedDialog = page.getByRole('dialog', {
-    name: 'Booking access is protected',
+    name: 'Keep a way to book',
   });
   await expect(protectedDialog).toContainText(
-    'Your site needs at least one way for clients to book.',
+    'Your site needs at least one visible way for clients to start booking.',
   );
   await expect(protectedDialog).toContainText(
-    'Add another Booking access section or Book page before removing this one.',
+    'Add or move another Booking section before removing this one.',
   );
   await protectedDialog.getByRole('button', { name: 'Keep booking access' }).click();
   await expect(page.getByRole('dialog', { name: 'Remove this page?' })).toHaveCount(0);
@@ -413,9 +424,9 @@ test('One-page can add pages and Multi-page can simplify to one page without los
     name: 'Booking access on Services / Book',
   });
   await openSectionMoreActions(bookingOnServices, 'Booking access');
-  await bookingOnServices.locator('.section-more-menu').getByRole('button', { name: 'Move', exact: true }).click({ force: true });
+  await bookingOnServices.locator('.section-more-menu').getByRole('button', { name: 'Move to page', exact: true }).click({ force: true });
   await page
-    .getByRole('dialog', { name: 'Move Booking access to another page' })
+    .getByRole('dialog', { name: 'Move Booking access' })
     .getByRole('button', { name: 'Home', exact: true })
     .click();
   await removePage(page, 'Services / Book');
@@ -432,6 +443,6 @@ test('One-page can add pages and Multi-page can simplify to one page without los
   await openSectionMoreActions(bookingOnHome, 'Booking access');
   await bookingOnHome.locator('.section-more-menu').getByRole('button', { name: 'Remove from this page' }).click({ force: true });
   await expect(
-    page.getByRole('dialog', { name: 'Booking access is protected' }),
-  ).toContainText('Your site needs at least one way for clients to book.');
+    page.getByRole('dialog', { name: 'Keep a way to book' }),
+  ).toContainText('Your site needs at least one visible way for clients to start booking.');
 });

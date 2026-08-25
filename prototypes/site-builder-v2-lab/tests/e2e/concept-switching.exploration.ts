@@ -1,3 +1,6 @@
+// Preserved as UI-concept exploration evidence. The final hybrid shell no
+// longer exposes the concept switcher, so Playwright intentionally does not
+// discover this file as an active specification.
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import {

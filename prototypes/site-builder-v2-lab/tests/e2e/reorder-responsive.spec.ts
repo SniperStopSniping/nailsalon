@@ -3,6 +3,7 @@ import { expect, test } from '@playwright/test';
 import {
   addSectionAtBottom,
   chooseStarter,
+  enterReorder,
   expectNoDocumentOverflow,
   openFreshLab,
   reorderLabels,
@@ -16,10 +17,7 @@ test('keyboard reorder commits DOM order and a truthful announcement', async ({
   requireProject(testInfo, 'chromium');
   await openFreshLab(page);
   await chooseStarter(page, 'Quick Book');
-  await page
-    .getByRole('group', { name: 'Editor modes' })
-    .getByRole('button', { name: 'Reorder' })
-    .click();
+  await enterReorder(page);
 
   const handle = page.getByRole('button', {
     name: 'Drag Section 02. Use arrow keys after lifting with Space.',
@@ -56,10 +54,7 @@ test('Cancel restores the reorder baseline without erasing earlier history', asy
   await chooseStarter(page, 'Quick Book');
   await addSectionAtBottom(page, 'Home', 11);
 
-  await page
-    .getByRole('group', { name: 'Editor modes' })
-    .getByRole('button', { name: 'Reorder' })
-    .click();
+  await enterReorder(page);
   await page.getByRole('button', { name: 'Move Section 11 up' }).click();
   await expect(reorderLabels(page)).resolves.toEqual([
     'Section 01',
@@ -68,7 +63,10 @@ test('Cancel restores the reorder baseline without erasing earlier history', asy
     'Booking access',
   ]);
 
-  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page
+    .locator('.final-reorder-desktop-actions')
+    .getByRole('button', { name: 'Cancel', exact: true })
+    .click();
   await expect(sectionLabels(page, 'Home')).resolves.toEqual([
     'Section 01',
     'Section 02',
@@ -92,10 +90,7 @@ test('mobile touch drag activates only from the deliberate handle', async ({
   requireProject(testInfo, 'mobile-chromium');
   await openFreshLab(page);
   await chooseStarter(page, 'Quick Book');
-  await page
-    .getByRole('group', { name: 'Editor modes' })
-    .getByRole('button', { name: 'Reorder' })
-    .click();
+  await enterReorder(page);
 
   const source = page.getByRole('button', {
     name: 'Drag Section 02. Use arrow keys after lifting with Space.',
@@ -165,30 +160,24 @@ test('320px, 375x600, and 200% zoom layouts avoid document overflow and retain p
     await expectNoDocumentOverflow(page);
 
     if (scenario.zoom === '1') {
-      await expect(page.getByRole('button', { name: 'Open Pages' })).toBeVisible();
-      await page.getByRole('button', { name: 'Open Pages' }).click();
-      const pagesDialog = page.getByRole('dialog', { name: 'Pages' });
+      const pagesTrigger = page.getByRole('button', {
+        name: 'Open Pages & Structure for Home',
+      });
+      await expect(pagesTrigger).toBeVisible();
+      await pagesTrigger.click();
+      const pagesDialog = page.getByRole('dialog', { name: 'Pages & Structure' });
       await expect(pagesDialog).toBeVisible();
       await expect(pagesDialog.getByRole('list', { name: 'Site pages' })).toBeVisible();
       await expectNoDocumentOverflow(page);
       await page.keyboard.press('Escape');
     }
 
-    await page
-      .getByRole('group', { name: 'Editor modes' })
-      .getByRole('button', { name: 'Preview' })
-      .click();
+    await page.getByRole('button', { name: 'Preview' }).click();
     await page
       .getByRole('group', { name: 'Preview viewport' })
-      .getByRole('button', { name: 'Mobile' })
+      .getByRole('button', { name: 'Phone' })
       .click();
     await expect(page.getByTestId('preview-stage')).toHaveClass(/preview-stage--mobile/);
-    await expectNoDocumentOverflow(page);
-    await page
-      .getByRole('group', { name: 'Preview viewport' })
-      .getByRole('button', { name: 'Desktop' })
-      .click();
-    await expect(page.getByTestId('preview-stage')).toHaveClass(/preview-stage--desktop/);
     await expectNoDocumentOverflow(page);
   }
 });
@@ -205,9 +194,9 @@ test('Reset Lab returns to the chooser where an exported document can be importe
   );
   expect(savedDocument).toBeTruthy();
 
-  await page.getByRole('button', { name: 'Lab options' }).click();
+  await page.getByRole('button', { name: 'More site options' }).click();
   await page
-    .getByRole('dialog', { name: 'Lab options' })
+    .getByRole('dialog', { name: 'More' })
     .getByRole('button', { name: 'Reset Lab' })
     .click();
   await page
