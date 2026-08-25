@@ -64,7 +64,9 @@ export function useLabDocument() {
   }, []);
 
   const chooseStarter = useCallback((starter: OriginStarter) => {
-    const next = createHistoryState(initializeStarter(starter, { siteName: 'Luster Studio' }));
+    const next = createHistoryState(initializeStarter(starter, {
+      siteName: 'Isla Nail Studio',
+    }));
     setLoadIssues([]);
     replaceHistory(next);
   }, [replaceHistory]);

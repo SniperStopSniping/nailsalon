@@ -5,10 +5,12 @@ import type {
   SiteBuilderDocument,
 } from './types';
 
-export const normalizeSections = (
-  sections: readonly SectionInstance[],
-): SectionInstance[] =>
-  sections.map((section, order) => ({ ...section, order }));
+export const normalizeSections = <Section extends SectionInstance>(
+  sections: readonly Section[],
+): Section[] =>
+  sections.map(
+    (section, order) => ({ ...section, order }) as Section,
+  );
 
 export const normalizePages = (pages: readonly PageDocument[]): PageDocument[] =>
   pages.map((page, order) => ({

@@ -1862,8 +1862,79 @@ body[data-editor-shell='final-hybrid'] .library-state {
 }
 
 .final-hybrid-preview .preview-section--booking {
+  display: block;
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: visible;
   border-color: rgba(141, 49, 84, 0.2);
+  border-radius: 18px;
   background: linear-gradient(135deg, #fff, #fbf0f4);
+}
+
+.final-hybrid-preview .preview-section--booking .luster-booking {
+  width: 100%;
+  min-width: 0;
+  border-radius: inherit;
+}
+
+.final-hybrid-app .section-card--booking {
+  min-height: 0;
+  padding: 0;
+  background: #fffdfa;
+}
+
+.final-hybrid-app .section-card--booking .section-card__select-surface--booking {
+  padding: 17px;
+  border-bottom: 1px solid rgba(65, 44, 45, 0.09);
+}
+
+.final-hybrid-app .booking-editor-preview {
+  position: relative;
+  min-width: 0;
+  overflow: visible;
+}
+
+.final-hybrid-app .booking-editor-preview.is-collapsed {
+  max-height: min(780px, 112dvh);
+  overflow: hidden;
+}
+
+.final-hybrid-app .booking-editor-preview__fade {
+  position: absolute;
+  z-index: 2;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 150px;
+  pointer-events: none;
+  background: linear-gradient(transparent, #fffdfa 88%);
+}
+
+.final-hybrid-app .booking-editor-preview__toggle {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  width: calc(100% - 34px);
+  margin: 10px 17px 18px;
+  padding: 8px 14px;
+  border: 1px solid rgba(141, 44, 79, 0.18);
+  border-radius: 999px;
+  color: var(--final-accent);
+  background: #fff7f9;
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
+.final-hybrid-app .section-card--booking .section-context-toolbar {
+  z-index: 6;
+}
+
+body[data-editor-shell='final-hybrid'] .dialog-panel--context-panel .booking-settings-intro h2 {
+  display: none;
 }
 
 .final-hybrid-preview .preview-section > button {

@@ -1,16 +1,38 @@
-import { CalendarDays, Menu } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
+import {
+  BookingSectionRenderer,
+  type BookingSessionUpdater,
+} from '../booking/BookingSectionRenderer';
+import type {
+  BookingSessionState,
+  BookingTokenPresetId,
+  MockMenuFixture,
+} from '../booking/types';
 import type { PageDocument, SiteBuilderDocument } from '../model/types';
 
 type PreviewProps = {
   activePage: PageDocument;
+  bookingFixture: MockMenuFixture;
+  bookingSession: BookingSessionState;
   document: SiteBuilderDocument;
+  onBookingSessionChange: BookingSessionUpdater;
   onNavigate: (pageId: string) => void;
+  tokenPreset: BookingTokenPresetId;
   viewport: 'desktop' | 'tablet' | 'mobile';
 };
 
-export function Preview({ activePage, document, onNavigate, viewport }: PreviewProps) {
+export function Preview({
+  activePage,
+  bookingFixture,
+  bookingSession,
+  document,
+  onBookingSessionChange,
+  onNavigate,
+  tokenPreset,
+  viewport,
+}: PreviewProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
   useEffect(() => setMobileNavigationOpen(false), [activePage.id, viewport]);
   const navigationItems = [...document.navigation.items]
@@ -58,21 +80,40 @@ export function Preview({ activePage, document, onNavigate, viewport }: PreviewP
             <h2>{activePage.name}</h2>
           </div>
           {visibleSections.length > 0 ? visibleSections.map((section) => {
-            const protectedSection = section.sectionType === 'booking_access';
+            if (section.sectionType === 'booking') {
+              return (
+                <section
+                  key={section.id}
+                  aria-label="Booking section"
+                  className="preview-section preview-section--booking"
+                  data-section-id={section.id}
+                  data-section-type="booking"
+                >
+                  <BookingSectionRenderer
+                    fixture={bookingFixture}
+                    mode="preview"
+                    presentationSettings={section.settings}
+                    session={bookingSession}
+                    tokenPreset={tokenPreset}
+                    onSessionChange={onBookingSessionChange}
+                  />
+                </section>
+              );
+            }
+
             return (
               <section
                 key={section.id}
-                className={`preview-section preview-section--${section.size}${protectedSection ? ' preview-section--booking' : ''}`}
+                className={`preview-section preview-section--${section.size}`}
                 data-section-id={section.id}
                 data-section-type={section.sectionType}
               >
-                <span className="preview-section__number">{protectedSection ? <CalendarDays aria-hidden="true" size={22} /> : section.label.replace('Section ', '')}</span>
+                <span className="preview-section__number">{section.label.replace('Section ', '')}</span>
                 <div>
                   <p>{activePage.name}</p>
                   <h3>{section.label}</h3>
-                  <span>{protectedSection ? 'Protected booking path' : `Future section · ${section.size}`}</span>
+                  <span>Future section · {section.size}</span>
                 </div>
-                {protectedSection ? <button type="button">Booking access</button> : null}
               </section>
             );
           }) : <p className="empty-preview">This page has no visible sections yet.</p>}

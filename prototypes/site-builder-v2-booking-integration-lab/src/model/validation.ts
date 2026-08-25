@@ -1,3 +1,4 @@
+import { validateBookingPresentationSettings } from '../booking/presentation';
 import { hasNormalizedOrdering, normalizeDocument } from './normalize';
 import {
   SITE_BUILDER_SCHEMA_VERSION,
@@ -7,7 +8,64 @@ import {
 } from './types';
 
 export const SITE_BUILDER_STORAGE_KEY =
-  'luster.site-builder-v2-lab.schema-1';
+  'luster:site-builder-v2-booking-integration-lab:document:v1';
+export const MAX_SITE_BUILDER_IMPORT_JSON_LENGTH = 500_000;
+
+const ROOT_KEYS = new Set([
+  'schemaVersion',
+  'siteId',
+  'siteName',
+  'originStarter',
+  'navigation',
+  'pages',
+  'unusedSections',
+  'removedPages',
+]);
+const NAVIGATION_KEYS = new Set(['enabled', 'style', 'items']);
+const NAVIGATION_ITEM_KEYS = new Set(['id', 'pageId', 'label', 'order']);
+const PAGE_KEYS = new Set([
+  'id',
+  'name',
+  'slug',
+  'order',
+  'isHome',
+  'visible',
+  'visibleInNavigation',
+  'sections',
+]);
+const REMOVED_PAGE_DOCUMENT_KEYS = new Set([
+  'id',
+  'name',
+  'slug',
+  'order',
+  'isHome',
+  'visible',
+  'visibleInNavigation',
+]);
+const REMOVED_PAGE_RECORD_KEYS = new Set([
+  'page',
+  'sectionIds',
+  'navigationItem',
+  'removedAtOrder',
+]);
+const PLACEHOLDER_SECTION_KEYS = new Set([
+  'id',
+  'sectionType',
+  'label',
+  'order',
+  'visible',
+  'size',
+  'placeholderSettings',
+]);
+const BOOKING_SECTION_KEYS = new Set([
+  'id',
+  'sectionType',
+  'label',
+  'order',
+  'visible',
+  'settings',
+]);
+const PLACEHOLDER_SETTINGS_KEYS = new Set(['note']);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -16,14 +74,26 @@ const isString = (value: unknown): value is string => typeof value === 'string';
 const isBoolean = (value: unknown): value is boolean =>
   typeof value === 'boolean';
 const isOrder = (value: unknown): value is number =>
-  Number.isInteger(value) && typeof value === 'number' && value >= 0;
+  typeof value === 'number' && Number.isInteger(value) && value >= 0;
 
-const isSectionType = (value: unknown): boolean =>
-  value === 'booking_access' ||
-  (typeof value === 'string' && /^section_(0[1-9]|1[0-9]|20)$/.test(value));
+const isCatalogueSectionType = (value: unknown): boolean =>
+  typeof value === 'string' && /^section_(0[1-9]|1[0-9]|20)$/.test(value);
 
 const isSectionSize = (value: unknown): boolean =>
   value === 'compact' || value === 'medium' || value === 'large';
+
+const rejectUnknownKeys = (
+  value: Record<string, unknown>,
+  allowed: ReadonlySet<string>,
+  path: string,
+  issues: string[],
+): void => {
+  for (const key of Object.keys(value)) {
+    if (!allowed.has(key)) {
+      issues.push(`${path}.${key} is not supported.`);
+    }
+  }
+};
 
 const validateNavigationItemShape = (
   value: unknown,
@@ -34,6 +104,7 @@ const validateNavigationItemShape = (
     issues.push(`${path} must be an object.`);
     return;
   }
+  rejectUnknownKeys(value, NAVIGATION_ITEM_KEYS, path, issues);
   if (!isString(value.id) || value.id.length === 0) {
     issues.push(`${path}.id must be a non-empty string.`);
   }
@@ -48,20 +119,13 @@ const validateNavigationItemShape = (
   }
 };
 
-const validateSectionShape = (
-  value: unknown,
+const validateSectionBaseShape = (
+  value: Record<string, unknown>,
   path: string,
   issues: string[],
 ): void => {
-  if (!isRecord(value)) {
-    issues.push(`${path} must be an object.`);
-    return;
-  }
   if (!isString(value.id) || value.id.length === 0) {
     issues.push(`${path}.id must be a non-empty string.`);
-  }
-  if (!isSectionType(value.sectionType)) {
-    issues.push(`${path}.sectionType is not in the Lab catalogue.`);
   }
   if (!isString(value.label) || value.label.trim().length === 0) {
     issues.push(`${path}.label must be a non-empty string.`);
@@ -72,23 +136,79 @@ const validateSectionShape = (
   if (!isBoolean(value.visible)) {
     issues.push(`${path}.visible must be a boolean.`);
   }
+};
+
+const validatePlaceholderSectionShape = (
+  value: Record<string, unknown>,
+  path: string,
+  issues: string[],
+): void => {
+  rejectUnknownKeys(value, PLACEHOLDER_SECTION_KEYS, path, issues);
+  validateSectionBaseShape(value, path, issues);
+  if (!isCatalogueSectionType(value.sectionType)) {
+    issues.push(`${path}.sectionType is not in the placeholder catalogue.`);
+  }
   if (!isSectionSize(value.size)) {
     issues.push(`${path}.size is invalid.`);
   }
-  if (
-    !Array.isArray(value.protectedCapabilities) ||
-    !value.protectedCapabilities.every(isString)
-  ) {
-    issues.push(`${path}.protectedCapabilities must be a string array.`);
-  }
   if (!isRecord(value.placeholderSettings)) {
     issues.push(`${path}.placeholderSettings must be an object.`);
-  } else if (
+    return;
+  }
+  rejectUnknownKeys(
+    value.placeholderSettings,
+    PLACEHOLDER_SETTINGS_KEYS,
+    `${path}.placeholderSettings`,
+    issues,
+  );
+  if (
     value.placeholderSettings.note !== undefined &&
     !isString(value.placeholderSettings.note)
   ) {
     issues.push(`${path}.placeholderSettings.note must be a string.`);
   }
+};
+
+const validateBookingSectionShape = (
+  value: Record<string, unknown>,
+  path: string,
+  issues: string[],
+): void => {
+  rejectUnknownKeys(value, BOOKING_SECTION_KEYS, path, issues);
+  validateSectionBaseShape(value, path, issues);
+  if (value.sectionType !== 'booking') {
+    issues.push(`${path}.sectionType must be booking.`);
+  }
+  if (value.label !== 'Booking') {
+    issues.push(`${path}.label must be Booking.`);
+  }
+  const result = validateBookingPresentationSettings(value.settings);
+  if (!result.success) {
+    result.issues.forEach((issue) =>
+      issues.push(`${path}.settings: ${issue}`),
+    );
+  }
+};
+
+const validateSectionShape = (
+  value: unknown,
+  path: string,
+  issues: string[],
+  allowBooking: boolean,
+): void => {
+  if (!isRecord(value)) {
+    issues.push(`${path} must be an object.`);
+    return;
+  }
+  if (value.sectionType === 'booking') {
+    if (!allowBooking) {
+      issues.push(`${path} cannot contain the protected Booking section.`);
+      return;
+    }
+    validateBookingSectionShape(value, path, issues);
+    return;
+  }
+  validatePlaceholderSectionShape(value, path, issues);
 };
 
 const validatePageShape = (
@@ -101,6 +221,12 @@ const validatePageShape = (
     issues.push(`${path} must be an object.`);
     return;
   }
+  rejectUnknownKeys(
+    value,
+    includeSections ? PAGE_KEYS : REMOVED_PAGE_DOCUMENT_KEYS,
+    path,
+    issues,
+  );
   if (!isString(value.id) || value.id.length === 0) {
     issues.push(`${path}.id must be a non-empty string.`);
   }
@@ -122,15 +248,16 @@ const validatePageShape = (
   if (!isBoolean(value.visibleInNavigation)) {
     issues.push(`${path}.visibleInNavigation must be a boolean.`);
   }
-  if (includeSections) {
-    if (!Array.isArray(value.sections)) {
-      issues.push(`${path}.sections must be an array.`);
-    } else {
-      value.sections.forEach((section, index) =>
-        validateSectionShape(section, `${path}.sections[${index}]`, issues),
-      );
-    }
+  if (!includeSections) {
+    return;
   }
+  if (!Array.isArray(value.sections)) {
+    issues.push(`${path}.sections must be an array.`);
+    return;
+  }
+  value.sections.forEach((section, index) =>
+    validateSectionShape(section, `${path}.sections[${index}]`, issues, true),
+  );
 };
 
 const validateRemovedPageShape = (
@@ -142,6 +269,7 @@ const validateRemovedPageShape = (
     issues.push(`${path} must be an object.`);
     return;
   }
+  rejectUnknownKeys(value, REMOVED_PAGE_RECORD_KEYS, path, issues);
   validatePageShape(value.page, `${path}.page`, issues, false);
   if (!Array.isArray(value.sectionIds) || !value.sectionIds.every(isString)) {
     issues.push(`${path}.sectionIds must be a string array.`);
@@ -164,6 +292,7 @@ const validateRootShape = (
     issues.push('Document must be an object.');
     return false;
   }
+  rejectUnknownKeys(value, ROOT_KEYS, 'document', issues);
   if (value.schemaVersion !== SITE_BUILDER_SCHEMA_VERSION) {
     issues.push(`schemaVersion must be ${SITE_BUILDER_SCHEMA_VERSION}.`);
   }
@@ -183,6 +312,7 @@ const validateRootShape = (
   if (!isRecord(value.navigation)) {
     issues.push('navigation must be an object.');
   } else {
+    rejectUnknownKeys(value.navigation, NAVIGATION_KEYS, 'navigation', issues);
     if (!isBoolean(value.navigation.enabled)) {
       issues.push('navigation.enabled must be a boolean.');
     }
@@ -212,7 +342,12 @@ const validateRootShape = (
     issues.push('unusedSections must be an array.');
   } else {
     value.unusedSections.forEach((section, index) =>
-      validateSectionShape(section, `unusedSections[${index}]`, issues),
+      validateSectionShape(
+        section,
+        `unusedSections[${index}]`,
+        issues,
+        false,
+      ),
     );
   }
   if (!Array.isArray(value.removedPages)) {
@@ -250,18 +385,21 @@ const validateDocumentInvariants = (
   if (!document.pages.some((page) => page.visible)) {
     issues.push('Document must have at least one visible page.');
   }
-  if (
-    !document.pages.some(
-      (page) =>
-        page.visible &&
-        page.sections.some(
-          (section) =>
-            section.visible && section.sectionType === 'booking_access',
-        ),
-    )
-  ) {
-    issues.push('Document must have at least one visible Booking access section.');
+
+  const bookingLocations = document.pages.flatMap((page) =>
+    page.sections.flatMap((section) =>
+      section.sectionType === 'booking' ? [{ page, section }] : [],
+    ),
+  );
+  if (bookingLocations.length !== 1) {
+    issues.push('Document must contain exactly one Booking section.');
+  } else {
+    const booking = bookingLocations[0];
+    if (!booking?.page.visible || !booking.section.visible) {
+      issues.push('Booking must be visible on a visible page.');
+    }
   }
+
   if (!hasNormalizedOrdering(document.pages)) {
     issues.push('Page ordering must be normalized.');
   }
@@ -302,8 +440,7 @@ const validateDocumentInvariants = (
     issues.push(`Entity IDs must be unique: ${duplicateIds.join(', ')}.`);
   }
 
-  const slugs = document.pages.map((page) => page.slug);
-  const duplicateSlugs = findDuplicates(slugs);
+  const duplicateSlugs = findDuplicates(document.pages.map((page) => page.slug));
   if (duplicateSlugs.length > 0) {
     issues.push(`Active page slugs must be unique: ${duplicateSlugs.join(', ')}.`);
   }
@@ -320,7 +457,20 @@ const validateDocumentInvariants = (
   }
 
   const knownSectionIds = new Set(sectionIds);
+  const removedSectionReferences = document.removedPages.flatMap(
+    (record) => record.sectionIds,
+  );
+  const duplicateRemovedReferences = findDuplicates(removedSectionReferences);
+  if (duplicateRemovedReferences.length > 0) {
+    issues.push(
+      `Removed pages cannot share section references: ${duplicateRemovedReferences.join(', ')}.`,
+    );
+  }
+  const bookingId = bookingLocations[0]?.section.id;
   document.removedPages.forEach((record) => {
+    if (record.page.isHome) {
+      issues.push(`Removed page ${record.page.id} cannot be Home.`);
+    }
     if (record.navigationItem.pageId !== record.page.id) {
       issues.push(
         `Removed page ${record.page.id} has an incoherent navigation item.`,
@@ -331,6 +481,9 @@ const validateDocumentInvariants = (
         issues.push(
           `Removed page ${record.page.id} references missing section ${sectionId}.`,
         );
+      }
+      if (sectionId === bookingId) {
+        issues.push('Removed pages cannot reference the protected Booking section.');
       }
     });
   });
@@ -352,11 +505,24 @@ export const validateSiteBuilderDocument = (
 
 export const exportSiteBuilderDocument = (
   document: SiteBuilderDocument,
-): string => JSON.stringify(normalizeDocument(document), null, 2);
+): string => {
+  const validated = validateSiteBuilderDocument(document);
+  if (!validated.success) {
+    throw new Error(`Cannot export an invalid site document: ${validated.issues.join(' ')}`);
+  }
+  return JSON.stringify(validated.document, null, 2);
+};
 
 export const parseSiteBuilderDocument = (
   json: string,
 ): DocumentImportResult => {
+  if (json.length > MAX_SITE_BUILDER_IMPORT_JSON_LENGTH) {
+    return {
+      success: false,
+      issues: ['The selected site document is too large.'],
+    };
+  }
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(json) as unknown;

@@ -9,18 +9,18 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import type { PageDocument, SectionInstance } from '../model/types';
+import type { PageDocument, PlaceholderSectionInstance } from '../model/types';
 
 type SectionCardProps = {
   page: PageDocument;
-  section: SectionInstance;
+  section: PlaceholderSectionInstance;
   selected: boolean;
-  onEdit: (section: SectionInstance) => void;
+  onEdit: (section: PlaceholderSectionInstance) => void;
   onEnterReorder: () => void;
-  onMove: (section: SectionInstance) => void;
-  onRemove: (section: SectionInstance) => void;
-  onSelect: (section: SectionInstance) => void;
-  onToggleVisible: (section: SectionInstance) => void;
+  onMove: (section: PlaceholderSectionInstance) => void;
+  onRemove: (section: PlaceholderSectionInstance) => void;
+  onSelect: (section: PlaceholderSectionInstance) => void;
+  onToggleVisible: (section: PlaceholderSectionInstance) => void;
 };
 
 export function SectionCard({
@@ -35,8 +35,6 @@ export function SectionCard({
   onToggleVisible,
 }: SectionCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
-  const protectedSection = section.sectionType === 'booking_access';
-
   useEffect(() => {
     if (!selected) {
       setMenuOpen(false);
@@ -61,29 +59,21 @@ export function SectionCard({
       <button aria-pressed={selected} className="section-card__select-surface" type="button" onClick={() => onSelect(section)}>
         <span className="section-card__topline">
           <span className="section-card__identity">
-            <span className="section-card__number" aria-hidden="true">{protectedSection ? 'BA' : section.label.replace('Section ', '')}</span>
+            <span className="section-card__number" aria-hidden="true">{section.label.replace('Section ', '')}</span>
             <span>
               <strong className="section-card__title">{section.label}</strong>
-              <span className="section-card__description">{protectedSection ? 'Protected booking path placeholder' : section.placeholderSettings.note}</span>
+              <span className="section-card__description">{section.placeholderSettings.note}</span>
             </span>
           </span>
           <span className="section-card__badges">
             <span className="size-badge">{section.size}</span>
             {!section.visible ? <span className="hidden-badge"><EyeOff aria-hidden="true" size={14} /> Hidden</span> : null}
-            {protectedSection ? <span className="protected-badge">Protected</span> : null}
           </span>
         </span>
       </button>
 
       {section.placeholderSettings.note ? <p className="section-card__note">“{section.placeholderSettings.note}”</p> : null}
-      {protectedSection ? (
-        <div className="booking-placeholder">
-          <strong>Booking access</strong>
-          <span>Protected — every published site needs at least one path to booking.</span>
-        </div>
-      ) : (
-        <div className="placeholder-grid" aria-hidden="true"><span /><span /><span /></div>
-      )}
+      <div className="placeholder-grid" aria-hidden="true"><span /><span /><span /></div>
 
       <div aria-label={`Quick actions for ${section.label}`} className="section-context-toolbar">
         <span aria-hidden="true" className="section-context-toolbar__label">{section.label}</span>

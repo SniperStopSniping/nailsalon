@@ -1,15 +1,22 @@
+import {
+  createDefaultBookingPresentationSettings,
+  validateBookingPresentationSettings,
+} from '../booking/presentation';
 import { createIdFactory } from './ids';
 import { normalizeDocument } from './normalize';
 import { createSectionInstance } from './starters';
 import type {
   AddPageInput,
   AddSectionInput,
+  BookingSectionPresentationSettings,
   BuilderCommand,
   IdFactory,
   MoveSectionToNewPageInput,
   NavigationItem,
   PageDocument,
+  PlaceholderSectionInstance,
   SectionInstance,
+  SectionSize,
   SiteBuilderDocument,
 } from './types';
 
@@ -19,7 +26,8 @@ export type BuilderOperationErrorCode =
   | 'last_visible_page'
   | 'not_found'
   | 'invalid_input'
-  | 'duplicate_id';
+  | 'duplicate_id'
+  | 'duplicate_booking';
 
 export class BuilderOperationError extends Error {
   readonly code: BuilderOperationErrorCode;
@@ -32,7 +40,7 @@ export class BuilderOperationError extends Error {
 }
 
 const BOOKING_ACCESS_REQUIRED_MESSAGE =
-  'Your site needs at least one way for clients to book. Add another Booking access section or Book page before removing this one.';
+  'Your site needs at least one visible way for clients to start booking.';
 
 type LocatedSection = {
   page: PageDocument;
@@ -127,7 +135,7 @@ const replacePage = (
   ),
 });
 
-export const hasUsableBookingAccess = (
+export const hasUsableBooking = (
   document: SiteBuilderDocument,
 ): boolean =>
   document.pages.some(
@@ -135,12 +143,14 @@ export const hasUsableBookingAccess = (
       page.visible &&
       page.sections.some(
         (section) =>
-          section.visible && section.sectionType === 'booking_access',
+          section.visible && section.sectionType === 'booking',
       ),
   );
 
+export const hasUsableBookingAccess = hasUsableBooking;
+
 const assertUsableBookingAccess = (document: SiteBuilderDocument): void => {
-  if (!hasUsableBookingAccess(document)) {
+  if (!hasUsableBooking(document)) {
     fail('booking_access_required', BOOKING_ACCESS_REQUIRED_MESSAGE);
   }
 };
@@ -208,11 +218,24 @@ export const addSection = (
   if (!page) {
     return fail('not_found', `Page not found: ${input.pageId}`);
   }
-  const section = createSectionInstance(input.sectionType, idFactory, {
-    label: input.label,
-    note: input.note,
-    size: input.size,
-  });
+  if (
+    input.sectionType === 'booking' &&
+    document.pages.some((candidate) =>
+      candidate.sections.some((section) => section.sectionType === 'booking'),
+    )
+  ) {
+    return fail(
+      'duplicate_booking',
+      'Booking is already on this site. Move the existing Booking section instead.',
+    );
+  }
+  const section = input.sectionType === 'booking'
+    ? createSectionInstance('booking', idFactory)
+    : createSectionInstance(input.sectionType, idFactory, {
+        label: input.label,
+        note: input.note,
+        size: input.size,
+      });
   assertNewId(document, section.id);
 
   return normalizeDocument(
@@ -228,6 +251,9 @@ export const removeSection = (
   sectionId: string,
 ): SiteBuilderDocument => {
   const located = locateSection(document, sectionId);
+  if (located.section.sectionType === 'booking') {
+    return fail('booking_access_required', BOOKING_ACCESS_REQUIRED_MESSAGE);
+  }
   const next = normalizeDocument({
     ...replacePage(document, located.pageIndex, {
       ...located.page,
@@ -288,6 +314,9 @@ export const setSectionVisible = (
   if (located.section.visible === visible) {
     return document;
   }
+  if (located.section.sectionType === 'booking' && !visible) {
+    return fail('booking_access_required', BOOKING_ACCESS_REQUIRED_MESSAGE);
+  }
   const sections = located.page.sections.map((section) =>
     section.id === sectionId ? { ...section, visible } : section,
   );
@@ -301,20 +330,27 @@ export const setSectionVisible = (
 export const updateSectionSettings = (
   document: SiteBuilderDocument,
   sectionId: string,
-  changes: { note?: string; size?: SectionInstance['size']; label?: string },
+  changes: { note?: string; size?: SectionSize; label?: string },
 ): SiteBuilderDocument => {
   const located = locateSection(document, sectionId);
+  if (located.section.sectionType === 'booking') {
+    return fail(
+      'invalid_input',
+      'Use Booking presentation settings to edit this section.',
+    );
+  }
+  const placeholder = located.section;
   if (changes.label !== undefined && changes.label.trim().length === 0) {
     return fail('invalid_input', 'Section label cannot be empty.');
   }
   const sections = located.page.sections.map((section) =>
     section.id === sectionId
       ? {
-          ...section,
-          label: changes.label?.trim() ?? section.label,
-          size: changes.size ?? section.size,
+          ...placeholder,
+          label: changes.label?.trim() ?? placeholder.label,
+          size: changes.size ?? placeholder.size,
           placeholderSettings: {
-            ...section.placeholderSettings,
+            ...placeholder.placeholderSettings,
             ...(changes.note === undefined ? {} : { note: changes.note }),
           },
         }
@@ -324,6 +360,53 @@ export const updateSectionSettings = (
     replacePage(document, located.pageIndex, { ...located.page, sections }),
   );
 };
+
+export const updateBookingSectionPresentation = (
+  document: SiteBuilderDocument,
+  sectionId: string,
+  settings: BookingSectionPresentationSettings,
+): SiteBuilderDocument => {
+  const located = locateSection(document, sectionId);
+  if (located.section.sectionType !== 'booking') {
+    return fail(
+      'invalid_input',
+      'Booking presentation settings can only be applied to Booking.',
+    );
+  }
+
+  const validated = validateBookingPresentationSettings(settings);
+  if (!validated.success) {
+    return fail(
+      'invalid_input',
+      `Booking presentation settings are invalid: ${validated.issues.join(' ')}`,
+    );
+  }
+  if (
+    JSON.stringify(located.section.settings) ===
+    JSON.stringify(validated.settings)
+  ) {
+    return document;
+  }
+
+  const sections = located.page.sections.map((section) =>
+    section.id === sectionId
+      ? { ...located.section, settings: validated.settings }
+      : section,
+  );
+  return normalizeDocument(
+    replacePage(document, located.pageIndex, { ...located.page, sections }),
+  );
+};
+
+export const resetBookingSectionPresentation = (
+  document: SiteBuilderDocument,
+  sectionId: string,
+): SiteBuilderDocument =>
+  updateBookingSectionPresentation(
+    document,
+    sectionId,
+    createDefaultBookingPresentationSettings(),
+  );
 
 export const moveSection = (
   document: SiteBuilderDocument,
@@ -500,6 +583,9 @@ export const removePage = (
       'Home cannot be removed. Rename it or move its sections instead.',
     );
   }
+  if (page.sections.some((section) => section.sectionType === 'booking')) {
+    return fail('booking_access_required', BOOKING_ACCESS_REQUIRED_MESSAGE);
+  }
   const navigationItem = document.navigation.items.find(
     (item) => item.pageId === pageId,
   );
@@ -507,6 +593,10 @@ export const removePage = (
     return fail('not_found', `Navigation item not found for page: ${pageId}`);
   }
   const { sections: removedSections, ...pageRecord } = page;
+  const placeholderSections = removedSections.filter(
+    (section): section is PlaceholderSectionInstance =>
+      section.sectionType !== 'booking',
+  );
   const next = normalizeDocument({
     ...document,
     pages: document.pages.filter((candidate) => candidate.id !== pageId),
@@ -516,7 +606,7 @@ export const removePage = (
     },
     unusedSections: [
       ...document.unusedSections,
-      ...removedSections.map((section, index) => ({
+      ...placeholderSections.map((section, index) => ({
         ...section,
         order: document.unusedSections.length + index,
       })),
@@ -525,7 +615,7 @@ export const removePage = (
       ...document.removedPages,
       {
         page: pageRecord,
-        sectionIds: removedSections.map((section) => section.id),
+        sectionIds: placeholderSections.map((section) => section.id),
         navigationItem,
         removedAtOrder: page.order,
       },
@@ -661,8 +751,8 @@ export const setPageVisible = (
   const next = normalizeDocument(
     replacePage(document, pageIndex, { ...page, visible }),
   );
-  assertHasVisiblePage(next);
   assertUsableBookingAccess(next);
+  assertHasVisiblePage(next);
   return next;
 };
 
@@ -814,6 +904,14 @@ export const applyBuilderCommand = (
       return setSectionVisible(document, command.sectionId, command.visible);
     case 'update_section_settings':
       return updateSectionSettings(document, command.sectionId, command);
+    case 'update_booking_presentation':
+      return updateBookingSectionPresentation(
+        document,
+        command.sectionId,
+        command.settings,
+      );
+    case 'reset_booking_presentation':
+      return resetBookingSectionPresentation(document, command.sectionId);
     case 'move_section':
       return moveSection(document, command.sectionId, command.position);
     case 'move_section_up':

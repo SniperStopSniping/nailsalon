@@ -22,6 +22,14 @@ import { useState } from 'react';
 
 import type { SectionInstance } from '../model/types';
 
+const getSectionLabel = (section: SectionInstance): string =>
+  section.sectionType === 'booking' ? 'Booking' : section.label;
+
+const getSectionDescription = (section: SectionInstance): string =>
+  section.sectionType === 'booking'
+    ? `Protected booking section${section.visible ? '' : ' · hidden'}`
+    : `${section.size}${section.visible ? '' : ' · hidden'}`;
+
 type ReorderListProps = {
   onAnnounce: (message: string) => void;
   onDragReorder: (sectionId: string, position: number) => void;
@@ -56,36 +64,38 @@ function SectionRowContent({
   attributes?: Record<string, unknown>;
   listeners?: Record<string, unknown>;
 }) {
+  const sectionLabel = getSectionLabel(section);
+
   return (
     <>
       <button
         className="position-button"
         type="button"
-        aria-label={`Move ${section.label} by number, current position ${index + 1}`}
+        aria-label={`Move ${sectionLabel} by number, current position ${index + 1}`}
         onClick={() => onOpenPosition(section)}
       >
         {index + 1}
       </button>
       <div className="reorder-row__label">
-        <strong>{section.label}</strong>
-        <span>{section.size}{section.visible ? '' : ' · hidden'}</span>
+        <strong>{sectionLabel}</strong>
+        <span>{getSectionDescription(section)}</span>
       </div>
-      {section.sectionType === 'booking_access' ? <span className="protected-badge">Protected</span> : null}
-      <div className="reorder-row__buttons" aria-label={`Movement options for ${section.label}`}>
-        <button className="icon-button" type="button" aria-label={`Move ${section.label} up`} disabled={index === 0} onClick={() => onMoveUp(section)}>
+      {section.sectionType === 'booking' ? <span className="protected-badge">Protected</span> : null}
+      <div className="reorder-row__buttons" aria-label={`Movement options for ${sectionLabel}`}>
+        <button className="icon-button" type="button" aria-label={`Move ${sectionLabel} up`} disabled={index === 0} onClick={() => onMoveUp(section)}>
           <ArrowUp aria-hidden="true" size={18} />
         </button>
-        <button className="icon-button" type="button" aria-label={`Move ${section.label} down`} disabled={index === total - 1} onClick={() => onMoveDown(section)}>
+        <button className="icon-button" type="button" aria-label={`Move ${sectionLabel} down`} disabled={index === total - 1} onClick={() => onMoveDown(section)}>
           <ArrowDown aria-hidden="true" size={18} />
         </button>
-        <button className="icon-button" type="button" aria-label={`Move ${section.label} to another page`} onClick={() => onMovePage(section)}>
+        <button className="icon-button" type="button" aria-label={`Move ${sectionLabel} to another page`} onClick={() => onMovePage(section)}>
           <MoveRight aria-hidden="true" size={18} />
         </button>
       </div>
       <button
         className="drag-handle"
         type="button"
-        aria-label={`Drag ${section.label}. Use arrow keys after lifting with Space.`}
+        aria-label={`Drag ${sectionLabel}. Use arrow keys after lifting with Space.`}
         {...attributes}
         {...listeners}
       >
@@ -214,7 +224,7 @@ export function ReorderList({
         {activeSection ? (
           <div className="reorder-row reorder-row--overlay">
             <span className="position-button" aria-hidden="true">{sections.findIndex((section) => section.id === activeSection.id) + 1}</span>
-            <div className="reorder-row__label"><strong>{activeSection.label}</strong><span>{activeSection.size}</span></div>
+            <div className="reorder-row__label"><strong>{getSectionLabel(activeSection)}</strong><span>{getSectionDescription(activeSection)}</span></div>
             <GripVertical aria-hidden="true" size={22} />
           </div>
         ) : null}

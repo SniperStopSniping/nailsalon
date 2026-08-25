@@ -1,12 +1,16 @@
+import { createDefaultBookingPresentationSettings } from '../booking/presentation';
 import { getSectionCatalogueItem } from './catalogue';
 import { createIdFactory } from './ids';
 import { normalizeDocument } from './normalize';
 import {
   SITE_BUILDER_SCHEMA_VERSION,
+  type BookingSectionInstance,
+  type CatalogueSectionType,
   type IdFactory,
   type NavigationItem,
   type OriginStarter,
   type PageDocument,
+  type PlaceholderSectionInstance,
   type SectionInstance,
   type SectionSize,
   type SectionType,
@@ -14,13 +18,13 @@ import {
 } from './types';
 
 const DEFAULT_SECTION_NOTE = 'Content and settings will be designed later.';
-const BOOKING_NOTE =
-  'Protected — every published site needs at least one path to booking.';
 
-type StarterSectionDefinition = {
-  sectionType: SectionType;
-  size?: SectionSize;
-};
+type StarterSectionDefinition =
+  | {
+      sectionType: CatalogueSectionType;
+      size?: SectionSize;
+    }
+  | { sectionType: 'booking' };
 
 type StarterPageDefinition = {
   name: string;
@@ -42,7 +46,7 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
       sections: [
         { sectionType: 'section_01', size: 'compact' },
         { sectionType: 'section_02', size: 'medium' },
-        { sectionType: 'booking_access', size: 'compact' },
+        { sectionType: 'booking' },
       ],
     },
   ],
@@ -56,7 +60,7 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
         { sectionType: 'section_03', size: 'medium' },
         { sectionType: 'section_04', size: 'large' },
         { sectionType: 'section_05', size: 'compact' },
-        { sectionType: 'booking_access', size: 'compact' },
+        { sectionType: 'booking' },
       ],
     },
   ],
@@ -74,7 +78,7 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
       slug: 'services-book',
       sections: [
         { sectionType: 'section_03' },
-        { sectionType: 'booking_access', size: 'compact' },
+        { sectionType: 'booking' },
       ],
     },
     {
@@ -98,23 +102,47 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
   ],
 };
 
-export const getSectionLabel = (sectionType: SectionType): string => {
-  if (sectionType === 'booking_access') {
-    return 'Booking access';
-  }
-
-  return getSectionCatalogueItem(sectionType).label;
-};
+export const getSectionLabel = (sectionType: SectionType): string =>
+  sectionType === 'booking'
+    ? 'Booking'
+    : getSectionCatalogueItem(sectionType).label;
 
 export const getDefaultSectionSize = (
-  sectionType: SectionType,
-): SectionSize => {
-  if (sectionType === 'booking_access') {
-    return 'compact';
-  }
+  sectionType: CatalogueSectionType,
+): SectionSize => getSectionCatalogueItem(sectionType).defaultSize;
 
-  return getSectionCatalogueItem(sectionType).defaultSize;
-};
+export const createPlaceholderSectionInstance = (
+  sectionType: CatalogueSectionType,
+  idFactory: IdFactory,
+  options: {
+    size?: SectionSize;
+    label?: string;
+    note?: string;
+    order?: number;
+  } = {},
+): PlaceholderSectionInstance => ({
+  id: idFactory('section'),
+  sectionType,
+  label: options.label ?? getSectionLabel(sectionType),
+  order: options.order ?? 0,
+  visible: true,
+  size: options.size ?? getDefaultSectionSize(sectionType),
+  placeholderSettings: {
+    note: options.note ?? DEFAULT_SECTION_NOTE,
+  },
+});
+
+export const createBookingSectionInstance = (
+  idFactory: IdFactory,
+  options: { order?: number } = {},
+): BookingSectionInstance => ({
+  id: idFactory('section'),
+  sectionType: 'booking',
+  label: 'Booking',
+  order: options.order ?? 0,
+  visible: true,
+  settings: createDefaultBookingPresentationSettings(),
+});
 
 export const createSectionInstance = (
   sectionType: SectionType,
@@ -125,21 +153,10 @@ export const createSectionInstance = (
     note?: string;
     order?: number;
   } = {},
-): SectionInstance => ({
-  id: idFactory('section'),
-  sectionType,
-  label: options.label ?? getSectionLabel(sectionType),
-  order: options.order ?? 0,
-  visible: true,
-  size: options.size ?? getDefaultSectionSize(sectionType),
-  protectedCapabilities:
-    sectionType === 'booking_access' ? ['booking_access'] : [],
-  placeholderSettings: {
-    note:
-      options.note ??
-      (sectionType === 'booking_access' ? BOOKING_NOTE : DEFAULT_SECTION_NOTE),
-  },
-});
+): SectionInstance =>
+  sectionType === 'booking'
+    ? createBookingSectionInstance(idFactory, { order: options.order })
+    : createPlaceholderSectionInstance(sectionType, idFactory, options);
 
 const createStarterPage = (
   definition: StarterPageDefinition,
@@ -154,11 +171,13 @@ const createStarterPage = (
   visible: true,
   visibleInNavigation: true,
   sections: definition.sections.map((section, sectionOrder) =>
-    createSectionInstance(section.sectionType, idFactory, {
-      order: sectionOrder,
-      size:
-        section.size ?? getDefaultSectionSize(section.sectionType),
-    }),
+    section.sectionType === 'booking'
+      ? createBookingSectionInstance(idFactory, { order: sectionOrder })
+      : createPlaceholderSectionInstance(section.sectionType, idFactory, {
+          order: sectionOrder,
+          size:
+            section.size ?? getDefaultSectionSize(section.sectionType),
+        }),
   ),
 });
 
@@ -180,7 +199,7 @@ export const initializeStarter = (
   return normalizeDocument({
     schemaVersion: SITE_BUILDER_SCHEMA_VERSION,
     siteId: options.siteId ?? idFactory('site'),
-    siteName: options.siteName ?? 'Luster Site Builder V2 Lab',
+    siteName: options.siteName ?? 'Isla Nail Studio',
     originStarter,
     navigation: {
       enabled: originStarter !== 'quick_book',

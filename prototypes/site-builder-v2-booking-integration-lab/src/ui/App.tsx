@@ -20,11 +20,26 @@ import {
 import { useEffect, useMemo, useState } from 'react';
 
 import {
+  createEmptyBookingSession,
+  createMenuFixture,
+  normalizeBookingSelection,
+} from '../booking/helpers';
+import { BookingSettingsPanel } from '../booking/SettingsPanel';
+import type {
+  BookingSectionPresentationSettings,
+  BookingSessionState,
+  BookingTokenPresetId,
+  ImageFixture,
+  MenuSize,
+} from '../booking/types';
+import {
   getSectionMoveAnnouncement,
   type BuilderCommand,
+  type CatalogueSectionType,
   type HistoryState,
   type OriginStarter,
   type PageDocument,
+  type PlaceholderSectionInstance,
   type SectionInstance,
   type SectionSize,
   type SiteBuilderDocument,
@@ -44,6 +59,7 @@ import {
 } from './EditorDialogs';
 import { Dialog } from './Dialog';
 import { FinalStructurePanel } from './FinalStructurePanel';
+import { BookingSectionCard } from './BookingSectionCard';
 import { Preview } from './Preview';
 import { ReorderList } from './ReorderList';
 import { SectionCard } from './SectionCard';
@@ -106,12 +122,27 @@ export function App() {
   const [announcement, setAnnouncement] = useState('');
   const [reorderBaseline, setReorderBaseline] = useState<HistoryState | null>(null);
   const [realHeightSimulation, setRealHeightSimulation] = useState(false);
+  const [imageFixture, setImageFixture] = useState<ImageFixture>('image_rich');
+  const [menuSize, setMenuSize] = useState<MenuSize>('canonical');
+  const [tokenPreset, setTokenPreset] = useState<BookingTokenPresetId>('warm');
+  const [bookingSession, setBookingSession] = useState<BookingSessionState>(
+    createEmptyBookingSession,
+  );
+
+  const bookingFixture = useMemo(
+    () => createMenuFixture({ imageFixture, menuSize }),
+    [imageFixture, menuSize],
+  );
 
   const activePage = document
     ? document.pages.find((page) => page.id === activePageId) ?? getHomeOrFirstPage(document)
     : null;
   const selectedSection = document ? findSection(document, selectedSectionId) : null;
   const editingSection = document ? findSection(document, editingSectionId) : null;
+  const editingBooking = editingSection?.sectionType === 'booking' ? editingSection : null;
+  const editingPlaceholder = editingSection && editingSection.sectionType !== 'booking'
+    ? editingSection
+    : null;
   const positionSection = document ? findSection(document, positionSectionId) : null;
   const movingSection = document ? findSection(document, movingSectionId) : null;
   const editingPage = document?.pages.find((page) => page.id === editingPageId) ?? null;
@@ -152,6 +183,25 @@ export function App() {
     const timeout = window.setTimeout(() => setToast(null), toast.undoable ? 8_000 : 3_800);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    setBookingSession((current) => {
+      const selection = normalizeBookingSelection(
+        current.selection,
+        bookingFixture.services,
+        bookingFixture.addOns,
+      );
+      const detailStillExists = current.detailServiceId === null
+        || bookingFixture.services.some((service) => service.id === current.detailServiceId);
+      return {
+        ...current,
+        selection,
+        detailServiceId: detailStillExists ? current.detailServiceId : null,
+        draftAddOnIds: detailStillExists ? current.draftAddOnIds : [],
+        handoffOpen: selection.serviceId === null ? false : current.handoffOpen,
+      };
+    });
+  }, [bookingFixture.addOns, bookingFixture.services]);
 
   useEffect(() => {
     window.document.body.dataset.editorShell = 'final-hybrid';
@@ -199,7 +249,7 @@ export function App() {
     if (!result.success) {
       if (result.code === 'booking_access_required') {
         showError(
-          'Your site needs at least one visible way for clients to start booking. Add or move another Booking section before removing this one.',
+          'Your site needs at least one visible way for clients to start booking.',
           'Keep a way to book',
         );
       } else {
@@ -211,6 +261,7 @@ export function App() {
 
   const chooseStarter = (starter: OriginStarter) => {
     lab.chooseStarter(starter);
+    setBookingSession(createEmptyBookingSession());
     setActivePageId(null);
     setSelectedSectionId(null);
     setMode('edit');
@@ -260,7 +311,7 @@ export function App() {
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));
   };
 
-  const addSection = (sectionType: SectionInstance['sectionType'], size: SectionSize) => {
+  const addSection = (sectionType: CatalogueSectionType, size: SectionSize) => {
     if (!activePage || libraryPosition === null) {
       return;
     }
@@ -281,16 +332,47 @@ export function App() {
     setSelectedSectionId(section.id);
     setEditingSectionId(section.id);
     setMobileActionsOpen(false);
+    setToast(null);
   };
 
   const saveSection = (values: { note: string; size: SectionSize }) => {
-    if (!editingSection) {
+    if (!editingPlaceholder) {
       return;
     }
-    const result = execute({ type: 'update_section_settings', sectionId: editingSection.id, note: values.note, size: values.size });
+    const result = execute({ type: 'update_section_settings', sectionId: editingPlaceholder.id, note: values.note, size: values.size });
     if (result.success) {
       setEditingSectionId(null);
-      setToast({ message: `${editingSection.label} settings saved.` });
+      setToast({ message: `${editingPlaceholder.label} settings saved.` });
+    }
+  };
+
+  const updateBookingPresentation = (
+    settings: BookingSectionPresentationSettings,
+  ) => {
+    if (!editingBooking) {
+      return;
+    }
+    const result = execute({
+      type: 'update_booking_presentation',
+      sectionId: editingBooking.id,
+      settings,
+    });
+    if (!result.success) {
+      return;
+    }
+    setToast({ message: 'Booking presentation updated.' });
+  };
+
+  const resetBookingPresentation = () => {
+    if (!editingBooking) {
+      return;
+    }
+    const result = execute({
+      type: 'reset_booking_presentation',
+      sectionId: editingBooking.id,
+    });
+    if (result.success) {
+      setToast({ message: 'Booking presentation reset.' });
     }
   };
 
@@ -468,7 +550,7 @@ export function App() {
     const url = URL.createObjectURL(blob);
     const anchor = window.document.createElement('a');
     anchor.href = url;
-    anchor.download = 'luster-site-builder-v2-lab-schema-1.json';
+    anchor.download = 'luster-site-builder-v2-booking-integration-lab-v1.json';
     anchor.click();
     window.setTimeout(() => URL.revokeObjectURL(url), 0);
     setOptionsOpen(false);
@@ -485,6 +567,7 @@ export function App() {
       setOptionsOpen(false);
       setActivePageId(getHomeOrFirstPage(result.document).id);
       setSelectedSectionId(null);
+      setBookingSession(createEmptyBookingSession());
       setMode('edit');
       setToast({ message: 'Site restored from imported JSON.' });
     } catch {
@@ -495,10 +578,12 @@ export function App() {
   const confirmReset = () => {
     if (resetChoice === 'lab') {
       lab.resetLab();
+      setBookingSession(createEmptyBookingSession());
       setOptionsOpen(false);
       setToast(null);
     } else if (resetChoice === 'starter') {
       lab.resetToStarter();
+      setBookingSession(createEmptyBookingSession());
       setActivePageId(null);
       setSelectedSectionId(null);
       setMode('edit');
@@ -603,7 +688,21 @@ export function App() {
           </div>
         </header>
         <section aria-label="Site preview">
-          <Preview activePage={previewPage} document={document} viewport={viewport} onNavigate={(pageId) => { const page = document.pages.find((candidate) => candidate.id === pageId); if (page?.visible) setActivePageId(pageId); }} />
+          <Preview
+            activePage={previewPage}
+            bookingFixture={bookingFixture}
+            bookingSession={bookingSession}
+            document={document}
+            tokenPreset={tokenPreset}
+            viewport={viewport}
+            onBookingSessionChange={setBookingSession}
+            onNavigate={(pageId) => {
+              const page = document.pages.find((candidate) => candidate.id === pageId);
+              if (page?.visible) {
+                setActivePageId(pageId);
+              }
+            }}
+          />
         </section>
       </div>
     );
@@ -715,20 +814,41 @@ export function App() {
                     <button className="final-insertion final-insertion--top" type="button" aria-label={`Add section at top of ${activePage.name}`} onClick={() => setLibraryPosition(1)}><Plus aria-hidden="true" size={15} /> Add section here</button>
                     {sortedActiveSections.map((section, index) => (
                       <div className="final-section-block" key={section.id}>
-                        <SectionCard
-                          page={activePage}
-                          section={section}
-                          selected={selectedSectionId === section.id}
-                          onEdit={editSection}
-                          onEnterReorder={enterReorder}
-                          onMove={(candidate) => openMoveSection(candidate.id)}
-                          onRemove={removeSection}
-                          onSelect={(candidate) => {
-                            setSelectedSectionId((current) => current === candidate.id ? null : candidate.id);
-                            setMobileActionsOpen(false);
-                          }}
-                          onToggleVisible={toggleSection}
-                        />
+                        {section.sectionType === 'booking' ? (
+                          <BookingSectionCard
+                            fixture={bookingFixture}
+                            page={activePage}
+                            section={section}
+                            selected={selectedSectionId === section.id}
+                            session={bookingSession}
+                            tokenPreset={tokenPreset}
+                            onEdit={editSection}
+                            onEnterReorder={enterReorder}
+                            onMove={(candidate) => openMoveSection(candidate.id)}
+                            onRemove={removeSection}
+                            onSelect={(candidate) => {
+                              setSelectedSectionId((current) => current === candidate.id ? null : candidate.id);
+                              setMobileActionsOpen(false);
+                            }}
+                            onSessionChange={setBookingSession}
+                            onToggleVisible={toggleSection}
+                          />
+                        ) : (
+                          <SectionCard
+                            page={activePage}
+                            section={section}
+                            selected={selectedSectionId === section.id}
+                            onEdit={editSection}
+                            onEnterReorder={enterReorder}
+                            onMove={(candidate) => openMoveSection(candidate.id)}
+                            onRemove={removeSection}
+                            onSelect={(candidate) => {
+                              setSelectedSectionId((current) => current === candidate.id ? null : candidate.id);
+                              setMobileActionsOpen(false);
+                            }}
+                            onToggleVisible={toggleSection}
+                          />
+                        )}
                         <button
                           className="final-insertion"
                           type="button"
@@ -772,7 +892,21 @@ export function App() {
       ) : null}
 
       <SectionLibraryDialog document={document} insertionPosition={libraryPosition} onAdd={addSection} onClose={() => setLibraryPosition(null)} page={activePage} />
-      <SectionSettingsDialog onClose={() => setEditingSectionId(null)} onSave={saveSection} section={editingSection} />
+      <SectionSettingsDialog onClose={() => setEditingSectionId(null)} onSave={saveSection} section={editingPlaceholder} />
+      <Dialog
+        onClose={() => setEditingSectionId(null)}
+        open={editingBooking !== null}
+        title="Booking"
+        variant="context-panel"
+      >
+        {editingBooking ? (
+          <BookingSettingsPanel
+            settings={editingBooking.settings}
+            onChange={updateBookingPresentation}
+            onReset={resetBookingPresentation}
+          />
+        ) : null}
+      </Dialog>
       <MovePositionDialog currentPosition={currentPosition} onClose={() => setPositionSectionId(null)} onMove={(position) => { if (positionSection) moveSectionToPosition(positionSection, position); }} section={positionSection} total={positionSectionPage?.sections.length ?? 1} />
       <MoveSectionDialog currentPageId={movingSectionPage?.id ?? activePage.id} document={document} onClose={() => setMovingSectionId(null)} onCreatePage={(name) => { if (movingSection) moveSectionToNewPage(movingSection, name); }} onMove={(pageId) => { if (movingSection) moveSectionToPage(movingSection, pageId); }} section={movingSection} />
       <AddPageDialog onAdd={addPage} onClose={() => setAddPageOpen(false)} open={addPageOpen} />
@@ -782,17 +916,23 @@ export function App() {
       <LabOptionsDialog
         canRedo={lab.canRedo}
         canUndo={lab.canUndo}
+        imageFixture={imageFixture}
+        menuSize={menuSize}
         onClose={() => setOptionsOpen(false)}
         onExport={exportJson}
+        onImageFixtureChange={setImageFixture}
         onImport={importFile}
+        onMenuSizeChange={setMenuSize}
         onRedo={redoLastChange}
         onResetLab={() => { setOptionsOpen(false); setResetChoice('lab'); }}
         onResetStarter={() => { setOptionsOpen(false); setResetChoice('starter'); }}
         onStartAgain={() => { setOptionsOpen(false); setStartAgainOpen(true); }}
+        onTokenPresetChange={setTokenPreset}
         onToggleRealHeightSimulation={() => setRealHeightSimulation((value) => !value)}
         onUndo={undoLastChange}
         open={optionsOpen}
         realHeightSimulation={realHeightSimulation}
+        tokenPreset={tokenPreset}
       />
       <StartAgainDialog onChoose={chooseStarter} onClose={() => setStartAgainOpen(false)} open={startAgainOpen} />
       <ConfirmationDialog confirmLabel={resetChoice === 'lab' ? 'Reset Lab' : 'Reset to starter'} danger description={resetChoice === 'lab' ? 'This clears the local Lab document and returns to the starting-point chooser.' : 'This replaces local changes with fresh defaults for the current starting point.'} onClose={() => setResetChoice(null)} onConfirm={confirmReset} open={resetChoice !== null} title={resetChoice === 'lab' ? 'Reset the entire Lab?' : 'Reset to the starting point?'} />
@@ -804,7 +944,12 @@ export function App() {
       <Dialog onClose={() => setMobileActionsOpen(false)} open={mobileActionsOpen && selectedSection !== null} title={selectedSection ? `${selectedSection.label} actions` : 'Section actions'} variant="bottom-sheet">
         {selectedSection ? (
           <div className="final-more-actions">
-            <p>{selectedSection.visible ? 'Shown on your website' : 'Hidden from clients'} · {selectedSection.size} placeholder</p>
+            <p>
+              {selectedSection.visible ? 'Shown on your website' : 'Hidden from clients'} · {' '}
+              {selectedSection.sectionType === 'booking'
+                ? 'Protected client booking menu'
+                : `${selectedSection.size} placeholder`}
+            </p>
             <button type="button" onClick={() => { setMobileActionsOpen(false); openMoveSection(selectedSection.id); }}><Menu aria-hidden="true" size={18} /> Move to page</button>
             <button type="button" onClick={() => { setMobileActionsOpen(false); removeSection(selectedSection); }}><Trash2 aria-hidden="true" size={18} /> Remove from page</button>
           </div>

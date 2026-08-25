@@ -1,13 +1,23 @@
 import { ArrowDown, ArrowUp, Download, FileUp, Maximize2, Plus, Redo2, RotateCcw, Trash2, Undo2 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-import { SECTION_CATALOGUE, type OriginStarter, type PageDocument, type SectionInstance, type SectionSize, type SiteBuilderDocument } from '../model';
+import type { BookingTokenPresetId, ImageFixture, MenuSize } from '../booking/types';
+import {
+  SECTION_CATALOGUE,
+  type CatalogueSectionType,
+  type OriginStarter,
+  type PageDocument,
+  type PlaceholderSectionInstance,
+  type SectionInstance,
+  type SectionSize,
+  type SiteBuilderDocument,
+} from '../model';
 import { Dialog } from './Dialog';
 
 type SectionLibraryDialogProps = {
   document: SiteBuilderDocument;
   insertionPosition: number | null;
-  onAdd: (sectionType: SectionInstance['sectionType'], size: SectionSize) => void;
+  onAdd: (sectionType: CatalogueSectionType, size: SectionSize) => void;
   onClose: () => void;
   page: PageDocument;
 };
@@ -18,7 +28,7 @@ export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClo
 
   return (
     <Dialog
-      description={`Choose a placeholder for ${page.name}${insertionPosition ? ` at position ${insertionPosition}` : ''}. Real sections will replace these after shell approval.`}
+      description={`Choose what to add to ${page.name}${insertionPosition ? ` at position ${insertionPosition}` : ''}. Booking is already included and can move anywhere in your site.`}
       onClose={onClose}
       open={insertionPosition !== null}
       title="Add section"
@@ -45,6 +55,22 @@ export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClo
             </article>
           );
         })}
+        <article className="library-item" data-section-type="booking">
+          <div className="library-item__preview">B</div>
+          <div className="library-item__copy">
+            <strong>Booking</strong>
+            <span>Client service menu</span>
+            <span className="library-state">Currently used</span>
+            <button
+              aria-label="Booking is currently used"
+              className="library-add-button"
+              disabled
+              type="button"
+            >
+              Currently used
+            </button>
+          </div>
+        </article>
       </div>
     </Dialog>
   );
@@ -53,7 +79,7 @@ export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClo
 type SectionSettingsDialogProps = {
   onClose: () => void;
   onSave: (values: { note: string; size: SectionSize }) => void;
-  section: SectionInstance | null;
+  section: PlaceholderSectionInstance | null;
 };
 
 export function SectionSettingsDialog({ onClose, onSave, section }: SectionSettingsDialogProps) {
@@ -315,36 +341,48 @@ export function StartAgainDialog({ onChoose, onClose, open }: StartAgainDialogPr
   );
 }
 
-type LabOptionsDialogProps = {
+export type LabOptionsDialogProps = {
   canRedo: boolean;
   canUndo: boolean;
+  imageFixture: ImageFixture;
+  menuSize: MenuSize;
   onClose: () => void;
   onExport: () => void;
+  onImageFixtureChange: (fixture: ImageFixture) => void;
   onImport: (file: File) => void;
+  onMenuSizeChange: (menuSize: MenuSize) => void;
   onRedo: () => void;
   onResetLab: () => void;
   onResetStarter: () => void;
   onStartAgain: () => void;
+  onTokenPresetChange: (preset: BookingTokenPresetId) => void;
   onToggleRealHeightSimulation: () => void;
   onUndo: () => void;
   open: boolean;
   realHeightSimulation: boolean;
+  tokenPreset: BookingTokenPresetId;
 };
 
 export function LabOptionsDialog({
   canRedo,
   canUndo,
+  imageFixture,
+  menuSize,
   onClose,
   onExport,
+  onImageFixtureChange,
   onImport,
+  onMenuSizeChange,
   onRedo,
   onResetLab,
   onResetStarter,
   onStartAgain,
+  onTokenPresetChange,
   onToggleRealHeightSimulation,
   onUndo,
   open,
   realHeightSimulation,
+  tokenPreset,
 }: LabOptionsDialogProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   return (
@@ -359,6 +397,44 @@ export function LabOptionsDialog({
       <div className="more-options-section">
         <span>Lab display</span>
         <div className="switch-row"><span className="switch-row__copy"><strong>Real-height simulation</strong><span>Preview how the editor behaves around short and very long future sections.</span></span><button aria-checked={realHeightSimulation} aria-label="Simulate real section heights" className="switch" role="switch" type="button" onClick={onToggleRealHeightSimulation}><Maximize2 aria-hidden="true" size={15} /></button></div>
+      </div>
+      <div className="more-options-section">
+        <span>Booking preview fixtures</span>
+        <p className="form-hint">These local review options do not change your site document.</p>
+        <label className="form-field">
+          <span>Service photos</span>
+          <select
+            aria-label="Booking service photo fixture"
+            value={imageFixture}
+            onChange={(event) => onImageFixtureChange(event.target.value as ImageFixture)}
+          >
+            <option value="image_rich">Rich imagery</option>
+            <option value="partial_images">Partial imagery</option>
+            <option value="no_images">No imagery</option>
+          </select>
+        </label>
+        <label className="form-field">
+          <span>Service menu</span>
+          <select
+            aria-label="Booking service menu fixture"
+            value={menuSize}
+            onChange={(event) => onMenuSizeChange(event.target.value as MenuSize)}
+          >
+            <option value="canonical">24 canonical services</option>
+            <option value="stress_100">100-service stress menu</option>
+          </select>
+        </label>
+        <label className="form-field">
+          <span>Token fixture</span>
+          <select
+            aria-label="Booking presentation token fixture"
+            value={tokenPreset}
+            onChange={(event) => onTokenPresetChange(event.target.value as BookingTokenPresetId)}
+          >
+            <option value="warm">Warm Luster</option>
+            <option value="neutral">Neutral</option>
+          </select>
+        </label>
       </div>
       <div className="more-options-section move-page-list">
         <span>Backup and reset</span>
@@ -387,7 +463,7 @@ export function AlertDialog({ message, onClose, title = 'This change is protecte
         <p><strong>{first}</strong></p>
         {second ? <p>Add another{second}</p> : null}
       </div>
-      <div className="dialog-actions"><button className="primary-button" type="button" onClick={onClose}>{title === 'Keep a way to book' ? 'Keep booking access' : 'Got it'}</button></div>
+      <div className="dialog-actions"><button className="primary-button" type="button" onClick={onClose}>{title === 'Keep a way to book' ? 'Keep Booking' : 'Got it'}</button></div>
     </Dialog>
   );
 }

@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react';
 
 import type {
   PageDocument,
+  PlaceholderSectionInstance,
   SectionInstance,
   SiteBuilderDocument,
 } from '../model';
@@ -33,7 +34,7 @@ type FinalStructurePanelProps = {
   onRemovePage: (page: PageDocument) => void;
   onRenameNavigationItem: (pageId: string, label: string) => void;
   onRestorePage: (pageId: string) => void;
-  onRestoreSection: (section: SectionInstance) => void;
+  onRestoreSection: (section: PlaceholderSectionInstance) => void;
   onSelectPage: (pageId: string) => void;
   onSelectSection: (pageId: string, section: SectionInstance) => void;
   onToggleNavigation: () => void;
@@ -194,6 +195,11 @@ export function FinalStructurePanel({
                   <ol aria-label={`Sections on ${page.name}`} className="final-structure__sections">
                     {sections.map((section, sectionIndex) => {
                       const selected = section.id === selectedSectionId;
+                      const booking = section.sectionType === 'booking';
+                      const sectionLabel = booking ? 'Booking' : section.label;
+                      const sectionDescription = booking
+                        ? `Protected · client booking menu${section.visible ? '' : ' · hidden'}`
+                        : `${section.size}${section.visible ? '' : ' · hidden'}`;
                       return (
                         <li key={section.id}>
                           <button
@@ -202,8 +208,8 @@ export function FinalStructurePanel({
                             type="button"
                             onClick={() => onSelectSection(page.id, section)}
                           >
-                            <span>{section.sectionType === 'booking_access' ? 'BA' : String(sectionIndex + 1).padStart(2, '0')}</span>
-                            <span><strong>{section.label}</strong><small>{section.size}{section.visible ? '' : ' · hidden'}</small></span>
+                            <span>{booking ? 'BK' : String(sectionIndex + 1).padStart(2, '0')}</span>
+                            <span><strong>{sectionLabel}</strong><small>{sectionDescription}</small></span>
                           </button>
                         </li>
                       );

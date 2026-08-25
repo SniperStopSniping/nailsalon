@@ -1,3 +1,7 @@
+import type { BookingSectionPresentationSettings } from '../booking/types';
+
+export type { BookingSectionPresentationSettings } from '../booking/types';
+
 export const SITE_BUILDER_SCHEMA_VERSION = 1 as const;
 
 export type OriginStarter = 'quick_book' | 'one_page' | 'multi_page';
@@ -26,7 +30,7 @@ export type SectionNumber =
 
 export type CatalogueSectionType = `section_${SectionNumber}`;
 
-export type SectionType = CatalogueSectionType | 'booking_access';
+export type SectionType = CatalogueSectionType | 'booking';
 
 export type SectionSize = 'compact' | 'medium' | 'large';
 
@@ -43,18 +47,34 @@ export type NavigationSettings = {
   items: NavigationItem[];
 };
 
-export type SectionInstance = {
+type SectionInstanceBase = {
   id: string;
-  sectionType: SectionType;
   label: string;
   order: number;
   visible: boolean;
+};
+
+export type PlaceholderSectionInstance = SectionInstanceBase & {
+  sectionType: CatalogueSectionType;
   size: SectionSize;
-  protectedCapabilities: string[];
   placeholderSettings: {
     note?: string;
   };
 };
+
+export type BookingSectionInstance = SectionInstanceBase & {
+  sectionType: 'booking';
+  settings: BookingSectionPresentationSettings;
+};
+
+/**
+ * The section type is the document-level discriminator. Booking owns only
+ * bounded presentation settings; canonical services and customer intent live
+ * outside the site document.
+ */
+export type SectionInstance =
+  | PlaceholderSectionInstance
+  | BookingSectionInstance;
 
 export type PageDocument = {
   id: string;
@@ -81,7 +101,7 @@ export type SiteBuilderDocument = {
   originStarter: OriginStarter;
   navigation: NavigationSettings;
   pages: PageDocument[];
-  unusedSections: SectionInstance[];
+  unusedSections: PlaceholderSectionInstance[];
   removedPages: RemovedPageRecord[];
 };
 
@@ -101,14 +121,24 @@ export type SectionCatalogueItem = {
   variants?: readonly string[];
 };
 
-export type AddSectionInput = {
+export type AddPlaceholderSectionInput = {
   pageId: string;
-  sectionType: SectionType;
+  sectionType: CatalogueSectionType;
   position?: number;
   size?: SectionSize;
   label?: string;
   note?: string;
 };
+
+export type AddBookingSectionInput = {
+  pageId: string;
+  sectionType: 'booking';
+  position?: number;
+};
+
+export type AddSectionInput =
+  | AddPlaceholderSectionInput
+  | AddBookingSectionInput;
 
 export type AddPageInput = {
   name: string;
@@ -140,6 +170,12 @@ export type BuilderCommand =
       size?: SectionSize;
       label?: string;
     }
+  | {
+      type: 'update_booking_presentation';
+      sectionId: string;
+      settings: BookingSectionPresentationSettings;
+    }
+  | { type: 'reset_booking_presentation'; sectionId: string }
   | { type: 'move_section'; sectionId: string; position: number }
   | { type: 'move_section_up'; sectionId: string }
   | { type: 'move_section_down'; sectionId: string }
