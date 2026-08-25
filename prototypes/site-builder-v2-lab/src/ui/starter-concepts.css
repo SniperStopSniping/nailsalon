@@ -1,0 +1,1307 @@
+/* Lab-only starter chooser concepts. All selectors are scoped to the chooser root. */
+
+.starter-screen[class*='starter-screen--concept-'] {
+  --starter-accent: #9a3157;
+  --starter-accent-soft: #f8e7ec;
+  --starter-border: rgba(59, 38, 43, 0.12);
+  --starter-ink: #2d2525;
+  --starter-muted: #6e6262;
+  color: var(--starter-ink);
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__brand {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  justify-content: space-between;
+  color: inherit;
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__identity,
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__header-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__wordmark {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__gallery-button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 13px;
+  border: 1px solid var(--starter-border);
+  border-radius: 999px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.7);
+  font-size: 0.78rem;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__gallery-button:hover {
+  border-color: var(--starter-accent);
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__workspace {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__content {
+  min-width: 0;
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__content > .eyebrow {
+  color: var(--starter-accent);
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__content h1 {
+  color: var(--starter-ink);
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__intro {
+  color: var(--starter-muted);
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-card {
+  position: relative;
+  color: var(--starter-ink);
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-card__index {
+  display: none;
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-card__description {
+  color: var(--starter-muted);
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-card__badge {
+  color: var(--starter-accent);
+  background: var(--starter-accent-soft);
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-card__action {
+  color: var(--starter-accent);
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__freedom {
+  color: var(--starter-accent);
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__import,
+.starter-screen[class*='starter-screen--concept-'] .lab-disclaimer {
+  color: var(--starter-muted);
+}
+
+.starter-screen[class*='starter-screen--concept-'] .starter-screen__import .secondary-button {
+  border: 1px solid var(--starter-border);
+  color: var(--starter-ink);
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.starter-preview {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.starter-preview__browser,
+.starter-preview__wireframe,
+.starter-preview__structure {
+  display: none;
+}
+
+.starter-preview__phone-home {
+  display: none;
+}
+
+.starter-preview__browser-dot-row {
+  display: flex;
+  gap: 4px;
+}
+
+.starter-preview__browser-dot-row i {
+  display: block;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.25;
+}
+
+.starter-preview__site-nav {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.46rem;
+}
+
+.starter-preview__site-nav > span {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 0.67rem;
+  font-weight: 700;
+}
+
+.starter-preview__site-nav small {
+  overflow: hidden;
+  color: #766c69;
+  font-size: 0.34rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.starter-preview__site-nav b,
+.starter-preview__book {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  color: #fff;
+  background: #903657;
+  font-weight: 750;
+}
+
+.starter-preview__site-nav b {
+  min-height: 18px;
+  padding: 3px 7px;
+  font-size: 0.38rem;
+}
+
+.starter-preview__salon-hero {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 0.78fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 13px;
+}
+
+.starter-preview__portrait {
+  display: block;
+  min-height: 94px;
+  border-radius: 50% 50% 18px 18px;
+  background:
+    radial-gradient(circle at 58% 27%, #eed8cf 0 12%, transparent 12.5%),
+    radial-gradient(circle at 51% 35%, #583633 0 20%, transparent 20.5%),
+    linear-gradient(145deg, #e9b9c5, #f4ddd0 52%, #ba5579);
+}
+
+.starter-preview__salon-hero > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.starter-preview__salon-hero small {
+  margin-bottom: 5px;
+  color: #98526a;
+  font-size: 0.35rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.starter-preview__salon-hero strong {
+  color: #2d2322;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 0.94rem;
+  font-weight: 500;
+  letter-spacing: -0.035em;
+  line-height: 1.04;
+}
+
+.starter-preview__book {
+  min-height: 22px;
+  margin-top: 10px;
+  padding: 4px 9px;
+  font-size: 0.38rem;
+}
+
+.starter-preview__salon-content {
+  display: grid;
+  grid-template-columns: 1.25fr 0.75fr 0.75fr;
+  gap: 5px;
+}
+
+.starter-preview__salon-content span {
+  display: block;
+  min-height: 27px;
+  border-radius: 4px;
+  background: #e7d1d8;
+}
+
+.starter-preview__salon-content span:first-child {
+  background: linear-gradient(135deg, #4f2839, #c47791);
+}
+
+.starter-concept-rail {
+  display: none;
+}
+
+/* Concept 1 — Canvas First / Luster Light */
+
+.starter-screen.starter-screen--concept-1 {
+  --starter-accent: #9d3159;
+  --starter-accent-soft: #fae9ef;
+  --starter-border: rgba(68, 45, 42, 0.12);
+  --starter-ink: #2c2420;
+  --starter-muted: #776c66;
+  background:
+    radial-gradient(circle at 84% 14%, rgba(163, 51, 91, 0.055), transparent 23%),
+    #fcfaf5;
+}
+
+.starter-screen--concept-1 .starter-screen__brand {
+  min-height: 72px;
+  padding: 14px clamp(20px, 4vw, 64px);
+  border-bottom: 1px solid rgba(62, 45, 39, 0.07);
+}
+
+.starter-screen--concept-1 .brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #9d3159;
+  box-shadow: none;
+}
+
+.starter-screen--concept-1 .lab-pill {
+  color: #7e294b;
+  background: #fae9ef;
+}
+
+.starter-screen--concept-1 .starter-screen__content {
+  width: min(1260px, calc(100% - 48px));
+  padding: clamp(52px, 7vw, 92px) 0 64px;
+}
+
+.starter-screen--concept-1 .starter-screen__content h1 {
+  max-width: 790px;
+  font-size: clamp(2.5rem, 5.8vw, 4.75rem);
+}
+
+.starter-screen--concept-1 .starter-screen__intro {
+  margin-bottom: 50px;
+}
+
+.starter-screen--concept-1 .starter-grid {
+  gap: 22px;
+}
+
+.starter-screen--concept-1 .starter-card {
+  min-height: 504px;
+  padding: 12px;
+  border: 1px solid rgba(68, 45, 42, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.76);
+  box-shadow: 0 14px 38px rgba(77, 50, 41, 0.035);
+}
+
+.starter-screen--concept-1 .starter-card:hover {
+  border-color: rgba(157, 49, 89, 0.46);
+  box-shadow: 0 18px 45px rgba(77, 50, 41, 0.08);
+  transform: translateY(-2px);
+}
+
+.starter-screen--concept-1 .starter-preview__wireframe {
+  display: block;
+  min-height: 258px;
+  padding: 18px;
+  border-radius: 7px;
+  background: #f4efe8;
+}
+
+.starter-screen--concept-1 .starter-preview__wireframe-top {
+  height: 20px;
+  margin-bottom: 12px;
+  border-bottom: 1px solid rgba(51, 34, 30, 0.14);
+}
+
+.starter-screen--concept-1 .starter-preview__wireframe-top::before,
+.starter-screen--concept-1 .starter-preview__wireframe-top::after {
+  display: block;
+  width: 33%;
+  height: 4px;
+  border-radius: 999px;
+  background: #40302d;
+  content: '';
+}
+
+.starter-screen--concept-1 .starter-preview__wireframe-top::after {
+  width: 16%;
+  margin: -4px 0 0 auto;
+  opacity: 0.34;
+}
+
+.starter-screen--concept-1 .starter-preview__wireframe-body {
+  display: grid;
+  height: 188px;
+  gap: 7px;
+  align-content: center;
+}
+
+.starter-screen--concept-1 .starter-preview__wireframe-body span {
+  display: block;
+  min-height: 13px;
+  border: 1px solid rgba(86, 62, 55, 0.09);
+  border-radius: 3px;
+  background: linear-gradient(90deg, #e3d3d1 0 24%, #fbf8f3 24%);
+}
+
+.starter-screen--concept-1 .starter-preview--multi_page .starter-preview__wireframe-body {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  align-items: stretch;
+}
+
+.starter-screen--concept-1 .starter-preview--multi_page .starter-preview__wireframe-body span {
+  height: auto !important;
+  min-height: 108px;
+  background: linear-gradient(#eadde0 0 22%, #fff 22%);
+}
+
+.starter-screen--concept-1 .starter-card__copy {
+  min-height: 215px;
+  padding: 22px 12px 8px;
+}
+
+/* Concept 2 — Dark Studio / Creator Tool */
+
+.starter-screen.starter-screen--concept-2 {
+  --starter-accent: #d58cff;
+  --starter-accent-soft: rgba(183, 87, 240, 0.17);
+  --starter-border: rgba(255, 255, 255, 0.14);
+  --starter-ink: #fff;
+  --starter-muted: #bcb5c5;
+  background:
+    radial-gradient(circle at 50% 5%, rgba(168, 73, 231, 0.14), transparent 25%),
+    #17151c;
+}
+
+.starter-screen--concept-2 .starter-screen__brand {
+  min-height: 66px;
+  padding: 11px clamp(16px, 3vw, 42px);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  background: rgba(20, 18, 24, 0.96);
+}
+
+.starter-screen--concept-2 .brand-mark {
+  width: 35px;
+  height: 35px;
+  border-radius: 9px;
+  background: linear-gradient(145deg, #bd63ed, #7127a2);
+  box-shadow: 0 0 22px rgba(188, 92, 238, 0.27);
+}
+
+.starter-screen--concept-2 .lab-pill {
+  color: #e0b1ff;
+  background: rgba(197, 102, 250, 0.13);
+}
+
+.starter-screen--concept-2 .starter-screen__gallery-button,
+.starter-screen--concept-2 .starter-screen__import .secondary-button {
+  color: #f8f4fb;
+  background: #29252f;
+}
+
+.starter-screen--concept-2 .starter-screen__content {
+  width: min(1320px, calc(100% - 48px));
+  padding: 52px 0 60px;
+  text-align: left;
+}
+
+.starter-screen--concept-2 .starter-screen__content h1 {
+  max-width: 830px;
+  margin-right: 0;
+  margin-left: 0;
+  color: #fff;
+  font-family: inherit;
+  font-size: clamp(2.4rem, 5vw, 4.35rem);
+  font-weight: 650;
+  letter-spacing: -0.055em;
+}
+
+.starter-screen--concept-2 .starter-screen__intro {
+  max-width: 660px;
+  margin-right: 0;
+  margin-bottom: 34px;
+  margin-left: 0;
+}
+
+.starter-screen--concept-2 .starter-grid {
+  gap: 13px;
+}
+
+.starter-screen--concept-2 .starter-card {
+  min-height: 506px;
+  padding: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  color: #fff;
+  background: #232029;
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.2);
+}
+
+.starter-screen--concept-2 .starter-card:hover {
+  border-color: #bd6fea;
+  box-shadow: 0 0 0 1px #bd6fea, 0 24px 60px rgba(0, 0, 0, 0.35);
+  transform: translateY(-2px);
+}
+
+.starter-screen--concept-2 .starter-preview__browser {
+  display: flex;
+  min-height: 276px;
+  flex-direction: column;
+  gap: 12px;
+  padding: 10px 16px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 7px;
+  color: #332b32;
+  background: #fbf7f3;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.35);
+}
+
+.starter-screen--concept-2 .starter-preview__browser-dot-row {
+  margin: -10px -16px 0;
+  padding: 7px 9px;
+  color: white;
+  background: #39343f;
+}
+
+.starter-screen--concept-2 .starter-card__copy {
+  min-height: 205px;
+  padding: 20px 12px 7px;
+}
+
+.starter-screen--concept-2 .starter-card__description {
+  color: #bcb5c5;
+}
+
+.starter-screen--concept-2 .starter-card__badge {
+  color: #e0a8ff;
+}
+
+.starter-screen--concept-2 .starter-card__action {
+  color: #dfacfb;
+}
+
+.starter-screen--concept-2 .starter-screen__freedom,
+.starter-screen--concept-2 .starter-screen__import,
+.starter-screen--concept-2 .lab-disclaimer {
+  color: #bcb5c5;
+}
+
+.starter-screen--concept-2 .starter-screen__freedom,
+.starter-screen--concept-2 .starter-screen__import {
+  justify-content: flex-start;
+  margin-left: 0;
+}
+
+/* Concept 3 — Mobile First / Bottom Control System */
+
+.starter-screen.starter-screen--concept-3 {
+  --starter-accent: #8b234c;
+  --starter-accent-soft: #f7e1e8;
+  --starter-border: rgba(112, 43, 67, 0.14);
+  --starter-ink: #352326;
+  --starter-muted: #776166;
+  background:
+    radial-gradient(circle at 50% 16%, rgba(238, 182, 198, 0.38), transparent 30%),
+    #fff9f7;
+}
+
+.starter-screen--concept-3 .starter-screen__brand {
+  width: min(1160px, calc(100% - 32px));
+  min-height: 70px;
+  margin: 12px auto 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(112, 43, 67, 0.09);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.78);
+  box-shadow: 0 8px 28px rgba(102, 40, 61, 0.06);
+}
+
+.starter-screen--concept-3 .brand-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: #8b234c;
+  box-shadow: none;
+}
+
+.starter-screen--concept-3 .lab-pill {
+  color: #7e2045;
+  background: #f8e3ea;
+}
+
+.starter-screen--concept-3 .starter-screen__content {
+  width: min(1120px, calc(100% - 34px));
+  padding: 50px 0 56px;
+}
+
+.starter-screen--concept-3 .starter-screen__content h1 {
+  font-family: inherit;
+  font-size: clamp(2.2rem, 4.7vw, 4rem);
+  font-weight: 750;
+  letter-spacing: -0.055em;
+}
+
+.starter-screen--concept-3 .starter-screen__intro {
+  margin-bottom: 38px;
+}
+
+.starter-screen--concept-3 .starter-grid {
+  align-items: start;
+  gap: 20px;
+}
+
+.starter-screen--concept-3 .starter-card {
+  min-height: 608px;
+  padding: 14px;
+  border: 1px solid rgba(114, 50, 72, 0.13);
+  border-radius: 34px;
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 16px 48px rgba(123, 51, 76, 0.08);
+}
+
+.starter-screen--concept-3 .starter-card:hover {
+  border-color: #c6728f;
+  box-shadow: 0 22px 58px rgba(123, 51, 76, 0.13);
+  transform: translateY(-3px);
+}
+
+.starter-screen--concept-3 .starter-preview {
+  width: 78%;
+  min-height: 344px;
+  margin: 1px auto 0;
+  padding: 9px 8px 20px;
+  border: 6px solid #342b2e;
+  border-radius: 29px;
+  background: #fbf5f2;
+  box-shadow: 0 13px 30px rgba(55, 39, 45, 0.18);
+}
+
+.starter-screen--concept-3 .starter-preview::before {
+  position: absolute;
+  z-index: 2;
+  top: 4px;
+  left: 50%;
+  width: 38%;
+  height: 9px;
+  border-radius: 999px;
+  background: #342b2e;
+  content: '';
+  transform: translateX(-50%);
+}
+
+.starter-screen--concept-3 .starter-preview__browser {
+  display: flex;
+  min-height: 303px;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 9px 8px;
+  color: #34272a;
+  background: #fbf5f2;
+}
+
+.starter-screen--concept-3 .starter-preview__browser-dot-row {
+  display: none;
+}
+
+.starter-screen--concept-3 .starter-preview__site-nav small {
+  display: none;
+}
+
+.starter-screen--concept-3 .starter-preview__salon-hero {
+  grid-template-columns: 1fr;
+  gap: 9px;
+}
+
+.starter-screen--concept-3 .starter-preview__portrait {
+  min-height: 104px;
+  border-radius: 15px;
+}
+
+.starter-screen--concept-3 .starter-preview__salon-hero strong {
+  max-width: 180px;
+  font-size: 0.84rem;
+}
+
+.starter-screen--concept-3 .starter-preview__phone-home {
+  position: absolute;
+  bottom: 6px;
+  left: 50%;
+  display: block;
+  width: 38%;
+  height: 4px;
+  border-radius: 999px;
+  background: #342b2e;
+  transform: translateX(-50%);
+}
+
+.starter-screen--concept-3 .starter-card__copy {
+  min-height: 225px;
+  align-items: center;
+  padding: 22px 10px 8px;
+  text-align: center;
+}
+
+.starter-screen--concept-3 .starter-card__badge {
+  align-self: center;
+}
+
+/* Concept 4 — Split Workspace / Structure + Canvas */
+
+.starter-screen.starter-screen--concept-4 {
+  --starter-accent: #7f2449;
+  --starter-accent-soft: #f2e5ea;
+  --starter-border: #d9dce2;
+  --starter-ink: #24262b;
+  --starter-muted: #686c75;
+  background: #eef0f3;
+}
+
+.starter-screen--concept-4 .starter-screen__brand {
+  min-height: 64px;
+  padding: 10px 20px;
+  border-bottom: 1px solid #d9dce2;
+  background: #fff;
+}
+
+.starter-screen--concept-4 .brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: #762040;
+  box-shadow: none;
+}
+
+.starter-screen--concept-4 .lab-pill {
+  color: #6f2442;
+  background: #f3e7eb;
+}
+
+.starter-screen--concept-4 .starter-screen__workspace {
+  display: grid;
+  grid-template-columns: 254px minmax(0, 1fr);
+}
+
+.starter-screen--concept-4 .starter-concept-rail {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  padding: 44px 24px 28px;
+  border-right: 1px solid #d6d9df;
+  background: #f7f8f9;
+}
+
+.starter-screen--concept-4 .starter-concept-rail__kicker {
+  margin-bottom: 10px;
+  color: #7f2449;
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.starter-screen--concept-4 .starter-concept-rail > strong {
+  font-size: 1.25rem;
+}
+
+.starter-screen--concept-4 .starter-concept-rail > p {
+  margin: 8px 0 28px;
+  color: #737782;
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+.starter-screen--concept-4 .starter-concept-rail__steps {
+  display: grid;
+  gap: 7px;
+}
+
+.starter-screen--concept-4 .starter-concept-rail__steps span {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 9px;
+  border-radius: 8px;
+  color: #737782;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.starter-screen--concept-4 .starter-concept-rail__steps b {
+  display: inline-grid;
+  width: 25px;
+  height: 25px;
+  place-items: center;
+  border: 1px solid #ccd0d7;
+  border-radius: 7px;
+  font-size: 0.68rem;
+}
+
+.starter-screen--concept-4 .starter-concept-rail__steps .is-current {
+  color: #70203f;
+  background: #f0e2e7;
+}
+
+.starter-screen--concept-4 .starter-concept-rail__steps .is-current b {
+  border-color: #7f2449;
+  color: #fff;
+  background: #7f2449;
+}
+
+.starter-screen--concept-4 .starter-concept-rail__note {
+  margin-top: auto;
+  padding: 15px;
+  border: 1px solid #dcdfe4;
+  border-radius: 9px;
+  color: #686c75;
+  background: #fff;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.starter-screen--concept-4 .starter-screen__content {
+  width: min(1040px, calc(100% - 56px));
+  margin: 0 auto;
+  padding: 42px 0 50px;
+  text-align: left;
+}
+
+.starter-screen--concept-4 .starter-screen__content h1 {
+  margin-right: 0;
+  margin-left: 0;
+  font-family: inherit;
+  font-size: clamp(2rem, 4vw, 3.3rem);
+  font-weight: 720;
+  letter-spacing: -0.045em;
+}
+
+.starter-screen--concept-4 .starter-screen__intro {
+  max-width: 690px;
+  margin-right: 0;
+  margin-bottom: 30px;
+  margin-left: 0;
+}
+
+.starter-screen--concept-4 .starter-grid {
+  grid-template-columns: 1fr;
+  gap: 11px;
+}
+
+.starter-screen--concept-4 .starter-card {
+  display: grid;
+  min-height: 236px;
+  grid-template-columns: minmax(290px, 0.9fr) minmax(260px, 1.1fr);
+  align-items: stretch;
+  padding: 9px;
+  border: 1px solid #d9dce2;
+  border-radius: 10px;
+  background: #fff;
+  box-shadow: 0 5px 18px rgba(35, 39, 47, 0.035);
+}
+
+.starter-screen--concept-4 .starter-card:hover {
+  border-color: #9a5571;
+  box-shadow: 0 8px 24px rgba(35, 39, 47, 0.075);
+  transform: none;
+}
+
+.starter-screen--concept-4 .starter-preview__structure {
+  display: grid;
+  min-height: 216px;
+  grid-template-columns: 76px minmax(0, 1fr);
+  overflow: hidden;
+  border: 1px solid #d8dbe1;
+  border-radius: 7px;
+  background: #e9ebef;
+}
+
+.starter-screen--concept-4 .starter-preview__structure-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 7px;
+  border-right: 1px solid #d7dae0;
+  color: #6e727c;
+  background: #f7f8fa;
+  font-size: 0.45rem;
+}
+
+.starter-screen--concept-4 .starter-preview__structure-rail strong {
+  margin-bottom: 4px;
+  color: #3d4047;
+  font-size: 0.5rem;
+}
+
+.starter-screen--concept-4 .starter-preview__structure-rail span {
+  padding: 5px;
+  border-radius: 4px;
+}
+
+.starter-screen--concept-4 .starter-preview__structure-rail .is-active {
+  color: #782244;
+  background: #f2e3e9;
+  font-weight: 800;
+}
+
+.starter-screen--concept-4 .starter-preview__structure-canvas {
+  display: grid;
+  align-content: center;
+  gap: 6px;
+  margin: 12px;
+  padding: 12px;
+  background: #fff;
+  box-shadow: 0 4px 12px rgba(37, 42, 51, 0.08);
+}
+
+.starter-screen--concept-4 .starter-preview__structure-canvas span {
+  display: flex;
+  min-height: 24px;
+  align-items: flex-start;
+  padding: 5px;
+  border: 1px solid #e0d7db;
+  color: #8a4a62;
+  background: #fbf7f8;
+  font-size: 0.42rem;
+  font-weight: 800;
+}
+
+.starter-screen--concept-4 .starter-card__copy {
+  min-height: 0;
+  padding: 26px 28px 18px;
+}
+
+.starter-screen--concept-4 .starter-card__badge {
+  margin-top: 13px;
+}
+
+.starter-screen--concept-4 .starter-screen__freedom,
+.starter-screen--concept-4 .starter-screen__import {
+  justify-content: flex-start;
+  margin-left: 0;
+}
+
+/* Concept 5 — Ultra-minimal Inline Editor */
+
+.starter-screen.starter-screen--concept-5 {
+  --starter-accent: #9e2f57;
+  --starter-accent-soft: rgba(255, 255, 255, 0.85);
+  --starter-border: rgba(58, 40, 34, 0.13);
+  --starter-ink: #2e2521;
+  --starter-muted: #70635e;
+  position: relative;
+  background: #f5efe9;
+}
+
+.starter-screen--concept-5 .starter-screen__brand {
+  position: sticky;
+  top: 12px;
+  width: min(1180px, calc(100% - 32px));
+  min-height: 58px;
+  margin: 12px auto 0;
+  padding: 8px 10px;
+  border: 1px solid rgba(63, 43, 37, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 253, 250, 0.92);
+  box-shadow: 0 8px 30px rgba(73, 47, 38, 0.1);
+  backdrop-filter: blur(16px);
+}
+
+.starter-screen--concept-5 .brand-mark {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #302522;
+  box-shadow: none;
+}
+
+.starter-screen--concept-5 .lab-pill {
+  display: none;
+}
+
+.starter-screen--concept-5 .starter-screen__content {
+  width: min(1380px, calc(100% - 32px));
+  padding: 68px 0 54px;
+}
+
+.starter-screen--concept-5 .starter-screen__content h1 {
+  max-width: 880px;
+  font-size: clamp(3rem, 7vw, 6.2rem);
+  line-height: 0.95;
+}
+
+.starter-screen--concept-5 .starter-screen__intro {
+  margin-bottom: 48px;
+}
+
+.starter-screen--concept-5 .starter-grid {
+  gap: 12px;
+}
+
+.starter-screen--concept-5 .starter-card {
+  min-height: 582px;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-radius: 2px;
+  background: #fffaf5;
+  box-shadow: 0 16px 45px rgba(73, 47, 38, 0.09);
+}
+
+.starter-screen--concept-5 .starter-card:hover {
+  box-shadow: 0 0 0 3px #a8345d, 0 22px 60px rgba(73, 47, 38, 0.15);
+  transform: none;
+}
+
+.starter-screen--concept-5 .starter-card__index {
+  position: absolute;
+  z-index: 2;
+  top: 15px;
+  left: 15px;
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  place-items: center;
+  border-radius: 50%;
+  color: #2d2320;
+  background: rgba(255, 253, 250, 0.92);
+  box-shadow: 0 5px 18px rgba(50, 33, 28, 0.1);
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.starter-screen--concept-5 .starter-preview__browser {
+  display: flex;
+  min-height: 355px;
+  flex-direction: column;
+  gap: 21px;
+  padding: 20px 24px 25px;
+  color: #312725;
+  background:
+    radial-gradient(circle at 80% 22%, rgba(177, 72, 111, 0.13), transparent 22%),
+    #fbf4ee;
+}
+
+.starter-screen--concept-5 .starter-preview__browser-dot-row {
+  display: none;
+}
+
+.starter-screen--concept-5 .starter-preview__salon-hero {
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1fr);
+}
+
+.starter-screen--concept-5 .starter-preview__portrait {
+  min-height: 170px;
+  border-radius: 52% 52% 4px 4px;
+}
+
+.starter-screen--concept-5 .starter-preview__salon-hero strong {
+  font-size: clamp(1rem, 2vw, 1.45rem);
+}
+
+.starter-screen--concept-5 .starter-preview__salon-content span {
+  min-height: 38px;
+  border-radius: 0;
+}
+
+.starter-screen--concept-5 .starter-card__copy {
+  min-height: 226px;
+  padding: 28px 26px 20px;
+}
+
+.starter-screen--concept-5 .starter-card__title {
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: 1.5rem;
+  font-weight: 600;
+}
+
+.starter-screen--concept-5 .starter-card__badge {
+  border: 1px solid rgba(85, 54, 46, 0.11);
+}
+
+.starter-screen--concept-5 .starter-card__action {
+  align-self: flex-end;
+}
+
+@media (max-width: 1080px) {
+  .starter-screen--concept-4 .starter-screen__workspace {
+    grid-template-columns: 218px minmax(0, 1fr);
+  }
+
+  .starter-screen--concept-4 .starter-concept-rail {
+    padding-right: 17px;
+    padding-left: 17px;
+  }
+
+  .starter-screen--concept-4 .starter-screen__content {
+    width: min(100% - 34px, 820px);
+  }
+}
+
+@media (min-width: 900px) and (max-width: 1549px) {
+  .starter-screen[class*='starter-screen--concept-'] .starter-screen__brand {
+    flex-wrap: wrap;
+  }
+
+  .starter-screen[class*='starter-screen--concept-'] .starter-screen__header-actions {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .starter-screen[class*='starter-screen--concept-'] .editor-concept-switcher {
+    width: min(100%, 1180px);
+  }
+
+  .starter-screen[class*='starter-screen--concept-'] .editor-concept-switcher__choices {
+    flex: 1;
+  }
+
+  .starter-screen[class*='starter-screen--concept-'] .editor-concept-switcher__choice {
+    min-width: 0;
+    flex: 1;
+    padding-right: 6px;
+    padding-left: 6px;
+    font-size: 0.78rem;
+  }
+}
+
+@media (max-width: 899px) {
+  .starter-screen[class*='starter-screen--concept-'] .starter-screen__brand {
+    gap: 10px;
+  }
+
+  .starter-screen[class*='starter-screen--concept-'] .starter-grid {
+    grid-template-columns: 1fr;
+    max-width: 590px;
+  }
+
+  .starter-screen--concept-1 .starter-card,
+  .starter-screen--concept-2 .starter-card,
+  .starter-screen--concept-5 .starter-card {
+    min-height: 0;
+  }
+
+  .starter-screen--concept-3 .starter-grid {
+    max-width: 430px;
+  }
+
+  .starter-screen--concept-4 .starter-screen__workspace {
+    display: block;
+  }
+
+  .starter-screen--concept-4 .starter-concept-rail {
+    display: none;
+  }
+
+  .starter-screen--concept-4 .starter-screen__content {
+    width: min(100% - 32px, 650px);
+  }
+
+  .starter-screen--concept-4 .starter-card {
+    min-height: 228px;
+    grid-template-columns: minmax(210px, 0.9fr) minmax(230px, 1.1fr);
+  }
+
+  .starter-screen--concept-5 .starter-screen__content h1 {
+    font-size: clamp(2.7rem, 11vw, 5rem);
+  }
+}
+
+@media (max-width: 620px) {
+  .starter-screen[class*='starter-screen--concept-'] .starter-screen__brand {
+    flex-wrap: wrap;
+  }
+
+  .starter-screen[class*='starter-screen--concept-'] .starter-screen__header-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .starter-screen--concept-1 .starter-screen__content,
+  .starter-screen--concept-2 .starter-screen__content,
+  .starter-screen--concept-3 .starter-screen__content,
+  .starter-screen--concept-5 .starter-screen__content {
+    width: min(100% - 24px, 520px);
+  }
+
+  .starter-screen--concept-1 .starter-screen__content,
+  .starter-screen--concept-2 .starter-screen__content,
+  .starter-screen--concept-3 .starter-screen__content,
+  .starter-screen--concept-4 .starter-screen__content,
+  .starter-screen--concept-5 .starter-screen__content {
+    padding-top: 34px;
+  }
+
+  .starter-screen--concept-1 .starter-screen__content h1,
+  .starter-screen--concept-2 .starter-screen__content h1,
+  .starter-screen--concept-3 .starter-screen__content h1,
+  .starter-screen--concept-4 .starter-screen__content h1,
+  .starter-screen--concept-5 .starter-screen__content h1 {
+    font-size: clamp(2.15rem, 12vw, 3.35rem);
+  }
+
+  .starter-screen--concept-1 .starter-screen__intro,
+  .starter-screen--concept-2 .starter-screen__intro,
+  .starter-screen--concept-3 .starter-screen__intro,
+  .starter-screen--concept-4 .starter-screen__intro,
+  .starter-screen--concept-5 .starter-screen__intro {
+    margin-bottom: 28px;
+  }
+
+  .starter-screen--concept-2 .starter-screen__brand {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .starter-screen--concept-2 .starter-screen__content {
+    text-align: center;
+  }
+
+  .starter-screen--concept-2 .starter-screen__content h1,
+  .starter-screen--concept-2 .starter-screen__intro {
+    margin-right: auto;
+    margin-left: auto;
+  }
+
+  .starter-screen--concept-2 .starter-screen__freedom,
+  .starter-screen--concept-2 .starter-screen__import {
+    justify-content: center;
+  }
+
+  .starter-screen--concept-3 .starter-screen__brand {
+    width: calc(100% - 20px);
+    margin-top: 10px;
+    border-radius: 15px;
+  }
+
+  .starter-screen--concept-3 .starter-card {
+    min-height: 0;
+  }
+
+  .starter-screen--concept-3 .starter-preview {
+    width: min(82%, 280px);
+  }
+
+  .starter-screen--concept-4 .starter-screen__content {
+    width: min(100% - 24px, 520px);
+  }
+
+  .starter-screen--concept-4 .starter-card {
+    display: flex;
+    min-height: 0;
+    flex-direction: column;
+  }
+
+  .starter-screen--concept-4 .starter-card__copy {
+    min-height: 210px;
+    padding: 22px 14px 10px;
+  }
+
+  .starter-screen--concept-4 .starter-screen__freedom,
+  .starter-screen--concept-4 .starter-screen__import {
+    justify-content: center;
+  }
+
+  .starter-screen--concept-5 .starter-screen__brand {
+    top: 6px;
+    width: calc(100% - 16px);
+    margin-top: 6px;
+    border-radius: 18px;
+  }
+
+  .starter-screen--concept-5 .starter-preview__browser {
+    min-height: 330px;
+    padding: 18px;
+  }
+
+  .starter-screen--concept-5 .starter-card__copy {
+    min-height: 220px;
+    padding: 24px 20px 16px;
+  }
+}
+
+@media (max-width: 400px) {
+  .starter-screen[class*='starter-screen--concept-'] .starter-screen__brand {
+    padding: 10px;
+  }
+
+  .starter-screen[class*='starter-screen--concept-'] .lab-pill {
+    display: none;
+  }
+
+  .starter-screen[class*='starter-screen--concept-'] .starter-screen__gallery-button {
+    width: 100%;
+  }
+
+  .starter-screen[class*='starter-screen--concept-'] .starter-screen__header-actions {
+    justify-content: stretch;
+  }
+
+  .starter-screen[class*='starter-screen--concept-'] .starter-screen__import {
+    flex-direction: column;
+  }
+
+  .starter-screen--concept-1 .starter-preview__wireframe {
+    min-height: 226px;
+    padding: 13px;
+  }
+
+  .starter-screen--concept-1 .starter-preview__wireframe-body {
+    height: 166px;
+  }
+
+  .starter-screen--concept-2 .starter-preview__browser {
+    min-height: 252px;
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+
+  .starter-screen--concept-3 .starter-preview {
+    width: min(86%, 250px);
+  }
+
+  .starter-screen--concept-4 .starter-preview__structure {
+    grid-template-columns: 68px minmax(0, 1fr);
+  }
+
+  .starter-screen--concept-5 .starter-preview__salon-hero {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .starter-screen--concept-5 .starter-preview__portrait {
+    min-height: 135px;
+  }
+
+  .starter-screen--concept-5 .starter-preview__salon-hero strong {
+    font-size: 0.9rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .starter-screen[class*='starter-screen--concept-'] *,
+  .starter-screen[class*='starter-screen--concept-'] *::before,
+  .starter-screen[class*='starter-screen--concept-'] *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+}

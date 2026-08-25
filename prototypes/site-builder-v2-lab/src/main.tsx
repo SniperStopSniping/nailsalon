@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 
 import { App } from './ui/App';
 import './styles.css';
+import './ui/concept-shells.css';
 
 const rootElement = document.getElementById('root');
 

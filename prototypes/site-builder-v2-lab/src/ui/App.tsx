@@ -6,6 +6,8 @@ import {
   Laptop,
   Menu,
   MoreHorizontal,
+  PanelLeftClose,
+  PanelLeftOpen,
   Pencil,
   Plus,
   Redo2,
@@ -44,11 +46,15 @@ import {
   StartAgainDialog,
 } from './EditorDialogs';
 import { InspectorPanel, PagesPanel } from './EditorPanels';
+import { ConceptStructureTree } from './ConceptStructureTree';
 import { Dialog } from './Dialog';
 import { Preview } from './Preview';
 import { ReorderList } from './ReorderList';
 import { SectionCard } from './SectionCard';
 import { StarterChooser } from './StarterChooser';
+import { ConceptGallery } from './concepts/ConceptGallery';
+import { ConceptSwitcher } from './concepts/ConceptSwitcher';
+import { useEditorConcept } from './concepts/useEditorConcept';
 import { useLabDocument } from './useLabDocument';
 
 type EditorMode = 'edit' | 'reorder' | 'preview';
@@ -83,6 +89,7 @@ const starterLabel = (starter: OriginStarter): string => ({
 
 export function App() {
   const lab = useLabDocument();
+  const editorConcept = useEditorConcept();
   const document = lab.document;
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
@@ -107,6 +114,8 @@ export function App() {
   const [toast, setToast] = useState<ToastState>(null);
   const [announcement, setAnnouncement] = useState('');
   const [reorderBaseline, setReorderBaseline] = useState<HistoryState | null>(null);
+  const [conceptGalleryOpen, setConceptGalleryOpen] = useState(false);
+  const [pagesCollapsed, setPagesCollapsed] = useState(false);
 
   const activePage = document
     ? document.pages.find((page) => page.id === activePageId) ?? getHomeOrFirstPage(document)
@@ -153,6 +162,13 @@ export function App() {
     const timeout = window.setTimeout(() => setToast(null), toast.undoable ? 8_000 : 3_800);
     return () => window.clearTimeout(timeout);
   }, [toast]);
+
+  useEffect(() => {
+    window.document.body.dataset.editorConcept = editorConcept.activeConceptId;
+    return () => {
+      delete window.document.body.dataset.editorConcept;
+    };
+  }, [editorConcept.activeConceptId]);
 
   const sortedActiveSections = useMemo(
     () => activePage ? [...activePage.sections].sort((left, right) => left.order - right.order) : [],
@@ -462,13 +478,44 @@ export function App() {
     setResetChoice(null);
   };
 
+  const conceptSwitcher = (
+    <ConceptSwitcher
+      activeConceptId={editorConcept.activeConceptId}
+      onChange={editorConcept.selectConcept}
+      onOpenGallery={() => setConceptGalleryOpen(true)}
+    />
+  );
+
+  if (conceptGalleryOpen) {
+    return (
+      <ConceptGallery
+        activeConceptId={editorConcept.activeConceptId}
+        onClose={() => setConceptGalleryOpen(false)}
+        onOpenConcept={(conceptId) => {
+          editorConcept.selectConcept(conceptId);
+          setConceptGalleryOpen(false);
+        }}
+        onUseSameSiteState={(conceptId) => {
+          editorConcept.selectConcept(conceptId);
+          setConceptGalleryOpen(false);
+        }}
+      />
+    );
+  }
+
   if (!document || !activePage) {
     return (
       <>
         {lab.loadIssues.length > 0 ? (
           <div className="toast" role="alert"><span>Saved Lab data is corrupted and was not loaded. {lab.loadIssues.join(' ')}</span><button type="button" onClick={lab.resetLab}>Reset saved Lab</button></div>
         ) : null}
-        <StarterChooser onChoose={chooseStarter} onImport={importFile} />
+        <StarterChooser
+          concept={editorConcept.activeConceptId}
+          headerSlot={conceptSwitcher}
+          onChoose={chooseStarter}
+          onImport={importFile}
+          onOpenGallery={() => setConceptGalleryOpen(true)}
+        />
         <AlertDialog message={alertMessage} onClose={() => setAlertMessage(null)} title={alertTitle} />
       </>
     );
@@ -478,7 +525,8 @@ export function App() {
 
   if (mode === 'preview') {
     return (
-      <div className="preview-app">
+      <div className={`preview-app ${editorConcept.conceptClassName}`} data-editor-concept={editorConcept.activeConceptId}>
+        <div className="concept-lab-dock concept-lab-dock--preview">{conceptSwitcher}</div>
         <header className="preview-toolbar" aria-label="Preview controls">
           <div className="preview-toolbar__title"><Eye aria-hidden="true" size={18} /><span>Site preview · {previewPage.name}</span></div>
           <div className="segmented-control" role="group" aria-label="Preview viewport">
@@ -511,15 +559,66 @@ export function App() {
     />
   );
 
+  const structureTree = (
+    <ConceptStructureTree
+      activePageId={activePage.id}
+      document={document}
+      onAddPage={() => setAddPageOpen(true)}
+      onEditPage={(page) => setEditingPageId(page.id)}
+      onOpenNavigation={() => setNavigationSettingsOpen(true)}
+      onOpenRecovery={() => setMobilePagesOpen(true)}
+      onSelectPage={(pageId) => {
+        setActivePageId(pageId);
+        setSelectedSectionId(null);
+        setMobilePagesOpen(false);
+      }}
+      onSelectSection={(pageId, section) => {
+        setActivePageId(pageId);
+        setSelectedSectionId(section.id);
+        setMobilePagesOpen(false);
+      }}
+      selectedSectionId={selectedSectionId}
+    />
+  );
+
   return (
-    <div className="editor-app">
+    <div
+      className={`editor-app ${editorConcept.conceptClassName}${pagesCollapsed ? ' is-pages-collapsed' : ''}${selectedSection ? ' has-selected-section' : ''}`}
+      data-canvas-viewport={viewport}
+      data-editor-concept={editorConcept.activeConceptId}
+      data-editor-mode={mode}
+    >
+      <div className="concept-lab-dock">{conceptSwitcher}</div>
       <header className="top-toolbar" aria-label="Site builder toolbar">
-        <div className="toolbar-brand"><span className="brand-mark" aria-hidden="true">L</span><strong>{document.siteName}</strong><span className="lab-pill">V2 Lab</span></div>
+        <div className="toolbar-brand">
+          <button className="concept-dashboard-button" type="button" onClick={() => setConceptGalleryOpen(true)}><span aria-hidden="true">←</span> Dashboard</button>
+          <span className="brand-mark" aria-hidden="true">L</span>
+          <strong className="toolbar-site-name">{document.siteName}</strong>
+          <span className="lab-pill">V2 Lab</span>
+          <button
+            aria-label={pagesCollapsed ? 'Expand pages panel' : 'Collapse pages panel'}
+            className="concept-pages-collapse icon-button"
+            type="button"
+            onClick={() => setPagesCollapsed((value) => !value)}
+          >
+            {pagesCollapsed ? <PanelLeftOpen aria-hidden="true" size={18} /> : <PanelLeftClose aria-hidden="true" size={18} />}
+          </button>
+          <button className="toolbar-page-trigger" type="button" onClick={() => setMobilePagesOpen(true)}>
+            <span>Page: <strong>{activePage.name}</strong></span><ChevronDown aria-hidden="true" size={16} />
+          </button>
+        </div>
         <div className="segmented-control" role="group" aria-label="Editor modes">
           <button aria-pressed={mode === 'edit'} type="button" onClick={() => { if (mode === 'reorder') finishReorder(); else setMode('edit'); }}><Pencil aria-hidden="true" size={16} /> Edit</button>
           <button aria-pressed={mode === 'reorder'} type="button" onClick={() => { if (mode !== 'reorder') enterReorder(); }}><GripVertical aria-hidden="true" size={16} /> Reorder</button>
           <button aria-pressed="false" type="button" onClick={enterPreview}><Eye aria-hidden="true" size={16} /> Preview</button>
         </div>
+        {editorConcept.activeConceptId === 'dark_studio' ? (
+          <div className="editor-device-control segmented-control" role="group" aria-label="Editor canvas viewport">
+            <button aria-label="Desktop canvas" aria-pressed={viewport === 'desktop'} type="button" onClick={() => setViewport('desktop')}><Laptop aria-hidden="true" size={16} /><span>Desktop</span></button>
+            <button aria-label="Tablet canvas" aria-pressed={viewport === 'tablet'} type="button" onClick={() => setViewport('tablet')}><Tablet aria-hidden="true" size={16} /><span>Tablet</span></button>
+            <button aria-label="Phone canvas" aria-pressed={viewport === 'mobile'} type="button" onClick={() => setViewport('mobile')}><Smartphone aria-hidden="true" size={16} /><span>Phone</span></button>
+          </div>
+        ) : null}
         <div className="toolbar-actions">
           <div className="toolbar-history">
             <button className="icon-button" aria-label="Undo" disabled={!lab.canUndo} type="button" onClick={() => { if (lab.undo()) setAnnouncement('Last change undone.'); }}><Undo2 aria-hidden="true" size={18} /></button>
@@ -540,9 +639,27 @@ export function App() {
       </header>
 
       <div className="editor-layout">
-        <aside className="pages-panel">{pagesPanel}</aside>
+        <aside className="pages-panel">
+          {editorConcept.activeConceptId === 'split_workspace' ? structureTree : null}
+          {editorConcept.activeConceptId === 'dark_studio' ? (
+            <div className="studio-rail">
+              <nav aria-label="Studio tools" className="studio-rail__tools">
+                <button aria-current="page" type="button" onClick={() => setMobilePagesOpen(true)}><span aria-hidden="true">P</span> Pages</button>
+                <button type="button" onClick={enterReorder}><span aria-hidden="true">S</span> Sections</button>
+                <button type="button" onClick={() => setNavigationSettingsOpen(true)}><span aria-hidden="true">N</span> Navigation</button>
+                <button type="button" onClick={() => setOptionsOpen(true)}><span aria-hidden="true">•••</span> Site settings</button>
+              </nav>
+              <div className="studio-rail__panel">{pagesPanel}</div>
+            </div>
+          ) : null}
+          {editorConcept.activeConceptId !== 'split_workspace' && editorConcept.activeConceptId !== 'dark_studio' ? pagesPanel : null}
+        </aside>
         <main className="canvas-shell">
           <div className="canvas-frame">
+            <div className="canvas-client-header" aria-hidden="true">
+              <span><i>L</i><strong>{document.siteName}</strong></span>
+              <span className="canvas-client-header__nav">Home&nbsp;&nbsp; Services&nbsp;&nbsp; Gallery&nbsp;&nbsp; Book</span>
+            </div>
             <div className="canvas-page-header">
               <div><p className="eyebrow">{starterLabel(document.originStarter)} origin · universal editor</p><h1>{activePage.name}</h1><p>{activePage.isHome ? 'Home page' : `/${activePage.slug}`} · {activePage.sections.length} section{activePage.sections.length === 1 ? '' : 's'} · {activePage.visible ? 'Visible' : 'Hidden'}</p></div>
               <button className="secondary-button" type="button" onClick={() => setEditingPageId(activePage.id)}><Settings2 aria-hidden="true" size={17} /> Page settings</button>
@@ -573,15 +690,23 @@ export function App() {
                 {sortedActiveSections.map((section, index) => (
                   <div key={section.id}>
                     <SectionCard
+                      concept={editorConcept.activeConceptId}
                       page={activePage}
                       section={section}
                       selected={selectedSectionId === section.id}
                       onEdit={editSection}
+                      onEnterReorder={enterReorder}
                       onMove={(candidate) => setMovingSectionId(candidate.id)}
                       onRemove={removeSection}
                       onSelect={(candidate) => {
                         setSelectedSectionId(candidate.id);
-                        if (window.matchMedia('(max-width: 899px)').matches) setMobileActionsOpen(true);
+                        if (
+                          window.matchMedia('(max-width: 899px)').matches
+                          && editorConcept.activeConceptId !== 'mobile_first'
+                          && editorConcept.activeConceptId !== 'inline_editor'
+                        ) {
+                          setMobileActionsOpen(true);
+                        }
                       }}
                       onToggleVisible={toggleSection}
                     />
@@ -598,12 +723,40 @@ export function App() {
               </div>
             )}
 
-            <div className="mobile-sticky-controls">
-              {mode === 'reorder' ? <><button className="secondary-button" type="button" onClick={cancelReorder}>Cancel</button><button className="primary-button" type="button" onClick={finishReorder}>Done</button></> : <><button className="secondary-button" type="button" onClick={() => setMobilePagesOpen(true)}>Pages <ChevronDown aria-hidden="true" size={16} /></button><button className="primary-button" type="button" onClick={enterPreview}>Preview</button></>}
+            <div className={`mobile-sticky-controls mobile-sticky-controls--${editorConcept.activeConceptId}`}>
+              {mode === 'reorder' ? (
+                <><button className="secondary-button" type="button" onClick={cancelReorder}>Cancel</button><button className="primary-button" type="button" onClick={finishReorder}>Done</button></>
+              ) : editorConcept.activeConceptId === 'dark_studio' ? (
+                <>
+                  <button className="secondary-button" type="button" onClick={() => setLibraryPosition(sortedActiveSections.length + 1)}><Plus aria-hidden="true" size={17} /> Add</button>
+                  <button className="secondary-button" type="button" onClick={enterReorder}><GripVertical aria-hidden="true" size={17} /> Reorder</button>
+                  <button className="primary-button" type="button" onClick={enterPreview}><Eye aria-hidden="true" size={17} /> Preview</button>
+                </>
+              ) : editorConcept.activeConceptId === 'mobile_first' ? (
+                <>
+                  <button aria-label="Undo" className="secondary-button" disabled={!lab.canUndo} type="button" onClick={() => { if (lab.undo()) setAnnouncement('Last change undone.'); }}><Undo2 aria-hidden="true" size={18} /></button>
+                  <button className="primary-button" type="button" onClick={() => setLibraryPosition(sortedActiveSections.length + 1)}><Plus aria-hidden="true" size={18} /> Add section</button>
+                  <button aria-label="Redo" className="secondary-button" disabled={!lab.canRedo} type="button" onClick={() => { if (lab.redo()) setAnnouncement('Last change redone.'); }}><Redo2 aria-hidden="true" size={18} /></button>
+                </>
+              ) : editorConcept.activeConceptId === 'split_workspace' ? (
+                <><button className="secondary-button" type="button" onClick={() => setMobilePagesOpen(true)}>Structure <ChevronDown aria-hidden="true" size={16} /></button><button className="primary-button" type="button" onClick={enterPreview}>Preview</button></>
+              ) : editorConcept.activeConceptId === 'inline_editor' ? (
+                <><button className="secondary-button" type="button" onClick={() => setLibraryPosition(sortedActiveSections.length + 1)}><Plus aria-hidden="true" size={17} /> Add</button><button className="primary-button" type="button" onClick={enterPreview}>Preview</button></>
+              ) : (
+                <><button className="secondary-button" type="button" onClick={() => setMobilePagesOpen(true)}>Pages <ChevronDown aria-hidden="true" size={16} /></button><button className="primary-button" type="button" onClick={enterPreview}>Preview</button></>
+              )}
             </div>
+            {editorConcept.activeConceptId === 'mobile_first' && selectedSection && mode === 'edit' ? (
+              <div aria-label={`${selectedSection.label} quick actions`} className="mobile-section-action-bar">
+                <button type="button" onClick={() => editSection(selectedSection)}><Pencil aria-hidden="true" size={17} /> Edit</button>
+                <button type="button" onClick={() => setMovingSectionId(selectedSection.id)}><Menu aria-hidden="true" size={17} /> Move</button>
+                <button type="button" onClick={() => toggleSection(selectedSection)}><Eye aria-hidden="true" size={17} /> {selectedSection.visible ? 'Hide' : 'Show'}</button>
+                <button type="button" onClick={() => setMobileActionsOpen(true)}><MoreHorizontal aria-hidden="true" size={18} /> More</button>
+              </div>
+            ) : null}
           </div>
         </main>
-        <aside className="inspector-panel"><InspectorPanel page={activePage} section={selectedSection} onEditPage={() => setEditingPageId(activePage.id)} onEditSection={editSection} onMoveSection={(section) => setMovingSectionId(section.id)} onRemoveSection={removeSection} onToggleSection={toggleSection} /></aside>
+        <aside className={`inspector-panel${selectedSection ? ' is-open' : ''}`}><InspectorPanel page={activePage} section={selectedSection} onEditPage={() => setEditingPageId(activePage.id)} onEditSection={editSection} onMoveSection={(section) => setMovingSectionId(section.id)} onRemoveSection={removeSection} onToggleSection={toggleSection} /></aside>
       </div>
 
       <div className="visually-hidden" aria-live="polite" data-testid="reorder-live-region" role="status">{announcement}</div>
@@ -626,7 +779,14 @@ export function App() {
       <ConfirmationDialog confirmLabel={resetChoice === 'lab' ? 'Reset Lab' : 'Reset to starter'} danger description={resetChoice === 'lab' ? 'This clears the local Lab document and returns to the starting-point chooser.' : 'This replaces local changes with fresh defaults for the current starting kit.'} onClose={() => setResetChoice(null)} onConfirm={confirmReset} open={resetChoice !== null} title={resetChoice === 'lab' ? 'Reset the entire Lab?' : 'Reset to the starting kit?'} />
       <AlertDialog message={alertMessage} onClose={() => setAlertMessage(null)} title={alertTitle} />
 
-      <Dialog onClose={() => setMobilePagesOpen(false)} open={mobilePagesOpen} title="Pages" variant="sheet">{pagesPanel}</Dialog>
+      <Dialog
+        onClose={() => setMobilePagesOpen(false)}
+        open={mobilePagesOpen}
+        title={editorConcept.activeConceptId === 'split_workspace' ? 'Site structure' : 'Pages'}
+        variant="sheet"
+      >
+        {editorConcept.activeConceptId === 'split_workspace' ? structureTree : pagesPanel}
+      </Dialog>
       <Dialog onClose={() => setMobileActionsOpen(false)} open={mobileActionsOpen && selectedSection !== null} title={selectedSection ? `${selectedSection.label} actions` : 'Section actions'} variant="bottom-sheet">
         {selectedSection ? (
           <div className="move-page-list">
