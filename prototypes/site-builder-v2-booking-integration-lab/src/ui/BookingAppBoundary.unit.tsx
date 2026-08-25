@@ -225,6 +225,72 @@ describe('integrated Booking settings surfaces', () => {
   });
 });
 
+describe('unified section movement', () => {
+  it('reorders Booking by number with transactional Cancel and Done controls', async () => {
+    installViewport('mobile');
+    const user = userEvent.setup();
+    render(<App />);
+    await chooseQuickBook(user);
+
+    const sectionOrder = () => [...screen.getByRole('list', { name: 'Sections on Home' })
+      .querySelectorAll<HTMLElement>('[data-section-label]')]
+      .map((element) => element.dataset.sectionLabel);
+
+    const actions = await selectBooking(user);
+    await user.click(within(actions).getByRole('button', { name: 'Move' }));
+    let dialog = await screen.findByRole('dialog', { name: 'Move Booking' });
+
+    expect(within(dialog).getByLabelText('Position for Section 01')).toHaveValue(1);
+    expect(within(dialog).getByLabelText('Position for Section 02')).toHaveValue(2);
+    expect(within(dialog).getByLabelText('Position for Booking')).toHaveValue(3);
+    expect(within(dialog).getByLabelText('Position for Booking'))
+      .toHaveAttribute('aria-describedby', 'move-position-help');
+    expect(within(dialog).queryByRole('list', { name: 'Destination pages' }))
+      .not.toBeInTheDocument();
+
+    await user.clear(within(dialog).getByLabelText('Position for Booking'));
+    await user.type(within(dialog).getByLabelText('Position for Booking'), '1{Enter}');
+    expect(sectionOrder()).toEqual(['Booking', 'Section 01', 'Section 02']);
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+    expect(sectionOrder()).toEqual(['Section 01', 'Section 02', 'Booking']);
+
+    await user.click(within(screen.getByRole('group', { name: 'Booking actions' }))
+      .getByRole('button', { name: 'Move' }));
+    dialog = await screen.findByRole('dialog', { name: 'Move Booking' });
+    await user.clear(within(dialog).getByLabelText('Position for Booking'));
+    await user.type(within(dialog).getByLabelText('Position for Booking'), '1{Enter}');
+    await user.click(within(dialog).getByRole('button', { name: 'Move Booking down' }));
+    expect(within(dialog).getByLabelText('Position for Booking')).toHaveValue(2);
+    await user.click(within(dialog).getByRole('button', { name: 'Move Booking up' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Done' }));
+
+    expect(sectionOrder()).toEqual(['Booking', 'Section 01', 'Section 02']);
+  });
+
+  it('keeps cross-page movement behind a secondary disclosure', async () => {
+    installViewport('desktop');
+    const user = userEvent.setup();
+    render(<App />);
+    await chooseQuickBook(user);
+
+    const actions = await selectBooking(user);
+    await user.click(within(actions).getByRole('button', { name: 'Move' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Move Booking' });
+    const disclosure = within(dialog).getByRole('button', {
+      name: 'Move Booking to another page',
+    });
+
+    expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+    expect(within(dialog).queryByPlaceholderText('Page name')).not.toBeInTheDocument();
+    await user.click(disclosure);
+    expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+    expect(within(dialog).getByRole('list', { name: 'Destination pages' }))
+      .toBeVisible();
+    expect(within(dialog).getByPlaceholderText('Page name')).toBeVisible();
+  });
+});
+
 describe('App customer Preview boundary', () => {
   it('keeps customer intent across owner layout changes while filters and storage stay separate', async () => {
     installViewport('desktop');

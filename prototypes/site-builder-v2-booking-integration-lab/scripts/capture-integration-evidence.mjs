@@ -313,6 +313,7 @@ async function captureMobile(browser) {
     await selectBooking(page, 'mobile');
     await page.locator('.final-mobile-dock__selected').getByRole('button', { name: 'Move', exact: true }).click();
     const moveDialog = page.getByRole('dialog', { name: 'Move Booking' });
+    await moveDialog.getByRole('button', { name: 'Move Booking to another page' }).click();
     await moveDialog.getByPlaceholder('Page name').fill('Services');
     await moveDialog.getByRole('button', { name: 'Create page and move' }).click();
     const navigationDialog = page.getByRole('dialog', { name: 'Add a menu?' });

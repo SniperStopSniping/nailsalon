@@ -18,7 +18,7 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { ArrowDown, ArrowUp, GripVertical, MoveRight } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState, type KeyboardEvent } from 'react';
 
 import type { SectionInstance } from '../model/types';
 
@@ -31,34 +31,101 @@ const getSectionDescription = (section: SectionInstance): string =>
     : `${section.size}${section.visible ? '' : ' · hidden'}`;
 
 type ReorderListProps = {
+  editablePositions?: boolean;
   onAnnounce: (message: string) => void;
   onDragReorder: (sectionId: string, position: number) => void;
   onMoveDown: (section: SectionInstance) => void;
-  onMovePage: (section: SectionInstance) => void;
+  onMovePage?: (section: SectionInstance) => void;
+  onMoveToPosition?: (section: SectionInstance, position: number) => void;
   onMoveUp: (section: SectionInstance) => void;
-  onOpenPosition: (section: SectionInstance) => void;
+  onOpenPosition?: (section: SectionInstance) => void;
+  selectedSectionId?: string;
   sections: SectionInstance[];
 };
 
 type SortableSectionRowProps = {
+  editablePositions: boolean;
   index: number;
   onMoveDown: (section: SectionInstance) => void;
-  onMovePage: (section: SectionInstance) => void;
+  onMovePage?: (section: SectionInstance) => void;
+  onMoveToPosition?: (section: SectionInstance, position: number) => void;
   onMoveUp: (section: SectionInstance) => void;
-  onOpenPosition: (section: SectionInstance) => void;
+  onOpenPosition?: (section: SectionInstance) => void;
   section: SectionInstance;
+  selected: boolean;
   total: number;
 };
 
+type PositionInputProps = {
+  focusTarget: boolean;
+  index: number;
+  onMove: (position: number) => void;
+  sectionLabel: string;
+  total: number;
+};
+
+function PositionInput({ focusTarget, index, onMove, sectionLabel, total }: PositionInputProps) {
+  const currentPosition = index + 1;
+  const [value, setValue] = useState(String(currentPosition));
+
+  useEffect(() => {
+    setValue(String(currentPosition));
+  }, [currentPosition]);
+
+  const commitPosition = () => {
+    const position = Number(value);
+    if (!Number.isInteger(position) || position < 1 || position > total) {
+      setValue(String(currentPosition));
+      return;
+    }
+    if (position !== currentPosition) {
+      onMove(position);
+    }
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      commitPosition();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      setValue(String(currentPosition));
+      event.currentTarget.blur();
+    }
+  };
+
+  return (
+    <label className="position-input">
+      <span className="visually-hidden">Position for {sectionLabel}</span>
+      <input
+        aria-describedby="move-position-help"
+        aria-label={`Position for ${sectionLabel}`}
+        data-move-target-position={focusTarget ? 'true' : undefined}
+        inputMode="numeric"
+        max={total}
+        min={1}
+        type="number"
+        value={value}
+        onBlur={commitPosition}
+        onChange={(event) => setValue(event.target.value)}
+        onKeyDown={handleKeyDown}
+      />
+    </label>
+  );
+}
+
 function SectionRowContent({
   attributes,
+  editablePositions,
   index,
   listeners,
   onMoveDown,
   onMovePage,
+  onMoveToPosition,
   onMoveUp,
   onOpenPosition,
   section,
+  selected,
   total,
 }: SortableSectionRowProps & {
   attributes?: Record<string, unknown>;
@@ -68,17 +135,27 @@ function SectionRowContent({
 
   return (
     <>
-      <button
-        className="position-button"
-        type="button"
-        aria-label={`Move ${sectionLabel} by number, current position ${index + 1}`}
-        onClick={() => onOpenPosition(section)}
-      >
-        {index + 1}
-      </button>
+      {editablePositions && onMoveToPosition ? (
+        <PositionInput
+          focusTarget={selected}
+          index={index}
+          onMove={(position) => onMoveToPosition(section, position)}
+          sectionLabel={sectionLabel}
+          total={total}
+        />
+      ) : (
+        <button
+          className="position-button"
+          type="button"
+          aria-label={`Move ${sectionLabel} by number, current position ${index + 1}`}
+          onClick={() => onOpenPosition?.(section)}
+        >
+          {index + 1}
+        </button>
+      )}
       <div className="reorder-row__label">
         <strong>{sectionLabel}</strong>
-        <span>{getSectionDescription(section)}</span>
+        <span>{getSectionDescription(section)}{selected ? ' · Moving' : ''}</span>
       </div>
       {section.sectionType === 'booking' ? <span className="protected-badge">Protected</span> : null}
       <div className="reorder-row__buttons" aria-label={`Movement options for ${sectionLabel}`}>
@@ -88,9 +165,11 @@ function SectionRowContent({
         <button className="icon-button" type="button" aria-label={`Move ${sectionLabel} down`} disabled={index === total - 1} onClick={() => onMoveDown(section)}>
           <ArrowDown aria-hidden="true" size={18} />
         </button>
-        <button className="icon-button" type="button" aria-label={`Move ${sectionLabel} to another page`} onClick={() => onMovePage(section)}>
-          <MoveRight aria-hidden="true" size={18} />
-        </button>
+        {onMovePage ? (
+          <button className="icon-button" type="button" aria-label={`Move ${sectionLabel} to another page`} onClick={() => onMovePage(section)}>
+            <MoveRight aria-hidden="true" size={18} />
+          </button>
+        ) : null}
       </div>
       <button
         className="drag-handle"
@@ -111,7 +190,7 @@ function SortableSectionRow(props: SortableSectionRowProps) {
   return (
     <div
       ref={setNodeRef}
-      className={`reorder-row${isDragging ? ' is-dragging' : ''}`}
+      className={`reorder-row${isDragging ? ' is-dragging' : ''}${props.selected ? ' is-target' : ''}`}
       data-section-id={props.section.id}
       style={{ transform: CSS.Transform.toString(transform), transition }}
     >
@@ -125,12 +204,15 @@ function SortableSectionRow(props: SortableSectionRowProps) {
 }
 
 export function ReorderList({
+  editablePositions = false,
   onAnnounce,
   onDragReorder,
   onMoveDown,
   onMovePage,
+  onMoveToPosition,
   onMoveUp,
   onOpenPosition,
+  selectedSectionId,
   sections,
 }: ReorderListProps) {
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -205,16 +287,22 @@ export function ReorderList({
       onDragStart={handleDragStart}
     >
       <SortableContext items={sections.map((section) => section.id)} strategy={verticalListSortingStrategy}>
-        <div className="reorder-list" data-testid="reorder-list">
+        <div
+          className={`reorder-list${editablePositions ? ' reorder-list--editable-positions' : ''}`}
+          data-testid="reorder-list"
+        >
           {sections.map((section, index) => (
             <SortableSectionRow
               key={section.id}
+              editablePositions={editablePositions}
               index={index}
               onMoveDown={onMoveDown}
               onMovePage={onMovePage}
+              onMoveToPosition={onMoveToPosition}
               onMoveUp={onMoveUp}
               onOpenPosition={onOpenPosition}
               section={section}
+              selected={section.id === selectedSectionId}
               total={sections.length}
             />
           ))}

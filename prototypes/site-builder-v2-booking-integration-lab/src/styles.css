@@ -953,6 +953,30 @@ p {
   font-weight: 850;
 }
 
+.position-input {
+  display: block;
+  width: 44px;
+}
+
+.position-input input {
+  width: 44px;
+  min-height: 44px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, transparent);
+  border-radius: 10px;
+  color: var(--accent-dark);
+  background: var(--accent-soft);
+  font: inherit;
+  font-weight: 850;
+  text-align: center;
+}
+
+.position-input input:focus-visible {
+  border-color: var(--accent);
+  outline: 3px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  outline-offset: 2px;
+}
+
 .reorder-row__label {
   min-width: 0;
 }

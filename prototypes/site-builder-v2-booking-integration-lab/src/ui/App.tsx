@@ -120,6 +120,7 @@ export function App() {
   const [alertTitle, setAlertTitle] = useState('This change is protected');
   const [toast, setToast] = useState<ToastState>(null);
   const [announcement, setAnnouncement] = useState('');
+  const [moveBaseline, setMoveBaseline] = useState<HistoryState | null>(null);
   const [reorderBaseline, setReorderBaseline] = useState<HistoryState | null>(null);
   const [realHeightSimulation, setRealHeightSimulation] = useState(false);
   const [imageFixture, setImageFixture] = useState<ImageFixture>('image_rich');
@@ -437,6 +438,7 @@ export function App() {
       const page = result.document.pages.find((candidate) => candidate.id === pageId);
       setActivePageId(pageId);
       setSelectedSectionId(section.id);
+      setMoveBaseline(null);
       setMovingSectionId(null);
       setToast({ message: `${section.label} moved to ${page?.name ?? 'page'}.` });
     }
@@ -457,6 +459,7 @@ export function App() {
       setActivePageId(created.id);
     }
     setSelectedSectionId(section.id);
+    setMoveBaseline(null);
     setMovingSectionId(null);
     if (!document.navigation.enabled && beforeVisibleCount === 1 && result.document.pages.filter((page) => page.visible).length > 1) {
       setNavigationPromptOpen(true);
@@ -641,7 +644,25 @@ export function App() {
 
   const openMoveSection = (sectionId: string) => {
     setStructureOpen(false);
+    setMoveBaseline(lab.createHistoryCheckpoint());
     setMovingSectionId(sectionId);
+    setToast(null);
+  };
+
+  const cancelMoveSection = () => {
+    if (moveBaseline) {
+      lab.restoreHistoryCheckpoint(moveBaseline);
+    }
+    setMoveBaseline(null);
+    setMovingSectionId(null);
+    setAnnouncement('Move changes cancelled.');
+  };
+
+  const finishMoveSection = () => {
+    setMoveBaseline(null);
+    setMovingSectionId(null);
+    setAnnouncement('Section order saved.');
+    setToast({ message: 'Section order saved.' });
   };
 
   const structurePanel = (
@@ -908,7 +929,25 @@ export function App() {
         ) : null}
       </Dialog>
       <MovePositionDialog currentPosition={currentPosition} onClose={() => setPositionSectionId(null)} onMove={(position) => { if (positionSection) moveSectionToPosition(positionSection, position); }} section={positionSection} total={positionSectionPage?.sections.length ?? 1} />
-      <MoveSectionDialog currentPageId={movingSectionPage?.id ?? activePage.id} document={document} onClose={() => setMovingSectionId(null)} onCreatePage={(name) => { if (movingSection) moveSectionToNewPage(movingSection, name); }} onMove={(pageId) => { if (movingSection) moveSectionToPage(movingSection, pageId); }} section={movingSection} />
+      <MoveSectionDialog
+        currentPageId={movingSectionPage?.id ?? activePage.id}
+        document={document}
+        onAnnounce={setAnnouncement}
+        onClose={cancelMoveSection}
+        onCreatePage={(name) => { if (movingSection) moveSectionToNewPage(movingSection, name); }}
+        onDone={finishMoveSection}
+        onDragReorder={(sectionId, position) => {
+          const result = execute({ type: 'move_section', sectionId, position });
+          if (result.success) {
+            setAnnouncement(getSectionMoveAnnouncement(result.document, sectionId));
+          }
+        }}
+        onMove={(pageId) => { if (movingSection) moveSectionToPage(movingSection, pageId); }}
+        onMoveDown={moveSectionDown}
+        onMoveToPosition={moveSectionToPosition}
+        onMoveUp={moveSectionUp}
+        section={movingSection}
+      />
       <AddPageDialog onAdd={addPage} onClose={() => setAddPageOpen(false)} open={addPageOpen} />
       <PageSettingsDialog onClose={() => setEditingPageId(null)} onSave={savePage} page={editingPage} />
       <NavigationPromptDialog onAddNavigation={() => { execute({ type: 'toggle_navigation', enabled: true }); setNavigationPromptOpen(false); setToast({ message: 'Menu added.' }); }} onClose={() => setNavigationPromptOpen(false)} open={navigationPromptOpen} />
@@ -950,7 +989,7 @@ export function App() {
                 ? 'Protected client booking menu'
                 : `${selectedSection.size} placeholder`}
             </p>
-            <button type="button" onClick={() => { setMobileActionsOpen(false); openMoveSection(selectedSection.id); }}><Menu aria-hidden="true" size={18} /> Move to page</button>
+            <button type="button" onClick={() => { setMobileActionsOpen(false); openMoveSection(selectedSection.id); }}><Menu aria-hidden="true" size={18} /> Move section</button>
             <button type="button" onClick={() => { setMobileActionsOpen(false); removeSection(selectedSection); }}><Trash2 aria-hidden="true" size={18} /> Remove from page</button>
           </div>
         ) : null}

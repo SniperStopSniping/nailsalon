@@ -275,6 +275,114 @@ test('375x600 mobile journey separates editing from the shared customer flow', a
   }
 });
 
+test('selected Booking Move edits local order with cancel and commit boundaries', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 375, height: 700 });
+  await openFreshLab(page);
+  await chooseStarter(page, 'Quick Book');
+
+  await selectBooking(page, 'Home');
+  await page
+    .getByRole('group', { name: 'Booking actions' })
+    .getByRole('button', { name: 'Move', exact: true })
+    .click();
+
+  let move = page.getByRole('dialog', { name: 'Move Booking' });
+  await expect(move).toBeVisible();
+  await expect(move.getByLabel('Position for Booking')).toBeFocused();
+  let compactOrder = move.getByTestId('reorder-list');
+  await expect(compactOrder).toBeVisible();
+  await expect(
+    compactOrder.locator('.reorder-row > .reorder-row__label > strong').allTextContents(),
+  ).resolves.toEqual(['Section 01', 'Section 02', 'Booking']);
+  await expect(move.getByLabel('Position for Section 01')).toHaveValue('1');
+  await expect(move.getByLabel('Position for Section 02')).toHaveValue('2');
+  await expect(move.getByLabel('Position for Booking')).toHaveValue('3');
+  await expect(move.getByRole('button', { name: 'Move Booking up' })).toBeVisible();
+  await expect(move.getByRole('button', { name: 'Move Booking down' })).toBeDisabled();
+  await expect(move.getByRole('button', {
+    name: 'Drag Booking. Use arrow keys after lifting with Space.',
+  })).toBeVisible();
+  await expect(
+    move.getByRole('button', { name: 'Move Booking to another page' }),
+  ).toBeVisible();
+
+  await move.getByLabel('Position for Booking').fill('1');
+  await move.getByLabel('Position for Booking').press('Enter');
+  await expect(
+    compactOrder.locator('.reorder-row > .reorder-row__label > strong').allTextContents(),
+  ).resolves.toEqual(['Booking', 'Section 01', 'Section 02']);
+  await move.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(move).toHaveCount(0);
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
+    'Section 01',
+    'Section 02',
+    'Booking',
+  ]);
+
+  await selectBooking(page, 'Home');
+  await page
+    .getByRole('group', { name: 'Booking actions' })
+    .getByRole('button', { name: 'Move', exact: true })
+    .click();
+  move = page.getByRole('dialog', { name: 'Move Booking' });
+  compactOrder = move.getByTestId('reorder-list');
+  await move.getByLabel('Position for Booking').fill('1');
+  await move.getByLabel('Position for Booking').press('Enter');
+  await move.getByRole('button', { name: 'Move Booking down' }).click();
+  await expect(move.getByLabel('Position for Booking')).toHaveValue('2');
+  await move.getByRole('button', { name: 'Move Booking up' }).click();
+  await expect(move.getByLabel('Position for Booking')).toHaveValue('1');
+
+  const handle = move.getByRole('button', {
+    name: 'Drag Booking. Use arrow keys after lifting with Space.',
+  });
+  await handle.focus();
+  await handle.press('Space');
+  await handle.press('ArrowDown');
+  await handle.press('Space');
+  await expect(move.getByLabel('Position for Booking')).toHaveValue('2');
+  await move.getByRole('button', { name: 'Move Booking up' }).click();
+  await expect(move.getByLabel('Position for Booking')).toHaveValue('1');
+
+  const dragStart = await handle.boundingBox();
+  const dragTarget = await compactOrder.locator('.reorder-row').last().boundingBox();
+  expect(dragStart).not.toBeNull();
+  expect(dragTarget).not.toBeNull();
+  if (!dragStart || !dragTarget) {
+    throw new Error('Unified Move pointer-drag geometry was unavailable.');
+  }
+  await page.mouse.move(
+    dragStart.x + dragStart.width / 2,
+    dragStart.y + dragStart.height / 2,
+  );
+  await page.mouse.down();
+  await page.mouse.move(
+    dragTarget.x + dragTarget.width / 2,
+    dragTarget.y + dragTarget.height / 2,
+    { steps: 14 },
+  );
+  await page.mouse.up();
+  await expect(move.getByLabel('Position for Booking')).toHaveValue('3');
+  await move.getByLabel('Position for Booking').fill('1');
+  await move.getByLabel('Position for Booking').press('Enter');
+  await move.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(move).toHaveCount(0);
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
+    'Booking',
+    'Section 01',
+    'Section 02',
+  ]);
+
+  await page.reload();
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
+    'Booking',
+    'Section 01',
+    'Section 02',
+  ]);
+});
+
 test('Booking reorders, moves, persists, exports safely, and remains protected', async ({
   page,
 }) => {
@@ -320,12 +428,22 @@ test('Booking reorders, moves, persists, exports safely, and remains protected',
     .getByRole('button', { name: 'Done' })
     .click();
 
+  const bookingSettings = await openBookingSettings(page, 'Home');
+  await chooseLayout(bookingSettings, 'clean_list');
+  await closeDialog(page, 'Booking');
+
   await selectBooking(page, 'Home');
   await page
     .getByRole('group', { name: 'Booking actions' })
     .getByRole('button', { name: 'Move', exact: true })
     .click();
   const move = page.getByRole('dialog', { name: 'Move Booking' });
+  await expect(move.getByRole('list', { name: 'Destination pages' })).toHaveCount(0);
+  await move
+    .getByRole('button', { name: 'Move Booking to another page' })
+    .click();
+  await expect(move.getByRole('list', { name: 'Destination pages' })).toHaveCount(1);
+  await expect(move.getByPlaceholder('Page name')).toBeVisible();
   await move.getByPlaceholder('Page name').fill('Services');
   await move.getByRole('button', { name: 'Create page and move' }).click();
   const navigationPrompt = page.getByRole('dialog', { name: 'Add a menu?' });
@@ -334,6 +452,10 @@ test('Booking reorders, moves, persists, exports safely, and remains protected',
   }
   await expect(page.getByRole('heading', { level: 1, name: 'Services' })).toBeVisible();
   await expect(sectionLabels(page, 'Services')).resolves.toEqual(['Booking']);
+  await expect(bookingCard(page, 'Services').locator('.booking-surface')).toHaveAttribute(
+    'data-layout',
+    'clean_list',
+  );
 
   await enterPreview(page);
   await expect(page.getByRole('main', { name: 'Services preview' })).toBeVisible();
@@ -409,7 +531,7 @@ test('Booking reorders, moves, persists, exports safely, and remains protected',
     exportedDocument.pages
       .flatMap((candidate) => candidate.sections)
       .find((section) => section.sectionType === 'booking')?.settings?.layout,
-  ).toBe('visual_grid');
+  ).toBe('clean_list');
 
   await resetEntireLab(page);
   await page.getByLabel('Import site JSON file').setInputFiles({

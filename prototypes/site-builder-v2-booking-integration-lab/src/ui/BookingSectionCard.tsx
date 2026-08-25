@@ -156,7 +156,7 @@ export function BookingSectionCard({
               {section.visible ? 'Hide section' : 'Show section'}
             </button>
             <button type="button" onClick={() => { onMove(section); setMenuOpen(false); }}>
-              <Move aria-hidden="true" size={16} /> Move to page
+              <Move aria-hidden="true" size={16} /> Move section
             </button>
             <button className="danger-quiet" type="button" onClick={() => { onRemove(section); setMenuOpen(false); }}>
               <Trash2 aria-hidden="true" size={16} /> Remove from this page

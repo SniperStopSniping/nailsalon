@@ -42,3 +42,10 @@ The **More site options** menu contains Lab-only fixtures for rich, partial, or
 missing photography; the canonical or 100-service menu; and the warm or neutral
 semantic Booking token bridge. These controls are review aids and are not part
 of the serialized website document.
+
+Selecting a section and choosing **Move** opens one transactional movement
+surface. The current page is primary: owners can type a 1-based position, use
+up/down controls, or drag compact section rows. **Move to another page** is a
+secondary disclosure in the same Sheet/right drawer. Cancel restores the order
+from when Move opened; Done commits it. Pages & Structure retains the dedicated
+full-page Reorder experience for organizing an entire page.

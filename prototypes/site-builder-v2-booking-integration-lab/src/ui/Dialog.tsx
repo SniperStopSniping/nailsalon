@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 type DialogProps = {
   children: ReactNode;
   description?: string;
+  initialFocusSelector?: string;
   onClose: () => void;
   open: boolean;
   title: string;
@@ -25,6 +26,7 @@ const openDialogStack: symbol[] = [];
 export function Dialog({
   children,
   description,
+  initialFocusSelector,
   onClose,
   open,
   title,
@@ -63,7 +65,11 @@ export function Dialog({
     }
 
     const dialog = dialogRef.current;
-    const firstFocusable = dialog?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
+    const preferredFocusable = initialFocusSelector
+      ? dialog?.querySelector<HTMLElement>(initialFocusSelector)
+      : null;
+    const firstFocusable = preferredFocusable
+      ?? dialog?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
     window.requestAnimationFrame(() => (firstFocusable ?? dialog)?.focus());
 
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -111,7 +117,7 @@ export function Dialog({
       }
       previouslyFocused?.focus();
     };
-  }, [nonModal, open]);
+  }, [initialFocusSelector, nonModal, open]);
 
   if (!open) {
     return null;
