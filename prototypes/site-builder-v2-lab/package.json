@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",
+    "capture:hybrid": "node scripts/capture-final-hybrid.mjs",
     "capture:concepts": "node scripts/capture-ui-concepts.mjs",
     "check": "npm run typecheck && npm test && npm run build",
     "dev": "vite --host 127.0.0.1 --port 4176 --strictPort",
