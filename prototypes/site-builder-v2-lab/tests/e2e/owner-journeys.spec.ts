@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 
 import {
   LAB_STORAGE_KEY,
@@ -17,6 +17,19 @@ import {
   selectPage,
   startAgain,
 } from './helpers';
+
+async function openSectionMoreActions(
+  sectionCard: Locator,
+  sectionLabel: string,
+): Promise<void> {
+  const selectSurface = sectionCard.locator('.section-card__select-surface');
+  await selectSurface.focus();
+  await selectSurface.press('Enter');
+  const more = sectionCard.getByRole('button', { name: `More actions for ${sectionLabel}` });
+  await more.focus();
+  await more.press('Enter');
+  await expect(more).toHaveAttribute('aria-expanded', 'true');
+}
 
 test.describe('starter kits share the universal editor', () => {
   const starters = [
@@ -161,7 +174,8 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
     name: 'Section 02 on Home',
   });
   const section02Id = await section02.getAttribute('data-section-instance-id');
-  await section02.getByRole('button', { name: 'Remove from this page' }).click();
+  await openSectionMoreActions(section02, 'Section 02');
+  await section02.getByRole('menuitem', { name: 'Remove from this page' }).click({ force: true });
   const removalToast = page
     .getByRole('status')
     .filter({ hasText: 'Section removed · Undo' });
@@ -201,10 +215,11 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
   );
 
   await selectPage(page, 'Home');
-  await sectionsList(page, 'Home')
-    .getByRole('listitem', { name: 'Section 11 on Home' })
-    .getByRole('button', { name: 'Move', exact: true })
-    .click();
+  const section11OnHome = sectionsList(page, 'Home').getByRole('listitem', {
+    name: 'Section 11 on Home',
+  });
+  await openSectionMoreActions(section11OnHome, 'Section 11');
+  await section11OnHome.getByRole('menuitem', { name: 'Move', exact: true }).click({ force: true });
   await page
     .getByRole('dialog', { name: 'Move Section 11 to another page' })
     .getByRole('button', { name: 'Gallery', exact: true })
@@ -394,10 +409,11 @@ test('One-page can add pages and Multi-page can simplify to one page without los
   await expect(page.getByRole('dialog', { name: 'Remove this page?' })).toHaveCount(0);
 
   await selectPage(page, 'Services / Book');
-  await sectionsList(page, 'Services / Book')
-    .getByRole('listitem', { name: 'Booking access on Services / Book' })
-    .getByRole('button', { name: 'Move', exact: true })
-    .click();
+  const bookingOnServices = sectionsList(page, 'Services / Book').getByRole('listitem', {
+    name: 'Booking access on Services / Book',
+  });
+  await openSectionMoreActions(bookingOnServices, 'Booking access');
+  await bookingOnServices.getByRole('menuitem', { name: 'Move', exact: true }).click({ force: true });
   await page
     .getByRole('dialog', { name: 'Move Booking access to another page' })
     .getByRole('button', { name: 'Home', exact: true })
@@ -410,10 +426,11 @@ test('One-page can add pages and Multi-page can simplify to one page without los
     }),
   ).toBeVisible();
 
-  await sectionsList(page, 'Home')
-    .getByRole('listitem', { name: 'Booking access on Home' })
-    .getByRole('button', { name: 'Remove from this page' })
-    .click();
+  const bookingOnHome = sectionsList(page, 'Home').getByRole('listitem', {
+    name: 'Booking access on Home',
+  });
+  await openSectionMoreActions(bookingOnHome, 'Booking access');
+  await bookingOnHome.getByRole('menuitem', { name: 'Remove from this page' }).click({ force: true });
   await expect(
     page.getByRole('dialog', { name: 'Booking access is protected' }),
   ).toContainText('Your site needs at least one way for clients to book.');

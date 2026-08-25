@@ -28,6 +28,9 @@ test('keyboard reorder commits DOM order and a truthful announcement', async ({
   await expect(handle).toBeFocused();
   await handle.press('Space');
   await handle.press('ArrowUp');
+  await expect
+    .poll(() => handle.locator('..').getAttribute('style'))
+    .toContain('translate3d(0px, -');
   await handle.press('Space');
 
   await expect(reorderLabels(page)).resolves.toEqual([

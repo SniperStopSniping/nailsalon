@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const labUrl = 'http://127.0.0.1:4177';
+const labUrl = 'http://127.0.0.1:4179';
 
 export default defineConfig({
   expect: { timeout: 8_000 },
@@ -17,7 +17,7 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   webServer: {
-    command: 'npm run dev -- --port 4177',
+    command: 'npm run dev -- --port 4179',
     reuseExistingServer: false,
     timeout: 60_000,
     url: labUrl,
