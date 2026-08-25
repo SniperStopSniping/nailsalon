@@ -132,7 +132,7 @@ describe('starter freedom', () => {
     expect(document.navigation.enabled).toBe(true);
   });
 
-  it('lets Quick Book grow well beyond ten sections and add five pages', () => {
+  it('lets Quick Book add fifteen sections and five pages', () => {
     const ids = createDeterministicIdFactory('large-quick');
     let document = initializeStarter('quick_book', { idFactory: ids });
     const home = document.pages[0];
@@ -140,7 +140,7 @@ describe('starter freedom', () => {
       throw new Error('Quick Book is missing Home.');
     }
 
-    for (const item of SECTION_CATALOGUE.slice(2, 15)) {
+    for (const item of SECTION_CATALOGUE.slice(2, 17)) {
       document = addSection(
         document,
         { pageId: home.id, sectionType: item.sectionType },
@@ -151,7 +151,7 @@ describe('starter freedom', () => {
       document = addPage(document, { name: `Added page ${pageNumber}` }, ids);
     }
 
-    expect(document.pages[0]?.sections).toHaveLength(16);
+    expect(document.pages[0]?.sections).toHaveLength(18);
     expect(document.pages).toHaveLength(6);
   });
 
