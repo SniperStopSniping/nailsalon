@@ -184,6 +184,10 @@ for (const concept of concepts) {
   await selectFirstSection(page);
   await capture(page, join(directory, 'c-selected-desktop.png'));
 
+  await openMode(page, 'Reorder');
+  await capture(page, join(directory, 'j-reorder-desktop.png'));
+  await page.locator('.reorder-inline-actions').getByRole('button', { name: 'Done' }).click();
+
   await openMode(page, 'Preview');
   await page.getByRole('group', { name: 'Preview viewport' }).getByRole('button', { name: 'Desktop' }).click();
   await capture(page, join(directory, 'd-preview-desktop.png'));
@@ -233,6 +237,16 @@ await composeSheet(
   browser,
   concepts.map((concept) => ({
     label: `Concept ${concept.number} — ${concept.name}`,
+    path: join(outputRoot, `concept-${concept.number}`, 'j-reorder-desktop.png'),
+  })),
+  'Five desktop Reorder modes — same Quick Book document',
+  join(outputRoot, 'comparison-five-desktop-reorder.png'),
+  'desktop',
+);
+await composeSheet(
+  browser,
+  concepts.map((concept) => ({
+    label: `Concept ${concept.number} — ${concept.name}`,
     path: join(outputRoot, `concept-${concept.number}`, 'e-editor-mobile.png'),
   })),
   'Five mobile editor shells — same Quick Book document',
@@ -254,4 +268,4 @@ await recordTour(browser, baseline);
 await mainContext.close();
 await browser.close();
 
-console.log(`Captured 45 required concept states, two gallery views, three comparison sheets, and one tour video in ${outputRoot}`);
+console.log(`Captured 50 required concept states, two gallery views, four comparison sheets, and one tour video in ${outputRoot}`);
