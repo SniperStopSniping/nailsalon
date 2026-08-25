@@ -132,7 +132,7 @@ describe('starter freedom', () => {
     expect(document.navigation.enabled).toBe(true);
   });
 
-  it('lets Quick Book grow well beyond ten sections and five pages', () => {
+  it('lets Quick Book grow well beyond ten sections and add five pages', () => {
     const ids = createDeterministicIdFactory('large-quick');
     let document = initializeStarter('quick_book', { idFactory: ids });
     const home = document.pages[0];
@@ -147,12 +147,12 @@ describe('starter freedom', () => {
         ids,
       );
     }
-    for (let pageNumber = 2; pageNumber <= 5; pageNumber += 1) {
-      document = addPage(document, { name: `Page ${pageNumber}` }, ids);
+    for (let pageNumber = 1; pageNumber <= 5; pageNumber += 1) {
+      document = addPage(document, { name: `Added page ${pageNumber}` }, ids);
     }
 
     expect(document.pages[0]?.sections).toHaveLength(16);
-    expect(document.pages).toHaveLength(5);
+    expect(document.pages).toHaveLength(6);
   });
 
   it('lets Multi-page become a valid one-page site', () => {
