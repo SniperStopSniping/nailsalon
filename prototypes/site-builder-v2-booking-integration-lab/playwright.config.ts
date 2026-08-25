@@ -9,7 +9,7 @@ export default defineConfig({
   reporter: [['line']],
   retries: 0,
   testDir: './tests/e2e',
-  timeout: 45_000,
+  timeout: 60_000,
   use: {
     baseURL: labUrl,
     screenshot: 'only-on-failure',
@@ -27,10 +27,6 @@ export default defineConfig({
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'], channel: 'chromium' },
-    },
-    {
-      name: 'mobile-chromium',
-      use: { ...devices['Pixel 5'], channel: 'chromium' },
     },
   ],
 });

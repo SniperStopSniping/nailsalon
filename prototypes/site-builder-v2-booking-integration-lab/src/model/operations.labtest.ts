@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { CANONICAL_SERVICES } from '../booking/data';
+import { switchBookingLayout } from '../booking/presentation';
 import { createDeterministicIdFactory } from './ids';
 import {
   BuilderOperationError,
@@ -19,11 +21,13 @@ import {
   renamePage,
   restorePage,
   restoreSection,
+  resetBookingSectionPresentation,
   setPageNavigationVisibility,
   setPageSlug,
   setPageVisible,
   setSectionVisible,
   toggleNavigation,
+  updateBookingSectionPresentation,
   updateSectionSettings,
 } from './operations';
 import { initializeStarter } from './starters';
@@ -46,7 +50,7 @@ describe('section operations', () => {
       'section_01',
       'section_11',
       'section_02',
-      'booking_access',
+      'booking',
     ]);
     expect(document.pages[0]?.sections.map((section) => section.order)).toEqual([
       0, 1, 2, 3,
@@ -209,16 +213,16 @@ describe('page and navigation operations', () => {
   });
 });
 
-describe('outcome invariants', () => {
-  it('blocks removing or hiding the final Booking access path', () => {
+describe('Booking section operations and outcome invariants', () => {
+  it('blocks removing or hiding the protected Booking section', () => {
     const document = initializeStarter('quick_book', {
       idFactory: createDeterministicIdFactory('booking'),
     });
     const booking = document.pages[0]?.sections.find(
-      (section) => section.sectionType === 'booking_access',
+      (section) => section.sectionType === 'booking',
     );
     if (!booking) {
-      throw new Error('Missing Booking access.');
+      throw new Error('Missing Booking.');
     }
 
     for (const operation of [
@@ -227,33 +231,142 @@ describe('outcome invariants', () => {
     ]) {
       expect(operation).toThrowError(BuilderOperationError);
       expect(operation).toThrowError(
-        'Your site needs at least one way for clients to book.',
+        'Your site needs at least one visible way for clients to start booking.',
       );
     }
+    expect(document.unusedSections).toHaveLength(0);
   });
 
-  it('allows one booking path to move when another visible path remains', () => {
-    const ids = createDeterministicIdFactory('two-booking');
+  it('rejects a duplicate Booking section', () => {
+    const ids = createDeterministicIdFactory('duplicate-booking');
     let document = initializeStarter('quick_book', { idFactory: ids });
     const home = document.pages[0];
     if (!home) {
       throw new Error('Missing Home.');
     }
-    document = addSection(
-      document,
-      { pageId: home.id, sectionType: 'booking_access' },
-      ids,
+    expect(() =>
+      addSection(
+        document,
+        { pageId: home.id, sectionType: 'booking' },
+        ids,
+      ),
+    ).toThrowError(
+      'Booking is already on this site. Move the existing Booking section instead.',
     );
-    const bookingIds = document.pages[0]?.sections
-      .filter((section) => section.sectionType === 'booking_access')
-      .map((section) => section.id);
-    expect(bookingIds).toHaveLength(2);
-    if (!bookingIds?.[0]) {
-      throw new Error('Missing booking ID.');
+  });
+
+  it('moves Booking across pages without changing its presentation settings', () => {
+    const ids = createDeterministicIdFactory('move-booking');
+    let document = initializeStarter('quick_book', { idFactory: ids });
+    const home = document.pages[0];
+    const booking = home?.sections.find(
+      (section) => section.sectionType === 'booking',
+    );
+    if (!home || booking?.sectionType !== 'booking') {
+      throw new Error('Missing Booking.');
     }
-    document = removeSection(document, bookingIds[0]);
-    expect(document.unusedSections.some((section) => section.id === bookingIds[0])).toBe(
-      true,
+    const canonicalBefore = JSON.stringify(CANONICAL_SERVICES);
+    const customized = switchBookingLayout(booking.settings, 'clean_list');
+    document = updateBookingSectionPresentation(
+      document,
+      booking.id,
+      customized,
+    );
+    document = addPage(document, { name: 'Services' }, ids);
+    const services = document.pages.find((page) => page.name === 'Services');
+    if (!services) {
+      throw new Error('Missing Services page.');
+    }
+
+    document = moveSectionToPage(document, booking.id, services.id);
+    const moved = document.pages
+      .flatMap((page) => page.sections)
+      .find((section) => section.id === booking.id);
+
+    expect(moved).toMatchObject({
+      id: booking.id,
+      sectionType: 'booking',
+      settings: customized,
+    });
+    expect(document.pages.find((page) => page.id === home.id)?.sections)
+      .not.toContainEqual(expect.objectContaining({ id: booking.id }));
+    expect(JSON.stringify(CANONICAL_SERVICES)).toBe(canonicalBefore);
+  });
+
+  it('updates and resets Booking presentation without accepting placeholder edits', () => {
+    const document = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('booking-settings'),
+    });
+    const booking = document.pages[0]?.sections.find(
+      (section) => section.sectionType === 'booking',
+    );
+    if (booking?.sectionType !== 'booking') {
+      throw new Error('Missing Booking.');
+    }
+    const customized = switchBookingLayout(booking.settings, 'editorial_cards');
+    const updated = updateBookingSectionPresentation(
+      document,
+      booking.id,
+      customized,
+    );
+    const updatedBooking = updated.pages[0]?.sections.find(
+      (section) => section.id === booking.id,
+    );
+    expect(updatedBooking).toMatchObject({ settings: customized });
+    expect(() =>
+      updateSectionSettings(updated, booking.id, { size: 'compact' }),
+    ).toThrow('Use Booking presentation settings');
+
+    const reset = resetBookingSectionPresentation(updated, booking.id);
+    const resetBooking = reset.pages[0]?.sections.find(
+      (section) => section.id === booking.id,
+    );
+    expect(resetBooking).toMatchObject({
+      settings: expect.objectContaining({ layout: 'visual_grid' }),
+    });
+  });
+
+  it('blocks hiding or removing the page that contains Booking', () => {
+    const document = initializeStarter('multi_page', {
+      idFactory: createDeterministicIdFactory('booking-page'),
+    });
+    const bookingPage = document.pages.find((page) =>
+      page.sections.some((section) => section.sectionType === 'booking'),
+    );
+    if (!bookingPage) {
+      throw new Error('Missing Booking page.');
+    }
+
+    expect(() => setPageVisible(document, bookingPage.id, false)).toThrow(
+      'Your site needs at least one visible way for clients to start booking.',
+    );
+    expect(() => removePage(document, bookingPage.id)).toThrow(
+      'Your site needs at least one visible way for clients to start booking.',
+    );
+  });
+
+  it('blocks moving Booking onto a hidden page', () => {
+    const ids = createDeterministicIdFactory('hidden-booking-page');
+    let document = initializeStarter('quick_book', { idFactory: ids });
+    const booking = document.pages[0]?.sections.find(
+      (section) => section.sectionType === 'booking',
+    );
+    if (booking?.sectionType !== 'booking') {
+      throw new Error('Missing Booking.');
+    }
+    document = addPage(document, { name: 'Hidden', visible: false }, ids);
+    const hiddenPage = document.pages.find((page) => page.name === 'Hidden');
+    if (!hiddenPage) {
+      throw new Error('Missing hidden page.');
+    }
+
+    expect(() =>
+      moveSectionToPage(document, booking.id, hiddenPage.id),
+    ).toThrow(
+      'Your site needs at least one visible way for clients to start booking.',
+    );
+    expect(document.pages[0]?.sections).toContainEqual(
+      expect.objectContaining({ id: booking.id }),
     );
   });
 
@@ -267,7 +380,7 @@ describe('outcome invariants', () => {
     }
 
     expect(() => setPageVisible(document, home.id, false)).toThrow(
-      'Your site needs at least one visible page.',
+      'Your site needs at least one visible way for clients to start booking.',
     );
     expect(() => removePage(document, home.id)).toThrow('Home cannot be removed.');
   });

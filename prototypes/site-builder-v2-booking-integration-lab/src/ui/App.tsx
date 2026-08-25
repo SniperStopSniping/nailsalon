@@ -247,7 +247,7 @@ export function App() {
   const execute = (command: BuilderCommand) => {
     const result = lab.runCommand(command);
     if (!result.success) {
-      if (result.code === 'booking_access_required') {
+      if (result.code === 'booking_required') {
         showError(
           'Your site needs at least one visible way for clients to start booking.',
           'Keep a way to book',

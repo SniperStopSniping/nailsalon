@@ -17,9 +17,7 @@
   box-sizing: border-box;
 }
 
-.luster-booking button,
-.luster-booking input,
-.luster-booking select {
+.luster-booking :where(button, input, select) {
   color: inherit;
   font: inherit;
 }
@@ -2691,6 +2689,17 @@
   }
 }
 
+@media (max-width: 500px) {
+  .selected-summary {
+    gap: 8px;
+  }
+
+  .summary-change,
+  .summary-continue {
+    padding-inline: 8px;
+  }
+}
+
 @media (max-width: 350px) {
   .vg-card-copy {
     padding: 10px;
@@ -2719,6 +2728,61 @@
 
   .booking-layout-miniature {
     width: 64px;
+  }
+}
+
+/*
+ * The customer summary must be reachable immediately after selection, not
+ * only after traversing the full menu. Preview gives the one shared summary a
+ * persistent viewport position; Edit keeps the same component in normal,
+ * pointer-inert document flow. The reserved surface space keeps the last
+ * service action reachable above mobile safe areas.
+ */
+.luster-booking[data-booking-mode='preview']
+  .booking-surface[data-has-selection='true'] {
+  padding-bottom: max(140px, calc(120px + env(safe-area-inset-bottom)));
+}
+
+.luster-booking[data-booking-mode='preview'] .selected-summary {
+  position: fixed;
+  z-index: 90;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  left: max(12px, env(safe-area-inset-left));
+  width: auto;
+  max-width: 680px;
+  margin: 0 auto;
+  border-radius: 18px;
+}
+
+@media (min-width: 900px) {
+  .preview-stage--desktop
+    .luster-booking[data-booking-mode='preview']
+    .selected-summary {
+    right: 24px;
+    left: auto;
+    width: min(440px, calc(100vw - 48px));
+    margin: 0;
+  }
+
+  .preview-stage--tablet
+    .luster-booking[data-booking-mode='preview']
+    .selected-summary {
+    right: auto;
+    left: 50%;
+    width: min(660px, calc(100vw - 48px));
+    margin: 0;
+    transform: translateX(-50%);
+  }
+
+  .preview-stage--mobile
+    .luster-booking[data-booking-mode='preview']
+    .selected-summary {
+    right: auto;
+    left: 50%;
+    width: min(390px, calc(100vw - 32px));
+    margin: 0;
+    transform: translateX(-50%);
   }
 }
 

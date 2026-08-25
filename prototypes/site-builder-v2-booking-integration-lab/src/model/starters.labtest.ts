@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { DEFAULT_BOOKING_PRESENTATION_SETTINGS } from '../booking/presentation';
 import { SECTION_CATALOGUE } from './catalogue';
 import { createDeterministicIdFactory } from './ids';
 import {
@@ -30,13 +31,24 @@ describe('starter initialization', () => {
     expect(document.navigation.enabled).toBe(false);
     expect(document.pages).toHaveLength(1);
     expect(document.pages[0]?.sections.map((section) => section.sectionType)).toEqual(
-      ['section_01', 'section_02', 'booking_access'],
+      ['section_01', 'section_02', 'booking'],
     );
-    expect(document.pages[0]?.sections.map((section) => section.size)).toEqual([
+    expect(document.pages[0]?.sections.map((section) =>
+      section.sectionType === 'booking' ? 'booking' : section.size,
+    )).toEqual([
       'compact',
       'medium',
-      'compact',
+      'booking',
     ]);
+    const booking = document.pages[0]?.sections[2];
+    expect(booking?.sectionType).toBe('booking');
+    if (booking?.sectionType !== 'booking') {
+      throw new Error('Quick Book is missing Booking.');
+    }
+    expect(booking.settings).toEqual(DEFAULT_BOOKING_PRESENTATION_SETTINGS);
+    expect(booking.settings.layout).toBe('visual_grid');
+    expect(booking).not.toHaveProperty('placeholderSettings');
+    expect(booking).not.toHaveProperty('size');
   });
 
   it('creates the exact One-page defaults', () => {
@@ -52,15 +64,17 @@ describe('starter initialization', () => {
       'section_03',
       'section_04',
       'section_05',
-      'booking_access',
+      'booking',
     ]);
-    expect(document.pages[0]?.sections.map((section) => section.size)).toEqual([
+    expect(document.pages[0]?.sections.map((section) =>
+      section.sectionType === 'booking' ? 'booking' : section.size,
+    )).toEqual([
       'large',
       'medium',
       'medium',
       'large',
       'compact',
-      'compact',
+      'booking',
     ]);
   });
 
@@ -79,7 +93,7 @@ describe('starter initialization', () => {
     ]);
     expect(document.pages[1]?.sections.map((section) => section.sectionType)).toEqual([
       'section_03',
-      'booking_access',
+      'booking',
     ]);
     expect(document.navigation.items).toHaveLength(5);
   });
@@ -162,7 +176,7 @@ describe('starter freedom', () => {
     const home = document.pages.find((page) => page.isHome);
     const booking = document.pages
       .flatMap((page) => page.sections)
-      .find((section) => section.sectionType === 'booking_access');
+      .find((section) => section.sectionType === 'booking');
     if (!home || !booking) {
       throw new Error('Multi-page defaults are incomplete.');
     }

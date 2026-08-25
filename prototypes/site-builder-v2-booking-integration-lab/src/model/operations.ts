@@ -21,7 +21,7 @@ import type {
 } from './types';
 
 export type BuilderOperationErrorCode =
-  | 'booking_access_required'
+  | 'booking_required'
   | 'home_page_required'
   | 'last_visible_page'
   | 'not_found'
@@ -39,7 +39,7 @@ export class BuilderOperationError extends Error {
   }
 }
 
-const BOOKING_ACCESS_REQUIRED_MESSAGE =
+const BOOKING_REQUIRED_MESSAGE =
   'Your site needs at least one visible way for clients to start booking.';
 
 type LocatedSection = {
@@ -147,11 +147,9 @@ export const hasUsableBooking = (
       ),
   );
 
-export const hasUsableBookingAccess = hasUsableBooking;
-
-const assertUsableBookingAccess = (document: SiteBuilderDocument): void => {
+const assertUsableBooking = (document: SiteBuilderDocument): void => {
   if (!hasUsableBooking(document)) {
-    fail('booking_access_required', BOOKING_ACCESS_REQUIRED_MESSAGE);
+    fail('booking_required', BOOKING_REQUIRED_MESSAGE);
   }
 };
 
@@ -252,7 +250,7 @@ export const removeSection = (
 ): SiteBuilderDocument => {
   const located = locateSection(document, sectionId);
   if (located.section.sectionType === 'booking') {
-    return fail('booking_access_required', BOOKING_ACCESS_REQUIRED_MESSAGE);
+    return fail('booking_required', BOOKING_REQUIRED_MESSAGE);
   }
   const next = normalizeDocument({
     ...replacePage(document, located.pageIndex, {
@@ -266,7 +264,7 @@ export const removeSection = (
       { ...located.section, order: document.unusedSections.length },
     ],
   });
-  assertUsableBookingAccess(next);
+  assertUsableBooking(next);
   return next;
 };
 
@@ -301,7 +299,7 @@ export const restoreSection = (
       (candidate) => candidate.id !== sectionId,
     ),
   });
-  assertUsableBookingAccess(next);
+  assertUsableBooking(next);
   return next;
 };
 
@@ -315,7 +313,7 @@ export const setSectionVisible = (
     return document;
   }
   if (located.section.sectionType === 'booking' && !visible) {
-    return fail('booking_access_required', BOOKING_ACCESS_REQUIRED_MESSAGE);
+    return fail('booking_required', BOOKING_REQUIRED_MESSAGE);
   }
   const sections = located.page.sections.map((section) =>
     section.id === sectionId ? { ...section, visible } : section,
@@ -323,7 +321,7 @@ export const setSectionVisible = (
   const next = normalizeDocument(
     replacePage(document, located.pageIndex, { ...located.page, sections }),
   );
-  assertUsableBookingAccess(next);
+  assertUsableBooking(next);
   return next;
 };
 
@@ -483,7 +481,7 @@ export const moveSectionToPage = (
     return page;
   });
   const next = normalizeDocument({ ...document, pages });
-  assertUsableBookingAccess(next);
+  assertUsableBooking(next);
   return next;
 };
 
@@ -542,7 +540,7 @@ export const addPage = (
     },
   });
   assertHasVisiblePage(next);
-  assertUsableBookingAccess(next);
+  assertUsableBooking(next);
   return next;
 };
 
@@ -584,7 +582,7 @@ export const removePage = (
     );
   }
   if (page.sections.some((section) => section.sectionType === 'booking')) {
-    return fail('booking_access_required', BOOKING_ACCESS_REQUIRED_MESSAGE);
+    return fail('booking_required', BOOKING_REQUIRED_MESSAGE);
   }
   const navigationItem = document.navigation.items.find(
     (item) => item.pageId === pageId,
@@ -622,7 +620,7 @@ export const removePage = (
     ],
   });
   assertHasVisiblePage(next);
-  assertUsableBookingAccess(next);
+  assertUsableBooking(next);
   return next;
 };
 
@@ -681,7 +679,7 @@ export const restorePage = (
     ),
   });
   assertHasVisiblePage(next);
-  assertUsableBookingAccess(next);
+  assertUsableBooking(next);
   return next;
 };
 
@@ -751,7 +749,7 @@ export const setPageVisible = (
   const next = normalizeDocument(
     replacePage(document, pageIndex, { ...page, visible }),
   );
-  assertUsableBookingAccess(next);
+  assertUsableBooking(next);
   assertHasVisiblePage(next);
   return next;
 };

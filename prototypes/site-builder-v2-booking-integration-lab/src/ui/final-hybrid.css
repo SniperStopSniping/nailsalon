@@ -1966,7 +1966,7 @@ body[data-editor-shell='final-hybrid'] .dialog-panel--context-panel .booking-set
   min-height: 145px !important;
 }
 
-.is-real-height-simulation [data-section-type='booking_access'] {
+.is-real-height-simulation [data-section-type='booking'] {
   min-height: 680px !important;
 }
 

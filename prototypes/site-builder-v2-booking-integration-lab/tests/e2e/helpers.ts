@@ -1,18 +1,22 @@
-import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { expect, type Locator, type Page } from '@playwright/test';
 
-export const LAB_STORAGE_KEY = 'luster.site-builder-v2-lab.schema-1';
+export const LAB_STORAGE_KEY =
+  'luster:site-builder-v2-booking-integration-lab:document:v1';
 
-export function requireProject(testInfo: TestInfo, projectName: string): void {
-  testInfo.skip(
-    testInfo.project.name !== projectName,
-    `Covered by the ${projectName} project.`,
-  );
-}
+export type StarterName =
+  | 'Quick Book'
+  | 'One-page website'
+  | 'Multi-page website';
 
 export async function openFreshLab(page: Page): Promise<void> {
+  await page.goto('about:blank');
+  const browserSession = await page.context().newCDPSession(page);
+  await browserSession.send('Storage.clearDataForOrigin', {
+    origin: 'http://127.0.0.1:4183',
+    storageTypes: 'local_storage',
+  });
+  await browserSession.detach();
   await page.goto('/');
-  await page.evaluate(() => window.localStorage.clear());
-  await page.reload();
   await expect(
     page.getByRole('heading', { name: 'Choose your starting point' }),
   ).toBeVisible();
@@ -20,7 +24,7 @@ export async function openFreshLab(page: Page): Promise<void> {
 
 export async function chooseStarter(
   page: Page,
-  starter: 'Quick Book' | 'One-page website' | 'Multi-page website',
+  starter: StarterName,
 ): Promise<void> {
   await page.getByRole('button', { name: new RegExp(`^${starter}`) }).click();
   await expect(page.getByTestId('final-hybrid-editor')).toBeVisible();
@@ -56,29 +60,6 @@ export async function reorderLabels(page: Page): Promise<string[]> {
     .allTextContents();
 }
 
-export async function pageNames(page: Page): Promise<string[]> {
-  const structure = await openPagesAndStructure(page);
-  const names = await structure
-    .getByRole('list', { name: 'Site pages' })
-    .locator(':scope > li .final-structure__page-select strong')
-    .allTextContents();
-  await closePagesAndStructure(structure);
-  return names;
-}
-
-export async function selectPage(page: Page, pageName: string): Promise<void> {
-  const structure = await openPagesAndStructure(page);
-  await structure
-    .locator('.final-structure__page-select')
-    .filter({ hasText: pageName })
-    .first()
-    .click();
-  if (await structure.isVisible()) {
-    await closePagesAndStructure(structure);
-  }
-  await expect(page.getByRole('heading', { level: 1, name: pageName })).toBeVisible();
-}
-
 export async function openPagesAndStructure(page: Page): Promise<Locator> {
   const dialog = page.getByRole('dialog', { name: 'Pages & Structure' });
   if (!(await dialog.isVisible())) {
@@ -97,91 +78,37 @@ export async function closePagesAndStructure(dialog: Locator): Promise<void> {
   await expect(dialog).toHaveCount(0);
 }
 
+export async function pageNames(page: Page): Promise<string[]> {
+  const structure = await openPagesAndStructure(page);
+  const names = await structure
+    .getByRole('list', { name: 'Site pages' })
+    .locator(':scope > li .final-structure__page-select strong')
+    .allTextContents();
+  await closePagesAndStructure(structure);
+  return names;
+}
+
+export function bookingCard(page: Page, pageName: string): Locator {
+  return sectionsList(page, pageName).getByRole('listitem', {
+    name: `Booking on ${pageName}`,
+  });
+}
+
+export async function selectBooking(page: Page, pageName: string): Promise<Locator> {
+  const card = bookingCard(page, pageName);
+  if (!(await card.evaluate((element) => element.classList.contains('is-selected')))) {
+    await card.locator('.section-card__select-surface').click();
+  }
+  await expect(card).toHaveClass(/is-selected/);
+  return card;
+}
+
 export async function enterReorder(page: Page): Promise<void> {
   const structure = await openPagesAndStructure(page);
   await structure
     .getByRole('button', { name: 'Reorder sections', exact: true })
     .click();
   await expect(page.getByTestId('reorder-list')).toBeVisible();
-}
-
-export async function addSectionAtBottom(
-  page: Page,
-  pageName: string,
-  sectionNumber: number,
-): Promise<void> {
-  const bottom = page.getByRole('button', {
-    name: `Add section at bottom of ${pageName}`,
-  });
-  const primaryAdd = page.getByRole('button', {
-    name: 'Add section',
-    exact: true,
-  });
-  let insertionControl: Locator;
-  if (await primaryAdd.isVisible()) {
-    insertionControl = primaryAdd;
-  } else if ((await bottom.count()) > 0) {
-    insertionControl = bottom;
-    if (!(await insertionControl.isVisible())) {
-      await insertionControl.locator('..').hover();
-    }
-  } else {
-    insertionControl = page.getByRole('button', {
-      name: `Add section at top of ${pageName}`,
-    });
-  }
-  await expect(insertionControl).toBeVisible();
-  await insertionControl.click();
-  const library = page.getByRole('dialog', { name: 'Add section' });
-  await expect(library).toBeVisible();
-  await library
-    .getByRole('button', {
-      name: `Add Section ${String(sectionNumber).padStart(2, '0')}`,
-      exact: true,
-    })
-    .click();
-}
-
-export async function addPage(
-  page: Page,
-  name: string,
-  address = '',
-): Promise<void> {
-  const structure = await openPagesAndStructure(page);
-  await structure.getByRole('button', { name: 'Add page', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Add page' });
-  await dialog.getByLabel('Page name').fill(name);
-  if (address) {
-    await dialog.getByText('Advanced', { exact: true }).click();
-    await dialog.getByLabel('Web address').fill(address);
-  }
-  await dialog.getByRole('button', { name: 'Add page', exact: true }).click();
-}
-
-export async function removePage(page: Page, name: string): Promise<void> {
-  await selectPage(page, name);
-  const structure = await openPagesAndStructure(page);
-  await structure.getByRole('button', { name: `Remove ${name} page` }).click();
-  const confirmation = page.getByRole('dialog', { name: 'Remove this page?' });
-  await confirmation.getByRole('button', { name: 'Remove page' }).click();
-}
-
-export async function startAgain(
-  page: Page,
-  starter: 'Quick Book' | 'One-page website' | 'Multi-page website',
-): Promise<void> {
-  await page.getByRole('button', { name: 'More site options' }).click();
-  await page
-    .getByRole('dialog', { name: 'More' })
-    .getByRole('button', { name: 'Start again from another kit' })
-    .click();
-  await page
-    .getByRole('dialog', { name: 'Start again from a kit' })
-    .getByRole('button', { name: new RegExp(`^${starter}`) })
-    .click();
-  await expect(page.getByRole('status', { name: 'Save status' })).toHaveText(
-    'Saved',
-  );
 }
 
 export async function expectNoDocumentOverflow(page: Page): Promise<void> {
@@ -211,4 +138,10 @@ export async function expectNoDocumentOverflow(page: Page): Promise<void> {
     dimensions.bodyScrollWidth,
     `body overflow: ${dimensions.bodyScrollWidth} > ${dimensions.bodyClientWidth}; elements=${JSON.stringify(dimensions.overflowingElements)}`,
   ).toBeLessThanOrEqual(dimensions.bodyClientWidth);
+}
+
+export async function closeDialog(page: Page, title: string): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: title });
+  await dialog.getByRole('button', { name: `Close ${title}` }).click();
+  await expect(dialog).toHaveCount(0);
 }

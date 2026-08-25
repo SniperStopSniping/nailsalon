@@ -194,6 +194,7 @@ export function BookingSectionRenderer({
           data-typography={presentationSettings.typographyPreset}
           data-heading-scale={presentationSettings.headingScale}
           data-body-scale={presentationSettings.bodyScale}
+          data-has-selection={selectedSummary ? 'true' : 'false'}
           data-spacing={presentationSettings.spacing}
           aria-label={`${BOOKING_LAYOUT_META[presentationSettings.layout].label} booking menu`}
         >

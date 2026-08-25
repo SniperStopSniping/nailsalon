@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  createDefaultBookingPresentationSettings,
+  switchBookingLayout,
+} from '../booking/presentation';
+import {
   applyHistoryCommand,
   canRedoHistory,
   canUndoHistory,
@@ -12,6 +16,7 @@ import { createDeterministicIdFactory } from './ids';
 import { initializeStarter } from './starters';
 import type { SiteBuilderDocument } from './types';
 import {
+  MAX_SITE_BUILDER_IMPORT_JSON_LENGTH,
   SITE_BUILDER_STORAGE_KEY,
   exportSiteBuilderDocument,
   parseSiteBuilderDocument,
@@ -125,6 +130,56 @@ describe('structural history', () => {
     history = undoHistory(history);
     expect(history.present).toEqual(initial);
   });
+
+  it('records Booking presentation updates and reset while customer state stays external', () => {
+    const initial = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('booking-history'),
+    });
+    const booking = initial.pages[0]?.sections.find(
+      (section) => section.sectionType === 'booking',
+    );
+    if (booking?.sectionType !== 'booking') {
+      throw new Error('Missing Booking.');
+    }
+    const customerState = {
+      serviceId: 'svc-manicure-russian',
+      addOnIds: ['addon-french'],
+      query: 'russian',
+    };
+    let history = createHistoryState(initial);
+    const cleanList = switchBookingLayout(booking.settings, 'clean_list');
+    history = applyHistoryCommand(history, {
+      type: 'update_booking_presentation',
+      sectionId: booking.id,
+      settings: cleanList,
+    });
+
+    expect(history.past).toHaveLength(1);
+    expect(history.present.pages[0]?.sections.find(
+      (section) => section.id === booking.id,
+    )).toMatchObject({ settings: cleanList });
+    expect(customerState).toEqual({
+      serviceId: 'svc-manicure-russian',
+      addOnIds: ['addon-french'],
+      query: 'russian',
+    });
+
+    history = applyHistoryCommand(history, {
+      type: 'reset_booking_presentation',
+      sectionId: booking.id,
+    });
+    expect(history.past).toHaveLength(2);
+    expect(history.present.pages[0]?.sections.find(
+      (section) => section.id === booking.id,
+    )).toMatchObject({
+      settings: createDefaultBookingPresentationSettings(),
+    });
+
+    history = undoHistory(history);
+    expect(history.present.pages[0]?.sections.find(
+      (section) => section.id === booking.id,
+    )).toMatchObject({ settings: cleanList });
+  });
 });
 
 describe('validation, import, and export', () => {
@@ -135,15 +190,28 @@ describe('validation, import, and export', () => {
     const json = exportSiteBuilderDocument(document);
     const imported = parseSiteBuilderDocument(json);
 
-    expect(SITE_BUILDER_STORAGE_KEY).toContain('schema-1');
+    expect(SITE_BUILDER_STORAGE_KEY).toBe(
+      'luster:site-builder-v2-booking-integration-lab:document:v1',
+    );
     expect(imported).toEqual({ success: true, document });
     expect(JSON.parse(json)).toEqual(document);
+    expect(json).not.toContain('Russian Manicure');
+    expect(json).not.toContain('serviceId');
+    expect(json).not.toContain('addOnIds');
+    expect(json).not.toContain('detailServiceId');
+    expect(json).not.toContain('query');
   });
 
   it('fails safely for malformed JSON and unsupported schema versions', () => {
     expect(parseSiteBuilderDocument('{bad json')).toEqual({
       success: false,
       issues: ['The selected file is not valid JSON.'],
+    });
+    expect(
+      parseSiteBuilderDocument('x'.repeat(MAX_SITE_BUILDER_IMPORT_JSON_LENGTH + 1)),
+    ).toEqual({
+      success: false,
+      issues: ['The selected site document is too large.'],
     });
     const document = initializeStarter('quick_book', {
       idFactory: createDeterministicIdFactory('bad-schema'),
@@ -162,14 +230,14 @@ describe('validation, import, and export', () => {
       pages: document.pages.map((page) => ({
         ...page,
         sections: page.sections.filter(
-          (section) => section.sectionType !== 'booking_access',
+          (section) => section.sectionType !== 'booking',
         ),
       })),
     } satisfies SiteBuilderDocument;
     expect(validateSiteBuilderDocument(withoutBooking)).toMatchObject({
       success: false,
       issues: expect.arrayContaining([
-        'Document must have at least one visible Booking access section.',
+        'Document must contain exactly one Booking section.',
       ]),
     });
 
@@ -180,6 +248,104 @@ describe('validation, import, and export', () => {
     expect(validateSiteBuilderDocument(badOrder)).toMatchObject({
       success: false,
       issues: expect.arrayContaining(['Page ordering must be normalized.']),
+    });
+  });
+
+  it('strictly rejects incompatible Booking controls and injected business or customer data', () => {
+    const document = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('invalid-booking-settings'),
+    });
+    const incompatible = structuredClone(document) as unknown as {
+      pages: Array<{
+        sections: Array<Record<string, unknown>>;
+      }>;
+    };
+    const booking = incompatible.pages[0]?.sections.find(
+      (section) => section.sectionType === 'booking',
+    );
+    if (!booking) {
+      throw new Error('Missing Booking.');
+    }
+    const settings = booking.settings as Record<string, unknown>;
+    settings.layout = 'clean_list';
+    settings.layoutSettings = {
+      density: 'comfortable',
+      imageMode: 'show',
+      showFeatured: true,
+      categoryNavigation: 'pills',
+      showDescriptions: true,
+    };
+    settings.services = [{ name: 'Injected service', price: 1 }];
+    booking.selection = { serviceId: 'svc-injected', addOnIds: [] };
+
+    const result = validateSiteBuilderDocument(incompatible);
+    expect(result).toMatchObject({ success: false });
+    if (result.success) {
+      throw new Error('Invalid Booking settings unexpectedly validated.');
+    }
+    expect(result.issues.join(' ')).toContain('imageMode');
+    expect(result.issues.join(' ')).toContain('services');
+    expect(result.issues.join(' ')).toContain('selection');
+  });
+
+  it('rejects duplicate Booking, duplicate IDs, malformed page references, and hidden capability', () => {
+    const document = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('invalid-document'),
+    });
+    const booking = document.pages[0]?.sections.find(
+      (section) => section.sectionType === 'booking',
+    );
+    if (booking?.sectionType !== 'booking') {
+      throw new Error('Missing Booking.');
+    }
+
+    const duplicateBooking = structuredClone(document);
+    duplicateBooking.pages[0]?.sections.push({
+      ...structuredClone(booking),
+      id: 'section_duplicate_booking',
+      order: duplicateBooking.pages[0].sections.length,
+    });
+    expect(validateSiteBuilderDocument(duplicateBooking)).toMatchObject({
+      success: false,
+      issues: expect.arrayContaining([
+        'Document must contain exactly one Booking section.',
+      ]),
+    });
+
+    const duplicateId = structuredClone(document);
+    if (duplicateId.pages[0]?.sections[0]) {
+      duplicateId.pages[0].sections[0].id = booking.id;
+    }
+    expect(validateSiteBuilderDocument(duplicateId)).toMatchObject({
+      success: false,
+      issues: expect.arrayContaining([
+        expect.stringContaining('Entity IDs must be unique'),
+      ]),
+    });
+
+    const badReference = structuredClone(document);
+    if (badReference.navigation.items[0]) {
+      badReference.navigation.items[0].pageId = 'page_missing';
+    }
+    expect(validateSiteBuilderDocument(badReference)).toMatchObject({
+      success: false,
+      issues: expect.arrayContaining([
+        'Navigation must have exactly one item for each active page.',
+      ]),
+    });
+
+    const hiddenBooking = structuredClone(document);
+    const hidden = hiddenBooking.pages[0]?.sections.find(
+      (section) => section.sectionType === 'booking',
+    );
+    if (hidden?.sectionType === 'booking') {
+      hidden.visible = false;
+    }
+    expect(validateSiteBuilderDocument(hiddenBooking)).toMatchObject({
+      success: false,
+      issues: expect.arrayContaining([
+        'Booking must be visible on a visible page.',
+      ]),
     });
   });
 });
