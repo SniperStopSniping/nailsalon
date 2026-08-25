@@ -175,7 +175,7 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
   });
   const section02Id = await section02.getAttribute('data-section-instance-id');
   await openSectionMoreActions(section02, 'Section 02');
-  await section02.getByRole('menuitem', { name: 'Remove from this page' }).click({ force: true });
+  await section02.locator('.section-more-menu').getByRole('button', { name: 'Remove from this page' }).click({ force: true });
   const removalToast = page
     .getByRole('status')
     .filter({ hasText: 'Section removed · Undo' });
@@ -219,7 +219,7 @@ test('Quick Book completes the core owner composition, recovery, persistence, ex
     name: 'Section 11 on Home',
   });
   await openSectionMoreActions(section11OnHome, 'Section 11');
-  await section11OnHome.getByRole('menuitem', { name: 'Move', exact: true }).click({ force: true });
+  await section11OnHome.locator('.section-more-menu').getByRole('button', { name: 'Move', exact: true }).click({ force: true });
   await page
     .getByRole('dialog', { name: 'Move Section 11 to another page' })
     .getByRole('button', { name: 'Gallery', exact: true })
@@ -413,7 +413,7 @@ test('One-page can add pages and Multi-page can simplify to one page without los
     name: 'Booking access on Services / Book',
   });
   await openSectionMoreActions(bookingOnServices, 'Booking access');
-  await bookingOnServices.getByRole('menuitem', { name: 'Move', exact: true }).click({ force: true });
+  await bookingOnServices.locator('.section-more-menu').getByRole('button', { name: 'Move', exact: true }).click({ force: true });
   await page
     .getByRole('dialog', { name: 'Move Booking access to another page' })
     .getByRole('button', { name: 'Home', exact: true })
@@ -430,7 +430,7 @@ test('One-page can add pages and Multi-page can simplify to one page without los
     name: 'Booking access on Home',
   });
   await openSectionMoreActions(bookingOnHome, 'Booking access');
-  await bookingOnHome.getByRole('menuitem', { name: 'Remove from this page' }).click({ force: true });
+  await bookingOnHome.locator('.section-more-menu').getByRole('button', { name: 'Remove from this page' }).click({ force: true });
   await expect(
     page.getByRole('dialog', { name: 'Booking access is protected' }),
   ).toContainText('Your site needs at least one way for clients to book.');

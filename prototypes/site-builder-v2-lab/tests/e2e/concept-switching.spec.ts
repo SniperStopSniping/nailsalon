@@ -303,6 +303,14 @@ test('the mobile concept switcher and core editor controls retain accessible nam
     await activateConcept(page, concept.switcherName);
     await expect.poll(() => storedDocumentText(page)).toBe(expectedDocumentText);
 
+    await page.evaluate(() => window.scrollTo(0, 320));
+    const dockBounds = await page.locator('.concept-lab-dock').boundingBox();
+    const toolbarBounds = await page.locator('.top-toolbar').boundingBox();
+    expect(toolbarBounds?.y).toBeGreaterThanOrEqual(
+      (dockBounds?.y ?? 0) + (dockBounds?.height ?? 0) - 1,
+    );
+    await page.evaluate(() => window.scrollTo(0, 0));
+
     const modes = page.getByRole('group', { name: 'Editor modes' });
     await expect(modes.getByRole('button', { exact: true, name: 'Edit' })).toBeVisible();
     await expect(modes.getByRole('button', { exact: true, name: 'Reorder' })).toBeVisible();

@@ -98,13 +98,13 @@ export function SectionCard({
           <MoreHorizontal aria-hidden="true" size={18} /><span className="section-context-toolbar__more-label">More</span>
         </button>
         {menuOpen ? (
-          <div className="section-more-menu" role="menu">
-            <button role="menuitem" type="button" onClick={() => { onToggleVisible(section); setMenuOpen(false); }}>
+          <div className="section-more-menu">
+            <button type="button" onClick={() => { onToggleVisible(section); setMenuOpen(false); }}>
               {section.visible ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
               {section.visible ? 'Hide section' : 'Show section'}
             </button>
-            <button role="menuitem" type="button" onClick={() => { onMove(section); setMenuOpen(false); }}><Move aria-hidden="true" size={16} /> Move</button>
-            <button className="danger-quiet" role="menuitem" type="button" onClick={() => { onRemove(section); setMenuOpen(false); }}><Trash2 aria-hidden="true" size={16} /> Remove from this page</button>
+            <button type="button" onClick={() => { onMove(section); setMenuOpen(false); }}><Move aria-hidden="true" size={16} /> Move</button>
+            <button className="danger-quiet" type="button" onClick={() => { onRemove(section); setMenuOpen(false); }}><Trash2 aria-hidden="true" size={16} /> Remove from this page</button>
           </div>
         ) : null}
       </div>

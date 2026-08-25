@@ -1,5 +1,10 @@
 /* Presentation-only UI concept layer. Builder state and operations stay in App/useLabDocument. */
 
+.editor-app,
+.preview-app {
+  --concept-dock-height: 56px;
+}
+
 .concept-lab-dock {
   position: sticky;
   z-index: 70;
@@ -21,7 +26,7 @@
 
 .editor-app .top-toolbar,
 .preview-app .preview-toolbar {
-  top: 56px;
+  top: var(--concept-dock-height);
 }
 
 .toolbar-page-trigger,
@@ -1356,6 +1361,16 @@ body[data-editor-concept='dark_studio'] .dialog-actions {
   border-color: rgba(255, 255, 255, 0.09);
 }
 
+body[data-editor-concept='dark_studio'] .dialog-panel .sheet-list-button {
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #f7f3fa;
+  background: #35313c;
+}
+
+body[data-editor-concept='dark_studio'] .dialog-panel .sheet-list-button:hover {
+  background: #403a49;
+}
+
 body[data-editor-concept='mobile_first'] .dialog-panel,
 body[data-editor-concept='inline_editor'] .dialog-panel {
   border-radius: 24px 24px 0 0;
@@ -1401,7 +1416,7 @@ body[data-editor-concept='inline_editor'] .dialog-panel {
 
   .editor-app .top-toolbar,
   .preview-app .preview-toolbar {
-    top: 56px;
+    top: var(--concept-dock-height);
   }
 
   .section-context-toolbar {
@@ -1506,7 +1521,7 @@ body[data-editor-concept='inline_editor'] .dialog-panel {
 
   .editor-concept--mobile-first .top-toolbar {
     position: sticky;
-    top: 56px;
+    top: var(--concept-dock-height);
     width: 100%;
     min-height: 64px;
     grid-template-columns: minmax(112px, 1fr) auto auto;
@@ -1688,12 +1703,14 @@ body[data-editor-concept='inline_editor'] .dialog-panel {
   }
 
   .editor-concept--inline-editor .concept-lab-dock {
-    min-height: 56px;
+    position: sticky;
+    top: 0;
+    min-height: var(--concept-dock-height);
   }
 
   .editor-concept--inline-editor .top-toolbar {
     position: sticky;
-    top: 56px;
+    top: var(--concept-dock-height);
     right: auto;
     width: 100%;
     min-height: 64px;
@@ -1785,7 +1802,7 @@ body[data-editor-concept='inline_editor'] .dialog-panel {
   }
 
   .preview-app.editor-concept--inline-editor .preview-toolbar {
-    top: 56px;
+    top: var(--concept-dock-height);
     right: auto;
     width: 100%;
     margin-top: 0;
@@ -1793,6 +1810,18 @@ body[data-editor-concept='inline_editor'] .dialog-panel {
     border-radius: 0;
     box-shadow: none;
     transform: none;
+  }
+}
+
+@media (max-width: 780px) {
+  .editor-app,
+  .preview-app {
+    --concept-dock-height: 124px;
+  }
+
+  .concept-lab-dock,
+  .editor-concept--inline-editor .concept-lab-dock {
+    min-height: var(--concept-dock-height);
   }
 }
 
