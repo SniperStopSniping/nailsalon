@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
@@ -8,7 +8,7 @@ type DialogProps = {
   onClose: () => void;
   open: boolean;
   title: string;
-  variant?: 'dialog' | 'sheet' | 'bottom-sheet';
+  variant?: 'bottom-sheet' | 'context-panel' | 'dialog' | 'section-library' | 'sheet' | 'structure-panel';
 };
 
 const FOCUSABLE_SELECTOR = [
@@ -35,10 +35,19 @@ export function Dialog({
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   const stackTokenRef = useRef(Symbol('luster-lab-dialog'));
+  const [wideViewport, setWideViewport] = useState(() => window.matchMedia('(min-width: 900px)').matches);
+  const nonModal = wideViewport && (variant === 'context-panel' || variant === 'structure-panel');
 
   useEffect(() => {
     onCloseRef.current = onClose;
   }, [onClose]);
+
+  useEffect(() => {
+    const media = window.matchMedia('(min-width: 900px)');
+    const handleChange = () => setWideViewport(media.matches);
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, []);
 
   useEffect(() => {
     if (!open) {
@@ -49,7 +58,9 @@ export function Dialog({
     const stackToken = stackTokenRef.current;
     openDialogStack.push(stackToken);
     const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    if (!nonModal) {
+      document.body.style.overflow = 'hidden';
+    }
 
     const dialog = dialogRef.current;
     const firstFocusable = dialog?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
@@ -65,7 +76,7 @@ export function Dialog({
         return;
       }
 
-      if (event.key !== 'Tab' || !dialog) {
+      if (nonModal || event.key !== 'Tab' || !dialog) {
         return;
       }
 
@@ -91,50 +102,60 @@ export function Dialog({
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.body.style.overflow = previousOverflow;
+      if (!nonModal) {
+        document.body.style.overflow = previousOverflow;
+      }
       const stackIndex = openDialogStack.lastIndexOf(stackToken);
       if (stackIndex >= 0) {
         openDialogStack.splice(stackIndex, 1);
       }
       previouslyFocused?.focus();
     };
-  }, [open]);
+  }, [nonModal, open]);
 
   if (!open) {
     return null;
   }
 
-  return createPortal(
+  const panel = (
     <div
-      className="dialog-backdrop"
-      data-testid="dialog-backdrop"
-      onMouseDown={(event) => {
-        if (event.currentTarget === event.target) {
-          onClose();
-        }
-      }}
+      ref={dialogRef}
+      aria-describedby={description ? descriptionId : undefined}
+      aria-labelledby={titleId}
+      aria-modal={nonModal ? undefined : 'true'}
+      className={`dialog-panel dialog-panel--${variant}`}
+      role="dialog"
+      tabIndex={-1}
     >
-      <div
-        ref={dialogRef}
-        aria-describedby={description ? descriptionId : undefined}
-        aria-labelledby={titleId}
-        aria-modal="true"
-        className={`dialog-panel dialog-panel--${variant}`}
-        role="dialog"
-        tabIndex={-1}
-      >
-        <div className="dialog-header">
-          <div>
-            <h2 id={titleId}>{title}</h2>
-            {description ? <p id={descriptionId}>{description}</p> : null}
-          </div>
-          <button className="icon-button" type="button" aria-label={`Close ${title}`} onClick={onClose}>
-            <X aria-hidden="true" size={20} />
-          </button>
+      <div className="dialog-header">
+        <div>
+          <h2 id={titleId}>{title}</h2>
+          {description ? <p id={descriptionId}>{description}</p> : null}
         </div>
-        <div className="dialog-body">{children}</div>
+        <button className="icon-button" type="button" aria-label={`Close ${title}`} onClick={onClose}>
+          <X aria-hidden="true" size={20} />
+        </button>
       </div>
-    </div>,
+      <div className="dialog-body">{children}</div>
+    </div>
+  );
+
+  return createPortal(
+    nonModal ? (
+      <div className="dialog-nonmodal-layer" data-testid="dialog-nonmodal-layer">{panel}</div>
+    ) : (
+      <div
+        className="dialog-backdrop"
+        data-testid="dialog-backdrop"
+        onMouseDown={(event) => {
+          if (event.currentTarget === event.target) {
+            onClose();
+          }
+        }}
+      >
+        {panel}
+      </div>
+    ),
     document.body,
   );
 }

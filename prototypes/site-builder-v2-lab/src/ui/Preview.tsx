@@ -64,6 +64,7 @@ export function Preview({ activePage, document, onNavigate, viewport }: PreviewP
                 key={section.id}
                 className={`preview-section preview-section--${section.size}${protectedSection ? ' preview-section--booking' : ''}`}
                 data-section-id={section.id}
+                data-section-type={section.sectionType}
               >
                 <span className="preview-section__number">{protectedSection ? <CalendarDays aria-hidden="true" size={22} /> : section.label.replace('Section ', '')}</span>
                 <div>
