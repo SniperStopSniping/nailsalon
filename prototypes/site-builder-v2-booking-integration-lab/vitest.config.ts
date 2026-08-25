@@ -1,14 +1,18 @@
+import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   css: {
     postcss: { plugins: [] },
   },
+  plugins: [react()],
   test: {
     coverage: {
-      include: ['src/model/**/*.ts'],
+      include: ['src/{booking,model,ui}/**/*.{ts,tsx}'],
     },
-    environment: 'node',
-    include: ['src/**/*.labtest.ts'],
+    environment: 'jsdom',
+    globals: true,
+    include: ['src/**/*.{labtest,test,unit}.{ts,tsx}'],
+    setupFiles: ['./src/test-setup.ts'],
   },
 });
