@@ -121,13 +121,19 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
     });
 
     await user.click(within(summary).getByRole('button', { name: 'Change' }));
-    expect(within(detail).getByRole('checkbox', { name: /French/ })).toBeChecked();
-    expect(within(detail).getByRole('button', { name: 'Continue' })).toBeVisible();
-    await user.click(within(detail).getByRole('button', { name: 'Keep browsing' }));
+    const changedDetail = await screen.findByTestId('service-detail-dialog');
+    expect(changedDetail).not.toBe(detail);
+    expect(within(changedDetail).getByRole('checkbox', { name: /French/ })).toBeChecked();
+    expect(within(changedDetail).getByRole('button', { name: 'Continue' })).toBeVisible();
+    await user.click(within(changedDetail).getByRole('button', { name: 'Keep browsing' }));
     await user.click(within(summary).getByRole('button', { name: 'Continue' }));
 
-    const handoff = screen.getByTestId('booking-handoff-dialog');
-    await waitFor(() => expect(handoff).toHaveAttribute('open'));
+    const handoff = await screen.findByRole('dialog', {
+      name: 'Booking flow continues here',
+    });
+    expect(handoff).toBe(screen.getByTestId('booking-handoff-dialog'));
+    expect(handoff).toHaveAttribute('aria-modal', 'true');
+    expect(handoff).not.toHaveAttribute('open');
     expect(handoff).toHaveTextContent('Booking flow continues here');
     expect(handoff).toHaveTextContent('Russian Manicure · 1 hr 45 min · From $80');
     expect(within(handoff).getByLabelText('Future canonical booking flow'))
@@ -136,7 +142,7 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
 });
 
 describe('Booking renderer mode and session boundaries', () => {
-  it('makes the real customer renderer inert in Edit and never mounts customer dialogs', () => {
+  it('keeps the real menu readable but makes customer controls read-only in Edit', () => {
     const onSessionChange = vi.fn();
     render(
       <BookingSectionRenderer
@@ -149,12 +155,71 @@ describe('Booking renderer mode and session boundaries', () => {
 
     const editor = screen.getByTestId('booking-section-edit');
     const customerRegion = editor.querySelector('.booking-customer-region');
-    expect(customerRegion).toHaveAttribute('inert');
-    expect(customerRegion).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByRole('group', {
+      name: 'Booking menu preview — 24 services, Visual Grid. Not interactive while editing.',
+    })).toBe(customerRegion);
+    expect(customerRegion).not.toHaveAttribute('inert');
+    expect(customerRegion).not.toHaveAttribute('aria-hidden');
     expect(editor).toHaveAttribute('data-booking-mode', 'edit');
+    expect(editor.querySelector('.booking-surface')).toHaveAttribute(
+      'data-has-selection',
+      'false',
+    );
+    expect(within(editor).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(editor).queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(editor.querySelector('input[placeholder="Search services"]'))
+      .toHaveAttribute('aria-hidden', 'true');
+    expect(editor.querySelector('input[placeholder="Search services"]'))
+      .toHaveAttribute('readonly');
+    const customerControls = editor.querySelectorAll<HTMLElement>(
+      'button, input, select, textarea, a[href]',
+    );
+    expect(customerControls.length).toBeGreaterThan(0);
+    customerControls.forEach((control) => {
+      expect(control).toHaveAttribute('tabindex', '-1');
+      expect(control).toHaveAttribute('aria-hidden', 'true');
+    });
+    expect(editor.querySelectorAll('[data-editor-readonly-control]').length)
+      .toBeGreaterThan(customerControls.length);
+    expect(screen.getAllByText('Russian Manicure').length).toBeGreaterThan(0);
     expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
     expect(screen.queryByTestId('booking-handoff-dialog')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('selected-service-summary')).not.toBeInTheDocument();
     expect(onSessionChange).not.toHaveBeenCalled();
+  });
+
+  it('suppresses preserved customer filters, selection, and overlays in Edit mode', () => {
+    const initialSession: BookingSessionState = {
+      selection: {
+        serviceId: 'svc-manicure-russian',
+        addOnIds: ['addon-french'],
+      },
+      query: 'russ',
+      activeCategory: 'manicure',
+      detailServiceId: 'svc-manicure-russian',
+      draftAddOnIds: ['addon-french'],
+      handoffOpen: true,
+    };
+
+    render(
+      <SessionHarness
+        initialSession={initialSession}
+        mode="edit"
+        settings={settingsFor('visual_grid')}
+      />,
+    );
+
+    expect(screen.getByTestId('booking-section-edit').querySelector('input[placeholder="Search services"]'))
+      .toHaveValue('');
+    expect(screen.getByTestId('booking-section-edit').querySelector('.booking-category-pill.is-active'))
+      .toHaveTextContent('All');
+    expect(document.querySelectorAll('[data-selected="true"]')).toHaveLength(0);
+    expect(screen.getByTestId('booking-section-edit').querySelector('.booking-surface'))
+      .toHaveAttribute('data-has-selection', 'false');
+    expect(screen.queryByTestId('selected-service-summary')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('booking-handoff-dialog')).not.toBeInTheDocument();
+    expect(readSession()).toEqual(initialSession);
   });
 
   it('preserves committed selection and add-ons while clearing filters on layout change', async () => {

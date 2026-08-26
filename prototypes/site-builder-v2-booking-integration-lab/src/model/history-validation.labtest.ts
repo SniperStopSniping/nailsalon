@@ -131,6 +131,49 @@ describe('structural history', () => {
     expect(history.present).toEqual(initial);
   });
 
+  it('records a committed section order as one logical history entry', () => {
+    const initial = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('section-order-history'),
+    });
+    const home = initial.pages[0];
+    const booking = home?.sections.find(
+      (section) => section.sectionType === 'booking',
+    );
+    if (!home || !booking) {
+      throw new Error('Missing Booking.');
+    }
+    const requestedOrder = [
+      booking.id,
+      ...home.sections
+        .filter((section) => section.id !== booking.id)
+        .map((section) => section.id),
+    ];
+    let history = createHistoryState(initial);
+
+    history = applyHistoryCommand(history, {
+      type: 'commit_section_move',
+      input: {
+        sourcePageId: home.id,
+        sectionId: booking.id,
+        orderedSectionIds: requestedOrder,
+      },
+    });
+
+    expect(history.past).toHaveLength(1);
+    expect(history.present.pages[0]?.sections.map((section) => section.id)).toEqual(
+      requestedOrder,
+    );
+    const committed = history.present;
+
+    history = undoHistory(history);
+    expect(history.present).toEqual(initial);
+    expect(history.future).toEqual([committed]);
+
+    history = redoHistory(history);
+    expect(history.present).toEqual(committed);
+    expect(history.past).toHaveLength(1);
+  });
+
   it('records Booking presentation updates and reset while customer state stays external', () => {
     const initial = initializeStarter('quick_book', {
       idFactory: createDeterministicIdFactory('booking-history'),

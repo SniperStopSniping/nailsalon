@@ -9,14 +9,9 @@ export type StarterName =
   | 'Multi-page website';
 
 export async function openFreshLab(page: Page): Promise<void> {
-  await page.goto('about:blank');
-  const browserSession = await page.context().newCDPSession(page);
-  await browserSession.send('Storage.clearDataForOrigin', {
-    origin: 'http://127.0.0.1:4183',
-    storageTypes: 'local_storage',
-  });
-  await browserSession.detach();
   await page.goto('/');
+  await page.evaluate(() => window.localStorage.clear());
+  await page.reload();
   await expect(
     page.getByRole('heading', { name: 'Choose your starting point' }),
   ).toBeVisible();
@@ -56,7 +51,7 @@ export async function sectionLabels(
 export async function reorderLabels(page: Page): Promise<string[]> {
   return page
     .getByTestId('reorder-list')
-    .locator('.reorder-row > .reorder-row__label > strong')
+    .locator('.reorder-row .reorder-row__label > strong')
     .allTextContents();
 }
 
@@ -103,12 +98,42 @@ export async function selectBooking(page: Page, pageName: string): Promise<Locat
   return card;
 }
 
-export async function enterReorder(page: Page): Promise<void> {
+export async function openMoveFromStructure(page: Page): Promise<Locator> {
   const structure = await openPagesAndStructure(page);
   await structure
-    .getByRole('button', { name: 'Reorder sections', exact: true })
+    .getByRole('button', { name: 'Arrange sections', exact: true })
     .click();
-  await expect(page.getByTestId('reorder-list')).toBeVisible();
+  const move = page.getByRole('dialog', { name: 'Arrange sections' });
+  await expect(move).toBeVisible();
+  await expect(move.getByTestId('reorder-list')).toBeVisible();
+  return move;
+}
+
+export async function openMoveForBooking(
+  page: Page,
+  pageName: string,
+): Promise<Locator> {
+  await selectBooking(page, pageName);
+  const returnToBooking = page.getByRole('button', { name: 'Back to Booking' });
+  const mobileMove = page
+    .getByRole('group', { name: 'Booking actions' })
+    .getByRole('button', { name: 'Move', exact: true });
+  const desktopMove = page
+    .getByTestId('selected-section-toolbar')
+    .getByRole('button', { name: 'Move', exact: true });
+  await expect(mobileMove.or(desktopMove).or(returnToBooking)).toBeVisible();
+  if (await returnToBooking.isVisible()) {
+    await returnToBooking.click();
+  }
+  await expect(mobileMove.or(desktopMove)).toBeVisible();
+  if (await mobileMove.isVisible()) {
+    await mobileMove.click();
+  } else {
+    await desktopMove.click();
+  }
+  const move = page.getByRole('dialog', { name: 'Move Booking' });
+  await expect(move).toBeVisible();
+  return move;
 }
 
 export async function expectNoDocumentOverflow(page: Page): Promise<void> {

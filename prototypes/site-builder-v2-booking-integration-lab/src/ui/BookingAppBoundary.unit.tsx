@@ -69,7 +69,7 @@ async function selectBooking(
 async function openBookingSettings(user: ReturnType<typeof userEvent.setup>) {
   const actions = await selectBooking(user);
   await user.click(within(actions).getByRole('button', { name: 'Edit' }));
-  return screen.findByRole('dialog', { name: 'Booking' });
+  return screen.findByRole('dialog', { name: /Booking/ });
 }
 
 afterEach(() => {
@@ -110,18 +110,25 @@ describe('Booking editor selection boundary', () => {
       />,
     );
 
-    const surface = screen.getByRole('listitem', { name: 'Booking on Home' })
-      .querySelector<HTMLButtonElement>('.section-card__select-surface--booking');
-    if (!surface) {
-      throw new Error('Booking selection surface was not rendered.');
-    }
-    await user.click(surface);
+    const editorPreview = screen.getByRole('group', {
+      name: 'Booking menu preview — 24 services, Visual Grid. Not interactive while editing.',
+    });
+    expect(editorPreview).not.toHaveAttribute('inert');
+    expect(editorPreview).not.toHaveAttribute('aria-hidden');
+    expect(within(editorPreview).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(editorPreview).queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(editorPreview.querySelector('input[placeholder="Search services"]'))
+      .toHaveAttribute('aria-hidden', 'true');
+
+    const russianService = [...editorPreview.querySelectorAll<HTMLElement>('.vg-card-entry')]
+      .find((candidate) => candidate.textContent?.includes('Russian Manicure'));
+    if (!russianService) throw new Error('Russian Manicure preview card was not rendered.');
+    await user.click(russianService);
 
     expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith(section);
     expect(onSessionChange).not.toHaveBeenCalled();
-    expect(screen.getByTestId('booking-section-edit')
-      .querySelector('.booking-customer-region')).toHaveAttribute('inert');
+    expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
   });
 });
 
@@ -202,9 +209,10 @@ describe('integrated Booking settings surfaces', () => {
     await chooseQuickBook(user);
 
     const dialog = await openBookingSettings(user);
-    expect(screen.getByTestId('dialog-nonmodal-layer')).toContainElement(dialog);
-    expect(dialog).not.toHaveAttribute('aria-modal');
-    expect(dialog).toHaveClass('dialog-panel--context-panel');
+    expect(dialog).toHaveAccessibleName('Booking settings');
+    expect(dialog).toHaveClass('final-booking-settings-drawer');
+    expect(dialog).toHaveAttribute('aria-modal', 'false');
+    expect(screen.queryByTestId('dialog-nonmodal-layer')).not.toBeInTheDocument();
     expect(screen.getByTestId('final-hybrid-editor')).toBeVisible();
     expect(screen.getByRole('listitem', { name: 'Booking on Home' })).toBeVisible();
     expect(dialog.querySelectorAll('[data-layout-option]')).toHaveLength(5);
@@ -222,6 +230,15 @@ describe('integrated Booking settings surfaces', () => {
     expect(screen.getByTestId('booking-section-edit')
       .querySelector('[data-booking-renderer="shared-booking-section"]'))
       .toHaveAttribute('data-layout', 'editorial_price_list');
+
+    const scrollBody = dialog.querySelector<HTMLElement>('.final-booking-settings-drawer__body');
+    if (!scrollBody) throw new Error('Desktop Booking settings body was not rendered.');
+    scrollBody.scrollTop = 180;
+    await user.click(within(dialog).getByRole('button', { name: 'View preview' }));
+    expect(dialog).not.toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Show Booking settings' }));
+    expect(dialog).toBeVisible();
+    expect(scrollBody.scrollTop).toBe(180);
   });
 });
 
@@ -285,8 +302,7 @@ describe('unified section movement', () => {
     expect(within(dialog).queryByPlaceholderText('Page name')).not.toBeInTheDocument();
     await user.click(disclosure);
     expect(disclosure).toHaveAttribute('aria-expanded', 'true');
-    expect(within(dialog).getByRole('list', { name: 'Destination pages' }))
-      .toBeVisible();
+    expect(within(dialog).getByText(/There are no other pages yet/)).toBeVisible();
     expect(within(dialog).getByPlaceholderText('Page name')).toBeVisible();
   });
 });
@@ -327,12 +343,20 @@ describe('App customer Preview boundary', () => {
       name: 'Select service',
     }));
     expect(await screen.findByTestId('selected-service-summary'))
-      .toHaveTextContent('Russian Manicure1 hr 45 min · From $80');
+      .toHaveTextContent('Russian Manicure1 hr 45 min · From $80 · 1 add-on');
     expect(window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY))
       .toBe(storedBeforeCustomerFlow);
     expect(storedBeforeCustomerFlow).not.toMatch(/svc-manicure-russian|addon-french|russian/);
 
     await user.click(screen.getByRole('button', { name: 'Back to editor' }));
+    const editPreview = await screen.findByTestId('booking-section-edit');
+    expect(editPreview.querySelector('input[placeholder="Search services"]'))
+      .toHaveValue('');
+    expect(editPreview.querySelector('[data-has-selection="false"]')).toBeInTheDocument();
+    expect(screen.queryByTestId('selected-service-summary')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('booking-handoff-dialog')).not.toBeInTheDocument();
+    expect(within(editPreview).getAllByText('Russian Manicure').length).toBeGreaterThan(0);
     const settingsDialog = await openBookingSettings(user);
     const listOption = settingsDialog.querySelector<HTMLButtonElement>(
       '[data-layout-option="clean_list"]',
@@ -342,21 +366,21 @@ describe('App customer Preview boundary', () => {
     }
     await user.click(listOption);
     await user.click(within(settingsDialog).getByRole('button', {
-      name: 'Close Booking',
+      name: /Close Booking/,
     }));
     await user.click(screen.getByRole('button', { name: 'Preview' }));
 
     const nextPreview = await screen.findByTestId('booking-section-preview');
-    expect(within(nextPreview).getByTestId('selected-service-summary'))
-      .toHaveTextContent('Russian Manicure1 hr 45 min · From $80');
+    expect(screen.getByTestId('selected-service-summary'))
+      .toHaveTextContent('Russian Manicure1 hr 45 min · From $80 · 1 add-on');
     expect(within(nextPreview).getByRole('searchbox', {
       name: 'Search services',
     })).toHaveValue('');
-    await user.click(within(nextPreview).getByRole('button', {
+    await user.click(within(screen.getByTestId('selected-service-summary')).getByRole('button', {
       name: 'Continue',
     }));
     const handoff = screen.getByTestId('booking-handoff-dialog');
-    await waitFor(() => expect(handoff).toHaveAttribute('open'));
+    expect(handoff).toHaveAttribute('aria-modal', 'true');
     expect(handoff).toHaveTextContent('Booking flow continues here');
   });
 });

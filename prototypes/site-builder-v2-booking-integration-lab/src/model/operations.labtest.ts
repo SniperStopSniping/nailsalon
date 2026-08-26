@@ -7,6 +7,7 @@ import {
   BuilderOperationError,
   addPage,
   addSection,
+  commitSectionMove,
   getSectionMoveAnnouncement,
   moveNavigationItem,
   movePage,
@@ -19,6 +20,7 @@ import {
   removeSection,
   renameNavigationItem,
   renamePage,
+  reorderSections,
   restorePage,
   restoreSection,
   resetBookingSectionPresentation,
@@ -146,6 +148,111 @@ describe('section operations', () => {
 
     expect(document.pages[1]).toMatchObject({ name: 'Portfolio', slug: 'my-portfolio' });
     expect(document.pages[1]?.sections[0]?.id).toBe(section.id);
+  });
+
+  it('reorders a page from one complete, exact set of section IDs', () => {
+    const original = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('ordered-section-ids'),
+    });
+    const home = original.pages[0];
+    if (!home) {
+      throw new Error('Missing Home.');
+    }
+    const originalIds = home.sections.map((section) => section.id);
+    const requestedIds = [...originalIds].reverse();
+
+    const reordered = reorderSections(original, home.id, requestedIds);
+
+    expect(reordered.pages[0]?.sections.map((section) => section.id)).toEqual(
+      requestedIds,
+    );
+    expect(reordered.pages[0]?.sections.map((section) => section.order)).toEqual([
+      0, 1, 2,
+    ]);
+    expect(original.pages[0]?.sections.map((section) => section.id)).toEqual(
+      originalIds,
+    );
+    expect(reorderSections(reordered, home.id, requestedIds)).toBe(reordered);
+  });
+
+  it('rejects incomplete, duplicate, or unknown ordered section IDs without mutation', () => {
+    const original = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('invalid-ordered-section-ids'),
+    });
+    const home = original.pages[0];
+    if (!home) {
+      throw new Error('Missing Home.');
+    }
+    const ids = home.sections.map((section) => section.id);
+    const [first, second, third] = ids;
+    if (!first || !second || !third) {
+      throw new Error('Missing starter sections.');
+    }
+    const before = structuredClone(original);
+
+    for (const invalidOrder of [
+      [first, second],
+      [first, first, third],
+      [first, second, 'unknown-section-id'],
+    ]) {
+      expect(() => reorderSections(original, home.id, invalidOrder)).toThrowError(
+        'Section order must contain every section on the page exactly once.',
+      );
+      expect(original).toEqual(before);
+    }
+  });
+
+  it('rejects an invalid or foreign active section before applying any order', () => {
+    const original = initializeStarter('multi_page', {
+      idFactory: createDeterministicIdFactory('invalid-active-section-id'),
+    });
+    const home = original.pages[0];
+    const booking = original.pages
+      .flatMap((page) => page.sections)
+      .find((section) => section.sectionType === 'booking');
+    if (!home || !booking) {
+      throw new Error('Missing starter structure.');
+    }
+    const reversedHomeOrder = home.sections.map((section) => section.id).reverse();
+    const before = structuredClone(original);
+
+    for (const sectionId of ['missing-section-id', booking.id]) {
+      expect(() =>
+        commitSectionMove(original, {
+          sourcePageId: home.id,
+          sectionId,
+          orderedSectionIds: reversedHomeOrder,
+        }),
+      ).toThrowError(`Section not found on source page: ${sectionId}`);
+      expect(original).toEqual(before);
+    }
+  });
+
+  it('keeps the source document intact when a cross-page destination is invalid', () => {
+    const original = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('invalid-move-destination'),
+    });
+    const home = original.pages[0];
+    const booking = home?.sections.find(
+      (section) => section.sectionType === 'booking',
+    );
+    if (!home || !booking) {
+      throw new Error('Missing Booking.');
+    }
+    const before = structuredClone(original);
+
+    expect(() =>
+      commitSectionMove(original, {
+        sourcePageId: home.id,
+        sectionId: booking.id,
+        orderedSectionIds: home.sections.map((section) => section.id).reverse(),
+        destination: {
+          type: 'existing_page',
+          pageId: 'missing-page-id',
+        },
+      }),
+    ).toThrowError('Page not found: missing-page-id');
+    expect(original).toEqual(before);
   });
 });
 
@@ -291,6 +398,50 @@ describe('Booking section operations and outcome invariants', () => {
     expect(document.pages.find((page) => page.id === home.id)?.sections)
       .not.toContainEqual(expect.objectContaining({ id: booking.id }));
     expect(JSON.stringify(CANONICAL_SERVICES)).toBe(canonicalBefore);
+  });
+
+  it('commits a cross-page Booking move without changing presentation settings', () => {
+    const ids = createDeterministicIdFactory('commit-booking-move');
+    let document = initializeStarter('quick_book', { idFactory: ids });
+    const home = document.pages[0];
+    const booking = home?.sections.find(
+      (section) => section.sectionType === 'booking',
+    );
+    if (!home || booking?.sectionType !== 'booking') {
+      throw new Error('Missing Booking.');
+    }
+    const customized = switchBookingLayout(booking.settings, 'editorial_cards');
+    document = updateBookingSectionPresentation(document, booking.id, customized);
+    document = addPage(document, { name: 'Services' }, ids);
+    const services = document.pages.find((page) => page.name === 'Services');
+    const committedHome = document.pages.find((page) => page.id === home.id);
+    if (!services || !committedHome) {
+      throw new Error('Missing move destination.');
+    }
+    const requestedOrder = committedHome.sections
+      .map((section) => section.id)
+      .reverse();
+
+    const moved = commitSectionMove(document, {
+      sourcePageId: home.id,
+      sectionId: booking.id,
+      orderedSectionIds: requestedOrder,
+      destination: { type: 'existing_page', pageId: services.id },
+    });
+    const movedBooking = moved.pages
+      .flatMap((page) => page.sections)
+      .find((section) => section.id === booking.id);
+
+    expect(movedBooking).toMatchObject({
+      id: booking.id,
+      sectionType: 'booking',
+      settings: customized,
+    });
+    expect(moved.pages.find((page) => page.id === services.id)?.sections[0]?.id)
+      .toBe(booking.id);
+    expect(moved.pages.find((page) => page.id === home.id)?.sections.map(
+      (section) => section.id,
+    )).toEqual(requestedOrder.filter((id) => id !== booking.id));
   });
 
   it('updates and resets Booking presentation without accepting placeholder edits', () => {

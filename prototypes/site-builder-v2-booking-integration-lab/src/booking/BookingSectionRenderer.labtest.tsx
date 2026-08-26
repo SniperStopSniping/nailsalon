@@ -68,13 +68,38 @@ describe('shared Booking Section renderer', () => {
     }
   });
 
-  it('makes customer controls inert in Edit mode', () => {
+  it('keeps Edit content readable while removing customer controls from interaction', () => {
     render(<RendererHarness mode="edit" />);
     const region = screen.getByTestId('booking-section-edit')
       .querySelector('.booking-customer-region');
-    expect(region).toHaveAttribute('inert');
-    expect(region).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByRole('group', {
+      name: 'Booking menu preview — 24 services, Visual Grid. Not interactive while editing.',
+    })).toBe(region);
+    expect(region).not.toHaveAttribute('inert');
+    expect(region).not.toHaveAttribute('aria-hidden');
+    const controls = region?.querySelectorAll<HTMLElement>(
+      'button, input, select, textarea, a[href]',
+    ) ?? [];
+    expect(controls.length).toBeGreaterThan(0);
+    controls.forEach((control) => {
+      expect(control).toHaveAttribute('tabindex', '-1');
+      expect(control).toHaveAttribute('aria-hidden', 'true');
+    });
+    expect(region?.querySelectorAll('[data-editor-readonly-control]').length)
+      .toBeGreaterThan(controls.length);
+    expect(within(region as HTMLElement).queryByRole('button')).not.toBeInTheDocument();
+    expect(within(region as HTMLElement).queryByRole('searchbox')).not.toBeInTheDocument();
+    expect(region?.querySelector('input[placeholder="Search services"]'))
+      .toHaveAttribute('aria-hidden', 'true');
+    expect(region?.querySelector('input[placeholder="Search services"]'))
+      .toHaveAttribute('readonly');
+    expect(within(region as HTMLElement).getAllByText('Russian Manicure').length)
+      .toBeGreaterThan(0);
+    expect(screen.getByTestId('booking-section-edit').querySelector('.booking-surface'))
+      .toHaveAttribute('data-has-selection', 'false');
     expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('booking-handoff-dialog')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('selected-service-summary')).not.toBeInTheDocument();
   });
 
   it('shares Service Detail, add-ons, selection summary, and mock handoff', async () => {
@@ -101,7 +126,13 @@ describe('shared Booking Section renderer', () => {
     expect(summary).toHaveTextContent('Russian Manicure');
     expect(summary).toHaveTextContent('1 hr 45 min · From $80');
     await user.click(within(summary).getByRole('button', { name: 'Continue' }));
-    expect(await screen.findByTestId('booking-handoff-dialog')).toHaveTextContent(
+    const handoff = await screen.findByRole('dialog', {
+      name: 'Booking flow continues here',
+    });
+    expect(handoff).toBe(screen.getByTestId('booking-handoff-dialog'));
+    expect(handoff).toHaveAttribute('aria-modal', 'true');
+    expect(handoff).not.toHaveAttribute('open');
+    expect(handoff).toHaveTextContent(
       'Booking flow continues here',
     );
   });

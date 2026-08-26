@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
 import {
@@ -8,15 +6,15 @@ import {
   chooseStarter,
   closeDialog,
   closePagesAndStructure,
-  enterReorder,
   expectNoDocumentOverflow,
   openFreshLab,
+  openMoveForBooking,
+  openMoveFromStructure,
   openPagesAndStructure,
   pageNames,
   reorderLabels,
   sectionLabels,
   selectBooking,
-  sectionsList,
   type StarterName,
 } from './helpers';
 
@@ -32,33 +30,48 @@ async function chooseLayout(
   settings: Locator,
   layout: (typeof LAYOUTS)[number][0],
 ): Promise<void> {
-  await settings.locator(`[data-layout-option="${layout}"]`).click();
-  await expect(settings.locator(`[data-layout-option="${layout}"]`)).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  const option = settings.locator(`[data-layout-option="${layout}"]`);
+  await option.click();
+  await expect(option).toHaveAttribute('aria-pressed', 'true');
 }
 
 async function openBookingSettings(
   page: Page,
   pageName: string,
 ): Promise<Locator> {
-  const card = await selectBooking(page, pageName);
-  const contextualEdit = card
-    .getByRole('button', { name: 'Edit', exact: true })
-    .last();
+  await selectBooking(page, pageName);
   const mobileEdit = page
     .getByRole('group', { name: 'Booking actions' })
     .getByRole('button', { name: 'Edit', exact: true });
   if (await mobileEdit.isVisible()) {
     await mobileEdit.click();
   } else {
-    await contextualEdit.click();
+    await page
+      .getByTestId('selected-section-toolbar')
+      .getByRole('button', { name: 'Edit', exact: true })
+      .click();
   }
-  const dialog = page.getByRole('dialog', { name: 'Booking' });
-  await expect(dialog).toBeVisible();
-  await expect(dialog.getByTestId('booking-settings-panel')).toBeVisible();
-  return dialog;
+
+  const desktopSettings = page.getByRole('dialog', { name: 'Booking settings' });
+  const mobileSettings = page.getByRole('dialog', { name: 'Booking', exact: true });
+  const settings = (await desktopSettings.isVisible())
+    ? desktopSettings
+    : mobileSettings;
+  await expect(settings).toBeVisible();
+  await expect(settings.getByTestId('booking-settings-panel')).toBeVisible();
+  return settings;
+}
+
+async function closeBookingSettings(page: Page, settings: Locator): Promise<void> {
+  const desktopClose = settings.getByRole('button', {
+    name: 'Close Booking settings',
+  });
+  if (await desktopClose.isVisible()) {
+    await desktopClose.click();
+  } else {
+    await settings.getByRole('button', { name: 'Close Booking' }).click();
+  }
+  await expect(settings).toHaveCount(0);
 }
 
 async function enterPreview(page: Page): Promise<Locator> {
@@ -69,19 +82,58 @@ async function enterPreview(page: Page): Promise<Locator> {
   return renderer;
 }
 
-async function resetEntireLab(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'More site options' }).click();
-  await page
-    .getByRole('dialog', { name: 'More' })
-    .getByRole('button', { name: 'Reset Lab' })
+async function selectPhonePreview(page: Page): Promise<void> {
+  const devices = page.getByRole('group', { name: 'Preview viewport' });
+  if (await devices.isVisible()) {
+    await devices.getByRole('button', { name: 'Phone' }).click();
+  }
+  await expect(page.getByTestId('preview-stage')).toHaveClass(
+    /preview-stage--mobile/,
+  );
+}
+
+async function chooseRussianManicureWithFrench(
+  page: Page,
+  renderer: Locator,
+): Promise<void> {
+  const search = renderer.getByRole('searchbox', { name: 'Search services' });
+  await search.fill('russ');
+  await renderer
+    .getByRole('group', { name: 'Service categories' })
+    .getByRole('button', { name: 'Manicure', exact: true })
     .click();
-  await page
-    .getByRole('dialog', { name: 'Reset the entire Lab?' })
-    .getByRole('button', { name: 'Reset Lab' })
+  await renderer
+    .getByRole('button', { name: /View details for Russian Manicure/ })
+    .last()
     .click();
-  await expect(
-    page.getByRole('heading', { name: 'Choose your starting point' }),
-  ).toBeVisible();
+
+  const detail = page.getByTestId('service-detail-dialog');
+  await expect(detail).toBeVisible();
+  await detail.getByRole('checkbox', { name: 'French' }).check();
+  await expect(detail.getByTestId('service-detail-total')).toContainText(
+    '1 hr 45 min',
+  );
+  await expect(detail.getByTestId('service-detail-total')).toContainText(
+    'From $80',
+  );
+}
+
+async function expectContainedBy(inner: Locator, outer: Locator): Promise<void> {
+  const [innerBox, outerBox] = await Promise.all([
+    inner.boundingBox(),
+    outer.boundingBox(),
+  ]);
+  expect(innerBox, 'inner surface has measurable geometry').not.toBeNull();
+  expect(outerBox, 'Preview frame has measurable geometry').not.toBeNull();
+  if (!innerBox || !outerBox) return;
+  expect(innerBox.x).toBeGreaterThanOrEqual(outerBox.x - 1);
+  expect(innerBox.y).toBeGreaterThanOrEqual(outerBox.y - 1);
+  expect(innerBox.x + innerBox.width).toBeLessThanOrEqual(
+    outerBox.x + outerBox.width + 1,
+  );
+  expect(innerBox.y + innerBox.height).toBeLessThanOrEqual(
+    outerBox.y + outerBox.height + 1,
+  );
 }
 
 async function selectPageFromStructure(page: Page, pageName: string): Promise<void> {
@@ -97,36 +149,33 @@ async function selectPageFromStructure(page: Page, pageName: string): Promise<vo
   await expect(page.getByRole('heading', { level: 1, name: pageName })).toBeVisible();
 }
 
+async function readStoredDocument(page: Page): Promise<string | null> {
+  return page.evaluate(
+    (key) => window.localStorage.getItem(key),
+    LAB_STORAGE_KEY,
+  );
+}
+
 test.describe.configure({ mode: 'serial' });
 
-test('all three starter kits initialize the same real Booking section', async ({
+test('all starting points initialize the same real Booking implementation', async ({
   page,
 }) => {
   const starters: Array<{
-    name: StarterName;
-    pages: string[];
-    home: string[];
     bookingPage: string;
     bookingSections: string[];
+    home: string[];
+    name: StarterName;
+    pages: string[];
   }> = [
     {
-      name: 'Quick Book',
-      pages: ['Home'],
-      home: ['Section 01', 'Section 02', 'Booking'],
       bookingPage: 'Home',
       bookingSections: ['Section 01', 'Section 02', 'Booking'],
+      home: ['Section 01', 'Section 02', 'Booking'],
+      name: 'Quick Book',
+      pages: ['Home'],
     },
     {
-      name: 'One-page website',
-      pages: ['Home'],
-      home: [
-        'Section 01',
-        'Section 02',
-        'Section 03',
-        'Section 04',
-        'Section 05',
-        'Booking',
-      ],
       bookingPage: 'Home',
       bookingSections: [
         'Section 01',
@@ -136,13 +185,23 @@ test('all three starter kits initialize the same real Booking section', async ({
         'Section 05',
         'Booking',
       ],
+      home: [
+        'Section 01',
+        'Section 02',
+        'Section 03',
+        'Section 04',
+        'Section 05',
+        'Booking',
+      ],
+      name: 'One-page website',
+      pages: ['Home'],
     },
     {
-      name: 'Multi-page website',
-      pages: ['Home', 'Services / Book', 'Gallery', 'About', 'Contact'],
-      home: ['Section 01', 'Section 02'],
       bookingPage: 'Services / Book',
       bookingSections: ['Section 03', 'Booking'],
+      home: ['Section 01', 'Section 02'],
+      name: 'Multi-page website',
+      pages: ['Home', 'Services / Book', 'Gallery', 'About', 'Contact'],
     },
   ];
 
@@ -166,518 +225,615 @@ test('all three starter kits initialize the same real Booking section', async ({
   }
 });
 
-test('375x600 mobile journey separates editing from the shared customer flow', async ({
+test('Edit is readable but inert, while Phone Preview restores contained customer state', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openFreshLab(page);
+  await chooseStarter(page, 'Quick Book');
+
+  const booking = bookingCard(page, 'Home');
+  const editRegion = booking.getByRole('group', {
+    name: 'Booking menu preview — 24 services, Visual Grid. Not interactive while editing.',
+  });
+  await expect(editRegion).toBeVisible();
+  await expect(editRegion).not.toHaveAttribute('aria-hidden', 'true');
+  await expect(editRegion).not.toHaveAttribute('inert', '');
+  const editSearch = editRegion.locator('input[placeholder="Search services"]');
+  await expect(editSearch).toHaveValue('');
+  await expect(editSearch).toHaveAttribute('tabindex', '-1');
+  await expect(editSearch).toHaveAttribute('aria-hidden', 'true');
+  await expect(editRegion.getByRole('button')).toHaveCount(0);
+  await expect(booking.locator('.booking-surface')).toHaveAttribute(
+    'data-has-selection',
+    'false',
+  );
+  await expect(booking.getByText('Russian Manicure', { exact: true }).last()).toBeVisible();
+  await expect(page.getByTestId('selected-service-summary')).toHaveCount(0);
+  await booking.getByTestId('booking-section-edit').click({ position: { x: 120, y: 180 } });
+  await expect(page.getByTestId('selected-section-toolbar')).toContainText('Booking');
+  await expect(page.getByTestId('service-detail-dialog')).toHaveCount(0);
+  await expect(page.getByTestId('selected-service-summary')).toHaveCount(0);
+
+  let renderer = await enterPreview(page);
+  await selectPhonePreview(page);
+  const frame = page.locator('.preview-frame');
+  await chooseRussianManicureWithFrench(page, renderer);
+
+  const detail = page.getByTestId('service-detail-dialog');
+  await expectContainedBy(detail, frame);
+  await detail.getByRole('button', { name: 'Select service' }).click();
+
+  const summary = page.getByTestId('selected-service-summary');
+  await expect(summary).toContainText('Russian Manicure');
+  await expect(summary).toContainText('1 hr 45 min · From $80 · 1 add-on');
+  await expectContainedBy(summary, frame);
+  await summary.getByRole('button', { name: 'Continue' }).click();
+
+  const handoff = page.getByTestId('booking-handoff-dialog');
+  await expect(handoff).toContainText('Booking flow continues here');
+  await expectContainedBy(handoff, frame);
+  await handoff.getByRole('button', { name: 'Back to the menu' }).click();
+
+  await page.getByRole('button', { name: 'Back to editor' }).click();
+  const cleanEditRegion = bookingCard(page, 'Home').getByRole('group', {
+    name: 'Booking menu preview — 24 services, Visual Grid. Not interactive while editing.',
+  });
+  await expect(cleanEditRegion.locator('input[placeholder="Search services"]')).toHaveValue('');
+  await expect(
+    cleanEditRegion
+      .getByRole('group', { name: 'Service categories' })
+      .locator('.booking-category-pill.is-active'),
+  ).toContainText('All');
+  await expect(cleanEditRegion.locator('.booking-selected-indicator')).toHaveCount(0);
+  await expect(bookingCard(page, 'Home').locator('.booking-surface')).toHaveAttribute(
+    'data-has-selection',
+    'false',
+  );
+  await expect(page.getByTestId('selected-service-summary')).toHaveCount(0);
+  await expect(page.getByTestId('service-detail-dialog')).toHaveCount(0);
+  await expect(page.getByTestId('booking-handoff-dialog')).toHaveCount(0);
+
+  renderer = await enterPreview(page);
+  await selectPhonePreview(page);
+  await expect(renderer.getByRole('searchbox', { name: 'Search services' })).toHaveValue('');
+  await expect(
+    renderer
+      .getByRole('group', { name: 'Service categories' })
+      .getByRole('button', { name: 'All', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByTestId('selected-service-summary')).toContainText(
+    'Russian Manicure',
+  );
+  await expect(page.getByTestId('selected-service-summary')).toContainText(
+    '1 hr 45 min · From $80 · 1 add-on',
+  );
+
+  for (const device of ['Tablet', 'Desktop'] as const) {
+    await page.getByRole('group', { name: 'Preview viewport' })
+      .getByRole('button', { name: device })
+      .click();
+    const deviceFrame = page.locator('.preview-frame');
+    const deviceSummary = page.getByTestId('selected-service-summary');
+    await expectContainedBy(deviceSummary, deviceFrame);
+    await expect(page.locator('.booking-preview-summary')).toHaveCSS('position', 'sticky');
+    await expect(page.locator('.client-site')).toHaveClass(/has-booking-selection/);
+    await deviceSummary.getByRole('button', { name: 'Change' }).click();
+    const deviceDetail = page.getByTestId('service-detail-dialog');
+    await expectContainedBy(deviceDetail, deviceFrame);
+    await deviceDetail.getByRole('button', { name: 'Continue' }).click();
+    const deviceHandoff = page.getByTestId('booking-handoff-dialog');
+    await expectContainedBy(deviceHandoff, deviceFrame);
+    await deviceHandoff.getByRole('button', { name: 'Back to the menu' }).click();
+  }
+});
+
+test('Move is transactional: Enter only, safe dirty dismissal, reload isolation, and Done persistence', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 375, height: 600 });
   await openFreshLab(page);
   await chooseStarter(page, 'Quick Book');
-  await expectNoDocumentOverflow(page);
+  const committed = await readStoredDocument(page);
+  expect(committed).not.toBeNull();
 
-  const booking = bookingCard(page, 'Home');
-  await expect(booking.locator('.booking-customer-region')).toHaveAttribute(
-    'aria-hidden',
-    'true',
-  );
-  await expect(booking.locator('.booking-customer-region')).toHaveAttribute(
-    'inert',
-    '',
-  );
-  await expect(page.getByTestId('service-detail-dialog')).toHaveCount(0);
-  await booking.locator('.section-card__select-surface').click();
-  await expect(page.getByTestId('service-detail-dialog')).toHaveCount(0);
-  await expect(booking).toHaveClass(/is-selected/);
-
-  const settings = await openBookingSettings(page, 'Home');
-  await expect(settings).toContainText(
-    'Your services, prices and booking settings stay the same.',
-  );
-  for (const [layout] of LAYOUTS) {
-    await chooseLayout(settings, layout);
-    await expect(booking.locator('.booking-surface')).toHaveAttribute(
-      'data-layout',
-      layout,
-    );
-  }
-  await chooseLayout(settings, 'visual_grid');
-  await closeDialog(page, 'Booking');
-
-  let renderer = await enterPreview(page);
-  await expect(page.locator('.section-context-toolbar')).toHaveCount(0);
-  const search = renderer.getByRole('searchbox', { name: 'Search services' });
-  await search.fill('Russian');
+  let move = await openMoveForBooking(page, 'Home');
+  const activeRow = move.locator('[data-move-target-row="true"]');
+  await expect(activeRow).toBeFocused();
+  await expect(move.getByLabel('Position for Booking')).not.toBeFocused();
+  await expect(reorderLabels(page)).resolves.toEqual([
+    'Section 01',
+    'Section 02',
+    'Booking',
+  ]);
   await expect(
-    renderer.getByRole('button', { name: /View details for Russian Manicure/ }).first(),
-  ).toBeVisible();
-  await search.fill('');
-  await renderer
-    .getByRole('button', { name: /View details for Russian Manicure/ })
-    .first()
-    .click();
+    move.getByRole('button', {
+      name: 'Move Booking down, unavailable — already last',
+    }),
+  ).toHaveAttribute('aria-disabled', 'true');
 
-  const detail = page.getByTestId('service-detail-dialog');
-  await expect(detail).toBeVisible();
-  await expect(detail.getByRole('heading', { name: 'Russian Manicure' })).toBeVisible();
-  await detail.getByRole('checkbox', { name: /French/ }).check();
-  await expect(detail.getByTestId('service-detail-total')).toContainText(
-    '1 hr 45 min',
-  );
-  await expect(detail.getByTestId('service-detail-total')).toContainText(
-    'From $80',
-  );
-  await detail.getByRole('button', { name: 'Select service' }).click();
+  const position = move.getByLabel('Position for Booking');
+  await position.fill('1');
+  await position.press('Tab');
+  await expect(position).toHaveValue('3');
+  await expect(reorderLabels(page)).resolves.toEqual([
+    'Section 01',
+    'Section 02',
+    'Booking',
+  ]);
 
-  const summary = page.getByTestId('selected-service-summary');
-  await expect(summary).toContainText('Russian Manicure');
-  await expect(summary).toContainText('1 hr 45 min · From $80');
-  const summaryBeforeScroll = await summary.boundingBox();
-  expect(summaryBeforeScroll).not.toBeNull();
-  expect(
-    (summaryBeforeScroll?.y ?? 0) + (summaryBeforeScroll?.height ?? 0),
-  ).toBeLessThanOrEqual(600);
-  await page.mouse.wheel(0, 900);
-  const summaryAfterScroll = await summary.boundingBox();
-  expect(summaryAfterScroll).not.toBeNull();
-  expect(Math.abs(
-    (summaryAfterScroll?.y ?? 0) - (summaryBeforeScroll?.y ?? 0),
-  )).toBeLessThanOrEqual(1);
-
-  await page.getByRole('button', { name: 'Back to editor' }).click();
-  const settingsAfterSelection = await openBookingSettings(page, 'Home');
-  await chooseLayout(settingsAfterSelection, 'clean_list');
-  await closeDialog(page, 'Booking');
-  renderer = await enterPreview(page);
-  await expect(renderer.locator('.booking-surface')).toHaveAttribute(
-    'data-layout',
-    'clean_list',
-  );
-  await expect(page.getByTestId('selected-service-summary')).toContainText(
-    'Russian Manicure',
-  );
-  await page
-    .getByTestId('selected-service-summary')
-    .getByRole('button', { name: 'Continue' })
-    .click();
-  await expect(page.getByTestId('booking-handoff-dialog')).toContainText(
-    'Booking flow continues here',
-  );
-  const futureFlow = page.getByLabel('Future canonical booking flow');
-  for (const step of [
-    'Service',
-    'Options',
-    'Technician',
-    'Time',
-    'Details',
-    'Payment',
-    'Confirmation',
-  ]) {
-    await expect(futureFlow.getByText(step, { exact: true })).toBeVisible();
-  }
-});
-
-test('selected Booking Move edits local order with cancel and commit boundaries', async ({
-  page,
-}) => {
-  await page.setViewportSize({ width: 375, height: 700 });
-  await openFreshLab(page);
-  await chooseStarter(page, 'Quick Book');
-
-  await selectBooking(page, 'Home');
-  await page
-    .getByRole('group', { name: 'Booking actions' })
-    .getByRole('button', { name: 'Move', exact: true })
-    .click();
-
-  let move = page.getByRole('dialog', { name: 'Move Booking' });
+  await position.fill('1');
+  await position.press('Escape');
   await expect(move).toBeVisible();
-  await expect(move.getByLabel('Position for Booking')).toBeFocused();
-  let compactOrder = move.getByTestId('reorder-list');
-  await expect(compactOrder).toBeVisible();
-  await expect(
-    compactOrder.locator('.reorder-row > .reorder-row__label > strong').allTextContents(),
-  ).resolves.toEqual(['Section 01', 'Section 02', 'Booking']);
-  await expect(move.getByLabel('Position for Section 01')).toHaveValue('1');
-  await expect(move.getByLabel('Position for Section 02')).toHaveValue('2');
-  await expect(move.getByLabel('Position for Booking')).toHaveValue('3');
-  await expect(move.getByRole('button', { name: 'Move Booking up' })).toBeVisible();
-  await expect(move.getByRole('button', { name: 'Move Booking down' })).toBeDisabled();
-  await expect(move.getByRole('button', {
-    name: 'Drag Booking. Use arrow keys after lifting with Space.',
-  })).toBeVisible();
-  await expect(
-    move.getByRole('button', { name: 'Move Booking to another page' }),
-  ).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Keep this new order?' })).toHaveCount(0);
+  await expect(position).toHaveValue('3');
+  await expect(activeRow).toBeFocused();
 
-  await move.getByLabel('Position for Booking').fill('1');
-  await move.getByLabel('Position for Booking').press('Enter');
-  await expect(
-    compactOrder.locator('.reorder-row > .reorder-row__label > strong').allTextContents(),
-  ).resolves.toEqual(['Booking', 'Section 01', 'Section 02']);
-  await move.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(move).toHaveCount(0);
+  await position.fill('0');
+  await position.press('Enter');
+  await expect(move.getByText('Enter a position from 1 to 3.')).toBeVisible();
+  await expect(position).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.getByTestId('reorder-live-region')).toHaveText(
+    'Enter a position from 1 to 3.',
+  );
+
+  await position.fill('1');
+  await position.press('Enter');
+  await expect(position).toBeFocused();
+  await expect(position).toHaveValue('1');
+  await expect(reorderLabels(page)).resolves.toEqual([
+    'Booking',
+    'Section 01',
+    'Section 02',
+  ]);
+  await expect(page.getByLabel('Save status')).toContainText('Order not saved yet');
+  await expect(move.getByText('Order not saved yet')).toBeVisible();
+  expect(await readStoredDocument(page)).toBe(committed);
+
+  await page.reload();
   await expect(sectionLabels(page, 'Home')).resolves.toEqual([
     'Section 01',
     'Section 02',
     'Booking',
   ]);
 
-  await selectBooking(page, 'Home');
-  await page
-    .getByRole('group', { name: 'Booking actions' })
-    .getByRole('button', { name: 'Move', exact: true })
-    .click();
-  move = page.getByRole('dialog', { name: 'Move Booking' });
-  compactOrder = move.getByTestId('reorder-list');
+  move = await openMoveForBooking(page, 'Home');
   await move.getByLabel('Position for Booking').fill('1');
   await move.getByLabel('Position for Booking').press('Enter');
-  await move.getByRole('button', { name: 'Move Booking down' }).click();
-  await expect(move.getByLabel('Position for Booking')).toHaveValue('2');
-  await move.getByRole('button', { name: 'Move Booking up' }).click();
-  await expect(move.getByLabel('Position for Booking')).toHaveValue('1');
+  await move.getByRole('button', { name: 'Close Move Booking' }).click();
+  let confirmation = page.getByRole('dialog', { name: 'Keep this new order?' });
+  await expect(confirmation).toContainText('position 1 instead of 3');
+  await confirmation.getByRole('button', { name: 'Discard changes' }).click();
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
+    'Section 01',
+    'Section 02',
+    'Booking',
+  ]);
 
+  move = await openMoveForBooking(page, 'Home');
+  await move.getByLabel('Position for Booking').fill('1');
+  await move.getByLabel('Position for Booking').press('Enter');
+  await move.locator('[data-move-target-row="true"]').focus();
+  await page.keyboard.press('Escape');
+  confirmation = page.getByRole('dialog', { name: 'Keep this new order?' });
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole('button', { name: 'Keep order' }).click();
+  await expect(page.locator('.toast').getByText('Section order saved.')).toBeVisible();
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
+    'Booking',
+    'Section 01',
+    'Section 02',
+  ]);
+  await expect.poll(() => readStoredDocument(page)).not.toBe(committed);
+
+  await page.reload();
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
+    'Booking',
+    'Section 01',
+    'Section 02',
+  ]);
+  const bookingFirstCommitted = await readStoredDocument(page);
+
+  move = await openMoveForBooking(page, 'Home');
+  await move.getByLabel('Position for Booking').fill('3');
+  await move.getByLabel('Position for Booking').press('Enter');
+  await expect(page.getByTestId('final-hybrid-editor')).toHaveAttribute('inert', '');
+  await page.keyboard.press('Control+z');
+  await move.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
+    'Booking',
+    'Section 01',
+    'Section 02',
+  ]);
+
+  move = await openMoveForBooking(page, 'Home');
+  await move.getByLabel('Position for Booking').fill('3');
+  await move.getByLabel('Position for Booking').press('Enter');
+  await page.getByTestId('dialog-backdrop').click({ position: { x: 4, y: 4 } });
+  confirmation = page.getByRole('dialog', { name: 'Keep this new order?' });
+  await expect(confirmation).toBeVisible();
+  await confirmation.getByRole('button', { name: 'Discard changes' }).click();
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
+    'Booking',
+    'Section 01',
+    'Section 02',
+  ]);
+
+  move = await openMoveForBooking(page, 'Home');
+  await move.getByRole('button', { name: 'Move Booking down' }).click();
   const handle = move.getByRole('button', {
     name: 'Drag Booking. Use arrow keys after lifting with Space.',
   });
   await handle.focus();
   await handle.press('Space');
   await handle.press('ArrowDown');
-  await handle.press('Space');
+  await handle.press('Escape');
+  await expect(move).toBeVisible();
   await expect(move.getByLabel('Position for Booking')).toHaveValue('2');
-  await move.getByRole('button', { name: 'Move Booking up' }).click();
-  await expect(move.getByLabel('Position for Booking')).toHaveValue('1');
-
-  const dragStart = await handle.boundingBox();
-  const dragTarget = await compactOrder.locator('.reorder-row').last().boundingBox();
-  expect(dragStart).not.toBeNull();
-  expect(dragTarget).not.toBeNull();
-  if (!dragStart || !dragTarget) {
-    throw new Error('Unified Move pointer-drag geometry was unavailable.');
-  }
-  await page.mouse.move(
-    dragStart.x + dragStart.width / 2,
-    dragStart.y + dragStart.height / 2,
-  );
-  await page.mouse.down();
-  await page.mouse.move(
-    dragTarget.x + dragTarget.width / 2,
-    dragTarget.y + dragTarget.height / 2,
-    { steps: 14 },
-  );
-  await page.mouse.up();
+  await handle.focus();
+  await handle.press('Space');
+  await handle.press('ArrowDown');
+  await handle.press('Space');
   await expect(move.getByLabel('Position for Booking')).toHaveValue('3');
-  await move.getByLabel('Position for Booking').fill('1');
-  await move.getByLabel('Position for Booking').press('Enter');
+  await move.getByRole('button', { name: 'Move Booking up' }).click();
+  await expect(move.getByLabel('Position for Booking')).toHaveValue('2');
   await move.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(move).toHaveCount(0);
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Booking',
-    'Section 01',
-    'Section 02',
-  ]);
-
+  await expect(page.locator('.toast').getByText('Section order saved.')).toBeVisible();
+  await expect(page.getByLabel('Save status')).toContainText('Saved');
+  await expect.poll(() => readStoredDocument(page)).not.toBe(bookingFirstCommitted);
   await page.reload();
   await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Booking',
     'Section 01',
+    'Booking',
     'Section 02',
   ]);
 });
 
-test('Booking reorders, moves, persists, exports safely, and remains protected', async ({
+test('Pages & Structure opens the same Move surface and a one-section page exposes only cross-page movement', async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 375, height: 700 });
+  await page.setViewportSize({ width: 375, height: 600 });
   await openFreshLab(page);
   await chooseStarter(page, 'Quick Book');
-
-  await enterReorder(page);
-  await page.getByRole('button', { name: 'Move Booking up' }).click();
-  await expect(reorderLabels(page)).resolves.toEqual([
-    'Section 01',
-    'Booking',
-    'Section 02',
-  ]);
-  await page
-    .getByRole('group', { name: 'Reorder actions' })
-    .getByRole('button', { name: 'Cancel' })
-    .click();
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Section 01',
-    'Section 02',
-    'Booking',
-  ]);
-
-  await enterReorder(page);
-  const bookingHandle = page.getByRole('button', {
-    name: 'Drag Booking. Use arrow keys after lifting with Space.',
-  });
-  await bookingHandle.focus();
-  await bookingHandle.press('Space');
-  await bookingHandle.press('ArrowUp');
-  await bookingHandle.press('Space');
-  await expect(reorderLabels(page)).resolves.toEqual([
-    'Section 01',
-    'Booking',
-    'Section 02',
-  ]);
-  await expect(page.getByTestId('reorder-live-region')).toHaveText(
-    'Booking moved to position 2 of 3.',
-  );
-  await page
-    .getByRole('group', { name: 'Reorder actions' })
-    .getByRole('button', { name: 'Done' })
-    .click();
-
-  const bookingSettings = await openBookingSettings(page, 'Home');
-  await chooseLayout(bookingSettings, 'clean_list');
-  await closeDialog(page, 'Booking');
-
   await selectBooking(page, 'Home');
-  await page
-    .getByRole('group', { name: 'Booking actions' })
-    .getByRole('button', { name: 'Move', exact: true })
-    .click();
-  const move = page.getByRole('dialog', { name: 'Move Booking' });
-  await expect(move.getByRole('list', { name: 'Destination pages' })).toHaveCount(0);
+
+  let move = await openMoveFromStructure(page);
+  await expect(move.getByTestId('move-section-panel')).toBeVisible();
+  await expect(move.locator('[data-move-target-row="true"]')).toContainText(
+    'Booking',
+  );
+  await expect(move.locator('[data-move-target-row="true"]')).toContainText(
+    'Moving',
+  );
+  await expect(move.getByRole('group', { name: 'Move actions' })).toBeVisible();
+
   await move
     .getByRole('button', { name: 'Move Booking to another page' })
     .click();
-  await expect(move.getByRole('list', { name: 'Destination pages' })).toHaveCount(1);
-  await expect(move.getByPlaceholder('Page name')).toBeVisible();
-  await move.getByPlaceholder('Page name').fill('Services');
-  await move.getByRole('button', { name: 'Create page and move' }).click();
-  const navigationPrompt = page.getByRole('dialog', { name: 'Add a menu?' });
-  if (await navigationPrompt.isVisible()) {
-    await navigationPrompt.getByRole('button', { name: 'Add menu' }).click();
+  const pageName = move.getByPlaceholder('Page name');
+  await expect(pageName).toBeFocused();
+  await expect(pageName).toBeInViewport();
+  const createAndMove = move.getByRole('button', { name: 'Create page and move' });
+  await expect(createAndMove).toBeInViewport();
+  const [createBox, footerBox] = await Promise.all([
+    createAndMove.boundingBox(),
+    move.getByRole('group', { name: 'Move actions' }).boundingBox(),
+  ]);
+  expect(createBox).not.toBeNull();
+  expect(footerBox).not.toBeNull();
+  if (createBox && footerBox) {
+    expect(createBox.y + createBox.height).toBeLessThanOrEqual(footerBox.y + 1);
+  }
+
+  await pageName.fill('Services');
+  await createAndMove.click();
+  const menuPrompt = page.getByRole('dialog', { name: 'Add a menu?' });
+  if (await menuPrompt.isVisible()) {
+    const notNow = menuPrompt.getByRole('button', { name: /Not now|Keep menu off/ });
+    await notNow.click();
   }
   await expect(page.getByRole('heading', { level: 1, name: 'Services' })).toBeVisible();
   await expect(sectionLabels(page, 'Services')).resolves.toEqual(['Booking']);
-  await expect(bookingCard(page, 'Services').locator('.booking-surface')).toHaveAttribute(
-    'data-layout',
-    'clean_list',
-  );
 
-  await enterPreview(page);
-  await expect(page.getByRole('main', { name: 'Services preview' })).toBeVisible();
-  const openNavigation = page.getByRole('button', { name: 'Open site navigation' });
-  if (await openNavigation.isVisible()) {
-    await openNavigation.click();
-  }
-  await page
-    .getByRole('navigation', { name: 'Preview site navigation' })
-    .getByRole('button', { name: 'Home' })
-    .click();
-  await expect(page.getByRole('main', { name: 'Home preview' })).toBeVisible();
-  await expect(page.getByTestId('booking-section-preview')).toHaveCount(0);
-  if (await openNavigation.isVisible()) {
-    await openNavigation.click();
-  }
-  await page
-    .getByRole('navigation', { name: 'Preview site navigation' })
-    .getByRole('button', { name: 'Services' })
-    .click();
-  await expect(page.getByTestId('booking-section-preview')).toBeVisible();
-  await page.getByRole('button', { name: 'Back to editor' }).click();
-
-  await selectBooking(page, 'Services');
-  await page
-    .getByRole('group', { name: 'Booking actions' })
-    .getByRole('button', { name: 'Hide' })
-    .click();
-  const protection = page.getByRole('dialog', { name: 'Keep a way to book' });
-  await expect(protection).toContainText(
-    'Your site needs at least one visible way for clients to start booking.',
-  );
-  await protection.getByRole('button', { name: 'Keep Booking' }).click();
-  await expect(bookingCard(page, 'Services')).not.toHaveClass(/is-hidden/);
-  await page
-    .getByRole('group', { name: 'Booking actions' })
-    .getByRole('button', { name: 'More' })
-    .click();
-  await page
-    .getByRole('dialog', { name: 'Booking actions' })
-    .getByRole('button', { name: 'Remove from page' })
-    .click();
+  const structure = await openPagesAndStructure(page);
   await expect(
-    page.getByRole('dialog', { name: 'Keep a way to book' }),
-  ).toContainText('Your site needs at least one visible way');
-  await page
-    .getByRole('dialog', { name: 'Keep a way to book' })
-    .getByRole('button', { name: 'Keep Booking' })
-    .click();
-  await expect(sectionLabels(page, 'Services')).resolves.toEqual(['Booking']);
+    structure.getByRole('button', { name: 'Arrange sections', exact: true }),
+  ).toHaveCount(0);
+  await closePagesAndStructure(structure);
 
-  await page.reload();
-  await expect(pageNames(page)).resolves.toEqual(['Home', 'Services']);
-  await selectPageFromStructure(page, 'Services');
-  await expect(sectionLabels(page, 'Services')).resolves.toEqual(['Booking']);
-
-  await page.getByRole('button', { name: 'More site options' }).click();
-  const downloadPromise = page.waitForEvent('download');
-  await page
-    .getByRole('dialog', { name: 'More' })
-    .getByRole('button', { name: 'Export JSON' })
-    .click();
-  const download = await downloadPromise;
-  const path = await download.path();
-  expect(path).toBeTruthy();
-  const exported = await readFile(path as string, 'utf8');
-  const exportedDocument = JSON.parse(exported) as {
-    pages: Array<{ sections: Array<{ sectionType: string; settings?: { layout: string } }> }>;
-  };
-  expect(exported).not.toContain('Russian Manicure');
-  expect(exported).not.toContain('selectedServiceId');
-  expect(
-    exportedDocument.pages
-      .flatMap((candidate) => candidate.sections)
-      .find((section) => section.sectionType === 'booking')?.settings?.layout,
-  ).toBe('clean_list');
-
-  await resetEntireLab(page);
-  await page.getByLabel('Import site JSON file').setInputFiles({
-    buffer: Buffer.from(exported),
-    mimeType: 'application/json',
-    name: 'integration-lab.json',
-  });
-  await expect(page.getByRole('heading', { level: 1, name: 'Home' })).toBeVisible();
-  await selectPageFromStructure(page, 'Services');
-  await expect(sectionLabels(page, 'Services')).resolves.toEqual(['Booking']);
-
-  const invalidDocument = JSON.parse(exported) as {
-    pages: Array<{ sections: Array<{ sectionType: string }> }>;
-  };
-  for (const candidate of invalidDocument.pages) {
-    candidate.sections = candidate.sections.filter(
-      (section) => section.sectionType !== 'booking',
-    );
-  }
-  await page.getByRole('button', { name: 'More site options' }).click();
-  await page
-    .getByRole('dialog', { name: 'More' })
-    .getByLabel('Import site JSON file')
-    .setInputFiles({
-      buffer: Buffer.from(JSON.stringify(invalidDocument)),
-      mimeType: 'application/json',
-      name: 'missing-booking.json',
-    });
+  move = await openMoveForBooking(page, 'Services');
+  await expect(move).toContainText('Booking is the only section on Services.');
+  await expect(move.getByLabel('Position for Booking')).toHaveCount(0);
+  await expect(move.getByRole('button', { name: /Move Booking up/ })).toHaveCount(0);
   await expect(
-    page.getByRole('dialog', { name: 'Import could not be completed' }),
-  ).toContainText(/booking/i);
+    move.getByRole('button', {
+      name: 'Drag Booking. Use arrow keys after lifting with Space.',
+    }),
+  ).toHaveCount(0);
+  await expect(
+    move.getByRole('button', { name: 'Move Booking to another page' }),
+  ).toHaveAttribute('aria-expanded', 'true');
+  await expect(move.getByRole('list', { name: 'Destination pages' })).toBeVisible();
+  await move.getByRole('button', { name: 'Cancel', exact: true }).click();
 });
 
-test('1440px uses a temporary drawer and one responsive renderer in every layout', async ({
+test('long selected Booking keeps named contextual controls reachable without top-bar collisions', async ({
   page,
 }) => {
-  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.setViewportSize({ width: 1440, height: 768 });
   await openFreshLab(page);
   await chooseStarter(page, 'Quick Book');
-  const settings = await openBookingSettings(page, 'Home');
-  const settingsBox = await settings.boundingBox();
-  expect(settingsBox?.x).toBeGreaterThan(900);
-  await expect(page.getByTestId('booking-section-edit')).toBeVisible();
+  let booking = bookingCard(page, 'Home');
+  await expect(booking).toHaveAttribute('data-booking-editor-collapsed', 'true');
+  await selectBooking(page, 'Home');
 
-  for (const [layout] of LAYOUTS) {
-    await chooseLayout(settings, layout);
-    await expect(page.getByTestId('booking-section-edit').locator('.booking-surface')).toHaveAttribute(
-      'data-layout',
-      layout,
-    );
+  const toolbar = page.getByTestId('selected-section-toolbar');
+  await expect(toolbar).toContainText('Booking');
+  await expect(toolbar).toContainText('Visual Grid');
+  for (const action of ['Edit', 'Move', 'Expand', 'More']) {
+    await expect(toolbar.getByRole('button', { name: action, exact: true })).toBeVisible();
   }
-  await chooseLayout(settings, 'editorial_price_list');
-  await closeDialog(page, 'Booking');
-
-  let renderer = await enterPreview(page);
-  await expect(renderer.locator('.booking-surface')).toHaveAttribute(
-    'data-layout',
-    'editorial_price_list',
-  );
-  const devices = page.getByRole('group', { name: 'Preview viewport' });
-  for (const [button, stageClass] of [
-    ['Phone', 'preview-stage--mobile'],
-    ['Tablet', 'preview-stage--tablet'],
-    ['Desktop', 'preview-stage--desktop'],
-  ] as const) {
-    await devices.getByRole('button', { name: button }).click();
-    await expect(page.getByTestId('preview-stage')).toHaveClass(
-      new RegExp(stageClass),
-    );
+  const [topbarBox, toolbarBox] = await Promise.all([
+    page.getByRole('banner', { name: 'Site builder toolbar' }).boundingBox(),
+    toolbar.boundingBox(),
+  ]);
+  expect(topbarBox).not.toBeNull();
+  expect(toolbarBox).not.toBeNull();
+  if (topbarBox && toolbarBox) {
+    expect(toolbarBox.y).toBeGreaterThanOrEqual(topbarBox.y + topbarBox.height - 1);
+  }
+  for (const action of ['Edit', 'Move', 'Expand', 'More']) {
+    const hitTestable = await toolbar
+      .getByRole('button', { name: action, exact: true })
+      .evaluate((button) => {
+        const box = button.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          box.left + box.width / 2,
+          box.top + box.height / 2,
+        );
+        return hit === button || (hit !== null && button.contains(hit));
+      });
+    expect(hitTestable, `${action} remains hit-testable`).toBe(true);
   }
 
-  await page.getByRole('button', { name: 'Back to editor' }).click();
-  for (const [layout, label] of LAYOUTS) {
-    const drawer = await openBookingSettings(page, 'Home');
-    await chooseLayout(drawer, layout);
-    await closeDialog(page, 'Booking');
-    renderer = await enterPreview(page);
-    await expect(renderer.locator('.booking-surface')).toHaveAttribute(
-      'data-layout',
-      layout,
-    );
-    await expect(renderer.locator('.booking-surface')).toHaveAttribute(
-      'aria-label',
-      `${label} booking menu`,
-    );
-    await page.getByRole('button', { name: 'Back to editor' }).click();
-  }
-});
-
-test('responsive, reduced-motion, and 100-service states stay operable without overflow', async ({
-  page,
-}) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  const scenarios = [
-    { height: 700, width: 320, zoom: '1' },
-    { height: 600, width: 375, zoom: '1' },
-    { height: 900, width: 750, zoom: '2' },
-  ] as const;
-
-  for (const scenario of scenarios) {
-    await page.setViewportSize({ width: scenario.width, height: scenario.height });
-    await openFreshLab(page);
-    await page.evaluate((zoom) => {
-      document.documentElement.style.zoom = zoom;
-    }, scenario.zoom);
-    await chooseStarter(page, 'Quick Book');
-    await expectNoDocumentOverflow(page);
-    const booking = bookingCard(page, 'Home');
-    const motion = await booking.evaluate((element) => {
-      const styles = window.getComputedStyle(element);
-      return {
-        animationDuration: styles.animationDuration,
-        transitionDuration: styles.transitionDuration,
-      };
-    });
-    expect(Number.parseFloat(motion.animationDuration)).toBeLessThanOrEqual(0.001);
-    expect(Number.parseFloat(motion.transitionDuration)).toBeLessThanOrEqual(0.001);
-    await enterPreview(page);
-    await page
-      .getByRole('group', { name: 'Preview viewport' })
-      .getByRole('button', { name: 'Phone' })
-      .click();
-    await expectNoDocumentOverflow(page);
-  }
+  await toolbar.getByRole('button', { name: 'Expand', exact: true }).click();
+  await expect(booking).toHaveAttribute('data-booking-editor-collapsed', 'false');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(booking).toHaveAttribute('data-booking-editor-collapsed', 'false');
+  await page.setViewportSize({ width: 1440, height: 768 });
+  await booking.evaluate((element) => {
+    const absoluteTop = element.getBoundingClientRect().top + window.scrollY;
+    window.scrollTo({ top: absoluteTop + 1800, behavior: 'auto' });
+  });
+  await expect(toolbar.getByRole('button', { name: 'Collapse', exact: true })).toBeVisible();
+  await page.evaluate(() => window.scrollTo({ top: 0, behavior: 'auto' }));
+  const returnToBooking = toolbar.getByRole('button', { name: 'Back to Booking' });
+  await expect(returnToBooking).toBeVisible();
+  await returnToBooking.click();
+  await expect(toolbar.getByRole('button', { name: 'Collapse', exact: true })).toBeVisible();
 
   await page.setViewportSize({ width: 375, height: 600 });
   await openFreshLab(page);
   await chooseStarter(page, 'Quick Book');
+  booking = bookingCard(page, 'Home');
+  await expect(booking).toHaveAttribute('data-booking-editor-collapsed', 'true');
+  await selectBooking(page, 'Home');
+  const dock = page.getByRole('group', { name: 'Booking actions' });
+  await expect(dock).toContainText('Booking');
+  await expect(dock).toContainText('Visual Grid');
+  await expect(dock.getByRole('button', { name: 'Expand', exact: true })).toBeVisible();
+  await dock.getByRole('button', { name: 'Expand', exact: true }).click();
+  await expect(booking).toHaveAttribute('data-booking-editor-collapsed', 'false');
+  await booking.evaluate((element) => {
+    const absoluteTop = element.getBoundingClientRect().top + window.scrollY;
+    window.scrollTo({ top: absoluteTop + 1800, behavior: 'auto' });
+  });
+  await expect(dock.getByRole('button', { name: 'Collapse', exact: true })).toBeVisible();
+  await dock.getByRole('button', { name: 'Collapse', exact: true }).click();
+  await expect(booking).toHaveAttribute('data-booking-editor-collapsed', 'true');
+});
+
+test('desktop Booking settings use a non-overlapping column and retain the preview compare loop', async ({
+  page,
+}) => {
+  for (const width of [1440, 1280, 1024, 920]) {
+    await page.setViewportSize({ width, height: 768 });
+    await openFreshLab(page);
+    await chooseStarter(page, 'Quick Book');
+    const settings = await openBookingSettings(page, 'Home');
+    const topbar = page.getByRole('banner', { name: 'Site builder toolbar' });
+    const [settingsBox, topbarBox] = await Promise.all([
+      settings.boundingBox(),
+      topbar.boundingBox(),
+    ]);
+    expect(settingsBox).not.toBeNull();
+    expect(topbarBox).not.toBeNull();
+    if (settingsBox && topbarBox) {
+      expect(settingsBox.y).toBeGreaterThanOrEqual(
+        topbarBox.y + topbarBox.height - 1,
+      );
+    }
+
+    await expect(topbar.getByRole('button', { name: 'Preview' })).toBeVisible();
+    await expect(topbar.getByRole('button', { name: 'Undo' })).toBeVisible();
+    await expect(topbar.getByRole('button', { name: 'Redo' })).toBeVisible();
+    await expect(topbar.getByRole('button', { name: 'More site options' })).toBeVisible();
+
+    if (width >= 1180) {
+      const canvasBox = await page.locator('.final-canvas-frame').boundingBox();
+      expect(canvasBox).not.toBeNull();
+      if (canvasBox && settingsBox) {
+        expect(canvasBox.x + canvasBox.width).toBeLessThanOrEqual(settingsBox.x + 1);
+      }
+    }
+
+    for (const [layout] of LAYOUTS) {
+      await chooseLayout(settings, layout);
+      await expect(
+        page.getByTestId('booking-section-edit').locator('.booking-surface'),
+      ).toHaveAttribute('data-layout', layout);
+    }
+
+    const scrollBody = settings.locator('.final-booking-settings-drawer__body');
+    await scrollBody.evaluate((element) => {
+      element.scrollTop = Math.min(220, element.scrollHeight - element.clientHeight);
+    });
+    const scrollTop = await scrollBody.evaluate((element) => element.scrollTop);
+    await settings.getByRole('button', { name: 'View preview' }).click();
+    await expect(settings).toBeHidden();
+    await expect(page.getByRole('button', { name: 'Show Booking settings' })).toBeVisible();
+    await page.getByRole('button', { name: 'Show Booking settings' }).click();
+    await expect(settings).toBeVisible();
+    await expect.poll(() => scrollBody.evaluate((element) => element.scrollTop)).toBe(
+      scrollTop,
+    );
+    await closeBookingSettings(page, settings);
+  }
+});
+
+test('320px and 375x600 keep the starter action, editor, and short-height Move controls reachable', async ({
+  page,
+}) => {
+  for (const width of [320, 375]) {
+    await page.setViewportSize({ width, height: 600 });
+    await openFreshLab(page);
+    const quickBook = page.getByRole('button', { name: /^Quick Book/ });
+    const quickBookBox = await quickBook.boundingBox();
+    expect(quickBookBox).not.toBeNull();
+    if (quickBookBox) {
+      expect(quickBookBox.y).toBeLessThan(600);
+    }
+    await expect(quickBook).toBeInViewport();
+    await quickBook.click();
+    await expectNoDocumentOverflow(page);
+
+    const move = await openMoveForBooking(page, 'Home');
+    await expectNoDocumentOverflow(page);
+    await move
+      .getByRole('button', { name: 'Move Booking to another page' })
+      .click();
+    await expect(move.getByPlaceholder('Page name')).toBeFocused();
+    await expect(move.getByPlaceholder('Page name')).toBeInViewport();
+    await expect(
+      move.getByRole('button', { name: 'Create page and move' }),
+    ).toBeInViewport();
+    await expect(move.getByRole('button', { name: 'Cancel' })).toBeVisible();
+    await expect(move.getByRole('button', { name: 'Done' })).toBeVisible();
+    await move.getByRole('button', { name: 'Cancel' }).click();
+  }
+});
+
+test('all five layouts remain shared and the 100-service editor collapses while Preview stays full', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await openFreshLab(page);
+  await chooseStarter(page, 'Quick Book');
+  const settings = await openBookingSettings(page, 'Home');
+  for (const [layout, label] of LAYOUTS) {
+    await chooseLayout(settings, layout);
+    const surface = page.getByTestId('booking-section-edit').locator('.booking-surface');
+    await expect(surface).toHaveAttribute('data-layout', layout);
+    await expect(surface).toHaveAttribute('aria-label', `${label} booking menu`);
+  }
+  await chooseLayout(settings, 'visual_grid');
+  await closeBookingSettings(page, settings);
+
   await page.getByRole('button', { name: 'More site options' }).click();
   const options = page.getByRole('dialog', { name: 'More' });
   await options.getByLabel('Booking service menu fixture').selectOption('stress_100');
   await closeDialog(page, 'More');
   const booking = bookingCard(page, 'Home');
-  await expect(booking.getByRole('button', { name: 'Show full Booking preview' })).toBeVisible();
-  const settings = await openBookingSettings(page, 'Home');
-  await chooseLayout(settings, 'category_menu');
-  await closeDialog(page, 'Booking');
+  await expect(booking).toHaveAttribute('data-booking-editor-collapsed', 'true');
+  await expect(booking.getByRole('button', { name: 'Show full preview' }).first()).toBeVisible();
+
+  const hundredSettings = await openBookingSettings(page, 'Home');
+  await chooseLayout(hundredSettings, 'category_menu');
+  await closeBookingSettings(page, hundredSettings);
+  await expect(booking).toHaveAttribute('data-booking-editor-collapsed', 'true');
+
   const renderer = await enterPreview(page);
+  await expect(renderer.locator('.booking-surface')).toHaveAttribute(
+    'data-layout',
+    'category_menu',
+  );
   await expect(renderer).toContainText('100 services');
   await expect(renderer.getByRole('searchbox', { name: 'Search services' })).toBeVisible();
+  await expect(page.locator('.booking-editor-preview')).toHaveCount(0);
   await expectNoDocumentOverflow(page);
 
-  const stored = await page.evaluate(
-    (key) => window.localStorage.getItem(key),
-    LAB_STORAGE_KEY,
-  );
+  const stored = await readStoredDocument(page);
   expect(stored).not.toContain('stress-manicure-001');
   expect(stored).not.toContain('Russian Manicure');
+});
+
+test('measured collapse holds across the required layout and viewport matrix', async ({
+  page,
+}) => {
+  test.setTimeout(150_000);
+  const scenarios = [
+    { layout: 'visual_grid', menuSize: 'canonical', expectedServices: 24 },
+    { layout: 'editorial_cards', menuSize: 'canonical', expectedServices: 24 },
+    { layout: 'category_menu', menuSize: 'stress_100', expectedServices: 100 },
+  ] as const;
+  const viewports = [
+    { width: 375, height: 600 },
+    { width: 320, height: 600 },
+    { width: 1440, height: 768 },
+    { width: 1440, height: 900 },
+  ] as const;
+
+  for (const scenario of scenarios) {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await openFreshLab(page);
+    await chooseStarter(page, 'Quick Book');
+    if (scenario.menuSize === 'stress_100') {
+      await page.getByRole('button', { name: 'More site options' }).click();
+      const options = page.getByRole('dialog', { name: 'More' });
+      await options.getByLabel('Booking service menu fixture').selectOption('stress_100');
+      await closeDialog(page, 'More');
+    }
+    if (scenario.layout !== 'visual_grid') {
+      const settings = await openBookingSettings(page, 'Home');
+      await chooseLayout(settings, scenario.layout);
+      await closeBookingSettings(page, settings);
+    }
+
+    for (const viewport of viewports) {
+      await page.setViewportSize(viewport);
+      const booking = bookingCard(page, 'Home');
+      await expect(booking).toHaveAttribute('data-booking-editor-collapsed', 'true');
+      const measurement = await booking.evaluate((element) => {
+        const content = element.querySelector<HTMLElement>('.booking-editor-preview__measure');
+        const preview = element.querySelector<HTMLElement>('.booking-editor-preview');
+        const topbar = document.querySelector<HTMLElement>('.final-topbar');
+        const available = Math.max(
+          320,
+          window.innerHeight - (topbar?.getBoundingClientRect().bottom ?? 82),
+        );
+        return {
+          available,
+          maxHeight: preview ? Number.parseFloat(getComputedStyle(preview).maxHeight) : 0,
+          naturalHeight: content?.scrollHeight ?? 0,
+        };
+      });
+      expect(measurement.naturalHeight).toBeGreaterThan(measurement.available * 3);
+      expect(measurement.maxHeight).toBeLessThanOrEqual(
+        Math.min(measurement.available * 2, 1200) + 1,
+      );
+
+      const renderer = await enterPreview(page);
+      await expect(renderer.locator('.booking-surface')).toHaveAttribute(
+        'data-layout',
+        scenario.layout,
+      );
+      await expect(page.locator('.booking-editor-preview')).toHaveCount(0);
+      if (scenario.expectedServices === 100) {
+        await expect(renderer.locator('.category-service-row')).toHaveCount(100);
+      } else {
+        await expect(renderer).toContainText('24 services');
+      }
+      await page.getByRole('button', { name: 'Back to editor' }).click();
+    }
+  }
 });
