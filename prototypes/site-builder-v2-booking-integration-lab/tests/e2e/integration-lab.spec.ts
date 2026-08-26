@@ -526,7 +526,14 @@ test('Pages & Structure opens the same Move surface and a one-section page expos
   }
 
   await pageName.fill('Services');
+  const committedBeforeCreate = await readStoredDocument(page);
   await createAndMove.click();
+  await expect(move).toBeVisible();
+  await expect(move.getByRole('region', { name: 'Staged destination' }))
+    .toContainText('Services will be created when you press Done.');
+  await expect(page.getByRole('heading', { level: 1, name: 'Home' })).toBeVisible();
+  expect(await readStoredDocument(page)).toEqual(committedBeforeCreate);
+  await move.getByRole('button', { name: 'Done', exact: true }).click();
   const menuPrompt = page.getByRole('dialog', { name: 'Add a menu?' });
   if (await menuPrompt.isVisible()) {
     const notNow = menuPrompt.getByRole('button', { name: /Not now|Keep menu off/ });
@@ -633,10 +640,10 @@ test('long selected Booking keeps named contextual controls reachable without to
   await expect(booking).toHaveAttribute('data-booking-editor-collapsed', 'true');
 });
 
-test('desktop Booking settings use a non-overlapping column and retain the preview compare loop', async ({
+test('desktop Booking settings use a non-overlapping column and retain the canvas compare loop', async ({
   page,
 }) => {
-  for (const width of [1440, 1280, 1024, 920]) {
+  for (const width of [1440, 1280, 1180, 1179, 1024, 920]) {
     await page.setViewportSize({ width, height: 768 });
     await openFreshLab(page);
     await chooseStarter(page, 'Quick Book');
@@ -679,7 +686,13 @@ test('desktop Booking settings use a non-overlapping column and retain the previ
       element.scrollTop = Math.min(220, element.scrollHeight - element.clientHeight);
     });
     const scrollTop = await scrollBody.evaluate((element) => element.scrollTop);
-    await settings.getByRole('button', { name: 'View preview' }).click();
+    await expect(
+      settings.locator('h2').filter({ hasText: /^Booking$/ }),
+    ).toHaveCount(1);
+    await expect(
+      settings.getByText(/Choose how clients browse your services/, { exact: false }),
+    ).toHaveCount(1);
+    await settings.getByRole('button', { name: 'Hide settings' }).click();
     await expect(settings).toBeHidden();
     await expect(page.getByRole('button', { name: 'Show Booking settings' })).toBeVisible();
     await page.getByRole('button', { name: 'Show Booking settings' }).click();
@@ -691,17 +704,21 @@ test('desktop Booking settings use a non-overlapping column and retain the previ
   }
 });
 
-test('320px and 375x600 keep the starter action, editor, and short-height Move controls reachable', async ({
+test('short mobile viewports keep the starter action, editor, and Move controls reachable', async ({
   page,
 }) => {
-  for (const width of [320, 375]) {
-    await page.setViewportSize({ width, height: 600 });
+  for (const viewport of [
+    { width: 320, height: 600 },
+    { width: 375, height: 600 },
+    { width: 375, height: 500 },
+  ]) {
+    await page.setViewportSize(viewport);
     await openFreshLab(page);
     const quickBook = page.getByRole('button', { name: /^Quick Book/ });
     const quickBookBox = await quickBook.boundingBox();
     expect(quickBookBox).not.toBeNull();
     if (quickBookBox) {
-      expect(quickBookBox.y).toBeLessThan(600);
+      expect(quickBookBox.y).toBeLessThan(viewport.height);
     }
     await expect(quickBook).toBeInViewport();
     await quickBook.click();
