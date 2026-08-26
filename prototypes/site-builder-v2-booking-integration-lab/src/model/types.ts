@@ -153,6 +153,26 @@ export type MoveSectionToNewPageInput = AddPageInput & {
   sectionPosition?: number;
 };
 
+export type CommitSectionMoveDestination =
+  | {
+      type: 'existing_page';
+      pageId: string;
+      position?: number;
+    }
+  | {
+      type: 'new_page';
+      name: string;
+      slug?: string;
+      position?: number;
+    };
+
+export type CommitSectionMoveInput = {
+  sourcePageId: string;
+  orderedSectionIds: string[];
+  sectionId: string;
+  destination?: CommitSectionMoveDestination;
+};
+
 export type BuilderCommand =
   | { type: 'add_section'; input: AddSectionInput }
   | { type: 'remove_section'; sectionId: string }
@@ -179,6 +199,7 @@ export type BuilderCommand =
   | { type: 'move_section'; sectionId: string; position: number }
   | { type: 'move_section_up'; sectionId: string }
   | { type: 'move_section_down'; sectionId: string }
+  | { type: 'commit_section_move'; input: CommitSectionMoveInput }
   | {
       type: 'move_section_to_page';
       sectionId: string;

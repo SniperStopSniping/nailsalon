@@ -1,4 +1,8 @@
-import type { ReactNode } from 'react';
+import type {
+  ButtonHTMLAttributes,
+  HTMLAttributes,
+  ReactNode,
+} from 'react';
 
 import { filterServices, formatDuration, formatPrice } from './helpers';
 import { getLayoutSettings } from './presentation';
@@ -22,6 +26,7 @@ export type LayoutRenderProps = {
   onQueryChange: (query: string) => void;
   onCategoryChange: (category: ServiceCategory | 'all') => void;
   onOpenDetails: (service: MockService) => void;
+  readOnly: boolean;
 };
 
 type LayoutProps = Omit<LayoutRenderProps, 'layout'>;
@@ -102,30 +107,76 @@ function serviceCountLabel(count: number): string {
   return `${count} ${count === 1 ? 'service' : 'services'}`;
 }
 
+type CustomerActionProps = ButtonHTMLAttributes<HTMLButtonElement> & {
+  readOnly: boolean;
+};
+
+function CustomerAction({
+  children,
+  onClick,
+  readOnly,
+  type = 'button',
+  ...props
+}: CustomerActionProps) {
+  if (!readOnly) {
+    return (
+      <button {...props} type={type} onClick={onClick}>
+        {children}
+      </button>
+    );
+  }
+
+  const staticProps = { ...props } as Record<string, unknown>;
+  [
+    'aria-controls',
+    'aria-current',
+    'aria-expanded',
+    'aria-haspopup',
+    'aria-label',
+    'aria-pressed',
+    'aria-selected',
+  ].forEach((attribute) => delete staticProps[attribute]);
+
+  return (
+    <div
+      {...staticProps as HTMLAttributes<HTMLDivElement>}
+      data-editor-readonly-control="true"
+    >
+      {children}
+    </div>
+  );
+}
+
 function SearchField({
   query,
   onQueryChange,
-}: Pick<LayoutProps, 'query' | 'onQueryChange'>) {
+  readOnly,
+}: Pick<LayoutProps, 'query' | 'onQueryChange' | 'readOnly'>) {
   return (
     <label className="booking-search-field">
       <span className="sr-only">Search services</span>
       <SearchIcon />
       <input
+        aria-hidden={readOnly ? 'true' : undefined}
+        data-editor-readonly-control={readOnly ? 'true' : undefined}
+        readOnly={readOnly}
+        tabIndex={readOnly ? -1 : undefined}
         type="search"
         value={query}
         placeholder="Search services"
         autoComplete="off"
-        onChange={event => onQueryChange(event.currentTarget.value)}
+        onChange={readOnly ? undefined : event => onQueryChange(event.currentTarget.value)}
       />
       {query.length > 0 && (
-        <button
+        <CustomerAction
+          readOnly={readOnly}
           type="button"
           className="booking-search-clear"
           aria-label="Clear service search"
           onClick={() => onQueryChange('')}
         >
           <CloseIcon />
-        </button>
+        </CustomerAction>
       )}
     </label>
   );
@@ -135,9 +186,10 @@ function CategoryStrip({
   fixture,
   activeCategory,
   onCategoryChange,
+  readOnly,
   variant = 'pills',
   showCounts = false,
-}: Pick<LayoutProps, 'fixture' | 'activeCategory' | 'onCategoryChange'> & {
+}: Pick<LayoutProps, 'fixture' | 'activeCategory' | 'onCategoryChange' | 'readOnly'> & {
   variant?: 'pills' | 'tabs';
   showCounts?: boolean;
 }) {
@@ -163,17 +215,18 @@ function CategoryStrip({
           : category.label;
 
         return (
-          <button
+          <CustomerAction
             key={category.id}
+            readOnly={readOnly}
             type="button"
-            className="booking-category-pill"
+            className={`booking-category-pill${isActive ? ' is-active' : ''}`}
             aria-pressed={isActive}
             aria-current={isActive ? 'true' : undefined}
             aria-label={showCounts ? `${category.label}, ${serviceCountLabel(count)}` : category.label}
             onClick={() => onCategoryChange(category.id)}
           >
             {visibleLabel}
-          </button>
+          </CustomerAction>
         );
       })}
     </div>
@@ -276,7 +329,7 @@ export function VisualGridLayout(props: LayoutProps) {
             <p>{fixture.salon.tagline}</p>
           </div>
         </div>
-        <SearchField query={query} onQueryChange={props.onQueryChange} />
+        <SearchField query={query} readOnly={props.readOnly} onQueryChange={props.onQueryChange} />
       </header>
 
       {layoutSettings.categoryNavigation === 'pills' && (
@@ -285,6 +338,7 @@ export function VisualGridLayout(props: LayoutProps) {
             fixture={fixture}
             activeCategory={activeCategory}
             onCategoryChange={props.onCategoryChange}
+            readOnly={props.readOnly}
           />
         </nav>
       )}
@@ -298,8 +352,9 @@ export function VisualGridLayout(props: LayoutProps) {
           <div className="featured-scroller">
             {featured.map((service) => {
               return (
-                <button
+                <CustomerAction
                   key={service.id}
+                  readOnly={props.readOnly}
                   type="button"
                   className="featured-tile"
                   aria-label={`View details for ${service.name}, ${formatDuration(service.durationMinutes)}, ${formatPrice(service.price)}`}
@@ -310,7 +365,7 @@ export function VisualGridLayout(props: LayoutProps) {
                     <small>{service.badge ?? categoryLabel(fixture, service.category)}</small>
                     <strong>{service.name}</strong>
                   </span>
-                </button>
+                </CustomerAction>
               );
             })}
           </div>
@@ -336,7 +391,8 @@ export function VisualGridLayout(props: LayoutProps) {
                       data-has-image={hasVisibleMedia ? 'true' : 'false'}
                       data-selected={isSelected ? 'true' : 'false'}
                     >
-                      <button
+                      <CustomerAction
+                        readOnly={props.readOnly}
                         type="button"
                         className="vg-card-entry"
                         aria-label={`${isSelected ? 'Change options for' : 'View details for'} ${service.name}, ${formatDuration(service.durationMinutes)}, ${formatPrice(service.price)}${isSelected ? ', selected' : ''}`}
@@ -362,7 +418,7 @@ export function VisualGridLayout(props: LayoutProps) {
                             <ArrowIcon />
                           </span>
                         </span>
-                      </button>
+                      </CustomerAction>
                     </article>
                   );
                 })}
@@ -393,7 +449,7 @@ export function CleanListLayout(props: LayoutProps) {
           </div>
           <span className="clean-service-count">{serviceCountLabel(filtered.length)}</span>
         </div>
-        <SearchField query={query} onQueryChange={props.onQueryChange} />
+        <SearchField query={query} readOnly={props.readOnly} onQueryChange={props.onQueryChange} />
       </header>
 
       {layoutSettings.categoryNavigation === 'pills' && (
@@ -402,6 +458,7 @@ export function CleanListLayout(props: LayoutProps) {
             fixture={fixture}
             activeCategory={activeCategory}
             onCategoryChange={props.onCategoryChange}
+            readOnly={props.readOnly}
           />
         </nav>
       )}
@@ -430,7 +487,8 @@ export function CleanListLayout(props: LayoutProps) {
                       )}
                       <div className="clean-copy">
                         <div className="clean-title-line">
-                          <button
+                          <CustomerAction
+                            readOnly={props.readOnly}
                             type="button"
                             className="clean-title-button"
                             aria-label={`View details for ${service.name}`}
@@ -438,7 +496,7 @@ export function CleanListLayout(props: LayoutProps) {
                             onClick={() => props.onOpenDetails(service)}
                           >
                             {service.name}
-                          </button>
+                          </CustomerAction>
                           {isSelected && <SelectedLabel />}
                         </div>
                         {layoutSettings.showDescriptions && service.shortDescription && (
@@ -453,7 +511,8 @@ export function CleanListLayout(props: LayoutProps) {
                     </div>
                     <span className="clean-desktop-meta">{formatDuration(service.durationMinutes)}</span>
                     <span className="clean-desktop-meta price">{formatPrice(service.price)}</span>
-                    <button
+                    <CustomerAction
+                      readOnly={props.readOnly}
                       type="button"
                       className="clean-detail-button"
                       data-selected={isSelected ? 'true' : 'false'}
@@ -462,7 +521,7 @@ export function CleanListLayout(props: LayoutProps) {
                     >
                       {isSelected ? 'Change' : 'View details'}
                       <ArrowIcon />
-                    </button>
+                    </CustomerAction>
                   </article>
                 );
               })}
@@ -505,7 +564,7 @@ export function EditorialCardsLayout(props: LayoutProps) {
           <span>{serviceCountLabel(filtered.length)}</span>
         </div>
         {fixture.menuSize === 'stress_100' && (
-          <SearchField query={query} onQueryChange={props.onQueryChange} />
+          <SearchField query={query} readOnly={props.readOnly} onQueryChange={props.onQueryChange} />
         )}
       </div>
 
@@ -533,7 +592,8 @@ export function EditorialCardsLayout(props: LayoutProps) {
                     data-selected={isSelected ? 'true' : 'false'}
                   >
                     {service.image && (
-                      <button
+                      <CustomerAction
+                        readOnly={props.readOnly}
                         type="button"
                         className="editorial-story-media"
                         data-ratio={ratio}
@@ -544,7 +604,7 @@ export function EditorialCardsLayout(props: LayoutProps) {
                         <span className="editorial-story-index" aria-hidden="true">
                           {String(index + 1).padStart(2, '0')}
                         </span>
-                      </button>
+                      </CustomerAction>
                     )}
                     <div className="editorial-story-copy">
                       <small>
@@ -559,7 +619,8 @@ export function EditorialCardsLayout(props: LayoutProps) {
                       </div>
                       {isSelected && <SelectedLabel />}
                       <div className="editorial-story-actions">
-                        <button
+                        <CustomerAction
+                          readOnly={props.readOnly}
                           type="button"
                           className={isSelected ? 'customer-secondary-button' : 'customer-primary-button'}
                           aria-label={`${isSelected ? 'Change options for' : 'View details for'} ${service.name}`}
@@ -567,7 +628,7 @@ export function EditorialCardsLayout(props: LayoutProps) {
                         >
                           {isSelected ? 'Change options' : 'View details'}
                           <ArrowIcon />
-                        </button>
+                        </CustomerAction>
                       </div>
                     </div>
                   </article>
@@ -579,7 +640,7 @@ export function EditorialCardsLayout(props: LayoutProps) {
   );
 }
 
-function CategoryAccordionNavigation(props: Pick<LayoutProps, 'fixture' | 'activeCategory' | 'onCategoryChange'> & {
+function CategoryAccordionNavigation(props: Pick<LayoutProps, 'fixture' | 'activeCategory' | 'onCategoryChange' | 'readOnly'> & {
   showCounts: boolean;
 }) {
   const options: readonly (CategoryDefinition | { id: 'all'; label: string })[] = [
@@ -595,6 +656,25 @@ function CategoryAccordionNavigation(props: Pick<LayoutProps, 'fixture' | 'activ
             ? props.fixture.services.length
             : props.fixture.services.filter(service => service.category === category.id).length;
           const isActive = props.activeCategory === category.id;
+          if (props.readOnly) {
+            return (
+              <div
+                key={category.id}
+                className={`category-accordion${isActive ? ' is-active' : ''}`}
+                data-editor-readonly-control="true"
+              >
+                <div className="category-accordion__summary">
+                  {category.label}
+                  <span>{props.showCounts ? serviceCountLabel(count) : isActive ? 'Showing' : 'View'}</span>
+                </div>
+                {isActive ? (
+                  <div style={{ padding: '0 15px 13px', color: 'var(--booking-muted)', fontSize: 'var(--body-caption)' }}>
+                    Showing this category below.
+                  </div>
+                ) : null}
+              </div>
+            );
+          }
           return (
             <details
               key={category.id}
@@ -651,7 +731,7 @@ export function CategoryMenuLayout(props: LayoutProps) {
           <h1>Services</h1>
           <p>Navigate the studio menu by category, then choose the service that fits.</p>
         </div>
-        <SearchField query={query} onQueryChange={props.onQueryChange} />
+        <SearchField query={query} readOnly={props.readOnly} onQueryChange={props.onQueryChange} />
       </header>
 
       {layoutSettings.mobileNavigation === 'accordion'
@@ -660,6 +740,7 @@ export function CategoryMenuLayout(props: LayoutProps) {
               fixture={fixture}
               activeCategory={activeCategory}
               onCategoryChange={props.onCategoryChange}
+              readOnly={props.readOnly}
               showCounts={layoutSettings.showCategoryCounts}
             />
           )
@@ -673,6 +754,7 @@ export function CategoryMenuLayout(props: LayoutProps) {
                 fixture={fixture}
                 activeCategory={activeCategory}
                 onCategoryChange={props.onCategoryChange}
+                readOnly={props.readOnly}
                 variant={layoutSettings.mobileNavigation}
                 showCounts={layoutSettings.showCategoryCounts}
               />
@@ -688,16 +770,17 @@ export function CategoryMenuLayout(props: LayoutProps) {
               : fixture.services.filter(service => service.category === category.id).length;
             const isActive = activeCategory === category.id;
             return (
-              <button
+              <CustomerAction
                 key={category.id}
+                readOnly={props.readOnly}
                 type="button"
-                className="category-sidebar-button"
+                className={`category-sidebar-button${isActive ? ' is-active' : ''}`}
                 aria-current={isActive ? 'true' : undefined}
                 onClick={() => props.onCategoryChange(category.id)}
               >
                 {category.label}
                 {layoutSettings.showCategoryCounts && <span>{count}</span>}
-              </button>
+              </CustomerAction>
             );
           })}
         </nav>
@@ -715,8 +798,9 @@ export function CategoryMenuLayout(props: LayoutProps) {
             : filtered.map((service, index) => {
               const isSelected = selection.serviceId === service.id;
               return (
-                <button
+                <CustomerAction
                   key={service.id}
+                  readOnly={props.readOnly}
                   type="button"
                   className="category-service-row"
                   data-selected={isSelected ? 'true' : 'false'}
@@ -750,7 +834,7 @@ export function CategoryMenuLayout(props: LayoutProps) {
                     {isSelected ? 'Change' : 'View details'}
                     <ArrowIcon />
                   </span>
-                </button>
+                </CustomerAction>
               );
             })}
         </section>
@@ -800,7 +884,7 @@ export function EditorialPriceListLayout(props: LayoutProps) {
 
       {fixture.menuSize === 'stress_100' && (
         <div className="price-list-search">
-          <SearchField query={query} onQueryChange={props.onQueryChange} />
+          <SearchField query={query} readOnly={props.readOnly} onQueryChange={props.onQueryChange} />
         </div>
       )}
 
@@ -827,8 +911,9 @@ export function EditorialPriceListLayout(props: LayoutProps) {
                       const isSelected = selection.serviceId === service.id;
                       const description = descriptionFor(service, layoutSettings.descriptionLength);
                       return (
-                        <button
+                        <CustomerAction
                           key={service.id}
+                          readOnly={props.readOnly}
                           type="button"
                           className="price-service"
                           data-selected={isSelected ? 'true' : 'false'}
@@ -860,7 +945,7 @@ export function EditorialPriceListLayout(props: LayoutProps) {
                               <ArrowIcon />
                             </span>
                           </span>
-                        </button>
+                        </CustomerAction>
                       );
                     })}
                   </div>

@@ -1,7 +1,7 @@
 import { ArrowRight, CheckCircle2, X } from 'lucide-react';
 
 import type { SelectionSummary } from './types';
-import { useManagedDialog } from './useManagedDialog';
+import { BookingOverlayDialog } from './BookingOverlayDialog';
 
 const BOOKING_FLOW_STEPS = [
   'Service',
@@ -20,19 +20,14 @@ export type HandoffProps = {
 };
 
 export function Handoff({ open, summary, onClose }: HandoffProps) {
-  const dialogRef = useManagedDialog(open);
+  if (!open) return null;
 
   return (
-    <dialog
-      ref={dialogRef}
+    <BookingOverlayDialog
       className="booking-handoff-dialog"
-      aria-labelledby="booking-handoff-title"
-      data-testid="booking-handoff-dialog"
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
+      labelledBy="booking-handoff-title"
       onClose={onClose}
+      testId="booking-handoff-dialog"
     >
       <div className="booking-dialog-panel booking-handoff-panel" role="document">
         <button
@@ -66,6 +61,6 @@ export function Handoff({ open, summary, onClose }: HandoffProps) {
           Back to the menu
         </button>
       </div>
-    </dialog>
+    </BookingOverlayDialog>
   );
 }

@@ -19,6 +19,7 @@ type PreviewProps = {
   document: SiteBuilderDocument;
   onBookingSessionChange: BookingSessionUpdater;
   onNavigate: (pageId: string) => void;
+  stageId?: string;
   tokenPreset: BookingTokenPresetId;
   viewport: 'desktop' | 'tablet' | 'mobile';
 };
@@ -30,10 +31,13 @@ export function Preview({
   document,
   onBookingSessionChange,
   onNavigate,
+  stageId,
   tokenPreset,
   viewport,
 }: PreviewProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const [overlayHost, setOverlayHost] = useState<HTMLDivElement | null>(null);
+  const [summaryHost, setSummaryHost] = useState<HTMLDivElement | null>(null);
   useEffect(() => setMobileNavigationOpen(false), [activePage.id, viewport]);
   const navigationItems = [...document.navigation.items]
     .sort((left, right) => left.order - right.order)
@@ -44,8 +48,12 @@ export function Preview({
   const visibleSections = activePage.sections.filter((section) => section.visible);
 
   return (
-    <div className={`preview-stage preview-stage--${viewport}`} data-testid="preview-stage">
-      <div className="client-site">
+    <div className={`preview-stage preview-stage--${viewport}`} data-testid="preview-stage" id={stageId}>
+      <div className="preview-frame" data-preview-viewport={viewport}>
+        <div
+          ref={setSummaryHost}
+          className={`client-site${bookingSession.selection.serviceId ? ' has-booking-selection' : ''}`}
+        >
         <header className="client-header">
           <div className="client-brand"><span>L</span><strong>{document.siteName}</strong></div>
           {document.navigation.enabled ? (
@@ -95,6 +103,9 @@ export function Preview({
                     presentationSettings={section.settings}
                     session={bookingSession}
                     tokenPreset={tokenPreset}
+                    overlayHost={overlayHost}
+                    summaryHost={summaryHost}
+                    previewViewport={viewport}
                     onSessionChange={onBookingSessionChange}
                   />
                 </section>
@@ -118,6 +129,8 @@ export function Preview({
             );
           }) : <p className="empty-preview">This page has no visible sections yet.</p>}
         </main>
+        </div>
+        <div ref={setOverlayHost} className="preview-overlay-host" data-preview-viewport={viewport} />
       </div>
     </div>
   );

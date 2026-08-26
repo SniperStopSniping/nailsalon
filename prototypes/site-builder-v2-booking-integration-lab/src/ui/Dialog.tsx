@@ -2,6 +2,8 @@ import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
+import { isEscapeHandledInsideActiveControl } from './dialog-events';
+
 type DialogProps = {
   children: ReactNode;
   description?: string;
@@ -9,7 +11,7 @@ type DialogProps = {
   onClose: () => void;
   open: boolean;
   title: string;
-  variant?: 'bottom-sheet' | 'context-panel' | 'dialog' | 'section-library' | 'sheet' | 'structure-panel';
+  variant?: 'bottom-sheet' | 'context-panel' | 'dialog' | 'move-panel' | 'section-library' | 'sheet' | 'structure-panel';
 };
 
 const FOCUSABLE_SELECTOR = [
@@ -38,7 +40,12 @@ export function Dialog({
   const onCloseRef = useRef(onClose);
   const stackTokenRef = useRef(Symbol('luster-lab-dialog'));
   const [wideViewport, setWideViewport] = useState(() => window.matchMedia('(min-width: 900px)').matches);
-  const nonModal = wideViewport && (variant === 'context-panel' || variant === 'structure-panel');
+  const visuallyAdjacent = wideViewport && (
+    variant === 'context-panel'
+    || variant === 'move-panel'
+    || variant === 'structure-panel'
+  );
+  const nonModal = visuallyAdjacent && variant !== 'move-panel';
 
   useEffect(() => {
     onCloseRef.current = onClose;
@@ -76,7 +83,11 @@ export function Dialog({
       if (openDialogStack.at(-1) !== stackToken) {
         return;
       }
-      if (event.key === 'Escape') {
+      if (
+        event.key === 'Escape'
+        && !event.defaultPrevented
+        && !isEscapeHandledInsideActiveControl(event)
+      ) {
         event.preventDefault();
         onCloseRef.current();
         return;
@@ -147,7 +158,7 @@ export function Dialog({
   );
 
   return createPortal(
-    nonModal ? (
+    visuallyAdjacent ? (
       <div className="dialog-nonmodal-layer" data-testid="dialog-nonmodal-layer">{panel}</div>
     ) : (
       <div

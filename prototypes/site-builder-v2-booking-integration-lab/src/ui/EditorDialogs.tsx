@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, ChevronRight, Download, FileUp, Maximize2, MoveRight, Plus, Redo2, RotateCcw, Trash2, Undo2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Download, FileUp, Maximize2, Plus, Redo2, RotateCcw, Trash2, Undo2 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import type { BookingTokenPresetId, ImageFixture, MenuSize } from '../booking/types';
@@ -8,12 +8,10 @@ import {
   type OriginStarter,
   type PageDocument,
   type PlaceholderSectionInstance,
-  type SectionInstance,
   type SectionSize,
   type SiteBuilderDocument,
 } from '../model';
 import { Dialog } from './Dialog';
-import { ReorderList } from './ReorderList';
 
 type SectionLibraryDialogProps = {
   document: SiteBuilderDocument;
@@ -124,158 +122,6 @@ export function SectionSettingsDialog({ onClose, onSave, section }: SectionSetti
           <button className="primary-button" type="submit">Save section settings</button>
         </div>
       </form>
-    </Dialog>
-  );
-}
-
-type MovePositionDialogProps = {
-  currentPosition: number;
-  onClose: () => void;
-  onMove: (position: number) => void;
-  section: SectionInstance | null;
-  total: number;
-};
-
-export function MovePositionDialog({ currentPosition, onClose, onMove, section, total }: MovePositionDialogProps) {
-  const [position, setPosition] = useState(String(currentPosition));
-  const numericPosition = Number(position);
-  const valid = Number.isInteger(numericPosition) && numericPosition >= 1 && numericPosition <= total;
-
-  useEffect(() => setPosition(String(currentPosition)), [currentPosition, section?.id]);
-
-  return (
-    <Dialog onClose={onClose} open={section !== null} title={section ? `Move ${section.label}` : 'Move section'}>
-      <form onSubmit={(event) => { event.preventDefault(); if (valid) onMove(numericPosition); }}>
-        <p><strong>Current position:</strong><br />{currentPosition}</p>
-        <label className="form-field">
-          <span>Move to position</span>
-          <input aria-describedby="position-help" inputMode="numeric" min={1} max={total} type="number" value={position} onChange={(event) => setPosition(event.target.value)} />
-        </label>
-        <p className={valid ? 'form-hint' : 'form-error'} id="position-help">Choose a position from 1 to {total}.</p>
-        <div className="dialog-actions">
-          <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
-          <button className="primary-button" disabled={!valid} type="submit">Move section</button>
-        </div>
-      </form>
-    </Dialog>
-  );
-}
-
-type MoveSectionDialogProps = {
-  currentPageId: string;
-  document: SiteBuilderDocument;
-  onAnnounce: (message: string) => void;
-  onClose: () => void;
-  onCreatePage: (name: string) => void;
-  onDone: () => void;
-  onDragReorder: (sectionId: string, position: number) => void;
-  onMove: (pageId: string) => void;
-  onMoveDown: (section: SectionInstance) => void;
-  onMoveToPosition: (section: SectionInstance, position: number) => void;
-  onMoveUp: (section: SectionInstance) => void;
-  section: SectionInstance | null;
-};
-
-export function MoveSectionDialog({
-  currentPageId,
-  document,
-  onAnnounce,
-  onClose,
-  onCreatePage,
-  onDone,
-  onDragReorder,
-  onMove,
-  onMoveDown,
-  onMoveToPosition,
-  onMoveUp,
-  section,
-}: MoveSectionDialogProps) {
-  const [newPageName, setNewPageName] = useState('');
-  const [pageDestinationsOpen, setPageDestinationsOpen] = useState(false);
-  const currentPage = document.pages.find((page) => page.id === currentPageId) ?? null;
-  const sections = currentPage
-    ? [...currentPage.sections].sort((left, right) => left.order - right.order)
-    : [];
-  const sectionLabel = section?.sectionType === 'booking' ? 'Booking' : section?.label ?? 'section';
-
-  useEffect(() => {
-    setNewPageName('');
-    setPageDestinationsOpen(false);
-  }, [section?.id]);
-
-  return (
-    <Dialog
-      description={currentPage ? `Reorder sections on ${currentPage.name}, or move ${sectionLabel} to another page.` : 'Choose where this section should live.'}
-      initialFocusSelector="[data-move-target-position='true']"
-      onClose={onClose}
-      open={section !== null}
-      title={section ? `Move ${sectionLabel}` : 'Move section'}
-      variant="context-panel"
-    >
-      {section && currentPage ? (
-        <div className="move-section-panel" data-testid="move-section-panel">
-          <section aria-labelledby="move-current-page-heading" className="move-current-page">
-            <div className="move-current-page__heading">
-              <div>
-                <span>Sections on</span>
-                <h3 id="move-current-page-heading">{currentPage.name}</h3>
-              </div>
-              <span>{sections.length} section{sections.length === 1 ? '' : 's'}</span>
-            </div>
-            <p className="move-current-page__help" id="move-position-help">
-              Type a position from 1 to {sections.length} and press Enter, use the arrows, or drag a handle.
-            </p>
-            <ReorderList
-              editablePositions
-              onAnnounce={onAnnounce}
-              onDragReorder={onDragReorder}
-              onMoveDown={onMoveDown}
-              onMoveToPosition={onMoveToPosition}
-              onMoveUp={onMoveUp}
-              sections={sections}
-              selectedSectionId={section.id}
-            />
-          </section>
-
-          <section className="move-page-destination">
-            <button
-              aria-controls="move-page-destinations"
-              aria-expanded={pageDestinationsOpen}
-              className="move-page-disclosure"
-              type="button"
-              onClick={() => setPageDestinationsOpen((value) => !value)}
-            >
-              <span><MoveRight aria-hidden="true" size={18} /> Move {sectionLabel} to another page</span>
-              <ChevronRight aria-hidden="true" className={pageDestinationsOpen ? 'is-open' : ''} size={18} />
-            </button>
-
-            {pageDestinationsOpen ? (
-              <div className="move-page-destination__body" id="move-page-destinations">
-                <ul className="move-page-list" aria-label="Destination pages">
-                  {document.pages.filter((page) => page.id !== currentPageId).map((page) => (
-                    <li key={page.id}>
-                      <button className="sheet-list-button" type="button" onClick={() => onMove(page.id)}>{page.name}<span aria-hidden="true">→</span></button>
-                    </li>
-                  ))}
-                </ul>
-                {document.pages.length === 1 ? <p className="empty-state">There are no other pages yet. Create one below and {sectionLabel} will move there.</p> : null}
-                <form onSubmit={(event) => { event.preventDefault(); if (newPageName.trim()) onCreatePage(newPageName.trim()); }}>
-                  <label className="form-field move-page-destination__new-page">
-                    <span>Or create a new page</span>
-                    <input value={newPageName} onChange={(event) => setNewPageName(event.target.value)} placeholder="Page name" />
-                  </label>
-                  <button className="move-page-create-button" disabled={!newPageName.trim()} type="submit"><Plus aria-hidden="true" size={17} /> Create page and move</button>
-                </form>
-              </div>
-            ) : null}
-          </section>
-
-          <div aria-label="Move actions" className="dialog-actions" role="group">
-            <button className="secondary-button" type="button" onClick={onClose}>Cancel</button>
-            <button className="primary-button" type="button" onClick={onDone}>Done</button>
-          </div>
-        </div>
-      ) : null}
     </Dialog>
   );
 }
@@ -538,7 +384,7 @@ type AlertDialogProps = {
   title?: string;
 };
 
-export function AlertDialog({ message, onClose, title = 'This change is protected' }: AlertDialogProps) {
+export function AlertDialog({ message, onClose, title = 'That change isn’t available' }: AlertDialogProps) {
   const [first, second] = (message ?? '').split(' Add another');
   return (
     <Dialog onClose={onClose} open={message !== null} title={title}>

@@ -17,113 +17,150 @@ import {
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowDown, ArrowUp, GripVertical, MoveRight } from 'lucide-react';
-import { useEffect, useState, type KeyboardEvent } from 'react';
+import { ArrowDown, ArrowUp, GripVertical } from 'lucide-react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react';
 
 import type { SectionInstance } from '../model/types';
+import { keepEscapeInsideActiveControl } from './dialog-events';
 
 const getSectionLabel = (section: SectionInstance): string =>
   section.sectionType === 'booking' ? 'Booking' : section.label;
 
 const getSectionDescription = (section: SectionInstance): string =>
   section.sectionType === 'booking'
-    ? `Protected booking section${section.visible ? '' : ' · hidden'}`
+    ? `Keeps booking available${section.visible ? '' : ' · hidden'}`
     : `${section.size}${section.visible ? '' : ' · hidden'}`;
 
 type ReorderListProps = {
-  editablePositions?: boolean;
+  onActivateSection?: (section: SectionInstance) => void;
   onAnnounce: (message: string) => void;
   onDragReorder: (sectionId: string, position: number) => void;
   onMoveDown: (section: SectionInstance) => void;
-  onMovePage?: (section: SectionInstance) => void;
-  onMoveToPosition?: (section: SectionInstance, position: number) => void;
+  onMoveToPosition: (section: SectionInstance, position: number) => void;
   onMoveUp: (section: SectionInstance) => void;
-  onOpenPosition?: (section: SectionInstance) => void;
-  selectedSectionId?: string;
+  selectedSectionId: string;
   sections: SectionInstance[];
 };
 
 type SortableSectionRowProps = {
-  editablePositions: boolean;
   index: number;
+  onActivateSection?: (section: SectionInstance) => void;
+  onAnnounce: (message: string) => void;
   onMoveDown: (section: SectionInstance) => void;
-  onMovePage?: (section: SectionInstance) => void;
-  onMoveToPosition?: (section: SectionInstance, position: number) => void;
+  onMoveToPosition: (section: SectionInstance, position: number) => void;
   onMoveUp: (section: SectionInstance) => void;
-  onOpenPosition?: (section: SectionInstance) => void;
   section: SectionInstance;
   selected: boolean;
   total: number;
 };
 
 type PositionInputProps = {
-  focusTarget: boolean;
   index: number;
+  onAnnounce: (message: string) => void;
   onMove: (position: number) => void;
+  sectionId: string;
   sectionLabel: string;
   total: number;
 };
 
-function PositionInput({ focusTarget, index, onMove, sectionLabel, total }: PositionInputProps) {
+function PositionInput({
+  index,
+  onAnnounce,
+  onMove,
+  sectionId,
+  sectionLabel,
+  total,
+}: PositionInputProps) {
   const currentPosition = index + 1;
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [error, setError] = useState('');
   const [value, setValue] = useState(String(currentPosition));
 
   useEffect(() => {
     setValue(String(currentPosition));
+    setError('');
   }, [currentPosition]);
 
-  const commitPosition = () => {
+  const restore = () => {
+    setValue(String(currentPosition));
+    setError('');
+  };
+
+  const commitOnEnter = () => {
     const position = Number(value);
     if (!Number.isInteger(position) || position < 1 || position > total) {
+      const message = `Enter a position from 1 to ${total}.`;
+      setError(message);
+      onAnnounce(message);
+      return;
+    }
+    setError('');
+    if (position === currentPosition) {
       setValue(String(currentPosition));
       return;
     }
-    if (position !== currentPosition) {
-      onMove(position);
-    }
+    onMove(position);
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    });
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
     if (event.key === 'Enter') {
       event.preventDefault();
-      commitPosition();
+      commitOnEnter();
     } else if (event.key === 'Escape') {
       event.preventDefault();
-      setValue(String(currentPosition));
-      event.currentTarget.blur();
+      event.stopPropagation();
+      restore();
+      event.currentTarget.closest<HTMLElement>('.reorder-row')?.focus();
     }
   };
+
+  const errorId = `position-error-${sectionId}`;
 
   return (
     <label className="position-input">
       <span className="visually-hidden">Position for {sectionLabel}</span>
       <input
-        aria-describedby="move-position-help"
+        ref={inputRef}
+        aria-describedby={error ? errorId : 'move-position-help'}
+        aria-invalid={error ? 'true' : undefined}
         aria-label={`Position for ${sectionLabel}`}
-        data-move-target-position={focusTarget ? 'true' : undefined}
+        data-position-input={sectionId}
         inputMode="numeric"
         max={total}
         min={1}
         type="number"
         value={value}
-        onBlur={commitPosition}
-        onChange={(event) => setValue(event.target.value)}
+        onBlur={restore}
+        onChange={(event) => {
+          setValue(event.target.value);
+          setError('');
+        }}
+        onFocus={(event) => event.currentTarget.select()}
         onKeyDown={handleKeyDown}
       />
+      {error ? <span className="position-input__error" id={errorId} role="status">{error}</span> : null}
     </label>
   );
 }
 
 function SectionRowContent({
   attributes,
-  editablePositions,
   index,
   listeners,
+  onActivateSection,
+  onAnnounce,
   onMoveDown,
-  onMovePage,
   onMoveToPosition,
   onMoveUp,
-  onOpenPosition,
   section,
   selected,
   total,
@@ -132,49 +169,73 @@ function SectionRowContent({
   listeners?: Record<string, unknown>;
 }) {
   const sectionLabel = getSectionLabel(section);
+  const onlySection = total < 2;
+  const first = index === 0;
+  const last = index === total - 1;
+
+  if (onlySection) {
+    return (
+      <>
+        <span aria-hidden="true" className="position-button">1</span>
+        <div className="reorder-row__label">
+          <strong>{sectionLabel}</strong>
+          <span>{getSectionDescription(section)} · Only section</span>
+        </div>
+        {section.sectionType === 'booking' ? <span className="protected-badge">Always bookable</span> : null}
+      </>
+    );
+  }
 
   return (
     <>
-      {editablePositions && onMoveToPosition ? (
-        <PositionInput
-          focusTarget={selected}
-          index={index}
-          onMove={(position) => onMoveToPosition(section, position)}
-          sectionLabel={sectionLabel}
-          total={total}
-        />
-      ) : (
-        <button
-          className="position-button"
-          type="button"
-          aria-label={`Move ${sectionLabel} by number, current position ${index + 1}`}
-          onClick={() => onOpenPosition?.(section)}
-        >
-          {index + 1}
-        </button>
-      )}
-      <div className="reorder-row__label">
-        <strong>{sectionLabel}</strong>
-        <span>{getSectionDescription(section)}{selected ? ' · Moving' : ''}</span>
-      </div>
-      {section.sectionType === 'booking' ? <span className="protected-badge">Protected</span> : null}
+      <PositionInput
+        index={index}
+        onAnnounce={onAnnounce}
+        onMove={(position) => onMoveToPosition(section, position)}
+        sectionId={section.id}
+        sectionLabel={sectionLabel}
+        total={total}
+      />
+      <button
+        aria-pressed={selected}
+        className="reorder-row__select"
+        type="button"
+        onClick={() => onActivateSection?.(section)}
+      >
+        <span className="reorder-row__label">
+          <strong>{sectionLabel}</strong>
+          <span>{getSectionDescription(section)}{selected ? ' · Moving' : ''}</span>
+        </span>
+      </button>
+      {section.sectionType === 'booking' ? <span className="protected-badge">Always bookable</span> : null}
       <div className="reorder-row__buttons" aria-label={`Movement options for ${sectionLabel}`}>
-        <button className="icon-button" type="button" aria-label={`Move ${sectionLabel} up`} disabled={index === 0} onClick={() => onMoveUp(section)}>
+        <button
+          aria-disabled={first ? 'true' : 'false'}
+          aria-label={first ? `Move ${sectionLabel} up, unavailable — already first` : `Move ${sectionLabel} up`}
+          className="icon-button"
+          type="button"
+          onClick={() => {
+            if (!first) onMoveUp(section);
+          }}
+        >
           <ArrowUp aria-hidden="true" size={18} />
         </button>
-        <button className="icon-button" type="button" aria-label={`Move ${sectionLabel} down`} disabled={index === total - 1} onClick={() => onMoveDown(section)}>
+        <button
+          aria-disabled={last ? 'true' : 'false'}
+          aria-label={last ? `Move ${sectionLabel} down, unavailable — already last` : `Move ${sectionLabel} down`}
+          className="icon-button"
+          type="button"
+          onClick={() => {
+            if (!last) onMoveDown(section);
+          }}
+        >
           <ArrowDown aria-hidden="true" size={18} />
         </button>
-        {onMovePage ? (
-          <button className="icon-button" type="button" aria-label={`Move ${sectionLabel} to another page`} onClick={() => onMovePage(section)}>
-            <MoveRight aria-hidden="true" size={18} />
-          </button>
-        ) : null}
       </div>
       <button
+        aria-label={`Drag ${sectionLabel}. Use arrow keys after lifting with Space.`}
         className="drag-handle"
         type="button"
-        aria-label={`Drag ${sectionLabel}. Use arrow keys after lifting with Space.`}
         {...attributes}
         {...listeners}
       >
@@ -185,14 +246,25 @@ function SectionRowContent({
 }
 
 function SortableSectionRow(props: SortableSectionRowProps) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: props.section.id });
+  const onlySection = props.total < 2;
+  const {
+    attributes,
+    isDragging,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+  } = useSortable({ id: props.section.id, disabled: onlySection });
 
   return (
     <div
       ref={setNodeRef}
-      className={`reorder-row${isDragging ? ' is-dragging' : ''}${props.selected ? ' is-target' : ''}`}
+      aria-current={props.selected ? 'true' : undefined}
+      className={`reorder-row${isDragging ? ' is-dragging' : ''}${props.selected ? ' is-target' : ''}${onlySection ? ' is-static' : ''}`}
+      data-move-target-row={props.selected ? 'true' : undefined}
       data-section-id={props.section.id}
       style={{ transform: CSS.Transform.toString(transform), transition }}
+      tabIndex={props.selected ? 0 : -1}
     >
       <SectionRowContent
         {...props}
@@ -204,14 +276,12 @@ function SortableSectionRow(props: SortableSectionRowProps) {
 }
 
 export function ReorderList({
-  editablePositions = false,
+  onActivateSection,
   onAnnounce,
   onDragReorder,
   onMoveDown,
-  onMovePage,
   onMoveToPosition,
   onMoveUp,
-  onOpenPosition,
   selectedSectionId,
   sections,
 }: ReorderListProps) {
@@ -224,26 +294,18 @@ export function ReorderList({
 
   const handleDragStart = ({ active }: DragStartEvent) => {
     setActiveId(String(active.id));
-    if (typeof navigator.vibrate === 'function') {
-      navigator.vibrate(12);
-    }
+    if (typeof navigator.vibrate === 'function') navigator.vibrate(12);
   };
 
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
     setActiveId(null);
-    if (!over || active.id === over.id) {
-      return;
-    }
-
+    if (!over || active.id === over.id) return;
     const fromIndex = sections.findIndex((section) => section.id === active.id);
     const toIndex = sections.findIndex((section) => section.id === over.id);
     const section = sections[fromIndex];
-    if (!section || toIndex < 0) {
-      return;
-    }
-
+    if (!section || toIndex < 0) return;
     onDragReorder(section.id, toIndex + 1);
-    onAnnounce(`${section.label} moved to position ${toIndex + 1} of ${sections.length}.`);
+    onAnnounce(`${getSectionLabel(section)} moved to position ${toIndex + 1} of ${sections.length}.`);
   };
 
   return (
@@ -252,27 +314,23 @@ export function ReorderList({
         announcements: {
           onDragCancel({ active }) {
             const section = sections.find((candidate) => candidate.id === active.id);
-            return section ? `Moving ${section.label} was cancelled.` : 'Movement cancelled.';
+            return section ? `Moving ${getSectionLabel(section)} was cancelled.` : 'Movement cancelled.';
           },
           onDragEnd({ active, over }) {
             const section = sections.find((candidate) => candidate.id === active.id);
-            if (!over || active.id === over.id) {
-              return section ? `${section.label} was not moved.` : 'Section was not moved.';
-            }
-            const position = over ? sections.findIndex((candidate) => candidate.id === over.id) + 1 : 0;
-            return section && position > 0
-              ? `${section.label} moved to position ${position} of ${sections.length}.`
-              : 'Section was not moved.';
+            if (!over || active.id === over.id) return section ? `${getSectionLabel(section)} was not moved.` : 'Section was not moved.';
+            const position = sections.findIndex((candidate) => candidate.id === over.id) + 1;
+            return section && position > 0 ? `${getSectionLabel(section)} moved to position ${position} of ${sections.length}.` : 'Section was not moved.';
           },
           onDragOver({ active, over }) {
             const section = sections.find((candidate) => candidate.id === active.id);
             const position = over ? sections.findIndex((candidate) => candidate.id === over.id) + 1 : 0;
-            return section && position > 0 ? `${section.label} is over position ${position} of ${sections.length}.` : undefined;
+            return section && position > 0 ? `${getSectionLabel(section)} is over position ${position} of ${sections.length}.` : undefined;
           },
           onDragStart({ active }) {
             const section = sections.find((candidate) => candidate.id === active.id);
             const position = sections.findIndex((candidate) => candidate.id === active.id) + 1;
-            return section ? `Picked up ${section.label}, position ${position} of ${sections.length}.` : undefined;
+            return section ? `Picked up ${getSectionLabel(section)}, position ${position} of ${sections.length}.` : undefined;
           },
         },
         screenReaderInstructions: {
@@ -288,19 +346,23 @@ export function ReorderList({
     >
       <SortableContext items={sections.map((section) => section.id)} strategy={verticalListSortingStrategy}>
         <div
-          className={`reorder-list${editablePositions ? ' reorder-list--editable-positions' : ''}`}
+          className="reorder-list reorder-list--editable-positions"
           data-testid="reorder-list"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && activeId) {
+              keepEscapeInsideActiveControl(event.nativeEvent);
+            }
+          }}
         >
           {sections.map((section, index) => (
             <SortableSectionRow
               key={section.id}
-              editablePositions={editablePositions}
               index={index}
+              onActivateSection={onActivateSection}
+              onAnnounce={onAnnounce}
               onMoveDown={onMoveDown}
-              onMovePage={onMovePage}
               onMoveToPosition={onMoveToPosition}
               onMoveUp={onMoveUp}
-              onOpenPosition={onOpenPosition}
               section={section}
               selected={section.id === selectedSectionId}
               total={sections.length}
@@ -311,7 +373,7 @@ export function ReorderList({
       <DragOverlay>
         {activeSection ? (
           <div className="reorder-row reorder-row--overlay">
-            <span className="position-button" aria-hidden="true">{sections.findIndex((section) => section.id === activeSection.id) + 1}</span>
+            <span aria-hidden="true" className="position-button">{sections.findIndex((section) => section.id === activeSection.id) + 1}</span>
             <div className="reorder-row__label"><strong>{getSectionLabel(activeSection)}</strong><span>{getSectionDescription(activeSection)}</span></div>
             <GripVertical aria-hidden="true" size={22} />
           </div>

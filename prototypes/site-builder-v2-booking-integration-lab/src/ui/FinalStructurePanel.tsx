@@ -198,7 +198,7 @@ export function FinalStructurePanel({
                       const booking = section.sectionType === 'booking';
                       const sectionLabel = booking ? 'Booking' : section.label;
                       const sectionDescription = booking
-                        ? `Protected · client booking menu${section.visible ? '' : ' · hidden'}`
+                        ? `Client booking menu · always available${section.visible ? '' : ' · hidden'}`
                         : `${section.size}${section.visible ? '' : ' · hidden'}`;
                       return (
                         <li key={section.id}>
@@ -218,7 +218,7 @@ export function FinalStructurePanel({
                   </ol>
 
                   <div className="final-structure__page-actions">
-                    <button type="button" onClick={onEnterReorder}><GripVertical aria-hidden="true" size={17} /> Reorder sections</button>
+                    {sections.length > 1 ? <button type="button" onClick={onEnterReorder}><GripVertical aria-hidden="true" size={17} /> Arrange sections</button> : null}
                     <button aria-label={`Move ${page.name} page up`} disabled={pageIndex === 0} type="button" onClick={() => onMovePage(page, pageIndex)}><ArrowUp aria-hidden="true" size={17} /></button>
                     <button aria-label={`Move ${page.name} page down`} disabled={pageIndex === pages.length - 1} type="button" onClick={() => onMovePage(page, pageIndex + 2)}><ArrowDown aria-hidden="true" size={17} /></button>
                     {!page.isHome ? <button aria-label={`Remove ${page.name} page`} className="is-danger" type="button" onClick={() => onRemovePage(page)}><Trash2 aria-hidden="true" size={17} /></button> : null}

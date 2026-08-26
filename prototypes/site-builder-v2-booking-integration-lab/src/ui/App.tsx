@@ -5,8 +5,11 @@ import {
   ChevronDown,
   Eye,
   Laptop,
+  Maximize2,
   Menu,
+  Minimize2,
   MoreHorizontal,
+  Move,
   Pencil,
   Plus,
   Redo2,
@@ -15,16 +18,24 @@ import {
   Tablet,
   Trash2,
   Undo2,
-  X,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react';
 
 import {
   createEmptyBookingSession,
   createMenuFixture,
   normalizeBookingSelection,
+  normalizeSessionForLayoutChange,
 } from '../booking/helpers';
 import { BookingSettingsPanel } from '../booking/SettingsPanel';
+import { BOOKING_LAYOUT_META } from '../booking/layout-meta';
 import type {
   BookingSectionPresentationSettings,
   BookingSessionState,
@@ -33,10 +44,8 @@ import type {
   MenuSize,
 } from '../booking/types';
 import {
-  getSectionMoveAnnouncement,
   type BuilderCommand,
   type CatalogueSectionType,
-  type HistoryState,
   type OriginStarter,
   type PageDocument,
   type PlaceholderSectionInstance,
@@ -49,8 +58,6 @@ import {
   AlertDialog,
   ConfirmationDialog,
   LabOptionsDialog,
-  MovePositionDialog,
-  MoveSectionDialog,
   NavigationPromptDialog,
   PageSettingsDialog,
   SectionLibraryDialog,
@@ -59,17 +66,26 @@ import {
 } from './EditorDialogs';
 import { Dialog } from './Dialog';
 import { FinalStructurePanel } from './FinalStructurePanel';
-import { BookingSectionCard } from './BookingSectionCard';
+import { BookingSectionCard, type BookingCollapseReport } from './BookingSectionCard';
 import { Preview } from './Preview';
-import { ReorderList } from './ReorderList';
+import { SectionMovePanel } from './SectionMovePanel';
 import { SectionCard } from './SectionCard';
 import { StarterChooser } from './StarterChooser';
 import { useLabDocument } from './useLabDocument';
 
-type EditorMode = 'edit' | 'reorder' | 'preview';
+type EditorMode = 'edit' | 'preview';
 type PreviewViewport = 'desktop' | 'tablet' | 'mobile';
 type ToastState = { message: string; undoable?: boolean } | null;
+type PendingMoveFeedback = { announcement: string; message: string } | null;
 type ResetChoice = 'lab' | 'starter' | null;
+type MoveSession = {
+  activeSectionId: string;
+  baselineOrder: string[];
+  entry: 'arrange' | 'section';
+  initialSectionId: string;
+  sourcePageId: string;
+  workingOrder: string[];
+};
 
 const getHomeOrFirstPage = (document: SiteBuilderDocument): PageDocument =>
   document.pages.find((page) => page.isHome) ?? document.pages[0] as PageDocument;
@@ -105,8 +121,8 @@ export function App() {
   const [viewport, setViewport] = useState<PreviewViewport>('desktop');
   const [libraryPosition, setLibraryPosition] = useState<number | null>(null);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
-  const [positionSectionId, setPositionSectionId] = useState<string | null>(null);
-  const [movingSectionId, setMovingSectionId] = useState<string | null>(null);
+  const [moveSession, setMoveSession] = useState<MoveSession | null>(null);
+  const [moveDismissPending, setMoveDismissPending] = useState(false);
   const [editingPageId, setEditingPageId] = useState<string | null>(null);
   const [pendingPageRemovalId, setPendingPageRemovalId] = useState<string | null>(null);
   const [addPageOpen, setAddPageOpen] = useState(false);
@@ -117,11 +133,10 @@ export function App() {
   const [startAgainOpen, setStartAgainOpen] = useState(false);
   const [resetChoice, setResetChoice] = useState<ResetChoice>(null);
   const [alertMessage, setAlertMessage] = useState<string | null>(null);
-  const [alertTitle, setAlertTitle] = useState('This change is protected');
+  const [alertTitle, setAlertTitle] = useState('That change isn’t available');
   const [toast, setToast] = useState<ToastState>(null);
+  const [pendingMoveFeedback, setPendingMoveFeedback] = useState<PendingMoveFeedback>(null);
   const [announcement, setAnnouncement] = useState('');
-  const [moveBaseline, setMoveBaseline] = useState<HistoryState | null>(null);
-  const [reorderBaseline, setReorderBaseline] = useState<HistoryState | null>(null);
   const [realHeightSimulation, setRealHeightSimulation] = useState(false);
   const [imageFixture, setImageFixture] = useState<ImageFixture>('image_rich');
   const [menuSize, setMenuSize] = useState<MenuSize>('canonical');
@@ -129,13 +144,21 @@ export function App() {
   const [bookingSession, setBookingSession] = useState<BookingSessionState>(
     createEmptyBookingSession,
   );
+  const [bookingCollapseOverrides, setBookingCollapseOverrides] = useState<Record<string, boolean | undefined>>({});
+  const [bookingCollapseReports, setBookingCollapseReports] = useState<Record<string, BookingCollapseReport>>({});
+  const [selectedSectionIntersects, setSelectedSectionIntersects] = useState(true);
+  const [desktopSettings, setDesktopSettings] = useState(() => window.matchMedia('(min-width: 900px)').matches);
+  const [settingsTemporarilyHidden, setSettingsTemporarilyHidden] = useState(false);
+  const editorAppRef = useRef<HTMLDivElement>(null);
+  const topbarRef = useRef<HTMLElement>(null);
+  const [contextTop, setContextTop] = useState(86);
 
   const bookingFixture = useMemo(
     () => createMenuFixture({ imageFixture, menuSize }),
     [imageFixture, menuSize],
   );
 
-  const activePage = document
+  const committedActivePage = document
     ? document.pages.find((page) => page.id === activePageId) ?? getHomeOrFirstPage(document)
     : null;
   const selectedSection = document ? findSection(document, selectedSectionId) : null;
@@ -144,15 +167,39 @@ export function App() {
   const editingPlaceholder = editingSection && editingSection.sectionType !== 'booking'
     ? editingSection
     : null;
-  const positionSection = document ? findSection(document, positionSectionId) : null;
-  const movingSection = document ? findSection(document, movingSectionId) : null;
   const editingPage = document?.pages.find((page) => page.id === editingPageId) ?? null;
   const pendingPageRemoval = document?.pages.find((page) => page.id === pendingPageRemovalId) ?? null;
-  const movingSectionPage = document && movingSection ? findSectionPage(document, movingSection.id) : null;
-  const positionSectionPage = document && positionSection ? findSectionPage(document, positionSection.id) : null;
-  const currentPosition = positionSection && positionSectionPage
-    ? positionSectionPage.sections.findIndex((section) => section.id === positionSection.id) + 1
-    : 1;
+  const moveSourcePage = document && moveSession
+    ? document.pages.find((page) => page.id === moveSession.sourcePageId) ?? null
+    : null;
+  const moveSections = useMemo(() => {
+    if (!moveSourcePage || !moveSession) return [];
+    const byId = new Map(moveSourcePage.sections.map((section) => [section.id, section]));
+    return moveSession.workingOrder.flatMap((id, order) => {
+      const section = byId.get(id);
+      return section ? [{ ...section, order }] : [];
+    });
+  }, [moveSession, moveSourcePage]);
+  const moveDirty = Boolean(
+    moveSession
+    && moveSession.workingOrder.some((id, index) => id !== moveSession.baselineOrder[index]),
+  );
+  const activePage = committedActivePage && moveSession?.sourcePageId === committedActivePage.id
+    ? { ...committedActivePage, sections: moveSections }
+    : committedActivePage;
+
+  const reportBookingCollapse = useCallback((sectionId: string, report: BookingCollapseReport) => {
+    setBookingCollapseReports((current) => {
+      const previous = current[sectionId];
+      if (
+        previous
+        && previous.collapsed === report.collapsed
+        && previous.collapseHeight === report.collapseHeight
+        && previous.isLong === report.isLong
+      ) return current;
+      return { ...current, [sectionId]: report };
+    });
+  }, []);
 
   useEffect(() => {
     if (!document) {
@@ -176,6 +223,21 @@ export function App() {
       setMobileActionsOpen(false);
     }
   }, [activePage?.id, document, selectedSectionId]);
+
+  useEffect(() => {
+    if (!selectedSectionId || mode !== 'edit') {
+      setSelectedSectionIntersects(false);
+      return undefined;
+    }
+    setSelectedSectionIntersects(true);
+    const section = window.document.querySelector<HTMLElement>(`[data-section-instance-id="${selectedSectionId}"]`);
+    if (!section || typeof IntersectionObserver === 'undefined') return undefined;
+    const observer = new IntersectionObserver(([entry]) => {
+      setSelectedSectionIntersects(Boolean(entry?.isIntersecting));
+    }, { threshold: 0 });
+    observer.observe(section);
+    return () => observer.disconnect();
+  }, [activePage?.id, mode, selectedSectionId]);
 
   useEffect(() => {
     if (!toast) {
@@ -212,6 +274,47 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const media = window.matchMedia('(min-width: 900px)');
+    const update = () => setDesktopSettings(media.matches);
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+
+  useEffect(() => {
+    const topbar = topbarRef.current;
+    if (!topbar) return undefined;
+    const measure = () => {
+      const next = Math.ceil(topbar.getBoundingClientRect().height + 24);
+      setContextTop(next);
+      window.document.body.style.setProperty('--final-context-top', `${next}px`);
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(topbar);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+      window.document.body.style.removeProperty('--final-context-top');
+    };
+  }, [document, mode]);
+
+  useEffect(() => {
+    if (!editingBooking) setSettingsTemporarilyHidden(false);
+  }, [editingBooking]);
+
+  useEffect(() => {
+    if (!pendingMoveFeedback) return;
+    if (lab.saveStatus === 'saved') {
+      setAnnouncement(pendingMoveFeedback.announcement);
+      setToast({ message: pendingMoveFeedback.message });
+      setPendingMoveFeedback(null);
+    } else if (lab.saveStatus === 'error') {
+      setPendingMoveFeedback(null);
+    }
+  }, [lab.saveStatus, pendingMoveFeedback]);
+
+  useEffect(() => {
     const handleEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape' || window.document.querySelector('[role="dialog"]')) {
         return;
@@ -222,6 +325,36 @@ export function App() {
     window.document.addEventListener('keydown', handleEscape);
     return () => window.document.removeEventListener('keydown', handleEscape);
   }, []);
+
+  useEffect(() => {
+    if (!moveSession) {
+      return undefined;
+    }
+
+    const keepHistoryStable = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) {
+        return;
+      }
+      const key = event.key.toLowerCase();
+      if (key !== 'z' && key !== 'y') {
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+
+    window.addEventListener('keydown', keepHistoryStable, { capture: true });
+    return () => window.removeEventListener('keydown', keepHistoryStable, { capture: true });
+  }, [moveSession]);
+
+  useEffect(() => {
+    const app = editorAppRef.current;
+    if (!app || !moveSession) {
+      return undefined;
+    }
+    app.setAttribute('inert', '');
+    return () => app.removeAttribute('inert');
+  }, [moveSession]);
 
   const sortedActiveSections = useMemo(
     () => activePage ? [...activePage.sections].sort((left, right) => left.order - right.order) : [],
@@ -240,7 +373,7 @@ export function App() {
       .map((item) => item.label);
   }, [document]);
 
-  const showError = (message: string, title = 'This change is protected') => {
+  const showError = (message: string, title = 'That change isn’t available') => {
     setAlertTitle(title);
     setAlertMessage(message);
   };
@@ -254,7 +387,7 @@ export function App() {
           'Keep a way to book',
         );
       } else {
-        showError(result.message, 'That change is not available');
+        showError(result.message, 'That change isn’t available');
       }
     }
     return result;
@@ -263,6 +396,8 @@ export function App() {
   const chooseStarter = (starter: OriginStarter) => {
     lab.chooseStarter(starter);
     setBookingSession(createEmptyBookingSession());
+    setBookingCollapseOverrides({});
+    setBookingCollapseReports({});
     setActivePageId(null);
     setSelectedSectionId(null);
     setMode('edit');
@@ -271,38 +406,122 @@ export function App() {
     setToast({ message: `${starterLabel(starter)} is ready. Change anything later.` });
   };
 
+  const openMoveSection = (
+    sectionId: string,
+    entry: MoveSession['entry'] = 'section',
+  ) => {
+    if (!document || moveSession) return;
+    const page = findSectionPage(document, sectionId);
+    if (!page) return;
+    const baselineOrder = [...page.sections]
+      .sort((left, right) => left.order - right.order)
+      .map((section) => section.id);
+    setMoveSession({
+      activeSectionId: sectionId,
+      baselineOrder,
+      entry,
+      initialSectionId: sectionId,
+      sourcePageId: page.id,
+      workingOrder: baselineOrder,
+    });
+    setEditingSectionId(null);
+    setStructureOpen(false);
+    setMobileActionsOpen(false);
+    setToast(null);
+  };
+
   const enterReorder = () => {
-    if (mode === 'reorder') {
+    if (!activePage || activePage.sections.length < 2) return;
+    const focusSection = activePage.sections.find((section) => section.id === selectedSectionId)
+      ?? [...activePage.sections].sort((left, right) => left.order - right.order)[0];
+    if (focusSection) openMoveSection(focusSection.id, 'arrange');
+  };
+
+  const updateWorkingPosition = (sectionId: string, position: number) => {
+    if (!moveSession || position < 1 || position > moveSession.workingOrder.length) return;
+    const fromIndex = moveSession.workingOrder.indexOf(sectionId);
+    if (fromIndex < 0) return;
+    if (fromIndex === position - 1) {
+      setMoveSession({ ...moveSession, activeSectionId: sectionId });
       return;
     }
-    setReorderBaseline(lab.createHistoryCheckpoint());
-    setMode('reorder');
-    setSelectedSectionId(null);
-    setMobileActionsOpen(false);
-    setStructureOpen(false);
+    const workingOrder = [...moveSession.workingOrder];
+    workingOrder.splice(fromIndex, 1);
+    workingOrder.splice(position - 1, 0, sectionId);
+    const section = document ? findSection(document, sectionId) : null;
+    setMoveSession({ ...moveSession, activeSectionId: sectionId, workingOrder });
+    setAnnouncement(`${section?.label ?? 'Section'} moved to position ${position} of ${workingOrder.length}.`);
   };
 
-  const cancelReorder = () => {
-    if (reorderBaseline) {
-      lab.restoreHistoryCheckpoint(reorderBaseline);
+  const cancelMoveSection = () => {
+    if (!moveSession || !document) return;
+    const initialSection = findSection(document, moveSession.initialSectionId);
+    const baselinePosition = moveSession.baselineOrder.indexOf(moveSession.initialSectionId) + 1;
+    setMoveSession(null);
+    setMoveDismissPending(false);
+    setAnnouncement(`Order restored. ${initialSection?.label ?? 'Section'} is back at position ${baselinePosition}.`);
+  };
+
+  const commitMoveSection = (
+    destination?:
+      | { type: 'existing_page'; pageId: string }
+      | { type: 'new_page'; name: string },
+  ) => {
+    if (!moveSession || !document) return;
+    const activeSection = findSection(document, moveSession.activeSectionId);
+    const beforePageIds = new Set(document.pages.map((page) => page.id));
+    const beforeVisibleCount = document.pages.filter((page) => page.visible).length;
+    const result = execute({
+      type: 'commit_section_move',
+      input: {
+        sourcePageId: moveSession.sourcePageId,
+        orderedSectionIds: moveSession.workingOrder,
+        sectionId: moveSession.activeSectionId,
+        destination,
+      },
+    });
+    if (!result.success) return;
+
+    setMoveSession(null);
+    setMoveDismissPending(false);
+    if (!result.changed) return;
+    if (destination?.type === 'existing_page') {
+      const targetPage = result.document.pages.find((page) => page.id === destination.pageId);
+      setActivePageId(destination.pageId);
+      setSelectedSectionId(moveSession.activeSectionId);
+      const message = `${activeSection?.label ?? 'Section'} moved to ${targetPage?.name ?? 'page'}.`;
+      setPendingMoveFeedback({ announcement: message, message });
+      return;
     }
-    setReorderBaseline(null);
-    setMode('edit');
-    setAnnouncement('Reorder changes cancelled.');
+    if (destination?.type === 'new_page') {
+      const created = result.document.pages.find((page) => !beforePageIds.has(page.id));
+      if (created) setActivePageId(created.id);
+      setSelectedSectionId(moveSession.activeSectionId);
+      if (!document.navigation.enabled && beforeVisibleCount === 1) setNavigationPromptOpen(true);
+      setPendingMoveFeedback({
+        announcement: `${activeSection?.label ?? 'Section'} moved to ${destination.name}.`,
+        message: `${destination.name} created with ${activeSection?.label ?? 'section'} intact.`,
+      });
+      return;
+    }
+
+    setPendingMoveFeedback({
+      announcement: 'Section order saved.',
+      message: 'Section order saved.',
+    });
   };
 
-  const finishReorder = () => {
-    setReorderBaseline(null);
-    setMode('edit');
-    setAnnouncement('Section order saved.');
+  const requestMoveClose = () => {
+    if (!moveSession) return;
+    if (moveDirty) setMoveDismissPending(true);
+    else setMoveSession(null);
   };
 
   const enterPreview = () => {
-    if (!document || mode === 'reorder') {
+    if (!document) {
       return;
     }
     const current = activePage?.visible ? activePage : document.pages.find((page) => page.visible) ?? getHomeOrFirstPage(document);
-    setReorderBaseline(null);
     setActivePageId(current.id);
     setStructureOpen(false);
     if (window.matchMedia('(max-width: 700px)').matches || window.document.body.clientWidth <= 700) {
@@ -310,6 +529,22 @@ export function App() {
     }
     setMode('preview');
     window.requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: 'auto' }));
+  };
+
+  const leavePreview = () => {
+    setBookingSession((current) => normalizeSessionForLayoutChange(current));
+    setMode('edit');
+  };
+
+  const selectPreviewViewport = (nextViewport: PreviewViewport) => {
+    const widths: Record<PreviewViewport, number> = {
+      desktop: 1440,
+      tablet: 840,
+      mobile: 430,
+    };
+    setViewport(nextViewport);
+    const label = nextViewport === 'mobile' ? 'Phone' : `${nextViewport[0]?.toUpperCase()}${nextViewport.slice(1)}`;
+    setAnnouncement(`${label} preview, ${widths[nextViewport]} pixels wide.`);
   };
 
   const addSection = (sectionType: CatalogueSectionType, size: SectionSize) => {
@@ -402,69 +637,6 @@ export function App() {
       setSelectedSectionId(section.id);
       setToast({ message: `${section.label} restored to ${activePage.name}.` });
     }
-  };
-
-  const announceMovedSection = (nextDocument: SiteBuilderDocument, sectionId: string) => {
-    const message = getSectionMoveAnnouncement(nextDocument, sectionId);
-    setAnnouncement(message);
-    setToast({ message });
-  };
-
-  const moveSectionToPosition = (section: SectionInstance, position: number) => {
-    const result = execute({ type: 'move_section', sectionId: section.id, position });
-    if (result.success) {
-      announceMovedSection(result.document, section.id);
-      setPositionSectionId(null);
-    }
-  };
-
-  const moveSectionUp = (section: SectionInstance) => {
-    const result = execute({ type: 'move_section_up', sectionId: section.id });
-    if (result.success) {
-      announceMovedSection(result.document, section.id);
-    }
-  };
-
-  const moveSectionDown = (section: SectionInstance) => {
-    const result = execute({ type: 'move_section_down', sectionId: section.id });
-    if (result.success) {
-      announceMovedSection(result.document, section.id);
-    }
-  };
-
-  const moveSectionToPage = (section: SectionInstance, pageId: string) => {
-    const result = execute({ type: 'move_section_to_page', sectionId: section.id, pageId });
-    if (result.success) {
-      const page = result.document.pages.find((candidate) => candidate.id === pageId);
-      setActivePageId(pageId);
-      setSelectedSectionId(section.id);
-      setMoveBaseline(null);
-      setMovingSectionId(null);
-      setToast({ message: `${section.label} moved to ${page?.name ?? 'page'}.` });
-    }
-  };
-
-  const moveSectionToNewPage = (section: SectionInstance, name: string) => {
-    if (!document) {
-      return;
-    }
-    const beforeIds = new Set(document.pages.map((page) => page.id));
-    const beforeVisibleCount = document.pages.filter((page) => page.visible).length;
-    const result = execute({ type: 'move_section_to_new_page', input: { sectionId: section.id, name } });
-    if (!result.success) {
-      return;
-    }
-    const created = result.document.pages.find((page) => !beforeIds.has(page.id));
-    if (created) {
-      setActivePageId(created.id);
-    }
-    setSelectedSectionId(section.id);
-    setMoveBaseline(null);
-    setMovingSectionId(null);
-    if (!document.navigation.enabled && beforeVisibleCount === 1 && result.document.pages.filter((page) => page.visible).length > 1) {
-      setNavigationPromptOpen(true);
-    }
-    setToast({ message: `${name} created with ${section.label} intact.` });
   };
 
   const addPage = (name: string, slug: string) => {
@@ -571,6 +743,8 @@ export function App() {
       setActivePageId(getHomeOrFirstPage(result.document).id);
       setSelectedSectionId(null);
       setBookingSession(createEmptyBookingSession());
+      setBookingCollapseOverrides({});
+      setBookingCollapseReports({});
       setMode('edit');
       setToast({ message: 'Site restored from imported JSON.' });
     } catch {
@@ -582,11 +756,15 @@ export function App() {
     if (resetChoice === 'lab') {
       lab.resetLab();
       setBookingSession(createEmptyBookingSession());
+      setBookingCollapseOverrides({});
+      setBookingCollapseReports({});
       setOptionsOpen(false);
       setToast(null);
     } else if (resetChoice === 'starter') {
       lab.resetToStarter();
       setBookingSession(createEmptyBookingSession());
+      setBookingCollapseOverrides({});
+      setBookingCollapseReports({});
       setActivePageId(null);
       setSelectedSectionId(null);
       setMode('edit');
@@ -612,6 +790,33 @@ export function App() {
   }
 
   const previewPage = activePage.visible ? activePage : document.pages.find((page) => page.visible) ?? getHomeOrFirstPage(document);
+  const selectedBookingReport = selectedSection?.sectionType === 'booking'
+    ? bookingCollapseReports[selectedSection.id]
+    : undefined;
+  const selectedSectionSubtitle = selectedSection?.sectionType === 'booking'
+    ? BOOKING_LAYOUT_META[selectedSection.settings.layout].label
+    : selectedSection?.sectionType
+      ? selectedSection.size
+      : '';
+
+  const toggleSelectedBookingCollapse = () => {
+    if (selectedSection?.sectionType !== 'booking' || !selectedBookingReport) return;
+    setBookingCollapseOverrides((current) => ({
+      ...current,
+      [selectedSection.id]: !selectedBookingReport.collapsed,
+    }));
+  };
+
+  const returnToSelectedSection = () => {
+    if (!selectedSection) return;
+    const section = window.document.querySelector<HTMLElement>(`[data-section-instance-id="${selectedSection.id}"]`);
+    if (!section) return;
+    setSelectedSectionIntersects(true);
+    section.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    window.requestAnimationFrame(() => {
+      section.querySelector<HTMLElement>('.section-card__select-surface')?.focus({ preventScroll: true });
+    });
+  };
 
   const undoLastChange = () => {
     if (lab.undo()) {
@@ -635,34 +840,10 @@ export function App() {
 
   const openStructure = () => {
     setEditingSectionId(null);
-    setMovingSectionId(null);
     setEditingPageId(null);
     setAddPageOpen(false);
     setMobileActionsOpen(false);
     setStructureOpen(true);
-  };
-
-  const openMoveSection = (sectionId: string) => {
-    setStructureOpen(false);
-    setMoveBaseline(lab.createHistoryCheckpoint());
-    setMovingSectionId(sectionId);
-    setToast(null);
-  };
-
-  const cancelMoveSection = () => {
-    if (moveBaseline) {
-      lab.restoreHistoryCheckpoint(moveBaseline);
-    }
-    setMoveBaseline(null);
-    setMovingSectionId(null);
-    setAnnouncement('Move changes cancelled.');
-  };
-
-  const finishMoveSection = () => {
-    setMoveBaseline(null);
-    setMovingSectionId(null);
-    setAnnouncement('Section order saved.');
-    setToast({ message: 'Section order saved.' });
   };
 
   const structurePanel = (
@@ -700,12 +881,12 @@ export function App() {
     return (
       <div className={`preview-app final-hybrid-preview${realHeightSimulation ? ' is-real-height-simulation' : ''}`} data-editor-shell="final-hybrid">
         <header className={`preview-toolbar final-preview-toolbar${zoomCompactedPreview ? ' is-zoom-compact' : ''}`} aria-label="Preview controls">
-          <button aria-label="Back to editor" className="final-preview-toolbar__back" type="button" onClick={() => setMode('edit')}><ArrowLeft aria-hidden="true" size={18} /><span>Back to editor</span></button>
+          <button aria-label="Back to editor" className="final-preview-toolbar__back" type="button" onClick={leavePreview}><ArrowLeft aria-hidden="true" size={18} /><span>Back to editor</span></button>
           <div className="final-preview-toolbar__page"><Eye aria-hidden="true" size={17} /><span>Previewing <strong>{previewPage.name}</strong></span></div>
-          <div className="segmented-control final-preview-devices" role="group" aria-label="Preview viewport">
-            <button aria-label="Desktop" aria-pressed={viewport === 'desktop'} type="button" onClick={() => setViewport('desktop')}><Laptop aria-hidden="true" size={17} /><span>Desktop</span></button>
-            <button aria-label="Tablet" aria-pressed={viewport === 'tablet'} type="button" onClick={() => setViewport('tablet')}><Tablet aria-hidden="true" size={17} /><span>Tablet</span></button>
-            <button aria-label="Phone" aria-pressed={viewport === 'mobile'} type="button" onClick={() => setViewport('mobile')}><Smartphone aria-hidden="true" size={17} /><span>Phone</span></button>
+          <div className="segmented-control final-preview-devices" role="group" aria-label="Preview viewport" aria-controls="site-preview-stage">
+            <button aria-label="Desktop" aria-pressed={viewport === 'desktop'} type="button" onClick={() => selectPreviewViewport('desktop')}><Laptop aria-hidden="true" size={17} /><span>Desktop</span></button>
+            <button aria-label="Tablet" aria-pressed={viewport === 'tablet'} type="button" onClick={() => selectPreviewViewport('tablet')}><Tablet aria-hidden="true" size={17} /><span>Tablet</span></button>
+            <button aria-label="Phone" aria-pressed={viewport === 'mobile'} type="button" onClick={() => selectPreviewViewport('mobile')}><Smartphone aria-hidden="true" size={17} /><span>Phone</span></button>
           </div>
         </header>
         <section aria-label="Site preview">
@@ -716,6 +897,7 @@ export function App() {
             document={document}
             tokenPreset={tokenPreset}
             viewport={viewport}
+            stageId="site-preview-stage"
             onBookingSessionChange={setBookingSession}
             onNavigate={(pageId) => {
               const page = document.pages.find((candidate) => candidate.id === pageId);
@@ -725,54 +907,50 @@ export function App() {
             }}
           />
         </section>
+        <div className="visually-hidden" aria-live="polite" role="status">{announcement}</div>
       </div>
     );
   }
 
   return (
     <div
-      className={`editor-app final-hybrid-app${selectedSection ? ' has-selected-section' : ''}${editingSectionId || movingSectionId || editingPageId || addPageOpen ? ' has-context-drawer' : ''}${realHeightSimulation ? ' is-real-height-simulation' : ''}`}
+      ref={editorAppRef}
+      className={`editor-app final-hybrid-app${selectedSection ? ' has-selected-section' : ''}${editingSectionId || moveSession || editingPageId || addPageOpen ? ' has-context-drawer' : ''}${editingBooking && !settingsTemporarilyHidden ? ' has-booking-settings' : ''}${moveSession ? ' has-move-session' : ''}${realHeightSimulation ? ' is-real-height-simulation' : ''}`}
       data-canvas-viewport={viewport}
       data-editor-shell="final-hybrid"
       data-editor-mode={mode}
       data-testid="final-hybrid-editor"
+      style={{ '--final-context-top': `${contextTop}px` } as CSSProperties}
     >
-      <header className="final-topbar" aria-label="Site builder toolbar">
+      <header ref={topbarRef} className="final-topbar" aria-label="Site builder toolbar">
         <div className="final-topbar__brand">
           <span aria-hidden="true">L</span><strong>Luster</strong>
           {lab.saveStatus === 'error' ? (
             <><button aria-label="Local save failed. Open backup and reset options" className="save-status is-error" type="button" onClick={() => setOptionsOpen(true)}><AlertTriangle aria-hidden="true" size={15} /><span>Save failed</span></button><span className="visually-hidden" role="alert">Local saving failed. Open backup and reset options for recovery actions.</span></>
           ) : (
-            <span className={`save-status${lab.saveStatus === 'saved' ? ' is-saved' : ''}`} role="status" aria-label="Save status">
-              {lab.saveStatus === 'saved' ? <Check aria-hidden="true" size={14} /> : <Save aria-hidden="true" size={14} />}
-              <span>{lab.saveStatus === 'saving' ? 'Saving…' : 'Saved'}</span>
+            <span className={`save-status${moveDirty ? ' is-order-dirty' : lab.saveStatus === 'saved' ? ' is-saved' : ''}`} role="status" aria-label="Save status">
+              {!moveDirty && lab.saveStatus === 'saved' ? <Check aria-hidden="true" size={14} /> : <Save aria-hidden="true" size={14} />}
+              <span>{moveDirty ? 'Order not saved yet' : lab.saveStatus === 'saving' ? 'Saving…' : 'Saved'}</span>
             </span>
           )}
         </div>
-        {mode === 'reorder' ? (
-          <div className="final-topbar__page final-topbar__page-label"><span>{activePage.name}</span></div>
-        ) : (
-          <button
-            aria-expanded={structureOpen}
-            aria-label={`Open Pages & Structure for ${activePage.name}`}
-            className="final-topbar__page"
-            type="button"
-            onClick={openStructure}
-          >
-            <span>{activePage.name}</span><ChevronDown aria-hidden="true" size={16} />
-          </button>
-        )}
+        <button
+          aria-expanded={structureOpen}
+          aria-label={`Open Pages & Structure for ${activePage.name}`}
+          className="final-topbar__page"
+          disabled={Boolean(moveSession)}
+          type="button"
+          onClick={openStructure}
+        >
+          <span>{activePage.name}</span><ChevronDown aria-hidden="true" size={16} />
+        </button>
         <div className="final-topbar__actions">
-          {mode === 'reorder' ? <span className="final-topbar__reorder-status">Reordering</span> : (
-            <>
-              <div className="final-topbar__history">
-                <button aria-label="Undo" disabled={!lab.canUndo} type="button" onClick={undoLastChange}><Undo2 aria-hidden="true" size={18} /></button>
-                <button aria-label="Redo" disabled={!lab.canRedo} type="button" onClick={redoLastChange}><Redo2 aria-hidden="true" size={18} /></button>
-              </div>
-              <button aria-label="Preview" className="final-topbar__preview" type="button" onClick={enterPreview}><Eye aria-hidden="true" size={18} /><span>Preview</span></button>
-              <button aria-label="More site options" className="final-topbar__more" type="button" onClick={() => setOptionsOpen(true)}><MoreHorizontal aria-hidden="true" size={20} /></button>
-            </>
-          )}
+          <div className="final-topbar__history">
+            <button aria-label="Undo" disabled={!lab.canUndo || Boolean(moveSession)} type="button" onClick={undoLastChange}><Undo2 aria-hidden="true" size={18} /></button>
+            <button aria-label="Redo" disabled={!lab.canRedo || Boolean(moveSession)} type="button" onClick={redoLastChange}><Redo2 aria-hidden="true" size={18} /></button>
+          </div>
+          <button aria-label="Preview" className="final-topbar__preview" disabled={Boolean(moveSession)} type="button" onClick={enterPreview}><Eye aria-hidden="true" size={18} /><span>Preview</span></button>
+          <button aria-label="More site options" className="final-topbar__more" disabled={Boolean(moveSession)} type="button" onClick={() => setOptionsOpen(true)}><MoreHorizontal aria-hidden="true" size={20} /></button>
         </div>
       </header>
 
@@ -787,33 +965,7 @@ export function App() {
         }}
       >
         <div className="final-canvas-frame">
-          {mode === 'reorder' ? (
-            <section aria-label={`Reorder sections on ${activePage.name}`} className="final-reorder-shell">
-              <div className="final-reorder-heading">
-                <span>Page · {activePage.name}</span>
-                <h1>Reorder sections</h1>
-                <p>Drag from a handle, tap a number, or use the movement buttons. Normal scrolling stays safe outside the handles.</p>
-              </div>
-              {sortedActiveSections.length > 0 ? (
-                <ReorderList
-                  onAnnounce={setAnnouncement}
-                  onDragReorder={(sectionId, position) => {
-                    const result = execute({ type: 'move_section', sectionId, position });
-                    if (result.success) {
-                      setAnnouncement(getSectionMoveAnnouncement(result.document, sectionId));
-                    }
-                  }}
-                  onMoveDown={moveSectionDown}
-                  onMovePage={(section) => openMoveSection(section.id)}
-                  onMoveUp={moveSectionUp}
-                  onOpenPosition={(section) => setPositionSectionId(section.id)}
-                  sections={sortedActiveSections}
-                />
-              ) : <p className="final-empty-page">This page has no sections to reorder.</p>}
-              <div className="final-reorder-desktop-actions"><button type="button" onClick={cancelReorder}><X aria-hidden="true" size={17} /> Cancel</button><button type="button" onClick={finishReorder}><Check aria-hidden="true" size={17} /> Done</button></div>
-            </section>
-          ) : (
-            <div className="final-site-canvas" data-page-id={activePage.id}>
+          <div className="final-site-canvas" data-page-id={activePage.id}>
               <div className="canvas-client-header" aria-hidden="true">
                 <span><i>L</i><strong>{document.siteName}</strong></span>
                 {canvasNavigationLabels.length > 0 ? <span className="canvas-client-header__nav">{canvasNavigationLabels.join('   ')}</span> : null}
@@ -837,12 +989,15 @@ export function App() {
                       <div className="final-section-block" key={section.id}>
                         {section.sectionType === 'booking' ? (
                           <BookingSectionCard
+                            collapseOverride={bookingCollapseOverrides[section.id]}
                             fixture={bookingFixture}
                             page={activePage}
                             section={section}
                             selected={selectedSectionId === section.id}
                             session={bookingSession}
                             tokenPreset={tokenPreset}
+                            onCollapseChange={(collapsed) => setBookingCollapseOverrides((current) => ({ ...current, [section.id]: collapsed }))}
+                            onCollapseReport={(report) => reportBookingCollapse(section.id, report)}
                             onEdit={editSection}
                             onEnterReorder={enterReorder}
                             onMove={(candidate) => openMoveSection(candidate.id)}
@@ -883,24 +1038,99 @@ export function App() {
                   </>
                 )}
               </div>
-            </div>
-          )}
+          </div>
         </div>
       </main>
 
+      {editingBooking && desktopSettings ? (
+        <aside
+          aria-label="Booking settings"
+          aria-modal="false"
+          className="final-booking-settings-drawer"
+          hidden={settingsTemporarilyHidden}
+          role="dialog"
+        >
+          <header>
+            <div>
+              <h2>Booking</h2>
+              <p>Choose how clients browse your services. You can change this anytime. Your services, prices and booking settings stay the same.</p>
+            </div>
+            <button aria-label="Close Booking settings" className="icon-button" type="button" onClick={() => setEditingSectionId(null)}>×</button>
+          </header>
+          <div className="final-booking-settings-drawer__body">
+            <button className="final-booking-settings-drawer__preview" type="button" onClick={() => setSettingsTemporarilyHidden(true)}>
+              View preview
+            </button>
+            <BookingSettingsPanel
+              settings={editingBooking.settings}
+              onChange={updateBookingPresentation}
+              onReset={resetBookingPresentation}
+            />
+          </div>
+        </aside>
+      ) : null}
+      {editingBooking && desktopSettings && settingsTemporarilyHidden ? (
+        <button className="final-booking-settings-show" type="button" onClick={() => setSettingsTemporarilyHidden(false)}>
+          Show Booking settings
+        </button>
+      ) : null}
+
+      {selectedSection && !moveSession ? (
+        <aside
+          aria-label={`${selectedSection.label} owner controls`}
+          className={`final-selected-toolbar${selectedSectionIntersects ? '' : ' is-away'}`}
+          data-testid="selected-section-toolbar"
+        >
+          {selectedSectionIntersects ? (
+            <>
+              <div className="final-selected-toolbar__identity">
+                <span aria-hidden="true">{selectedSection.sectionType === 'booking' ? 'B' : selectedSection.label.replace('Section ', '')}</span>
+                <div><strong>{selectedSection.label}</strong><small>{selectedSectionSubtitle}</small></div>
+              </div>
+              <div className="final-selected-toolbar__actions">
+                <button type="button" onClick={() => editSection(selectedSection)}><Pencil aria-hidden="true" size={17} /> Edit</button>
+                <button type="button" onClick={() => openMoveSection(selectedSection.id)}><Move aria-hidden="true" size={17} /> Move</button>
+                {selectedSection.sectionType === 'booking' && selectedBookingReport?.isLong ? (
+                  <button type="button" onClick={toggleSelectedBookingCollapse}>
+                    {selectedBookingReport.collapsed ? <Maximize2 aria-hidden="true" size={17} /> : <Minimize2 aria-hidden="true" size={17} />}
+                    {selectedBookingReport.collapsed ? 'Expand' : 'Collapse'}
+                  </button>
+                ) : null}
+                <button type="button" onClick={() => setMobileActionsOpen(true)}><MoreHorizontal aria-hidden="true" size={18} /> More</button>
+              </div>
+            </>
+          ) : (
+            <button className="final-selected-toolbar__return" type="button" onClick={returnToSelectedSection}>
+              Back to {selectedSection.label}
+            </button>
+          )}
+        </aside>
+      ) : null}
+
       <div className="final-mobile-dock">
-        {mode === 'reorder' ? (
-          <div aria-label="Reorder actions" className="final-mobile-dock__reorder" role="group">
-            <button type="button" onClick={cancelReorder}>Cancel</button>
-            <button className="is-primary" type="button" onClick={finishReorder}>Done</button>
-          </div>
-        ) : selectedSection ? (
-          <div aria-label={`${selectedSection.label} actions`} className="final-mobile-dock__selected" role="group">
-            <button type="button" onClick={() => editSection(selectedSection)}><Pencil aria-hidden="true" size={18} /> Edit</button>
-            <button type="button" onClick={() => openMoveSection(selectedSection.id)}><Menu aria-hidden="true" size={18} /> Move</button>
-            <button type="button" onClick={() => toggleSection(selectedSection)}><Eye aria-hidden="true" size={18} /> {selectedSection.visible ? 'Hide' : 'Show'}</button>
-            <button type="button" onClick={() => setMobileActionsOpen(true)}><MoreHorizontal aria-hidden="true" size={19} /> More</button>
-          </div>
+        {moveSession ? null : selectedSection ? (
+          selectedSectionIntersects ? (
+            <div aria-label={`${selectedSection.label} actions`} className="final-mobile-dock__selected" role="group">
+              <div className="final-mobile-dock__identity">
+                <span aria-hidden="true">{selectedSection.sectionType === 'booking' ? 'B' : selectedSection.label.replace('Section ', '')}</span>
+                <div><strong>{selectedSection.label}</strong><small>{selectedSectionSubtitle}</small></div>
+              </div>
+              <div className={`final-mobile-dock__actions${selectedSection.sectionType === 'booking' && selectedBookingReport?.isLong ? ' has-collapse' : ''}`}>
+                <button type="button" onClick={() => editSection(selectedSection)}><Pencil aria-hidden="true" size={18} /> Edit</button>
+                <button type="button" onClick={() => openMoveSection(selectedSection.id)}><Menu aria-hidden="true" size={18} /> Move</button>
+                <button type="button" onClick={() => toggleSection(selectedSection)}><Eye aria-hidden="true" size={18} /> {selectedSection.visible ? 'Hide' : 'Show'}</button>
+                <button type="button" onClick={() => setMobileActionsOpen(true)}><MoreHorizontal aria-hidden="true" size={19} /> More</button>
+                {selectedSection.sectionType === 'booking' && selectedBookingReport?.isLong ? (
+                  <button type="button" onClick={toggleSelectedBookingCollapse}>
+                    {selectedBookingReport.collapsed ? <Maximize2 aria-hidden="true" size={18} /> : <Minimize2 aria-hidden="true" size={18} />}
+                    {selectedBookingReport.collapsed ? 'Expand' : 'Collapse'}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ) : (
+            <button className="final-mobile-dock__back" type="button" onClick={returnToSelectedSection}>Back to {selectedSection.label}</button>
+          )
         ) : (
           <button className="final-mobile-dock__add" type="button" onClick={() => setLibraryPosition(sortedActiveSections.length + 1)}><Plus aria-hidden="true" size={20} /> Add section</button>
         )}
@@ -916,7 +1146,7 @@ export function App() {
       <SectionSettingsDialog onClose={() => setEditingSectionId(null)} onSave={saveSection} section={editingPlaceholder} />
       <Dialog
         onClose={() => setEditingSectionId(null)}
-        open={editingBooking !== null}
+        open={editingBooking !== null && !desktopSettings}
         title="Booking"
         variant="context-panel"
       >
@@ -928,30 +1158,55 @@ export function App() {
           />
         ) : null}
       </Dialog>
-      <MovePositionDialog currentPosition={currentPosition} onClose={() => setPositionSectionId(null)} onMove={(position) => { if (positionSection) moveSectionToPosition(positionSection, position); }} section={positionSection} total={positionSectionPage?.sections.length ?? 1} />
-      <MoveSectionDialog
-        currentPageId={movingSectionPage?.id ?? activePage.id}
-        document={document}
-        onAnnounce={setAnnouncement}
-        onClose={cancelMoveSection}
-        onCreatePage={(name) => { if (movingSection) moveSectionToNewPage(movingSection, name); }}
-        onDone={finishMoveSection}
-        onDragReorder={(sectionId, position) => {
-          const result = execute({ type: 'move_section', sectionId, position });
-          if (result.success) {
-            setAnnouncement(getSectionMoveAnnouncement(result.document, sectionId));
-          }
-        }}
-        onMove={(pageId) => { if (movingSection) moveSectionToPage(movingSection, pageId); }}
-        onMoveDown={moveSectionDown}
-        onMoveToPosition={moveSectionToPosition}
-        onMoveUp={moveSectionUp}
-        section={movingSection}
-      />
+      {moveSession && moveSourcePage ? (
+        <SectionMovePanel
+          activeSectionId={moveSession.activeSectionId}
+          commitStatus={lab.saveStatus === 'idle' ? 'saved' : lab.saveStatus}
+          dirty={moveDirty}
+          document={document}
+          entry={moveSession.entry}
+          onActivateSection={(section) => setMoveSession((current) => current ? { ...current, activeSectionId: section.id } : current)}
+          onAnnounce={setAnnouncement}
+          onCancel={cancelMoveSection}
+          onCreatePage={(name) => commitMoveSection({ type: 'new_page', name })}
+          onDone={() => commitMoveSection()}
+          onDragReorder={updateWorkingPosition}
+          onMoveDown={(section) => {
+            const index = moveSession.workingOrder.indexOf(section.id);
+            updateWorkingPosition(section.id, index + 2);
+          }}
+          onMoveToPage={(pageId) => commitMoveSection({ type: 'existing_page', pageId })}
+          onMoveToPosition={(section, position) => updateWorkingPosition(section.id, position)}
+          onMoveUp={(section) => {
+            const index = moveSession.workingOrder.indexOf(section.id);
+            updateWorkingPosition(section.id, index);
+          }}
+          onRequestClose={requestMoveClose}
+          open
+          page={moveSourcePage}
+          sections={moveSections}
+        />
+      ) : null}
       <AddPageDialog onAdd={addPage} onClose={() => setAddPageOpen(false)} open={addPageOpen} />
       <PageSettingsDialog onClose={() => setEditingPageId(null)} onSave={savePage} page={editingPage} />
       <NavigationPromptDialog onAddNavigation={() => { execute({ type: 'toggle_navigation', enabled: true }); setNavigationPromptOpen(false); setToast({ message: 'Menu added.' }); }} onClose={() => setNavigationPromptOpen(false)} open={navigationPromptOpen} />
       <ConfirmationDialog confirmLabel="Remove page" danger description={pendingPageRemoval ? `${pendingPageRemoval.name} and its sections will move to Removed pages, where they can be restored.` : ''} onClose={() => setPendingPageRemovalId(null)} onConfirm={confirmRemovePage} open={pendingPageRemoval !== null} title="Remove this page?" />
+      <Dialog
+        description={moveSession ? (() => {
+          const changedSectionId = moveSession.workingOrder.find((id, index) => (
+            moveSession.baselineOrder.indexOf(id) !== index
+          )) ?? moveSession.activeSectionId;
+          return `${findSection(document, changedSectionId)?.label ?? 'Section'} is at position ${moveSession.workingOrder.indexOf(changedSectionId) + 1} instead of ${moveSession.baselineOrder.indexOf(changedSectionId) + 1}.`;
+        })() : ''}
+        onClose={() => setMoveDismissPending(false)}
+        open={moveDismissPending}
+        title="Keep this new order?"
+      >
+        <div className="dialog-actions">
+          <button className="secondary-button" type="button" onClick={cancelMoveSection}>Discard changes</button>
+          <button className="primary-button" type="button" onClick={() => commitMoveSection()}>Keep order</button>
+        </div>
+      </Dialog>
       <LabOptionsDialog
         canRedo={lab.canRedo}
         canUndo={lab.canUndo}
@@ -986,7 +1241,7 @@ export function App() {
             <p>
               {selectedSection.visible ? 'Shown on your website' : 'Hidden from clients'} · {' '}
               {selectedSection.sectionType === 'booking'
-                ? 'Protected client booking menu'
+                ? 'Your client booking menu · keeps booking available'
                 : `${selectedSection.size} placeholder`}
             </p>
             <button type="button" onClick={() => { setMobileActionsOpen(false); openMoveSection(selectedSection.id); }}><Menu aria-hidden="true" size={18} /> Move section</button>

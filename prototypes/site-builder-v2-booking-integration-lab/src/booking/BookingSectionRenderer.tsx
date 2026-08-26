@@ -7,12 +7,14 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
+import { createPortal } from 'react-dom';
 
 import { BookingLayout } from './BookingLayouts';
 import { Handoff } from './Handoff';
 import { SelectedSummary } from './SelectedSummary';
 import { ServiceDetail } from './ServiceDetail';
 import {
+  createEmptyBookingSession,
   createMenuFixture,
   normalizeBookingSelection,
   normalizeSessionForLayoutChange,
@@ -33,13 +35,18 @@ import type {
 import './booking.css';
 
 export const DEFAULT_BOOKING_FIXTURE = createMenuFixture();
+const EDITOR_BOOKING_SESSION = createEmptyBookingSession();
 
 export type BookingSessionUpdater = Dispatch<SetStateAction<BookingSessionState>>;
 
 export type BookingSectionRendererProps = {
   fixture?: MockMenuFixture;
   mode: 'edit' | 'preview';
+  onOwnerSelect?: () => void;
+  overlayHost?: HTMLElement | null;
+  summaryHost?: HTMLElement | null;
   presentationSettings: BookingSectionPresentationSettings;
+  previewViewport?: 'desktop' | 'tablet' | 'mobile';
   session: BookingSessionState;
   tokenPreset?: BookingTokenPresetId;
   onSessionChange: BookingSessionUpdater;
@@ -48,31 +55,36 @@ export type BookingSectionRendererProps = {
 export function BookingSectionRenderer({
   fixture = DEFAULT_BOOKING_FIXTURE,
   mode,
+  onOwnerSelect,
+  overlayHost = null,
+  summaryHost = null,
   presentationSettings,
+  previewViewport = 'desktop',
   session,
   tokenPreset = 'warm',
   onSessionChange,
 }: BookingSectionRendererProps) {
   const previousLayoutRef = useRef(presentationSettings.layout);
   const customerRegionRef = useRef<HTMLDivElement>(null);
+  const displaySession = mode === 'edit' ? EDITOR_BOOKING_SESSION : session;
   const serviceById = useMemo(
     () => new Map(fixture.services.map(service => [service.id, service])),
     [fixture.services],
   );
   const selectedSummary = useMemo(
     () => summarizeSelection(
-      session.selection,
+      displaySession.selection,
       fixture.services,
       fixture.addOns,
     ),
-    [fixture.addOns, fixture.services, session.selection],
+    [displaySession.selection, fixture.addOns, fixture.services],
   );
   const tokenStyles = useMemo(
     () => bookingTokenStyles(tokenPreset) as CSSProperties,
     [tokenPreset],
   );
-  const detailService = session.detailServiceId
-    ? serviceById.get(session.detailServiceId) ?? null
+  const detailService = displaySession.detailServiceId
+    ? serviceById.get(displaySession.detailServiceId) ?? null
     : null;
 
   useEffect(() => {
@@ -82,18 +94,6 @@ export function BookingSectionRenderer({
     previousLayoutRef.current = presentationSettings.layout;
     onSessionChange(current => normalizeSessionForLayoutChange(current));
   }, [onSessionChange, presentationSettings.layout]);
-
-  useEffect(() => {
-    const region = customerRegionRef.current;
-    if (!region) {
-      return;
-    }
-    if (mode === 'edit') {
-      region.setAttribute('inert', '');
-    } else {
-      region.removeAttribute('inert');
-    }
-  }, [mode]);
 
   const updateQuery = useCallback((query: string) => {
     onSessionChange(current => ({ ...current, query }));
@@ -171,6 +171,53 @@ export function BookingSectionRenderer({
     onSessionChange(current => ({ ...current, handoffOpen: false }));
   }, [onSessionChange]);
 
+  const customerSummary = mode === 'preview' && selectedSummary ? (
+    <div
+      className="booking-preview-summary"
+      data-body-scale={presentationSettings.bodyScale}
+      data-heading-scale={presentationSettings.headingScale}
+      data-preview-viewport={previewViewport}
+      data-spacing={presentationSettings.spacing}
+      data-typography={presentationSettings.typographyPreset}
+      style={tokenStyles}
+    >
+      <SelectedSummary
+        summary={selectedSummary}
+        onChange={() => openDetails(selectedSummary.service)}
+        onContinue={continueFromSummary}
+      />
+    </div>
+  ) : null;
+
+  const customerOverlays = mode === 'preview' ? (
+    <div
+      className="booking-preview-overlays"
+      data-body-scale={presentationSettings.bodyScale}
+      data-heading-scale={presentationSettings.headingScale}
+      data-preview-viewport={previewViewport}
+      data-spacing={presentationSettings.spacing}
+      data-typography={presentationSettings.typographyPreset}
+      style={tokenStyles}
+    >
+      <ServiceDetail
+        draftAddOnIds={session.draftAddOnIds}
+        fixture={fixture}
+        selection={session.selection}
+        service={detailService}
+        onClose={closeDetails}
+        onContinue={service => commitService(service, true)}
+        onDeselect={deselectService}
+        onSelect={service => commitService(service, false)}
+        onToggleAddOn={toggleDraftAddOn}
+      />
+      <Handoff
+        open={session.handoffOpen}
+        summary={selectedSummary}
+        onClose={closeHandoff}
+      />
+    </div>
+  ) : null;
+
   return (
     <div
       className="luster-booking"
@@ -181,11 +228,23 @@ export function BookingSectionRenderer({
       data-body-scale={presentationSettings.bodyScale}
       data-testid={`booking-section-${mode}`}
       style={tokenStyles}
+      onClickCapture={mode === 'edit' ? (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        onOwnerSelect?.();
+      } : undefined}
+      onKeyDownCapture={mode === 'edit' ? (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+      } : undefined}
     >
       <div
         ref={customerRegionRef}
         className="booking-customer-region"
-        aria-hidden={mode === 'edit' ? 'true' : undefined}
+        aria-label={mode === 'edit'
+          ? `Booking menu preview — ${fixture.services.length} services, ${BOOKING_LAYOUT_META[presentationSettings.layout].label}. Not interactive while editing.`
+          : undefined}
+        role={mode === 'edit' ? 'group' : undefined}
       >
         <div
           className="booking-surface"
@@ -194,7 +253,7 @@ export function BookingSectionRenderer({
           data-typography={presentationSettings.typographyPreset}
           data-heading-scale={presentationSettings.headingScale}
           data-body-scale={presentationSettings.bodyScale}
-          data-has-selection={selectedSummary ? 'true' : 'false'}
+          data-has-selection={mode === 'preview' && selectedSummary ? 'true' : 'false'}
           data-spacing={presentationSettings.spacing}
           aria-label={`${BOOKING_LAYOUT_META[presentationSettings.layout].label} booking menu`}
         >
@@ -202,43 +261,29 @@ export function BookingSectionRenderer({
             layout={presentationSettings.layout}
             fixture={fixture}
             settings={presentationSettings}
-            selection={session.selection}
-            activeCategory={session.activeCategory}
-            query={session.query}
+            selection={displaySession.selection}
+            activeCategory={displaySession.activeCategory}
+            query={displaySession.query}
             onCategoryChange={updateCategory}
             onOpenDetails={openDetails}
             onQueryChange={updateQuery}
+            readOnly={mode === 'edit'}
           />
-          {selectedSummary ? (
-            <SelectedSummary
-              summary={selectedSummary}
-              onChange={() => openDetails(selectedSummary.service)}
-              onContinue={continueFromSummary}
-            />
-          ) : null}
         </div>
       </div>
 
-      {mode === 'preview' ? (
-        <>
-          <ServiceDetail
-            draftAddOnIds={session.draftAddOnIds}
-            fixture={fixture}
-            selection={session.selection}
-            service={detailService}
-            onClose={closeDetails}
-            onContinue={service => commitService(service, true)}
-            onDeselect={deselectService}
-            onSelect={service => commitService(service, false)}
-            onToggleAddOn={toggleDraftAddOn}
-          />
-          <Handoff
-            open={session.handoffOpen}
-            summary={selectedSummary}
-            onClose={closeHandoff}
-          />
-        </>
-      ) : null}
+      {customerOverlays
+        ? overlayHost
+          ? createPortal(customerOverlays, overlayHost)
+          : customerOverlays
+        : null}
+      {customerSummary
+        ? summaryHost
+          ? createPortal(customerSummary, summaryHost)
+          : overlayHost
+            ? createPortal(customerSummary, overlayHost)
+            : customerSummary
+        : null}
     </div>
   );
 }

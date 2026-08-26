@@ -1,13 +1,5 @@
-import {
-  Eye,
-  EyeOff,
-  GripVertical,
-  MoreHorizontal,
-  Move,
-  Pencil,
-  Trash2,
-} from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { EyeOff } from 'lucide-react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 import {
   BookingSectionRenderer,
@@ -21,13 +13,17 @@ import type {
 } from '../booking/types';
 import type { BookingSectionInstance, PageDocument } from '../model/types';
 
+export type BookingCollapseReport = {
+  collapsed: boolean;
+  collapseHeight: number;
+  isLong: boolean;
+};
+
 type BookingSectionCardProps = {
+  collapseOverride?: boolean;
   fixture: MockMenuFixture;
-  page: PageDocument;
-  section: BookingSectionInstance;
-  selected: boolean;
-  session: BookingSessionState;
-  tokenPreset: BookingTokenPresetId;
+  onCollapseChange?: (collapsed: boolean) => void;
+  onCollapseReport?: (report: BookingCollapseReport) => void;
   onEdit: (section: BookingSectionInstance) => void;
   onEnterReorder: () => void;
   onMove: (section: BookingSectionInstance) => void;
@@ -35,38 +31,58 @@ type BookingSectionCardProps = {
   onSelect: (section: BookingSectionInstance) => void;
   onSessionChange: BookingSessionUpdater;
   onToggleVisible: (section: BookingSectionInstance) => void;
+  page: PageDocument;
+  section: BookingSectionInstance;
+  selected: boolean;
+  session: BookingSessionState;
+  tokenPreset: BookingTokenPresetId;
 };
 
 export function BookingSectionCard({
+  collapseOverride,
   fixture,
+  onCollapseChange,
+  onCollapseReport,
+  onSelect,
+  onSessionChange,
   page,
   section,
   selected,
   session,
   tokenPreset,
-  onEdit,
-  onEnterReorder,
-  onMove,
-  onRemove,
-  onSelect,
-  onSessionChange,
-  onToggleVisible,
 }: BookingSectionCardProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(fixture.menuSize === 'stress_100');
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [naturalHeight, setNaturalHeight] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(() => Math.max(320, window.innerHeight - 82));
   const layoutMeta = BOOKING_LAYOUT_META[section.settings.layout];
+  const isLong = naturalHeight > viewportHeight * 3;
+  const collapsed = collapseOverride ?? isLong;
+  const collapseHeight = Math.min(viewportHeight * 2, 1200);
+
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) return undefined;
+    const measure = () => {
+      const topbar = document.querySelector<HTMLElement>('.final-topbar');
+      const available = Math.max(320, window.innerHeight - (topbar?.getBoundingClientRect().bottom ?? 82));
+      setViewportHeight(available);
+      setNaturalHeight(content.scrollHeight);
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(content);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [fixture.menuSize, section.settings]);
 
   useEffect(() => {
-    if (!selected) {
-      setMenuOpen(false);
-    }
-  }, [selected]);
+    onCollapseReport?.({ collapsed, collapseHeight, isLong });
+  }, [collapseHeight, collapsed, isLong, onCollapseReport]);
 
-  useEffect(() => {
-    if (fixture.menuSize === 'stress_100') {
-      setCollapsed(true);
-    }
-  }, [fixture.menuSize]);
+  const toggleCollapse = () => onCollapseChange?.(!collapsed);
 
   return (
     <article
@@ -80,9 +96,7 @@ export function BookingSectionCard({
       role="listitem"
       onClick={(event) => {
         const target = event.target as HTMLElement;
-        if (!target.closest('.section-context-toolbar, button, input, select, textarea, a')) {
-          onSelect(section);
-        }
+        if (!target.closest('button, input, select, textarea, a')) onSelect(section);
       }}
     >
       <button
@@ -106,64 +120,49 @@ export function BookingSectionCard({
             {!section.visible ? (
               <span className="hidden-badge"><EyeOff aria-hidden="true" size={14} /> Hidden</span>
             ) : null}
-            <span className="protected-badge">Protected</span>
+            <span className="protected-badge">Always bookable</span>
           </span>
         </span>
       </button>
 
-      <div className={`booking-editor-preview${collapsed ? ' is-collapsed' : ''}`}>
-        <BookingSectionRenderer
-          fixture={fixture}
-          mode="edit"
-          presentationSettings={section.settings}
-          session={session}
-          tokenPreset={tokenPreset}
-          onSessionChange={onSessionChange}
-        />
-        {collapsed ? <div aria-hidden="true" className="booking-editor-preview__fade" /> : null}
-      </div>
-      <button
-        className="booking-editor-preview__toggle"
-        type="button"
-        onClick={() => setCollapsed((value) => !value)}
+      <div
+        aria-expanded={!collapsed}
+        aria-label="Booking editor preview"
+        className={`booking-editor-preview${collapsed ? ' is-collapsed' : ''}`}
+        id={`booking-preview-${section.id}`}
+        style={collapsed ? { maxHeight: `${collapseHeight}px` } : undefined}
       >
-        {collapsed ? 'Show full Booking preview' : 'Collapse Booking preview'}
-      </button>
-
-      <div aria-label="Quick actions for Booking" className="section-context-toolbar">
-        <span aria-hidden="true" className="section-context-toolbar__label">Booking</span>
-        <button aria-label="Reorder Booking" type="button" onClick={onEnterReorder}>
-          <GripVertical aria-hidden="true" size={16} /><span>Reorder</span>
-        </button>
-        <button type="button" onClick={() => onEdit(section)}>
-          <Pencil aria-hidden="true" size={16} /> Edit
-        </button>
-        <button className="section-context-toolbar__move" type="button" onClick={() => onMove(section)}>
-          <Move aria-hidden="true" size={16} /> Move
-        </button>
-        <button
-          aria-expanded={menuOpen}
-          aria-label="More actions for Booking"
-          type="button"
-          onClick={() => setMenuOpen((value) => !value)}
-        >
-          <MoreHorizontal aria-hidden="true" size={18} /><span className="section-context-toolbar__more-label">More</span>
-        </button>
-        {menuOpen ? (
-          <div className="section-more-menu">
-            <button type="button" onClick={() => { onToggleVisible(section); setMenuOpen(false); }}>
-              {section.visible ? <EyeOff aria-hidden="true" size={16} /> : <Eye aria-hidden="true" size={16} />}
-              {section.visible ? 'Hide section' : 'Show section'}
-            </button>
-            <button type="button" onClick={() => { onMove(section); setMenuOpen(false); }}>
-              <Move aria-hidden="true" size={16} /> Move section
-            </button>
-            <button className="danger-quiet" type="button" onClick={() => { onRemove(section); setMenuOpen(false); }}>
-              <Trash2 aria-hidden="true" size={16} /> Remove from this page
-            </button>
-          </div>
+        <div ref={contentRef} className="booking-editor-preview__measure">
+          <BookingSectionRenderer
+            fixture={fixture}
+            mode="edit"
+            onOwnerSelect={() => {
+              if (!selected) onSelect(section);
+            }}
+            presentationSettings={section.settings}
+            session={session}
+            tokenPreset={tokenPreset}
+            onSessionChange={onSessionChange}
+          />
+        </div>
+        {collapsed ? <div aria-hidden="true" className="booking-editor-preview__fade" /> : null}
+        {collapsed ? (
+          <button className="booking-editor-preview__edge-toggle" type="button" onClick={toggleCollapse}>
+            Show full preview
+          </button>
         ) : null}
       </div>
+      {isLong ? (
+        <button
+          aria-controls={`booking-preview-${section.id}`}
+          aria-expanded={!collapsed}
+          className="booking-editor-preview__toggle"
+          type="button"
+          onClick={toggleCollapse}
+        >
+          {collapsed ? 'Show full preview' : 'Collapse preview'}
+        </button>
+      ) : null}
     </article>
   );
 }

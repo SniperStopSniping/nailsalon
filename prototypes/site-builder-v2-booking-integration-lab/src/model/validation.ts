@@ -202,7 +202,7 @@ const validateSectionShape = (
   }
   if (value.sectionType === 'booking') {
     if (!allowBooking) {
-      issues.push(`${path} cannot contain the protected Booking section.`);
+      issues.push(`${path} cannot include Booking outside an active page. Keep the client booking menu on a visible page.`);
       return;
     }
     validateBookingSectionShape(value, path, issues);
@@ -483,7 +483,7 @@ const validateDocumentInvariants = (
         );
       }
       if (sectionId === bookingId) {
-        issues.push('Removed pages cannot reference the protected Booking section.');
+        issues.push('Removed pages cannot include Booking. Keep the client booking menu on a visible page.');
       }
     });
   });

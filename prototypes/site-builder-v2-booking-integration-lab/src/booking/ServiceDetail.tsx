@@ -6,7 +6,7 @@ import type {
   MockMenuFixture,
   MockService,
 } from './types';
-import { useManagedDialog } from './useManagedDialog';
+import { BookingOverlayDialog } from './BookingOverlayDialog';
 
 export type ServiceDetailProps = {
   draftAddOnIds: readonly string[];
@@ -31,7 +31,6 @@ export function ServiceDetail({
   onSelect,
   onToggleAddOn,
 }: ServiceDetailProps) {
-  const dialogRef = useManagedDialog(Boolean(service));
   const selected = service !== null && selection.serviceId === service.id;
   const category = fixture.categories.find(
     candidate => candidate.id === service?.category,
@@ -47,19 +46,15 @@ export function ServiceDetail({
     )
     : null;
 
+  if (!service) return null;
+
   return (
-    <dialog
-      ref={dialogRef}
+    <BookingOverlayDialog
       className="booking-service-dialog"
-      aria-labelledby="booking-service-detail-title"
-      data-testid="service-detail-dialog"
-      onCancel={(event) => {
-        event.preventDefault();
-        onClose();
-      }}
+      labelledBy="booking-service-detail-title"
       onClose={onClose}
+      testId="service-detail-dialog"
     >
-      {service ? (
         <div className="booking-dialog-panel" role="document">
           <button
             className="booking-dialog-close"
@@ -114,6 +109,7 @@ export function ServiceDetail({
                   {compatibleAddOns.map(addOn => (
                     <label key={addOn.id} className="booking-add-on-option">
                       <input
+                        aria-label={addOn.name}
                         type="checkbox"
                         checked={draftAddOnIds.includes(addOn.id)}
                         onChange={() => onToggleAddOn(service, addOn.id)}
@@ -155,7 +151,6 @@ export function ServiceDetail({
             </div>
           </div>
         </div>
-      ) : null}
-    </dialog>
+    </BookingOverlayDialog>
   );
 }

@@ -68,6 +68,7 @@ export function useLabDocument() {
       siteName: 'Isla Nail Studio',
     }));
     setLoadIssues([]);
+    setSaveStatus('saving');
     replaceHistory(next);
   }, [replaceHistory]);
 
@@ -79,6 +80,7 @@ export function useLabDocument() {
 
     try {
       const next = applyHistoryCommand(current, command);
+      if (next !== current) setSaveStatus('saving');
       replaceHistory(next);
       return {
         success: true,
@@ -99,6 +101,7 @@ export function useLabDocument() {
       return false;
     }
     const next = undoHistory(current);
+    if (next !== current) setSaveStatus('saving');
     replaceHistory(next);
     return next !== current;
   }, [replaceHistory]);
@@ -109,6 +112,7 @@ export function useLabDocument() {
       return false;
     }
     const next = redoHistory(current);
+    if (next !== current) setSaveStatus('saving');
     replaceHistory(next);
     return next !== current;
   }, [replaceHistory]);
@@ -131,6 +135,7 @@ export function useLabDocument() {
     }
     const next = createHistoryState(initializeStarter(current.present.originStarter, { siteName: current.present.siteName }));
     setLoadIssues([]);
+    setSaveStatus('saving');
     replaceHistory(next);
   }, [replaceHistory]);
 
@@ -140,6 +145,7 @@ export function useLabDocument() {
       return result;
     }
     setLoadIssues([]);
+    setSaveStatus('saving');
     replaceHistory(createHistoryState(result.document));
     return result;
   }, [replaceHistory]);
@@ -152,6 +158,7 @@ export function useLabDocument() {
   const createHistoryCheckpoint = useCallback(() => historyRef.current, []);
 
   const restoreHistoryCheckpoint = useCallback((checkpoint: HistoryState) => {
+    setSaveStatus('saving');
     replaceHistory(checkpoint);
   }, [replaceHistory]);
 

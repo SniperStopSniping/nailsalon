@@ -93,7 +93,7 @@ export function StarterChooser({ onChoose, onImport }: StarterChooserProps) {
         <p className="final-starter-kicker">Start here. Change anything later.</p>
         <h1 id="starter-title">Choose your starting point</h1>
         <p className="final-starter-intro">
-          Start simple or begin with a full website. You can add sections and pages anytime.
+          Start simple or start with a full website.
         </p>
 
         <div className="final-starter-grid">

@@ -10,6 +10,7 @@ import type {
   AddSectionInput,
   BookingSectionPresentationSettings,
   BuilderCommand,
+  CommitSectionMoveInput,
   IdFactory,
   MoveSectionToNewPageInput,
   NavigationItem,
@@ -422,6 +423,88 @@ export const moveSection = (
   );
   return normalizeDocument(
     replacePage(document, located.pageIndex, { ...located.page, sections }),
+  );
+};
+
+export const reorderSections = (
+  document: SiteBuilderDocument,
+  pageId: string,
+  orderedSectionIds: readonly string[],
+): SiteBuilderDocument => {
+  const pageIndex = getPageIndex(document, pageId);
+  const page = document.pages[pageIndex];
+  if (!page) {
+    return fail('not_found', `Page not found: ${pageId}`);
+  }
+
+  const currentIds = page.sections.map((section) => section.id);
+  const requestedIds = [...orderedSectionIds];
+  if (
+    requestedIds.length !== currentIds.length
+    || new Set(requestedIds).size !== requestedIds.length
+    || currentIds.some((id) => !requestedIds.includes(id))
+  ) {
+    return fail(
+      'invalid_input',
+      'Section order must contain every section on the page exactly once.',
+    );
+  }
+  if (requestedIds.every((id, index) => id === currentIds[index])) {
+    return document;
+  }
+
+  const byId = new Map(page.sections.map((section) => [section.id, section]));
+  const sections = requestedIds.map((id, order) => {
+    const section = byId.get(id);
+    if (!section) {
+      return fail('not_found', `Section not found on page: ${id}`);
+    }
+    return { ...section, order };
+  });
+  return normalizeDocument(
+    replacePage(document, pageIndex, { ...page, sections }),
+  );
+};
+
+export const commitSectionMove = (
+  document: SiteBuilderDocument,
+  input: CommitSectionMoveInput,
+  idFactory: IdFactory = createIdFactory(),
+): SiteBuilderDocument => {
+  const sourcePageIndex = getPageIndex(document, input.sourcePageId);
+  const sourcePage = document.pages[sourcePageIndex];
+  if (!sourcePage?.sections.some((section) => section.id === input.sectionId)) {
+    return fail(
+      'not_found',
+      `Section not found on source page: ${input.sectionId}`,
+    );
+  }
+
+  const ordered = reorderSections(
+    document,
+    input.sourcePageId,
+    input.orderedSectionIds,
+  );
+  if (!input.destination) {
+    return ordered;
+  }
+  if (input.destination.type === 'existing_page') {
+    return moveSectionToPage(
+      ordered,
+      input.sectionId,
+      input.destination.pageId,
+      input.destination.position,
+    );
+  }
+  return moveSectionToNewPage(
+    ordered,
+    {
+      sectionId: input.sectionId,
+      name: input.destination.name,
+      slug: input.destination.slug,
+      sectionPosition: input.destination.position,
+    },
+    idFactory,
   );
 };
 
@@ -916,6 +999,8 @@ export const applyBuilderCommand = (
       return moveSectionUp(document, command.sectionId);
     case 'move_section_down':
       return moveSectionDown(document, command.sectionId);
+    case 'commit_section_move':
+      return commitSectionMove(document, command.input, idFactory);
     case 'move_section_to_page':
       return moveSectionToPage(
         document,

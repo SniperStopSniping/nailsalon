@@ -278,7 +278,8 @@
   border-radius: 999px;
 }
 
-.booking-category-pill[aria-pressed='true'] {
+.booking-category-pill[aria-pressed='true'],
+.booking-category-pill.is-active {
   color: #fff;
   background: var(--booking-text);
   border-color: var(--booking-text);
@@ -1507,7 +1508,8 @@
   border-radius: 0;
 }
 
-.category-mobile-nav[data-style='tabs'] .booking-category-pill[aria-pressed='true'] {
+.category-mobile-nav[data-style='tabs'] .booking-category-pill[aria-pressed='true'],
+.category-mobile-nav[data-style='tabs'] .booking-category-pill.is-active {
   color: var(--booking-text);
   background: transparent;
   border-bottom-color: var(--booking-accent);
@@ -1663,7 +1665,8 @@
   border-radius: 13px;
 }
 
-.category-accordion summary {
+.category-accordion summary,
+.category-accordion__summary {
   display: flex;
   min-height: 56px;
   align-items: center;
@@ -1679,7 +1682,8 @@
   display: none;
 }
 
-.category-accordion summary span {
+.category-accordion summary span,
+.category-accordion__summary span {
   color: var(--booking-muted);
   font-family: var(--body-font);
   font-size: var(--body-caption);
@@ -2168,7 +2172,8 @@
     border-radius: 8px;
   }
 
-  .category-sidebar-button[aria-current='true'] {
+  .category-sidebar-button[aria-current='true'],
+  .category-sidebar-button.is-active {
     color: #fff;
     background: #3b2e2a;
   }
@@ -2734,58 +2739,9 @@
 /*
  * The customer summary must be reachable immediately after selection, not
  * only after traversing the full menu. Preview gives the one shared summary a
- * persistent viewport position; Edit keeps the same component in normal,
- * pointer-inert document flow. The reserved surface space keeps the last
- * service action reachable above mobile safe areas.
+ * frame-local position. The reserved surface space keeps the last service
+ * action reachable above mobile safe areas.
  */
-.luster-booking[data-booking-mode='preview']
-  .booking-surface[data-has-selection='true'] {
-  padding-bottom: max(140px, calc(120px + env(safe-area-inset-bottom)));
-}
-
-.luster-booking[data-booking-mode='preview'] .selected-summary {
-  position: fixed;
-  z-index: 90;
-  right: max(12px, env(safe-area-inset-right));
-  bottom: max(12px, env(safe-area-inset-bottom));
-  left: max(12px, env(safe-area-inset-left));
-  width: auto;
-  max-width: 680px;
-  margin: 0 auto;
-  border-radius: 18px;
-}
-
-@media (min-width: 900px) {
-  .preview-stage--desktop
-    .luster-booking[data-booking-mode='preview']
-    .selected-summary {
-    right: 24px;
-    left: auto;
-    width: min(440px, calc(100vw - 48px));
-    margin: 0;
-  }
-
-  .preview-stage--tablet
-    .luster-booking[data-booking-mode='preview']
-    .selected-summary {
-    right: auto;
-    left: 50%;
-    width: min(660px, calc(100vw - 48px));
-    margin: 0;
-    transform: translateX(-50%);
-  }
-
-  .preview-stage--mobile
-    .luster-booking[data-booking-mode='preview']
-    .selected-summary {
-    right: auto;
-    left: 50%;
-    width: min(390px, calc(100vw - 32px));
-    margin: 0;
-    transform: translateX(-50%);
-  }
-}
-
 @media (prefers-reduced-motion: reduce) {
   .luster-booking *,
   .luster-booking *::before,
@@ -2797,5 +2753,163 @@
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
+  }
+}
+
+/* Customer overlays are contained by the active simulated Preview frame. */
+.booking-preview-overlays {
+  position: absolute;
+  z-index: 1;
+  inset: 0;
+  color: var(--booking-text);
+  font-family: var(--body-font);
+  pointer-events: none;
+}
+
+.booking-preview-summary {
+  position: sticky;
+  z-index: 30;
+  top: calc(100% - 1px);
+  order: -1;
+  width: 100%;
+  height: 0;
+  color: var(--booking-text);
+  font-family: var(--body-font);
+  pointer-events: none;
+}
+
+.booking-preview-summary .selected-summary {
+  position: absolute;
+  z-index: 2;
+  right: max(12px, env(safe-area-inset-right));
+  bottom: max(12px, env(safe-area-inset-bottom));
+  left: max(12px, env(safe-area-inset-left));
+  width: auto;
+  max-width: 680px;
+  margin: 0 auto;
+  border-radius: 18px;
+  pointer-events: auto;
+}
+
+.booking-contained-dialog-backdrop {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  overflow: hidden;
+  background: rgb(30 21 22 / 62%);
+  backdrop-filter: blur(5px);
+  pointer-events: auto;
+}
+
+.booking-contained-dialog {
+  width: min(92%, 760px);
+  max-height: calc(100% - 8px);
+  padding: 0;
+  overflow: hidden;
+  color: var(--booking-text);
+  background: transparent;
+  border: 0;
+  outline: 0;
+}
+
+.booking-contained-dialog .booking-dialog-panel {
+  max-height: 100%;
+}
+
+.booking-preview-summary[data-preview-viewport='desktop'] .selected-summary {
+  right: 24px;
+  left: auto;
+  width: min(440px, calc(100% - 48px));
+  margin: 0;
+}
+
+.booking-preview-summary[data-preview-viewport='tablet'] .selected-summary {
+  width: min(660px, calc(100% - 32px));
+}
+
+.booking-preview-overlays[data-preview-viewport='mobile'] .booking-contained-dialog-backdrop {
+  align-items: flex-end;
+  padding: 0;
+}
+
+.booking-preview-overlays[data-preview-viewport='mobile'] .booking-contained-dialog {
+  width: 100%;
+  max-height: 94%;
+  margin: 0;
+}
+
+.booking-preview-overlays[data-preview-viewport='mobile'] .booking-dialog-panel {
+  max-height: 100%;
+  border-radius: 28px 28px 0 0;
+}
+
+.booking-preview-overlays[data-preview-viewport='mobile'] .booking-detail-layout {
+  display: block;
+}
+
+.booking-preview-overlays[data-preview-viewport='mobile'] .booking-detail-image-wrap img {
+  min-height: 0;
+  aspect-ratio: 16 / 10;
+}
+
+.booking-preview-overlays[data-preview-viewport='mobile'] .booking-detail-image-fallback {
+  min-height: 150px;
+}
+
+.booking-preview-overlays[data-preview-viewport='mobile'] .booking-detail-copy {
+  padding: 22px 16px max(22px, env(safe-area-inset-bottom));
+}
+
+.booking-preview-overlays[data-preview-viewport='mobile'] .booking-detail-title {
+  margin-right: 45px;
+  font-size: 27px;
+}
+
+.booking-preview-overlays[data-preview-viewport='mobile'] .booking-detail-actions {
+  position: sticky;
+  bottom: 0;
+  padding-top: 10px;
+  background: linear-gradient(transparent, var(--booking-card) 20%);
+}
+
+.booking-preview-overlays[data-preview-viewport='mobile'] .booking-handoff-panel {
+  padding: 32px 18px max(28px, env(safe-area-inset-bottom));
+}
+
+.booking-preview-summary[data-preview-viewport='mobile'] .selected-summary {
+  right: max(7px, env(safe-area-inset-right));
+  left: max(7px, env(safe-area-inset-left));
+  max-width: none;
+  margin: 0;
+  border-radius: 16px;
+}
+
+@container booking-frame (max-width: 350px) {
+  .booking-preview-summary[data-preview-viewport='mobile'] .selected-summary {
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding-inline: 10px;
+  }
+
+  .booking-preview-summary[data-preview-viewport='mobile'] .selected-summary-actions {
+    gap: 4px;
+  }
+
+  .booking-preview-summary[data-preview-viewport='mobile'] .summary-change,
+  .booking-preview-summary[data-preview-viewport='mobile'] .summary-continue {
+    min-width: 72px;
+    padding-inline: 8px;
+  }
+
+  .booking-preview-summary[data-preview-viewport='mobile'] .selected-summary-name {
+    display: -webkit-box;
+    max-width: none;
+    overflow: hidden;
+    white-space: normal;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
   }
 }
