@@ -206,6 +206,9 @@ function SectionRowContent({
           <strong>{sectionLabel}</strong>
           <span>{getSectionDescription(section)}{selected ? ' · Moving' : ''}</span>
         </span>
+        <span className="visually-hidden">
+          {selected ? ' Selected' : ` Select ${sectionLabel} for cross-page movement`}
+        </span>
       </button>
       {section.sectionType === 'booking' ? <span className="protected-badge">Always bookable</span> : null}
       <div className="reorder-row__buttons" aria-label={`Movement options for ${sectionLabel}`}>

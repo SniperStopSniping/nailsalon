@@ -1,4 +1,11 @@
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
@@ -10,6 +17,7 @@ type DialogProps = {
   initialFocusSelector?: string;
   onClose: () => void;
   open: boolean;
+  restoreFocusOnClose?: boolean;
   title: string;
   variant?: 'bottom-sheet' | 'context-panel' | 'dialog' | 'move-panel' | 'section-library' | 'sheet' | 'structure-panel';
 };
@@ -24,6 +32,46 @@ const FOCUSABLE_SELECTOR = [
 ].join(',');
 
 const openDialogStack: symbol[] = [];
+const modalScrollLocks = new Set<symbol>();
+let unlockedBodyOverflow: { priority: string; value: string } | null = null;
+
+const acquireModalScrollLock = (token: symbol): void => {
+  if (modalScrollLocks.has(token)) {
+    return;
+  }
+  if (modalScrollLocks.size === 0) {
+    unlockedBodyOverflow = {
+      priority: document.body.style.getPropertyPriority('overflow'),
+      value: document.body.style.getPropertyValue('overflow'),
+    };
+  }
+  modalScrollLocks.add(token);
+  document.body.style.setProperty('overflow', 'hidden');
+};
+
+const releaseModalScrollLock = (token: symbol): void => {
+  if (!modalScrollLocks.delete(token) || modalScrollLocks.size > 0) {
+    return;
+  }
+  document.body.style.removeProperty('overflow');
+  if (unlockedBodyOverflow?.value) {
+    document.body.style.setProperty(
+      'overflow',
+      unlockedBodyOverflow.value,
+      unlockedBodyOverflow.priority,
+    );
+  }
+  unlockedBodyOverflow = null;
+};
+
+const canRestoreFocus = (element: HTMLElement | null): element is HTMLElement => Boolean(
+  element
+  && element !== document.body
+  && element !== document.documentElement
+  && element.isConnected
+  && !element.matches(':disabled')
+  && !element.closest('[aria-hidden="true"], [hidden], [inert]'),
+);
 
 export function Dialog({
   children,
@@ -31,6 +79,7 @@ export function Dialog({
   initialFocusSelector,
   onClose,
   open,
+  restoreFocusOnClose = true,
   title,
   variant = 'dialog',
 }: DialogProps) {
@@ -38,6 +87,7 @@ export function Dialog({
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const restoreFocusOnCloseRef = useRef(restoreFocusOnClose);
   const stackTokenRef = useRef(Symbol('luster-lab-dialog'));
   const [wideViewport, setWideViewport] = useState(() => window.matchMedia('(min-width: 900px)').matches);
   const visuallyAdjacent = wideViewport && (
@@ -51,6 +101,8 @@ export function Dialog({
     onCloseRef.current = onClose;
   }, [onClose]);
 
+  restoreFocusOnCloseRef.current = restoreFocusOnClose;
+
   useEffect(() => {
     const media = window.matchMedia('(min-width: 900px)');
     const handleChange = () => setWideViewport(media.matches);
@@ -58,7 +110,7 @@ export function Dialog({
     return () => media.removeEventListener('change', handleChange);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) {
       return undefined;
     }
@@ -66,9 +118,8 @@ export function Dialog({
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const stackToken = stackTokenRef.current;
     openDialogStack.push(stackToken);
-    const previousOverflow = document.body.style.overflow;
     if (!nonModal) {
-      document.body.style.overflow = 'hidden';
+      acquireModalScrollLock(stackToken);
     }
 
     const dialog = dialogRef.current;
@@ -77,7 +128,12 @@ export function Dialog({
       : null;
     const firstFocusable = preferredFocusable
       ?? dialog?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
-    window.requestAnimationFrame(() => (firstFocusable ?? dialog)?.focus());
+    const focusFrame = window.requestAnimationFrame(() => {
+      const focusTarget = firstFocusable ?? dialog;
+      if (focusTarget?.isConnected) {
+        focusTarget.focus({ preventScroll: true });
+      }
+    });
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (openDialogStack.at(-1) !== stackToken) {
@@ -118,15 +174,27 @@ export function Dialog({
     document.addEventListener('keydown', handleKeyDown);
 
     return () => {
+      window.cancelAnimationFrame(focusFrame);
       document.removeEventListener('keydown', handleKeyDown);
       if (!nonModal) {
-        document.body.style.overflow = previousOverflow;
+        releaseModalScrollLock(stackToken);
       }
       const stackIndex = openDialogStack.lastIndexOf(stackToken);
       if (stackIndex >= 0) {
         openDialogStack.splice(stackIndex, 1);
       }
-      previouslyFocused?.focus();
+      if (!restoreFocusOnCloseRef.current) {
+        return;
+      }
+      window.requestAnimationFrame(() => {
+        const activeElement = document.activeElement;
+        const focusIsUnclaimed = !activeElement
+          || activeElement === document.body
+          || activeElement === document.documentElement;
+        if (focusIsUnclaimed && canRestoreFocus(previouslyFocused)) {
+          previouslyFocused.focus({ preventScroll: true });
+        }
+      });
     };
   }, [initialFocusSelector, nonModal, open]);
 
@@ -158,11 +226,11 @@ export function Dialog({
   );
 
   return createPortal(
-    visuallyAdjacent ? (
+    visuallyAdjacent && nonModal ? (
       <div className="dialog-nonmodal-layer" data-testid="dialog-nonmodal-layer">{panel}</div>
     ) : (
       <div
-        className="dialog-backdrop"
+        className={`dialog-backdrop${visuallyAdjacent ? ' dialog-backdrop--adjacent' : ''}`}
         data-testid="dialog-backdrop"
         onMouseDown={(event) => {
           if (event.currentTarget === event.target) {

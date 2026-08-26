@@ -568,6 +568,39 @@ export const moveSectionToPage = (
   return next;
 };
 
+export type SectionMoveDestinationAvailability =
+  | { available: true }
+  | {
+      available: false;
+      code: BuilderOperationErrorCode;
+      reason: string;
+    };
+
+/**
+ * Uses the same document invariant checks as the eventual commit so the Move
+ * surface can explain an unavailable page before the owner selects it. The
+ * operation is immutable; the returned document is intentionally discarded.
+ */
+export const getSectionMoveDestinationAvailability = (
+  document: SiteBuilderDocument,
+  sectionId: string,
+  destinationPageId: string,
+): SectionMoveDestinationAvailability => {
+  try {
+    moveSectionToPage(document, sectionId, destinationPageId);
+    return { available: true };
+  } catch (error) {
+    if (error instanceof BuilderOperationError) {
+      return {
+        available: false,
+        code: error.code,
+        reason: error.message,
+      };
+    }
+    throw error;
+  }
+};
+
 const createPageAndNavigationItem = (
   document: SiteBuilderDocument,
   input: AddPageInput,

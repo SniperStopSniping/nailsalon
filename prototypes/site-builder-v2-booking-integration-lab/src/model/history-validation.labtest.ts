@@ -174,6 +174,67 @@ describe('structural history', () => {
     expect(history.past).toHaveLength(1);
   });
 
+  it('undoes and redoes a combined cross-page transaction in one step', () => {
+    const initial = initializeStarter('multi_page', {
+      idFactory: createDeterministicIdFactory('cross-page-history'),
+    });
+    const source = initial.pages.find((page) => page.name === 'Services / Book');
+    const destination = initial.pages.find((page) => page.name === 'Home');
+    const booking = source?.sections.find((section) => section.sectionType === 'booking');
+    if (!source || !destination || !booking) throw new Error('Missing multi-page structure.');
+    const requestedOrder = [...source.sections].reverse().map((section) => section.id);
+    let history = createHistoryState(initial);
+
+    history = applyHistoryCommand(history, {
+      type: 'commit_section_move',
+      input: {
+        sourcePageId: source.id,
+        orderedSectionIds: requestedOrder,
+        sectionId: booking.id,
+        destination: { type: 'existing_page', pageId: destination.id, position: 1 },
+      },
+    });
+
+    expect(history.past).toEqual([initial]);
+    expect(history.present.pages.find((page) => page.id === destination.id)?.sections[0]?.id)
+      .toBe(booking.id);
+    const committed = history.present;
+    history = undoHistory(history);
+    expect(history.present).toEqual(initial);
+    history = redoHistory(history);
+    expect(history.present).toEqual(committed);
+    expect(history.past).toEqual([initial]);
+  });
+
+  it('creates a destination page and moves its section as one undoable command', () => {
+    const initial = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('new-page-move-history'),
+    });
+    const source = initial.pages[0];
+    const section = source?.sections[0];
+    if (!source || !section) throw new Error('Missing Quick Book structure.');
+    let history = createHistoryState(initial);
+
+    history = applyHistoryCommand(history, {
+      type: 'commit_section_move',
+      input: {
+        sourcePageId: source.id,
+        orderedSectionIds: [...source.sections].reverse().map((candidate) => candidate.id),
+        sectionId: section.id,
+        destination: { type: 'new_page', name: 'Portfolio', position: 1 },
+      },
+    });
+
+    expect(history.past).toEqual([initial]);
+    expect(history.present.pages.find((page) => page.name === 'Portfolio')?.sections[0]?.id)
+      .toBe(section.id);
+    const committed = history.present;
+    history = undoHistory(history);
+    expect(history.present).toEqual(initial);
+    history = redoHistory(history);
+    expect(history.present).toEqual(committed);
+  });
+
   it('records Booking presentation updates and reset while customer state stays external', () => {
     const initial = initializeStarter('quick_book', {
       idFactory: createDeterministicIdFactory('booking-history'),

@@ -99,12 +99,12 @@ export function StarterChooser({ onChoose, onImport }: StarterChooserProps) {
         <div className="final-starter-grid">
           {STARTERS.map((starter) => (
             <button className="final-starter-card" key={starter.id} type="button" onClick={() => onChoose(starter.id)}>
-              <StarterMiniature starter={starter.id} />
               <span className="final-starter-card__copy">
                 <span><strong>{starter.name}</strong><small>{starter.description}</small></span>
                 <span className="final-starter-card__badge">{starter.badge}</span>
                 <span className="final-starter-card__action">Choose this start <ArrowRight aria-hidden="true" size={18} /></span>
               </span>
+              <StarterMiniature starter={starter.id} />
             </button>
           ))}
         </div>

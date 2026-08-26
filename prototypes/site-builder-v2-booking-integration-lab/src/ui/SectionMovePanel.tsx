@@ -1,20 +1,28 @@
 import { ChevronRight, MoveRight, Plus } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-import type { PageDocument, SectionInstance, SiteBuilderDocument } from '../model';
+import {
+  getSectionMoveDestinationAvailability,
+  type CommitSectionMoveDestination,
+  type PageDocument,
+  type SectionInstance,
+  type SiteBuilderDocument,
+} from '../model';
 import { Dialog } from './Dialog';
 import { ReorderList } from './ReorderList';
 
 type SectionMovePanelProps = {
-  activeSectionId: string;
   commitStatus: 'error' | 'saved' | 'saving';
+  destination: CommitSectionMoveDestination | null;
   dirty: boolean;
   document: SiteBuilderDocument;
   entry: 'arrange' | 'section';
   onActivateSection: (section: SectionInstance) => void;
   onAnnounce: (message: string) => void;
   onCancel: () => void;
+  onClearDestination: () => void;
   onCreatePage: (name: string) => void;
+  onDestinationPositionChange: (position: number) => void;
   onDone: () => void;
   onDragReorder: (sectionId: string, position: number) => void;
   onMoveDown: (section: SectionInstance) => void;
@@ -25,21 +33,24 @@ type SectionMovePanelProps = {
   open: boolean;
   page: PageDocument;
   sections: SectionInstance[];
+  targetSectionId: string;
 };
 
 const sectionName = (section: SectionInstance | null): string =>
   section?.sectionType === 'booking' ? 'Booking' : section?.label ?? 'section';
 
 export function SectionMovePanel({
-  activeSectionId,
   commitStatus,
+  destination,
   dirty,
   document,
   entry,
   onActivateSection,
   onAnnounce,
   onCancel,
+  onClearDestination,
   onCreatePage,
+  onDestinationPositionChange,
   onDone,
   onDragReorder,
   onMoveDown,
@@ -50,8 +61,9 @@ export function SectionMovePanel({
   open,
   page,
   sections,
+  targetSectionId,
 }: SectionMovePanelProps) {
-  const activeSection = sections.find((section) => section.id === activeSectionId) ?? null;
+  const activeSection = sections.find((section) => section.id === targetSectionId) ?? null;
   const activeName = sectionName(activeSection);
   const [newPageName, setNewPageName] = useState('');
   const [pageDestinationsOpen, setPageDestinationsOpen] = useState(sections.length < 2);
@@ -92,7 +104,7 @@ export function SectionMovePanel({
       const next = !current;
       if (next) {
         window.requestAnimationFrame(() => {
-          destinationRef.current?.scrollIntoView({ block: 'start' });
+          destinationRef.current?.scrollIntoView?.({ block: 'start' });
           const firstDestination = destinationRef.current?.querySelector<HTMLButtonElement>('[data-destination-page]');
           (firstDestination ?? pageNameRef.current)?.focus({ preventScroll: true });
         });
@@ -107,6 +119,33 @@ export function SectionMovePanel({
   };
 
   const otherPages = document.pages.filter((candidate) => candidate.id !== page.id);
+  const selectedDestinationPage = destination?.type === 'existing_page'
+    ? document.pages.find((candidate) => candidate.id === destination.pageId) ?? null
+    : null;
+  const destinationPosition = destination?.type === 'existing_page'
+    ? destination.position ?? ((selectedDestinationPage?.sections.length ?? 0) + 1)
+    : 1;
+  const destinationPreviewSections = activeSection && destination
+    ? destination.type === 'new_page'
+      ? [activeSection]
+      : (() => {
+          const next = [...(selectedDestinationPage?.sections ?? [])];
+          next.splice(destinationPosition - 1, 0, activeSection);
+          return next;
+        })()
+    : [];
+
+  const destinationPositionLabel = (position: number): string => {
+    if (!selectedDestinationPage) return String(position);
+    const before = selectedDestinationPage.sections[position - 2];
+    const after = selectedDestinationPage.sections[position - 1];
+    if (!before && after) return `${position} — Before ${sectionName(after)}`;
+    if (before && !after) return `${position} — After ${sectionName(before)}`;
+    if (before && after) {
+      return `${position} — Between ${sectionName(before)} and ${sectionName(after)}`;
+    }
+    return `${position} — Only position`;
+  };
 
   return (
     <Dialog
@@ -116,6 +155,7 @@ export function SectionMovePanel({
       initialFocusSelector="[data-move-target-row='true']"
       onClose={onRequestClose}
       open={open}
+      restoreFocusOnClose={false}
       title={entry === 'arrange' ? 'Arrange sections' : `Move ${activeName}`}
       variant="move-panel"
     >
@@ -150,7 +190,7 @@ export function SectionMovePanel({
                 onMoveToPosition={onMoveToPosition}
                 onMoveUp={onMoveUp}
                 sections={sections}
-                selectedSectionId={activeSectionId}
+                selectedSectionId={targetSectionId}
               />
             </section>
 
@@ -169,22 +209,68 @@ export function SectionMovePanel({
               {pageDestinationsOpen ? (
                 <div ref={destinationRef} className="move-page-destination__body" id="move-page-destinations" tabIndex={-1}>
                   <p className="move-page-destination__identity">Moving <strong>{activeName}</strong></p>
-                  {otherPages.length > 0 ? (
-                    <ul className="move-page-list" aria-label="Destination pages">
-                      {otherPages.map((candidate) => (
+                  <ul className="move-page-list" aria-label="Destination pages">
+                    <li>
+                      <button
+                        aria-pressed={destination === null}
+                        className={`sheet-list-button move-page-list__button${destination === null ? ' is-selected' : ''}`}
+                        type="button"
+                        onClick={onClearDestination}
+                      >
+                        <span><strong>{page.name}</strong><small>Current page · Keep here</small></span>
+                        {destination === null ? <span aria-hidden="true">✓</span> : null}
+                      </button>
+                    </li>
+                    {otherPages.map((candidate) => {
+                      const availability = activeSection
+                        ? getSectionMoveDestinationAvailability(
+                            document,
+                            activeSection.id,
+                            candidate.id,
+                          )
+                        : { available: false as const, reason: 'The section is no longer available.' };
+                      const selected = destination?.type === 'existing_page'
+                        && destination.pageId === candidate.id;
+                      const reasonId = `move-destination-reason-${candidate.id}`;
+                      const cues = [
+                        ...(candidate.visible ? [] : ['Hidden from clients']),
+                        ...(candidate.visibleInNavigation ? [] : ['Not in navigation']),
+                      ];
+                      return (
                         <li key={candidate.id}>
                           <button
-                            className="sheet-list-button"
+                            aria-describedby={!availability.available ? reasonId : undefined}
+                            aria-disabled={!availability.available ? 'true' : undefined}
+                            aria-pressed={selected}
+                            className={`sheet-list-button move-page-list__button${selected ? ' is-selected' : ''}${availability.available ? '' : ' is-unavailable'}`}
                             data-destination-page
                             type="button"
-                            onClick={() => onMoveToPage(candidate.id)}
+                            onClick={() => {
+                              if (availability.available) {
+                                onMoveToPage(candidate.id);
+                              } else {
+                                onAnnounce(availability.reason);
+                              }
+                            }}
                           >
-                            {candidate.name}<span aria-hidden="true">→</span>
+                            <span>
+                              <strong>{candidate.name}</strong>
+                              {cues.length > 0 ? <small>{cues.join(' · ')}</small> : null}
+                            </span>
+                            <span aria-hidden="true">{selected ? '✓' : availability.available ? '→' : '—'}</span>
                           </button>
+                          {!availability.available ? (
+                            <span className="move-page-list__reason" id={reasonId}>
+                              Unavailable — {availability.reason}
+                            </span>
+                          ) : null}
                         </li>
-                      ))}
-                    </ul>
-                  ) : <p className="empty-state">There are no other pages yet. Create one below and {activeName} will move there.</p>}
+                      );
+                    })}
+                  </ul>
+                  {otherPages.length === 0 ? (
+                    <p className="empty-state">There are no other pages yet. Create one below and stage {activeName} to move there.</p>
+                  ) : null}
                   <form onSubmit={createPage}>
                     <label className="form-field move-page-destination__new-page">
                       <span>Or create a new page</span>
@@ -200,6 +286,47 @@ export function SectionMovePanel({
                       <Plus aria-hidden="true" size={17} /> Create page and move
                     </button>
                   </form>
+
+                  {destination && activeSection ? (
+                    <section aria-label="Staged destination" className="move-destination-preview">
+                      <div className="move-destination-preview__heading">
+                        <span>Staged destination</span>
+                        <strong>{destination.type === 'new_page' ? destination.name : selectedDestinationPage?.name}</strong>
+                      </div>
+                      {destination.type === 'new_page' ? (
+                        <p><strong>{destination.name}</strong> will be created when you press Done.</p>
+                      ) : selectedDestinationPage ? (
+                        <label className="form-field move-destination-preview__position">
+                          <span>Position on {selectedDestinationPage.name}</span>
+                          <select
+                            aria-label={`Position on ${selectedDestinationPage.name}`}
+                            value={destinationPosition}
+                            onChange={(event) => onDestinationPositionChange(Number(event.target.value))}
+                          >
+                            {Array.from(
+                              { length: selectedDestinationPage.sections.length + 1 },
+                              (_value, index) => index + 1,
+                            ).map((position) => (
+                              <option key={position} value={position}>
+                                {destinationPositionLabel(position)}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null}
+                      <ol aria-label={`Preview of sections on ${destination.type === 'new_page' ? destination.name : selectedDestinationPage?.name ?? 'destination page'}`}>
+                        {destinationPreviewSections.map((section, index) => (
+                          <li className={section.id === activeSection.id ? 'is-moving' : undefined} key={section.id}>
+                            <span>{index + 1}</span>
+                            <span><strong>{sectionName(section)}</strong>{section.id === activeSection.id ? <small>Moving here</small> : null}</span>
+                          </li>
+                        ))}
+                      </ol>
+                      <button className="move-destination-preview__clear" type="button" onClick={onClearDestination}>
+                        Keep {activeName} on {page.name}
+                      </button>
+                    </section>
+                  ) : null}
                 </div>
               ) : null}
             </section>

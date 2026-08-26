@@ -14,6 +14,7 @@ import type {
 
 export type BookingSettingsPanelProps = {
   settings: BookingSectionPresentationSettings;
+  showIntro?: boolean;
   onChange: (settings: BookingSectionPresentationSettings) => void;
   onLayoutChange?: (layout: BookingMenuLayout) => void;
   onReset?: () => void;
@@ -331,6 +332,7 @@ function LayoutControls({
 
 export function BookingSettingsPanel({
   settings,
+  showIntro = true,
   onChange,
   onLayoutChange,
   onReset,
@@ -362,13 +364,15 @@ export function BookingSettingsPanel({
 
   return (
     <div className="booking-settings-panel" data-testid="booking-settings-panel">
-      <header className="booking-settings-intro">
-        <h2>Booking</h2>
-        <p>
-          Choose how clients browse your services. You can change this anytime.
-          Your services, prices and booking settings stay the same.
-        </p>
-      </header>
+      {showIntro ? (
+        <header className="booking-settings-intro">
+          <h2>Booking</h2>
+          <p>
+            Choose how clients browse your services. You can change this anytime.
+            Your services, prices and booking settings stay the same.
+          </p>
+        </header>
+      ) : null}
 
       <section aria-labelledby={`${id}-layout-heading`}>
         <h3 id={`${id}-layout-heading`}>Layout</h3>

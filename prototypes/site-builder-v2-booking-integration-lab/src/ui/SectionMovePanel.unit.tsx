@@ -196,15 +196,17 @@ describe('shared SectionMovePanel states', () => {
 
     render(
       <SectionMovePanel
-        activeSectionId={booking.id}
         commitStatus="saving"
+        destination={null}
         dirty={false}
         document={oneSectionDocument}
         entry="section"
         onActivateSection={vi.fn()}
         onAnnounce={vi.fn()}
         onCancel={vi.fn()}
+        onClearDestination={vi.fn()}
         onCreatePage={vi.fn()}
+        onDestinationPositionChange={vi.fn()}
         onDone={vi.fn()}
         onDragReorder={vi.fn()}
         onMoveDown={vi.fn()}
@@ -215,6 +217,7 @@ describe('shared SectionMovePanel states', () => {
         open
         page={page}
         sections={page.sections}
+        targetSectionId={booking.id}
       />,
     );
 
@@ -245,15 +248,17 @@ describe('shared SectionMovePanel states', () => {
 
     render(
       <SectionMovePanel
-        activeSectionId={booking.id}
         commitStatus="saved"
+        destination={null}
         dirty
         document={document}
         entry="section"
         onActivateSection={vi.fn()}
         onAnnounce={vi.fn()}
         onCancel={vi.fn()}
+        onClearDestination={vi.fn()}
         onCreatePage={vi.fn()}
+        onDestinationPositionChange={vi.fn()}
         onDone={vi.fn()}
         onDragReorder={vi.fn()}
         onMoveDown={vi.fn()}
@@ -264,6 +269,7 @@ describe('shared SectionMovePanel states', () => {
         open
         page={page}
         sections={page.sections}
+        targetSectionId={booking.id}
       />,
     );
 
@@ -273,5 +279,133 @@ describe('shared SectionMovePanel states', () => {
       'dirty',
     );
     expect(within(dialog).getByText('Cancel puts everything back.')).toBeVisible();
+  });
+
+  it('stages a positioned destination and distinguishes hidden pages from navigation omission', async () => {
+    installMobileDialogEnvironment();
+    const user = userEvent.setup();
+    const original = initializeStarter('multi_page');
+    const source = original.pages.find((page) => page.name === 'Services / Book');
+    const home = original.pages.find((page) => page.name === 'Home');
+    const booking = source?.sections.find((section) => section.sectionType === 'booking');
+    if (!source || !home || !booking) throw new Error('Multi-page fixture unavailable.');
+    const document = {
+      ...original,
+      pages: original.pages.map((candidate) => {
+        if (candidate.name === 'Gallery') return { ...candidate, visible: false };
+        if (candidate.name === 'About') return { ...candidate, visibleInNavigation: false };
+        return candidate;
+      }),
+    };
+    const onClearDestination = vi.fn();
+    const onDestinationPositionChange = vi.fn();
+    const onMoveToPage = vi.fn();
+    const commonProps = {
+      commitStatus: 'saved' as const,
+      dirty: true,
+      document,
+      entry: 'section' as const,
+      onActivateSection: vi.fn(),
+      onAnnounce: vi.fn(),
+      onCancel: vi.fn(),
+      onClearDestination,
+      onCreatePage: vi.fn(),
+      onDestinationPositionChange,
+      onDone: vi.fn(),
+      onDragReorder: vi.fn(),
+      onMoveDown: vi.fn(),
+      onMoveToPage,
+      onMoveToPosition: vi.fn(),
+      onMoveUp: vi.fn(),
+      onRequestClose: vi.fn(),
+      open: true,
+      page: source,
+      sections: source.sections,
+      targetSectionId: booking.id,
+    };
+    const view = render(<SectionMovePanel {...commonProps} destination={null} />);
+    let dialog = screen.getByRole('dialog', { name: 'Move Booking' });
+
+    await user.click(within(dialog).getByRole('button', {
+      name: 'Move Booking to another page',
+    }));
+    const hidden = within(dialog).getByRole('button', { name: /Gallery.*Hidden from clients/ });
+    expect(hidden).toHaveAttribute('aria-disabled', 'true');
+    expect(hidden.closest('li')).toHaveTextContent(
+      'Unavailable — Your site needs at least one visible way',
+    );
+    const notInNavigation = within(dialog).getByRole('button', {
+      name: /About.*Not in navigation/,
+    });
+    expect(notInNavigation).not.toHaveAttribute('aria-disabled');
+    await user.click(notInNavigation);
+    expect(onMoveToPage).toHaveBeenCalledWith(
+      document.pages.find((page) => page.name === 'About')?.id,
+    );
+
+    view.rerender(
+      <SectionMovePanel
+        {...commonProps}
+        destination={{ type: 'existing_page', pageId: home.id, position: 1 }}
+      />,
+    );
+    dialog = screen.getByRole('dialog', { name: 'Move Booking' });
+    expect(within(dialog).getByRole('button', { name: /^Home/ }))
+      .toHaveAttribute('aria-pressed', 'true');
+    const position = within(dialog).getByRole('combobox', { name: 'Position on Home' });
+    expect(position).toHaveValue('1');
+    expect(within(dialog).getByRole('list', { name: 'Preview of sections on Home' }))
+      .toHaveTextContent('1BookingMoving here');
+    await user.selectOptions(position, '3');
+    expect(onDestinationPositionChange).toHaveBeenCalledWith(3);
+    await user.click(within(dialog).getByRole('button', { name: 'Keep Booking on Services / Book' }));
+    expect(onClearDestination).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Create page and move staged inside the open surface', async () => {
+    installMobileDialogEnvironment();
+    const user = userEvent.setup();
+    const document = initializeStarter('quick_book');
+    const page = document.pages[0];
+    const booking = page?.sections.find((section) => section.sectionType === 'booking');
+    if (!page || !booking) throw new Error('Quick Book fixture unavailable.');
+    const onCreatePage = vi.fn();
+
+    render(
+      <SectionMovePanel
+        commitStatus="saved"
+        destination={null}
+        dirty={false}
+        document={document}
+        entry="section"
+        onActivateSection={vi.fn()}
+        onAnnounce={vi.fn()}
+        onCancel={vi.fn()}
+        onClearDestination={vi.fn()}
+        onCreatePage={onCreatePage}
+        onDestinationPositionChange={vi.fn()}
+        onDone={vi.fn()}
+        onDragReorder={vi.fn()}
+        onMoveDown={vi.fn()}
+        onMoveToPage={vi.fn()}
+        onMoveToPosition={vi.fn()}
+        onMoveUp={vi.fn()}
+        onRequestClose={vi.fn()}
+        open
+        page={page}
+        sections={page.sections}
+        targetSectionId={booking.id}
+      />,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Move Booking' });
+    await user.click(within(dialog).getByRole('button', {
+      name: 'Move Booking to another page',
+    }));
+    await user.type(within(dialog).getByPlaceholderText('Page name'), 'Portfolio');
+    await user.click(within(dialog).getByRole('button', { name: 'Create page and move' }));
+
+    expect(onCreatePage).toHaveBeenCalledWith('Portfolio');
+    expect(screen.getByRole('dialog', { name: 'Move Booking' })).toBeVisible();
   });
 });

@@ -22,6 +22,7 @@ import {
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -46,6 +47,7 @@ import type {
 import {
   type BuilderCommand,
   type CatalogueSectionType,
+  type CommitSectionMoveDestination,
   type OriginStarter,
   type PageDocument,
   type PlaceholderSectionInstance,
@@ -65,6 +67,10 @@ import {
   StartAgainDialog,
 } from './EditorDialogs';
 import { Dialog } from './Dialog';
+import {
+  isEscapeHandledInsideActiveControl,
+  keepEscapeInsideActiveControl,
+} from './dialog-events';
 import { FinalStructurePanel } from './FinalStructurePanel';
 import { BookingSectionCard, type BookingCollapseReport } from './BookingSectionCard';
 import { Preview } from './Preview';
@@ -77,13 +83,19 @@ type EditorMode = 'edit' | 'preview';
 type PreviewViewport = 'desktop' | 'tablet' | 'mobile';
 type ToastState = { message: string; undoable?: boolean } | null;
 type PendingMoveFeedback = { announcement: string; message: string } | null;
+type PendingMoveFocus = {
+  initialSectionId: string;
+  kind: 'commit' | 'restore';
+  targetSectionId: string;
+};
 type ResetChoice = 'lab' | 'starter' | null;
 type MoveSession = {
-  activeSectionId: string;
   baselineOrder: string[];
+  destination: CommitSectionMoveDestination | null;
   entry: 'arrange' | 'section';
   initialSectionId: string;
   sourcePageId: string;
+  targetSectionId: string;
   workingOrder: string[];
 };
 
@@ -112,6 +124,47 @@ const starterLabel = (starter: OriginStarter): string => ({
   multi_page: 'Multi-page website',
 })[starter];
 
+const canReceiveProgrammaticFocus = (element: HTMLElement | null): element is HTMLElement => {
+  if (
+    !element
+    || !element.isConnected
+    || element === window.document.body
+    || element === window.document.documentElement
+    || element.matches(':disabled')
+    || element.closest('[aria-hidden="true"], [hidden], [inert]')
+  ) {
+    return false;
+  }
+
+  let current: HTMLElement | null = element;
+  while (current) {
+    const style = window.getComputedStyle(current);
+    if (style.display === 'none' || style.visibility === 'hidden') {
+      return false;
+    }
+    current = current.parentElement;
+  }
+  return true;
+};
+
+const findFocusableByAttribute = (attribute: string, value: string): HTMLElement | null => (
+  [...window.document.querySelectorAll<HTMLElement>(`[${attribute}]`)]
+    .find((candidate) => (
+      candidate.getAttribute(attribute) === value
+      && canReceiveProgrammaticFocus(candidate)
+    )) ?? null
+);
+
+const restoreVisibleFocus = (element: HTMLElement | null): boolean => {
+  if (!canReceiveProgrammaticFocus(element)) return false;
+  element.focus({ preventScroll: true });
+  element.setAttribute('data-restored-focus', 'true');
+  element.addEventListener('blur', () => {
+    element.removeAttribute('data-restored-focus');
+  }, { once: true });
+  return window.document.activeElement === element;
+};
+
 export function App() {
   const lab = useLabDocument();
   const document = lab.document;
@@ -137,6 +190,7 @@ export function App() {
   const [toast, setToast] = useState<ToastState>(null);
   const [pendingMoveFeedback, setPendingMoveFeedback] = useState<PendingMoveFeedback>(null);
   const [announcement, setAnnouncement] = useState('');
+  const [previewAnnouncement, setPreviewAnnouncement] = useState('');
   const [realHeightSimulation, setRealHeightSimulation] = useState(false);
   const [imageFixture, setImageFixture] = useState<ImageFixture>('image_rich');
   const [menuSize, setMenuSize] = useState<MenuSize>('canonical');
@@ -147,10 +201,21 @@ export function App() {
   const [bookingCollapseOverrides, setBookingCollapseOverrides] = useState<Record<string, boolean | undefined>>({});
   const [bookingCollapseReports, setBookingCollapseReports] = useState<Record<string, BookingCollapseReport>>({});
   const [selectedSectionIntersects, setSelectedSectionIntersects] = useState(true);
+  const [selectedSectionIntersectionReady, setSelectedSectionIntersectionReady] = useState(false);
   const [desktopSettings, setDesktopSettings] = useState(() => window.matchMedia('(min-width: 900px)').matches);
   const [settingsTemporarilyHidden, setSettingsTemporarilyHidden] = useState(false);
   const editorAppRef = useRef<HTMLDivElement>(null);
   const topbarRef = useRef<HTMLElement>(null);
+  const bookingSettingsDrawerRef = useRef<HTMLElement>(null);
+  const bookingSettingsHideRef = useRef<HTMLButtonElement>(null);
+  const bookingSettingsNativeSelectRef = useRef<HTMLSelectElement | null>(null);
+  const bookingSettingsShowRef = useRef<HTMLButtonElement>(null);
+  const bookingSettingsTriggerRef = useRef<HTMLElement | null>(null);
+  const moveInvocationRef = useRef<HTMLElement | null>(null);
+  const moveCommitInFlightRef = useRef(false);
+  const pendingMoveFocusRef = useRef<PendingMoveFocus | null>(null);
+  const previewAnnouncementTokenRef = useRef(0);
+  const [moveFocusRequest, setMoveFocusRequest] = useState(0);
   const [contextTop, setContextTop] = useState(86);
 
   const bookingFixture = useMemo(
@@ -182,7 +247,10 @@ export function App() {
   }, [moveSession, moveSourcePage]);
   const moveDirty = Boolean(
     moveSession
-    && moveSession.workingOrder.some((id, index) => id !== moveSession.baselineOrder[index]),
+    && (
+      moveSession.destination !== null
+      || moveSession.workingOrder.some((id, index) => id !== moveSession.baselineOrder[index])
+    ),
   );
   const activePage = committedActivePage && moveSession?.sourcePageId === committedActivePage.id
     ? { ...committedActivePage, sections: moveSections }
@@ -224,20 +292,38 @@ export function App() {
     }
   }, [activePage?.id, document, selectedSectionId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!selectedSectionId || mode !== 'edit') {
       setSelectedSectionIntersects(false);
+      setSelectedSectionIntersectionReady(false);
       return undefined;
     }
-    setSelectedSectionIntersects(true);
+    if (moveSession) {
+      setSelectedSectionIntersectionReady(false);
+      return undefined;
+    }
     const section = window.document.querySelector<HTMLElement>(`[data-section-instance-id="${selectedSectionId}"]`);
-    if (!section || typeof IntersectionObserver === 'undefined') return undefined;
+    if (!section) {
+      setSelectedSectionIntersects(false);
+      setSelectedSectionIntersectionReady(true);
+      return undefined;
+    }
+    const bounds = section.getBoundingClientRect();
+    const hasMeasuredGeometry = bounds.width > 0 || bounds.height > 0;
+    setSelectedSectionIntersects(!hasMeasuredGeometry || (
+      bounds.bottom > 0
+      && bounds.right > 0
+      && bounds.top < window.innerHeight
+      && bounds.left < window.innerWidth
+    ));
+    setSelectedSectionIntersectionReady(true);
+    if (typeof IntersectionObserver === 'undefined') return undefined;
     const observer = new IntersectionObserver(([entry]) => {
       setSelectedSectionIntersects(Boolean(entry?.isIntersecting));
     }, { threshold: 0 });
     observer.observe(section);
     return () => observer.disconnect();
-  }, [activePage?.id, mode, selectedSectionId]);
+  }, [activePage?.id, mode, moveSession, selectedSectionId]);
 
   useEffect(() => {
     if (!toast) {
@@ -302,6 +388,74 @@ export function App() {
   useEffect(() => {
     if (!editingBooking) setSettingsTemporarilyHidden(false);
   }, [editingBooking]);
+
+  useEffect(() => {
+    const pendingFocus = pendingMoveFocusRef.current;
+    if (
+      !pendingFocus
+      || moveSession
+      || moveDismissPending
+      || navigationPromptOpen
+      || (selectedSectionId !== null && !selectedSectionIntersectionReady)
+    ) {
+      return undefined;
+    }
+
+    const focusFrames = new Set<number>();
+    const finishMoveFocus = () => {
+      pendingMoveFocusRef.current = null;
+      moveInvocationRef.current = null;
+    };
+    const restoreMoveFocus = (attemptsRemaining: number) => {
+      const sectionId = pendingFocus.kind === 'commit'
+        ? pendingFocus.targetSectionId
+        : pendingFocus.initialSectionId;
+      const invocation = moveInvocationRef.current;
+      const moveControl = findFocusableByAttribute('data-move-trigger-for', sectionId);
+      const sectionReturnControl = findFocusableByAttribute(
+        'data-section-return-for',
+        sectionId,
+      );
+      const sectionSurface = [...window.document.querySelectorAll<HTMLElement>('[data-section-instance-id]')]
+          .find((candidate) => (
+            candidate.dataset.sectionInstanceId === sectionId
+            && canReceiveProgrammaticFocus(candidate.querySelector<HTMLElement>('.section-card__select-surface'))
+          ))
+          ?.querySelector<HTMLElement>('.section-card__select-surface')
+        ?? null;
+      const fallback = window.document.querySelector<HTMLElement>('.final-topbar__page');
+      const candidates = pendingFocus.kind === 'commit'
+        ? [moveControl, sectionReturnControl, sectionSurface, invocation, fallback]
+        : [invocation, moveControl, sectionReturnControl, sectionSurface, fallback];
+      const focusTarget = candidates.find(canReceiveProgrammaticFocus) ?? null;
+      if (focusTarget && restoreVisibleFocus(focusTarget)) {
+        finishMoveFocus();
+        return;
+      }
+      if (attemptsRemaining > 0) {
+        const retryFrame = window.requestAnimationFrame(() => {
+          restoreMoveFocus(attemptsRemaining - 1);
+        });
+        focusFrames.add(retryFrame);
+      }
+    };
+    const focusFrame = window.requestAnimationFrame(() => restoreMoveFocus(3));
+    focusFrames.add(focusFrame);
+
+    return () => {
+      focusFrames.forEach((frame) => window.cancelAnimationFrame(frame));
+    };
+  }, [
+    activePageId,
+    document,
+    moveDismissPending,
+    moveFocusRequest,
+    moveSession,
+    navigationPromptOpen,
+    selectedSectionId,
+    selectedSectionIntersectionReady,
+    selectedSectionIntersects,
+  ]);
 
   useEffect(() => {
     if (!pendingMoveFeedback) return;
@@ -393,6 +547,81 @@ export function App() {
     return result;
   };
 
+  const closeBookingSettings = useCallback(() => {
+    const sectionId = editingSectionId;
+    bookingSettingsNativeSelectRef.current = null;
+    setEditingSectionId(null);
+    setSettingsTemporarilyHidden(false);
+    window.requestAnimationFrame(() => {
+      const invocation = bookingSettingsTriggerRef.current;
+      const editControl = sectionId
+        ? findFocusableByAttribute('data-booking-settings-trigger-for', sectionId)
+        : null;
+      const sectionSurface = sectionId
+        ? [...window.document.querySelectorAll<HTMLElement>('[data-section-instance-id]')]
+          .find((candidate) => candidate.dataset.sectionInstanceId === sectionId)
+          ?.querySelector<HTMLElement>('.section-card__select-surface') ?? null
+        : null;
+      const fallback = window.document.querySelector<HTMLElement>('.final-topbar__page');
+      const focusTarget = [invocation, editControl, sectionSurface, fallback]
+        .find(canReceiveProgrammaticFocus) ?? null;
+      restoreVisibleFocus(focusTarget);
+      bookingSettingsTriggerRef.current = null;
+    });
+  }, [editingSectionId]);
+
+  const hideBookingSettings = () => {
+    setSettingsTemporarilyHidden(true);
+    window.requestAnimationFrame(() => {
+      restoreVisibleFocus(bookingSettingsShowRef.current);
+    });
+  };
+
+  const showBookingSettings = () => {
+    setSettingsTemporarilyHidden(false);
+    window.requestAnimationFrame(() => {
+      restoreVisibleFocus(bookingSettingsHideRef.current);
+    });
+  };
+
+  useEffect(() => {
+    if (!editingBooking || !desktopSettings || settingsTemporarilyHidden) {
+      return undefined;
+    }
+
+    const handleSettingsEscape = (event: KeyboardEvent) => {
+      const drawer = bookingSettingsDrawerRef.current;
+      if (
+        event.key !== 'Escape'
+        || event.defaultPrevented
+        || !drawer?.contains(window.document.activeElement)
+        || isEscapeHandledInsideActiveControl(event)
+      ) {
+        return;
+      }
+      const higherPriorityDialog = [...window.document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')]
+        .find((candidate) => candidate !== drawer);
+      if (higherPriorityDialog) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      closeBookingSettings();
+    };
+
+    window.document.addEventListener('keydown', handleSettingsEscape);
+    return () => window.document.removeEventListener('keydown', handleSettingsEscape);
+  }, [closeBookingSettings, desktopSettings, editingBooking, settingsTemporarilyHidden]);
+
+  const queueMoveFocus = (session: MoveSession, kind: PendingMoveFocus['kind']) => {
+    pendingMoveFocusRef.current = {
+      initialSectionId: session.initialSectionId,
+      kind,
+      targetSectionId: session.targetSectionId,
+    };
+    setMoveFocusRequest((current) => current + 1);
+  };
+
   const chooseStarter = (starter: OriginStarter) => {
     lab.chooseStarter(starter);
     setBookingSession(createEmptyBookingSession());
@@ -416,12 +645,17 @@ export function App() {
     const baselineOrder = [...page.sections]
       .sort((left, right) => left.order - right.order)
       .map((section) => section.id);
+    moveInvocationRef.current = window.document.activeElement instanceof HTMLElement
+      ? window.document.activeElement
+      : null;
+    moveCommitInFlightRef.current = false;
     setMoveSession({
-      activeSectionId: sectionId,
       baselineOrder,
+      destination: null,
       entry,
       initialSectionId: sectionId,
       sourcePageId: page.id,
+      targetSectionId: sectionId,
       workingOrder: baselineOrder,
     });
     setEditingSectionId(null);
@@ -441,34 +675,91 @@ export function App() {
     if (!moveSession || position < 1 || position > moveSession.workingOrder.length) return;
     const fromIndex = moveSession.workingOrder.indexOf(sectionId);
     if (fromIndex < 0) return;
-    if (fromIndex === position - 1) {
-      setMoveSession({ ...moveSession, activeSectionId: sectionId });
-      return;
-    }
+    if (fromIndex === position - 1) return;
     const workingOrder = [...moveSession.workingOrder];
     workingOrder.splice(fromIndex, 1);
     workingOrder.splice(position - 1, 0, sectionId);
     const section = document ? findSection(document, sectionId) : null;
-    setMoveSession({ ...moveSession, activeSectionId: sectionId, workingOrder });
+    setMoveSession({ ...moveSession, workingOrder });
     setAnnouncement(`${section?.label ?? 'Section'} moved to position ${position} of ${workingOrder.length}.`);
+  };
+
+  const activateMoveTarget = (section: SectionInstance) => {
+    setMoveSession((current) => {
+      if (!current || current.targetSectionId === section.id) return current;
+      return {
+        ...current,
+        destination: null,
+        targetSectionId: section.id,
+      };
+    });
+    setAnnouncement(`${section.label} selected for cross-page movement.`);
+  };
+
+  const stageMoveToPage = (pageId: string) => {
+    if (!moveSession || !document) return;
+    if (pageId === moveSession.sourcePageId) {
+      setMoveSession({ ...moveSession, destination: null });
+      setAnnouncement('Cross-page movement cleared. The section will stay on this page.');
+      return;
+    }
+    const destinationPage = document.pages.find((page) => page.id === pageId);
+    if (!destinationPage) return;
+    const destination: CommitSectionMoveDestination = {
+      type: 'existing_page',
+      pageId,
+      position: destinationPage.sections.length + 1,
+    };
+    setMoveSession({ ...moveSession, destination });
+    const section = findSection(document, moveSession.targetSectionId);
+    setAnnouncement(`${section?.label ?? 'Section'} staged to move to ${destinationPage.name}.`);
+  };
+
+  const stageMoveToNewPage = (name: string) => {
+    if (!moveSession || !document) return;
+    const destination: CommitSectionMoveDestination = {
+      type: 'new_page',
+      name,
+      position: 1,
+    };
+    setMoveSession({ ...moveSession, destination });
+    const section = findSection(document, moveSession.targetSectionId);
+    setAnnouncement(`${name} staged as a new page for ${section?.label ?? 'this section'}.`);
+  };
+
+  const updateMoveDestinationPosition = (position: number) => {
+    const destination = moveSession?.destination;
+    if (!moveSession || !destination || destination.type !== 'existing_page') return;
+    const destinationPage = document?.pages.find((page) => page.id === destination.pageId);
+    if (!destinationPage || position < 1 || position > destinationPage.sections.length + 1) return;
+    setMoveSession({
+      ...moveSession,
+      destination: { ...destination, position },
+    });
+    setAnnouncement(`Destination position ${position} of ${destinationPage.sections.length + 1} selected.`);
+  };
+
+  const clearMoveDestination = () => {
+    if (!moveSession?.destination) return;
+    setMoveSession({ ...moveSession, destination: null });
+    setAnnouncement('Cross-page movement cleared. The section will stay on this page.');
   };
 
   const cancelMoveSection = () => {
     if (!moveSession || !document) return;
     const initialSection = findSection(document, moveSession.initialSectionId);
     const baselinePosition = moveSession.baselineOrder.indexOf(moveSession.initialSectionId) + 1;
+    queueMoveFocus(moveSession, 'restore');
     setMoveSession(null);
     setMoveDismissPending(false);
     setAnnouncement(`Order restored. ${initialSection?.label ?? 'Section'} is back at position ${baselinePosition}.`);
   };
 
-  const commitMoveSection = (
-    destination?:
-      | { type: 'existing_page'; pageId: string }
-      | { type: 'new_page'; name: string },
-  ) => {
-    if (!moveSession || !document) return;
-    const activeSection = findSection(document, moveSession.activeSectionId);
+  const commitMoveSection = () => {
+    if (!moveSession || !document || moveCommitInFlightRef.current) return;
+    moveCommitInFlightRef.current = true;
+    const targetSection = findSection(document, moveSession.targetSectionId);
+    const destination = moveSession.destination ?? undefined;
     const beforePageIds = new Set(document.pages.map((page) => page.id));
     const beforeVisibleCount = document.pages.filter((page) => page.visible).length;
     const result = execute({
@@ -476,31 +767,35 @@ export function App() {
       input: {
         sourcePageId: moveSession.sourcePageId,
         orderedSectionIds: moveSession.workingOrder,
-        sectionId: moveSession.activeSectionId,
+        sectionId: moveSession.targetSectionId,
         destination,
       },
     });
-    if (!result.success) return;
+    if (!result.success) {
+      moveCommitInFlightRef.current = false;
+      return;
+    }
 
+    queueMoveFocus(moveSession, 'commit');
     setMoveSession(null);
     setMoveDismissPending(false);
     if (!result.changed) return;
     if (destination?.type === 'existing_page') {
       const targetPage = result.document.pages.find((page) => page.id === destination.pageId);
       setActivePageId(destination.pageId);
-      setSelectedSectionId(moveSession.activeSectionId);
-      const message = `${activeSection?.label ?? 'Section'} moved to ${targetPage?.name ?? 'page'}.`;
+      setSelectedSectionId(moveSession.targetSectionId);
+      const message = `${targetSection?.label ?? 'Section'} moved to ${targetPage?.name ?? 'page'}.`;
       setPendingMoveFeedback({ announcement: message, message });
       return;
     }
     if (destination?.type === 'new_page') {
       const created = result.document.pages.find((page) => !beforePageIds.has(page.id));
       if (created) setActivePageId(created.id);
-      setSelectedSectionId(moveSession.activeSectionId);
+      setSelectedSectionId(moveSession.targetSectionId);
       if (!document.navigation.enabled && beforeVisibleCount === 1) setNavigationPromptOpen(true);
       setPendingMoveFeedback({
-        announcement: `${activeSection?.label ?? 'Section'} moved to ${destination.name}.`,
-        message: `${destination.name} created with ${activeSection?.label ?? 'section'} intact.`,
+        announcement: `${targetSection?.label ?? 'Section'} moved to ${destination.name}.`,
+        message: `${destination.name} created with ${targetSection?.label ?? 'section'} intact.`,
       });
       return;
     }
@@ -514,7 +809,10 @@ export function App() {
   const requestMoveClose = () => {
     if (!moveSession) return;
     if (moveDirty) setMoveDismissPending(true);
-    else setMoveSession(null);
+    else {
+      queueMoveFocus(moveSession, 'restore');
+      setMoveSession(null);
+    }
   };
 
   const enterPreview = () => {
@@ -537,14 +835,38 @@ export function App() {
   };
 
   const selectPreviewViewport = (nextViewport: PreviewViewport) => {
-    const widths: Record<PreviewViewport, number> = {
-      desktop: 1440,
-      tablet: 840,
-      mobile: 430,
-    };
     setViewport(nextViewport);
-    const label = nextViewport === 'mobile' ? 'Phone' : `${nextViewport[0]?.toUpperCase()}${nextViewport.slice(1)}`;
-    setAnnouncement(`${label} preview, ${widths[nextViewport]} pixels wide.`);
+    setPreviewAnnouncement('');
+    const announcementToken = previewAnnouncementTokenRef.current + 1;
+    previewAnnouncementTokenRef.current = announcementToken;
+    window.requestAnimationFrame(() => {
+      window.requestAnimationFrame(() => {
+        if (previewAnnouncementTokenRef.current !== announcementToken) return;
+        const stage = window.document.querySelector<HTMLElement>('#site-preview-stage');
+        const announceSettledWidth = () => {
+          window.requestAnimationFrame(() => {
+            if (previewAnnouncementTokenRef.current !== announcementToken) return;
+            const frame = window.document.querySelector<HTMLElement>(
+              `#site-preview-stage .preview-frame[data-preview-viewport="${nextViewport}"]`,
+            );
+            if (!frame) return;
+            const measuredWidth = Math.round(frame.getBoundingClientRect().width);
+            if (measuredWidth <= 0) return;
+            const label = nextViewport === 'mobile'
+              ? 'Phone'
+              : `${nextViewport[0]?.toUpperCase()}${nextViewport.slice(1)}`;
+            setPreviewAnnouncement(`${label} preview selected — ${measuredWidth} pixels wide.`);
+          });
+        };
+        const activeTransitions = stage?.getAnimations?.() ?? [];
+        if (activeTransitions.length === 0) {
+          announceSettledWidth();
+          return;
+        }
+        void Promise.allSettled(activeTransitions.map((animation) => animation.finished))
+          .then(announceSettledWidth);
+      });
+    });
   };
 
   const addSection = (sectionType: CatalogueSectionType, size: SectionSize) => {
@@ -564,6 +886,11 @@ export function App() {
   };
 
   const editSection = (section: SectionInstance) => {
+    if (section.sectionType === 'booking') {
+      bookingSettingsTriggerRef.current = window.document.activeElement instanceof HTMLElement
+        ? window.document.activeElement
+        : null;
+    }
     setStructureOpen(false);
     setSelectedSectionId(section.id);
     setEditingSectionId(section.id);
@@ -907,7 +1234,14 @@ export function App() {
             }}
           />
         </section>
-        <div className="visually-hidden" aria-live="polite" role="status">{announcement}</div>
+        <div
+          aria-live="polite"
+          className="visually-hidden"
+          data-testid="preview-viewport-announcement"
+          role="status"
+        >
+          {previewAnnouncement}
+        </div>
       </div>
     );
   }
@@ -1044,25 +1378,69 @@ export function App() {
 
       {editingBooking && desktopSettings ? (
         <aside
+          ref={bookingSettingsDrawerRef}
           aria-label="Booking settings"
           aria-modal="false"
           className="final-booking-settings-drawer"
           hidden={settingsTemporarilyHidden}
           role="dialog"
+          onBlurCapture={(event) => {
+            if (event.target === bookingSettingsNativeSelectRef.current) {
+              bookingSettingsNativeSelectRef.current = null;
+            }
+          }}
+          onChangeCapture={(event) => {
+            if (event.target === bookingSettingsNativeSelectRef.current) {
+              bookingSettingsNativeSelectRef.current = null;
+            }
+          }}
+          onClickCapture={(event) => {
+            bookingSettingsNativeSelectRef.current = event.target instanceof HTMLSelectElement
+              ? event.target
+              : null;
+          }}
+          onKeyDownCapture={(event) => {
+            if (
+              event.key === 'Escape'
+              && event.target === bookingSettingsNativeSelectRef.current
+            ) {
+              keepEscapeInsideActiveControl(event.nativeEvent);
+              bookingSettingsNativeSelectRef.current = null;
+              event.stopPropagation();
+              return;
+            }
+            if (
+              event.target instanceof HTMLSelectElement
+              && (
+                event.key === 'Enter'
+                || event.key === ' '
+                || event.key === 'F4'
+                || (event.altKey && event.key === 'ArrowDown')
+              )
+            ) {
+              bookingSettingsNativeSelectRef.current = event.target;
+            }
+          }}
+          onPointerDownCapture={(event) => {
+            bookingSettingsNativeSelectRef.current = event.target instanceof HTMLSelectElement
+              ? event.target
+              : null;
+          }}
         >
           <header>
             <div>
               <h2>Booking</h2>
               <p>Choose how clients browse your services. You can change this anytime. Your services, prices and booking settings stay the same.</p>
             </div>
-            <button aria-label="Close Booking settings" className="icon-button" type="button" onClick={() => setEditingSectionId(null)}>×</button>
+            <button aria-label="Close Booking settings" className="icon-button" type="button" onClick={closeBookingSettings}>×</button>
           </header>
           <div className="final-booking-settings-drawer__body">
-            <button className="final-booking-settings-drawer__preview" type="button" onClick={() => setSettingsTemporarilyHidden(true)}>
-              View preview
+            <button ref={bookingSettingsHideRef} className="final-booking-settings-drawer__preview" type="button" onClick={hideBookingSettings}>
+              Hide settings
             </button>
             <BookingSettingsPanel
               settings={editingBooking.settings}
+              showIntro={false}
               onChange={updateBookingPresentation}
               onReset={resetBookingPresentation}
             />
@@ -1070,7 +1448,7 @@ export function App() {
         </aside>
       ) : null}
       {editingBooking && desktopSettings && settingsTemporarilyHidden ? (
-        <button className="final-booking-settings-show" type="button" onClick={() => setSettingsTemporarilyHidden(false)}>
+        <button ref={bookingSettingsShowRef} className="final-booking-settings-show" type="button" onClick={showBookingSettings}>
           Show Booking settings
         </button>
       ) : null}
@@ -1088,8 +1466,14 @@ export function App() {
                 <div><strong>{selectedSection.label}</strong><small>{selectedSectionSubtitle}</small></div>
               </div>
               <div className="final-selected-toolbar__actions">
-                <button type="button" onClick={() => editSection(selectedSection)}><Pencil aria-hidden="true" size={17} /> Edit</button>
-                <button type="button" onClick={() => openMoveSection(selectedSection.id)}><Move aria-hidden="true" size={17} /> Move</button>
+                <button
+                  data-booking-settings-trigger-for={selectedSection.sectionType === 'booking' ? selectedSection.id : undefined}
+                  type="button"
+                  onClick={() => editSection(selectedSection)}
+                >
+                  <Pencil aria-hidden="true" size={17} /> Edit
+                </button>
+                <button data-move-trigger-for={selectedSection.id} type="button" onClick={() => openMoveSection(selectedSection.id)}><Move aria-hidden="true" size={17} /> Move</button>
                 {selectedSection.sectionType === 'booking' && selectedBookingReport?.isLong ? (
                   <button type="button" onClick={toggleSelectedBookingCollapse}>
                     {selectedBookingReport.collapsed ? <Maximize2 aria-hidden="true" size={17} /> : <Minimize2 aria-hidden="true" size={17} />}
@@ -1100,7 +1484,12 @@ export function App() {
               </div>
             </>
           ) : (
-            <button className="final-selected-toolbar__return" type="button" onClick={returnToSelectedSection}>
+            <button
+              className="final-selected-toolbar__return"
+              data-section-return-for={selectedSection.id}
+              type="button"
+              onClick={returnToSelectedSection}
+            >
               Back to {selectedSection.label}
             </button>
           )}
@@ -1116,8 +1505,14 @@ export function App() {
                 <div><strong>{selectedSection.label}</strong><small>{selectedSectionSubtitle}</small></div>
               </div>
               <div className={`final-mobile-dock__actions${selectedSection.sectionType === 'booking' && selectedBookingReport?.isLong ? ' has-collapse' : ''}`}>
-                <button type="button" onClick={() => editSection(selectedSection)}><Pencil aria-hidden="true" size={18} /> Edit</button>
-                <button type="button" onClick={() => openMoveSection(selectedSection.id)}><Menu aria-hidden="true" size={18} /> Move</button>
+                <button
+                  data-booking-settings-trigger-for={selectedSection.sectionType === 'booking' ? selectedSection.id : undefined}
+                  type="button"
+                  onClick={() => editSection(selectedSection)}
+                >
+                  <Pencil aria-hidden="true" size={18} /> Edit
+                </button>
+                <button data-move-trigger-for={selectedSection.id} type="button" onClick={() => openMoveSection(selectedSection.id)}><Menu aria-hidden="true" size={18} /> Move</button>
                 <button type="button" onClick={() => toggleSection(selectedSection)}><Eye aria-hidden="true" size={18} /> {selectedSection.visible ? 'Hide' : 'Show'}</button>
                 <button type="button" onClick={() => setMobileActionsOpen(true)}><MoreHorizontal aria-hidden="true" size={19} /> More</button>
                 {selectedSection.sectionType === 'booking' && selectedBookingReport?.isLong ? (
@@ -1129,7 +1524,14 @@ export function App() {
               </div>
             </div>
           ) : (
-            <button className="final-mobile-dock__back" type="button" onClick={returnToSelectedSection}>Back to {selectedSection.label}</button>
+            <button
+              className="final-mobile-dock__back"
+              data-section-return-for={selectedSection.id}
+              type="button"
+              onClick={returnToSelectedSection}
+            >
+              Back to {selectedSection.label}
+            </button>
           )
         ) : (
           <button className="final-mobile-dock__add" type="button" onClick={() => setLibraryPosition(sortedActiveSections.length + 1)}><Plus aria-hidden="true" size={20} /> Add section</button>
@@ -1145,7 +1547,7 @@ export function App() {
       <SectionLibraryDialog document={document} insertionPosition={libraryPosition} onAdd={addSection} onClose={() => setLibraryPosition(null)} page={activePage} />
       <SectionSettingsDialog onClose={() => setEditingSectionId(null)} onSave={saveSection} section={editingPlaceholder} />
       <Dialog
-        onClose={() => setEditingSectionId(null)}
+        onClose={closeBookingSettings}
         open={editingBooking !== null && !desktopSettings}
         title="Booking"
         variant="context-panel"
@@ -1160,22 +1562,24 @@ export function App() {
       </Dialog>
       {moveSession && moveSourcePage ? (
         <SectionMovePanel
-          activeSectionId={moveSession.activeSectionId}
           commitStatus={lab.saveStatus === 'idle' ? 'saved' : lab.saveStatus}
+          destination={moveSession.destination}
           dirty={moveDirty}
           document={document}
           entry={moveSession.entry}
-          onActivateSection={(section) => setMoveSession((current) => current ? { ...current, activeSectionId: section.id } : current)}
+          onActivateSection={activateMoveTarget}
           onAnnounce={setAnnouncement}
           onCancel={cancelMoveSection}
-          onCreatePage={(name) => commitMoveSection({ type: 'new_page', name })}
-          onDone={() => commitMoveSection()}
+          onClearDestination={clearMoveDestination}
+          onCreatePage={stageMoveToNewPage}
+          onDestinationPositionChange={updateMoveDestinationPosition}
+          onDone={commitMoveSection}
           onDragReorder={updateWorkingPosition}
           onMoveDown={(section) => {
             const index = moveSession.workingOrder.indexOf(section.id);
             updateWorkingPosition(section.id, index + 2);
           }}
-          onMoveToPage={(pageId) => commitMoveSection({ type: 'existing_page', pageId })}
+          onMoveToPage={stageMoveToPage}
           onMoveToPosition={(section, position) => updateWorkingPosition(section.id, position)}
           onMoveUp={(section) => {
             const index = moveSession.workingOrder.indexOf(section.id);
@@ -1185,6 +1589,7 @@ export function App() {
           open
           page={moveSourcePage}
           sections={moveSections}
+          targetSectionId={moveSession.targetSectionId}
         />
       ) : null}
       <AddPageDialog onAdd={addPage} onClose={() => setAddPageOpen(false)} open={addPageOpen} />
@@ -1193,18 +1598,34 @@ export function App() {
       <ConfirmationDialog confirmLabel="Remove page" danger description={pendingPageRemoval ? `${pendingPageRemoval.name} and its sections will move to Removed pages, where they can be restored.` : ''} onClose={() => setPendingPageRemovalId(null)} onConfirm={confirmRemovePage} open={pendingPageRemoval !== null} title="Remove this page?" />
       <Dialog
         description={moveSession ? (() => {
+          const targetSection = findSection(document, moveSession.targetSectionId);
+          const destination = moveSession.destination;
+          if (destination?.type === 'existing_page') {
+            const destinationPage = document.pages.find((page) => page.id === destination.pageId);
+            const orderAlsoChanged = moveSession.workingOrder.some((id, index) => (
+              id !== moveSession.baselineOrder[index]
+            ));
+            return `${targetSection?.label ?? 'Section'} will move to ${destinationPage?.name ?? 'the selected page'} at position ${destination.position ?? destinationPage?.sections.length ?? 1}.${orderAlsoChanged ? ' Other section order changes will be saved too.' : ''}`;
+          }
+          if (destination?.type === 'new_page') {
+            const orderAlsoChanged = moveSession.workingOrder.some((id, index) => (
+              id !== moveSession.baselineOrder[index]
+            ));
+            return `${destination.name} will be created and ${targetSection?.label ?? 'the section'} will move there.${orderAlsoChanged ? ' Other section order changes will be saved too.' : ''}`;
+          }
           const changedSectionId = moveSession.workingOrder.find((id, index) => (
             moveSession.baselineOrder.indexOf(id) !== index
-          )) ?? moveSession.activeSectionId;
+          )) ?? moveSession.targetSectionId;
           return `${findSection(document, changedSectionId)?.label ?? 'Section'} is at position ${moveSession.workingOrder.indexOf(changedSectionId) + 1} instead of ${moveSession.baselineOrder.indexOf(changedSectionId) + 1}.`;
         })() : ''}
         onClose={() => setMoveDismissPending(false)}
         open={moveDismissPending}
+        restoreFocusOnClose={moveSession !== null}
         title="Keep this new order?"
       >
         <div className="dialog-actions">
           <button className="secondary-button" type="button" onClick={cancelMoveSection}>Discard changes</button>
-          <button className="primary-button" type="button" onClick={() => commitMoveSection()}>Keep order</button>
+          <button className="primary-button" type="button" onClick={commitMoveSection}>Keep order</button>
         </div>
       </Dialog>
       <LabOptionsDialog

@@ -8,6 +8,7 @@ import {
   addPage,
   addSection,
   commitSectionMove,
+  getSectionMoveDestinationAvailability,
   getSectionMoveAnnouncement,
   moveNavigationItem,
   movePage,
@@ -444,6 +445,41 @@ describe('Booking section operations and outcome invariants', () => {
     )).toEqual(requestedOrder.filter((id) => id !== booking.id));
   });
 
+  it('atomically combines source ordering with an explicit destination position', () => {
+    const ids = createDeterministicIdFactory('combined-cross-page-move');
+    let document = initializeStarter('quick_book', { idFactory: ids });
+    const home = document.pages[0];
+    const booking = home?.sections.find((section) => section.sectionType === 'booking');
+    if (!home || !booking) throw new Error('Missing Quick Book structure.');
+
+    document = addPage(document, { name: 'Gallery' }, ids);
+    const gallery = document.pages.find((page) => page.name === 'Gallery');
+    if (!gallery) throw new Error('Missing Gallery.');
+    document = addSection(document, { pageId: gallery.id, sectionType: 'section_11' }, ids);
+    document = addSection(document, { pageId: gallery.id, sectionType: 'section_12' }, ids);
+    const baseline = structuredClone(document);
+    const requestedOrder = [
+      home.sections[1]?.id,
+      booking.id,
+      home.sections[0]?.id,
+    ].filter((id): id is string => Boolean(id));
+
+    const committed = commitSectionMove(document, {
+      sourcePageId: home.id,
+      orderedSectionIds: requestedOrder,
+      sectionId: booking.id,
+      destination: { type: 'existing_page', pageId: gallery.id, position: 1 },
+    });
+
+    expect(document).toEqual(baseline);
+    expect(committed.pages.find((page) => page.id === home.id)?.sections.map(
+      (section) => section.label,
+    )).toEqual(['Section 02', 'Section 01']);
+    expect(committed.pages.find((page) => page.id === gallery.id)?.sections.map(
+      (section) => section.label,
+    )).toEqual(['Booking', 'Section 11', 'Section 12']);
+  });
+
   it('updates and resets Booking presentation without accepting placeholder edits', () => {
     const document = initializeStarter('quick_book', {
       idFactory: createDeterministicIdFactory('booking-settings'),
@@ -519,6 +555,31 @@ describe('Booking section operations and outcome invariants', () => {
     expect(document.pages[0]?.sections).toContainEqual(
       expect.objectContaining({ id: booking.id }),
     );
+    expect(getSectionMoveDestinationAvailability(document, booking.id, hiddenPage.id))
+      .toEqual({
+        available: false,
+        code: 'booking_required',
+        reason: 'Your site needs at least one visible way for clients to start booking.',
+      });
+  });
+
+  it('does not confuse a page omitted from navigation with a page hidden from clients', () => {
+    const ids = createDeterministicIdFactory('not-in-navigation-destination');
+    let document = initializeStarter('quick_book', { idFactory: ids });
+    const booking = document.pages[0]?.sections.find(
+      (section) => section.sectionType === 'booking',
+    );
+    if (!booking) throw new Error('Missing Booking.');
+    document = addPage(document, {
+      name: 'Direct booking',
+      visible: true,
+      visibleInNavigation: false,
+    }, ids);
+    const destination = document.pages.find((page) => page.name === 'Direct booking');
+    if (!destination) throw new Error('Missing direct destination.');
+
+    expect(getSectionMoveDestinationAvailability(document, booking.id, destination.id))
+      .toEqual({ available: true });
   });
 
   it('blocks hiding the final visible page and removing Home', () => {

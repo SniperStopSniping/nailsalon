@@ -216,6 +216,13 @@ describe('integrated Booking settings surfaces', () => {
     expect(screen.getByTestId('final-hybrid-editor')).toBeVisible();
     expect(screen.getByRole('listitem', { name: 'Booking on Home' })).toBeVisible();
     expect(dialog.querySelectorAll('[data-layout-option]')).toHaveLength(5);
+    expect(within(dialog).getAllByRole('heading', {
+      level: 2,
+      name: 'Booking',
+    })).toHaveLength(1);
+    expect(within(dialog).getAllByText(
+      /Choose how clients browse your services.*booking settings stay the same\./,
+    )).toHaveLength(1);
 
     const priceList = dialog.querySelector<HTMLButtonElement>(
       '[data-layout-option="editorial_price_list"]',
@@ -234,11 +241,97 @@ describe('integrated Booking settings surfaces', () => {
     const scrollBody = dialog.querySelector<HTMLElement>('.final-booking-settings-drawer__body');
     if (!scrollBody) throw new Error('Desktop Booking settings body was not rendered.');
     scrollBody.scrollTop = 180;
-    await user.click(within(dialog).getByRole('button', { name: 'View preview' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Hide settings' }));
     expect(dialog).not.toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Show Booking settings' }));
     expect(dialog).toBeVisible();
     expect(scrollBody.scrollTop).toBe(180);
+  });
+
+  it('closes the desktop drawer with Escape and restores its invoking control without scrolling', async () => {
+    installViewport('desktop');
+    const user = userEvent.setup();
+    render(<App />);
+    await chooseQuickBook(user);
+
+    const actions = await selectBooking(user);
+    const edit = within(actions).getByRole('button', { name: 'Edit' });
+    await user.click(edit);
+    const dialog = await screen.findByRole('dialog', { name: 'Booking settings' });
+    const scrollBody = dialog.querySelector<HTMLElement>(
+      '.final-booking-settings-drawer__body',
+    );
+    if (!scrollBody) throw new Error('Desktop Booking settings body was not rendered.');
+    scrollBody.scrollTop = 220;
+
+    const typography = within(dialog).getByLabelText('Booking typography preset');
+    typography.focus();
+    expect(typography).toHaveFocus();
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Booking settings' }))
+        .not.toBeInTheDocument();
+      expect(edit).toHaveFocus();
+    });
+    expect(document.body).not.toHaveFocus();
+    expect(scrollBody.scrollTop).toBe(220);
+    expect(window.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it('lets a higher-priority modal consume Escape before the desktop drawer', async () => {
+    installViewport('desktop');
+    const user = userEvent.setup();
+    render(<App />);
+    await chooseQuickBook(user);
+
+    const actions = await selectBooking(user);
+    const edit = within(actions).getByRole('button', { name: 'Edit' });
+    await user.click(edit);
+    const drawer = await screen.findByRole('dialog', { name: 'Booking settings' });
+    await user.click(screen.getByRole('button', { name: 'More site options' }));
+    const more = await screen.findByRole('dialog', { name: 'More' });
+    expect(more).toHaveAttribute('aria-modal', 'true');
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'More' })).not.toBeInTheDocument();
+    });
+    expect(drawer).toBeVisible();
+
+    const typography = within(drawer).getByLabelText('Booking typography preset');
+    typography.focus();
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Booking settings' }))
+        .not.toBeInTheDocument();
+      expect(edit).toHaveFocus();
+    });
+  });
+
+  it('lets a pointer-opened native select consume Escape before the desktop drawer', async () => {
+    installViewport('desktop');
+    const user = userEvent.setup();
+    render(<App />);
+    await chooseQuickBook(user);
+
+    const actions = await selectBooking(user);
+    const edit = within(actions).getByRole('button', { name: 'Edit' });
+    await user.click(edit);
+    const drawer = await screen.findByRole('dialog', { name: 'Booking settings' });
+    const typography = within(drawer).getByLabelText('Booking typography preset');
+
+    await user.click(typography);
+    await user.keyboard('{Escape}');
+    expect(drawer).toBeVisible();
+    expect(typography).toHaveFocus();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Booking settings' }))
+        .not.toBeInTheDocument();
+      expect(edit).toHaveFocus();
+    });
   });
 });
 
@@ -308,6 +401,76 @@ describe('unified section movement', () => {
 });
 
 describe('App customer Preview boundary', () => {
+  it('announces the measured preview-frame width while preserving device state', async () => {
+    installViewport('desktop');
+    const widths = {
+      desktop: 1_184,
+      mobile: 386,
+      tablet: 742,
+    } as const;
+    const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains('preview-frame')) {
+        const viewport = this.dataset.previewViewport as keyof typeof widths;
+        const width = widths[viewport];
+        return {
+          bottom: 640,
+          height: 640,
+          left: 0,
+          right: width,
+          top: 0,
+          width,
+          x: 0,
+          y: 0,
+          toJSON: () => ({}),
+        };
+      }
+      return originalGetBoundingClientRect.call(this);
+    });
+    const user = userEvent.setup();
+    render(<App />);
+    await chooseQuickBook(user);
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+
+    const devices = screen.getByRole('group', { name: 'Preview viewport' });
+    const desktop = within(devices).getByRole('button', { name: 'Desktop' });
+    const tablet = within(devices).getByRole('button', { name: 'Tablet' });
+    const phone = within(devices).getByRole('button', { name: 'Phone' });
+    const liveRegion = screen.getByTestId('preview-viewport-announcement');
+
+    expect(desktop).toHaveAttribute('aria-pressed', 'true');
+    expect(tablet).toHaveAttribute('aria-pressed', 'false');
+    expect(phone).toHaveAttribute('aria-pressed', 'false');
+
+    await user.click(phone);
+    expect(phone).toHaveAttribute('aria-pressed', 'true');
+    expect(desktop).toHaveAttribute('aria-pressed', 'false');
+    await waitFor(() => {
+      expect(liveRegion).toHaveTextContent(
+        'Phone preview selected — 386 pixels wide.',
+      );
+    });
+
+    tablet.focus();
+    await user.keyboard('{Enter}');
+    expect(tablet).toHaveAttribute('aria-pressed', 'true');
+    expect(phone).toHaveAttribute('aria-pressed', 'false');
+    await waitFor(() => {
+      expect(liveRegion).toHaveTextContent(
+        'Tablet preview selected — 742 pixels wide.',
+      );
+    });
+
+    await user.click(tablet);
+    expect(liveRegion).toBeEmptyDOMElement();
+    await waitFor(() => {
+      expect(liveRegion).toHaveTextContent(
+        'Tablet preview selected — 742 pixels wide.',
+      );
+    });
+    expect(tablet).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('keeps customer intent across owner layout changes while filters and storage stay separate', async () => {
     installViewport('desktop');
     const user = userEvent.setup();
