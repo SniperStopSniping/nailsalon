@@ -1,5 +1,11 @@
 import { ChevronRight, MoveRight, Plus } from 'lucide-react';
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 
 import {
   getSectionMoveDestinationAvailability,
@@ -19,11 +25,11 @@ type SectionMovePanelProps = {
   entry: 'arrange' | 'section';
   onActivateSection: (section: SectionInstance) => void;
   onAnnounce: (message: string) => void;
-  onCancel: () => void;
+  onCancel: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   onClearDestination: () => void;
   onCreatePage: (name: string) => void;
   onDestinationPositionChange: (position: number) => void;
-  onDone: () => void;
+  onDone: (event: ReactMouseEvent<HTMLButtonElement>) => void;
   onDragReorder: (sectionId: string, position: number) => void;
   onMoveDown: (section: SectionInstance) => void;
   onMoveToPage: (pageId: string) => void;

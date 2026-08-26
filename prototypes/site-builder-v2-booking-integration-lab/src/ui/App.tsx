@@ -27,6 +27,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
 } from 'react';
 
 import {
@@ -55,6 +56,12 @@ import {
   type SectionSize,
   type SiteBuilderDocument,
 } from '../model';
+import { BookingSectionCard, type BookingCollapseReport } from './BookingSectionCard';
+import { Dialog } from './Dialog';
+import {
+  isEscapeHandledInsideActiveControl,
+  keepEscapeInsideActiveControl,
+} from './dialog-events';
 import {
   AddPageDialog,
   AlertDialog,
@@ -66,16 +73,21 @@ import {
   SectionSettingsDialog,
   StartAgainDialog,
 } from './EditorDialogs';
-import { Dialog } from './Dialog';
-import {
-  isEscapeHandledInsideActiveControl,
-  keepEscapeInsideActiveControl,
-} from './dialog-events';
 import { FinalStructurePanel } from './FinalStructurePanel';
-import { BookingSectionCard, type BookingCollapseReport } from './BookingSectionCard';
+import {
+  createMoveCompletionBounds,
+  createMoveCompletionShield,
+  decideMoveCompletionPointerInteraction,
+  MOVE_COMPLETION_SEQUENCE_HARD_CAP_MS,
+  MOVE_COMPLETION_SHIELD_DURATION_MS,
+  moveCompletionShieldIsActive,
+  type MoveCompletionPointerType,
+  type MoveCompletionShield,
+  type MoveCompletionSource,
+} from './move-completion-shield';
 import { Preview } from './Preview';
-import { SectionMovePanel } from './SectionMovePanel';
 import { SectionCard } from './SectionCard';
+import { SectionMovePanel } from './SectionMovePanel';
 import { StarterChooser } from './StarterChooser';
 import { useLabDocument } from './useLabDocument';
 
@@ -98,13 +110,22 @@ type MoveSession = {
   targetSectionId: string;
   workingOrder: string[];
 };
-type MoveCompletionGuard = {
-  bounds: { bottom: number; left: number; right: number; top: number } | null;
-  source: 'keyboard' | 'pointer' | null;
+type MoveCompletionActivation = {
+  button: number;
+  control: HTMLElement;
+  eventTimestamp: number;
+  pointerType: MoveCompletionPointerType;
+};
+type MoveCompletionEvent = {
+  button: number;
+  control: HTMLButtonElement;
+  detail: number;
+  eventTimestamp: number;
+};
+type MoveCompletionSequence = {
+  shield: MoveCompletionShield;
   until: number;
 };
-
-const MOVE_COMPLETION_GUARD_MS = 900;
 
 const getHomeOrFirstPage = (document: SiteBuilderDocument): PageDocument =>
   document.pages.find((page) => page.isHome) ?? document.pages[0] as PageDocument;
@@ -221,46 +242,85 @@ export function App() {
   const bookingSettingsTriggerRef = useRef<HTMLElement | null>(null);
   const moveInvocationRef = useRef<HTMLElement | null>(null);
   const moveCommitInFlightRef = useRef(false);
-  const moveCompletionGuardRef = useRef<MoveCompletionGuard>({
-    bounds: null,
-    source: null,
-    until: 0,
-  });
-  const moveLastActivationBoundsRef = useRef<MoveCompletionGuard['bounds']>(null);
-  const moveLastActivationSourceRef = useRef<MoveCompletionGuard['source']>(null);
+  const moveCompletionShieldRef = useRef<MoveCompletionShield | null>(null);
+  const moveCompletionShieldTimeoutRef = useRef<number | null>(null);
+  const moveCompletionSequenceRef = useRef<MoveCompletionSequence | null>(null);
+  const moveLastActivationRef = useRef<MoveCompletionActivation | null>(null);
   const pendingMoveFocusRef = useRef<PendingMoveFocus | null>(null);
   const previewAnnouncementTokenRef = useRef(0);
   const [moveFocusRequest, setMoveFocusRequest] = useState(0);
   const [contextTop, setContextTop] = useState(86);
 
-  const armMoveCompletionGuard = useCallback(() => {
-    const activeElement = window.document.activeElement;
-    const activationControl = activeElement instanceof HTMLElement
-      ? activeElement.closest<HTMLElement>('button, [role="button"]')
+  const releaseMoveCompletionShield = useCallback(() => {
+    if (moveCompletionShieldTimeoutRef.current !== null) {
+      window.clearTimeout(moveCompletionShieldTimeoutRef.current);
+      moveCompletionShieldTimeoutRef.current = null;
+    }
+    moveCompletionShieldRef.current = null;
+    moveCompletionSequenceRef.current = null;
+  }, []);
+
+  const armMoveCompletionShield = useCallback((
+    completionSource: MoveCompletionSource,
+    focusTargetSectionId: string,
+    completionEvent: MoveCompletionEvent,
+  ) => {
+    const rect = completionEvent.control.getBoundingClientRect();
+    const recordedActivation = moveLastActivationRef.current;
+    const activationMatchesControl = recordedActivation
+      && recordedActivation.control === completionEvent.control
+      && Math.abs(completionEvent.eventTimestamp - recordedActivation.eventTimestamp) < 1_000
+      ? recordedActivation
       : null;
-    const rect = activationControl?.getBoundingClientRect();
-    const activeBounds = rect && rect.width > 0 && rect.height > 0
-      ? {
-          bottom: rect.bottom + 12,
-          left: rect.left - 12,
-          right: rect.right + 12,
-          top: rect.top - 12,
-        }
-      : null;
-    moveCompletionGuardRef.current = {
-      bounds: activeBounds ?? moveLastActivationBoundsRef.current,
-      source: moveLastActivationSourceRef.current,
-      until: window.performance.now() + MOVE_COMPLETION_GUARD_MS,
+    if (rect.width <= 0 || rect.height <= 0) {
+      releaseMoveCompletionShield();
+      return;
+    }
+
+    const startedAt = window.performance.now();
+    const keyboardCompletion = completionEvent.detail === 0;
+    const shield = createMoveCompletionShield({
+      bounds: createMoveCompletionBounds(rect),
+      button: keyboardCompletion
+        ? 0
+        : activationMatchesControl?.button ?? completionEvent.button,
+      completionSource,
+      eventTimestamp: completionEvent.eventTimestamp,
+      focusTargetSectionId,
+      pointerType: keyboardCompletion
+        ? 'keyboard'
+        : activationMatchesControl?.pointerType ?? 'mouse',
+      startedAt,
+    });
+    releaseMoveCompletionShield();
+    moveCompletionShieldRef.current = shield;
+    const releaseWhenIdle = () => {
+      if (moveCompletionShieldRef.current !== shield) return;
+      const now = window.performance.now();
+      const sequence = moveCompletionSequenceRef.current;
+      if (sequence?.shield === shield && now < sequence.until) {
+        moveCompletionShieldTimeoutRef.current = window.setTimeout(
+          releaseWhenIdle,
+          Math.max(1, sequence.until - now),
+        );
+        return;
+      }
+      releaseMoveCompletionShield();
     };
-  }, []);
+    moveCompletionShieldTimeoutRef.current = window.setTimeout(
+      releaseWhenIdle,
+      MOVE_COMPLETION_SHIELD_DURATION_MS,
+    );
+  }, [releaseMoveCompletionShield]);
 
-  const releaseMoveCompletionGuard = useCallback(() => {
-    moveCompletionGuardRef.current = { bounds: null, source: null, until: 0 };
-  }, []);
-
-  const moveCompletionGuardActive = useCallback(() => (
-    window.performance.now() < moveCompletionGuardRef.current.until
-  ), []);
+  const readMoveCompletionEvent = (
+    event: ReactMouseEvent<HTMLButtonElement>,
+  ): MoveCompletionEvent => ({
+    button: event.nativeEvent.button,
+    control: event.currentTarget,
+    detail: event.nativeEvent.detail,
+    eventTimestamp: event.nativeEvent.timeStamp,
+  });
 
   const bookingFixture = useMemo(
     () => createMenuFixture({ imageFixture, menuSize }),
@@ -273,6 +333,7 @@ export function App() {
   const selectedSection = document ? findSection(document, selectedSectionId) : null;
   const editingSection = document ? findSection(document, editingSectionId) : null;
   const editingBooking = editingSection?.sectionType === 'booking' ? editingSection : null;
+  const mobileBookingSettingsModalOpen = editingBooking !== null && !desktopSettings;
   const editingPlaceholder = editingSection && editingSection.sectionType !== 'booking'
     ? editingSection
     : null;
@@ -525,82 +586,157 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const keyboardActivation = (event: KeyboardEvent): boolean => (
+      event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar'
+    );
+    const normalizePointerType = (
+      pointerType: string,
+    ): Exclude<MoveCompletionPointerType, 'keyboard'> => {
+      if (pointerType === 'pen' || pointerType === 'touch') return pointerType;
+      return 'mouse';
+    };
+    const recordActivation = (event: Event) => {
+      const control = event.target instanceof Element
+        ? event.target.closest<HTMLElement>('button, [role="button"]')
+        : null;
+      const rectangle = control?.getBoundingClientRect();
+      if (!control || !rectangle || rectangle.width <= 0 || rectangle.height <= 0) {
+        return;
+      }
+
+      const previous = moveLastActivationRef.current;
+      const recentMatchingPointer = previous?.control === control
+        && Math.abs(event.timeStamp - previous.eventTimestamp) < 1_000
+        ? previous
+        : null;
+      let button = recentMatchingPointer?.button ?? 0;
+      let pointerType: MoveCompletionPointerType | null = null;
+      if (event instanceof KeyboardEvent) {
+        if (event.type !== 'keydown' || !keyboardActivation(event)) return;
+        pointerType = 'keyboard';
+      } else if (typeof PointerEvent !== 'undefined' && event instanceof PointerEvent) {
+        if (event.type !== 'pointerdown') return;
+        button = event.button;
+        pointerType = normalizePointerType(event.pointerType);
+      } else if (typeof TouchEvent !== 'undefined' && event instanceof TouchEvent) {
+        if (event.type !== 'touchstart') return;
+        pointerType = 'touch';
+      } else if (event instanceof MouseEvent) {
+        if (event.type !== 'mousedown' && event.type !== 'click') return;
+        button = recentMatchingPointer?.button ?? event.button;
+        pointerType = event.detail === 0
+          ? 'keyboard'
+          : recentMatchingPointer?.pointerType ?? 'mouse';
+      }
+      if (!pointerType) return;
+
+      moveLastActivationRef.current = {
+        button,
+        control,
+        eventTimestamp: event.timeStamp,
+        pointerType,
+      };
+    };
+
     const absorbRapidCompletion = (event: Event) => {
-      const keyboardActivation = event instanceof KeyboardEvent
-        && (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar');
-      if (!moveCompletionGuardActive()) {
-        if (event instanceof KeyboardEvent) {
-          if (event.type !== 'keydown' || !keyboardActivation) return;
-          moveLastActivationSourceRef.current = 'keyboard';
-        } else {
-          if (
-            event instanceof MouseEvent
-            && event.detail === 0
-            && moveLastActivationSourceRef.current === 'keyboard'
-          ) {
-            return;
-          }
-          moveLastActivationSourceRef.current = 'pointer';
+      const now = window.performance.now();
+      const shield = moveCompletionShieldRef.current;
+      const sequence = moveCompletionSequenceRef.current?.shield === shield
+        ? moveCompletionSequenceRef.current
+        : null;
+      if (!moveCompletionShieldIsActive(shield, now, sequence?.until)) {
+        if (shield) releaseMoveCompletionShield();
+        recordActivation(event);
+        return;
+      }
+
+      if (event instanceof KeyboardEvent) {
+        if (event.type === 'keydown' && !keyboardActivation(event)) {
+          releaseMoveCompletionShield();
+          return;
         }
-        const control = event.target instanceof Element
-          ? event.target.closest<HTMLElement>('button, [role="button"]')
-          : null;
-        const rect = control?.getBoundingClientRect();
-        moveLastActivationBoundsRef.current = rect && rect.width > 0 && rect.height > 0
-          ? {
-              bottom: rect.bottom + 12,
-              left: rect.left - 12,
-              right: rect.right + 12,
-              top: rect.top - 12,
-            }
-          : null;
+        if (!keyboardActivation(event)) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
         return;
       }
-      if (!moveCompletionGuardActive()) return;
-      if (event instanceof KeyboardEvent && event.type === 'keydown' && !keyboardActivation) {
-        releaseMoveCompletionGuard();
-        return;
-      }
-      let point: { x: number; y: number } | null = null;
-      if (event instanceof MouseEvent) {
-        point = { x: event.clientX, y: event.clientY };
+
+      let button = 0;
+      let clientX: number | null = null;
+      let clientY: number | null = null;
+      let pointerType: Exclude<MoveCompletionPointerType, 'keyboard'> = 'mouse';
+      if (typeof PointerEvent !== 'undefined' && event instanceof PointerEvent) {
+        button = event.button;
+        clientX = event.clientX;
+        clientY = event.clientY;
+        pointerType = normalizePointerType(event.pointerType);
+        if (event.type === 'pointermove') {
+          const insideBounds = clientX >= shield.bounds.left
+            && clientX <= shield.bounds.right
+            && clientY >= shield.bounds.top
+            && clientY <= shield.bounds.bottom;
+          if (!insideBounds) releaseMoveCompletionShield();
+          return;
+        }
       } else if (typeof TouchEvent !== 'undefined' && event instanceof TouchEvent) {
         const touch = event.touches[0] ?? event.changedTouches[0];
-        if (touch) point = { x: touch.clientX, y: touch.clientY };
+        if (!touch) return;
+        clientX = touch.clientX;
+        clientY = touch.clientY;
+        pointerType = 'touch';
+      } else if (event instanceof MouseEvent) {
+        button = event.button;
+        clientX = event.clientX;
+        clientY = event.clientY;
       }
-      const bounds = moveCompletionGuardRef.current.bounds;
-      const repeatsAtCompletionControl = point !== null && bounds !== null
-        && point.x >= bounds.left
-        && point.x <= bounds.right
-        && point.y >= bounds.top
-        && point.y <= bounds.bottom;
-      if (point !== null && !repeatsAtCompletionControl) {
-        releaseMoveCompletionGuard();
-        return;
-      }
-      if (event.type === 'pointerdown' || event.type === 'touchstart') {
+      if (clientX === null || clientY === null) return;
+
+      const decision = decideMoveCompletionPointerInteraction(shield, {
+        button,
+        clientX,
+        clientY,
+        now,
+        pointerType,
+        sequenceUntil: sequence?.until,
+      });
+      if (decision === 'release') {
+        releaseMoveCompletionShield();
         return;
       }
       if (
-        event instanceof MouseEvent
-        && event.type !== 'dblclick'
-        && event.detail <= 1
-        && moveCompletionGuardRef.current.source !== 'keyboard'
+        event.type === 'mousedown'
+        || event.type === 'pointerdown'
+        || event.type === 'touchstart'
       ) {
-        releaseMoveCompletionGuard();
-        return;
-      }
-      if (!keyboardActivation && !repeatsAtCompletionControl) {
-        return;
+        if (!sequence || now >= sequence.until) {
+          moveCompletionSequenceRef.current = {
+            shield,
+            until: now + MOVE_COMPLETION_SEQUENCE_HARD_CAP_MS,
+          };
+        }
       }
       event.preventDefault();
       event.stopImmediatePropagation();
-      moveCompletionGuardRef.current.until = Math.max(
-        moveCompletionGuardRef.current.until,
-        window.performance.now() + 300,
-      );
+      const terminalClick = event.type === 'dblclick'
+        || (event instanceof MouseEvent && event.type === 'click' && event.detail !== 2);
+      if (terminalClick) {
+        moveCompletionSequenceRef.current = null;
+        if (!moveCompletionShieldIsActive(shield, now)) {
+          releaseMoveCompletionShield();
+        }
+      }
     };
-    const eventTypes = ['click', 'dblclick', 'mousedown', 'pointerdown', 'touchstart'] as const;
+    const eventTypes = [
+      'click',
+      'dblclick',
+      'mousedown',
+      'mouseup',
+      'pointerdown',
+      'pointermove',
+      'pointerup',
+      'touchend',
+      'touchstart',
+    ] as const;
     eventTypes.forEach(type => window.document.addEventListener(
       type,
       absorbRapidCompletion,
@@ -608,6 +744,19 @@ export function App() {
     ));
     window.document.addEventListener('keydown', absorbRapidCompletion, true);
     window.document.addEventListener('keyup', absorbRapidCompletion, true);
+    const releaseForGeometryChange = () => releaseMoveCompletionShield();
+    const releaseWhenHidden = () => {
+      if (window.document.visibilityState === 'hidden') releaseMoveCompletionShield();
+    };
+    window.addEventListener('hashchange', releaseForGeometryChange);
+    window.addEventListener('pagehide', releaseForGeometryChange);
+    window.addEventListener('popstate', releaseForGeometryChange);
+    window.addEventListener('resize', releaseForGeometryChange);
+    window.document.addEventListener('wheel', releaseForGeometryChange, {
+      capture: true,
+      passive: true,
+    });
+    window.document.addEventListener('visibilitychange', releaseWhenHidden);
     return () => {
       eventTypes.forEach(type => window.document.removeEventListener(
         type,
@@ -616,8 +765,15 @@ export function App() {
       ));
       window.document.removeEventListener('keydown', absorbRapidCompletion, true);
       window.document.removeEventListener('keyup', absorbRapidCompletion, true);
+      window.removeEventListener('hashchange', releaseForGeometryChange);
+      window.removeEventListener('pagehide', releaseForGeometryChange);
+      window.removeEventListener('popstate', releaseForGeometryChange);
+      window.removeEventListener('resize', releaseForGeometryChange);
+      window.document.removeEventListener('wheel', releaseForGeometryChange, true);
+      window.document.removeEventListener('visibilitychange', releaseWhenHidden);
+      releaseMoveCompletionShield();
     };
-  }, [moveCompletionGuardActive, releaseMoveCompletionGuard]);
+  }, [releaseMoveCompletionShield]);
 
   useEffect(() => {
     if (!moveSession) {
@@ -640,14 +796,14 @@ export function App() {
     return () => window.removeEventListener('keydown', keepHistoryStable, { capture: true });
   }, [moveSession]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const app = editorAppRef.current;
-    if (!app || !moveSession) {
+    if (!app || (!moveSession && !mobileBookingSettingsModalOpen)) {
       return undefined;
     }
     app.setAttribute('inert', '');
     return () => app.removeAttribute('inert');
-  }, [moveSession]);
+  }, [mobileBookingSettingsModalOpen, moveSession]);
 
   const sortedActiveSections = useMemo(
     () => activePage ? [...activePage.sections].sort((left, right) => left.order - right.order) : [],
@@ -897,10 +1053,17 @@ export function App() {
     setAnnouncement('Cross-page movement cleared. The section will stay on this page.');
   };
 
-  const cancelMoveSection = () => {
+  const cancelMoveSection = (
+    completionSource: Extract<MoveCompletionSource, 'cancel' | 'discard-changes'>,
+    completionEvent: MoveCompletionEvent,
+  ) => {
     if (!moveSession || !document || moveCommitInFlightRef.current) return;
     moveCommitInFlightRef.current = true;
-    armMoveCompletionGuard();
+    armMoveCompletionShield(
+      completionSource,
+      moveSession.initialSectionId,
+      completionEvent,
+    );
     const initialSection = findSection(document, moveSession.initialSectionId);
     const baselinePosition = moveSession.baselineOrder.indexOf(moveSession.initialSectionId) + 1;
     queueMoveFocus(moveSession, 'restore');
@@ -909,10 +1072,17 @@ export function App() {
     setAnnouncement(`Order restored. ${initialSection?.label ?? 'Section'} is back at position ${baselinePosition}.`);
   };
 
-  const commitMoveSection = () => {
+  const commitMoveSection = (
+    completionSource: Extract<MoveCompletionSource, 'done' | 'keep-order'>,
+    completionEvent: MoveCompletionEvent,
+  ) => {
     if (!moveSession || !document || moveCommitInFlightRef.current) return;
     moveCommitInFlightRef.current = true;
-    armMoveCompletionGuard();
+    armMoveCompletionShield(
+      completionSource,
+      moveSession.targetSectionId,
+      completionEvent,
+    );
     const targetSection = findSection(document, moveSession.targetSectionId);
     const destination = moveSession.destination ?? undefined;
     const beforePageIds = new Set(document.pages.map((page) => page.id));
@@ -928,7 +1098,7 @@ export function App() {
     });
     if (!result.success) {
       moveCommitInFlightRef.current = false;
-      releaseMoveCompletionGuard();
+      releaseMoveCompletionShield();
       return;
     }
 
@@ -1737,11 +1907,17 @@ export function App() {
           entry={moveSession.entry}
           onActivateSection={activateMoveTarget}
           onAnnounce={setAnnouncement}
-          onCancel={cancelMoveSection}
+          onCancel={(event) => cancelMoveSection(
+            'cancel',
+            readMoveCompletionEvent(event),
+          )}
           onClearDestination={clearMoveDestination}
           onCreatePage={stageMoveToNewPage}
           onDestinationPositionChange={updateMoveDestinationPosition}
-          onDone={commitMoveSection}
+          onDone={(event) => commitMoveSection(
+            'done',
+            readMoveCompletionEvent(event),
+          )}
           onDragReorder={(sectionId, position) => updateWorkingPosition(sectionId, position, false)}
           onMoveDown={(section) => {
             const index = moveSession.workingOrder.indexOf(section.id);
@@ -1792,8 +1968,8 @@ export function App() {
         title="Keep this new order?"
       >
         <div className="dialog-actions">
-          <button className="secondary-button" type="button" onClick={cancelMoveSection}>Discard changes</button>
-          <button className="primary-button" type="button" onClick={commitMoveSection}>Keep order</button>
+          <button className="secondary-button" type="button" onClick={(event) => cancelMoveSection('discard-changes', readMoveCompletionEvent(event))}>Discard changes</button>
+          <button className="primary-button" type="button" onClick={(event) => commitMoveSection('keep-order', readMoveCompletionEvent(event))}>Keep order</button>
         </div>
       </Dialog>
       <LabOptionsDialog
