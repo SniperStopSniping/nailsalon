@@ -98,6 +98,13 @@ type MoveSession = {
   targetSectionId: string;
   workingOrder: string[];
 };
+type MoveCompletionGuard = {
+  bounds: { bottom: number; left: number; right: number; top: number } | null;
+  source: 'keyboard' | 'pointer' | null;
+  until: number;
+};
+
+const MOVE_COMPLETION_GUARD_MS = 900;
 
 const getHomeOrFirstPage = (document: SiteBuilderDocument): PageDocument =>
   document.pages.find((page) => page.isHome) ?? document.pages[0] as PageDocument;
@@ -207,16 +214,53 @@ export function App() {
   const editorAppRef = useRef<HTMLDivElement>(null);
   const topbarRef = useRef<HTMLElement>(null);
   const bookingSettingsDrawerRef = useRef<HTMLElement>(null);
+  const bookingSettingsHeadingRef = useRef<HTMLHeadingElement>(null);
   const bookingSettingsHideRef = useRef<HTMLButtonElement>(null);
   const bookingSettingsNativeSelectRef = useRef<HTMLSelectElement | null>(null);
   const bookingSettingsShowRef = useRef<HTMLButtonElement>(null);
   const bookingSettingsTriggerRef = useRef<HTMLElement | null>(null);
   const moveInvocationRef = useRef<HTMLElement | null>(null);
   const moveCommitInFlightRef = useRef(false);
+  const moveCompletionGuardRef = useRef<MoveCompletionGuard>({
+    bounds: null,
+    source: null,
+    until: 0,
+  });
+  const moveLastActivationBoundsRef = useRef<MoveCompletionGuard['bounds']>(null);
+  const moveLastActivationSourceRef = useRef<MoveCompletionGuard['source']>(null);
   const pendingMoveFocusRef = useRef<PendingMoveFocus | null>(null);
   const previewAnnouncementTokenRef = useRef(0);
   const [moveFocusRequest, setMoveFocusRequest] = useState(0);
   const [contextTop, setContextTop] = useState(86);
+
+  const armMoveCompletionGuard = useCallback(() => {
+    const activeElement = window.document.activeElement;
+    const activationControl = activeElement instanceof HTMLElement
+      ? activeElement.closest<HTMLElement>('button, [role="button"]')
+      : null;
+    const rect = activationControl?.getBoundingClientRect();
+    const activeBounds = rect && rect.width > 0 && rect.height > 0
+      ? {
+          bottom: rect.bottom + 12,
+          left: rect.left - 12,
+          right: rect.right + 12,
+          top: rect.top - 12,
+        }
+      : null;
+    moveCompletionGuardRef.current = {
+      bounds: activeBounds ?? moveLastActivationBoundsRef.current,
+      source: moveLastActivationSourceRef.current,
+      until: window.performance.now() + MOVE_COMPLETION_GUARD_MS,
+    };
+  }, []);
+
+  const releaseMoveCompletionGuard = useCallback(() => {
+    moveCompletionGuardRef.current = { bounds: null, source: null, until: 0 };
+  }, []);
+
+  const moveCompletionGuardActive = useCallback(() => (
+    window.performance.now() < moveCompletionGuardRef.current.until
+  ), []);
 
   const bookingFixture = useMemo(
     () => createMenuFixture({ imageFixture, menuSize }),
@@ -481,6 +525,101 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    const absorbRapidCompletion = (event: Event) => {
+      const keyboardActivation = event instanceof KeyboardEvent
+        && (event.key === 'Enter' || event.key === ' ' || event.key === 'Spacebar');
+      if (!moveCompletionGuardActive()) {
+        if (event instanceof KeyboardEvent) {
+          if (event.type !== 'keydown' || !keyboardActivation) return;
+          moveLastActivationSourceRef.current = 'keyboard';
+        } else {
+          if (
+            event instanceof MouseEvent
+            && event.detail === 0
+            && moveLastActivationSourceRef.current === 'keyboard'
+          ) {
+            return;
+          }
+          moveLastActivationSourceRef.current = 'pointer';
+        }
+        const control = event.target instanceof Element
+          ? event.target.closest<HTMLElement>('button, [role="button"]')
+          : null;
+        const rect = control?.getBoundingClientRect();
+        moveLastActivationBoundsRef.current = rect && rect.width > 0 && rect.height > 0
+          ? {
+              bottom: rect.bottom + 12,
+              left: rect.left - 12,
+              right: rect.right + 12,
+              top: rect.top - 12,
+            }
+          : null;
+        return;
+      }
+      if (!moveCompletionGuardActive()) return;
+      if (event instanceof KeyboardEvent && event.type === 'keydown' && !keyboardActivation) {
+        releaseMoveCompletionGuard();
+        return;
+      }
+      let point: { x: number; y: number } | null = null;
+      if (event instanceof MouseEvent) {
+        point = { x: event.clientX, y: event.clientY };
+      } else if (typeof TouchEvent !== 'undefined' && event instanceof TouchEvent) {
+        const touch = event.touches[0] ?? event.changedTouches[0];
+        if (touch) point = { x: touch.clientX, y: touch.clientY };
+      }
+      const bounds = moveCompletionGuardRef.current.bounds;
+      const repeatsAtCompletionControl = point !== null && bounds !== null
+        && point.x >= bounds.left
+        && point.x <= bounds.right
+        && point.y >= bounds.top
+        && point.y <= bounds.bottom;
+      if (point !== null && !repeatsAtCompletionControl) {
+        releaseMoveCompletionGuard();
+        return;
+      }
+      if (event.type === 'pointerdown' || event.type === 'touchstart') {
+        return;
+      }
+      if (
+        event instanceof MouseEvent
+        && event.type !== 'dblclick'
+        && event.detail <= 1
+        && moveCompletionGuardRef.current.source !== 'keyboard'
+      ) {
+        releaseMoveCompletionGuard();
+        return;
+      }
+      if (!keyboardActivation && !repeatsAtCompletionControl) {
+        return;
+      }
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      moveCompletionGuardRef.current.until = Math.max(
+        moveCompletionGuardRef.current.until,
+        window.performance.now() + 300,
+      );
+    };
+    const eventTypes = ['click', 'dblclick', 'mousedown', 'pointerdown', 'touchstart'] as const;
+    eventTypes.forEach(type => window.document.addEventListener(
+      type,
+      absorbRapidCompletion,
+      { capture: true, passive: false },
+    ));
+    window.document.addEventListener('keydown', absorbRapidCompletion, true);
+    window.document.addEventListener('keyup', absorbRapidCompletion, true);
+    return () => {
+      eventTypes.forEach(type => window.document.removeEventListener(
+        type,
+        absorbRapidCompletion,
+        true,
+      ));
+      window.document.removeEventListener('keydown', absorbRapidCompletion, true);
+      window.document.removeEventListener('keyup', absorbRapidCompletion, true);
+    };
+  }, [moveCompletionGuardActive, releaseMoveCompletionGuard]);
+
+  useEffect(() => {
     if (!moveSession) {
       return undefined;
     }
@@ -573,16 +712,23 @@ export function App() {
   const hideBookingSettings = () => {
     setSettingsTemporarilyHidden(true);
     window.requestAnimationFrame(() => {
-      restoreVisibleFocus(bookingSettingsShowRef.current);
+      const toolbarEdit = editingBooking
+        ? findFocusableByAttribute('data-booking-settings-trigger-for', editingBooking.id)
+        : null;
+      restoreVisibleFocus(bookingSettingsShowRef.current ?? toolbarEdit);
     });
   };
 
   const showBookingSettings = () => {
     setSettingsTemporarilyHidden(false);
-    window.requestAnimationFrame(() => {
-      restoreVisibleFocus(bookingSettingsHideRef.current);
-    });
   };
+
+  useLayoutEffect(() => {
+    if (!editingBooking || !desktopSettings || settingsTemporarilyHidden) {
+      return;
+    }
+    restoreVisibleFocus(bookingSettingsHeadingRef.current);
+  }, [desktopSettings, editingBooking?.id, settingsTemporarilyHidden]);
 
   useEffect(() => {
     if (!editingBooking || !desktopSettings || settingsTemporarilyHidden) {
@@ -671,7 +817,11 @@ export function App() {
     if (focusSection) openMoveSection(focusSection.id, 'arrange');
   };
 
-  const updateWorkingPosition = (sectionId: string, position: number) => {
+  const updateWorkingPosition = (
+    sectionId: string,
+    position: number,
+    announce = true,
+  ) => {
     if (!moveSession || position < 1 || position > moveSession.workingOrder.length) return;
     const fromIndex = moveSession.workingOrder.indexOf(sectionId);
     if (fromIndex < 0) return;
@@ -681,7 +831,9 @@ export function App() {
     workingOrder.splice(position - 1, 0, sectionId);
     const section = document ? findSection(document, sectionId) : null;
     setMoveSession({ ...moveSession, workingOrder });
-    setAnnouncement(`${section?.label ?? 'Section'} moved to position ${position} of ${workingOrder.length}.`);
+    if (announce) {
+      setAnnouncement(`${section?.label ?? 'Section'} moved to position ${position} of ${workingOrder.length}.`);
+    }
   };
 
   const activateMoveTarget = (section: SectionInstance) => {
@@ -746,7 +898,9 @@ export function App() {
   };
 
   const cancelMoveSection = () => {
-    if (!moveSession || !document) return;
+    if (!moveSession || !document || moveCommitInFlightRef.current) return;
+    moveCommitInFlightRef.current = true;
+    armMoveCompletionGuard();
     const initialSection = findSection(document, moveSession.initialSectionId);
     const baselinePosition = moveSession.baselineOrder.indexOf(moveSession.initialSectionId) + 1;
     queueMoveFocus(moveSession, 'restore');
@@ -758,6 +912,7 @@ export function App() {
   const commitMoveSection = () => {
     if (!moveSession || !document || moveCommitInFlightRef.current) return;
     moveCommitInFlightRef.current = true;
+    armMoveCompletionGuard();
     const targetSection = findSection(document, moveSession.targetSectionId);
     const destination = moveSession.destination ?? undefined;
     const beforePageIds = new Set(document.pages.map((page) => page.id));
@@ -773,6 +928,7 @@ export function App() {
     });
     if (!result.success) {
       moveCommitInFlightRef.current = false;
+      releaseMoveCompletionGuard();
       return;
     }
 
@@ -835,6 +991,7 @@ export function App() {
   };
 
   const selectPreviewViewport = (nextViewport: PreviewViewport) => {
+    if (nextViewport === viewport) return;
     setViewport(nextViewport);
     setPreviewAnnouncement('');
     const announcementToken = previewAnnouncementTokenRef.current + 1;
@@ -890,6 +1047,7 @@ export function App() {
       bookingSettingsTriggerRef.current = window.document.activeElement instanceof HTMLElement
         ? window.document.activeElement
         : null;
+      setSettingsTemporarilyHidden(false);
     }
     setStructureOpen(false);
     setSelectedSectionId(section.id);
@@ -1177,8 +1335,8 @@ export function App() {
     <FinalStructurePanel
       activePageId={activePage.id}
       document={document}
-      onAddPage={() => { setStructureOpen(false); setAddPageOpen(true); }}
-      onEditPage={(page) => { setStructureOpen(false); setEditingPageId(page.id); }}
+      onAddPage={() => { setToast(null); setStructureOpen(false); setAddPageOpen(true); }}
+      onEditPage={(page) => { setEditingPageId(page.id); }}
       onEnterReorder={enterReorder}
       onMoveNavigationItem={(pageId, position) => execute({ type: 'move_navigation_item', pageId, position })}
       onMovePage={movePage}
@@ -1429,7 +1587,7 @@ export function App() {
         >
           <header>
             <div>
-              <h2>Booking</h2>
+              <h2 ref={bookingSettingsHeadingRef} tabIndex={-1}>Booking</h2>
               <p>Choose how clients browse your services. You can change this anytime. Your services, prices and booking settings stay the same.</p>
             </div>
             <button aria-label="Close Booking settings" className="icon-button" type="button" onClick={closeBookingSettings}>×</button>
@@ -1447,12 +1605,6 @@ export function App() {
           </div>
         </aside>
       ) : null}
-      {editingBooking && desktopSettings && settingsTemporarilyHidden ? (
-        <button ref={bookingSettingsShowRef} className="final-booking-settings-show" type="button" onClick={showBookingSettings}>
-          Show Booking settings
-        </button>
-      ) : null}
-
       {selectedSection && !moveSession ? (
         <aside
           aria-label={`${selectedSection.label} owner controls`}
@@ -1484,14 +1636,26 @@ export function App() {
               </div>
             </>
           ) : (
-            <button
-              className="final-selected-toolbar__return"
-              data-section-return-for={selectedSection.id}
-              type="button"
-              onClick={returnToSelectedSection}
-            >
-              Back to {selectedSection.label}
-            </button>
+            <>
+              <button
+                className="final-selected-toolbar__return"
+                data-section-return-for={selectedSection.id}
+                type="button"
+                onClick={returnToSelectedSection}
+              >
+                Back to {selectedSection.label}
+              </button>
+              {editingBooking && desktopSettings && settingsTemporarilyHidden ? (
+                <button
+                  ref={bookingSettingsShowRef}
+                  className="final-selected-toolbar__return final-selected-toolbar__show-settings"
+                  type="button"
+                  onClick={showBookingSettings}
+                >
+                  Show Booking settings
+                </button>
+              ) : null}
+            </>
           )}
         </aside>
       ) : null}
@@ -1544,9 +1708,13 @@ export function App() {
         <div className="toast" role="status"><span>{toast.message}</span>{toast.undoable ? <button type="button" onClick={() => { lab.undo(); setToast(null); setAnnouncement('Removal undone.'); }}>Undo</button> : null}</div>
       ) : null}
 
+      <Dialog onClose={() => setStructureOpen(false)} open={structureOpen} title="Pages & Structure" variant="structure-panel">
+        {structurePanel}
+      </Dialog>
       <SectionLibraryDialog document={document} insertionPosition={libraryPosition} onAdd={addSection} onClose={() => setLibraryPosition(null)} page={activePage} />
       <SectionSettingsDialog onClose={() => setEditingSectionId(null)} onSave={saveSection} section={editingPlaceholder} />
       <Dialog
+        initialFocusSelector="[data-dialog-title]"
         onClose={closeBookingSettings}
         open={editingBooking !== null && !desktopSettings}
         title="Booking"
@@ -1574,7 +1742,7 @@ export function App() {
           onCreatePage={stageMoveToNewPage}
           onDestinationPositionChange={updateMoveDestinationPosition}
           onDone={commitMoveSection}
-          onDragReorder={updateWorkingPosition}
+          onDragReorder={(sectionId, position) => updateWorkingPosition(sectionId, position, false)}
           onMoveDown={(section) => {
             const index = moveSession.workingOrder.indexOf(section.id);
             updateWorkingPosition(section.id, index + 2);
@@ -1653,9 +1821,6 @@ export function App() {
       <ConfirmationDialog confirmLabel={resetChoice === 'lab' ? 'Reset Lab' : 'Reset to starter'} danger description={resetChoice === 'lab' ? 'This clears the local Lab document and returns to the starting-point chooser.' : 'This replaces local changes with fresh defaults for the current starting point.'} onClose={() => setResetChoice(null)} onConfirm={confirmReset} open={resetChoice !== null} title={resetChoice === 'lab' ? 'Reset the entire Lab?' : 'Reset to the starting point?'} />
       <AlertDialog message={alertMessage} onClose={() => setAlertMessage(null)} title={alertTitle} />
 
-      <Dialog onClose={() => setStructureOpen(false)} open={structureOpen} title="Pages & Structure" variant="structure-panel">
-        {structurePanel}
-      </Dialog>
       <Dialog onClose={() => setMobileActionsOpen(false)} open={mobileActionsOpen && selectedSection !== null} title={selectedSection ? `${selectedSection.label} actions` : 'Section actions'} variant="bottom-sheet">
         {selectedSection ? (
           <div className="final-more-actions">

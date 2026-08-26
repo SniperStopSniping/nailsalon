@@ -623,6 +623,39 @@
   text-align: center;
 }
 
+.booking-option-warning-dialog {
+  width: min(92%, 460px);
+}
+
+.booking-option-warning-panel {
+  padding: 30px;
+  color: var(--booking-text);
+  background: var(--booking-card);
+  border: 1px solid rgb(255 255 255 / 35%);
+  border-radius: var(--booking-radius-dialog);
+  box-shadow: 0 30px 100px rgb(26 17 18 / 35%);
+}
+
+.booking-option-warning-panel h2 {
+  margin: 0 0 10px;
+  font-family: var(--heading-font, Georgia, serif);
+  font-size: clamp(24px, 4vw, 32px);
+  line-height: 1.1;
+}
+
+.booking-option-warning-panel > p:not(.booking-detail-eyebrow) {
+  margin: 0;
+  color: var(--booking-muted);
+  line-height: 1.55;
+}
+
+.booking-option-warning-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-top: 24px;
+}
+
 .booking-handoff-mark {
   display: grid;
   width: 62px;
@@ -805,6 +838,20 @@
   inset: 0;
   content: '';
   background: linear-gradient(180deg, transparent 30%, rgb(34 19 25 / 82%));
+}
+
+.featured-tile[data-selected='true'] {
+  box-shadow:
+    0 0 0 3px var(--booking-surface),
+    0 0 0 6px var(--booking-accent),
+    0 12px 30px rgb(70 43 34 / 18%);
+}
+
+.featured-tile > .booking-selected-indicator {
+  position: absolute;
+  z-index: 3;
+  top: 10px;
+  right: 10px;
 }
 
 .featured-tile-copy {

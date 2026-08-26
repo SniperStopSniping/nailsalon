@@ -107,6 +107,13 @@ function serviceCountLabel(count: number): string {
   return `${count} ${count === 1 ? 'service' : 'services'}`;
 }
 
+function categoryWhileSearching(
+  activeCategory: ServiceCategory | 'all',
+  query: string,
+): ServiceCategory | 'all' {
+  return query.trim().length > 0 ? 'all' : activeCategory;
+}
+
 type CustomerActionProps = ButtonHTMLAttributes<HTMLButtonElement> & {
   readOnly: boolean;
 };
@@ -204,6 +211,7 @@ function CategoryStrip({
       data-variant={variant}
       role="group"
       aria-label="Service categories"
+      tabIndex={readOnly ? -1 : undefined}
     >
       {options.map((category) => {
         const isActive = activeCategory === category.id;
@@ -277,7 +285,7 @@ function EmptyState({ query }: { query: string }) {
         <h3>No services found</h3>
         <p>
           {query.trim().length > 0
-            ? 'Try another search or category.'
+            ? 'Try another search across the full menu.'
             : 'Choose another category to continue browsing.'}
         </p>
       </div>
@@ -297,7 +305,8 @@ function SelectedLabel() {
 export function VisualGridLayout(props: LayoutProps) {
   const { fixture, settings, selection, activeCategory, query } = props;
   const layoutSettings = getLayoutSettings(settings, 'visual_grid');
-  const filtered = filterServices(fixture.services, { category: activeCategory, query });
+  const visibleCategory = categoryWhileSearching(activeCategory, query);
+  const filtered = filterServices(fixture.services, { category: visibleCategory, query });
   const featured = filtered.filter(service => service.featured);
   const shouldShowMedia = (service: MockService) => {
     if (layoutSettings.imageMode === 'show') {
@@ -336,7 +345,7 @@ export function VisualGridLayout(props: LayoutProps) {
         <nav className="vg-nav-wrap" aria-label="Browse service categories">
           <CategoryStrip
             fixture={fixture}
-            activeCategory={activeCategory}
+            activeCategory={visibleCategory}
             onCategoryChange={props.onCategoryChange}
             readOnly={props.readOnly}
           />
@@ -349,18 +358,22 @@ export function VisualGridLayout(props: LayoutProps) {
             <h2 id="visual-featured-heading">Featured services</h2>
             <span>{serviceCountLabel(featured.length)}</span>
           </div>
-          <div className="featured-scroller">
+          <div className="featured-scroller" tabIndex={props.readOnly ? -1 : undefined}>
             {featured.map((service) => {
+              const isSelected = selection.serviceId === service.id;
               return (
                 <CustomerAction
                   key={service.id}
                   readOnly={props.readOnly}
                   type="button"
                   className="featured-tile"
-                  aria-label={`View details for ${service.name}, ${formatDuration(service.durationMinutes)}, ${formatPrice(service.price)}`}
+                  data-selected={isSelected ? 'true' : 'false'}
+                  aria-label={`${isSelected ? 'Change options for' : 'View details for'} ${service.name}, ${formatDuration(service.durationMinutes)}, ${formatPrice(service.price)}${isSelected ? ', selected' : ''}`}
+                  aria-pressed={isSelected}
                   onClick={() => props.onOpenDetails(service)}
                 >
                   {shouldShowMedia(service) && <ServiceMedia service={service} />}
+                  {isSelected && <SelectedLabel />}
                   <span className="featured-tile-copy">
                     <small>{service.badge ?? categoryLabel(fixture, service.category)}</small>
                     <strong>{service.name}</strong>
@@ -374,7 +387,7 @@ export function VisualGridLayout(props: LayoutProps) {
 
       <section className="vg-section" aria-labelledby="visual-services-heading">
         <div className="vg-section-heading">
-          <h2 id="visual-services-heading">{categoryLabel(fixture, activeCategory)}</h2>
+          <h2 id="visual-services-heading">{categoryLabel(fixture, visibleCategory)}</h2>
           <span>{serviceCountLabel(filtered.length)}</span>
         </div>
         {filtered.length === 0
@@ -432,7 +445,8 @@ export function VisualGridLayout(props: LayoutProps) {
 export function CleanListLayout(props: LayoutProps) {
   const { fixture, settings, selection, activeCategory, query } = props;
   const layoutSettings = getLayoutSettings(settings, 'clean_list');
-  const filtered = filterServices(fixture.services, { category: activeCategory, query });
+  const visibleCategory = categoryWhileSearching(activeCategory, query);
+  const filtered = filterServices(fixture.services, { category: visibleCategory, query });
   const groups = groupedServices(fixture, filtered);
 
   return (
@@ -456,7 +470,7 @@ export function CleanListLayout(props: LayoutProps) {
         <nav className="clean-nav" aria-label="Browse service categories">
           <CategoryStrip
             fixture={fixture}
-            activeCategory={activeCategory}
+            activeCategory={visibleCategory}
             onCategoryChange={props.onCategoryChange}
             readOnly={props.readOnly}
           />
@@ -470,10 +484,7 @@ export function CleanListLayout(props: LayoutProps) {
             <section key={group.category.id} className="clean-category" aria-labelledby={`clean-${group.category.id}`}>
               <h2 id={`clean-${group.category.id}`} className="clean-category-heading">
                 {group.category.label}
-                <span>
-                  ·
-                  {serviceCountLabel(group.services.length)}
-                </span>
+                <span>{` · ${serviceCountLabel(group.services.length)}`}</span>
               </h2>
               {group.services.map((service) => {
                 const isSelected = selection.serviceId === service.id;
@@ -535,7 +546,8 @@ export function CleanListLayout(props: LayoutProps) {
 export function EditorialCardsLayout(props: LayoutProps) {
   const { fixture, settings, selection, activeCategory, query } = props;
   const layoutSettings = getLayoutSettings(settings, 'editorial_cards');
-  const filtered = filterServices(fixture.services, { category: activeCategory, query });
+  const visibleCategory = categoryWhileSearching(activeCategory, query);
+  const filtered = filterServices(fixture.services, { category: visibleCategory, query });
   const heroService = filtered.find(service => service.image) ?? filtered[0] ?? fixture.services[0];
   const hasHeroImage = Boolean(heroService?.image);
 
@@ -713,8 +725,9 @@ function CategoryAccordionNavigation(props: Pick<LayoutProps, 'fixture' | 'activ
 export function CategoryMenuLayout(props: LayoutProps) {
   const { fixture, settings, selection, activeCategory, query } = props;
   const layoutSettings = getLayoutSettings(settings, 'category_menu');
-  const filtered = filterServices(fixture.services, { category: activeCategory, query });
-  const activeLabel = categoryLabel(fixture, activeCategory);
+  const visibleCategory = categoryWhileSearching(activeCategory, query);
+  const filtered = filterServices(fixture.services, { category: visibleCategory, query });
+  const activeLabel = categoryLabel(fixture, visibleCategory);
 
   return (
     <section
@@ -738,7 +751,7 @@ export function CategoryMenuLayout(props: LayoutProps) {
         ? (
             <CategoryAccordionNavigation
               fixture={fixture}
-              activeCategory={activeCategory}
+              activeCategory={visibleCategory}
               onCategoryChange={props.onCategoryChange}
               readOnly={props.readOnly}
               showCounts={layoutSettings.showCategoryCounts}
@@ -752,7 +765,7 @@ export function CategoryMenuLayout(props: LayoutProps) {
             >
               <CategoryStrip
                 fixture={fixture}
-                activeCategory={activeCategory}
+                activeCategory={visibleCategory}
                 onCategoryChange={props.onCategoryChange}
                 readOnly={props.readOnly}
                 variant={layoutSettings.mobileNavigation}
@@ -762,13 +775,17 @@ export function CategoryMenuLayout(props: LayoutProps) {
           )}
 
       <div className="category-workspace" data-desktop-nav={layoutSettings.desktopNavigation}>
-        <nav className="category-sidebar" aria-label="Service category navigation">
+        <nav
+          className="category-sidebar"
+          aria-label="Service category navigation"
+          tabIndex={props.readOnly ? -1 : undefined}
+        >
           <p className="category-sidebar-label">Service menu</p>
           {([{ id: 'all', label: 'All services' }, ...fixture.categories] as const).map((category) => {
             const count = category.id === 'all'
               ? fixture.services.length
               : fixture.services.filter(service => service.category === category.id).length;
-            const isActive = activeCategory === category.id;
+            const isActive = visibleCategory === category.id;
             return (
               <CustomerAction
                 key={category.id}
@@ -859,7 +876,8 @@ function CategoryCover({ group }: { group: CategoryGroup }) {
 export function EditorialPriceListLayout(props: LayoutProps) {
   const { fixture, settings, selection, activeCategory, query } = props;
   const layoutSettings = getLayoutSettings(settings, 'editorial_price_list');
-  const filtered = filterServices(fixture.services, { category: activeCategory, query });
+  const visibleCategory = categoryWhileSearching(activeCategory, query);
+  const filtered = filterServices(fixture.services, { category: visibleCategory, query });
   const groups = groupedServices(fixture, filtered);
 
   return (

@@ -16,8 +16,13 @@ export type ServiceDetailProps = {
   onClose: () => void;
   onContinue: (service: MockService) => void;
   onDeselect: (service: MockService) => void;
+  onDiscardChanges: () => void;
+  onDismissDirtyWarning: () => void;
+  onKeepBrowsing: (service: MockService) => void;
+  onSaveChanges: (service: MockService) => void;
   onSelect: (service: MockService) => void;
   onToggleAddOn: (service: MockService, addOnId: string) => void;
+  showDirtyWarning: boolean;
 };
 
 export function ServiceDetail({
@@ -28,8 +33,13 @@ export function ServiceDetail({
   onClose,
   onContinue,
   onDeselect,
+  onDiscardChanges,
+  onDismissDirtyWarning,
+  onKeepBrowsing,
+  onSaveChanges,
   onSelect,
   onToggleAddOn,
+  showDirtyWarning,
 }: ServiceDetailProps) {
   const selected = service !== null && selection.serviceId === service.id;
   const category = fixture.categories.find(
@@ -49,12 +59,14 @@ export function ServiceDetail({
   if (!service) return null;
 
   return (
-    <BookingOverlayDialog
-      className="booking-service-dialog"
-      labelledBy="booking-service-detail-title"
-      onClose={onClose}
-      testId="service-detail-dialog"
-    >
+    <>
+      <BookingOverlayDialog
+        className="booking-service-dialog"
+        labelledBy="booking-service-detail-title"
+        onClose={onClose}
+        suspended={showDirtyWarning}
+        testId="service-detail-dialog"
+      >
         <div className="booking-dialog-panel" role="document">
           <button
             className="booking-dialog-close"
@@ -128,7 +140,11 @@ export function ServiceDetail({
               )}
 
               <div className="booking-detail-actions">
-                <button className="customer-secondary-button" type="button" onClick={onClose}>
+                <button
+                  className="customer-secondary-button"
+                  type="button"
+                  onClick={() => selected ? onKeepBrowsing(service) : onClose()}
+                >
                   Keep browsing
                 </button>
                 <button
@@ -151,6 +167,31 @@ export function ServiceDetail({
             </div>
           </div>
         </div>
-    </BookingOverlayDialog>
+      </BookingOverlayDialog>
+      {showDirtyWarning ? (
+        <BookingOverlayDialog
+          className="booking-option-warning-dialog"
+          labelledBy="booking-option-warning-title"
+          onClose={onDismissDirtyWarning}
+          testId="booking-option-warning-dialog"
+        >
+          <div className="booking-option-warning-panel">
+            <p className="booking-detail-eyebrow">Unsaved options</p>
+            <h2 id="booking-option-warning-title">Save your option changes?</h2>
+            <p>
+              Save the changes you made to {service.name}, or discard them and keep your last saved options.
+            </p>
+            <div className="booking-option-warning-actions">
+              <button className="customer-secondary-button" type="button" onClick={onDiscardChanges}>
+                Discard changes
+              </button>
+              <button className="customer-primary-button" type="button" onClick={() => onSaveChanges(service)}>
+                Save changes
+              </button>
+            </div>
+          </div>
+        </BookingOverlayDialog>
+      ) : null}
+    </>
   );
 }

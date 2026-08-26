@@ -388,11 +388,13 @@ export function AlertDialog({ message, onClose, title = 'That change isn’t ava
   const [first, second] = (message ?? '').split(' Add another');
   return (
     <Dialog onClose={onClose} open={message !== null} title={title}>
-      <div role="alert">
-        <p><strong>{first}</strong></p>
-        {second ? <p>Add another{second}</p> : null}
+      <div className={title === 'Keep a way to book' ? 'booking-protection-dialog-content' : undefined}>
+        <div role="alert">
+          <p><strong>{first}</strong></p>
+          {second ? <p>Add another{second}</p> : null}
+        </div>
+        <div className="dialog-actions"><button className="primary-button" type="button" onClick={onClose}>{title === 'Keep a way to book' ? 'Keep Booking' : 'Got it'}</button></div>
       </div>
-      <div className="dialog-actions"><button className="primary-button" type="button" onClick={onClose}>{title === 'Keep a way to book' ? 'Keep Booking' : 'Got it'}</button></div>
     </Dialog>
   );
 }

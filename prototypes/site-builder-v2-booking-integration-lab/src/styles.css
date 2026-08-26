@@ -1015,7 +1015,7 @@ p {
   color: #5b5969;
   background: #f3f4f7;
   cursor: grab;
-  touch-action: none;
+  touch-action: pan-y;
 }
 
 .drag-handle:active {

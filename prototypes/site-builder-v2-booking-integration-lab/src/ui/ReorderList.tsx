@@ -218,7 +218,11 @@ function SectionRowContent({
           className="icon-button"
           type="button"
           onClick={() => {
-            if (!first) onMoveUp(section);
+            if (first) {
+              onAnnounce(`${sectionLabel} is already at the first position.`);
+            } else {
+              onMoveUp(section);
+            }
           }}
         >
           <ArrowUp aria-hidden="true" size={18} />
@@ -229,7 +233,11 @@ function SectionRowContent({
           className="icon-button"
           type="button"
           onClick={() => {
-            if (!last) onMoveDown(section);
+            if (last) {
+              onAnnounce(`${sectionLabel} is already at the last position.`);
+            } else {
+              onMoveDown(section);
+            }
           }}
         >
           <ArrowDown aria-hidden="true" size={18} />
@@ -296,6 +304,7 @@ export function ReorderList({
   const activeSection = sections.find((section) => section.id === activeId) ?? null;
 
   const handleDragStart = ({ active }: DragStartEvent) => {
+    onAnnounce('');
     setActiveId(String(active.id));
     if (typeof navigator.vibrate === 'function') navigator.vibrate(12);
   };
@@ -308,7 +317,6 @@ export function ReorderList({
     const section = sections[fromIndex];
     if (!section || toIndex < 0) return;
     onDragReorder(section.id, toIndex + 1);
-    onAnnounce(`${getSectionLabel(section)} moved to position ${toIndex + 1} of ${sections.length}.`);
   };
 
   return (
@@ -326,8 +334,9 @@ export function ReorderList({
             return section && position > 0 ? `${getSectionLabel(section)} moved to position ${position} of ${sections.length}.` : 'Section was not moved.';
           },
           onDragOver({ active, over }) {
+            if (!over || active.id === over.id) return undefined;
             const section = sections.find((candidate) => candidate.id === active.id);
-            const position = over ? sections.findIndex((candidate) => candidate.id === over.id) + 1 : 0;
+            const position = sections.findIndex((candidate) => candidate.id === over.id) + 1;
             return section && position > 0 ? `${getSectionLabel(section)} is over position ${position} of ${sections.length}.` : undefined;
           },
           onDragStart({ active }) {

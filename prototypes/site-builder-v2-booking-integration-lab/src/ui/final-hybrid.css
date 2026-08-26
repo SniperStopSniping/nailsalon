@@ -435,7 +435,7 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
 
 .final-starter-disclaimer {
   margin: 22px auto 0;
-  color: #8e8382;
+  color: #756867;
   font-size: 0.72rem;
   text-align: center;
 }
@@ -1113,8 +1113,7 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   display: none;
 }
 
-.final-booking-settings-drawer,
-.final-booking-settings-show {
+.final-booking-settings-drawer {
   display: none;
 }
 
@@ -1235,7 +1234,7 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   border-radius: 12px;
   color: #66595b;
   background: #f8f5f3;
-  touch-action: none;
+  touch-action: pan-y;
 }
 
 .final-reorder-shell .reorder-row__buttons {
@@ -2203,6 +2202,12 @@ body[data-editor-shell='final-hybrid'] .dialog-header h2 {
   letter-spacing: -0.02em;
 }
 
+body[data-editor-shell='final-hybrid'] .dialog-header h2:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--final-accent) 72%, white);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
 body[data-editor-shell='final-hybrid'] .dialog-header p {
   max-width: 46ch;
   margin-top: 4px;
@@ -2246,6 +2251,14 @@ body[data-editor-shell='final-hybrid'] .dialog-actions {
   border-top: 1px solid rgba(66, 45, 47, 0.1);
   background: rgba(255, 253, 250, 0.97);
   backdrop-filter: blur(12px);
+}
+
+body[data-editor-shell='final-hybrid'] .booking-protection-dialog-content .dialog-actions {
+  position: static;
+  margin: 18px 0 0;
+  padding: 12px 0 calc(4px + env(safe-area-inset-bottom));
+  background: transparent;
+  backdrop-filter: none;
 }
 
 body[data-editor-shell='final-hybrid'] .dialog-actions button,
@@ -2941,8 +2954,7 @@ body[data-editor-shell='final-hybrid'] .toast {
     overscroll-behavior: contain;
   }
 
-  .final-booking-settings-drawer__preview,
-  .final-booking-settings-show {
+  .final-booking-settings-drawer__preview {
     min-height: 44px;
     padding: 9px 13px;
     border: 1px solid rgba(155, 36, 84, 0.2);
@@ -2963,15 +2975,6 @@ body[data-editor-shell='final-hybrid'] .toast {
     justify-content: center;
     margin-bottom: 12px;
     box-shadow: 0 6px 14px rgba(48, 31, 36, 0.08);
-  }
-
-  .final-booking-settings-show {
-    position: fixed;
-    z-index: 36;
-    top: calc(var(--final-context-top, 86px) + 2px);
-    right: 20px;
-    display: inline-flex;
-    align-items: center;
   }
 
   .final-hybrid-app.has-booking-settings .final-selected-toolbar {
@@ -3089,6 +3092,18 @@ body[data-editor-shell='final-hybrid'] .toast {
   .final-selected-toolbar__return:hover {
     color: var(--final-accent);
     background: var(--final-accent-soft);
+  }
+
+  .final-selected-toolbar__show-settings {
+    border: 1px solid rgba(155, 36, 84, 0.2);
+    color: var(--final-accent);
+    background: var(--final-accent-soft);
+  }
+
+  .final-booking-settings-drawer h2:focus-visible {
+    outline: 3px solid color-mix(in srgb, var(--final-accent) 72%, white);
+    outline-offset: 3px;
+    border-radius: 4px;
   }
 
   .final-selected-toolbar.is-away {

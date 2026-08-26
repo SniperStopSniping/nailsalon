@@ -3,6 +3,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
   type Dispatch,
   type SetStateAction,
@@ -37,6 +38,11 @@ import './booking.css';
 export const DEFAULT_BOOKING_FIXTURE = createMenuFixture();
 const EDITOR_BOOKING_SESSION = createEmptyBookingSession();
 
+const sameAddOnSelection = (
+  left: readonly string[],
+  right: readonly string[],
+): boolean => left.length === right.length && left.every(id => right.includes(id));
+
 export type BookingSessionUpdater = Dispatch<SetStateAction<BookingSessionState>>;
 
 export type BookingSectionRendererProps = {
@@ -66,6 +72,7 @@ export function BookingSectionRenderer({
 }: BookingSectionRendererProps) {
   const previousLayoutRef = useRef(presentationSettings.layout);
   const customerRegionRef = useRef<HTMLDivElement>(null);
+  const [optionWarningOpen, setOptionWarningOpen] = useState(false);
   const displaySession = mode === 'edit' ? EDITOR_BOOKING_SESSION : session;
   const serviceById = useMemo(
     () => new Map(fixture.services.map(service => [service.id, service])),
@@ -86,6 +93,13 @@ export function BookingSectionRenderer({
   const detailService = displaySession.detailServiceId
     ? serviceById.get(displaySession.detailServiceId) ?? null
     : null;
+  const committedDetailAddOns = detailService && session.selection.serviceId === detailService.id
+    ? session.selection.addOnIds
+    : [];
+  const optionDraftDirty = detailService !== null && !sameAddOnSelection(
+    committedDetailAddOns,
+    session.draftAddOnIds,
+  );
 
   useEffect(() => {
     if (previousLayoutRef.current === presentationSettings.layout) {
@@ -100,10 +114,11 @@ export function BookingSectionRenderer({
   }, [onSessionChange]);
 
   const updateCategory = useCallback((activeCategory: ServiceCategory | 'all') => {
-    onSessionChange(current => ({ ...current, activeCategory }));
+    onSessionChange(current => ({ ...current, activeCategory, query: '' }));
   }, [onSessionChange]);
 
   const openDetails = useCallback((service: MockService) => {
+    setOptionWarningOpen(false);
     onSessionChange(current => ({
       ...current,
       detailServiceId: service.id,
@@ -115,12 +130,21 @@ export function BookingSectionRenderer({
   }, [onSessionChange]);
 
   const closeDetails = useCallback(() => {
+    setOptionWarningOpen(false);
     onSessionChange(current => ({
       ...current,
       detailServiceId: null,
       draftAddOnIds: [],
     }));
   }, [onSessionChange]);
+
+  const requestCloseDetails = useCallback(() => {
+    if (optionDraftDirty) {
+      setOptionWarningOpen(true);
+      return;
+    }
+    closeDetails();
+  }, [closeDetails, optionDraftDirty]);
 
   const toggleDraftAddOn = useCallback((service: MockService, addOnId: string) => {
     onSessionChange(current => {
@@ -135,6 +159,7 @@ export function BookingSectionRenderer({
   }, [fixture.addOns, fixture.services, onSessionChange]);
 
   const commitService = useCallback((service: MockService, continueToHandoff: boolean) => {
+    setOptionWarningOpen(false);
     onSessionChange(current => ({
       ...current,
       selection: normalizeBookingSelection(
@@ -149,6 +174,7 @@ export function BookingSectionRenderer({
   }, [fixture.addOns, fixture.services, onSessionChange]);
 
   const deselectService = useCallback((service: MockService) => {
+    setOptionWarningOpen(false);
     onSessionChange(current => ({
       ...current,
       selection: current.selection.serviceId === service.id
@@ -204,11 +230,16 @@ export function BookingSectionRenderer({
         fixture={fixture}
         selection={session.selection}
         service={detailService}
-        onClose={closeDetails}
+        onClose={requestCloseDetails}
         onContinue={service => commitService(service, true)}
         onDeselect={deselectService}
+        onDiscardChanges={closeDetails}
+        onDismissDirtyWarning={() => setOptionWarningOpen(false)}
+        onKeepBrowsing={service => commitService(service, false)}
+        onSaveChanges={service => commitService(service, false)}
         onSelect={service => commitService(service, false)}
         onToggleAddOn={toggleDraftAddOn}
+        showDirtyWarning={optionWarningOpen}
       />
       <Handoff
         open={session.handoffOpen}
@@ -232,10 +263,6 @@ export function BookingSectionRenderer({
         event.preventDefault();
         event.stopPropagation();
         onOwnerSelect?.();
-      } : undefined}
-      onKeyDownCapture={mode === 'edit' ? (event) => {
-        event.preventDefault();
-        event.stopPropagation();
       } : undefined}
     >
       <div

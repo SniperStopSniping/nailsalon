@@ -214,7 +214,7 @@ export function Dialog({
     >
       <div className="dialog-header">
         <div>
-          <h2 id={titleId}>{title}</h2>
+          <h2 data-dialog-title id={titleId} tabIndex={-1}>{title}</h2>
           {description ? <p id={descriptionId}>{description}</p> : null}
         </div>
         <button className="icon-button" type="button" aria-label={`Close ${title}`} onClick={onClose}>
