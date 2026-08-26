@@ -296,6 +296,10 @@ test('trusted rapid double-tap on Done commits once without touching the control
     await sendTouch(session, 'touchEnd');
 
     await expect(move).toHaveCount(0);
+    const moreButton = page.getByRole('button', { name: 'More site options' });
+    await trustedTap(session, await center(moreButton));
+    const more = page.getByRole('dialog', { name: 'More' });
+    await expect(more).toBeVisible();
     await waitForSaved(page);
     await page.waitForTimeout(1_000);
     expect(await storageWriteCount(page)).toBe(1);
@@ -306,14 +310,13 @@ test('trusted rapid double-tap on Done commits once without touching the control
       'Section 01',
       'Section 02',
     ]);
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.getByRole('dialog')).toHaveCount(1);
+    await expect(more).toBeVisible();
     await expect(page.locator('.toast')).toHaveCount(1);
     await expect(page.locator('.toast')).toContainText('Section order saved.');
     await expect(bookingCard(page, 'Home')).toHaveClass(/is-selected/);
     expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
 
-    await page.getByRole('button', { name: 'More site options' }).click();
-    const more = page.getByRole('dialog', { name: 'More' });
     await more.getByRole('button', { name: 'Undo', exact: true }).click();
     await waitForSaved(page);
     expect(await readStoredDocumentJson(page)).toBe(baselineJson);
@@ -442,9 +445,18 @@ test('trusted rapid double-tap commits cross-page and create-page movement only 
 
       await expect(move).toHaveCount(0);
       const prompt = page.getByRole('dialog', { name: 'Add a menu?' });
+      let more: Locator | null = null;
       if (path === 'create-page') {
         await expect(prompt).toBeVisible();
-        await prompt.getByRole('button', { name: 'Not now' }).click();
+        await trustedTap(session, await center(prompt.getByRole('button', { name: 'Not now' })));
+        await expect(prompt).toHaveCount(0);
+      } else {
+        await trustedTap(
+          session,
+          await center(page.getByRole('button', { name: 'More site options' })),
+        );
+        more = page.getByRole('dialog', { name: 'More' });
+        await expect(more).toBeVisible();
       }
       await waitForSaved(page);
       await page.waitForTimeout(1_000);
@@ -453,12 +465,18 @@ test('trusted rapid double-tap commits cross-page and create-page movement only 
       expect(committedJson).not.toBe(baselineJson);
       const destination = path === 'cross-page' ? 'Home' : 'Touch portfolio';
       await expect(sectionLabels(page, destination)).resolves.toContain('Booking');
-      await expect(page.getByRole('dialog')).toHaveCount(0);
+      await expect(page.getByRole('dialog')).toHaveCount(path === 'cross-page' ? 1 : 0);
       await expect(page.locator('.toast')).toHaveCount(1);
       expect(await page.evaluate(() => document.activeElement === document.body)).toBe(false);
 
-      await page.getByRole('button', { name: 'More site options' }).click();
-      const more = page.getByRole('dialog', { name: 'More' });
+      if (!more) {
+        await trustedTap(
+          session,
+          await center(page.getByRole('button', { name: 'More site options' })),
+        );
+        more = page.getByRole('dialog', { name: 'More' });
+      }
+      await expect(more).toBeVisible();
       await more.getByRole('button', { name: 'Undo', exact: true }).click();
       await waitForSaved(page);
       expect(await readStoredDocumentJson(page)).toBe(baselineJson);

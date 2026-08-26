@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode, useState } from 'react';
 import { afterEach, vi } from 'vitest';
@@ -58,6 +58,28 @@ function DesktopMoveHarness() {
   );
 }
 
+function FocusBoundaryHarness({ wide = false }: { wide?: boolean }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <>
+      <button type="button">Before dialog</button>
+      <button type="button" onClick={() => setOpen(true)}>Open focus dialog</button>
+      <button type="button">After dialog</button>
+      <Dialog
+        initialFocusSelector="[data-dialog-title]"
+        onClose={() => setOpen(false)}
+        open={open}
+        title="Focus boundary"
+        variant={wide ? 'context-panel' : 'dialog'}
+      >
+        <button type="button">First content control</button>
+        <button type="button">Last content control</button>
+      </Dialog>
+    </>
+  );
+}
+
 afterEach(() => {
   document.body.style.removeProperty('overflow');
   vi.restoreAllMocks();
@@ -109,5 +131,40 @@ describe('Dialog document lifecycle', () => {
     await waitFor(() => expect(document.body.style.overflow).toBe(''));
     expect(screen.queryByRole('dialog', { name: 'Move Booking' })).not.toBeInTheDocument();
     await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it('contains both Tab directions when initial modal focus is on its non-tabbable heading', async () => {
+    installViewport(false);
+    const user = userEvent.setup();
+    render(<FocusBoundaryHarness />);
+    await user.click(screen.getByRole('button', { name: 'Open focus dialog' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Focus boundary' });
+    const heading = screen.getByRole('heading', { name: 'Focus boundary' });
+    await waitFor(() => expect(heading).toHaveFocus());
+    await user.tab({ shift: true });
+    expect(screen.getByRole('button', { name: 'Last content control' })).toHaveFocus();
+    await user.tab();
+    expect(within(dialog).getByRole('button', { name: 'Close Focus boundary' }))
+      .toHaveFocus();
+
+    screen.getByRole('button', { name: 'After dialog' }).focus();
+    await user.tab();
+    expect(within(dialog).getByRole('button', { name: 'Close Focus boundary' }))
+      .toHaveFocus();
+  });
+
+  it('leaves a wide adjacent context panel nonmodal and untrapped', async () => {
+    installViewport(true);
+    const user = userEvent.setup();
+    render(<FocusBoundaryHarness wide />);
+    await user.click(screen.getByRole('button', { name: 'Open focus dialog' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Focus boundary' });
+    expect(dialog).not.toHaveAttribute('aria-modal');
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Focus boundary' }))
+      .toHaveFocus());
+    await user.tab({ shift: true });
+    expect(dialog).not.toContainElement(document.activeElement as HTMLElement);
   });
 });

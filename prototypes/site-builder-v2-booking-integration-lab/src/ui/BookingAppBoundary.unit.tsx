@@ -202,6 +202,37 @@ describe('integrated Booking settings surfaces', () => {
     }
   });
 
+  it('contains mobile settings focus and releases inert, lock, and invoker focus on close', async () => {
+    installViewport('mobile');
+    const user = userEvent.setup();
+    render(<App />);
+    await chooseQuickBook(user);
+
+    const actions = await selectBooking(user);
+    const edit = within(actions).getByRole('button', { name: 'Edit' });
+    await user.click(edit);
+    const dialog = await screen.findByRole('dialog', { name: 'Booking' });
+    const editor = screen.getByTestId('final-hybrid-editor');
+    const heading = dialog.querySelector<HTMLElement>('[data-dialog-title]');
+    if (!heading) throw new Error('Mobile Booking dialog title was not rendered.');
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(editor).toHaveAttribute('inert', '');
+    expect(document.body.style.overflow).toBe('hidden');
+
+    await user.tab({ shift: true });
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    await user.keyboard('{Escape}');
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: 'Booking' })).not.toBeInTheDocument();
+      expect(edit).toHaveFocus();
+    });
+    expect(editor).not.toHaveAttribute('inert');
+    expect(document.body.style.overflow).toBe('');
+    expect(document.body).not.toHaveFocus();
+  });
+
   it('uses the temporary desktop right drawer while keeping the canvas mounted', async () => {
     installViewport('desktop');
     const user = userEvent.setup();
@@ -214,6 +245,8 @@ describe('integrated Booking settings surfaces', () => {
     expect(dialog).toHaveAttribute('aria-modal', 'false');
     expect(screen.queryByTestId('dialog-nonmodal-layer')).not.toBeInTheDocument();
     expect(screen.getByTestId('final-hybrid-editor')).toBeVisible();
+    expect(screen.getByTestId('final-hybrid-editor')).not.toHaveAttribute('inert');
+    expect(document.body.style.overflow).toBe('');
     expect(screen.getByRole('listitem', { name: 'Booking on Home' })).toBeVisible();
     expect(dialog.querySelectorAll('[data-layout-option]')).toHaveLength(5);
     expect(within(dialog).getAllByRole('heading', {
