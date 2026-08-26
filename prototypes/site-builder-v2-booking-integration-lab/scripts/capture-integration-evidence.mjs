@@ -10,7 +10,7 @@ const outputDirectory = resolve(labDirectory, 'artifacts/screenshots');
 const baseUrl = process.env.LUSTER_LAB_URL ?? 'http://127.0.0.1:4182';
 
 const mobileViewport = { width: 375, height: 600 };
-const desktopViewport = { width: 1440, height: 1000 };
+const desktopViewport = { width: 1440, height: 900 };
 
 const evidence = {
   mobileQuickVisual: '01-mobile-quick-book-visual.png',
@@ -23,7 +23,7 @@ const evidence = {
   mobileCategories: '08-mobile-preview-categories.png',
   mobilePriceList: '09-mobile-preview-price-list.png',
   mobileStructure: '10-mobile-pages-structure-booking.png',
-  mobileReorder: '11-mobile-reorder-booking.png',
+  mobileReorder: '11-mobile-arrange-booking.png',
   mobileServiceDetail: '12-mobile-preview-service-detail.png',
   mobileSummary: '13-mobile-preview-selected-summary.png',
   mobileMoved: '14-mobile-booking-moved-services.png',
@@ -36,7 +36,7 @@ const evidence = {
   desktopCategories: '21-desktop-preview-categories.png',
   desktopPriceList: '22-desktop-preview-price-list.png',
   desktopStructure: '23-desktop-pages-structure.png',
-  desktopReorder: '24-desktop-reorder.png',
+  desktopReorder: '24-desktop-arrange.png',
   desktopServiceDetail: '25-desktop-service-detail.png',
   desktopSummary: '26-desktop-selected-summary.png',
   desktopDevices: '27-desktop-device-preview-controls.png',
@@ -49,6 +49,27 @@ const evidence = {
   longName: '34-edge-long-service-name.png',
   hundredServices: '35-edge-100-service-category-menu.png',
   narrow320: '36-edge-320px.png',
+  correctionDesktopSticky: '37-correction-long-booking-desktop-sticky-toolbar.png',
+  correctionMobileDock: '38-correction-long-booking-mobile-named-dock.png',
+  correctionCollapseDeep: '39-correction-collapse-reachable-deep.png',
+  correctionMoveDirty: '40-correction-move-order-not-saved.png',
+  correctionReloadBaseline: '41-correction-reload-mid-move-committed-order.png',
+  correctionInvalidPosition: '42-correction-invalid-position.png',
+  correctionDirtyClose: '43-correction-dirty-close-confirmation.png',
+  correctionCrossPageShort: '44-correction-cross-page-375x600.png',
+  correctionPhoneSummary: '45-correction-phone-summary-contained.png',
+  correctionPhoneDetail: '46-correction-phone-service-detail-contained.png',
+  correctionEditCleanState: '47-correction-edit-no-customer-state.png',
+  correctionEditAccessibility: '48-correction-edit-accessibility-semantics.png',
+  correctionDesktopSettingsColumn: '49-correction-desktop-settings-own-column.png',
+  correctionSettings920: '50-correction-settings-920px.png',
+  correctionStarter320: '51-correction-starter-chooser-320x600.png',
+  correctionOneSectionMove: '52-correction-one-section-move-state.png',
+  correctionUnifiedStructureMove: '53-correction-unified-move-from-structure.png',
+  correctionHundredCollapsed: '54-correction-100-service-collapsed-editor.png',
+  correctionHundredPreview: '55-correction-full-100-service-preview.png',
+  correctionFinalBaseline: '56-correction-final-restored-baseline.png',
+  correctionSheet: '57-correction-proof-sheet.png',
 };
 
 const layoutEvidence = {
@@ -132,6 +153,24 @@ async function assertFullyInViewport(locator, label) {
   }
 }
 
+async function assertContainedWithin(locator, container, label) {
+  const [targetBox, containerBox] = await Promise.all([
+    locator.boundingBox(),
+    container.boundingBox(),
+  ]);
+  if (!targetBox || !containerBox) {
+    throw new Error(`${label} or its containing frame was not visible.`);
+  }
+  const tolerance = 1;
+  const contained = targetBox.x >= containerBox.x - tolerance
+    && targetBox.y >= containerBox.y - tolerance
+    && targetBox.x + targetBox.width <= containerBox.x + containerBox.width + tolerance
+    && targetBox.y + targetBox.height <= containerBox.y + containerBox.height + tolerance;
+  if (!contained) {
+    throw new Error(`${label} escaped the simulated Preview frame.`);
+  }
+}
+
 async function chooseQuickBook(page) {
   await page.getByRole('button', { name: /Quick Book/ }).click();
   await page.getByTestId('final-hybrid-editor').waitFor();
@@ -153,15 +192,36 @@ async function scrollEditorBookingIntoView(page) {
   await page.waitForTimeout(80);
 }
 
+async function scrollDeepIntoEditorBooking(page, ratio = 0.65) {
+  await bookingArticle(page).evaluate((element, requestedRatio) => {
+    const rect = element.getBoundingClientRect();
+    const absoluteTop = rect.top + window.scrollY;
+    const target = absoluteTop + Math.max(0, element.getBoundingClientRect().height - window.innerHeight) * requestedRatio;
+    window.scrollTo({ top: target, behavior: 'instant' });
+  }, ratio);
+  await page.waitForTimeout(120);
+}
+
+function selectedOwnerControls(page, formFactor) {
+  return formFactor === 'mobile'
+    ? page.locator('.final-mobile-dock__selected')
+    : page.getByTestId('selected-section-toolbar');
+}
+
 async function selectBooking(page, formFactor) {
   const article = bookingArticle(page);
   const selectSurface = article.locator('.section-card__select-surface');
   if (await selectSurface.getAttribute('aria-pressed') !== 'true') {
     await selectSurface.click();
   }
-  const actions = formFactor === 'mobile'
-    ? page.locator('.final-mobile-dock__selected')
-    : article.locator('.section-context-toolbar');
+  const actions = selectedOwnerControls(page, formFactor);
+  if (formFactor === 'mobile') {
+    const back = page.locator('.final-mobile-dock__back');
+    await actions.or(back).waitFor({ state: 'visible' });
+    if (await back.isVisible()) {
+      await back.click();
+    }
+  }
   await actions.waitFor({ state: 'visible' });
   await page.waitForTimeout(250);
 }
@@ -169,15 +229,13 @@ async function selectBooking(page, formFactor) {
 async function openBookingSettings(page, formFactor) {
   await scrollEditorBookingIntoView(page);
   await selectBooking(page, formFactor);
-  const actionScope = formFactor === 'mobile'
-    ? page.locator('.final-mobile-dock__selected')
-    : bookingArticle(page).locator('.section-context-toolbar');
+  const actionScope = selectedOwnerControls(page, formFactor);
   await actionScope.getByRole('button', { name: 'Edit', exact: true }).click();
   await page.getByTestId('booking-settings-panel').waitFor({ state: 'visible' });
 }
 
 async function closeBookingSettings(page) {
-  await page.getByRole('button', { name: 'Close Booking' }).click();
+  await page.getByRole('button', { name: /^Close Booking(?: settings)?$/ }).click();
   await page.getByTestId('booking-settings-panel').waitFor({ state: 'detached' });
 }
 
@@ -203,11 +261,31 @@ async function backToEditor(page) {
 
 async function scrollPreviewBookingIntoView(page) {
   const booking = page.locator('.preview-section--booking');
+  await booking.scrollIntoViewIfNeeded();
   await booking.evaluate(element => {
-    const top = element.getBoundingClientRect().top + window.scrollY;
-    window.scrollTo({ top: Math.max(0, top - 72), behavior: 'instant' });
+    const scroller = element.closest('.client-site');
+    if (scroller) {
+      scroller.scrollTop = Math.max(0, element.offsetTop - 72);
+    }
   });
   await page.waitForTimeout(120);
+}
+
+async function selectPreviewDevice(page, name) {
+  const button = page.getByRole('button', { name, exact: true });
+  if (await button.getAttribute('aria-pressed') !== 'true') {
+    await button.click();
+  }
+  await page.locator(`.preview-stage--${name === 'Phone' ? 'mobile' : name.toLowerCase()}`).waitFor();
+}
+
+async function openMovePanel(page, formFactor) {
+  await scrollEditorBookingIntoView(page);
+  await selectBooking(page, formFactor);
+  await selectedOwnerControls(page, formFactor).getByRole('button', { name: 'Move', exact: true }).click();
+  const panel = page.getByTestId('move-section-panel');
+  await panel.waitFor({ state: 'visible' });
+  return panel;
 }
 
 async function capturePreviewLayout(page, name) {
@@ -290,10 +368,10 @@ async function captureMobile(browser) {
     await page.getByRole('button', { name: /Open Pages & Structure/ }).click();
     await page.getByTestId('structure-tree').waitFor();
     await capture(page, evidence.mobileStructure);
-    await page.getByRole('button', { name: 'Reorder sections' }).click();
-    await page.getByRole('heading', { name: 'Reorder sections' }).waitFor();
+    await page.getByRole('button', { name: 'Arrange sections' }).click();
+    await page.getByRole('heading', { name: 'Arrange sections' }).waitFor();
     await capture(page, evidence.mobileReorder);
-    await page.locator('.final-mobile-dock__reorder').getByRole('button', { name: 'Cancel' }).click();
+    await page.getByTestId('move-section-panel').getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await openBookingSettings(page, 'mobile');
     await setLayout(page, 'visual_grid');
@@ -311,7 +389,7 @@ async function captureMobile(browser) {
 
     await scrollEditorBookingIntoView(page);
     await selectBooking(page, 'mobile');
-    await page.locator('.final-mobile-dock__selected').getByRole('button', { name: 'Move', exact: true }).click();
+    await selectedOwnerControls(page, 'mobile').getByRole('button', { name: 'Move', exact: true }).click();
     const moveDialog = page.getByRole('dialog', { name: 'Move Booking' });
     await moveDialog.getByRole('button', { name: 'Move Booking to another page' }).click();
     await moveDialog.getByPlaceholder('Page name').fill('Services');
@@ -334,7 +412,7 @@ async function captureDesktop(browser) {
     await capture(page, evidence.desktopEditor);
     await selectBooking(page, 'desktop');
     await capture(page, evidence.desktopSelected);
-    await bookingArticle(page).locator('.section-context-toolbar').getByRole('button', { name: 'Edit', exact: true }).click();
+    await selectedOwnerControls(page, 'desktop').getByRole('button', { name: 'Edit', exact: true }).click();
     await page.getByTestId('booking-settings-panel').waitFor();
     await capture(page, evidence.desktopSettings);
     await closeBookingSettings(page);
@@ -347,10 +425,10 @@ async function captureDesktop(browser) {
     await page.getByRole('button', { name: /Open Pages & Structure/ }).click();
     await page.getByTestId('structure-tree').waitFor();
     await capture(page, evidence.desktopStructure);
-    await page.getByRole('button', { name: 'Reorder sections' }).click();
-    await page.getByRole('heading', { name: 'Reorder sections' }).waitFor();
+    await page.getByRole('button', { name: 'Arrange sections' }).click();
+    await page.getByRole('heading', { name: 'Arrange sections' }).waitFor();
     await capture(page, evidence.desktopReorder);
-    await page.locator('.final-reorder-desktop-actions').getByRole('button', { name: 'Cancel' }).click();
+    await page.getByTestId('move-section-panel').getByRole('button', { name: 'Cancel', exact: true }).click();
 
     await openBookingSettings(page, 'desktop');
     await setLayout(page, 'visual_grid');
@@ -391,20 +469,14 @@ async function captureEdgeCases(browser) {
     await setLabFixture(page, { images: 'partial_images' });
     await enterPreview(page);
     const partialGrid = page.locator('.vg-grid').first();
-    await partialGrid.evaluate(element => {
-      const top = element.getBoundingClientRect().top + window.scrollY;
-      window.scrollTo({ top: Math.max(0, top - 150), behavior: 'instant' });
-    });
+    await partialGrid.scrollIntoViewIfNeeded();
     await capture(page, evidence.partialImages);
     await backToEditor(page);
 
     await setLabFixture(page, { images: 'no_images' });
     await enterPreview(page);
     const noImageGrid = page.locator('.vg-grid').first();
-    await noImageGrid.evaluate(element => {
-      const top = element.getBoundingClientRect().top + window.scrollY;
-      window.scrollTo({ top: Math.max(0, top - 150), behavior: 'instant' });
-    });
+    await noImageGrid.scrollIntoViewIfNeeded();
     await capture(page, evidence.noImages);
     await backToEditor(page);
 
@@ -419,16 +491,13 @@ async function captureEdgeCases(browser) {
     const search = page.getByRole('searchbox', { name: /Search services/ }).first();
     await search.fill('Complete Structured Manicure');
     const longService = page.getByText(/The Complete Structured Manicure with Precision Cuticle Care/).first();
-    await longService.evaluate(element => {
-      const top = element.getBoundingClientRect().top + window.scrollY;
-      window.scrollTo({ top: Math.max(0, top - 260), behavior: 'instant' });
-    });
+    await longService.scrollIntoViewIfNeeded();
     await capture(page, evidence.longName);
   } finally {
     await context.close();
   }
 
-  const narrow = await preparePage(browser, { width: 320, height: 640 });
+  const narrow = await preparePage(browser, { width: 320, height: 600 });
   try {
     await chooseQuickBook(narrow.page);
     await enterPreview(narrow.page);
@@ -456,10 +525,10 @@ async function captureComparisons(browser) {
     evidence.mobileModesComparison,
     [
       { file: evidence.mobileBookingSelected, label: 'Edit · selected' },
-      { file: evidence.mobileReorder, label: 'Reorder' },
+      { file: evidence.mobileReorder, label: 'Arrange' },
       { file: evidence.mobileVisual, label: 'Customer Preview' },
     ],
-    { columns: 3, tileHeight: 700, title: 'Mobile · edit, reorder and preview', width: 1300 },
+    { columns: 3, tileHeight: 700, title: 'Mobile · edit, arrange and preview', width: 1300 },
   );
   await createCollage(
     browser,
@@ -472,6 +541,328 @@ async function captureComparisons(browser) {
   );
 }
 
+async function resetToStarter(page) {
+  await page.getByRole('button', { name: 'More site options' }).click();
+  const more = page.getByRole('dialog', { name: 'More' });
+  await more.getByRole('button', { name: 'Reset to starter kit' }).click();
+  const confirmation = page.getByRole('dialog', { name: 'Reset to the starting point?' });
+  await confirmation.getByRole('button', { name: 'Reset to starter' }).click();
+  await page.getByTestId('final-hybrid-editor').waitFor({ state: 'visible' });
+  await waitForToastGone(page);
+}
+
+async function captureLongSectionCorrections(browser) {
+  const desktop = await preparePage(browser, desktopViewport);
+  try {
+    await chooseQuickBook(desktop.page);
+    await scrollEditorBookingIntoView(desktop.page);
+    await selectBooking(desktop.page, 'desktop');
+    const article = bookingArticle(desktop.page);
+    await article.waitFor();
+    await desktop.page.waitForFunction(() => (
+      document.querySelector('article[data-section-type="booking"]')
+        ?.getAttribute('data-booking-editor-collapsed') === 'true'
+    ));
+    await scrollDeepIntoEditorBooking(desktop.page, 0.7);
+    const toolbar = selectedOwnerControls(desktop.page, 'desktop');
+    await toolbar.waitFor({ state: 'visible' });
+    await toolbar.getByRole('button', { name: /^(Expand|Collapse)$/ }).waitFor();
+    await capture(desktop.page, evidence.correctionDesktopSticky);
+    await article.locator('.booking-editor-preview__edge-toggle').scrollIntoViewIfNeeded();
+    await capture(desktop.page, evidence.correctionCollapseDeep);
+  } finally {
+    await desktop.context.close();
+  }
+
+  const mobile = await preparePage(browser, mobileViewport);
+  try {
+    await chooseQuickBook(mobile.page);
+    await scrollEditorBookingIntoView(mobile.page);
+    await selectBooking(mobile.page, 'mobile');
+    await mobile.page.waitForFunction(() => (
+      document.querySelector('article[data-section-type="booking"]')
+        ?.getAttribute('data-booking-editor-collapsed') === 'true'
+    ));
+    await scrollDeepIntoEditorBooking(mobile.page, 0.55);
+    const dock = selectedOwnerControls(mobile.page, 'mobile');
+    await dock.getByText('Booking', { exact: true }).waitFor();
+    await dock.getByRole('button', { name: /^(Expand|Collapse)$/ }).waitFor();
+    await capture(mobile.page, evidence.correctionMobileDock);
+  } finally {
+    await mobile.context.close();
+  }
+}
+
+async function captureMoveCorrections(browser) {
+  const { context, page } = await preparePage(browser, mobileViewport);
+  try {
+    await chooseQuickBook(page);
+    let panel = await openMovePanel(page, 'mobile');
+    let position = panel.getByLabel('Position for Booking');
+    await position.fill('1');
+    await position.press('Enter');
+    await panel.getByText('Order not saved yet', { exact: true }).waitFor();
+    await capture(page, evidence.correctionMoveDirty);
+
+    // The working order is intentionally in memory only. Reload must recover the
+    // last committed order (Booking at position 3), never the temporary position 1.
+    await page.reload({ waitUntil: 'networkidle' });
+    await page.getByTestId('final-hybrid-editor').waitFor();
+    panel = await openMovePanel(page, 'mobile');
+    position = panel.getByLabel('Position for Booking');
+    if (await position.inputValue() !== '3') {
+      throw new Error('Reload promoted a temporary Move order instead of restoring Booking at position 3.');
+    }
+    await capture(page, evidence.correctionReloadBaseline);
+    await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+    panel = await openMovePanel(page, 'mobile');
+    position = panel.getByLabel('Position for Booking');
+    await position.fill('99');
+    await position.press('Enter');
+    await panel.getByText('Enter a position from 1 to 3.', { exact: true }).waitFor();
+    await capture(page, evidence.correctionInvalidPosition);
+    await position.fill('1');
+    await position.press('Enter');
+    await page.getByRole('button', { name: 'Close Move Booking' }).click();
+    await page.getByRole('dialog', { name: 'Keep this new order?' }).waitFor();
+    await capture(page, evidence.correctionDirtyClose);
+    await page.getByRole('dialog', { name: 'Keep this new order?' })
+      .getByRole('button', { name: 'Discard changes' }).click();
+
+    panel = await openMovePanel(page, 'mobile');
+    await panel.getByRole('button', { name: 'Move Booking to another page' }).click();
+    const pageName = panel.getByPlaceholder('Page name');
+    await pageName.waitFor({ state: 'visible' });
+    await pageName.fill('Services');
+    await panel.getByRole('button', { name: 'Create page and move' }).waitFor({ state: 'visible' });
+    await capture(page, evidence.correctionCrossPageShort);
+    await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+    await page.getByRole('button', { name: /Open Pages & Structure/ }).click();
+    await page.getByTestId('structure-tree').waitFor();
+    await page.getByRole('button', { name: 'Arrange sections' }).click();
+    panel = page.getByTestId('move-section-panel');
+    await panel.waitFor();
+    await page.getByRole('heading', { name: 'Arrange sections' }).waitFor();
+    await capture(page, evidence.correctionUnifiedStructureMove);
+    await panel.getByRole('button', { name: 'Cancel', exact: true }).click();
+  } finally {
+    await context.close();
+  }
+}
+
+async function capturePreviewBoundaryCorrections(browser) {
+  const { context, page } = await preparePage(browser, desktopViewport);
+  try {
+    await chooseQuickBook(page);
+    await enterPreview(page);
+    await selectPreviewDevice(page, 'Phone');
+    await scrollPreviewBookingIntoView(page);
+    const frame = page.locator('.preview-frame');
+    await openRussianDetail(page);
+    const detail = page.getByTestId('service-detail-dialog');
+    await assertContainedWithin(detail, frame, 'Phone Service Detail');
+    await capture(page, evidence.correctionPhoneDetail);
+    await page.getByRole('checkbox', { name: /French/ }).check();
+    await page.getByRole('button', { name: 'Select service' }).click();
+    const summary = page.getByTestId('selected-service-summary');
+    await summary.waitFor();
+    await assertContainedWithin(summary, frame, 'Phone selected-service summary');
+    await capture(page, evidence.correctionPhoneSummary);
+
+    await backToEditor(page);
+    await scrollEditorBookingIntoView(page);
+    const editPreview = page.getByRole('group', {
+      name: 'Booking menu preview — 24 services, Visual Grid. Not interactive while editing.',
+    });
+    await editPreview.waitFor();
+    if (await editPreview.getAttribute('aria-hidden') !== null) {
+      throw new Error('The Edit-mode Booking preview is still hidden from assistive technology.');
+    }
+    if (await editPreview.locator('.booking-surface').getAttribute('data-has-selection') !== 'false') {
+      throw new Error('Customer selection leaked visually into Edit mode.');
+    }
+    if (await page.getByTestId('selected-service-summary').count() !== 0) {
+      throw new Error('Selected customer summary leaked into Edit mode.');
+    }
+    const editorSearch = editPreview.locator('input[placeholder="Search services"]');
+    if (await editorSearch.inputValue() !== '') {
+      throw new Error('Customer search text leaked into Edit mode.');
+    }
+    if (await editorSearch.getAttribute('aria-hidden') !== 'true') {
+      throw new Error('The read-only Edit search field is still exposed as an actionable searchbox.');
+    }
+    if (await editPreview.getByRole('button').count() !== 0
+      || await editPreview.getByRole('searchbox').count() !== 0
+      || await editPreview.getByRole('tab').count() !== 0) {
+      throw new Error('The Edit-mode Booking preview still exposes dead customer controls as actions.');
+    }
+    await capture(page, evidence.correctionEditCleanState);
+    await editPreview.scrollIntoViewIfNeeded();
+    await capture(page, evidence.correctionEditAccessibility, { locator: editPreview });
+  } finally {
+    await context.close();
+  }
+}
+
+async function captureSettingsCorrections(browser) {
+  const desktop = await preparePage(browser, desktopViewport);
+  try {
+    await chooseQuickBook(desktop.page);
+    await openBookingSettings(desktop.page, 'desktop');
+    const drawer = desktop.page.locator('.final-booking-settings-drawer');
+    const canvas = desktop.page.locator('.final-canvas-shell');
+    const topbar = desktop.page.locator('.final-topbar');
+    const [drawerBox, canvasBox, topbarBox] = await Promise.all([
+      drawer.boundingBox(),
+      canvas.boundingBox(),
+      topbar.boundingBox(),
+    ]);
+    if (!drawerBox || !canvasBox || !topbarBox
+      || canvasBox.x + canvasBox.width > drawerBox.x + 1
+      || drawerBox.y < topbarBox.y + topbarBox.height - 1) {
+      throw new Error('Desktop Booking settings did not occupy a separate column below the global toolbar.');
+    }
+    await capture(desktop.page, evidence.correctionDesktopSettingsColumn);
+  } finally {
+    await desktop.context.close();
+  }
+
+  const compact = await preparePage(browser, { width: 920, height: 768 });
+  try {
+    await chooseQuickBook(compact.page);
+    await openBookingSettings(compact.page, 'desktop');
+    await compact.page.getByRole('button', { name: 'View preview' }).waitFor();
+    await capture(compact.page, evidence.correctionSettings920);
+  } finally {
+    await compact.context.close();
+  }
+
+  const starter = await preparePage(browser, { width: 320, height: 600 });
+  try {
+    const quickAction = starter.page.getByRole('button', { name: /Quick Book/ });
+    const box = await quickAction.boundingBox();
+    if (!box || box.y > 648) {
+      throw new Error('Quick Book action remains materially below the 320×600 starter viewport.');
+    }
+    await capture(starter.page, evidence.correctionStarter320);
+  } finally {
+    await starter.context.close();
+  }
+}
+
+async function captureOneSectionAndStressCorrections(browser) {
+  const mobile = await preparePage(browser, mobileViewport);
+  try {
+    await chooseQuickBook(mobile.page);
+    let panel = await openMovePanel(mobile.page, 'mobile');
+    await panel.getByRole('button', { name: 'Move Booking to another page' }).click();
+    await panel.getByPlaceholder('Page name').fill('Services');
+    await panel.getByRole('button', { name: 'Create page and move' }).click();
+    const navigation = mobile.page.getByRole('dialog', { name: 'Add a menu?' });
+    if (await navigation.isVisible()) {
+      await navigation.getByRole('button', { name: 'Add menu' }).click();
+    }
+    await waitForToastGone(mobile.page);
+    await scrollEditorBookingIntoView(mobile.page);
+    panel = await openMovePanel(mobile.page, 'mobile');
+    await panel.getByText('Booking is the only section on Services.', { exact: true }).waitFor();
+    if (await panel.getByLabel('Position for Booking').count() !== 0) {
+      throw new Error('The one-section Move state exposed a useless position field.');
+    }
+    await capture(mobile.page, evidence.correctionOneSectionMove);
+  } finally {
+    await mobile.context.close();
+  }
+
+  const stress = await preparePage(browser, desktopViewport);
+  try {
+    await chooseQuickBook(stress.page);
+    await setLabFixture(stress.page, { images: 'image_rich', menu: 'stress_100' });
+    await openBookingSettings(stress.page, 'desktop');
+    await setLayout(stress.page, 'category_menu');
+    await closeBookingSettings(stress.page);
+    await scrollEditorBookingIntoView(stress.page);
+    await selectBooking(stress.page, 'desktop');
+    await stress.page.waitForFunction(() => (
+      document.querySelector('article[data-section-type="booking"]')
+        ?.getAttribute('data-booking-editor-collapsed') === 'true'
+    ));
+    await bookingArticle(stress.page).locator('.booking-editor-preview__edge-toggle').scrollIntoViewIfNeeded();
+    await selectedOwnerControls(stress.page, 'desktop').waitFor({ state: 'visible' });
+    await capture(stress.page, evidence.correctionHundredCollapsed);
+
+    await enterPreview(stress.page);
+    await scrollPreviewBookingIntoView(stress.page);
+    const hundredMenu = stress.page.locator('.booking-surface[data-layout="category_menu"]');
+    await hundredMenu.waitFor();
+    await capture(stress.page, evidence.correctionHundredPreview, { locator: hundredMenu });
+  } finally {
+    await stress.context.close();
+  }
+}
+
+async function captureFinalBaseline(browser) {
+  const { context, page } = await preparePage(browser, mobileViewport);
+  try {
+    await chooseQuickBook(page);
+    await resetToStarter(page);
+    const labels = await page.locator('.final-sections-list [data-section-instance-id]').evaluateAll((articles) => (
+      articles.map(article => article.getAttribute('data-section-label'))
+    ));
+    if (JSON.stringify(labels) !== JSON.stringify(['Section 01', 'Section 02', 'Booking'])) {
+      throw new Error(`Final baseline order was ${JSON.stringify(labels)} instead of Section 01, Section 02, Booking.`);
+    }
+    await scrollEditorBookingIntoView(page);
+    await capture(page, evidence.correctionFinalBaseline);
+  } finally {
+    await context.close();
+  }
+}
+
+async function captureCorrectionProofs(browser) {
+  await captureLongSectionCorrections(browser);
+  await captureMoveCorrections(browser);
+  await capturePreviewBoundaryCorrections(browser);
+  await captureSettingsCorrections(browser);
+  await captureOneSectionAndStressCorrections(browser);
+  await captureFinalBaseline(browser);
+
+  await createCorrectionProofSheet(browser);
+}
+
+async function createCorrectionProofSheet(browser) {
+  const correctionEntries = [
+    [evidence.correctionDesktopSticky, '1 · Desktop sticky toolbar'],
+    [evidence.correctionMobileDock, '2 · Mobile named dock'],
+    [evidence.correctionCollapseDeep, '3 · Collapse reachable deep'],
+    [evidence.correctionMoveDirty, '4 · Unsaved Move status'],
+    [evidence.correctionReloadBaseline, '5 · Reload restores committed order'],
+    [evidence.correctionInvalidPosition, '6 · Invalid position feedback'],
+    [evidence.correctionDirtyClose, '7 · Dirty-close choice'],
+    [evidence.correctionCrossPageShort, '8 · Cross-page at 375×600'],
+    [evidence.correctionPhoneSummary, '9 · Phone summary contained'],
+    [evidence.correctionPhoneDetail, '10 · Phone detail contained'],
+    [evidence.correctionEditCleanState, '11 · Edit state is clean'],
+    [evidence.correctionEditAccessibility, '12 · Readable Edit semantics'],
+    [evidence.correctionDesktopSettingsColumn, '13 · Desktop settings column'],
+    [evidence.correctionSettings920, '14 · 920px settings behavior'],
+    [evidence.correctionStarter320, '15 · Starter at 320×600'],
+    [evidence.correctionOneSectionMove, '16 · One-section Move'],
+    [evidence.correctionUnifiedStructureMove, '17 · Shared Move from Structure'],
+    [evidence.correctionHundredCollapsed, '18 · 100 services collapsed'],
+    [evidence.correctionHundredPreview, '19 · Full 100-service Preview'],
+    [evidence.correctionFinalBaseline, '20 · Restored baseline'],
+  ].map(([file, label]) => ({ file, label }));
+  await createCollage(browser, evidence.correctionSheet, correctionEntries, {
+    columns: 4,
+    tileHeight: 430,
+    title: 'Luster Builder + Booking · final UX correction proof sheet',
+    width: 1900,
+  });
+}
+
 async function main() {
   await mkdir(outputDirectory, { recursive: true });
   const response = await fetch(baseUrl);
@@ -481,10 +872,16 @@ async function main() {
 
   const browser = await chromium.launch({ headless: true });
   try {
-    await captureMobile(browser);
-    await captureDesktop(browser);
-    await captureEdgeCases(browser);
-    await captureComparisons(browser);
+    if (process.env.LUSTER_CORRECTION_FINAL_ONLY === '1') {
+      await captureFinalBaseline(browser);
+      await createCorrectionProofSheet(browser);
+    } else {
+      await captureMobile(browser);
+      await captureDesktop(browser);
+      await captureEdgeCases(browser);
+      await captureComparisons(browser);
+      await captureCorrectionProofs(browser);
+    }
   } finally {
     await browser.close();
   }
