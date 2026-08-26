@@ -561,7 +561,197 @@ test('dirty cross-page Keep commits atomically and Discard restores atomically',
   }
 });
 
-test('rapid trusted double-Done produces one write and one history operation', async ({
+for (const scenario of [
+  {
+    activation: 'mouse-double' as const,
+    height: 600,
+    label: 'mouse double-click',
+    width: 375,
+  },
+  {
+    activation: 'mouse-triple' as const,
+    height: 800,
+    label: 'mouse triple-click',
+    width: 920,
+  },
+  {
+    activation: 'enter-double' as const,
+    height: 800,
+    label: 'Enter twice',
+    width: 1180,
+  },
+  {
+    activation: 'enter-triple' as const,
+    height: 900,
+    label: 'Enter three times',
+    width: 1440,
+  },
+  {
+    activation: 'space-double' as const,
+    height: 800,
+    label: 'Space twice',
+    width: 1024,
+  },
+  {
+    activation: 'mouse-enter' as const,
+    height: 800,
+    label: 'mouse then Enter',
+    width: 920,
+  },
+  {
+    activation: 'enter-mouse' as const,
+    height: 600,
+    label: 'Enter then mouse',
+    width: 375,
+  },
+]) {
+  test(`rapid ${scenario.label} on Done produces one mutation, write, message, and history operation`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: scenario.width, height: scenario.height });
+    await openFreshLab(page);
+    await chooseStarter(page, 'Quick Book');
+    await waitForSaved(page);
+    const baselineJson = await readStoredDocumentJson(page);
+    await installStorageWriteProbe(page);
+    const move = await openMoveForBooking(page, 'Home');
+    await dirtyMoveBooking(move);
+    const done = move.getByRole('button', { name: 'Done', exact: true });
+
+    if (scenario.activation === 'enter-mouse') {
+      const doneBox = await done.boundingBox();
+      expect(doneBox).not.toBeNull();
+      if (!doneBox) {
+        throw new Error('Done has no clickable geometry.');
+      }
+      await done.focus();
+      await page.keyboard.press('Enter');
+      await page.waitForTimeout(120);
+      await page.mouse.click(
+        doneBox.x + doneBox.width / 2,
+        doneBox.y + doneBox.height / 2,
+      );
+    } else if (scenario.activation.startsWith('mouse')) {
+      const doneBox = await done.boundingBox();
+      expect(doneBox).not.toBeNull();
+      if (!doneBox) {
+        throw new Error('Done has no clickable geometry.');
+      }
+      await page.mouse.click(
+        doneBox.x + doneBox.width / 2,
+        doneBox.y + doneBox.height / 2,
+        {
+          clickCount: scenario.activation === 'mouse-triple'
+            ? 3
+            : scenario.activation === 'mouse-enter'
+              ? 1
+              : 2,
+          delay: 12,
+        },
+      );
+      if (scenario.activation === 'mouse-enter') {
+        await page.keyboard.press('Enter');
+      }
+    } else {
+      await done.focus();
+      const key = scenario.activation === 'space-double' ? 'Space' : 'Enter';
+      const repetitions = scenario.activation === 'enter-triple' ? 3 : 2;
+      for (let press = 0; press < repetitions; press += 1) {
+        await page.keyboard.press(key);
+      }
+    }
+
+    await expect(move).toHaveCount(0);
+    if (scenario.activation === 'mouse-double') {
+      await expectBookingMoveFocusRestored(page, 'Home');
+      await page.evaluate(() => {
+        const probe = window as typeof window & { __rapidNormalClick?: boolean };
+        probe.__rapidNormalClick = false;
+        document.addEventListener('click', () => {
+          probe.__rapidNormalClick = true;
+        }, { capture: true, once: true });
+      });
+      await page.keyboard.press('Tab');
+      expect(await page.evaluate(() => document.activeElement?.tagName)).toMatch(/^(A|BUTTON)$/);
+      await page.keyboard.press('Enter');
+      expect(await page.evaluate(() => (
+        window as typeof window & { __rapidNormalClick?: boolean }
+      ).__rapidNormalClick)).toBe(true);
+      if (await page.getByRole('dialog').count()) {
+        await page.keyboard.press('Escape');
+        await expect(page.getByRole('dialog')).toHaveCount(0);
+      }
+    }
+    await waitForSaved(page);
+    await page.waitForTimeout(1_000);
+    expect(await storageWriteCount(page)).toBe(1);
+    const committedJson = await readStoredDocumentJson(page);
+    expect(committedJson).not.toBe(baselineJson);
+    await expect(sectionLabels(page, 'Home')).resolves.toEqual([
+      'Booking',
+      'Section 01',
+      'Section 02',
+    ]);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.locator('.toast')).toHaveCount(1);
+    await expect(page.locator('.toast')).toContainText('Section order saved.');
+    await expect(bookingCard(page, 'Home')).toHaveClass(/is-selected/);
+    if (scenario.activation === 'mouse-double') {
+      await expectFocusOutsideDocumentRoot(page);
+    } else {
+      await expectBookingMoveFocusRestored(page, 'Home');
+    }
+
+    await runHistoryAction(page, 'Undo');
+    await waitForSaved(page);
+    expect(await readStoredDocumentJson(page)).toBe(baselineJson);
+    await expect(page.locator('button[aria-label="Undo"]')).toBeDisabled();
+    await runHistoryAction(page, 'Redo');
+    await waitForSaved(page);
+    expect(await readStoredDocumentJson(page)).toBe(committedJson);
+  });
+}
+
+test('rapid repeated Enter commits a cross-page Move exactly once', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await openFreshLab(page);
+  await chooseStarter(page, 'Multi-page website');
+  await waitForSaved(page);
+  await selectPageFromStructure(page, 'Services / Book');
+  const baselineJson = await readStoredDocumentJson(page);
+  await installStorageWriteProbe(page);
+  const move = await openMoveForBooking(page, 'Services / Book');
+  await move.getByRole('button', { name: 'Move Booking to another page' }).click();
+  await destinationPageButton(move, 'Home').click();
+  await move.getByRole('combobox', { name: 'Position on Home' }).selectOption('1');
+  const done = move.getByRole('button', { name: 'Done', exact: true });
+  await done.focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+
+  await expect(move).toHaveCount(0);
+  await waitForSaved(page);
+  await page.waitForTimeout(1_000);
+  expect(await storageWriteCount(page)).toBe(1);
+  const committedJson = await readStoredDocumentJson(page);
+  expect(committedJson).not.toBe(baselineJson);
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
+    'Booking',
+    'Section 01',
+    'Section 02',
+  ]);
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(page.locator('.toast')).toHaveCount(1);
+  await expect(page.locator('.toast')).toContainText('Booking moved to Home.');
+  await expectBookingMoveFocusRestored(page, 'Home');
+
+  await runHistoryAction(page, 'Undo');
+  await waitForSaved(page);
+  expect(await readStoredDocumentJson(page)).toBe(baselineJson);
+  await expect(page.locator('button[aria-label="Undo"]')).toBeDisabled();
+});
+
+test('rapid repeated Enter creates a page and moves once without dismissing the navigation prompt', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 375, height: 600 });
@@ -571,37 +761,169 @@ test('rapid trusted double-Done produces one write and one history operation', a
   const baselineJson = await readStoredDocumentJson(page);
   await installStorageWriteProbe(page);
   const move = await openMoveForBooking(page, 'Home');
-  await dirtyMoveBooking(move);
+  await move.getByRole('button', { name: 'Move Booking to another page' }).click();
+  await move.getByPlaceholder('Page name').fill('Rapid portfolio');
+  await move.getByRole('button', { name: 'Create page and move' }).click();
   const done = move.getByRole('button', { name: 'Done', exact: true });
-  const doneBox = await done.boundingBox();
-  expect(doneBox).not.toBeNull();
-  if (!doneBox) {
-    throw new Error('Done has no clickable geometry.');
-  }
-  await page.mouse.click(
-    doneBox.x + doneBox.width / 2,
-    doneBox.y + doneBox.height / 2,
-    { clickCount: 2, delay: 12 },
-  );
+  await done.focus();
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Enter');
+
   await expect(move).toHaveCount(0);
+  const menuPrompt = page.getByRole('dialog', { name: 'Add a menu?' });
+  await expect(menuPrompt).toBeVisible();
   await waitForSaved(page);
+  await page.waitForTimeout(1_000);
   expect(await storageWriteCount(page)).toBe(1);
   const committedJson = await readStoredDocumentJson(page);
   expect(committedJson).not.toBe(baselineJson);
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Booking',
-    'Section 01',
-    'Section 02',
-  ]);
+  await expect(sectionLabels(page, 'Rapid portfolio')).resolves.toEqual(['Booking']);
+  await expect(page.getByRole('dialog')).toHaveCount(1);
+  await expect(page.locator('.toast')).toHaveCount(1);
+  await expect(page.locator('.toast')).toContainText('Rapid portfolio created with Booking intact.');
+  await expectFocusOutsideDocumentRoot(page);
+  await menuPrompt.getByRole('button', { name: 'Not now' }).click();
 
   await runHistoryAction(page, 'Undo');
   await waitForSaved(page);
   expect(await readStoredDocumentJson(page)).toBe(baselineJson);
   await expect(page.locator('button[aria-label="Undo"]')).toBeDisabled();
-  await runHistoryAction(page, 'Redo');
-  await waitForSaved(page);
-  expect(await readStoredDocumentJson(page)).toBe(committedJson);
 });
+
+for (const path of ['cross-page', 'create-page'] as const) {
+  test(`rapid mouse double-click commits ${path} movement exactly once`, async ({ page }) => {
+    await page.setViewportSize({ width: path === 'cross-page' ? 920 : 375, height: 800 });
+    await openFreshLab(page);
+    await chooseStarter(page, path === 'cross-page' ? 'Multi-page website' : 'Quick Book');
+    await waitForSaved(page);
+    if (path === 'cross-page') {
+      await selectPageFromStructure(page, 'Services / Book');
+    }
+    const sourcePage = path === 'cross-page' ? 'Services / Book' : 'Home';
+    const baselineJson = await readStoredDocumentJson(page);
+    await installStorageWriteProbe(page);
+    const move = await openMoveForBooking(page, sourcePage);
+    await move.getByRole('button', { name: 'Move Booking to another page' }).click();
+    if (path === 'cross-page') {
+      await destinationPageButton(move, 'Home').click();
+      await move.getByRole('combobox', { name: 'Position on Home' }).selectOption('1');
+    } else {
+      await move.getByPlaceholder('Page name').fill('Pointer portfolio');
+      await move.getByRole('button', { name: 'Create page and move' }).click();
+    }
+    const done = move.getByRole('button', { name: 'Done', exact: true });
+    const doneBox = await done.boundingBox();
+    expect(doneBox).not.toBeNull();
+    if (!doneBox) throw new Error('Done has no clickable geometry.');
+    await page.mouse.click(
+      doneBox.x + doneBox.width / 2,
+      doneBox.y + doneBox.height / 2,
+      { clickCount: 2, delay: 12 },
+    );
+
+    await expect(move).toHaveCount(0);
+    const prompt = page.getByRole('dialog', { name: 'Add a menu?' });
+    if (path === 'create-page') {
+      await expect(prompt).toBeVisible();
+      await prompt.getByRole('button', { name: 'Not now' }).click();
+    }
+    await waitForSaved(page);
+    await page.waitForTimeout(1_000);
+    expect(await storageWriteCount(page)).toBe(1);
+    const committedJson = await readStoredDocumentJson(page);
+    expect(committedJson).not.toBe(baselineJson);
+    const destination = path === 'cross-page' ? 'Home' : 'Pointer portfolio';
+    await expect(sectionLabels(page, destination)).resolves.toContain('Booking');
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.locator('.toast')).toHaveCount(1);
+    await expectFocusOutsideDocumentRoot(page);
+
+    await runHistoryAction(page, 'Undo');
+    await waitForSaved(page);
+    expect(await readStoredDocumentJson(page)).toBe(baselineJson);
+    await expect(page.locator('button[aria-label="Undo"]')).toBeDisabled();
+    await runHistoryAction(page, 'Redo');
+    await waitForSaved(page);
+    expect(await readStoredDocumentJson(page)).toBe(committedJson);
+  });
+}
+
+for (const scenario of [
+  { activation: 'mouse-double' as const, resolution: 'Keep order' as const },
+  { activation: 'enter-double' as const, resolution: 'Keep order' as const },
+  { activation: 'mouse-double' as const, resolution: 'Discard changes' as const },
+  { activation: 'enter-double' as const, resolution: 'Discard changes' as const },
+]) {
+  test(`rapid ${scenario.activation} on dirty ${scenario.resolution} resolves once without fall-through`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({
+      height: scenario.activation === 'mouse-double' ? 600 : 900,
+      width: scenario.activation === 'mouse-double' ? 375 : 1440,
+    });
+    await openFreshLab(page);
+    await chooseStarter(page, 'Quick Book');
+    await waitForSaved(page);
+    const baselineJson = await readStoredDocumentJson(page);
+    await installStorageWriteProbe(page);
+    const move = await openMoveForBooking(page, 'Home');
+    await dirtyMoveBooking(move);
+    await move.getByRole('button', { name: 'Close Move Booking' }).click();
+    const warning = page.getByRole('dialog', { name: 'Keep this new order?' });
+    const action = warning.getByRole('button', { name: scenario.resolution });
+
+    if (scenario.activation === 'mouse-double') {
+      const actionBox = await action.boundingBox();
+      expect(actionBox).not.toBeNull();
+      if (!actionBox) {
+        throw new Error(`${scenario.resolution} has no clickable geometry.`);
+      }
+      await page.mouse.click(
+        actionBox.x + actionBox.width / 2,
+        actionBox.y + actionBox.height / 2,
+        { clickCount: 2, delay: 12 },
+      );
+    } else {
+      await action.focus();
+      await page.keyboard.press('Enter');
+      await page.keyboard.press('Enter');
+    }
+
+    await expect(warning).toHaveCount(0);
+    await page.waitForTimeout(1_000);
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(bookingCard(page, 'Home')).toHaveClass(/is-selected/);
+    await expectBookingMoveFocusRestored(page, 'Home');
+
+    if (scenario.resolution === 'Keep order') {
+      await waitForSaved(page);
+      expect(await storageWriteCount(page)).toBe(1);
+      const committedJson = await readStoredDocumentJson(page);
+      expect(committedJson).not.toBe(baselineJson);
+      await expect(sectionLabels(page, 'Home')).resolves.toEqual([
+        'Booking',
+        'Section 01',
+        'Section 02',
+      ]);
+      await expect(page.locator('.toast')).toHaveCount(1);
+      await expect(page.locator('.toast')).toContainText('Section order saved.');
+      await runHistoryAction(page, 'Undo');
+      await waitForSaved(page);
+      expect(await readStoredDocumentJson(page)).toBe(baselineJson);
+      await expect(page.locator('button[aria-label="Undo"]')).toBeDisabled();
+    } else {
+      expect(await storageWriteCount(page)).toBe(0);
+      expect(await readStoredDocumentJson(page)).toBe(baselineJson);
+      await expect(sectionLabels(page, 'Home')).resolves.toEqual([
+        'Section 01',
+        'Section 02',
+        'Booking',
+      ]);
+      await expect(page.locator('.toast')).toHaveCount(0);
+      await expect(page.locator('button[aria-label="Undo"]')).toBeDisabled();
+    }
+  });
+}
 
 test('Create page and move stages, cancels, survives reload rules, and is one Undo/Redo operation', async ({
   page,
@@ -849,10 +1171,14 @@ test('desktop settings retain state and a singular heading across 1179/1180 whil
 
   await settings.getByRole('button', { name: 'Hide settings' }).click();
   await expect(settings).toBeHidden();
-  const show = page.getByRole('button', { name: 'Show Booking settings' });
-  await expect(show).toBeVisible();
-  await show.click();
+  await expect(page.getByRole('button', { name: 'Show Booking settings' }))
+    .toHaveCount(0);
+  await page
+    .getByTestId('selected-section-toolbar')
+    .getByRole('button', { name: 'Edit', exact: true })
+    .click();
   await expect(settings).toBeVisible();
+  await expect(settings.getByRole('heading', { name: 'Booking' })).toBeFocused();
 
   await page.getByRole('button', { name: 'More site options' }).click();
   const more = page.getByRole('dialog', { name: 'More' });

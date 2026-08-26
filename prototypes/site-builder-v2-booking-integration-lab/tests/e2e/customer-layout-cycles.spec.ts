@@ -42,13 +42,13 @@ async function chooseBrowseCategory(
   if (layout === 'category_menu') {
     await renderer
       .getByRole('navigation', { name: 'Service category navigation' })
-      .getByRole('button', { name: /^Manicure/ })
+      .getByRole('button', { name: /^Pedicure/ })
       .click();
     return;
   }
   await renderer
     .getByRole('group', { name: 'Service categories' })
-    .getByRole('button', { name: 'Manicure', exact: true })
+    .getByRole('button', { name: 'Pedicure', exact: true })
     .click();
 }
 
@@ -94,8 +94,16 @@ for (const layout of LAYOUTS) {
     const search = renderer.getByRole('searchbox', { name: 'Search services' });
     if (layout.filtered) {
       await expect(search).toBeVisible();
-      await search.fill('russ');
       await chooseBrowseCategory(renderer, layout.id);
+      await search.fill('russ');
+      if (layout.id === 'category_menu') {
+        await expect(renderer.locator('.category-sidebar-button.is-active'))
+          .toContainText('All services');
+      } else {
+        await expect(renderer.getByRole('group', { name: 'Service categories' })
+          .getByRole('button', { name: 'All', exact: true }))
+          .toHaveAttribute('aria-pressed', 'true');
+      }
     } else {
       await expect(search).toHaveCount(0);
       await expectCategoryContext(renderer, layout.id);
@@ -115,7 +123,18 @@ for (const layout of LAYOUTS) {
     const summary = page.getByTestId('selected-service-summary');
     await expect(summary).toContainText('Russian Manicure');
     await expect(summary).toContainText('1 hr 45 min · From $80 · 1 add-on');
-    await summary.getByRole('button', { name: 'Continue' }).click();
+
+    await summary.getByRole('button', { name: 'Change' }).click();
+    let changedDetail = page.getByTestId('service-detail-dialog');
+    await changedDetail.getByRole('checkbox', { name: /French/ }).uncheck();
+    await changedDetail.getByRole('button', { name: 'Keep browsing' }).click();
+    await expect(summary).toContainText('1 hr 30 min · From $65');
+    await expect(summary).not.toContainText('add-on');
+
+    await summary.getByRole('button', { name: 'Change' }).click();
+    changedDetail = page.getByTestId('service-detail-dialog');
+    await changedDetail.getByRole('checkbox', { name: /French/ }).check();
+    await changedDetail.getByRole('button', { name: 'Continue' }).click();
     const handoff = page.getByTestId('booking-handoff-dialog');
     await expect(handoff).toContainText('Booking flow continues here');
     await expect(handoff).toContainText('Russian Manicure · 1 hr 45 min · From $80');

@@ -158,10 +158,17 @@ describe('shared section movement rows', () => {
     expect(onAnnounce).toHaveBeenCalledWith('Enter a position from 1 to 3.');
   });
 
-  it('keeps boundary arrows focusable, clearly unavailable, and inert', async () => {
+  it('keeps boundary arrows focusable, clearly unavailable, and singly announced', async () => {
     const user = userEvent.setup();
+    const onAnnounce = vi.fn();
     const onMove = vi.fn();
-    render(<ReorderHarness initialSections={getQuickBookPage().sections} onMove={onMove} />);
+    render(
+      <ReorderHarness
+        initialSections={getQuickBookPage().sections}
+        onAnnounce={onAnnounce}
+        onMove={onMove}
+      />,
+    );
 
     const firstUnavailable = screen.getByRole('button', {
       name: 'Move Section 01 up, unavailable — already first',
@@ -177,6 +184,15 @@ describe('shared section movement rows', () => {
     await user.click(firstUnavailable);
     await user.click(lastUnavailable);
     expect(onMove).not.toHaveBeenCalled();
+    expect(onAnnounce).toHaveBeenNthCalledWith(
+      1,
+      'Section 01 is already at the first position.',
+    );
+    expect(onAnnounce).toHaveBeenNthCalledWith(
+      2,
+      'Booking is already at the last position.',
+    );
+    expect(onAnnounce).toHaveBeenCalledTimes(2);
   });
 });
 

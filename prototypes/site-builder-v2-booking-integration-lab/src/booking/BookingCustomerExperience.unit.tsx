@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 
@@ -25,6 +25,14 @@ const LAYOUT_REGION_NAMES: Record<BookingMenuLayout, string> = {
   editorial_cards: 'Editorial service stories',
   category_menu: 'Category service menu',
   editorial_price_list: 'Editorial service price list',
+};
+
+const LAYOUT_LABELS: Record<BookingMenuLayout, string> = {
+  visual_grid: 'Visual Grid',
+  clean_list: 'Clean List',
+  editorial_cards: 'Editorial Cards',
+  category_menu: 'Category Menu',
+  editorial_price_list: 'Editorial Price List',
 };
 
 const APPROVED_LAYOUTS = Object.keys(LAYOUT_REGION_NAMES) as BookingMenuLayout[];
@@ -139,6 +147,105 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
     expect(within(handoff).getByLabelText('Future canonical booking flow'))
       .toHaveTextContent('ServiceOptionsTechnicianTimeDetailsPaymentConfirmation');
   });
+
+  it('saves or explicitly discards every Change options draft', async () => {
+    const user = userEvent.setup();
+    const committedFrench: BookingSessionState = {
+      selection: {
+        serviceId: 'svc-manicure-russian',
+        addOnIds: ['addon-french'],
+      },
+      query: '',
+      activeCategory: 'all',
+      detailServiceId: null,
+      draftAddOnIds: [],
+      handoffOpen: false,
+    };
+    render(
+      <SessionHarness
+        initialSession={committedFrench}
+        settings={settingsFor(layout)}
+      />,
+    );
+
+    const summary = screen.getByTestId('selected-service-summary');
+    const openOptions = async () => {
+      await user.click(within(summary).getByRole('button', { name: 'Change' }));
+      return screen.findByTestId('service-detail-dialog');
+    };
+    const toggleFrench = async (detail: HTMLElement) => {
+      await user.click(within(detail).getByRole('checkbox', { name: 'French' }));
+    };
+
+    let detail = await openOptions();
+    await toggleFrench(detail);
+    expect(within(detail).getByTestId('service-detail-total'))
+      .toHaveTextContent('1 hr 30 min·From $65');
+    expect(summary).toHaveTextContent('1 hr 45 min · From $80');
+    await user.click(within(detail).getByRole('button', { name: 'Keep browsing' }));
+    expect(summary).toHaveTextContent('1 hr 30 min · From $65');
+    expect(readSession().selection.addOnIds).toEqual([]);
+
+    detail = await openOptions();
+    await toggleFrench(detail);
+    const close = within(detail).getByRole('button', { name: 'Close service details' });
+    await user.click(close);
+    let warning = await screen.findByRole('dialog', { name: 'Save your option changes?' });
+    expect(detail).toHaveAttribute('aria-hidden', 'true');
+    expect(detail).toHaveAttribute('inert');
+    await waitFor(() => {
+      expect(within(warning).getByRole('button', { name: 'Discard changes' }))
+        .toHaveFocus();
+    });
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Save your option changes?' }))
+      .not.toBeInTheDocument();
+    expect(detail).not.toHaveAttribute('aria-hidden');
+    expect(detail).not.toHaveAttribute('inert');
+    await waitFor(() => expect(close).toHaveFocus());
+
+    fireEvent.mouseDown(screen.getByTestId('service-detail-dialog-backdrop'));
+    warning = await screen.findByRole('dialog', { name: 'Save your option changes?' });
+    fireEvent.mouseDown(screen.getByTestId('booking-option-warning-dialog-backdrop'));
+    expect(screen.queryByRole('dialog', { name: 'Save your option changes?' }))
+      .not.toBeInTheDocument();
+    expect(detail).toBeVisible();
+
+    await user.keyboard('{Escape}');
+    warning = await screen.findByRole('dialog', { name: 'Save your option changes?' });
+    await user.click(within(warning).getByRole('button', { name: 'Save changes' }));
+    expect(summary).toHaveTextContent('1 hr 45 min · From $80');
+    expect(readSession().selection.addOnIds).toEqual(['addon-french']);
+
+    detail = await openOptions();
+    await toggleFrench(detail);
+    await user.click(within(detail).getByRole('button', { name: 'Close service details' }));
+    warning = await screen.findByRole('dialog', { name: 'Save your option changes?' });
+    await user.click(within(warning).getByRole('button', { name: 'Discard changes' }));
+    expect(summary).toHaveTextContent('1 hr 45 min · From $80');
+    expect(readSession().selection.addOnIds).toEqual(['addon-french']);
+
+    detail = await openOptions();
+    await user.click(within(detail).getByRole('button', { name: 'Close service details' }));
+    expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'Save your option changes?' }))
+      .not.toBeInTheDocument();
+
+    detail = await openOptions();
+    await user.keyboard('{Escape}');
+    expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
+
+    detail = await openOptions();
+    fireEvent.mouseDown(screen.getByTestId('service-detail-dialog-backdrop'));
+    expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
+
+    detail = await openOptions();
+    await toggleFrench(detail);
+    await user.click(within(detail).getByRole('button', { name: 'Continue' }));
+    expect(readSession().selection.addOnIds).toEqual([]);
+    expect(await screen.findByRole('dialog', { name: 'Booking flow continues here' }))
+      .toHaveTextContent('Russian Manicure · 1 hr 30 min · From $65');
+  });
 });
 
 describe('Booking renderer mode and session boundaries', () => {
@@ -186,6 +293,40 @@ describe('Booking renderer mode and session boundaries', () => {
     expect(screen.queryByTestId('booking-handoff-dialog')).not.toBeInTheDocument();
     expect(screen.queryByTestId('selected-service-summary')).not.toBeInTheDocument();
     expect(onSessionChange).not.toHaveBeenCalled();
+  });
+
+  it.each(APPROVED_LAYOUTS)('keeps %s readable without Edit-mode tab stops or key suppression', (layout) => {
+    render(
+      <BookingSectionRenderer
+        mode="edit"
+        presentationSettings={settingsFor(layout)}
+        session={createEmptyBookingSession()}
+        onSessionChange={vi.fn()}
+      />,
+    );
+
+    const editor = screen.getByTestId('booking-section-edit');
+    const customerRegion = editor.querySelector<HTMLElement>('.booking-customer-region');
+    if (!customerRegion) throw new Error(`${layout} did not render its customer region.`);
+    expect(customerRegion).toHaveAccessibleName(
+      `Booking menu preview — 24 services, ${LAYOUT_LABELS[layout]}. Not interactive while editing.`,
+    );
+    expect(customerRegion).toHaveTextContent('Russian Manicure');
+    expect(customerRegion).toHaveTextContent('From $65');
+    customerRegion.querySelectorAll<HTMLElement>(
+      'button, input, select, textarea, a[href], .booking-category-strip, .featured-scroller, .category-sidebar',
+    ).forEach((candidate) => {
+      expect(candidate.tabIndex).toBeLessThan(0);
+    });
+    for (const key of ['Tab', 'Escape']) {
+      const keyboardEvent = new KeyboardEvent('keydown', {
+        bubbles: true,
+        cancelable: true,
+        key,
+      });
+      customerRegion.dispatchEvent(keyboardEvent);
+      expect(keyboardEvent.defaultPrevented).toBe(false);
+    }
   });
 
   it('suppresses preserved customer filters, selection, and overlays in Edit mode', () => {
@@ -267,6 +408,112 @@ describe('Booking renderer mode and session boundaries', () => {
     expect(screen.getByRole('searchbox', { name: 'Search services' })).toHaveValue('');
     expect(screen.getByTestId('selected-service-summary'))
       .toHaveTextContent('Russian Manicure1 hr 45 min · From $80');
+  });
+
+  it.each(['visual_grid', 'clean_list', 'category_menu'] as const)(
+    'searches the full canonical menu in %s and restores the prior category',
+    async (layout) => {
+      const user = userEvent.setup();
+      const initialSession: BookingSessionState = {
+        selection: { serviceId: null, addOnIds: [] },
+        query: '',
+        activeCategory: 'pedicure',
+        detailServiceId: null,
+        draftAddOnIds: [],
+        handoffOpen: false,
+      };
+      const { container } = render(
+        <SessionHarness
+          initialSession={initialSession}
+          settings={settingsFor(layout)}
+        />,
+      );
+
+      expect(screen.queryByRole('button', { name: /Russian Manicure/ }))
+        .not.toBeInTheDocument();
+      const search = screen.getByRole('searchbox', { name: 'Search services' });
+      await user.type(search, '  RuSs  ');
+      expect(screen.getAllByRole('button', { name: /Russian Manicure/ }).length)
+        .toBeGreaterThan(0);
+      if (layout === 'category_menu') {
+        expect(container.querySelector('.category-sidebar-button.is-active'))
+          .toHaveTextContent('All services');
+      } else {
+        expect(container.querySelector('.booking-category-pill.is-active'))
+          .toHaveTextContent('All');
+      }
+      expect(readSession().activeCategory).toBe('pedicure');
+
+      await user.clear(search);
+      expect(screen.queryByRole('button', { name: /Russian Manicure/ }))
+        .not.toBeInTheDocument();
+      if (layout === 'category_menu') {
+        expect(container.querySelector('.category-sidebar-button.is-active'))
+          .toHaveTextContent('Pedicure');
+      } else {
+        expect(container.querySelector('.booking-category-pill.is-active'))
+          .toHaveTextContent('Pedicure');
+      }
+    },
+  );
+
+  it('gives the Visual Grid featured tile the selected service semantics', async () => {
+    const user = userEvent.setup();
+    const initialSession: BookingSessionState = {
+      selection: {
+        serviceId: 'svc-manicure-russian',
+        addOnIds: ['addon-french'],
+      },
+      query: '',
+      activeCategory: 'all',
+      detailServiceId: null,
+      draftAddOnIds: [],
+      handoffOpen: false,
+    };
+    const { container } = render(
+      <SessionHarness
+        initialSession={initialSession}
+        settings={settingsFor('visual_grid')}
+      />,
+    );
+
+    const featured = container.querySelector<HTMLButtonElement>(
+      '.featured-tile[data-selected="true"]',
+    );
+    expect(featured).not.toBeNull();
+    expect(featured).toHaveAttribute('aria-pressed', 'true');
+    expect(featured).toHaveAccessibleName(/Russian Manicure.*selected/);
+    expect(within(featured as HTMLButtonElement).getByText('Selected')).toBeVisible();
+
+    await user.click(featured as HTMLButtonElement);
+    const detail = await screen.findByTestId('service-detail-dialog');
+    await user.click(within(detail).getByRole('button', {
+      name: 'Remove selected service',
+    }));
+    const deselectedFeatured = container.querySelector<HTMLButtonElement>('.featured-tile');
+    expect(deselectedFeatured).toHaveAttribute('aria-pressed', 'false');
+    expect(deselectedFeatured).toHaveAttribute('data-selected', 'false');
+  });
+
+  it('spaces Clean List category counts for singular and plural labels', async () => {
+    const user = userEvent.setup();
+    const fixture = createMenuFixture();
+    const { container } = render(
+      <SessionHarness
+        fixture={fixture}
+        settings={settingsFor('clean_list')}
+      />,
+    );
+
+    const headings = screen.getAllByRole('heading', { level: 2 });
+    expect(headings.some(heading => heading.textContent === 'Manicure · 3 services'))
+      .toBe(true);
+    expect(headings.some(heading => /·\d/.test(heading.textContent ?? '')))
+      .toBe(false);
+
+    await user.type(screen.getByRole('searchbox', { name: 'Search services' }), 'Russian');
+    expect(container.querySelector('.clean-category-heading'))
+      .toHaveTextContent('Manicure · 1 service');
   });
 
   it('renders deliberate no-image detail fallbacks and the long 100-service menu', async () => {

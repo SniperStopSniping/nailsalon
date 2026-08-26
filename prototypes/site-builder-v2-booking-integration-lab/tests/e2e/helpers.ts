@@ -3,6 +3,8 @@ import {
   type ConsoleMessage,
   type Locator,
   type Page,
+  type Request,
+  type Response,
 } from '@playwright/test';
 
 export const LAB_STORAGE_KEY =
@@ -111,13 +113,31 @@ export function startRuntimeMonitor(page: Page): RuntimeMonitor {
   const onPageError = (error: Error) => {
     issues.push(`pageerror: ${error.message}`);
   };
+  const onRequestFailed = (request: Request) => {
+    issues.push(
+      `requestfailed: ${request.method()} ${request.url()} ${request.failure()?.errorText ?? ''}`.trim(),
+    );
+  };
+  const onResponse = (response: Response) => {
+    if (response.status() < 400) return;
+    const currentUrl = page.url();
+    const sameOrigin = currentUrl.startsWith('http')
+      && new URL(response.url()).origin === new URL(currentUrl).origin;
+    if (sameOrigin) {
+      issues.push(`response.${response.status()}: ${response.request().method()} ${response.url()}`);
+    }
+  };
   page.on('console', onConsole);
   page.on('pageerror', onPageError);
+  page.on('requestfailed', onRequestFailed);
+  page.on('response', onResponse);
   return {
     assertClean: () => expect(issues, 'unexpected browser runtime issues').toEqual([]),
     stop: () => {
       page.off('console', onConsole);
       page.off('pageerror', onPageError);
+      page.off('requestfailed', onRequestFailed);
+      page.off('response', onResponse);
     },
   };
 }

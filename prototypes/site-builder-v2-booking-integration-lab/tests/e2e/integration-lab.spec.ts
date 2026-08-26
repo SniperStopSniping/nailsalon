@@ -694,9 +694,14 @@ test('desktop Booking settings use a non-overlapping column and retain the canva
     ).toHaveCount(1);
     await settings.getByRole('button', { name: 'Hide settings' }).click();
     await expect(settings).toBeHidden();
-    await expect(page.getByRole('button', { name: 'Show Booking settings' })).toBeVisible();
-    await page.getByRole('button', { name: 'Show Booking settings' }).click();
+    await expect(page.getByRole('button', { name: 'Show Booking settings' }))
+      .toHaveCount(0);
+    await page
+      .getByTestId('selected-section-toolbar')
+      .getByRole('button', { name: 'Edit', exact: true })
+      .click();
     await expect(settings).toBeVisible();
+    await expect(settings.getByRole('heading', { name: 'Booking' })).toBeFocused();
     await expect.poll(() => scrollBody.evaluate((element) => element.scrollTop)).toBe(
       scrollTop,
     );

@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, vi } from 'vitest';
 
@@ -223,6 +223,7 @@ describe('integrated Booking settings surfaces', () => {
     expect(within(dialog).getAllByText(
       /Choose how clients browse your services.*booking settings stay the same\./,
     )).toHaveLength(1);
+    expect(within(dialog).getByRole('heading', { name: 'Booking' })).toHaveFocus();
 
     const priceList = dialog.querySelector<HTMLButtonElement>(
       '[data-layout-option="editorial_price_list"]',
@@ -243,9 +244,13 @@ describe('integrated Booking settings surfaces', () => {
     scrollBody.scrollTop = 180;
     await user.click(within(dialog).getByRole('button', { name: 'Hide settings' }));
     expect(dialog).not.toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Show Booking settings' }));
+    expect(screen.queryByRole('button', { name: 'Show Booking settings' }))
+      .not.toBeInTheDocument();
+    await user.click(within(screen.getByTestId('selected-section-toolbar'))
+      .getByRole('button', { name: 'Edit' }));
     expect(dialog).toBeVisible();
     expect(scrollBody.scrollTop).toBe(180);
+    expect(within(dialog).getByRole('heading', { name: 'Booking' })).toHaveFocus();
   });
 
   it('closes the desktop drawer with Escape and restores its invoking control without scrolling', async () => {
@@ -332,6 +337,81 @@ describe('integrated Booking settings surfaces', () => {
         .not.toBeInTheDocument();
       expect(edit).toHaveFocus();
     });
+  });
+});
+
+describe('nested Page settings surface', () => {
+  it('keeps Pages & Structure mounted, scrolled, and focused through every child close path', async () => {
+    installViewport('mobile');
+    const user = userEvent.setup();
+    render(<App />);
+    await chooseQuickBook(user);
+
+    const structureTrigger = screen.getByRole('button', {
+      name: 'Open Pages & Structure for Home',
+    });
+    await user.click(structureTrigger);
+    const structure = await screen.findByRole('dialog', { name: 'Pages & Structure' });
+    const structureBody = structure.querySelector<HTMLElement>('.dialog-body');
+    if (!structureBody) throw new Error('Pages & Structure scroll body was not rendered.');
+    structureBody.scrollTop = 96;
+
+    const expectReturnedToPageTrigger = async (pageName: string) => {
+      const trigger = within(structure).getByRole('button', {
+        name: `Page settings for ${pageName}`,
+      });
+      await waitFor(() => expect(trigger).toHaveFocus());
+      expect(structure).toBeVisible();
+      expect(structureBody.scrollTop).toBe(96);
+      expect(document.activeElement).not.toBe(document.body);
+      expect(document.body.style.overflow).toBe('hidden');
+      return trigger;
+    };
+
+    let pageTrigger = within(structure).getByRole('button', {
+      name: 'Page settings for Home',
+    });
+    await user.click(pageTrigger);
+    let settings = await screen.findByRole('dialog', { name: 'Home settings' });
+    const name = within(settings).getByLabelText('Page name');
+    await user.clear(name);
+    await user.type(name, 'Studio');
+    await user.click(within(settings).getByRole('button', { name: 'Save page' }));
+    expect(screen.queryByRole('dialog', { name: 'Home settings' }))
+      .not.toBeInTheDocument();
+    pageTrigger = await expectReturnedToPageTrigger('Studio');
+
+    await user.click(pageTrigger);
+    settings = await screen.findByRole('dialog', { name: 'Studio settings' });
+    await user.clear(within(settings).getByLabelText('Page name'));
+    await user.type(within(settings).getByLabelText('Page name'), 'Discarded');
+    await user.click(within(settings).getByRole('button', { name: 'Cancel' }));
+    pageTrigger = await expectReturnedToPageTrigger('Studio');
+
+    await user.click(pageTrigger);
+    settings = await screen.findByRole('dialog', { name: 'Studio settings' });
+    await user.click(within(settings).getByRole('button', {
+      name: 'Close Studio settings',
+    }));
+    pageTrigger = await expectReturnedToPageTrigger('Studio');
+
+    await user.click(pageTrigger);
+    settings = await screen.findByRole('dialog', { name: 'Studio settings' });
+    within(settings).getByLabelText('Page name').focus();
+    await user.keyboard('{Escape}');
+    pageTrigger = await expectReturnedToPageTrigger('Studio');
+
+    await user.click(pageTrigger);
+    settings = await screen.findByRole('dialog', { name: 'Studio settings' });
+    const childBackdrop = settings.closest<HTMLElement>('.dialog-backdrop');
+    if (!childBackdrop) throw new Error('Page settings backdrop was not rendered.');
+    fireEvent.mouseDown(childBackdrop);
+    await expectReturnedToPageTrigger('Studio');
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(structure).not.toBeInTheDocument());
+    await waitFor(() => expect(structureTrigger).toHaveFocus());
+    expect(document.body.style.overflow).toBe('');
   });
 });
 
@@ -461,13 +541,22 @@ describe('App customer Preview boundary', () => {
       );
     });
 
-    await user.click(tablet);
-    expect(liveRegion).toBeEmptyDOMElement();
-    await waitFor(() => {
-      expect(liveRegion).toHaveTextContent(
-        'Tablet preview selected — 742 pixels wide.',
-      );
+    const announcementBeforeRepeat = liveRegion.textContent;
+    const repeatedAnnouncement = vi.fn();
+    const observer = new MutationObserver(repeatedAnnouncement);
+    observer.observe(liveRegion, {
+      characterData: true,
+      childList: true,
+      subtree: true,
     });
+    await user.click(tablet);
+    await new Promise(resolve => window.setTimeout(resolve, 0));
+    observer.disconnect();
+    expect(liveRegion).toHaveTextContent(
+      'Tablet preview selected — 742 pixels wide.',
+    );
+    expect(liveRegion.textContent).toBe(announcementBeforeRepeat);
+    expect(repeatedAnnouncement).not.toHaveBeenCalled();
     expect(tablet).toHaveAttribute('aria-pressed', 'true');
   });
 
