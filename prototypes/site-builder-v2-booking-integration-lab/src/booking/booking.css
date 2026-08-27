@@ -218,6 +218,18 @@
   width: 100%;
 }
 
+.booking-search-field .sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .booking-search-field svg {
   position: absolute;
   top: 50%;
@@ -235,6 +247,20 @@
   background: rgb(255 255 255 / 86%);
   border: 1px solid var(--booking-border);
   border-radius: var(--booking-radius-control);
+}
+
+.booking-search-field input[type='search'] {
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.booking-search-field input[type='search']::-webkit-search-cancel-button,
+.booking-search-field input[type='search']::-webkit-search-decoration,
+.booking-search-field input[type='search']::-webkit-search-results-button,
+.booking-search-field input[type='search']::-webkit-search-results-decoration {
+  display: none;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .booking-search-clear {
@@ -469,6 +495,30 @@
   box-shadow: 0 30px 100px rgb(26 17 18 / 35%);
 }
 
+.booking-service-detail-shell {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.booking-service-detail-shell > .booking-dialog-panel {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.booking-service-detail-body {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
 .booking-dialog-close {
   position: absolute;
   z-index: 3;
@@ -651,7 +701,7 @@
 
 .booking-option-warning-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 9px;
   margin-top: 24px;
 }
@@ -812,7 +862,7 @@
   display: none;
 }
 
-.featured-tile {
+.luster-booking .featured-tile {
   position: relative;
   min-height: 176px;
   overflow: hidden;
@@ -2704,6 +2754,10 @@
     border-radius: 28px 28px 0 0;
   }
 
+  .booking-service-detail-shell > .booking-dialog-panel {
+    max-height: none;
+  }
+
   .booking-detail-layout {
     display: block;
   }
@@ -2729,7 +2783,7 @@
   .booking-detail-actions {
     position: sticky;
     bottom: 0;
-    padding-top: 10px;
+    padding: 10px 0 calc(12px + env(safe-area-inset-bottom));
     background: linear-gradient(transparent, var(--booking-card) 20%);
   }
 
@@ -2748,6 +2802,14 @@
 }
 
 @media (max-width: 500px) {
+  .booking-option-warning-panel {
+    padding: 24px 20px max(20px, env(safe-area-inset-bottom));
+  }
+
+  .booking-option-warning-actions {
+    grid-template-columns: 1fr;
+  }
+
   .selected-summary {
     gap: 8px;
   }
@@ -2873,6 +2935,10 @@
   max-height: 100%;
 }
 
+.booking-contained-dialog.booking-service-detail-shell > .booking-dialog-panel {
+  max-height: none;
+}
+
 .booking-preview-summary[data-preview-viewport='desktop'] .selected-summary {
   right: 24px;
   left: auto;
@@ -2925,7 +2991,7 @@
 .booking-preview-overlays[data-preview-viewport='mobile'] .booking-detail-actions {
   position: sticky;
   bottom: 0;
-  padding-top: 10px;
+  padding: 10px 0 calc(12px + env(safe-area-inset-bottom));
   background: linear-gradient(transparent, var(--booking-card) 20%);
 }
 

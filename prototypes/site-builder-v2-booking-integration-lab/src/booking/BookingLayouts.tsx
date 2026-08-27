@@ -1,7 +1,8 @@
-import type {
-  ButtonHTMLAttributes,
-  HTMLAttributes,
-  ReactNode,
+import {
+  useRef,
+  type ButtonHTMLAttributes,
+  type HTMLAttributes,
+  type ReactNode,
 } from 'react';
 
 import { filterServices, formatDuration, formatPrice } from './helpers';
@@ -159,18 +160,28 @@ function SearchField({
   onQueryChange,
   readOnly,
 }: Pick<LayoutProps, 'query' | 'onQueryChange' | 'readOnly'>) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const clearSearch = () => {
+    onQueryChange('');
+    window.requestAnimationFrame(() => {
+      inputRef.current?.focus({ preventScroll: true });
+    });
+  };
+
   return (
     <label className="booking-search-field">
       <span className="sr-only">Search services</span>
       <SearchIcon />
       <input
+        ref={inputRef}
         aria-hidden={readOnly ? 'true' : undefined}
         data-editor-readonly-control={readOnly ? 'true' : undefined}
         readOnly={readOnly}
         tabIndex={readOnly ? -1 : undefined}
         type="search"
         value={query}
-        placeholder="Search services"
+        placeholder="Try “Russian manicure”"
         autoComplete="off"
         onChange={readOnly ? undefined : event => onQueryChange(event.currentTarget.value)}
       />
@@ -180,7 +191,7 @@ function SearchField({
           type="button"
           className="booking-search-clear"
           aria-label="Clear service search"
-          onClick={() => onQueryChange('')}
+          onClick={clearSearch}
         >
           <CloseIcon />
         </CustomerAction>

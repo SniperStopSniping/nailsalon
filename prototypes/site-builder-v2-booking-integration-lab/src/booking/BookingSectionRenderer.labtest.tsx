@@ -89,9 +89,9 @@ describe('shared Booking Section renderer', () => {
       .toBeGreaterThan(controls.length);
     expect(within(region as HTMLElement).queryByRole('button')).not.toBeInTheDocument();
     expect(within(region as HTMLElement).queryByRole('searchbox')).not.toBeInTheDocument();
-    expect(region?.querySelector('input[placeholder="Search services"]'))
+    expect(region?.querySelector('input[placeholder="Try “Russian manicure”"]'))
       .toHaveAttribute('aria-hidden', 'true');
-    expect(region?.querySelector('input[placeholder="Search services"]'))
+    expect(region?.querySelector('input[placeholder="Try “Russian manicure”"]'))
       .toHaveAttribute('readonly');
     expect(within(region as HTMLElement).getAllByText('Russian Manicure').length)
       .toBeGreaterThan(0);

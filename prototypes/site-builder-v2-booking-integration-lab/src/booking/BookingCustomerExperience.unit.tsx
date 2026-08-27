@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
@@ -18,6 +20,8 @@ import type {
   BookingSessionState,
   MockMenuFixture,
 } from './types';
+
+const bookingCss = readFileSync('src/booking/booking.css', 'utf8');
 
 const LAYOUT_REGION_NAMES: Record<BookingMenuLayout, string> = {
   visual_grid: 'Visual service grid',
@@ -108,6 +112,13 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
     await user.click(russianAction);
 
     const detail = screen.getByTestId('service-detail-dialog');
+    const scrollBody = within(detail).getByTestId('service-detail-scroll-body');
+    expect(detail).toHaveClass('booking-service-detail-shell');
+    expect(scrollBody.parentElement).toHaveClass('booking-dialog-panel');
+    expect(scrollBody).toHaveAttribute(
+      'data-image-mode',
+      layout === 'visual_grid' ? 'auto' : 'show',
+    );
     expect(await within(detail).findByRole('heading', {
       name: 'Russian Manicure',
     })).toBeVisible();
@@ -194,9 +205,36 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
     expect(detail).toHaveAttribute('aria-hidden', 'true');
     expect(detail).toHaveAttribute('inert');
     await waitFor(() => {
-      expect(within(warning).getByRole('button', { name: 'Discard changes' }))
+      expect(within(warning).getByRole('button', { name: 'Keep editing' }))
         .toHaveFocus();
     });
+    await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
+    expect(screen.queryByRole('dialog', { name: 'Save your option changes?' }))
+      .not.toBeInTheDocument();
+    expect(detail).not.toHaveAttribute('aria-hidden');
+    expect(detail).not.toHaveAttribute('inert');
+    expect(within(detail).getByRole('checkbox', { name: 'French' })).toBeChecked();
+    expect(within(detail).getByTestId('service-detail-total'))
+      .toHaveTextContent('1 hr 45 min·From $80');
+    expect(summary).toHaveTextContent('1 hr 30 min · From $65');
+    expect(readSession().selection.addOnIds).toEqual([]);
+    expect(document.body.style.overflow).toBe('');
+    await waitFor(() => expect(close).toHaveFocus());
+
+    await user.keyboard('{Escape}');
+    warning = await screen.findByRole('dialog', { name: 'Save your option changes?' });
+    await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
+    expect(within(detail).getByRole('checkbox', { name: 'French' })).toBeChecked();
+    await waitFor(() => expect(close).toHaveFocus());
+
+    fireEvent.mouseDown(screen.getByTestId('service-detail-dialog-backdrop'));
+    warning = await screen.findByRole('dialog', { name: 'Save your option changes?' });
+    await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
+    expect(within(detail).getByRole('checkbox', { name: 'French' })).toBeChecked();
+    await waitFor(() => expect(close).toHaveFocus());
+
+    await user.click(close);
+    warning = await screen.findByRole('dialog', { name: 'Save your option changes?' });
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog', { name: 'Save your option changes?' }))
       .not.toBeInTheDocument();
@@ -274,9 +312,9 @@ describe('Booking renderer mode and session boundaries', () => {
     );
     expect(within(editor).queryByRole('button')).not.toBeInTheDocument();
     expect(within(editor).queryByRole('searchbox')).not.toBeInTheDocument();
-    expect(editor.querySelector('input[placeholder="Search services"]'))
+    expect(editor.querySelector('input[placeholder="Try “Russian manicure”"]'))
       .toHaveAttribute('aria-hidden', 'true');
-    expect(editor.querySelector('input[placeholder="Search services"]'))
+    expect(editor.querySelector('input[placeholder="Try “Russian manicure”"]'))
       .toHaveAttribute('readonly');
     const customerControls = editor.querySelectorAll<HTMLElement>(
       'button, input, select, textarea, a[href]',
@@ -350,7 +388,7 @@ describe('Booking renderer mode and session boundaries', () => {
       />,
     );
 
-    expect(screen.getByTestId('booking-section-edit').querySelector('input[placeholder="Search services"]'))
+    expect(screen.getByTestId('booking-section-edit').querySelector('input[placeholder="Try “Russian manicure”"]'))
       .toHaveValue('');
     expect(screen.getByTestId('booking-section-edit').querySelector('.booking-category-pill.is-active'))
       .toHaveTextContent('All');
@@ -432,6 +470,13 @@ describe('Booking renderer mode and session boundaries', () => {
       expect(screen.queryByRole('button', { name: /Russian Manicure/ }))
         .not.toBeInTheDocument();
       const search = screen.getByRole('searchbox', { name: 'Search services' });
+      expect(search).toHaveAttribute('placeholder', 'Try “Russian manicure”');
+      expect(screen.getByText('Search services')).toHaveClass('sr-only');
+      expect(bookingCss).toContain(
+        ".booking-search-field input[type='search']::-webkit-search-cancel-button",
+      );
+      expect(bookingCss).toContain('.booking-search-field .sr-only {');
+      expect(bookingCss).toContain('-webkit-appearance: none;');
       await user.type(search, '  RuSs  ');
       expect(screen.getAllByRole('button', { name: /Russian Manicure/ }).length)
         .toBeGreaterThan(0);
@@ -444,7 +489,17 @@ describe('Booking renderer mode and session boundaries', () => {
       }
       expect(readSession().activeCategory).toBe('pedicure');
 
-      await user.clear(search);
+      const searchField = search.closest<HTMLElement>('.booking-search-field');
+      if (!searchField) throw new Error(`${layout} search field was not rendered.`);
+      expect(within(searchField).getAllByRole('button', {
+        name: 'Clear service search',
+      })).toHaveLength(1);
+      await user.click(within(searchField).getByRole('button', {
+        name: 'Clear service search',
+      }));
+      await waitFor(() => expect(search).toHaveFocus());
+      expect(search).toHaveValue('');
+      expect(search).toHaveAttribute('placeholder', 'Try “Russian manicure”');
       expect(screen.queryByRole('button', { name: /Russian Manicure/ }))
         .not.toBeInTheDocument();
       if (layout === 'category_menu') {
@@ -454,8 +509,63 @@ describe('Booking renderer mode and session boundaries', () => {
         expect(container.querySelector('.booking-category-pill.is-active'))
           .toHaveTextContent('Pedicure');
       }
+
+      await user.type(search, 'no matching service');
+      expect(screen.getByRole('heading', { name: 'No services found' })).toBeVisible();
+      expect(screen.getByText('Try another search across the full menu.')).toBeVisible();
+      await user.click(within(searchField).getByRole('button', {
+        name: 'Clear service search',
+      }));
+      await waitFor(() => expect(search).toHaveFocus());
+      expect(screen.queryByRole('heading', { name: 'No services found' }))
+        .not.toBeInTheDocument();
     },
   );
+
+  it.each(['editorial_cards', 'editorial_price_list'] as const)(
+    'keeps search absent by design from the canonical %s menu',
+    (layout) => {
+      render(<SessionHarness settings={settingsFor(layout)} />);
+      expect(screen.queryByRole('searchbox', { name: 'Search services' }))
+        .not.toBeInTheDocument();
+    },
+  );
+
+  it('keeps Visual Grid Featured geometry equal in Edit and interactive Preview', () => {
+    const { container, unmount } = render(
+      <SessionHarness mode="edit" settings={settingsFor('visual_grid')} />,
+    );
+    const editFeatured = container.querySelector<HTMLElement>('.featured-tile');
+    expect(editFeatured).not.toBeNull();
+    expect(editFeatured?.tagName).toBe('DIV');
+    unmount();
+
+    const preview = render(
+      <SessionHarness settings={settingsFor('visual_grid')} />,
+    );
+    const previewFeatured = preview.container.querySelector<HTMLButtonElement>('.featured-tile');
+    expect(previewFeatured).not.toBeNull();
+    expect(previewFeatured?.tagName).toBe('BUTTON');
+    const featuredRule = bookingCss.match(
+      /\.luster-booking \.featured-tile \{([^}]*)\}/,
+    )?.[1];
+    expect(featuredRule).toContain('min-height: 176px;');
+    const genericButtonRule = bookingCss.match(
+      /\.luster-booking button \{([^}]*)\}/,
+    )?.[1];
+    expect(genericButtonRule).toContain('min-height: 44px;');
+  });
+
+  it('defines the Service Detail body as the sole internal vertical scroller', () => {
+    const bodyRule = bookingCss.match(
+      /\.booking-service-detail-body \{([^}]*)\}/,
+    )?.[1];
+    expect(bodyRule).toContain('min-height: 0;');
+    expect(bodyRule).toContain('flex: 1 1 auto;');
+    expect(bodyRule).toContain('overflow-y: auto;');
+    expect(bodyRule).toContain('overscroll-behavior: contain;');
+    expect(bodyRule).toContain('-webkit-overflow-scrolling: touch;');
+  });
 
   it('gives the Visual Grid featured tile the selected service semantics', async () => {
     const user = userEvent.setup();
@@ -594,4 +704,35 @@ describe('Booking renderer mode and session boundaries', () => {
       name: /The Complete Structured Manicure with Precision Cuticle Care/,
     })).toBeVisible();
   });
+
+  it.each(['hide', 'show', 'auto'] as const)(
+    'applies Visual Grid Images: %s coherently to Service Detail',
+    async (imageMode) => {
+      const user = userEvent.setup();
+      const visual = createDefaultBookingPresentationSettings();
+      if (visual.layout !== 'visual_grid') {
+        throw new Error('Expected Visual Grid defaults.');
+      }
+      const settings = replaceActiveLayoutSettings(visual, {
+        ...visual.layoutSettings,
+        imageMode,
+      });
+      render(<SessionHarness settings={settings} />);
+      const russianAction = screen.getAllByRole('button', {
+        name: /View details for Russian Manicure/,
+      })[0];
+      if (!russianAction) throw new Error('Russian Manicure was not rendered.');
+      await user.click(russianAction);
+      const detail = await screen.findByTestId('service-detail-dialog');
+      const body = within(detail).getByTestId('service-detail-scroll-body');
+      expect(body).toHaveAttribute('data-image-mode', imageMode);
+      if (imageMode === 'hide') {
+        expect(body.querySelector('.booking-detail-image-wrap')).not.toBeInTheDocument();
+      } else {
+        expect(within(body).getByRole('img', {
+          name: 'Precision manicure with clean cuticle work',
+        })).toBeVisible();
+      }
+    },
+  );
 });

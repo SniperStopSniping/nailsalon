@@ -117,7 +117,7 @@ describe('Booking editor selection boundary', () => {
     expect(editorPreview).not.toHaveAttribute('aria-hidden');
     expect(within(editorPreview).queryByRole('button')).not.toBeInTheDocument();
     expect(within(editorPreview).queryByRole('searchbox')).not.toBeInTheDocument();
-    expect(editorPreview.querySelector('input[placeholder="Search services"]'))
+    expect(editorPreview.querySelector('input[placeholder="Try “Russian manicure”"]'))
       .toHaveAttribute('aria-hidden', 'true');
 
     const russianService = [...editorPreview.querySelectorAll<HTMLElement>('.vg-card-entry')]
@@ -636,7 +636,7 @@ describe('App customer Preview boundary', () => {
 
     await user.click(screen.getByRole('button', { name: 'Back to editor' }));
     const editPreview = await screen.findByTestId('booking-section-edit');
-    expect(editPreview.querySelector('input[placeholder="Search services"]'))
+    expect(editPreview.querySelector('input[placeholder="Try “Russian manicure”"]'))
       .toHaveValue('');
     expect(editPreview.querySelector('[data-has-selection="false"]')).toBeInTheDocument();
     expect(screen.queryByTestId('selected-service-summary')).not.toBeInTheDocument();

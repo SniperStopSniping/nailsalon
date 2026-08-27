@@ -100,6 +100,9 @@ export function BookingSectionRenderer({
     committedDetailAddOns,
     session.draftAddOnIds,
   );
+  const detailImageMode = presentationSettings.layout === 'visual_grid'
+    ? presentationSettings.layoutSettings.imageMode
+    : 'show';
 
   useEffect(() => {
     if (previousLayoutRef.current === presentationSettings.layout) {
@@ -228,6 +231,7 @@ export function BookingSectionRenderer({
       <ServiceDetail
         draftAddOnIds={session.draftAddOnIds}
         fixture={fixture}
+        imageMode={detailImageMode}
         selection={session.selection}
         service={detailService}
         onClose={requestCloseDetails}
