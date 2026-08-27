@@ -738,11 +738,12 @@ test('mobile Booking settings are genuinely modal at every required compact view
 });
 
 test('Pixel 5 touch emulation retains modal focus, AX isolation, and backdrop dismissal', async ({
+  baseURL,
   browser,
 }) => {
   const context: BrowserContext = await browser.newContext({
     ...devices['Pixel 5'],
-    baseURL: 'http://127.0.0.1:4183',
+    baseURL,
   });
   const page = await context.newPage();
   const monitor = startRuntimeMonitor(page);

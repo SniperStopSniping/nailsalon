@@ -191,6 +191,43 @@ describe('IndexedDbAssetRepository', () => {
     afterReload.close();
   });
 
+  it('commits a staged batch atomically and preserves caller order', async () => {
+    const repository = new IndexedDbAssetRepository({
+      dbName: 'atomic-batch-commit',
+      indexedDB: new IDBFactory(),
+    });
+    await repository.stage(makeAsset('first'));
+    await repository.stage(makeAsset('second'));
+
+    await expect(repository.commitBatch(['second', 'first'])).resolves.toEqual([
+      expect.objectContaining({ id: 'second' }),
+      expect.objectContaining({ id: 'first' }),
+    ]);
+    await expect(repository.has('first')).resolves.toBe(true);
+    await expect(repository.has('second')).resolves.toBe(true);
+    repository.close();
+  });
+
+  it('leaves every record staged when one batch member cannot commit', async () => {
+    const repository = new IndexedDbAssetRepository({
+      dbName: 'atomic-batch-rollback',
+      indexedDB: new IDBFactory(),
+    });
+    await repository.stage(makeAsset('kept-staged'));
+
+    await expect(
+      repository.commitBatch(['kept-staged', 'missing']),
+    ).rejects.toMatchObject({ code: 'not_found' });
+    await expect(repository.has('kept-staged')).resolves.toBe(false);
+    await expect(
+      repository.has('kept-staged', { includeStaged: true }),
+    ).resolves.toBe(true);
+    await expect(
+      repository.commitBatch(['kept-staged', 'kept-staged']),
+    ).rejects.toMatchObject({ code: 'invalid_asset' });
+    repository.close();
+  });
+
   it('keeps metadata-only operations off the original blob value path', async () => {
     const indexedDB = new IDBFactory();
     const repository = new IndexedDbAssetRepository({

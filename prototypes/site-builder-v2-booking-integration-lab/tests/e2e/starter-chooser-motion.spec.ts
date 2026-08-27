@@ -423,6 +423,9 @@ test.describe('mobile visibility playback', () => {
     expect(await page.evaluate(() => window.scrollY)).toBe(startScrollY);
     expect(await preview(page, 'quick_book').evaluate((element) => getComputedStyle(element).pointerEvents))
       .toBe('none');
+    await card(page, 'Quick Book').evaluate((element) => element.blur());
+    await page.waitForTimeout(200);
+    await expectOnlyActive(page, 'quick_book');
 
     const session = await page.context().newCDPSession(page);
     await trustedVerticalGesture(page, session, await previewCenter(page, 'quick_book'), 430);

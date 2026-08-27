@@ -10,6 +10,14 @@ import {
 export const LAB_STORAGE_KEY =
   'luster:site-builder-v2-booking-integration-lab:document:v1';
 
+export const CUSTOM_DESIGN_ASSET_DB_NAME = 'luster-custom-design-assets';
+
+const CUSTOM_DESIGN_ASSET_STORE_NAMES = [
+  'image-asset-summaries-v1',
+  'image-asset-originals-v1',
+  'image-asset-thumbnails-v1',
+] as const;
+
 export type StarterName =
   | 'Quick Book'
   | 'One-page website'
@@ -61,11 +69,112 @@ type RuntimeMonitor = {
 
 export async function openFreshLab(page: Page): Promise<void> {
   await page.goto('/');
-  await page.evaluate(() => window.localStorage.clear());
+  await page.evaluate(async ({ databaseName, storeNames }) => {
+    window.localStorage.clear();
+
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = window.indexedDB.open(databaseName, 1);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+
+    try {
+      const existingStores = storeNames.filter((storeName) =>
+        database.objectStoreNames.contains(storeName));
+      if (existingStores.length === 0) return;
+
+      await new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction(existingStores, 'readwrite');
+        for (const storeName of existingStores) {
+          transaction.objectStore(storeName).clear();
+        }
+        transaction.onabort = () => reject(transaction.error);
+        transaction.onerror = () => reject(transaction.error);
+        transaction.oncomplete = () => resolve();
+      });
+    } finally {
+      database.close();
+    }
+  }, {
+    databaseName: CUSTOM_DESIGN_ASSET_DB_NAME,
+    storeNames: CUSTOM_DESIGN_ASSET_STORE_NAMES,
+  });
   await page.reload();
   await expect(
     page.getByRole('heading', { name: 'Choose your starting point' }),
   ).toBeVisible();
+}
+
+/**
+ * Removes stored Custom Design bytes without changing the document. This is
+ * useful for exercising the truthful different-browser/missing-asset path.
+ */
+export async function clearCustomDesignAssets(page: Page): Promise<void> {
+  await page.evaluate(async ({ databaseName, storeNames }) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = window.indexedDB.open(databaseName, 1);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+
+    try {
+      const existingStores = storeNames.filter((storeName) =>
+        database.objectStoreNames.contains(storeName));
+      if (existingStores.length === 0) return;
+
+      await new Promise<void>((resolve, reject) => {
+        const transaction = database.transaction(existingStores, 'readwrite');
+        for (const storeName of existingStores) {
+          transaction.objectStore(storeName).clear();
+        }
+        transaction.onabort = () => reject(transaction.error);
+        transaction.onerror = () => reject(transaction.error);
+        transaction.oncomplete = () => resolve();
+      });
+    } finally {
+      database.close();
+    }
+  }, {
+    databaseName: CUSTOM_DESIGN_ASSET_DB_NAME,
+    storeNames: CUSTOM_DESIGN_ASSET_STORE_NAMES,
+  });
+}
+
+export async function readCustomDesignAssetRecordCounts(
+  page: Page,
+): Promise<Record<string, number>> {
+  return page.evaluate(async ({ databaseName, storeNames }) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = window.indexedDB.open(databaseName, 1);
+      request.onerror = () => reject(request.error);
+      request.onsuccess = () => resolve(request.result);
+    });
+
+    try {
+      const existingStores = storeNames.filter((storeName) =>
+        database.objectStoreNames.contains(storeName));
+      if (existingStores.length === 0) return {};
+      return await new Promise<Record<string, number>>((resolve, reject) => {
+        const transaction = database.transaction(existingStores, 'readonly');
+        const counts: Record<string, number> = {};
+        for (const storeName of existingStores) {
+          const request = transaction.objectStore(storeName).count();
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            counts[storeName] = request.result;
+          };
+        }
+        transaction.onabort = () => reject(transaction.error);
+        transaction.onerror = () => reject(transaction.error);
+        transaction.oncomplete = () => resolve(counts);
+      });
+    } finally {
+      database.close();
+    }
+  }, {
+    databaseName: CUSTOM_DESIGN_ASSET_DB_NAME,
+    storeNames: CUSTOM_DESIGN_ASSET_STORE_NAMES,
+  });
 }
 
 export async function chooseStarter(

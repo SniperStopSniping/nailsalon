@@ -218,6 +218,25 @@ describe('Custom Design customer renderer', () => {
     expect(entries[1]).toHaveStyle('--custom-design-quality-width: 600px');
   });
 
+  it('reserves persisted geometry while browser assets resolve asynchronously', () => {
+    render(
+      <CustomDesignRenderer
+        resolveAction={resolveAction}
+        resolveAsset={() => ({ status: 'loading' })}
+        settings={makeSettings({
+          images: [makeImage('tall-page', { height: 3_000, width: 1_000 })],
+        })}
+      />,
+    );
+
+    expect(screen.getByTestId('custom-design-customer-renderer')).toBeVisible();
+    expect(screen.getByTestId('custom-design-customer-loading-asset')).toHaveStyle({
+      aspectRatio: '1000 / 3000',
+    });
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
+  });
+
   it('emits fetch priority in initial markup without a React 18 unknown-prop warning', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     try {
@@ -596,17 +615,21 @@ describe('Custom Design customer renderer', () => {
         resolveAsset={readyAsset}
         settings={makeSettings({
           cta: {
-            type: 'contact_me',
-            label: 'Contact me',
+            type: 'custom',
+            label: 'Email me',
             placement: { type: 'after_image', imageItemId: 'removed-page' },
+            action: {
+              type: 'email',
+              destination: { email: 'owner@example.com' },
+            },
           },
           images: [makeImage('page-1'), makeImage('page-2')],
         })}
       />,
     );
-    const cta = screen.getByRole('link', { name: 'Contact me' });
+    const cta = screen.getByRole('link', { name: 'Email me' });
     const stack = cta.closest('.custom-design-image-stack');
-    expect(cta).toHaveAttribute('href', '/contact');
+    expect(cta).toHaveAttribute('href', 'mailto:owner@example.com');
     expect(cta.closest('.custom-design-stack-entry')).toBeNull();
     expect(stack?.lastElementChild).toContainElement(cta);
   });
@@ -630,7 +653,7 @@ describe('Custom Design customer renderer', () => {
     expect(visibleImage).toHaveAttribute('fetchpriority', 'high');
   });
 
-  it('renders no customer section or customer links when every asset is missing', () => {
+  it('suppresses missing artwork links while preserving accessible text and the native CTA', () => {
     const missing: ResolveCustomDesignAsset = () => ({ status: 'missing' });
     const settings = makeSettings({
       cta: {
@@ -640,14 +663,18 @@ describe('Custom Design customer renderer', () => {
       },
       images: [makeImage('page-1', { interactiveAreas: [makeArea()] })],
     });
-    const { container, rerender } = render(
+    const { rerender } = render(
       <CustomDesignRenderer
         resolveAction={resolveAction}
         resolveAsset={missing}
         settings={settings}
       />,
     );
-    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Visit the nail studio website' }))
+      .not.toBeInTheDocument();
+    expect(screen.getByText('Important policies for page-1.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Book now' })).toBeInTheDocument();
 
     rerender(
       <CustomDesignRenderer

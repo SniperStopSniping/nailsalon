@@ -1,6 +1,7 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const labUrl = 'http://127.0.0.1:4183';
+const labPort = process.env.LUSTER_LAB_PORT ?? '4186';
+const labUrl = process.env.LUSTER_LAB_URL ?? `http://127.0.0.1:${labPort}`;
 
 export default defineConfig({
   expect: { timeout: 8_000 },
@@ -17,8 +18,8 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   webServer: {
-    command: 'npm run dev -- --port 4183',
-    reuseExistingServer: false,
+    command: `npm run dev -- --port ${labPort}`,
+    reuseExistingServer: true,
     timeout: 60_000,
     url: labUrl,
   },

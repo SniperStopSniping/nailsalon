@@ -29,6 +29,7 @@ describe('owner hotspot overlay', () => {
         areas={[area()]}
         renderedHeight={500}
         renderedWidth={500}
+        selectedAreaId="area-small"
       />,
     );
 
@@ -50,7 +51,7 @@ describe('owner hotspot overlay', () => {
     screen.getAllByRole('button', { name: /Resize Instagram profile from/ })
       .forEach((handle) => {
         expect(handle).toHaveAttribute('data-handle-inset', 'true');
-        expect(handle).toHaveAttribute('data-hit-target-max-size', '32');
+        expect(handle).toHaveAttribute('data-hit-target-max-size', '44');
         expect(handle).toHaveAttribute('data-visual-size', '14');
       });
   });
@@ -101,6 +102,7 @@ describe('owner hotspot overlay', () => {
         areas={[area()]}
         renderedHeight={1_000}
         renderedWidth={1_000}
+        selectedAreaId="area-small"
         onKeyboardMove={onKeyboardMove}
         onKeyboardResize={onKeyboardResize}
         onMoveStart={onMoveStart}

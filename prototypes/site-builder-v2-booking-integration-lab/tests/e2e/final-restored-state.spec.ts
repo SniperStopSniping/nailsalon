@@ -9,6 +9,7 @@ import {
   openBookingSettings,
   openFreshLab,
   openMoveForBooking,
+  readCustomDesignAssetRecordCounts,
   sectionLabels,
   startRuntimeMonitor,
   waitForSaved,
@@ -106,6 +107,11 @@ async function expectPristineQuickBook(page: Page): Promise<void> {
 
   const storageKeys = await page.evaluate(() => Object.keys(window.localStorage));
   expect(storageKeys).toEqual([LAB_STORAGE_KEY]);
+  await expect(readCustomDesignAssetRecordCounts(page)).resolves.toEqual({
+    'image-asset-originals-v1': 0,
+    'image-asset-summaries-v1': 0,
+    'image-asset-thumbnails-v1': 0,
+  });
 }
 
 test('restores the Lab through live controls and persists the pristine freeze baseline', async ({
