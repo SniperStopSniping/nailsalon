@@ -1281,9 +1281,9 @@ test('starter cards keep identity-first semantics and reachable CTAs at short mo
   page,
 }) => {
   const starters = [
-    ['Quick Book', 'Fastest way to start taking bookings.'],
-    ['One-page website', 'A complete scrolling salon website.'],
-    ['Multi-page website', 'Separate pages with a navigation menu.'],
+    ['Quick Book', 'Start taking bookings with only the essentials.', 'Start with Quick Book'],
+    ['One-page website', 'Show your whole business on one scrolling page.', 'Start with One-page'],
+    ['Multi-page website', 'Give each part of your business its own page and navigation link.', 'Start with Multi-page'],
   ] as const;
   for (const viewport of [
     { width: 320, height: 600 },
@@ -1293,15 +1293,15 @@ test('starter cards keep identity-first semantics and reachable CTAs at short mo
     await page.setViewportSize(viewport);
     await openFreshLab(page);
     await expectNoDocumentOverflow(page);
-    for (const [name, description] of starters) {
+    for (const [name, description, ctaLabel] of starters) {
       const card = page.getByRole('button', { name: new RegExp(`^${name}`) });
       await expect(card).toHaveAccessibleName(new RegExp(`^${name} ${description}`));
       const copy = card.locator('.final-starter-card__copy');
-      const preview = card.locator('.final-starter-mini');
+      const preview = card.locator('.final-starter-preview');
       await expect(preview).toHaveAttribute('aria-hidden', 'true');
-      expect(await copy.evaluate((element) => element.nextElementSibling?.classList.contains('final-starter-mini')))
+      expect(await copy.evaluate((element) => element.nextElementSibling?.classList.contains('final-starter-preview')))
         .toBe(true);
-      const cta = card.getByText('Choose this start', { exact: false });
+      const cta = card.getByText(ctaLabel, { exact: true });
       await expect(cta).toBeVisible();
       const [cardBox, ctaBox] = await Promise.all([card.boundingBox(), cta.boundingBox()]);
       expect(cardBox).not.toBeNull();
