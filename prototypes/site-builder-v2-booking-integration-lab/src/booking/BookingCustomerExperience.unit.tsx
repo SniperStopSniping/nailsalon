@@ -495,6 +495,46 @@ describe('Booking renderer mode and session boundaries', () => {
     expect(deselectedFeatured).toHaveAttribute('data-selected', 'false');
   });
 
+  it.each([
+    ['svc-manicure-gel', 'Gel Manicure'],
+    ['svc-manicure-russian', 'Russian Manicure'],
+    ['svc-builder-refill', 'BIAB Refill / Builder Gel Fill'],
+    ['svc-combo-gel', 'Gel Manicure + Gel Pedicure'],
+  ])('keeps the selected Category Menu name intact for %s', (serviceId, serviceName) => {
+    const initialSession: BookingSessionState = {
+      selection: { serviceId, addOnIds: [] },
+      query: '',
+      activeCategory: 'all',
+      detailServiceId: null,
+      draftAddOnIds: [],
+      handoffOpen: false,
+    };
+    const { container } = render(
+      <SessionHarness
+        initialSession={initialSession}
+        settings={settingsFor('category_menu')}
+      />,
+    );
+
+    const selectedRow = container.querySelector<HTMLButtonElement>(
+      '.category-service-row[data-selected="true"]',
+    );
+    const serviceNameElement = selectedRow?.querySelector<HTMLElement>(
+      '.category-row-service-name',
+    );
+    const selectedLine = selectedRow?.querySelector<HTMLElement>(
+      '.category-row-title + .category-row-selected',
+    );
+
+    expect(selectedRow).not.toBeNull();
+    expect(selectedRow?.getAttribute('aria-label')).toContain(serviceName);
+    expect(selectedRow).toHaveAccessibleName(/selected/i);
+    expect(serviceNameElement).toHaveTextContent(serviceName);
+    expect(serviceNameElement?.childNodes).toHaveLength(1);
+    expect(serviceNameElement?.firstChild?.nodeType).toBe(Node.TEXT_NODE);
+    expect(selectedLine).toHaveTextContent('Selected');
+  });
+
   it('spaces Clean List category counts for singular and plural labels', async () => {
     const user = userEvent.setup();
     const fixture = createMenuFixture();

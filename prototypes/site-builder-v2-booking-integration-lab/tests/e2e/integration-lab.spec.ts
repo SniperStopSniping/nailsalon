@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { MOVE_COMPLETION_SHIELD_DURATION_MS } from '../../src/ui/move-completion-shield';
 import {
   LAB_STORAGE_KEY,
   bookingCard,
@@ -410,6 +411,7 @@ test('Move is transactional: Enter only, safe dirty dismissal, reload isolation,
     'Booking',
   ]);
 
+  await page.waitForTimeout(MOVE_COMPLETION_SHIELD_DURATION_MS + 80);
   move = await openMoveForBooking(page, 'Home');
   await move.getByLabel('Position for Booking').fill('1');
   await move.getByLabel('Position for Booking').press('Enter');
@@ -446,6 +448,7 @@ test('Move is transactional: Enter only, safe dirty dismissal, reload isolation,
     'Section 02',
   ]);
 
+  await page.waitForTimeout(MOVE_COMPLETION_SHIELD_DURATION_MS + 80);
   move = await openMoveForBooking(page, 'Home');
   await move.getByLabel('Position for Booking').fill('3');
   await move.getByLabel('Position for Booking').press('Enter');
@@ -459,6 +462,7 @@ test('Move is transactional: Enter only, safe dirty dismissal, reload isolation,
     'Section 02',
   ]);
 
+  await page.waitForTimeout(MOVE_COMPLETION_SHIELD_DURATION_MS + 80);
   move = await openMoveForBooking(page, 'Home');
   await move.getByRole('button', { name: 'Move Booking down' }).click();
   const handle = move.getByRole('button', {

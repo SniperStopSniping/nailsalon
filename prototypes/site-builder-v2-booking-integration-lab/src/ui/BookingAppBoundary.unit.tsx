@@ -291,6 +291,7 @@ describe('integrated Booking settings surfaces', () => {
     const user = userEvent.setup();
     render(<App />);
     await chooseQuickBook(user);
+    vi.mocked(window.scrollTo).mockClear();
 
     const actions = await selectBooking(user);
     const edit = within(actions).getByRole('button', { name: 'Edit' });

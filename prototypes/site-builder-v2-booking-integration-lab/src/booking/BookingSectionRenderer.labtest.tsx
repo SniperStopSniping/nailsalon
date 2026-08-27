@@ -167,6 +167,23 @@ describe('shared Booking Section renderer', () => {
 });
 
 describe('Booking owner settings', () => {
+  it('uses Compact, Comfortable, and Spacious for both three-step scales', () => {
+    render(<SettingsHarness />);
+
+    const density = screen.getByRole('group', { name: 'Visual Grid density' });
+    const spacing = screen.getByRole('group', { name: 'Booking spacing' });
+    const expectedLabels = ['Compact', 'Comfortable', 'Spacious'];
+
+    expect(within(density).getAllByRole('button').map(button => button.textContent))
+      .toEqual(expectedLabels);
+    expect(within(spacing).getAllByRole('button').map(button => button.textContent))
+      .toEqual(expectedLabels);
+    expect(within(density).getByRole('button', { name: 'Comfortable' }))
+      .toHaveAttribute('aria-pressed', 'true');
+    expect(within(spacing).getByRole('button', { name: 'Comfortable' }))
+      .toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('keeps the chooser open and reveals only compatible controls', () => {
     const { container } = render(<SettingsHarness />);
     expect(screen.getByRole('heading', { name: 'Booking' })).toBeVisible();
