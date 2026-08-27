@@ -123,11 +123,6 @@ export type CustomDesignNativeCta =
       placement: CustomDesignCtaPlacement;
     }
   | {
-      type: 'contact_me';
-      label: string;
-      placement: CustomDesignCtaPlacement;
-    }
-  | {
       type: 'custom';
       label: string;
       action: CustomDesignAction;
@@ -141,18 +136,6 @@ export type CustomDesignSettings = {
   gap: CustomDesignGap;
   background: CustomDesignBackground;
   cta: CustomDesignNativeCta;
-};
-
-/**
- * Isolated Phase 1 contract. Phase 2 can add this discriminator to the shared
- * universal-section union without making the asset model a second document.
- */
-export type CustomDesignSectionData = {
-  id: string;
-  sectionType: 'custom_design';
-  label: string;
-  hidden: boolean;
-  settings: CustomDesignSettings;
 };
 
 export type CustomDesignValidationResult<T> =

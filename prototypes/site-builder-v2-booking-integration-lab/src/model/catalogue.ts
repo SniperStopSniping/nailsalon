@@ -1,5 +1,7 @@
 import type {
+  AddSectionCatalogueItem,
   CatalogueSectionType,
+  CustomDesignCatalogueItem,
   SectionCatalogueItem,
   SectionNumber,
   SectionSize,
@@ -44,6 +46,31 @@ export const SECTION_CATALOGUE: readonly SectionCatalogueItem[] =
     planCapability: undefined,
     variants: undefined,
   }));
+
+export const CUSTOM_DESIGN_CATALOGUE_ITEM: CustomDesignCatalogueItem = {
+  sectionType: 'custom_design',
+  label: 'Custom Design',
+  description: 'Upload a Canva design, flyer, policy page, or branded image.',
+  helper: 'Best for designs you already made.',
+  searchKeywords: [
+    'Canva',
+    'graphic',
+    'flyer',
+    'upload',
+    'policy',
+    'about',
+    'poster',
+    'design',
+    'image',
+    'Acuity',
+  ],
+  tags: ['Upload', 'Design', 'About', 'Policies'],
+};
+
+export const ADD_SECTION_CATALOGUE: readonly AddSectionCatalogueItem[] = [
+  ...SECTION_CATALOGUE,
+  CUSTOM_DESIGN_CATALOGUE_ITEM,
+];
 
 export const getSectionCatalogueItem = (
   sectionType: CatalogueSectionType,

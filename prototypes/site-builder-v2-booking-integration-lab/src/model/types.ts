@@ -1,4 +1,5 @@
 import type { BookingSectionPresentationSettings } from '../booking/types';
+import type { CustomDesignSettings } from '../custom-design/model/types';
 
 export type { BookingSectionPresentationSettings } from '../booking/types';
 
@@ -30,7 +31,7 @@ export type SectionNumber =
 
 export type CatalogueSectionType = `section_${SectionNumber}`;
 
-export type SectionType = CatalogueSectionType | 'booking';
+export type SectionType = CatalogueSectionType | 'booking' | 'custom_design';
 
 export type SectionSize = 'compact' | 'medium' | 'large';
 
@@ -67,6 +68,11 @@ export type BookingSectionInstance = SectionInstanceBase & {
   settings: BookingSectionPresentationSettings;
 };
 
+export type CustomDesignSectionInstance = SectionInstanceBase & {
+  sectionType: 'custom_design';
+  settings: CustomDesignSettings;
+};
+
 /**
  * The section type is the document-level discriminator. Booking owns only
  * bounded presentation settings; canonical services and customer intent live
@@ -74,7 +80,12 @@ export type BookingSectionInstance = SectionInstanceBase & {
  */
 export type SectionInstance =
   | PlaceholderSectionInstance
-  | BookingSectionInstance;
+  | BookingSectionInstance
+  | CustomDesignSectionInstance;
+
+export type RestorableSectionInstance =
+  | PlaceholderSectionInstance
+  | CustomDesignSectionInstance;
 
 export type PageDocument = {
   id: string;
@@ -101,7 +112,7 @@ export type SiteBuilderDocument = {
   originStarter: OriginStarter;
   navigation: NavigationSettings;
   pages: PageDocument[];
-  unusedSections: PlaceholderSectionInstance[];
+  unusedSections: RestorableSectionInstance[];
   removedPages: RemovedPageRecord[];
 };
 
@@ -121,6 +132,19 @@ export type SectionCatalogueItem = {
   variants?: readonly string[];
 };
 
+export type CustomDesignCatalogueItem = {
+  sectionType: 'custom_design';
+  label: 'Custom Design';
+  description: string;
+  helper: string;
+  searchKeywords: readonly string[];
+  tags: readonly string[];
+};
+
+export type AddSectionCatalogueItem =
+  | SectionCatalogueItem
+  | CustomDesignCatalogueItem;
+
 export type AddPlaceholderSectionInput = {
   pageId: string;
   sectionType: CatalogueSectionType;
@@ -136,9 +160,16 @@ export type AddBookingSectionInput = {
   position?: number;
 };
 
+export type AddCustomDesignSectionInput = {
+  pageId: string;
+  sectionType: 'custom_design';
+  position?: number;
+};
+
 export type AddSectionInput =
   | AddPlaceholderSectionInput
-  | AddBookingSectionInput;
+  | AddBookingSectionInput
+  | AddCustomDesignSectionInput;
 
 export type AddPageInput = {
   name: string;
@@ -194,6 +225,11 @@ export type BuilderCommand =
       type: 'update_booking_presentation';
       sectionId: string;
       settings: BookingSectionPresentationSettings;
+    }
+  | {
+      type: 'update_custom_design_settings';
+      sectionId: string;
+      settings: CustomDesignSettings;
     }
   | { type: 'reset_booking_presentation'; sectionId: string }
   | { type: 'move_section'; sectionId: string; position: number }

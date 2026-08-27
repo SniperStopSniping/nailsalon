@@ -1,4 +1,5 @@
 import { createDefaultBookingPresentationSettings } from '../booking/presentation';
+import { createDefaultCustomDesignSettings } from '../custom-design/model/settings';
 import { getSectionCatalogueItem } from './catalogue';
 import { createIdFactory } from './ids';
 import { normalizeDocument } from './normalize';
@@ -6,6 +7,7 @@ import {
   SITE_BUILDER_SCHEMA_VERSION,
   type BookingSectionInstance,
   type CatalogueSectionType,
+  type CustomDesignSectionInstance,
   type IdFactory,
   type NavigationItem,
   type OriginStarter,
@@ -105,6 +107,8 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
 export const getSectionLabel = (sectionType: SectionType): string =>
   sectionType === 'booking'
     ? 'Booking'
+    : sectionType === 'custom_design'
+      ? 'Custom Design'
     : getSectionCatalogueItem(sectionType).label;
 
 export const getDefaultSectionSize = (
@@ -144,6 +148,18 @@ export const createBookingSectionInstance = (
   settings: createDefaultBookingPresentationSettings(),
 });
 
+export const createCustomDesignSectionInstance = (
+  idFactory: IdFactory,
+  options: { order?: number } = {},
+): CustomDesignSectionInstance => ({
+  id: idFactory('section'),
+  sectionType: 'custom_design',
+  label: 'Custom Design',
+  order: options.order ?? 0,
+  visible: true,
+  settings: createDefaultCustomDesignSettings(),
+});
+
 export const createSectionInstance = (
   sectionType: SectionType,
   idFactory: IdFactory,
@@ -156,6 +172,8 @@ export const createSectionInstance = (
 ): SectionInstance =>
   sectionType === 'booking'
     ? createBookingSectionInstance(idFactory, { order: options.order })
+    : sectionType === 'custom_design'
+      ? createCustomDesignSectionInstance(idFactory, { order: options.order })
     : createPlaceholderSectionInstance(sectionType, idFactory, options);
 
 const createStarterPage = (

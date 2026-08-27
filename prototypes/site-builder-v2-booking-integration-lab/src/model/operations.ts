@@ -2,9 +2,12 @@ import {
   createDefaultBookingPresentationSettings,
   validateBookingPresentationSettings,
 } from '../booking/presentation';
+import { validateCustomDesignSettings } from '../custom-design/model/settings';
+import type { CustomDesignSettings } from '../custom-design/model/types';
 import { createIdFactory } from './ids';
 import { normalizeDocument } from './normalize';
 import { createSectionInstance } from './starters';
+import { validateSiteBuilderDocument } from './validation';
 import type {
   AddPageInput,
   AddSectionInput,
@@ -15,7 +18,7 @@ import type {
   MoveSectionToNewPageInput,
   NavigationItem,
   PageDocument,
-  PlaceholderSectionInstance,
+  RestorableSectionInstance,
   SectionInstance,
   SectionSize,
   SiteBuilderDocument,
@@ -228,8 +231,9 @@ export const addSection = (
       'Booking is already on this site. Move the existing Booking section instead.',
     );
   }
-  const section = input.sectionType === 'booking'
-    ? createSectionInstance('booking', idFactory)
+  const section = input.sectionType === 'booking' ||
+    input.sectionType === 'custom_design'
+    ? createSectionInstance(input.sectionType, idFactory)
     : createSectionInstance(input.sectionType, idFactory, {
         label: input.label,
         note: input.note,
@@ -338,6 +342,12 @@ export const updateSectionSettings = (
       'Use Booking presentation settings to edit this section.',
     );
   }
+  if (located.section.sectionType === 'custom_design') {
+    return fail(
+      'invalid_input',
+      'Use Custom Design settings to edit this section.',
+    );
+  }
   const placeholder = located.section;
   if (changes.label !== undefined && changes.label.trim().length === 0) {
     return fail('invalid_input', 'Section label cannot be empty.');
@@ -372,6 +382,7 @@ export const updateBookingSectionPresentation = (
       'Booking presentation settings can only be applied to Booking.',
     );
   }
+  const booking = located.section;
 
   const validated = validateBookingPresentationSettings(settings);
   if (!validated.success) {
@@ -381,7 +392,7 @@ export const updateBookingSectionPresentation = (
     );
   }
   if (
-    JSON.stringify(located.section.settings) ===
+    JSON.stringify(booking.settings) ===
     JSON.stringify(validated.settings)
   ) {
     return document;
@@ -389,7 +400,7 @@ export const updateBookingSectionPresentation = (
 
   const sections = located.page.sections.map((section) =>
     section.id === sectionId
-      ? { ...located.section, settings: validated.settings }
+      ? { ...booking, settings: validated.settings }
       : section,
   );
   return normalizeDocument(
@@ -406,6 +417,52 @@ export const resetBookingSectionPresentation = (
     sectionId,
     createDefaultBookingPresentationSettings(),
   );
+
+export const updateCustomDesignSectionSettings = (
+  document: SiteBuilderDocument,
+  sectionId: string,
+  settings: CustomDesignSettings,
+): SiteBuilderDocument => {
+  const located = locateSection(document, sectionId);
+  if (located.section.sectionType !== 'custom_design') {
+    return fail(
+      'invalid_input',
+      'Custom Design settings can only be applied to Custom Design.',
+    );
+  }
+  const customDesign = located.section;
+
+  const validated = validateCustomDesignSettings(settings);
+  if (!validated.success) {
+    return fail(
+      'invalid_input',
+      `Custom Design settings are invalid: ${validated.issues.join(' ')}`,
+    );
+  }
+  if (
+    JSON.stringify(customDesign.settings) ===
+    JSON.stringify(validated.value)
+  ) {
+    return document;
+  }
+
+  const sections = located.page.sections.map((section) =>
+    section.id === sectionId
+      ? { ...customDesign, settings: validated.value }
+      : section,
+  );
+  const next = normalizeDocument(
+    replacePage(document, located.pageIndex, { ...located.page, sections }),
+  );
+  const documentValidation = validateSiteBuilderDocument(next);
+  if (!documentValidation.success) {
+    return fail(
+      'invalid_input',
+      `Custom Design settings conflict with this site document: ${documentValidation.issues.join(' ')}`,
+    );
+  }
+  return documentValidation.document;
+};
 
 export const moveSection = (
   document: SiteBuilderDocument,
@@ -707,8 +764,8 @@ export const removePage = (
     return fail('not_found', `Navigation item not found for page: ${pageId}`);
   }
   const { sections: removedSections, ...pageRecord } = page;
-  const placeholderSections = removedSections.filter(
-    (section): section is PlaceholderSectionInstance =>
+  const restorableSections = removedSections.filter(
+    (section): section is RestorableSectionInstance =>
       section.sectionType !== 'booking',
   );
   const next = normalizeDocument({
@@ -720,7 +777,7 @@ export const removePage = (
     },
     unusedSections: [
       ...document.unusedSections,
-      ...placeholderSections.map((section, index) => ({
+      ...restorableSections.map((section, index) => ({
         ...section,
         order: document.unusedSections.length + index,
       })),
@@ -729,7 +786,7 @@ export const removePage = (
       ...document.removedPages,
       {
         page: pageRecord,
-        sectionIds: placeholderSections.map((section) => section.id),
+        sectionIds: restorableSections.map((section) => section.id),
         navigationItem,
         removedAtOrder: page.order,
       },
@@ -1020,6 +1077,12 @@ export const applyBuilderCommand = (
       return updateSectionSettings(document, command.sectionId, command);
     case 'update_booking_presentation':
       return updateBookingSectionPresentation(
+        document,
+        command.sectionId,
+        command.settings,
+      );
+    case 'update_custom_design_settings':
+      return updateCustomDesignSectionSettings(
         document,
         command.sectionId,
         command.settings,

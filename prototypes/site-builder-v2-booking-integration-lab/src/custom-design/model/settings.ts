@@ -27,7 +27,6 @@ import type {
   CustomDesignImageItem,
   CustomDesignInteractiveArea,
   CustomDesignNormalizedRect,
-  CustomDesignSectionData,
   CustomDesignSettings,
   CustomDesignValidationResult,
 } from './types';
@@ -530,46 +529,5 @@ export const validateCustomDesignSettings = (
       background,
       cta,
     },
-  };
-};
-
-export const createCustomDesignSectionData = ({
-  id,
-  label = 'Custom Design',
-  hidden = false,
-  settings = createDefaultCustomDesignSettings(),
-}: {
-  id: string;
-  label?: string;
-  hidden?: boolean;
-  settings?: CustomDesignSettings;
-}): CustomDesignSectionData => ({
-  id,
-  sectionType: 'custom_design',
-  label,
-  hidden,
-  settings,
-});
-
-export const parseCustomDesignSectionData = (
-  value: unknown,
-): CustomDesignSectionData | null => {
-  if (
-    !isRecord(value) ||
-    !hasOnlyKeys(value, ['id', 'sectionType', 'label', 'hidden', 'settings']) ||
-    value.sectionType !== 'custom_design' ||
-    typeof value.hidden !== 'boolean'
-  ) {
-    return null;
-  }
-  const id = asIdentifier(value.id);
-  const label = parseBoundedSingleLineText(value.label, 100);
-  if (!id || !label) return null;
-  return {
-    id,
-    sectionType: 'custom_design',
-    label,
-    hidden: value.hidden,
-    settings: parseCustomDesignSettings(value.settings),
   };
 };

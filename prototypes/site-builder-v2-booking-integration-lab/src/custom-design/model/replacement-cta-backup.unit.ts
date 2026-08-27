@@ -174,16 +174,20 @@ describe('stable native CTA placement', () => {
     });
   });
 
-  it('resolves bounded Book, Contact, and custom CTA actions', () => {
+  it('resolves bounded Book and structured custom CTA actions', () => {
     expect(resolveNativeCtaAction(cta, { bookingHref: '#booking' })).toMatchObject({
       status: 'resolved',
       href: '#booking',
     });
     expect(resolveNativeCtaAction({
-      type: 'contact_me',
-      label: 'Contact me',
+      type: 'custom',
+      label: 'Email me',
       placement: { type: 'after_all' },
-    }, { contactHref: 'mailto:owner@example.com' })).toMatchObject({
+      action: {
+        type: 'email',
+        destination: { email: 'owner@example.com' },
+      },
+    }, {})).toMatchObject({
       status: 'resolved',
       href: 'mailto:owner@example.com',
     });

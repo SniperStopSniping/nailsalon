@@ -34,7 +34,11 @@ describe('starter initialization', () => {
       ['section_01', 'section_02', 'booking'],
     );
     expect(document.pages[0]?.sections.map((section) =>
-      section.sectionType === 'booking' ? 'booking' : section.size,
+      section.sectionType === 'booking'
+        ? 'booking'
+        : section.sectionType === 'custom_design'
+          ? 'custom_design'
+          : section.size,
     )).toEqual([
       'compact',
       'medium',
@@ -67,7 +71,11 @@ describe('starter initialization', () => {
       'booking',
     ]);
     expect(document.pages[0]?.sections.map((section) =>
-      section.sectionType === 'booking' ? 'booking' : section.size,
+      section.sectionType === 'booking'
+        ? 'booking'
+        : section.sectionType === 'custom_design'
+          ? 'custom_design'
+          : section.size,
     )).toEqual([
       'large',
       'medium',

@@ -1,6 +1,5 @@
 import {
   parseCustomDesignAction,
-  resolveContactCta,
   resolveCustomDesignAction,
 } from './actions';
 import { parseBoundedSingleLineText } from './text';
@@ -48,7 +47,7 @@ export const parseNativeCta = (value: unknown): CustomDesignNativeCta | null => 
   const placement = parseCtaPlacement(value.placement);
   if (!label || !placement) return null;
 
-  if (value.type === 'book_now' || value.type === 'contact_me') {
+  if (value.type === 'book_now') {
     return hasOnlyKeys(value, ['type', 'label', 'placement'])
       ? { type: value.type, label, placement }
       : null;
@@ -120,6 +119,5 @@ export const resolveNativeCtaAction = (
   if (cta.type === 'book_now') {
     return resolveCustomDesignAction({ type: 'start_booking' }, context);
   }
-  if (cta.type === 'contact_me') return resolveContactCta(context);
   return resolveCustomDesignAction(cta.action, context);
 };

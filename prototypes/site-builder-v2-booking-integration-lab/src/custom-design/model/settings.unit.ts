@@ -6,9 +6,7 @@ import {
 import { createCustomDesignAssetManifest } from './backup';
 import { createDeterministicCustomDesignIdFactory } from './ids';
 import {
-  createCustomDesignSectionData,
   createDefaultCustomDesignSettings,
-  parseCustomDesignSectionData,
   parseCustomDesignSettings,
   validateCustomDesignImageMetadata,
   validateCustomDesignSettings,
@@ -65,16 +63,9 @@ describe('Custom Design model and settings validation', () => {
     });
   });
 
-  it('defines a narrow stable custom_design section contract', () => {
+  it('creates stable image, asset, and area IDs for the universal section', () => {
     const ids = createDeterministicCustomDesignIdFactory('contract');
-    const section = createCustomDesignSectionData({ id: ids('section') });
-    expect(section).toMatchObject({
-      id: 'custom_design_section_contract_1',
-      sectionType: 'custom_design',
-      label: 'Custom Design',
-      hidden: false,
-    });
-    expect(parseCustomDesignSectionData(section)).toEqual(section);
+    expect(ids('section')).toBe('custom_design_section_contract_1');
     expect(ids('image')).toBe('custom_design_image_contract_1');
     expect(ids('asset')).toBe('custom_design_asset_contract_1');
     expect(ids('area')).toBe('custom_design_area_contract_1');
@@ -226,6 +217,19 @@ describe('Custom Design model and settings validation', () => {
       gap: 'small',
       background: { mode: 'custom', color: '#AABBCC' },
     });
+  });
+
+  it('normalizes the ambiguous Phase 1 contact CTA to none but rejects it strictly', () => {
+    const legacy = {
+      ...createDefaultCustomDesignSettings(),
+      cta: {
+        type: 'contact_me',
+        label: 'Contact me',
+        placement: { type: 'after_all' },
+      },
+    };
+    expect(parseCustomDesignSettings(legacy).cta).toEqual({ type: 'none' });
+    expect(validateCustomDesignSettings(legacy).success).toBe(false);
   });
 
   it('defensively deduplicates area IDs across images', () => {

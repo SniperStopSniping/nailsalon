@@ -9,6 +9,43 @@ import type {
 
 export const DEFAULT_HISTORY_LIMIT = 100;
 
+export const getReachableHistoryDocuments = (
+  state: HistoryState,
+): readonly SiteBuilderDocument[] => [
+  ...state.past,
+  state.present,
+  ...state.future,
+];
+
+export const collectCustomDesignAssetIds = (
+  document: SiteBuilderDocument,
+): Set<string> => {
+  const assetIds = new Set<string>();
+  const sections = [
+    ...document.pages.flatMap((page) => page.sections),
+    ...document.unusedSections,
+  ];
+  for (const section of sections) {
+    if (section.sectionType !== 'custom_design') continue;
+    for (const image of section.settings.images) {
+      assetIds.add(image.assetId);
+    }
+  }
+  return assetIds;
+};
+
+export const collectReachableCustomDesignAssetIds = (
+  state: HistoryState,
+): Set<string> => {
+  const assetIds = new Set<string>();
+  for (const document of getReachableHistoryDocuments(state)) {
+    for (const assetId of collectCustomDesignAssetIds(document)) {
+      assetIds.add(assetId);
+    }
+  }
+  return assetIds;
+};
+
 export const createHistoryState = (
   document: SiteBuilderDocument,
 ): HistoryState => ({

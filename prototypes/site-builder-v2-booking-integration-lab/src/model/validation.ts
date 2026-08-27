@@ -1,7 +1,22 @@
 import { validateBookingPresentationSettings } from '../booking/presentation';
+import {
+  createCustomDesignAssetManifest,
+  createCustomDesignBackupEnvelope,
+  parseCustomDesignBackupEnvelope,
+  serializeCustomDesignBackupEnvelope,
+} from '../custom-design/model/backup';
+import {
+  parseCustomDesignSettings,
+  validateCustomDesignSettings,
+} from '../custom-design/model/settings';
+import type {
+  CustomDesignImageItem,
+  CustomDesignSettings,
+} from '../custom-design/model/types';
 import { hasNormalizedOrdering, normalizeDocument } from './normalize';
 import {
   SITE_BUILDER_SCHEMA_VERSION,
+  type CustomDesignSectionInstance,
   type DocumentImportResult,
   type DocumentValidationResult,
   type SiteBuilderDocument,
@@ -58,6 +73,14 @@ const PLACEHOLDER_SECTION_KEYS = new Set([
   'placeholderSettings',
 ]);
 const BOOKING_SECTION_KEYS = new Set([
+  'id',
+  'sectionType',
+  'label',
+  'order',
+  'visible',
+  'settings',
+]);
+const CUSTOM_DESIGN_SECTION_KEYS = new Set([
   'id',
   'sectionType',
   'label',
@@ -190,6 +213,27 @@ const validateBookingSectionShape = (
   }
 };
 
+const validateCustomDesignSectionShape = (
+  value: Record<string, unknown>,
+  path: string,
+  issues: string[],
+): void => {
+  rejectUnknownKeys(value, CUSTOM_DESIGN_SECTION_KEYS, path, issues);
+  validateSectionBaseShape(value, path, issues);
+  if (value.sectionType !== 'custom_design') {
+    issues.push(`${path}.sectionType must be custom_design.`);
+  }
+  if (value.label !== 'Custom Design') {
+    issues.push(`${path}.label must be Custom Design.`);
+  }
+  const result = validateCustomDesignSettings(value.settings);
+  if (!result.success) {
+    result.issues.forEach((issue) =>
+      issues.push(`${path}.settings: ${issue}`),
+    );
+  }
+};
+
 const validateSectionShape = (
   value: unknown,
   path: string,
@@ -206,6 +250,10 @@ const validateSectionShape = (
       return;
     }
     validateBookingSectionShape(value, path, issues);
+    return;
+  }
+  if (value.sectionType === 'custom_design') {
+    validateCustomDesignSectionShape(value, path, issues);
     return;
   }
   validatePlaceholderSectionShape(value, path, issues);
@@ -372,6 +420,60 @@ const findDuplicates = (values: readonly string[]): string[] => {
   return [...duplicates];
 };
 
+const getCustomDesignSections = (
+  document: SiteBuilderDocument,
+): CustomDesignSectionInstance[] => [
+  ...document.pages.flatMap((page) => page.sections),
+  ...document.unusedSections,
+].filter(
+  (section): section is CustomDesignSectionInstance =>
+    section.sectionType === 'custom_design',
+);
+
+const imageAssetMetadataMatches = (
+  first: CustomDesignImageItem,
+  second: CustomDesignImageItem,
+): boolean =>
+  first.assetId === second.assetId &&
+  first.fileName === second.fileName &&
+  first.mimeType === second.mimeType &&
+  first.fileSize === second.fileSize &&
+  first.width === second.width &&
+  first.height === second.height;
+
+const validateCustomDesignDocumentInvariants = (
+  document: SiteBuilderDocument,
+  issues: string[],
+): void => {
+  const imageItemIds = new Set<string>();
+  const areaIds = new Set<string>();
+  const assets = new Map<string, CustomDesignImageItem>();
+
+  for (const section of getCustomDesignSections(document)) {
+    for (const image of section.settings.images) {
+      if (imageItemIds.has(image.id)) {
+        issues.push(`Custom Design image item ID ${image.id} is duplicated.`);
+      }
+      imageItemIds.add(image.id);
+
+      const existingAsset = assets.get(image.assetId);
+      if (existingAsset && !imageAssetMetadataMatches(existingAsset, image)) {
+        issues.push(
+          `Custom Design asset ID ${image.assetId} has conflicting image metadata.`,
+        );
+      }
+      assets.set(image.assetId, image);
+
+      for (const area of image.interactiveAreas) {
+        if (areaIds.has(area.id)) {
+          issues.push(`Custom Design clickable area ID ${area.id} is duplicated.`);
+        }
+        areaIds.add(area.id);
+      }
+    }
+  }
+};
+
 const validateDocumentInvariants = (
   document: SiteBuilderDocument,
   issues: string[],
@@ -487,6 +589,7 @@ const validateDocumentInvariants = (
       }
     });
   });
+  validateCustomDesignDocumentInvariants(document, issues);
 };
 
 export const validateSiteBuilderDocument = (
@@ -503,6 +606,100 @@ export const validateSiteBuilderDocument = (
   return { success: true, document: normalizeDocument(value) };
 };
 
+type ImportedDocumentNormalizationResult =
+  | { success: true; value: unknown }
+  | { success: false; issues: string[] };
+
+const normalizeImportedCustomDesignSection = (
+  value: unknown,
+  path: string,
+  issues: string[],
+): unknown => {
+  if (!isRecord(value) || value.sectionType !== 'custom_design') {
+    return value;
+  }
+
+  const hasHidden = Object.hasOwn(value, 'hidden');
+  const hasVisible = Object.hasOwn(value, 'visible');
+  const hidden = value.hidden;
+  const visible = value.visible;
+
+  if (hasHidden && typeof hidden !== 'boolean') {
+    issues.push(`${path}.hidden must be a boolean when importing legacy Custom Design data.`);
+  }
+  if (hasVisible && typeof visible !== 'boolean') {
+    issues.push(`${path}.visible must be a boolean.`);
+  }
+  if (
+    hasHidden &&
+    hasVisible &&
+    typeof hidden === 'boolean' &&
+    typeof visible === 'boolean' &&
+    visible !== !hidden
+  ) {
+    issues.push(`${path} has contradictory visible and legacy hidden values.`);
+  }
+
+  const normalized: Record<string, unknown> = { ...value };
+  delete normalized.hidden;
+  if (!hasVisible && typeof hidden === 'boolean') {
+    normalized.visible = !hidden;
+  } else if (!hasVisible && !hasHidden) {
+    normalized.visible = true;
+  }
+  normalized.settings = parseCustomDesignSettings(value.settings);
+  return normalized;
+};
+
+const normalizeImportedSiteBuilderDocument = (
+  value: unknown,
+): ImportedDocumentNormalizationResult => {
+  if (!isRecord(value)) return { success: true, value };
+  const issues: string[] = [];
+  const normalized: Record<string, unknown> = { ...value };
+
+  if (Array.isArray(value.pages)) {
+    normalized.pages = value.pages.map((page, pageIndex) => {
+      if (!isRecord(page) || !Array.isArray(page.sections)) return page;
+      return {
+        ...page,
+        sections: page.sections.map((section, sectionIndex) =>
+          normalizeImportedCustomDesignSection(
+            section,
+            `pages[${pageIndex}].sections[${sectionIndex}]`,
+            issues,
+          )),
+      };
+    });
+  }
+  if (Array.isArray(value.unusedSections)) {
+    normalized.unusedSections = value.unusedSections.map((section, index) =>
+      normalizeImportedCustomDesignSection(
+        section,
+        `unusedSections[${index}]`,
+        issues,
+      ));
+  }
+
+  return issues.length > 0
+    ? { success: false, issues }
+    : { success: true, value: normalized };
+};
+
+const getCustomDesignSettings = (
+  document: SiteBuilderDocument,
+): CustomDesignSettings[] =>
+  getCustomDesignSections(document).map((section) => section.settings);
+
+const validateImportedDocumentValue = (
+  value: unknown,
+): DocumentImportResult => {
+  const normalized = normalizeImportedSiteBuilderDocument(value);
+  return normalized.success
+    ? validateSiteBuilderDocument(normalized.value)
+    : normalized;
+};
+
 export const exportSiteBuilderDocument = (
   document: SiteBuilderDocument,
 ): string => {
@@ -511,6 +708,23 @@ export const exportSiteBuilderDocument = (
     throw new Error(`Cannot export an invalid site document: ${validated.issues.join(' ')}`);
   }
   return JSON.stringify(validated.document, null, 2);
+};
+
+export const exportSiteBuilderBackup = (
+  document: SiteBuilderDocument,
+  exportedAt = new Date().toISOString(),
+): string => {
+  const validated = validateSiteBuilderDocument(document);
+  if (!validated.success) {
+    throw new Error(`Cannot export an invalid site document: ${validated.issues.join(' ')}`);
+  }
+  return serializeCustomDesignBackupEnvelope(
+    createCustomDesignBackupEnvelope({
+      document: validated.document,
+      settings: getCustomDesignSettings(validated.document),
+      exportedAt,
+    }),
+  );
 };
 
 export const parseSiteBuilderDocument = (
@@ -529,7 +743,28 @@ export const parseSiteBuilderDocument = (
   } catch {
     return { success: false, issues: ['The selected file is not valid JSON.'] };
   }
-  return validateSiteBuilderDocument(parsed);
+  if (isRecord(parsed) && Object.hasOwn(parsed, 'kind')) {
+    const envelope = parseCustomDesignBackupEnvelope(parsed);
+    if (!envelope.success) return envelope;
+    const imported = validateImportedDocumentValue(envelope.value.document);
+    if (!imported.success) return imported;
+    const expectedManifest = createCustomDesignAssetManifest(
+      getCustomDesignSettings(imported.document),
+    );
+    if (
+      JSON.stringify(expectedManifest) !==
+      JSON.stringify(envelope.value.customDesignAssets)
+    ) {
+      return {
+        success: false,
+        issues: [
+          'Custom Design asset manifest does not match the imported document.',
+        ],
+      };
+    }
+    return imported;
+  }
+  return validateImportedDocumentValue(parsed);
 };
 
 export const importSiteBuilderDocument = parseSiteBuilderDocument;
