@@ -113,7 +113,18 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
 
     const detail = screen.getByTestId('service-detail-dialog');
     const scrollBody = within(detail).getByTestId('service-detail-scroll-body');
+    const closeControls = within(detail).getAllByRole('button', {
+      name: 'Close service details',
+    });
+    const closeControl = closeControls[0];
+    if (!closeControl) {
+      throw new Error(`${layout} did not render the Service Detail close control.`);
+    }
     expect(detail).toHaveClass('booking-service-detail-shell');
+    expect(closeControls).toHaveLength(1);
+    expect(scrollBody).not.toContainElement(closeControl);
+    expect(closeControl.parentElement).toBe(scrollBody.parentElement);
+    expect(closeControl.nextElementSibling).toBe(scrollBody);
     expect(scrollBody.parentElement).toHaveClass('booking-dialog-panel');
     expect(scrollBody).toHaveAttribute(
       'data-image-mode',
@@ -565,6 +576,26 @@ describe('Booking renderer mode and session boundaries', () => {
     expect(bodyRule).toContain('overflow-y: auto;');
     expect(bodyRule).toContain('overscroll-behavior: contain;');
     expect(bodyRule).toContain('-webkit-overflow-scrolling: touch;');
+
+    const compactPanelRule = bookingCss.match(
+      /@media \(max-width: 620px\), \(max-height: 620px\) \{[\s\S]*?\.booking-service-detail-shell > \.booking-dialog-panel \{([^}]*)\}/,
+    )?.[1];
+    expect(compactPanelRule).toContain('display: grid;');
+    expect(compactPanelRule).toContain('grid-template-rows: 72px minmax(0, 1fr);');
+
+    const compactCloseRule = bookingCss.match(
+      /\.booking-service-detail-shell \.booking-dialog-close \{([^}]*)\}/,
+    )?.[1];
+    expect(compactCloseRule).toContain('position: relative;');
+    expect(compactCloseRule).toContain('grid-row: 1;');
+    expect(compactCloseRule).toContain('margin-inline-end: 14px;');
+
+    const simulatedPhonePanelRule = bookingCss.match(
+      /\.booking-preview-overlays\[data-preview-viewport='mobile'\]\s+\.booking-service-detail-shell > \.booking-dialog-panel \{([^}]*)\}/,
+    )?.[1];
+    expect(simulatedPhonePanelRule).toContain('display: grid;');
+    expect(simulatedPhonePanelRule)
+      .toContain('grid-template-rows: 72px minmax(0, 1fr);');
   });
 
   it('gives the Visual Grid featured tile the selected service semantics', async () => {

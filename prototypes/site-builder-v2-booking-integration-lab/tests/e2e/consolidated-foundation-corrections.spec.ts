@@ -39,6 +39,8 @@ const FULL_JOURNEY_VIEWPORTS = [
   { width: 1440, height: 900 },
 ] as const;
 
+const MAX_TRUSTED_SCROLL_SWIPES = 12;
+
 type Point = { x: number; y: number };
 
 async function sendTouch(
@@ -69,13 +71,17 @@ async function trustedSwipeUp(
   const box = await scrollBody.boundingBox();
   expect(box, 'service detail scroll body has geometry').not.toBeNull();
   if (!box) return;
+  const edgeInset = Math.min(54, Math.max(16, box.height * 0.14));
   const start = {
     x: box.x + box.width * 0.72,
-    y: Math.min(box.y + box.height - 76, box.y + box.height * 0.72),
+    y: box.y + box.height - edgeInset,
   };
   const end = {
     x: start.x,
-    y: Math.max(box.y + 54, start.y - Math.min(220, box.height * 0.48)),
+    y: Math.max(
+      box.y + edgeInset,
+      start.y - Math.min(220, box.height - edgeInset * 2),
+    ),
   };
   await sendTouch(session, 'touchStart', start);
   for (let step = 1; step <= 8; step += 1) {
@@ -87,6 +93,7 @@ async function trustedSwipeUp(
     await page.waitForTimeout(12);
   }
   await sendTouch(session, 'touchEnd');
+  await page.waitForTimeout(80);
 }
 
 async function trustedSwipeFrom(
@@ -227,6 +234,106 @@ async function expectActionInsideScrollBody(
   expect(geometry.actionBottom).toBeLessThanOrEqual(geometry.bodyBottom + 1);
 }
 
+type CloseExclusionPosition = {
+  bottom: number;
+  left: number;
+  right: number;
+  top: number;
+};
+
+async function expectCloseExcludedFromScrollBody(
+  detail: Locator,
+): Promise<CloseExclusionPosition> {
+  const geometry = await detail.evaluate((shell) => {
+    const panel = shell.querySelector<HTMLElement>('.booking-dialog-panel');
+    const body = shell.querySelector<HTMLElement>(
+      '[data-testid="service-detail-scroll-body"]',
+    );
+    const close = shell.querySelector<HTMLButtonElement>(
+      'button.booking-dialog-close[aria-label="Close service details"]',
+    );
+    if (!panel || !body || !close) {
+      throw new Error('Service Detail close-exclusion structure is missing.');
+    }
+    const shellRect = shell.getBoundingClientRect();
+    const bodyRect = body.getBoundingClientRect();
+    const closeRect = close.getBoundingClientRect();
+    const closeHit = document.elementFromPoint(
+      closeRect.left + closeRect.width / 2,
+      closeRect.top + closeRect.height / 2,
+    );
+    const safeAreaHit = document.elementFromPoint(
+      bodyRect.left + Math.min(16, bodyRect.width / 4),
+      closeRect.top + closeRect.height / 2,
+    );
+    const panelStyle = getComputedStyle(panel);
+    const meaningfulContent = body.querySelectorAll<HTMLElement>([
+      '.booking-detail-description',
+      '.booking-detail-meta',
+      '.booking-add-on-name',
+      '.booking-add-on-adjustment',
+      '.booking-detail-actions',
+    ].join(','));
+
+    return {
+      addOnCount: body.querySelectorAll('.booking-add-on-option').length,
+      bodyContainsClose: body.contains(close),
+      bodyTop: bodyRect.top,
+      close: {
+        bottom: closeRect.bottom,
+        height: closeRect.height,
+        left: closeRect.left,
+        right: closeRect.right,
+        top: closeRect.top,
+        width: closeRect.width,
+      },
+      closeCenterHit: Boolean(closeHit && close.contains(closeHit)),
+      closeInsideShell:
+        closeRect.left >= shellRect.left - 1
+        && closeRect.top >= shellRect.top - 1
+        && closeRect.right <= shellRect.right + 1
+        && closeRect.bottom <= shellRect.bottom + 1,
+      closePosition: getComputedStyle(close).position,
+      description: body.querySelector('.booking-detail-description')?.textContent?.trim() ?? '',
+      firstGridTrack: Number.parseFloat(panelStyle.gridTemplateRows.split(' ')[0] ?? ''),
+      meaningfulContentCount: meaningfulContent.length,
+      meaningfulContentOutsideScroller: [...meaningfulContent]
+        .some(element => !body.contains(element)),
+      panelDisplay: panelStyle.display,
+      safeAreaHitInsideBody: Boolean(safeAreaHit && body.contains(safeAreaHit)),
+      samePanelParent: close.parentElement === body.parentElement,
+    };
+  });
+
+  expect(geometry.bodyContainsClose).toBe(false);
+  expect(geometry.samePanelParent).toBe(true);
+  expect(geometry.panelDisplay).toBe('grid');
+  expect(geometry.firstGridTrack).toBeCloseTo(72, 0);
+  expect(geometry.closePosition).toBe('relative');
+  expect(geometry.bodyTop - geometry.close.bottom).toBeGreaterThanOrEqual(12);
+  expect(geometry.close.height).toBeCloseTo(44, 0);
+  expect(geometry.close.width).toBeCloseTo(44, 0);
+  expect(geometry.closeInsideShell).toBe(true);
+  expect(geometry.closeCenterHit).toBe(true);
+  expect(geometry.safeAreaHitInsideBody).toBe(false);
+  expect(geometry.description.length).toBeGreaterThan(40);
+  expect(geometry.addOnCount).toBe(4);
+  expect(geometry.meaningfulContentCount).toBeGreaterThanOrEqual(11);
+  expect(geometry.meaningfulContentOutsideScroller).toBe(false);
+
+  return geometry.close;
+}
+
+function expectClosePositionStable(
+  before: CloseExclusionPosition,
+  after: CloseExclusionPosition,
+): void {
+  expect(Math.abs(after.top - before.top)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.right - before.right)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.bottom - before.bottom)).toBeLessThanOrEqual(1);
+  expect(Math.abs(after.left - before.left)).toBeLessThanOrEqual(1);
+}
+
 async function expectFeaturedRailTargetsReachable(
   rail: Locator,
   tiles: Locator,
@@ -269,6 +376,7 @@ for (const layout of LAYOUTS) {
         const detail = page.getByTestId('service-detail-dialog');
         const scrollBody = detail.getByTestId('service-detail-scroll-body');
         const primary = detail.getByRole('button', { name: 'Select service' });
+        const closeStart = await expectCloseExcludedFromScrollBody(detail);
 
         const initial = await detail.evaluate((shell) => {
           const panel = shell.querySelector('.booking-dialog-panel');
@@ -306,7 +414,7 @@ for (const layout of LAYOUTS) {
         )).toBeLessThanOrEqual(1);
         expect(await page.evaluate(() => window.scrollY)).toBe(windowScrollY);
 
-        for (let swipe = 0; swipe < 6; swipe += 1) {
+        for (let swipe = 0; swipe < MAX_TRUSTED_SCROLL_SWIPES; swipe += 1) {
           const atBottom = await scrollBody.evaluate(
             element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
           );
@@ -316,6 +424,8 @@ for (const layout of LAYOUTS) {
         await expect.poll(() => scrollBody.evaluate(
           element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
         )).toBe(true);
+        const closeEnd = await expectCloseExcludedFromScrollBody(detail);
+        expectClosePositionStable(closeStart, closeEnd);
         await expectActionInsideScrollBody(scrollBody, primary);
         await expect(primary).toBeEnabled();
         await primary.click({ trial: true });
@@ -377,6 +487,7 @@ test('simulated Phone contains the same internal Service Detail scroller', async
     const detail = page.getByTestId('service-detail-dialog');
     const body = detail.getByTestId('service-detail-scroll-body');
     const host = page.locator('.preview-overlay-host');
+    const closeStart = await expectCloseExcludedFromScrollBody(detail);
     const containment = await detail.evaluate((shell, hostElement) => {
       const shellRect = shell.getBoundingClientRect();
       const hostRect = (hostElement as HTMLElement).getBoundingClientRect();
@@ -403,13 +514,49 @@ test('simulated Phone contains the same internal Service Detail scroller', async
     expect(containment.shellHeight).toBeLessThan(containment.outerVisualViewportHeight);
 
     const cdp = await page.context().newCDPSession(page);
-    await trustedSwipeUp(page, cdp, body);
-    await expect.poll(() => body.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+    for (let swipe = 0; swipe < MAX_TRUSTED_SCROLL_SWIPES; swipe += 1) {
+      const atBottom = await body.evaluate(
+        element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
+      );
+      if (atBottom) break;
+      await trustedSwipeUp(page, cdp, body);
+    }
+    await expect.poll(() => body.evaluate(
+      element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
+    )).toBe(true);
+    const closeEnd = await expectCloseExcludedFromScrollBody(detail);
+    expectClosePositionStable(closeStart, closeEnd);
     expect(Math.abs(
       await page.locator('.client-site').evaluate(element => element.scrollTop)
       - menuScrollTop,
     )).toBeLessThanOrEqual(1);
     await detail.getByRole('button', { name: 'Select service' }).click({ trial: true });
+    await detail.getByRole('button', { name: 'Close service details' }).click();
+
+    await page.getByRole('group', { name: 'Preview viewport' })
+      .getByRole('button', { name: 'Tablet' })
+      .click();
+    await openRussianService(page, true);
+    const tabletDetail = page.getByTestId('service-detail-dialog');
+    const tabletHost = page.locator('.preview-overlay-host');
+    const tabletContainment = await tabletDetail.evaluate((shell, hostElement) => {
+      const shellRect = shell.getBoundingClientRect();
+      const hostRect = (hostElement as HTMLElement).getBoundingClientRect();
+      const scrollBody = shell.querySelector<HTMLElement>(
+        '[data-testid="service-detail-scroll-body"]',
+      );
+      return {
+        bodyOverflowY: scrollBody ? getComputedStyle(scrollBody).overflowY : '',
+        contained:
+          shellRect.left >= hostRect.left - 1
+          && shellRect.top >= hostRect.top - 1
+          && shellRect.right <= hostRect.right + 1
+          && shellRect.bottom <= hostRect.bottom + 1,
+      };
+    }, await tabletHost.elementHandle());
+    expect(tabletContainment.contained).toBe(true);
+    expect(tabletContainment.bodyOverflowY).toBe('auto');
+    await tabletDetail.getByRole('button', { name: 'Close service details' }).click();
   } finally {
     runtime.assertClean();
     runtime.stop();
@@ -435,7 +582,8 @@ test.describe('real-mobile-style Chromium context', () => {
       const detail = page.getByTestId('service-detail-dialog');
       const body = detail.getByTestId('service-detail-scroll-body');
       const cdp = await page.context().newCDPSession(page);
-      for (let swipe = 0; swipe < 8; swipe += 1) {
+      const closeStart = await expectCloseExcludedFromScrollBody(detail);
+      for (let swipe = 0; swipe < MAX_TRUSTED_SCROLL_SWIPES; swipe += 1) {
         const atBottom = await body.evaluate(
           element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
         );
@@ -445,6 +593,8 @@ test.describe('real-mobile-style Chromium context', () => {
       await expect.poll(() => body.evaluate(
         element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
       )).toBe(true);
+      const closeEnd = await expectCloseExcludedFromScrollBody(detail);
+      expectClosePositionStable(closeStart, closeEnd);
       const primary = detail.getByRole('button', { name: 'Select service' });
       await expectActionInsideScrollBody(body, primary);
       const visualReachability = await primary.evaluate((action) => {
@@ -643,7 +793,9 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
       for (const viewport of MOBILE_SCROLL_VIEWPORTS) {
         await page.setViewportSize(viewport);
         const { menuScrollTop, windowScrollY } = await openRussianService(page, true);
-        const body = page.getByTestId('service-detail-scroll-body');
+        const detail = page.getByTestId('service-detail-dialog');
+        const body = detail.getByTestId('service-detail-scroll-body');
+        const closeStart = await expectCloseExcludedFromScrollBody(detail);
         await expect(body).toHaveAttribute('data-image-mode', imageMode.toLowerCase());
         await expect(body.locator('.booking-detail-image-wrap'))
           .toHaveCount(imageMode === 'Hide' ? 0 : 1);
@@ -654,7 +806,7 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
         }));
         expect(dimensions.overflowY).toBe('auto');
         if (dimensions.scrollHeight > dimensions.clientHeight) {
-          for (let swipe = 0; swipe < 8; swipe += 1) {
+          for (let swipe = 0; swipe < MAX_TRUSTED_SCROLL_SWIPES; swipe += 1) {
             const atBottom = await body.evaluate(
               element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
             );
@@ -667,7 +819,9 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
         } else {
           expect(dimensions.scrollHeight).toBe(dimensions.clientHeight);
         }
-        const primary = page.getByTestId('service-detail-dialog').getByRole('button', {
+        const closeEnd = await expectCloseExcludedFromScrollBody(detail);
+        expectClosePositionStable(closeStart, closeEnd);
+        const primary = detail.getByRole('button', {
           name: 'Select service',
         });
         await expectActionInsideScrollBody(body, primary);
@@ -682,6 +836,41 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
           .getByRole('button', { name: 'Clear service search' })
           .click();
       }
+
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.getByRole('group', { name: 'Preview viewport' })
+        .getByRole('button', { name: 'Phone' })
+        .click();
+      const { menuScrollTop, windowScrollY } = await openRussianService(page, true);
+      const phoneDetail = page.getByTestId('service-detail-dialog');
+      const phoneBody = phoneDetail.getByTestId('service-detail-scroll-body');
+      const phoneCloseStart = await expectCloseExcludedFromScrollBody(phoneDetail);
+      await expect(phoneBody).toHaveAttribute('data-image-mode', imageMode.toLowerCase());
+      await expect(phoneBody.locator('.booking-detail-image-wrap'))
+        .toHaveCount(imageMode === 'Hide' ? 0 : 1);
+      for (let swipe = 0; swipe < MAX_TRUSTED_SCROLL_SWIPES; swipe += 1) {
+        const atBottom = await phoneBody.evaluate(
+          element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
+        );
+        if (atBottom) break;
+        await trustedSwipeUp(page, cdp, phoneBody);
+      }
+      await expect.poll(() => phoneBody.evaluate(
+        element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
+      )).toBe(true);
+      const phoneCloseEnd = await expectCloseExcludedFromScrollBody(phoneDetail);
+      expectClosePositionStable(phoneCloseStart, phoneCloseEnd);
+      await phoneDetail.getByRole('button', { name: 'Select service' }).click({ trial: true });
+      expect(Math.abs(
+        await page.locator('.client-site').evaluate(element => element.scrollTop)
+        - menuScrollTop,
+      )).toBeLessThanOrEqual(1);
+      expect(await page.evaluate(() => window.scrollY)).toBe(windowScrollY);
+      await phoneDetail.getByRole('button', { name: 'Close service details' }).click();
+      await page.getByTestId('booking-section-preview')
+        .getByRole('button', { name: 'Clear service search' })
+        .click();
+
       await page.setViewportSize({ width: 1180, height: 800 });
       await page.getByRole('button', { name: 'Back to editor' }).click();
     }
@@ -929,7 +1118,7 @@ for (const layout of LAYOUTS) {
       const cdp = await page.context().newCDPSession(page);
 
       const scrollToBottom = async (body: Locator) => {
-        for (let attempt = 0; attempt < 10; attempt += 1) {
+        for (let attempt = 0; attempt < MAX_TRUSTED_SCROLL_SWIPES; attempt += 1) {
           const atBottom = await body.evaluate(
             element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
           );
