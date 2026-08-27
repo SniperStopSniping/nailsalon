@@ -41,7 +41,7 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   color: var(--final-ink);
   background:
     radial-gradient(circle at 50% -15%, rgba(168, 70, 106, 0.12), transparent 34rem),
-    #fbf8f4;
+    #f7f2ec;
 }
 
 .final-starter-header {
@@ -135,7 +135,7 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   border: 1px solid var(--final-line);
   border-radius: 22px;
   color: inherit;
-  background: rgba(255, 255, 255, 0.92);
+  background: #fff;
   cursor: pointer;
   text-align: left;
   box-shadow: 0 18px 52px rgba(67, 45, 47, 0.07);
@@ -730,6 +730,12 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
 
 /* Primary mobile editor */
 .final-hybrid-app {
+  --edit-card-line: rgba(64, 43, 44, 0.08);
+  --edit-ground: #f7f1eb;
+  --edit-gutter: 8px;
+  --edit-section: #fff;
+  --edit-section-line: rgba(64, 43, 44, 0.12);
+  --edit-section-line-strong: rgba(64, 43, 44, 0.26);
   min-height: 100dvh;
   padding-bottom: calc(146px + env(safe-area-inset-bottom));
   color: var(--final-ink);
@@ -904,12 +910,12 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   width: 100%;
   min-height: calc(100dvh - 62px);
   margin: 0 auto;
-  background: var(--final-canvas);
+  background: var(--edit-ground);
 }
 
 .final-site-canvas {
   min-height: calc(100dvh - 62px);
-  background: #fffdfa;
+  background: var(--edit-ground);
 }
 
 .final-hybrid-app .canvas-client-header {
@@ -969,8 +975,11 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   font-size: 0.78rem;
 }
 
-.final-sections-list {
+.final-hybrid-app .final-sections-list {
+  display: flex;
   min-width: 0;
+  flex-direction: column;
+  gap: var(--edit-gutter);
 }
 
 .final-section-block {
@@ -984,12 +993,12 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   padding: 23px 17px;
   overflow: visible;
   border: 0;
-  border-bottom: 1px solid rgba(65, 44, 45, 0.09);
+  border-block: 1px solid var(--edit-section-line);
   border-radius: 0;
   color: var(--final-ink);
-  background: #fffdfa;
+  background: var(--edit-section);
   box-shadow: none;
-  transition: box-shadow 150ms ease, opacity 150ms ease;
+  transition: border-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease;
   scroll-margin-top: var(--final-context-top, 86px);
 }
 
@@ -1009,12 +1018,18 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   z-index: 2;
   outline: 2px solid color-mix(in srgb, var(--final-accent) 72%, white);
   outline-offset: -2px;
-  box-shadow: inset 0 0 0 2px var(--final-accent), inset 0 0 0 5px #fffdfa;
+  box-shadow: inset 0 0 0 2px var(--final-accent), inset 0 0 0 5px var(--edit-section);
 }
 
 .final-hybrid-app .section-card.is-hidden {
   opacity: 0.6;
-  background: repeating-linear-gradient(-45deg, #fffdfa, #fffdfa 9px, #faf5f2 9px, #faf5f2 18px);
+  background: repeating-linear-gradient(
+    -45deg,
+    var(--edit-section),
+    var(--edit-section) 9px,
+    #f5eee9 9px,
+    #f5eee9 18px
+  );
 }
 
 .final-hybrid-app .section-card__select-surface {
@@ -1058,6 +1073,16 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   background: #f7e9ee;
   font-size: 0.73rem;
   font-weight: 850;
+}
+
+@media (min-width: 900px) and (any-hover: hover) and (any-pointer: fine) {
+  .final-hybrid-app .section-card:not(.is-selected):hover {
+    border-block-color: var(--edit-section-line-strong);
+  }
+
+  .final-hybrid-app .section-card:not(.is-selected):hover .section-card__number {
+    background: var(--final-accent-soft);
+  }
 }
 
 .final-hybrid-app .section-card__title {
@@ -1108,12 +1133,13 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   grid-template-rows: repeat(2, 1fr);
   gap: 8px;
   margin-top: 22px;
-  opacity: 0.65;
+  opacity: 0.8;
 }
 
 .final-hybrid-app .placeholder-grid span {
+  border: 1px solid var(--edit-card-line);
   border-radius: 11px;
-  background: linear-gradient(135deg, #f2eceb, #f8f4f1);
+  background: linear-gradient(135deg, #f1eae7, #f7f2ee);
 }
 
 .final-hybrid-app .placeholder-grid span:first-child {
@@ -1163,7 +1189,7 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   align-items: center;
   justify-content: center;
   gap: 5px;
-  margin: -1px auto;
+  margin: 0 auto;
   padding: 7px 12px;
   border: 1px dashed rgba(155, 36, 84, 0.35);
   border-radius: 999px;
@@ -2833,7 +2859,7 @@ body[data-editor-shell='final-hybrid'] .library-state {
 .final-hybrid-app .section-card--booking {
   min-height: 0;
   padding: 0;
-  background: #fffdfa;
+  background: var(--edit-section);
 }
 
 .final-hybrid-app .section-card--booking .section-card__select-surface--booking {
@@ -2863,7 +2889,7 @@ body[data-editor-shell='final-hybrid'] .library-state {
   left: 0;
   height: 150px;
   pointer-events: none;
-  background: linear-gradient(transparent, #fffdfa 88%);
+  background: linear-gradient(transparent, var(--edit-section) 88%);
 }
 
 .final-hybrid-app .booking-editor-preview__toggle {
