@@ -1656,9 +1656,7 @@
 }
 
 .category-row-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
+  display: block;
   padding: 0;
   color: var(--booking-text);
   font-family: var(--heading-font);
@@ -1667,9 +1665,17 @@
   text-align: left;
 }
 
-.category-row-title > span:first-child {
+.category-row-service-name {
+  display: block;
   min-width: 0;
-  overflow-wrap: anywhere;
+  hyphens: none;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.category-row-selected {
+  display: block;
+  margin-top: 6px;
 }
 
 .category-row-description {

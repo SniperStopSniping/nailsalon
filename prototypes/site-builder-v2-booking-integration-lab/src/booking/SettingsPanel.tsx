@@ -132,7 +132,7 @@ function LayoutControls({
             value={options.density}
             options={[
               { value: 'compact', label: 'Compact' },
-              { value: 'comfortable', label: 'Comfort' },
+              { value: 'comfortable', label: 'Comfortable' },
               { value: 'spacious', label: 'Spacious' },
             ]}
             onChange={density => update({ density })}

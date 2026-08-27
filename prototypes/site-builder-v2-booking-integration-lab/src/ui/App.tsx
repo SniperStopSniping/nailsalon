@@ -152,6 +152,10 @@ const starterLabel = (starter: OriginStarter): string => ({
   multi_page: 'Multi-page website',
 })[starter];
 
+const restoreOuterEditorTop = () => {
+  window.scrollTo({ behavior: 'auto', left: 0, top: 0 });
+};
+
 const canReceiveProgrammaticFocus = (element: HTMLElement | null): element is HTMLElement => {
   if (
     !element
@@ -247,6 +251,7 @@ export function App() {
   const moveCompletionSequenceRef = useRef<MoveCompletionSequence | null>(null);
   const moveLastActivationRef = useRef<MoveCompletionActivation | null>(null);
   const pendingMoveFocusRef = useRef<PendingMoveFocus | null>(null);
+  const pendingEditorTopRestoreRef = useRef(false);
   const previewAnnouncementTokenRef = useRef(0);
   const [moveFocusRequest, setMoveFocusRequest] = useState(0);
   const [contextTop, setContextTop] = useState(86);
@@ -805,6 +810,14 @@ export function App() {
     return () => app.removeAttribute('inert');
   }, [mobileBookingSettingsModalOpen, moveSession]);
 
+  useLayoutEffect(() => {
+    if (!document || !pendingEditorTopRestoreRef.current) {
+      return;
+    }
+    pendingEditorTopRestoreRef.current = false;
+    restoreOuterEditorTop();
+  }, [document]);
+
   const sortedActiveSections = useMemo(
     () => activePage ? [...activePage.sections].sort((left, right) => left.order - right.order) : [],
     [activePage],
@@ -925,6 +938,7 @@ export function App() {
   };
 
   const chooseStarter = (starter: OriginStarter) => {
+    pendingEditorTopRestoreRef.current = true;
     lab.chooseStarter(starter);
     setBookingSession(createEmptyBookingSession());
     setBookingCollapseOverrides({});
@@ -1416,6 +1430,7 @@ export function App() {
       setOptionsOpen(false);
       setToast(null);
     } else if (resetChoice === 'starter') {
+      pendingEditorTopRestoreRef.current = true;
       lab.resetToStarter();
       setBookingSession(createEmptyBookingSession());
       setBookingCollapseOverrides({});
@@ -1756,16 +1771,16 @@ export function App() {
           }}
         >
           <header>
-            <div>
-              <h2 ref={bookingSettingsHeadingRef} tabIndex={-1}>Booking</h2>
+            <div className="final-booking-settings-drawer__intro">
+              <h2 ref={bookingSettingsHeadingRef} className="final-booking-settings-drawer__title" tabIndex={-1}>Booking</h2>
               <p>Choose how clients browse your services. You can change this anytime. Your services, prices and booking settings stay the same.</p>
             </div>
-            <button aria-label="Close Booking settings" className="icon-button" type="button" onClick={closeBookingSettings}>×</button>
-          </header>
-          <div className="final-booking-settings-drawer__body">
             <button ref={bookingSettingsHideRef} className="final-booking-settings-drawer__preview" type="button" onClick={hideBookingSettings}>
               Hide settings
             </button>
+            <button aria-label="Close Booking settings" className="icon-button" type="button" onClick={closeBookingSettings}>×</button>
+          </header>
+          <div className="final-booking-settings-drawer__body">
             <BookingSettingsPanel
               settings={editingBooking.settings}
               showIntro={false}

@@ -1339,7 +1339,7 @@ p {
   min-height: calc(100vh - 110px);
   overflow: hidden;
   border-radius: 13px;
-  background: #f7f8fc;
+  background: var(--final-canvas);
   box-shadow: 0 20px 70px rgba(0, 0, 0, 0.35);
 }
 
@@ -1351,8 +1351,8 @@ p {
   justify-content: space-between;
   gap: 18px;
   padding: 13px clamp(16px, 4vw, 40px);
-  border-bottom: 1px solid #e5e6ec;
-  background: white;
+  border-bottom: 1px solid var(--final-line);
+  background: var(--final-canvas);
 }
 
 .client-brand {
@@ -1368,7 +1368,7 @@ p {
   place-items: center;
   border-radius: 9px;
   color: white;
-  background: #4d35c6;
+  background: var(--final-accent);
   font-family: Georgia, serif;
 }
 
@@ -1384,15 +1384,15 @@ p {
   flex: 0 0 auto;
   padding: 8px 11px;
   border-radius: 8px;
-  color: #5b5968;
+  color: var(--final-muted);
   background: transparent;
   font-size: 0.78rem;
   font-weight: 700;
 }
 
 .client-header nav button[aria-current="page"] {
-  color: #3e27af;
-  background: #eeeaff;
+  color: var(--final-accent-dark);
+  background: var(--final-accent-soft);
 }
 
 .client-menu-button {
@@ -1403,8 +1403,8 @@ p {
   padding: 0;
   place-items: center;
   border-radius: 9px;
-  color: #4c4a59;
-  background: #f2f2f6;
+  color: var(--final-ink);
+  background: var(--final-blush);
 }
 
 /* Preview viewport controls simulate the client width independently of the
@@ -1430,9 +1430,9 @@ p {
   display: grid;
   padding: 8px;
   overflow: visible;
-  border: 1px solid #dddde5;
+  border: 1px solid var(--final-line);
   border-radius: 11px;
-  background: white;
+  background: var(--final-canvas);
   box-shadow: var(--shadow);
 }
 
@@ -1464,7 +1464,7 @@ p {
 }
 
 .client-header__simple {
-  color: var(--muted);
+  color: var(--final-muted);
   font-size: 0.76rem;
 }
 
@@ -1481,7 +1481,7 @@ p {
 .client-page__heading span,
 .preview-section:not(.preview-section--booking) p {
   margin: 0 0 4px;
-  color: #696778;
+  color: var(--final-muted);
   font-size: 0.7rem;
   font-weight: 750;
   letter-spacing: 0.08em;
@@ -1501,11 +1501,11 @@ p {
   align-items: center;
   gap: 18px;
   padding: clamp(16px, 3vw, 30px);
-  border: 1px solid #dddfea;
+  border: 1px solid var(--final-line);
   border-radius: 15px;
   background:
-    radial-gradient(circle at 80% 20%, rgba(92, 62, 232, 0.09), transparent 28%),
-    linear-gradient(135deg, #fff, #f0f1f8);
+    radial-gradient(circle at 80% 20%, color-mix(in srgb, var(--final-accent) 9%, transparent), transparent 28%),
+    linear-gradient(135deg, var(--final-canvas), var(--final-chrome));
 }
 
 .preview-section--compact { min-height: 130px; }
@@ -1524,7 +1524,7 @@ p {
   place-items: center;
   border-radius: 14px;
   color: white;
-  background: #373549;
+  background: var(--final-ink);
   font-size: 1.05rem;
   font-weight: 850;
 }
@@ -1535,7 +1535,7 @@ p {
 }
 
 .preview-section:not(.preview-section--booking) div > span {
-  color: #747281;
+  color: var(--final-muted);
   font-size: 0.78rem;
 }
 
@@ -1543,7 +1543,7 @@ p {
   padding: 10px 15px;
   border-radius: 10px;
   color: white;
-  background: #4d35c6;
+  background: var(--final-accent);
   font-weight: 750;
 }
 

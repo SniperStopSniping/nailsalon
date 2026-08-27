@@ -829,9 +829,13 @@ export function CategoryMenuLayout(props: LayoutProps) {
                   </span>
                   <span className="category-row-copy">
                     <span className="category-row-title">
-                      <span>{service.name}</span>
-                      {isSelected && <SelectedLabel />}
+                      <span className="category-row-service-name">{service.name}</span>
                     </span>
+                    {isSelected && (
+                      <span className="category-row-selected">
+                        <SelectedLabel />
+                      </span>
+                    )}
                     {layoutSettings.showDescriptions && service.shortDescription && (
                       <span className="category-row-description">{service.shortDescription}</span>
                     )}
