@@ -686,7 +686,7 @@ async function capturePreviewBoundaryCorrections(browser) {
     if (await page.getByTestId('selected-service-summary').count() !== 0) {
       throw new Error('Selected customer summary leaked into Edit mode.');
     }
-    const editorSearch = editPreview.locator('input[placeholder="Search services"]');
+    const editorSearch = editPreview.locator('input[placeholder="Try “Russian manicure”"]');
     if (await editorSearch.inputValue() !== '') {
       throw new Error('Customer search text leaked into Edit mode.');
     }

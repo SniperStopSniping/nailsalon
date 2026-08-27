@@ -80,7 +80,7 @@ async function expectPristineQuickBook(page: Page): Promise<void> {
     name: 'Booking menu preview — 24 services, Visual Grid. Not interactive while editing.',
   });
   await expect(editRegion).toBeVisible();
-  await expect(editRegion.locator('input[placeholder="Search services"]')).toHaveValue('');
+  await expect(editRegion.locator('input[placeholder="Try “Russian manicure”"]')).toHaveValue('');
   await expect(
     editRegion
       .getByRole('group', { name: 'Service categories' })

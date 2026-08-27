@@ -465,7 +465,7 @@ test('dirty option drafts warn, restore focus, and commit or discard honestly', 
   await close.click();
   let warning = page.getByRole('dialog', { name: 'Save your option changes?' });
   await expect(warning).toBeVisible();
-  await expect(warning.getByRole('button', { name: 'Discard changes' })).toBeFocused();
+  await expect(warning.getByRole('button', { name: 'Keep editing' })).toBeFocused();
   await expect(detail).toHaveAttribute('aria-hidden', 'true');
   await expect(detail).toHaveAttribute('inert', '');
   await page.keyboard.press('Escape');
@@ -871,7 +871,7 @@ test('starter toast clears before Add page and disclaimer contrast exceeds AA', 
     expect(record.ratio).toBeGreaterThanOrEqual(4.5);
   }
   expect(contrastRecords[0]).toMatchObject({
-    background: 'rgb(251, 248, 244)',
+    background: 'rgb(247, 242, 236)',
     foreground: 'rgb(117, 104, 103)',
   });
 

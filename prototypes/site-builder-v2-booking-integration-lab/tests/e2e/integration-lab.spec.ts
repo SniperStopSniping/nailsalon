@@ -240,7 +240,7 @@ test('Edit is readable but inert, while Phone Preview restores contained custome
   await expect(editRegion).toBeVisible();
   await expect(editRegion).not.toHaveAttribute('aria-hidden', 'true');
   await expect(editRegion).not.toHaveAttribute('inert', '');
-  const editSearch = editRegion.locator('input[placeholder="Search services"]');
+  const editSearch = editRegion.locator('input[placeholder="Try “Russian manicure”"]');
   await expect(editSearch).toHaveValue('');
   await expect(editSearch).toHaveAttribute('tabindex', '-1');
   await expect(editSearch).toHaveAttribute('aria-hidden', 'true');
@@ -280,7 +280,7 @@ test('Edit is readable but inert, while Phone Preview restores contained custome
   const cleanEditRegion = bookingCard(page, 'Home').getByRole('group', {
     name: 'Booking menu preview — 24 services, Visual Grid. Not interactive while editing.',
   });
-  await expect(cleanEditRegion.locator('input[placeholder="Search services"]')).toHaveValue('');
+  await expect(cleanEditRegion.locator('input[placeholder="Try “Russian manicure”"]')).toHaveValue('');
   await expect(
     cleanEditRegion
       .getByRole('group', { name: 'Service categories' })

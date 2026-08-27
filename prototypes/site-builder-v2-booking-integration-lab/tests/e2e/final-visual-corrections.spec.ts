@@ -895,3 +895,194 @@ test('F7 the live 1179-to-1180 transition moves one Hide control into the header
   await page.setViewportSize({ height: 800, width: 1179 });
   await expectHideSettingsVariant(settings, false);
 });
+
+test('Warm Ground / White Band hierarchy stays editor-only and preserves starter motion', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.setViewportSize({ height: 900, width: 1440 });
+  await openFreshLab(page);
+
+  const quickBook = page.getByRole('button', { name: /^Quick Book/ });
+  const quickBookPreview = page.getByTestId('starter-preview-quick_book');
+  const starterTreatment = await page.evaluate(() => {
+    const screen = document.querySelector<HTMLElement>('.final-starter-screen');
+    const card = document.querySelector<HTMLElement>('.final-starter-card');
+    if (!screen || !card) throw new Error('Starter chooser surfaces are missing.');
+    const screenStyle = window.getComputedStyle(screen);
+    const cardStyle = window.getComputedStyle(card);
+    return {
+      cardBackground: cardStyle.backgroundColor,
+      cardBorderWidth: cardStyle.borderTopWidth,
+      cardRadius: cardStyle.borderRadius,
+      cardShadow: cardStyle.boxShadow,
+      screenBackground: screenStyle.backgroundColor,
+    };
+  });
+  expect(starterTreatment).toMatchObject({
+    cardBackground: 'rgb(255, 255, 255)',
+    cardBorderWidth: '1px',
+    cardRadius: '22px',
+    screenBackground: 'rgb(247, 242, 236)',
+  });
+  expect(starterTreatment.cardShadow).not.toBe('none');
+  await quickBook.hover();
+  await expect(quickBookPreview).toHaveAttribute('data-preview-active', 'true');
+  await expect.poll(() => quickBookPreview.locator('.final-starter-preview__track')
+    .evaluate(element => window.getComputedStyle(element).animationName))
+    .toBe('final-starter-quick-scroll');
+
+  await chooseStarter(page, 'One-page website');
+  const sectionOne = page.getByRole('listitem', { name: 'Section 01 on Home' });
+  const sectionTwo = page.getByRole('listitem', { name: 'Section 02 on Home' });
+  await expect(page.locator('.booking-editor-preview__fade')).toHaveCount(1);
+  const editorTreatment = await page.evaluate(() => {
+    const app = document.querySelector<HTMLElement>('.final-hybrid-app');
+    const booking = document.querySelector<HTMLElement>('.section-card--booking');
+    const frame = document.querySelector<HTMLElement>('.final-canvas-frame');
+    const canvas = document.querySelector<HTMLElement>('.final-site-canvas');
+    const fade = document.querySelector<HTMLElement>('.booking-editor-preview__fade');
+    const insertion = document.querySelector<HTMLElement>(
+      '.final-insertion:not(.final-insertion--top)',
+    );
+    const list = document.querySelector<HTMLElement>('.final-sections-list');
+    const section = document.querySelector<HTMLElement>('.section-card');
+    const placeholder = section?.querySelector<HTMLElement>('.placeholder-grid');
+    const placeholderCard = placeholder?.querySelector<HTMLElement>('span');
+    if (
+      !app || !booking || !frame || !canvas || !fade || !insertion || !list
+      || !section || !placeholder || !placeholderCard
+    ) {
+      throw new Error('Editor hierarchy surfaces are missing.');
+    }
+    const appStyle = window.getComputedStyle(app);
+    const bookingStyle = window.getComputedStyle(booking);
+    const frameStyle = window.getComputedStyle(frame);
+    const canvasStyle = window.getComputedStyle(canvas);
+    const fadeStyle = window.getComputedStyle(fade);
+    const insertionStyle = window.getComputedStyle(insertion);
+    const listStyle = window.getComputedStyle(list);
+    const sectionStyle = window.getComputedStyle(section);
+    const placeholderStyle = window.getComputedStyle(placeholder);
+    const placeholderCardStyle = window.getComputedStyle(placeholderCard);
+    return {
+      bookingBackground: bookingStyle.backgroundColor,
+      canvasBackground: canvasStyle.backgroundColor,
+      fadeBackground: fadeStyle.backgroundImage,
+      frameBackground: frameStyle.backgroundColor,
+      frameRadius: frameStyle.borderRadius,
+      frameShadow: frameStyle.boxShadow,
+      insertionMarginBottom: insertionStyle.marginBottom,
+      insertionMarginTop: insertionStyle.marginTop,
+      listDisplay: listStyle.display,
+      listGap: listStyle.gap,
+      placeholderBackground: placeholderCardStyle.backgroundImage,
+      placeholderBorderColor: placeholderCardStyle.borderTopColor,
+      placeholderBorderWidth: placeholderCardStyle.borderTopWidth,
+      placeholderOpacity: placeholderStyle.opacity,
+      sectionBackground: sectionStyle.backgroundColor,
+      sectionBorderBottom: sectionStyle.borderBottomWidth,
+      sectionBorderLeft: sectionStyle.borderLeftWidth,
+      sectionBorderTop: sectionStyle.borderTopWidth,
+      sectionRadius: sectionStyle.borderRadius,
+      sectionShadow: sectionStyle.boxShadow,
+      tokens: Object.fromEntries([
+        '--edit-card-line',
+        '--edit-ground',
+        '--edit-gutter',
+        '--edit-section',
+        '--edit-section-line',
+        '--edit-section-line-strong',
+      ].map(token => [token, appStyle.getPropertyValue(token).trim()])),
+    };
+  });
+  expect(editorTreatment.tokens).toEqual({
+    '--edit-card-line': 'rgba(64, 43, 44, 0.08)',
+    '--edit-ground': '#f7f1eb',
+    '--edit-gutter': '8px',
+    '--edit-section': '#fff',
+    '--edit-section-line': 'rgba(64, 43, 44, 0.12)',
+    '--edit-section-line-strong': 'rgba(64, 43, 44, 0.26)',
+  });
+  expect(editorTreatment).toMatchObject({
+    bookingBackground: 'rgb(255, 255, 255)',
+    canvasBackground: 'rgb(247, 241, 235)',
+    frameBackground: 'rgb(247, 241, 235)',
+    frameRadius: '3px',
+    insertionMarginBottom: '0px',
+    insertionMarginTop: '0px',
+    listDisplay: 'flex',
+    listGap: '8px',
+    placeholderBorderColor: 'rgba(64, 43, 44, 0.08)',
+    placeholderBorderWidth: '1px',
+    placeholderOpacity: '0.8',
+    sectionBackground: 'rgb(255, 255, 255)',
+    sectionBorderBottom: '1px',
+    sectionBorderLeft: '0px',
+    sectionBorderTop: '1px',
+    sectionRadius: '0px',
+    sectionShadow: 'none',
+  });
+  expect(editorTreatment.frameShadow).not.toBe('none');
+  expect(editorTreatment.canvasBackground).not.toBe(editorTreatment.sectionBackground);
+  expect(editorTreatment.placeholderBackground)
+    .toContain('rgb(241, 234, 231)');
+  expect(editorTreatment.placeholderBackground)
+    .toContain('rgb(247, 242, 238)');
+  expect(editorTreatment.fadeBackground).toContain('rgb(255, 255, 255)');
+
+  await sectionTwo.hover();
+  await expect.poll(() => sectionTwo.evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    const chip = element.querySelector<HTMLElement>('.section-card__number');
+    return {
+      border: style.borderTopColor,
+      chip: chip ? window.getComputedStyle(chip).backgroundColor : '',
+    };
+  })).toEqual({
+    border: 'rgba(64, 43, 44, 0.26)',
+    chip: 'rgb(248, 233, 238)',
+  });
+
+  await sectionOne.locator('.section-card__select-surface').click();
+  await expect(sectionOne).toHaveClass(/is-selected/);
+  await expect.poll(() => sectionOne.evaluate(element => (
+    window.getComputedStyle(element).boxShadow
+  ))).toContain('rgb(155, 36, 84)');
+  const selectedTreatment = await sectionOne.evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    return {
+      background: style.backgroundColor,
+      boxShadow: style.boxShadow,
+      outlineWidth: style.outlineWidth,
+    };
+  });
+  expect(selectedTreatment.background).toBe('rgb(255, 255, 255)');
+  expect(selectedTreatment.boxShadow).toContain('rgb(155, 36, 84)');
+  expect(selectedTreatment.boxShadow).toContain('rgb(255, 255, 255)');
+  expect(selectedTreatment.outlineWidth).toBe('2px');
+
+  await page.getByRole('button', { name: 'Preview', exact: true }).click();
+  await expect(page.getByTestId('preview-stage')).toBeVisible();
+  const previewBoundary = await page.evaluate(() => {
+    const preview = document.querySelector<HTMLElement>('.final-hybrid-preview');
+    const clientSite = document.querySelector<HTMLElement>('.client-site');
+    if (!preview || !clientSite) throw new Error('Customer Preview is missing.');
+    const previewStyle = window.getComputedStyle(preview);
+    const clientStyle = window.getComputedStyle(clientSite);
+    return {
+      clientBackground: clientStyle.backgroundColor,
+      editGround: previewStyle.getPropertyValue('--edit-ground').trim(),
+      editSection: previewStyle.getPropertyValue('--edit-section').trim(),
+      editorLists: document.querySelectorAll('.final-sections-list').length,
+      editorSections: document.querySelectorAll('.section-card').length,
+    };
+  });
+  expect(previewBoundary).toEqual({
+    clientBackground: 'rgb(255, 253, 250)',
+    editGround: '',
+    editSection: '',
+    editorLists: 0,
+    editorSections: 0,
+  });
+});
