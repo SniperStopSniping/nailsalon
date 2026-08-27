@@ -654,20 +654,23 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
         }));
         expect(dimensions.overflowY).toBe('auto');
         if (dimensions.scrollHeight > dimensions.clientHeight) {
-          await trustedSwipeUp(page, cdp, body);
-          await expect.poll(() => body.evaluate(element => element.scrollTop))
-            .toBeGreaterThan(0);
+          for (let swipe = 0; swipe < 8; swipe += 1) {
+            const atBottom = await body.evaluate(
+              element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
+            );
+            if (atBottom) break;
+            await trustedSwipeUp(page, cdp, body);
+          }
+          await expect.poll(() => body.evaluate(
+            element => element.scrollTop + element.clientHeight >= element.scrollHeight - 2,
+          )).toBe(true);
         } else {
-          await expectActionInsideScrollBody(
-            body,
-            page.getByTestId('service-detail-dialog').getByRole('button', {
-              name: 'Select service',
-            }),
-          );
+          expect(dimensions.scrollHeight).toBe(dimensions.clientHeight);
         }
         const primary = page.getByTestId('service-detail-dialog').getByRole('button', {
           name: 'Select service',
         });
+        await expectActionInsideScrollBody(body, primary);
         await primary.click({ trial: true });
         expect(Math.abs(
           await page.locator('.client-site').evaluate(element => element.scrollTop)
@@ -1055,6 +1058,13 @@ for (const layout of LAYOUTS) {
         await expect(handoff).toContainText('Russian Manicure · 1 hr 45 min · From $80');
         await handoff.getByRole('button', { name: 'Back to the menu' }).click();
         await expect(handoff).toHaveCount(0);
+
+        await summary.getByRole('button', { name: 'Continue' }).click();
+        const summaryHandoff = page.getByTestId('booking-handoff-dialog');
+        await expect(summaryHandoff)
+          .toContainText('Russian Manicure · 1 hr 45 min · From $80');
+        await summaryHandoff.getByRole('button', { name: 'Back to the menu' }).click();
+        await expect(summaryHandoff).toHaveCount(0);
 
         await summary.getByRole('button', { name: 'Change' }).click();
         detail = page.getByTestId('service-detail-dialog');
