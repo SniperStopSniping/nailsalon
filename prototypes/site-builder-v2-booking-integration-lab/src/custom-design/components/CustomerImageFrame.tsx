@@ -41,7 +41,16 @@ export function CustomerImageFrame({
   const errorReportedRef = useRef(false);
 
   if (renderState === 'error') {
-    return <CustomerMissingAsset fallback={missingAssetFallback} />;
+    return (
+      <>
+        <CustomerMissingAsset fallback={missingAssetFallback} />
+        <AccessibilitySummary
+          fileName={image.fileName}
+          imageItemId={image.id}
+          summary={image.accessibleSummary}
+        />
+      </>
+    );
   }
 
   const fetchPriorityAttributes: React18FetchPriorityAttribute = {

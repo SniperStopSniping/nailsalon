@@ -6,7 +6,9 @@ import {
   applyHistoryCommand,
   canRedoHistory,
   canUndoHistory,
+  collectReachableCustomDesignAssetIds,
   createHistoryState,
+  exportSiteBuilderBackup,
   exportSiteBuilderDocument,
   initializeStarter,
   parseSiteBuilderDocument,
@@ -27,6 +29,22 @@ type ImportResult =
   | { success: false; issues: string[] };
 
 type SaveStatus = 'idle' | 'saving' | 'saved' | 'error';
+
+type PreparedCommandResult =
+  | {
+      success: true;
+      changed: boolean;
+      document: SiteBuilderDocument;
+      cancel: () => void;
+      publish: () => boolean;
+    }
+  | { success: false; message: string; code?: string };
+
+type PreparedHistoryTransition = {
+  baseline: HistoryState;
+  next: HistoryState;
+  token: symbol;
+};
 
 const getInitialHistory = (): { history: HistoryState | null; loadIssues: string[] } => {
   try {
@@ -57,22 +75,35 @@ export function useLabDocument() {
   const historyRef = useRef<HistoryState | null>(initialRef.current.history);
   const [loadIssues, setLoadIssues] = useState<string[]>(initialRef.current.loadIssues);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>(initialRef.current.history ? 'saved' : 'idle');
+  const [historyRevision, setHistoryRevision] = useState(0);
+  const [transactionPending, setTransactionPending] = useState(false);
+  const preparedTransitionRef = useRef<PreparedHistoryTransition | null>(null);
 
   const replaceHistory = useCallback((next: HistoryState | null) => {
     historyRef.current = next;
     setHistory(next);
+    setHistoryRevision((current) => current + 1);
   }, []);
 
-  const chooseStarter = useCallback((starter: OriginStarter) => {
+  const chooseStarter = useCallback((starter: OriginStarter): boolean => {
+    if (preparedTransitionRef.current) return false;
     const next = createHistoryState(initializeStarter(starter, {
       siteName: 'Isla Nail Studio',
     }));
     setLoadIssues([]);
     setSaveStatus('saving');
     replaceHistory(next);
+    return true;
   }, [replaceHistory]);
 
   const runCommand = useCallback((command: BuilderCommand): CommandResult => {
+    if (preparedTransitionRef.current) {
+      return {
+        success: false,
+        message: 'Finish the current image upload before making another change.',
+        code: 'asset_transaction_pending',
+      };
+    }
     const current = historyRef.current;
     if (!current) {
       return { success: false, message: 'Choose a starting point first.' };
@@ -95,7 +126,71 @@ export function useLabDocument() {
     }
   }, [replaceHistory]);
 
+  const prepareCommand = useCallback((
+    command: BuilderCommand,
+  ): PreparedCommandResult => {
+    if (preparedTransitionRef.current) {
+      return {
+        success: false,
+        message: 'Another image change is still being saved.',
+        code: 'asset_transaction_pending',
+      };
+    }
+    const baseline = historyRef.current;
+    if (!baseline) {
+      return { success: false, message: 'Choose a starting point first.' };
+    }
+
+    try {
+      const next = applyHistoryCommand(baseline, command);
+      const token = Symbol('custom-design-document-transition');
+      preparedTransitionRef.current = { baseline, next, token };
+      setTransactionPending(true);
+
+      const release = (): PreparedHistoryTransition | null => {
+        const prepared = preparedTransitionRef.current;
+        if (!prepared || prepared.token !== token) return null;
+        preparedTransitionRef.current = null;
+        setTransactionPending(false);
+        return prepared;
+      };
+
+      return {
+        success: true,
+        changed: next !== baseline,
+        document: next.present,
+        cancel: () => {
+          release();
+        },
+        publish: () => {
+          const prepared = preparedTransitionRef.current;
+          if (
+            !prepared
+            || prepared.token !== token
+            || historyRef.current !== prepared.baseline
+          ) {
+            release();
+            return false;
+          }
+          release();
+          if (prepared.next !== prepared.baseline) setSaveStatus('saving');
+          replaceHistory(prepared.next);
+          return true;
+        },
+      };
+    } catch (error) {
+      if (error instanceof BuilderOperationError) {
+        return { success: false, message: error.message, code: error.code };
+      }
+      return {
+        success: false,
+        message: 'That image change could not be prepared safely.',
+      };
+    }
+  }, [replaceHistory]);
+
   const undo = useCallback(() => {
+    if (preparedTransitionRef.current) return false;
     const current = historyRef.current;
     if (!current) {
       return false;
@@ -107,6 +202,7 @@ export function useLabDocument() {
   }, [replaceHistory]);
 
   const redo = useCallback(() => {
+    if (preparedTransitionRef.current) return false;
     const current = historyRef.current;
     if (!current) {
       return false;
@@ -118,6 +214,7 @@ export function useLabDocument() {
   }, [replaceHistory]);
 
   const resetLab = useCallback(() => {
+    if (preparedTransitionRef.current) return false;
     try {
       window.localStorage.removeItem(SITE_BUILDER_STORAGE_KEY);
     } catch {
@@ -126,20 +223,29 @@ export function useLabDocument() {
     setLoadIssues([]);
     setSaveStatus('idle');
     replaceHistory(null);
+    return true;
   }, [replaceHistory]);
 
   const resetToStarter = useCallback(() => {
+    if (preparedTransitionRef.current) return false;
     const current = historyRef.current;
     if (!current) {
-      return;
+      return false;
     }
     const next = createHistoryState(initializeStarter(current.present.originStarter, { siteName: current.present.siteName }));
     setLoadIssues([]);
     setSaveStatus('saving');
     replaceHistory(next);
+    return true;
   }, [replaceHistory]);
 
   const importJson = useCallback((json: string): ImportResult => {
+    if (preparedTransitionRef.current) {
+      return {
+        success: false,
+        issues: ['Finish the current image upload before importing a backup.'],
+      };
+    }
     const result = parseSiteBuilderDocument(json);
     if (!result.success) {
       return result;
@@ -152,14 +258,26 @@ export function useLabDocument() {
 
   const exportJson = useCallback(() => {
     const current = historyRef.current;
-    return current ? exportSiteBuilderDocument(current.present) : null;
+    return current ? exportSiteBuilderBackup(current.present) : null;
   }, []);
+
+  const getReachableAssetIds = useCallback((): ReadonlySet<string> => {
+    const current = historyRef.current;
+    return current
+      ? collectReachableCustomDesignAssetIds(current)
+      : new Set<string>();
+  }, []);
+
+  const getHistorySnapshot = useCallback((): HistoryState | null =>
+    historyRef.current, []);
 
   const createHistoryCheckpoint = useCallback(() => historyRef.current, []);
 
   const restoreHistoryCheckpoint = useCallback((checkpoint: HistoryState) => {
+    if (preparedTransitionRef.current) return false;
     setSaveStatus('saving');
     replaceHistory(checkpoint);
+    return true;
   }, [replaceHistory]);
 
   useEffect(() => {
@@ -210,20 +328,25 @@ export function useLabDocument() {
   }, [redo, undo]);
 
   return {
-    canRedo: history ? canRedoHistory(history) : false,
-    canUndo: history ? canUndoHistory(history) : false,
+    canRedo: !transactionPending && history ? canRedoHistory(history) : false,
+    canUndo: !transactionPending && history ? canUndoHistory(history) : false,
     chooseStarter,
     createHistoryCheckpoint,
     document: history?.present ?? null,
     exportJson,
+    getHistorySnapshot,
+    getReachableAssetIds,
+    historyRevision,
     importJson,
     loadIssues,
+    prepareCommand,
     redo,
     resetLab,
     resetToStarter,
     restoreHistoryCheckpoint,
     runCommand,
     saveStatus,
+    transactionPending,
     undo,
   };
 }

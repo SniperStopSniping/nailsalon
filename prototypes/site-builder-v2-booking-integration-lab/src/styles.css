@@ -1450,7 +1450,7 @@ p {
   padding: 18px;
 }
 
-.preview-stage--mobile .preview-section:not(.preview-section--booking) {
+.preview-stage--mobile .preview-section:not(.preview-section--booking):not(.preview-section--custom-design) {
   grid-template-columns: 46px minmax(0, 1fr);
 }
 
@@ -1479,7 +1479,7 @@ p {
 }
 
 .client-page__heading span,
-.preview-section:not(.preview-section--booking) p {
+.preview-section:not(.preview-section--booking):not(.preview-section--custom-design) p {
   margin: 0 0 4px;
   color: var(--final-muted);
   font-size: 0.7rem;
@@ -1529,12 +1529,12 @@ p {
   font-weight: 850;
 }
 
-.preview-section:not(.preview-section--booking) h3 {
+.preview-section:not(.preview-section--booking):not(.preview-section--custom-design) h3 {
   margin: 0 0 6px;
   font-size: clamp(1.08rem, 2vw, 1.45rem);
 }
 
-.preview-section:not(.preview-section--booking) div > span {
+.preview-section:not(.preview-section--booking):not(.preview-section--custom-design) div > span {
   color: var(--final-muted);
   font-size: 0.78rem;
 }

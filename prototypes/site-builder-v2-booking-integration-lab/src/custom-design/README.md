@@ -1,8 +1,9 @@
-# Custom Design Phase 1
+# Custom Design
 
-This directory contains the independent Custom Design infrastructure. It is not
-connected to the universal Builder shell yet. Phase 2 must integrate it only
-after rebasing onto the committed foundation-correction HEAD.
+This directory contains the model, Lab-only asset storage, customer renderer,
+and owner-editing infrastructure for the universal Custom Design section. The
+Site Builder shell integrates these modules through the central document,
+history, Preview, Move, visibility, and remove/restore systems.
 
 ## Boundaries
 
@@ -27,10 +28,16 @@ upload coordinator should:
 
 1. validate/decode every selected file and report per-file failures;
 2. stage each successful asset;
-3. commit the staged assets;
-4. apply one validated document command for the successful image items;
-5. delete newly committed assets if the document command fails and no current,
+3. prepare one validated universal history command without publishing it;
+4. commit the staged assets in one IndexedDB transaction only after command
+   preparation succeeds;
+5. publish the prepared history transition once, using a baseline comparison so
+   it cannot overwrite a newer owner action;
+6. delete newly committed assets if publication fails and no current,
    removed, past, or future history snapshot references them.
+
+Keeping the prepared transition private until its asset commit completes avoids
+persisting or rendering a document that points at a staged, unreadable blob.
 
 Staged records are intentionally invisible to normal reads. Cleanup must scan
 the current document plus every live history snapshot, and must not delete an
@@ -60,14 +67,16 @@ serialization remains a Phase 2 responsibility.
   image element fires `load`; an image decode/render error suppresses the link
   layer and reports the stable asset/image IDs for recovery.
 
-## Phase 2 integration requirements
+## Integration boundary
 
-Phase 2 still owns the central section union and commands, Add Section library,
-upload/settings UI, image-list reorder/history operations, universal Move and
-remove/restore behavior, Preview routing, canonical Booking/Contact resolution,
-object URL React ownership, publish readiness, and browser journeys. The real
-publish gate must recompute action resolution and asset availability; it must
-not trust persisted validation status alone.
+`integration/` coordinates upload transactions, owner settings, image
+management, accessible text, hotspot sessions, and customer readiness. The
+universal Builder remains authoritative for section visibility, selection,
+history, Move, Pages & Structure, remove/restore, import/export, and canonical
+Booking navigation. Readiness is exposed at section level because this Lab has
+no Production publish system; a future publish gate must recompute action
+resolution and asset availability rather than trust persisted validation
+status alone.
 
 Do not import Production upload code into this Lab. Do not add image bytes to
 the document as a fallback.

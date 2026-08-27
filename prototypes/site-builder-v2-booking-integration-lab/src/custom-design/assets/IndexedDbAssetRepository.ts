@@ -463,24 +463,55 @@ export class IndexedDbAssetRepository implements AssetRepository {
   };
 
   commit = async (assetId: string): Promise<ImageAssetMetadata> => {
+    const [metadata] = await this.commitBatch([assetId]);
+    if (!metadata) {
+      throw new AssetStorageError(
+        'transaction_failed',
+        'The image could not be committed.',
+      );
+    }
+    return metadata;
+  };
+
+  commitBatch = async (
+    assetIds: readonly string[],
+  ): Promise<ImageAssetMetadata[]> => {
+    if (assetIds.length === 0) {
+      return [];
+    }
+    if (
+      assetIds.some((assetId) => typeof assetId !== 'string' || !assetId.trim())
+      || new Set(assetIds).size !== assetIds.length
+    ) {
+      throw invalidAsset('Staged image IDs must be non-empty and unique.');
+    }
     const database = await this.openDatabase();
 
-    return new Promise<ImageAssetMetadata>((resolve, reject) => {
+    return new Promise<ImageAssetMetadata[]>((resolve, reject) => {
       let operationError: AssetStorageError | undefined;
-      let result: ImageAssetMetadata | undefined;
+      let result: ImageAssetMetadata[] | undefined;
       let completedReads = 0;
       const transaction = database.transaction(ASSET_STORE_NAMES, 'readwrite');
       const summaryStore = transaction.objectStore(
         CUSTOM_DESIGN_ASSET_SUMMARY_STORE_NAME,
       );
-      const summaryRequest = summaryStore.get(assetId) as IDBRequest<unknown>;
-      const originalKeyRequest = transaction
-        .objectStore(CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME)
-        .getKey(assetId);
-      const thumbnailKeyRequest = transaction
-        .objectStore(CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME)
-        .getKey(assetId);
-      const requests = [summaryRequest, originalKeyRequest, thumbnailKeyRequest];
+      const originalStore = transaction.objectStore(
+        CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+      );
+      const thumbnailStore = transaction.objectStore(
+        CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
+      );
+      const records = assetIds.map((assetId) => ({
+        assetId,
+        originalKeyRequest: originalStore.getKey(assetId),
+        summaryRequest: summaryStore.get(assetId) as IDBRequest<unknown>,
+        thumbnailKeyRequest: thumbnailStore.getKey(assetId),
+      }));
+      const requests = records.flatMap((record) => [
+        record.summaryRequest,
+        record.originalKeyRequest,
+        record.thumbnailKeyRequest,
+      ]);
 
       const maybeCommit = (): void => {
         completedReads += 1;
@@ -488,45 +519,43 @@ export class IndexedDbAssetRepository implements AssetRepository {
           return;
         }
 
-        const summary = summaryRequest.result;
-        if (summary === undefined) {
-          operationError = new AssetStorageError(
-            'not_found',
-            'The staged image could not be found.',
-          );
-          transaction.abort();
-          return;
-        }
-
         try {
-          validateSummary(summary);
-          if (summary.state !== 'staged') {
-            throw new AssetStorageError(
-              'not_staged',
-              'Only a staged image can be committed.',
-            );
-          }
-          const hasOriginal = originalKeyRequest.result !== undefined;
-          const hasThumbnail = thumbnailKeyRequest.result !== undefined;
-          if (
-            !hasOriginal ||
-            hasThumbnail !== (summary.metadata.thumbnail !== undefined)
-          ) {
-            throw invalidAsset(
-              'The staged image stores do not match its asset summary.',
-            );
-          }
-
-          const committed: PersistedImageAssetSummary = {
-            ...summary,
-            state: 'committed',
-          };
-          result = committed.metadata;
-          summaryStore.put(committed);
+          const committed = records.map((record) => {
+            const summary = record.summaryRequest.result;
+            if (summary === undefined) {
+              throw new AssetStorageError(
+                'not_found',
+                `The staged image could not be found: ${record.assetId}.`,
+              );
+            }
+            validateSummary(summary);
+            if (summary.state !== 'staged') {
+              throw new AssetStorageError(
+                'not_staged',
+                'Only staged images can be committed.',
+              );
+            }
+            const hasOriginal = record.originalKeyRequest.result !== undefined;
+            const hasThumbnail = record.thumbnailKeyRequest.result !== undefined;
+            if (
+              !hasOriginal
+              || hasThumbnail !== (summary.metadata.thumbnail !== undefined)
+            ) {
+              throw invalidAsset(
+                'The staged image stores do not match its asset summary.',
+              );
+            }
+            return {
+              ...summary,
+              state: 'committed' as const,
+            };
+          });
+          result = committed.map((summary) => summary.metadata);
+          committed.forEach((summary) => summaryStore.put(summary));
         } catch (error) {
           operationError = normalizeError(
             error,
-            'The staged image record is invalid.',
+            'A staged image record is invalid.',
           );
           transaction.abort();
         }
@@ -537,7 +566,7 @@ export class IndexedDbAssetRepository implements AssetRepository {
         request.onerror = () => {
           operationError = normalizeError(
             requestError(request),
-            'The staged image could not be read.',
+            'The staged images could not be read.',
           );
         };
       }
@@ -558,7 +587,7 @@ export class IndexedDbAssetRepository implements AssetRepository {
           operationError ??
             normalizeError(
               transaction.error,
-              'The image could not be committed.',
+              'The images could not be committed.',
             ),
         );
       transaction.onabort = transaction.onerror;

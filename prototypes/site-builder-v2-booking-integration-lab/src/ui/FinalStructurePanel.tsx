@@ -16,10 +16,11 @@ import { useEffect, useState } from 'react';
 
 import type {
   PageDocument,
-  PlaceholderSectionInstance,
+  RestorableSectionInstance,
   SectionInstance,
   SiteBuilderDocument,
 } from '../model';
+import { getSectionOwnerIdentity } from './section-identity';
 
 type StructureView = 'overview' | 'navigation' | 'removed-pages' | 'removed-sections';
 
@@ -34,7 +35,7 @@ type FinalStructurePanelProps = {
   onRemovePage: (page: PageDocument) => void;
   onRenameNavigationItem: (pageId: string, label: string) => void;
   onRestorePage: (pageId: string) => void;
-  onRestoreSection: (section: PlaceholderSectionInstance) => void;
+  onRestoreSection: (section: RestorableSectionInstance) => void;
   onSelectPage: (pageId: string) => void;
   onSelectSection: (pageId: string, section: SectionInstance) => void;
   onToggleNavigation: () => void;
@@ -134,7 +135,7 @@ export function FinalStructurePanel({
           <ul aria-label="Removed sections" className="final-structure__recovery-list">
             {document.unusedSections.map((section) => (
               <li data-section-id={section.id} key={section.id}>
-                <span><strong>{section.label}</strong><small>{section.size} · settings retained</small></span>
+                <span><strong>{getSectionOwnerIdentity(section).label}</strong><small>{getSectionOwnerIdentity(section).recoveryDetail}</small></span>
                 <button aria-label={`Restore ${section.label} to the current page`} type="button" onClick={() => onRestoreSection(section)}><RotateCcw aria-hidden="true" size={17} /> Restore to current page</button>
               </li>
             ))}
@@ -196,10 +197,11 @@ export function FinalStructurePanel({
                     {sections.map((section, sectionIndex) => {
                       const selected = section.id === selectedSectionId;
                       const booking = section.sectionType === 'booking';
-                      const sectionLabel = booking ? 'Booking' : section.label;
+                      const identity = getSectionOwnerIdentity(section);
+                      const sectionLabel = identity.label;
                       const sectionDescription = booking
                         ? `Client booking menu · always available${section.visible ? '' : ' · hidden'}`
-                        : `${section.size}${section.visible ? '' : ' · hidden'}`;
+                        : `${identity.detail}${section.visible ? '' : ' · hidden'}`;
                       return (
                         <li key={section.id}>
                           <button
@@ -208,7 +210,7 @@ export function FinalStructurePanel({
                             type="button"
                             onClick={() => onSelectSection(page.id, section)}
                           >
-                            <span>{booking ? 'BK' : String(sectionIndex + 1).padStart(2, '0')}</span>
+                            <span>{booking ? 'BK' : section.sectionType === 'custom_design' ? 'CD' : String(sectionIndex + 1).padStart(2, '0')}</span>
                             <span><strong>{sectionLabel}</strong><small>{sectionDescription}</small></span>
                           </button>
                         </li>

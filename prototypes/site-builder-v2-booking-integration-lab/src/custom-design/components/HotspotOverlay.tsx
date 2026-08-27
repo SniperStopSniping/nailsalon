@@ -189,12 +189,12 @@ export function HotspotOverlay({
               >
                 <span>{area.accessibleLabel}</span>
               </button>
-              {RESIZE_HANDLES.map(handle => (
+              {selected ? RESIZE_HANDLES.map(handle => (
                 <button
                   aria-label={`Resize ${area.accessibleLabel} from ${handleLabel(handle)}`}
                   className="custom-design-hotspot-editor__resize"
                   data-handle-inset="true"
-                  data-hit-target-max-size="32"
+                  data-hit-target-max-size="44"
                   data-resize-handle={handle}
                   data-visual-size="14"
                   key={handle}
@@ -210,7 +210,7 @@ export function HotspotOverlay({
                   }}
                   onPointerDown={event => onResizeStart?.(area.id, handle, event)}
                 />
-              ))}
+              )) : null}
               {selected && onKeyboardResize ? (
                 <div
                   aria-label={`Resize clickable area: ${area.accessibleLabel}`}

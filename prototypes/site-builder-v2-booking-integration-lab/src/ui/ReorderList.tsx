@@ -27,14 +27,15 @@ import {
 
 import type { SectionInstance } from '../model/types';
 import { keepEscapeInsideActiveControl } from './dialog-events';
+import { getSectionOwnerIdentity } from './section-identity';
 
 const getSectionLabel = (section: SectionInstance): string =>
-  section.sectionType === 'booking' ? 'Booking' : section.label;
+  getSectionOwnerIdentity(section).label;
 
 const getSectionDescription = (section: SectionInstance): string =>
-  section.sectionType === 'booking'
-    ? `Keeps booking available${section.visible ? '' : ' · hidden'}`
-    : `${section.size}${section.visible ? '' : ' · hidden'}`;
+  `${section.sectionType === 'booking'
+    ? 'Keeps booking available'
+    : getSectionOwnerIdentity(section).detail}${section.visible ? '' : ' · hidden'}`;
 
 type ReorderListProps = {
   onActivateSection?: (section: SectionInstance) => void;

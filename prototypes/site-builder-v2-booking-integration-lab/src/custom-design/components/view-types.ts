@@ -13,6 +13,7 @@ import type {
 } from '../model/types';
 
 export type CustomDesignResolvedAsset =
+  | { status: 'loading' }
   | { status: 'ready'; url: string }
   | { status: 'missing'; reason?: string };
 

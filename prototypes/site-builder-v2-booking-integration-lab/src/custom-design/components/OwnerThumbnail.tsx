@@ -25,6 +25,24 @@ export function OwnerThumbnail({
     );
   }
 
+  if (asset.status === 'loading') {
+    return (
+      <figure
+        aria-busy="true"
+        className="custom-design-owner-thumbnail"
+        data-testid={`custom-design-thumbnail-${image.id}`}
+      >
+        <span aria-hidden="true" className="custom-design-owner-thumbnail__loading" />
+        <figcaption>
+          <strong>Page {pageNumber}</strong>
+          <span>{image.fileName}</span>
+          <span>Loading preview…</span>
+        </figcaption>
+        <button disabled type="button">Replace</button>
+      </figure>
+    );
+  }
+
   return (
     <figure
       className="custom-design-owner-thumbnail"

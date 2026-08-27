@@ -4,6 +4,7 @@ import type {
   CustomDesignImageItem,
   CustomDesignNativeCta,
 } from '../model/types';
+import { AccessibilitySummary } from './AccessibilitySummary';
 import { CustomerImageFrame } from './CustomerImageFrame';
 import { CustomerMissingAsset } from './MissingAsset';
 import { NativeCta } from './NativeCta';
@@ -20,6 +21,10 @@ type ResolvedImage = {
 
 type CustomDesignStackEntryStyle = CSSProperties & {
   '--custom-design-quality-width': string;
+};
+
+type CustomDesignLoadingAssetStyle = CSSProperties & {
+  aspectRatio: string;
 };
 
 type CustomDesignImageStackProps = {
@@ -79,8 +84,24 @@ export function CustomDesignImageStack({
               onAssetRenderError={onAssetRenderError}
               resolveAction={resolveAction}
             />
+          ) : asset.status === 'loading' ? (
+            <div
+              aria-hidden="true"
+              className="custom-design-loading-asset"
+              data-testid="custom-design-customer-loading-asset"
+              style={{
+                aspectRatio: `${image.width} / ${image.height}`,
+              } as CustomDesignLoadingAssetStyle}
+            />
           ) : (
-            <CustomerMissingAsset fallback={missingAssetFallback} />
+            <>
+              <CustomerMissingAsset fallback={missingAssetFallback} />
+              <AccessibilitySummary
+                fileName={image.fileName}
+                imageItemId={image.id}
+                summary={image.accessibleSummary}
+              />
+            </>
           )}
           {hasCtaAfterImage(cta, image.id) ? (
             <NativeCta

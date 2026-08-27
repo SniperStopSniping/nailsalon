@@ -62,6 +62,13 @@ export type AssetRepository = {
   clear: () => Promise<number>;
   close: () => void;
   commit: (assetId: string) => Promise<ImageAssetMetadata>;
+  /**
+   * Makes every supplied staged asset visible in one IndexedDB transaction.
+   * The operation is all-or-nothing and preserves the caller's ID order.
+   */
+  commitBatch: (
+    assetIds: readonly string[],
+  ) => Promise<ImageAssetMetadata[]>;
   delete: (assetId: string) => Promise<boolean>;
   deleteDatabase: () => Promise<void>;
   discard: (assetId: string) => Promise<boolean>;

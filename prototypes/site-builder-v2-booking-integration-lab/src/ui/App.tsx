@@ -37,7 +37,6 @@ import {
   normalizeSessionForLayoutChange,
 } from '../booking/helpers';
 import { BookingSettingsPanel } from '../booking/SettingsPanel';
-import { BOOKING_LAYOUT_META } from '../booking/layout-meta';
 import type {
   BookingSectionPresentationSettings,
   BookingSessionState,
@@ -45,6 +44,37 @@ import type {
   ImageFixture,
   MenuSize,
 } from '../booking/types';
+import {
+  CustomDesignAssetProvider,
+  useCustomDesignAssetCoordinator,
+  useCustomDesignAssetMap,
+  useCustomDesignAssetStorageError,
+} from '../custom-design/integration/CustomDesignAssetProvider';
+import {
+  CustomDesignOwnerEditor,
+} from '../custom-design/integration/CustomDesignOwnerEditor';
+import {
+  CustomDesignSectionCard,
+} from '../custom-design/integration/CustomDesignSectionCard';
+import { HotspotEditor } from '../custom-design/integration/HotspotEditor';
+import {
+  getCustomDesignReadiness,
+} from '../custom-design/integration/readiness';
+import {
+  resolveCustomDesignDocumentAction,
+} from '../custom-design/integration/document-actions';
+import type {
+  CustomDesignOwnerAssetMap,
+  CustomDesignReadinessIssue,
+  CustomDesignUploadStatus,
+} from '../custom-design/integration/ui-types';
+import {
+  createCustomDesignIdFactory,
+  reconcileCtaPlacementForImages,
+  type CustomDesignAction,
+  type CustomDesignInteractiveArea,
+  type CustomDesignSettings,
+} from '../custom-design/model';
 import {
   type BuilderCommand,
   type CatalogueSectionType,
@@ -57,6 +87,10 @@ import {
   type SiteBuilderDocument,
 } from '../model';
 import { BookingSectionCard, type BookingCollapseReport } from './BookingSectionCard';
+import {
+  getCustomDesignInternalTargets,
+  toCustomDesignOwnerAssetMap,
+} from './custom-design-adapters';
 import { Dialog } from './Dialog';
 import {
   isEscapeHandledInsideActiveControl,
@@ -89,6 +123,7 @@ import { Preview } from './Preview';
 import { SectionCard } from './SectionCard';
 import { SectionMovePanel } from './SectionMovePanel';
 import { StarterChooser } from './StarterChooser';
+import { getSectionOwnerIdentity } from './section-identity';
 import { useLabDocument } from './useLabDocument';
 
 type EditorMode = 'edit' | 'preview';
@@ -126,6 +161,23 @@ type MoveCompletionSequence = {
   shield: MoveCompletionShield;
   until: number;
 };
+
+const getOwnerCustomDesignReadiness = (
+  settings: CustomDesignSettings,
+  assets: CustomDesignOwnerAssetMap,
+  document: SiteBuilderDocument,
+  activePageId: string,
+): CustomDesignReadinessIssue[] => getCustomDesignReadiness(settings, {
+  getAssetAvailability: (assetId) => {
+    const asset = assets[assetId];
+    if (!asset || asset.status === 'loading' || asset.status === 'ready') return 'available';
+    return asset.status === 'missing' ? 'missing' : 'error';
+  },
+  resolveAction: (action) => resolveCustomDesignDocumentAction(action, {
+    activePageId,
+    document,
+  }),
+}).issues;
 
 const getHomeOrFirstPage = (document: SiteBuilderDocument): PageDocument =>
   document.pages.find((page) => page.isHome) ?? document.pages[0] as PageDocument;
@@ -197,9 +249,22 @@ const restoreVisibleFocus = (element: HTMLElement | null): boolean => {
   return window.document.activeElement === element;
 };
 
+type LabDocumentController = ReturnType<typeof useLabDocument>;
+
 export function App() {
   const lab = useLabDocument();
+  return (
+    <CustomDesignAssetProvider getReachableAssetIds={lab.getReachableAssetIds}>
+      <BuilderApp lab={lab} />
+    </CustomDesignAssetProvider>
+  );
+}
+
+function BuilderApp({ lab }: { lab: LabDocumentController }) {
   const document = lab.document;
+  const customDesignAssetCoordinator = useCustomDesignAssetCoordinator();
+  const customDesignStorageError = useCustomDesignAssetStorageError();
+  const customDesignIdFactoryRef = useRef(createCustomDesignIdFactory());
   const [activePageId, setActivePageId] = useState<string | null>(null);
   const [selectedSectionId, setSelectedSectionId] = useState<string | null>(null);
   const [mode, setMode] = useState<EditorMode>('edit');
@@ -232,6 +297,13 @@ export function App() {
   );
   const [bookingCollapseOverrides, setBookingCollapseOverrides] = useState<Record<string, boolean | undefined>>({});
   const [bookingCollapseReports, setBookingCollapseReports] = useState<Record<string, BookingCollapseReport>>({});
+  const [customDesignUploadStatuses, setCustomDesignUploadStatuses] = useState<
+    Record<string, CustomDesignUploadStatus | undefined>
+  >({});
+  const [customDesignRenderErrorAssetIds, setCustomDesignRenderErrorAssetIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
+  const [hotspotImageItemId, setHotspotImageItemId] = useState<string | null>(null);
   const [selectedSectionIntersects, setSelectedSectionIntersects] = useState(true);
   const [selectedSectionIntersectionReady, setSelectedSectionIntersectionReady] = useState(false);
   const [desktopSettings, setDesktopSettings] = useState(() => window.matchMedia('(min-width: 900px)').matches);
@@ -244,6 +316,9 @@ export function App() {
   const bookingSettingsNativeSelectRef = useRef<HTMLSelectElement | null>(null);
   const bookingSettingsShowRef = useRef<HTMLButtonElement>(null);
   const bookingSettingsTriggerRef = useRef<HTMLElement | null>(null);
+  const customDesignSettingsDrawerRef = useRef<HTMLElement>(null);
+  const customDesignSettingsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const customDesignSettingsTriggerRef = useRef<HTMLElement | null>(null);
   const moveInvocationRef = useRef<HTMLElement | null>(null);
   const moveCommitInFlightRef = useRef(false);
   const moveCompletionShieldRef = useRef<MoveCompletionShield | null>(null);
@@ -339,7 +414,13 @@ export function App() {
   const editingSection = document ? findSection(document, editingSectionId) : null;
   const editingBooking = editingSection?.sectionType === 'booking' ? editingSection : null;
   const mobileBookingSettingsModalOpen = editingBooking !== null && !desktopSettings;
-  const editingPlaceholder = editingSection && editingSection.sectionType !== 'booking'
+  const editingCustomDesign = editingSection?.sectionType === 'custom_design'
+    ? editingSection
+    : null;
+  const mobileCustomDesignSettingsModalOpen = editingCustomDesign !== null && !desktopSettings;
+  const editingPlaceholder = editingSection
+    && editingSection.sectionType !== 'booking'
+    && editingSection.sectionType !== 'custom_design'
     ? editingSection
     : null;
   const editingPage = document?.pages.find((page) => page.id === editingPageId) ?? null;
@@ -365,6 +446,27 @@ export function App() {
   const activePage = committedActivePage && moveSession?.sourcePageId === committedActivePage.id
     ? { ...committedActivePage, sections: moveSections }
     : committedActivePage;
+  const customDesignAssetIds = useMemo(() => mode === 'edit'
+    ? activePage?.sections.flatMap((section) =>
+        section.sectionType === 'custom_design'
+          ? section.settings.images.map((image) => image.assetId)
+          : []) ?? []
+    : [], [activePage, mode]);
+  const customDesignAssetPairs = useCustomDesignAssetMap(customDesignAssetIds);
+  const customDesignAssets = useMemo(() => {
+    const resolved = toCustomDesignOwnerAssetMap(customDesignAssetPairs);
+    if (customDesignRenderErrorAssetIds.size === 0) return resolved;
+    return Object.fromEntries(Object.entries(resolved).map(([assetId, asset]) => [
+      assetId,
+      customDesignRenderErrorAssetIds.has(assetId)
+        ? { status: 'error' as const, reason: 'This design file could not be displayed.' }
+        : asset,
+    ]));
+  }, [customDesignAssetPairs, customDesignRenderErrorAssetIds]);
+  const customDesignInternalTargets = useMemo(
+    () => document ? getCustomDesignInternalTargets(document) : [],
+    [document],
+  );
 
   const reportBookingCollapse = useCallback((sectionId: string, report: BookingCollapseReport) => {
     setBookingCollapseReports((current) => {
@@ -468,6 +570,23 @@ export function App() {
       delete window.document.body.dataset.editorShell;
     };
   }, []);
+
+  useEffect(() => {
+    if (!customDesignAssetCoordinator || lab.transactionPending) return undefined;
+    const timeout = window.setTimeout(() => {
+      void customDesignAssetCoordinator.cleanupUnreferencedAssets().catch(() => {
+        // The owner-facing storage state remains recoverable; cleanup is conservative.
+      });
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [customDesignAssetCoordinator, lab.historyRevision, lab.transactionPending]);
+
+  useEffect(() => {
+    if (!customDesignAssetCoordinator) return;
+    void customDesignAssetCoordinator.reclaimStaleStages().catch(() => {
+      // Stale stage reclamation is best effort and never mutates the document.
+    });
+  }, [customDesignAssetCoordinator]);
 
   useEffect(() => {
     const media = window.matchMedia('(min-width: 900px)');
@@ -803,12 +922,19 @@ export function App() {
 
   useLayoutEffect(() => {
     const app = editorAppRef.current;
-    if (!app || (!moveSession && !mobileBookingSettingsModalOpen)) {
+    if (
+      !app
+      || (
+        !moveSession
+        && !mobileBookingSettingsModalOpen
+        && !mobileCustomDesignSettingsModalOpen
+      )
+    ) {
       return undefined;
     }
     app.setAttribute('inert', '');
     return () => app.removeAttribute('inert');
-  }, [mobileBookingSettingsModalOpen, moveSession]);
+  }, [mobileBookingSettingsModalOpen, mobileCustomDesignSettingsModalOpen, moveSession]);
 
   useLayoutEffect(() => {
     if (!document || !pendingEditorTopRestoreRef.current) {
@@ -878,6 +1004,29 @@ export function App() {
     });
   }, [editingSectionId]);
 
+  const closeCustomDesignSettings = useCallback(() => {
+    const sectionId = editingSectionId;
+    setHotspotImageItemId(null);
+    setEditingSectionId(null);
+    window.requestAnimationFrame(() => {
+      const invocation = customDesignSettingsTriggerRef.current;
+      const editControl = sectionId
+        ? findFocusableByAttribute('data-custom-design-settings-trigger-for', sectionId)
+        : null;
+      const sectionSurface = sectionId
+        ? [...window.document.querySelectorAll<HTMLElement>('[data-section-instance-id]')]
+          .find((candidate) => candidate.dataset.sectionInstanceId === sectionId)
+          ?.querySelector<HTMLElement>('.section-card__select-surface') ?? null
+        : null;
+      const fallback = window.document.querySelector<HTMLElement>('.final-topbar__page');
+      restoreVisibleFocus(
+        [invocation, editControl, sectionSurface, fallback]
+          .find(canReceiveProgrammaticFocus) ?? null,
+      );
+      customDesignSettingsTriggerRef.current = null;
+    });
+  }, [editingSectionId]);
+
   const hideBookingSettings = () => {
     setSettingsTemporarilyHidden(true);
     window.requestAnimationFrame(() => {
@@ -928,6 +1077,32 @@ export function App() {
     return () => window.document.removeEventListener('keydown', handleSettingsEscape);
   }, [closeBookingSettings, desktopSettings, editingBooking, settingsTemporarilyHidden]);
 
+  useLayoutEffect(() => {
+    if (!editingCustomDesign || !desktopSettings || hotspotImageItemId) return;
+    restoreVisibleFocus(customDesignSettingsHeadingRef.current);
+  }, [desktopSettings, editingCustomDesign?.id, hotspotImageItemId]);
+
+  useEffect(() => {
+    if (!editingCustomDesign || !desktopSettings) return undefined;
+    const handleSettingsEscape = (event: KeyboardEvent) => {
+      const drawer = customDesignSettingsDrawerRef.current;
+      if (
+        event.key !== 'Escape'
+        || event.defaultPrevented
+        || !drawer?.contains(window.document.activeElement)
+        || isEscapeHandledInsideActiveControl(event)
+      ) return;
+      const higherPriorityDialog = [...window.document.querySelectorAll<HTMLElement>('[role="dialog"][aria-modal="true"]')]
+        .find((candidate) => candidate !== drawer);
+      if (higherPriorityDialog) return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeCustomDesignSettings();
+    };
+    window.document.addEventListener('keydown', handleSettingsEscape);
+    return () => window.document.removeEventListener('keydown', handleSettingsEscape);
+  }, [closeCustomDesignSettings, desktopSettings, editingCustomDesign]);
+
   const queueMoveFocus = (session: MoveSession, kind: PendingMoveFocus['kind']) => {
     pendingMoveFocusRef.current = {
       initialSectionId: session.initialSectionId,
@@ -939,12 +1114,23 @@ export function App() {
 
   const chooseStarter = (starter: OriginStarter) => {
     pendingEditorTopRestoreRef.current = true;
-    lab.chooseStarter(starter);
+    if (!lab.chooseStarter(starter)) {
+      pendingEditorTopRestoreRef.current = false;
+      showError(
+        'Finish the current image upload before choosing another starting point.',
+        'Image upload still in progress',
+      );
+      return;
+    }
     setBookingSession(createEmptyBookingSession());
     setBookingCollapseOverrides({});
     setBookingCollapseReports({});
     setActivePageId(null);
     setSelectedSectionId(null);
+    setEditingSectionId(null);
+    setHotspotImageItemId(null);
+    setCustomDesignUploadStatuses({});
+    setCustomDesignRenderErrorAssetIds(new Set());
     setMode('edit');
     setStartAgainOpen(false);
     setOptionsOpen(false);
@@ -1210,18 +1396,42 @@ export function App() {
     });
   };
 
-  const addSection = (sectionType: CatalogueSectionType, size: SectionSize) => {
+  const addSection = (
+    sectionType: CatalogueSectionType | 'custom_design',
+    size?: SectionSize,
+  ) => {
     if (!activePage || libraryPosition === null) {
       return;
     }
     const beforeIds = new Set(activePage.sections.map((section) => section.id));
-    const result = execute({ type: 'add_section', input: { pageId: activePage.id, sectionType, position: libraryPosition, size } });
+    const input = sectionType === 'custom_design'
+      ? {
+          pageId: activePage.id,
+          position: libraryPosition,
+          sectionType,
+        } as const
+      : {
+          pageId: activePage.id,
+          position: libraryPosition,
+          sectionType,
+          size: size ?? 'medium',
+        } as const;
+    const result = execute({ type: 'add_section', input });
     if (!result.success) {
       return;
     }
     const nextPage = result.document.pages.find((page) => page.id === activePage.id);
     const created = nextPage?.sections.find((section) => !beforeIds.has(section.id));
     setSelectedSectionId(created?.id ?? null);
+    if (created?.sectionType === 'custom_design') {
+      setEditingSectionId(created.id);
+      window.requestAnimationFrame(() => {
+        const surface = window.document.querySelector<HTMLElement>(
+          `[data-section-instance-id="${created.id}"]`,
+        );
+        surface?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      });
+    }
     setLibraryPosition(null);
     setToast({ message: `${created?.label ?? 'Section'} added to ${activePage.name}.` });
   };
@@ -1232,6 +1442,11 @@ export function App() {
         ? window.document.activeElement
         : null;
       setSettingsTemporarilyHidden(false);
+    } else if (section.sectionType === 'custom_design') {
+      customDesignSettingsTriggerRef.current = window.document.activeElement instanceof HTMLElement
+        ? window.document.activeElement
+        : null;
+      setHotspotImageItemId(null);
     }
     setStructureOpen(false);
     setSelectedSectionId(section.id);
@@ -1281,6 +1496,218 @@ export function App() {
     }
   };
 
+  const setCustomDesignUploadStatus = (
+    sectionId: string,
+    status: CustomDesignUploadStatus | undefined,
+  ) => {
+    setCustomDesignUploadStatuses((current) => ({ ...current, [sectionId]: status }));
+  };
+
+  const prepareCustomDesignImageTransition = (
+    sectionId: string,
+    expectedImagesJson: string,
+    images: CustomDesignSettings['images'],
+  ) => {
+    const history = lab.getHistorySnapshot();
+    const section = history ? findSection(history.present, sectionId) : null;
+    if (section?.sectionType !== 'custom_design') {
+      throw new Error('This Custom Design section is no longer available.');
+    }
+    if (JSON.stringify(section.settings.images) !== expectedImagesJson) {
+      throw new Error('This image list changed while the files were processing. Try the upload again.');
+    }
+    const cta = reconcileCtaPlacementForImages(section.settings.cta, images).cta;
+    const prepared = lab.prepareCommand({
+      type: 'update_custom_design_settings',
+      sectionId,
+      settings: { ...section.settings, cta, images: [...images] },
+    });
+    if (!prepared.success) throw new Error(prepared.message);
+    return {
+      cancel: prepared.cancel,
+      changed: prepared.changed,
+      publish: prepared.publish,
+    };
+  };
+
+  const uploadCustomDesignImages = async (
+    sectionId: string,
+    files: readonly File[],
+  ) => {
+    const section = document ? findSection(document, sectionId) : null;
+    if (section?.sectionType !== 'custom_design') return;
+    if (!customDesignAssetCoordinator) {
+      showError(
+        customDesignStorageError?.message
+          ?? 'Uploaded-design storage is not available in this browser.',
+        'Images could not be stored',
+      );
+      return;
+    }
+
+    const expectedImagesJson = JSON.stringify(section.settings.images);
+    setCustomDesignUploadStatus(sectionId, { pending: true, message: 'Checking and saving images…' });
+    try {
+      const result = await customDesignAssetCoordinator.uploadImages({
+        createAssetId: () => customDesignIdFactoryRef.current('asset'),
+        createImageItemId: () => customDesignIdFactoryRef.current('image'),
+        currentImages: section.settings.images,
+        files,
+        prepareDocumentTransition: (images) => prepareCustomDesignImageTransition(
+          sectionId,
+          expectedImagesJson,
+          [...images],
+        ),
+      });
+      const addedCount = result.added.length;
+      const failures = result.failures.map((failure) => ({
+        fileName: failure.fileName,
+        message: failure.message,
+      }));
+      const message = result.status === 'partial'
+        ? `${addedCount} ${addedCount === 1 ? 'image was' : 'images were'} added. ${failures.length} ${failures.length === 1 ? 'file could not' : 'files could not'} be processed.`
+        : result.status === 'committed'
+          ? `${addedCount} ${addedCount === 1 ? 'image was' : 'images were'} added.`
+          : 'No images were added.';
+      setCustomDesignUploadStatus(sectionId, {
+        failures,
+        message,
+        pending: false,
+      });
+      if (addedCount > 0) {
+        setToast({ message });
+        setAnnouncement(message);
+      } else if (failures.length > 0) {
+        showError(failures.map((failure) => `${failure.fileName}: ${failure.message}`).join(' '), 'Images could not be added');
+      }
+    } catch (error) {
+      const message = error instanceof Error
+        ? error.message
+        : 'The selected images could not be added safely.';
+      setCustomDesignUploadStatus(sectionId, {
+        failures: [{ fileName: 'Upload', message }],
+        message: 'No images were added.',
+        pending: false,
+      });
+      showError(message, 'Images could not be added');
+    }
+  };
+
+  const replaceCustomDesignImageAsset = async (
+    sectionId: string,
+    imageItemId: string,
+    file: File,
+  ) => {
+    const section = document ? findSection(document, sectionId) : null;
+    if (section?.sectionType !== 'custom_design') return;
+    if (!customDesignAssetCoordinator) {
+      showError(
+        customDesignStorageError?.message
+          ?? 'Uploaded-design storage is not available in this browser.',
+        'Image could not be replaced',
+      );
+      return;
+    }
+    const expectedImagesJson = JSON.stringify(section.settings.images);
+    setCustomDesignUploadStatus(sectionId, { pending: true, message: 'Replacing image…' });
+    try {
+      const result = await customDesignAssetCoordinator.replaceImage({
+        createAssetId: () => customDesignIdFactoryRef.current('asset'),
+        currentImages: section.settings.images,
+        file,
+        imageItemId,
+        prepareDocumentTransition: (images) => prepareCustomDesignImageTransition(
+          sectionId,
+          expectedImagesJson,
+          [...images],
+        ),
+      });
+      if (!result.success) {
+        setCustomDesignUploadStatus(sectionId, {
+          failures: [{ fileName: result.failure.fileName, message: result.failure.message }],
+          message: 'The image was not replaced.',
+          pending: false,
+        });
+        showError(result.failure.message, 'Image could not be replaced');
+        return;
+      }
+      const message = result.reviewRequired
+        ? 'Image replaced. Review link positions before Preview.'
+        : 'Image replaced. Link areas were preserved.';
+      setCustomDesignUploadStatus(sectionId, { pending: false, message });
+      setToast({ message });
+      setAnnouncement(message);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'The image could not be replaced safely.';
+      setCustomDesignUploadStatus(sectionId, {
+        failures: [{ fileName: file.name, message }],
+        message: 'The image was not replaced.',
+        pending: false,
+      });
+      showError(message, 'Image could not be replaced');
+    }
+  };
+
+  const updateCustomDesignSettings = (
+    sectionId: string,
+    update: (settings: CustomDesignSettings) => CustomDesignSettings,
+    message: string,
+    undoable = false,
+  ) => {
+    const history = lab.getHistorySnapshot();
+    const section = history ? findSection(history.present, sectionId) : null;
+    if (section?.sectionType !== 'custom_design') return false;
+    const result = execute({
+      type: 'update_custom_design_settings',
+      sectionId,
+      settings: update(section.settings),
+    });
+    if (!result.success) return false;
+    setToast({ message, ...(undoable ? { undoable: true } : {}) });
+    setAnnouncement(message);
+    return true;
+  };
+
+  const commitCustomDesignImageOrder = (
+    sectionId: string,
+    orderedImageItemIds: readonly string[],
+  ) => updateCustomDesignSettings(sectionId, (settings) => {
+    const byId = new Map(settings.images.map((image) => [image.id, image]));
+    const images = orderedImageItemIds.flatMap((id) => {
+      const image = byId.get(id);
+      return image ? [image] : [];
+    });
+    return images.length === settings.images.length
+      ? { ...settings, images }
+      : settings;
+  }, 'Image order saved.');
+
+  const removeCustomDesignImage = (
+    sectionId: string,
+    imageItemId: string,
+  ) => updateCustomDesignSettings(sectionId, (settings) => {
+    const images = settings.images.filter((image) => image.id !== imageItemId);
+    return {
+      ...settings,
+      cta: reconcileCtaPlacementForImages(settings.cta, images).cta,
+      images,
+    };
+  }, 'Image removed.', true);
+
+  const commitCustomDesignAreas = (
+    sectionId: string,
+    imageItemId: string,
+    areas: readonly CustomDesignInteractiveArea[],
+  ) => {
+    const changed = updateCustomDesignSettings(sectionId, (settings) => ({
+      ...settings,
+      images: settings.images.map((image) => image.id === imageItemId
+        ? { ...image, interactiveAreas: [...areas] }
+        : image),
+    }), 'Link areas saved.');
+    if (changed) setHotspotImageItemId(null);
+  };
+
   const toggleSection = (section: SectionInstance) => {
     const result = execute({ type: 'set_section_visible', sectionId: section.id, visible: !section.visible });
     if (result.success) {
@@ -1292,6 +1719,10 @@ export function App() {
     const result = execute({ type: 'remove_section', sectionId: section.id });
     if (result.success) {
       setSelectedSectionId(null);
+      setEditingSectionId(null);
+      setHotspotImageItemId(null);
+      setCustomDesignUploadStatuses({});
+      setCustomDesignRenderErrorAssetIds(new Set());
       setMobileActionsOpen(false);
       setToast({ message: 'Section removed', undoable: true });
     }
@@ -1386,24 +1817,34 @@ export function App() {
   };
 
   const exportJson = () => {
-    const json = lab.exportJson();
-    if (!json) {
-      return;
+    try {
+      const json = lab.exportJson();
+      if (!json) return;
+      const blob = new Blob([json], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchor = window.document.createElement('a');
+      anchor.href = url;
+      anchor.download = 'luster-site-builder-v2-booking-integration-lab-v1.json';
+      anchor.click();
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      setOptionsOpen(false);
+      setToast({ message: 'JSON exported. Uploaded image bytes are not included.' });
+    } catch (error) {
+      showError(
+        error instanceof Error ? error.message : 'The JSON backup could not be created.',
+        'Export could not be completed',
+      );
     }
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const anchor = window.document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'luster-site-builder-v2-booking-integration-lab-v1.json';
-    anchor.click();
-    window.setTimeout(() => URL.revokeObjectURL(url), 0);
-    setOptionsOpen(false);
-    setToast({ message: 'Lab document exported as JSON.' });
   };
 
   const importFile = async (file: File) => {
     try {
-      const result = lab.importJson(await file.text());
+      const json = await file.text();
+      const result = customDesignAssetCoordinator
+        ? await customDesignAssetCoordinator.coordinateDocumentMutation(
+          () => lab.importJson(json),
+        )
+        : lab.importJson(json);
       if (!result.success) {
         showError(result.issues.join(' '), 'Import could not be completed');
         return;
@@ -1411,6 +1852,10 @@ export function App() {
       setOptionsOpen(false);
       setActivePageId(getHomeOrFirstPage(result.document).id);
       setSelectedSectionId(null);
+      setEditingSectionId(null);
+      setHotspotImageItemId(null);
+      setCustomDesignUploadStatuses({});
+      setCustomDesignRenderErrorAssetIds(new Set());
       setBookingSession(createEmptyBookingSession());
       setBookingCollapseOverrides({});
       setBookingCollapseReports({});
@@ -1421,22 +1866,48 @@ export function App() {
     }
   };
 
-  const confirmReset = () => {
+  const confirmReset = async () => {
     if (resetChoice === 'lab') {
+      try {
+        await customDesignAssetCoordinator?.clearAllAssets();
+      } catch (error) {
+        showError(
+          error instanceof Error ? error.message : 'Uploaded images could not be cleared.',
+          'Lab assets could not be cleared',
+        );
+        setResetChoice(null);
+        return;
+      }
       lab.resetLab();
       setBookingSession(createEmptyBookingSession());
       setBookingCollapseOverrides({});
       setBookingCollapseReports({});
       setOptionsOpen(false);
+      setEditingSectionId(null);
+      setHotspotImageItemId(null);
+      setCustomDesignUploadStatuses({});
+      setCustomDesignRenderErrorAssetIds(new Set());
       setToast(null);
     } else if (resetChoice === 'starter') {
       pendingEditorTopRestoreRef.current = true;
-      lab.resetToStarter();
+      if (!lab.resetToStarter()) {
+        pendingEditorTopRestoreRef.current = false;
+        setResetChoice(null);
+        showError(
+          'Finish the current image upload before resetting this starting kit.',
+          'Image upload still in progress',
+        );
+        return;
+      }
       setBookingSession(createEmptyBookingSession());
       setBookingCollapseOverrides({});
       setBookingCollapseReports({});
       setActivePageId(null);
       setSelectedSectionId(null);
+      setEditingSectionId(null);
+      setHotspotImageItemId(null);
+      setCustomDesignUploadStatuses({});
+      setCustomDesignRenderErrorAssetIds(new Set());
       setMode('edit');
       setOptionsOpen(false);
       setToast({ message: 'Reset to the original starting kit.' });
@@ -1448,7 +1919,15 @@ export function App() {
     return (
       <>
         {lab.loadIssues.length > 0 ? (
-          <div className="toast" role="alert"><span>Saved Lab data is corrupted and was not loaded. {lab.loadIssues.join(' ')}</span><button type="button" onClick={lab.resetLab}>Reset saved Lab</button></div>
+          <div className="toast" role="alert"><span>Saved Lab data is corrupted and was not loaded. {lab.loadIssues.join(' ')}</span><button type="button" onClick={() => {
+            void (async () => {
+              try {
+                await customDesignAssetCoordinator?.clearAllAssets();
+              } finally {
+                lab.resetLab();
+              }
+            })();
+          }}>Reset saved Lab</button></div>
         ) : null}
         <StarterChooser
           onChoose={chooseStarter}
@@ -1463,11 +1942,24 @@ export function App() {
   const selectedBookingReport = selectedSection?.sectionType === 'booking'
     ? bookingCollapseReports[selectedSection.id]
     : undefined;
-  const selectedSectionSubtitle = selectedSection?.sectionType === 'booking'
-    ? BOOKING_LAYOUT_META[selectedSection.settings.layout].label
-    : selectedSection?.sectionType
-      ? selectedSection.size
-      : '';
+  const selectedSectionIdentity = selectedSection
+    ? getSectionOwnerIdentity(selectedSection)
+    : null;
+  const selectedSectionSubtitle = selectedSectionIdentity?.detail ?? '';
+  const editingCustomDesignReadiness = editingCustomDesign
+    ? getOwnerCustomDesignReadiness(
+        editingCustomDesign.settings,
+        customDesignAssets,
+        document,
+        activePage.id,
+      )
+    : [];
+  const hotspotImage = editingCustomDesign?.settings.images.find(
+    (image) => image.id === hotspotImageItemId,
+  ) ?? null;
+  const hotspotAsset = hotspotImage
+    ? customDesignAssets[hotspotImage.assetId] ?? { status: 'loading' as const }
+    : { status: 'loading' as const };
 
   const toggleSelectedBookingCollapse = () => {
     if (selectedSection?.sectionType !== 'booking' || !selectedBookingReport) return;
@@ -1545,6 +2037,61 @@ export function App() {
     />
   );
 
+  const customDesignOwnerEditor = editingCustomDesign ? (
+    <CustomDesignOwnerEditor
+      assets={customDesignAssets}
+      internalTargets={customDesignInternalTargets}
+      readinessIssues={editingCustomDesignReadiness}
+      settings={editingCustomDesign.settings}
+      uploadStatus={customDesignUploadStatuses[editingCustomDesign.id]}
+      onAddImages={(files) => {
+        void uploadCustomDesignImages(editingCustomDesign.id, files);
+      }}
+      onCommitImageOrder={(imageItemIds) => {
+        commitCustomDesignImageOrder(editingCustomDesign.id, imageItemIds);
+      }}
+      onEditAreas={setHotspotImageItemId}
+      onRemoveImage={(imageItemId) => {
+        removeCustomDesignImage(editingCustomDesign.id, imageItemId);
+      }}
+      onReplaceImage={(imageItemId, file) => {
+        void replaceCustomDesignImageAsset(editingCustomDesign.id, imageItemId, file);
+      }}
+      onUpdateAccessibility={(imageItemId, update) => {
+        updateCustomDesignSettings(editingCustomDesign.id, (settings) => ({
+          ...settings,
+          images: settings.images.map((image) => image.id === imageItemId
+            ? { ...image, ...update }
+            : image),
+        }), 'Accessibility information saved.');
+      }}
+      onUpdateBackground={(background) => {
+        updateCustomDesignSettings(editingCustomDesign.id, (settings) => ({
+          ...settings,
+          background,
+        }), 'Custom Design background updated.');
+      }}
+      onUpdateCta={(cta) => {
+        updateCustomDesignSettings(editingCustomDesign.id, (settings) => ({
+          ...settings,
+          cta,
+        }), cta.type === 'none' ? 'Native button removed.' : 'Native button saved.');
+      }}
+      onUpdateDisplay={(displayMode) => {
+        updateCustomDesignSettings(editingCustomDesign.id, (settings) => ({
+          ...settings,
+          displayMode,
+        }), `${displayMode === 'full_width' ? 'Full width' : `${displayMode[0]?.toUpperCase()}${displayMode.slice(1)}`} display selected.`);
+      }}
+      onUpdateGap={(gap) => {
+        updateCustomDesignSettings(editingCustomDesign.id, (settings) => ({
+          ...settings,
+          gap,
+        }), `${gap[0]?.toUpperCase()}${gap.slice(1)} image spacing selected.`);
+      }}
+    />
+  ) : null;
+
   const zoomCompactedPreview = window.innerWidth > 700 && window.document.body.clientWidth <= 700;
 
   if (mode === 'preview') {
@@ -1592,7 +2139,7 @@ export function App() {
   return (
     <div
       ref={editorAppRef}
-      className={`editor-app final-hybrid-app${selectedSection ? ' has-selected-section' : ''}${editingSectionId || moveSession || editingPageId || addPageOpen ? ' has-context-drawer' : ''}${editingBooking && !settingsTemporarilyHidden ? ' has-booking-settings' : ''}${moveSession ? ' has-move-session' : ''}${realHeightSimulation ? ' is-real-height-simulation' : ''}`}
+      className={`editor-app final-hybrid-app${selectedSection ? ' has-selected-section' : ''}${editingSectionId || moveSession || editingPageId || addPageOpen ? ' has-context-drawer' : ''}${editingBooking && !settingsTemporarilyHidden ? ' has-booking-settings' : ''}${editingCustomDesign ? ' has-custom-design-settings' : ''}${moveSession ? ' has-move-session' : ''}${realHeightSimulation ? ' is-real-height-simulation' : ''}`}
       data-canvas-viewport={viewport}
       data-editor-shell="final-hybrid"
       data-editor-mode={mode}
@@ -1685,6 +2232,51 @@ export function App() {
                             }}
                             onSessionChange={setBookingSession}
                             onToggleVisible={toggleSection}
+                          />
+                        ) : section.sectionType === 'custom_design' ? (
+                          <CustomDesignSectionCard
+                            assets={customDesignAssets}
+                            order={index + 1}
+                            readinessIssues={getOwnerCustomDesignReadiness(
+                              section.settings,
+                              customDesignAssets,
+                              document,
+                              activePage.id,
+                            )}
+                            resolveAction={(action, source) => {
+                              const effectiveAction = action
+                                ?? (source.type === 'cta' && source.cta.type === 'book_now'
+                                  ? { type: 'start_booking' as const }
+                                  : null);
+                              return effectiveAction
+                              ? resolveCustomDesignDocumentAction(effectiveAction, {
+                                  activePageId: activePage.id,
+                                  document,
+                                })
+                              : { status: 'unresolved', reason: 'invalid_destination' };
+                            }}
+                            sectionId={section.id}
+                            selected={selectedSectionId === section.id}
+                            settings={section.settings}
+                            uploadStatus={customDesignUploadStatuses[section.id]}
+                            visible={section.visible}
+                            onChooseImages={(files) => {
+                              void uploadCustomDesignImages(section.id, files);
+                            }}
+                            onAssetRenderError={(assetId) => {
+                              setCustomDesignRenderErrorAssetIds((current) => new Set(current).add(assetId));
+                            }}
+                            onEdit={() => editSection(section)}
+                            onMove={() => openMoveSection(section.id)}
+                            onRemove={() => removeSection(section)}
+                            onReplaceImage={(imageItemId, file) => {
+                              void replaceCustomDesignImageAsset(section.id, imageItemId, file);
+                            }}
+                            onSelect={() => {
+                              setSelectedSectionId((current) => current === section.id ? null : section.id);
+                              setMobileActionsOpen(false);
+                            }}
+                            onToggleVisible={() => toggleSection(section)}
                           />
                         ) : (
                           <SectionCard
@@ -1790,6 +2382,39 @@ export function App() {
           </div>
         </aside>
       ) : null}
+      {editingCustomDesign && desktopSettings ? (
+        <aside
+          ref={customDesignSettingsDrawerRef}
+          aria-label="Custom Design settings"
+          aria-modal="false"
+          className="final-booking-settings-drawer final-custom-design-settings-drawer"
+          role="dialog"
+        >
+          <header>
+            <div className="final-booking-settings-drawer__intro">
+              <h2
+                ref={customDesignSettingsHeadingRef}
+                className="final-booking-settings-drawer__title"
+                tabIndex={-1}
+              >
+                Custom Design
+              </h2>
+              <p>Manage uploaded pages, presentation, accessibility, and real client actions.</p>
+            </div>
+            <button
+              aria-label="Close Custom Design settings"
+              className="icon-button"
+              type="button"
+              onClick={closeCustomDesignSettings}
+            >
+              ×
+            </button>
+          </header>
+          <div className="final-booking-settings-drawer__body">
+            {customDesignOwnerEditor}
+          </div>
+        </aside>
+      ) : null}
       {selectedSection && !moveSession ? (
         <aside
           aria-label={`${selectedSection.label} owner controls`}
@@ -1799,12 +2424,13 @@ export function App() {
           {selectedSectionIntersects ? (
             <>
               <div className="final-selected-toolbar__identity">
-                <span aria-hidden="true">{selectedSection.sectionType === 'booking' ? 'B' : selectedSection.label.replace('Section ', '')}</span>
-                <div><strong>{selectedSection.label}</strong><small>{selectedSectionSubtitle}</small></div>
+                <span aria-hidden="true">{selectedSectionIdentity?.mark}</span>
+                <div><strong>{selectedSectionIdentity?.label}</strong><small>{selectedSectionSubtitle}</small></div>
               </div>
               <div className="final-selected-toolbar__actions">
                 <button
                   data-booking-settings-trigger-for={selectedSection.sectionType === 'booking' ? selectedSection.id : undefined}
+                  data-custom-design-settings-trigger-for={selectedSection.sectionType === 'custom_design' ? selectedSection.id : undefined}
                   type="button"
                   onClick={() => editSection(selectedSection)}
                 >
@@ -1850,12 +2476,13 @@ export function App() {
           selectedSectionIntersects ? (
             <div aria-label={`${selectedSection.label} actions`} className="final-mobile-dock__selected" role="group">
               <div className="final-mobile-dock__identity">
-                <span aria-hidden="true">{selectedSection.sectionType === 'booking' ? 'B' : selectedSection.label.replace('Section ', '')}</span>
-                <div><strong>{selectedSection.label}</strong><small>{selectedSectionSubtitle}</small></div>
+                <span aria-hidden="true">{selectedSectionIdentity?.mark}</span>
+                <div><strong>{selectedSectionIdentity?.label}</strong><small>{selectedSectionIdentity?.short}</small></div>
               </div>
               <div className={`final-mobile-dock__actions${selectedSection.sectionType === 'booking' && selectedBookingReport?.isLong ? ' has-collapse' : ''}`}>
                 <button
                   data-booking-settings-trigger-for={selectedSection.sectionType === 'booking' ? selectedSection.id : undefined}
+                  data-custom-design-settings-trigger-for={selectedSection.sectionType === 'custom_design' ? selectedSection.id : undefined}
                   type="button"
                   onClick={() => editSection(selectedSection)}
                 >
@@ -1913,6 +2540,28 @@ export function App() {
           />
         ) : null}
       </Dialog>
+      <Dialog
+        initialFocusSelector="[data-dialog-title]"
+        onClose={closeCustomDesignSettings}
+        open={editingCustomDesign !== null && !desktopSettings && hotspotImageItemId === null}
+        title="Custom Design"
+        variant="context-panel"
+      >
+        {customDesignOwnerEditor}
+      </Dialog>
+      <HotspotEditor
+        asset={hotspotAsset}
+        createAreaId={() => customDesignIdFactoryRef.current('area')}
+        image={hotspotImage}
+        internalTargets={customDesignInternalTargets}
+        open={editingCustomDesign !== null && hotspotImage !== null}
+        onCancel={() => setHotspotImageItemId(null)}
+        onCommit={(imageItemId, areas) => {
+          if (editingCustomDesign) {
+            commitCustomDesignAreas(editingCustomDesign.id, imageItemId, areas);
+          }
+        }}
+      />
       {moveSession && moveSourcePage ? (
         <SectionMovePanel
           commitStatus={lab.saveStatus === 'idle' ? 'saved' : lab.saveStatus}
@@ -2019,7 +2668,7 @@ export function App() {
               {selectedSection.visible ? 'Shown on your website' : 'Hidden from clients'} · {' '}
               {selectedSection.sectionType === 'booking'
                 ? 'Your client booking menu · keeps booking available'
-                : `${selectedSection.size} placeholder`}
+                : getSectionOwnerIdentity(selectedSection).detail}
             </p>
             <button type="button" onClick={() => { setMobileActionsOpen(false); openMoveSection(selectedSection.id); }}><Menu aria-hidden="true" size={18} /> Move section</button>
             <button type="button" onClick={() => { setMobileActionsOpen(false); removeSection(selectedSection); }}><Trash2 aria-hidden="true" size={18} /> Remove from page</button>

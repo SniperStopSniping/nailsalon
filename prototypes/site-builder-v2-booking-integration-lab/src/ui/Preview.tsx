@@ -1,5 +1,11 @@
 import { Menu } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   BookingSectionRenderer,
@@ -10,7 +16,12 @@ import type {
   BookingTokenPresetId,
   MockMenuFixture,
 } from '../booking/types';
+import { useCustomDesignAssetMap } from '../custom-design/integration/CustomDesignAssetProvider';
+import { CustomDesignCustomerPreview } from '../custom-design/integration/CustomDesignSectionCard';
+import { resolveCustomDesignDocumentAction } from '../custom-design/integration/document-actions';
+import type { ResolveCustomDesignAction } from '../custom-design/components/view-types';
 import type { PageDocument, SiteBuilderDocument } from '../model/types';
+import { toCustomDesignOwnerAssetMap } from './custom-design-adapters';
 
 type PreviewProps = {
   activePage: PageDocument;
@@ -36,8 +47,16 @@ export function Preview({
   viewport,
 }: PreviewProps) {
   const [mobileNavigationOpen, setMobileNavigationOpen] = useState(false);
+  const [customDesignRenderErrorAssetIds, setCustomDesignRenderErrorAssetIds] = useState<
+    ReadonlySet<string>
+  >(() => new Set());
   const [overlayHost, setOverlayHost] = useState<HTMLDivElement | null>(null);
   const [summaryHost, setSummaryHost] = useState<HTMLDivElement | null>(null);
+  const clientSiteRef = useRef<HTMLDivElement | null>(null);
+  const pendingDocumentTargetRef = useRef<{
+    pageId: string;
+    sectionId?: string;
+  } | null>(null);
   useEffect(() => setMobileNavigationOpen(false), [activePage.id, viewport]);
   const navigationItems = [...document.navigation.items]
     .sort((left, right) => left.order - right.order)
@@ -46,12 +65,89 @@ export function Preview({
       return page?.visible && page.visibleInNavigation;
     });
   const visibleSections = activePage.sections.filter((section) => section.visible);
+  const customDesignAssetIds = useMemo(() => visibleSections.flatMap((section) =>
+    section.sectionType === 'custom_design'
+      ? section.settings.images.map((image) => image.assetId)
+      : []), [visibleSections]);
+  const customDesignAssetPairs = useCustomDesignAssetMap(customDesignAssetIds);
+  const customDesignAssets = useMemo(() => {
+    const resolved = toCustomDesignOwnerAssetMap(customDesignAssetPairs);
+    return Object.fromEntries(Object.entries(resolved).map(([assetId, asset]) => [
+      assetId,
+      customDesignRenderErrorAssetIds.has(assetId)
+        ? { status: 'error' as const, reason: 'This design file could not be displayed.' }
+        : asset,
+    ]));
+  }, [customDesignAssetPairs, customDesignRenderErrorAssetIds]);
+  const setClientSiteHost = useCallback((element: HTMLDivElement | null) => {
+    clientSiteRef.current = element;
+    setSummaryHost(element);
+  }, []);
+  const readClientScroll = useCallback(() => ({
+    x: clientSiteRef.current?.scrollLeft ?? window.scrollX,
+    y: clientSiteRef.current?.scrollTop ?? window.scrollY,
+  }), []);
+  const scrollToDocumentTarget = useCallback((sectionId?: string) => {
+    const clientSite = clientSiteRef.current;
+    if (!clientSite) return;
+    if (!sectionId) {
+      clientSite.scrollTo({ behavior: 'smooth', left: 0, top: 0 });
+      return;
+    }
+    const target = [...clientSite.querySelectorAll<HTMLElement>('[data-section-id]')]
+      .find((candidate) => candidate.dataset.sectionId === sectionId);
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  useEffect(() => {
+    const pending = pendingDocumentTargetRef.current;
+    if (!pending || pending.pageId !== activePage.id) return undefined;
+    pendingDocumentTargetRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      scrollToDocumentTarget(pending.sectionId);
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activePage.id, scrollToDocumentTarget]);
+
+  const resolveCustomDesignPreviewAction: ResolveCustomDesignAction = useCallback((
+    action,
+    source,
+  ) => {
+    const effectiveAction = action
+      ?? (source.type === 'cta' && source.cta.type === 'book_now'
+        ? { type: 'start_booking' as const }
+        : null);
+    if (!effectiveAction) return { status: 'unresolved', reason: 'invalid_destination' };
+    const resolution = resolveCustomDesignDocumentAction(effectiveAction, {
+      activePageId: activePage.id,
+      document,
+    });
+    if (resolution.status !== 'resolved' || !resolution.documentTarget) {
+      return resolution;
+    }
+    const target = resolution.documentTarget;
+    return {
+      status: 'button',
+      onActivate: (event) => {
+        event.preventDefault();
+        if (target.relationship === 'same_page') {
+          scrollToDocumentTarget(target.sectionId);
+          return;
+        }
+        pendingDocumentTargetRef.current = {
+          pageId: target.pageId,
+          ...(target.sectionId ? { sectionId: target.sectionId } : {}),
+        };
+        onNavigate(target.pageId);
+      },
+    };
+  }, [activePage.id, document, onNavigate, scrollToDocumentTarget]);
 
   return (
     <div className={`preview-stage preview-stage--${viewport}`} data-testid="preview-stage" id={stageId}>
       <div className="preview-frame" data-preview-viewport={viewport}>
         <div
-          ref={setSummaryHost}
+          ref={setClientSiteHost}
           className={`client-site${bookingSession.selection.serviceId ? ' has-booking-selection' : ''}`}
         >
         <header className="client-header">
@@ -109,6 +205,29 @@ export function Preview({
                     onSessionChange={onBookingSessionChange}
                   />
                 </section>
+              );
+            }
+
+            if (section.sectionType === 'custom_design') {
+              if (section.settings.images.length === 0) return null;
+              return (
+                <div
+                  key={section.id}
+                  className="preview-section preview-section--custom-design"
+                  data-section-id={section.id}
+                  data-section-type="custom_design"
+                >
+                  <CustomDesignCustomerPreview
+                    accessibleSectionLabel="Custom Design"
+                    assets={customDesignAssets}
+                    getScrollPosition={readClientScroll}
+                    onAssetRenderError={(assetId) => {
+                      setCustomDesignRenderErrorAssetIds((current) => new Set(current).add(assetId));
+                    }}
+                    resolveAction={resolveCustomDesignPreviewAction}
+                    settings={section.settings}
+                  />
+                </div>
               );
             }
 

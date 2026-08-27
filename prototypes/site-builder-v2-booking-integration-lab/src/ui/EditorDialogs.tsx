@@ -1,9 +1,9 @@
-import { ArrowDown, ArrowUp, Download, FileUp, Maximize2, Plus, Redo2, RotateCcw, Trash2, Undo2 } from 'lucide-react';
+import { ArrowDown, ArrowUp, Download, FileUp, ImageUp, Maximize2, Plus, Redo2, RotateCcw, Search, Trash2, Undo2 } from 'lucide-react';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import type { BookingTokenPresetId, ImageFixture, MenuSize } from '../booking/types';
 import {
-  SECTION_CATALOGUE,
+  ADD_SECTION_CATALOGUE,
   type CatalogueSectionType,
   type OriginStarter,
   type PageDocument,
@@ -16,14 +16,31 @@ import { Dialog } from './Dialog';
 type SectionLibraryDialogProps = {
   document: SiteBuilderDocument;
   insertionPosition: number | null;
-  onAdd: (sectionType: CatalogueSectionType, size: SectionSize) => void;
+  onAdd: (
+    sectionType: CatalogueSectionType | 'custom_design',
+    size?: SectionSize,
+  ) => void;
   onClose: () => void;
   page: PageDocument;
 };
 
 export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClose, page }: SectionLibraryDialogProps) {
+  const [search, setSearch] = useState('');
   const activeTypes = new Set(document.pages.flatMap((candidate) => candidate.sections.map((section) => section.sectionType)));
   const unusedTypes = new Set(document.unusedSections.map((section) => section.sectionType));
+  const normalizedSearch = search.trim().toLocaleLowerCase();
+  const visibleItems = ADD_SECTION_CATALOGUE.filter((item) => {
+    if (!normalizedSearch) return true;
+    const searchable = item.sectionType === 'custom_design'
+      ? [item.label, item.description, item.helper, ...item.searchKeywords, ...item.tags]
+      : [item.label, item.defaultSize, 'placeholder', 'future section'];
+    return searchable.some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
+  });
+  const bookingMatches = !normalizedSearch || 'booking client service menu'.includes(normalizedSearch);
+
+  useEffect(() => {
+    if (insertionPosition === null) setSearch('');
+  }, [insertionPosition]);
 
   return (
     <Dialog
@@ -37,8 +54,52 @@ export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClo
         <strong>Section library</strong>
         <span>All starting points use the same library.</span>
       </div>
+      <label className="section-library-search">
+        <span className="visually-hidden">Search sections</span>
+        <Search aria-hidden="true" size={18} />
+        <input
+          autoComplete="off"
+          placeholder="Search Canva, policies, booking…"
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+        />
+      </label>
       <div className="section-library-grid">
-        {SECTION_CATALOGUE.map((item) => {
+        {visibleItems.map((item) => {
+          if (item.sectionType === 'custom_design') {
+            const activeCount = document.pages.reduce(
+              (count, candidate) => count + candidate.sections.filter(
+                (section) => section.sectionType === 'custom_design',
+              ).length,
+              0,
+            );
+            const removedCount = document.unusedSections.filter(
+              (section) => section.sectionType === 'custom_design',
+            ).length;
+            const state = activeCount > 0
+              ? `${activeCount} in use`
+              : removedCount > 0
+                ? `${removedCount} removed`
+                : 'Available';
+            return (
+              <article className="library-item library-item--custom-design" data-section-type="custom_design" key={item.sectionType}>
+                <div className="library-item__preview"><ImageUp aria-hidden="true" size={30} /></div>
+                <div className="library-item__copy">
+                  <strong>{item.label}</strong>
+                  <span>{item.description}</span>
+                  <span className="library-item__helper">{item.helper}</span>
+                  <span className="library-state">{state}</span>
+                  <span className="library-item__tags" aria-label="Custom Design tags">
+                    {item.tags.map((tag) => <small key={tag}>{tag}</small>)}
+                  </span>
+                  <button className="library-add-button" type="button" onClick={() => onAdd('custom_design')}>
+                    <Plus aria-hidden="true" size={15} /> Add Custom Design
+                  </button>
+                </div>
+              </article>
+            );
+          }
           const state = activeTypes.has(item.sectionType) ? 'Currently used' : unusedTypes.has(item.sectionType) ? 'Removed' : 'Available';
           return (
             <article className="library-item" key={item.sectionType}>
@@ -54,7 +115,7 @@ export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClo
             </article>
           );
         })}
-        <article className="library-item" data-section-type="booking">
+        {bookingMatches ? <article className="library-item" data-section-type="booking">
           <div className="library-item__preview">B</div>
           <div className="library-item__copy">
             <strong>Booking</strong>
@@ -69,7 +130,10 @@ export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClo
               Currently used
             </button>
           </div>
-        </article>
+        </article> : null}
+        {visibleItems.length === 0 && !bookingMatches ? (
+          <p className="section-library-empty">No sections match “{search.trim()}”. Try Canva, policies, or image.</p>
+        ) : null}
       </div>
     </Dialog>
   );
@@ -367,6 +431,9 @@ export function LabOptionsDialog({
       </div>
       <div className="more-options-section move-page-list">
         <span>Backup and reset</span>
+        <p className="form-hint" data-testid="custom-design-json-warning">
+          Uploaded design files are stored in this browser and aren’t included in the JSON backup.
+        </p>
         <button className="sheet-list-button" type="button" onClick={onExport}><Download aria-hidden="true" size={18} /> Export JSON</button>
         <button className="sheet-list-button" type="button" onClick={() => inputRef.current?.click()}><FileUp aria-hidden="true" size={18} /> Import JSON</button>
         <input ref={inputRef} className="visually-hidden" accept="application/json,.json" aria-label="Import site JSON file" tabIndex={-1} type="file" onChange={(event) => { const file = event.target.files?.[0]; if (file) onImport(file); event.target.value = ''; }} />

@@ -39,8 +39,12 @@ export function CustomDesignRenderer({
     asset: resolveAsset(image.assetId, image),
     image,
   }));
-  const hasRenderableImage = images.some(entry => entry.asset.status === 'ready')
-    || (missingAssetFallback === 'placeholder' && images.length > 0);
+  const hasRenderableImage = images.some(entry => (
+    entry.asset.status === 'ready' || entry.asset.status === 'loading'
+  ))
+    || (missingAssetFallback === 'placeholder' && images.length > 0)
+    || settings.cta.type !== 'none'
+    || images.some((entry) => Boolean(entry.image.accessibleSummary?.trim()));
 
   if (!hasRenderableImage) {
     return null;
