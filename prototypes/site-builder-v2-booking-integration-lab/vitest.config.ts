@@ -8,7 +8,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     coverage: {
-      include: ['src/{booking,model,ui}/**/*.{ts,tsx}'],
+      include: ['src/{booking,model,onboarding,ui}/**/*.{ts,tsx}'],
     },
     environment: 'jsdom',
     globals: true,

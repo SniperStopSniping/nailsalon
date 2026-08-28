@@ -1,0 +1,99 @@
+import { describe, expect, it } from 'vitest';
+
+import { SCREEN_METADATA } from '../copy';
+import { createDanielaFixtureState } from '../fixtures';
+import { createDefaultOnboardingState } from '../model/defaults';
+import {
+  canOpenBuilder,
+  getCompletedEssentialStages,
+  getCompletedEssentialIds,
+  getEssentialResults,
+  getEssentialsLeft,
+  getEssentialsMessage,
+  getFirstIncompleteEssentialScreen,
+  getStageEssentialProgress,
+} from './essentials';
+
+describe('onboarding essentials', () => {
+  it('defines exactly five essentials and keeps optional content out', () => {
+    const state = createDefaultOnboardingState();
+    expect(getEssentialResults(state)).toHaveLength(5);
+    expect(getEssentialsMessage(state)).toBe('5 essentials left');
+
+    state.profile.profilePhoto = {
+      fileName: 'portrait.webp',
+      id: 'fixture-portrait',
+      mimeType: 'image/webp',
+      source: 'fixture',
+    };
+    state.profile.about.shortBio = 'Optional bio';
+    state.recipe.aboutEnabled = true;
+    state.recipe.galleryEnabled = true;
+    state.recipe.canvaEnabled = true;
+    expect(getEssentialsLeft(state)).toBe(5);
+  });
+
+  it('computes every completion rule from the shared state', () => {
+    const state = createDanielaFixtureState();
+    expect(getCompletedEssentialIds(state)).toEqual([
+      'business',
+      'location_contact',
+      'booking_preferences',
+      'starting_point',
+      'site_style',
+    ]);
+    expect(getEssentialsMessage(state)).toBe('All essentials complete');
+    expect(getFirstIncompleteEssentialScreen(state)).toBeNull();
+    expect(canOpenBuilder(state)).toBe(true);
+  });
+
+  it('accepts Booking-only contact explicitly', () => {
+    const state = createDefaultOnboardingState();
+    state.profile.businessName = 'Isla Nail Studio';
+    state.profile.ownerName = 'Daniela';
+    state.profile.businessType = 'solo';
+    state.profile.location.cityOrArea = 'Scarborough, Ontario';
+    state.profile.bookingOnlyContact = true;
+
+    expect(getCompletedEssentialIds(state)).toEqual([
+      'business',
+      'location_contact',
+    ]);
+  });
+
+  it('requires a real starter reference and explicit style confirmation', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starterDocumentSiteId = null;
+    state.recipe.styleConfirmed = false;
+
+    expect(getEssentialsLeft(state)).toBe(2);
+    expect(getEssentialsMessage(state)).toBe('2 essentials left');
+    expect(getFirstIncompleteEssentialScreen(state)).toBe('starter');
+    expect(canOpenBuilder(state)).toBe(false);
+  });
+
+  it('reports stage completion without counting screens', () => {
+    const state = createDanielaFixtureState();
+    expect(getStageEssentialProgress(state, 'basics')).toEqual({
+      complete: 2,
+      stageComplete: true,
+      total: 2,
+    });
+    expect(getStageEssentialProgress(state, 'review').stageComplete).toBe(true);
+    expect(JSON.stringify(SCREEN_METADATA)).not.toMatch(/step\s+\d+\s+of\s+\d+/i);
+  });
+
+  it('does not complete Design in Review when its essential is still missing', () => {
+    const state = createDanielaFixtureState();
+    state.progress.currentScreen = 'final_preview';
+    state.recipe.styleConfirmed = false;
+
+    expect(getCompletedEssentialStages(state)).toEqual(['basics', 'booking']);
+    expect(getStageEssentialProgress(state, 'design')).toEqual({
+      complete: 0,
+      stageComplete: false,
+      total: 1,
+    });
+    expect(getStageEssentialProgress(state, 'review').stageComplete).toBe(false);
+  });
+});
