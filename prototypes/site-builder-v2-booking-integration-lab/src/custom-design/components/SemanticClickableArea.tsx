@@ -4,6 +4,11 @@ import type {
   CustomDesignImageItem,
   CustomDesignInteractiveArea,
 } from '../model/types';
+import {
+  isNearFullImageArea,
+  rectanglesHaveInteriorOverlap,
+  validateNormalizedRect,
+} from '../model/geometry';
 import { SemanticAction } from './SemanticAction';
 import type {
   CustomDesignScrollPositionReader,
@@ -37,6 +42,12 @@ export function SemanticClickableArea({
     || area.reviewStatus !== 'approved'
     || !area.labelConfirmed
     || !area.accessibleLabel.trim()
+    || validateNormalizedRect(area.geometry).length > 0
+    || isNearFullImageArea(area.geometry)
+    || image.interactiveAreas.some(candidate => (
+      candidate.id !== area.id
+      && rectanglesHaveInteriorOverlap(area.geometry, candidate.geometry)
+    ))
   ) {
     return null;
   }

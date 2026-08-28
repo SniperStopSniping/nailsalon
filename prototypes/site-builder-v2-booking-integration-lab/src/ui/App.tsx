@@ -63,6 +63,7 @@ import {
 import {
   resolveCustomDesignDocumentAction,
 } from '../custom-design/integration/document-actions';
+import { formatCustomDesignUploadSummary } from '../custom-design/integration/upload-summary';
 import type {
   CustomDesignOwnerAssetMap,
   CustomDesignReadinessIssue,
@@ -136,6 +137,11 @@ type PendingMoveFocus = {
   targetSectionId: string;
 };
 type ResetChoice = 'lab' | 'starter' | null;
+type CustomDesignImageOrderDraft = {
+  baselineImageItemIds: string[];
+  orderedImageItemIds: string[];
+  sectionId: string;
+};
 type MoveSession = {
   baselineOrder: string[];
   destination: CommitSectionMoveDestination | null;
@@ -303,6 +309,10 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   const [customDesignRenderErrorAssetIds, setCustomDesignRenderErrorAssetIds] = useState<
     ReadonlySet<string>
   >(() => new Set());
+  const [customDesignImageOrderDraft, setCustomDesignImageOrderDraft] = useState<
+    CustomDesignImageOrderDraft | null
+  >(null);
+  const [customDesignOrderDismissPending, setCustomDesignOrderDismissPending] = useState(false);
   const [hotspotImageItemId, setHotspotImageItemId] = useState<string | null>(null);
   const [selectedSectionIntersects, setSelectedSectionIntersects] = useState(true);
   const [selectedSectionIntersectionReady, setSelectedSectionIntersectionReady] = useState(false);
@@ -319,6 +329,9 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   const customDesignSettingsDrawerRef = useRef<HTMLElement>(null);
   const customDesignSettingsHeadingRef = useRef<HTMLHeadingElement>(null);
   const customDesignSettingsTriggerRef = useRef<HTMLElement | null>(null);
+  const customDesignOrderDismissTriggerRef = useRef<HTMLElement | null>(null);
+  const customDesignOrderResolutionInFlightRef = useRef(false);
+  const previousDesktopSettingsRef = useRef(desktopSettings);
   const moveInvocationRef = useRef<HTMLElement | null>(null);
   const moveCommitInFlightRef = useRef(false);
   const moveCompletionShieldRef = useRef<MoveCompletionShield | null>(null);
@@ -417,6 +430,24 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   const editingCustomDesign = editingSection?.sectionType === 'custom_design'
     ? editingSection
     : null;
+  const committedCustomDesignImageItemIds = editingCustomDesign
+    ? editingCustomDesign.settings.images.map(image => image.id)
+    : [];
+  const committedCustomDesignImageOrderKey = committedCustomDesignImageItemIds.join('|');
+  const activeCustomDesignImageOrderDraft = editingCustomDesign
+    && customDesignImageOrderDraft?.sectionId === editingCustomDesign.id
+    ? customDesignImageOrderDraft
+    : null;
+  const customDesignImageOrderDirty = Boolean(
+    activeCustomDesignImageOrderDraft
+    && (
+      activeCustomDesignImageOrderDraft.orderedImageItemIds.length
+        !== activeCustomDesignImageOrderDraft.baselineImageItemIds.length
+      || activeCustomDesignImageOrderDraft.orderedImageItemIds.some(
+        (id, index) => id !== activeCustomDesignImageOrderDraft.baselineImageItemIds[index],
+      )
+    ),
+  );
   const mobileCustomDesignSettingsModalOpen = editingCustomDesign !== null && !desktopSettings;
   const editingPlaceholder = editingSection
     && editingSection.sectionType !== 'booking'
@@ -467,6 +498,48 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
     () => document ? getCustomDesignInternalTargets(document) : [],
     [document],
   );
+
+  useEffect(() => {
+    if (!editingCustomDesign) return;
+    const canonical = editingCustomDesign.settings.images.map(image => image.id);
+    setCustomDesignImageOrderDraft((current) => {
+      if (!current || current.sectionId !== editingCustomDesign.id) {
+        return {
+          baselineImageItemIds: canonical,
+          orderedImageItemIds: canonical,
+          sectionId: editingCustomDesign.id,
+        };
+      }
+      const wasDirty = current.orderedImageItemIds.length
+        !== current.baselineImageItemIds.length
+        || current.orderedImageItemIds.some(
+          (id, index) => id !== current.baselineImageItemIds[index],
+        );
+      if (!wasDirty) {
+        if (
+          current.baselineImageItemIds.length === canonical.length
+          && current.baselineImageItemIds.every((id, index) => id === canonical[index])
+        ) {
+          return current;
+        }
+        return {
+          baselineImageItemIds: canonical,
+          orderedImageItemIds: canonical,
+          sectionId: editingCustomDesign.id,
+        };
+      }
+      const canonicalIds = new Set(canonical);
+      const reconciledOrder = current.orderedImageItemIds.filter(id => canonicalIds.has(id));
+      canonical.forEach((id) => {
+        if (!reconciledOrder.includes(id)) reconciledOrder.push(id);
+      });
+      return {
+        baselineImageItemIds: canonical,
+        orderedImageItemIds: reconciledOrder,
+        sectionId: editingCustomDesign.id,
+      };
+    });
+  }, [committedCustomDesignImageOrderKey, editingCustomDesign?.id]);
 
   const reportBookingCollapse = useCallback((sectionId: string, report: BookingCollapseReport) => {
     setBookingCollapseReports((current) => {
@@ -1004,28 +1077,65 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
     });
   }, [editingSectionId]);
 
-  const closeCustomDesignSettings = useCallback(() => {
+  const finishCustomDesignSettingsClose = useCallback(() => {
     const sectionId = editingSectionId;
     setHotspotImageItemId(null);
     setEditingSectionId(null);
+    setCustomDesignOrderDismissPending(false);
+    setCustomDesignImageOrderDraft(null);
+    setSelectedSectionIntersects(true);
     window.requestAnimationFrame(() => {
       const invocation = customDesignSettingsTriggerRef.current;
-      const editControl = sectionId
-        ? findFocusableByAttribute('data-custom-design-settings-trigger-for', sectionId)
-        : null;
-      const sectionSurface = sectionId
+      const sectionElement = sectionId
         ? [...window.document.querySelectorAll<HTMLElement>('[data-section-instance-id]')]
           .find((candidate) => candidate.dataset.sectionInstanceId === sectionId)
-          ?.querySelector<HTMLElement>('.section-card__select-surface') ?? null
         : null;
-      const fallback = window.document.querySelector<HTMLElement>('.final-topbar__page');
-      restoreVisibleFocus(
-        [invocation, editControl, sectionSurface, fallback]
-          .find(canReceiveProgrammaticFocus) ?? null,
-      );
-      customDesignSettingsTriggerRef.current = null;
+      sectionElement?.scrollIntoView({ behavior: 'auto', block: 'start' });
+      window.requestAnimationFrame(() => {
+        const editControl = sectionId
+          ? findFocusableByAttribute('data-custom-design-settings-trigger-for', sectionId)
+          : null;
+        const sectionSurface = sectionElement
+          ?.querySelector<HTMLElement>('.section-card__select-surface') ?? null;
+        const fallback = window.document.querySelector<HTMLElement>('.final-topbar__page');
+        restoreVisibleFocus(
+          [editControl, invocation, sectionSurface, fallback]
+            .find(canReceiveProgrammaticFocus) ?? null,
+        );
+        customDesignSettingsTriggerRef.current = null;
+        customDesignOrderDismissTriggerRef.current = null;
+        customDesignOrderResolutionInFlightRef.current = false;
+      });
     });
   }, [editingSectionId]);
+
+  const requestCustomDesignSettingsClose = useCallback(() => {
+    if (!editingCustomDesign || !customDesignImageOrderDirty) {
+      finishCustomDesignSettingsClose();
+      return;
+    }
+    customDesignOrderDismissTriggerRef.current = window.document.activeElement instanceof HTMLElement
+      ? window.document.activeElement
+      : null;
+    customDesignOrderResolutionInFlightRef.current = false;
+    setCustomDesignOrderDismissPending(true);
+  }, [customDesignImageOrderDirty, editingCustomDesign, finishCustomDesignSettingsClose]);
+
+  const requestSectionLibraryOpen = (position: number) => {
+    if (editingCustomDesign && customDesignImageOrderDirty) {
+      requestCustomDesignSettingsClose();
+      return;
+    }
+    setLibraryPosition(position);
+  };
+
+  const requestLabOptionsOpen = () => {
+    if (editingCustomDesign && customDesignImageOrderDirty) {
+      requestCustomDesignSettingsClose();
+      return;
+    }
+    setOptionsOpen(true);
+  };
 
   const hideBookingSettings = () => {
     setSettingsTemporarilyHidden(true);
@@ -1097,11 +1207,30 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
       if (higherPriorityDialog) return;
       event.preventDefault();
       event.stopPropagation();
-      closeCustomDesignSettings();
+      requestCustomDesignSettingsClose();
     };
     window.document.addEventListener('keydown', handleSettingsEscape);
     return () => window.document.removeEventListener('keydown', handleSettingsEscape);
-  }, [closeCustomDesignSettings, desktopSettings, editingCustomDesign]);
+  }, [desktopSettings, editingCustomDesign, requestCustomDesignSettingsClose]);
+
+  useEffect(() => {
+    const previousDesktopSettings = previousDesktopSettingsRef.current;
+    previousDesktopSettingsRef.current = desktopSettings;
+    if (
+      previousDesktopSettings !== desktopSettings
+      && editingCustomDesign
+      && customDesignImageOrderDirty
+      && !customDesignOrderDismissPending
+    ) {
+      requestCustomDesignSettingsClose();
+    }
+  }, [
+    customDesignImageOrderDirty,
+    customDesignOrderDismissPending,
+    desktopSettings,
+    editingCustomDesign,
+    requestCustomDesignSettingsClose,
+  ]);
 
   const queueMoveFocus = (session: MoveSession, kind: PendingMoveFocus['kind']) => {
     pendingMoveFocusRef.current = {
@@ -1141,6 +1270,10 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
     sectionId: string,
     entry: MoveSession['entry'] = 'section',
   ) => {
+    if (editingCustomDesign && customDesignImageOrderDirty) {
+      requestCustomDesignSettingsClose();
+      return;
+    }
     if (!document || moveSession) return;
     const page = findSectionPage(document, sectionId);
     if (!page) return;
@@ -1342,6 +1475,10 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   };
 
   const enterPreview = () => {
+    if (editingCustomDesign && customDesignImageOrderDirty) {
+      requestCustomDesignSettingsClose();
+      return;
+    }
     if (!document) {
       return;
     }
@@ -1424,6 +1561,12 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
     const created = nextPage?.sections.find((section) => !beforeIds.has(section.id));
     setSelectedSectionId(created?.id ?? null);
     if (created?.sectionType === 'custom_design') {
+      customDesignSettingsTriggerRef.current = null;
+      setCustomDesignImageOrderDraft({
+        baselineImageItemIds: [],
+        orderedImageItemIds: [],
+        sectionId: created.id,
+      });
       setEditingSectionId(created.id);
       window.requestAnimationFrame(() => {
         const surface = window.document.querySelector<HTMLElement>(
@@ -1437,6 +1580,14 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   };
 
   const editSection = (section: SectionInstance) => {
+    if (
+      editingCustomDesign
+      && customDesignImageOrderDirty
+      && section.id !== editingCustomDesign.id
+    ) {
+      requestCustomDesignSettingsClose();
+      return;
+    }
     if (section.sectionType === 'booking') {
       bookingSettingsTriggerRef.current = window.document.activeElement instanceof HTMLElement
         ? window.document.activeElement
@@ -1561,14 +1712,11 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
       });
       const addedCount = result.added.length;
       const failures = result.failures.map((failure) => ({
+        code: failure.code,
         fileName: failure.fileName,
         message: failure.message,
       }));
-      const message = result.status === 'partial'
-        ? `${addedCount} ${addedCount === 1 ? 'image was' : 'images were'} added. ${failures.length} ${failures.length === 1 ? 'file could not' : 'files could not'} be processed.`
-        : result.status === 'committed'
-          ? `${addedCount} ${addedCount === 1 ? 'image was' : 'images were'} added.`
-          : 'No images were added.';
+      const message = formatCustomDesignUploadSummary(addedCount, failures);
       setCustomDesignUploadStatus(sectionId, {
         failures,
         message,
@@ -1578,7 +1726,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
         setToast({ message });
         setAnnouncement(message);
       } else if (failures.length > 0) {
-        showError(failures.map((failure) => `${failure.fileName}: ${failure.message}`).join(' '), 'Images could not be added');
+        showError(message, 'Images could not be added');
       }
     } catch (error) {
       const message = error instanceof Error
@@ -1682,6 +1830,56 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
       : settings;
   }, 'Image order saved.');
 
+  const keepEditingCustomDesignImageOrder = () => {
+    setCustomDesignOrderDismissPending(false);
+    window.requestAnimationFrame(() => {
+      const meaningfulManagerTarget = window.document.querySelector<HTMLElement>(
+        '.custom-design-owner-editor .custom-design-owner-order-actions button, .custom-design-owner-editor [data-image-item-id] button',
+      );
+      restoreVisibleFocus(
+        [
+          customDesignOrderDismissTriggerRef.current,
+          meaningfulManagerTarget,
+          customDesignSettingsHeadingRef.current,
+        ].find(canReceiveProgrammaticFocus) ?? null,
+      );
+    });
+  };
+
+  const discardCustomDesignImageOrderAndClose = () => {
+    if (customDesignOrderResolutionInFlightRef.current) return;
+    customDesignOrderResolutionInFlightRef.current = true;
+    if (editingCustomDesign) {
+      const canonical = editingCustomDesign.settings.images.map(image => image.id);
+      setCustomDesignImageOrderDraft({
+        baselineImageItemIds: canonical,
+        orderedImageItemIds: canonical,
+        sectionId: editingCustomDesign.id,
+      });
+    }
+    finishCustomDesignSettingsClose();
+  };
+
+  const saveCustomDesignImageOrderAndClose = () => {
+    if (
+      customDesignOrderResolutionInFlightRef.current
+      || !editingCustomDesign
+      || !activeCustomDesignImageOrderDraft
+    ) return;
+    customDesignOrderResolutionInFlightRef.current = true;
+    const orderedImageItemIds = activeCustomDesignImageOrderDraft.orderedImageItemIds;
+    if (!commitCustomDesignImageOrder(editingCustomDesign.id, orderedImageItemIds)) {
+      customDesignOrderResolutionInFlightRef.current = false;
+      return;
+    }
+    setCustomDesignImageOrderDraft({
+      baselineImageItemIds: [...orderedImageItemIds],
+      orderedImageItemIds: [...orderedImageItemIds],
+      sectionId: editingCustomDesign.id,
+    });
+    finishCustomDesignSettingsClose();
+  };
+
   const removeCustomDesignImage = (
     sectionId: string,
     imageItemId: string,
@@ -1716,6 +1914,13 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   };
 
   const removeSection = (section: SectionInstance) => {
+    if (
+      editingCustomDesign?.id === section.id
+      && customDesignImageOrderDirty
+    ) {
+      requestCustomDesignSettingsClose();
+      return;
+    }
     const result = execute({ type: 'remove_section', sectionId: section.id });
     if (result.success) {
       setSelectedSectionId(null);
@@ -1728,15 +1933,37 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
     }
   };
 
-  const restoreSection = (section: SectionInstance) => {
+  const restoreSection = (section: SectionInstance, position?: number) => {
     if (!activePage) {
-      return;
+      return false;
     }
-    const result = execute({ type: 'restore_section', sectionId: section.id, pageId: activePage.id });
+    const result = execute({
+      type: 'restore_section',
+      sectionId: section.id,
+      pageId: activePage.id,
+      ...(position === undefined ? {} : { position }),
+    });
     if (result.success) {
       setSelectedSectionId(section.id);
       setToast({ message: `${section.label} restored to ${activePage.name}.` });
+      return true;
     }
+    return false;
+  };
+
+  const restoreSectionFromLibrary = (section: SectionInstance, position?: number) => {
+    if (!restoreSection(section, position)) return;
+    setLibraryPosition(null);
+    window.requestAnimationFrame(() => {
+      const restored = window.document.querySelector<HTMLElement>(
+        `[data-section-instance-id="${section.id}"]`,
+      );
+      restored?.scrollIntoView({ behavior: 'auto', block: 'start' });
+      window.requestAnimationFrame(() => {
+        restored?.querySelector<HTMLElement>('.section-card__select-surface')
+          ?.focus({ preventScroll: true });
+      });
+    });
   };
 
   const addPage = (name: string, slug: string) => {
@@ -1980,18 +2207,30 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
     });
   };
 
-  const undoLastChange = () => {
+  const undoLastChange = (): boolean => {
+    if (editingCustomDesign && customDesignImageOrderDirty) {
+      requestCustomDesignSettingsClose();
+      return false;
+    }
     if (lab.undo()) {
       setAnnouncement('Last change undone.');
       setToast({ message: 'Last change undone.' });
+      return true;
     }
+    return false;
   };
 
-  const redoLastChange = () => {
+  const redoLastChange = (): boolean => {
+    if (editingCustomDesign && customDesignImageOrderDirty) {
+      requestCustomDesignSettingsClose();
+      return false;
+    }
     if (lab.redo()) {
       setAnnouncement('Last change redone.');
       setToast({ message: 'Last change redone.' });
+      return true;
     }
+    return false;
   };
 
   const closeStructureOnMobile = () => {
@@ -2001,6 +2240,10 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   };
 
   const openStructure = () => {
+    if (editingCustomDesign && customDesignImageOrderDirty) {
+      requestCustomDesignSettingsClose();
+      return;
+    }
     setEditingSectionId(null);
     setEditingPageId(null);
     setAddPageOpen(false);
@@ -2040,6 +2283,8 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   const customDesignOwnerEditor = editingCustomDesign ? (
     <CustomDesignOwnerEditor
       assets={customDesignAssets}
+      imageOrderDraft={activeCustomDesignImageOrderDraft?.orderedImageItemIds
+        ?? committedCustomDesignImageItemIds}
       internalTargets={customDesignInternalTargets}
       readinessIssues={editingCustomDesignReadiness}
       settings={editingCustomDesign.settings}
@@ -2048,7 +2293,22 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
         void uploadCustomDesignImages(editingCustomDesign.id, files);
       }}
       onCommitImageOrder={(imageItemIds) => {
-        commitCustomDesignImageOrder(editingCustomDesign.id, imageItemIds);
+        if (commitCustomDesignImageOrder(editingCustomDesign.id, imageItemIds)) {
+          setCustomDesignImageOrderDraft({
+            baselineImageItemIds: [...imageItemIds],
+            orderedImageItemIds: [...imageItemIds],
+            sectionId: editingCustomDesign.id,
+          });
+        }
+      }}
+      onImageOrderDraftChange={(imageItemIds) => {
+        setCustomDesignImageOrderDraft((current) => ({
+          baselineImageItemIds: current?.sectionId === editingCustomDesign.id
+            ? current.baselineImageItemIds
+            : editingCustomDesign.settings.images.map(image => image.id),
+          orderedImageItemIds: [...imageItemIds],
+          sectionId: editingCustomDesign.id,
+        }));
       }}
       onEditAreas={setHotspotImageItemId}
       onRemoveImage={(imageItemId) => {
@@ -2150,7 +2410,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
         <div className="final-topbar__brand">
           <span aria-hidden="true">L</span><strong>Luster</strong>
           {lab.saveStatus === 'error' ? (
-            <><button aria-label="Local save failed. Open backup and reset options" className="save-status is-error" type="button" onClick={() => setOptionsOpen(true)}><AlertTriangle aria-hidden="true" size={15} /><span>Save failed</span></button><span className="visually-hidden" role="alert">Local saving failed. Open backup and reset options for recovery actions.</span></>
+            <><button aria-label="Local save failed. Open backup and reset options" className="save-status is-error" type="button" onClick={requestLabOptionsOpen}><AlertTriangle aria-hidden="true" size={15} /><span>Save failed</span></button><span className="visually-hidden" role="alert">Local saving failed. Open backup and reset options for recovery actions.</span></>
           ) : (
             <span className={`save-status${moveDirty ? ' is-order-dirty' : lab.saveStatus === 'saved' ? ' is-saved' : ''}`} role="status" aria-label="Save status">
               {!moveDirty && lab.saveStatus === 'saved' ? <Check aria-hidden="true" size={14} /> : <Save aria-hidden="true" size={14} />}
@@ -2174,7 +2434,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
             <button aria-label="Redo" disabled={!lab.canRedo || Boolean(moveSession)} type="button" onClick={redoLastChange}><Redo2 aria-hidden="true" size={18} /></button>
           </div>
           <button aria-label="Preview" className="final-topbar__preview" disabled={Boolean(moveSession)} type="button" onClick={enterPreview}><Eye aria-hidden="true" size={18} /><span>Preview</span></button>
-          <button aria-label="More site options" className="final-topbar__more" disabled={Boolean(moveSession)} type="button" onClick={() => setOptionsOpen(true)}><MoreHorizontal aria-hidden="true" size={20} /></button>
+          <button aria-label="More site options" className="final-topbar__more" disabled={Boolean(moveSession)} type="button" onClick={requestLabOptionsOpen}><MoreHorizontal aria-hidden="true" size={20} /></button>
         </div>
       </header>
 
@@ -2204,11 +2464,11 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
                   <div className="final-empty-page">
                     <h2>Your page is empty</h2>
                     <p>Add a section to start building it.</p>
-                    <button type="button" onClick={() => setLibraryPosition(1)}><Plus aria-hidden="true" size={18} /> Add section</button>
+                    <button type="button" onClick={() => requestSectionLibraryOpen(1)}><Plus aria-hidden="true" size={18} /> Add section</button>
                   </div>
                 ) : (
                   <>
-                    <button className="final-insertion final-insertion--top" type="button" aria-label={`Add section at top of ${activePage.name}`} onClick={() => setLibraryPosition(1)}><Plus aria-hidden="true" size={15} /> Add section here</button>
+                    <button className="final-insertion final-insertion--top" type="button" aria-label={`Add section at top of ${activePage.name}`} onClick={() => requestSectionLibraryOpen(1)}><Plus aria-hidden="true" size={15} /> Add section here</button>
                     {sortedActiveSections.map((section, index) => (
                       <div className="final-section-block" key={section.id}>
                         {section.sectionType === 'booking' ? (
@@ -2298,7 +2558,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
                           className="final-insertion"
                           type="button"
                           aria-label={index === sortedActiveSections.length - 1 ? `Add section at bottom of ${activePage.name}` : `Add section after ${section.label}`}
-                          onClick={() => setLibraryPosition(index + 2)}
+                          onClick={() => requestSectionLibraryOpen(index + 2)}
                         >
                           <Plus aria-hidden="true" size={15} /> Add section here
                         </button>
@@ -2405,7 +2665,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
               aria-label="Close Custom Design settings"
               className="icon-button"
               type="button"
-              onClick={closeCustomDesignSettings}
+              onClick={requestCustomDesignSettingsClose}
             >
               ×
             </button>
@@ -2510,20 +2770,20 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
             </button>
           )
         ) : (
-          <button className="final-mobile-dock__add" type="button" onClick={() => setLibraryPosition(sortedActiveSections.length + 1)}><Plus aria-hidden="true" size={20} /> Add section</button>
+          <button className="final-mobile-dock__add" type="button" onClick={() => requestSectionLibraryOpen(sortedActiveSections.length + 1)}><Plus aria-hidden="true" size={20} /> Add section</button>
         )}
       </div>
 
       <div className="visually-hidden" aria-live="polite" data-testid="reorder-live-region" role="status">{announcement}</div>
 
       {toast ? (
-        <div className="toast" role="status"><span>{toast.message}</span>{toast.undoable ? <button type="button" onClick={() => { lab.undo(); setToast(null); setAnnouncement('Removal undone.'); }}>Undo</button> : null}</div>
+        <div className="toast" role="status"><span>{toast.message}</span>{toast.undoable ? <button type="button" onClick={() => { if (undoLastChange()) { setToast(null); setAnnouncement('Removal undone.'); } }}>Undo</button> : null}</div>
       ) : null}
 
       <Dialog onClose={() => setStructureOpen(false)} open={structureOpen} title="Pages & Structure" variant="structure-panel">
         {structurePanel}
       </Dialog>
-      <SectionLibraryDialog document={document} insertionPosition={libraryPosition} onAdd={addSection} onClose={() => setLibraryPosition(null)} page={activePage} />
+      <SectionLibraryDialog document={document} insertionPosition={libraryPosition} onAdd={addSection} onClose={() => setLibraryPosition(null)} onRestore={restoreSectionFromLibrary} page={activePage} />
       <SectionSettingsDialog onClose={() => setEditingSectionId(null)} onSave={saveSection} section={editingPlaceholder} />
       <Dialog
         initialFocusSelector="[data-dialog-title]"
@@ -2542,7 +2802,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
       </Dialog>
       <Dialog
         initialFocusSelector="[data-dialog-title]"
-        onClose={closeCustomDesignSettings}
+        onClose={requestCustomDesignSettingsClose}
         open={editingCustomDesign !== null && !desktopSettings && hotspotImageItemId === null}
         title="Custom Design"
         variant="context-panel"
@@ -2604,6 +2864,40 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
       <PageSettingsDialog onClose={() => setEditingPageId(null)} onSave={savePage} page={editingPage} />
       <NavigationPromptDialog onAddNavigation={() => { execute({ type: 'toggle_navigation', enabled: true }); setNavigationPromptOpen(false); setToast({ message: 'Menu added.' }); }} onClose={() => setNavigationPromptOpen(false)} open={navigationPromptOpen} />
       <ConfirmationDialog confirmLabel="Remove page" danger description={pendingPageRemoval ? `${pendingPageRemoval.name} and its sections will move to Removed pages, where they can be restored.` : ''} onClose={() => setPendingPageRemovalId(null)} onConfirm={confirmRemovePage} open={pendingPageRemoval !== null} title="Remove this page?" />
+      <Dialog
+        description="You changed the order of your uploaded design pages."
+        initialFocusSelector="[data-custom-design-order-keep-editing]"
+        onClose={keepEditingCustomDesignImageOrder}
+        open={customDesignOrderDismissPending}
+        restoreFocusOnClose={false}
+        title="Save this page order?"
+      >
+        <p className="eyebrow">UNSAVED IMAGE ORDER</p>
+        <div className="dialog-actions">
+          <button
+            className="secondary-button"
+            data-custom-design-order-keep-editing
+            type="button"
+            onClick={keepEditingCustomDesignImageOrder}
+          >
+            Keep editing
+          </button>
+          <button
+            className="secondary-button"
+            type="button"
+            onClick={discardCustomDesignImageOrderAndClose}
+          >
+            Discard changes
+          </button>
+          <button
+            className="primary-button"
+            type="button"
+            onClick={saveCustomDesignImageOrderAndClose}
+          >
+            Save order
+          </button>
+        </div>
+      </Dialog>
       <Dialog
         description={moveSession ? (() => {
           const targetSection = findSection(document, moveSession.targetSectionId);

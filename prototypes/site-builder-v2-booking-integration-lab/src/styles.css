@@ -1447,6 +1447,7 @@ p {
 }
 
 .preview-stage--mobile .client-page {
+  --client-page-inline-padding: 18px;
   padding: 18px;
 }
 
@@ -1469,9 +1470,11 @@ p {
 }
 
 .client-page {
+  --client-page-inline-padding: clamp(18px, 4vw, 52px);
+  --custom-design-full-bleed: var(--client-page-inline-padding);
   display: grid;
   gap: 14px;
-  padding: clamp(18px, 4vw, 52px);
+  padding: var(--client-page-inline-padding);
 }
 
 .client-page__heading {

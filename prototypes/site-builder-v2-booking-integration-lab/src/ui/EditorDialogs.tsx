@@ -8,6 +8,7 @@ import {
   type OriginStarter,
   type PageDocument,
   type PlaceholderSectionInstance,
+  type RestorableSectionInstance,
   type SectionSize,
   type SiteBuilderDocument,
 } from '../model';
@@ -21,10 +22,14 @@ type SectionLibraryDialogProps = {
     size?: SectionSize,
   ) => void;
   onClose: () => void;
+  onRestore: (
+    section: RestorableSectionInstance,
+    position?: number,
+  ) => void;
   page: PageDocument;
 };
 
-export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClose, page }: SectionLibraryDialogProps) {
+export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClose, onRestore, page }: SectionLibraryDialogProps) {
   const [search, setSearch] = useState('');
   const activeTypes = new Set(document.pages.flatMap((candidate) => candidate.sections.map((section) => section.sectionType)));
   const unusedTypes = new Set(document.unusedSections.map((section) => section.sectionType));
@@ -74,14 +79,16 @@ export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClo
               ).length,
               0,
             );
-            const removedCount = document.unusedSections.filter(
+            const removedCustomDesigns = document.unusedSections.filter(
               (section) => section.sectionType === 'custom_design',
-            ).length;
-            const state = activeCount > 0
-              ? `${activeCount} in use`
-              : removedCount > 0
-                ? `${removedCount} removed`
-                : 'Available';
+            );
+            const stateParts = [
+              activeCount > 0 ? `${activeCount} in use` : '',
+              removedCustomDesigns.length > 0
+                ? `${removedCustomDesigns.length} removed`
+                : '',
+            ].filter(Boolean);
+            const state = stateParts.length > 0 ? stateParts.join(' · ') : 'Available';
             return (
               <article className="library-item library-item--custom-design" data-section-type="custom_design" key={item.sectionType}>
                 <div className="library-item__preview"><ImageUp aria-hidden="true" size={30} /></div>
@@ -93,8 +100,43 @@ export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClo
                   <span className="library-item__tags" aria-label="Custom Design tags">
                     {item.tags.map((tag) => <small key={tag}>{tag}</small>)}
                   </span>
+                  {removedCustomDesigns.length > 0 ? (
+                    <div className="library-restore-list" aria-label="Removed Custom Design sections">
+                      {removedCustomDesigns.map((section, index) => {
+                        const imageCount = section.settings.images.length;
+                        const restoreLabel = removedCustomDesigns.length === 1
+                          ? 'Restore removed Custom Design'
+                          : `Restore removed Custom Design ${index + 1} of ${removedCustomDesigns.length}, ${imageCount} ${imageCount === 1 ? 'image' : 'images'}`;
+                        return (
+                          <button
+                            aria-label={restoreLabel}
+                            className="library-add-button library-restore-button"
+                            key={section.id}
+                            type="button"
+                            onClick={() => onRestore(
+                              section,
+                              insertionPosition ?? undefined,
+                            )}
+                          >
+                            <RotateCcw aria-hidden="true" size={15} />
+                            <span>
+                              Restore removed {section.label}
+                              <small>
+                                {removedCustomDesigns.length > 1
+                                  ? `Removed ${index + 1} of ${removedCustomDesigns.length} · `
+                                  : ''}
+                                {imageCount} {imageCount === 1 ? 'image' : 'images'} · {section.visible ? 'shown' : 'hidden'}
+                              </small>
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ) : null}
                   <button className="library-add-button" type="button" onClick={() => onAdd('custom_design')}>
-                    <Plus aria-hidden="true" size={15} /> Add Custom Design
+                    <Plus aria-hidden="true" size={15} /> {removedCustomDesigns.length > 0 || activeCount > 0
+                      ? 'Add another Custom Design'
+                      : 'Add Custom Design'}
                   </button>
                 </div>
               </article>

@@ -408,9 +408,11 @@ function NativeCtaEditor({ cta, images, internalTargets, onSave }: NativeCtaEdit
 
 type CustomDesignOwnerEditorProps = {
   assets: CustomDesignOwnerAssetMap;
+  imageOrderDraft?: readonly string[];
   internalTargets?: readonly CustomDesignInternalPageOption[];
   onAddImages: (files: readonly File[]) => void;
   onCommitImageOrder: (orderedImageItemIds: readonly string[]) => void;
+  onImageOrderDraftChange?: (orderedImageItemIds: readonly string[]) => void;
   onEditAreas: (imageItemId: string) => void;
   onRemoveImage: (imageItemId: string) => void;
   onReplaceImage: (imageItemId: string, file: File) => void;
@@ -429,9 +431,11 @@ type CustomDesignOwnerEditorProps = {
 
 export function CustomDesignOwnerEditor({
   assets,
+  imageOrderDraft,
   internalTargets = [],
   onAddImages,
   onCommitImageOrder,
+  onImageOrderDraftChange,
   onEditAreas,
   onRemoveImage,
   onReplaceImage,
@@ -449,7 +453,6 @@ export function CustomDesignOwnerEditor({
     ? `custom:${settings.background.color}`
     : settings.background.mode;
   const [draftOrder, setDraftOrder] = useState(() => settings.images.map(image => image.id));
-  const [orderDirty, setOrderDirty] = useState(false);
   const [accessibilityImageId, setAccessibilityImageId] = useState<string | null>(null);
   const [customColor, setCustomColor] = useState(() =>
     settings.background.mode === 'custom' ? settings.background.color : '#FFF8F5');
@@ -462,9 +465,10 @@ export function CustomDesignOwnerEditor({
   );
 
   useEffect(() => {
-    setDraftOrder(settings.images.map(image => image.id));
-    setOrderDirty(false);
-  }, [canonicalOrder]);
+    if (imageOrderDraft === undefined) {
+      setDraftOrder(settings.images.map(image => image.id));
+    }
+  }, [canonicalOrder, imageOrderDraft]);
 
   useEffect(() => {
     if (settings.background.mode === 'custom') {
@@ -476,7 +480,14 @@ export function CustomDesignOwnerEditor({
     () => new Map(settings.images.map(image => [image.id, image])),
     [settings.images],
   );
-  const orderedImages = draftOrder
+  const activeDraftOrder = imageOrderDraft ?? draftOrder;
+  const orderDirty = activeDraftOrder.length !== settings.images.length
+    || activeDraftOrder.some((id, index) => id !== settings.images[index]?.id);
+  const updateDraftOrder = (next: readonly string[]) => {
+    if (imageOrderDraft === undefined) setDraftOrder([...next]);
+    onImageOrderDraftChange?.([...next]);
+  };
+  const orderedImages = activeDraftOrder
     .map(id => imagesById.get(id))
     .filter((image): image is CustomDesignImageItem => Boolean(image));
   const accessibilityImage = accessibilityImageId
@@ -484,20 +495,18 @@ export function CustomDesignOwnerEditor({
     : null;
 
   const moveImage = (id: string, direction: -1 | 1) => {
-    const from = draftOrder.indexOf(id);
+    const from = activeDraftOrder.indexOf(id);
     const to = from + direction;
-    if (from < 0 || to < 0 || to >= draftOrder.length) return;
-    setDraftOrder(arrayMove(draftOrder, from, to));
-    setOrderDirty(true);
+    if (from < 0 || to < 0 || to >= activeDraftOrder.length) return;
+    updateDraftOrder(arrayMove([...activeDraftOrder], from, to));
   };
 
   const dragEnd = (event: DragEndEvent) => {
     if (!event.over || event.active.id === event.over.id) return;
-    const from = draftOrder.indexOf(String(event.active.id));
-    const to = draftOrder.indexOf(String(event.over.id));
+    const from = activeDraftOrder.indexOf(String(event.active.id));
+    const to = activeDraftOrder.indexOf(String(event.over.id));
     if (from < 0 || to < 0) return;
-    setDraftOrder(arrayMove(draftOrder, from, to));
-    setOrderDirty(true);
+    updateDraftOrder(arrayMove([...activeDraftOrder], from, to));
   };
 
   const applyCustomColor = () => {
@@ -528,7 +537,7 @@ export function CustomDesignOwnerEditor({
               sensors={sensors}
               onDragEnd={dragEnd}
             >
-              <SortableContext items={draftOrder} strategy={verticalListSortingStrategy}>
+              <SortableContext items={[...activeDraftOrder]} strategy={verticalListSortingStrategy}>
                 <ol className="custom-design-owner-image-list">
                   {orderedImages.map((image, index) => (
                     <SortableImageRow
@@ -561,8 +570,7 @@ export function CustomDesignOwnerEditor({
                 <button
                   type="button"
                   onClick={() => {
-                    setDraftOrder(settings.images.map(image => image.id));
-                    setOrderDirty(false);
+                    updateDraftOrder(settings.images.map(image => image.id));
                   }}
                 >
                   Cancel order
@@ -571,8 +579,7 @@ export function CustomDesignOwnerEditor({
                   className="primary-button"
                   type="button"
                   onClick={() => {
-                    onCommitImageOrder(draftOrder);
-                    setOrderDirty(false);
+                    onCommitImageOrder(activeDraftOrder);
                   }}
                 >
                   Save order
@@ -586,6 +593,19 @@ export function CustomDesignOwnerEditor({
                 onChooseImages={onAddImages}
                 status={uploadStatus}
               />
+            ) : uploadStatus?.message ? (
+              <div className="custom-design-owner-upload-feedback" role="status">
+                <p>{uploadStatus.message}</p>
+                {uploadStatus.failures?.length ? (
+                  <ul className="custom-design-owner-errors">
+                    {uploadStatus.failures.map((failure, index) => (
+                      <li key={`${failure.fileName}:${index}`}>
+                        <strong>{failure.fileName}:</strong> {failure.message}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
             ) : null}
           </>
         )}
@@ -596,8 +616,8 @@ export function CustomDesignOwnerEditor({
         <div className="custom-design-owner-choice-grid">
           {([
             ['poster', 'Poster', 'Full width on phones and centred on larger screens.'],
-            ['contained', 'Contained', 'Uses more of the page while keeping side margins.'],
-            ['full_width', 'Full width', 'Fills the full section width.'],
+            ['contained', 'Contained', 'Keeps comfortable page margins around your design.'],
+            ['full_width', 'Full width', 'Fills the full customer-site width from edge to edge.'],
           ] as const).map(([value, label, description]) => (
             <label key={value}>
               <input
@@ -643,6 +663,7 @@ export function CustomDesignOwnerEditor({
               checked={settings.background.mode === 'site'}
               name="custom-design-background"
               type="radio"
+              value="site"
               onChange={() => onUpdateBackground({ mode: 'site' })}
             />
             <span>Use Site Styles</span>
@@ -652,6 +673,7 @@ export function CustomDesignOwnerEditor({
               checked={settings.background.mode === 'transparent'}
               name="custom-design-background"
               type="radio"
+              value="transparent"
               onChange={() => onUpdateBackground({ mode: 'transparent' })}
             />
             <span>Transparent</span>
@@ -661,6 +683,7 @@ export function CustomDesignOwnerEditor({
               checked={settings.background.mode === 'custom'}
               name="custom-design-background"
               type="radio"
+              value="custom"
               onChange={applyCustomColor}
             />
             <span>Custom colour</span>

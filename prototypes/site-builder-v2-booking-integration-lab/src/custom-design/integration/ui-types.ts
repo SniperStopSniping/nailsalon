@@ -26,6 +26,7 @@ export type CustomDesignInternalPageOption = {
 };
 
 export type CustomDesignUploadFailure = {
+  code?: string;
   fileName: string;
   message: string;
 };

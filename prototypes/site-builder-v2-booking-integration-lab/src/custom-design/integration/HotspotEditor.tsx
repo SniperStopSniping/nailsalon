@@ -102,20 +102,28 @@ const areaIssueMessages = (
 ): string[] => {
   const issues: string[] = [];
   for (const area of areas) {
+    const areaName = area.accessibleLabel.trim() || `Area ${area.semanticOrder + 1}`;
     if (validateNormalizedRect(area.geometry).length > 0) {
-      issues.push(`${area.accessibleLabel || 'An area'} has invalid geometry.`);
+      issues.push(`${areaName} has invalid geometry.`);
     }
     if (isNearFullImageArea(area.geometry)) {
-      issues.push('A link area cannot cover nearly the whole image.');
+      issues.push(`${areaName} cannot cover nearly the whole image.`);
     }
-    if (hasOverlap(areas, area.id, area.geometry)) {
-      issues.push('Clickable areas cannot overlap.');
+    const conflicts = areas.filter(candidate => (
+      candidate.id !== area.id
+      && rectanglesHaveInteriorOverlap(area.geometry, candidate.geometry)
+      && candidate.semanticOrder > area.semanticOrder
+    ));
+    for (const conflict of conflicts) {
+      const conflictName = conflict.accessibleLabel.trim()
+        || `Area ${conflict.semanticOrder + 1}`;
+      issues.push(`${areaName} overlaps ${conflictName}. Move or resize one area.`);
     }
     if (!area.accessibleLabel.trim() || !area.labelConfirmed) {
       issues.push('Confirm an accessible label for every link area.');
     }
     if (invalidActionIds.has(area.id) || !parseCustomDesignAction(area.action)) {
-      issues.push(`${area.accessibleLabel || 'A link area'} needs a complete, safe action.`);
+      issues.push(`${areaName} needs a complete, safe action.`);
     }
     if (area.reviewStatus === 'needs_review') {
       issues.push(`${area.accessibleLabel || 'A link area'} still needs its position reviewed.`);
@@ -229,17 +237,20 @@ export function HotspotEditor({
     geometry: CustomDesignNormalizedRect,
   ) => {
     const canonical = canonicalizeNormalizedRect(geometry).rect;
+    const overlaps = hasOverlap(areasRef.current, areaId, canonical);
+    const nextAreas = areasRef.current.map(area =>
+      area.id === areaId ? { ...area, geometry: canonical } : area);
+    areasRef.current = nextAreas;
+    setAreas(nextAreas);
     if (isNearFullImageArea(canonical)) {
       setInteractionWarning('A link area cannot cover nearly the whole image.');
       return;
     }
-    if (hasOverlap(areasRef.current, areaId, canonical)) {
+    if (overlaps) {
       setInteractionWarning('Clickable areas cannot overlap. Move or resize this area again.');
       return;
     }
     setInteractionWarning('');
-    setAreas(current => current.map(area =>
-      area.id === areaId ? { ...area, geometry: canonical } : area));
   };
 
   const startPointerSession = (
