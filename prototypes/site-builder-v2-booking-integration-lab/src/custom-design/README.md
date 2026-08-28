@@ -10,16 +10,19 @@ history, Preview, Move, visibility, and remove/restore systems.
 - `model/` owns serializable settings, validation, structured actions,
   normalized geometry, replacement review rules, CTA placement, and the
   truthful backup manifest.
-- `assets/` owns Lab-only browser blobs, image preparation, object URL leases,
-  and conservative reference-aware cleanup.
+- `assets/` owns Lab-only browser binary payloads, image preparation, object URL
+  leases, and conservative reference-aware cleanup.
 - `components/` owns self-contained customer rendering and pure owner preview
   surfaces. Callers supply resolved assets and action destinations.
 
 The main Site Builder document stores image and interaction metadata only. It
 must never contain `Blob`, `File`, base64/data URLs, or object URLs. IndexedDB
 uses separate summary-metadata, original-blob, and thumbnail-blob stores,
-outside document history and localStorage. Metadata reads never clone either
-blob; thumbnail and original reads open only the blob store they need.
+outside document history and localStorage. Binary records prefer `Blob`; a
+single fresh-transaction `ArrayBuffer` retry covers Blob structured-clone
+incompatibility while remaining readable as `Blob` through the repository.
+Metadata reads never clone either payload; thumbnail and original reads open
+only the binary store they need.
 
 ## Upload transaction contract
 

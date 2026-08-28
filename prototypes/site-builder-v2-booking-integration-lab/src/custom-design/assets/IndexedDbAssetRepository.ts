@@ -4,6 +4,7 @@ import {
   CUSTOM_DESIGN_MAX_IMAGE_PIXELS,
 } from '../model/constants';
 import { AssetStorageError, toAssetStorageError } from './errors';
+import { readBlobArrayBuffer } from './image-processing';
 import {
   CUSTOM_DESIGN_ASSET_SCHEMA_VERSION,
   CUSTOM_DESIGN_MAX_THUMBNAIL_BYTES,
@@ -46,9 +47,24 @@ type PersistedOriginalBlob = {
   assetId: string;
   blob: Blob;
   schemaVersion: typeof CUSTOM_DESIGN_ASSET_SCHEMA_VERSION;
+  storageKind?: 'blob';
 };
 
 type PersistedThumbnailBlob = PersistedOriginalBlob;
+
+type PersistedArrayBufferBinary = {
+  assetId: string;
+  data: ArrayBuffer;
+  mimeType: (typeof SUPPORTED_IMAGE_MIME_TYPES)[number];
+  schemaVersion: typeof CUSTOM_DESIGN_ASSET_SCHEMA_VERSION;
+  storageKind: 'array_buffer';
+};
+
+type PersistedBinaryRecord =
+  | PersistedArrayBufferBinary
+  | PersistedOriginalBlob;
+
+type ResolvedPersistedBinary = { blob: Blob };
 
 type FullAssetRecords = {
   original: unknown;
@@ -73,6 +89,19 @@ const isBlobLike = (value: unknown): value is Blob =>
   Number.isSafeInteger(value.size) &&
   typeof value.type === 'string' &&
   typeof value.slice === 'function';
+
+const arrayBufferByteLength = Object.getOwnPropertyDescriptor(
+  ArrayBuffer.prototype,
+  'byteLength',
+)?.get;
+
+const isArrayBufferLike = (value: unknown): value is ArrayBuffer => {
+  try {
+    return typeof arrayBufferByteLength?.call(value) === 'number';
+  } catch {
+    return false;
+  }
+};
 
 const isSupportedMimeType = (value: unknown): boolean =>
   typeof value === 'string' &&
@@ -190,29 +219,67 @@ const validateSummary: (
   validateMetadata(value.metadata);
 };
 
-const validateOriginalRecord = (
+const validateBinaryRecord = (
   value: unknown,
-  summary: PersistedImageAssetSummary,
-): PersistedOriginalBlob => {
+  expected: {
+    assetId: string;
+    byteSize: number;
+    mimeType: (typeof SUPPORTED_IMAGE_MIME_TYPES)[number];
+  },
+  errorMessage: string,
+): ResolvedPersistedBinary => {
   if (
     !isObjectRecord(value) ||
     value.schemaVersion !== CUSTOM_DESIGN_ASSET_SCHEMA_VERSION ||
-    value.assetId !== summary.metadata.id ||
-    !isBlobLike(value.blob) ||
-    value.blob.size !== summary.metadata.byteSize ||
-    value.blob.type !== summary.metadata.mimeType
+    value.assetId !== expected.assetId
   ) {
-    throw invalidAsset(
-      'The stored original image does not match its asset summary.',
-    );
+    throw invalidAsset(errorMessage);
   }
-  return value as PersistedOriginalBlob;
+
+  if (
+    (value.storageKind === undefined || value.storageKind === 'blob') &&
+    isBlobLike(value.blob) &&
+    value.blob.size === expected.byteSize &&
+    value.blob.type === expected.mimeType
+  ) {
+    return {
+      blob: value.blob,
+    };
+  }
+
+  if (
+    value.storageKind === 'array_buffer' &&
+    isArrayBufferLike(value.data) &&
+    value.data.byteLength === expected.byteSize &&
+    value.mimeType === expected.mimeType
+  ) {
+    return {
+      blob: new Blob([value.data], { type: expected.mimeType }),
+    };
+  }
+
+  throw invalidAsset(errorMessage);
+};
+
+const validateOriginalRecord = (
+  value: unknown,
+  summary: PersistedImageAssetSummary,
+): ResolvedPersistedBinary => {
+  return validateBinaryRecord(
+    value,
+    {
+      assetId: summary.metadata.id,
+      byteSize: summary.metadata.byteSize,
+      mimeType: summary.metadata.mimeType,
+    },
+    'The stored original image does not match its asset summary.',
+  );
 };
 
 const validateThumbnailRecord = (
   value: unknown,
   summary: PersistedImageAssetSummary,
-): PersistedThumbnailBlob | undefined => {
+): ResolvedPersistedBinary | undefined => {
   const thumbnail = summary.metadata.thumbnail;
   if (thumbnail === undefined) {
     if (value !== undefined) {
@@ -223,19 +290,15 @@ const validateThumbnailRecord = (
     return undefined;
   }
 
-  if (
-    !isObjectRecord(value) ||
-    value.schemaVersion !== CUSTOM_DESIGN_ASSET_SCHEMA_VERSION ||
-    value.assetId !== summary.metadata.id ||
-    !isBlobLike(value.blob) ||
-    value.blob.size !== thumbnail.byteSize ||
-    value.blob.type !== thumbnail.mimeType
-  ) {
-    throw invalidAsset(
-      'The stored thumbnail does not match its asset summary.',
-    );
-  }
-  return value as PersistedThumbnailBlob;
+  return validateBinaryRecord(
+    value,
+    {
+      assetId: summary.metadata.id,
+      byteSize: thumbnail.byteSize,
+      mimeType: thumbnail.mimeType,
+    },
+    'The stored thumbnail does not match its asset summary.',
+  );
 };
 
 const reconstructStoredAsset = (
@@ -271,6 +334,124 @@ const requestError = (request: IDBRequest): unknown =>
 
 const normalizeError = (error: unknown, message: string): AssetStorageError =>
   toAssetStorageError(error, message);
+
+class BlobStructuredCloneError extends Error {
+  readonly cause: unknown;
+
+  constructor(cause: unknown) {
+    super('IndexedDB could not clone an image Blob.');
+    this.name = 'BlobStructuredCloneError';
+    this.cause = cause;
+  }
+}
+
+const isDataCloneError = (error: unknown): boolean =>
+  isObjectRecord(error) && error.name === 'DataCloneError';
+
+const asBlobCloneError = (error: unknown): BlobStructuredCloneError | null =>
+  isDataCloneError(error) ? new BlobStructuredCloneError(error) : null;
+
+const stageRecords = (
+  database: IDBDatabase,
+  summary: PersistedImageAssetSummary,
+  original: PersistedBinaryRecord,
+  thumbnail: PersistedBinaryRecord | undefined,
+  allowBlobCloneFallback: boolean,
+): Promise<void> =>
+  new Promise<void>((resolve, reject) => {
+    let operationError: AssetStorageError | BlobStructuredCloneError | undefined;
+    let settled = false;
+    const transaction = database.transaction(ASSET_STORE_NAMES, 'readwrite');
+
+    const rejectOnce = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      reject(error);
+    };
+    transaction.oncomplete = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    transaction.onerror = () => {
+      operationError ??= normalizeError(
+        transaction.error,
+        'The image could not be staged in browser storage.',
+      );
+    };
+    transaction.onabort = () =>
+      rejectOnce(
+        operationError ??
+          normalizeError(
+            transaction.error,
+            'The image could not be staged in browser storage.',
+          ),
+      );
+
+    const addRecord = (
+      storeName: (typeof ASSET_STORE_NAMES)[number],
+      record: PersistedBinaryRecord | PersistedImageAssetSummary,
+      isBlobPayload: boolean,
+    ): boolean => {
+      try {
+        const request = transaction.objectStore(storeName).add(record);
+        request.onerror = () => {
+          const error = requestError(request);
+          operationError ??=
+            allowBlobCloneFallback && isBlobPayload
+              ? (asBlobCloneError(error) ??
+                normalizeError(
+                  error,
+                  'The image could not be staged in browser storage.',
+                ))
+              : normalizeError(
+                  error,
+                  'The image could not be staged in browser storage.',
+                );
+        };
+        return true;
+      } catch (error) {
+        operationError =
+          allowBlobCloneFallback && isBlobPayload
+            ? (asBlobCloneError(error) ??
+              normalizeError(
+                error,
+                'The image could not be staged in browser storage.',
+              ))
+            : normalizeError(
+                error,
+                'The image could not be staged in browser storage.',
+              );
+        try {
+          transaction.abort();
+        } catch (abortError) {
+          rejectOnce(operationError ?? abortError);
+        }
+        return false;
+      }
+    };
+
+    if (
+      !addRecord(
+        CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+        original,
+        'blob' in original,
+      )
+    ) {
+      return;
+    }
+    if (
+      thumbnail &&
+      !addRecord(
+        CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
+        thumbnail,
+        'blob' in thumbnail,
+      )
+    ) {
+      return;
+    }
+    addRecord(CUSTOM_DESIGN_ASSET_SUMMARY_STORE_NAME, summary, false);
+  });
 
 export class IndexedDbAssetRepository implements AssetRepository {
   private readonly dbName: string;
@@ -415,44 +596,48 @@ export class IndexedDbAssetRepository implements AssetRepository {
     const database = await this.openDatabase();
 
     try {
-      await new Promise<void>((resolve, reject) => {
-        let operationError: AssetStorageError | undefined;
-        const transaction = database.transaction(ASSET_STORE_NAMES, 'readwrite');
-        const requests: IDBRequest[] = [
-          transaction
-            .objectStore(CUSTOM_DESIGN_ASSET_SUMMARY_STORE_NAME)
-            .add(summary),
-          transaction
-            .objectStore(CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME)
-            .add(original),
-        ];
-        if (thumbnail) {
-          requests.push(
-            transaction
-              .objectStore(CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME)
-              .add(thumbnail),
-          );
+      try {
+        await stageRecords(database, summary, original, thumbnail, true);
+      } catch (error) {
+        if (!(error instanceof BlobStructuredCloneError)) {
+          throw error;
         }
 
-        for (const request of requests) {
-          request.onerror = () => {
-            operationError = normalizeError(
-              requestError(request),
-              'The image could not be staged in browser storage.',
-            );
-          };
-        }
-        transaction.oncomplete = () => resolve();
-        transaction.onerror = () =>
-          reject(
-            operationError ??
-              normalizeError(
-                transaction.error,
-                'The image could not be staged in browser storage.',
-              ),
-          );
-        transaction.onabort = transaction.onerror;
-      });
+        // A failed structured clone aborts its transaction. Convert only on
+        // this compatibility path, and do so before opening the one retry
+        // transaction so it cannot become inactive while awaiting bytes.
+        const [originalBytes, thumbnailBytes] = await Promise.all([
+          readBlobArrayBuffer(asset.blob),
+          asset.thumbnailBlob
+            ? readBlobArrayBuffer(asset.thumbnailBlob)
+            : Promise.resolve(undefined),
+        ]);
+        const arrayBufferOriginal: PersistedArrayBufferBinary = {
+          assetId: asset.metadata.id,
+          data: originalBytes,
+          mimeType: asset.metadata.mimeType,
+          schemaVersion: CUSTOM_DESIGN_ASSET_SCHEMA_VERSION,
+          storageKind: 'array_buffer',
+        };
+        const arrayBufferThumbnail: PersistedArrayBufferBinary | undefined =
+          asset.metadata.thumbnail && thumbnailBytes
+            ? {
+                assetId: asset.metadata.id,
+                data: thumbnailBytes,
+                mimeType: asset.metadata.thumbnail.mimeType,
+                schemaVersion: CUSTOM_DESIGN_ASSET_SCHEMA_VERSION,
+                storageKind: 'array_buffer',
+              }
+            : undefined;
+
+        await stageRecords(
+          database,
+          summary,
+          arrayBufferOriginal,
+          arrayBufferThumbnail,
+          false,
+        );
+      }
       return asset.metadata;
     } catch (error) {
       throw normalizeError(
