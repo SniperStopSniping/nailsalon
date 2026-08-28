@@ -346,6 +346,26 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
     harness.repository.close();
   });
 
+  it('deletes only the explicitly supplied onboarding assets and preserves unrelated records', async () => {
+    const harness = createHarness('coordinator-scoped-onboarding-cleanup');
+    for (const assetId of ['onboarding-owned', 'still-referenced', 'unrelated']) {
+      await harness.repository.stage(storedAsset(assetId));
+      await harness.repository.commit(assetId);
+    }
+    harness.setReachable(['still-referenced']);
+
+    await expect(harness.coordinator.deleteAssetsIfUnreferenced([
+      'onboarding-owned',
+      'still-referenced',
+    ])).resolves.toEqual([]);
+
+    await expect(harness.repository.has('onboarding-owned')).resolves.toBe(false);
+    await expect(harness.repository.has('still-referenced')).resolves.toBe(true);
+    await expect(harness.repository.has('unrelated')).resolves.toBe(true);
+    expect(harness.changed).toHaveBeenCalledWith(['onboarding-owned'], 'deleted');
+    harness.repository.close();
+  });
+
   it('serializes an import-like reference mutation ahead of queued cleanup', async () => {
     const harness = createHarness('coordinator-document-mutation-cleanup');
     await harness.repository.stage(storedAsset('imported-reference'));

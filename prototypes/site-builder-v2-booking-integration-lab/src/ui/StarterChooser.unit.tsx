@@ -3,7 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
 import type { OriginStarter } from '../model/types';
-import { StarterChooser } from './StarterChooser';
+import { StarterChoiceGrid, StarterChooser } from './StarterChooser';
 
 const EXPECTED_STARTERS: ReadonlyArray<{
   cta: string;
@@ -177,6 +177,24 @@ describe('StarterChooser copy and accessibility', () => {
     expect(screen.getByText(
       'Every starting point uses the same editor. Add, remove, or rearrange pages and sections anytime.',
     )).toBeVisible();
+  });
+
+  it('personalizes every starter scene with the owner portrait without changing card names', () => {
+    render(
+      <StarterChoiceGrid
+        businessName="Cedar Tips"
+        onChoose={vi.fn()}
+        portraitUrl="data:image/jpeg;base64,owner"
+      />,
+    );
+
+    const portraits = document.querySelectorAll('.final-starter-preview__portrait');
+    expect(portraits).toHaveLength(3);
+    portraits.forEach((portrait) => {
+      expect(portrait).toHaveAttribute('src', 'data:image/jpeg;base64,owner');
+      expect(portrait).toHaveAttribute('alt', '');
+    });
+    expect(getCard('Quick Book')).not.toHaveAccessibleName(/Cedar Tips/u);
   });
 
   it('keeps one whole-card activation target with pointer and keyboard activation', async () => {
