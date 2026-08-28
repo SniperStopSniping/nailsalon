@@ -106,7 +106,7 @@ describe('PoliciesScreen', () => {
     render(<PoliciesHarness initial={latest} onState={(state) => { latest = state; }} />);
 
     expect(screen.getByText('Deposit depends on the service')).toBeVisible();
-    expect(screen.getByText(/Booking remains the source of truth/u)).toBeVisible();
+    expect(screen.getByText('Booking shows the deposit for each service.')).toBeVisible();
     expect(screen.queryByRole('textbox', { name: 'Deposit amount' })).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Refundable?')).not.toBeInTheDocument();
     expect(screen.queryByRole('group', {
@@ -128,6 +128,9 @@ describe('PoliciesScreen', () => {
       .toBe('My existing deposit wording.');
     expect(latest.profile.policies.copy.deposits.useSuggestedWording).toBe(false);
     expect(screen.getByText('No general deposit')).toBeVisible();
+    expect(within(policyCard('Deposits')).getByText(
+      'Shown on your site: No deposit is generally required.',
+    )).toBeVisible();
     expect(screen.queryByRole('textbox', { name: 'Deposit amount' })).not.toBeInTheDocument();
   });
 

@@ -65,7 +65,7 @@ describe('honest weekly-hours state', () => {
       '2026-08-28T01:00:00.000Z',
     )).toEqual({
       kind: 'closed',
-      label: 'Closed',
+      label: 'Opens Thursday at 10:00 AM',
       weekday: 'thursday',
     });
     expect(getWeeklyHoursPreviewStatus(
@@ -73,9 +73,40 @@ describe('honest weekly-hours state', () => {
       '2026-08-30T18:30:00.000Z',
     )).toEqual({
       kind: 'closed',
-      label: 'Closed',
+      label: 'Opens Thursday at 10:00 AM',
       weekday: 'sunday',
     });
+  });
+
+  it('derives today, tomorrow, closed-day, and week-wrap openings from one schedule', () => {
+    const hours = createDefaultWeeklyHours();
+    hours.setupState = 'configured';
+    hours.showOnSite = true;
+    hours.days.monday = { close: '17:00', closed: false, open: '09:00' };
+    hours.days.tuesday = { close: '', closed: true, open: '' };
+    hours.days.wednesday = { close: '', closed: true, open: '' };
+    hours.days.thursday = { close: '18:00', closed: false, open: '10:30' };
+
+    expect(getWeeklyHoursPreviewStatus(
+      hours,
+      '2026-08-31T12:00:00.000Z',
+    )?.label).toBe('Opens today at 9:00 AM');
+    expect(getWeeklyHoursPreviewStatus(
+      hours,
+      '2026-09-02T16:00:00.000Z',
+    )?.label).toBe('Opens tomorrow at 10:30 AM');
+    expect(getWeeklyHoursPreviewStatus(
+      hours,
+      '2026-09-01T16:00:00.000Z',
+    )?.label).toBe('Opens Thursday at 10:30 AM');
+    expect(getWeeklyHoursPreviewStatus(
+      hours,
+      '2026-09-04T16:00:00.000Z',
+    )?.label).toBe('Opens Monday at 9:00 AM');
+    expect(getWeeklyHoursPreviewStatus(
+      hours,
+      '2026-09-07T22:00:00.000Z',
+    )?.label).toBe('Opens Thursday at 10:30 AM');
   });
 
   it.each([

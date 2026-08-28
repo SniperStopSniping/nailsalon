@@ -243,6 +243,38 @@ describe('switchOnboardingStarter', () => {
       .toEqual(new Set([canvaImage.assetId]));
   });
 
+  it('publishes a starter replacement as one undoable document transition', () => {
+    const hook = renderHook(() => useLabDocument());
+    const state = createState();
+
+    act(() => {
+      expect(hook.result.current.createStarterOnce('quick_book', {
+        siteName: state.profile.businessName,
+      }).success).toBe(true);
+      addConfirmedCanva(hook.result.current, state);
+    });
+    const before = hook.result.current.getHistorySnapshot();
+    expect(before).not.toBeNull();
+
+    const switched = runStarterSwitch(hook.result.current, state, 'one_page');
+    expect(switched.success).toBe(true);
+    const after = hook.result.current.getHistorySnapshot();
+    expect(after?.past).toHaveLength((before?.past.length ?? 0) + 1);
+    expect(after?.past.at(-1)).toEqual(before?.present);
+
+    act(() => {
+      expect(hook.result.current.undo()).toBe(true);
+    });
+    expect(hook.result.current.document?.originStarter).toBe('quick_book');
+    expect(getCustomDesigns(hook.result.current.document as SiteBuilderDocument))
+      .toEqual([expect.objectContaining({ id: state.canva.customDesignSectionId })]);
+
+    act(() => {
+      expect(hook.result.current.redo()).toBe(true);
+    });
+    expect(hook.result.current.document?.originStarter).toBe('one_page');
+  });
+
   it('leaves the current document untouched when its tracked Canva section is missing', () => {
     const hook = renderHook(() => useLabDocument());
     const state = createState();

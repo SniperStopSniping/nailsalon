@@ -1,9 +1,10 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { vi } from 'vitest';
 
 import { initializeStarter } from '../../model';
+import { createDefaultCustomDesignSettings } from '../../custom-design/model/settings';
 import { createDanielaFixtureState } from '../fixtures';
 import { goForward } from '../model/routing';
 import type { OnboardingLabState } from '../model/types';
@@ -15,8 +16,12 @@ import {
 } from './DesignScreens';
 import { FinalReviewScreen } from './ReviewScreen';
 
+const reviewMocks = vi.hoisted(() => ({
+  assetMap: new Map<string, unknown>(),
+}));
+
 vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
-  useCustomDesignAssetMap: () => new Map(),
+  useCustomDesignAssetMap: () => reviewMocks.assetMap,
 }));
 
 const aboutState = (): OnboardingLabState => {
@@ -43,6 +48,7 @@ describe('About onboarding screens', () => {
         <AboutScreen
           onBack={vi.fn()}
           onContinue={() => setState((current) => goForward(current))}
+          onFullPreview={vi.fn()}
           onUpdate={setState}
           state={state}
         />
@@ -83,6 +89,7 @@ describe('About onboarding screens', () => {
           document={null}
           onBack={vi.fn()}
           onContinue={vi.fn()}
+          onFullPreview={vi.fn()}
           onUpdate={update}
           state={state}
         />
@@ -104,6 +111,37 @@ describe('About onboarding screens', () => {
     expect(within(preview).getByText(originalProfile.about.shortBio)).toBeVisible();
     expect(latestState.profile).toEqual(originalProfile);
     expect(screen.queryByRole('textbox', { name: /bio/i })).not.toBeInTheDocument();
+  });
+
+  it('honestly disables the saved Instagram visibility choice while contact is Booking-only', () => {
+    const initial = aboutState();
+    initial.progress.currentScreen = 'about_design';
+    initial.profile.bookingOnlyContact = true;
+    initial.profile.about.visibility.instagram = true;
+
+    render(
+      <AboutDesignScreen
+        document={null}
+        onBack={vi.fn()}
+        onContinue={vi.fn()}
+        onFullPreview={vi.fn()}
+        onUpdate={vi.fn()}
+        state={initial}
+      />,
+    );
+
+    const disclosure = screen.getByText('Content shown on your site').closest('details');
+    if (!disclosure) throw new Error('Missing About content disclosure');
+    const instagram = within(disclosure).getByRole('switch', {
+      hidden: true,
+      name: 'Instagram',
+    });
+    expect(instagram).toBeChecked();
+    expect(instagram).toBeDisabled();
+    expect(within(disclosure).getByText(
+      'Not shown while clients use Booking only. Your Instagram is still saved.',
+    )).toBeInTheDocument();
+    expect(screen.queryByText('@islanail.studio')).not.toBeInTheDocument();
   });
 });
 
@@ -142,13 +180,19 @@ describe('SiteStyleScreen', () => {
     const { container } = render(<Harness />);
     const preview = screen.getByRole('region', { name: 'Live personalized style preview' });
     expect(within(preview).getAllByText('Isla Nail Studio').length).toBeGreaterThan(0);
-    expect(preview).toHaveAttribute('data-style-preset', 'modern');
+    expect(preview.querySelector('[data-style-preset]')).toHaveAttribute(
+      'data-style-preset',
+      'modern',
+    );
     const ownerSurface = container.querySelector('.onboarding-screen--style');
     expect(ownerSurface).toBeInTheDocument();
     expect(ownerSurface).not.toHaveAttribute('data-style-preset');
 
     await user.click(screen.getByRole('button', { name: /Luxury/ }));
-    expect(preview).toHaveAttribute('data-style-preset', 'luxury');
+    expect(preview.querySelector('[data-style-preset]')).toHaveAttribute(
+      'data-style-preset',
+      'luxury',
+    );
     expect(latestState.recipe.styleConfirmed).toBe(false);
     await user.click(screen.getByRole('button', { name: 'Use this style' }));
     expect(latestState.recipe).toMatchObject({
@@ -197,7 +241,9 @@ describe('FinalReviewScreen', () => {
         document={document}
         onBack={vi.fn()}
         onEdit={onEdit}
+        onEditCanva={vi.fn()}
         onOpenBuilder={onOpenBuilder}
+        onOpenPreview={vi.fn()}
         state={state}
       />,
     );
@@ -222,7 +268,9 @@ describe('FinalReviewScreen', () => {
         document={document}
         onBack={vi.fn()}
         onEdit={vi.fn()}
+        onEditCanva={vi.fn()}
         onOpenBuilder={onOpenBuilder}
+        onOpenPreview={vi.fn()}
         state={state}
       />,
     );
@@ -233,5 +281,105 @@ describe('FinalReviewScreen', () => {
     expect(screen.getByRole('region', { name: 'Final tablet customer preview' })).toHaveAttribute('data-preview-device', 'tablet');
     await user.click(screen.getByRole('button', { name: 'Open my Builder' }));
     expect(onOpenBuilder).toHaveBeenCalledOnce();
+  });
+
+  it('makes a collapsed mobile readiness drawer inert until the owner opens it', async () => {
+    const matchMedia = vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
+      addEventListener: vi.fn(),
+      addListener: vi.fn(),
+      dispatchEvent: vi.fn(() => true),
+      matches: query === '(max-width: 919px)',
+      media: query,
+      onchange: null,
+      removeEventListener: vi.fn(),
+      removeListener: vi.fn(),
+    }));
+    const state = createDanielaFixtureState();
+    const document = initializeStarter('one_page');
+    render(
+      <FinalReviewScreen
+        document={document}
+        onBack={vi.fn()}
+        onEdit={vi.fn()}
+        onEditCanva={vi.fn()}
+        onOpenBuilder={vi.fn()}
+        onOpenPreview={vi.fn()}
+        state={state}
+      />,
+    );
+    const detail = screen.getByText(/No percentage score/u).closest<HTMLElement>(
+      '.onboarding-readiness__content',
+    );
+    if (!detail) throw new Error('Missing readiness detail panel.');
+    await waitFor(() => expect(detail.inert).toBe(true));
+    expect(detail).toHaveAttribute('aria-hidden', 'true');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /Site readiness/u }));
+    await waitFor(() => expect(detail.inert).toBe(false));
+    expect(detail).not.toHaveAttribute('aria-hidden');
+    matchMedia.mockRestore();
+  });
+
+  it('opens the real Canva repair flow for a missing uploaded page', async () => {
+    const user = userEvent.setup();
+    const state = createDanielaFixtureState();
+    const document = initializeStarter('one_page');
+    document.pages[0]!.sections.push({
+      id: 'custom-missing',
+      label: 'Canva design',
+      order: 99,
+      sectionType: 'custom_design',
+      settings: {
+        ...createDefaultCustomDesignSettings(),
+        images: [{
+          altText: '',
+          aspectRatio: 0.75,
+          assetId: 'asset-missing',
+          decorative: false,
+          fileName: 'missing-page.png',
+          fileSize: 100,
+          height: 1_600,
+          id: 'image-missing',
+          interactiveAreas: [],
+          mimeType: 'image/png',
+          width: 1_200,
+        }],
+      },
+      visible: true,
+    });
+    reviewMocks.assetMap = new Map([['asset-missing', {
+      original: {
+        assetId: 'asset-missing',
+        error: new Error('Missing'),
+        kind: 'original',
+        status: 'unavailable',
+      },
+      thumbnail: {
+        assetId: 'asset-missing',
+        error: new Error('Missing'),
+        kind: 'thumbnail',
+        status: 'unavailable',
+      },
+    }]]);
+    const onEdit = vi.fn();
+    const onEditCanva = vi.fn();
+    render(
+      <FinalReviewScreen
+        document={document}
+        onBack={vi.fn()}
+        onEdit={onEdit}
+        onEditCanva={onEditCanva}
+        onOpenBuilder={vi.fn()}
+        onOpenPreview={vi.fn()}
+        state={state}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', {
+      name: 'Replace missing-page.png needs attention',
+    }));
+    expect(onEditCanva).toHaveBeenCalledOnce();
+    expect(onEdit).not.toHaveBeenCalled();
+    reviewMocks.assetMap = new Map();
   });
 });

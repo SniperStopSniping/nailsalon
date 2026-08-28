@@ -36,7 +36,7 @@ const createLegacySavedState = (
     phone?: string;
     policyRequired?: boolean | null;
     preferredContact?: 'text' | 'call' | 'instagram' | 'email' | null;
-    schemaVersion?: 1 | 2 | 3;
+    schemaVersion?: 1 | 2 | 3 | 4;
     skipped?: boolean;
     textPhone?: string;
   } = {},
@@ -190,7 +190,7 @@ describe('onboarding browser-local storage', () => {
     })));
 
     expect(result.status).toBe('loaded');
-    expect(result.state.schemaVersion).toBe(3);
+    expect(result.state.schemaVersion).toBe(5);
     expect(result.state.profile.businessStructure).toBe('solo');
     expect(result.state.profile.location).toMatchObject({
       allowGeneralAreaDirections: false,
@@ -208,6 +208,72 @@ describe('onboarding browser-local storage', () => {
     expect(result.state.profile.policies.deposits.mode).toBe('generally_required');
     expect(result.state.profile.bookingPreferences).not.toHaveProperty('depositPreference');
     expect(result.state.profile.policies.deposits).not.toHaveProperty('required');
+  });
+
+  it('migrates v3 Canva drafts and persists a typed partial-upload result', () => {
+    const legacy = createDefaultOnboardingState() as unknown as Record<string, unknown>;
+    legacy.schemaVersion = 3;
+    const legacyCanva = legacy.canva as Record<string, unknown>;
+    delete legacyCanva.uploadResult;
+
+    const migrated = parseOnboardingState(JSON.stringify(legacy));
+    expect(migrated.status).toBe('loaded');
+    expect(migrated.state.schemaVersion).toBe(5);
+    expect(migrated.state.canva.uploadResult).toBeNull();
+
+    migrated.state.canva.uploadResult = {
+      addedCount: 2,
+      failures: [{
+        code: 'decode_failed',
+        fileName: 'broken-page.png',
+        message: 'This image couldn’t be opened.',
+      }],
+      summary: '2 images were added. 1 file could not be processed.',
+    };
+    const roundTrip = parseOnboardingState(JSON.stringify(migrated.state));
+    expect(roundTrip.status).toBe('loaded');
+    expect(roundTrip.state.canva.uploadResult).toEqual(migrated.state.canva.uploadResult);
+  });
+
+  it('migrates v4 Canva pages into a deduplicated ownership ledger', () => {
+    const legacy = createDefaultOnboardingState() as unknown as Record<string, unknown>;
+    legacy.schemaVersion = 4;
+    const legacyCanva = legacy.canva as Record<string, unknown>;
+    legacyCanva.images = [
+      {
+        fileName: 'first.png',
+        id: 'image-first',
+        mimeType: 'image/png',
+        source: 'indexed_db',
+        storageId: 'asset-first',
+      },
+      {
+        fileName: 'duplicate-reference.png',
+        id: 'image-duplicate',
+        mimeType: 'image/png',
+        source: 'indexed_db',
+        storageId: 'asset-first',
+      },
+      {
+        fileName: 'second.webp',
+        id: 'image-second',
+        mimeType: 'image/webp',
+        source: 'indexed_db',
+        storageId: 'asset-second',
+      },
+    ];
+    delete legacyCanva.ownedAssetIds;
+
+    const migrated = parseOnboardingState(JSON.stringify(legacy));
+
+    expect(migrated.status).toBe('loaded');
+    expect(migrated.state.schemaVersion).toBe(5);
+    expect(migrated.state.canva.ownedAssetIds).toEqual([
+      'asset-first',
+      'asset-second',
+    ]);
+    expect(parseOnboardingState(JSON.stringify(migrated.state)).state.canva.ownedAssetIds)
+      .toEqual(['asset-first', 'asset-second']);
   });
 
   it('normalizes legacy deposit answers into one non-contradictory policy source', () => {

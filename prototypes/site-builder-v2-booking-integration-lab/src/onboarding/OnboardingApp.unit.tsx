@@ -1,7 +1,13 @@
 import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { IDBFactory } from 'fake-indexeddb';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, vi } from 'vitest';
 
+import {
+  IndexedDbAssetRepository,
+  type PreparedImageAsset,
+} from '../custom-design/assets';
+import { CustomDesignAssetTransactionCoordinator } from '../custom-design/integration/AssetTransactionCoordinator';
 import {
   SITE_BUILDER_STORAGE_KEY,
   exportSiteBuilderDocument,
@@ -23,11 +29,51 @@ import {
   getOnboardingAssetIds,
 } from './OnboardingApp';
 
+const assetProviderMocks = vi.hoisted(() => ({
+  coordinator: null as unknown,
+}));
+
 vi.mock('../custom-design/integration/CustomDesignAssetProvider', () => ({
-  useCustomDesignAssetCoordinator: () => null,
+  useCustomDesignAssetCoordinator: () => assetProviderMocks.coordinator,
   useCustomDesignAssetMap: () => new Map(),
   useCustomDesignAssetStorageError: () => null,
 }));
+
+const storedAsset = (id: string): PreparedImageAsset => {
+  const blob = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], {
+    type: 'image/png',
+  });
+  return {
+    blob,
+    metadata: {
+      aspectRatio: 0.75,
+      byteSize: blob.size,
+      createdAt: '2026-08-28T12:00:00.000Z',
+      fileName: `${id}.png`,
+      height: 1_600,
+      id,
+      mimeType: 'image/png',
+      orientation: 1,
+      width: 1_200,
+    },
+  };
+};
+
+const createAssetCleanupHarness = async (name: string) => {
+  const repository = new IndexedDbAssetRepository({
+    dbName: name,
+    indexedDB: new IDBFactory(),
+  });
+  const coordinator = new CustomDesignAssetTransactionCoordinator({
+    getReachableAssetIds: () => new Set<string>(),
+    repository,
+  });
+  for (const assetId of ['onboarding-removed', 'unrelated-sentinel']) {
+    await repository.stage(storedAsset(assetId));
+    await repository.commit(assetId);
+  }
+  return { coordinator, repository };
+};
 
 const installMatchMedia = () => {
   vi.stubGlobal('matchMedia', vi.fn((query: string): MediaQueryList => ({
@@ -113,7 +159,12 @@ type BrowserHistoryEntry = {
   lusterOnboarding: true;
   onboardingCursor: number;
   onboardingSession: number;
-  previewSource?: 'starting_preview' | 'site_style' | 'final_preview';
+  overlay?:
+    | { kind: 'plan' }
+    | {
+        kind: 'preview';
+        source: 'starting_preview' | 'about' | 'about_design' | 'site_style' | 'final_preview';
+      };
   screen: OnboardingLabState['progress']['currentScreen'];
 };
 
@@ -147,6 +198,7 @@ function RealLabHarness({ onEnterBuilder = vi.fn() }: { onEnterBuilder?: () => v
 
 describe('OnboardingApp handoff boundaries', () => {
   beforeEach(() => {
+    assetProviderMocks.coordinator = null;
     installMatchMedia();
     window.history.replaceState({}, '', '/');
     window.localStorage.removeItem(SITE_BUILDER_STORAGE_KEY);
@@ -234,6 +286,28 @@ describe('OnboardingApp handoff boundaries', () => {
     }
   });
 
+  it('passes over a stale About-design browser entry after About is turned off', async () => {
+    const state = stateAt('about');
+    state.recipe.aboutEnabled = false;
+    renderAt(state);
+    const { onboardingSession } = currentBrowserHistoryEntry();
+    const forward = vi.spyOn(window.history, 'forward').mockImplementation(() => undefined);
+
+    dispatchBrowserHistoryEntry({
+      lusterOnboarding: true,
+      onboardingCursor: 1,
+      onboardingSession,
+      screen: 'about_design',
+    });
+
+    expect(forward).toHaveBeenCalledOnce();
+    expect(screen.getByRole('heading', { name: 'Would you like an About section?' }))
+      .toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Choose your About design' }))
+      .not.toBeInTheDocument();
+    forward.mockRestore();
+  });
+
   it('restores About On screens through repeated Back, Back, Forward, Forward transitions', async () => {
     const user = userEvent.setup();
     const state = stateAt('about');
@@ -289,7 +363,7 @@ describe('OnboardingApp handoff boundaries', () => {
     const previewEntry: BrowserHistoryEntry = {
       ...baseEntry,
       onboardingCursor: baseEntry.onboardingCursor + 1,
-      previewSource: 'starting_preview',
+      overlay: { kind: 'preview', source: 'starting_preview' },
     };
 
     for (let cycle = 0; cycle < 3; cycle += 1) {
@@ -310,6 +384,31 @@ describe('OnboardingApp handoff boundaries', () => {
     }
   });
 
+  it('uses the Screen 7 close button only to dismiss Preview and restore its trigger', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('starting_preview');
+    renderAt(state);
+    const baseEntry = currentBrowserHistoryEntry();
+    const previewTrigger = screen.getByRole('button', { name: 'Preview my site' });
+
+    await user.click(previewTrigger);
+    const dialog = screen.getByRole('dialog', { name: 'Preview your starting site' });
+    await user.click(within(dialog).getByRole('button', {
+      name: 'Close Preview your starting site',
+    }));
+    dispatchBrowserHistoryEntry(baseEntry);
+
+    await waitFor(() => expect(screen.queryByRole('dialog', {
+      name: 'Preview your starting site',
+    })).not.toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Your starting site is ready' }))
+      .toBeVisible();
+    expect(screen.queryByRole('heading', {
+      name: 'Would you like an About section?',
+    })).not.toBeInTheDocument();
+    await waitFor(() => expect(previewTrigger).toHaveFocus());
+  });
+
   it('invalidates pre-reset browser entries so they cannot restore the old session', async () => {
     const user = userEvent.setup();
     const state = stateAt('policies');
@@ -318,7 +417,7 @@ describe('OnboardingApp handoff boundaries', () => {
     const forward = vi.spyOn(window.history, 'forward').mockImplementation(() => undefined);
 
     await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
-    await user.click(screen.getByRole('button', { name: 'Restart onboarding' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Restart onboarding' }));
     const confirmation = screen.getByRole('dialog', { name: 'Restart onboarding?' });
     await user.click(within(confirmation).getByRole('button', {
       name: 'Restart onboarding',
@@ -342,6 +441,167 @@ describe('OnboardingApp handoff boundaries', () => {
     forward.mockRestore();
   });
 
+  it('deletes a removed, reloaded onboarding-owned asset on Reset while preserving an unrelated asset', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('policies');
+    state.canva.images = [];
+    state.canva.ownedAssetIds = ['onboarding-removed'];
+    const { coordinator, repository } = await createAssetCleanupHarness(
+      'onboarding-reset-owned-assets',
+    );
+    assetProviderMocks.coordinator = coordinator;
+    window.localStorage.setItem('unrelated-storage-sentinel', 'preserve');
+
+    renderAt(state);
+    expect(parseOnboardingState(
+      window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
+    ).state.canva.ownedAssetIds).toEqual(['onboarding-removed']);
+
+    await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Restart onboarding' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Restart onboarding?' }))
+      .getByRole('button', { name: 'Restart onboarding' }));
+
+    expect(await screen.findByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
+    await waitFor(async () => {
+      expect(await repository.has('onboarding-removed')).toBe(false);
+      expect(await repository.has('unrelated-sentinel')).toBe(true);
+    });
+    expect(window.localStorage.getItem('unrelated-storage-sentinel')).toBe('preserve');
+    expect(window.localStorage.getItem(ONBOARDING_STORAGE_KEY)).toBeNull();
+    window.localStorage.removeItem('unrelated-storage-sentinel');
+    coordinator.close();
+    repository.close();
+  });
+
+  it('uses the same scoped owned-asset cleanup before replacing state with a fixture', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('policies');
+    state.canva.images = [];
+    state.canva.ownedAssetIds = ['onboarding-removed'];
+    const { coordinator, repository } = await createAssetCleanupHarness(
+      'onboarding-fixture-owned-assets',
+    );
+    assetProviderMocks.coordinator = coordinator;
+
+    renderAt(state);
+    await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Lab review options' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Lab review options' }))
+      .getByRole('button', { name: 'Blank new owner' }));
+
+    expect(await screen.findByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
+    await waitFor(async () => {
+      expect(await repository.has('onboarding-removed')).toBe(false);
+      expect(await repository.has('unrelated-sentinel')).toBe(true);
+    });
+    await waitFor(() => {
+      const saved = parseOnboardingState(
+        window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
+      );
+      expect(saved.state.canva.ownedAssetIds).toEqual([]);
+    });
+    coordinator.close();
+    repository.close();
+  });
+
+  it('keeps the ownership ledger and current answers when Reset asset cleanup fails', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('policies');
+    state.canva.images = [];
+    state.canva.ownedAssetIds = ['onboarding-orphan-retry'];
+    const deleteAssetsIfUnreferenced = vi.fn(async () => [
+      new Error('The browser could not remove one saved image.'),
+    ]);
+    assetProviderMocks.coordinator = { deleteAssetsIfUnreferenced };
+
+    const { lab } = renderAt(state);
+    await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Restart onboarding' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Restart onboarding?' }))
+      .getByRole('button', { name: 'Restart onboarding' }));
+
+    expect(await screen.findByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
+    expect(await screen.findByRole('alert')).toHaveTextContent('cleanup list');
+    expect(lab.resetLab).toHaveBeenCalledOnce();
+    expect(deleteAssetsIfUnreferenced).toHaveBeenCalledWith([
+      'onboarding-orphan-retry',
+    ]);
+    await waitFor(() => expect(parseOnboardingState(
+      window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
+    ).state.canva.ownedAssetIds).toEqual(['onboarding-orphan-retry']));
+  });
+
+  it('does not destroy the site document when onboarding storage cannot be reset', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('policies');
+    const { lab } = renderAt(state);
+    const originalRemoveItem = Storage.prototype.removeItem;
+    const removeItem = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(
+      function removeStorageItem(this: Storage, key: string) {
+        if (key === ONBOARDING_STORAGE_KEY) throw new DOMException('Blocked', 'SecurityError');
+        originalRemoveItem.call(this, key);
+      },
+    );
+
+    await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Restart onboarding' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Restart onboarding?' }))
+      .getByRole('button', { name: 'Restart onboarding' }));
+
+    expect(await screen.findByText('Onboarding browser storage could not be cleared.'))
+      .toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Set clear expectations' })).toBeVisible();
+    expect(lab.resetLab).not.toHaveBeenCalled();
+    expect(parseOnboardingState(
+      window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
+    ).state.profile.businessName).toBe(state.profile.businessName);
+    removeItem.mockRestore();
+  });
+
+  it('restores onboarding when the saved Builder document cannot be reset', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('policies');
+    const { lab } = renderAt(state);
+    vi.mocked(lab.resetLab).mockReturnValueOnce(false);
+
+    await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Restart onboarding' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Restart onboarding?' }))
+      .getByRole('button', { name: 'Restart onboarding' }));
+
+    expect(await screen.findByText('Setup could not be restarted safely. Your setup was restored.'))
+      .toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Set clear expectations' })).toBeVisible();
+    expect(lab.resetLab).toHaveBeenCalledOnce();
+    await waitFor(() => expect(parseOnboardingState(
+      window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
+    ).state.profile.businessName).toBe(state.profile.businessName));
+  });
+
+  it('keeps the ownership ledger instead of replacing it when fixture cleanup fails', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('policies');
+    state.canva.images = [];
+    state.canva.ownedAssetIds = ['fixture-orphan-retry'];
+    const deleteAssetsIfUnreferenced = vi.fn(async () => [
+      new Error('The browser could not remove one saved image.'),
+    ]);
+    assetProviderMocks.coordinator = { deleteAssetsIfUnreferenced };
+
+    renderAt(state);
+    await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Lab review options' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Lab review options' }))
+      .getByRole('button', { name: 'Blank new owner' }));
+
+    expect(await screen.findByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
+    expect(await screen.findByRole('alert')).toHaveTextContent('cleanup list');
+    await waitFor(() => expect(parseOnboardingState(
+      window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
+    ).state.canva.ownedAssetIds).toEqual(['fixture-orphan-retry']));
+  });
+
   it('shows the plan offer only after the explicit final handoff and enters Builder after Continue free', async () => {
     const user = userEvent.setup();
     const state = stateAt('final_preview');
@@ -363,6 +623,33 @@ describe('OnboardingApp handoff boundaries', () => {
     const saved = window.localStorage.getItem(ONBOARDING_STORAGE_KEY);
     expect(saved).toContain('"planIntent":"free"');
     expect(saved).toContain('"sessionStatus":"builder"');
+  });
+
+  it('treats the plan offer as a Review overlay for browser Back and Forward', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('final_preview');
+    renderAt(state);
+    const baseEntry = currentBrowserHistoryEntry();
+    const builderTrigger = screen.getByRole('button', { name: 'Open my Builder' });
+
+    await user.click(builderTrigger);
+    const planEntry = currentBrowserHistoryEntry();
+    expect(planEntry).toMatchObject({ overlay: { kind: 'plan' }, screen: 'final_preview' });
+    expect(screen.getByRole('dialog', { name: 'Your site is saved' })).toBeVisible();
+
+    dispatchBrowserHistoryEntry(baseEntry);
+    await waitFor(() => expect(screen.queryByRole('dialog', {
+      name: 'Your site is saved',
+    })).not.toBeInTheDocument());
+    expect(screen.getByRole('heading', { name: 'Review your site' })).toBeVisible();
+    await waitFor(() => expect(builderTrigger).toHaveFocus());
+
+    dispatchBrowserHistoryEntry(planEntry);
+    const reopened = await screen.findByRole('dialog', { name: 'Your site is saved' });
+    await waitFor(() => expect(within(reopened).getByRole('heading', {
+      name: 'Your site is saved',
+    })).toHaveFocus());
+    expect(screen.getByRole('heading', { name: 'Review your site' })).toBeVisible();
   });
 
   it('confirms a starter change, preserves profile data, and resumes the switched starter after reload', async () => {
@@ -392,15 +679,15 @@ describe('OnboardingApp handoff boundaries', () => {
       name: /Switch to One-page website/u,
     }));
     const confirmation = screen.getByRole('dialog', {
-      name: 'Switch to this starting point?',
+      name: 'Switch to One-page website?',
     });
     expect(confirmation).toHaveTextContent(
-      'Your business information, About details, policies, style choices, photos, Gallery draft, Canva design, and onboarding progress will stay saved. We’ll replace only the starting page structure.',
+      'Switching to One-page website keeps your business information, About details, policies, style choices, photos, Gallery draft, Canva design, and onboarding progress saved. We’ll replace only the starting page structure.',
     );
     expect(within(confirmation).getByRole('button', { name: 'Keep current' }))
       .toBeVisible();
     await user.click(within(confirmation).getByRole('button', {
-      name: 'Switch starting point',
+      name: 'Switch to One-page website',
     }));
 
     expect(await screen.findByRole('heading', {
@@ -436,7 +723,7 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(await screen.findByRole('heading', {
       name: 'Your starting site is ready',
     })).toBeVisible();
-    expect(screen.getByText('One-page website')).toBeVisible();
+    expect(screen.getAllByText('One-page website').length).toBeGreaterThan(0);
     expect(screen.getByRole('region', {
       name: 'Isla Nail Studio starting website preview',
     })).toBeVisible();
@@ -464,8 +751,12 @@ describe('OnboardingApp Canva draft boundaries', () => {
     }, 'contained', 'after_booking');
 
     expect(next.canva).toMatchObject({
-      errorMessage: 'PDF is not supported.',
-      status: 'invalid',
+      errorMessage: '1 image was added. 1 file could not be processed.',
+      status: 'ready',
+      uploadResult: {
+        addedCount: 1,
+        failures: [{ fileName: 'rejected.pdf', message: 'PDF is not supported.' }],
+      },
     });
     expect(next.canva.images).toEqual([expect.objectContaining({
       fileName: 'accepted.png',
@@ -473,5 +764,22 @@ describe('OnboardingApp Canva draft boundaries', () => {
     })]);
     expect(next.recipe.canvaEnabled).toBe(true);
     expect(getOnboardingAssetIds(next)).toEqual(['asset-accepted']);
+  });
+
+  it('collects removed ledger assets and current pages once for scoped cleanup', () => {
+    const state = createDanielaFixtureState();
+    state.canva.ownedAssetIds = ['asset-removed', 'asset-current'];
+    state.canva.images = [{
+      fileName: 'current.png',
+      id: 'image-current',
+      mimeType: 'image/png',
+      source: 'indexed_db',
+      storageId: 'asset-current',
+    }];
+
+    expect(getOnboardingAssetIds(state)).toEqual([
+      'asset-removed',
+      'asset-current',
+    ]);
   });
 });

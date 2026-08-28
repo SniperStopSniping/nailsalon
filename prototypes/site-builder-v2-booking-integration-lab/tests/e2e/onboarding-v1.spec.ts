@@ -67,7 +67,7 @@ async function readOnboardingState(page: Page): Promise<StoredOnboardingState> {
 
 async function openLabReviewOptions(page: Page): Promise<void> {
   await page.getByLabel('More onboarding options').click();
-  await page.getByRole('button', { name: 'Lab review options' }).click();
+  await page.getByRole('menuitem', { name: 'Lab review options' }).click();
   await expect(page.getByRole('dialog', { name: 'Lab review options' })).toBeVisible();
 }
 
@@ -254,7 +254,7 @@ test.describe('Onboarding V1 UX Lab', () => {
     await page.getByRole('button', { name: 'Open my Builder' }).click();
     const planSheet = page.getByRole('dialog', { name: 'Your site is saved' });
     await expect(planSheet).toBeVisible();
-    await planSheet.getByRole('button', { name: 'Unlock lifetime access' }).click();
+    await planSheet.getByRole('button', { name: 'Choose Founding Nail Tech Lifetime Access' }).click();
     await expect(page.getByTestId('final-hybrid-editor')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Back to onboarding review · Lab' })).toBeVisible();
 
@@ -339,7 +339,8 @@ test.describe('Onboarding V1 UX Lab', () => {
 
     await expect(heading(page, 'Choose your look')).toBeVisible();
     await page.getByRole('button', { name: /^Luxury/ }).click();
-    await expect(page.getByLabel('Live personalized style preview')).toHaveAttribute('data-style-preset', 'luxury');
+    await expect(page.getByLabel('Live personalized style preview').locator('[data-style-preset]'))
+      .toHaveAttribute('data-style-preset', 'luxury');
     await page.getByRole('button', { name: 'Use this style' }).click();
     await expect(heading(page, 'Add something extra')).toBeVisible();
 
@@ -395,7 +396,7 @@ test.describe('Onboarding V1 UX Lab', () => {
     await page.getByRole('button', { name: 'Open my Builder' }).click();
     const planSheet = page.getByRole('dialog', { name: 'Your site is saved' });
     await expect(planSheet).toBeVisible();
-    await planSheet.getByRole('button', { name: 'Choose monthly' }).click();
+    await planSheet.getByRole('button', { name: 'Choose Monthly plan' }).click();
     await expect(page.getByTestId('final-hybrid-editor')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Back to onboarding review · Lab' })).toBeVisible();
 
@@ -466,7 +467,7 @@ test.describe('Onboarding V1 UX Lab', () => {
     await waitForOnboardingSave(page);
 
     await page.getByLabel('More onboarding options').click();
-    await page.getByRole('button', { name: 'Save and finish later' }).click();
+    await page.getByRole('menuitem', { name: 'Save and finish later' }).click();
     await expect(heading(page, 'Setup saved')).toBeVisible();
 
     await page.reload();
@@ -481,7 +482,7 @@ test.describe('Onboarding V1 UX Lab', () => {
     await expect(page.getByLabel('Your name')).toHaveValue('Daniela');
 
     await page.getByLabel('More onboarding options').click();
-    await page.getByRole('button', { name: 'Restart onboarding' }).click();
+    await page.getByRole('menuitem', { name: 'Restart onboarding' }).click();
     const confirmation = page.getByRole('dialog', { name: 'Restart onboarding?' });
     await expect(confirmation).toBeVisible();
     await confirmation.getByRole('button', { name: 'Restart onboarding', exact: true }).click();
@@ -505,11 +506,12 @@ test.describe('Onboarding V1 UX Lab', () => {
     await page.getByRole('button', { name: 'Open my Builder' }).click();
     const planSheet = page.getByRole('dialog', { name: 'Your site is saved' });
     await expect(planSheet).toBeVisible();
-    await expect(planSheet.getByRole('button', { name: 'Unlock lifetime access' })).toBeVisible();
-    await expect(planSheet.getByRole('button', { name: 'Choose monthly' })).toBeVisible();
+    await expect(planSheet.getByRole('button', { name: 'Choose Founding Nail Tech Lifetime Access' })).toBeVisible();
+    await expect(planSheet.getByRole('button', { name: 'Choose Monthly plan' })).toBeVisible();
     const continueFree = planSheet.getByRole('button', { name: 'Continue free' });
     await expect(continueFree).toBeVisible();
-    await expect(continueFree).toBeFocused();
+    await expect(planSheet.getByRole('heading', { level: 2, name: 'Your site is saved' }))
+      .toBeFocused();
     await expect(planSheet).toContainText('You won’t be charged today.');
 
     await continueFree.click();

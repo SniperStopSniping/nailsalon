@@ -24,8 +24,9 @@ describe('focusFirstInvalidControl', () => {
     const form = container.querySelector('form');
     if (!form) throw new Error('Expected the focus-helper test form.');
     const target = screen.getByRole('radio', { name: 'First enabled choice' });
+    const invalidGroup = screen.getByRole('group', { name: 'First invalid group' });
     const scrollIntoView = vi.fn();
-    target.scrollIntoView = scrollIntoView;
+    invalidGroup.scrollIntoView = scrollIntoView;
 
     focusFirstInvalidControl(form);
 
@@ -36,6 +37,45 @@ describe('focusFirstInvalidControl', () => {
     });
     expect(screen.getByRole('textbox', { name: 'Later invalid field' }))
       .not.toHaveFocus();
+  });
+
+  it('moves a focused invalid control above the sticky actions in a short viewport', async () => {
+    const { container } = render(
+      <div>
+        <header className="onboarding-shell__header" />
+        <div className="onboarding-shell__progress" />
+        <form>
+          <label className="onboarding-field">
+            Business name
+            <input aria-invalid="true" />
+          </label>
+        </form>
+        <footer className="sticky-onboarding-actions" />
+      </div>,
+    );
+    const form = container.querySelector('form');
+    const target = screen.getByRole('textbox', { name: 'Business name' });
+    const header = container.querySelector<HTMLElement>('.onboarding-shell__header');
+    const progress = container.querySelector<HTMLElement>('.onboarding-shell__progress');
+    const footer = container.querySelector<HTMLElement>('.sticky-onboarding-actions');
+    if (!form || !header || !progress || !footer) throw new Error('Missing focus geometry fixture.');
+    header.getBoundingClientRect = () => ({ bottom: 70 } as DOMRect);
+    progress.getBoundingClientRect = () => ({ bottom: 120 } as DOMRect);
+    footer.getBoundingClientRect = () => ({ top: 305 } as DOMRect);
+    target.getBoundingClientRect = () => ({
+      bottom: 340,
+      height: 48,
+      top: 292,
+      width: 240,
+    } as DOMRect);
+    target.closest<HTMLElement>('.onboarding-field')!.scrollIntoView = vi.fn();
+    const scrollBy = vi.spyOn(window, 'scrollBy').mockImplementation(() => undefined);
+
+    focusFirstInvalidControl(form);
+
+    await waitFor(() => expect(target).toHaveFocus());
+    expect(scrollBy).toHaveBeenCalledWith({ behavior: 'auto', top: 43 });
+    scrollBy.mockRestore();
   });
 
   it('focuses each first invalid Business field, associates errors, and continues after correction', async () => {
@@ -64,15 +104,14 @@ describe('focusFirstInvalidControl', () => {
       name: 'Business or salon name',
     });
     const ownerName = screen.getByRole('textbox', { name: 'Your name' });
-    const businessScroll = vi.fn();
-    const ownerScroll = vi.fn();
-    businessName.scrollIntoView = businessScroll;
-    ownerName.scrollIntoView = ownerScroll;
+    const summaryScroll = vi.fn();
 
     await user.click(screen.getByRole('button', { name: 'Continue' }));
 
     await waitFor(() => expect(businessName).toHaveFocus());
-    expect(screen.getByRole('alert')).toHaveTextContent(
+    const summary = screen.getByRole('alert');
+    summary.scrollIntoView = summaryScroll;
+    expect(summary).toHaveTextContent(
       'Check the highlighted information.3 answers need attention.',
     );
     expect(businessName).toHaveAttribute('aria-invalid', 'true');
@@ -81,10 +120,6 @@ describe('focusFirstInvalidControl', () => {
     expect(screen.getByRole('group', {
       name: 'Who are you setting Luster up for?',
     })).toHaveAccessibleDescription('Choose who you’re setting Luster up for.');
-    expect(businessScroll).toHaveBeenCalledWith({
-      block: 'center',
-      inline: 'nearest',
-    });
     expect(onValidationFailure).toHaveBeenLastCalledWith([
       'businessName',
       'ownerName',
@@ -94,8 +129,8 @@ describe('focusFirstInvalidControl', () => {
     await user.type(businessName, 'Isla Nail Studio');
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     await waitFor(() => expect(ownerName).toHaveFocus());
-    expect(ownerScroll).toHaveBeenCalledWith({
-      block: 'center',
+    expect(summaryScroll).toHaveBeenCalledWith({
+      block: 'start',
       inline: 'nearest',
     });
 

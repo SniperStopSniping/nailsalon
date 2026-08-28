@@ -2,14 +2,18 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type {
   PreparedCustomDesignDocumentTransition,
+  ReplaceCustomDesignImageInput,
   UploadCustomDesignImagesInput,
 } from '../../custom-design/integration/AssetTransactionCoordinator';
 import type { CustomDesignImageItem } from '../../custom-design/model';
 import {
   applyHistoryCommand,
+  collectReachableCustomDesignAssetIds,
   createDeterministicIdFactory,
   createHistoryState,
+  exportSiteBuilderDocument,
   initializeStarter,
+  parseSiteBuilderDocument,
   type BuilderCommand,
   type HistoryState,
 } from '../../model';
@@ -17,6 +21,13 @@ import {
   getCanvaPlacementTarget,
   integrateCanvaDesign,
   locateCanonicalBookingPage,
+  locateOnboardingCustomDesign,
+  removeCanvaDesign,
+  removeCanvaImage,
+  reorderCanvaImages,
+  replaceCanvaImage,
+  saveCanvaSettings,
+  type CanvaAssetCoordinator,
   type CanvaLabDocumentController,
 } from './useCanvaIntegration';
 
@@ -289,5 +300,241 @@ describe('integrateCanvaDesign', () => {
     expect(customDesign.settings.displayMode).toBe('full_width');
     expect(customDesign.settings.images).toHaveLength(1);
     expect(JSON.stringify(state.document)).not.toMatch(/blob:|data:image|base64/u);
+  });
+
+  it('preserves typed partial failures including capacity filenames', async () => {
+    const state = createLab();
+    const coordinator = {
+      uploadImages: vi.fn(async (input: UploadCustomDesignImagesInput) => {
+        const added = imageItem('asset-added', 'image-added');
+        const transition = await input.prepareDocumentTransition([added]);
+        await transition.publish();
+        return {
+          added: [added],
+          cleanupErrors: [],
+          documentChanged: true,
+          failures: [{
+            code: 'too_many_images' as const,
+            fileName: 'page-11.png',
+            index: 1,
+            message: 'This section can contain up to 10 images.',
+          }],
+          status: 'partial' as const,
+        };
+      }),
+    };
+
+    const result = await integrateCanvaDesign({
+      coordinator,
+      createAssetId: () => 'asset-added',
+      createImageItemId: () => 'image-added',
+      input: {
+        confirmed: true,
+        displayMode: 'contained',
+        files: [png(), new File(['extra'], 'page-11.png', { type: 'image/png' })],
+        placement: 'after_booking',
+      },
+      lab: state.lab,
+    });
+
+    expect(result.status).toBe('partial');
+    expect(result.failures).toEqual([{
+      code: 'too_many_images',
+      fileName: 'page-11.png',
+      index: 1,
+      message: 'This section can contain up to 10 images.',
+    }]);
+  });
+
+  it('supports settings-only save, reorder, and transactional removal on the same document', async () => {
+    const state = createLab();
+    let nextId = 0;
+    const uploadCoordinator = committingCoordinator();
+    const first = await integrateCanvaDesign({
+      coordinator: uploadCoordinator,
+      createAssetId: () => `asset-${++nextId}`,
+      createImageItemId: () => `image-${nextId}`,
+      input: {
+        confirmed: true,
+        displayMode: 'contained',
+        files: [png()],
+        placement: 'after_booking',
+      },
+      lab: state.lab,
+    });
+    const second = await integrateCanvaDesign({
+      coordinator: uploadCoordinator,
+      createAssetId: () => `asset-${++nextId}`,
+      createImageItemId: () => `image-${nextId}`,
+      input: {
+        confirmed: true,
+        displayMode: 'contained',
+        files: [new File(['two'], 'second.png', { type: 'image/png' })],
+        placement: 'after_booking',
+        sectionId: first.sectionId,
+      },
+      lab: state.lab,
+    });
+    expect(second.sectionId).toBe(first.sectionId);
+    const sectionId = second.sectionId!;
+    const settings = saveCanvaSettings(state.lab, {
+      displayMode: 'poster',
+      placement: 'before_booking',
+      sectionId,
+    });
+    expect(settings.success).toBe(true);
+    expect(settings.section?.settings.displayMode).toBe('poster');
+
+    const ids = settings.section!.settings.images.map(image => image.id).reverse();
+    const reordered = reorderCanvaImages(state.lab, sectionId, ids);
+    expect(reordered.section?.settings.images.map(image => image.id)).toEqual(ids);
+
+    const deleteAssetsIfUnreferenced = vi.fn<() => Promise<Error[]>>(async () => []);
+    deleteAssetsIfUnreferenced.mockResolvedValueOnce([
+      new Error('Browser cleanup failed.'),
+    ]);
+    const coordinator = {
+      coordinateDocumentMutation: vi.fn(async <T,>(mutation: () => T | Promise<T>) => mutation()),
+      deleteAssetsIfUnreferenced,
+      replaceImage: vi.fn(),
+      uploadImages: vi.fn(),
+    };
+    const removedImage = reordered.section!.settings.images[0]!;
+    const removed = await removeCanvaImage(
+      coordinator as unknown as CanvaAssetCoordinator,
+      state.lab,
+      sectionId,
+      removedImage.id,
+    );
+    expect(removed.success).toBe(true);
+    expect(removed.section?.settings.images).toHaveLength(1);
+    expect(removed.cleanupWarnings).toEqual([expect.objectContaining({
+      fileName: removedImage.fileName,
+      message: expect.stringContaining('still needs cleanup'),
+    })]);
+    expect(coordinator.deleteAssetsIfUnreferenced)
+      .toHaveBeenCalledWith([removedImage.assetId]);
+
+    const remaining = removed.section!.settings.images[0]!;
+    coordinator.replaceImage.mockImplementation(async (
+      input: ReplaceCustomDesignImageInput,
+    ) => {
+      const replacement = { ...remaining, assetId: 'asset-replacement', fileName: input.file.name };
+      const transition = await input.prepareDocumentTransition([replacement]);
+      await transition.publish();
+      return {
+        cleanupErrors: [],
+        image: replacement,
+        reviewRequired: false,
+        success: true as const,
+      };
+    });
+    const replacementFile = new File(['replacement'], 'replacement.webp', {
+      type: 'image/webp',
+    });
+    deleteAssetsIfUnreferenced.mockResolvedValueOnce([
+      new Error('Browser cleanup failed.'),
+    ]);
+    const replaced = await replaceCanvaImage(
+      coordinator as unknown as CanvaAssetCoordinator,
+      () => 'asset-replacement',
+      state.lab,
+      sectionId,
+      remaining.id,
+      replacementFile,
+    );
+    expect(replaced.success).toBe(true);
+    expect(replaced.section?.settings.images[0]?.fileName).toBe('replacement.webp');
+    expect(replaced.cleanupWarnings).toEqual([expect.objectContaining({
+      fileName: remaining.fileName,
+      message: expect.stringContaining('still needs cleanup'),
+    })]);
+    expect(coordinator.deleteAssetsIfUnreferenced)
+      .toHaveBeenLastCalledWith([remaining.assetId]);
+  });
+
+  it('removes the intact Canva section and restores its exact pages and assets after reload', async () => {
+    const state = createLab();
+    let nextId = 0;
+    const uploadCoordinator = committingCoordinator();
+    const first = await integrateCanvaDesign({
+      coordinator: uploadCoordinator,
+      createAssetId: () => `asset-${++nextId}`,
+      createImageItemId: () => `image-${nextId}`,
+      input: {
+        confirmed: true,
+        displayMode: 'poster',
+        files: [png()],
+        placement: 'before_booking',
+      },
+      lab: state.lab,
+    });
+    const second = await integrateCanvaDesign({
+      coordinator: uploadCoordinator,
+      createAssetId: () => `asset-${++nextId}`,
+      createImageItemId: () => `image-${nextId}`,
+      input: {
+        confirmed: true,
+        displayMode: 'poster',
+        files: [new File(['two'], 'second.png', { type: 'image/png' })],
+        placement: 'before_booking',
+        sectionId: first.sectionId,
+      },
+      lab: state.lab,
+    });
+    const sectionId = second.sectionId!;
+    const locatedBeforeRemoval = locateOnboardingCustomDesign(state.document, sectionId);
+    if (!locatedBeforeRemoval?.pageId) {
+      throw new Error('The active Canva section fixture is unavailable.');
+    }
+    const exactSettings = structuredClone(locatedBeforeRemoval.section.settings);
+    const exactAssetIds = exactSettings.images.map(image => image.assetId);
+    const deleteAssetsIfUnreferenced = vi.fn(async () => []);
+    const coordinator = {
+      coordinateDocumentMutation: vi.fn(async <T,>(mutation: () => T | Promise<T>) => mutation()),
+      deleteAssetsIfUnreferenced,
+      replaceImage: vi.fn(),
+      uploadImages: vi.fn(),
+    };
+
+    const result = await removeCanvaDesign(
+      coordinator as unknown as CanvaAssetCoordinator,
+      state.lab,
+      sectionId,
+    );
+
+    expect(result).toEqual({ section: null, success: true });
+    expect(state.commands.slice(-1)).toEqual([{
+      sectionId,
+      type: 'remove_section',
+    }]);
+    const tombstone = state.document.unusedSections.find(
+      section => section.id === sectionId,
+    );
+    expect(tombstone?.sectionType).toBe('custom_design');
+    if (tombstone?.sectionType !== 'custom_design') return;
+    expect(tombstone.settings).toEqual(exactSettings);
+    expect(deleteAssetsIfUnreferenced).toHaveBeenCalledWith(exactAssetIds);
+    expect(collectReachableCustomDesignAssetIds(
+      createHistoryState(state.document),
+    )).toEqual(new Set(exactAssetIds));
+
+    const reloaded = parseSiteBuilderDocument(exportSiteBuilderDocument(state.document));
+    expect(reloaded.success).toBe(true);
+    if (!reloaded.success) return;
+    const restoredHistory = applyHistoryCommand(
+      createHistoryState(reloaded.document),
+      {
+        pageId: locatedBeforeRemoval.pageId,
+        position: 1,
+        sectionId,
+        type: 'restore_section',
+      },
+    );
+    const restored = locateOnboardingCustomDesign(restoredHistory.present, sectionId);
+    expect(restored?.pageId).toBe(locatedBeforeRemoval.pageId);
+    expect(restored?.section.settings).toEqual(exactSettings);
+    expect(collectReachableCustomDesignAssetIds(restoredHistory))
+      .toEqual(new Set(exactAssetIds));
   });
 });

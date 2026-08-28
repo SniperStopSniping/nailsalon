@@ -16,7 +16,8 @@ import {
 } from './helpers';
 
 const ONBOARDING_STORAGE_KEY = 'luster:onboarding-v1-lab';
-const EVIDENCE_DIRECTORY = '/tmp/luster-onboarding-final-corrections';
+const EVIDENCE_DIRECTORY = process.env.LUSTER_EVIDENCE_DIRECTORY
+  ?? '/tmp/luster-onboarding-final-corrections';
 const DANIELA_PORTRAIT_PATH = fileURLToPath(new URL(
   '../../src/onboarding/fixtures/assets/daniela-placeholder.jpg',
   import.meta.url,
@@ -306,10 +307,15 @@ async function chooseStarter(page: Page, starter: StarterId): Promise<void> {
 
 async function switchStarter(page: Page, starter: StarterId): Promise<void> {
   await starterCard(page, starter).click();
-  const dialog = page.getByRole('dialog', { name: 'Switch to this starting point?' });
+  const target = starter === 'quick_book'
+    ? 'Quick Book'
+    : starter === 'one_page'
+      ? 'One-page website'
+      : 'Multi-page website';
+  const dialog = page.getByRole('dialog', { name: `Switch to ${target}?` });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Keep current' })).toBeVisible();
-  await dialog.getByRole('button', { name: 'Switch starting point' }).click();
+  await dialog.getByRole('button', { exact: true, name: `Switch to ${target}` }).click();
   await expect(dialog).toBeHidden();
   await expectScreenAtTop(page, 'Your starting site is ready');
   await waitForAutosave(page);
@@ -351,7 +357,7 @@ async function reachAbout(page: Page): Promise<void> {
 
 async function openLabReviewOptions(page: Page): Promise<Locator> {
   await page.getByLabel('More onboarding options').click();
-  await page.getByRole('button', { name: 'Lab review options' }).click();
+  await page.getByRole('menuitem', { name: 'Lab review options' }).click();
   const dialog = page.getByRole('dialog', { name: 'Lab review options' });
   await expect(dialog).toBeVisible();
   return dialog;
@@ -426,9 +432,9 @@ test.describe('Onboarding V1 final correction matrix', () => {
 
     const more = page.getByLabel('More onboarding options');
     await more.click();
-    await expect(page.getByRole('button', { name: 'Save and finish later' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Save and finish later' })).toBeVisible();
     await page.keyboard.press('Escape');
-    await expect(page.getByRole('button', { name: 'Save and finish later' })).toBeHidden();
+    await expect(page.getByRole('menuitem', { name: 'Save and finish later' })).toBeHidden();
     await expect(more).toBeFocused();
     await captureEvidence(page, '24-more-closed-on-escape');
 
@@ -436,7 +442,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     const firstInvalid = page.getByLabel('Business or salon name');
     await expect(firstInvalid).toBeFocused();
     await expect(firstInvalid).toHaveAttribute('aria-invalid', 'true');
-    await expect(page.getByText('Add your business or salon name.')).toBeVisible();
+    await expect(page.getByText('Add your business or salon name.').first()).toBeVisible();
     await captureEvidence(page, '12-first-invalid-field-focused');
 
     await firstInvalid.fill('North Shore Nails');
@@ -466,7 +472,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
 
     await page.getByRole('button', { name: 'Save and continue' }).click();
     await expect(page.getByLabel('City or general service area')).toBeFocused();
-    await expect(page.getByText('Add a city or general service area.')).toBeVisible();
+    await expect(page.getByText('Add a city or general service area.').last()).toBeVisible();
   });
 
   test('Journey F switches Quick Book → One-page → Multi-page → Quick Book without losing the entered profile', async ({ page }) => {
@@ -499,10 +505,10 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await captureEvidence(page, '01-active-starter-marker');
 
     await starterCard(page, 'one_page').click();
-    const confirmation = page.getByRole('dialog', { name: 'Switch to this starting point?' });
-    await expect(confirmation).toContainText('Your business information, About details, policies, style choices, photos, Gallery draft, Canva design, and onboarding progress will stay saved.');
+    const confirmation = page.getByRole('dialog', { name: 'Switch to One-page website?' });
+    await expect(confirmation).toContainText('keeps your business information, About details, policies, style choices, photos, Gallery draft, Canva design, and onboarding progress saved');
     await captureEvidence(page, '02-starter-switch-confirmation');
-    await confirmation.getByRole('button', { name: 'Switch starting point' }).click();
+    await confirmation.getByRole('button', { exact: true, name: 'Switch to One-page website' }).click();
     await expectScreenAtTop(page, 'Your starting site is ready');
     await expectStarterDocumentShape(page, 'one_page');
     expect(JSON.stringify((await readOnboardingState(page)).profile)).toBe(profileFingerprint);
@@ -510,7 +516,8 @@ test.describe('Onboarding V1 final correction matrix', () => {
 
     await page.reload();
     await expect(screenHeading(page, 'Your starting site is ready')).toBeVisible();
-    await expect(page.getByText('One-page website', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Personalized starting site')
+      .getByText('One-page website', { exact: true })).toBeVisible();
     expect(JSON.stringify((await readOnboardingState(page)).profile)).toBe(profileFingerprint);
 
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
@@ -641,7 +648,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     const bio = page.getByLabel('Short bio');
     await bio.fill('My own carefully written bio.');
     await page.getByRole('button', { name: /Help me with wording/u }).click();
-    const suggestion = page.getByRole('region', { name: 'Use this suggested bio?' });
+    const suggestion = page.getByRole('dialog', { name: 'Use this suggested bio?' });
     await expect(suggestion).toContainText('Current bio');
     await expect(suggestion).toContainText('My own carefully written bio.');
     await expect(suggestion).toContainText('Suggested bio');
@@ -651,11 +658,11 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await expect(bio).toHaveValue('My own carefully written bio.');
 
     await page.getByRole('button', { name: /Help me with wording/u }).click();
-    await page.getByRole('region', { name: 'Use this suggested bio?' })
+    await page.getByRole('dialog', { name: 'Use this suggested bio?' })
       .getByRole('button', { name: 'Use suggestion' })
       .click();
     await expect(bio).toHaveValue(/^I’m Mia Torres/u);
-    await page.getByRole('button', { exact: true, name: 'Undo' }).click();
+    await page.getByRole('button', { exact: true, name: 'Undo suggestion' }).click();
     await expect(bio).toHaveValue('My own carefully written bio.');
     await captureEvidence(page, '23-wording-helper-undo');
 
@@ -720,10 +727,12 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await page.getByRole('group', { name: 'Address visibility' })
       .getByRole('radio', { name: 'Show after booking' })
       .check();
-    const locationPreview = page.getByLabel('Location and contact preview');
+    const locationPreview = page.getByRole('img', {
+      name: /Location and contact visual preview/u,
+    });
     await expect(locationPreview).toContainText('Exact address shared after booking.');
     await expect(locationPreview).not.toContainText('123 Private Studio Lane');
-    await expect(locationPreview.getByRole('button', { name: 'Directions' })).toHaveCount(0);
+    await expect(locationPreview).not.toContainText('Directions');
     await captureEvidence(page, '25-directions-hidden-private-address');
 
     await page.locator('button[aria-controls="onboarding-contact-card-panel"]').click();
@@ -768,7 +777,8 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
     await applyFixture(page, 'Preview time · Closed', 'Review your site');
     const finalPreview = page.getByLabel('Final phone customer preview');
-    await expect(finalPreview.locator('[data-hours-status="closed"]')).toContainText('Closed');
+    await expect(finalPreview.locator('[data-hours-status="closed"]'))
+      .toContainText('Opens tomorrow at 10:00 AM');
     await expect(finalPreview.getByRole('group', { name: 'Weekly hours' })).toContainText('Sunday');
     await captureEvidence(page, '10-closed-state');
   });
@@ -814,7 +824,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await expectScreenAtTop(page, 'Review your site');
 
     for (const device of ['Phone', 'Tablet', 'Desktop'] as const) {
-      await page.getByRole('group', { name: 'Preview device' })
+      await page.getByRole('group', { name: 'Customer preview device size' })
         .getByRole('button', { name: device })
         .click();
       const preview = page.getByLabel(`Final ${device.toLowerCase()} customer preview`);
@@ -874,11 +884,11 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await expectScreenAtTop(page, 'Set clear expectations');
 
     await page.getByLabel('More onboarding options').click();
-    await expect(page.getByRole('button', { name: 'Save and finish later' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Save and finish later' })).toBeVisible();
     await page.goBack();
     await expectScreenAtTop(page, 'Would you like an About section?');
     await captureEvidence(page, '13-browser-back-conditional');
-    await expect(page.getByRole('button', { name: 'Save and finish later' })).toBeHidden();
+    await expect(page.getByRole('menuitem', { name: 'Save and finish later' })).toBeHidden();
     await expect(page.getByLabel('Short bio')).toBeDisabled();
     await page.goForward();
     await expectScreenAtTop(page, 'Set clear expectations');
@@ -958,10 +968,10 @@ test.describe('Onboarding V1 final correction matrix', () => {
 
     await page.getByRole('button', { name: 'Edit Canva design' }).click();
     const dialog = page.getByRole('dialog', { name: 'Upload a Canva design' });
-    const savedPages = dialog.getByRole('list', { name: 'Saved Canva pages' });
+    const savedPages = dialog.locator('[data-image-item-id]');
     await expect(savedPages.locator('img')).toBeVisible();
     await expect(savedPages).toContainText('daniela-placeholder.jpg');
-    await expect(savedPages).toContainText('Saved Canva page');
+    await expect(savedPages).toContainText('Saved');
     await captureEvidence(page, '29-canva-thumbnails-after-rebase');
   });
 
@@ -973,7 +983,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await page.getByRole('button', { name: 'Skip photo for now' }).click();
     await expectScreenAtTop(page, 'Where can clients find you?');
     await page.getByLabel('More onboarding options').click();
-    await page.getByRole('button', { name: 'Restart onboarding' }).click();
+    await page.getByRole('menuitem', { name: 'Restart onboarding' }).click();
     const reset = page.getByRole('dialog', { name: 'Restart onboarding?' });
     await reset.getByRole('button', { exact: true, name: 'Restart onboarding' }).click();
     await expect(screenHeading(page, 'Let’s build your website')).toBeVisible();

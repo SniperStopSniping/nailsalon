@@ -53,8 +53,9 @@ describe('OnboardingShell', () => {
     ]) {
       await user.click(more);
       expect(details).toHaveAttribute('open');
-      await user.click(screen.getByRole('button', { name: action }));
+      await user.click(screen.getByRole('menuitem', { name: action }));
       expect(details).not.toHaveAttribute('open');
+      expect(more).toHaveFocus();
     }
 
     expect(onSaveForLater).toHaveBeenCalledOnce();
@@ -62,7 +63,7 @@ describe('OnboardingShell', () => {
     expect(onLabOptions).toHaveBeenCalledOnce();
   });
 
-  it('supports keyboard open, Escape close, and focus restoration', async () => {
+  it('moves focus into its menu, supports arrow keys, and restores focus on Escape', async () => {
     const user = userEvent.setup();
     render(
       <OnboardingShell
@@ -82,8 +83,18 @@ describe('OnboardingShell', () => {
     more.focus();
     await user.keyboard('{Enter}');
     expect(details).toHaveAttribute('open');
-    await user.tab();
-    expect(screen.getByRole('button', { name: 'Save and finish later' })).toHaveFocus();
+    const save = screen.getByRole('menuitem', { name: 'Save and finish later' });
+    const restart = screen.getByRole('menuitem', { name: 'Restart onboarding' });
+    await waitFor(() => expect(save).toHaveFocus());
+
+    await user.keyboard('{ArrowDown}');
+    expect(restart).toHaveFocus();
+    await user.keyboard('{ArrowDown}');
+    expect(save).toHaveFocus();
+    await user.keyboard('{End}');
+    expect(restart).toHaveFocus();
+    await user.keyboard('{Home}');
+    expect(save).toHaveFocus();
 
     await user.keyboard('{Escape}');
     await waitFor(() => expect(details).not.toHaveAttribute('open'));
@@ -91,6 +102,37 @@ describe('OnboardingShell', () => {
 
     await user.keyboard(' ');
     expect(details).toHaveAttribute('open');
+    await waitFor(() => expect(save).toHaveFocus());
+    await user.tab({ shift: true });
+    await waitFor(() => expect(details).not.toHaveAttribute('open'));
+    expect(more).toHaveFocus();
+  });
+
+  it('closes without trapping focus when Tab leaves the nonmodal menu', async () => {
+    const user = userEvent.setup();
+    render(
+      <OnboardingShell
+        autosaveState="saved"
+        completedStages={[]}
+        currentStage="basics"
+        essentialsRemaining={5}
+        onRestart={vi.fn()}
+        onSaveForLater={vi.fn()}
+      >
+        <button type="button">First setup action</button>
+      </OnboardingShell>,
+    );
+
+    const more = screen.getByRole('button', { name: 'More onboarding options' });
+    const details = more.closest('details');
+    await user.click(more);
+    await waitFor(() => expect(screen.getByRole('menuitem', {
+      name: 'Save and finish later',
+    })).toHaveFocus());
+
+    await user.tab();
+    await waitFor(() => expect(details).not.toHaveAttribute('open'));
+    expect(screen.getByRole('button', { name: 'First setup action' })).toHaveFocus();
   });
 
   it('closes on an outside pointer interaction', async () => {

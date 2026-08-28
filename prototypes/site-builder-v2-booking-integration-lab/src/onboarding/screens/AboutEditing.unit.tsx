@@ -49,6 +49,7 @@ function AboutHarness({
     <AboutScreen
       onBack={vi.fn()}
       onContinue={onContinue}
+      onFullPreview={vi.fn()}
       onUpdate={update}
       state={state}
     />
@@ -74,14 +75,21 @@ describe('About list editing', () => {
 
     const certifications = screen.getByRole('textbox', { name: 'Certifications — optional' });
     const languages = screen.getByRole('textbox', { name: 'Languages — optional' });
+    const customSpecialties = screen.getByRole('textbox', {
+      name: 'Custom specialties separated by commas',
+    });
+    await user.type(customSpecialties, 'Structured gel, Bridal nails');
+    expect(customSpecialties).toHaveValue('Structured gel, Bridal nails');
+    expect(latest.profile.about.specialties).not.toContain('Structured gel');
+    await user.click(certifications);
+    expect(latest.profile.about.specialties).toEqual(expect.arrayContaining([
+      'Structured gel',
+      'Bridal nails',
+    ]));
     const certificationRaw = 'Advanced Russian, BIAB; Gel-X';
     await user.type(certifications, certificationRaw);
     expect(certifications).toHaveValue(certificationRaw);
-    expect(latest.profile.about.certifications).toEqual([
-      'Advanced Russian',
-      'BIAB',
-      'Gel-X',
-    ]);
+    expect(latest.profile.about.certifications).toEqual([]);
 
     (certifications as HTMLTextAreaElement).setSelectionRange(0, 0);
     await user.type(certifications, 'Lead ', { skipClick: true });
@@ -98,19 +106,14 @@ describe('About list editing', () => {
     ]);
     await user.paste('English;\nSpanish, French');
     expect(languages).toHaveValue('English;\nSpanish, French');
-    expect(latest.profile.about.languages).toEqual(['English', 'Spanish', 'French']);
+    expect(latest.profile.about.languages).toEqual([]);
 
     await user.keyboard('{Enter}');
     expect(languages).toHaveValue('English;\nSpanish, French\n');
     expect(latest.profile.about.languages).toEqual(['English', 'Spanish', 'French']);
     await user.type(languages, 'German');
     expect(languages).toHaveValue('English;\nSpanish, French\nGerman');
-    expect(latest.profile.about.languages).toEqual([
-      'English',
-      'Spanish',
-      'French',
-      'German',
-    ]);
+    expect(latest.profile.about.languages).toEqual(['English', 'Spanish', 'French']);
 
     await user.click(screen.getByRole('button', { name: 'Choose an About design' }));
     expect(onContinue).toHaveBeenCalledOnce();
@@ -161,6 +164,32 @@ describe('About list editing', () => {
       .toHaveValue('CND Certified, Gel-X Advanced');
   });
 
+  it('commits the latest focused raw-list edit before pagehide autosave', async () => {
+    const user = userEvent.setup();
+    const initial = createAboutState();
+    initial.profile.about.certifications = [];
+    let latest = initial;
+    render(
+      <AboutHarness
+        initial={initial}
+        onState={(state) => { latest = state; }}
+      />,
+    );
+
+    const certifications = screen.getByRole('textbox', {
+      name: 'Certifications — optional',
+    });
+    await user.type(certifications, 'Russian manicure certification; BIAB certification');
+    expect(certifications).toHaveFocus();
+    expect(latest.profile.about.certifications).toEqual([]);
+
+    fireEvent(window, new Event('pagehide'));
+    expect(latest.profile.about.certifications).toEqual([
+      'Russian manicure certification',
+      'BIAB certification',
+    ]);
+  });
+
   it('preserves composing raw text and structured values through Off/On, remount, and presets', async () => {
     const user = userEvent.setup();
     const initial = createAboutState();
@@ -178,7 +207,7 @@ describe('About list editing', () => {
     fireEvent.change(languages, { target: { value: 'English;\n日本語' } });
     fireEvent.keyUp(languages, { isComposing: true, key: 'Enter' });
     expect(languages).toHaveValue('English;\n日本語');
-    expect(latest.profile.about.languages).toEqual(['English', '日本語']);
+    expect(latest.profile.about.languages).toEqual(['English']);
     fireEvent.compositionEnd(languages);
     fireEvent.keyUp(languages, { isComposing: false, key: 'Enter' });
     expect(latest.profile.about.languages).toEqual(['English', '日本語']);
@@ -214,6 +243,7 @@ describe('About list editing', () => {
         document={null}
         onBack={vi.fn()}
         onContinue={vi.fn()}
+        onFullPreview={vi.fn()}
         onUpdate={(transform) => {
           latest = transform(latest);
         }}
@@ -244,8 +274,8 @@ describe('About prototype writing helper', () => {
     expect(within(helper).getByText('Preview wording')).toBeVisible();
     expect(screen.queryByText(/prototype helper|prototype suggestion/iu)).not.toBeInTheDocument();
     await user.click(helper);
-    const firstReview = screen.getByRole('region', { name: 'Use this suggested bio?' });
-    expect(within(firstReview).getByText('WRITING SUGGESTION')).toBeVisible();
+    const firstReview = screen.getByRole('dialog', { name: 'Use this suggested bio?' });
+    expect(within(firstReview).getByText('Writing suggestion')).toBeVisible();
     expect(within(firstReview).getByText('Current bio')).toBeVisible();
     expect(within(firstReview).getByText('Suggested bio')).toBeVisible();
     const firstSuggestion = within(firstReview).getByText(/^I’m Daniela,/).textContent ?? '';
@@ -266,7 +296,7 @@ describe('About prototype writing helper', () => {
     });
 
     await user.click(helper);
-    const secondReview = screen.getByRole('region', { name: 'Use this suggested bio?' });
+    const secondReview = screen.getByRole('dialog', { name: 'Use this suggested bio?' });
     const secondSuggestion = within(secondReview).getByText(/^I’m Daniela,/).textContent ?? '';
     expect(secondSuggestion).toBe(firstSuggestion);
     await user.click(within(secondReview).getByRole('button', { name: 'Use suggestion' }));
@@ -280,7 +310,7 @@ describe('About prototype writing helper', () => {
     expect(JSON.stringify(latest.eventJournal)).not.toContain(exactOriginalBio.trim());
     expect(JSON.stringify(latest.eventJournal)).not.toContain(firstSuggestion);
 
-    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await user.click(screen.getByRole('button', { name: 'Undo suggestion' }));
     expect(latest.profile.about.shortBio).toBe(exactOriginalBio);
     expect(screen.getByRole('textbox', { name: 'Short bio' })).toHaveValue(exactOriginalBio);
     expect(screen.getByRole('status')).toHaveTextContent('previous bio was restored');
@@ -302,9 +332,36 @@ describe('About prototype writing helper', () => {
     );
 
     await user.click(screen.getByRole('button', { name: /Help me with wording/ }));
-    const review = screen.getByRole('region', { name: 'Use this suggested bio?' });
+    const review = screen.getByRole('dialog', { name: 'Use this suggested bio?' });
     expect(within(review).queryByText('Current bio')).not.toBeInTheDocument();
     expect(within(review).getByText('Suggested bio')).toBeVisible();
     expect(screen.getByRole('textbox', { name: 'Short bio' })).toHaveValue('');
+  });
+
+  it('irreversibly invalidates helper Undo after any later owner edit', async () => {
+    const user = userEvent.setup();
+    const initial = createAboutState();
+    initial.profile.about.shortBio = 'My original bio.';
+    let latest = initial;
+    render(
+      <AboutHarness
+        initial={initial}
+        onState={(state) => { latest = state; }}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /Help me with wording/ }));
+    const review = screen.getByRole('dialog', { name: 'Use this suggested bio?' });
+    const suggestion = within(review).getByText(/^I’m Daniela,/).textContent ?? '';
+    await user.click(within(review).getByRole('button', { name: 'Use suggestion' }));
+    expect(screen.getByRole('button', { name: 'Undo suggestion' })).toBeVisible();
+
+    const bio = screen.getByRole('textbox', { name: 'Short bio' });
+    fireEvent.change(bio, { target: { value: 'A later owner edit.' } });
+    fireEvent.change(bio, { target: { value: suggestion } });
+
+    expect(latest.profile.about.shortBio).toBe(suggestion);
+    expect(screen.queryByRole('button', { name: 'Undo suggestion' })).not.toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent('can no longer be undone');
   });
 });

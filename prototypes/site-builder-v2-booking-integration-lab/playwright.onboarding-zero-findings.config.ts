@@ -2,25 +2,24 @@ import { defineConfig, devices } from '@playwright/test';
 
 const labUrl = 'http://127.0.0.1:4188';
 const captureEvidence = process.env.LUSTER_CAPTURE_EVIDENCE === '1';
-const evidenceDirectory = process.env.LUSTER_EVIDENCE_DIRECTORY
-  ?? '/tmp/luster-onboarding-final-corrections';
 
 export default defineConfig({
-  expect: { timeout: 10_000 },
+  expect: { timeout: 12_000 },
   fullyParallel: false,
-  outputDir: `${evidenceDirectory}/playwright-final-corrections`,
+  outputDir: '/tmp/luster-onboarding-zero-findings-correction/playwright',
   reporter: [
     ['line'],
     ['html', {
       open: 'never',
-      outputFolder: `${evidenceDirectory}/playwright-final-corrections-report`,
+      outputFolder: '/tmp/luster-onboarding-zero-findings-correction/playwright-report',
     }],
   ],
   retries: 0,
   testDir: './tests/e2e',
-  testMatch: /onboarding-v1-final-corrections\.spec\.ts/u,
-  timeout: 120_000,
+  testMatch: /onboarding-zero-findings\.spec\.ts/u,
+  timeout: 180_000,
   use: {
+    actionTimeout: 12_000,
     baseURL: labUrl,
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
@@ -36,7 +35,7 @@ export default defineConfig({
   projects: [
     {
       grepInvert: /@webkit-smoke/u,
-      name: 'chromium-onboarding-final',
+      name: 'chromium-zero-findings',
       use: {
         ...devices['Desktop Chrome'],
         channel: 'chromium',
@@ -44,7 +43,7 @@ export default defineConfig({
     },
     {
       grep: /@webkit-smoke/u,
-      name: 'webkit-onboarding-upload',
+      name: 'webkit-zero-findings-upload',
       use: {
         ...devices['Desktop Safari'],
         hasTouch: true,

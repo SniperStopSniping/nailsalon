@@ -26,6 +26,7 @@ describe('useOnboardingState', () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it('debounces autosave and restores shared profile progress', () => {
@@ -51,6 +52,45 @@ describe('useOnboardingState', () => {
     const restored = renderHook(() => useOnboardingState({ storage }));
     expect(restored.result.current.state.profile.businessName).toBe('Isla Nail Studio');
     expect(restored.result.current.saveStatus).toBe('saved');
+  });
+
+  it('flushes the latest pending state on pagehide before the debounce expires', () => {
+    const storage = createMemoryStorage();
+    const hook = renderHook(() => useOnboardingState({
+      debounceMs: 5_000,
+      storage,
+    }));
+
+    act(() => {
+      hook.result.current.updateProfile({ businessName: 'Immediate navigation studio' });
+      window.dispatchEvent(new Event('pagehide'));
+    });
+
+    const persisted = storage.values.get(ONBOARDING_STORAGE_KEY);
+    expect(persisted).toBeDefined();
+    expect(JSON.parse(persisted ?? '{}').profile.businessName)
+      .toBe('Immediate navigation studio');
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+  });
+
+  it('flushes once when hidden and ignores later lifecycle events without new state', () => {
+    const storage = createMemoryStorage();
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
+    const hook = renderHook(() => useOnboardingState({
+      debounceMs: 5_000,
+      storage,
+    }));
+
+    act(() => {
+      hook.result.current.updateProfile({ ownerName: 'Mia' });
+      document.dispatchEvent(new Event('visibilitychange'));
+      window.dispatchEvent(new Event('pagehide'));
+    });
+
+    expect(storage.setItem).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(storage.values.get(ONBOARDING_STORAGE_KEY) ?? '{}').profile.ownerName)
+      .toBe('Mia');
+    visibility.mockRestore();
   });
 
   it('journals the initial Welcome view and every navigation destination', () => {

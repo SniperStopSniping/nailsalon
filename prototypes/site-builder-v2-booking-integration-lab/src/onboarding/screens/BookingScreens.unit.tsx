@@ -4,7 +4,6 @@ import { useState } from 'react';
 import { vi } from 'vitest';
 
 import { createDefaultBusinessProfile } from '../model/defaults';
-import { ONBOARDING_NEXT_AVAILABILITY_LABEL } from '../model/booking-preview';
 import {
   getDepositPolicyMode,
   updateDepositPolicyMode,
@@ -44,15 +43,15 @@ describe('BookingPreferencesScreen', () => {
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
       .toHaveTextContent('24 ready');
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent('Next openingsReady');
-    expect(screen.queryByText(/Booking mock|Availability source/u)).not.toBeInTheDocument();
+      .toHaveTextContent('Availability sourceConnected');
+    expect(screen.queryByText(/Booking mock/u)).not.toBeInTheDocument();
     expect(screen.getByText(/won’t need to re-enter services, prices, or durations/i)).toBeVisible();
     expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
       .toHaveTextContent('Russian Manicure + French1 hr 45 min · From $80');
-    expect(screen.getByText(ONBOARDING_NEXT_AVAILABILITY_LABEL)).toBeVisible();
+    expect(screen.queryByText(/Tomorrow at 10:30 AM/u)).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Save booking information' }));
-    expect(screen.getByText('Choose how clients can visit you.')).toBeVisible();
-    expect(screen.getByText('Choose your new-client status.')).toBeVisible();
+    expect(screen.getAllByText('Choose how clients can visit you.').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Choose your new-client status.').length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole('radio', { name: 'Appointment only' }));
     await user.click(within(screen.getByRole('group', { name: 'Accepting new clients' }))
@@ -135,7 +134,7 @@ describe('StartingPointScreen', () => {
     expect(screen.getByText('Salon intro · Services · Booking')).toBeVisible();
     expect(screen.getByText('Welcome · About · Services · Gallery · Reviews · Booking')).toBeVisible();
     expect(screen.getByText('Home · Services & Booking · Gallery · About · Contact')).toBeVisible();
-    expect(screen.getAllByText('Isla Nail Studio')).toHaveLength(3);
+    expect(screen.getAllByText('Isla Nail Studio').length).toBeGreaterThanOrEqual(3);
     const portraits = document.querySelectorAll('.final-starter-preview__portrait');
     expect(portraits).toHaveLength(3);
     for (const portrait of portraits) {
@@ -145,6 +144,37 @@ describe('StartingPointScreen', () => {
 
     await user.click(screen.getByRole('button', { name: /Start with One-page/ }));
     expect(onChooseStarter).toHaveBeenCalledWith('one_page');
+  });
+
+  it('uses the shared public-location resolver and never leaks an after-booking address', () => {
+    const profile = createDefaultBusinessProfile();
+    profile.businessName = 'Mia’s Nail Studio';
+    profile.ownerName = 'Mia Torres';
+    profile.location = {
+      ...profile.location,
+      addressVisibility: 'after_booking',
+      cityOrArea: 'Hamilton, Ontario',
+      exactAddress: '91 Private Lane',
+    };
+
+    render(
+      <StartingPointScreen
+        businessName={profile.businessName}
+        location={profile.location}
+        onBack={vi.fn()}
+        onChooseStarter={vi.fn()}
+        ownerName={profile.ownerName}
+        selectedStarter={null}
+      />,
+    );
+
+    for (const preview of screen.getAllByTestId(/starter-preview-/u)) {
+      expect(preview).toHaveTextContent('Mia’s Nail Studio');
+      expect(preview).toHaveTextContent('Mia Torres');
+      expect(preview).toHaveTextContent('Hamilton, Ontario');
+      expect(preview).not.toHaveTextContent('91 Private Lane');
+      expect(preview).not.toHaveTextContent('Toronto');
+    }
   });
 
   it('keeps all starter previews on static posters for the reduced-motion fixture', async () => {

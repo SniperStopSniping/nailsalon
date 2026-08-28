@@ -47,8 +47,11 @@ describe('PlanOfferSheet', () => {
       />,
     );
     const dialog = screen.getByRole('dialog', { name: 'Your site is saved' });
-    const lifetime = within(dialog).getByRole('button', { name: 'Unlock lifetime access' });
-    const monthly = within(dialog).getByRole('button', { name: 'Choose monthly' });
+    const heading = within(dialog).getByRole('heading', { name: 'Your site is saved' });
+    const lifetime = within(dialog).getByRole('button', {
+      name: 'Choose Founding Nail Tech Lifetime Access',
+    });
+    const monthly = within(dialog).getByRole('button', { name: 'Choose Monthly plan' });
     const free = within(dialog).getByRole('button', { name: 'Continue free' });
     expect(lifetime).toBeEnabled();
     expect(monthly).toBeEnabled();
@@ -57,7 +60,9 @@ describe('PlanOfferSheet', () => {
     expect(within(dialog).getByText('You can keep using Luster free and choose a plan later.')).toBeVisible();
     expect(within(dialog).queryByText(/Lab|prototype|Stripe|server-backed|subscription enforcement/u))
       .not.toBeInTheDocument();
-    await waitFor(() => expect(free).toHaveFocus());
+    expect(dialog).toHaveAccessibleDescription(/Continue free, or choose a plan/u);
+    await waitFor(() => expect(heading).toHaveFocus());
+    expect(free).not.toHaveFocus();
 
     await user.click(lifetime);
     await user.click(monthly);
@@ -82,8 +87,10 @@ describe('PlanOfferSheet', () => {
     );
 
     const dialog = screen.getByRole('dialog', { name: 'Your site is saved' });
-    expect(within(dialog).getByRole('button', { name: 'Lifetime offer unavailable' })).toBeDisabled();
-    expect(within(dialog).getByRole('button', { name: 'Choose monthly' })).toBeEnabled();
+    expect(within(dialog).getByRole('button', {
+      name: 'Founding Nail Tech Lifetime Access unavailable',
+    })).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Choose Monthly plan' })).toBeEnabled();
     expect(within(dialog).getByRole('button', { name: 'Continue free' })).toBeEnabled();
     expect(within(dialog).getByText('Founding offer has ended')).toBeVisible();
   });
@@ -109,7 +116,8 @@ describe('PlanOfferSheet', () => {
     render(<Harness />);
     const handoff = screen.getByRole('button', { name: 'Open my Builder' });
     await user.click(handoff);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Continue free' })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Your site is saved' }))
+      .toHaveFocus());
 
     await user.click(screen.getByRole('button', { name: 'Close Your site is saved' }));
     await waitFor(() => expect(handoff).toHaveFocus());

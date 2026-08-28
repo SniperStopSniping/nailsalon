@@ -43,7 +43,7 @@ describe('onboarding Lab review fixtures', () => {
     expect(getWeeklyHoursPreviewStatus(
       closed.profile.hours,
       closed.reviewOptions.previewTimestamp,
-    )?.label).toBe('Closed');
+    )?.label).toBe('Opens tomorrow at 10:00 AM');
   });
 
   it('uses Daniela-style shared profile content', () => {

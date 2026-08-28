@@ -1,7 +1,11 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
+import { getStarterPageDefinitions } from '../model/starters';
 import type { OriginStarter } from '../model/types';
 import { StarterChoiceGrid, StarterChooser } from './StarterChooser';
 
@@ -195,6 +199,72 @@ describe('StarterChooser copy and accessibility', () => {
       expect(portrait).toHaveAttribute('alt', '');
     });
     expect(getCard('Quick Book')).not.toHaveAccessibleName(/Cedar Tips/u);
+  });
+
+  it('derives every poster, scene, and navigation label from the universal starter definitions', () => {
+    render(<StarterChoiceGrid onChoose={vi.fn()} reducedMotion />);
+
+    for (const starter of EXPECTED_STARTERS) {
+      const pages = getStarterPageDefinitions(starter.id);
+      const structure = pages.flatMap(
+        (page) => page.sections.map(({ previewLabel }) => previewLabel),
+      );
+      const navigation = starter.id === 'quick_book' ? [] : pages.map(({ name }) => name);
+      const preview = getPreview(starter.id);
+
+      expect(preview).toHaveAttribute('data-starter-structure', structure.join('|'));
+      expect(preview).toHaveAttribute('data-starter-navigation', navigation.join('|'));
+      expect(preview.querySelectorAll('[data-preview-scene]')).toHaveLength(
+        starter.id === 'multi_page' ? pages.length : structure.length,
+      );
+      for (const item of starter.id === 'multi_page'
+        ? pages.map((page) => page.previewLabel ?? page.name)
+        : structure) {
+        expect(preview.textContent).toContain(item);
+      }
+    }
+  });
+
+  it('uses canonical Booking details and only the supplied public owner identity', () => {
+    const longName = 'Mia’s Polished Beauty Lounge and Academy';
+    render(
+      <StarterChoiceGrid
+        businessName={longName}
+        onChoose={vi.fn()}
+        ownerName="Mia Torres"
+        publicLocation="Hamilton, Ontario"
+        reducedMotion
+      />,
+    );
+
+    for (const starter of EXPECTED_STARTERS) {
+      const preview = getPreview(starter.id);
+      expect(preview).toHaveTextContent(longName);
+      expect(preview).toHaveTextContent('Mia Torres');
+      expect(preview).toHaveTextContent('Hamilton, Ontario');
+      expect(preview).toHaveTextContent('Russian Manicure + French');
+      expect(preview).toHaveTextContent('1 hr 45 min · From $80');
+      expect(preview).not.toHaveTextContent('Luster Nail Studio');
+      expect(preview).not.toHaveTextContent('Toronto');
+      expect(preview.querySelector('.final-starter-preview__identity > b'))
+        .toHaveAttribute('title', longName);
+    }
+  });
+
+  it('bounds long owner identities beside starter and Builder navigation', () => {
+    const css = readFileSync(join(process.cwd(), 'src/ui/final-hybrid.css'), 'utf8');
+    const builderSource = readFileSync(join(process.cwd(), 'src/ui/App.tsx'), 'utf8');
+
+    expect(css).toMatch(
+      /\.final-starter-preview__identity\s*>\s*b\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/su,
+    );
+    expect(css).toMatch(
+      /\.canvas-client-header\s*>\s*span:first-child\s*\{[^}]*min-width:\s*0;[^}]*flex:\s*1 1 auto;/su,
+    );
+    expect(css).toMatch(
+      /\.canvas-client-header strong\s*\{[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;/su,
+    );
+    expect(builderSource).toContain('<span title={document.siteName}>');
   });
 
   it('keeps one whole-card activation target with pointer and keyboard activation', async () => {

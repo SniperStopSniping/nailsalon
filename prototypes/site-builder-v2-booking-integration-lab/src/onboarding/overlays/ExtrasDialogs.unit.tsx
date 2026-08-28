@@ -3,9 +3,14 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeEach, vi } from 'vitest';
 
+import { createDefaultCustomDesignSettings } from '../../custom-design/model/settings';
+import { initializeStarter } from '../../model';
+import type { CustomDesignSectionInstance } from '../../model/types';
 import { createDanielaFixtureState } from '../fixtures';
+import type { CanvaIntegrationController } from '../extras/useCanvaIntegration';
 import type { OnboardingLabState } from '../model/types';
 import { ExtrasScreen, type OnboardingStateUpdater } from '../screens/DesignScreens';
+import { parseOnboardingState } from '../storage/storage';
 import { CanvaDialog, GalleryDialog } from './ExtrasDialogs';
 
 const mocks = vi.hoisted(() => ({
@@ -176,9 +181,9 @@ describe('optional Gallery and Canva surfaces', () => {
       [valid, corrupt],
     );
 
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
-      '1 image was added and 1 was skipped.',
-    );
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert).toHaveTextContent('1 image was added and 1 was skipped.');
+    expect(alert).toHaveTextContent('corrupt.png: This image couldn’t be opened.');
     expect(latestState.gallery.source).toBe('uploads');
     expect(latestState.gallery.images).toEqual([
       expect.objectContaining({
@@ -190,6 +195,46 @@ describe('optional Gallery and Canva surfaces', () => {
     ]);
     expect(latestState.recipe.galleryEnabled).toBe(false);
     expect(within(dialog).getAllByRole('img')).toHaveLength(1);
+  });
+
+  it('uses one hidden Gallery picker and names every file skipped by capacity', async () => {
+    const user = userEvent.setup();
+    const initial = createDanielaFixtureState();
+    initial.recipe.galleryEnabled = false;
+    initial.gallery.images = [];
+    initial.gallery.source = null;
+    let latestState = initial;
+
+    function Harness() {
+      const [state, setState] = useState(initial);
+      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+        const next = transform(current);
+        latestState = next;
+        return next;
+      });
+      return <GalleryDialog onClose={vi.fn()} onUpdate={update} open state={state} />;
+    }
+
+    render(<Harness />);
+    const dialog = screen.getByRole('dialog', { name: 'Add Gallery' });
+    const input = within(dialog).getByLabelText(/Upload portfolio photos/u);
+    expect(input).toHaveClass('visually-hidden');
+    const files = Array.from({ length: 10 }, (_, index) => new File(
+      [`gallery-${index + 1}`],
+      `gallery-${index + 1}.png`,
+      { type: 'image/png' },
+    ));
+    await user.upload(input, files);
+
+    const alert = await within(dialog).findByRole('alert');
+    expect(alert).toHaveTextContent('8 images were added and 2 were skipped.');
+    expect(alert).toHaveTextContent(
+      'gallery-9.png: Skipped because a Gallery can contain up to 8 images.',
+    );
+    expect(alert).toHaveTextContent(
+      'gallery-10.png: Skipped because a Gallery can contain up to 8 images.',
+    );
+    expect(latestState.gallery.images).toHaveLength(8);
   });
 
   it('preserves the prior Gallery selection when every replacement file is invalid', async () => {
@@ -301,14 +346,143 @@ describe('optional Gallery and Canva surfaces', () => {
     const dialog = screen.getByRole('dialog', { name: 'Upload a Canva design' });
     expect(within(dialog).getByText('Recommended from your welcome choice')).toBeVisible();
     const file = new File(['page'], 'isla-canva.png', { type: 'image/png' });
+    expect(within(dialog).getByLabelText(/Choose Canva pages/)).toHaveClass('visually-hidden');
     await user.upload(within(dialog).getByLabelText(/Choose Canva pages/), file);
-    await user.click(within(dialog).getByRole('radio', { name: 'Full width' }));
-    await user.click(within(dialog).getByRole('radio', { name: 'Before Booking' }));
+    const fullWidth = within(dialog).getByRole('radio', { name: 'Full width' });
+    const beforeBooking = within(dialog).getByRole('radio', { name: 'Before Booking' });
+    expect(fullWidth).toHaveAttribute('value', 'full_width');
+    expect(beforeBooking).toHaveAttribute('value', 'before_booking');
+    await user.click(fullWidth);
+    await user.click(beforeBooking);
     await user.click(within(dialog).getByRole('button', { name: 'Add Canva design' }));
 
     await waitFor(() => expect(onAdd).toHaveBeenCalledOnce());
     expect(onAdd).toHaveBeenCalledWith([file], 'full_width', 'before_booking');
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a partial Canva result visible with exact filenames and one capacity summary', async () => {
+    const user = userEvent.setup();
+    const state = createDanielaFixtureState();
+    state.canva.images = [];
+    const onAdd = vi.fn(async () => ({
+      addedCount: 1,
+      addedImages: [{
+        assetId: 'asset-page-10',
+        fileName: 'page-10.png',
+        id: 'image-page-10',
+        mimeType: 'image/png' as const,
+      }],
+      failures: [{
+        code: 'too_many_images',
+        fileName: 'page-11.png',
+        index: 1,
+        message: 'This section can contain up to 10 images.',
+      }],
+      sectionId: 'section-canva',
+      status: 'partial' as const,
+    }));
+    let latest = state;
+    const onUpdate: OnboardingStateUpdater = (transform) => {
+      latest = transform(latest);
+    };
+    render(
+      <CanvaDialog
+        available
+        onAdd={onAdd}
+        onClose={vi.fn()}
+        onUpdate={onUpdate}
+        open
+        state={state}
+      />,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Upload a Canva design' });
+    await user.upload(
+      within(dialog).getByLabelText(/Choose Canva pages/),
+      [
+        new File(['ten'], 'page-10.png', { type: 'image/png' }),
+        new File(['eleven'], 'page-11.png', { type: 'image/png' }),
+      ],
+    );
+    await user.click(within(dialog).getByRole('button', { name: 'Add Canva design' }));
+
+    expect(await within(dialog).findByText(/up to 10 images/u)).toBeVisible();
+    expect(within(dialog).getByText('page-11.png:')).toBeVisible();
+    expect(latest.canva.uploadResult).toMatchObject({
+      addedCount: 1,
+      failures: [{ fileName: 'page-11.png' }],
+    });
+  });
+
+  it('keeps other failed rows and duplicate filenames while one Canva file is retried', async () => {
+    const user = userEvent.setup();
+    const state = createDanielaFixtureState();
+    state.canva.images = [];
+    const onAdd = vi.fn()
+      .mockResolvedValueOnce({
+        addedCount: 1,
+        addedImages: [{
+          assetId: 'asset-good',
+          fileName: 'good.png',
+          id: 'image-good',
+          mimeType: 'image/png' as const,
+        }],
+        failures: [
+          { fileName: 'duplicate.png', index: 0, message: 'Could not decode first copy.' },
+          { fileName: 'duplicate.png', index: 1, message: 'Could not decode second copy.' },
+        ],
+        sectionId: 'section-canva',
+        status: 'partial' as const,
+      })
+      .mockResolvedValueOnce({
+        addedCount: 1,
+        addedImages: [{
+          assetId: 'asset-retry',
+          fileName: 'duplicate.png',
+          id: 'image-retry',
+          mimeType: 'image/png' as const,
+        }],
+        failures: [],
+        sectionId: 'section-canva',
+        status: 'committed' as const,
+      });
+    let latest = state;
+    const onUpdate: OnboardingStateUpdater = (transform) => {
+      latest = transform(latest);
+    };
+    render(
+      <CanvaDialog
+        available
+        onAdd={onAdd}
+        onClose={vi.fn()}
+        onUpdate={onUpdate}
+        open
+        state={state}
+      />,
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Upload a Canva design' });
+    await user.upload(within(dialog).getByLabelText(/Choose Canva pages/u), [
+      new File(['first'], 'duplicate.png', { type: 'image/png' }),
+      new File(['second'], 'duplicate.png', { type: 'image/png' }),
+      new File(['good'], 'good.png', { type: 'image/png' }),
+    ]);
+    await user.click(within(dialog).getByRole('button', { name: 'Add Canva design' }));
+
+    expect(await within(dialog).findAllByText('duplicate.png:')).toHaveLength(2);
+    const retryButtons = within(dialog).getAllByRole('button', { name: 'Try again' });
+    expect(retryButtons).toHaveLength(2);
+    await user.click(retryButtons[0]!);
+
+    await waitFor(() => expect(onAdd).toHaveBeenCalledTimes(2));
+    expect(within(dialog).getAllByText('duplicate.png:')).toHaveLength(1);
+    expect(within(dialog).getAllByRole('button', { name: 'Try again' })).toHaveLength(1);
+    expect(latest.canva.uploadResult).toMatchObject({
+      addedCount: 2,
+      failures: [{
+        fileName: 'duplicate.png',
+        message: 'Could not decode second copy.',
+      }],
+    });
   });
 
   it('reconciles saved Canva pages through the existing thumbnail asset URLs', () => {
@@ -381,6 +555,421 @@ describe('optional Gallery and Canva surfaces', () => {
         'blob:luster/thumbnail-page',
         'blob:luster/original-page',
       ]);
+  });
+
+  it('reopens the shared image manager and permits a settings-only save', async () => {
+    const user = userEvent.setup();
+    const state = createDanielaFixtureState();
+    const document = initializeStarter('quick_book');
+    const page = document.pages[0]!;
+    const section: CustomDesignSectionInstance = {
+      id: 'section-canva-manager',
+      label: 'Canva design',
+      order: 10,
+      sectionType: 'custom_design',
+      settings: {
+        ...createDefaultCustomDesignSettings(),
+        displayMode: 'contained',
+        images: [{
+          altText: '',
+          aspectRatio: 0.75,
+          assetId: 'asset-manager',
+          decorative: false,
+          fileName: 'saved-page.png',
+          fileSize: 100,
+          height: 1_600,
+          id: 'image-manager',
+          interactiveAreas: [],
+          mimeType: 'image/png',
+          width: 1_200,
+        }],
+      },
+      visible: true,
+    };
+    page.sections.push(section);
+    state.canva.customDesignSectionId = section.id;
+    state.canva.images = [{
+      fileName: 'saved-page.png',
+      id: 'image-manager',
+      mimeType: 'image/png',
+      source: 'indexed_db',
+      storageId: 'asset-manager',
+    }];
+    mocks.useCustomDesignAssetMap.mockReturnValue(new Map([
+      ['asset-manager', {
+        original: { assetId: 'asset-manager', kind: 'original', status: 'ready', url: 'blob:saved' },
+        thumbnail: { assetId: 'asset-manager', kind: 'thumbnail', status: 'ready', url: 'blob:saved-thumb' },
+      }],
+    ]));
+    const saveSettings = vi.fn(() => ({ section: {
+      ...section,
+      settings: { ...section.settings, displayMode: 'full_width' as const },
+    }, success: true }));
+    const replaceImage = vi.fn(async (_sectionId: string, _imageId: string, file: File) => ({
+      section: {
+        ...section,
+        settings: {
+          ...section.settings,
+          images: section.settings.images.map((image) => ({
+            ...image,
+            fileName: file.name,
+          })),
+        },
+      },
+      success: true as const,
+    }));
+    const controller = {
+      addCanvaDesign: vi.fn(),
+      available: true,
+      removeDesign: vi.fn(),
+      removeImage: vi.fn(),
+      reorderImages: vi.fn(),
+      replaceImage,
+      saveSettings,
+      storageError: null,
+    } as unknown as CanvaIntegrationController;
+    const onClose = vi.fn();
+    render(
+      <CanvaDialog
+        available
+        controller={controller}
+        document={document}
+        onAdd={vi.fn()}
+        onClose={onClose}
+        onUpdate={vi.fn()}
+        open
+        state={state}
+      />,
+    );
+
+    expect(screen.getByText('saved-page.png')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeVisible();
+    expect(screen.getByLabelText('Replace')).toHaveClass('visually-hidden');
+    await user.upload(
+      screen.getByLabelText('Replace'),
+      new File(['replacement'], 'replacement.png', { type: 'image/png' }),
+    );
+    await waitFor(() => expect(replaceImage).toHaveBeenCalledWith(
+      section.id,
+      'image-manager',
+      expect.objectContaining({ name: 'replacement.png' }),
+    ));
+    await waitFor(() => expect(screen.queryByText('Checking and saving images…'))
+      .not.toBeInTheDocument());
+    expect(screen.getByLabelText('Choose more images')).toBeEnabled();
+    await user.click(screen.getByRole('radio', { name: 'Full width' }));
+    await user.click(screen.getByRole('button', { name: 'Save Canva design' }));
+    expect(saveSettings).toHaveBeenCalledWith({
+      displayMode: 'full_width',
+      placement: state.canva.placement,
+      sectionId: section.id,
+    });
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('warns about a dirty page order and does not persist unsaved display settings', async () => {
+    const user = userEvent.setup();
+    const state = createDanielaFixtureState();
+    state.canva.displayMode = 'contained';
+    state.canva.placement = 'after_booking';
+    const document = initializeStarter('quick_book');
+    const page = document.pages[0]!;
+    const settings = createDefaultCustomDesignSettings();
+    const images = ['first', 'second'].map((name, index) => ({
+      altText: '',
+      aspectRatio: 0.75,
+      assetId: `asset-${name}`,
+      decorative: false,
+      fileName: `${name}.png`,
+      fileSize: 100,
+      height: 1_600,
+      id: `image-${name}`,
+      interactiveAreas: [],
+      mimeType: 'image/png' as const,
+      width: 1_200,
+    }));
+    const section: CustomDesignSectionInstance = {
+      id: 'section-canva-order',
+      label: 'Canva design',
+      order: 10,
+      sectionType: 'custom_design',
+      settings: { ...settings, displayMode: 'contained', images },
+      visible: true,
+    };
+    page.sections.push(section);
+    state.canva.customDesignSectionId = section.id;
+    state.canva.images = images.map((image) => ({
+      fileName: image.fileName,
+      id: image.id,
+      mimeType: image.mimeType,
+      source: 'indexed_db' as const,
+      storageId: image.assetId,
+    }));
+    mocks.useCustomDesignAssetMap.mockReturnValue(new Map());
+    const reorderedSection = {
+      ...section,
+      settings: { ...section.settings, images: [...images].reverse() },
+    };
+    const reorderImages = vi.fn(() => ({ section: reorderedSection, success: true }));
+    const controller = {
+      addCanvaDesign: vi.fn(),
+      available: true,
+      removeDesign: vi.fn(),
+      removeImage: vi.fn(),
+      reorderImages,
+      replaceImage: vi.fn(),
+      saveSettings: vi.fn(),
+      storageError: null,
+    } as unknown as CanvaIntegrationController;
+    const onClose = vi.fn();
+    let latest = state;
+    const onUpdate: OnboardingStateUpdater = (transform) => {
+      latest = transform(latest);
+    };
+
+    render(
+      <CanvaDialog
+        available
+        controller={controller}
+        document={document}
+        onAdd={vi.fn()}
+        onClose={onClose}
+        onUpdate={onUpdate}
+        open
+        state={state}
+      />,
+    );
+
+    await user.click(screen.getByRole('radio', { name: 'Full width' }));
+    await user.click(screen.getByRole('button', { name: 'Move page 1 down' }));
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    const warning = screen.getByRole('dialog', { name: 'Save this page order?' });
+    expect(within(warning).getByRole('button', { name: 'Keep editing' })).toBeVisible();
+    expect(onClose).not.toHaveBeenCalled();
+    await user.click(within(warning).getByRole('button', { name: 'Save order' }));
+
+    expect(reorderImages).toHaveBeenCalledWith(section.id, [
+      'image-second',
+      'image-first',
+    ]);
+    expect(latest.canva.displayMode).toBe('contained');
+    expect(latest.canva.placement).toBe('after_booking');
+    expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it('keeps a dirty relative order while newly uploaded pages join the shared manager', async () => {
+    const user = userEvent.setup();
+    const initialState = createDanielaFixtureState();
+    const initialDocument = initializeStarter('quick_book');
+    const page = initialDocument.pages[0]!;
+    const makeImage = (name: string) => ({
+      altText: '',
+      aspectRatio: 0.75,
+      assetId: `asset-${name}`,
+      decorative: false,
+      fileName: `${name}.png`,
+      fileSize: 100,
+      height: 1_600,
+      id: `image-${name}`,
+      interactiveAreas: [],
+      mimeType: 'image/png' as const,
+      width: 1_200,
+    });
+    let currentSection: CustomDesignSectionInstance = {
+      id: 'section-canva-add-more',
+      label: 'Canva design',
+      order: 10,
+      sectionType: 'custom_design',
+      settings: {
+        ...createDefaultCustomDesignSettings(),
+        images: [makeImage('first'), makeImage('second')],
+      },
+      visible: true,
+    };
+    page.sections.push(currentSection);
+    initialState.canva.customDesignSectionId = currentSection.id;
+    initialState.canva.images = currentSection.settings.images.map((image) => ({
+      fileName: image.fileName,
+      id: image.id,
+      mimeType: image.mimeType,
+      source: 'indexed_db' as const,
+      storageId: image.assetId,
+    }));
+    const reorderImages = vi.fn((_: string, ids: readonly string[]) => {
+      const byId = new Map(currentSection.settings.images.map((image) => [image.id, image]));
+      currentSection = {
+        ...currentSection,
+        settings: {
+          ...currentSection.settings,
+          images: ids.flatMap((id) => {
+            const image = byId.get(id);
+            return image ? [image] : [];
+          }),
+        },
+      };
+      return { section: currentSection, success: true };
+    });
+
+    function Harness() {
+      const [document, setDocument] = useState(initialDocument);
+      const [state, setState] = useState(initialState);
+      const controller = {
+        addCanvaDesign: vi.fn(),
+        available: true,
+        removeDesign: vi.fn(),
+        removeImage: vi.fn(),
+        reorderImages,
+        replaceImage: vi.fn(),
+        saveSettings: vi.fn(),
+        storageError: null,
+      } as unknown as CanvaIntegrationController;
+      const add = async (files: readonly File[]): Promise<Awaited<ReturnType<CanvaIntegrationController['addCanvaDesign']>>> => {
+        const added = makeImage('third');
+        currentSection = {
+          ...currentSection,
+          settings: {
+            ...currentSection.settings,
+            images: [...currentSection.settings.images, added],
+          },
+        };
+        setDocument((current) => ({
+          ...current,
+          pages: current.pages.map((candidate) => candidate.id === page.id
+            ? {
+                ...candidate,
+                sections: candidate.sections.map((section) => section.id === currentSection.id
+                  ? currentSection
+                  : section),
+              }
+            : candidate),
+        }));
+        return {
+          addedCount: 1,
+          addedImages: [{
+            assetId: added.assetId,
+            fileName: files[0]?.name ?? added.fileName,
+            id: added.id,
+            mimeType: added.mimeType,
+          }],
+          failures: [],
+          sectionId: currentSection.id,
+          status: 'committed',
+        };
+      };
+      return (
+        <CanvaDialog
+          available
+          controller={controller}
+          document={document}
+          onAdd={add}
+          onClose={vi.fn()}
+          onUpdate={(transform) => setState((current) => transform(current))}
+          open
+          state={state}
+        />
+      );
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByRole('button', { name: 'Move page 1 down' }));
+    await user.upload(
+      screen.getByLabelText('Choose more images'),
+      new File(['third'], 'third.png', { type: 'image/png' }),
+    );
+    expect(await screen.findByText('third.png')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Save order' }));
+
+    expect(reorderImages).toHaveBeenCalledWith(currentSection.id, [
+      'image-second',
+      'image-first',
+      'image-third',
+    ]);
+  });
+
+  it('keeps a removed page in the onboarding ownership ledger for later scoped Reset cleanup', async () => {
+    const user = userEvent.setup();
+    const state = createDanielaFixtureState();
+    const document = initializeStarter('quick_book');
+    const page = document.pages[0]!;
+    const makeImage = (name: string) => ({
+      altText: '',
+      aspectRatio: 0.75,
+      assetId: `asset-${name}`,
+      decorative: false,
+      fileName: `${name}.png`,
+      fileSize: 100,
+      height: 1_600,
+      id: `image-${name}`,
+      interactiveAreas: [],
+      mimeType: 'image/png' as const,
+      width: 1_200,
+    });
+    const first = makeImage('first');
+    const second = makeImage('second');
+    const section: CustomDesignSectionInstance = {
+      id: 'section-canva-removal-ledger',
+      label: 'Canva design',
+      order: 10,
+      sectionType: 'custom_design',
+      settings: {
+        ...createDefaultCustomDesignSettings(),
+        images: [first, second],
+      },
+      visible: true,
+    };
+    page.sections.push(section);
+    state.canva.customDesignSectionId = section.id;
+    state.canva.images = [first, second].map((image) => ({
+      fileName: image.fileName,
+      id: image.id,
+      mimeType: image.mimeType,
+      source: 'indexed_db' as const,
+      storageId: image.assetId,
+    }));
+    state.canva.ownedAssetIds = [first.assetId, second.assetId];
+    const sectionAfterRemoval: CustomDesignSectionInstance = {
+      ...section,
+      settings: { ...section.settings, images: [second] },
+    };
+    const removeImage = vi.fn(async () => ({
+      section: sectionAfterRemoval,
+      success: true as const,
+    }));
+    const controller = {
+      addCanvaDesign: vi.fn(),
+      available: true,
+      removeDesign: vi.fn(),
+      removeImage,
+      reorderImages: vi.fn(),
+      replaceImage: vi.fn(),
+      saveSettings: vi.fn(),
+      storageError: null,
+    } as unknown as CanvaIntegrationController;
+    let latest = state;
+
+    render(
+      <CanvaDialog
+        available
+        controller={controller}
+        document={document}
+        onAdd={vi.fn()}
+        onClose={vi.fn()}
+        onUpdate={(transform) => { latest = transform(latest); }}
+        open
+        state={state}
+      />,
+    );
+
+    await user.click(screen.getAllByRole('button', { name: 'Remove' })[0]!);
+
+    await waitFor(() => expect(removeImage).toHaveBeenCalledWith(section.id, first.id));
+    expect(latest.canva.images).toEqual([
+      expect.objectContaining({ storageId: second.assetId }),
+    ]);
+    expect(latest.canva.ownedAssetIds).toEqual([first.assetId, second.assetId]);
+    expect(parseOnboardingState(JSON.stringify(latest)).state.canva.ownedAssetIds)
+      .toEqual([first.assetId, second.assetId]);
   });
 
   it('releases temporary Canva preview URLs when pages are removed or the dialog closes', async () => {

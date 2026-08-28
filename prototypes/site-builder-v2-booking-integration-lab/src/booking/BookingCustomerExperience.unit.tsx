@@ -166,7 +166,7 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
     expect(handoff).not.toHaveAttribute('open');
     expect(handoff).toHaveTextContent('Booking flow continues here');
     expect(handoff).toHaveTextContent('Russian Manicure · 1 hr 45 min · From $80');
-    expect(within(handoff).getByLabelText('Future canonical booking flow'))
+    expect(within(handoff).getByLabelText('Booking steps'))
       .toHaveTextContent('ServiceOptionsTechnicianTimeDetailsPaymentConfirmation');
   });
 
@@ -329,6 +329,27 @@ describe('personalized Booking identity', () => {
       'Ask Mia’s Nail Studio about the finish and options available for this service.',
     );
     expect(detail).not.toHaveTextContent('Isla Nail Studio');
+  });
+
+  it('keeps canonical service descriptions neutral under a different salon identity', async () => {
+    const user = userEvent.setup();
+    const fixture = createMenuFixture();
+    const gelService = fixture.services.find((service) => service.id === 'svc-manicure-gel');
+    if (!gelService) throw new Error('The canonical Booking fixture has no Gel Manicure.');
+
+    render(
+      <SessionHarness
+        fixture={{ ...fixture, salon: { ...fixture.salon, name: 'Mia’s Nail Studio' } }}
+        settings={settingsFor('clean_list')}
+      />,
+    );
+    await user.click(screen.getAllByRole('button', {
+      name: `View details for ${gelService.name}`,
+    })[0]!);
+
+    const detail = await screen.findByTestId('service-detail-dialog');
+    expect(detail).toHaveTextContent('the studio colour collection');
+    expect(detail).not.toHaveTextContent(/Isla/iu);
   });
 });
 
@@ -749,6 +770,8 @@ describe('Booking renderer mode and session boundaries', () => {
     expect(screen.getAllByRole('img', {
       name: /No service photo available/,
     })).not.toHaveLength(0);
+    expect(screen.getAllByText('Nail service').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Isla studio service')).not.toBeInTheDocument();
     const russianAction = screen.getAllByRole('button', {
       name: /View details for Russian Manicure/,
     })[0];

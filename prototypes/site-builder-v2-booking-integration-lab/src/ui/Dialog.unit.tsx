@@ -87,6 +87,23 @@ afterEach(() => {
 });
 
 describe('Dialog document lifecycle', () => {
+  it('invokes the close callback without leaking a React click event', async () => {
+    installViewport(false);
+    const onClose = vi.fn();
+    render(
+      <Dialog onClose={onClose} open title="Event-safe close">
+        <p>Dialog content</p>
+      </Dialog>,
+    );
+
+    await userEvent.setup().click(screen.getByRole('button', {
+      name: 'Close Event-safe close',
+    }));
+
+    expect(onClose).toHaveBeenCalledOnce();
+    expect(onClose).toHaveBeenCalledWith();
+  });
+
   it('releases nested modal locks only after the final owner closes and restores the exact baseline', async () => {
     installViewport(false);
     document.body.style.setProperty('overflow', 'auto', 'important');
