@@ -50,7 +50,7 @@ const heading = (page: Page, name: string) => page.getByRole('heading', { name, 
 async function openFreshOnboarding(page: Page): Promise<void> {
   await page.goto('/');
   await expect(heading(page, 'Let’s build your website')).toBeVisible();
-  await expect(page.getByText('UX Lab · Saved only in this browser')).toBeVisible();
+  await expect(page.getByText('Your progress saves automatically on this device.')).toBeVisible();
 }
 
 async function waitForOnboardingSave(page: Page): Promise<void> {
@@ -82,7 +82,7 @@ async function applyFixture(page: Page, fixtureLabel: string): Promise<void> {
 async function completeBusinessScreen(page: Page): Promise<void> {
   await page.getByLabel('Business or salon name').fill('Isla Nail Studio');
   await page.getByLabel('Your name').fill('Daniela');
-  await page.getByRole('group', { name: 'Business type' })
+  await page.getByRole('group', { name: 'Who are you setting Luster up for?' })
     .getByRole('radio', { name: 'Solo nail tech' })
     .check();
   await page.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -110,7 +110,7 @@ async function completeBookingPreferences(page: Page): Promise<void> {
   await page.getByRole('group', { name: 'Preferred advance notice' })
     .getByRole('radio', { name: '24 hours' })
     .check();
-  await page.getByRole('group', { name: 'General deposit preference' })
+  await page.getByRole('group', { name: 'Do you generally require a deposit?' })
     .getByRole('radio', { name: 'Yes' })
     .check();
   await page.getByRole('button', { name: 'Save booking information' }).click();
@@ -271,7 +271,7 @@ test.describe('Onboarding V1 UX Lab', () => {
 
     await page.getByLabel('City or general service area').fill('Scarborough, Ontario');
     await page.getByLabel('Exact address (optional)').fill('123 Studio Lane');
-    await page.getByRole('group', { name: 'Location type' })
+    await page.getByRole('group', { name: 'Where do you see clients?' })
       .getByRole('radio', { name: 'Salon suite' })
       .check();
     await page.getByRole('group', { name: 'Address visibility' })
@@ -282,7 +282,8 @@ test.describe('Onboarding V1 UX Lab', () => {
     await page.getByLabel('Transit information (optional)').fill('Five minutes from the Scarborough Centre bus stop.');
 
     await page.locator('button[aria-controls="onboarding-contact-card-panel"]').click();
-    await page.getByLabel('Phone (optional)').fill('416-555-0134');
+    await page.getByLabel('Client contact number').fill('416-555-0134');
+    await page.getByRole('switch', { name: 'Call this number' }).check();
     await page.getByLabel('Email (optional)').fill('hello@islanail.example');
     await page.getByRole('group', { name: 'Preferred public contact method' })
       .getByRole('radio', { name: 'Instagram' })
@@ -322,9 +323,8 @@ test.describe('Onboarding V1 UX Lab', () => {
     await expect(page.getByRole('switch', { name: 'Show policies on my website' })).toBeChecked();
     await page.getByLabel('Required notice').selectOption('24_hours');
     await page.getByLabel('After deadline').selectOption('deposit_lost');
-    await page.getByLabel('Required?').selectOption('yes');
     await page.getByLabel('Fixed amount or percentage?').selectOption('fixed');
-    await page.getByLabel('Amount', { exact: true }).fill('50');
+    await page.getByLabel('Deposit amount').fill('50');
     await page.getByLabel('Refundable?').selectOption('no');
     await page.getByLabel('Transferable?').selectOption('yes');
     await page.getByLabel('Grace period (minutes)').fill('15');
@@ -346,9 +346,9 @@ test.describe('Onboarding V1 UX Lab', () => {
     await page.getByRole('button', { name: 'Add Gallery' }).click();
     const galleryDialog = page.getByRole('dialog', { name: 'Add Gallery' });
     await expect(galleryDialog).toBeVisible();
-    await galleryDialog.getByRole('button', { name: /Use mock Luster portfolio/ }).click();
+    await galleryDialog.getByRole('button', { name: /Use Luster sample portfolio/ }).click();
     await galleryDialog.getByRole('radio', { name: 'editorial' }).check();
-    await galleryDialog.getByRole('button', { name: 'Add Gallery preview' }).click();
+    await galleryDialog.getByRole('button', { exact: true, name: 'Add Gallery' }).click();
     await expect(galleryDialog).toBeHidden();
     await expect(page.getByText('Added: Gallery')).toBeVisible();
 
@@ -510,7 +510,7 @@ test.describe('Onboarding V1 UX Lab', () => {
     const continueFree = planSheet.getByRole('button', { name: 'Continue free' });
     await expect(continueFree).toBeVisible();
     await expect(continueFree).toBeFocused();
-    await expect(planSheet.getByText('No payment is collected in this prototype.')).toBeVisible();
+    await expect(planSheet).toContainText('You won’t be charged today.');
 
     await continueFree.click();
     await expect(page.getByTestId('final-hybrid-editor')).toBeVisible();

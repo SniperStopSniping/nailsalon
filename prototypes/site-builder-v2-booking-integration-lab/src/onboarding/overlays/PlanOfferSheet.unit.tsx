@@ -53,7 +53,10 @@ describe('PlanOfferSheet', () => {
     expect(lifetime).toBeEnabled();
     expect(monthly).toBeEnabled();
     expect(free).toBeEnabled();
-    expect(within(dialog).getByText(/No Stripe · No subscription enforcement/i)).toBeVisible();
+    expect(within(dialog).getByText(/You won’t be charged today/u)).toBeVisible();
+    expect(within(dialog).getByText('You can keep using Luster free and choose a plan later.')).toBeVisible();
+    expect(within(dialog).queryByText(/Lab|prototype|Stripe|server-backed|subscription enforcement/u))
+      .not.toBeInTheDocument();
     await waitFor(() => expect(free).toHaveFocus());
 
     await user.click(lifetime);
@@ -82,7 +85,7 @@ describe('PlanOfferSheet', () => {
     expect(within(dialog).getByRole('button', { name: 'Lifetime offer unavailable' })).toBeDisabled();
     expect(within(dialog).getByRole('button', { name: 'Choose monthly' })).toBeEnabled();
     expect(within(dialog).getByRole('button', { name: 'Continue free' })).toBeEnabled();
-    expect(within(dialog).getByText('Founding offer expired · Lab fixture')).toBeVisible();
+    expect(within(dialog).getByText('Founding offer has ended')).toBeVisible();
   });
 
   it('restores focus to the handoff control after the sheet closes', async () => {

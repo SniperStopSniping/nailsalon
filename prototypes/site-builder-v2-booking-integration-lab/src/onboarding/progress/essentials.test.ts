@@ -51,7 +51,7 @@ describe('onboarding essentials', () => {
     const state = createDefaultOnboardingState();
     state.profile.businessName = 'Isla Nail Studio';
     state.profile.ownerName = 'Daniela';
-    state.profile.businessType = 'solo';
+    state.profile.businessStructure = 'solo';
     state.profile.location.cityOrArea = 'Scarborough, Ontario';
     state.profile.bookingOnlyContact = true;
 
@@ -59,6 +59,23 @@ describe('onboarding essentials', () => {
       'business',
       'location_contact',
     ]);
+  });
+
+  it('requires an enabled, coherent preferred contact method when not Booking-only', () => {
+    const state = createDefaultOnboardingState();
+    state.profile.location.cityOrArea = 'Scarborough, Ontario';
+    state.profile.clientContact.primaryNumber = '416-555-0100';
+    state.profile.preferredContact = 'call';
+    expect(getCompletedEssentialIds(state)).not.toContain('location_contact');
+
+    state.profile.clientContact.callEnabled = true;
+    expect(getCompletedEssentialIds(state)).toContain('location_contact');
+
+    state.profile.clientContact.callEnabled = false;
+    state.profile.clientContact.textEnabled = true;
+    expect(getCompletedEssentialIds(state)).not.toContain('location_contact');
+    state.profile.preferredContact = 'text';
+    expect(getCompletedEssentialIds(state)).toContain('location_contact');
   });
 
   it('requires a real starter reference and explicit style confirmation', () => {

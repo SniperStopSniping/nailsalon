@@ -7,6 +7,7 @@ import {
   getResumeScreen,
   goBack,
   goForward,
+  goToBrowserHistoryScreen,
   goToScreen,
   pauseOnboarding,
   reconcileConditionalHistory,
@@ -67,6 +68,66 @@ describe('onboarding conditional routing', () => {
 
     expect(state.progress.currentScreen).toBe('about');
     expect(state.profile.about.shortBio).toBe('This content remains stored.');
+  });
+
+  it('reconciles repeated browser Back and Forward without inventing About design when About is off', () => {
+    let state = createDefaultOnboardingState();
+    state = goToScreen(state, 'about');
+    state = reconcileConditionalHistory({
+      ...state,
+      recipe: { ...state.recipe, aboutEnabled: false },
+    });
+    state = goToScreen(state, 'policies');
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      state = goToBrowserHistoryScreen(state, 'about', 'back');
+      expect(state.progress.currentScreen).toBe('about');
+      expect(state.progress.screenHistory).toEqual(['welcome', 'about']);
+
+      const hiddenAboutDesign = goToBrowserHistoryScreen(state, 'about_design', 'forward');
+      expect(hiddenAboutDesign).toBe(state);
+
+      state = goToBrowserHistoryScreen(state, 'policies', 'forward');
+      expect(state.progress.currentScreen).toBe('policies');
+      expect(state.progress.screenHistory).toEqual(['welcome', 'about', 'policies']);
+    }
+  });
+
+  it('rebuilds the represented About On stack across repeated Back, Back, Forward, Forward cycles', () => {
+    let state = createDefaultOnboardingState();
+    state = goToScreen(state, 'about');
+    state = goForward(state);
+    state = goForward(state);
+    expect(state.progress.screenHistory).toEqual([
+      'welcome',
+      'about',
+      'about_design',
+      'policies',
+    ]);
+
+    for (let cycle = 0; cycle < 3; cycle += 1) {
+      state = goToBrowserHistoryScreen(state, 'about_design', 'back');
+      expect(state.progress.screenHistory).toEqual([
+        'welcome',
+        'about',
+        'about_design',
+      ]);
+      state = goToBrowserHistoryScreen(state, 'about', 'back');
+      expect(state.progress.screenHistory).toEqual(['welcome', 'about']);
+      state = goToBrowserHistoryScreen(state, 'about_design', 'forward');
+      expect(state.progress.screenHistory).toEqual([
+        'welcome',
+        'about',
+        'about_design',
+      ]);
+      state = goToBrowserHistoryScreen(state, 'policies', 'forward');
+      expect(state.progress.screenHistory).toEqual([
+        'welcome',
+        'about',
+        'about_design',
+        'policies',
+      ]);
+    }
   });
 
   it('records optional skips without changing conditional screen ordering', () => {

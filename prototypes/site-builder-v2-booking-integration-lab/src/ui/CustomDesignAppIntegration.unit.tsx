@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { IDBFactory } from 'fake-indexeddb';
 import { Blob as NodeBlob } from 'node:buffer';
@@ -264,12 +264,20 @@ async function openStoredCustomDesignSettings(
   const card = await screen.findByRole('listitem', { name: /Custom Design/ });
   const select = within(card).getByRole('button', { name: /Custom Design/ });
   await user.click(select);
-  await new Promise(resolve => window.setTimeout(resolve, 0));
+  await act(async () => {
+    await new Promise(resolve => window.setTimeout(resolve, 0));
+  });
   if (card.getAttribute('data-selected') !== 'true') await user.click(select);
   await waitFor(() => expect(card).toHaveAttribute('data-selected', 'true'));
   const toolbar = await screen.findByTestId('selected-section-toolbar');
   await user.click(within(toolbar).getByRole('button', { name: 'Edit' }));
   return screen.findByRole('dialog', { name: /Custom Design(?: settings)?$/ });
+}
+
+async function settleBuilderAssetEffects(): Promise<void> {
+  await act(async () => {
+    await new Promise(resolve => window.setTimeout(resolve, 250));
+  });
 }
 
 function renderPreview(
@@ -335,6 +343,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  await settleBuilderAssetEffects();
   document.body.style.removeProperty('overflow');
   document.documentElement.style.removeProperty('overflow');
   // The provider intentionally disposes URL registries one task after unmount
@@ -485,7 +494,9 @@ describe('Custom Design universal App integration', () => {
     expect(JSON.stringify(backup)).not.toContain('blob:');
 
     view.unmount();
-    await new Promise(resolve => window.setTimeout(resolve, 0));
+    await act(async () => {
+      await new Promise(resolve => window.setTimeout(resolve, 0));
+    });
     render(<App />);
     expect(await screen.findByTestId('final-hybrid-editor')).toBeVisible();
     const reloaded = await screen.findByRole('listitem', { name: 'Section 4: Custom Design' });
@@ -501,6 +512,7 @@ describe('Custom Design universal App integration', () => {
     const user = userEvent.setup();
     render(<App />);
     let settings = await openStoredCustomDesignSettings(user);
+    await settleBuilderAssetEffects();
     await user.click(within(settings).getByRole('radio', { name: /Contained/ }));
     await waitFor(() => {
       expect(getStoredCustomDesign(readStoredDocument()).settings.displayMode)
@@ -578,6 +590,7 @@ describe('Custom Design universal App integration', () => {
     const user = userEvent.setup();
     render(<App />);
     let settings = await openStoredCustomDesignSettings(user);
+    await settleBuilderAssetEffects();
 
     await user.click(within(settings).getByRole('button', { name: 'Move page 1 down' }));
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -613,6 +626,9 @@ describe('Custom Design universal App integration', () => {
       .not.toBeInTheDocument();
     expect(screen.queryByRole('dialog', { name: /^Custom Design$/ }))
       .not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByLabelText('Save status')).toHaveTextContent('Saved');
+    });
   });
 
   it('reloads the committed baseline before Save and the saved order after Save', async () => {
@@ -620,13 +636,18 @@ describe('Custom Design universal App integration', () => {
     const user = userEvent.setup();
     const firstView = render(<App />);
     let settings = await openStoredCustomDesignSettings(user);
+    await settleBuilderAssetEffects();
     await user.click(within(settings).getByRole('button', { name: 'Move page 1 down' }));
     expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
       .toEqual(imageIds);
+    await waitFor(() => {
+      expect(screen.getByLabelText('Save status')).toHaveTextContent('Saved');
+    });
 
     firstView.unmount();
     const reloadedBeforeSave = render(<App />);
     settings = await openStoredCustomDesignSettings(user);
+    await settleBuilderAssetEffects();
     expect(settings.querySelectorAll('[data-image-item-id]')[0])
       .toHaveAttribute('data-image-item-id', imageIds[0]);
     await user.click(within(settings).getByRole('button', { name: 'Move page 1 down' }));
@@ -638,11 +659,13 @@ describe('Custom Design universal App integration', () => {
     await waitFor(() => {
       expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
         .toEqual([imageIds[1], imageIds[0]]);
+      expect(screen.getByLabelText('Save status')).toHaveTextContent('Saved');
     });
 
     reloadedBeforeSave.unmount();
     render(<App />);
     settings = await openStoredCustomDesignSettings(user);
+    await settleBuilderAssetEffects();
     expect(settings.querySelectorAll('[data-image-item-id]')[0])
       .toHaveAttribute('data-image-item-id', imageIds[1]);
   });

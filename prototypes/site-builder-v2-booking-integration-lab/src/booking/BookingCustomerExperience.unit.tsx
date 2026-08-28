@@ -297,6 +297,41 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
   });
 });
 
+describe('personalized Booking identity', () => {
+  it('uses the active salon identity in service-detail fallbacks', async () => {
+    const user = userEvent.setup();
+    const fixture = createMenuFixture();
+    const firstService = fixture.services[0];
+    if (!firstService) throw new Error('The canonical Booking fixture has no services.');
+    const personalized: MockMenuFixture = {
+      ...fixture,
+      salon: { ...fixture.salon, name: 'Mia’s Nail Studio' },
+      services: fixture.services.map((service) => service.id === firstService.id
+        ? { ...service, image: null, longDescription: null }
+        : service),
+    };
+
+    render(
+      <SessionHarness
+        fixture={personalized}
+        settings={settingsFor('clean_list')}
+      />,
+    );
+    await user.click(screen.getAllByRole('button', {
+      name: `View details for ${firstService.name}`,
+    })[0]!);
+
+    const detail = await screen.findByTestId('service-detail-dialog');
+    expect(within(detail).getByRole('img', {
+      name: `No service photo available for ${firstService.name}`,
+    })).toHaveTextContent('Mia’s Nail Studio');
+    expect(detail).toHaveTextContent(
+      'Ask Mia’s Nail Studio about the finish and options available for this service.',
+    );
+    expect(detail).not.toHaveTextContent('Isla Nail Studio');
+  });
+});
+
 describe('Booking renderer mode and session boundaries', () => {
   it('keeps the real menu readable but makes customer controls read-only in Edit', () => {
     const onSessionChange = vi.fn();

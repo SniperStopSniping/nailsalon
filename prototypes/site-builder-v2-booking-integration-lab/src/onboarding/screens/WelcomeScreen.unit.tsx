@@ -20,6 +20,8 @@ describe('WelcomeScreen', () => {
     expect(screen.getByText('Enter information once')).toBeVisible();
     expect(screen.getByText('Change designs without retyping')).toBeVisible();
     expect(screen.getByText('Update connected sections automatically')).toBeVisible();
+    expect(screen.getByText('Your progress saves automatically on this device.')).toBeVisible();
+    expect(screen.queryByText(/UX Lab|Production/u)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Build my website' }));
     await user.click(screen.getByRole('button', { name: 'I already have a Canva design' }));

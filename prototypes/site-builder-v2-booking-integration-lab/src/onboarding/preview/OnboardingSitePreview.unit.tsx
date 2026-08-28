@@ -170,4 +170,104 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(preview).queryByText('A little nail inspiration')).not.toBeInTheDocument();
     expect(state.profile.about.shortBio).toBe(preservedBio);
   });
+
+  it('reuses one configured schedule and suppresses public status when hours are hidden or skipped', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.aboutPreset = 'profile_quick_facts';
+    const view = render(
+      <OnboardingSitePreview document={null} label="Shared hours preview" state={state} />,
+    );
+    const preview = screen.getByRole('region', { name: 'Shared hours preview' });
+    const about = within(preview).getByRole('region', { name: 'About' });
+    expect(preview.querySelector('[data-hours-status="open"]')).toHaveTextContent(
+      'Open until 6:00 PM',
+    );
+    const weeklyHours = within(preview).getByRole('group', { name: 'Weekly hours' });
+    expect(within(weeklyHours).getByText('Thursday')).toBeVisible();
+    expect(within(weeklyHours).getAllByText('10:00 AM–6:00 PM')).toHaveLength(5);
+    expect(within(weeklyHours).getByText('Sunday')).toBeVisible();
+    expect(within(weeklyHours).getByText('Closed')).toBeVisible();
+    expect(within(about).getByText('Hours')).toBeVisible();
+    expect(within(about).getByText('Open until 6:00 PM')).toBeVisible();
+
+    const hidden = {
+      ...state,
+      profile: {
+        ...state.profile,
+        hours: { ...state.profile.hours, showOnSite: false },
+      },
+    };
+    view.rerender(
+      <OnboardingSitePreview document={null} label="Shared hours preview" state={hidden} />,
+    );
+    expect(preview.querySelector('[data-hours-status]')).toBeNull();
+    expect(within(preview).queryByRole('group', { name: 'Weekly hours' }))
+      .not.toBeInTheDocument();
+    expect(within(about).queryByText('Hours')).not.toBeInTheDocument();
+    expect(within(about).queryByText(/Open until|Closed/u)).not.toBeInTheDocument();
+
+    const skipped = {
+      ...hidden,
+      profile: {
+        ...hidden.profile,
+        hours: { ...hidden.profile.hours, setupState: 'skipped' as const },
+      },
+    };
+    view.rerender(
+      <OnboardingSitePreview document={null} label="Shared hours preview" state={skipped} />,
+    );
+    expect(preview.querySelector('[data-hours-status]')).toBeNull();
+    expect(within(about).queryByText('Hours')).not.toBeInTheDocument();
+    expect(within(preview).queryByRole('group', { name: 'Weekly hours' }))
+      .not.toBeInTheDocument();
+  });
+
+  it('respects address privacy, general-area Directions permission, and Booking-only contact', () => {
+    const state = createDanielaFixtureState();
+    state.profile.location.exactAddress = '123 Example Avenue';
+    state.profile.bookingOnlyContact = true;
+    state.profile.clientContact.primaryNumber = '416-555-0100';
+    state.profile.clientContact.callEnabled = true;
+    state.profile.preferredContact = 'call';
+    const view = render(
+      <OnboardingSitePreview document={null} label="Privacy preview" state={state} />,
+    );
+    const preview = screen.getByRole('region', { name: 'Privacy preview' });
+    const contact = within(preview).getByRole('region', { name: 'Visit and contact' });
+    expect(within(contact).getByText('Scarborough, Ontario')).toBeVisible();
+    expect(within(contact).getByText('Exact address shared after booking.')).toBeVisible();
+    expect(within(contact).queryByText('123 Example Avenue')).not.toBeInTheDocument();
+    expect(within(contact).queryByText('416-555-0100')).not.toBeInTheDocument();
+    expect(within(contact).queryByRole('button', { name: 'Directions' })).not.toBeInTheDocument();
+    expect(within(contact).getByRole('button', { name: 'Book now' })).toBeVisible();
+
+    const publicArea = {
+      ...state,
+      profile: {
+        ...state.profile,
+        location: {
+          ...state.profile.location,
+          addressVisibility: 'public' as const,
+          allowGeneralAreaDirections: true,
+          exactAddress: '',
+        },
+      },
+    };
+    view.rerender(
+      <OnboardingSitePreview document={null} label="Privacy preview" state={publicArea} />,
+    );
+    expect(within(contact).getByRole('button', { name: 'Directions' })).toBeVisible();
+
+    const hidden = {
+      ...publicArea,
+      profile: {
+        ...publicArea.profile,
+        location: { ...publicArea.profile.location, addressVisibility: 'hidden' as const },
+      },
+    };
+    view.rerender(
+      <OnboardingSitePreview document={null} label="Privacy preview" state={hidden} />,
+    );
+    expect(within(contact).queryByRole('button', { name: 'Directions' })).not.toBeInTheDocument();
+  });
 });

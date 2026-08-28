@@ -5,6 +5,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createDanielaFixtureState } from '../fixtures';
 import { createDefaultOnboardingState } from '../model/defaults';
+import {
+  getDepositPolicyMode,
+  updateDepositPolicyMode,
+} from '../model/policies';
 import type { OnboardingLabState } from '../model/types';
 import {
   PoliciesScreen,
@@ -76,15 +80,55 @@ describe('PoliciesScreen', () => {
     expect(within(policyCard('Cancellations')).getByText(/at least 36 hours/u)).toBeVisible();
     expect(within(policyCard('Cancellations')).getByText(/\$30 late cancellation fee applies/u)).toBeVisible();
 
-    await user.selectOptions(screen.getByLabelText('Required?'), 'yes');
+    await user.click(within(screen.getByRole('group', {
+      name: 'Do you generally require a deposit?',
+    })).getByRole('radio', { name: 'Yes' }));
     await user.selectOptions(screen.getByLabelText('Fixed amount or percentage?'), 'percentage');
-    await user.type(screen.getByRole('textbox', { name: 'Amount' }), '25');
+    await user.type(screen.getByRole('textbox', { name: 'Deposit amount' }), '25');
     await user.type(screen.getByRole('textbox', { name: 'Grace period (minutes)' }), '10');
 
     expect(within(policyCard('Deposits')).getByText(/25% deposit/u)).toBeVisible();
     expect(within(policyCard('Late arrivals')).getByText(/10-minute grace period/u)).toBeVisible();
     expect(latest.profile.policies.copy.deposits.suggestedWording).toContain('25% deposit');
     expect(latest.profile.policies.copy.late_arrivals.suggestedWording).toContain('10-minute grace period');
+  });
+
+  it('reuses the Booking deposit answer, keeps service-defined details authoritative, and preserves copy overrides', async () => {
+    const user = userEvent.setup();
+    let latest = policyState('blank');
+    latest.profile.policies = updateDepositPolicyMode(
+      latest.profile.policies,
+      'depends_on_service',
+    );
+    latest.profile.policies.copy.deposits.useSuggestedWording = false;
+    latest.profile.policies.copy.deposits.wordingOverride = 'My existing deposit wording.';
+
+    render(<PoliciesHarness initial={latest} onState={(state) => { latest = state; }} />);
+
+    expect(screen.getByText('Deposit depends on the service')).toBeVisible();
+    expect(screen.getByText(/Booking remains the source of truth/u)).toBeVisible();
+    expect(screen.queryByRole('textbox', { name: 'Deposit amount' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Refundable?')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', {
+      name: 'Do you generally require a deposit?',
+    })).not.toBeInTheDocument();
+    expect(within(policyCard('Deposits')).getByRole('textbox', {
+      name: 'Deposits wording',
+    })).toHaveValue('My existing deposit wording.');
+
+    await user.click(screen.getByRole('button', { name: 'Change deposit answer' }));
+    await user.click(within(screen.getByRole('group', {
+      name: 'Do you generally require a deposit?',
+    })).getByRole('radio', { name: 'No' }));
+
+    expect(getDepositPolicyMode(latest.profile.policies)).toBe('none');
+    expect(latest.profile.policies.copy.deposits.suggestedWording)
+      .toBe('No deposit is generally required.');
+    expect(latest.profile.policies.copy.deposits.wordingOverride)
+      .toBe('My existing deposit wording.');
+    expect(latest.profile.policies.copy.deposits.useSuggestedWording).toBe(false);
+    expect(screen.getByText('No general deposit')).toBeVisible();
+    expect(screen.queryByRole('textbox', { name: 'Deposit amount' })).not.toBeInTheDocument();
   });
 
   it('preserves an explicit wording override as facts change and supports Show/Hide', async () => {

@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
@@ -25,7 +25,7 @@ describe('OnboardingShell', () => {
     expect(screen.queryByText(/step \d+ of \d+/i)).not.toBeInTheDocument();
   });
 
-  it('exposes every Lab More action as a native button', async () => {
+  it('runs each native More action and closes the menu first', async () => {
     const user = userEvent.setup();
     const onSaveForLater = vi.fn();
     const onRestart = vi.fn();
@@ -44,14 +44,98 @@ describe('OnboardingShell', () => {
       </OnboardingShell>,
     );
 
-    await user.click(screen.getByText('More'));
-    await user.click(screen.getByRole('button', { name: 'Save and finish later' }));
-    await user.click(screen.getByRole('button', { name: 'Restart onboarding' }));
-    await user.click(screen.getByRole('button', { name: 'Lab review options' }));
+    const more = screen.getByRole('button', { name: 'More onboarding options' });
+    const details = more.closest('details');
+    for (const action of [
+      'Save and finish later',
+      'Restart onboarding',
+      'Lab review options',
+    ]) {
+      await user.click(more);
+      expect(details).toHaveAttribute('open');
+      await user.click(screen.getByRole('button', { name: action }));
+      expect(details).not.toHaveAttribute('open');
+    }
 
     expect(onSaveForLater).toHaveBeenCalledOnce();
     expect(onRestart).toHaveBeenCalledOnce();
     expect(onLabOptions).toHaveBeenCalledOnce();
+  });
+
+  it('supports keyboard open, Escape close, and focus restoration', async () => {
+    const user = userEvent.setup();
+    render(
+      <OnboardingShell
+        autosaveState="saved"
+        completedStages={[]}
+        currentStage="basics"
+        essentialsRemaining={5}
+        onRestart={vi.fn()}
+        onSaveForLater={vi.fn()}
+      >
+        <h1>Screen content</h1>
+      </OnboardingShell>,
+    );
+
+    const more = screen.getByRole('button', { name: 'More onboarding options' });
+    const details = more.closest('details');
+    more.focus();
+    await user.keyboard('{Enter}');
+    expect(details).toHaveAttribute('open');
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Save and finish later' })).toHaveFocus();
+
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(details).not.toHaveAttribute('open'));
+    await waitFor(() => expect(more).toHaveFocus());
+
+    await user.keyboard(' ');
+    expect(details).toHaveAttribute('open');
+  });
+
+  it('closes on an outside pointer interaction', async () => {
+    const user = userEvent.setup();
+    render(
+      <OnboardingShell
+        autosaveState="saved"
+        completedStages={[]}
+        currentStage="basics"
+        essentialsRemaining={5}
+        onRestart={vi.fn()}
+      >
+        <button type="button">Outside action</button>
+      </OnboardingShell>,
+    );
+
+    const more = screen.getByRole('button', { name: 'More onboarding options' });
+    const details = more.closest('details');
+    await user.click(more);
+    expect(details).toHaveAttribute('open');
+    await user.click(screen.getByRole('button', { name: 'Outside action' }));
+    expect(details).not.toHaveAttribute('open');
+  });
+
+  it('closes when the onboarding route key changes', async () => {
+    const shell = (routeKey: string) => (
+      <OnboardingShell
+        autosaveState="saved"
+        completedStages={[]}
+        currentStage="basics"
+        essentialsRemaining={5}
+        onRestart={vi.fn()}
+        routeKey={routeKey}
+      >
+        <h1>{routeKey}</h1>
+      </OnboardingShell>
+    );
+    const view = render(shell('business'));
+    const more = screen.getByRole('button', { name: 'More onboarding options' });
+    const details = more.closest('details');
+
+    await userEvent.setup().click(more);
+    expect(details).toHaveAttribute('open');
+    view.rerender(shell('photo_social'));
+    await waitFor(() => expect(details).not.toHaveAttribute('open'));
   });
 
   it('does not infer completion from a stage appearing before Review', () => {

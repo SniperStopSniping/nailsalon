@@ -27,6 +27,82 @@ const createMemoryStorage = (
   };
 };
 
+const createLegacySavedState = (
+  options: {
+    businessType?: 'solo' | 'home_studio' | 'salon_suite' | 'traditional_salon' | 'mobile' | 'multi_tech';
+    depositPreference?: 'yes' | 'no' | 'depends_on_service';
+    edited?: boolean;
+    locationType?: 'home_studio' | 'salon_suite' | 'traditional_salon' | 'mobile_service' | null;
+    phone?: string;
+    policyRequired?: boolean | null;
+    preferredContact?: 'text' | 'call' | 'instagram' | 'email' | null;
+    schemaVersion?: 1 | 2 | 3;
+    skipped?: boolean;
+    textPhone?: string;
+  } = {},
+): Record<string, unknown> => {
+  const state = createDefaultOnboardingState();
+  const days = Object.fromEntries(
+    (['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const)
+      .map((day) => [day, {
+        close: day === 'saturday' ? '16:00' : '17:00',
+        closed: day === 'sunday',
+        open: day === 'saturday' ? '10:00' : '09:00',
+      }]),
+  );
+  if (options.edited) {
+    days.monday = { close: '19:00', closed: false, open: '11:00' };
+  }
+  const profile: Record<string, unknown> = {
+    ...state.profile,
+    bookingPreferences: {
+      ...state.profile.bookingPreferences,
+      depositPreference: options.depositPreference ?? 'yes',
+    },
+    businessType: options.businessType ?? 'salon_suite',
+    location: {
+      ...state.profile.location,
+      locationType: options.locationType ?? null,
+    },
+    phone: options.phone ?? '',
+    policies: {
+      ...state.profile.policies,
+      deposits: {
+        ...state.profile.policies.deposits,
+        required: options.policyRequired ?? null,
+      },
+    },
+    preferredContact: options.preferredContact ?? null,
+    textPhone: options.textPhone ?? '',
+  };
+  delete profile.businessStructure;
+  delete profile.clientContact;
+  delete (profile.policies as { deposits: Record<string, unknown> }).deposits.mode;
+  const location = profile.location as Record<string, unknown>;
+  delete location.allowGeneralAreaDirections;
+  const schemaVersion = options.schemaVersion ?? 1;
+  return {
+    ...state,
+    profile: {
+      ...profile,
+      hours: schemaVersion === 1
+        ? { days, skipped: options.skipped ?? false }
+        : state.profile.hours,
+    },
+    reviewOptions: schemaVersion === 1
+      ? {
+          appliedFixtureId: null,
+          reducedMotion: false,
+          viewportFixture: null,
+        }
+      : {
+          ...state.reviewOptions,
+          previewTimestamp: '2026-09-01T15:00:00.000Z',
+        },
+    schemaVersion,
+  };
+};
+
 describe('onboarding browser-local storage', () => {
   it('uses one namespaced key and round-trips the complete state', () => {
     const storage = createMemoryStorage({ unrelated: 'keep me' });
@@ -60,6 +136,141 @@ describe('onboarding browser-local storage', () => {
       ...createDefaultOnboardingState(),
       schemaVersion: 999,
     })).status).toBe('error');
+  });
+
+  it('migrates legacy hours without treating the old seeded schedule as owner-provided', () => {
+    const untouched = parseOnboardingState(JSON.stringify(createLegacySavedState({
+      phone: '416-555-0100',
+      preferredContact: 'call',
+      textPhone: '416-555-0100',
+    })));
+    expect(untouched.status).toBe('loaded');
+    expect(untouched.state.profile.hours).toMatchObject({
+      setupState: 'unset',
+      showOnSite: true,
+    });
+    expect(untouched.state.profile.hours.days.monday).toMatchObject({ close: '', open: '' });
+    expect(untouched.state.profile.hours.days.sunday.closed).toBe(false);
+    expect(untouched.state.profile.businessStructure).toBe('solo');
+    expect(untouched.state.profile.location.locationType).toBe('salon_suite');
+    expect(untouched.state.profile.clientContact).toEqual({
+      callEnabled: true,
+      differentTextNumber: '',
+      primaryNumber: '416-555-0100',
+      textEnabled: true,
+      useDifferentTextNumber: false,
+    });
+    expect(untouched.state.reviewOptions.previewTimestamp)
+      .toBe('2026-08-27T18:30:00.000Z');
+
+    const edited = parseOnboardingState(JSON.stringify(createLegacySavedState({ edited: true })));
+    expect(edited.state.profile.hours).toMatchObject({
+      setupState: 'configured',
+      showOnSite: true,
+    });
+    expect(edited.state.profile.hours.days.monday).toMatchObject({
+      close: '19:00',
+      open: '11:00',
+    });
+
+    const skipped = parseOnboardingState(JSON.stringify(createLegacySavedState({ skipped: true })));
+    expect(skipped.state.profile.hours).toMatchObject({
+      setupState: 'skipped',
+      showOnSite: false,
+    });
+  });
+
+  it('losslessly migrates mixed business and separate phone/text data from v2', () => {
+    const result = parseOnboardingState(JSON.stringify(createLegacySavedState({
+      businessType: 'home_studio',
+      phone: '416-555-0100',
+      preferredContact: 'text',
+      schemaVersion: 2,
+      textPhone: '647-555-0199',
+    })));
+
+    expect(result.status).toBe('loaded');
+    expect(result.state.schemaVersion).toBe(3);
+    expect(result.state.profile.businessStructure).toBe('solo');
+    expect(result.state.profile.location).toMatchObject({
+      allowGeneralAreaDirections: false,
+      locationType: 'home_studio',
+    });
+    expect(result.state.profile.clientContact).toEqual({
+      callEnabled: true,
+      differentTextNumber: '647-555-0199',
+      primaryNumber: '416-555-0100',
+      textEnabled: true,
+      useDifferentTextNumber: true,
+    });
+    expect(result.state.profile.preferredContact).toBe('text');
+    expect(result.state.reviewOptions.previewTimestamp).toBe('2026-09-01T15:00:00.000Z');
+    expect(result.state.profile.policies.deposits.mode).toBe('generally_required');
+    expect(result.state.profile.bookingPreferences).not.toHaveProperty('depositPreference');
+    expect(result.state.profile.policies.deposits).not.toHaveProperty('required');
+  });
+
+  it('normalizes legacy deposit answers into one non-contradictory policy source', () => {
+    const explicitPolicy = parseOnboardingState(JSON.stringify(createLegacySavedState({
+      depositPreference: 'yes',
+      policyRequired: false,
+      schemaVersion: 2,
+    })));
+    expect(explicitPolicy.state.profile.policies.deposits.mode).toBe('none');
+
+    const serviceDefined = parseOnboardingState(JSON.stringify(createLegacySavedState({
+      depositPreference: 'depends_on_service',
+      policyRequired: null,
+      schemaVersion: 3,
+    })));
+    expect(serviceDefined.status).toBe('loaded');
+    expect(serviceDefined.state.profile.policies.deposits).toMatchObject({
+      amountType: 'service_defined',
+      mode: 'depends_on_service',
+    });
+    expect(serviceDefined.state.profile.bookingPreferences).not.toHaveProperty('depositPreference');
+    expect(serviceDefined.state.profile.policies.deposits).not.toHaveProperty('required');
+  });
+
+  it('preserves an explicit Screen 4 location and a text-only number during v2 migration', () => {
+    const result = parseOnboardingState(JSON.stringify(createLegacySavedState({
+      businessType: 'multi_tech',
+      locationType: 'traditional_salon',
+      preferredContact: 'call',
+      schemaVersion: 2,
+      textPhone: '647-555-0112',
+    })));
+
+    expect(result.state.profile.businessStructure).toBe('multi_tech');
+    expect(result.state.profile.location.locationType).toBe('traditional_salon');
+    expect(result.state.profile.clientContact).toEqual({
+      callEnabled: true,
+      differentTextNumber: '',
+      primaryNumber: '647-555-0112',
+      textEnabled: true,
+      useDifferentTextNumber: false,
+    });
+    expect(result.state.profile.preferredContact).toBe('call');
+  });
+
+  it.each([
+    ['solo', 'solo', null],
+    ['home_studio', 'solo', 'home_studio'],
+    ['salon_suite', 'solo', 'salon_suite'],
+    ['traditional_salon', 'solo', 'traditional_salon'],
+    ['mobile', 'solo', 'mobile_service'],
+    ['multi_tech', 'multi_tech', null],
+  ] as const)('maps legacy %s without mixing structure and location', (
+    businessType,
+    businessStructure,
+    locationType,
+  ) => {
+    const result = parseOnboardingState(JSON.stringify(createLegacySavedState({
+      businessType,
+      schemaVersion: 2,
+    })));
+    expect(result.state.profile.businessStructure).toBe(businessStructure);
+    expect(result.state.profile.location.locationType).toBe(locationType);
   });
 
   it('reports storage failures without discarding in-memory state', () => {

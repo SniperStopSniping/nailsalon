@@ -5,6 +5,10 @@ import { vi } from 'vitest';
 
 import { createDefaultBusinessProfile } from '../model/defaults';
 import { ONBOARDING_NEXT_AVAILABILITY_LABEL } from '../model/booking-preview';
+import {
+  getDepositPolicyMode,
+  updateDepositPolicyMode,
+} from '../model/policies';
 import type { BookingPreferencesDraft, StarterId } from '../model/types';
 import {
   BookingPreferencesScreen,
@@ -31,13 +35,17 @@ describe('BookingPreferencesScreen', () => {
           onBack={vi.fn()}
           onBookingPreferencesChange={patchPreferences}
           onContinue={onContinue}
+          onDepositModeChange={vi.fn()}
         />
       );
     }
 
     render(<Harness />);
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent('24 connected');
+      .toHaveTextContent('24 ready');
+    expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
+      .toHaveTextContent('Next openingsReady');
+    expect(screen.queryByText(/Booking mock|Availability source/u)).not.toBeInTheDocument();
     expect(screen.getByText(/won’t need to re-enter services, prices, or durations/i)).toBeVisible();
     expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
       .toHaveTextContent('Russian Manicure + French1 hr 45 min · From $80');
@@ -53,6 +61,58 @@ describe('BookingPreferencesScreen', () => {
       .toHaveTextContent('Appointment onlyNew clients welcome');
     await user.click(screen.getByRole('button', { name: 'Save booking information' }));
     expect(onContinue).toHaveBeenCalledOnce();
+  });
+
+  it('stores the deposit answer in the shared policy draft and leaves Booking preferences untouched', async () => {
+    const user = userEvent.setup();
+    let latest = createDefaultBusinessProfile();
+    const originalBookingPreferences = latest.bookingPreferences;
+
+    function Harness() {
+      const [profile, setProfile] = useState(latest);
+      return (
+        <BookingPreferencesScreen
+          profile={profile}
+          onBack={vi.fn()}
+          onBookingPreferencesChange={(patch) => setProfile((current) => {
+            latest = {
+              ...current,
+              bookingPreferences: { ...current.bookingPreferences, ...patch },
+            };
+            return latest;
+          })}
+          onContinue={vi.fn()}
+          onDepositModeChange={(mode) => setProfile((current) => {
+            latest = {
+              ...current,
+              policies: updateDepositPolicyMode(current.policies, mode),
+            };
+            return latest;
+          })}
+        />
+      );
+    }
+
+    render(<Harness />);
+    const depositQuestion = screen.getByRole('group', {
+      name: 'Do you generally require a deposit?',
+    });
+    await user.click(within(depositQuestion).getByRole('radio', {
+      name: /Depends on the service/u,
+    }));
+
+    expect(getDepositPolicyMode(latest.policies)).toBe('depends_on_service');
+    expect(latest.policies.deposits.amountType).toBe('service_defined');
+    expect(latest.policies.copy.deposits.suggestedWording)
+      .toContain('Booking shows the deposit for each service');
+    expect(latest.bookingPreferences).toBe(originalBookingPreferences);
+
+    await user.click(within(depositQuestion).getByRole('radio', { name: 'Yes' }));
+    expect(getDepositPolicyMode(latest.policies)).toBe('generally_required');
+    expect(latest.policies.deposits.amountType).toBeNull();
+    expect(latest.policies.copy.deposits.suggestedWording)
+      .toContain('A deposit is required to reserve your appointment');
+    expect(latest.bookingPreferences).toBe(originalBookingPreferences);
   });
 });
 
@@ -106,6 +166,29 @@ describe('StartingPointScreen', () => {
       expect(preview).toHaveAttribute('data-preview-active', 'false');
       expect(preview).toHaveAttribute('data-preview-state', 'poster');
     }
+  });
+
+  it('marks the current starter visibly and exposes pressed state to assistive technology', () => {
+    render(
+      <StartingPointScreen
+        businessName="Isla Nail Studio"
+        onBack={vi.fn()}
+        onChooseStarter={vi.fn()}
+        selectedStarter="one_page"
+      />,
+    );
+
+    const current = screen.getByRole('button', {
+      name: /Current starting point.*One-page website/u,
+    });
+    expect(current).toHaveAttribute('aria-pressed', 'true');
+    expect(current).toHaveAttribute('data-selected', 'true');
+    expect(within(current).getByText('Current starting point')).toBeVisible();
+    expect(within(current).getByText('Continue with this starting point')).toBeVisible();
+
+    const quickBook = screen.getByRole('button', { name: /Switch to Quick Book/u });
+    expect(quickBook).toHaveAttribute('aria-pressed', 'false');
+    expect(quickBook).toHaveAttribute('data-selected', 'false');
   });
 });
 

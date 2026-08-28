@@ -32,4 +32,21 @@ describe('onboarding Booking preview adapter', () => {
     profile.location.addressVisibility = 'public';
     expect(getOnboardingPreviewLocation(profile)).toBe('123 Example Avenue');
   });
+
+  it.each([
+    ['Mia’s Nail Studio', 'Mia’s Nail Studio'],
+    ['North Shore Nails', 'North Shore Nails'],
+    ['A Very Long Independent Nail Studio Name for the North Shore', 'A Very Long Independent Nail Studio Name for the North Shore'],
+    ['', 'Your nail studio'],
+  ])('keeps live identity personalized for %j', (businessName, expected) => {
+    const profile = createDefaultBusinessProfile();
+    profile.businessName = businessName;
+    const source = createOnboardingBookingFixture(profile);
+
+    expect(source.salon.name).toBe(expected);
+    if (businessName !== 'Isla Nail Studio') {
+      expect(source.salon.name).not.toBe('Isla Nail Studio');
+    }
+    expect(source.services).toBe(CANONICAL_SERVICES);
+  });
 });

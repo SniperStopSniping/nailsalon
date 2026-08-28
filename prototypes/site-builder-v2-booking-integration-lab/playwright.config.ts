@@ -6,7 +6,7 @@ const labUrl = process.env.LUSTER_LAB_URL ?? `http://127.0.0.1:${labPort}`;
 export default defineConfig({
   expect: { timeout: 8_000 },
   fullyParallel: false,
-  outputDir: '/tmp/luster-onboarding-v1-ux-lab/playwright',
+  outputDir: '/tmp/luster-onboarding-final-corrections/playwright-original',
   reporter: [['line']],
   retries: 0,
   testDir: './tests/e2e',
@@ -19,7 +19,7 @@ export default defineConfig({
   },
   webServer: {
     command: `VITE_LUSTER_BUILDER_TEST_HARNESS=1 npm run dev -- --port ${labPort}`,
-    reuseExistingServer: false,
+    reuseExistingServer: true,
     timeout: 60_000,
     url: labUrl,
   },

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { getWeeklyHoursPreviewStatus } from '../model/hours';
 import { getEssentialsLeft } from '../progress/essentials';
 import {
   applyLabReviewFixture,
@@ -17,6 +18,8 @@ describe('onboarding Lab review fixtures', () => {
       'Gallery selected',
       'All essentials complete',
       'One essential missing',
+      'Preview time · Open',
+      'Preview time · Closed',
       'Lifetime offer available',
       'Offer expiring',
       'Offer expired',
@@ -28,10 +31,26 @@ describe('onboarding Lab review fixtures', () => {
     ]);
   });
 
+  it('provides fixed Lab-only open and closed preview timestamps', () => {
+    const open = applyLabReviewFixture('preview_time_open');
+    const closed = applyLabReviewFixture('preview_time_closed');
+    expect(open.reviewOptions.previewTimestamp).toBe('2026-08-27T18:30:00.000Z');
+    expect(closed.reviewOptions.previewTimestamp).toBe('2026-08-28T01:00:00.000Z');
+    expect(getWeeklyHoursPreviewStatus(
+      open.profile.hours,
+      open.reviewOptions.previewTimestamp,
+    )?.label).toBe('Open until 6:00 PM');
+    expect(getWeeklyHoursPreviewStatus(
+      closed.profile.hours,
+      closed.reviewOptions.previewTimestamp,
+    )?.label).toBe('Closed');
+  });
+
   it('uses Daniela-style shared profile content', () => {
     const state = applyLabReviewFixture('daniela_isla');
     expect(state.profile).toMatchObject({
       businessName: 'Isla Nail Studio',
+      businessStructure: 'solo',
       instagram: '@islanail.studio',
       ownerName: 'Daniela',
     });
@@ -42,6 +61,16 @@ describe('onboarding Lab review fixtures', () => {
       'Gel-X',
       'Hard Gel',
     ]);
+    expect(state.profile.hours).toMatchObject({
+      setupState: 'configured',
+      showOnSite: true,
+    });
+    expect(state.profile.hours.days.thursday).toEqual({
+      close: '18:00',
+      closed: false,
+      open: '10:00',
+    });
+    expect(state.reviewOptions.previewTimestamp).toBe('2026-08-27T18:30:00.000Z');
   });
 
   it('provides coherent complete and one-missing essential states', () => {

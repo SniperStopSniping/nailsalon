@@ -58,4 +58,27 @@ describe('local onboarding event journal', () => {
     expect(exported.kind).toBe('luster-onboarding-v1-lab-event-journal');
     expect(exported.events).toHaveLength(1);
   });
+
+  it('sanitizes the About wording helper event without retaining bio text', () => {
+    const unsafeInput = {
+      action: 'used',
+      bioValue: 'Sensitive draft biography',
+      suggestion: 'Generated private wording',
+      type: 'about_wording_helper',
+    } as OnboardingEventInput & { bioValue: string; suggestion: string };
+
+    const journal = appendOnboardingEvent([], unsafeInput, {
+      idFactory: () => 'event-helper',
+      timestamp: '2026-08-28T10:00:00.000Z',
+    });
+
+    expect(journal).toEqual([{
+      action: 'used',
+      id: 'event-helper',
+      timestamp: '2026-08-28T10:00:00.000Z',
+      type: 'about_wording_helper',
+    }]);
+    expect(JSON.stringify(journal)).not.toContain('Sensitive draft biography');
+    expect(JSON.stringify(journal)).not.toContain('Generated private wording');
+  });
 });
