@@ -688,6 +688,86 @@ describe('Custom Design customer renderer', () => {
     expect(screen.queryByRole('link', { name: 'Visit the nail studio website' }))
       .not.toBeInTheDocument();
   });
+
+  it('suppresses a stale-valid near-full area without suppressing a safe area on another image', () => {
+    const unsafeFull = makeArea({
+      id: 'unsafe-full',
+      accessibleLabel: 'Unsafe full image link',
+      geometry: { x: 0, y: 0, width: 95, height: 95 },
+    });
+    const safe = makeArea({
+      id: 'safe-link',
+      accessibleLabel: 'Safe website link',
+    });
+    render(
+      <CustomDesignRenderer
+        resolveAction={resolveAction}
+        resolveAsset={readyAsset}
+        settings={makeSettings({
+          images: [
+            makeImage('page-1', { interactiveAreas: [unsafeFull] }),
+            makeImage('page-2', { interactiveAreas: [safe] }),
+          ],
+        })}
+      />,
+    );
+    finishImageLoad('Branded policy page page-1');
+    finishImageLoad('Branded policy page page-2');
+    expect(screen.queryByRole('link', { name: 'Unsafe full image link' }))
+      .not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Safe website link' })).toBeVisible();
+  });
+
+  it('suppresses stale-valid overlapping areas while preserving exact edge contact', () => {
+    const overlappingOne = makeArea({
+      id: 'overlap-one',
+      accessibleLabel: 'First overlapping link',
+      geometry: { x: 5, y: 5, width: 30, height: 20 },
+      semanticOrder: 1,
+    });
+    const overlappingTwo = makeArea({
+      id: 'overlap-two',
+      accessibleLabel: 'Second overlapping link',
+      geometry: { x: 20, y: 10, width: 30, height: 20 },
+      semanticOrder: 2,
+    });
+    const edgeOne = makeArea({
+      id: 'edge-one',
+      accessibleLabel: 'First edge link',
+      geometry: { x: 0, y: 0, width: 25, height: 20 },
+      semanticOrder: 0,
+    });
+    const edgeTwo = makeArea({
+      id: 'edge-two',
+      accessibleLabel: 'Second edge link',
+      geometry: { x: 25, y: 0, width: 25, height: 20 },
+      semanticOrder: 1,
+    });
+    render(
+      <CustomDesignRenderer
+        resolveAction={resolveAction}
+        resolveAsset={readyAsset}
+        settings={makeSettings({
+          images: [
+            makeImage('page-1', {
+              interactiveAreas: [overlappingOne, overlappingTwo],
+            }),
+            makeImage('page-2', {
+              interactiveAreas: [edgeOne, edgeTwo],
+            }),
+          ],
+        })}
+      />,
+    );
+    finishImageLoad('Branded policy page page-1');
+    finishImageLoad('Branded policy page page-2');
+    expect(screen.queryByRole('link', { name: 'First overlapping link' }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Second overlapping link' }))
+      .not.toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'First edge link' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Second edge link' })).toBeVisible();
+  });
 });
 
 describe('clear tap versus scroll activation', () => {

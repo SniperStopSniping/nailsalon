@@ -22,6 +22,7 @@ import {
   SITE_BUILDER_STORAGE_KEY,
   exportSiteBuilderBackup,
   initializeStarter,
+  removeSection,
   type CustomDesignSectionInstance,
   type SiteBuilderDocument,
 } from '../model';
@@ -214,6 +215,63 @@ function documentWithCustomDesign(
   };
 }
 
+function storedDocumentWithTwoCustomDesignPages(): {
+  document: SiteBuilderDocument;
+  imageIds: [string, string];
+  sectionId: string;
+} {
+  const first = {
+    ...makeImage('custom_design_asset_first'),
+    id: 'custom_design_image_first',
+    fileName: 'first-page.png',
+    interactiveAreas: [],
+  };
+  const second = {
+    ...makeImage('custom_design_asset_second'),
+    id: 'custom_design_image_second',
+    fileName: 'second-page.png',
+    interactiveAreas: [],
+  };
+  const document = documentWithCustomDesign(first);
+  const section = getStoredCustomDesign(document);
+  const next = {
+    ...document,
+    pages: document.pages.map(page => ({
+      ...page,
+      sections: page.sections.map(candidate => candidate.id === section.id
+        ? {
+            ...candidate,
+            settings: {
+              ...section.settings,
+              images: [first, second],
+            },
+          }
+        : candidate),
+    })),
+  } as SiteBuilderDocument;
+  window.localStorage.setItem(SITE_BUILDER_STORAGE_KEY, JSON.stringify(next));
+  return {
+    document: next,
+    imageIds: [first.id, second.id],
+    sectionId: section.id,
+  };
+}
+
+async function openStoredCustomDesignSettings(
+  user: ReturnType<typeof userEvent.setup>,
+): Promise<HTMLElement> {
+  await screen.findByRole('heading', { level: 1, name: 'Home' });
+  const card = await screen.findByRole('listitem', { name: /Custom Design/ });
+  const select = within(card).getByRole('button', { name: /Custom Design/ });
+  await user.click(select);
+  await new Promise(resolve => window.setTimeout(resolve, 0));
+  if (card.getAttribute('data-selected') !== 'true') await user.click(select);
+  await waitFor(() => expect(card).toHaveAttribute('data-selected', 'true'));
+  const toolbar = await screen.findByTestId('selected-section-toolbar');
+  await user.click(within(toolbar).getByRole('button', { name: 'Edit' }));
+  return screen.findByRole('dialog', { name: /Custom Design(?: settings)?$/ });
+}
+
 function renderPreview(
   document: SiteBuilderDocument,
   repository: AssetRepository,
@@ -322,6 +380,19 @@ describe('Custom Design universal App integration', () => {
     await user.click(within(settings).getByRole('button', {
       name: 'Close Custom Design settings',
     }));
+    await waitFor(() => {
+      expect(customDesign).toHaveAttribute('data-selected', 'true');
+      expect(Element.prototype.scrollIntoView).toHaveBeenLastCalledWith({
+        behavior: 'auto',
+        block: 'start',
+      });
+      const activeElement = document.activeElement;
+      expect(
+        activeElement === customDesign.querySelector('.section-card__select-surface')
+        || activeElement?.getAttribute('data-custom-design-settings-trigger-for')
+          === customDesign.getAttribute('data-section-instance-id'),
+      ).toBe(true);
+    });
     await user.click(screen.getByRole('button', { name: 'Preview' }));
     expect(await screen.findByTestId('preview-stage')).toBeVisible();
     expect(screen.queryByTestId('custom-design-customer-renderer')).not.toBeInTheDocument();
@@ -423,6 +494,278 @@ describe('Custom Design universal App integration', () => {
         .toMatch(/^blob:https:\/\/luster\.test\/custom-/u);
     });
     expect(within(reloaded).queryByText(/isn’t available in this browser/)).not.toBeInTheDocument();
+  });
+
+  it('warns for a dirty desktop page order and supports Keep, Discard, Save, Undo, and Redo', async () => {
+    const { imageIds } = storedDocumentWithTwoCustomDesignPages();
+    const user = userEvent.setup();
+    render(<App />);
+    let settings = await openStoredCustomDesignSettings(user);
+    await user.click(within(settings).getByRole('radio', { name: /Contained/ }));
+    await waitFor(() => {
+      expect(getStoredCustomDesign(readStoredDocument()).settings.displayMode)
+        .toBe('contained');
+    });
+
+    await user.click(within(settings).getByRole('button', { name: 'Move page 1 down' }));
+    within(settings).getByRole('button', { name: 'Save order' }).focus();
+    fireEvent.keyDown(document, { key: 'Escape' });
+    let warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+    await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
+    settings = screen.getByRole('dialog', { name: 'Custom Design settings' });
+    await user.click(within(settings).getByRole('button', {
+      name: 'Close Custom Design settings',
+    }));
+    warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+    expect(within(warning).getByText('UNSAVED IMAGE ORDER')).toBeVisible();
+    await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
+    settings = screen.getByRole('dialog', { name: 'Custom Design settings' });
+    expect(settings.querySelectorAll('[data-image-item-id]')[0])
+      .toHaveAttribute('data-image-item-id', imageIds[1]);
+
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+    warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+    expect(screen.queryByRole('button', { name: 'Back to editor' })).not.toBeInTheDocument();
+    await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
+    settings = screen.getByRole('dialog', { name: 'Custom Design settings' });
+    expect(settings.querySelectorAll('[data-image-item-id]')[0])
+      .toHaveAttribute('data-image-item-id', imageIds[1]);
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+    expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
+      .toEqual(imageIds);
+    await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
+    settings = screen.getByRole('dialog', { name: 'Custom Design settings' });
+
+    await user.click(within(settings).getByRole('button', {
+      name: 'Close Custom Design settings',
+    }));
+    warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+    await user.click(within(warning).getByRole('button', { name: 'Discard changes' }));
+    expect(screen.queryByRole('dialog', { name: 'Custom Design settings' }))
+      .not.toBeInTheDocument();
+    expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
+      .toEqual(imageIds);
+
+    settings = await openStoredCustomDesignSettings(user);
+    await user.click(within(settings).getByRole('button', { name: 'Move page 1 down' }));
+    await user.click(within(settings).getByRole('button', {
+      name: 'Close Custom Design settings',
+    }));
+    warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+    await user.dblClick(within(warning).getByRole('button', { name: 'Save order' }));
+    await waitFor(() => {
+      expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
+        .toEqual([imageIds[1], imageIds[0]]);
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => {
+      expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
+        .toEqual(imageIds);
+    });
+    await user.click(screen.getByRole('button', { name: 'Redo' }));
+    await waitFor(() => {
+      expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
+        .toEqual([imageIds[1], imageIds[0]]);
+    });
+  });
+
+  it('uses the dirty warning for mobile Escape and backdrop, but not after returning to baseline', async () => {
+    installViewport('mobile');
+    storedDocumentWithTwoCustomDesignPages();
+    const user = userEvent.setup();
+    render(<App />);
+    let settings = await openStoredCustomDesignSettings(user);
+
+    await user.click(within(settings).getByRole('button', { name: 'Move page 1 down' }));
+    fireEvent.keyDown(document, { key: 'Escape' });
+    let warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+    await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
+    settings = screen.getByRole('dialog', { name: /^Custom Design$/ });
+    const settingsBackdrop = settings.parentElement;
+    if (!settingsBackdrop) throw new Error('The mobile settings backdrop is unavailable.');
+    fireEvent.mouseDown(settingsBackdrop);
+    warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+    await user.click(within(warning).getByRole('button', { name: 'Keep editing' }));
+
+    settings = screen.getByRole('dialog', { name: /^Custom Design$/ });
+    await user.click(within(settings).getByRole('button', { name: 'Close Custom Design' }));
+    warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+    await user.click(within(warning).getByRole('button', { name: 'Discard changes' }));
+
+    settings = await openStoredCustomDesignSettings(user);
+    await user.click(within(settings).getByRole('button', { name: 'Move page 1 down' }));
+    await user.click(within(settings).getByRole('button', { name: 'Close Custom Design' }));
+    warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+    await user.click(within(warning).getByRole('button', { name: 'Save order' }));
+    await waitFor(() => {
+      expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
+        .toEqual(['custom_design_image_second', 'custom_design_image_first']);
+    });
+
+    settings = await openStoredCustomDesignSettings(user);
+    await user.click(within(settings).getByRole('button', { name: 'Move page 1 down' }));
+    await user.click(within(settings).getByRole('button', { name: 'Move page 2 up' }));
+    await user.click(within(settings).getByRole('button', { name: 'Close Custom Design' }));
+    expect(screen.queryByRole('dialog', { name: 'Save this page order?' }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: /^Custom Design$/ }))
+      .not.toBeInTheDocument();
+  });
+
+  it('reloads the committed baseline before Save and the saved order after Save', async () => {
+    const { imageIds } = storedDocumentWithTwoCustomDesignPages();
+    const user = userEvent.setup();
+    const firstView = render(<App />);
+    let settings = await openStoredCustomDesignSettings(user);
+    await user.click(within(settings).getByRole('button', { name: 'Move page 1 down' }));
+    expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
+      .toEqual(imageIds);
+
+    firstView.unmount();
+    const reloadedBeforeSave = render(<App />);
+    settings = await openStoredCustomDesignSettings(user);
+    expect(settings.querySelectorAll('[data-image-item-id]')[0])
+      .toHaveAttribute('data-image-item-id', imageIds[0]);
+    await user.click(within(settings).getByRole('button', { name: 'Move page 1 down' }));
+    await user.click(within(settings).getByRole('button', {
+      name: 'Close Custom Design settings',
+    }));
+    const warning = await screen.findByRole('dialog', { name: 'Save this page order?' });
+    await user.click(within(warning).getByRole('button', { name: 'Save order' }));
+    await waitFor(() => {
+      expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
+        .toEqual([imageIds[1], imageIds[0]]);
+    });
+
+    reloadedBeforeSave.unmount();
+    render(<App />);
+    settings = await openStoredCustomDesignSettings(user);
+    expect(settings.querySelectorAll('[data-image-item-id]')[0])
+      .toHaveAttribute('data-image-item-id', imageIds[1]);
+  });
+
+  it('restores an exact removed Custom Design from the section library without creating another', async () => {
+    const { document, sectionId } = storedDocumentWithTwoCustomDesignPages();
+    const removed = removeSection(document, sectionId);
+    const original = removed.unusedSections.find(section => section.id === sectionId);
+    if (original?.sectionType !== 'custom_design') {
+      throw new Error('The removed Custom Design fixture is unavailable.');
+    }
+    window.localStorage.setItem(SITE_BUILDER_STORAGE_KEY, JSON.stringify(removed));
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByTestId('final-hybrid-editor');
+    await user.click(screen.getByRole('button', { name: 'Add section at bottom of Home' }));
+    const library = await screen.findByRole('dialog', { name: 'Add section' });
+    expect(within(library).getByRole('button', { name: 'Restore removed Custom Design' }))
+      .toBeVisible();
+    expect(within(library).getByRole('button', { name: 'Add another Custom Design' }))
+      .toBeVisible();
+    await user.click(within(library).getByRole('button', {
+      name: 'Restore removed Custom Design',
+    }));
+
+    const restored = await screen.findByRole('listitem', { name: /Custom Design/ });
+    expect(restored).toHaveAttribute('data-section-instance-id', sectionId);
+    await waitFor(() => {
+      const stored = getStoredCustomDesign(readStoredDocument());
+      expect({ ...stored, order: original.order }).toEqual(original);
+      expect(readStoredDocument().unusedSections).toHaveLength(0);
+    });
+  });
+
+  it('lists multiple removed Custom Designs and restores the chosen stable ID with Undo/Redo', async () => {
+    const { document: firstDocument, sectionId: firstSectionId } =
+      storedDocumentWithTwoCustomDesignPages();
+    const home = firstDocument.pages[0];
+    if (!home) throw new Error('The Home fixture is unavailable.');
+    const secondImage = {
+      ...makeImage('custom_design_asset_removed_second'),
+      id: 'custom_design_image_removed_second',
+      fileName: 'second-removed-policy.png',
+    };
+    const secondSection: CustomDesignSectionInstance = {
+      id: 'section_custom_design_removed_second',
+      label: 'Custom Design',
+      order: home.sections.length,
+      sectionType: 'custom_design',
+      settings: {
+        ...createDefaultCustomDesignSettings(),
+        background: { mode: 'custom', color: '#F4E6F0' },
+        cta: {
+          type: 'custom',
+          label: 'Email the studio',
+          action: {
+            type: 'email',
+            destination: { email: 'owner@example.com' },
+          },
+          placement: { type: 'after_image', imageItemId: secondImage.id },
+        },
+        images: [secondImage],
+      },
+      visible: false,
+    };
+    const withTwo = {
+      ...firstDocument,
+      pages: [{
+        ...home,
+        sections: [
+          ...home.sections,
+          secondSection,
+        ].map((section, order) => ({ ...section, order })),
+      }],
+    } as SiteBuilderDocument;
+    const bothRemoved = removeSection(
+      removeSection(withTwo, firstSectionId),
+      secondSection.id,
+    );
+    window.localStorage.setItem(SITE_BUILDER_STORAGE_KEY, JSON.stringify(bothRemoved));
+    const exactRemoved = bothRemoved.unusedSections.find(
+      section => section.id === secondSection.id,
+    );
+    if (exactRemoved?.sectionType !== 'custom_design') {
+      throw new Error('The second removed Custom Design is unavailable.');
+    }
+
+    const user = userEvent.setup();
+    render(<App />);
+    await screen.findByTestId('final-hybrid-editor');
+    await user.click(screen.getByRole('button', { name: 'Add section at bottom of Home' }));
+    const library = await screen.findByRole('dialog', { name: 'Add section' });
+    expect(within(library).getAllByRole('button', {
+      name: /Restore removed Custom Design \d of 2/,
+    })).toHaveLength(2);
+    await user.click(within(library).getByRole('button', {
+      name: 'Restore removed Custom Design 2 of 2, 1 image',
+    }));
+    await waitFor(() => {
+      const stored = readStoredDocument();
+      expect(getStoredCustomDesign(stored).id).toBe(secondSection.id);
+      expect(stored.unusedSections.map(section => section.id)).toEqual([firstSectionId]);
+    });
+    expect(getStoredCustomDesign(readStoredDocument())).toEqual({
+      ...exactRemoved,
+      order: 3,
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Undo' }));
+    await waitFor(() => {
+      const stored = readStoredDocument();
+      expect(stored.pages.flatMap(page => page.sections).some(
+        section => section.id === secondSection.id,
+      )).toBe(false);
+      expect(stored.unusedSections.map(section => section.id)).toEqual([
+        firstSectionId,
+        secondSection.id,
+      ]);
+    });
+    await user.click(screen.getByRole('button', { name: 'Redo' }));
+    await waitFor(() => {
+      expect(getStoredCustomDesign(readStoredDocument()).id).toBe(secondSection.id);
+    });
   });
 });
 

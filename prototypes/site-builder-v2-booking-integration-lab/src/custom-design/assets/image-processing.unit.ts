@@ -411,7 +411,11 @@ describe('custom design image processing', () => {
 
   it('applies the remaining image capacity incrementally in a batch', async () => {
     const result = await processImageBatch(
-      [makeFile('image/png', 'first.png'), makeFile('image/png', 'second.png')],
+      [
+        makeFile('image/png', 'first.png'),
+        makeFile('image/png', 'second.png'),
+        makeFile('image/png', 'third.png'),
+      ],
       {
         createAssetId: (_file, index) => `limited-${index}`,
         currentImageCount: CUSTOM_DESIGN_MAX_IMAGES - 1,
@@ -421,6 +425,52 @@ describe('custom design image processing', () => {
       },
     );
     expect(result.accepted).toHaveLength(1);
-    expect(result.rejected).toMatchObject([{ code: 'too_many_images', index: 1 }]);
+    expect(result.rejected).toMatchObject([
+      { code: 'too_many_images', index: 1 },
+      { code: 'too_many_images', index: 2 },
+    ]);
+  });
+
+  it('keeps corrupt-file and capacity-overflow reasons distinct in one batch', async () => {
+    const corrupt = new File([new Uint8Array([1, 2, 3])], 'corrupt.png', {
+      type: 'image/png',
+    });
+    const result = await processImageBatch(
+      [
+        corrupt,
+        makeFile('image/png', 'fills-final-slot.png'),
+        makeFile('image/png', 'over-capacity.png'),
+      ],
+      {
+        createAssetId: (_file, index) => `mixed-${index}`,
+        currentImageCount: CUSTOM_DESIGN_MAX_IMAGES - 1,
+        currentSectionBytes: 0,
+        decodeImage: decodePortrait,
+        generateThumbnail: noThumbnail,
+      },
+    );
+    expect(result.accepted).toHaveLength(1);
+    expect(result.rejected).toMatchObject([
+      { code: 'corrupt_image', index: 0 },
+      { code: 'too_many_images', index: 2 },
+    ]);
+  });
+
+  it('rejects every selected image with the capacity reason when already full', async () => {
+    const result = await processImageBatch(
+      [makeFile('image/png', 'first.png'), makeFile('image/png', 'second.png')],
+      {
+        createAssetId: (_file, index) => `full-${index}`,
+        currentImageCount: CUSTOM_DESIGN_MAX_IMAGES,
+        currentSectionBytes: 0,
+        decodeImage: decodePortrait,
+        generateThumbnail: noThumbnail,
+      },
+    );
+    expect(result.accepted).toHaveLength(0);
+    expect(result.rejected).toMatchObject([
+      { code: 'too_many_images', index: 0 },
+      { code: 'too_many_images', index: 1 },
+    ]);
   });
 });

@@ -11,6 +11,7 @@ import {
   collectCustomDesignAssetIds,
   collectReachableCustomDesignAssetIds,
   createHistoryState,
+  redoHistory,
   undoHistory,
 } from './history';
 import { createDeterministicIdFactory } from './ids';
@@ -138,6 +139,87 @@ describe('universal Custom Design section model', () => {
       id: added.section.id,
       visible: false,
     });
+  });
+
+  it('restores rich Custom Design metadata exactly and Undo/Redo treats Restore as one entry', () => {
+    const initial = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('rich-restore-base'),
+    });
+    const added = addCustomDesign(initial, 'rich-restore');
+    const poster = image('rich-poster', {
+      altText: 'A detailed appointment policy poster',
+      accessibleSummary: 'Deposits are required and appointments begin on time.',
+      interactiveAreas: [{
+        id: 'area_rich_instagram',
+        accessibleLabel: 'Follow Luster on Instagram',
+        action: {
+          type: 'instagram',
+          destination: { username: 'lusternails' },
+        },
+        geometry: { x: 8, y: 72, width: 36, height: 12 },
+        labelConfirmed: true,
+        reviewReason: 'aspect_ratio_changed',
+        reviewStatus: 'needs_review',
+        semanticOrder: 0,
+        validationStatus: 'valid',
+      }],
+    });
+    const richSettings: CustomDesignSettings = {
+      ...createDefaultCustomDesignSettings(),
+      background: { mode: 'custom', color: '#F4E6F0' },
+      cta: {
+        type: 'custom',
+        label: 'Email the studio',
+        action: {
+          type: 'email',
+          destination: { email: 'owner@example.com', subject: 'Appointment question' },
+        },
+        placement: { type: 'after_image', imageItemId: poster.id },
+      },
+      displayMode: 'full_width',
+      gap: 'small',
+      images: [poster],
+    };
+    const configured = updateCustomDesignSectionSettings(
+      added.document,
+      added.section.id,
+      richSettings,
+    );
+    const hidden = setSectionVisible(configured, added.section.id, false);
+    const original = hidden.pages[0]?.sections.find(
+      section => section.id === added.section.id,
+    );
+    if (original?.sectionType !== 'custom_design') {
+      throw new Error('Missing configured Custom Design.');
+    }
+    const removed = removeSection(hidden, added.section.id);
+    let history = createHistoryState(removed);
+    history = applyHistoryCommand(history, {
+      type: 'restore_section',
+      sectionId: original.id,
+      pageId: removed.pages[0]!.id,
+      position: original.order + 1,
+    });
+    expect(history.past).toHaveLength(1);
+    const restored = history.present.pages[0]?.sections.find(
+      section => section.id === original.id,
+    );
+    expect(restored).toEqual(original);
+    expect(collectCustomDesignAssetIds(history.present)).toEqual(
+      new Set([poster.assetId]),
+    );
+
+    history = undoHistory(history);
+    expect(history.present.unusedSections).toContainEqual({
+      ...original,
+      order: 0,
+    });
+    expect(history.present.pages[0]?.sections.some(section => section.id === original.id))
+      .toBe(false);
+    history = redoHistory(history);
+    expect(history.present.pages[0]?.sections).toContainEqual(original);
+    expect(history.present.unusedSections.some(section => section.id === original.id))
+      .toBe(false);
   });
 
   it('preserves Custom Design through cross-page move and page restoration', () => {

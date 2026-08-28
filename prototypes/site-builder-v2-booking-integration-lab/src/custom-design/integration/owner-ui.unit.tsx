@@ -240,6 +240,45 @@ describe('ActionEditor structured actions', () => {
 });
 
 describe('CustomDesignOwnerEditor', () => {
+  it('exposes typed values for every native display, spacing, and background radio', () => {
+    installBrowserStubs();
+    render(
+      <CustomDesignOwnerEditor
+        assets={assets}
+        onAddImages={vi.fn()}
+        onCommitImageOrder={vi.fn()}
+        onEditAreas={vi.fn()}
+        onRemoveImage={vi.fn()}
+        onReplaceImage={vi.fn()}
+        onUpdateAccessibility={vi.fn()}
+        onUpdateBackground={vi.fn()}
+        onUpdateCta={vi.fn()}
+        onUpdateDisplay={vi.fn()}
+        onUpdateGap={vi.fn()}
+        settings={makeSettings({ images: [makeImage('page-1')] })}
+      />,
+    );
+
+    const valuesByName = new Map(
+      screen.getAllByRole<HTMLInputElement>('radio').map(radio => [
+        radio.getAttribute('aria-label') ?? radio.parentElement?.textContent?.trim(),
+        radio.value,
+      ]),
+    );
+    expect([...valuesByName.values()]).toEqual([
+      'poster',
+      'contained',
+      'full_width',
+      'seamless',
+      'small',
+      'comfortable',
+      'site',
+      'transparent',
+      'custom',
+    ]);
+    expect([...valuesByName.values()]).not.toContain('on');
+  });
+
   it('keeps reorder changes local until Save order and exposes complete row metadata', async () => {
     installBrowserStubs();
     const user = userEvent.setup();
@@ -374,12 +413,155 @@ describe('HotspotEditor bounded session', () => {
         open
       />,
     );
-    expect(screen.getByText('Clickable areas cannot overlap.')).toBeVisible();
+    expect(screen.getByText(
+      'Book this service overlaps Directions. Move or resize one area.',
+    )).toBeVisible();
     expect(screen.getByText(/still needs its position reviewed/)).toBeVisible();
     expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'Approve this position' }));
     expect(screen.queryByText(/still needs its position reviewed/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
+  });
+
+  it('gates the documented near-full rectangle while allowing the boundary below it', () => {
+    installBrowserStubs();
+    const onCommit = vi.fn();
+    const { rerender } = render(
+      <HotspotEditor
+        asset={assets['asset-page-1']}
+        image={makeImage('page-2', {
+          interactiveAreas: [makeArea('area-full', {
+            geometry: { x: 0, y: 0, width: 95, height: 95 },
+          })],
+        })}
+        onCancel={vi.fn()}
+        onCommit={onCommit}
+        open
+      />,
+    );
+    expect(screen.getByText(
+      'Book this service cannot cover nearly the whole image.',
+    )).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
+
+    rerender(
+      <HotspotEditor
+        asset={assets['asset-page-1']}
+        image={makeImage('page-1', {
+          interactiveAreas: [makeArea('area-safe-boundary', {
+            geometry: { x: 0, y: 0, width: 94.99, height: 100 },
+          })],
+        })}
+        onCancel={vi.fn()}
+        onCommit={onCommit}
+        open
+      />,
+    );
+    expect(screen.queryByText(/cannot cover nearly the whole image/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
+  });
+
+  it('stages a resize that becomes unsafe, blocks Done, and permits an explicit fix', async () => {
+    installBrowserStubs();
+    const user = userEvent.setup();
+    const onCommit = vi.fn();
+    const rect = {
+      bottom: 100,
+      height: 100,
+      left: 0,
+      right: 100,
+      top: 0,
+      width: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    };
+    vi.spyOn(HTMLImageElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue(rect as DOMRect);
+    render(
+      <HotspotEditor
+        asset={assets['asset-page-1']}
+        image={makeImage('page-1', {
+          interactiveAreas: [makeArea('area-resize', {
+            geometry: { x: 0, y: 0, width: 94, height: 94 },
+          })],
+        })}
+        onCancel={vi.fn()}
+        onCommit={onCommit}
+        open
+      />,
+    );
+    fireEvent.load(screen.getByRole('img', { name: 'Design being edited' }));
+    expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
+
+    await user.click(screen.getByRole('button', { name: 'Make Book this service wider' }));
+    await user.click(screen.getByRole('button', { name: 'Make Book this service taller' }));
+    expect(screen.getByText(
+      'Book this service cannot cover nearly the whole image.',
+    )).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
+    expect(onCommit).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole('button', { name: 'Make Book this service shorter' }));
+    expect(screen.queryByText(/cannot cover nearly the whole image/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    expect(onCommit).toHaveBeenCalledTimes(1);
+  });
+
+  it('stages an overlapping keyboard move and accepts exact edge contact after correction', () => {
+    installBrowserStubs();
+    const onCommit = vi.fn();
+    const rect = {
+      bottom: 100,
+      height: 100,
+      left: 0,
+      right: 100,
+      top: 0,
+      width: 100,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    };
+    vi.spyOn(HTMLImageElement.prototype, 'getBoundingClientRect')
+      .mockReturnValue(rect as DOMRect);
+    render(
+      <HotspotEditor
+        asset={assets['asset-page-1']}
+        image={makeImage('page-1', {
+          interactiveAreas: [
+            makeArea('area-first', {
+              accessibleLabel: 'First action',
+              geometry: { x: 0, y: 0, width: 20, height: 20 },
+            }),
+            makeArea('area-second', {
+              accessibleLabel: 'Second action',
+              geometry: { x: 30, y: 0, width: 20, height: 20 },
+              semanticOrder: 1,
+            }),
+          ],
+        })}
+        onCancel={vi.fn()}
+        onCommit={onCommit}
+        open
+      />,
+    );
+    fireEvent.load(screen.getByRole('img', { name: 'Design being edited' }));
+    const moveFirst = screen.getByRole('button', {
+      name: 'Move clickable area: First action',
+    });
+    for (let index = 0; index < 11; index += 1) {
+      fireEvent.keyDown(moveFirst, { key: 'ArrowRight' });
+    }
+    expect(screen.getByText(
+      'First action overlaps Second action. Move or resize one area.',
+    )).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled();
+    expect(onCommit).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(moveFirst, { key: 'ArrowLeft' });
+    expect(screen.queryByText(/First action overlaps Second action/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Done' })).toBeEnabled();
   });
 
   it('warns for the phone rendition without enlarging desktop geometry', async () => {

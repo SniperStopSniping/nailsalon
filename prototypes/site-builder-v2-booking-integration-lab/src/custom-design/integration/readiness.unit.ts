@@ -144,6 +144,27 @@ describe('integrated Custom Design readiness', () => {
       candidate.code === 'overlap')).toHaveLength(2);
   });
 
+  it('reports the shared near-full-image threshold and suppresses customer readiness', () => {
+    const settings = {
+      ...createDefaultCustomDesignSettings(),
+      images: [image({
+        interactiveAreas: [clickableArea({
+          geometry: { x: 0, y: 0, width: 95, height: 95 },
+        })],
+      })],
+    };
+    const readiness = getCustomDesignReadiness(settings, context());
+    expect(readiness.issues).toContainEqual(expect.objectContaining({
+      areaId: 'area-one',
+      code: 'unsafe_full_image_area',
+      imageItemId: 'image-one',
+      source: 'area',
+    }));
+    expect(
+      isCustomDesignAreaReadyForCustomer(readiness, 'image-one', 'area-one'),
+    ).toBe(false);
+  });
+
   it('requires the native Book now CTA to resolve a canonical Booking target', () => {
     const settings = {
       ...createDefaultCustomDesignSettings(),
