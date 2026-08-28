@@ -265,6 +265,15 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   font-style: normal;
 }
 
+.final-starter-preview__portrait {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  border: 1px solid rgba(71, 48, 51, 0.16);
+  border-radius: 50%;
+  object-fit: cover;
+}
+
 .final-starter-preview__nav {
   display: inline-flex;
   min-width: 0;

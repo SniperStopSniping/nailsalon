@@ -20,6 +20,7 @@ import type {
 export type LayoutRenderProps = {
   layout: BookingMenuLayout;
   fixture: MockMenuFixture;
+  headingLevel?: 'h1' | 'h2';
   settings: BookingSectionPresentationSettings;
   selection: BookingSelection;
   activeCategory: ServiceCategory | 'all';
@@ -31,6 +32,17 @@ export type LayoutRenderProps = {
 };
 
 type LayoutProps = Omit<LayoutRenderProps, 'layout'>;
+
+function BookingPageHeading({
+  children,
+  level = 'h1',
+}: {
+  children: ReactNode;
+  level?: 'h1' | 'h2';
+}) {
+  const Heading = level;
+  return <Heading className="booking-page-heading">{children}</Heading>;
+}
 
 type CategoryGroup = {
   category: CategoryDefinition;
@@ -340,7 +352,7 @@ export function VisualGridLayout(props: LayoutProps) {
               {monogramFor(fixture.salon.name)}
             </div>
             <div>
-              <h1>{fixture.salon.name}</h1>
+              <BookingPageHeading level={props.headingLevel}>{fixture.salon.name}</BookingPageHeading>
               <p>{fixture.salon.location}</p>
             </div>
           </div>
@@ -469,7 +481,7 @@ export function CleanListLayout(props: LayoutProps) {
       <header className="clean-header">
         <div className="clean-identity">
           <div>
-            <h1>{fixture.salon.name}</h1>
+            <BookingPageHeading level={props.headingLevel}>{fixture.salon.name}</BookingPageHeading>
             <p>{fixture.salon.tagline}</p>
           </div>
           <span className="clean-service-count">{serviceCountLabel(filtered.length)}</span>
@@ -576,7 +588,7 @@ export function EditorialCardsLayout(props: LayoutProps) {
             {' '}
             · Nail atelier
           </small>
-          <h1>{fixture.salon.name}</h1>
+          <BookingPageHeading level={props.headingLevel}>{fixture.salon.name}</BookingPageHeading>
           <p>{fixture.salon.tagline}</p>
         </div>
       </header>
@@ -752,7 +764,7 @@ export function CategoryMenuLayout(props: LayoutProps) {
           <span>{fixture.salon.location}</span>
         </div>
         <div>
-          <h1>Services</h1>
+          <BookingPageHeading level={props.headingLevel}>Services</BookingPageHeading>
           <p>Navigate the studio menu by category, then choose the service that fits.</p>
         </div>
         <SearchField query={query} readOnly={props.readOnly} onQueryChange={props.onQueryChange} />
@@ -911,7 +923,7 @@ export function EditorialPriceListLayout(props: LayoutProps) {
           {' '}
           · Service menu
         </small>
-        <h1>{fixture.salon.name}</h1>
+        <BookingPageHeading level={props.headingLevel}>{fixture.salon.name}</BookingPageHeading>
         <p>{fixture.salon.tagline}</p>
       </header>
 
