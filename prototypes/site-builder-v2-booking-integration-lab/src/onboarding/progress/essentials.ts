@@ -1,0 +1,131 @@
+import type {
+  OnboardingLabState,
+  OnboardingScreenId,
+  OnboardingStage,
+} from '../model/types';
+
+export const ESSENTIAL_IDS = [
+  'business',
+  'location_contact',
+  'booking_preferences',
+  'starting_point',
+  'site_style',
+] as const;
+
+export type EssentialId = (typeof ESSENTIAL_IDS)[number];
+
+export type EssentialResult = {
+  complete: boolean;
+  id: EssentialId;
+  label: string;
+  screen: OnboardingScreenId;
+  stage: OnboardingStage;
+};
+
+const nonBlank = (value: string): boolean => value.trim().length > 0;
+
+export const hasPublicContactMethod = (state: OnboardingLabState): boolean => {
+  const { profile } = state;
+  return profile.bookingOnlyContact || [
+    profile.phone,
+    profile.textPhone,
+    profile.email,
+    profile.instagram,
+  ].some(nonBlank);
+};
+
+export const getEssentialResults = (
+  state: OnboardingLabState,
+): EssentialResult[] => [
+  {
+    complete: nonBlank(state.profile.businessName)
+      && nonBlank(state.profile.ownerName)
+      && state.profile.businessType !== null,
+    id: 'business',
+    label: 'Business information',
+    screen: 'business',
+    stage: 'basics',
+  },
+  {
+    complete: nonBlank(state.profile.location.cityOrArea)
+      && hasPublicContactMethod(state),
+    id: 'location_contact',
+    label: 'Location and contact',
+    screen: 'location_contact',
+    stage: 'basics',
+  },
+  {
+    complete: state.profile.bookingPreferences.visitMode !== null
+      && state.profile.bookingPreferences.newClientStatus !== null,
+    id: 'booking_preferences',
+    label: 'Booking preferences',
+    screen: 'booking_preferences',
+    stage: 'booking',
+  },
+  {
+    complete: state.recipe.starter !== null
+      && nonBlank(state.recipe.starterDocumentSiteId ?? ''),
+    id: 'starting_point',
+    label: 'Starting point',
+    screen: 'starter',
+    stage: 'booking',
+  },
+  {
+    complete: state.recipe.styleConfirmed,
+    id: 'site_style',
+    label: 'Site style',
+    screen: 'site_style',
+    stage: 'design',
+  },
+];
+
+export const getCompletedEssentialIds = (
+  state: OnboardingLabState,
+): EssentialId[] => getEssentialResults(state)
+  .filter((essential) => essential.complete)
+  .map((essential) => essential.id);
+
+export const getIncompleteEssentials = (
+  state: OnboardingLabState,
+): EssentialResult[] => getEssentialResults(state)
+  .filter((essential) => !essential.complete);
+
+export const getEssentialsLeft = (state: OnboardingLabState): number =>
+  getIncompleteEssentials(state).length;
+
+export const getEssentialsMessage = (state: OnboardingLabState): string => {
+  const count = getEssentialsLeft(state);
+  if (count === 0) {
+    return 'All essentials complete';
+  }
+  return `${count} ${count === 1 ? 'essential' : 'essentials'} left`;
+};
+
+export const getFirstIncompleteEssentialScreen = (
+  state: OnboardingLabState,
+): OnboardingScreenId | null => getIncompleteEssentials(state)[0]?.screen ?? null;
+
+export const getStageEssentialProgress = (
+  state: OnboardingLabState,
+  stage: OnboardingStage,
+): { complete: number; total: number; stageComplete: boolean } => {
+  const essentials = getEssentialResults(state).filter(
+    (essential) => essential.stage === stage,
+  );
+  const complete = essentials.filter((essential) => essential.complete).length;
+  return {
+    complete,
+    stageComplete: essentials.length === 0
+      ? stage === 'review' && getEssentialsLeft(state) === 0
+      : complete === essentials.length,
+    total: essentials.length,
+  };
+};
+
+export const getCompletedEssentialStages = (
+  state: OnboardingLabState,
+): OnboardingStage[] => (['basics', 'booking', 'design', 'review'] as const)
+  .filter((stage) => getStageEssentialProgress(state, stage).stageComplete);
+
+export const canOpenBuilder = (state: OnboardingLabState): boolean =>
+  getEssentialsLeft(state) === 0;
