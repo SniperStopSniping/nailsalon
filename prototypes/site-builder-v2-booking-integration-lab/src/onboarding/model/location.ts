@@ -1,9 +1,17 @@
+import { resolveCustomDesignAction } from '../../custom-design/model/actions';
 import type { LocationDraft } from './types';
 
 export type PublicLocationPreview = {
   detail: string | null;
   directionsTarget: string | null;
   primary: string;
+};
+
+export type PublicDirectionsAction = {
+  accessibleLabel: string;
+  href: string;
+  rel: 'noopener noreferrer';
+  target: '_blank';
 };
 
 export const getPublicLocationPreview = (
@@ -36,5 +44,28 @@ export const getPublicLocationPreview = (
       ? area
       : null,
     primary: area,
+  };
+};
+
+/** Resolves Directions through the same validated customer-action path as Custom Design. */
+export const getPublicDirectionsAction = (
+  location: LocationDraft,
+): PublicDirectionsAction | null => {
+  const target = getPublicLocationPreview(location).directionsTarget;
+  if (!target) return null;
+  const resolution = resolveCustomDesignAction({
+    destination: { address: target },
+    type: 'directions',
+  });
+  if (
+    resolution.status !== 'resolved'
+    || resolution.target !== '_blank'
+    || resolution.rel !== 'noopener noreferrer'
+  ) return null;
+  return {
+    accessibleLabel: `Directions to ${target}`,
+    href: resolution.href,
+    rel: resolution.rel,
+    target: resolution.target,
   };
 };

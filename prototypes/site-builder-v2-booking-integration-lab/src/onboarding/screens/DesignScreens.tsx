@@ -8,14 +8,17 @@ import {
 } from 'lucide-react';
 import {
   useId,
+  useEffect,
   useRef,
   useState,
   type CSSProperties,
   type KeyboardEvent,
   type ReactNode,
 } from 'react';
+import { flushSync } from 'react-dom';
 
 import type { SiteBuilderDocument } from '../../model/types';
+import { Dialog } from '../../ui/Dialog';
 import {
   ChoiceGroup,
   NativeSwitch,
@@ -28,6 +31,7 @@ import { SCREEN_METADATA } from '../copy';
 import { recordOnboardingEvent } from '../events/journal';
 import {
   buildAboutWordingSuggestion,
+  aboutPresetSupportsElement,
   formatAboutListInput,
   parseAboutListInput,
 } from '../model/about';
@@ -35,6 +39,7 @@ import {
   deriveDepositPolicySummary,
   derivePolicySuggestedWording,
   getDepositPolicyMode,
+  getResolvedPolicyWording,
   refreshPolicySuggestedWording,
   updateDepositPolicyMode,
   type DepositPolicyMode,
@@ -128,11 +133,6 @@ const updateProfile = (
   update: (profile: BusinessProfileDraft) => BusinessProfileDraft,
 ): OnboardingLabState => ({ ...current, profile: update(current.profile) });
 
-const commaList = (value: string): string[] => value
-  .split(',')
-  .map((item) => item.trim())
-  .filter(Boolean);
-
 const sameStringList = (left: readonly string[], right: readonly string[]): boolean =>
   left.length === right.length && left.every((value, index) => value === right[index]);
 
@@ -152,20 +152,31 @@ function AboutVisibilityControls({ onUpdate, state }: Pick<SharedScreenProps, 'o
     <details className="onboarding-content-disclosure">
       <summary>Content shown on your site</summary>
       <div className="onboarding-content-toggle-grid">
-        {(Object.keys(ABOUT_ELEMENT_LABELS) as AboutElementId[]).map((id) => (
-          <NativeSwitch
-            checked={state.profile.about.visibility[id]}
-            key={id}
-            label={ABOUT_ELEMENT_LABELS[id]}
-            onChange={(checked) => onUpdate((current) => updateProfile(current, (profile) => ({
-              ...profile,
-              about: {
-                ...profile.about,
-                visibility: { ...profile.about.visibility, [id]: checked },
-              },
-            })))}
-          />
-        ))}
+        {(Object.keys(ABOUT_ELEMENT_LABELS) as AboutElementId[]).map((id) => {
+          const supportedByPreset = aboutPresetSupportsElement(state.recipe.aboutPreset, id);
+          const hiddenByContactPreference = id === 'instagram'
+            && state.profile.bookingOnlyContact;
+          return (
+            <NativeSwitch
+              checked={state.profile.about.visibility[id]}
+              description={hiddenByContactPreference
+                ? 'Not shown while clients use Booking only. Your Instagram is still saved.'
+                : supportedByPreset
+                  ? undefined
+                  : 'Not available in this design'}
+              disabled={!supportedByPreset || hiddenByContactPreference}
+              key={id}
+              label={ABOUT_ELEMENT_LABELS[id]}
+              onChange={(checked) => onUpdate((current) => updateProfile(current, (profile) => ({
+                ...profile,
+                about: {
+                  ...profile.about,
+                  visibility: { ...profile.about.visibility, [id]: checked },
+                },
+              })))}
+            />
+          );
+        })}
       </div>
     </details>
   );
@@ -174,26 +185,52 @@ function AboutVisibilityControls({ onUpdate, state }: Pick<SharedScreenProps, 'o
 export function AboutScreen({
   onBack,
   onContinue,
+  onFullPreview,
+  onWritingHelperOpenChange,
   onUpdate,
   state,
-}: SharedScreenProps & { onContinue: () => void }) {
+}: SharedScreenProps & {
+  onContinue: () => void;
+  onFullPreview: () => void;
+  onWritingHelperOpenChange?: (open: boolean) => void;
+}) {
   const { about } = state.profile;
   const helperSuggestionId = useId();
   const aboutDisabledMessageId = useId();
   const aboutFieldsRef = useRef<HTMLFieldSetElement>(null);
+  const helperTriggerRef = useRef<HTMLButtonElement>(null);
   const [certificationsInput, setCertificationsInput] = useState(() =>
     formatAboutListInput(about.certifications));
   const [languagesInput, setLanguagesInput] = useState(() =>
     formatAboutListInput(about.languages));
+  const [customSpecialtiesInput, setCustomSpecialtiesInput] = useState(() =>
+    formatAboutListInput(about.specialties.filter((item) =>
+      !SPECIALTY_OPTIONS.includes(item as typeof SPECIALTY_OPTIONS[number]))));
+  const certificationsInputRef = useRef(certificationsInput);
+  const languagesInputRef = useRef(languagesInput);
+  const customSpecialtiesInputRef = useRef(customSpecialtiesInput);
+  const certificationsDirtyRef = useRef(false);
+  const languagesDirtyRef = useRef(false);
+  const customSpecialtiesDirtyRef = useRef(false);
   const [writingSuggestion, setWritingSuggestion] = useState<string | null>(null);
   const [helperNotice, setHelperNotice] = useState<string | null>(null);
-  const [undoBio, setUndoBio] = useState<string | null>(null);
+  const [undoBio, setUndoBio] = useState<{ applied: string; before: string } | null>(null);
+
+  useEffect(() => () => onWritingHelperOpenChange?.(false), [onWritingHelperOpenChange]);
+
+  const focusShortBio = () => window.requestAnimationFrame(() => {
+    aboutFieldsRef.current
+      ?.querySelector<HTMLTextAreaElement>('[data-about-primary-control]')
+      ?.focus({ preventScroll: true });
+  });
 
   const commitListInput = (
     field: 'certifications' | 'languages',
     rawValue: string,
   ) => {
     const parsed = parseAboutListInput(rawValue);
+    if (field === 'certifications') certificationsDirtyRef.current = false;
+    else languagesDirtyRef.current = false;
     onUpdate((current) => {
       if (sameStringList(current.profile.about[field], parsed)) return current;
       return updateProfile(current, (profile) => ({
@@ -203,17 +240,67 @@ export function AboutScreen({
     });
   };
   const commitListInputs = () => {
-    const certifications = parseAboutListInput(certificationsInput);
-    const languages = parseAboutListInput(languagesInput);
-    if (
-      sameStringList(about.certifications, certifications)
-      && sameStringList(about.languages, languages)
-    ) return;
-    onUpdate((current) => updateProfile(current, (profile) => ({
-      ...profile,
-      about: { ...profile.about, certifications, languages },
-    })));
+    const certifications = parseAboutListInput(certificationsInputRef.current);
+    const languages = parseAboutListInput(languagesInputRef.current);
+    const customSpecialties = parseAboutListInput(customSpecialtiesInputRef.current);
+    certificationsDirtyRef.current = false;
+    languagesDirtyRef.current = false;
+    customSpecialtiesDirtyRef.current = false;
+    onUpdate((current) => {
+      const suggestedSpecialties = current.profile.about.specialties.filter((item) =>
+        SPECIALTY_OPTIONS.includes(item as typeof SPECIALTY_OPTIONS[number]));
+      const specialties = [...suggestedSpecialties, ...customSpecialties];
+      if (
+        sameStringList(current.profile.about.certifications, certifications)
+        && sameStringList(current.profile.about.languages, languages)
+        && sameStringList(current.profile.about.specialties, specialties)
+      ) return current;
+      return updateProfile(current, (profile) => ({
+        ...profile,
+        about: { ...profile.about, certifications, languages, specialties },
+      }));
+    });
   };
+  const commitCustomSpecialties = (rawValue: string) => {
+    const customSpecialties = parseAboutListInput(rawValue);
+    customSpecialtiesDirtyRef.current = false;
+    onUpdate((current) => {
+      const suggestedSpecialties = current.profile.about.specialties.filter((item) =>
+        SPECIALTY_OPTIONS.includes(item as typeof SPECIALTY_OPTIONS[number]));
+      const specialties = [...suggestedSpecialties, ...customSpecialties];
+      if (sameStringList(current.profile.about.specialties, specialties)) return current;
+      return updateProfile(current, (profile) => ({
+        ...profile,
+        about: { ...profile.about, specialties },
+      }));
+    });
+  };
+  useEffect(() => {
+    const commitPendingRawLists = () => {
+      if (
+        !certificationsDirtyRef.current
+        && !languagesDirtyRef.current
+        && !customSpecialtiesDirtyRef.current
+      ) return;
+      flushSync(commitListInputs);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') commitPendingRawLists();
+    };
+    window.addEventListener('pagehide', commitPendingRawLists);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', commitPendingRawLists);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      if (
+        certificationsDirtyRef.current
+        || languagesDirtyRef.current
+        || customSpecialtiesDirtyRef.current
+      ) {
+        commitListInputs();
+      }
+    };
+  }, []);
   const commitOnEnter = (
     event: KeyboardEvent<HTMLTextAreaElement>,
     field: 'certifications' | 'languages',
@@ -232,13 +319,15 @@ export function AboutScreen({
   const openWritingSuggestion = () => {
     setWritingSuggestion(buildAboutWordingSuggestion(state.profile));
     setHelperNotice(null);
+    onWritingHelperOpenChange?.(true);
     recordHelperAction('opened');
   };
   const useWritingSuggestion = () => {
     if (writingSuggestion === null) return;
     const suggestion = writingSuggestion;
-    setUndoBio(about.shortBio);
+    setUndoBio({ applied: suggestion, before: about.shortBio });
     setWritingSuggestion(null);
+    onWritingHelperOpenChange?.(false);
     setHelperNotice('Suggestion added to your short bio.');
     onUpdate((current) => recordOnboardingEvent(
       updateProfile(current, (profile) => ({
@@ -247,15 +336,22 @@ export function AboutScreen({
       })),
       { action: 'used', type: 'about_wording_helper' },
     ));
+    focusShortBio();
   };
   const keepExistingBio = () => {
     setWritingSuggestion(null);
+    onWritingHelperOpenChange?.(false);
     setHelperNotice('Your existing bio was kept unchanged.');
     recordHelperAction('kept');
   };
+  const closeWritingSuggestion = () => {
+    setWritingSuggestion(null);
+    onWritingHelperOpenChange?.(false);
+    setHelperNotice('Suggestion closed. Your bio was not changed.');
+  };
   const undoWritingSuggestion = () => {
-    if (undoBio === null) return;
-    const previousBio = undoBio;
+    if (undoBio === null || about.shortBio !== undoBio.applied) return;
+    const previousBio = undoBio.before;
     setUndoBio(null);
     setHelperNotice('Your previous bio was restored.');
     onUpdate((current) => recordOnboardingEvent(
@@ -265,6 +361,7 @@ export function AboutScreen({
       })),
       { action: 'undone', type: 'about_wording_helper' },
     ));
+    focusShortBio();
   };
   const setAboutEnabled = (checked: boolean) => {
     onUpdate((current) => ({
@@ -325,12 +422,20 @@ export function AboutScreen({
             maxLength={320}
             rows={4}
             value={about.shortBio}
-            onChange={(event) => onUpdate((current) => updateProfile(current, (profile) => ({
-              ...profile,
-              about: { ...profile.about, shortBio: event.target.value },
-            })))}
+            onChange={(event) => {
+              if (undoBio !== null) {
+                setUndoBio(null);
+                setHelperNotice('Your bio changed, so the earlier suggestion can no longer be undone.');
+              }
+              const shortBio = event.target.value;
+              onUpdate((current) => updateProfile(current, (profile) => ({
+                ...profile,
+                about: { ...profile.about, shortBio },
+              })));
+            }}
           />
           <button
+            ref={helperTriggerRef}
             aria-controls={helperSuggestionId}
             aria-expanded={writingSuggestion !== null}
             className="onboarding-prototype-helper"
@@ -339,38 +444,11 @@ export function AboutScreen({
           >
             <Sparkles aria-hidden="true" size={16} /> Help me with wording <span>Preview wording</span>
           </button>
-          {writingSuggestion !== null ? (
-            <section
-              aria-labelledby={`${helperSuggestionId}-heading`}
-              className="onboarding-writing-suggestion"
-              id={helperSuggestionId}
-            >
-              <header>
-                <span>WRITING SUGGESTION</span>
-                <h3 id={`${helperSuggestionId}-heading`}>Use this suggested bio?</h3>
-              </header>
-              {about.shortBio.trim() ? (
-                <div>
-                  <strong>Current bio</strong>
-                  <p>{about.shortBio}</p>
-                </div>
-              ) : null}
-              <div>
-                <strong>Suggested bio</strong>
-                <p>{writingSuggestion}</p>
-              </div>
-              <small>Your bio has not changed. Choose whether to use this suggestion.</small>
-              <div>
-                <button type="button" onClick={keepExistingBio}>Keep my bio</button>
-                <button className="is-primary" type="button" onClick={useWritingSuggestion}>Use suggestion</button>
-              </div>
-            </section>
-          ) : null}
           {helperNotice ? (
             <div className="onboarding-writing-suggestion__notice">
               <p aria-live="polite" role="status">{helperNotice}</p>
               {undoBio !== null ? (
-                <button type="button" onClick={undoWritingSuggestion}>Undo</button>
+                <button type="button" onClick={undoWritingSuggestion}>Undo suggestion</button>
               ) : null}
             </div>
           ) : null}
@@ -401,13 +479,18 @@ export function AboutScreen({
               aria-label="Custom specialties separated by commas"
               label="Custom"
               placeholder="E.g. structured gel, bridal nails"
-              value={about.specialties.filter((item) => !SPECIALTY_OPTIONS.includes(item as typeof SPECIALTY_OPTIONS[number])).join(', ')}
+              value={customSpecialtiesInput}
+              onBlur={() => commitCustomSpecialties(customSpecialtiesInput)}
               onChange={(event) => {
-                const suggested = about.specialties.filter((item) => SPECIALTY_OPTIONS.includes(item as typeof SPECIALTY_OPTIONS[number]));
-                onUpdate((current) => updateProfile(current, (profile) => ({
-                  ...profile,
-                  about: { ...profile.about, specialties: [...suggested, ...commaList(event.target.value)] },
-                })));
+                const rawValue = event.target.value;
+                customSpecialtiesInputRef.current = rawValue;
+                customSpecialtiesDirtyRef.current = true;
+                setCustomSpecialtiesInput(rawValue);
+              }}
+              onKeyUp={(event) => {
+                if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                  commitCustomSpecialties(customSpecialtiesInput);
+                }
               }}
             />
           </fieldset>
@@ -421,7 +504,7 @@ export function AboutScreen({
               })))}
             />
             <TextAreaField
-              hint="Use commas, semicolons, or new lines. Entries save as you type and finish cleanly on Enter, blur, or Continue."
+              hint="Use commas, semicolons, or new lines. Entries save when you press Enter, leave the field, or continue."
               label="Certifications — optional"
               placeholder="One per line, or separate with commas or semicolons"
               rows={3}
@@ -429,13 +512,14 @@ export function AboutScreen({
               onBlur={() => commitListInput('certifications', certificationsInput)}
               onChange={(event) => {
                 const rawValue = event.target.value;
+                certificationsInputRef.current = rawValue;
+                certificationsDirtyRef.current = true;
                 setCertificationsInput(rawValue);
-                commitListInput('certifications', rawValue);
               }}
               onKeyUp={(event) => commitOnEnter(event, 'certifications', certificationsInput)}
             />
             <TextAreaField
-              hint="Use commas, semicolons, or new lines. Entries save as you type and finish cleanly on Enter, blur, or Continue."
+              hint="Use commas, semicolons, or new lines. Entries save when you press Enter, leave the field, or continue."
               label="Languages — optional"
               placeholder="One per line, or separate with commas or semicolons"
               rows={3}
@@ -443,8 +527,9 @@ export function AboutScreen({
               onBlur={() => commitListInput('languages', languagesInput)}
               onChange={(event) => {
                 const rawValue = event.target.value;
+                languagesInputRef.current = rawValue;
+                languagesDirtyRef.current = true;
                 setLanguagesInput(rawValue);
-                commitListInput('languages', rawValue);
               }}
               onKeyUp={(event) => commitOnEnter(event, 'languages', languagesInput)}
             />
@@ -463,6 +548,9 @@ export function AboutScreen({
       </div>
       <aside className="onboarding-screen__preview">
         <OnboardingSitePreview document={null} label="About section live preview" state={state} />
+        <button className="onboarding-full-preview-button" type="button" onClick={onFullPreview}>
+          Open interactive preview
+        </button>
       </aside>
       <StickyOnboardingActions
         backLabel="Back"
@@ -473,6 +561,32 @@ export function AboutScreen({
           onContinue();
         }}
       />
+      <Dialog
+        description="Compare your current words with a first-person suggestion. Nothing changes until you choose Use suggestion."
+        initialFocusSelector="[data-dialog-title]"
+        onClose={closeWritingSuggestion}
+        open={writingSuggestion !== null}
+        title="Use this suggested bio?"
+      >
+        <section className="onboarding-writing-suggestion" id={helperSuggestionId}>
+          <p className="onboarding-screen-status">Writing suggestion</p>
+          {about.shortBio.trim() ? (
+            <div data-helper-current>
+              <strong>Current bio</strong>
+              <p>{about.shortBio}</p>
+            </div>
+          ) : null}
+          <div>
+            <strong>Suggested bio</strong>
+            <p>{writingSuggestion}</p>
+          </div>
+          <small>Your bio has not changed. Choose whether to use this suggestion.</small>
+          <div>
+            <button type="button" onClick={keepExistingBio}>Keep my bio</button>
+            <button className="is-primary" type="button" onClick={useWritingSuggestion}>Use suggestion</button>
+          </div>
+        </section>
+      </Dialog>
     </div>
   );
 }
@@ -481,9 +595,14 @@ export function AboutDesignScreen({
   document,
   onBack,
   onContinue,
+  onFullPreview,
   onUpdate,
   state,
-}: SharedScreenProps & { document: SiteBuilderDocument | null; onContinue: () => void }) {
+}: SharedScreenProps & {
+  document: SiteBuilderDocument | null;
+  onContinue: () => void;
+  onFullPreview: () => void;
+}) {
   const contentControlsId = useId();
   const [showContent, setShowContent] = useState(false);
   const selectedIndex = ABOUT_PRESETS.findIndex((preset) => preset.id === state.recipe.aboutPreset);
@@ -498,6 +617,9 @@ export function AboutDesignScreen({
       <ScreenHeading id="about_design" status="Optional" />
       <div className="onboarding-designer-preview">
         <OnboardingSitePreview document={document} label="Selected About design preview" state={state} />
+        <button className="onboarding-full-preview-button" type="button" onClick={onFullPreview}>
+          Open interactive preview
+        </button>
       </div>
       <div aria-label="About design carousel controls" className="onboarding-carousel-controls" role="group">
         <button aria-label="Previous About design" type="button" onClick={() => selectRelative(-1)}><ArrowLeft aria-hidden="true" /></button>
@@ -577,7 +699,7 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
       {(Object.keys(POLICY_CARD_LABELS) as PolicySectionId[]).map((id) => {
         const copy = state.profile.policies.copy[id];
         const suggestedWording = derivePolicySuggestedWording(state.profile.policies, id);
-        const displayed = copy.useSuggestedWording ? suggestedWording : copy.wordingOverride;
+        const displayed = getResolvedPolicyWording(state.profile.policies, id);
         const updateCopy = (values: Partial<typeof copy>) => onUpdate((current) => updateProfile(current, (profile) => ({
           ...profile,
           policies: {
@@ -592,7 +714,14 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
           <article className="onboarding-policy-copy-card" key={id}>
             <header><h3>{POLICY_CARD_LABELS[id]}</h3><NativeSwitch checked={copy.visible} label={`Show ${POLICY_CARD_LABELS[id]} on site`} onChange={(visible) => updateCopy({ visible })} /></header>
             {copy.useSuggestedWording ? <p>{displayed || 'Answer the questions to generate suggested wording.'}</p> : (
-              <TextAreaField label={`${POLICY_CARD_LABELS[id]} wording`} rows={3} value={copy.wordingOverride} onChange={(event) => updateCopy({ wordingOverride: event.target.value })} />
+              <>
+                <TextAreaField label={`${POLICY_CARD_LABELS[id]} wording`} rows={3} value={copy.wordingOverride} onChange={(event) => updateCopy({ wordingOverride: event.target.value })} />
+                {displayed !== copy.wordingOverride.trim() ? (
+                  <p className="onboarding-policy-copy-card__effective" role="status">
+                    Shown on your site: {displayed || 'This policy is omitted until the wording matches your current answers.'}
+                  </p>
+                ) : null}
+              </>
             )}
             <div>
               <button type="button" onClick={() => updateCopy({ useSuggestedWording: false, wordingOverride: copy.wordingOverride || suggestedWording })}>Edit wording</button>
@@ -675,7 +804,9 @@ export function PoliciesScreen({
             <label className="onboarding-select-field">
               <span>After deadline</span>
               <select
-                value={policies.cancellations.consequence ?? ''}
+                value={depositMode === 'none' && policies.cancellations.consequence === 'deposit_lost'
+                  ? ''
+                  : policies.cancellations.consequence ?? ''}
                 onChange={(event) => updatePolicies((current) => ({
                   ...current,
                   cancellations: {
@@ -685,7 +816,9 @@ export function PoliciesScreen({
                 }))}
               >
                 <option value="">Choose</option>
-                <option value="deposit_lost">Deposit is lost</option>
+                <option disabled={depositMode === 'none'} value="deposit_lost">
+                  Deposit is lost{depositMode === 'none' ? ' — not applicable' : ''}
+                </option>
                 <option value="cancellation_fee">Cancellation fee</option>
                 <option value="full_service_charge">Full service charge</option>
                 <option value="custom">Custom</option>
@@ -710,7 +843,7 @@ export function PoliciesScreen({
               <span>Your booking answer</span>
               <strong>{depositSummary || 'Not answered yet'}</strong>
               {depositMode === 'depends_on_service' ? (
-                <small>Booking remains the source of truth for each service’s deposit.</small>
+                <small>Booking shows the deposit for each service.</small>
               ) : null}
               {depositMode !== null && !editingDepositMode ? (
                 <button type="button" onClick={() => setEditingDepositMode(true)}>
@@ -808,7 +941,13 @@ export function PoliciesScreen({
           <fieldset>
             <legend>No-shows</legend>
             <NativeSwitch
-              checked={policies.noShows.loseDeposit}
+              checked={depositMode !== 'none' && policies.noShows.loseDeposit}
+              description={depositMode === 'none'
+                ? 'Not applicable because no deposit is generally required.'
+                : depositMode === 'depends_on_service'
+                  ? 'Applies only when that service required a deposit.'
+                  : undefined}
+              disabled={depositMode === 'none'}
               label="Lose deposit"
               onChange={(loseDeposit) => updatePolicies((current) => ({
                 ...current,

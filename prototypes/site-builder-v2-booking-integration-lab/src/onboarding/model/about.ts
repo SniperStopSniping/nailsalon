@@ -1,4 +1,54 @@
-import type { BusinessProfileDraft } from './types';
+import type {
+  AboutElementId,
+  AboutPresetId,
+  BusinessProfileDraft,
+} from './types';
+
+export const ABOUT_ELEMENT_IDS = [
+  'profile_photo',
+  'owner_name',
+  'salon_name',
+  'bio',
+  'specialties',
+  'experience',
+  'certifications',
+  'languages',
+  'appointment_status',
+  'new_client_status',
+  'policy_summary',
+  'instagram',
+  'book_button',
+] as const satisfies readonly AboutElementId[];
+
+export type AboutPresetElementCapability = {
+  availability: 'supported';
+};
+
+export type AboutPresetCapability = {
+  elements: Readonly<Record<AboutElementId, AboutPresetElementCapability>>;
+};
+
+const createAllElementsSupported = (): AboutPresetCapability => ({
+  elements: Object.fromEntries(
+    ABOUT_ELEMENT_IDS.map((element) => [element, { availability: 'supported' }]),
+  ) as Record<AboutElementId, AboutPresetElementCapability>,
+});
+
+/**
+ * The renderer contract is deliberately exhaustive: an enabled About element
+ * is available in every preset and therefore must never silently disappear.
+ */
+export const ABOUT_PRESET_CAPABILITIES = {
+  about_before_you_book: createAllElementsSupported(),
+  editorial_portrait: createAllElementsSupported(),
+  photo_right: createAllElementsSupported(),
+  profile_quick_facts: createAllElementsSupported(),
+} as const satisfies Record<AboutPresetId, AboutPresetCapability>;
+
+export const aboutPresetSupportsElement = (
+  preset: AboutPresetId,
+  element: AboutElementId,
+): boolean => ABOUT_PRESET_CAPABILITIES[preset].elements[element].availability === 'supported';
 
 const cleanInlineValue = (value: string): string => value.trim().replace(/\s+/gu, ' ');
 

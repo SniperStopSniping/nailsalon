@@ -4,15 +4,16 @@ import { CANONICAL_SERVICES } from '../../booking/data';
 import { summarizeSelection } from '../../booking/helpers';
 import { StarterChoiceGrid } from '../../ui/StarterChooser';
 import { SCREEN_METADATA } from '../copy';
-import { ONBOARDING_NEXT_AVAILABILITY_LABEL } from '../model/booking-preview';
 import {
   getDepositPolicyMode,
   type DepositPolicyMode,
 } from '../model/policies';
+import { getPublicLocationPreview } from '../model/location';
 import type {
   AdvanceNotice,
   BookingPreferencesDraft,
   BusinessProfileDraft,
+  LocationDraft,
   NewClientStatus,
   StarterId,
   VisitMode,
@@ -169,7 +170,7 @@ export function BookingPreferencesScreen({
             <dl>
               <div><dt>Services</dt><dd>{CANONICAL_SERVICES.length} ready</dd></div>
               <div><dt>Prices</dt><dd>Ready</dd></div>
-              <div><dt>Next openings</dt><dd>Ready</dd></div>
+              <div><dt>Availability source</dt><dd>Connected</dd></div>
               <div><dt>Book button</dt><dd>Ready</dd></div>
             </dl>
             <p>You won’t need to re-enter services, prices, or durations.</p>
@@ -184,10 +185,6 @@ export function BookingPreferencesScreen({
                   : `${preferences.advanceNotice.replace('_', ' ')} notice`}
               </span>
             ) : null}
-            <div>
-              <small>Next available</small>
-              <strong>{ONBOARDING_NEXT_AVAILABILITY_LABEL}</strong>
-            </div>
             {CANONICAL_FEATURED_SELECTION ? (
               <div className="onboarding-booking-info-preview__service">
                 <small>Featured service</small>
@@ -217,8 +214,10 @@ export function BookingPreferencesScreen({
 
 type StartingPointScreenProps = {
   businessName: string;
+  location?: LocationDraft;
   onBack: () => void;
   onChooseStarter: (starter: StarterId) => void;
+  ownerName?: string;
   portraitUrl?: string;
   reducedMotion?: boolean;
   selectedStarter: StarterId | null;
@@ -226,13 +225,16 @@ type StartingPointScreenProps = {
 
 export function StartingPointScreen({
   businessName,
+  location,
   onBack,
   onChooseStarter,
+  ownerName,
   portraitUrl,
   reducedMotion = false,
   selectedStarter,
 }: StartingPointScreenProps) {
   const copy = SCREEN_METADATA.starter;
+  const publicLocation = location ? getPublicLocationPreview(location).primary : '';
 
   return (
     <section aria-labelledby="starting-point-heading" className="onboarding-screen onboarding-starter-screen">
@@ -245,7 +247,9 @@ export function StartingPointScreen({
         <StarterChoiceGrid
           businessName={businessName.trim() || 'Your business'}
           onChoose={onChooseStarter}
+          ownerName={ownerName}
           portraitUrl={portraitUrl}
+          publicLocation={publicLocation}
           reducedMotion={reducedMotion}
           selectedStarter={selectedStarter}
         />

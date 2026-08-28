@@ -4,6 +4,7 @@ import {
   ONBOARDING_SCHEMA_VERSION,
   type BusinessProfileDraft,
   type BusinessStructure,
+  type CanvaDraft,
   type ClientContactDraft,
   type DepositAmountType,
   type DepositPolicyMode,
@@ -100,7 +101,24 @@ const isDepositAmountType = (value: unknown): value is DepositAmountType | null 
   || value === 'percentage'
   || value === 'service_defined';
 
+const isCanvaUploadResult = (
+  value: unknown,
+): value is CanvaDraft['uploadResult'] => value === null || (
+  isRecord(value)
+  && typeof value.addedCount === 'number'
+  && typeof value.summary === 'string'
+  && Array.isArray(value.failures)
+  && value.failures.every((failure) => isRecord(failure)
+    && typeof failure.fileName === 'string'
+    && typeof failure.message === 'string'
+    && (failure.code === undefined || typeof failure.code === 'string'))
+);
+
+const isStringArray = (value: unknown): value is string[] =>
+  Array.isArray(value) && value.every((item) => typeof item === 'string');
+
 type SharedStateShape = Record<string, unknown> & {
+  canva: Record<string, unknown>;
   profile: Record<string, unknown>;
   progress: Record<string, unknown>;
   reviewOptions: Record<string, unknown>;
@@ -141,7 +159,9 @@ const isOnboardingState = (value: unknown): value is OnboardingLabState => {
     && !('required' in value.profile.policies.deposits)
     && isRecord(value.profile.location)
     && typeof value.profile.location.allowGeneralAreaDirections === 'boolean'
-    && typeof value.reviewOptions.previewTimestamp === 'string';
+    && typeof value.reviewOptions.previewTimestamp === 'string'
+    && isStringArray(value.canva.ownedAssetIds)
+    && isCanvaUploadResult(value.canva.uploadResult);
 };
 
 type LegacyWeeklyHoursDraft = {
@@ -334,6 +354,21 @@ const migrateLegacyOnboardingState = (
     : profile.hours as WeeklyHoursDraft;
   return {
     ...(value as unknown as OnboardingLabState),
+    canva: {
+      ...defaults.canva,
+      ...(value.canva as unknown as CanvaDraft),
+      ownedAssetIds: [...new Set(isStringArray(value.canva.ownedAssetIds)
+        ? value.canva.ownedAssetIds
+        : (Array.isArray(value.canva.images)
+            ? value.canva.images.flatMap((image) => isRecord(image)
+              && typeof image.storageId === 'string'
+              ? [image.storageId]
+              : [])
+            : []))],
+      uploadResult: isCanvaUploadResult(value.canva.uploadResult)
+        ? value.canva.uploadResult
+        : null,
+    },
     profile: {
       ...migrateBusinessProfile(profile),
       hours,
@@ -353,15 +388,8 @@ const isLegacyOnboardingState = (value: unknown): value is SharedStateShape =>
   && (
     (value.schemaVersion === 1 && isLegacyWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 2 && isWeeklyHoursDraft(value.profile.hours))
-    || (value.schemaVersion === 3
-      && isWeeklyHoursDraft(value.profile.hours)
-      && (
-        (isRecord(value.profile.bookingPreferences)
-          && 'depositPreference' in value.profile.bookingPreferences)
-        || (isRecord(value.profile.policies)
-          && isRecord(value.profile.policies.deposits)
-          && 'required' in value.profile.policies.deposits)
-      ))
+    || (value.schemaVersion === 3 && isWeeklyHoursDraft(value.profile.hours))
+    || (value.schemaVersion === 4 && isWeeklyHoursDraft(value.profile.hours))
   );
 
 const defaultStorage = (): OnboardingStorage => {

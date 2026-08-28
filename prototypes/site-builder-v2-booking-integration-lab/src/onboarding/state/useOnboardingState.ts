@@ -86,6 +86,7 @@ export function useOnboardingState(
   );
   const mountedRef = useRef(false);
   const initialWelcomeViewRecordedRef = useRef(false);
+  const pendingSaveRef = useRef(false);
   const skipNextSaveRef = useRef(false);
   const timeoutRef = useRef<number | null>(null);
   const debounceMs = options.debounceMs ?? 220;
@@ -98,6 +99,7 @@ export function useOnboardingState(
   const updateState = useCallback((
     update: (current: OnboardingLabState) => OnboardingLabState,
   ) => {
+    pendingSaveRef.current = true;
     setSaveStatus('saving');
     setState((current) => {
       const next = update(current);
@@ -120,12 +122,30 @@ export function useOnboardingState(
       setStorageIssue(result.message);
       return result;
     }
+    pendingSaveRef.current = false;
     skipNextSaveRef.current = true;
     replaceState(result.state);
     setStorageIssue(null);
     setSaveStatus('saved');
     return result;
   }, [replaceState]);
+
+  useEffect(() => {
+    const flushPendingState = () => {
+      if (!pendingSaveRef.current) return;
+      persistSnapshot(stateRef.current);
+    };
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') flushPendingState();
+    };
+
+    window.addEventListener('pagehide', flushPendingState);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('pagehide', flushPendingState);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [persistSnapshot]);
 
   useEffect(() => {
     if (!mountedRef.current) {
@@ -403,6 +423,12 @@ export function useOnboardingState(
   const saveNow = useCallback((): SaveOnboardingStateResult =>
     persistSnapshot(stateRef.current), [persistSnapshot]);
 
+  const restoreSnapshot = useCallback((snapshot: OnboardingLabState): SaveOnboardingStateResult => {
+    pendingSaveRef.current = true;
+    replaceState(structuredClone(snapshot));
+    return persistSnapshot(snapshot);
+  }, [persistSnapshot, replaceState]);
+
   const reset = useCallback((): boolean => {
     if (timeoutRef.current !== null) {
       window.clearTimeout(timeoutRef.current);
@@ -417,6 +443,7 @@ export function useOnboardingState(
       setStorageIssue(cleared.message);
       return false;
     }
+    pendingSaveRef.current = false;
     skipNextSaveRef.current = true;
     replaceState(createDefaultOnboardingState());
     setSaveStatus('idle');
@@ -437,6 +464,7 @@ export function useOnboardingState(
     recordStarterCreated,
     requestBuilderHandoff,
     reset,
+    restoreSnapshot,
     resume,
     saveNow,
     saveStatus,

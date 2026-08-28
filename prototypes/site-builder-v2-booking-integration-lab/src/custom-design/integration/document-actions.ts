@@ -3,6 +3,7 @@ import type {
   SectionInstance,
   SiteBuilderDocument,
 } from '../../model/types';
+import type { ResolveCustomDesignAction } from '../components/view-types';
 import { resolveCustomDesignAction } from '../model/actions';
 import type {
   CustomDesignAction,
@@ -142,3 +143,32 @@ export const createCustomDesignDocumentActionResolver = (
   context: CustomDesignDocumentActionContext,
 ): ((action: CustomDesignAction) => CustomDesignDocumentActionResolution) =>
   (action) => resolveCustomDesignDocumentAction(action, context);
+
+/**
+ * Keeps document navigation inside the customer-preview host. The underlying
+ * resolver remains the source of truth for target validity and safe fallback
+ * URLs; preview hosts only decide how to reveal an already validated target.
+ */
+export const createHostedCustomDesignActionResolver = (
+  context: CustomDesignDocumentActionContext,
+  onDocumentTarget: (target: CustomDesignDocumentNavigationTarget) => void,
+): ResolveCustomDesignAction => (action, source) => {
+  const effectiveAction = action
+    ?? (source.type === 'cta' && source.cta.type === 'book_now'
+      ? { type: 'start_booking' as const }
+      : null);
+  if (!effectiveAction) {
+    return { reason: 'invalid_destination', status: 'unresolved' };
+  }
+  const resolution = resolveCustomDesignDocumentAction(effectiveAction, context);
+  if (resolution.status !== 'resolved' || !resolution.documentTarget) {
+    return resolution;
+  }
+  return {
+    status: 'button',
+    onActivate: (event) => {
+      event.preventDefault();
+      onDocumentTarget(resolution.documentTarget!);
+    },
+  };
+};

@@ -1,6 +1,7 @@
 import { Check, ChevronUp, Circle, Monitor, Smartphone, Tablet, TriangleAlert } from 'lucide-react';
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
+import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
 import type { SiteBuilderDocument } from '../../model/types';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
 import { SCREEN_METADATA } from '../copy';
@@ -10,6 +11,7 @@ import {
   getBuilderPrimaryLabel,
   getNeedsAttentionItems,
   getReadinessItems,
+  type CustomDesignAssetReadiness,
   type ReadinessStatus,
 } from '../progress/readiness';
 
@@ -27,11 +29,15 @@ const STATUS_ICONS = {
   recommended: Circle,
 } as const;
 
+export const BUILDER_HANDOFF_TRIGGER_ID = 'onboarding-open-builder';
+
 type FinalReviewScreenProps = {
   document: SiteBuilderDocument | null;
   onBack: () => void;
   onEdit: (screen: OnboardingScreenId) => void;
+  onEditCanva: () => void;
   onOpenBuilder: () => void;
+  onOpenPreview: () => void;
   state: OnboardingLabState;
 };
 
@@ -39,15 +45,61 @@ export function FinalReviewScreen({
   document,
   onBack,
   onEdit,
+  onEditCanva,
   onOpenBuilder,
+  onOpenPreview,
   state,
 }: FinalReviewScreenProps) {
   const readinessContentId = useId();
   const [device, setDevice] = useState<OnboardingPreviewDevice>('phone');
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const readiness = useMemo(() => getReadinessItems(state, document), [document, state]);
-  const needsAttention = useMemo(() => getNeedsAttentionItems(state, document), [document, state]);
-  const primaryLabel = getBuilderPrimaryLabel(state, document);
+  const [compactReadiness, setCompactReadiness] = useState(() => (
+    typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(max-width: 919px)').matches
+  ));
+  const readinessContentRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined;
+    const media = window.matchMedia('(max-width: 919px)');
+    const update = () => setCompactReadiness(media.matches);
+    update();
+    media.addEventListener('change', update);
+    return () => media.removeEventListener('change', update);
+  }, []);
+  useEffect(() => {
+    if (!readinessContentRef.current) return;
+    readinessContentRef.current.inert = compactReadiness && !drawerOpen;
+  }, [compactReadiness, drawerOpen]);
+  const customDesignImages = useMemo(() => document?.pages.flatMap((page) =>
+    page.sections.flatMap((section) => section.sectionType === 'custom_design'
+      ? section.settings.images
+      : [])) ?? [], [document]);
+  const customDesignAssetIds = useMemo(
+    () => customDesignImages.map((image) => image.assetId),
+    [customDesignImages],
+  );
+  const customDesignAssetMap = useCustomDesignAssetMap(customDesignAssetIds);
+  const customDesignAssetIssues = useMemo<CustomDesignAssetReadiness[]>(() =>
+    customDesignImages.flatMap((image) => {
+      const status = customDesignAssetMap.get(image.assetId)?.original.status ?? 'loading';
+      return status === 'ready'
+        ? []
+        : [{
+            assetId: image.assetId,
+            fileName: image.fileName,
+            status: status === 'unavailable' ? 'error' as const : status,
+          }];
+    }), [customDesignAssetMap, customDesignImages]);
+  const readiness = useMemo(
+    () => getReadinessItems(state, document, customDesignAssetIssues),
+    [customDesignAssetIssues, document, state],
+  );
+  const needsAttention = useMemo(
+    () => getNeedsAttentionItems(state, document, customDesignAssetIssues),
+    [customDesignAssetIssues, document, state],
+  );
+  const primaryLabel = getBuilderPrimaryLabel(state, document, customDesignAssetIssues);
   const handlePrimary = () => {
     const first = needsAttention.find((item) => item.screen);
     if (first?.screen) {
@@ -63,19 +115,34 @@ export function FinalReviewScreen({
         <h1>{SCREEN_METADATA.final_preview.heading}</h1>
         <p>{SCREEN_METADATA.final_preview.supportingCopy}</p>
       </header>
-      <div aria-label="Preview device" className="onboarding-device-switcher" role="group">
+      <div aria-label="Customer preview device size" className="onboarding-device-switcher" role="group">
         <button aria-pressed={device === 'phone'} type="button" onClick={() => setDevice('phone')}><Smartphone aria-hidden="true" size={17} /> Phone</button>
         <button aria-pressed={device === 'tablet'} type="button" onClick={() => setDevice('tablet')}><Tablet aria-hidden="true" size={17} /> Tablet</button>
         <button aria-pressed={device === 'desktop'} type="button" onClick={() => setDevice('desktop')}><Monitor aria-hidden="true" size={17} /> Desktop</button>
       </div>
       <div className="onboarding-review-layout">
-        <OnboardingSitePreview device={device} document={document} label={`Final ${device} customer preview`} state={state} />
+        <div className="onboarding-review-preview">
+          <OnboardingSitePreview
+            device={device}
+            document={document}
+            label={`Final ${device} customer preview`}
+            state={state}
+          />
+          <button className="onboarding-full-preview-button" type="button" onClick={onOpenPreview}>
+            Open interactive preview
+          </button>
+        </div>
         <aside className={`onboarding-readiness${drawerOpen ? ' is-open' : ''}`} aria-label="Site readiness">
           <button aria-controls={readinessContentId} aria-expanded={drawerOpen} className="onboarding-readiness__mobile-trigger" type="button" onClick={() => setDrawerOpen((current) => !current)}>
             <span><strong>Site readiness</strong><small>{needsAttention.length === 0 ? 'Ready to open' : `${needsAttention.length} to review`}</small></span>
             <ChevronUp aria-hidden="true" size={18} />
           </button>
-          <div className="onboarding-readiness__content" id={readinessContentId}>
+          <div
+            ref={readinessContentRef}
+            aria-hidden={compactReadiness && !drawerOpen ? 'true' : undefined}
+            className="onboarding-readiness__content"
+            id={readinessContentId}
+          >
             <h2>Site readiness</h2>
             <p>No percentage score—just what is ready and what you may want to revisit.</p>
             <ul>
@@ -86,7 +153,21 @@ export function FinalReviewScreen({
                   <li data-status={item.status} key={item.id}>
                     <Icon aria-hidden="true" size={16} />
                     <div><small>{STATUS_LABELS[item.status]}</small><strong>{item.label}</strong>{item.detail ? <p>{item.detail}</p> : null}</div>
-                    {editScreen && item.status !== 'ready' ? <button aria-label={`Edit ${item.label}`} type="button" onClick={() => onEdit(editScreen)}>Edit</button> : null}
+                    {editScreen ? (
+                      <button
+                        aria-label={`${item.actionLabel ?? 'Edit'} ${item.label}`}
+                        type="button"
+                        onClick={() => {
+                          if (item.id.startsWith('canva-asset-')) {
+                            onEditCanva();
+                            return;
+                          }
+                          onEdit(editScreen);
+                        }}
+                      >
+                        {item.actionLabel ?? 'Edit'}
+                      </button>
+                    ) : null}
                   </li>
                 );
               })}
@@ -94,7 +175,7 @@ export function FinalReviewScreen({
           </div>
         </aside>
       </div>
-      <StickyOnboardingActions backLabel="Back" primaryLabel={primaryLabel} skipLabel="Edit setup" onBack={onBack} onPrimary={handlePrimary} onSkip={() => onEdit(needsAttention.find((item) => item.screen)?.screen ?? 'business')} />
+      <StickyOnboardingActions backLabel="Back" primaryId={BUILDER_HANDOFF_TRIGGER_ID} primaryLabel={primaryLabel} skipLabel="Edit setup" onBack={onBack} onPrimary={handlePrimary} onSkip={() => onEdit(needsAttention.find((item) => item.screen)?.screen ?? 'business')} />
     </div>
   );
 }

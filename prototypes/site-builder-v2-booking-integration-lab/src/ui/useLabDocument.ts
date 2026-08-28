@@ -271,7 +271,9 @@ export function useLabDocument() {
     try {
       window.localStorage.removeItem(SITE_BUILDER_STORAGE_KEY);
     } catch {
-      // The in-memory Lab can still reset if browser storage is unavailable.
+      setLoadIssues(['The saved site could not be cleared from this browser.']);
+      setSaveStatus('error');
+      return false;
     }
     setLoadIssues([]);
     setSaveStatus('idle');

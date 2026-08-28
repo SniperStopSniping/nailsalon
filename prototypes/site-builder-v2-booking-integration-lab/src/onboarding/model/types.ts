@@ -1,4 +1,4 @@
-export const ONBOARDING_SCHEMA_VERSION = 3 as const;
+export const ONBOARDING_SCHEMA_VERSION = 5 as const;
 
 export type OnboardingStage = 'basics' | 'booking' | 'design' | 'review';
 
@@ -269,13 +269,27 @@ export type GalleryDraft = {
 export type CanvaDisplayMode = 'poster' | 'contained' | 'full_width';
 export type CanvaPlacement = 'before_booking' | 'after_booking';
 
+export type CanvaUploadFailureDraft = {
+  code?: string;
+  fileName: string;
+  message: string;
+};
+
+export type CanvaUploadResultDraft = {
+  addedCount: number;
+  failures: CanvaUploadFailureDraft[];
+  summary: string;
+};
+
 export type CanvaDraft = {
   displayMode: CanvaDisplayMode;
   placement: CanvaPlacement;
   images: LocalImageReference[];
+  ownedAssetIds: string[];
   customDesignSectionId: string | null;
   status: 'empty' | 'ready' | 'invalid';
   errorMessage: string;
+  uploadResult: CanvaUploadResultDraft | null;
 };
 
 export type PlanIntent = 'lifetime' | 'monthly' | 'free';
@@ -317,8 +331,8 @@ export type OnboardingEventInput =
   | { type: 'about_toggled'; enabled: boolean }
   | { type: 'policies_toggled'; enabled: boolean }
   | { type: 'preset_changed'; presetKind: 'about' | 'style'; presetId: AboutPresetId | SiteStylePresetId }
-  | { type: 'preview_opened'; source: 'starting_preview' | 'site_style' | 'final_preview' }
-  | { type: 'preview_closed'; source: 'starting_preview' | 'site_style' | 'final_preview' }
+  | { type: 'preview_opened'; source: 'starting_preview' | 'about' | 'about_design' | 'site_style' | 'final_preview' }
+  | { type: 'preview_closed'; source: 'starting_preview' | 'about' | 'about_design' | 'site_style' | 'final_preview' }
   | { type: 'starter_selected'; starter: StarterId }
   | { type: 'extras_selected'; extras: Array<'gallery' | 'canva'> }
   | { type: 'open_builder' }

@@ -7,6 +7,12 @@ import {
   type CSSProperties,
 } from 'react';
 
+import { summarizeSelection } from '../booking/helpers';
+import {
+  getStarterPageDefinitions,
+  type StarterPageDefinition,
+  type StarterSectionDefinition,
+} from '../model/starters';
 import type { OriginStarter } from '../model/types';
 
 type StarterChooserProps = {
@@ -27,8 +33,9 @@ type PreviewScene = {
   heading: string;
   id: string;
   items?: readonly PreviewItem[];
-  kind: 'about' | 'booking' | 'gallery' | 'hero' | 'reviews' | 'services';
+  kind: 'about' | 'booking' | 'contact' | 'gallery' | 'hero' | 'reviews' | 'services';
   navigation?: string;
+  structureLabels: readonly string[];
 };
 
 type PreviewPoster = {
@@ -61,199 +68,198 @@ export type StarterChoiceDefinition = {
   title: string;
 };
 
-export const STARTER_CHOICES: readonly StarterChoiceDefinition[] = [
-  {
+const getIncludedItems = (starter: OriginStarter): readonly string[] => {
+  const pages = getStarterPageDefinitions(starter);
+  return starter === 'multi_page'
+    ? pages.map((page) => page.previewLabel ?? page.name)
+    : pages.flatMap((page) => page.sections.map((section) => section.previewLabel));
+};
+
+const CANONICAL_FEATURED_SELECTION = summarizeSelection({
+  addOnIds: ['addon-french'],
+  serviceId: 'svc-manicure-russian',
+});
+const CANONICAL_SECONDARY_SELECTION = summarizeSelection({
+  addOnIds: [],
+  serviceId: 'svc-builder-overlay',
+});
+
+const CANONICAL_SERVICE_ITEMS: readonly PreviewItem[] = [
+  CANONICAL_FEATURED_SELECTION,
+  CANONICAL_SECONDARY_SELECTION,
+].flatMap((selection) => selection
+  ? [{
+      label: [
+        selection.service.name,
+        ...selection.addOns.map(({ name }) => name),
+      ].join(' + '),
+      meta: `${selection.durationLabel} · ${selection.price.label}`,
+    }]
+  : []);
+
+type StarterChoiceCopy = Omit<StarterChoiceDefinition, 'includedItems' | 'preview'>;
+
+const STARTER_CHOICE_COPY: Record<OriginStarter, StarterChoiceCopy> = {
+  quick_book: {
     cta: 'Start with Quick Book',
     description: 'Start taking bookings with only the essentials.',
     id: 'quick_book',
-    includedItems: ['Salon intro', 'Services', 'Booking'],
     includesLabel: 'Includes',
-    preview: {
-      durationMs: 4_800,
-      finalFrame: 'booking',
-      middleDistance: '-33.3333%',
-      motionDistance: '-66.6667%',
-      navigationItems: ['Services', 'Book'],
-      poster: {
-        action: 'Choose a service',
-        heading: 'Beautiful nails, booked in minutes.',
-        items: [
-          { label: 'Signature manicure', meta: '60 min · $55' },
-          { label: 'Gel extensions', meta: '90 min · $85' },
-        ],
-        kind: 'quick-summary',
-        label: 'Book your visit',
-      },
-      posterState: 'booking-summary',
-      previewType: 'short-scroll',
-      scenes: [
-        {
-          action: 'Book an appointment',
-          durationMs: 1_050,
-          eyebrow: 'Luster Nail Studio',
-          heading: 'Beautiful nails, booked in minutes.',
-          id: 'intro',
-          kind: 'hero',
-        },
-        {
-          durationMs: 1_500,
-          heading: 'Choose your service',
-          id: 'services',
-          items: [
-            { label: 'Signature manicure', meta: '60 min · $55' },
-            { label: 'Gel extensions', meta: '90 min · $85' },
-            { label: 'Nail art add-on', meta: '20 min · $18' },
-          ],
-          kind: 'services',
-        },
-        {
-          action: 'Book an appointment',
-          body: 'Pick a time that works for you.',
-          durationMs: 1_500,
-          eyebrow: 'Almost there',
-          heading: 'Ready to book?',
-          id: 'booking',
-          kind: 'booking',
-        },
-      ],
-    },
     title: 'Quick Book',
   },
-  {
+  one_page: {
     cta: 'Start with One-page',
     description: 'Show your whole business on one scrolling page.',
     id: 'one_page',
-    includedItems: ['Welcome', 'About', 'Services', 'Gallery', 'Reviews', 'Booking'],
     includesLabel: 'Includes',
-    preview: {
-      durationMs: 5_800,
-      finalFrame: 'booking',
-      motionDistance: '-66.6667%',
-      navigationItems: ['Welcome', 'Services', 'Book'],
-      poster: {
-        heading: 'Your whole studio, all in one place.',
-        items: [
-          { label: 'Welcome' },
-          { label: 'About' },
-          { label: 'Services' },
-          { label: 'Gallery' },
-          { label: 'Reviews' },
-          { label: 'Booking' },
-        ],
-        kind: 'one-page-map',
-        label: 'One continuous page',
-      },
-      posterState: 'page-overview',
-      previewType: 'continuous-scroll',
-      scenes: [
-        {
-          action: 'Explore the studio',
-          durationMs: 850,
-          eyebrow: 'Welcome',
-          heading: 'Nails designed around you.',
-          id: 'welcome',
-          kind: 'hero',
-        },
-        {
-          body: 'A calm private studio for thoughtful, lasting nail care.',
-          durationMs: 800,
-          heading: 'About the studio',
-          id: 'about',
-          kind: 'about',
-        },
-        {
-          durationMs: 900,
-          heading: 'Popular services',
-          id: 'services',
-          items: [
-            { label: 'Gel manicure', meta: '$65' },
-            { label: 'Builder gel', meta: '$78' },
-          ],
-          kind: 'services',
-        },
-        {
-          durationMs: 800,
-          heading: 'Recent work',
-          id: 'gallery',
-          kind: 'gallery',
-        },
-        {
-          body: '“The loveliest appointment and my nails last beautifully.”',
-          durationMs: 800,
-          heading: 'Client love',
-          id: 'reviews',
-          kind: 'reviews',
-        },
-        {
-          action: 'Book an appointment',
-          body: 'Choose your service and preferred time.',
-          durationMs: 1_050,
-          eyebrow: 'Booking',
-          heading: 'Ready for your next set?',
-          id: 'booking',
-          kind: 'booking',
-        },
-      ],
-    },
     title: 'One-page website',
   },
-  {
+  multi_page: {
     cta: 'Start with Multi-page',
     description: 'Give each part of your business its own page and navigation link.',
     id: 'multi_page',
-    includedItems: ['Home', 'Services & Booking', 'Gallery', 'About', 'Contact'],
     includesLabel: 'Includes pages',
-    preview: {
-      durationMs: 5_600,
-      finalFrame: 'gallery',
-      motionDistance: '8px',
-      navigationItems: ['Home', 'Services', 'Gallery'],
-      poster: {
-        action: 'Book an appointment',
-        heading: 'Nails designed around you.',
-        items: [
-          { label: 'Featured work' },
-          { label: 'Private Toronto studio' },
-        ],
-        kind: 'multi-home',
-        label: 'Home page',
-      },
-      posterState: 'home',
-      previewType: 'page-switch',
-      scenes: [
-        {
-          action: 'See our work',
-          durationMs: 1_400,
-          eyebrow: 'Home',
-          heading: 'Nails designed around you.',
-          id: 'home',
-          kind: 'hero',
-          navigation: 'Home',
-        },
-        {
-          action: 'Book an appointment',
-          durationMs: 1_550,
-          heading: 'Services & Booking',
-          id: 'services',
-          items: [
-            { label: 'Gel manicure', meta: '60 min · $65' },
-            { label: 'Builder gel', meta: '75 min · $78' },
-          ],
-          kind: 'services',
-          navigation: 'Services',
-        },
-        {
-          durationMs: 1_650,
-          heading: 'Gallery',
-          id: 'gallery',
-          kind: 'gallery',
-          navigation: 'Gallery',
-        },
-      ],
-    },
     title: 'Multi-page website',
   },
-] as const;
+};
+
+const getSceneKind = (labels: readonly string[]): PreviewScene['kind'] => {
+  const normalized = labels.join(' ').toLocaleLowerCase();
+  if (normalized.includes('service') || normalized.includes('booking')) return 'services';
+  if (normalized.includes('gallery') || normalized.includes('featured work')) return 'gallery';
+  if (normalized.includes('about')) return 'about';
+  if (normalized.includes('review')) return 'reviews';
+  if (normalized.includes('visit') || normalized.includes('contact')) return 'contact';
+  if (normalized.includes('book')) return 'booking';
+  return 'hero';
+};
+
+const getSceneCopy = (
+  kind: PreviewScene['kind'],
+  heading: string,
+): Pick<PreviewScene, 'action' | 'body' | 'eyebrow' | 'heading' | 'items'> => {
+  switch (kind) {
+    case 'services':
+      return {
+        action: 'Book an appointment',
+        heading,
+        items: CANONICAL_SERVICE_ITEMS,
+      };
+    case 'booking':
+      return {
+        action: 'Book an appointment',
+        body: 'Choose your service and preferred time.',
+        eyebrow: 'Booking',
+        heading,
+      };
+    case 'about':
+      return { body: 'Meet the nail artist behind the studio.', heading };
+    case 'reviews':
+      return { body: 'See what clients appreciate about their visits.', heading };
+    case 'contact':
+      return { body: 'Find contact and appointment details.', heading };
+    case 'gallery':
+      return { heading };
+    case 'hero':
+      return { action: 'Explore the studio', eyebrow: heading, heading: 'Nails designed around you.' };
+  }
+};
+
+const createSectionScene = (
+  section: StarterSectionDefinition,
+  index: number,
+): PreviewScene => {
+  const kind = section.previewLabel === 'Booking'
+    ? 'booking'
+    : getSceneKind([section.previewLabel]);
+  return {
+    ...getSceneCopy(kind, section.previewLabel),
+    durationMs: kind === 'booking' ? 1_050 : 900,
+    id: `section-${index}-${section.previewLabel.toLocaleLowerCase().replaceAll(/[^a-z0-9]+/gu, '-')}`,
+    kind,
+    structureLabels: [section.previewLabel],
+  };
+};
+
+const createPageScene = (
+  page: StarterPageDefinition,
+  index: number,
+): PreviewScene => {
+  const structureLabels = page.sections.map(({ previewLabel }) => previewLabel);
+  const kind = index === 0 && page.slug === '' ? 'hero' : getSceneKind(structureLabels);
+  const heading = page.previewLabel ?? page.name;
+  return {
+    ...getSceneCopy(kind, heading),
+    durationMs: 1_120,
+    id: `page-${index}-${page.slug || 'home'}`,
+    kind,
+    navigation: page.name,
+    structureLabels,
+  };
+};
+
+const createStarterPreview = (starter: OriginStarter): StarterPreviewDefinition => {
+  const pages = getStarterPageDefinitions(starter);
+  const scenes = starter === 'multi_page'
+    ? pages.map(createPageScene)
+    : pages.flatMap((page) => page.sections).map(createSectionScene);
+  const posterItems = starter === 'multi_page'
+    ? pages.map((page) => ({
+        label: page.previewLabel ?? page.name,
+        meta: page.sections.map(({ previewLabel }) => previewLabel).join(' · '),
+      }))
+    : pages.flatMap((page) => page.sections.map(({ previewLabel }) => ({ label: previewLabel })));
+  const posterKind = starter === 'quick_book'
+    ? 'quick-summary'
+    : starter === 'one_page'
+      ? 'one-page-map'
+      : 'multi-home';
+  const previewType = starter === 'quick_book'
+    ? 'short-scroll'
+    : starter === 'one_page'
+      ? 'continuous-scroll'
+      : 'page-switch';
+
+  return {
+    durationMs: starter === 'quick_book' ? 4_800 : starter === 'one_page' ? 5_800 : 7_000,
+    finalFrame: scenes.at(-1)?.id ?? 'site',
+    ...(starter === 'quick_book' ? { middleDistance: '-33.3333%' } : {}),
+    motionDistance: starter === 'multi_page' ? '8px' : '-66.6667%',
+    navigationItems: starter === 'quick_book' ? [] : pages.map(({ name }) => name),
+    poster: {
+      ...(starter === 'quick_book' || starter === 'multi_page'
+        ? { action: 'Book an appointment' }
+        : {}),
+      heading: starter === 'quick_book'
+        ? 'A focused path from services to booking.'
+        : starter === 'one_page'
+          ? 'Your whole studio, all in one place.'
+          : 'A home page with separate destinations.',
+      items: posterItems,
+      kind: posterKind,
+      label: starter === 'quick_book'
+        ? 'Booking-focused page'
+        : starter === 'one_page'
+          ? 'One continuous page'
+          : 'Five connected pages',
+    },
+    posterState: starter === 'quick_book'
+      ? 'booking-summary'
+      : starter === 'one_page'
+        ? 'page-overview'
+        : 'site-map',
+    previewType,
+    scenes,
+  };
+};
+
+export const STARTER_CHOICES: readonly StarterChoiceDefinition[] = (
+  ['quick_book', 'one_page', 'multi_page'] as const
+).map((starter) => ({
+  ...STARTER_CHOICE_COPY[starter],
+  includedItems: getIncludedItems(starter),
+  preview: createStarterPreview(starter),
+}));
 
 const RESET_DELAY_MS = 180;
 const MOBILE_ACTIVE_RATIO = 0.64;
@@ -423,7 +429,7 @@ function useStarterPreviewPlayback(forceReducedMotion = false) {
 }
 
 function PreviewHeader({
-  businessName = 'Luster Nail Studio',
+  businessName = 'Your studio',
   definition,
   portraitUrl,
 }: {
@@ -436,8 +442,8 @@ function PreviewHeader({
       <span className="final-starter-preview__identity">
         {portraitUrl
           ? <img alt="" className="final-starter-preview__portrait" src={portraitUrl} />
-          : <i>L</i>}
-        <b>{businessName}</b>
+          : <i>{businessName.trim().charAt(0).toLocaleUpperCase() || 'Y'}</i>}
+        <b title={businessName}>{businessName}</b>
       </span>
       <span className="final-starter-preview__nav">
         {definition.navigationItems.map((item, index) => (
@@ -448,12 +454,25 @@ function PreviewHeader({
   );
 }
 
-function PreviewPoster({ poster }: { poster: PreviewPoster }) {
+function PreviewPoster({
+  businessName,
+  ownerName,
+  poster,
+  publicLocation,
+}: {
+  businessName: string;
+  ownerName?: string;
+  poster: PreviewPoster;
+  publicLocation?: string;
+}) {
+  const profileLine = [ownerName?.trim(), publicLocation?.trim()].filter(Boolean).join(' · ');
   return (
     <span className={`final-starter-preview__poster is-${poster.kind}`} data-preview-poster={poster.kind}>
       <span className="final-starter-preview__poster-copy">
         <small>{poster.label}</small>
-        <strong>{poster.heading}</strong>
+        <strong>{businessName}</strong>
+        <span className="final-starter-preview__poster-description">{poster.heading}</span>
+        {profileLine ? <span className="final-starter-preview__profile-line">{profileLine}</span> : null}
       </span>
       <span className="final-starter-preview__poster-items">
         {poster.items.map((item) => (
@@ -465,7 +484,25 @@ function PreviewPoster({ poster }: { poster: PreviewPoster }) {
   );
 }
 
-function PreviewSceneContent({ scene }: { scene: PreviewScene }) {
+function PreviewSceneContent({
+  businessName,
+  ownerName,
+  publicLocation,
+  scene,
+}: {
+  businessName: string;
+  ownerName?: string;
+  publicLocation?: string;
+  scene: PreviewScene;
+}) {
+  const aboutBody = [
+    ownerName?.trim() ? `Meet ${ownerName.trim()}.` : null,
+    publicLocation?.trim() ? `Appointments in ${publicLocation.trim()}.` : null,
+  ].filter(Boolean).join(' ');
+  const contactBody = publicLocation?.trim()
+    ? `Appointments in ${publicLocation.trim()}.`
+    : scene.body;
+
   if (scene.kind === 'services') {
     return (
       <>
@@ -496,15 +533,31 @@ function PreviewSceneContent({ scene }: { scene: PreviewScene }) {
       <>
         <small className="final-starter-preview__scene-label">{scene.kind === 'about' ? 'About' : 'Reviews'}</small>
         <strong>{scene.heading}</strong>
-        <span className="final-starter-preview__scene-body">{scene.body}</span>
+        <span className="final-starter-preview__scene-body">
+          {scene.kind === 'about' && aboutBody ? aboutBody : scene.body}
+        </span>
+      </>
+    );
+  }
+
+  if (scene.kind === 'contact') {
+    return (
+      <>
+        <small className="final-starter-preview__scene-label">Contact</small>
+        <strong>{scene.heading}</strong>
+        <span className="final-starter-preview__scene-body">{contactBody}</span>
       </>
     );
   }
 
   return (
     <>
-      {scene.eyebrow ? <small className="final-starter-preview__scene-label">{scene.eyebrow}</small> : null}
-      <strong>{scene.heading}</strong>
+      {scene.eyebrow ? (
+        <small className="final-starter-preview__scene-label">
+          {scene.kind === 'hero' ? businessName : scene.eyebrow}
+        </small>
+      ) : null}
+      <strong>{scene.kind === 'hero' ? businessName : scene.heading}</strong>
       {scene.body ? <span className="final-starter-preview__scene-body">{scene.body}</span> : null}
       {scene.action ? (
         <span className={`final-starter-preview__mini-cta${scene.kind === 'booking' ? ' is-booking-action' : ''}`}>
@@ -519,16 +572,20 @@ function StarterPreview({
   active,
   businessName,
   definition,
+  ownerName,
   pageVisible,
   portraitUrl,
+  publicLocation,
   reducedMotion,
   starterId,
 }: {
   active: boolean;
   businessName?: string;
   definition: StarterPreviewDefinition;
+  ownerName?: string;
   pageVisible: boolean;
   portraitUrl?: string;
+  publicLocation?: string;
   reducedMotion: boolean;
   starterId: OriginStarter;
 }) {
@@ -538,6 +595,7 @@ function StarterPreview({
     '--preview-motion-distance': definition.motionDistance,
   };
   const state = reducedMotion ? 'poster' : active ? (pageVisible ? 'playing' : 'paused') : 'poster';
+  const resolvedBusinessName = businessName?.trim() || 'Your studio';
 
   return (
     <span
@@ -549,16 +607,23 @@ function StarterPreview({
       data-preview-paused={active && !pageVisible ? 'true' : 'false'}
       data-preview-state={state}
       data-preview-type={definition.previewType}
+      data-starter-navigation={definition.navigationItems.join('|')}
+      data-starter-structure={definition.scenes.flatMap(({ structureLabels }) => structureLabels).join('|')}
       data-testid={`starter-preview-${starterId}`}
       style={previewStyle}
     >
       <PreviewHeader
-        businessName={businessName}
+        businessName={resolvedBusinessName}
         definition={definition}
         portraitUrl={portraitUrl}
       />
       <span className="final-starter-preview__viewport">
-        <PreviewPoster poster={definition.poster} />
+        <PreviewPoster
+          businessName={resolvedBusinessName}
+          ownerName={ownerName}
+          poster={definition.poster}
+          publicLocation={publicLocation}
+        />
         <span className="final-starter-preview__motion">
           <span className="final-starter-preview__track">
             {definition.scenes.map((scene) => (
@@ -569,7 +634,12 @@ function StarterPreview({
                 data-scene-duration-ms={scene.durationMs}
                 key={scene.id}
               >
-                <PreviewSceneContent scene={scene} />
+                <PreviewSceneContent
+                  businessName={resolvedBusinessName}
+                  ownerName={ownerName}
+                  publicLocation={publicLocation}
+                  scene={scene}
+                />
               </span>
             ))}
           </span>
@@ -582,7 +652,9 @@ function StarterPreview({
 export type StarterChoiceGridProps = {
   businessName?: string;
   onChoose: (starter: OriginStarter) => void;
+  ownerName?: string;
   portraitUrl?: string;
+  publicLocation?: string;
   reducedMotion?: boolean;
   selectedStarter?: OriginStarter | null;
 };
@@ -590,7 +662,9 @@ export type StarterChoiceGridProps = {
 export function StarterChoiceGrid({
   businessName,
   onChoose,
+  ownerName,
   portraitUrl,
+  publicLocation,
   reducedMotion = false,
   selectedStarter = null,
 }: StarterChoiceGridProps) {
@@ -641,8 +715,10 @@ export function StarterChoiceGrid({
                 active={previewActive}
                 businessName={businessName}
                 definition={starter.preview}
+                ownerName={ownerName}
                 pageVisible={playback.pageVisible}
                 portraitUrl={portraitUrl}
+                publicLocation={publicLocation}
                 reducedMotion={playback.prefersReducedMotion}
                 starterId={starter.id}
               />

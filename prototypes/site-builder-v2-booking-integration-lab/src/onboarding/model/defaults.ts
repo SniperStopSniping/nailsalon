@@ -218,8 +218,10 @@ export const createDefaultCanvaDraft = (): CanvaDraft => ({
   displayMode: 'contained',
   errorMessage: '',
   images: [],
+  ownedAssetIds: [],
   placement: 'after_booking',
   status: 'empty',
+  uploadResult: null,
 });
 
 export const createDefaultPlanOffer = (): PlanOfferDraft => ({

@@ -147,7 +147,7 @@ export const CANONICAL_SERVICES = deepFreeze<readonly MockService[]>([
     name: 'Gel Manicure',
     category: 'manicure',
     shortDescription: 'Long-wear gel colour with cuticle care and shaping.',
-    longDescription: 'Nail shaping, gentle cuticle care and a glossy gel colour selected from the Isla studio collection.',
+    longDescription: 'Nail shaping, gentle cuticle care and a glossy gel colour selected from the studio colour collection.',
     price: { behavior: 'fixed', amountCents: 5000 },
     durationMinutes: 60,
     image: IMAGE_CATALOG.gelNude!,

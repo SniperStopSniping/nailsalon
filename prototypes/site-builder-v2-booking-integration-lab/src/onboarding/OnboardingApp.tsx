@@ -8,6 +8,7 @@ import {
 } from 'react';
 
 import { useCustomDesignAssetCoordinator } from '../custom-design/integration/CustomDesignAssetProvider';
+import { formatCustomDesignUploadSummary } from '../custom-design/integration/upload-summary';
 import type { SiteBuilderDocument } from '../model/types';
 import { Dialog } from '../ui/Dialog';
 import { ConfirmationDialog } from '../ui/EditorDialogs';
@@ -69,18 +70,30 @@ import {
   LocationContactScreen,
   PhotoSocialScreen,
 } from './screens/BasicsScreens';
-import { FinalReviewScreen } from './screens/ReviewScreen';
+import {
+  BUILDER_HANDOFF_TRIGGER_ID,
+  FinalReviewScreen,
+} from './screens/ReviewScreen';
 import { WelcomeScreen } from './screens/WelcomeScreen';
 import { switchOnboardingStarter } from './state/switchStarter';
 import { useOnboardingState } from './state/useOnboardingState';
 
-type PreviewSource = 'starting_preview' | 'site_style' | 'final_preview';
+type PreviewSource =
+  | 'starting_preview'
+  | 'about'
+  | 'about_design'
+  | 'site_style'
+  | 'final_preview';
+
+type OnboardingBrowserOverlay =
+  | { kind: 'preview'; source: PreviewSource }
+  | { kind: 'plan' };
 
 type OnboardingBrowserHistoryState = {
   lusterOnboarding: true;
   onboardingCursor: number;
   onboardingSession: number;
-  previewSource?: PreviewSource;
+  overlay?: OnboardingBrowserOverlay;
   screen: OnboardingScreenId;
 };
 
@@ -89,10 +102,16 @@ const isOnboardingBrowserHistoryState = (
 ): value is OnboardingBrowserHistoryState => {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<OnboardingBrowserHistoryState>;
+  const validOverlay = candidate.overlay === undefined
+    || candidate.overlay?.kind === 'plan'
+    || (candidate.overlay?.kind === 'preview'
+      && ['starting_preview', 'about', 'about_design', 'site_style', 'final_preview']
+        .includes(candidate.overlay.source));
   return candidate.lusterOnboarding === true
     && typeof candidate.onboardingCursor === 'number'
     && typeof candidate.onboardingSession === 'number'
-    && CORE_SCREEN_ORDER.includes(candidate.screen as OnboardingScreenId);
+    && CORE_SCREEN_ORDER.includes(candidate.screen as OnboardingScreenId)
+    && validOverlay;
 };
 
 type OnboardingAppProps = {
@@ -140,8 +159,10 @@ const continueFrom = (state: OnboardingLabState): OnboardingLabState => {
 
 export const getOnboardingAssetIds = (
   state: OnboardingLabState,
-): string[] => [...new Set(state.canva.images.flatMap((image) =>
-  image.storageId ? [image.storageId] : []))];
+): string[] => [...new Set([
+  ...state.canva.ownedAssetIds,
+  ...state.canva.images.flatMap((image) => image.storageId ? [image.storageId] : []),
+])];
 
 export const applyCanvaIntegrationResult = (
   current: OnboardingLabState,
@@ -163,11 +184,22 @@ export const applyCanvaIntegrationResult = (
     ]),
   );
   const hasAcceptedImages = acceptedImages.length > 0;
-  const status = result.status === 'committed'
+  const uploadFailures = result.failures.map((failure) => ({
+    ...(failure.code ? { code: failure.code } : {}),
+    fileName: failure.fileName ?? 'Upload',
+    message: failure.code === 'too_many_images'
+      ? 'Skipped because the section is full.'
+      : failure.message,
+  }));
+  const uploadSummary = uploadFailures.length > 0
+    ? formatCustomDesignUploadSummary(
+        result.addedCount,
+        uploadFailures.map((failure) => ({ code: failure.code ?? 'processing_failed' })),
+      )
+    : '';
+  const status = result.status === 'committed' || (result.status === 'partial' && hasAcceptedImages)
     ? 'ready' as const
-    : result.status === 'partial'
-      ? 'invalid' as const
-      : current.canva.images.length > 0
+    : current.canva.images.length > 0
         ? current.canva.status
         : 'invalid' as const;
 
@@ -177,12 +209,23 @@ export const applyCanvaIntegrationResult = (
       ...current.canva,
       customDesignSectionId: result.sectionId,
       displayMode,
-      errorMessage: result.failures.map((failure) => failure.message).join(' '),
+      errorMessage: uploadSummary,
       images: hasAcceptedImages
         ? [...imagesByStorageId.values()]
         : current.canva.images,
+      ownedAssetIds: [...new Set([
+        ...current.canva.ownedAssetIds,
+        ...acceptedImages.flatMap((image) => image.storageId ? [image.storageId] : []),
+      ])],
       placement,
       status,
+      uploadResult: uploadFailures.length > 0
+        ? {
+            addedCount: result.addedCount,
+            failures: uploadFailures,
+            summary: uploadSummary,
+          }
+        : null,
     },
     recipe: {
       ...current.recipe,
@@ -301,12 +344,19 @@ function LabReviewOptions({
 }
 
 function PausedState({ onResume }: { onResume: () => void }) {
+  const headingRef = useRef<HTMLHeadingElement>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, []);
+
   return (
     <main className="onboarding-paused-state">
       <section className="onboarding-paused-card" aria-labelledby="paused-heading">
         <span aria-hidden="true">L</span>
         <p className="onboarding-screen-kicker">Saved in this browser</p>
-        <h1 id="paused-heading">Setup saved</h1>
+        <h1 id="paused-heading" ref={headingRef} tabIndex={-1}>Setup saved</h1>
+        <p aria-live="polite" className="visually-hidden" role="status">Your setup is saved.</p>
         <p>Your profile, starter, optional choices, and current place are ready when you return.</p>
         <button className="onboarding-primary-action" type="button" onClick={onResume}>Resume setup</button>
       </section>
@@ -334,6 +384,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [canvaOpen, setCanvaOpen] = useState(false);
   const [planOpen, setPlanOpen] = useState(false);
+  const [writingHelperOpen, setWritingHelperOpen] = useState(false);
   const [labOptionsOpen, setLabOptionsOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
   const [pendingStarter, setPendingStarter] = useState<StarterId | null>(null);
@@ -343,15 +394,16 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
   const forceReviewAppliedRef = useRef(false);
   const browserCursorRef = useRef(0);
   const browserEntriesRef = useRef(new Map<number, {
-    previewSource?: PreviewSource;
+    overlay?: OnboardingBrowserOverlay;
     screen: OnboardingScreenId;
   }>());
-  const browserPreviewRef = useRef<PreviewSource | null>(null);
+  const browserOverlayRef = useRef<OnboardingBrowserOverlay | null>(null);
   const browserScreenRef = useRef<OnboardingScreenId | null>(null);
   const historySessionRef = useRef(Date.now());
   const historyInitializedRef = useRef(false);
   const applyingPopStateRef = useRef(false);
   const continueAfterPreviewCloseRef = useRef(false);
+  const cleanupRetrySignatureRef = useRef('');
   const screen = onboarding.state.progress.currentScreen;
   const aboutEnabled = onboarding.state.recipe.aboutEnabled;
   const builderHasBeenEntered = onboarding.state.planOffer.planIntent !== null
@@ -369,11 +421,43 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
     })),
   });
 
+  useEffect(() => {
+    const pendingAssetIds = onboarding.state.canva.ownedAssetIds;
+    if (
+      !coordinator
+      || lab.document
+      || screen !== 'welcome'
+      || pendingAssetIds.length === 0
+    ) return undefined;
+    const signature = [...pendingAssetIds].sort().join('|');
+    if (cleanupRetrySignatureRef.current === signature) return undefined;
+    cleanupRetrySignatureRef.current = signature;
+    let cancelled = false;
+    void coordinator.deleteAssetsIfUnreferenced(pendingAssetIds).then((cleanupErrors) => {
+      if (cancelled) return;
+      if (cleanupErrors.length > 0) {
+        setError(
+          'Setup is clear, but this browser still couldn’t remove every uploaded setup image. The cleanup list remains saved and will be retried safely after reload.',
+        );
+        return;
+      }
+      onboarding.updateState((current) => ({
+        ...current,
+        canva: { ...current.canva, ownedAssetIds: [] },
+      }));
+      setError('');
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [coordinator, lab.document, onboarding.state.canva.ownedAssetIds, onboarding.updateState, screen]);
+
   const modalOpen = Boolean(
     previewSource
     || galleryOpen
     || canvaOpen
     || planOpen
+    || writingHelperOpen
     || labOptionsOpen
     || resetOpen
     || pendingStarter,
@@ -440,14 +524,21 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
         ? existing
         : null;
       browserCursorRef.current = restoredEntry?.onboardingCursor ?? 0;
-      browserPreviewRef.current = null;
+      const restoredOverlay = restoredEntry?.overlay ?? null;
+      browserOverlayRef.current = restoredOverlay;
       browserScreenRef.current = screen;
       historySessionRef.current = restoredEntry?.onboardingSession ?? Date.now();
-      browserEntriesRef.current.set(browserCursorRef.current, { screen });
+      browserEntriesRef.current.set(browserCursorRef.current, {
+        ...(restoredOverlay ? { overlay: restoredOverlay } : {}),
+        screen,
+      });
+      setPreviewSource(restoredOverlay?.kind === 'preview' ? restoredOverlay.source : null);
+      setPlanOpen(restoredOverlay?.kind === 'plan');
       window.history.replaceState({
         lusterOnboarding: true,
         onboardingCursor: browserCursorRef.current,
         onboardingSession: historySessionRef.current,
+        ...(restoredOverlay ? { overlay: restoredOverlay } : {}),
         screen,
       } satisfies OnboardingBrowserHistoryState, '');
       return;
@@ -462,7 +553,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
     if (browserScreenRef.current === screen) return;
     const onboardingCursor = browserCursorRef.current + 1;
     browserCursorRef.current = onboardingCursor;
-    browserPreviewRef.current = null;
+    browserOverlayRef.current = null;
     browserScreenRef.current = screen;
     browserEntriesRef.current.set(onboardingCursor, { screen });
     window.history.pushState({
@@ -480,34 +571,50 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
         window.history.forward();
         return;
       }
-      if (event.state.screen === 'about_design' && !aboutEnabled) return;
       const direction = event.state.onboardingCursor < browserCursorRef.current
         ? 'back'
         : event.state.onboardingCursor > browserCursorRef.current
           ? 'forward'
           : null;
       if (!direction) return;
+      if (event.state.screen === 'about_design' && !aboutEnabled) {
+        if (direction === 'back') window.history.back();
+        else window.history.forward();
+        return;
+      }
 
-      const targetPreview = event.state.previewSource ?? null;
+      const targetOverlay = event.state.overlay ?? null;
       browserEntriesRef.current.set(event.state.onboardingCursor, {
-        ...(targetPreview ? { previewSource: targetPreview } : {}),
+        ...(targetOverlay ? { overlay: targetOverlay } : {}),
         screen: event.state.screen,
       });
       if (event.state.screen === browserScreenRef.current) {
-        const previousPreview = browserPreviewRef.current;
+        const previousOverlay = browserOverlayRef.current;
         browserCursorRef.current = event.state.onboardingCursor;
-        browserPreviewRef.current = targetPreview;
-        if (targetPreview) {
-          setPreviewSource(targetPreview);
-          if (!previousPreview) {
-            onboarding.recordEvent({ source: targetPreview, type: 'preview_opened' });
+        browserOverlayRef.current = targetOverlay;
+        if (targetOverlay?.kind === 'preview') {
+          setPlanOpen(false);
+          setPreviewSource(targetOverlay.source);
+          if (previousOverlay?.kind !== 'preview') {
+            onboarding.recordEvent({ source: targetOverlay.source, type: 'preview_opened' });
           }
+        } else if (targetOverlay?.kind === 'plan') {
+          setPreviewSource(null);
+          setPlanOpen(true);
         } else {
           setPreviewSource(null);
-          if (previousPreview) {
-            onboarding.recordEvent({ source: previousPreview, type: 'preview_closed' });
+          setPlanOpen(false);
+          if (previousOverlay?.kind === 'plan') {
+            window.requestAnimationFrame(() => {
+              document.getElementById(BUILDER_HANDOFF_TRIGGER_ID)?.focus({
+                preventScroll: true,
+              });
+            });
           }
-          if (continueAfterPreviewCloseRef.current) {
+          if (previousOverlay?.kind === 'preview') {
+            onboarding.recordEvent({ source: previousOverlay.source, type: 'preview_closed' });
+          }
+          if (previousOverlay?.kind === 'preview' && continueAfterPreviewCloseRef.current) {
             continueAfterPreviewCloseRef.current = false;
             onboarding.continueFlow();
           }
@@ -524,7 +631,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
       setPendingStarter(null);
       applyingPopStateRef.current = true;
       browserCursorRef.current = event.state.onboardingCursor;
-      browserPreviewRef.current = targetPreview;
+      browserOverlayRef.current = targetOverlay;
       browserScreenRef.current = event.state.screen;
       onboarding.navigateFromBrowser(event.state.screen, direction);
     };
@@ -545,8 +652,13 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
     if (
       browserCursorRef.current > 0
       && previousProductScreen
-      && previousBrowserEntry?.screen === previousProductScreen
-      && !previousBrowserEntry.previewSource
+      && (
+        previousBrowserEntry === undefined
+        || (
+          previousBrowserEntry.screen === previousProductScreen
+          && !previousBrowserEntry.overlay
+        )
+      )
     ) {
       window.history.back();
       return;
@@ -558,30 +670,61 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
     onboarding.recordEvent({ source, type: 'preview_opened' });
     const onboardingCursor = browserCursorRef.current + 1;
     browserCursorRef.current = onboardingCursor;
-    browserPreviewRef.current = source;
-    browserEntriesRef.current.set(onboardingCursor, { previewSource: source, screen });
+    const overlay = { kind: 'preview', source } as const;
+    browserOverlayRef.current = overlay;
+    browserEntriesRef.current.set(onboardingCursor, { overlay, screen });
     window.history.pushState({
       lusterOnboarding: true,
       onboardingCursor,
       onboardingSession: historySessionRef.current,
-      previewSource: source,
+      overlay,
       screen,
     } satisfies OnboardingBrowserHistoryState, '');
     setPreviewSource(source);
   };
-  const closePreview = (continueSetup = false) => {
+  const dismissPreview = (continueSetup = false) => {
     continueAfterPreviewCloseRef.current = continueSetup;
-    if (browserPreviewRef.current && browserCursorRef.current > 0) {
+    if (browserOverlayRef.current?.kind === 'preview' && browserCursorRef.current > 0) {
       window.history.back();
       return;
     }
     if (previewSource) onboarding.recordEvent({ source: previewSource, type: 'preview_closed' });
-    browserPreviewRef.current = null;
+    browserOverlayRef.current = null;
     setPreviewSource(null);
     if (continueSetup) {
       continueAfterPreviewCloseRef.current = false;
       onboarding.continueFlow();
     }
+  };
+
+  const openPlan = () => {
+    const overlay = { kind: 'plan' } as const;
+    const onboardingCursor = browserCursorRef.current + 1;
+    browserCursorRef.current = onboardingCursor;
+    browserOverlayRef.current = overlay;
+    browserEntriesRef.current.set(onboardingCursor, { overlay, screen });
+    window.history.pushState({
+      lusterOnboarding: true,
+      onboardingCursor,
+      onboardingSession: historySessionRef.current,
+      overlay,
+      screen,
+    } satisfies OnboardingBrowserHistoryState, '');
+    setPlanOpen(true);
+  };
+
+  const dismissPlan = () => {
+    if (browserOverlayRef.current?.kind === 'plan' && browserCursorRef.current > 0) {
+      window.history.back();
+      return;
+    }
+    browserOverlayRef.current = null;
+    setPlanOpen(false);
+    window.requestAnimationFrame(() => {
+      document.getElementById(BUILDER_HANDOFF_TRIGGER_ID)?.focus({
+        preventScroll: true,
+      });
+    });
   };
 
   const updateProfile = (patch: Partial<BusinessProfileDraft>) => onboarding.updateProfile(patch);
@@ -688,6 +831,18 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
         onboardingAssetIds,
       ) ?? [];
       let state = applyLabReviewFixture(id);
+      if (cleanupErrors.length > 0) {
+        state = {
+          ...state,
+          canva: {
+            ...state.canva,
+            ownedAssetIds: [...new Set([
+              ...state.canva.ownedAssetIds,
+              ...onboardingAssetIds,
+            ])],
+          },
+        };
+      }
       if (state.recipe.starter) {
         const result = lab.createStarterOnce(state.recipe.starter, {
           siteName: state.profile.businessName,
@@ -707,7 +862,9 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
       });
       onboarding.updateState(() => state);
       setLabOptionsOpen(false);
-      setError(cleanupErrors.map((cleanupError) => cleanupError.message).join(' '));
+      setError(cleanupErrors.length > 0
+        ? 'The fixture is ready, but some earlier uploaded setup images still need browser cleanup. Their cleanup list is saved for the next restart.'
+        : '');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The fixture could not be loaded.');
     }
@@ -716,16 +873,33 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
   const confirmReset = async () => {
     try {
       const onboardingAssetIds = getOnboardingAssetIds(onboarding.state);
-      if (!lab.resetLab()) {
+      const previousState = structuredClone(onboarding.state);
+      if (lab.transactionPending) {
         setError('Finish the current image upload before restarting onboarding.');
+        return;
+      }
+      if (!onboarding.reset()) {
+        setError('Onboarding browser storage could not be cleared.');
+        return;
+      }
+      if (!lab.resetLab()) {
+        const restored = onboarding.restoreSnapshot(previousState);
+        setError(restored.success
+          ? 'Setup could not be restarted safely. Your setup was restored.'
+          : 'The saved site could not be cleared, and your setup answers could not be resaved. They remain open on this screen; try again before closing it.');
         return;
       }
       const cleanupErrors = await coordinator?.deleteAssetsIfUnreferenced(
         onboardingAssetIds,
       ) ?? [];
-      if (!onboarding.reset()) {
-        setError('Onboarding browser storage could not be cleared.');
-        return;
+      if (cleanupErrors.length > 0) {
+        onboarding.updateState((current) => ({
+          ...current,
+          canva: {
+            ...current.canva,
+            ownedAssetIds: [...new Set(onboardingAssetIds)],
+          },
+        }));
       }
       setPreviewSource(null);
       setGalleryOpen(false);
@@ -733,11 +907,13 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
       setPlanOpen(false);
       setLabOptionsOpen(false);
       setResetOpen(false);
-      setError(cleanupErrors.map((cleanupError) => cleanupError.message).join(' '));
+      setError(cleanupErrors.length > 0
+        ? 'Setup was restarted. Some uploaded setup images still need browser cleanup, so their cleanup list was kept for a safe retry.'
+        : '');
       browserCursorRef.current = 0;
       browserEntriesRef.current.clear();
       browserEntriesRef.current.set(0, { screen: 'welcome' });
-      browserPreviewRef.current = null;
+      browserOverlayRef.current = null;
       browserScreenRef.current = 'welcome';
       applyingPopStateRef.current = false;
       historySessionRef.current += 1;
@@ -763,7 +939,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
 
   const openBuilder = () => {
     if (!syncBuilderSiteName()) return;
-    if (onboarding.requestBuilderHandoff()) setPlanOpen(true);
+    if (onboarding.requestBuilderHandoff()) openPlan();
   };
   const choosePlan = (intent: PlanIntent) => {
     const saved = onboarding.choosePlan(intent);
@@ -771,6 +947,14 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
       setError(saved.message);
       return;
     }
+    browserOverlayRef.current = null;
+    browserEntriesRef.current.set(browserCursorRef.current, { screen: 'final_preview' });
+    window.history.replaceState({
+      lusterOnboarding: true,
+      onboardingCursor: browserCursorRef.current,
+      onboardingSession: historySessionRef.current,
+      screen: 'final_preview',
+    } satisfies OnboardingBrowserHistoryState, '');
     setPlanOpen(false);
     onEnterBuilder();
   };
@@ -844,8 +1028,10 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
         return (
           <StartingPointScreen
             businessName={onboarding.state.profile.businessName}
+            location={onboarding.state.profile.location}
             onBack={goBack}
             onChooseStarter={selectStarter}
+            ownerName={onboarding.state.profile.ownerName}
             portraitUrl={onboarding.state.profile.profilePhoto?.previewUrl}
             reducedMotion={onboarding.state.reviewOptions.reducedMotion}
             selectedStarter={lab.document?.originStarter ?? onboarding.state.recipe.starter}
@@ -863,9 +1049,18 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
           />
         ) : null;
       case 'about':
-        return <AboutScreen onBack={goBack} onContinue={onboarding.continueFlow} onUpdate={updateState} state={onboarding.state} />;
+        return (
+          <AboutScreen
+            onBack={goBack}
+            onContinue={onboarding.continueFlow}
+            onFullPreview={() => openPreview('about')}
+            onUpdate={updateState}
+            onWritingHelperOpenChange={setWritingHelperOpen}
+            state={onboarding.state}
+          />
+        );
       case 'about_design':
-        return <AboutDesignScreen document={lab.document} onBack={goBack} onContinue={onboarding.continueFlow} onUpdate={updateState} state={onboarding.state} />;
+        return <AboutDesignScreen document={lab.document} onBack={goBack} onContinue={onboarding.continueFlow} onFullPreview={() => openPreview('about_design')} onUpdate={updateState} state={onboarding.state} />;
       case 'policies':
         return (
           <PoliciesScreen
@@ -917,7 +1112,12 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
             document={lab.document}
             onBack={goBack}
             onEdit={(target) => onboarding.viewScreen(target)}
+            onEditCanva={() => {
+              onboarding.viewScreen('extras');
+              setCanvaOpen(true);
+            }}
             onOpenBuilder={openBuilder}
+            onOpenPreview={() => openPreview('final_preview')}
             state={onboarding.state}
           />
         );
@@ -969,9 +1169,9 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
 
       <SetupPreviewOverlay
         document={lab.document}
-        onClose={closePreview}
+        onClose={() => dismissPreview(false)}
         onContinue={() => {
-          closePreview(previewSource === 'starting_preview');
+          dismissPreview(previewSource === 'starting_preview');
         }}
         open={previewSource !== null}
         source={previewSource ?? 'starting_preview'}
@@ -985,15 +1185,18 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
       />
       <CanvaDialog
         available={canva.available}
+        controller={canva}
+        document={lab.document}
         onAdd={addCanva}
         onClose={() => setCanvaOpen(false)}
+        onUpdate={updateState}
         open={canvaOpen}
         state={onboarding.state}
       />
       <PlanOfferSheet
         offer={onboarding.state.planOffer}
         onChoose={choosePlan}
-        onClose={() => setPlanOpen(false)}
+        onClose={dismissPlan}
         open={planOpen}
       />
       <LabReviewOptions
@@ -1008,17 +1211,17 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
         cancelLabel="Keep current"
         confirmLabel={builderHasBeenEntered
           ? `Replace with ${pendingStarterLabel}`
-          : 'Switch starting point'}
+          : `Switch to ${pendingStarterLabel}`}
         danger={builderHasBeenEntered}
         description={builderHasBeenEntered
           ? `You’ve already opened the Builder. Replacing ${currentStarterLabel} with ${pendingStarterLabel} may replace manual page and section changes made there. Your business profile, onboarding choices, Gallery draft, and uploaded Canva assets stay saved.`
-          : 'Your business information, About details, policies, style choices, photos, Gallery draft, Canva design, and onboarding progress will stay saved. We’ll replace only the starting page structure.'}
+          : `Switching to ${pendingStarterLabel} keeps your business information, About details, policies, style choices, photos, Gallery draft, Canva design, and onboarding progress saved. We’ll replace only the starting page structure.`}
         onClose={() => setPendingStarter(null)}
         onConfirm={confirmStarterChange}
         open={pendingStarter !== null}
         title={builderHasBeenEntered
-          ? 'Replace manual Builder changes?'
-          : 'Switch to this starting point?'}
+          ? `Replace with ${pendingStarterLabel}?`
+          : `Switch to ${pendingStarterLabel}?`}
       />
       <ConfirmationDialog
         confirmLabel="Restart onboarding"

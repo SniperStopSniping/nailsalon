@@ -70,6 +70,19 @@ const formatTime = (minutes: number): string => new Intl.DateTimeFormat('en-US',
   timeZone: 'UTC',
 }).format(new Date(Date.UTC(2026, 0, 1, Math.floor(minutes / 60), minutes % 60)));
 
+const nextOpeningLabel = (
+  weekday: Weekday,
+  dayOffset: number,
+  open: number,
+): string => {
+  const dayLabel = dayOffset === 0
+    ? 'today'
+    : dayOffset === 1
+      ? 'tomorrow'
+      : WEEKDAY_LABELS[weekday];
+  return `Opens ${dayLabel} at ${formatTime(open)}`;
+};
+
 const getPreviewClock = (
   timestamp: string,
   timeZone: string,
@@ -143,16 +156,40 @@ export const getWeeklyHoursPreviewStatus = (
   const clock = getPreviewClock(timestamp, timeZone);
   if (!clock) return null;
   const day = hours.days[clock.weekday];
-  if (day.closed) return { kind: 'closed', label: 'Closed', weekday: clock.weekday };
   const open = parseTime(day.open);
   const close = parseTime(day.close);
-  if (open === null || close === null || close <= open) return null;
-  if (clock.minutes >= open && clock.minutes < close) {
+  if (
+    !day.closed
+    && open !== null
+    && close !== null
+    && close > open
+    && clock.minutes >= open
+    && clock.minutes < close
+  ) {
     return {
       kind: 'open',
       label: `Open until ${formatTime(close)}`,
       weekday: clock.weekday,
     };
   }
+
+  const currentWeekdayIndex = WEEKDAYS.indexOf(clock.weekday);
+  for (let dayOffset = 0; dayOffset <= WEEKDAYS.length; dayOffset += 1) {
+    const candidateWeekday = WEEKDAYS[
+      (currentWeekdayIndex + dayOffset) % WEEKDAYS.length
+    ];
+    if (!candidateWeekday) continue;
+    const candidate = hours.days[candidateWeekday];
+    if (!isValidOpenHoursDay(candidate)) continue;
+    const candidateOpen = parseTime(candidate.open);
+    if (candidateOpen === null) continue;
+    if (dayOffset === 0 && clock.minutes >= candidateOpen) continue;
+    return {
+      kind: 'closed',
+      label: nextOpeningLabel(candidateWeekday, dayOffset, candidateOpen),
+      weekday: clock.weekday,
+    };
+  }
+
   return { kind: 'closed', label: 'Closed', weekday: clock.weekday };
 };

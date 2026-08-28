@@ -21,15 +21,17 @@ import {
 
 const DEFAULT_SECTION_NOTE = 'Content and settings will be designed later.';
 
-type StarterSectionDefinition =
+export type StarterSectionDefinition =
   | {
+      previewLabel: string;
       sectionType: CatalogueSectionType;
       size?: SectionSize;
     }
-  | { sectionType: 'booking' };
+  | { previewLabel: 'Booking'; sectionType: 'booking' };
 
-type StarterPageDefinition = {
+export type StarterPageDefinition = {
   name: string;
+  previewLabel?: string;
   slug: string;
   sections: readonly StarterSectionDefinition[];
 };
@@ -46,9 +48,9 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
       name: 'Home',
       slug: '',
       sections: [
-        { sectionType: 'section_01', size: 'compact' },
-        { sectionType: 'section_02', size: 'medium' },
-        { sectionType: 'booking' },
+        { previewLabel: 'Salon intro', sectionType: 'section_01', size: 'compact' },
+        { previewLabel: 'Services', sectionType: 'section_02', size: 'medium' },
+        { previewLabel: 'Booking', sectionType: 'booking' },
       ],
     },
   ],
@@ -57,12 +59,12 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
       name: 'Home',
       slug: '',
       sections: [
-        { sectionType: 'section_01', size: 'large' },
-        { sectionType: 'section_02', size: 'medium' },
-        { sectionType: 'section_03', size: 'medium' },
-        { sectionType: 'section_04', size: 'large' },
-        { sectionType: 'section_05', size: 'compact' },
-        { sectionType: 'booking' },
+        { previewLabel: 'Welcome', sectionType: 'section_01', size: 'large' },
+        { previewLabel: 'About', sectionType: 'section_02', size: 'medium' },
+        { previewLabel: 'Services', sectionType: 'section_03', size: 'medium' },
+        { previewLabel: 'Gallery', sectionType: 'section_04', size: 'large' },
+        { previewLabel: 'Reviews', sectionType: 'section_05', size: 'compact' },
+        { previewLabel: 'Booking', sectionType: 'booking' },
       ],
     },
   ],
@@ -71,37 +73,80 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
       name: 'Home',
       slug: '',
       sections: [
-        { sectionType: 'section_01' },
-        { sectionType: 'section_02' },
+        { previewLabel: 'Welcome', sectionType: 'section_01' },
+        { previewLabel: 'Featured work', sectionType: 'section_02' },
       ],
     },
     {
       name: 'Services / Book',
+      previewLabel: 'Services & Booking',
       slug: 'services-book',
       sections: [
-        { sectionType: 'section_03' },
-        { sectionType: 'booking' },
+        { previewLabel: 'Services', sectionType: 'section_03' },
+        { previewLabel: 'Booking', sectionType: 'booking' },
       ],
     },
     {
       name: 'Gallery',
       slug: 'gallery',
-      sections: [{ sectionType: 'section_04' }],
+      sections: [{ previewLabel: 'Gallery', sectionType: 'section_04' }],
     },
     {
       name: 'About',
       slug: 'about',
-      sections: [{ sectionType: 'section_05' }],
+      sections: [{ previewLabel: 'About', sectionType: 'section_05' }],
     },
     {
       name: 'Contact',
       slug: 'contact',
       sections: [
-        { sectionType: 'section_06' },
-        { sectionType: 'section_07' },
+        { previewLabel: 'Visit us', sectionType: 'section_06' },
+        { previewLabel: 'Contact', sectionType: 'section_07' },
       ],
     },
   ],
+};
+
+export const getStarterPageDefinitions = (
+  starter: OriginStarter,
+): readonly StarterPageDefinition[] => STARTER_PAGES[starter];
+
+export type StarterDocumentOutlinePage = {
+  id: string;
+  label: string;
+  sections: Array<{ id: string; label: string; sectionType: SectionType }>;
+};
+
+/**
+ * Presents the structure of the real universal document. Semantic labels live
+ * beside the definitions used to create that document, so onboarding cannot
+ * drift into a separate starter recipe.
+ */
+export const getStarterDocumentOutline = (
+  document: SiteBuilderDocument | null,
+): StarterDocumentOutlinePage[] => {
+  if (!document) return [];
+  const definitions = STARTER_PAGES[document.originStarter];
+  return [...document.pages]
+    .filter((page) => page.visible)
+    .sort((left, right) => left.order - right.order)
+    .map((page, pageIndex) => {
+      const definition = definitions[pageIndex];
+      return {
+        id: page.id,
+        label: definition?.previewLabel ?? page.name,
+        sections: [...page.sections]
+          .filter((section) => section.visible)
+          .sort((left, right) => left.order - right.order)
+          .map((section) => ({
+            id: section.id,
+            label: definition?.sections.find(
+              (candidate) => candidate.sectionType === section.sectionType,
+            )?.previewLabel ?? getSectionLabel(section.sectionType),
+            sectionType: section.sectionType,
+          })),
+      };
+    });
 };
 
 export const getSectionLabel = (sectionType: SectionType): string =>

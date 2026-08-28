@@ -73,6 +73,11 @@ const canRestoreFocus = (element: HTMLElement | null): element is HTMLElement =>
   && !element.closest('[aria-hidden="true"], [hidden], [inert]'),
 );
 
+const matchesWideDialogViewport = (): boolean => (
+  typeof window.matchMedia === 'function'
+  && window.matchMedia('(min-width: 900px)').matches
+);
+
 export function Dialog({
   children,
   description,
@@ -89,7 +94,7 @@ export function Dialog({
   const onCloseRef = useRef(onClose);
   const restoreFocusOnCloseRef = useRef(restoreFocusOnClose);
   const stackTokenRef = useRef(Symbol('luster-lab-dialog'));
-  const [wideViewport, setWideViewport] = useState(() => window.matchMedia('(min-width: 900px)').matches);
+  const [wideViewport, setWideViewport] = useState(matchesWideDialogViewport);
   const visuallyAdjacent = wideViewport && (
     variant === 'context-panel'
     || variant === 'move-panel'
@@ -104,6 +109,7 @@ export function Dialog({
   restoreFocusOnCloseRef.current = restoreFocusOnClose;
 
   useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return undefined;
     const media = window.matchMedia('(min-width: 900px)');
     const handleChange = () => setWideViewport(media.matches);
     media.addEventListener('change', handleChange);
@@ -123,6 +129,11 @@ export function Dialog({
     }
 
     const dialog = dialogRef.current;
+    if (dialog) {
+      dialog.scrollTop = 0;
+      const dialogBody = dialog.querySelector<HTMLElement>('.dialog-body');
+      if (dialogBody) dialogBody.scrollTop = 0;
+    }
     const preferredFocusable = initialFocusSelector
       ? dialog?.querySelector<HTMLElement>(initialFocusSelector)
       : null;
@@ -223,7 +234,12 @@ export function Dialog({
           <h2 data-dialog-title id={titleId} tabIndex={-1}>{title}</h2>
           {description ? <p id={descriptionId}>{description}</p> : null}
         </div>
-        <button className="icon-button" type="button" aria-label={`Close ${title}`} onClick={onClose}>
+        <button
+          className="icon-button"
+          type="button"
+          aria-label={`Close ${title}`}
+          onClick={() => onCloseRef.current()}
+        >
           <X aria-hidden="true" size={20} />
         </button>
       </div>

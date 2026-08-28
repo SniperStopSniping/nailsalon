@@ -34,7 +34,7 @@ export function PlanOfferSheet({ offer, onChoose, onClose, open }: PlanOfferShee
   return (
     <Dialog
       description="Continue free, or choose a plan for the complete Luster website experience. You won’t be charged today."
-      initialFocusSelector="[data-plan-intent='free']"
+      initialFocusSelector="[data-dialog-title]"
       onClose={onClose}
       open={open}
       title="Your site is saved"
@@ -50,7 +50,14 @@ export function PlanOfferSheet({ offer, onChoose, onClose, open }: PlanOfferShee
             <p>One payment. Keep the included website tools for life.</p>
             <strong>{LAB_PLAN_CONFIGURATION.lifetime.pricePlaceholder}</strong>
             <ul>{LAB_PLAN_CONFIGURATION.lifetime.features.map((feature) => <li key={feature}><Check aria-hidden="true" size={14} /> {feature}</li>)}</ul>
-            <button disabled={!lifetimeAvailable} type="button" onClick={() => onChoose('lifetime')}>
+            <button
+              aria-label={lifetimeAvailable
+                ? 'Choose Founding Nail Tech Lifetime Access'
+                : 'Founding Nail Tech Lifetime Access unavailable'}
+              disabled={!lifetimeAvailable}
+              type="button"
+              onClick={() => onChoose('lifetime')}
+            >
               {lifetimeAvailable ? 'Unlock lifetime access' : 'Lifetime offer unavailable'}
             </button>
           </article>
@@ -61,7 +68,13 @@ export function PlanOfferSheet({ offer, onChoose, onClose, open }: PlanOfferShee
             <p>Unlock the complete website tools with a monthly plan.</p>
             <strong>{LAB_PLAN_CONFIGURATION.monthly.pricePlaceholder}</strong>
             <ul>{LAB_PLAN_CONFIGURATION.monthly.features.map((feature) => <li key={feature}><Check aria-hidden="true" size={14} /> {feature}</li>)}</ul>
-            <button type="button" onClick={() => onChoose('monthly')}>Choose monthly</button>
+            <button
+              aria-label="Choose Monthly plan"
+              type="button"
+              onClick={() => onChoose('monthly')}
+            >
+              Choose monthly
+            </button>
           </article>
           <article className="onboarding-plan-card is-free">
             <span>Free option</span>

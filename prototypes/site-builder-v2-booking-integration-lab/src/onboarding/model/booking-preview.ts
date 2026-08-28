@@ -3,8 +3,6 @@ import type { MockMenuFixture } from '../../booking/types';
 import { getPublicLocationPreview } from './location';
 import type { BusinessProfileDraft } from './types';
 
-export const ONBOARDING_NEXT_AVAILABILITY_LABEL = 'Tomorrow at 10:30 AM';
-
 export const CANONICAL_ONBOARDING_BOOKING_FIXTURE = createMenuFixture();
 
 export const getOnboardingPreviewLocation = (

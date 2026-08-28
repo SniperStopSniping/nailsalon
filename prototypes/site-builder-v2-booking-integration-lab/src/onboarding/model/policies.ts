@@ -6,6 +6,9 @@ import type {
 
 export type { DepositPolicyMode } from './types';
 
+const DEPOSIT_REFERENCE_PATTERN = /\bdeposits?\b/iu;
+const CONDITIONAL_DEPOSIT_PATTERN = /\bany\s+required\s+deposits?\b|\bdeposits?\b[^.]{0,100}\bdepend(?:s|ent)?\b[^.]{0,80}\bservices?\b|\bdeposits?\b[^.]{0,100}\b(?:if|when|where)\b[^.]{0,80}\b(?:booked\s+)?services?\b[^.]{0,60}\brequir(?:e|ed|es)\b|\b(?:booked\s+)?services?\b[^.]{0,80}\brequir(?:e|ed|es)\b[^.]{0,80}\bdeposits?\b/iu;
+
 const sentence = (value: string): string => {
   const trimmed = value.trim();
   if (!trimmed) return '';
@@ -17,6 +20,48 @@ const joinSentences = (values: Array<string | null | undefined>): string => valu
   .filter(Boolean)
   .map(sentence)
   .join(' ');
+
+export const getDepositPolicyMode = (
+  policies: PoliciesDraft,
+): DepositPolicyMode | null => policies.deposits.mode;
+
+export const deriveDepositForfeitWording = (
+  policies: PoliciesDraft,
+  context: 'cancellation' | 'no_show',
+): string => {
+  const mode = getDepositPolicyMode(policies);
+  if (mode === 'generally_required') {
+    return context === 'cancellation'
+      ? 'Cancellations after the deadline will result in the deposit being lost'
+      : 'A missed appointment will forfeit the deposit';
+  }
+  if (mode === 'depends_on_service') {
+    return context === 'cancellation'
+      ? 'Any required deposit may be forfeited for cancellations after the deadline'
+      : 'Any required deposit may be forfeited after a missed appointment';
+  }
+  return '';
+};
+
+/**
+ * Preserves structured/custom owner text while preventing the customer-facing
+ * wording from contradicting the one shared deposit mode.
+ */
+const resolveDepositAwareWording = (
+  policies: PoliciesDraft,
+  value: string,
+  fallback = '',
+): string => {
+  const trimmed = value.trim();
+  if (!DEPOSIT_REFERENCE_PATTERN.test(trimmed)) return trimmed;
+
+  const mode = getDepositPolicyMode(policies);
+  if (mode === null || mode === 'none') return fallback;
+  if (mode === 'depends_on_service' && !CONDITIONAL_DEPOSIT_PATTERN.test(trimmed)) {
+    return fallback;
+  }
+  return trimmed;
+};
 
 const cancellationNotice = (policies: PoliciesDraft): string => {
   switch (policies.cancellations.notice) {
@@ -30,10 +75,14 @@ const cancellationNotice = (policies: PoliciesDraft): string => {
 
 const cancellationConsequence = (policies: PoliciesDraft): string => {
   switch (policies.cancellations.consequence) {
-    case 'deposit_lost': return 'Cancellations after the deadline will result in the deposit being lost';
+    case 'deposit_lost': return deriveDepositForfeitWording(policies, 'cancellation');
     case 'cancellation_fee': return 'Cancellations after the deadline will incur a cancellation fee';
     case 'full_service_charge': return 'Cancellations after the deadline will be charged the full service amount';
-    case 'custom': return policies.cancellations.customConsequence.trim();
+    case 'custom': return resolveDepositAwareWording(
+      policies,
+      policies.cancellations.customConsequence,
+      deriveDepositForfeitWording(policies, 'cancellation'),
+    );
     default: return '';
   }
 };
@@ -45,10 +94,6 @@ const deriveCancellations = (policies: PoliciesDraft): string => {
     cancellationConsequence(policies),
   ]);
 };
-
-export const getDepositPolicyMode = (
-  policies: PoliciesDraft,
-): DepositPolicyMode | null => policies.deposits.mode;
 
 const formatDepositAmount = (deposits: PoliciesDraft['deposits']): string => {
   const cleanAmount = deposits.amount.trim().replace(/^[$%]/u, '').replace(/%$/u, '');
@@ -109,14 +154,23 @@ const deriveLateArrivals = (policies: PoliciesDraft): string => {
   ]);
 };
 
-const deriveNoShows = (policies: PoliciesDraft): string => joinSentences([
-  policies.noShows.loseDeposit ? 'A missed appointment will forfeit the deposit' : '',
-  policies.noShows.fullCharge ? 'The full service amount may be charged' : '',
-  policies.noShows.paymentRequiredToRebook
-    ? 'Payment is required before another appointment can be booked'
-    : '',
-  policies.noShows.custom,
-]);
+const deriveNoShows = (policies: PoliciesDraft): string => {
+  const depositConsequence = policies.noShows.loseDeposit
+    ? deriveDepositForfeitWording(policies, 'no_show')
+    : '';
+  return joinSentences([
+    depositConsequence,
+    policies.noShows.fullCharge ? 'The full service amount may be charged' : '',
+    policies.noShows.paymentRequiredToRebook
+      ? 'Payment is required before another appointment can be booked'
+      : '',
+    resolveDepositAwareWording(
+      policies,
+      policies.noShows.custom,
+      depositConsequence ? '' : deriveDepositForfeitWording(policies, 'no_show'),
+    ),
+  ]);
+};
 
 const deriveRepairs = (policies: PoliciesDraft): string => {
   if (policies.repairs.noRepairPolicy) return 'Repairs are not offered.';
@@ -152,6 +206,34 @@ export const derivePolicySuggestedWording = (
     case 'other': return deriveOther(policies);
   }
 };
+
+/**
+ * Returns customer-facing copy without discarding an owner's saved override.
+ * A stale deposit-dependent override is withheld when the shared deposit mode
+ * makes it contradictory; the refreshed structured suggestion is used instead.
+ */
+export const getResolvedPolicyWording = (
+  policies: PoliciesDraft,
+  sectionId: PolicySectionId,
+): string => {
+  const copy = policies.copy[sectionId];
+  const suggested = derivePolicySuggestedWording(policies, sectionId).trim();
+  if (copy.useSuggestedWording) return suggested;
+
+  const override = copy.wordingOverride.trim();
+  return sectionId === 'cancellations'
+    || sectionId === 'deposits'
+    || sectionId === 'no_shows'
+    ? resolveDepositAwareWording(policies, override, suggested)
+    : override;
+};
+
+export const getPolicyDisplayWording = (
+  policies: PoliciesDraft,
+  sectionId: PolicySectionId,
+): string => policies.copy[sectionId].visible
+  ? getResolvedPolicyWording(policies, sectionId)
+  : '';
 
 export const refreshPolicySuggestedWording = (
   policies: PoliciesDraft,

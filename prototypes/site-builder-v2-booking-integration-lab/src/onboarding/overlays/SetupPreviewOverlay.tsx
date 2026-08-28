@@ -1,5 +1,5 @@
 import { Monitor, Smartphone, Tablet } from 'lucide-react';
-import { useState } from 'react';
+import { useId, useRef, useState } from 'react';
 
 import type { SiteBuilderDocument } from '../../model/types';
 import { Dialog } from '../../ui/Dialog';
@@ -14,7 +14,7 @@ type SetupPreviewOverlayProps = {
   onClose: () => void;
   onContinue: () => void;
   open: boolean;
-  source: 'starting_preview' | 'site_style' | 'final_preview';
+  source: 'starting_preview' | 'about' | 'about_design' | 'site_style' | 'final_preview';
   state: OnboardingLabState;
 };
 
@@ -27,8 +27,12 @@ export function SetupPreviewOverlay({
   state,
 }: SetupPreviewOverlayProps) {
   const [device, setDevice] = useState<OnboardingPreviewDevice>('phone');
+  const returnActionsId = useId();
+  const returnActionsRef = useRef<HTMLElement>(null);
   const title = source === 'starting_preview'
     ? 'Preview your starting site'
+    : source === 'about' || source === 'about_design'
+      ? 'Preview your About section'
     : source === 'site_style'
       ? 'Preview your look'
       : 'Preview your site';
@@ -42,6 +46,17 @@ export function SetupPreviewOverlay({
       variant="sheet"
     >
       <div className="onboarding-preview-overlay" data-preview-source={source}>
+        <a
+          className="onboarding-preview-skip-link"
+          href={`#${returnActionsId}`}
+          onClick={(event) => {
+            event.preventDefault();
+            returnActionsRef.current?.scrollIntoView?.({ block: 'end', inline: 'nearest' });
+            returnActionsRef.current?.focus({ preventScroll: true });
+          }}
+        >
+          Skip preview content
+        </a>
         <div aria-label="Preview device" className="onboarding-device-switcher" role="group">
           <button aria-pressed={device === 'phone'} type="button" onClick={() => setDevice('phone')}><Smartphone aria-hidden="true" size={17} /> Phone</button>
           <button aria-pressed={device === 'tablet'} type="button" onClick={() => setDevice('tablet')}><Tablet aria-hidden="true" size={17} /> Tablet</button>
@@ -50,11 +65,18 @@ export function SetupPreviewOverlay({
         <OnboardingSitePreview
           device={device}
           document={document}
+          fitAvailable
           includeOptionalSections={source !== 'starting_preview'}
+          interactionMode="interactive"
           label={`${title} — ${device}`}
           state={state}
         />
-        <footer className="onboarding-overlay-actions">
+        <footer
+          ref={returnActionsRef}
+          className="onboarding-overlay-actions"
+          id={returnActionsId}
+          tabIndex={-1}
+        >
           <button type="button" onClick={onClose}>Back</button>
           <button className="is-primary" type="button" onClick={onContinue}>
             {source === 'starting_preview' ? 'Continue setup' : 'Return to setup'}

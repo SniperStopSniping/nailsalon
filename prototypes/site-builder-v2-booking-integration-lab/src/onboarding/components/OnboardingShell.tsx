@@ -44,10 +44,13 @@ export function OnboardingShell({
 }: OnboardingShellProps) {
   const contentId = useId();
   const moreMenuId = useId();
+  const moreTriggerId = useId();
   const hasMoreActions = Boolean(onSaveForLater || onRestart || onLabOptions);
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDetailsElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
   const moreTriggerRef = useRef<HTMLElement>(null);
+  const menuEntryFocusRef = useRef<'first' | 'last'>('first');
 
   const closeMore = useCallback((restoreFocus = false) => {
     setMoreOpen(false);
@@ -62,7 +65,22 @@ export function OnboardingShell({
 
   useEffect(() => {
     if (!moreOpen) return undefined;
+    const focusFrame = window.requestAnimationFrame(() => {
+      const menuItems = moreMenuRef.current?.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitem"]:not(:disabled)',
+      );
+      const target = menuEntryFocusRef.current === 'last'
+        ? menuItems?.item((menuItems?.length ?? 1) - 1)
+        : menuItems?.item(0);
+      menuItems?.forEach((item) => {
+        item.tabIndex = item === target ? 0 : -1;
+      });
+      target?.focus();
+    });
     const handlePointerDown = (event: PointerEvent) => {
+      if (!moreRef.current?.contains(event.target as Node)) closeMore();
+    };
+    const handleFocusIn = (event: FocusEvent) => {
       if (!moreRef.current?.contains(event.target as Node)) closeMore();
     };
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -72,23 +90,55 @@ export function OnboardingShell({
       closeMore(true);
     };
     window.document.addEventListener('pointerdown', handlePointerDown);
+    window.document.addEventListener('focusin', handleFocusIn);
     window.document.addEventListener('keydown', handleKeyDown, true);
     return () => {
+      window.cancelAnimationFrame(focusFrame);
       window.document.removeEventListener('pointerdown', handlePointerDown);
+      window.document.removeEventListener('focusin', handleFocusIn);
       window.document.removeEventListener('keydown', handleKeyDown, true);
     };
   }, [closeMore, moreOpen]);
 
   const runMoreAction = useCallback((action: () => void) => {
     closeMore();
+    moreTriggerRef.current?.focus({ preventScroll: true });
     action();
   }, [closeMore]);
 
   const handleMoreKeyDown = useCallback((event: ReactKeyboardEvent<HTMLElement>) => {
-    if (event.key !== 'Enter' && event.key !== ' ') return;
+    if (!['Enter', ' ', 'ArrowDown', 'ArrowUp'].includes(event.key)) return;
     event.preventDefault();
-    setMoreOpen((open) => !open);
+    menuEntryFocusRef.current = event.key === 'ArrowUp' ? 'last' : 'first';
+    setMoreOpen((open) => event.key === 'Enter' || event.key === ' ' ? !open : true);
   }, []);
+
+  const handleMenuKeyDown = useCallback((event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Tab') {
+      window.requestAnimationFrame(() => {
+        if (!moreMenuRef.current?.contains(document.activeElement)) closeMore();
+      });
+      return;
+    }
+    if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return;
+    const menuItems = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+      '[role="menuitem"]:not(:disabled)',
+    )];
+    if (menuItems.length === 0) return;
+    event.preventDefault();
+    const currentIndex = menuItems.indexOf(document.activeElement as HTMLButtonElement);
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? menuItems.length - 1
+        : event.key === 'ArrowUp'
+          ? (currentIndex <= 0 ? menuItems.length - 1 : currentIndex - 1)
+          : (currentIndex + 1) % menuItems.length;
+    menuItems.forEach((item, index) => {
+      item.tabIndex = index === nextIndex ? 0 : -1;
+    });
+    menuItems[nextIndex]?.focus();
+  }, [closeMore]);
 
   return (
     <div className="onboarding-shell" data-onboarding-stage={currentStage}>
@@ -113,25 +163,34 @@ export function OnboardingShell({
               ref={moreTriggerRef}
               aria-controls={moreMenuId}
               aria-expanded={moreOpen}
+              aria-haspopup="menu"
               aria-label="More onboarding options"
+              id={moreTriggerId}
               onKeyDown={handleMoreKeyDown}
               role="button"
             >
               More
             </summary>
-            <div className="onboarding-shell__more-menu" id={moreMenuId}>
+            <div
+              ref={moreMenuRef}
+              aria-labelledby={moreTriggerId}
+              className="onboarding-shell__more-menu"
+              id={moreMenuId}
+              onKeyDown={handleMenuKeyDown}
+              role="menu"
+            >
               {onSaveForLater ? (
-                <button type="button" onClick={() => runMoreAction(onSaveForLater)}>
+                <button role="menuitem" tabIndex={0} type="button" onClick={() => runMoreAction(onSaveForLater)}>
                   Save and finish later
                 </button>
               ) : null}
               {onRestart ? (
-                <button type="button" onClick={() => runMoreAction(onRestart)}>
+                <button role="menuitem" tabIndex={onSaveForLater ? -1 : 0} type="button" onClick={() => runMoreAction(onRestart)}>
                   Restart onboarding
                 </button>
               ) : null}
               {onLabOptions ? (
-                <button type="button" onClick={() => runMoreAction(onLabOptions)}>
+                <button role="menuitem" tabIndex={onSaveForLater || onRestart ? -1 : 0} type="button" onClick={() => runMoreAction(onLabOptions)}>
                   Lab review options
                 </button>
               ) : null}

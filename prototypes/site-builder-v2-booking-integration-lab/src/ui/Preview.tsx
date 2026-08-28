@@ -18,17 +18,22 @@ import type {
 } from '../booking/types';
 import { useCustomDesignAssetMap } from '../custom-design/integration/CustomDesignAssetProvider';
 import { CustomDesignCustomerPreview } from '../custom-design/integration/CustomDesignSectionCard';
-import { resolveCustomDesignDocumentAction } from '../custom-design/integration/document-actions';
-import type { ResolveCustomDesignAction } from '../custom-design/components/view-types';
+import {
+  createHostedCustomDesignActionResolver,
+  type CustomDesignDocumentNavigationTarget,
+} from '../custom-design/integration/document-actions';
+import { getStarterDocumentOutline } from '../model/starters';
 import type { PageDocument, SiteBuilderDocument } from '../model/types';
+import type { PublicContactAction } from '../onboarding/model/contact';
+import type { PublicDirectionsAction } from '../onboarding/model/location';
 import { toCustomDesignOwnerAssetMap } from './custom-design-adapters';
 
 export type ClientBusinessMetadata = {
-  contact: { actionLabel: string; detail: string } | null;
+  contacts: readonly PublicContactAction[];
   currentHoursStatusLabel?: string;
+  directions: PublicDirectionsAction | null;
   location: {
     detail: string | null;
-    directionsAvailable: boolean;
     primary: string;
   };
   weeklyHours: readonly { hours: string; label: string }[];
@@ -77,7 +82,14 @@ export function Preview({
       const page = document.pages.find((candidate) => candidate.id === item.pageId);
       return page?.visible && page.visibleInNavigation;
     });
+  const preferredContact = businessMetadata?.contacts.find((contact) => contact.preferred)
+    ?? businessMetadata?.contacts[0];
   const visibleSections = activePage.sections.filter((section) => section.visible);
+  const starterSectionLabels = useMemo(() => new Map(
+    getStarterDocumentOutline(document).flatMap((page) => page.sections.map(
+      (section) => [section.id, section.label] as const,
+    )),
+  ), [document]);
   const customDesignAssetIds = useMemo(() => visibleSections.flatMap((section) =>
     section.sectionType === 'custom_design'
       ? section.settings.images.map((image) => image.assetId)
@@ -122,39 +134,26 @@ export function Preview({
     return () => window.cancelAnimationFrame(frame);
   }, [activePage.id, scrollToDocumentTarget]);
 
-  const resolveCustomDesignPreviewAction: ResolveCustomDesignAction = useCallback((
-    action,
-    source,
+  const activateCustomDesignDocumentTarget = useCallback((
+    target: CustomDesignDocumentNavigationTarget,
   ) => {
-    const effectiveAction = action
-      ?? (source.type === 'cta' && source.cta.type === 'book_now'
-        ? { type: 'start_booking' as const }
-        : null);
-    if (!effectiveAction) return { status: 'unresolved', reason: 'invalid_destination' };
-    const resolution = resolveCustomDesignDocumentAction(effectiveAction, {
+    if (target.relationship === 'same_page') {
+      scrollToDocumentTarget(target.sectionId);
+      return;
+    }
+    pendingDocumentTargetRef.current = {
+      pageId: target.pageId,
+      ...(target.sectionId ? { sectionId: target.sectionId } : {}),
+    };
+    onNavigate(target.pageId);
+  }, [onNavigate, scrollToDocumentTarget]);
+  const resolveCustomDesignPreviewAction = useMemo(
+    () => createHostedCustomDesignActionResolver({
       activePageId: activePage.id,
       document,
-    });
-    if (resolution.status !== 'resolved' || !resolution.documentTarget) {
-      return resolution;
-    }
-    const target = resolution.documentTarget;
-    return {
-      status: 'button',
-      onActivate: (event) => {
-        event.preventDefault();
-        if (target.relationship === 'same_page') {
-          scrollToDocumentTarget(target.sectionId);
-          return;
-        }
-        pendingDocumentTargetRef.current = {
-          pageId: target.pageId,
-          ...(target.sectionId ? { sectionId: target.sectionId } : {}),
-        };
-        onNavigate(target.pageId);
-      },
-    };
-  }, [activePage.id, document, onNavigate, scrollToDocumentTarget]);
+    }, activateCustomDesignDocumentTarget),
+    [activePage.id, activateCustomDesignDocumentTarget, document],
+  );
 
   return (
     <div className={`preview-stage preview-stage--${viewport}`} data-testid="preview-stage" id={stageId}>
@@ -164,7 +163,9 @@ export function Preview({
           className={`client-site${bookingSession.selection.serviceId ? ' has-booking-selection' : ''}`}
         >
         <header className="client-header">
-          <div className="client-brand"><span>L</span><strong>{document.siteName}</strong></div>
+          <div className="client-brand" title={document.siteName}>
+            <span>L</span><strong>{document.siteName}</strong>
+          </div>
           {businessMetadata?.currentHoursStatusLabel ? (
             <span className="client-hours-status">{businessMetadata.currentHoursStatusLabel}</span>
           ) : null}
@@ -215,20 +216,38 @@ export function Preview({
                 </dl>
               </div>
             ) : null}
-            {businessMetadata.contact ? (
+            {preferredContact ? (
               <div>
                 <strong>Contact</strong>
-                <span>{businessMetadata.contact.detail}</span>
+                <span>{preferredContact.detail}</span>
               </div>
             ) : null}
-            <div className="client-business-metadata__actions">
-              {businessMetadata.location.directionsAvailable ? (
-                <button type="button">Directions</button>
-              ) : null}
-              {businessMetadata.contact ? (
-                <button type="button">{businessMetadata.contact.actionLabel}</button>
-              ) : null}
-            </div>
+            {businessMetadata.directions || businessMetadata.contacts.length > 0 ? (
+              <div className="client-business-metadata__actions">
+                {businessMetadata.directions ? (
+                  <a
+                    aria-label={businessMetadata.directions.accessibleLabel}
+                    className="is-secondary"
+                    href={businessMetadata.directions.href}
+                    rel={businessMetadata.directions.rel}
+                    target={businessMetadata.directions.target}
+                  >Directions</a>
+                ) : null}
+                {businessMetadata.contacts.map((contact) => (
+                  <a
+                    className={contact.preferred ? 'is-preferred' : 'is-secondary'}
+                    data-contact-method={contact.method}
+                    href={contact.href}
+                    key={`${contact.method}-${contact.href}`}
+                    rel={contact.rel}
+                    target={contact.target}
+                  >
+                    {contact.actionLabel}
+                    {contact.preferred && contact.method !== 'booking' ? ' · Preferred' : ''}
+                  </a>
+                ))}
+              </div>
+            ) : null}
           </section>
         ) : null}
         <main className="client-page" aria-label={`${activePage.name} preview`}>
@@ -245,6 +264,7 @@ export function Preview({
                   className="preview-section preview-section--booking"
                   data-section-id={section.id}
                   data-section-type="booking"
+                  id="booking"
                 >
                   <BookingSectionRenderer
                     fixture={bookingFixture}
@@ -294,8 +314,7 @@ export function Preview({
                 <span className="preview-section__number">{section.label.replace('Section ', '')}</span>
                 <div>
                   <p>{activePage.name}</p>
-                  <h3>{section.label}</h3>
-                  <span>Future section · {section.size}</span>
+                  <h3>{starterSectionLabels.get(section.id) ?? section.label}</h3>
                 </div>
               </section>
             );

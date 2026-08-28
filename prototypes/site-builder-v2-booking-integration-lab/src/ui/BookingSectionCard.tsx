@@ -22,6 +22,7 @@ export type BookingCollapseReport = {
 type BookingSectionCardProps = {
   collapseOverride?: boolean;
   fixture: MockMenuFixture;
+  headingLevel?: 'h1' | 'h2';
   onCollapseChange?: (collapsed: boolean) => void;
   onCollapseReport?: (report: BookingCollapseReport) => void;
   onEdit: (section: BookingSectionInstance) => void;
@@ -41,6 +42,7 @@ type BookingSectionCardProps = {
 export function BookingSectionCard({
   collapseOverride,
   fixture,
+  headingLevel = 'h1',
   onCollapseChange,
   onCollapseReport,
   onSelect,
@@ -135,6 +137,7 @@ export function BookingSectionCard({
         <div ref={contentRef} className="booking-editor-preview__measure">
           <BookingSectionRenderer
             fixture={fixture}
+            headingLevel={headingLevel}
             mode="edit"
             onOwnerSelect={() => {
               if (!selected) onSelect(section);

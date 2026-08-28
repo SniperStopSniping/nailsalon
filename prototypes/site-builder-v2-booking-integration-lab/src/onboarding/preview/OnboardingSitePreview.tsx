@@ -7,7 +7,11 @@ import {
   Sparkles,
 } from 'lucide-react';
 import {
+  useCallback,
+  useId,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -17,19 +21,26 @@ import { BookingSectionRenderer } from '../../booking/BookingSectionRenderer';
 import { createEmptyBookingSession, summarizeSelection } from '../../booking/helpers';
 import { createDefaultBookingPresentationSettings } from '../../booking/presentation';
 import type { BookingSessionState } from '../../booking/types';
+import type { CustomDesignDocumentNavigationTarget } from '../../custom-design/integration/document-actions';
+import { getStarterDocumentOutline } from '../../model/starters';
 import type { SiteBuilderDocument } from '../../model/types';
-import {
-  createOnboardingBookingFixture,
-  ONBOARDING_NEXT_AVAILABILITY_LABEL,
-} from '../model/booking-preview';
-import { getPublicContactPreview } from '../model/contact';
+import { aboutPresetSupportsElement } from '../model/about';
+import { createOnboardingBookingFixture } from '../model/booking-preview';
+import { getPublicContactActions } from '../model/contact';
 import {
   getPublicWeeklyHours,
   getWeeklyHoursPreviewStatus,
   type WeeklyHoursPreviewStatus,
 } from '../model/hours';
-import { getPublicLocationPreview } from '../model/location';
-import { deriveDepositPolicySummary } from '../model/policies';
+import {
+  getPublicDirectionsAction,
+  getPublicLocationPreview,
+} from '../model/location';
+import {
+  deriveDepositPolicySummary,
+  getPolicyDisplayWording,
+} from '../model/policies';
+import { getCustomerProfileFacts } from '../model/profile-facts';
 import type {
   AboutElementId,
   AboutPresetId,
@@ -41,6 +52,16 @@ import type {
 import { OnboardingCustomDesignSections } from './OnboardingCustomDesignSections';
 
 export type OnboardingPreviewDevice = 'phone' | 'tablet' | 'desktop';
+export type OnboardingPreviewInteractionMode = 'inline' | 'interactive';
+
+export const ONBOARDING_PREVIEW_VIEWPORTS: Record<OnboardingPreviewDevice, {
+  height: number;
+  width: number;
+}> = {
+  desktop: { height: 760, width: 1180 },
+  phone: { height: 780, width: 390 },
+  tablet: { height: 900, width: 768 },
+};
 
 type StyleRoles = {
   accent: string;
@@ -160,22 +181,28 @@ const labelForNewClients = (profile: BusinessProfileDraft): string | null => {
 const textForPolicy = (
   profile: BusinessProfileDraft,
   sectionId: PolicySectionId,
-): string => {
-  const copy = profile.policies.copy[sectionId];
-  if (!copy.visible) return '';
-  return copy.useSuggestedWording
-    ? copy.suggestedWording.trim()
-    : copy.wordingOverride.trim();
-};
+): string => getPolicyDisplayWording(profile.policies, sectionId);
 
 const isAboutVisible = (
   visibility: Record<AboutElementId, boolean>,
   id: AboutElementId,
 ): boolean => visibility[id];
 
-function Portrait({ profile, large = false }: { profile: BusinessProfileDraft; large?: boolean }) {
+function Portrait({
+  large = false,
+  profile,
+  respectAboutVisibility = false,
+}: {
+  large?: boolean;
+  profile: BusinessProfileDraft;
+  respectAboutVisibility?: boolean;
+}) {
   const source = profile.profilePhoto?.previewUrl;
-  const initials = (profile.ownerName || profile.businessName || 'L')
+  const visibleIdentity = respectAboutVisibility
+    ? (profile.about.visibility.owner_name ? profile.ownerName : '')
+      || (profile.about.visibility.salon_name ? profile.businessName : '')
+    : profile.ownerName || profile.businessName;
+  const initials = (visibleIdentity || 'L')
     .split(/\s+/u)
     .filter(Boolean)
     .slice(0, 2)
@@ -184,13 +211,13 @@ function Portrait({ profile, large = false }: { profile: BusinessProfileDraft; l
 
   return source ? (
     <img
-      alt={profile.profilePhoto?.altText || `${profile.ownerName || 'Business owner'} portrait`}
+      alt={profile.profilePhoto?.altText || `${visibleIdentity || 'Business owner'} portrait`}
       className={`onboarding-customer-portrait${large ? ' is-large' : ''}`}
       src={source}
     />
   ) : (
     <span
-      aria-label={`${profile.ownerName || 'Business owner'} portrait placeholder`}
+      aria-label={`${visibleIdentity || 'Business owner'} portrait placeholder`}
       className={`onboarding-customer-portrait onboarding-customer-portrait--initials${large ? ' is-large' : ''}`}
       role="img"
     >
@@ -201,14 +228,26 @@ function Portrait({ profile, large = false }: { profile: BusinessProfileDraft; l
 
 function AboutActions({ profile }: { profile: BusinessProfileDraft }) {
   const visibility = profile.about.visibility;
-  const hasInstagram = isAboutVisible(visibility, 'instagram') && profile.instagram.trim();
+  const instagram = getPublicContactActions(profile).find(
+    (action) => action.method === 'instagram',
+  );
+  const hasInstagram = isAboutVisible(visibility, 'instagram') && instagram;
   const hasBooking = isAboutVisible(visibility, 'book_button');
   if (!hasInstagram && !hasBooking) return null;
 
   return (
     <div className="onboarding-customer-actions">
-      {hasBooking ? <button type="button"><CalendarDays aria-hidden="true" size={16} /> Book now</button> : null}
-      {hasInstagram ? <button className="is-secondary" type="button"><Instagram aria-hidden="true" size={16} /> {profile.instagram}</button> : null}
+      {hasBooking ? <a href="#booking"><CalendarDays aria-hidden="true" size={16} /> Book now</a> : null}
+      {hasInstagram ? (
+        <a
+          className="is-secondary"
+          href={instagram.href}
+          rel={instagram.rel}
+          target={instagram.target}
+        >
+          <Instagram aria-hidden="true" size={16} /> {profile.instagram}
+        </a>
+      ) : null}
     </div>
   );
 }
@@ -216,9 +255,11 @@ function AboutActions({ profile }: { profile: BusinessProfileDraft }) {
 function AboutFacts({
   hoursStatus,
   profile,
+  scope = 'all',
 }: {
   hoursStatus: WeeklyHoursPreviewStatus | null;
   profile: BusinessProfileDraft;
+  scope?: 'all' | 'profile';
 }) {
   const visibility = profile.about.visibility;
   const facts: Array<{ label: string; value: string }> = [];
@@ -234,16 +275,21 @@ function AboutFacts({
   if (isAboutVisible(visibility, 'languages') && profile.about.languages.length > 0) {
     facts.push({ label: 'Languages', value: profile.about.languages.join(' · ') });
   }
-  const visitMode = labelForVisitMode(profile);
-  if (isAboutVisible(visibility, 'appointment_status') && visitMode) {
-    facts.push({ label: 'Visits', value: visitMode });
+  for (const fact of getCustomerProfileFacts(profile)) {
+    facts.push({ label: fact.label, value: fact.value });
   }
-  const newClients = labelForNewClients(profile);
-  if (isAboutVisible(visibility, 'new_client_status') && newClients) {
-    facts.push({ label: 'New clients', value: newClients });
-  }
-  if (hoursStatus) {
-    facts.push({ label: 'Hours', value: hoursStatus.label });
+  if (scope === 'all') {
+    const visitMode = labelForVisitMode(profile);
+    if (isAboutVisible(visibility, 'appointment_status') && visitMode) {
+      facts.push({ label: 'Visits', value: visitMode });
+    }
+    const newClients = labelForNewClients(profile);
+    if (isAboutVisible(visibility, 'new_client_status') && newClients) {
+      facts.push({ label: 'New clients', value: newClients });
+    }
+    if (hoursStatus) {
+      facts.push({ label: 'Hours', value: hoursStatus.label });
+    }
   }
   if (facts.length === 0) return null;
   return (
@@ -260,9 +306,9 @@ function AboutCopy({ profile, long = false }: { profile: BusinessProfileDraft; l
     : profile.about.shortBio.trim();
   const heading = isAboutVisible(visibility, 'owner_name') && profile.ownerName.trim()
     ? profile.ownerName.trim()
-    : profile.businessName.trim()
+    : isAboutVisible(visibility, 'salon_name') && profile.businessName.trim()
       ? `About ${profile.businessName.trim()}`
-      : 'About your nail artist';
+      : 'About';
   return (
     <div className="onboarding-about-copy">
       <p className="onboarding-customer-eyebrow">Meet your nail artist</p>
@@ -279,10 +325,19 @@ function AboutCopy({ profile, long = false }: { profile: BusinessProfileDraft; l
 function PolicySummary({ profile }: { profile: BusinessProfileDraft }) {
   const values: string[] = [];
   const notice = profile.policies.cancellations.notice;
-  if (notice && notice !== 'custom') values.push(notice.replace('_', '-').replace('hours', 'hour notice'));
+  if (
+    profile.policies.copy.cancellations.visible
+    && notice
+    && notice !== 'custom'
+  ) values.push(notice.replace('_', '-').replace('hours', 'hour notice'));
   const depositSummary = deriveDepositPolicySummary(profile.policies);
-  if (depositSummary) values.push(depositSummary);
-  if (profile.policies.lateArrivals.gracePeriodMinutes.trim()) {
+  if (profile.policies.copy.deposits.visible && depositSummary) {
+    values.push(depositSummary);
+  }
+  if (
+    profile.policies.copy.late_arrivals.visible
+    && profile.policies.lateArrivals.gracePeriodMinutes.trim()
+  ) {
     values.push(`${profile.policies.lateArrivals.gracePeriodMinutes.trim()}-minute late limit`);
   }
   return values.length > 0 ? <p className="onboarding-policy-summary">{values.join(' · ')}</p> : null;
@@ -295,16 +350,22 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
   showPolicySummary: boolean;
 }) {
   const visibility = profile.about.visibility;
-  const showPortrait = isAboutVisible(visibility, 'profile_photo');
-  const policySummary = showPolicySummary && isAboutVisible(visibility, 'policy_summary')
+  const supports = (id: AboutElementId) => aboutPresetSupportsElement(preset, id);
+  const showPortrait = supports('profile_photo')
+    && isAboutVisible(visibility, 'profile_photo');
+  const policySummary = showPolicySummary
+    && supports('policy_summary')
+    && isAboutVisible(visibility, 'policy_summary')
     ? <PolicySummary profile={profile} />
     : null;
 
   if (preset === 'editorial_portrait') {
     return (
       <section aria-label="About" className="onboarding-customer-about is-editorial">
-        {showPortrait ? <Portrait large profile={profile} /> : null}
+        {showPortrait ? <Portrait large profile={profile} respectAboutVisibility /> : null}
         <AboutCopy long profile={profile} />
+        <AboutFacts hoursStatus={hoursStatus} profile={profile} />
+        {policySummary}
         <AboutActions profile={profile} />
       </section>
     );
@@ -313,9 +374,10 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
   if (preset === 'profile_quick_facts') {
     return (
       <section aria-label="About" className="onboarding-customer-about is-quick-facts">
-        {showPortrait ? <Portrait profile={profile} /> : null}
+        {showPortrait ? <Portrait profile={profile} respectAboutVisibility /> : null}
         <AboutCopy profile={profile} />
         <AboutFacts hoursStatus={hoursStatus} profile={profile} />
+        {policySummary}
         <AboutActions profile={profile} />
       </section>
     );
@@ -325,13 +387,18 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
     return (
       <section aria-label="About and before you book" className="onboarding-customer-about is-before-booking">
         <div className="onboarding-about-profile">
-          {showPortrait ? <Portrait profile={profile} /> : null}
+          {showPortrait ? <Portrait profile={profile} respectAboutVisibility /> : null}
           <AboutCopy profile={profile} />
+          <AboutFacts hoursStatus={hoursStatus} profile={profile} scope="profile" />
         </div>
         <div className="onboarding-before-booking-card">
           <h3>Before you book</h3>
-          {labelForVisitMode(profile) ? <p><Clock3 aria-hidden="true" size={16} /> {labelForVisitMode(profile)}</p> : null}
-          {labelForNewClients(profile) ? <p><Sparkles aria-hidden="true" size={16} /> {labelForNewClients(profile)}</p> : null}
+          {isAboutVisible(visibility, 'appointment_status') && labelForVisitMode(profile)
+            ? <p><Clock3 aria-hidden="true" size={16} /> {labelForVisitMode(profile)}</p>
+            : null}
+          {isAboutVisible(visibility, 'new_client_status') && labelForNewClients(profile)
+            ? <p><Sparkles aria-hidden="true" size={16} /> {labelForNewClients(profile)}</p>
+            : null}
           {hoursStatus ? <p><Clock3 aria-hidden="true" size={16} /> {hoursStatus.label}</p> : null}
           {policySummary}
         </div>
@@ -343,16 +410,26 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
   return (
     <section aria-label="About" className="onboarding-customer-about is-photo-right">
       <div><AboutCopy profile={profile} /><AboutFacts hoursStatus={hoursStatus} profile={profile} />{policySummary}<AboutActions profile={profile} /></div>
-      {showPortrait ? <Portrait large profile={profile} /> : null}
+      {showPortrait ? <Portrait large profile={profile} respectAboutVisibility /> : null}
     </section>
   );
 }
 
 function ContactSection({ profile }: { profile: BusinessProfileDraft }) {
   const location = getPublicLocationPreview(profile.location);
-  const contact = getPublicContactPreview(profile);
+  const contacts = getPublicContactActions(profile);
+  const preferredContact = contacts.find((contact) => contact.preferred) ?? contacts[0];
+  const directions = getPublicDirectionsAction(profile.location);
   const weeklyHours = getPublicWeeklyHours(profile.hours);
-  if (!location.primary && !contact && weeklyHours.length === 0) return null;
+  const serviceLocation = getCustomerProfileFacts(profile).find(
+    (fact) => fact.id === 'service_location',
+  );
+  if (
+    !location.primary
+    && !serviceLocation
+    && contacts.length === 0
+    && weeklyHours.length === 0
+  ) return null;
   return (
     <section aria-label="Visit and contact" className="onboarding-customer-contact">
       <div>
@@ -362,13 +439,14 @@ function ContactSection({ profile }: { profile: BusinessProfileDraft }) {
           <p><MapPin aria-hidden="true" size={17} /> {location.primary}</p>
         ) : null}
         {location.detail ? <small>{location.detail}</small> : null}
+        {serviceLocation ? <small>{serviceLocation.value}</small> : null}
         {profile.location.parking.trim() ? <small>{profile.location.parking.trim()}</small> : null}
-        {contact ? (
+        {preferredContact ? (
           <p>
             <MessageCircle aria-hidden="true" size={16} />
-            {contact.method === 'booking'
-              ? contact.detail
-              : `Preferred contact · ${contact.detail}`}
+            {preferredContact.method === 'booking'
+              ? preferredContact.detail
+              : `Preferred contact · ${preferredContact.detail}`}
           </p>
         ) : null}
       </div>
@@ -383,14 +461,28 @@ function ContactSection({ profile }: { profile: BusinessProfileDraft }) {
         </div>
       ) : null}
       <div className="onboarding-customer-actions">
-        {location.directionsTarget ? (
-          <button className="is-secondary" type="button">Directions</button>
+        {directions ? (
+          <a
+            aria-label={directions.accessibleLabel}
+            className="is-secondary"
+            href={directions.href}
+            rel={directions.rel}
+            target={directions.target}
+          >Directions</a>
         ) : null}
-        {contact ? (
-          <button className="is-secondary" type="button">
-            <MessageCircle aria-hidden="true" size={16} /> {contact.actionLabel}
-          </button>
-        ) : null}
+        {contacts.map((contact) => (
+          <a
+            className={contact.preferred ? 'is-preferred' : 'is-secondary'}
+            data-contact-method={contact.method}
+            href={contact.href}
+            key={`${contact.method}-${contact.href}`}
+            rel={contact.rel}
+            target={contact.target}
+          >
+            <MessageCircle aria-hidden="true" size={16} />
+            {contact.actionLabel}{contact.preferred && contact.method !== 'booking' ? ' · Preferred' : ''}
+          </a>
+        ))}
       </div>
     </section>
   );
@@ -421,16 +513,67 @@ function PoliciesSection({ profile }: { profile: BusinessProfileDraft }) {
 function GallerySection({ state }: { state: OnboardingLabState }) {
   if (!state.recipe.galleryEnabled) return null;
   const images = state.gallery.images;
-  const tiles: ReactNode[] = images.length > 0
-    ? images.map((image, index) => image.previewUrl ? (
-        <img alt={image.altText || `Portfolio work ${index + 1}`} key={image.id} src={image.previewUrl} />
-      ) : <span aria-label={`Portfolio work ${index + 1}`} key={image.id} role="img" />)
-    : [1, 2, 3, 4].map((index) => <span aria-label={`Luster portfolio example ${index}`} key={index} role="img" />);
+  if (images.length === 0) return null;
+  const tiles: ReactNode[] = images.flatMap((image, index) => image.previewUrl ? [(
+    <img alt={image.altText || `Portfolio work ${index + 1}`} key={image.id} src={image.previewUrl} />
+  )] : []);
+  if (tiles.length === 0) return null;
   return (
     <section aria-label="Gallery" className={`onboarding-customer-gallery is-${state.gallery.layout}`}>
       <p className="onboarding-customer-eyebrow">Recent work</p>
       <h2>A little nail inspiration</h2>
       <div>{tiles}</div>
+    </section>
+  );
+}
+
+const STARTER_STRUCTURE_COPY = {
+  multi_page: {
+    heading: 'Explore each part of the studio',
+    eyebrow: 'Five-page website',
+  },
+  one_page: {
+    heading: 'Everything in one easy scroll',
+    eyebrow: 'One-page website',
+  },
+  quick_book: {
+    heading: 'A direct path to booking',
+    eyebrow: 'Quick Book',
+  },
+} as const;
+
+function StarterStructure({ document }: { document: SiteBuilderDocument | null }) {
+  const outline = useMemo(() => getStarterDocumentOutline(document), [document]);
+  if (!document || outline.length === 0) return null;
+  const copy = STARTER_STRUCTURE_COPY[document.originStarter];
+  return (
+    <section
+      aria-label={`${copy.eyebrow} structure`}
+      className={`onboarding-customer-structure is-${document.originStarter}`}
+      data-starter-structure={document.originStarter}
+    >
+      <p className="onboarding-customer-eyebrow">{copy.eyebrow}</p>
+      <h2>{copy.heading}</h2>
+      <div className="onboarding-customer-structure__pages">
+        {outline.map((page) => (
+          <article
+            data-preview-page-id={page.id}
+            id={`preview-page-${page.id}`}
+            key={page.id}
+          >
+            {outline.length > 1 ? <h3>{page.label}</h3> : null}
+            <ol>
+              {page.sections
+                .filter((section) => section.sectionType !== 'custom_design')
+                .map((section) => (
+                  <li data-preview-outline-section-id={section.id} key={section.id}>
+                    {section.label}
+                  </li>
+                ))}
+            </ol>
+          </article>
+        ))}
+      </div>
     </section>
   );
 }
@@ -448,6 +591,9 @@ function BookingSection({
     .flatMap((page) => page.sections)
     .find((section) => section.sectionType === 'booking')?.settings
     ?? createDefaultBookingPresentationSettings();
+  const bookingSectionId = document?.pages
+    .flatMap((page) => page.sections)
+    .find((section) => section.sectionType === 'booking')?.id;
   const fixture = useMemo(
     () => createOnboardingBookingFixture(profile),
     [profile],
@@ -460,7 +606,12 @@ function BookingSection({
   ), [fixture.addOns, fixture.services, session.selection]);
 
   return (
-    <section aria-label="Booking" className="onboarding-customer-booking">
+    <section
+      aria-label="Booking"
+      className="onboarding-customer-booking"
+      data-section-id={bookingSectionId}
+      id="booking"
+    >
       {summary ? (
         <div className="onboarding-booking-example" data-testid="canonical-booking-example">
           <span>Selected</span>
@@ -523,10 +674,12 @@ function BookingDocumentSections({
   device,
   document,
   profile,
+  onDocumentTarget,
   showCustomDesign,
 }: {
   device: OnboardingPreviewDevice;
   document: SiteBuilderDocument | null;
+  onDocumentTarget: (target: CustomDesignDocumentNavigationTarget) => void;
   profile: BusinessProfileDraft;
   showCustomDesign: boolean;
 }) {
@@ -540,6 +693,7 @@ function BookingDocumentSections({
       {showCustomDesign && sequence?.beforeBookingCustomDesignIds.length ? (
         <OnboardingCustomDesignSections
           document={document}
+          onDocumentTarget={onDocumentTarget}
           pageId={sequence.pageId}
           sectionIds={sequence.beforeBookingCustomDesignIds}
         />
@@ -548,6 +702,7 @@ function BookingDocumentSections({
       {showCustomDesign && sequence?.afterBookingCustomDesignIds.length ? (
         <OnboardingCustomDesignSections
           document={document}
+          onDocumentTarget={onDocumentTarget}
           pageId={sequence.pageId}
           sectionIds={sequence.afterBookingCustomDesignIds}
         />
@@ -559,7 +714,9 @@ function BookingDocumentSections({
 export type OnboardingSitePreviewProps = {
   device?: OnboardingPreviewDevice;
   document: SiteBuilderDocument | null;
+  fitAvailable?: boolean;
   includeOptionalSections?: boolean;
+  interactionMode?: OnboardingPreviewInteractionMode;
   label?: string;
   state: OnboardingLabState;
 };
@@ -567,10 +724,17 @@ export type OnboardingSitePreviewProps = {
 export function OnboardingSitePreview({
   device = 'phone',
   document,
+  fitAvailable = false,
   includeOptionalSections = true,
+  interactionMode = 'inline',
   label = 'Customer website preview',
   state,
 }: OnboardingSitePreviewProps) {
+  const stageRef = useRef<HTMLElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const summaryId = useId();
+  const viewport = ONBOARDING_PREVIEW_VIEWPORTS[device];
+  const [previewScale, setPreviewScale] = useState(1);
   const { profile, recipe } = state;
   const roles = ONBOARDING_STYLE_ROLES[recipe.stylePreset];
   const style = {
@@ -587,42 +751,116 @@ export function OnboardingSitePreview({
   } as CSSProperties;
   const visitMode = labelForVisitMode(profile);
   const newClients = labelForNewClients(profile);
+  const heroDescription = profile.businessStructure === 'multi_tech'
+    ? 'Thoughtful nail care from a team, shaped around you.'
+    : 'Thoughtful nail care, shaped around you.';
   const hoursStatus = getWeeklyHoursPreviewStatus(
     profile.hours,
     state.reviewOptions.previewTimestamp,
   );
   const title = profile.businessName.trim() || 'Your nail studio';
   const area = profile.location.cityOrArea.trim();
+  const navigationItems = useMemo(() => {
+    if (!document?.navigation.enabled) return [];
+    const pagesById = new Map(document.pages.map((page) => [page.id, page]));
+    return [...document.navigation.items]
+      .sort((left, right) => left.order - right.order)
+      .filter((item) => pagesById.get(item.pageId)?.visibleInNavigation)
+      .map((item) => ({ label: item.label, pageId: item.pageId }));
+  }, [document]);
+  const revealDocumentTarget = useCallback((target: CustomDesignDocumentNavigationTarget) => {
+    const preview = previewRef.current;
+    if (!preview) return;
+    const targetElement = target.sectionId
+      ? [...preview.querySelectorAll<HTMLElement>('[data-section-id]')]
+        .find((element) => element.dataset.sectionId === target.sectionId)
+        ?? [...preview.querySelectorAll<HTMLElement>('[data-preview-outline-section-id]')]
+          .find((element) => element.dataset.previewOutlineSectionId === target.sectionId)
+      : [...preview.querySelectorAll<HTMLElement>('[data-preview-page-id]')]
+        .find((element) => element.dataset.previewPageId === target.pageId);
+    targetElement?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return undefined;
+    const updateScale = () => {
+      const availableWidth = stage.clientWidth || viewport.width;
+      const availableHeight = stage.clientHeight || viewport.height;
+      const nextScale = Math.min(
+        1,
+        availableWidth / viewport.width,
+        availableHeight / viewport.height,
+      );
+      setPreviewScale(Number.isFinite(nextScale) && nextScale > 0 ? nextScale : 1);
+    };
+    updateScale();
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(updateScale);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, [fitAvailable, viewport.height, viewport.width]);
+
+  useLayoutEffect(() => {
+    if (previewRef.current) {
+      previewRef.current.inert = interactionMode === 'inline';
+    }
+  }, [interactionMode]);
+
+  const stageStyle = {
+    '--preview-scale': String(previewScale),
+    '--preview-stage-height': `${Math.round(viewport.height * previewScale)}px`,
+    '--preview-target-height': `${viewport.height}px`,
+    '--preview-target-width': `${viewport.width}px`,
+  } as CSSProperties;
 
   return (
     <section
       aria-label={label}
-      className={`onboarding-preview-frame is-${device}`}
+      aria-describedby={summaryId}
+      className={`onboarding-preview-stage is-${device}${fitAvailable ? ' is-fit-available' : ''}`}
       data-preview-device={device}
-      data-style-preset={recipe.stylePreset}
+      data-preview-interaction={interactionMode}
+      data-preview-scale={previewScale.toFixed(4)}
+      ref={stageRef}
+      style={stageStyle}
     >
-      <div className="onboarding-site-preview" style={style}>
+      <span className="visually-hidden" id={summaryId}>
+        Visual preview of {title} at a {viewport.width}-pixel {device} viewport.
+        {interactionMode === 'inline' ? ' Open the full preview to use customer controls.' : ''}
+      </span>
+      <div
+        className={`onboarding-preview-frame is-${device}`}
+        data-preview-device={device}
+        data-style-preset={recipe.stylePreset}
+      >
+      <div className="onboarding-site-preview" ref={previewRef} style={style}>
         <header className="onboarding-customer-header">
-          <span className="onboarding-customer-brand"><i aria-hidden="true">L</i><strong>{title}</strong></span>
+          <span className="onboarding-customer-brand" title={title}><i aria-hidden="true">L</i><strong>{title}</strong></span>
           <nav aria-label="Customer preview navigation">
-            {recipe.starter === 'multi_page' ? <><button type="button">Home</button><button type="button">Services</button><button type="button">About</button></> : null}
-            <button type="button">Book</button>
+            {navigationItems.slice(0, 4).map((item) => (
+              <a href={`#preview-page-${item.pageId}`} key={item.pageId}>
+                {item.label}
+              </a>
+            ))}
+            <a href="#booking">Book</a>
           </nav>
         </header>
 
         <div className="onboarding-customer-content">
+          <StarterStructure document={document} />
+
           <section className="onboarding-customer-hero">
             <div>
               <p className="onboarding-customer-eyebrow">{area || 'Independent nail care'}</p>
               <h2>{title}</h2>
-              <p>Thoughtful nail care, shaped around you.</p>
+              <p>{heroDescription}</p>
               <div className="onboarding-customer-statuses">
                 {visitMode ? <span>{visitMode}</span> : null}
                 {newClients ? <span>{newClients}</span> : null}
                 {hoursStatus ? <span data-hours-status={hoursStatus.kind}>{hoursStatus.label}</span> : null}
-                <span>Next opening · {ONBOARDING_NEXT_AVAILABILITY_LABEL}</span>
               </div>
-              <button className="onboarding-customer-primary" type="button">Book an appointment</button>
+              <a className="onboarding-customer-primary" href="#booking">Book an appointment</a>
             </div>
             {profile.profilePhoto || profile.ownerName.trim() ? <Portrait large profile={profile} /> : null}
           </section>
@@ -639,6 +877,7 @@ export function OnboardingSitePreview({
           <BookingDocumentSections
             device={device}
             document={document}
+            onDocumentTarget={revealDocumentTarget}
             profile={profile}
             showCustomDesign={includeOptionalSections}
           />
@@ -649,8 +888,9 @@ export function OnboardingSitePreview({
         <footer className="onboarding-customer-footer">
           <strong>{title}</strong>
           {area ? <span>{area}</span> : null}
-          <small>Website preview · Powered by Luster</small>
+          <small>Powered by Luster</small>
         </footer>
+      </div>
       </div>
     </section>
   );

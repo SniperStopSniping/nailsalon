@@ -5,11 +5,18 @@ import type { OnboardingLabState, OnboardingScreenId } from '../model/types';
 export type ReadinessStatus = 'ready' | 'recommended' | 'optional' | 'needs_attention';
 
 export type ReadinessItem = {
+  actionLabel?: string;
   detail?: string;
   id: string;
   label: string;
   screen?: OnboardingScreenId;
   status: ReadinessStatus;
+};
+
+export type CustomDesignAssetReadiness = {
+  assetId: string;
+  fileName: string;
+  status: 'error' | 'loading' | 'missing';
 };
 
 const hasBookingPath = (document: SiteBuilderDocument | null): boolean => Boolean(
@@ -21,6 +28,7 @@ const hasBookingPath = (document: SiteBuilderDocument | null): boolean => Boolea
 export const getReadinessItems = (
   state: OnboardingLabState,
   document: SiteBuilderDocument | null,
+  customDesignAssets: readonly CustomDesignAssetReadiness[] = [],
 ): ReadinessItem[] => {
   const incomplete = getIncompleteEssentials(state);
   const items: ReadinessItem[] = incomplete.map((essential) => ({
@@ -32,7 +40,7 @@ export const getReadinessItems = (
 
   if (!hasBookingPath(document)) {
     items.push({
-      detail: 'Your site needs a visible Booking section before you can open the Builder.',
+      detail: 'Your site needs a visible booking option before you can continue.',
       id: 'booking-path-missing',
       label: 'No booking path',
       screen: 'starter',
@@ -57,6 +65,8 @@ export const getReadinessItems = (
   }
   if (!state.recipe.aboutEnabled) {
     items.push({ id: 'about', label: 'Add About', screen: 'about', status: 'recommended' });
+  } else {
+    items.push({ id: 'about', label: 'About section', screen: 'about', status: 'ready' });
   }
   if (!state.recipe.canvaEnabled) {
     items.push({ id: 'canva', label: 'Upload Canva design', screen: 'extras', status: 'optional' });
@@ -73,6 +83,20 @@ export const getReadinessItems = (
       status: 'needs_attention',
     });
   }
+  for (const asset of customDesignAssets) {
+    items.push({
+      actionLabel: asset.status === 'loading' ? 'Review' : 'Replace',
+      detail: asset.status === 'loading'
+        ? 'We’re checking that this uploaded page is available in this browser.'
+        : 'This uploaded page is unavailable. Its image and links stay hidden until you replace it.',
+      id: `canva-asset-${asset.assetId}`,
+      label: asset.status === 'loading'
+        ? `Checking ${asset.fileName}`
+        : `${asset.fileName} needs attention`,
+      screen: 'extras',
+      status: 'needs_attention',
+    });
+  }
 
   return items.filter((item, index, all) => all.findIndex((candidate) => (
     candidate.label === item.label && candidate.status === item.status
@@ -82,15 +106,17 @@ export const getReadinessItems = (
 export const getNeedsAttentionItems = (
   state: OnboardingLabState,
   document: SiteBuilderDocument | null,
-): ReadinessItem[] => getReadinessItems(state, document).filter(
+  customDesignAssets: readonly CustomDesignAssetReadiness[] = [],
+): ReadinessItem[] => getReadinessItems(state, document, customDesignAssets).filter(
   (item) => item.status === 'needs_attention',
 );
 
 export const getBuilderPrimaryLabel = (
   state: OnboardingLabState,
   document: SiteBuilderDocument | null,
+  customDesignAssets: readonly CustomDesignAssetReadiness[] = [],
 ): string => {
-  const needsAttention = getNeedsAttentionItems(state, document);
+  const needsAttention = getNeedsAttentionItems(state, document, customDesignAssets);
   const essentialCount = new Set(needsAttention
     .filter((item) => item.id.startsWith('essential-') || item.id === 'booking-path-missing')
     .map((item) => item.screen ?? item.id)).size;

@@ -7,6 +7,64 @@ import {
   type TextareaHTMLAttributes,
 } from 'react';
 
+export const focusAndRevealControl = (
+  target: HTMLElement,
+  targetGroup: HTMLElement = target,
+  summary?: HTMLElement | null,
+): void => {
+  target.focus({ preventScroll: true });
+  const headerBottom = [
+    document.querySelector<HTMLElement>('.onboarding-shell__header'),
+    document.querySelector<HTMLElement>('.onboarding-shell__progress'),
+  ].reduce((bottom, element) => Math.max(
+    bottom,
+    element?.getBoundingClientRect().bottom ?? 0,
+  ), 0);
+  const stickyActionsTop = document
+    .querySelector<HTMLElement>('.sticky-onboarding-actions')
+    ?.getBoundingClientRect().top;
+  const viewportBottom = Math.min(
+    window.visualViewport?.height ?? window.innerHeight,
+    stickyActionsTop && stickyActionsTop > 0
+      ? stickyActionsTop
+      : Number.POSITIVE_INFINITY,
+  );
+  const safeTop = headerBottom + 8;
+  const safeBottom = viewportBottom - 8;
+
+  if (summary) {
+    summary.classList.add('is-revealed');
+    summary.style.setProperty(
+      '--onboarding-validation-sticky-top',
+      `${safeTop}px`,
+    );
+  }
+
+  targetGroup.scrollIntoView?.({ block: 'center', inline: 'nearest' });
+
+  let targetRect = target.getBoundingClientRect();
+  if (targetRect.width === 0 && targetRect.height === 0) return;
+  let summaryRect = summary?.getBoundingClientRect();
+
+  if (summaryRect && summaryRect.top < safeTop) {
+    window.scrollBy({ behavior: 'auto', top: summaryRect.top - safeTop });
+    summaryRect = summary?.getBoundingClientRect() ?? summaryRect;
+    targetRect = target.getBoundingClientRect();
+  }
+
+  const targetSafeTop = summaryRect
+    && summaryRect.top >= safeTop - 1
+    && summaryRect.bottom < safeBottom
+    ? summaryRect.bottom + 8
+    : safeTop;
+
+  if (targetRect.bottom > safeBottom) {
+    window.scrollBy({ behavior: 'auto', top: targetRect.bottom - safeBottom });
+  } else if (targetRect.top < targetSafeTop) {
+    window.scrollBy({ behavior: 'auto', top: targetRect.top - targetSafeTop });
+  }
+};
+
 export const focusFirstInvalidControl = (root: Element): void => {
   window.requestAnimationFrame(() => {
     const invalid = root.querySelector<HTMLElement>('[aria-invalid="true"]');
@@ -16,20 +74,39 @@ export const focusFirstInvalidControl = (root: Element): void => {
       : invalid.querySelector<HTMLElement>(
           'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
         ) ?? invalid;
-    target.scrollIntoView?.({ block: 'center', inline: 'nearest' });
-    target.focus({ preventScroll: true });
+    const invalidGroup = target.closest<HTMLElement>(
+      '.onboarding-field, .onboarding-choice-group, .onboarding-contact-uses, [aria-invalid="true"]',
+    ) ?? invalid;
+    const summary = root.querySelector<HTMLElement>('.onboarding-validation-summary');
+    summary?.scrollIntoView?.({ block: 'start', inline: 'nearest' });
+    focusAndRevealControl(target, invalidGroup, summary);
   });
 };
 
-export function ValidationSummary({ errors }: { errors: Record<string, string> }) {
-  const messages = Object.values(errors).filter(Boolean);
-  if (messages.length === 0) return null;
+export function ValidationSummary({
+  errors,
+  onSelectError,
+}: {
+  errors: Record<string, string>;
+  onSelectError?: (fieldId: string) => void;
+}) {
+  const entries = Object.entries(errors).filter((entry): entry is [string, string] => Boolean(entry[1]));
+  if (entries.length === 0) return null;
   return (
     <div className="onboarding-validation-summary" role="alert">
       <strong>Check the highlighted information.</strong>
-      <span>{messages.length === 1
+      <span>{entries.length === 1
         ? '1 answer needs attention.'
-        : `${messages.length} answers need attention.`}</span>
+        : `${entries.length} answers need attention.`}</span>
+      <ul>
+        {entries.map(([fieldId, message]) => (
+          <li key={fieldId}>
+            {onSelectError ? (
+              <button type="button" onClick={() => onSelectError(fieldId)}>{message}</button>
+            ) : message}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -40,11 +117,18 @@ type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'id'> & {
   label: string;
 };
 
-export function TextField({ error, hint, label, ...inputProps }: TextFieldProps) {
+export function TextField({
+  'aria-describedby': externalDescribedBy,
+  'aria-invalid': externalInvalid,
+  error,
+  hint,
+  label,
+  ...inputProps
+}: TextFieldProps) {
   const id = useId();
   const hintId = `${id}-hint`;
   const errorId = `${id}-error`;
-  const describedBy = [hint ? hintId : null, error ? errorId : null]
+  const describedBy = [externalDescribedBy, hint ? hintId : null, error ? errorId : null]
     .filter(Boolean)
     .join(' ') || undefined;
 
@@ -54,7 +138,7 @@ export function TextField({ error, hint, label, ...inputProps }: TextFieldProps)
       <input
         {...inputProps}
         aria-describedby={describedBy}
-        aria-invalid={error ? 'true' : undefined}
+        aria-invalid={error ? 'true' : externalInvalid}
         id={id}
       />
       {hint ? <p className="onboarding-field__hint" id={hintId}>{hint}</p> : null}
@@ -193,6 +277,7 @@ export function NativeSwitch({
 type CollapsibleFormCardProps = {
   children: ReactNode;
   completed?: boolean;
+  errorCount?: number;
   id: string;
   onToggle: () => void;
   open: boolean;
@@ -203,6 +288,7 @@ type CollapsibleFormCardProps = {
 export function CollapsibleFormCard({
   children,
   completed = false,
+  errorCount = 0,
   id,
   onToggle,
   open,
@@ -212,7 +298,10 @@ export function CollapsibleFormCard({
   const panelId = `${id}-panel`;
 
   return (
-    <section className={`onboarding-collapsible-card${completed ? ' is-complete' : ''}`}>
+    <section
+      aria-invalid={errorCount > 0 ? 'true' : undefined}
+      className={`onboarding-collapsible-card${completed ? ' is-complete' : ''}${errorCount > 0 ? ' has-error' : ''}`}
+    >
       <button
         aria-controls={panelId}
         aria-expanded={open}
@@ -224,7 +313,9 @@ export function CollapsibleFormCard({
           <strong>{title}</strong>
           {summary ? <small>{summary}</small> : null}
         </span>
-        {completed ? <span>Complete</span> : null}
+        {errorCount > 0
+          ? <span className="is-error">{errorCount} {errorCount === 1 ? 'issue' : 'issues'}</span>
+          : completed ? <span>Complete</span> : null}
       </button>
       <div hidden={!open} id={panelId}>
         {children}

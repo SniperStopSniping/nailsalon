@@ -3,19 +3,19 @@ import type {
   HistoryState,
   SiteBuilderDocument,
 } from '../../model';
+import {
+  DEFAULT_HISTORY_LIMIT,
+  applyHistoryCommand,
+  createHistoryState,
+  initializeStarter,
+} from '../../model';
 import type { LabDocumentController } from '../../ui/useLabDocument';
 import { getCanvaPlacementTarget } from '../extras/useCanvaIntegration';
 import type { OnboardingLabState, StarterId } from '../model/types';
 
 type StarterSwitchLabController = Pick<
   LabDocumentController,
-  | 'chooseStarter'
-  | 'createHistoryCheckpoint'
-  | 'getHistorySnapshot'
-  | 'resetLab'
-  | 'restoreHistoryCheckpoint'
-  | 'runCommand'
-  | 'syncSiteName'
+  'createHistoryCheckpoint' | 'restoreHistoryCheckpoint'
 >;
 
 export type StarterSwitchResult =
@@ -78,30 +78,23 @@ const getPreservedCustomDesign = (
   };
 };
 
-const rollback = (
-  lab: StarterSwitchLabController,
-  checkpoint: HistoryState,
-  message: string,
-): StarterSwitchResult => {
-  if (!lab.restoreHistoryCheckpoint(checkpoint)) {
-    return {
-      message: `${message} Your previous starting site could not be restored automatically.`,
-      success: false,
-    };
-  }
-  return { message, success: false };
-};
-
 const addPreservedCustomDesign = (
-  lab: StarterSwitchLabController,
-  document: SiteBuilderDocument,
+  history: HistoryState,
   preserved: PreservedCustomDesign,
   state: OnboardingLabState,
-): StarterSwitchResult => {
+): {
+  customDesignSectionId: string;
+  history: HistoryState;
+  success: true;
+} | {
+  message: string;
+  success: false;
+} => {
+  const document = history.present;
   const target = getCanvaPlacementTarget(document, state.canva.placement);
   if (!target) {
     return {
-      message: 'The new starting point needs a Booking section before your Canva design can be restored.',
+      message: 'The new starting point needs a booking area before your Canva design can be restored.',
       success: false,
     };
   }
@@ -109,7 +102,7 @@ const addPreservedCustomDesign = (
   const existingIds = new Set(
     document.pages.flatMap((page) => page.sections.map((section) => section.id)),
   );
-  const added = lab.runCommand({
+  const added = applyHistoryCommand(history, {
     input: {
       pageId: target.pageId,
       position: target.position,
@@ -117,9 +110,8 @@ const addPreservedCustomDesign = (
     },
     type: 'add_section',
   });
-  if (!added.success) return added;
 
-  const created = added.document.pages
+  const created = added.present.pages
     .flatMap((page) => page.sections)
     .find(
       (section): section is CustomDesignSectionInstance =>
@@ -132,28 +124,22 @@ const addPreservedCustomDesign = (
     };
   }
 
-  const updated = lab.runCommand({
+  let updated = applyHistoryCommand(added, {
     sectionId: created.id,
     settings: preserved.settings,
     type: 'update_custom_design_settings',
   });
-  if (!updated.success) return updated;
-
-  let finalDocument = updated.document;
   if (!preserved.visible) {
-    const hidden = lab.runCommand({
+    updated = applyHistoryCommand(updated, {
       sectionId: created.id,
       type: 'set_section_visible',
       visible: false,
     });
-    if (!hidden.success) return hidden;
-    finalDocument = hidden.document;
   }
 
   return {
-    changed: true,
     customDesignSectionId: created.id,
-    document: finalDocument,
+    history: updated,
     success: true,
   };
 };
@@ -201,52 +187,43 @@ export const switchOnboardingStarter = (
     };
   }
 
-  if (!lab.resetLab()) {
+  try {
+    let stagedHistory = createHistoryState(initializeStarter(starter, {
+      siteName: state.profile.businessName.trim() || 'My nail studio',
+    }));
+    let customDesignSectionId: string | null = null;
+    if (preservedCustomDesign) {
+      const restoredCustomDesign = addPreservedCustomDesign(
+        stagedHistory,
+        preservedCustomDesign,
+        state,
+      );
+      if (!restoredCustomDesign.success) return restoredCustomDesign;
+      stagedHistory = restoredCustomDesign.history;
+      customDesignSectionId = restoredCustomDesign.customDesignSectionId;
+    }
+
+    const transition: HistoryState = {
+      future: [],
+      past: [...checkpoint.past, checkpoint.present].slice(-DEFAULT_HISTORY_LIMIT),
+      present: stagedHistory.present,
+    };
+    if (!lab.restoreHistoryCheckpoint(transition)) {
+      return {
+        message: 'Finish the current image change before changing your starting point.',
+        success: false,
+      };
+    }
     return {
-      message: 'Finish the current image change before changing your starting point.',
+      changed: true,
+      customDesignSectionId,
+      document: transition.present,
+      success: true,
+    };
+  } catch {
+    return {
+      message: 'The new starting point could not be created.',
       success: false,
     };
   }
-  if (!lab.chooseStarter(starter)) {
-    return rollback(
-      lab,
-      checkpoint,
-      'The new starting point could not be created.',
-    );
-  }
-  if (!lab.syncSiteName(state.profile.businessName)) {
-    return rollback(
-      lab,
-      checkpoint,
-      'The business name could not be applied to the new starting point.',
-    );
-  }
-
-  const nextDocument = lab.getHistorySnapshot()?.present;
-  if (!nextDocument) {
-    return rollback(
-      lab,
-      checkpoint,
-      'The new starting point could not be read.',
-    );
-  }
-  if (!preservedCustomDesign) {
-    return {
-      changed: true,
-      customDesignSectionId: null,
-      document: nextDocument,
-      success: true,
-    };
-  }
-
-  const restoredCustomDesign = addPreservedCustomDesign(
-    lab,
-    nextDocument,
-    preservedCustomDesign,
-    state,
-  );
-  if (!restoredCustomDesign.success) {
-    return rollback(lab, checkpoint, restoredCustomDesign.message);
-  }
-  return restoredCustomDesign;
 };

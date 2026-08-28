@@ -66,7 +66,7 @@ export const createDanielaFixtureState = (): OnboardingLabState => {
   state.profile.ownerName = 'Daniela';
   state.profile.businessStructure = 'solo';
   state.profile.profilePhoto = {
-    altText: 'Fictional portrait for the Daniela Lab fixture',
+    altText: 'Daniela portrait illustration',
     fileName: 'daniela-placeholder.jpg',
     height: 1100,
     id: 'fixture_daniela_portrait',

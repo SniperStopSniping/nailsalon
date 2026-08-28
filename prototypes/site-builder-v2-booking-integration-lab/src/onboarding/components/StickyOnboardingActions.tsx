@@ -5,6 +5,7 @@ type StickyOnboardingActionsProps = {
   onPrimary?: () => void;
   onSkip?: () => void;
   primaryDisabled?: boolean;
+  primaryId?: string;
   primaryLabel: string;
   skipLabel?: string;
 };
@@ -16,6 +17,7 @@ export function StickyOnboardingActions({
   onPrimary,
   onSkip,
   primaryDisabled = false,
+  primaryId,
   primaryLabel,
   skipLabel = 'Skip for now',
 }: StickyOnboardingActionsProps) {
@@ -46,6 +48,7 @@ export function StickyOnboardingActions({
         className="sticky-onboarding-actions__primary"
         disabled={primaryDisabled}
         form={formId}
+        id={primaryId}
         type={formId ? 'submit' : 'button'}
         onClick={formId ? undefined : onPrimary}
       >

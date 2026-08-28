@@ -361,6 +361,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   const [desktopSettings, setDesktopSettings] = useState(() => window.matchMedia('(min-width: 900px)').matches);
   const [settingsTemporarilyHidden, setSettingsTemporarilyHidden] = useState(false);
   const editorAppRef = useRef<HTMLDivElement>(null);
+  const builderInitialFocusCompleteRef = useRef(false);
   const topbarRef = useRef<HTMLElement>(null);
   const bookingSettingsDrawerRef = useRef<HTMLElement>(null);
   const bookingSettingsHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -385,6 +386,19 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   const previewAnnouncementTokenRef = useRef(0);
   const [moveFocusRequest, setMoveFocusRequest] = useState(0);
   const [contextTop, setContextTop] = useState(86);
+
+  useEffect(() => {
+    if (!document || builderInitialFocusCompleteRef.current) return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const startHeading = editorAppRef.current?.querySelector<HTMLElement>(
+        '[data-builder-start]',
+      );
+      if (!startHeading) return;
+      startHeading.focus({ preventScroll: true });
+      builderInitialFocusCompleteRef.current = true;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [document]);
 
   const releaseMoveCompletionShield = useCallback(() => {
     if (moveCompletionShieldTimeoutRef.current !== null) {
@@ -2511,11 +2525,11 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
         <div className="final-canvas-frame">
           <div className="final-site-canvas" data-page-id={activePage.id}>
               <div className="canvas-client-header" aria-hidden="true">
-                <span><i>L</i><strong>{document.siteName}</strong></span>
+                <span title={document.siteName}><i>L</i><strong>{document.siteName}</strong></span>
                 {canvasNavigationLabels.length > 0 ? <span className="canvas-client-header__nav">{canvasNavigationLabels.join('   ')}</span> : null}
               </div>
               <div className="final-page-heading">
-                <h1>{activePage.name}</h1>
+                <h1 data-builder-start tabIndex={-1}>{activePage.name}</h1>
                 <p>{activePage.sections.length} section{activePage.sections.length === 1 ? '' : 's'}{activePage.visible ? '' : ' · Page hidden'}</p>
               </div>
 
@@ -2535,6 +2549,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
                           <BookingSectionCard
                             collapseOverride={bookingCollapseOverrides[section.id]}
                             fixture={bookingFixture}
+                            headingLevel="h2"
                             page={activePage}
                             section={section}
                             selected={selectedSectionId === section.id}

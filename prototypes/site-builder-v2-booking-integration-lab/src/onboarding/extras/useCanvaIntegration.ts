@@ -10,6 +10,7 @@ import {
   reconcileCtaPlacementForImages,
   type CustomDesignDisplayMode,
   type CustomDesignImageItem,
+  type CustomDesignSettings,
 } from '../../custom-design/model';
 import type {
   BuilderCommand,
@@ -22,6 +23,9 @@ import { useLabDocument } from '../../ui/useLabDocument';
 
 export type CanvaPlacement = 'after_booking' | 'before_booking';
 
+export const CANVA_UPLOADS_UNAVAILABLE_MESSAGE =
+  'Uploads aren’t available in this browser right now. Try again or use another browser.';
+
 export type CanvaLabDocumentController = Pick<
   ReturnType<typeof useLabDocument>,
   | 'createHistoryCheckpoint'
@@ -32,9 +36,17 @@ export type CanvaLabDocumentController = Pick<
   | 'runCommand'
 >;
 
-type CanvaAssetCoordinator = Pick<
+type CanvaUploadCoordinator = Pick<
   CustomDesignAssetTransactionCoordinator,
   'uploadImages'
+>;
+
+export type CanvaAssetCoordinator = Pick<
+  CustomDesignAssetTransactionCoordinator,
+  | 'coordinateDocumentMutation'
+  | 'deleteAssetsIfUnreferenced'
+  | 'replaceImage'
+  | 'uploadImages'
 >;
 
 export type CanvaPlacementTarget = {
@@ -52,7 +64,9 @@ export type AddCanvaDesignInput = {
 };
 
 export type CanvaIntegrationFailure = {
+  code?: string;
   fileName?: string;
+  index?: number;
   message: string;
 };
 
@@ -73,8 +87,21 @@ export type CanvaIntegrationResult = {
     | 'unavailable';
 };
 
+export type CanvaManagerResult = {
+  cleanupWarnings?: CanvaIntegrationFailure[];
+  failure?: CanvaIntegrationFailure;
+  section: CustomDesignSectionInstance | null;
+  success: boolean;
+};
+
+export type SaveCanvaSettingsInput = {
+  displayMode: CustomDesignDisplayMode;
+  placement: CanvaPlacement;
+  sectionId: string;
+};
+
 type IntegrateCanvaDesignOptions = {
-  coordinator: CanvaAssetCoordinator | null;
+  coordinator: CanvaUploadCoordinator | null;
   createAssetId: () => string;
   createImageItemId: () => string;
   input: AddCanvaDesignInput;
@@ -87,12 +114,6 @@ type LocatedCustomDesign = {
   pageId: string | null;
   section: CustomDesignSectionInstance;
 };
-
-const CANVA_IMAGE_MIME_TYPES = new Set([
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-]);
 
 const failed = (
   status: 'failed' | 'rejected' | 'unavailable',
@@ -150,7 +171,7 @@ export const getCanvaPlacementTarget = (
   };
 };
 
-const locateCustomDesign = (
+export const locateOnboardingCustomDesign = (
   document: SiteBuilderDocument,
   sectionId: string,
 ): LocatedCustomDesign | null => {
@@ -168,6 +189,8 @@ const locateCustomDesign = (
   );
   return section ? { pageId: null, section } : null;
 };
+
+const locateCustomDesign = locateOnboardingCustomDesign;
 
 const runDocumentCommand = (
   lab: CanvaLabDocumentController,
@@ -255,7 +278,7 @@ const ensureCustomDesignSection = (
     requested?.pageId ? requested.section.id : null,
   );
   if (!target) {
-    throw new Error('Your site needs a Booking section before this design can be placed.');
+    throw new Error('Your site needs a booking area before this design can be placed.');
   }
 
   if (requested) {
@@ -325,7 +348,6 @@ export const integrateCanvaDesign = async ({
   input,
   lab,
   onSectionIdChange,
-  storageError,
 }: IntegrateCanvaDesignOptions): Promise<CanvaIntegrationResult> => {
   if (!input.confirmed || input.files.length === 0) {
     return {
@@ -336,18 +358,10 @@ export const integrateCanvaDesign = async ({
       status: 'noop',
     };
   }
-  if (!input.files.some((file) => CANVA_IMAGE_MIME_TYPES.has(file.type))) {
-    return failed(
-      'rejected',
-      'Choose at least one PNG, JPEG, or WebP image.',
-      input.sectionId ?? null,
-    );
-  }
   if (!coordinator) {
     return failed(
       'unavailable',
-      storageError?.message
-        ?? 'Uploaded-design storage is not available in this browser.',
+      CANVA_UPLOADS_UNAVAILABLE_MESSAGE,
       input.sectionId ?? null,
     );
   }
@@ -395,8 +409,10 @@ export const integrateCanvaDesign = async ({
       return {
         addedCount: 0,
         addedImages: [],
-        failures: upload.failures.map(({ fileName, message }) => ({
+        failures: upload.failures.map(({ code, fileName, index, message }) => ({
+          code,
           fileName,
+          index,
           message,
         })),
         sectionId: createdSectionId ? null : sectionId,
@@ -413,8 +429,10 @@ export const integrateCanvaDesign = async ({
         id: image.id,
         mimeType: image.mimeType,
       })),
-      failures: upload.failures.map(({ fileName, message }) => ({
+      failures: upload.failures.map(({ code, fileName, index, message }) => ({
+        code,
         fileName,
+        index,
         message,
       })),
       sectionId: ensured.sectionId,
@@ -430,6 +448,230 @@ export const integrateCanvaDesign = async ({
         : 'The Canva design could not be added safely.',
       createdSectionId ? null : sectionId,
     );
+  }
+};
+
+const managerFailure = (
+  message: string,
+  fileName?: string,
+): CanvaManagerResult => ({
+  failure: { ...(fileName ? { fileName } : {}), message },
+  section: null,
+  success: false,
+});
+
+const updateCanvaSettings = (
+  lab: CanvaLabDocumentController,
+  sectionId: string,
+  update: (settings: CustomDesignSettings) => CustomDesignSettings,
+): CanvaManagerResult => {
+  const history = lab.getHistorySnapshot();
+  const current = history ? locateCustomDesign(history.present, sectionId) : null;
+  if (!current || current.pageId === null) {
+    return managerFailure('This Custom Design section is no longer available.');
+  }
+  const nextSettings = update(current.section.settings);
+  const result = lab.runCommand({
+    sectionId,
+    settings: nextSettings,
+    type: 'update_custom_design_settings',
+  });
+  if (!result.success) return managerFailure(result.message);
+  const next = locateCustomDesign(result.document, sectionId);
+  return {
+    section: next?.section ?? null,
+    success: Boolean(next && next.pageId !== null),
+  };
+};
+
+export const saveCanvaSettings = (
+  lab: CanvaLabDocumentController,
+  input: SaveCanvaSettingsInput,
+): CanvaManagerResult => {
+  const checkpoint = lab.createHistoryCheckpoint();
+  if (!checkpoint) return managerFailure('Choose a starting point before editing Canva.');
+  try {
+    const ensured = ensureCustomDesignSection(
+      lab,
+      checkpoint.present,
+      input.placement,
+      input.sectionId,
+    );
+    const result = updateCanvaSettings(
+      lab,
+      ensured.sectionId,
+      settings => ({ ...settings, displayMode: input.displayMode }),
+    );
+    if (!result.success) {
+      lab.restoreHistoryCheckpoint(checkpoint);
+      return result;
+    }
+    return result;
+  } catch (error) {
+    lab.restoreHistoryCheckpoint(checkpoint);
+    return managerFailure(error instanceof Error
+      ? error.message
+      : 'The Canva settings could not be saved.');
+  }
+};
+
+export const reorderCanvaImages = (
+  lab: CanvaLabDocumentController,
+  sectionId: string,
+  orderedImageItemIds: readonly string[],
+): CanvaManagerResult => updateCanvaSettings(lab, sectionId, (settings) => {
+  const imagesById = new Map(settings.images.map(image => [image.id, image]));
+  const images = orderedImageItemIds.flatMap((id) => {
+    const image = imagesById.get(id);
+    return image ? [image] : [];
+  });
+  if (images.length !== settings.images.length) return settings;
+  return { ...settings, images };
+});
+
+export const removeCanvaImage = async (
+  coordinator: CanvaAssetCoordinator | null,
+  lab: CanvaLabDocumentController,
+  sectionId: string,
+  imageItemId: string,
+): Promise<CanvaManagerResult> => {
+  if (!coordinator) return managerFailure(CANVA_UPLOADS_UNAVAILABLE_MESSAGE);
+  const history = lab.getHistorySnapshot();
+  const current = history ? locateCustomDesign(history.present, sectionId) : null;
+  const removed = current?.section.settings.images.find(image => image.id === imageItemId);
+  if (!current || current.pageId === null || !removed) {
+    return managerFailure('This Canva page is no longer available.');
+  }
+  try {
+    let mutation = managerFailure('The Canva page could not be removed.');
+    await coordinator.coordinateDocumentMutation(() => {
+      mutation = updateCanvaSettings(lab, sectionId, (settings) => {
+        const images = settings.images.filter(image => image.id !== imageItemId);
+        return {
+          ...settings,
+          cta: reconcileCtaPlacementForImages(settings.cta, images).cta,
+          images,
+        };
+      });
+    });
+    if (!mutation.success) return mutation;
+    const cleanupErrors = await coordinator.deleteAssetsIfUnreferenced([removed.assetId]);
+    return {
+      ...mutation,
+      ...(cleanupErrors.length > 0 ? {
+        cleanupWarnings: cleanupErrors.map(() => ({
+          fileName: removed.fileName,
+          message: 'The page was removed, but its earlier browser copy still needs cleanup.',
+        })),
+      } : {}),
+    };
+  } catch (error) {
+    return managerFailure(error instanceof Error
+      ? error.message
+      : 'The Canva page could not be removed safely.');
+  }
+};
+
+export const replaceCanvaImage = async (
+  coordinator: CanvaAssetCoordinator | null,
+  createAssetId: () => string,
+  lab: CanvaLabDocumentController,
+  sectionId: string,
+  imageItemId: string,
+  file: File,
+): Promise<CanvaManagerResult> => {
+  if (!coordinator) return managerFailure(CANVA_UPLOADS_UNAVAILABLE_MESSAGE, file.name);
+  const history = lab.getHistorySnapshot();
+  const current = history ? locateCustomDesign(history.present, sectionId) : null;
+  if (!current || current.pageId === null) {
+    return managerFailure('This Custom Design section is no longer available.', file.name);
+  }
+  const replacedImage = current.section.settings.images.find(
+    image => image.id === imageItemId,
+  );
+  if (!replacedImage) return managerFailure('This Canva page is no longer available.', file.name);
+  const expectedImagesJson = JSON.stringify(current.section.settings.images);
+  try {
+    const result = await coordinator.replaceImage({
+      createAssetId,
+      currentImages: current.section.settings.images,
+      file,
+      imageItemId,
+      prepareDocumentTransition: images => prepareImageTransition(
+        lab,
+        sectionId,
+        expectedImagesJson,
+        current.section.settings.displayMode,
+        images,
+      ),
+    });
+    if (!result.success) {
+      return {
+        failure: {
+          code: result.failure.code,
+          fileName: result.failure.fileName,
+          index: result.failure.index,
+          message: result.failure.message,
+        },
+        section: current.section,
+        success: false,
+      };
+    }
+    const cleanupErrors = await coordinator.deleteAssetsIfUnreferenced([
+      replacedImage.assetId,
+    ]);
+    const nextHistory = lab.getHistorySnapshot();
+    const next = nextHistory ? locateCustomDesign(nextHistory.present, sectionId) : null;
+    return {
+      ...(cleanupErrors.length > 0 ? {
+        cleanupWarnings: cleanupErrors.map(() => ({
+          fileName: replacedImage.fileName,
+          message: 'The replacement is saved, but the earlier browser copy still needs cleanup.',
+        })),
+      } : {}),
+      section: next?.section ?? null,
+      success: Boolean(next?.section),
+    };
+  } catch (error) {
+    return managerFailure(error instanceof Error
+      ? error.message
+      : 'The Canva page could not be replaced safely.', file.name);
+  }
+};
+
+export const removeCanvaDesign = async (
+  coordinator: CanvaAssetCoordinator | null,
+  lab: CanvaLabDocumentController,
+  sectionId: string,
+): Promise<CanvaManagerResult> => {
+  if (!coordinator) return managerFailure(CANVA_UPLOADS_UNAVAILABLE_MESSAGE);
+  const checkpoint = lab.createHistoryCheckpoint();
+  const current = checkpoint ? locateCustomDesign(checkpoint.present, sectionId) : null;
+  if (!current || current.pageId === null) {
+    return managerFailure('This Custom Design section is no longer available.');
+  }
+  const assetIds = current.section.settings.images.map(image => image.assetId);
+  try {
+    await coordinator.coordinateDocumentMutation(() => {
+      const removed = lab.runCommand({ sectionId, type: 'remove_section' });
+      if (!removed.success) throw new Error(removed.message);
+    });
+    const cleanupErrors = await coordinator.deleteAssetsIfUnreferenced(assetIds);
+    return {
+      ...(cleanupErrors.length > 0 ? {
+        cleanupWarnings: cleanupErrors.map((_, index) => ({
+          fileName: current.section.settings.images[index]?.fileName ?? 'Canva page',
+          message: 'The design was removed, but an earlier browser copy still needs cleanup.',
+        })),
+      } : {}),
+      section: null,
+      success: true,
+    };
+  } catch (error) {
+    if (checkpoint) lab.restoreHistoryCheckpoint(checkpoint);
+    return managerFailure(error instanceof Error
+      ? error.message
+      : 'The Canva design could not be removed safely.');
   }
 };
 
@@ -458,10 +700,51 @@ export const useCanvaIntegration = ({
     }),
     [coordinator, lab, onSectionIdChange, storageError],
   );
+  const removeDesign = useCallback(async (sectionId: string) => {
+    const result = await removeCanvaDesign(coordinator, lab, sectionId);
+    if (result.success) onSectionIdChange?.(null);
+    return result;
+  }, [coordinator, lab, onSectionIdChange]);
+  const removeImage = useCallback(
+    (sectionId: string, imageItemId: string) => removeCanvaImage(
+      coordinator,
+      lab,
+      sectionId,
+      imageItemId,
+    ),
+    [coordinator, lab],
+  );
+  const reorderImages = useCallback(
+    (sectionId: string, orderedImageItemIds: readonly string[]) =>
+      reorderCanvaImages(lab, sectionId, orderedImageItemIds),
+    [lab],
+  );
+  const replaceImage = useCallback(
+    (sectionId: string, imageItemId: string, file: File) => replaceCanvaImage(
+      coordinator,
+      () => idFactoryRef.current('asset'),
+      lab,
+      sectionId,
+      imageItemId,
+      file,
+    ),
+    [coordinator, lab],
+  );
+  const saveSettings = useCallback(
+    (input: SaveCanvaSettingsInput) => saveCanvaSettings(lab, input),
+    [lab],
+  );
 
   return {
     addCanvaDesign,
     available: coordinator !== null,
+    removeDesign,
+    removeImage,
+    reorderImages,
+    replaceImage,
+    saveSettings,
     storageError,
   };
 };
+
+export type CanvaIntegrationController = ReturnType<typeof useCanvaIntegration>;

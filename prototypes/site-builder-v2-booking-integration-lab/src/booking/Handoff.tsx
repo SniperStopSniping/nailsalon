@@ -47,7 +47,7 @@ export function Handoff({ open, summary, onClose }: HandoffProps) {
             ? `${summary.service.name} · ${summary.durationLabel} · ${summary.price.label}`
             : 'Select a service to continue.'}
         </p>
-        <div className="booking-flow-steps" aria-label="Future canonical booking flow">
+        <div className="booking-flow-steps" aria-label="Booking steps">
           {BOOKING_FLOW_STEPS.map((step, index) => (
             <span key={step}>
               {step}

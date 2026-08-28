@@ -29,6 +29,10 @@ export {
   useCustomDesignAssetUrls,
 } from './CustomDesignAssetProvider';
 export { CustomDesignOwnerEditor } from './CustomDesignOwnerEditor';
+export {
+  CustomDesignImageManager,
+  type CustomDesignImageManagerProps,
+} from './CustomDesignImageManager';
 export { CustomDesignReadinessPanel } from './CustomDesignReadinessPanel';
 export {
   CustomDesignCustomerPreview,

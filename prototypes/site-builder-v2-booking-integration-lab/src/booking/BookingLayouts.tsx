@@ -293,7 +293,7 @@ function ServiceMedia({
       aria-hidden={decorative ? 'true' : undefined}
       aria-label={decorative ? undefined : `No service photo available for ${service.name}`}
     >
-      <span>Isla studio service</span>
+      <span>Nail service</span>
     </div>
   );
 }

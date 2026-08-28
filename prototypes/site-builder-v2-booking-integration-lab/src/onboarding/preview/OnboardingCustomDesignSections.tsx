@@ -3,13 +3,17 @@ import { useMemo, useState } from 'react';
 import type { ResolveCustomDesignAction } from '../../custom-design/components/view-types';
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
 import { CustomDesignCustomerPreview } from '../../custom-design/integration/CustomDesignSectionCard';
-import { resolveCustomDesignDocumentAction } from '../../custom-design/integration/document-actions';
+import {
+  createHostedCustomDesignActionResolver,
+  type CustomDesignDocumentNavigationTarget,
+} from '../../custom-design/integration/document-actions';
 import type { CustomDesignOwnerAssetMap } from '../../custom-design/integration/ui-types';
 import type { CustomDesignSectionInstance, SiteBuilderDocument } from '../../model';
 import { toCustomDesignOwnerAssetMap } from '../../ui/custom-design-adapters';
 
 export type OnboardingCustomDesignSectionsProps = {
   document: SiteBuilderDocument | null;
+  onDocumentTarget: (target: CustomDesignDocumentNavigationTarget) => void;
   pageId?: string;
   sectionIds?: readonly string[];
 };
@@ -19,24 +23,9 @@ type LocatedSection = {
   section: CustomDesignSectionInstance;
 };
 
-const createOnboardingActionResolver = (
-  document: SiteBuilderDocument,
-  activePageId: string,
-): ResolveCustomDesignAction => (action, source) => {
-  const effectiveAction = action
-    ?? (source.type === 'cta' && source.cta.type === 'book_now'
-      ? { type: 'start_booking' }
-      : null);
-  return effectiveAction
-    ? resolveCustomDesignDocumentAction(effectiveAction, {
-        activePageId,
-        document,
-      })
-    : { reason: 'invalid_destination', status: 'unresolved' };
-};
-
 export function OnboardingCustomDesignSections({
   document,
+  onDocumentTarget,
   pageId,
   sectionIds,
 }: OnboardingCustomDesignSectionsProps) {
@@ -73,6 +62,17 @@ export function OnboardingCustomDesignSections({
         : asset,
     ]));
   }, [assetPairs, renderErrorAssetIds]);
+  const actionResolvers = useMemo<Map<string, ResolveCustomDesignAction>>(() => (
+    document
+      ? new Map(sections.map(({ pageId: activePageId }) => [
+          activePageId,
+          createHostedCustomDesignActionResolver(
+            { activePageId, document },
+            onDocumentTarget,
+          ),
+        ] as const))
+      : new Map()
+  ), [document, onDocumentTarget, sections]);
 
   if (!document || sections.length === 0) return null;
 
@@ -81,6 +81,7 @@ export function OnboardingCustomDesignSections({
       {sections.map(({ pageId: sectionPageId, section }) => (
         <div
           data-onboarding-custom-design-section={section.id}
+          data-onboarding-custom-design-mode={section.settings.displayMode}
           data-section-id={section.id}
           data-section-type="custom_design"
           key={section.id}
@@ -88,10 +89,11 @@ export function OnboardingCustomDesignSections({
           <CustomDesignCustomerPreview
             accessibleSectionLabel={section.label}
             assets={assets}
+            contentMaxWidth="calc(100% - clamp(32px, 10cqw, 112px))"
             onAssetRenderError={(assetId) => {
               setRenderErrorAssetIds((current) => new Set(current).add(assetId));
             }}
-            resolveAction={createOnboardingActionResolver(document, sectionPageId)}
+            resolveAction={actionResolvers.get(sectionPageId)!}
             settings={section.settings}
           />
         </div>

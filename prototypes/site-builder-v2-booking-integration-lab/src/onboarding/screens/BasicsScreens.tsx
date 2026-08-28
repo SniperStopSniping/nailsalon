@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 
 import { SCREEN_METADATA } from '../copy';
 import {
@@ -27,6 +27,7 @@ import type {
 import {
   ChoiceGroup,
   CollapsibleFormCard,
+  focusAndRevealControl,
   focusFirstInvalidControl,
   ImageUploadField,
   NativeSwitch,
@@ -296,9 +297,42 @@ export function LocationContactScreen({
 }: LocationContactScreenProps) {
   const copy = SCREEN_METADATA.location_contact;
   const formId = useId();
+  const formRef = useRef<HTMLFormElement>(null);
   const contactErrorId = `${formId}-contact-error`;
   const [openCard, setOpenCard] = useState<LocationCardId>('location');
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  const revealError = (fieldId: string, keepSummaryVisible = false) => {
+    const card: LocationCardId = fieldId === 'cityOrArea' ? 'location' : 'contact';
+    setOpenCard(card);
+    window.requestAnimationFrame(() => {
+      const panel = formRef.current?.querySelector<HTMLElement>(
+        `#onboarding-${card}-card-panel`,
+      );
+      const requestedTarget = fieldId === 'cityOrArea'
+        ? panel?.querySelector<HTMLElement>('input[autocomplete="address-level2"]')
+        : fieldId === 'preferredContact'
+          ? panel?.querySelector<HTMLElement>('input[name="public-contact-method"]')
+          : panel?.querySelector<HTMLElement>('input[autocomplete="tel"], input[type="email"]');
+      const target = requestedTarget ?? panel?.querySelector<HTMLElement>(
+        '[aria-invalid="true"] input:not([disabled]), [aria-invalid="true"] textarea:not([disabled]), [aria-invalid="true"] select:not([disabled]), [aria-invalid="true"] button:not([disabled]), [aria-invalid="true"][tabindex]',
+      ) ?? panel?.querySelector<HTMLElement>('[aria-invalid="true"]');
+      const targetGroup = target?.closest<HTMLElement>(
+        '.onboarding-field, .onboarding-choice-group, .onboarding-contact-uses, [aria-invalid="true"]',
+      ) ?? target;
+      const summary = formRef.current?.querySelector<HTMLElement>(
+        '.onboarding-validation-summary',
+      );
+      if (keepSummaryVisible) {
+        summary?.scrollIntoView?.({ block: 'start', inline: 'nearest' });
+      }
+      if (target) focusAndRevealControl(
+        target,
+        targetGroup ?? target,
+        keepSummaryVisible ? summary : null,
+      );
+    });
+  };
 
   const updateLocation = (patch: Partial<BusinessProfileDraft['location']>) => {
     onProfileChange({ location: { ...profile.location, ...patch } });
@@ -344,9 +378,9 @@ export function LocationContactScreen({
     setErrors(nextErrors);
     const failedFields = Object.keys(nextErrors);
     if (failedFields.length > 0) {
-      setOpenCard(nextErrors.cityOrArea ? 'location' : 'contact');
       onValidationFailure?.(failedFields);
-      focusFirstInvalidControl(event.currentTarget);
+      const firstFailedField = failedFields[0];
+      if (firstFailedField) revealError(firstFailedField, true);
       return;
     }
     onContinue();
@@ -375,10 +409,11 @@ export function LocationContactScreen({
         <p>{copy.supportingCopy}</p>
       </header>
       <div className="onboarding-split-layout">
-        <form id={formId} noValidate onSubmit={submit}>
-          <ValidationSummary errors={errors} />
+        <form id={formId} noValidate ref={formRef} onSubmit={submit}>
+          <ValidationSummary errors={errors} onSelectError={(fieldId) => revealError(fieldId)} />
           <CollapsibleFormCard
             completed={Boolean(profile.location.cityOrArea.trim())}
+            errorCount={errors.cityOrArea ? 1 : 0}
             id="onboarding-location-card"
             open={openCard === 'location'}
             summary={locationSummary}
@@ -449,6 +484,7 @@ export function LocationContactScreen({
 
           <CollapsibleFormCard
             completed={profile.bookingOnlyContact || hasCoherentPreferredContact}
+            errorCount={[errors.contact, errors.preferredContact].filter(Boolean).length}
             id="onboarding-contact-card"
             open={openCard === 'contact'}
             summary={contactSummary}
@@ -470,6 +506,8 @@ export function LocationContactScreen({
               }}
             />
             <TextField
+              aria-describedby={errors.contact ? contactErrorId : undefined}
+              aria-invalid={errors.contact ? 'true' : undefined}
               autoComplete="tel"
               label="Client contact number"
               type="tel"
@@ -696,7 +734,11 @@ export function LocationContactScreen({
           </CollapsibleFormCard>
         </form>
 
-        <aside aria-label="Location and contact preview" className="onboarding-location-preview">
+        <aside
+          aria-label="Location and contact visual preview. Customer actions are available in the full preview."
+          className="onboarding-location-preview"
+          role="img"
+        >
           <p className="onboarding-preview-eyebrow">Visit us</p>
           <strong>{publicLocation.primary || 'Your general area'}</strong>
           {publicLocation.detail ? <span>{publicLocation.detail}</span> : null}
@@ -718,9 +760,9 @@ export function LocationContactScreen({
             </dl>
           ) : null}
           {publicContact ? <span>{publicContact.detail}</span> : null}
-          <div className="onboarding-location-preview__actions">
-            {publicLocation.directionsTarget ? <button type="button">Directions</button> : null}
-            {publicContact ? <button type="button">{publicContact.actionLabel}</button> : null}
+          <div aria-hidden="true" className="onboarding-location-preview__actions">
+            {publicLocation.directionsTarget ? <span>Directions</span> : null}
+            {publicContact ? <span>{publicContact.actionLabel}</span> : null}
           </div>
         </aside>
       </div>
