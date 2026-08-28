@@ -92,7 +92,7 @@ export function useLabDocument() {
   const chooseStarter = useCallback((starter: OriginStarter): boolean => {
     if (preparedTransitionRef.current) return false;
     const next = createHistoryState(initializeStarter(starter, {
-      siteName: 'Isla Nail Studio',
+      siteName: 'Your nail studio',
     }));
     setLoadIssues([]);
     setSaveStatus('saving');

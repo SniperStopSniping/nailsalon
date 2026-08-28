@@ -22,6 +22,14 @@ import {
   createOnboardingBookingFixture,
   ONBOARDING_NEXT_AVAILABILITY_LABEL,
 } from '../model/booking-preview';
+import { getPublicContactPreview } from '../model/contact';
+import {
+  getPublicWeeklyHours,
+  getWeeklyHoursPreviewStatus,
+  type WeeklyHoursPreviewStatus,
+} from '../model/hours';
+import { getPublicLocationPreview } from '../model/location';
+import { deriveDepositPolicySummary } from '../model/policies';
 import type {
   AboutElementId,
   AboutPresetId,
@@ -205,7 +213,13 @@ function AboutActions({ profile }: { profile: BusinessProfileDraft }) {
   );
 }
 
-function AboutFacts({ profile }: { profile: BusinessProfileDraft }) {
+function AboutFacts({
+  hoursStatus,
+  profile,
+}: {
+  hoursStatus: WeeklyHoursPreviewStatus | null;
+  profile: BusinessProfileDraft;
+}) {
   const visibility = profile.about.visibility;
   const facts: Array<{ label: string; value: string }> = [];
   if (isAboutVisible(visibility, 'specialties') && profile.about.specialties.length > 0) {
@@ -227,6 +241,9 @@ function AboutFacts({ profile }: { profile: BusinessProfileDraft }) {
   const newClients = labelForNewClients(profile);
   if (isAboutVisible(visibility, 'new_client_status') && newClients) {
     facts.push({ label: 'New clients', value: newClients });
+  }
+  if (hoursStatus) {
+    facts.push({ label: 'Hours', value: hoursStatus.label });
   }
   if (facts.length === 0) return null;
   return (
@@ -263,18 +280,16 @@ function PolicySummary({ profile }: { profile: BusinessProfileDraft }) {
   const values: string[] = [];
   const notice = profile.policies.cancellations.notice;
   if (notice && notice !== 'custom') values.push(notice.replace('_', '-').replace('hours', 'hour notice'));
-  if (profile.policies.deposits.required && profile.policies.deposits.amount.trim()) {
-    values.push(profile.policies.deposits.amountType === 'percentage'
-      ? `${profile.policies.deposits.amount.trim()}% deposit`
-      : `$${profile.policies.deposits.amount.trim().replace(/^\$/u, '')} deposit`);
-  }
+  const depositSummary = deriveDepositPolicySummary(profile.policies);
+  if (depositSummary) values.push(depositSummary);
   if (profile.policies.lateArrivals.gracePeriodMinutes.trim()) {
     values.push(`${profile.policies.lateArrivals.gracePeriodMinutes.trim()}-minute late limit`);
   }
   return values.length > 0 ? <p className="onboarding-policy-summary">{values.join(' · ')}</p> : null;
 }
 
-function AboutSection({ preset, profile, showPolicySummary }: {
+function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
+  hoursStatus: WeeklyHoursPreviewStatus | null;
   preset: AboutPresetId;
   profile: BusinessProfileDraft;
   showPolicySummary: boolean;
@@ -300,7 +315,7 @@ function AboutSection({ preset, profile, showPolicySummary }: {
       <section aria-label="About" className="onboarding-customer-about is-quick-facts">
         {showPortrait ? <Portrait profile={profile} /> : null}
         <AboutCopy profile={profile} />
-        <AboutFacts profile={profile} />
+        <AboutFacts hoursStatus={hoursStatus} profile={profile} />
         <AboutActions profile={profile} />
       </section>
     );
@@ -317,6 +332,7 @@ function AboutSection({ preset, profile, showPolicySummary }: {
           <h3>Before you book</h3>
           {labelForVisitMode(profile) ? <p><Clock3 aria-hidden="true" size={16} /> {labelForVisitMode(profile)}</p> : null}
           {labelForNewClients(profile) ? <p><Sparkles aria-hidden="true" size={16} /> {labelForNewClients(profile)}</p> : null}
+          {hoursStatus ? <p><Clock3 aria-hidden="true" size={16} /> {hoursStatus.label}</p> : null}
           {policySummary}
         </div>
         <AboutActions profile={profile} />
@@ -326,31 +342,55 @@ function AboutSection({ preset, profile, showPolicySummary }: {
 
   return (
     <section aria-label="About" className="onboarding-customer-about is-photo-right">
-      <div><AboutCopy profile={profile} /><AboutFacts profile={profile} />{policySummary}<AboutActions profile={profile} /></div>
+      <div><AboutCopy profile={profile} /><AboutFacts hoursStatus={hoursStatus} profile={profile} />{policySummary}<AboutActions profile={profile} /></div>
       {showPortrait ? <Portrait large profile={profile} /> : null}
     </section>
   );
 }
 
 function ContactSection({ profile }: { profile: BusinessProfileDraft }) {
-  const area = profile.location.addressVisibility === 'public' && profile.location.exactAddress.trim()
-    ? profile.location.exactAddress.trim()
-    : profile.location.cityOrArea.trim();
-  const contact = profile.bookingOnlyContact
-    ? 'Booking is the best way to reach us'
-    : profile.email.trim() || profile.textPhone.trim() || profile.phone.trim() || profile.instagram.trim();
-  if (!area && !contact) return null;
+  const location = getPublicLocationPreview(profile.location);
+  const contact = getPublicContactPreview(profile);
+  const weeklyHours = getPublicWeeklyHours(profile.hours);
+  if (!location.primary && !contact && weeklyHours.length === 0) return null;
   return (
     <section aria-label="Visit and contact" className="onboarding-customer-contact">
       <div>
         <p className="onboarding-customer-eyebrow">Visit us</p>
         <h2>Plan your appointment</h2>
-        {area ? <p><MapPin aria-hidden="true" size={17} /> {area}</p> : null}
+        {location.primary ? (
+          <p><MapPin aria-hidden="true" size={17} /> {location.primary}</p>
+        ) : null}
+        {location.detail ? <small>{location.detail}</small> : null}
         {profile.location.parking.trim() ? <small>{profile.location.parking.trim()}</small> : null}
+        {contact ? (
+          <p>
+            <MessageCircle aria-hidden="true" size={16} />
+            {contact.method === 'booking'
+              ? contact.detail
+              : `Preferred contact · ${contact.detail}`}
+          </p>
+        ) : null}
       </div>
+      {weeklyHours.length > 0 ? (
+        <div aria-label="Weekly hours" className="onboarding-customer-weekly-hours" role="group">
+          <h3>Hours</h3>
+          <dl>
+            {weeklyHours.map((day) => (
+              <div key={day.weekday}><dt>{day.label}</dt><dd>{day.hours}</dd></div>
+            ))}
+          </dl>
+        </div>
+      ) : null}
       <div className="onboarding-customer-actions">
-        {area ? <button className="is-secondary" type="button">Directions</button> : null}
-        {contact ? <button className="is-secondary" type="button"><MessageCircle aria-hidden="true" size={16} /> Contact</button> : null}
+        {location.directionsTarget ? (
+          <button className="is-secondary" type="button">Directions</button>
+        ) : null}
+        {contact ? (
+          <button className="is-secondary" type="button">
+            <MessageCircle aria-hidden="true" size={16} /> {contact.actionLabel}
+          </button>
+        ) : null}
       </div>
     </section>
   );
@@ -547,6 +587,10 @@ export function OnboardingSitePreview({
   } as CSSProperties;
   const visitMode = labelForVisitMode(profile);
   const newClients = labelForNewClients(profile);
+  const hoursStatus = getWeeklyHoursPreviewStatus(
+    profile.hours,
+    state.reviewOptions.previewTimestamp,
+  );
   const title = profile.businessName.trim() || 'Your nail studio';
   const area = profile.location.cityOrArea.trim();
 
@@ -575,6 +619,7 @@ export function OnboardingSitePreview({
               <div className="onboarding-customer-statuses">
                 {visitMode ? <span>{visitMode}</span> : null}
                 {newClients ? <span>{newClients}</span> : null}
+                {hoursStatus ? <span data-hours-status={hoursStatus.kind}>{hoursStatus.label}</span> : null}
                 <span>Next opening · {ONBOARDING_NEXT_AVAILABILITY_LABEL}</span>
               </div>
               <button className="onboarding-customer-primary" type="button">Book an appointment</button>
@@ -584,6 +629,7 @@ export function OnboardingSitePreview({
 
           {includeOptionalSections && recipe.aboutEnabled ? (
             <AboutSection
+              hoursStatus={hoursStatus}
               preset={recipe.aboutPreset}
               profile={profile}
               showPolicySummary={recipe.policiesEnabled}

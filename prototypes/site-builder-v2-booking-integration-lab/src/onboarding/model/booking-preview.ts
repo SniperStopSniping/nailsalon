@@ -1,5 +1,6 @@
 import { createMenuFixture } from '../../booking/helpers';
 import type { MockMenuFixture } from '../../booking/types';
+import { getPublicLocationPreview } from './location';
 import type { BusinessProfileDraft } from './types';
 
 export const ONBOARDING_NEXT_AVAILABILITY_LABEL = 'Tomorrow at 10:30 AM';
@@ -8,16 +9,8 @@ export const CANONICAL_ONBOARDING_BOOKING_FIXTURE = createMenuFixture();
 
 export const getOnboardingPreviewLocation = (
   profile: BusinessProfileDraft,
-): string => {
-  if (
-    profile.location.addressVisibility === 'public'
-    && profile.location.exactAddress.trim()
-  ) {
-    return profile.location.exactAddress.trim();
-  }
-
-  return profile.location.cityOrArea.trim() || 'Location shared during booking';
-};
+): string => getPublicLocationPreview(profile.location).primary
+  || 'Location shared during booking';
 
 /**
  * Booking remains the canonical owner of services, prices, durations, images,
@@ -27,10 +20,11 @@ export const getOnboardingPreviewLocation = (
  */
 export const createOnboardingBookingFixture = (
   profile: BusinessProfileDraft,
+  fixture: MockMenuFixture = CANONICAL_ONBOARDING_BOOKING_FIXTURE,
 ): MockMenuFixture => ({
-  ...CANONICAL_ONBOARDING_BOOKING_FIXTURE,
+  ...fixture,
   salon: {
-    ...CANONICAL_ONBOARDING_BOOKING_FIXTURE.salon,
+    ...fixture.salon,
     id: 'onboarding-preview-salon',
     location: getOnboardingPreviewLocation(profile),
     name: profile.businessName.trim() || 'Your nail studio',

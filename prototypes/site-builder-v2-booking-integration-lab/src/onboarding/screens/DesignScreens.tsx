@@ -6,15 +6,38 @@ import {
   Images,
   Sparkles,
 } from 'lucide-react';
-import { useId, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  useId,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 
 import type { SiteBuilderDocument } from '../../model/types';
-import { NativeSwitch, TextAreaField, TextField } from '../components/FormFields';
+import {
+  ChoiceGroup,
+  NativeSwitch,
+  TextAreaField,
+  TextField,
+  type ChoiceOption,
+} from '../components/FormFields';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
 import { SCREEN_METADATA } from '../copy';
+import { recordOnboardingEvent } from '../events/journal';
 import {
+  buildAboutWordingSuggestion,
+  formatAboutListInput,
+  parseAboutListInput,
+} from '../model/about';
+import {
+  deriveDepositPolicySummary,
   derivePolicySuggestedWording,
+  getDepositPolicyMode,
   refreshPolicySuggestedWording,
+  updateDepositPolicyMode,
+  type DepositPolicyMode,
 } from '../model/policies';
 import type {
   AboutElementId,
@@ -90,6 +113,16 @@ const STYLE_PRESETS: Array<{
   { description: 'Dark surfaces, fine lines, and gold accents.', id: 'luxury', label: 'Luxury' },
 ];
 
+const DEPOSIT_MODE_OPTIONS: readonly ChoiceOption<DepositPolicyMode>[] = [
+  { label: 'Yes', value: 'generally_required' },
+  { label: 'No', value: 'none' },
+  {
+    description: 'Booking keeps the deposit details for each service.',
+    label: 'Depends on the service',
+    value: 'depends_on_service',
+  },
+];
+
 const updateProfile = (
   current: OnboardingLabState,
   update: (profile: BusinessProfileDraft) => BusinessProfileDraft,
@@ -100,7 +133,8 @@ const commaList = (value: string): string[] => value
   .map((item) => item.trim())
   .filter(Boolean);
 
-const listValue = (values: readonly string[]): string => values.join(', ');
+const sameStringList = (left: readonly string[], right: readonly string[]): boolean =>
+  left.length === right.length && left.every((value, index) => value === right[index]);
 
 function ScreenHeading({ id, status }: { id: keyof typeof SCREEN_METADATA; status?: string }) {
   const metadata = SCREEN_METADATA[id];
@@ -144,6 +178,107 @@ export function AboutScreen({
   state,
 }: SharedScreenProps & { onContinue: () => void }) {
   const { about } = state.profile;
+  const helperSuggestionId = useId();
+  const aboutDisabledMessageId = useId();
+  const aboutFieldsRef = useRef<HTMLFieldSetElement>(null);
+  const [certificationsInput, setCertificationsInput] = useState(() =>
+    formatAboutListInput(about.certifications));
+  const [languagesInput, setLanguagesInput] = useState(() =>
+    formatAboutListInput(about.languages));
+  const [writingSuggestion, setWritingSuggestion] = useState<string | null>(null);
+  const [helperNotice, setHelperNotice] = useState<string | null>(null);
+  const [undoBio, setUndoBio] = useState<string | null>(null);
+
+  const commitListInput = (
+    field: 'certifications' | 'languages',
+    rawValue: string,
+  ) => {
+    const parsed = parseAboutListInput(rawValue);
+    onUpdate((current) => {
+      if (sameStringList(current.profile.about[field], parsed)) return current;
+      return updateProfile(current, (profile) => ({
+        ...profile,
+        about: { ...profile.about, [field]: parsed },
+      }));
+    });
+  };
+  const commitListInputs = () => {
+    const certifications = parseAboutListInput(certificationsInput);
+    const languages = parseAboutListInput(languagesInput);
+    if (
+      sameStringList(about.certifications, certifications)
+      && sameStringList(about.languages, languages)
+    ) return;
+    onUpdate((current) => updateProfile(current, (profile) => ({
+      ...profile,
+      about: { ...profile.about, certifications, languages },
+    })));
+  };
+  const commitOnEnter = (
+    event: KeyboardEvent<HTMLTextAreaElement>,
+    field: 'certifications' | 'languages',
+    rawValue: string,
+  ) => {
+    if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+      commitListInput(field, rawValue);
+    }
+  };
+  const recordHelperAction = (
+    action: 'opened' | 'used' | 'kept' | 'undone',
+  ) => onUpdate((current) => recordOnboardingEvent(current, {
+    action,
+    type: 'about_wording_helper',
+  }));
+  const openWritingSuggestion = () => {
+    setWritingSuggestion(buildAboutWordingSuggestion(state.profile));
+    setHelperNotice(null);
+    recordHelperAction('opened');
+  };
+  const useWritingSuggestion = () => {
+    if (writingSuggestion === null) return;
+    const suggestion = writingSuggestion;
+    setUndoBio(about.shortBio);
+    setWritingSuggestion(null);
+    setHelperNotice('Suggestion added to your short bio.');
+    onUpdate((current) => recordOnboardingEvent(
+      updateProfile(current, (profile) => ({
+        ...profile,
+        about: { ...profile.about, shortBio: suggestion },
+      })),
+      { action: 'used', type: 'about_wording_helper' },
+    ));
+  };
+  const keepExistingBio = () => {
+    setWritingSuggestion(null);
+    setHelperNotice('Your existing bio was kept unchanged.');
+    recordHelperAction('kept');
+  };
+  const undoWritingSuggestion = () => {
+    if (undoBio === null) return;
+    const previousBio = undoBio;
+    setUndoBio(null);
+    setHelperNotice('Your previous bio was restored.');
+    onUpdate((current) => recordOnboardingEvent(
+      updateProfile(current, (profile) => ({
+        ...profile,
+        about: { ...profile.about, shortBio: previousBio },
+      })),
+      { action: 'undone', type: 'about_wording_helper' },
+    ));
+  };
+  const setAboutEnabled = (checked: boolean) => {
+    onUpdate((current) => ({
+      ...current,
+      recipe: { ...current.recipe, aboutEnabled: checked },
+    }));
+    if (checked) {
+      window.requestAnimationFrame(() => {
+        aboutFieldsRef.current
+          ?.querySelector<HTMLTextAreaElement>('[data-about-primary-control]')
+          ?.focus({ preventScroll: true });
+      });
+    }
+  };
   const toggleSpecialty = (specialty: string) => onUpdate((current) => updateProfile(
     current,
     (profile) => ({
@@ -165,18 +300,27 @@ export function AboutScreen({
           checked={state.recipe.aboutEnabled}
           description={state.recipe.aboutEnabled ? 'Shown in customer previews' : 'Not shown on your site'}
           label="Include an About section"
-          onChange={(checked) => onUpdate((current) => ({
-            ...current,
-            recipe: { ...current.recipe, aboutEnabled: checked },
-          }))}
+          onChange={setAboutEnabled}
         />
         {!state.recipe.aboutEnabled ? (
-          <p aria-live="polite" className="onboarding-disabled-message">
-            About section is not shown on your site. Your information stays saved.
+          <p
+            aria-live="polite"
+            className="onboarding-disabled-message"
+            id={aboutDisabledMessageId}
+            role="status"
+          >
+            About section is not shown on your site. Your information is still saved.
           </p>
         ) : null}
-        <fieldset className="onboarding-about-fields" disabled={!state.recipe.aboutEnabled}>
+        <fieldset
+          ref={aboutFieldsRef}
+          aria-describedby={!state.recipe.aboutEnabled ? aboutDisabledMessageId : undefined}
+          className="onboarding-about-fields"
+          disabled={!state.recipe.aboutEnabled}
+        >
+          <legend className="visually-hidden">About section details</legend>
           <TextAreaField
+            data-about-primary-control
             label="Short bio"
             maxLength={320}
             rows={4}
@@ -187,18 +331,49 @@ export function AboutScreen({
             })))}
           />
           <button
+            aria-controls={helperSuggestionId}
+            aria-expanded={writingSuggestion !== null}
             className="onboarding-prototype-helper"
             type="button"
-            onClick={() => onUpdate((current) => updateProfile(current, (profile) => ({
-              ...profile,
-              about: {
-                ...profile.about,
-                shortBio: `${profile.ownerName || 'Your nail artist'} creates thoughtful, long-lasting nail services in a calm and welcoming studio.`,
-              },
-            })))}
+            onClick={openWritingSuggestion}
           >
-            <Sparkles aria-hidden="true" size={16} /> Help me with wording <span>Prototype helper</span>
+            <Sparkles aria-hidden="true" size={16} /> Help me with wording <span>Preview wording</span>
           </button>
+          {writingSuggestion !== null ? (
+            <section
+              aria-labelledby={`${helperSuggestionId}-heading`}
+              className="onboarding-writing-suggestion"
+              id={helperSuggestionId}
+            >
+              <header>
+                <span>WRITING SUGGESTION</span>
+                <h3 id={`${helperSuggestionId}-heading`}>Use this suggested bio?</h3>
+              </header>
+              {about.shortBio.trim() ? (
+                <div>
+                  <strong>Current bio</strong>
+                  <p>{about.shortBio}</p>
+                </div>
+              ) : null}
+              <div>
+                <strong>Suggested bio</strong>
+                <p>{writingSuggestion}</p>
+              </div>
+              <small>Your bio has not changed. Choose whether to use this suggestion.</small>
+              <div>
+                <button type="button" onClick={keepExistingBio}>Keep my bio</button>
+                <button className="is-primary" type="button" onClick={useWritingSuggestion}>Use suggestion</button>
+              </div>
+            </section>
+          ) : null}
+          {helperNotice ? (
+            <div className="onboarding-writing-suggestion__notice">
+              <p aria-live="polite" role="status">{helperNotice}</p>
+              {undoBio !== null ? (
+                <button type="button" onClick={undoWritingSuggestion}>Undo</button>
+              ) : null}
+            </div>
+          ) : null}
           <TextAreaField
             label="Full bio — optional"
             rows={6}
@@ -245,23 +420,33 @@ export function AboutScreen({
                 about: { ...profile.about, yearsOfExperience: event.target.value },
               })))}
             />
-            <TextField
+            <TextAreaField
+              hint="Use commas, semicolons, or new lines. Entries save as you type and finish cleanly on Enter, blur, or Continue."
               label="Certifications — optional"
-              placeholder="Separate with commas"
-              value={listValue(about.certifications)}
-              onChange={(event) => onUpdate((current) => updateProfile(current, (profile) => ({
-                ...profile,
-                about: { ...profile.about, certifications: commaList(event.target.value) },
-              })))}
+              placeholder="One per line, or separate with commas or semicolons"
+              rows={3}
+              value={certificationsInput}
+              onBlur={() => commitListInput('certifications', certificationsInput)}
+              onChange={(event) => {
+                const rawValue = event.target.value;
+                setCertificationsInput(rawValue);
+                commitListInput('certifications', rawValue);
+              }}
+              onKeyUp={(event) => commitOnEnter(event, 'certifications', certificationsInput)}
             />
-            <TextField
+            <TextAreaField
+              hint="Use commas, semicolons, or new lines. Entries save as you type and finish cleanly on Enter, blur, or Continue."
               label="Languages — optional"
-              placeholder="Separate with commas"
-              value={listValue(about.languages)}
-              onChange={(event) => onUpdate((current) => updateProfile(current, (profile) => ({
-                ...profile,
-                about: { ...profile.about, languages: commaList(event.target.value) },
-              })))}
+              placeholder="One per line, or separate with commas or semicolons"
+              rows={3}
+              value={languagesInput}
+              onBlur={() => commitListInput('languages', languagesInput)}
+              onChange={(event) => {
+                const rawValue = event.target.value;
+                setLanguagesInput(rawValue);
+                commitListInput('languages', rawValue);
+              }}
+              onKeyUp={(event) => commitOnEnter(event, 'languages', languagesInput)}
             />
           </div>
           <TextAreaField
@@ -283,7 +468,10 @@ export function AboutScreen({
         backLabel="Back"
         primaryLabel={state.recipe.aboutEnabled ? 'Choose an About design' : 'Continue without About'}
         onBack={onBack}
-        onPrimary={onContinue}
+        onPrimary={() => {
+          commitListInputs();
+          onContinue();
+        }}
       />
     </div>
   );
@@ -425,11 +613,21 @@ export function PoliciesScreen({
   state,
 }: SharedScreenProps & { onContinue: () => void; onSkip: () => void }) {
   const policies = state.profile.policies;
+  const depositMode = getDepositPolicyMode(policies);
+  const depositSummary = deriveDepositPolicySummary(policies);
+  const [editingDepositMode, setEditingDepositMode] = useState(depositMode === null);
   const updatePolicies = (update: (current: PoliciesDraft) => PoliciesDraft) => {
     onUpdate((current) => updateProfile(current, (profile) => ({
       ...profile,
       policies: refreshPolicySuggestedWording(update(profile.policies)),
     })));
+  };
+  const changeDepositMode = (mode: DepositPolicyMode) => {
+    onUpdate((current) => updateProfile(current, (profile) => ({
+      ...profile,
+      policies: updateDepositPolicyMode(profile.policies, mode),
+    })));
+    setEditingDepositMode(false);
   };
   return (
     <div className="onboarding-screen onboarding-screen--split" data-screen="policies">
@@ -508,56 +706,76 @@ export function PoliciesScreen({
           </fieldset>
           <fieldset>
             <legend>Deposits</legend>
-            <BooleanChoice
-              label="Required?"
-              value={policies.deposits.required}
-              onChange={(required) => updatePolicies((current) => ({
-                ...current,
-                deposits: { ...current.deposits, required },
-              }))}
-            />
-            <label className="onboarding-select-field">
-              <span>Fixed amount or percentage?</span>
-              <select
-                value={policies.deposits.amountType ?? ''}
-                onChange={(event) => updatePolicies((current) => ({
-                  ...current,
-                  deposits: {
-                    ...current.deposits,
-                    amountType: event.target.value as typeof policies.deposits.amountType,
-                  },
-                }))}
-              >
-                <option value="">Choose</option>
-                <option value="fixed">Fixed amount</option>
-                <option value="percentage">Percentage</option>
-              </select>
-            </label>
-            <TextField
-              inputMode="decimal"
-              label="Amount"
-              value={policies.deposits.amount}
-              onChange={(event) => updatePolicies((current) => ({
-                ...current,
-                deposits: { ...current.deposits, amount: event.target.value },
-              }))}
-            />
-            <BooleanChoice
-              label="Refundable?"
-              value={policies.deposits.refundable}
-              onChange={(refundable) => updatePolicies((current) => ({
-                ...current,
-                deposits: { ...current.deposits, refundable },
-              }))}
-            />
-            <BooleanChoice
-              label="Transferable?"
-              value={policies.deposits.transferable}
-              onChange={(transferable) => updatePolicies((current) => ({
-                ...current,
-                deposits: { ...current.deposits, transferable },
-              }))}
-            />
+            <div className="onboarding-deposit-answer">
+              <span>Your booking answer</span>
+              <strong>{depositSummary || 'Not answered yet'}</strong>
+              {depositMode === 'depends_on_service' ? (
+                <small>Booking remains the source of truth for each service’s deposit.</small>
+              ) : null}
+              {depositMode !== null && !editingDepositMode ? (
+                <button type="button" onClick={() => setEditingDepositMode(true)}>
+                  Change deposit answer
+                </button>
+              ) : null}
+            </div>
+            {editingDepositMode ? (
+              <ChoiceGroup
+                legend="Do you generally require a deposit?"
+                name="policy-deposit-mode"
+                options={DEPOSIT_MODE_OPTIONS}
+                value={depositMode}
+                onChange={changeDepositMode}
+              />
+            ) : null}
+            {depositMode === 'generally_required' ? (
+              <div className="onboarding-deposit-details">
+                <label className="onboarding-select-field">
+                  <span>Fixed amount or percentage?</span>
+                  <select
+                    value={policies.deposits.amountType === 'fixed'
+                      || policies.deposits.amountType === 'percentage'
+                      ? policies.deposits.amountType
+                      : ''}
+                    onChange={(event) => updatePolicies((current) => ({
+                      ...current,
+                      deposits: {
+                        ...current.deposits,
+                        amountType: event.target.value as typeof policies.deposits.amountType,
+                      },
+                    }))}
+                  >
+                    <option value="">Choose</option>
+                    <option value="fixed">Fixed amount</option>
+                    <option value="percentage">Percentage</option>
+                  </select>
+                </label>
+                <TextField
+                  inputMode="decimal"
+                  label="Deposit amount"
+                  value={policies.deposits.amount}
+                  onChange={(event) => updatePolicies((current) => ({
+                    ...current,
+                    deposits: { ...current.deposits, amount: event.target.value },
+                  }))}
+                />
+                <BooleanChoice
+                  label="Refundable?"
+                  value={policies.deposits.refundable}
+                  onChange={(refundable) => updatePolicies((current) => ({
+                    ...current,
+                    deposits: { ...current.deposits, refundable },
+                  }))}
+                />
+                <BooleanChoice
+                  label="Transferable?"
+                  value={policies.deposits.transferable}
+                  onChange={(transferable) => updatePolicies((current) => ({
+                    ...current,
+                    deposits: { ...current.deposits, transferable },
+                  }))}
+                />
+              </div>
+            ) : null}
           </fieldset>
           <fieldset>
             <legend>Late arrivals</legend>
@@ -780,7 +998,7 @@ export function ExtrasScreen({
           <Images aria-hidden="true" size={28} />
           <span>{state.recipe.galleryEnabled ? 'Added' : 'Optional'}</span>
           <h2>Add your work</h2>
-          <p>Upload portfolio photos or use the mock Luster portfolio.</p>
+          <p>Upload portfolio photos or start with the Luster sample portfolio.</p>
           <ul><li>Grid</li><li>Carousel</li><li>Editorial</li></ul>
           <button type="button" onClick={onOpenGallery}>{state.recipe.galleryEnabled ? 'Edit Gallery' : 'Add Gallery'}</button>
         </article>
@@ -788,7 +1006,7 @@ export function ExtrasScreen({
           <FileImage aria-hidden="true" size={28} />
           <span>{state.recipe.wantsCanvaFromWelcome ? 'Recommended from your welcome choice' : state.recipe.canvaEnabled ? 'Added' : 'Optional'}</span>
           <h2>Upload a Canva design</h2>
-          <p>Upload one or several PNG, JPG, or WebP pages through Luster’s real Custom Design section.</p>
+          <p>Upload one or several PNG, JPG, or WebP pages and add them as a Custom Design section.</p>
           <ul><li>Poster</li><li>Contained</li><li>Full width</li></ul>
           <button type="button" onClick={onOpenCanva}>{state.recipe.canvaEnabled ? 'Edit Canva design' : 'Upload Canva design'}</button>
         </article>

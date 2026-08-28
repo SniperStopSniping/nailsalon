@@ -23,10 +23,22 @@ import type { ResolveCustomDesignAction } from '../custom-design/components/view
 import type { PageDocument, SiteBuilderDocument } from '../model/types';
 import { toCustomDesignOwnerAssetMap } from './custom-design-adapters';
 
+export type ClientBusinessMetadata = {
+  contact: { actionLabel: string; detail: string } | null;
+  currentHoursStatusLabel?: string;
+  location: {
+    detail: string | null;
+    directionsAvailable: boolean;
+    primary: string;
+  };
+  weeklyHours: readonly { hours: string; label: string }[];
+};
+
 type PreviewProps = {
   activePage: PageDocument;
   bookingFixture: MockMenuFixture;
   bookingSession: BookingSessionState;
+  businessMetadata?: ClientBusinessMetadata;
   document: SiteBuilderDocument;
   onBookingSessionChange: BookingSessionUpdater;
   onNavigate: (pageId: string) => void;
@@ -39,6 +51,7 @@ export function Preview({
   activePage,
   bookingFixture,
   bookingSession,
+  businessMetadata,
   document,
   onBookingSessionChange,
   onNavigate,
@@ -152,6 +165,9 @@ export function Preview({
         >
         <header className="client-header">
           <div className="client-brand"><span>L</span><strong>{document.siteName}</strong></div>
+          {businessMetadata?.currentHoursStatusLabel ? (
+            <span className="client-hours-status">{businessMetadata.currentHoursStatusLabel}</span>
+          ) : null}
           {document.navigation.enabled ? (
             <nav aria-label="Preview site navigation" className={mobileNavigationOpen ? 'is-open' : undefined}>
               {navigationItems.map((item) => (
@@ -178,6 +194,43 @@ export function Preview({
             </button>
           ) : null}
         </header>
+        {businessMetadata ? (
+          <section aria-label="Business details" className="client-business-metadata">
+            {businessMetadata.location.primary ? (
+              <div>
+                <strong>Visit</strong>
+                <span>{businessMetadata.location.primary}</span>
+                {businessMetadata.location.detail ? (
+                  <small>{businessMetadata.location.detail}</small>
+                ) : null}
+              </div>
+            ) : null}
+            {businessMetadata.weeklyHours.length > 0 ? (
+              <div>
+                <strong>Hours</strong>
+                <dl>
+                  {businessMetadata.weeklyHours.map((day) => (
+                    <div key={day.label}><dt>{day.label}</dt><dd>{day.hours}</dd></div>
+                  ))}
+                </dl>
+              </div>
+            ) : null}
+            {businessMetadata.contact ? (
+              <div>
+                <strong>Contact</strong>
+                <span>{businessMetadata.contact.detail}</span>
+              </div>
+            ) : null}
+            <div className="client-business-metadata__actions">
+              {businessMetadata.location.directionsAvailable ? (
+                <button type="button">Directions</button>
+              ) : null}
+              {businessMetadata.contact ? (
+                <button type="button">{businessMetadata.contact.actionLabel}</button>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
         <main className="client-page" aria-label={`${activePage.name} preview`}>
           <div className="client-page__heading">
             <span>Page</span>

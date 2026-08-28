@@ -6,11 +6,11 @@ import type { PlanIntent, PlanOfferDraft } from '../model/types';
 export const LAB_PLAN_CONFIGURATION = {
   lifetime: {
     features: ['Complete website tools', 'Included future website updates', 'Founding member recognition'],
-    pricePlaceholder: 'One-time price configured for the study',
+    pricePlaceholder: 'Founding one-time price',
   },
   monthly: {
     features: ['Complete website tools', 'Cancel later', 'Ongoing product updates'],
-    pricePlaceholder: 'Monthly price configured for the study',
+    pricePlaceholder: 'Monthly price',
   },
 } as const;
 
@@ -23,17 +23,17 @@ type PlanOfferSheetProps = {
 
 export function PlanOfferSheet({ offer, onChoose, onClose, open }: PlanOfferSheetProps) {
   const lifetimeAvailable = offer.fixtureState !== 'expired' && offer.fixtureState !== 'none';
-  const fixtureMessage = offer.fixtureState === 'available'
-    ? 'Founding offer available · Lab fixture'
+  const offerMessage = offer.fixtureState === 'available'
+    ? 'Founding offer available'
     : offer.fixtureState === 'expiring'
-      ? 'Offer expiring · fixed prototype state'
+      ? 'Founding offer ending soon'
       : offer.fixtureState === 'expired'
-        ? 'Founding offer expired · Lab fixture'
-        : 'No founding offer · Lab fixture';
+        ? 'Founding offer has ended'
+        : 'Choose the option that fits you';
 
   return (
     <Dialog
-      description="Continue free, or unlock the complete Luster website experience. No payment is collected in this prototype."
+      description="Continue free, or choose a plan for the complete Luster website experience. You won’t be charged today."
       initialFocusSelector="[data-plan-intent='free']"
       onClose={onClose}
       open={open}
@@ -41,7 +41,7 @@ export function PlanOfferSheet({ offer, onChoose, onClose, open }: PlanOfferShee
       variant="bottom-sheet"
     >
       <div className="onboarding-plan-sheet">
-        <p className="onboarding-prototype-state"><Clock3 aria-hidden="true" size={15} /> {fixtureMessage}</p>
+        <p className="onboarding-prototype-state"><Clock3 aria-hidden="true" size={15} /> {offerMessage}</p>
         <div className="onboarding-plan-grid">
           <article className={`onboarding-plan-card is-lifetime${lifetimeAvailable ? '' : ' is-unavailable'}`}>
             <Crown aria-hidden="true" size={24} />
@@ -67,11 +67,11 @@ export function PlanOfferSheet({ offer, onChoose, onClose, open }: PlanOfferShee
             <span>Free option</span>
             <h3>Continue free</h3>
             <p>Keep using the free version and upgrade later.</p>
-            <strong>No payment request</strong>
+            <strong>Free to continue</strong>
             <button data-plan-intent="free" type="button" onClick={() => onChoose('free')}>Continue free</button>
           </article>
         </div>
-        <p className="onboarding-plan-disclaimer">Lab prototype only · No Stripe · No subscription enforcement · No server-backed countdown</p>
+        <p className="onboarding-plan-disclaimer">You can keep using Luster free and choose a plan later.</p>
       </div>
     </Dialog>
   );

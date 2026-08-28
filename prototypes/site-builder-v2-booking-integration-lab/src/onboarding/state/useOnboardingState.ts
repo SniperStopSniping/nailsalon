@@ -12,6 +12,7 @@ import {
   getNextScreen,
   goBack,
   goForward,
+  goToBrowserHistoryScreen,
   goToScreen,
   pauseOnboarding,
   reconcileConditionalHistory,
@@ -203,6 +204,27 @@ export function useOnboardingState(
       });
       return recordOnboardingEvent(withBackEvent, {
         screen: next.progress.currentScreen,
+        type: 'screen_viewed',
+      });
+    });
+  }, [updateState]);
+
+  const navigateFromBrowser = useCallback((
+    screen: OnboardingScreenId,
+    direction: 'back' | 'forward',
+  ) => {
+    updateState((current) => {
+      const next = goToBrowserHistoryScreen(current, screen, direction);
+      if (next === current) return current;
+      const withNavigationEvent = direction === 'back'
+        ? recordOnboardingEvent(next, {
+            nextScreen: screen,
+            screen: current.progress.currentScreen,
+            type: 'back',
+          })
+        : next;
+      return recordOnboardingEvent(withNavigationEvent, {
+        screen,
         type: 'screen_viewed',
       });
     });
@@ -408,6 +430,7 @@ export function useOnboardingState(
     choosePlan,
     continueFlow,
     eventLogJson: () => exportOnboardingEventJournal(stateRef.current.eventJournal),
+    navigateFromBrowser,
     pause,
     recordEvent,
     recordExtrasSelected,

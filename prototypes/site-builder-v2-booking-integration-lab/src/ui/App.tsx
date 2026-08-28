@@ -88,7 +88,11 @@ import {
   type SiteBuilderDocument,
 } from '../model';
 import { OnboardingApp } from '../onboarding/OnboardingApp';
-import { ONBOARDING_STORAGE_KEY } from '../onboarding/storage/storage';
+import { createOnboardingBookingFixture } from '../onboarding/model/booking-preview';
+import {
+  loadOnboardingState,
+  ONBOARDING_STORAGE_KEY,
+} from '../onboarding/storage/storage';
 import { BookingSectionCard, type BookingCollapseReport } from './BookingSectionCard';
 import {
   getCustomDesignInternalTargets,
@@ -122,6 +126,7 @@ import {
   type MoveCompletionShield,
   type MoveCompletionSource,
 } from './move-completion-shield';
+import { createOnboardingClientBusinessMetadata } from './onboarding-business-metadata';
 import { Preview } from './Preview';
 import { SectionCard } from './SectionCard';
 import { SectionMovePanel } from './SectionMovePanel';
@@ -452,10 +457,27 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
     eventTimestamp: event.nativeEvent.timeStamp,
   });
 
-  const bookingFixture = useMemo(
-    () => createMenuFixture({ imageFixture, menuSize }),
-    [imageFixture, menuSize],
+  const onboardingHandoffState = useMemo(() => {
+    const loaded = loadOnboardingState();
+    return loaded.status === 'loaded' && loaded.state.progress.sessionStatus === 'builder'
+      ? loaded.state
+      : null;
+  }, [document?.siteName]);
+  const onboardingProfile = onboardingHandoffState?.profile ?? null;
+  const onboardingBusinessMetadata = useMemo(
+    () => onboardingHandoffState
+      ? createOnboardingClientBusinessMetadata(onboardingHandoffState)
+      : undefined,
+    [onboardingHandoffState],
   );
+  const bookingFixture = useMemo(() => {
+    const fixture = createMenuFixture({ imageFixture, menuSize });
+    if (!onboardingProfile) return fixture;
+    return createOnboardingBookingFixture({
+      ...onboardingProfile,
+      businessName: document?.siteName ?? onboardingProfile.businessName,
+    }, fixture);
+  }, [document?.siteName, imageFixture, menuSize, onboardingProfile]);
 
   const committedActivePage = document
     ? document.pages.find((page) => page.id === activePageId) ?? getHomeOrFirstPage(document)
@@ -2408,6 +2430,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
             activePage={previewPage}
             bookingFixture={bookingFixture}
             bookingSession={bookingSession}
+            businessMetadata={onboardingBusinessMetadata}
             document={document}
             tokenPreset={tokenPreset}
             viewport={viewport}

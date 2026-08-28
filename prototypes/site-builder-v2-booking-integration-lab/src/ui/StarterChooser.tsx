@@ -601,12 +601,18 @@ export function StarterChoiceGrid({
       <div className="final-starter-grid">
         {STARTER_CHOICES.map((starter) => {
           const previewActive = playback.activeId === starter.id;
+          const selected = selectedStarter === starter.id;
+          const actionLabel = selected
+            ? 'Continue with this starting point'
+            : selectedStarter
+              ? `Switch to ${starter.title}`
+              : starter.cta;
           return (
             <button
-              aria-pressed={selectedStarter === starter.id}
+              aria-pressed={selected}
               className="final-starter-card"
               data-preview-active={previewActive ? 'true' : 'false'}
-              data-selected={selectedStarter === starter.id ? 'true' : 'false'}
+              data-selected={selected ? 'true' : 'false'}
               data-starter-id={starter.id}
               key={starter.id}
               ref={(element) => playback.registerCard(starter.id, element)}
@@ -618,6 +624,9 @@ export function StarterChoiceGrid({
               onMouseLeave={() => playback.onCardMouseLeave(starter.id)}
             >
               <span className="final-starter-card__copy">
+                {selected ? (
+                  <span className="final-starter-card__current">Current starting point</span>
+                ) : null}
                 <span className="final-starter-card__identity">
                   <strong>{starter.title}</strong>
                   <small>{starter.description}</small>
@@ -626,7 +635,7 @@ export function StarterChoiceGrid({
                   <small>{starter.includesLabel}</small>
                   <span>{starter.includedItems.join(' · ')}</span>
                 </span>
-                <span className="final-starter-card__action">{starter.cta} <ArrowRight aria-hidden="true" size={18} /></span>
+                <span className="final-starter-card__action">{actionLabel} <ArrowRight aria-hidden="true" size={18} /></span>
               </span>
               <StarterPreview
                 active={previewActive}

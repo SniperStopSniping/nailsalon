@@ -2,6 +2,7 @@ import { CORE_SCREEN_ORDER } from '../copy';
 import {
   DEFAULT_OFFER_EXPIRES_AT,
   DEFAULT_OFFER_SEEDED_AT,
+  DEFAULT_PREVIEW_TIMESTAMP,
   createDefaultOnboardingState,
 } from '../model/defaults';
 import { refreshPolicySuggestedWording } from '../model/policies';
@@ -20,6 +21,8 @@ export type LabReviewFixtureId =
   | 'gallery_selected'
   | 'all_essentials_complete'
   | 'one_essential_missing'
+  | 'preview_time_open'
+  | 'preview_time_closed'
   | 'lifetime_offer_available'
   | 'offer_expiring'
   | 'offer_expired'
@@ -61,7 +64,7 @@ export const createDanielaFixtureState = (): OnboardingLabState => {
   const state = createDefaultOnboardingState();
   state.profile.businessName = 'Isla Nail Studio';
   state.profile.ownerName = 'Daniela';
-  state.profile.businessType = 'home_studio';
+  state.profile.businessStructure = 'solo';
   state.profile.profilePhoto = {
     altText: 'Fictional portrait for the Daniela Lab fixture',
     fileName: 'daniela-placeholder.jpg',
@@ -77,11 +80,18 @@ export const createDanielaFixtureState = (): OnboardingLabState => {
   state.profile.location.cityOrArea = 'Scarborough, Ontario';
   state.profile.location.locationType = 'home_studio';
   state.profile.location.addressVisibility = 'after_booking';
+  state.profile.location.allowGeneralAreaDirections = false;
   state.profile.location.parking = 'Street parking is available nearby.';
+  state.profile.hours.setupState = 'configured';
+  state.profile.hours.showOnSite = true;
+  for (const day of ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'] as const) {
+    state.profile.hours.days[day] = { close: '18:00', closed: false, open: '10:00' };
+  }
+  state.profile.hours.days.saturday = { close: '16:00', closed: false, open: '10:00' };
+  state.profile.hours.days.sunday = { close: '', closed: true, open: '' };
   state.profile.bookingPreferences.visitMode = 'appointment_only';
   state.profile.bookingPreferences.newClientStatus = 'yes';
   state.profile.bookingPreferences.advanceNotice = '24_hours';
-  state.profile.bookingPreferences.depositPreference = 'yes';
   state.profile.about.shortBio = 'I create thoughtful, detailed nail appointments in a calm private studio.';
   state.profile.about.fullBio = 'I’m Daniela, the nail artist behind Isla Nail Studio. I specialize in structured manicures and durable, natural-looking enhancements designed around each client.';
   state.profile.about.specialties = [
@@ -103,8 +113,8 @@ export const createDanielaFixtureState = (): OnboardingLabState => {
     deposits: {
       amount: '50',
       amountType: 'fixed',
+      mode: 'generally_required',
       refundable: false,
-      required: true,
       transferable: true,
     },
     lateArrivals: {
@@ -129,6 +139,7 @@ export const createDanielaFixtureState = (): OnboardingLabState => {
   state.recipe.policiesEnabled = true;
   state.recipe.stylePreset = 'soft';
   state.recipe.styleConfirmed = true;
+  state.reviewOptions.previewTimestamp = DEFAULT_PREVIEW_TIMESTAMP;
   return setCurrentScreen(state, 'final_preview');
 };
 
@@ -168,6 +179,16 @@ export const LAB_REVIEW_FIXTURES: readonly LabReviewFixture[] = [
   fixture('one_essential_missing', 'One essential missing', () => {
     const state = createDanielaFixtureState();
     state.recipe.styleConfirmed = false;
+    return state;
+  }),
+  fixture('preview_time_open', 'Preview time · Open', () => {
+    const state = createDanielaFixtureState();
+    state.reviewOptions.previewTimestamp = '2026-08-27T18:30:00.000Z';
+    return state;
+  }),
+  fixture('preview_time_closed', 'Preview time · Closed', () => {
+    const state = createDanielaFixtureState();
+    state.reviewOptions.previewTimestamp = '2026-08-28T01:00:00.000Z';
     return state;
   }),
   fixture('lifetime_offer_available', 'Lifetime offer available', () => {

@@ -715,6 +715,7 @@ body.onboarding-modal-open {
 .onboarding-select-field {
   min-width: 0;
   margin: 0 0 16px;
+  scroll-margin-top: 9rem;
 }
 
 .onboarding-field {
@@ -787,6 +788,22 @@ body.onboarding-modal-open {
   margin: 0;
   font-size: 0.72rem;
   line-height: 1.42;
+}
+
+.onboarding-validation-summary {
+  display: grid;
+  gap: 3px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, #a52c4d 38%, var(--onboarding-line));
+  border-radius: 12px;
+  background: color-mix(in srgb, #a52c4d 7%, var(--onboarding-surface));
+  color: var(--onboarding-ink);
+}
+
+.onboarding-validation-summary span {
+  color: var(--onboarding-muted);
+  font-size: 0.86rem;
 }
 
 .onboarding-field__hint {
@@ -927,6 +944,19 @@ body.onboarding-modal-open {
   line-height: 1.42;
 }
 
+.onboarding-switch-control {
+  display: grid;
+  width: 52px;
+  min-width: 52px;
+  min-height: 44px;
+  place-items: center;
+  cursor: pointer;
+}
+
+.onboarding-switch-control:has(input:disabled) {
+  cursor: not-allowed;
+}
+
 .onboarding-switch-row input[role="switch"] {
   position: relative;
   width: 48px;
@@ -967,6 +997,25 @@ body.onboarding-modal-open {
 .onboarding-switch-row input[role="switch"]:disabled {
   cursor: not-allowed;
   opacity: 0.58;
+}
+
+.onboarding-contact-uses {
+  min-width: 0;
+  margin: 0 0 14px;
+  padding: 10px 12px 0;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 14px;
+}
+
+.onboarding-contact-uses[aria-invalid="true"] {
+  border-color: var(--onboarding-danger);
+}
+
+.onboarding-contact-uses legend {
+  padding: 0 5px;
+  color: var(--onboarding-ink);
+  font-size: 0.8rem;
+  font-weight: 760;
 }
 
 .onboarding-collapsible-card {
@@ -1301,6 +1350,30 @@ body.onboarding-modal-open {
   background: var(--onboarding-accent);
 }
 
+.onboarding-compact-hours,
+.onboarding-customer-weekly-hours dl {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  margin: 4px 0;
+}
+
+.onboarding-compact-hours > div,
+.onboarding-customer-weekly-hours dl > div {
+  display: flex;
+  min-width: 0;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--onboarding-muted);
+  font-size: 0.72rem;
+}
+
+.onboarding-compact-hours dd,
+.onboarding-customer-weekly-hours dd {
+  margin: 0;
+  text-align: right;
+}
+
 .onboarding-booking-preview-column {
   display: grid;
   min-width: 0;
@@ -1428,6 +1501,17 @@ body.onboarding-modal-open {
     0 18px 44px rgba(79, 43, 56, 0.11);
 }
 
+.onboarding-starter-grid .final-starter-card__current {
+  width: fit-content;
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: var(--onboarding-accent-dark);
+  background: var(--onboarding-accent-soft);
+  font-size: 0.68rem;
+  font-weight: 780;
+  letter-spacing: 0.025em;
+}
+
 .onboarding-starter-grid .final-starter-card__identity > strong {
   font-size: 1.3rem;
 }
@@ -1526,6 +1610,99 @@ body.onboarding-modal-open {
   background: rgba(255, 255, 255, 0.68);
   font-size: 0.6rem;
   text-transform: uppercase;
+}
+
+.onboarding-writing-suggestion {
+  display: grid;
+  gap: 11px;
+  padding: 15px;
+  border: 1px solid
+    color-mix(in srgb, var(--onboarding-accent) 28%, var(--onboarding-line));
+  border-radius: 14px;
+  background: color-mix(
+    in srgb,
+    var(--onboarding-accent-soft) 54%,
+    var(--onboarding-surface)
+  );
+}
+
+.onboarding-writing-suggestion header {
+  display: grid;
+  gap: 3px;
+}
+
+.onboarding-writing-suggestion header span {
+  color: var(--onboarding-accent-dark);
+  font-size: 0.64rem;
+  font-weight: 820;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.onboarding-writing-suggestion h3,
+.onboarding-writing-suggestion p,
+.onboarding-writing-suggestion small,
+.onboarding-writing-suggestion__notice p {
+  margin: 0;
+}
+
+.onboarding-writing-suggestion h3 {
+  font-size: 0.96rem;
+}
+
+.onboarding-writing-suggestion p {
+  color: var(--onboarding-ink);
+  font-size: 0.82rem;
+  line-height: 1.55;
+}
+
+.onboarding-writing-suggestion small {
+  color: var(--onboarding-muted);
+  font-size: 0.7rem;
+  line-height: 1.45;
+}
+
+.onboarding-writing-suggestion > div,
+.onboarding-writing-suggestion__notice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+}
+
+.onboarding-writing-suggestion button,
+.onboarding-writing-suggestion__notice button {
+  min-height: 44px;
+  padding: 9px 12px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 10px;
+  color: var(--onboarding-ink);
+  background: var(--onboarding-surface);
+  font-size: 0.75rem;
+  font-weight: 780;
+}
+
+.onboarding-writing-suggestion button.is-primary {
+  border-color: var(--onboarding-accent);
+  color: white;
+  background: var(--onboarding-accent);
+}
+
+.onboarding-writing-suggestion__notice {
+  justify-content: space-between;
+  padding: 10px 12px;
+  border: 1px solid #c5dfcf;
+  border-radius: 11px;
+  color: #315d43;
+  background: #f4faf6;
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.onboarding-writing-suggestion__notice button {
+  border-color: #a8ccb6;
+  color: #315d43;
+  background: white;
 }
 
 .onboarding-chip-fieldset {
@@ -1745,6 +1922,52 @@ body.onboarding-modal-open {
 
 .onboarding-policy-questions .onboarding-switch-row {
   margin-bottom: 8px;
+}
+
+.onboarding-deposit-answer {
+  display: grid;
+  gap: 5px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 12px;
+  background: var(--onboarding-surface-soft);
+}
+
+.onboarding-deposit-answer > span {
+  color: var(--onboarding-muted);
+  font-size: 0.68rem;
+  font-weight: 780;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.onboarding-deposit-answer > strong {
+  color: var(--onboarding-ink);
+  font-size: 0.86rem;
+}
+
+.onboarding-deposit-answer > small {
+  color: var(--onboarding-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.onboarding-deposit-answer > button {
+  min-height: 44px;
+  justify-self: start;
+  padding: 8px 11px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 9px;
+  color: var(--onboarding-accent-dark);
+  background: var(--onboarding-surface);
+  font-size: 0.72rem;
+  font-weight: 760;
+}
+
+.onboarding-deposit-details {
+  display: grid;
+  min-width: 0;
 }
 
 .onboarding-select-field {
@@ -2302,6 +2525,25 @@ body.onboarding-modal-open {
   background: var(--customer-ground);
 }
 
+.onboarding-customer-weekly-hours {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--customer-line);
+  border-radius: var(--customer-radius);
+  background: var(--customer-surface);
+}
+
+.onboarding-customer-weekly-hours h3 {
+  margin: 0 0 7px;
+  color: var(--customer-ink);
+  font-family: var(--customer-heading-font);
+  font-size: 0.88rem;
+}
+
+.onboarding-customer-weekly-hours dl > div {
+  color: var(--customer-muted);
+}
+
 .onboarding-customer-contact
   > div:first-child
   > p:not(.onboarding-customer-eyebrow),
@@ -2451,6 +2693,10 @@ body.onboarding-modal-open {
   .onboarding-customer-about.is-editorial .onboarding-customer-actions,
   .onboarding-customer-about.is-quick-facts .onboarding-customer-actions,
   .onboarding-customer-about.is-before-booking .onboarding-customer-actions {
+    grid-column: 1 / -1;
+  }
+
+  .onboarding-customer-contact .onboarding-customer-actions {
     grid-column: 1 / -1;
   }
 
@@ -2784,6 +3030,81 @@ body.onboarding-modal-open {
   color: var(--onboarding-muted);
   background: var(--onboarding-surface-soft);
   font-size: 0.72rem;
+}
+
+.onboarding-saved-canva-pages {
+  display: grid;
+  gap: 7px;
+}
+
+.onboarding-saved-canva-pages > p {
+  margin: 0;
+  color: var(--onboarding-ink);
+  font-size: 0.75rem;
+  font-weight: 780;
+}
+
+.onboarding-file-list--visual {
+  padding: 8px;
+  list-style: none;
+}
+
+.onboarding-file-list--visual > li {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  padding: 7px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 9px;
+  background: var(--onboarding-surface);
+}
+
+.onboarding-file-list--visual img,
+.onboarding-file-thumbnail-placeholder {
+  display: grid;
+  width: 54px;
+  height: 62px;
+  place-items: center;
+  border-radius: 7px;
+  background: var(--onboarding-surface-soft);
+}
+
+.onboarding-file-list--visual img {
+  object-fit: contain;
+}
+
+.onboarding-file-thumbnail-placeholder {
+  color: var(--onboarding-muted);
+}
+
+.onboarding-file-list--visual > li > span:not(.onboarding-file-thumbnail-placeholder) {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.onboarding-file-list--visual strong {
+  overflow-wrap: anywhere;
+  color: var(--onboarding-ink);
+}
+
+.onboarding-file-list--visual small {
+  color: var(--onboarding-muted);
+  line-height: 1.4;
+}
+
+.onboarding-file-list--visual button {
+  min-width: 44px;
+  min-height: 44px;
+  padding: 7px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 8px;
+  color: var(--onboarding-ink);
+  background: var(--onboarding-surface-soft);
+  font-size: 0.7rem;
+  font-weight: 740;
 }
 
 .onboarding-layout-choice {
@@ -3127,6 +3448,12 @@ body.onboarding-modal-open {
   text-decoration: none;
 }
 
+@media (max-width: 767px) {
+  .onboarding-builder-return {
+    bottom: calc(max(12px, env(safe-area-inset-bottom)) + 76px);
+  }
+}
+
 .onboarding-error-banner button {
   min-width: 44px;
   min-height: 44px;
@@ -3192,15 +3519,6 @@ body.onboarding-modal-open {
   .onboarding-content-toggle-grid,
   .onboarding-choice-group__options {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .onboarding-hours-day {
-    grid-template-columns: minmax(110px, 0.8fr) repeat(2, minmax(0, 1fr));
-    align-items: end;
-  }
-
-  .onboarding-hours-day > label:first-of-type {
-    grid-column: auto;
   }
 
   .onboarding-extra-grid,

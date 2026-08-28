@@ -68,6 +68,8 @@ export const sanitizeOnboardingEvent = (
         screen: event.screen,
         type: event.type,
       };
+    case 'about_wording_helper':
+      return { action: event.action, type: event.type };
     case 'resume_after_reload':
     case 'paused':
       return { screen: event.screen, type: event.type };

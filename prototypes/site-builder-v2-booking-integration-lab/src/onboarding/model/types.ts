@@ -1,4 +1,4 @@
-export const ONBOARDING_SCHEMA_VERSION = 1 as const;
+export const ONBOARDING_SCHEMA_VERSION = 3 as const;
 
 export type OnboardingStage = 'basics' | 'booking' | 'design' | 'review';
 
@@ -26,13 +26,7 @@ export type OptionalOnboardingItem =
   | 'canva'
   | 'extras';
 
-export type BusinessType =
-  | 'solo'
-  | 'home_studio'
-  | 'salon_suite'
-  | 'traditional_salon'
-  | 'mobile'
-  | 'multi_tech';
+export type BusinessStructure = 'solo' | 'multi_tech';
 
 export type PreferredContactMethod = 'text' | 'call' | 'instagram' | 'email';
 
@@ -59,9 +53,12 @@ export type DayHoursDraft = {
   close: string;
 };
 
+export type WeeklyHoursSetupState = 'unset' | 'configured' | 'skipped';
+
 export type WeeklyHoursDraft = {
   days: Record<Weekday, DayHoursDraft>;
-  skipped: boolean;
+  setupState: WeeklyHoursSetupState;
+  showOnSite: boolean;
 };
 
 export type LocalImageReference = {
@@ -81,9 +78,18 @@ export type LocationDraft = {
   exactAddress: string;
   locationType: LocationType | null;
   addressVisibility: AddressVisibility;
+  allowGeneralAreaDirections: boolean;
   parking: string;
   entranceInstructions: string;
   transitInformation: string;
+};
+
+export type ClientContactDraft = {
+  primaryNumber: string;
+  callEnabled: boolean;
+  textEnabled: boolean;
+  useDifferentTextNumber: boolean;
+  differentTextNumber: string;
 };
 
 export type AboutElementId =
@@ -121,14 +127,11 @@ export type NewClientStatus = 'yes' | 'no' | 'ask_first' | 'waitlist_only';
 
 export type AdvanceNotice = 'same_day' | '24_hours' | '48_hours' | 'custom';
 
-export type DepositPreference = 'yes' | 'no' | 'depends_on_service';
-
 export type BookingPreferencesDraft = {
   visitMode: VisitMode | null;
   newClientStatus: NewClientStatus | null;
   advanceNotice: AdvanceNotice | null;
   customAdvanceNotice: string;
-  depositPreference: DepositPreference | null;
 };
 
 export type CancellationNotice = '12_hours' | '24_hours' | '48_hours' | 'custom';
@@ -139,7 +142,12 @@ export type CancellationConsequence =
   | 'full_service_charge'
   | 'custom';
 
-export type DepositAmountType = 'fixed' | 'percentage';
+export type DepositPolicyMode =
+  | 'none'
+  | 'generally_required'
+  | 'depends_on_service';
+
+export type DepositAmountType = 'fixed' | 'percentage' | 'service_defined';
 
 export type PolicySectionId =
   | 'cancellations'
@@ -164,7 +172,7 @@ export type PoliciesDraft = {
     customConsequence: string;
   };
   deposits: {
-    required: boolean | null;
+    mode: DepositPolicyMode | null;
     amountType: DepositAmountType | null;
     amount: string;
     refundable: boolean | null;
@@ -204,13 +212,12 @@ export type BrandStyleDraft = {
 export type BusinessProfileDraft = {
   businessName: string;
   ownerName: string;
-  businessType: BusinessType | null;
+  businessStructure: BusinessStructure | null;
   profilePhoto?: LocalImageReference;
   logo?: LocalImageReference;
   instagram: string;
   preferredContact: PreferredContactMethod | null;
-  phone: string;
-  textPhone: string;
+  clientContact: ClientContactDraft;
   email: string;
   bookingOnlyContact: boolean;
   location: LocationDraft;
@@ -297,6 +304,7 @@ export type LabViewportFixture = 'small_phone' | null;
 
 export type LabReviewOptions = {
   appliedFixtureId: string | null;
+  previewTimestamp: string;
   reducedMotion: boolean;
   viewportFixture: LabViewportFixture;
 };
@@ -316,6 +324,7 @@ export type OnboardingEventInput =
   | { type: 'open_builder' }
   | { type: 'offer_choice'; intent: PlanIntent }
   | { type: 'validation_failure'; screen: OnboardingScreenId; fieldIds: string[] }
+  | { type: 'about_wording_helper'; action: 'opened' | 'used' | 'kept' | 'undone' }
   | { type: 'resume_after_reload'; screen: OnboardingScreenId }
   | { type: 'paused'; screen: OnboardingScreenId }
   | { type: 'reset' };

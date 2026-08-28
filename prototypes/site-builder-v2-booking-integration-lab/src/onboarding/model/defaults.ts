@@ -15,6 +15,7 @@ import {
 
 export const DEFAULT_OFFER_SEEDED_AT = '2026-08-27T12:00:00.000Z';
 export const DEFAULT_OFFER_EXPIRES_AT = '2026-08-28T12:00:00.000Z';
+export const DEFAULT_PREVIEW_TIMESTAMP = '2026-08-27T18:30:00.000Z';
 
 const WEEKDAYS: readonly Weekday[] = [
   'monday',
@@ -46,12 +47,13 @@ export const createDefaultWeeklyHours = (): WeeklyHoursDraft => ({
   days: Object.fromEntries(WEEKDAYS.map((day) => [
     day,
     {
-      close: day === 'saturday' ? '16:00' : '17:00',
-      closed: day === 'sunday',
-      open: day === 'saturday' ? '10:00' : '09:00',
+      close: '',
+      closed: false,
+      open: '',
     },
   ])) as Record<Weekday, WeeklyHoursDraft['days'][Weekday]>,
-  skipped: false,
+  setupState: 'unset',
+  showOnSite: true,
 });
 
 export const createDefaultPolicies = (): PoliciesDraft => ({
@@ -102,8 +104,8 @@ export const createDefaultPolicies = (): PoliciesDraft => ({
   deposits: {
     amount: '',
     amountType: null,
+    mode: null,
     refundable: null,
-    required: null,
     transferable: null,
   },
   lateArrivals: {
@@ -148,7 +150,6 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
   bookingPreferences: {
     advanceNotice: null,
     customAdvanceNotice: '',
-    depositPreference: null,
     newClientStatus: null,
     visitMode: null,
   },
@@ -157,11 +158,19 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
     styleNotes: '',
   },
   businessName: '',
-  businessType: null,
+  businessStructure: null,
+  clientContact: {
+    callEnabled: false,
+    differentTextNumber: '',
+    primaryNumber: '',
+    textEnabled: false,
+    useDifferentTextNumber: false,
+  },
   email: '',
   hours: createDefaultWeeklyHours(),
   instagram: '',
   location: {
+    allowGeneralAreaDirections: false,
     addressVisibility: 'after_booking',
     cityOrArea: '',
     entranceInstructions: '',
@@ -171,10 +180,8 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
     transitInformation: '',
   },
   ownerName: '',
-  phone: '',
   policies: createDefaultPolicies(),
   preferredContact: null,
-  textPhone: '',
 });
 
 export const createDefaultSiteRecipe = (): OnboardingSiteRecipe => ({
@@ -232,6 +239,7 @@ export const createDefaultOnboardingState = (): OnboardingLabState => ({
   recipe: createDefaultSiteRecipe(),
   reviewOptions: {
     appliedFixtureId: null,
+    previewTimestamp: DEFAULT_PREVIEW_TIMESTAMP,
     reducedMotion: false,
     viewportFixture: null,
   },

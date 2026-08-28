@@ -13,6 +13,7 @@ import { Dialog } from '../ui/Dialog';
 import { ConfirmationDialog } from '../ui/EditorDialogs';
 import type { LabDocumentController } from '../ui/useLabDocument';
 import { OnboardingShell } from './components/OnboardingShell';
+import { CORE_SCREEN_ORDER } from './copy';
 import { recordOnboardingEvent } from './events/journal';
 import {
   useCanvaIntegration,
@@ -23,7 +24,8 @@ import {
   applyLabReviewFixture,
   type LabReviewFixtureId,
 } from './fixtures';
-import { validateOnboardingLocalImage } from './model/local-images';
+import { decodeOnboardingLocalImage } from './model/local-images';
+import { updateDepositPolicyMode } from './model/policies';
 import {
   getNextScreen,
   getScreenStage,
@@ -69,9 +71,29 @@ import {
 } from './screens/BasicsScreens';
 import { FinalReviewScreen } from './screens/ReviewScreen';
 import { WelcomeScreen } from './screens/WelcomeScreen';
+import { switchOnboardingStarter } from './state/switchStarter';
 import { useOnboardingState } from './state/useOnboardingState';
 
 type PreviewSource = 'starting_preview' | 'site_style' | 'final_preview';
+
+type OnboardingBrowserHistoryState = {
+  lusterOnboarding: true;
+  onboardingCursor: number;
+  onboardingSession: number;
+  previewSource?: PreviewSource;
+  screen: OnboardingScreenId;
+};
+
+const isOnboardingBrowserHistoryState = (
+  value: unknown,
+): value is OnboardingBrowserHistoryState => {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<OnboardingBrowserHistoryState>;
+  return candidate.lusterOnboarding === true
+    && typeof candidate.onboardingCursor === 'number'
+    && typeof candidate.onboardingSession === 'number'
+    && CORE_SCREEN_ORDER.includes(candidate.screen as OnboardingScreenId);
+};
 
 type OnboardingAppProps = {
   forceReview?: boolean;
@@ -79,14 +101,18 @@ type OnboardingAppProps = {
   onEnterBuilder: () => void;
 };
 
-const readLocalImage = (file: File, kind: 'logo' | 'profile'): Promise<LocalImageReference> =>
-  new Promise((resolve, reject) => {
-    try {
-      validateOnboardingLocalImage(file);
-    } catch (error) {
-      reject(error);
-      return;
-    }
+const STARTER_LABELS: Record<StarterId, string> = {
+  multi_page: 'Multi-page website',
+  one_page: 'One-page website',
+  quick_book: 'Quick Book',
+};
+
+const readLocalImage = async (
+  file: File,
+  kind: 'logo' | 'profile',
+): Promise<LocalImageReference> => {
+  const dimensions = await decodeOnboardingLocalImage(file);
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onerror = () => reject(reader.error ?? new Error('The selected image could not be read.'));
     reader.onload = () => resolve({
@@ -96,9 +122,11 @@ const readLocalImage = (file: File, kind: 'logo' | 'profile'): Promise<LocalImag
       mimeType: file.type,
       previewUrl: String(reader.result),
       source: 'data_url',
+      ...dimensions,
     });
     reader.readAsDataURL(file);
   });
+};
 
 const continueFrom = (state: OnboardingLabState): OnboardingLabState => {
   const screen = state.progress.currentScreen;
@@ -308,17 +336,30 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
   const [planOpen, setPlanOpen] = useState(false);
   const [labOptionsOpen, setLabOptionsOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [pendingStarter, setPendingStarter] = useState<StarterId | null>(null);
   const [error, setError] = useState('');
   const surfaceRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(false);
   const forceReviewAppliedRef = useRef(false);
-  const browserEntriesRef = useRef(0);
-  const handlingBrowserBackRef = useRef(false);
+  const browserCursorRef = useRef(0);
+  const browserEntriesRef = useRef(new Map<number, {
+    previewSource?: PreviewSource;
+    screen: OnboardingScreenId;
+  }>());
+  const browserPreviewRef = useRef<PreviewSource | null>(null);
+  const browserScreenRef = useRef<OnboardingScreenId | null>(null);
+  const historySessionRef = useRef(Date.now());
+  const historyInitializedRef = useRef(false);
+  const applyingPopStateRef = useRef(false);
+  const continueAfterPreviewCloseRef = useRef(false);
   const screen = onboarding.state.progress.currentScreen;
+  const aboutEnabled = onboarding.state.recipe.aboutEnabled;
+  const builderHasBeenEntered = onboarding.state.planOffer.planIntent !== null
+    || onboarding.state.progress.sessionStatus === 'builder';
 
   const updateState: OnboardingStateUpdater = useCallback((update) => {
     onboarding.updateState((current) => withObservableRecipeEvents(current, update(current)));
-  }, [onboarding]);
+  }, [onboarding.updateState]);
 
   const canva = useCanvaIntegration({
     lab,
@@ -334,7 +375,8 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
     || canvaOpen
     || planOpen
     || labOptionsOpen
-    || resetOpen,
+    || resetOpen
+    || pendingStarter,
   );
 
   useEffect(() => {
@@ -346,11 +388,25 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
   }, [modalOpen]);
 
   useEffect(() => {
+    if (onboarding.state.progress.sessionStatus !== 'active') return undefined;
+    const frame = window.requestAnimationFrame(() => {
+      const heading = surfaceRef.current?.querySelector<HTMLHeadingElement>('h1');
+      if (!heading) return;
+      if (document.scrollingElement) document.scrollingElement.scrollTop = 0;
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+      heading.tabIndex = -1;
+      heading.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [onboarding.state.progress.sessionStatus, screen]);
+
+  useEffect(() => {
     if (forceReview && !forceReviewAppliedRef.current) {
       forceReviewAppliedRef.current = true;
       onboarding.viewScreen('final_preview');
     }
-  }, [forceReview, onboarding]);
+  }, [forceReview, onboarding.viewScreen]);
 
   useEffect(() => {
     if (mountedRef.current) return;
@@ -366,48 +422,132 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
     ) {
       onboarding.resume(true);
     }
-  }, [forceReview, onEnterBuilder, onboarding]);
+  }, [
+    forceReview,
+    onEnterBuilder,
+    onboarding.resume,
+    onboarding.state.progress.currentScreen,
+    onboarding.state.progress.lastSavedAt,
+    onboarding.state.progress.sessionStatus,
+  ]);
 
   useEffect(() => {
-    const currentState = window.history.state as Record<string, unknown> | null;
-    if (handlingBrowserBackRef.current) {
-      handlingBrowserBackRef.current = false;
-      window.history.replaceState({ lusterOnboarding: true, lusterOnboardingGuard: true, screen }, '');
+    if (!historyInitializedRef.current) {
+      historyInitializedRef.current = true;
+      const existing = window.history.state;
+      const restoredEntry = isOnboardingBrowserHistoryState(existing)
+        && existing.screen === screen
+        ? existing
+        : null;
+      browserCursorRef.current = restoredEntry?.onboardingCursor ?? 0;
+      browserPreviewRef.current = null;
+      browserScreenRef.current = screen;
+      historySessionRef.current = restoredEntry?.onboardingSession ?? Date.now();
+      browserEntriesRef.current.set(browserCursorRef.current, { screen });
+      window.history.replaceState({
+        lusterOnboarding: true,
+        onboardingCursor: browserCursorRef.current,
+        onboardingSession: historySessionRef.current,
+        screen,
+      } satisfies OnboardingBrowserHistoryState, '');
       return;
     }
-    if (!currentState?.lusterOnboardingGuard) {
-      window.history.replaceState({ ...currentState, lusterOnboarding: true, screen }, '');
-      window.history.pushState({ lusterOnboarding: true, lusterOnboardingGuard: true, screen }, '');
-      browserEntriesRef.current = 1;
+
+    if (applyingPopStateRef.current) {
+      applyingPopStateRef.current = false;
+      browserScreenRef.current = screen;
       return;
     }
-    if (currentState.screen !== screen) {
-      window.history.pushState({ lusterOnboarding: true, lusterOnboardingGuard: true, screen }, '');
-      browserEntriesRef.current += 1;
-    }
+
+    if (browserScreenRef.current === screen) return;
+    const onboardingCursor = browserCursorRef.current + 1;
+    browserCursorRef.current = onboardingCursor;
+    browserPreviewRef.current = null;
+    browserScreenRef.current = screen;
+    browserEntriesRef.current.set(onboardingCursor, { screen });
+    window.history.pushState({
+      lusterOnboarding: true,
+      onboardingCursor,
+      onboardingSession: historySessionRef.current,
+      screen,
+    } satisfies OnboardingBrowserHistoryState, '');
   }, [screen]);
 
   useEffect(() => {
-    const handlePopState = () => {
-      if (onboarding.state.progress.screenHistory.length <= 1) {
-        window.history.pushState({
-          lusterOnboarding: true,
-          lusterOnboardingGuard: true,
-          screen: onboarding.state.progress.currentScreen,
-        }, '');
-        browserEntriesRef.current = 1;
+    const handlePopState = (event: PopStateEvent) => {
+      if (!isOnboardingBrowserHistoryState(event.state)) return;
+      if (event.state.onboardingSession !== historySessionRef.current) {
+        window.history.forward();
         return;
       }
-      handlingBrowserBackRef.current = true;
-      browserEntriesRef.current = Math.max(0, browserEntriesRef.current - 1);
-      onboarding.back();
+      if (event.state.screen === 'about_design' && !aboutEnabled) return;
+      const direction = event.state.onboardingCursor < browserCursorRef.current
+        ? 'back'
+        : event.state.onboardingCursor > browserCursorRef.current
+          ? 'forward'
+          : null;
+      if (!direction) return;
+
+      const targetPreview = event.state.previewSource ?? null;
+      browserEntriesRef.current.set(event.state.onboardingCursor, {
+        ...(targetPreview ? { previewSource: targetPreview } : {}),
+        screen: event.state.screen,
+      });
+      if (event.state.screen === browserScreenRef.current) {
+        const previousPreview = browserPreviewRef.current;
+        browserCursorRef.current = event.state.onboardingCursor;
+        browserPreviewRef.current = targetPreview;
+        if (targetPreview) {
+          setPreviewSource(targetPreview);
+          if (!previousPreview) {
+            onboarding.recordEvent({ source: targetPreview, type: 'preview_opened' });
+          }
+        } else {
+          setPreviewSource(null);
+          if (previousPreview) {
+            onboarding.recordEvent({ source: previousPreview, type: 'preview_closed' });
+          }
+          if (continueAfterPreviewCloseRef.current) {
+            continueAfterPreviewCloseRef.current = false;
+            onboarding.continueFlow();
+          }
+        }
+        return;
+      }
+
+      setPreviewSource(null);
+      setGalleryOpen(false);
+      setCanvaOpen(false);
+      setPlanOpen(false);
+      setLabOptionsOpen(false);
+      setResetOpen(false);
+      setPendingStarter(null);
+      applyingPopStateRef.current = true;
+      browserCursorRef.current = event.state.onboardingCursor;
+      browserPreviewRef.current = targetPreview;
+      browserScreenRef.current = event.state.screen;
+      onboarding.navigateFromBrowser(event.state.screen, direction);
     };
     window.addEventListener('popstate', handlePopState);
     return () => window.removeEventListener('popstate', handlePopState);
-  }, [onboarding]);
+  }, [
+    aboutEnabled,
+    onboarding.continueFlow,
+    onboarding.navigateFromBrowser,
+    onboarding.recordEvent,
+  ]);
 
   const goBack = () => {
-    if (browserEntriesRef.current > 0) {
+    const previousProductScreen = onboarding.state.progress.screenHistory.at(-2);
+    const previousBrowserEntry = browserEntriesRef.current.get(
+      browserCursorRef.current - 1,
+    );
+    if (
+      browserCursorRef.current > 0
+      && previousProductScreen
+      && previousBrowserEntry?.screen === previousProductScreen
+      && !previousBrowserEntry.previewSource
+    ) {
       window.history.back();
       return;
     }
@@ -416,11 +556,32 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
 
   const openPreview = (source: PreviewSource) => {
     onboarding.recordEvent({ source, type: 'preview_opened' });
+    const onboardingCursor = browserCursorRef.current + 1;
+    browserCursorRef.current = onboardingCursor;
+    browserPreviewRef.current = source;
+    browserEntriesRef.current.set(onboardingCursor, { previewSource: source, screen });
+    window.history.pushState({
+      lusterOnboarding: true,
+      onboardingCursor,
+      onboardingSession: historySessionRef.current,
+      previewSource: source,
+      screen,
+    } satisfies OnboardingBrowserHistoryState, '');
     setPreviewSource(source);
   };
-  const closePreview = () => {
+  const closePreview = (continueSetup = false) => {
+    continueAfterPreviewCloseRef.current = continueSetup;
+    if (browserPreviewRef.current && browserCursorRef.current > 0) {
+      window.history.back();
+      return;
+    }
     if (previewSource) onboarding.recordEvent({ source: previewSource, type: 'preview_closed' });
+    browserPreviewRef.current = null;
     setPreviewSource(null);
+    if (continueSetup) {
+      continueAfterPreviewCloseRef.current = false;
+      onboarding.continueFlow();
+    }
   };
 
   const updateProfile = (patch: Partial<BusinessProfileDraft>) => onboarding.updateProfile(patch);
@@ -436,10 +597,11 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
 
   const selectStarter = (starter: StarterId) => {
     if (lab.document) {
-      if (onboarding.state.recipe.starter === starter) {
+      if (lab.document.originStarter === starter) {
         onboarding.continueFlow();
       } else {
-        setError('A starting site already exists. Restart onboarding to choose a different starting point.');
+        setPendingStarter(starter);
+        setError('');
       }
       return;
     }
@@ -458,6 +620,36 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
         starterDocumentSiteId: result.document.siteId,
       },
     }, { starter, type: 'starter_selected' })));
+    setError('');
+  };
+
+  const confirmStarterChange = () => {
+    if (!pendingStarter) return;
+    const result = switchOnboardingStarter(
+      lab,
+      onboarding.state,
+      pendingStarter,
+      { allowBuilderReset: builderHasBeenEntered },
+    );
+    if (!result.success) {
+      setError(result.message);
+      setPendingStarter(null);
+      return;
+    }
+
+    onboarding.updateState((current) => continueFrom(recordOnboardingEvent({
+      ...current,
+      canva: {
+        ...current.canva,
+        customDesignSectionId: result.customDesignSectionId,
+      },
+      recipe: {
+        ...current.recipe,
+        starter: pendingStarter,
+        starterDocumentSiteId: result.document.siteId,
+      },
+    }, { starter: pendingStarter, type: 'starter_selected' })));
+    setPendingStarter(null);
     setError('');
   };
 
@@ -542,11 +734,21 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
       setLabOptionsOpen(false);
       setResetOpen(false);
       setError(cleanupErrors.map((cleanupError) => cleanupError.message).join(' '));
-      window.history.replaceState({ lusterOnboarding: true, screen: 'welcome' }, '');
-      window.history.pushState({ lusterOnboarding: true, lusterOnboardingGuard: true, screen: 'welcome' }, '');
-      browserEntriesRef.current = 1;
+      browserCursorRef.current = 0;
+      browserEntriesRef.current.clear();
+      browserEntriesRef.current.set(0, { screen: 'welcome' });
+      browserPreviewRef.current = null;
+      browserScreenRef.current = 'welcome';
+      applyingPopStateRef.current = false;
+      historySessionRef.current += 1;
+      window.history.replaceState({
+        lusterOnboarding: true,
+        onboardingCursor: 0,
+        onboardingSession: historySessionRef.current,
+        screen: 'welcome',
+      } satisfies OnboardingBrowserHistoryState, '');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The Lab could not be reset safely.');
+      setError(cause instanceof Error ? cause.message : 'Setup could not be restarted safely.');
     }
   };
 
@@ -617,10 +819,9 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
             onBack={goBack}
             onContinue={onboarding.continueFlow}
             onProfileChange={updateProfile}
-            onSkipHours={() => onboarding.updateProfile({
-              hours: { ...onboarding.state.profile.hours, skipped: true },
-            })}
+            onSkipHours={() => onboarding.recordEvent({ item: 'hours', screen, type: 'skip' })}
             onValidationFailure={(fieldIds) => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
+            previewTimestamp={onboarding.state.reviewOptions.previewTimestamp}
             profile={onboarding.state.profile}
           />
         );
@@ -632,6 +833,9 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
               bookingPreferences: { ...onboarding.state.profile.bookingPreferences, ...patch },
             })}
             onContinue={onboarding.continueFlow}
+            onDepositModeChange={(mode) => onboarding.updateProfile({
+              policies: updateDepositPolicyMode(onboarding.state.profile.policies, mode),
+            })}
             onValidationFailure={(fieldIds) => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
             profile={onboarding.state.profile}
           />
@@ -644,7 +848,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
             onChooseStarter={selectStarter}
             portraitUrl={onboarding.state.profile.profilePhoto?.previewUrl}
             reducedMotion={onboarding.state.reviewOptions.reducedMotion}
-            selectedStarter={onboarding.state.recipe.starter}
+            selectedStarter={lab.document?.originStarter ?? onboarding.state.recipe.starter}
           />
         );
       case 'starting_preview':
@@ -727,6 +931,13 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
   const content = renderScreen();
   const reducedMotionClass = onboarding.state.reviewOptions.reducedMotion ? ' is-reduced-motion' : '';
   const smallPhoneClass = onboarding.state.reviewOptions.viewportFixture === 'small_phone' ? ' is-small-phone-fixture' : '';
+  const currentStarter = lab.document?.originStarter ?? onboarding.state.recipe.starter;
+  const currentStarterLabel = currentStarter
+    ? STARTER_LABELS[currentStarter]
+    : 'your current starting point';
+  const pendingStarterLabel = pendingStarter
+    ? STARTER_LABELS[pendingStarter]
+    : 'the new starting point';
 
   return (
     <div className={`onboarding-app${reducedMotionClass}${smallPhoneClass}`} data-onboarding-screen={screen}>
@@ -749,6 +960,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
               const result = onboarding.pause();
               if (!result.success) setError(result.message);
             }}
+            routeKey={screen}
           >
             {content}
           </OnboardingShell>
@@ -759,9 +971,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
         document={lab.document}
         onClose={closePreview}
         onContinue={() => {
-          const source = previewSource;
-          closePreview();
-          if (source === 'starting_preview') onboarding.continueFlow();
+          closePreview(previewSource === 'starting_preview');
         }}
         open={previewSource !== null}
         source={previewSource ?? 'starting_preview'}
@@ -795,9 +1005,25 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
         open={labOptionsOpen}
       />
       <ConfirmationDialog
+        cancelLabel="Keep current"
+        confirmLabel={builderHasBeenEntered
+          ? `Replace with ${pendingStarterLabel}`
+          : 'Switch starting point'}
+        danger={builderHasBeenEntered}
+        description={builderHasBeenEntered
+          ? `You’ve already opened the Builder. Replacing ${currentStarterLabel} with ${pendingStarterLabel} may replace manual page and section changes made there. Your business profile, onboarding choices, Gallery draft, and uploaded Canva assets stay saved.`
+          : 'Your business information, About details, policies, style choices, photos, Gallery draft, Canva design, and onboarding progress will stay saved. We’ll replace only the starting page structure.'}
+        onClose={() => setPendingStarter(null)}
+        onConfirm={confirmStarterChange}
+        open={pendingStarter !== null}
+        title={builderHasBeenEntered
+          ? 'Replace manual Builder changes?'
+          : 'Switch to this starting point?'}
+      />
+      <ConfirmationDialog
         confirmLabel="Restart onboarding"
         danger
-        description="This clears only the onboarding draft, its event log, the Lab starter document, and onboarding-specific image assets in this browser."
+        description="This clears your setup answers, setup activity, uploaded setup images, and starting site from this device. Other saved Builder work stays untouched."
         onClose={() => setResetOpen(false)}
         onConfirm={() => { void confirmReset(); }}
         open={resetOpen}

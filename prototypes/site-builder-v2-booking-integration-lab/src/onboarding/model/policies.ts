@@ -1,7 +1,10 @@
 import type {
+  DepositPolicyMode,
   PoliciesDraft,
   PolicySectionId,
 } from './types';
+
+export type { DepositPolicyMode } from './types';
 
 const sentence = (value: string): string => {
   const trimmed = value.trim();
@@ -43,24 +46,50 @@ const deriveCancellations = (policies: PoliciesDraft): string => {
   ]);
 };
 
-const deriveDeposits = (policies: PoliciesDraft): string => {
-  const { amount, amountType, refundable, required, transferable } = policies.deposits;
-  if (required === null) return '';
-  if (!required) return 'No deposit is required.';
+export const getDepositPolicyMode = (
+  policies: PoliciesDraft,
+): DepositPolicyMode | null => policies.deposits.mode;
 
-  const cleanAmount = amount.trim().replace(/^[$%]/u, '').replace(/%$/u, '');
-  const formattedAmount = cleanAmount
-    ? amountType === 'percentage' ? `${cleanAmount}%` : `$${cleanAmount}`
-    : '';
+const formatDepositAmount = (deposits: PoliciesDraft['deposits']): string => {
+  const cleanAmount = deposits.amount.trim().replace(/^[$%]/u, '').replace(/%$/u, '');
+  if (!cleanAmount) return '';
+  if (deposits.amountType === 'percentage') return `${cleanAmount}%`;
+  if (deposits.amountType === 'fixed') return `$${cleanAmount}`;
+  return '';
+};
+
+export const deriveDepositPolicySummary = (policies: PoliciesDraft): string => {
+  const mode = getDepositPolicyMode(policies);
+  if (mode === 'none') return 'No general deposit';
+  if (mode === 'depends_on_service') return 'Deposit depends on the service';
+  if (mode !== 'generally_required') return '';
+  const amount = formatDepositAmount(policies.deposits);
+  return amount ? `${amount} deposit` : 'Deposit generally required';
+};
+
+const deriveDeposits = (policies: PoliciesDraft): string => {
+  const mode = getDepositPolicyMode(policies);
+  if (mode === null) return '';
+  if (mode === 'none') return 'No deposit is generally required.';
+  if (mode === 'depends_on_service') {
+    return 'Deposit requirements depend on the service. Booking shows the deposit for each service.';
+  }
+
+  const { deposits } = policies;
+  const formattedAmount = formatDepositAmount(deposits);
 
   return joinSentences([
     formattedAmount
       ? `A ${formattedAmount} deposit is required and is applied to your appointment`
       : 'A deposit is required to reserve your appointment',
-    refundable === null ? '' : refundable ? 'Deposits are refundable' : 'Deposits are non-refundable',
-    transferable === null
+    deposits.refundable === null
       ? ''
-      : transferable
+      : deposits.refundable
+        ? 'Deposits are refundable'
+        : 'Deposits are non-refundable',
+    deposits.transferable === null
+      ? ''
+      : deposits.transferable
         ? 'Deposits may be transferred to a rescheduled appointment'
         : 'Deposits cannot be transferred to another appointment',
   ]);
@@ -135,4 +164,26 @@ export const refreshPolicySuggestedWording = (
     };
   });
   return { ...policies, copy };
+};
+
+export const updateDepositPolicyMode = (
+  policies: PoliciesDraft,
+  mode: DepositPolicyMode,
+): PoliciesDraft => {
+  const current = policies.deposits;
+  const nextAmountType = mode === 'depends_on_service'
+    ? 'service_defined'
+    : current.amountType === 'service_defined'
+      ? null
+      : current.amountType;
+  const deposits: PoliciesDraft['deposits'] = {
+    ...current,
+    amountType: nextAmountType,
+    mode,
+  };
+
+  return refreshPolicySuggestedWording({
+    ...policies,
+    deposits,
+  });
 };

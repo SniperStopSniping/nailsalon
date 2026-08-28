@@ -1,5 +1,5 @@
 import type { SiteBuilderDocument } from '../../model/types';
-import { getIncompleteEssentials } from './essentials';
+import { getIncompleteEssentials, hasPublicContactMethod } from './essentials';
 import type { OnboardingLabState, OnboardingScreenId } from '../model/types';
 
 export type ReadinessStatus = 'ready' | 'recommended' | 'optional' | 'needs_attention';
@@ -32,7 +32,7 @@ export const getReadinessItems = (
 
   if (!hasBookingPath(document)) {
     items.push({
-      detail: 'The universal starter must keep one visible Booking section.',
+      detail: 'Your site needs a visible Booking section before you can open the Builder.',
       id: 'booking-path-missing',
       label: 'No booking path',
       screen: 'starter',
@@ -44,13 +44,7 @@ export const getReadinessItems = (
   if (state.profile.businessName.trim()) {
     items.push({ id: 'business-name', label: 'Business name added', status: 'ready' });
   }
-  if (
-    state.profile.bookingOnlyContact
-    || state.profile.phone.trim()
-    || state.profile.textPhone.trim()
-    || state.profile.email.trim()
-    || state.profile.instagram.trim()
-  ) {
+  if (hasPublicContactMethod(state)) {
     items.push({ id: 'contact', label: 'Contact method added', status: 'ready' });
   }
   items.push({ id: 'mobile', label: 'Mobile layout ready', status: 'ready' });

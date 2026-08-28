@@ -91,6 +91,46 @@ export const goBack = (state: OnboardingLabState): OnboardingLabState => {
   };
 };
 
+export type BrowserNavigationDirection = 'back' | 'forward';
+
+/**
+ * Reconciles conditional product history with a browser-owned history entry.
+ * Forward appends because the browser already owns the future stack and tells
+ * us exactly which screen to restore.
+ */
+export const goToBrowserHistoryScreen = (
+  state: OnboardingLabState,
+  screen: OnboardingScreenId,
+  direction: BrowserNavigationDirection,
+): OnboardingLabState => {
+  if (!isScreenAvailable(screen, state) || screen === state.progress.currentScreen) {
+    return state;
+  }
+
+  if (direction === 'forward') {
+    return goToScreen(state, screen);
+  }
+
+  const history = state.progress.screenHistory;
+  const priorIndex = history.slice(0, -1).lastIndexOf(screen);
+  if (priorIndex >= 0) {
+    return {
+      ...state,
+      progress: {
+        ...state.progress,
+        currentScreen: screen,
+        lastActiveScreen: screen,
+        screenHistory: history.slice(0, priorIndex + 1),
+        sessionStatus: 'active',
+      },
+    };
+  }
+
+  // A restored tab can have browser entries older than its persisted product
+  // history. Restore the represented target without inventing a fixed route.
+  return goToScreen(state, screen, { replace: true });
+};
+
 export const skipOptionalScreen = (
   state: OnboardingLabState,
   item: OptionalOnboardingItem,

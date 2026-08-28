@@ -38,7 +38,7 @@ export function WelcomeScreen({
           </button>
         </div>
         <p className="onboarding-lab-note">
-          UX Lab · Saved only in this browser · Not connected to Production
+          Your progress saves automatically on this device.
         </p>
       </section>
     </main>

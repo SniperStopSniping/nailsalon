@@ -1,10 +1,24 @@
-import { useId, useMemo, useState, type FormEvent } from 'react';
+import { useId, useState, type FormEvent } from 'react';
 
 import { SCREEN_METADATA } from '../copy';
+import {
+  contactMethodHasValue,
+  getAvailableContactMethods,
+  getCoherentPreferredContact,
+  getPublicContactPreview,
+} from '../model/contact';
+import {
+  getPublicWeeklyHours,
+  getWeeklyHoursPreviewStatus,
+  getWeeklyHoursSetupSummary,
+  hasConfiguredWeeklyHours,
+  isValidOpenHoursDay,
+} from '../model/hours';
+import { getPublicLocationPreview } from '../model/location';
 import type {
   AddressVisibility,
   BusinessProfileDraft,
-  BusinessType,
+  BusinessStructure,
   DayHoursDraft,
   LocationType,
   PreferredContactMethod,
@@ -13,10 +27,12 @@ import type {
 import {
   ChoiceGroup,
   CollapsibleFormCard,
+  focusFirstInvalidControl,
   ImageUploadField,
   NativeSwitch,
   TextAreaField,
   TextField,
+  ValidationSummary,
   type ChoiceOption,
 } from '../components/FormFields';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
@@ -29,13 +45,9 @@ type SharedBasicsScreenProps = {
   profile: BusinessProfileDraft;
 };
 
-const BUSINESS_TYPES: readonly ChoiceOption<BusinessType>[] = [
+const BUSINESS_STRUCTURES: readonly ChoiceOption<BusinessStructure>[] = [
   { label: 'Solo nail tech', value: 'solo' },
-  { label: 'Home studio', value: 'home_studio' },
-  { label: 'Salon suite', value: 'salon_suite' },
-  { label: 'Traditional salon', value: 'traditional_salon' },
-  { label: 'Mobile nail tech', value: 'mobile' },
-  { label: 'Multi-tech salon', value: 'multi_tech' },
+  { label: 'Team or multi-tech salon', value: 'multi_tech' },
 ];
 
 const CONTACT_METHODS: readonly ChoiceOption<PreferredContactMethod>[] = [
@@ -77,8 +89,9 @@ function initialsFor(profile: BusinessProfileDraft): string {
     .join('');
 }
 
-function businessTypeLabel(value: BusinessType | null): string {
-  return BUSINESS_TYPES.find((option) => option.value === value)?.label ?? 'Business type';
+function businessStructureLabel(value: BusinessStructure | null): string {
+  return BUSINESS_STRUCTURES.find((option) => option.value === value)?.label
+    ?? 'Business structure';
 }
 
 type BusinessScreenProps = SharedBasicsScreenProps & {
@@ -102,11 +115,14 @@ export function BusinessScreen({
     const nextErrors: Record<string, string> = {};
     if (!profile.businessName.trim()) nextErrors.businessName = 'Add your business or salon name.';
     if (!profile.ownerName.trim()) nextErrors.ownerName = 'Add your name.';
-    if (!profile.businessType) nextErrors.businessType = 'Choose the business type that fits best.';
+    if (!profile.businessStructure) {
+      nextErrors.businessStructure = 'Choose who you’re setting Luster up for.';
+    }
     setErrors(nextErrors);
     const failedFields = Object.keys(nextErrors);
     if (failedFields.length > 0) {
       onValidationFailure?.(failedFields);
+      focusFirstInvalidControl(event.currentTarget);
       return;
     }
     onContinue();
@@ -121,6 +137,7 @@ export function BusinessScreen({
       </header>
       <div className="onboarding-split-layout">
         <form id={formId} noValidate onSubmit={submit}>
+          <ValidationSummary errors={errors} />
           <TextField
             autoComplete="organization"
             error={errors.businessName}
@@ -144,14 +161,14 @@ export function BusinessScreen({
             }}
           />
           <ChoiceGroup
-            error={errors.businessType}
-            legend="Business type"
-            name="business-type"
-            options={BUSINESS_TYPES}
-            value={profile.businessType}
-            onChange={(businessType) => {
-              setErrors((current) => ({ ...current, businessType: '' }));
-              onProfileChange({ businessType });
+            error={errors.businessStructure}
+            legend="Who are you setting Luster up for?"
+            name="business-structure"
+            options={BUSINESS_STRUCTURES}
+            value={profile.businessStructure}
+            onChange={(businessStructure) => {
+              setErrors((current) => ({ ...current, businessStructure: '' }));
+              onProfileChange({ businessStructure });
             }}
           />
         </form>
@@ -161,7 +178,7 @@ export function BusinessScreen({
           </span>
           <p>{profile.businessName.trim() || 'Your business name'}</p>
           <strong>{profile.ownerName.trim() || 'Your name'}</strong>
-          <span>{businessTypeLabel(profile.businessType)}</span>
+          <span>{businessStructureLabel(profile.businessStructure)}</span>
         </aside>
       </div>
       <StickyOnboardingActions
@@ -215,7 +232,7 @@ export function PhotoSocialScreen({
           />
           <TextField
             autoComplete="off"
-            hint="You can enter @islanail.studio or islanail.studio."
+            hint="You can enter @yourstudio or yourstudio."
             label="Instagram handle (optional)"
             value={profile.instagram}
             onChange={(event) => onProfileChange({ instagram: event.target.value })}
@@ -225,7 +242,14 @@ export function PhotoSocialScreen({
             name="preferred-contact"
             options={CONTACT_METHODS}
             value={profile.preferredContact}
-            onChange={(preferredContact) => onProfileChange({ preferredContact })}
+            onChange={(preferredContact) => onProfileChange({
+              clientContact: preferredContact === 'call'
+                ? { ...profile.clientContact, callEnabled: true }
+                : preferredContact === 'text'
+                  ? { ...profile.clientContact, textEnabled: true }
+                  : profile.clientContact,
+              preferredContact,
+            })}
           />
         </div>
         <aside aria-label="Profile preview" className="onboarding-profile-preview">
@@ -258,17 +282,7 @@ type LocationContactScreenProps = SharedBasicsScreenProps & {
   onContinue: () => void;
   onSkipHours: () => void;
   onValidationFailure?: (fieldIds: string[]) => void;
-};
-
-const contactMethodHasValue = (
-  profile: BusinessProfileDraft,
-  method: PreferredContactMethod | null,
-): boolean => {
-  if (!method) return false;
-  if (method === 'text') return Boolean(profile.textPhone.trim());
-  if (method === 'call') return Boolean(profile.phone.trim());
-  if (method === 'instagram') return Boolean(profile.instagram.trim());
-  return Boolean(profile.email.trim());
+  previewTimestamp: string;
 };
 
 export function LocationContactScreen({
@@ -277,10 +291,12 @@ export function LocationContactScreen({
   onProfileChange,
   onSkipHours,
   onValidationFailure,
+  previewTimestamp,
   profile,
 }: LocationContactScreenProps) {
   const copy = SCREEN_METADATA.location_contact;
   const formId = useId();
+  const contactErrorId = `${formId}-contact-error`;
   const [openCard, setOpenCard] = useState<LocationCardId>('location');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -288,23 +304,28 @@ export function LocationContactScreen({
     onProfileChange({ location: { ...profile.location, ...patch } });
   };
   const updateDay = (day: Weekday, patch: Partial<DayHoursDraft>) => {
+    const days = {
+      ...profile.hours.days,
+      [day]: { ...profile.hours.days[day], ...patch },
+    };
     onProfileChange({
       hours: {
         ...profile.hours,
-        days: {
-          ...profile.hours.days,
-          [day]: { ...profile.hours.days[day], ...patch },
-        },
-        skipped: false,
+        days,
+        setupState: hasConfiguredWeeklyHours({ ...profile.hours, days })
+          ? 'configured'
+          : 'unset',
       },
     });
   };
-  const hasAnyContact = Boolean(
-    profile.phone.trim()
-    || profile.textPhone.trim()
-    || profile.email.trim()
-    || profile.instagram.trim(),
+  const availableContactMethods = getAvailableContactMethods(profile);
+  const hasAnyContact = availableContactMethods.length > 0;
+  const hasCoherentPreferredContact = contactMethodHasValue(
+    profile,
+    profile.preferredContact,
   );
+  const availableContactOptions = CONTACT_METHODS.filter(({ value }) =>
+    availableContactMethods.includes(value));
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -316,7 +337,7 @@ export function LocationContactScreen({
       nextErrors.contact = 'Add at least one public contact method, or choose Booking only.';
     } else if (
       !profile.bookingOnlyContact
-      && (!profile.preferredContact || !contactMethodHasValue(profile, profile.preferredContact))
+      && !hasCoherentPreferredContact
     ) {
       nextErrors.preferredContact = 'Choose a preferred method that has contact information.';
     }
@@ -325,6 +346,7 @@ export function LocationContactScreen({
     if (failedFields.length > 0) {
       setOpenCard(nextErrors.cityOrArea ? 'location' : 'contact');
       onValidationFailure?.(failedFields);
+      focusFirstInvalidControl(event.currentTarget);
       return;
     }
     onContinue();
@@ -334,18 +356,16 @@ export function LocationContactScreen({
     || 'Add your general area';
   const contactSummary = profile.bookingOnlyContact
     ? 'Clients use Booking only'
-    : profile.preferredContact
+    : hasCoherentPreferredContact && profile.preferredContact
       ? `Preferred: ${CONTACT_METHODS.find(({ value }) => value === profile.preferredContact)?.label}`
       : 'Add a public contact method';
-  const openDays = WEEKDAYS.filter(({ id }) => !profile.hours.days[id].closed).length;
-  const hoursSummary = profile.hours.skipped
-    ? 'Not shown yet'
-    : `${openDays} day${openDays === 1 ? '' : 's'} open`;
+  const hoursSummary = getWeeklyHoursSetupSummary(profile.hours);
+  const hoursStatus = getWeeklyHoursPreviewStatus(profile.hours, previewTimestamp);
 
-  const publicLocation = profile.location.addressVisibility === 'public'
-    && profile.location.exactAddress.trim()
-    ? profile.location.exactAddress.trim()
-    : profile.location.cityOrArea.trim();
+  const publicLocation = getPublicLocationPreview(profile.location);
+  const publicContact = getPublicContactPreview(profile);
+  const publicWeeklyHours = getPublicWeeklyHours(profile.hours);
+  const hasConfiguredHours = hasConfiguredWeeklyHours(profile.hours);
 
   return (
     <section aria-labelledby="location-contact-heading" className="onboarding-screen onboarding-location-contact-screen">
@@ -356,6 +376,7 @@ export function LocationContactScreen({
       </header>
       <div className="onboarding-split-layout">
         <form id={formId} noValidate onSubmit={submit}>
+          <ValidationSummary errors={errors} />
           <CollapsibleFormCard
             completed={Boolean(profile.location.cityOrArea.trim())}
             id="onboarding-location-card"
@@ -382,7 +403,7 @@ export function LocationContactScreen({
               onChange={(event) => updateLocation({ exactAddress: event.target.value })}
             />
             <ChoiceGroup
-              legend="Location type"
+              legend="Where do you see clients?"
               name="location-type"
               options={LOCATION_TYPES}
               value={profile.location.locationType}
@@ -394,6 +415,20 @@ export function LocationContactScreen({
               options={ADDRESS_VISIBILITY}
               value={profile.location.addressVisibility}
               onChange={(addressVisibility) => updateLocation({ addressVisibility })}
+            />
+            <NativeSwitch
+              checked={profile.location.allowGeneralAreaDirections}
+              description={profile.location.addressVisibility !== 'public'
+                ? 'Directions stay hidden unless your location is public.'
+                : profile.location.exactAddress.trim()
+                  ? 'Directions use your public exact address.'
+                  : 'Allow a Directions action to your city or general service area.'}
+              disabled={profile.location.addressVisibility !== 'public'
+                || Boolean(profile.location.exactAddress.trim())}
+              label="Allow directions to my general service area"
+              onChange={(allowGeneralAreaDirections) => updateLocation({
+                allowGeneralAreaDirections,
+              })}
             />
             <TextField
               label="Parking (optional)"
@@ -413,33 +448,112 @@ export function LocationContactScreen({
           </CollapsibleFormCard>
 
           <CollapsibleFormCard
-            completed={profile.bookingOnlyContact || hasAnyContact}
+            completed={profile.bookingOnlyContact || hasCoherentPreferredContact}
             id="onboarding-contact-card"
             open={openCard === 'contact'}
             summary={contactSummary}
             title="Contact"
             onToggle={() => setOpenCard('contact')}
           >
-            <TextField
-              autoComplete="tel"
-              label="Phone (optional)"
-              type="tel"
-              value={profile.phone}
-              onChange={(event) => {
+            <NativeSwitch
+              checked={profile.bookingOnlyContact}
+              description="Your website guides clients to Booking and keeps saved contact details private."
+              label="Clients should use Booking only"
+              onChange={(bookingOnlyContact) => {
                 setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
-                onProfileChange({ phone: event.target.value });
+                onProfileChange({
+                  bookingOnlyContact,
+                  preferredContact: bookingOnlyContact
+                    ? profile.preferredContact
+                    : getCoherentPreferredContact(profile),
+                });
               }}
             />
             <TextField
               autoComplete="tel"
-              label="Text (optional)"
+              label="Client contact number"
               type="tel"
-              value={profile.textPhone}
+              value={profile.clientContact.primaryNumber}
               onChange={(event) => {
                 setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
-                onProfileChange({ textPhone: event.target.value });
+                onProfileChange({
+                  clientContact: {
+                    ...profile.clientContact,
+                    primaryNumber: event.target.value,
+                  },
+                });
               }}
             />
+            <fieldset
+              aria-describedby={errors.contact ? contactErrorId : undefined}
+              aria-invalid={errors.contact ? 'true' : undefined}
+              className="onboarding-contact-uses"
+            >
+              <legend>Clients can:</legend>
+              <NativeSwitch
+                checked={profile.clientContact.callEnabled}
+                description="Use the client contact number for calls."
+                label="Call this number"
+                onChange={(callEnabled) => {
+                  setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
+                  const clientContact = { ...profile.clientContact, callEnabled };
+                  const nextProfile = { ...profile, clientContact };
+                  onProfileChange({
+                    clientContact,
+                    preferredContact: callEnabled && !profile.preferredContact
+                      ? 'call'
+                      : getCoherentPreferredContact(nextProfile),
+                  });
+                }}
+              />
+              <NativeSwitch
+                checked={profile.clientContact.textEnabled}
+                description="Use the client contact number for text messages."
+                label="Text this number"
+                onChange={(textEnabled) => {
+                  setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
+                  const clientContact = { ...profile.clientContact, textEnabled };
+                  const nextProfile = { ...profile, clientContact };
+                  onProfileChange({
+                    clientContact,
+                    preferredContact: textEnabled && !profile.preferredContact
+                      ? 'text'
+                      : getCoherentPreferredContact(nextProfile),
+                  });
+                }}
+              />
+            </fieldset>
+            {profile.clientContact.textEnabled ? (
+              <NativeSwitch
+                checked={profile.clientContact.useDifferentTextNumber}
+                description="Keep calls on the primary number and route texts somewhere else."
+                label="Use a different number for text messages"
+                onChange={(useDifferentTextNumber) => {
+                  setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
+                  onProfileChange({
+                    clientContact: { ...profile.clientContact, useDifferentTextNumber },
+                  });
+                }}
+              />
+            ) : null}
+            {profile.clientContact.textEnabled
+              && profile.clientContact.useDifferentTextNumber ? (
+                <TextField
+                  autoComplete="tel"
+                  label="Text message number"
+                  type="tel"
+                  value={profile.clientContact.differentTextNumber}
+                  onChange={(event) => {
+                    setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
+                    onProfileChange({
+                      clientContact: {
+                        ...profile.clientContact,
+                        differentTextNumber: event.target.value,
+                      },
+                    });
+                  }}
+                />
+              ) : null}
             <TextField
               autoComplete="email"
               label="Email (optional)"
@@ -458,39 +572,53 @@ export function LocationContactScreen({
                 onProfileChange({ instagram: event.target.value });
               }}
             />
-            <ChoiceGroup
-              error={errors.preferredContact}
-              legend="Preferred public contact method"
-              name="public-contact-method"
-              options={CONTACT_METHODS}
-              value={profile.preferredContact}
-              onChange={(preferredContact) => {
-                setErrors((current) => ({ ...current, preferredContact: '' }));
-                onProfileChange({ preferredContact, bookingOnlyContact: false });
-              }}
-            />
-            <NativeSwitch
-              checked={profile.bookingOnlyContact}
-              description="Your website will guide clients to the Booking section instead of showing contact details."
-              label="Clients should use Booking only"
-              onChange={(bookingOnlyContact) => {
-                setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
-                onProfileChange({ bookingOnlyContact });
-              }}
-            />
+            {!profile.bookingOnlyContact && availableContactOptions.length > 0 ? (
+              <ChoiceGroup
+                error={errors.preferredContact}
+                legend="Preferred public contact method"
+                name="public-contact-method"
+                options={availableContactOptions}
+                value={profile.preferredContact}
+                onChange={(preferredContact) => {
+                  setErrors((current) => ({ ...current, preferredContact: '' }));
+                  onProfileChange({ preferredContact });
+                }}
+              />
+            ) : null}
+            {!profile.bookingOnlyContact && errors.preferredContact
+              && availableContactOptions.length === 0 ? (
+                <p className="onboarding-field__error">
+                  {errors.preferredContact}
+                </p>
+              ) : null}
             {errors.contact ? (
-              <p className="onboarding-field__error" role="alert">{errors.contact}</p>
+              <p className="onboarding-field__error" id={contactErrorId}>
+                {errors.contact}
+              </p>
             ) : null}
           </CollapsibleFormCard>
 
           <CollapsibleFormCard
-            completed={profile.hours.skipped || openDays > 0}
+            completed={profile.hours.setupState === 'configured' && hasConfiguredHours}
             id="onboarding-hours-card"
             open={openCard === 'hours'}
             summary={hoursSummary}
             title="Hours"
             onToggle={() => setOpenCard('hours')}
           >
+            <NativeSwitch
+              checked={profile.hours.showOnSite}
+              description={profile.hours.setupState === 'configured' && hasConfiguredHours
+                ? profile.hours.showOnSite
+                  ? 'Your current open or closed status appears in connected previews.'
+                  : 'Not shown on your site'
+                : 'Add hours before showing a public status.'}
+              disabled={profile.hours.setupState !== 'configured' || !hasConfiguredHours}
+              label="Show hours on my website"
+              onChange={(showOnSite) => onProfileChange({
+                hours: { ...profile.hours, showOnSite },
+              })}
+            />
             <div className="onboarding-hours-grid">
               {WEEKDAYS.map(({ id, label }) => {
                 const day = profile.hours.days[id];
@@ -531,6 +659,7 @@ export function LocationContactScreen({
             </div>
             <div className="onboarding-inline-actions">
               <button
+                disabled={!isValidOpenHoursDay(profile.hours.days.monday)}
                 type="button"
                 onClick={() => {
                   const monday = profile.hours.days.monday;
@@ -545,7 +674,7 @@ export function LocationContactScreen({
                         tuesday: { ...monday },
                         wednesday: { ...monday },
                       },
-                      skipped: false,
+                      setupState: 'configured',
                     },
                   });
                 }}
@@ -555,7 +684,9 @@ export function LocationContactScreen({
               <button
                 type="button"
                 onClick={() => {
-                  onProfileChange({ hours: { ...profile.hours, skipped: true } });
+                  onProfileChange({
+                    hours: { ...profile.hours, setupState: 'skipped' },
+                  });
                   onSkipHours();
                 }}
               >
@@ -567,7 +698,8 @@ export function LocationContactScreen({
 
         <aside aria-label="Location and contact preview" className="onboarding-location-preview">
           <p className="onboarding-preview-eyebrow">Visit us</p>
-          <strong>{publicLocation || 'Your general area'}</strong>
+          <strong>{publicLocation.primary || 'Your general area'}</strong>
+          {publicLocation.detail ? <span>{publicLocation.detail}</span> : null}
           {profile.bookingPreferences.visitMode ? (
             <span>
               {profile.bookingPreferences.visitMode === 'appointment_only'
@@ -577,14 +709,18 @@ export function LocationContactScreen({
                   : 'Appointments and walk-ins'}
             </span>
           ) : null}
-          {!profile.hours.skipped ? (
-            <span>{profile.hours.days.monday.closed ? 'Closed Monday' : 'Open Monday'}</span>
+          {hoursStatus ? <span>{hoursStatus.label}</span> : null}
+          {publicWeeklyHours.length > 0 ? (
+            <dl aria-label="Weekly hours" className="onboarding-compact-hours">
+              {publicWeeklyHours.map((day) => (
+                <div key={day.weekday}><dt>{day.label}</dt><dd>{day.hours}</dd></div>
+              ))}
+            </dl>
           ) : null}
+          {publicContact ? <span>{publicContact.detail}</span> : null}
           <div className="onboarding-location-preview__actions">
-            {publicLocation ? <button type="button">Directions</button> : null}
-            {profile.bookingOnlyContact ? (
-              <button type="button">Book now</button>
-            ) : hasAnyContact ? <button type="button">Contact</button> : null}
+            {publicLocation.directionsTarget ? <button type="button">Directions</button> : null}
+            {publicContact ? <button type="button">{publicContact.actionLabel}</button> : null}
           </div>
         </aside>
       </div>

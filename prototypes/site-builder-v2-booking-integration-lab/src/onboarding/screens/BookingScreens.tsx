@@ -5,18 +5,23 @@ import { summarizeSelection } from '../../booking/helpers';
 import { StarterChoiceGrid } from '../../ui/StarterChooser';
 import { SCREEN_METADATA } from '../copy';
 import { ONBOARDING_NEXT_AVAILABILITY_LABEL } from '../model/booking-preview';
+import {
+  getDepositPolicyMode,
+  type DepositPolicyMode,
+} from '../model/policies';
 import type {
   AdvanceNotice,
   BookingPreferencesDraft,
   BusinessProfileDraft,
-  DepositPreference,
   NewClientStatus,
   StarterId,
   VisitMode,
 } from '../model/types';
 import {
   ChoiceGroup,
+  focusFirstInvalidControl,
   TextField,
+  ValidationSummary,
   type ChoiceOption,
 } from '../components/FormFields';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
@@ -41,10 +46,14 @@ const ADVANCE_NOTICE_OPTIONS: readonly ChoiceOption<AdvanceNotice>[] = [
   { label: 'Custom', value: 'custom' },
 ];
 
-const DEPOSIT_OPTIONS: readonly ChoiceOption<DepositPreference>[] = [
-  { label: 'Yes', value: 'yes' },
-  { label: 'No', value: 'no' },
-  { label: 'Depends on the service', value: 'depends_on_service' },
+const DEPOSIT_MODE_OPTIONS: readonly ChoiceOption<DepositPolicyMode>[] = [
+  { label: 'Yes', value: 'generally_required' },
+  { label: 'No', value: 'none' },
+  {
+    description: 'Booking keeps the deposit details for each service.',
+    label: 'Depends on the service',
+    value: 'depends_on_service',
+  },
 ];
 
 const CANONICAL_FEATURED_SELECTION = summarizeSelection({
@@ -56,6 +65,7 @@ type BookingPreferencesScreenProps = {
   onBack: () => void;
   onBookingPreferencesChange: (patch: Partial<BookingPreferencesDraft>) => void;
   onContinue: () => void;
+  onDepositModeChange: (mode: DepositPolicyMode) => void;
   onValidationFailure?: (fieldIds: string[]) => void;
   profile: BusinessProfileDraft;
 };
@@ -64,6 +74,7 @@ export function BookingPreferencesScreen({
   onBack,
   onBookingPreferencesChange,
   onContinue,
+  onDepositModeChange,
   onValidationFailure,
   profile,
 }: BookingPreferencesScreenProps) {
@@ -81,6 +92,7 @@ export function BookingPreferencesScreen({
     const failedFields = Object.keys(nextErrors);
     if (failedFields.length > 0) {
       onValidationFailure?.(failedFields);
+      focusFirstInvalidControl(event.currentTarget);
       return;
     }
     onContinue();
@@ -106,6 +118,7 @@ export function BookingPreferencesScreen({
       </header>
       <div className="onboarding-split-layout">
         <form id={formId} noValidate onSubmit={submit}>
+          <ValidationSummary errors={errors} />
           <ChoiceGroup
             error={errors.visitMode}
             legend="How do clients visit you?"
@@ -143,21 +156,21 @@ export function BookingPreferencesScreen({
             />
           ) : null}
           <ChoiceGroup
-            legend="General deposit preference"
-            name="deposit-preference"
-            options={DEPOSIT_OPTIONS}
-            value={preferences.depositPreference}
-            onChange={(depositPreference) => onBookingPreferencesChange({ depositPreference })}
+            legend="Do you generally require a deposit?"
+            name="deposit-policy-mode"
+            options={DEPOSIT_MODE_OPTIONS}
+            value={getDepositPolicyMode(profile.policies)}
+            onChange={onDepositModeChange}
           />
         </form>
         <div className="onboarding-booking-preview-column">
           <aside aria-label="Booking connection status" className="onboarding-booking-status-card">
-            <h2>Booking is connected</h2>
+            <h2>Your booking details are ready</h2>
             <dl>
-              <div><dt>Services</dt><dd>{CANONICAL_SERVICES.length} connected</dd></div>
-              <div><dt>Prices</dt><dd>Connected</dd></div>
-              <div><dt>Availability source</dt><dd>Booking mock</dd></div>
-              <div><dt>Booking link</dt><dd>Ready</dd></div>
+              <div><dt>Services</dt><dd>{CANONICAL_SERVICES.length} ready</dd></div>
+              <div><dt>Prices</dt><dd>Ready</dd></div>
+              <div><dt>Next openings</dt><dd>Ready</dd></div>
+              <div><dt>Book button</dt><dd>Ready</dd></div>
             </dl>
             <p>You won’t need to re-enter services, prices, or durations.</p>
           </aside>

@@ -111,7 +111,7 @@ export function BookingSectionCard({
             <span>
               <strong className="section-card__title">Booking</strong>
               <span className="section-card__description">
-                {layoutMeta.label} · {fixture.services.length} mock services
+                {layoutMeta.label} · {fixture.services.length} services
               </span>
             </span>
           </span>

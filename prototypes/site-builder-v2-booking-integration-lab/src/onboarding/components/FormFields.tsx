@@ -7,6 +7,33 @@ import {
   type TextareaHTMLAttributes,
 } from 'react';
 
+export const focusFirstInvalidControl = (root: Element): void => {
+  window.requestAnimationFrame(() => {
+    const invalid = root.querySelector<HTMLElement>('[aria-invalid="true"]');
+    if (!invalid) return;
+    const target = invalid.matches('input, textarea, select, button, [tabindex]')
+      ? invalid
+      : invalid.querySelector<HTMLElement>(
+          'input:not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ) ?? invalid;
+    target.scrollIntoView?.({ block: 'center', inline: 'nearest' });
+    target.focus({ preventScroll: true });
+  });
+};
+
+export function ValidationSummary({ errors }: { errors: Record<string, string> }) {
+  const messages = Object.values(errors).filter(Boolean);
+  if (messages.length === 0) return null;
+  return (
+    <div className="onboarding-validation-summary" role="alert">
+      <strong>Check the highlighted information.</strong>
+      <span>{messages.length === 1
+        ? '1 answer needs attention.'
+        : `${messages.length} answers need attention.`}</span>
+    </div>
+  );
+}
+
 type TextFieldProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'id'> & {
   error?: string;
   hint?: string;
@@ -147,15 +174,18 @@ export function NativeSwitch({
         <label htmlFor={id}>{label}</label>
         {description ? <small id={descriptionId}>{description}</small> : null}
       </span>
-      <input
-        aria-describedby={description ? descriptionId : undefined}
-        checked={checked}
-        disabled={disabled}
-        id={id}
-        role="switch"
-        type="checkbox"
-        onChange={(event) => onChange(event.target.checked)}
-      />
+      <label className="onboarding-switch-control" htmlFor={id}>
+        <input
+          aria-describedby={description ? descriptionId : undefined}
+          aria-label={label}
+          checked={checked}
+          disabled={disabled}
+          id={id}
+          role="switch"
+          type="checkbox"
+          onChange={(event) => onChange(event.target.checked)}
+        />
+      </label>
     </div>
   );
 }

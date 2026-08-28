@@ -3,6 +3,7 @@ import type {
   OnboardingScreenId,
   OnboardingStage,
 } from '../model/types';
+import { contactMethodHasValue } from '../model/contact';
 
 export const ESSENTIAL_IDS = [
   'business',
@@ -26,12 +27,8 @@ const nonBlank = (value: string): boolean => value.trim().length > 0;
 
 export const hasPublicContactMethod = (state: OnboardingLabState): boolean => {
   const { profile } = state;
-  return profile.bookingOnlyContact || [
-    profile.phone,
-    profile.textPhone,
-    profile.email,
-    profile.instagram,
-  ].some(nonBlank);
+  return profile.bookingOnlyContact
+    || contactMethodHasValue(profile, profile.preferredContact);
 };
 
 export const getEssentialResults = (
@@ -40,7 +37,7 @@ export const getEssentialResults = (
   {
     complete: nonBlank(state.profile.businessName)
       && nonBlank(state.profile.ownerName)
-      && state.profile.businessType !== null,
+      && state.profile.businessStructure !== null,
     id: 'business',
     label: 'Business information',
     screen: 'business',

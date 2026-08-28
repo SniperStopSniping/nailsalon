@@ -99,7 +99,7 @@ export function ServiceDetail({
                       role="img"
                       aria-label={`No service photo available for ${service.name}`}
                     >
-                      <span>Isla Nail Studio</span>
+                      <span>{fixture.salon.name}</span>
                     </div>
                   )}
                 </div>
@@ -123,7 +123,7 @@ export function ServiceDetail({
                 </p>
                 <p className="booking-detail-description">
                   {service.longDescription
-                    ?? 'Ask Isla Nail Studio about the finish and options available for this service.'}
+                    ?? `Ask ${fixture.salon.name} about the finish and options available for this service.`}
                 </p>
 
                 {compatibleAddOns.length > 0 ? (
@@ -146,7 +146,7 @@ export function ServiceDetail({
                   </fieldset>
                 ) : (
                   <p className="booking-detail-description">
-                    No add-ons are offered with this mock service.
+                    No add-ons are offered with this service.
                   </p>
                 )}
 

@@ -217,7 +217,7 @@ export const initializeStarter = (
   return normalizeDocument({
     schemaVersion: SITE_BUILDER_SCHEMA_VERSION,
     siteId: options.siteId ?? idFactory('site'),
-    siteName: options.siteName ?? 'Isla Nail Studio',
+    siteName: options.siteName ?? 'Your nail studio',
     originStarter,
     navigation: {
       enabled: originStarter !== 'quick_book',

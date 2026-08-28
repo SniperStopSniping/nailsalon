@@ -255,7 +255,7 @@ const ensureCustomDesignSection = (
     requested?.pageId ? requested.section.id : null,
   );
   if (!target) {
-    throw new Error('The canonical Booking section is not available.');
+    throw new Error('Your site needs a Booking section before this design can be placed.');
   }
 
   if (requested) {

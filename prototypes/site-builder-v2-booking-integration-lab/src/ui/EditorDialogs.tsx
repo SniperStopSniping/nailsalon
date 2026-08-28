@@ -326,6 +326,7 @@ export function NavigationSettingsDialog({ document, onClose, onMove, onRename, 
 }
 
 type ConfirmationDialogProps = {
+  cancelLabel?: string;
   confirmLabel: string;
   danger?: boolean;
   description: string;
@@ -335,10 +336,10 @@ type ConfirmationDialogProps = {
   title: string;
 };
 
-export function ConfirmationDialog({ confirmLabel, danger = false, description, onClose, onConfirm, open, title }: ConfirmationDialogProps) {
+export function ConfirmationDialog({ cancelLabel = 'Cancel', confirmLabel, danger = false, description, onClose, onConfirm, open, title }: ConfirmationDialogProps) {
   return (
     <Dialog description={description} onClose={onClose} open={open} title={title}>
-      <div className="dialog-actions"><button className="secondary-button" type="button" onClick={onClose}>Cancel</button><button className={danger ? 'danger-button' : 'primary-button'} type="button" onClick={onConfirm}>{confirmLabel}</button></div>
+      <div className="dialog-actions"><button className="secondary-button" type="button" onClick={onClose}>{cancelLabel}</button><button className={danger ? 'danger-button' : 'primary-button'} type="button" onClick={onConfirm}>{confirmLabel}</button></div>
     </Dialog>
   );
 }
