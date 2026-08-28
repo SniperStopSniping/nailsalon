@@ -1,6 +1,7 @@
-import { IDBFactory } from 'fake-indexeddb';
+import { IDBFactory, IDBObjectStore } from 'fake-indexeddb';
 
 import {
+  CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
   IndexedDbAssetRepository,
   type ImageAssetMetadata,
   type PreparedImageAsset,
@@ -94,6 +95,54 @@ const createHarness = (name: string) => {
   };
 };
 
+const interceptCoordinatorBinaryWrites = (): {
+  arrayBufferWrites: () => number;
+  restore: () => void;
+} => {
+  const originalAdd = IDBObjectStore.prototype.add;
+  let fallbackWrites = 0;
+  const spy = vi
+    .spyOn(IDBObjectStore.prototype, 'add')
+    .mockImplementation(function (
+      this: IDBObjectStore,
+      value: unknown,
+      key?: IDBValidKey,
+    ): IDBRequest<IDBValidKey> {
+      const record = value as {
+        assetId?: unknown;
+        blob?: unknown;
+        storageKind?: unknown;
+      };
+      if (this.name === CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME) {
+        if (
+          record.assetId === 'custom_design_asset_fallback' &&
+          record.blob instanceof Blob
+        ) {
+          throw new DOMException(
+            'BlobURLs are not yet supported',
+            'DataCloneError',
+          );
+        }
+        if (
+          record.assetId === 'custom_design_asset_quota' &&
+          record.blob instanceof Blob
+        ) {
+          throw new DOMException('Browser storage is full.', 'QuotaExceededError');
+        }
+        if (record.storageKind === 'array_buffer') fallbackWrites += 1;
+      }
+      return Reflect.apply(
+        originalAdd,
+        this,
+        key === undefined ? [value] : [value, key],
+      ) as IDBRequest<IDBValidKey>;
+    });
+  return {
+    arrayBufferWrites: () => fallbackWrites,
+    restore: () => spy.mockRestore(),
+  };
+};
+
 describe('CustomDesignAssetTransactionCoordinator', () => {
   it('turns a partially valid multi-select into one prepared document change', async () => {
     const harness = createHarness('coordinator-partial');
@@ -135,6 +184,98 @@ describe('CustomDesignAssetTransactionCoordinator', () => {
     );
     expect(cancel).not.toHaveBeenCalled();
     harness.repository.close();
+  });
+
+  it('commits one normal and one ArrayBuffer-fallback asset in one multi-file change', async () => {
+    const harness = createHarness('coordinator-mixed-storage');
+    const probe = interceptCoordinatorBinaryWrites();
+    try {
+      const result = await harness.coordinator.uploadImages({
+        createAssetId: (_file, index) => index === 0
+          ? 'custom_design_asset_normal'
+          : 'custom_design_asset_fallback',
+        createImageItemId: (_file, index) => `custom_design_image_${index}`,
+        currentImages: [],
+        decodeImage: decode,
+        files: [imageFile('normal.png'), imageFile('fallback.png')],
+        generateThumbnail: noThumbnail,
+        prepareDocumentTransition: (images) => ({
+          changed: true,
+          publish: () => {
+            harness.setReachable(images.map((image) => image.assetId));
+            return true;
+          },
+        }),
+      });
+
+      expect(result).toMatchObject({
+        documentChanged: true,
+        failures: [],
+        status: 'committed',
+      });
+      expect(result.added.map((image) => image.assetId)).toEqual([
+        'custom_design_asset_normal',
+        'custom_design_asset_fallback',
+      ]);
+      expect(probe.arrayBufferWrites()).toBe(1);
+      await expect(
+        harness.repository.has('custom_design_asset_normal'),
+      ).resolves.toBe(true);
+      await expect(
+        harness.repository.getOriginal('custom_design_asset_fallback'),
+      ).resolves.toBeInstanceOf(Blob);
+    } finally {
+      probe.restore();
+      harness.repository.close();
+    }
+  });
+
+  it('keeps partial multi-file results truthful when quota fails beside a fallback', async () => {
+    const harness = createHarness('coordinator-fallback-partial-storage');
+    const probe = interceptCoordinatorBinaryWrites();
+    try {
+      const result = await harness.coordinator.uploadImages({
+        createAssetId: (_file, index) => index === 0
+          ? 'custom_design_asset_fallback'
+          : 'custom_design_asset_quota',
+        createImageItemId: (_file, index) => `custom_design_image_${index}`,
+        currentImages: [],
+        decodeImage: decode,
+        files: [imageFile('fallback.png'), imageFile('quota.png')],
+        generateThumbnail: noThumbnail,
+        prepareDocumentTransition: (images) => ({
+          changed: true,
+          publish: () => {
+            harness.setReachable(images.map((image) => image.assetId));
+            return true;
+          },
+        }),
+      });
+
+      expect(result.status).toBe('partial');
+      expect(result.added.map((image) => image.assetId)).toEqual([
+        'custom_design_asset_fallback',
+      ]);
+      expect(result.failures).toMatchObject([
+        {
+          code: 'storage_quota_exceeded',
+          fileName: 'quota.png',
+          index: 1,
+        },
+      ]);
+      expect(probe.arrayBufferWrites()).toBe(1);
+      await expect(
+        harness.repository.has('custom_design_asset_fallback'),
+      ).resolves.toBe(true);
+      await expect(
+        harness.repository.has('custom_design_asset_quota', {
+          includeStaged: true,
+        }),
+      ).resolves.toBe(false);
+    } finally {
+      probe.restore();
+      harness.repository.close();
+    }
   });
 
   it('discards staged writes when command preparation rejects the change', async () => {

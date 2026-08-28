@@ -147,6 +147,79 @@ const deleteRawRecord = async (
   }
 };
 
+type BinaryWriteProbe = {
+  arrayBufferWrites: number;
+  blobWrites: number;
+  restore: () => void;
+  transactions: IDBTransaction[];
+};
+
+const interceptBinaryWrites = (options: {
+  arrayBufferError?: DOMException;
+  blobError?: DOMException;
+  blobErrorStore?: string;
+  failSummaryWithDataClone?: boolean;
+}): BinaryWriteProbe => {
+  const originalAdd = IDBObjectStore.prototype.add;
+  const transactions: IDBTransaction[] = [];
+  let arrayBufferWrites = 0;
+  let blobWrites = 0;
+  const addSpy = vi
+    .spyOn(IDBObjectStore.prototype, 'add')
+    .mockImplementation(function (
+      this: IDBObjectStore,
+      value: unknown,
+      key?: IDBValidKey,
+    ): IDBRequest<IDBValidKey> {
+      const record = value as {
+        blob?: unknown;
+        storageKind?: unknown;
+      };
+      const isBinaryStore =
+        this.name === CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME ||
+        this.name === CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME;
+
+      if (isBinaryStore && record.blob instanceof NodeBlob) {
+        blobWrites += 1;
+        transactions.push(this.transaction);
+        if (
+          options.blobError &&
+          (!options.blobErrorStore || options.blobErrorStore === this.name)
+        ) {
+          throw options.blobError;
+        }
+      }
+      if (isBinaryStore && record.storageKind === 'array_buffer') {
+        arrayBufferWrites += 1;
+        transactions.push(this.transaction);
+        if (options.arrayBufferError) throw options.arrayBufferError;
+      }
+      if (
+        this.name === CUSTOM_DESIGN_ASSET_STORE_NAME &&
+        options.failSummaryWithDataClone
+      ) {
+        throw new DOMException('Summary clone failed.', 'DataCloneError');
+      }
+
+      return Reflect.apply(
+        originalAdd,
+        this,
+        key === undefined ? [value] : [value, key],
+      ) as IDBRequest<IDBValidKey>;
+    });
+
+  return {
+    get arrayBufferWrites() {
+      return arrayBufferWrites;
+    },
+    get blobWrites() {
+      return blobWrites;
+    },
+    restore: () => addSpy.mockRestore(),
+    transactions,
+  };
+};
+
 describe('IndexedDbAssetRepository', () => {
   it('stages invisibly, commits, and retrieves original and thumbnail blobs', async () => {
     const repository = new IndexedDbAssetRepository({
@@ -172,6 +245,320 @@ describe('IndexedDbAssetRepository', () => {
     expect(await repository.getMetadata('asset-one')).toEqual(asset.metadata);
     expect(await repository.has('asset-one')).toBe(true);
     repository.close();
+  });
+
+  it('keeps the normal write path Blob-backed when IndexedDB accepts Blobs', async () => {
+    const indexedDB = new IDBFactory();
+    const dbName = 'normal-blob-payload';
+    const repository = new IndexedDbAssetRepository({ dbName, indexedDB });
+    const probe = interceptBinaryWrites({});
+
+    try {
+      await repository.stage(makeAsset('normal-blob'));
+      await repository.commit('normal-blob');
+      const original = await readRawRecord(
+        indexedDB,
+        dbName,
+        'normal-blob',
+        CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+      );
+      const thumbnail = await readRawRecord(
+        indexedDB,
+        dbName,
+        'normal-blob',
+        CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
+      );
+
+      expect(original.blob).toBeInstanceOf(NodeBlob);
+      expect(thumbnail.blob).toBeInstanceOf(NodeBlob);
+      expect(original.storageKind).toBeUndefined();
+      expect(original.data).toBeUndefined();
+      expect(probe.blobWrites).toBe(2);
+      expect(probe.arrayBufferWrites).toBe(0);
+    } finally {
+      probe.restore();
+      repository.close();
+    }
+  });
+
+  it('retries a Blob DataCloneError once in a fresh transaction with ArrayBuffers', async () => {
+    const indexedDB = new IDBFactory();
+    const dbName = 'array-buffer-fallback';
+    const repository = new IndexedDbAssetRepository({ dbName, indexedDB });
+    const probe = interceptBinaryWrites({
+      blobError: new DOMException(
+        'BlobURLs are not yet supported',
+        'DataCloneError',
+      ),
+    });
+
+    try {
+      await repository.stage(makeAsset('fallback'));
+      expect(await repository.has('fallback')).toBe(false);
+      expect(await repository.has('fallback', { includeStaged: true })).toBe(true);
+      await repository.commit('fallback');
+
+      const rawOriginal = await readRawRecord(
+        indexedDB,
+        dbName,
+        'fallback',
+        CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+      );
+      const rawThumbnail = await readRawRecord(
+        indexedDB,
+        dbName,
+        'fallback',
+        CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
+      );
+      expect(rawOriginal).toMatchObject({
+        assetId: 'fallback',
+        mimeType: 'image/png',
+        storageKind: 'array_buffer',
+      });
+      expect(rawThumbnail).toMatchObject({
+        assetId: 'fallback',
+        mimeType: 'image/webp',
+        storageKind: 'array_buffer',
+      });
+      expect((rawOriginal.data as ArrayBuffer).byteLength).toBe(
+        makeAsset('fallback').metadata.byteSize,
+      );
+      expect((rawThumbnail.data as ArrayBuffer).byteLength).toBe(
+        makeAsset('fallback').metadata.thumbnail?.byteSize,
+      );
+      expect(rawOriginal.blob).toBeUndefined();
+      expect(rawThumbnail.blob).toBeUndefined();
+
+      const original = await repository.getOriginal('fallback');
+      const thumbnail = await repository.getThumbnail('fallback');
+      expect(original).toBeInstanceOf(Blob);
+      expect(original?.type).toBe('image/png');
+      expect(original && (await readBlobText(original))).toBe('original-fallback');
+      expect(thumbnail).toBeInstanceOf(Blob);
+      expect(thumbnail?.type).toBe('image/webp');
+      expect(thumbnail && (await readBlobText(thumbnail))).toBe('thumb-fallback');
+
+      expect(probe.blobWrites).toBe(1);
+      expect(probe.arrayBufferWrites).toBe(2);
+      expect(new Set(probe.transactions).size).toBe(2);
+      expect(probe.transactions[0]).not.toBe(probe.transactions[1]);
+      expect(probe.transactions[1]).toBe(probe.transactions[2]);
+    } finally {
+      probe.restore();
+      repository.close();
+    }
+  });
+
+  it('aborts and retries both binaries when only the thumbnail Blob clone fails', async () => {
+    const indexedDB = new IDBFactory();
+    const dbName = 'thumbnail-array-buffer-fallback';
+    const repository = new IndexedDbAssetRepository({ dbName, indexedDB });
+    const probe = interceptBinaryWrites({
+      blobError: new DOMException(
+        'BlobURLs are not yet supported',
+        'DataCloneError',
+      ),
+      blobErrorStore: CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
+    });
+
+    try {
+      await repository.stage(makeAsset('thumbnail-fallback'));
+      await repository.commit('thumbnail-fallback');
+      const rawOriginal = await readRawRecord(
+        indexedDB,
+        dbName,
+        'thumbnail-fallback',
+        CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+      );
+      const rawThumbnail = await readRawRecord(
+        indexedDB,
+        dbName,
+        'thumbnail-fallback',
+        CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
+      );
+      expect(rawOriginal.storageKind).toBe('array_buffer');
+      expect(rawThumbnail.storageKind).toBe('array_buffer');
+      expect(probe.blobWrites).toBe(2);
+      expect(probe.arrayBufferWrites).toBe(2);
+      expect(new Set(probe.transactions).size).toBe(2);
+      expect(probe.transactions[0]).toBe(probe.transactions[1]);
+      expect(probe.transactions[1]).not.toBe(probe.transactions[2]);
+      expect(probe.transactions[2]).toBe(probe.transactions[3]);
+    } finally {
+      probe.restore();
+      repository.close();
+    }
+  });
+
+  it('reads a mixed database of legacy Blob and ArrayBuffer-backed assets', async () => {
+    const indexedDB = new IDBFactory();
+    const dbName = 'mixed-binary-records';
+    const repository = new IndexedDbAssetRepository({ dbName, indexedDB });
+    await repository.stage(makeAsset('legacy-blob'));
+    await repository.commit('legacy-blob');
+
+    const probe = interceptBinaryWrites({
+      blobError: new DOMException(
+        'BlobURLs are not yet supported',
+        'DataCloneError',
+      ),
+    });
+    try {
+      await repository.stage(makeAsset('fallback-buffer'));
+      await repository.commit('fallback-buffer');
+    } finally {
+      probe.restore();
+    }
+
+    const legacyRecord = await readRawRecord(
+      indexedDB,
+      dbName,
+      'legacy-blob',
+      CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+    );
+    const fallbackRecord = await readRawRecord(
+      indexedDB,
+      dbName,
+      'fallback-buffer',
+      CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+    );
+    expect(legacyRecord.blob).toBeInstanceOf(NodeBlob);
+    expect(legacyRecord.storageKind).toBeUndefined();
+    expect(fallbackRecord.storageKind).toBe('array_buffer');
+    expect((fallbackRecord.data as ArrayBuffer).byteLength).toBe(
+      makeAsset('fallback-buffer').metadata.byteSize,
+    );
+    expect(await readBlobText((await repository.get('legacy-blob'))!.blob)).toBe(
+      'original-legacy-blob',
+    );
+    expect(
+      await readBlobText((await repository.get('fallback-buffer'))!.blob),
+    ).toBe('original-fallback-buffer');
+    repository.close();
+  });
+
+  it('discards every ArrayBuffer-backed staged record on cancellation', async () => {
+    const indexedDB = new IDBFactory();
+    const dbName = 'discard-fallback-stage';
+    const repository = new IndexedDbAssetRepository({ dbName, indexedDB });
+    const probe = interceptBinaryWrites({
+      blobError: new DOMException(
+        'BlobURLs are not yet supported',
+        'DataCloneError',
+      ),
+    });
+    try {
+      await repository.stage(makeAsset('cancelled-fallback'));
+      await expect(
+        repository.has('cancelled-fallback', { includeStaged: true }),
+      ).resolves.toBe(true);
+      await expect(repository.discard('cancelled-fallback')).resolves.toBe(true);
+      for (const storeName of [
+        CUSTOM_DESIGN_ASSET_STORE_NAME,
+        CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+        CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
+      ]) {
+        expect(
+          await hasRawKey(
+            indexedDB,
+            dbName,
+            storeName,
+            'cancelled-fallback',
+          ),
+        ).toBe(false);
+      }
+    } finally {
+      probe.restore();
+      repository.close();
+    }
+  });
+
+  it('does not retry quota, security, or summary DataClone failures', async () => {
+    for (const scenario of [
+      {
+        dbName: 'no-fallback-quota',
+        errorCode: 'quota_exceeded',
+        options: {
+          blobError: new DOMException('full', 'QuotaExceededError'),
+        },
+      },
+      {
+        dbName: 'no-fallback-security',
+        errorCode: 'security',
+        options: {
+          blobError: new DOMException('denied', 'SecurityError'),
+        },
+      },
+      {
+        dbName: 'no-fallback-unknown',
+        errorCode: 'unknown',
+        options: {
+          blobError: new DOMException('unrelated failure', 'UnknownError'),
+        },
+      },
+      {
+        dbName: 'no-fallback-summary-clone',
+        errorCode: 'unknown',
+        options: { failSummaryWithDataClone: true },
+      },
+    ] as const) {
+      const indexedDB = new IDBFactory();
+      const repository = new IndexedDbAssetRepository({
+        dbName: scenario.dbName,
+        indexedDB,
+      });
+      const probe = interceptBinaryWrites(scenario.options);
+      try {
+        await expect(repository.stage(makeAsset('not-retried'))).rejects.toMatchObject({
+          code: scenario.errorCode,
+        });
+        expect(probe.arrayBufferWrites).toBe(0);
+        for (const storeName of [
+          CUSTOM_DESIGN_ASSET_STORE_NAME,
+          CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+          CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
+        ]) {
+          expect(
+            await hasRawKey(indexedDB, scenario.dbName, storeName, 'not-retried'),
+          ).toBe(false);
+        }
+      } finally {
+        probe.restore();
+        repository.close();
+      }
+    }
+  });
+
+  it('does not retry again when the one ArrayBuffer transaction fails', async () => {
+    const indexedDB = new IDBFactory();
+    const dbName = 'bounded-fallback';
+    const repository = new IndexedDbAssetRepository({ dbName, indexedDB });
+    const probe = interceptBinaryWrites({
+      arrayBufferError: new DOMException('full', 'QuotaExceededError'),
+      blobError: new DOMException(
+        'BlobURLs are not yet supported',
+        'DataCloneError',
+      ),
+    });
+
+    try {
+      await expect(repository.stage(makeAsset('bounded'))).rejects.toMatchObject({
+        code: 'quota_exceeded',
+      });
+      expect(probe.blobWrites).toBe(1);
+      expect(probe.arrayBufferWrites).toBe(1);
+      expect(new Set(probe.transactions).size).toBe(2);
+      for (const storeName of [
+        CUSTOM_DESIGN_ASSET_STORE_NAME,
+        CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+        CUSTOM_DESIGN_THUMBNAIL_BLOB_STORE_NAME,
+      ]) {
+        expect(await hasRawKey(indexedDB, dbName, storeName, 'bounded')).toBe(false);
+      }
+    } finally {
+      probe.restore();
+      repository.close();
+    }
   });
 
   it('persists committed assets for another repository in the same browser', async () => {
@@ -661,6 +1048,54 @@ describe('IndexedDbAssetRepository', () => {
         )
       ).blob,
     ).toBe('not-a-blob');
+    repository.close();
+  });
+
+  it('rejects corrupt ArrayBuffer bytes or MIME without deleting the record', async () => {
+    const indexedDB = new IDBFactory();
+    const dbName = 'corrupt-array-buffer';
+    const repository = new IndexedDbAssetRepository({ dbName, indexedDB });
+    const probe = interceptBinaryWrites({
+      blobError: new DOMException(
+        'BlobURLs are not yet supported',
+        'DataCloneError',
+      ),
+    });
+    try {
+      await repository.stage(makeAsset('corrupt-buffer'));
+      await repository.commit('corrupt-buffer');
+    } finally {
+      probe.restore();
+    }
+
+    const record = await readRawRecord(
+      indexedDB,
+      dbName,
+      'corrupt-buffer',
+      CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+    );
+    record.mimeType = 'image/jpeg';
+    record.data = new Uint8Array([1, 2, 3]).buffer;
+    await writeRawRecord(
+      indexedDB,
+      dbName,
+      record,
+      CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+    );
+
+    await expect(repository.get('corrupt-buffer')).rejects.toMatchObject({
+      code: 'invalid_asset',
+    });
+    expect(
+      (
+        await readRawRecord(
+          indexedDB,
+          dbName,
+          'corrupt-buffer',
+          CUSTOM_DESIGN_ORIGINAL_BLOB_STORE_NAME,
+        )
+      ).storageKind,
+    ).toBe('array_buffer');
     repository.close();
   });
 
