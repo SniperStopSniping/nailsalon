@@ -24,6 +24,10 @@ type CommandResult =
   | { success: true; document: SiteBuilderDocument; changed: boolean }
   | { success: false; message: string; code?: string };
 
+type CreateStarterResult =
+  | { success: true; document: SiteBuilderDocument }
+  | { success: false; message: string; code?: string };
+
 type ImportResult =
   | { success: true; document: SiteBuilderDocument }
   | { success: false; issues: string[] };
@@ -93,6 +97,55 @@ export function useLabDocument() {
     setLoadIssues([]);
     setSaveStatus('saving');
     replaceHistory(next);
+    return true;
+  }, [replaceHistory]);
+
+  const createStarterOnce = useCallback((
+    starter: OriginStarter,
+    options: { siteName: string },
+  ): CreateStarterResult => {
+    if (preparedTransitionRef.current) {
+      return {
+        success: false,
+        message: 'Finish the current image upload before choosing a starting point.',
+        code: 'asset_transaction_pending',
+      };
+    }
+    if (historyRef.current) {
+      return {
+        success: false,
+        message: 'A starting site has already been created for this onboarding session.',
+        code: 'starter_already_created',
+      };
+    }
+
+    const document = initializeStarter(starter, {
+      siteName: options.siteName.trim() || 'My nail studio',
+    });
+    setLoadIssues([]);
+    setSaveStatus('saving');
+    replaceHistory(createHistoryState(document));
+    return { success: true, document };
+  }, [replaceHistory]);
+
+  const syncSiteName = useCallback((siteName: string): boolean => {
+    if (preparedTransitionRef.current) return false;
+    const current = historyRef.current;
+    if (!current) return false;
+    const normalizedSiteName = siteName.trim() || 'My nail studio';
+    const rename = (document: SiteBuilderDocument): SiteBuilderDocument =>
+      document.siteName === normalizedSiteName
+        ? document
+        : { ...document, siteName: normalizedSiteName };
+    const present = rename(current.present);
+    const past = current.past.map(rename);
+    const future = current.future.map(rename);
+    const changed = present !== current.present
+      || past.some((document, index) => document !== current.past[index])
+      || future.some((document, index) => document !== current.future[index]);
+    if (!changed) return true;
+    setSaveStatus('saving');
+    replaceHistory({ future, past, present });
     return true;
   }, [replaceHistory]);
 
@@ -331,6 +384,7 @@ export function useLabDocument() {
     canRedo: !transactionPending && history ? canRedoHistory(history) : false,
     canUndo: !transactionPending && history ? canUndoHistory(history) : false,
     chooseStarter,
+    createStarterOnce,
     createHistoryCheckpoint,
     document: history?.present ?? null,
     exportJson,
@@ -346,7 +400,10 @@ export function useLabDocument() {
     restoreHistoryCheckpoint,
     runCommand,
     saveStatus,
+    syncSiteName,
     transactionPending,
     undo,
   };
 }
+
+export type LabDocumentController = ReturnType<typeof useLabDocument>;

@@ -449,6 +449,12 @@ export class CustomDesignAssetTransactionCoordinator {
     return cleared;
   });
 
+  /** Deletes only caller-owned assets that are no longer reachable. */
+  deleteAssetsIfUnreferenced = (
+    assetIds: readonly string[],
+  ): Promise<Error[]> => this.enqueue(async () =>
+    this.deleteSpecificIfUnreferenced([...new Set(assetIds)]));
+
   reclaimStaleStages = (
     options: { now?: number; ttlMs?: number } = {},
   ): Promise<StagedAssetReclamationResult> => this.enqueue(async () =>

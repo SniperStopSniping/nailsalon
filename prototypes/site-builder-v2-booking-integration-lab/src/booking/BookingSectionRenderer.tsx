@@ -47,6 +47,7 @@ export type BookingSessionUpdater = Dispatch<SetStateAction<BookingSessionState>
 
 export type BookingSectionRendererProps = {
   fixture?: MockMenuFixture;
+  headingLevel?: 'h1' | 'h2';
   mode: 'edit' | 'preview';
   onOwnerSelect?: () => void;
   overlayHost?: HTMLElement | null;
@@ -60,6 +61,7 @@ export type BookingSectionRendererProps = {
 
 export function BookingSectionRenderer({
   fixture = DEFAULT_BOOKING_FIXTURE,
+  headingLevel = 'h1',
   mode,
   onOwnerSelect,
   overlayHost = null,
@@ -291,6 +293,7 @@ export function BookingSectionRenderer({
           <BookingLayout
             layout={presentationSettings.layout}
             fixture={fixture}
+            headingLevel={headingLevel}
             settings={presentationSettings}
             selection={displaySession.selection}
             activeCategory={displaySession.activeCategory}

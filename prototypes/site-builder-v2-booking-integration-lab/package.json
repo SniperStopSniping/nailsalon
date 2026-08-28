@@ -1,14 +1,14 @@
 {
-  "name": "luster-site-builder-v2-booking-integration-lab",
+  "name": "luster-onboarding-v1-ux-lab",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",
-    "capture:evidence": "node scripts/capture-integration-evidence.mjs",
+    "capture:evidence": "node scripts/capture-onboarding-v1-evidence.mjs",
     "check": "npm run typecheck && npm test && npm run build",
-    "dev": "vite --host 127.0.0.1 --port 4182 --strictPort",
-    "preview": "vite preview --host 127.0.0.1 --port 4182 --strictPort",
+    "dev": "vite --host 127.0.0.1 --port 4188 --strictPort",
+    "preview": "vite preview --host 127.0.0.1 --port 4188 --strictPort",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

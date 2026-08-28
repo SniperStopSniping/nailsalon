@@ -87,6 +87,8 @@ import {
   type SectionSize,
   type SiteBuilderDocument,
 } from '../model';
+import { OnboardingApp } from '../onboarding/OnboardingApp';
+import { ONBOARDING_STORAGE_KEY } from '../onboarding/storage/storage';
 import { BookingSectionCard, type BookingCollapseReport } from './BookingSectionCard';
 import {
   getCustomDesignInternalTargets,
@@ -257,11 +259,46 @@ const restoreVisibleFocus = (element: HTMLElement | null): boolean => {
 
 type LabDocumentController = ReturnType<typeof useLabDocument>;
 
+const getInitialSurface = (): 'builder' | 'onboarding' => {
+  const builderTestHarnessEnabled = import.meta.env.MODE === 'test'
+    || import.meta.env.VITE_LUSTER_BUILDER_TEST_HARNESS === '1';
+  if (
+    builderTestHarnessEnabled
+    && new URLSearchParams(window.location.search).get('surface') === 'builder'
+  ) {
+    return 'builder';
+  }
+  if (import.meta.env.MODE !== 'test') return 'onboarding';
+  try {
+    return window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ? 'onboarding' : 'builder';
+  } catch {
+    return 'builder';
+  }
+};
+
 export function App() {
   const lab = useLabDocument();
+  const [surface, setSurface] = useState<'builder' | 'onboarding' | 'review'>(getInitialSurface);
   return (
     <CustomDesignAssetProvider getReachableAssetIds={lab.getReachableAssetIds}>
-      <BuilderApp lab={lab} />
+      {surface === 'builder' ? (
+        <div className="onboarding-builder-surface">
+          <button
+            className="onboarding-builder-return"
+            type="button"
+            onClick={() => setSurface('review')}
+          >
+            Back to onboarding review · Lab
+          </button>
+          <BuilderApp lab={lab} />
+        </div>
+      ) : (
+        <OnboardingApp
+          forceReview={surface === 'review'}
+          lab={lab}
+          onEnterBuilder={() => setSurface('builder')}
+        />
+      )}
     </CustomDesignAssetProvider>
   );
 }

@@ -22,12 +22,12 @@ export default defineConfig({
   publicDir: serviceImageDirectory,
   server: {
     host: '127.0.0.1',
-    port: 4182,
+    port: 4188,
     strictPort: true,
   },
   preview: {
     host: '127.0.0.1',
-    port: 4182,
+    port: 4188,
     strictPort: true,
   },
 });

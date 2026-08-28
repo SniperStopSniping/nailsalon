@@ -777,7 +777,7 @@
   margin-bottom: 20px;
 }
 
-.vg-identity h1 {
+.vg-identity .booking-page-heading {
   margin: 0;
   font-size: calc(21px * var(--heading-multiplier));
   line-height: 1.05;
@@ -1103,7 +1103,7 @@
   gap: 14px;
 }
 
-.clean-identity h1 {
+.clean-identity .booking-page-heading {
   margin: 0;
   font-size: calc(19px * var(--heading-multiplier));
 }
@@ -1321,7 +1321,7 @@
   text-transform: uppercase;
 }
 
-.editorial-hero-content h1 {
+.editorial-hero-content .booking-page-heading {
   max-width: 10ch;
   margin: 0 0 10px;
   font-family: var(--display-font);
@@ -1552,7 +1552,7 @@
   text-transform: uppercase;
 }
 
-.category-menu-header h1 {
+.category-menu-header .booking-page-heading {
   margin: 0 0 7px;
   font-size: calc(34px * var(--heading-multiplier));
   line-height: 0.95;
@@ -1827,7 +1827,7 @@
   text-transform: uppercase;
 }
 
-.price-list-masthead h1 {
+.price-list-masthead .booking-page-heading {
   margin: 0 0 9px;
   font-family: var(--display-font);
   font-size: calc(clamp(39px, 11cqw, 76px) * var(--heading-multiplier));
@@ -2084,7 +2084,7 @@
     padding: 36px 42px 24px;
   }
 
-  .clean-identity h1 {
+  .clean-identity .booking-page-heading {
     font-size: calc(26px * var(--heading-multiplier));
   }
 
@@ -2211,7 +2211,7 @@
     margin-bottom: 0;
   }
 
-  .category-menu-header h1 {
+  .category-menu-header .booking-page-heading {
     font-size: calc(48px * var(--heading-multiplier));
   }
 

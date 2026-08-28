@@ -286,9 +286,10 @@ function useMediaQuery(query: string): boolean {
   return matches;
 }
 
-function useStarterPreviewPlayback() {
+function useStarterPreviewPlayback(forceReducedMotion = false) {
   const hasFinePointer = useMediaQuery('(any-hover: hover) and (any-pointer: fine)');
-  const prefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  const systemPrefersReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  const prefersReducedMotion = forceReducedMotion || systemPrefersReducedMotion;
   const [interactionActiveId, setInteractionActiveId] = useState<OriginStarter | null>(null);
   const [cardRatios, setCardRatios] = useState<Partial<Record<OriginStarter, number>>>({});
   const [pageVisible, setPageVisible] = useState(() => document.visibilityState !== 'hidden');
@@ -421,10 +422,23 @@ function useStarterPreviewPlayback() {
   };
 }
 
-function PreviewHeader({ definition }: { definition: StarterPreviewDefinition }) {
+function PreviewHeader({
+  businessName = 'Luster Nail Studio',
+  definition,
+  portraitUrl,
+}: {
+  businessName?: string;
+  definition: StarterPreviewDefinition;
+  portraitUrl?: string;
+}) {
   return (
     <span className="final-starter-preview__header">
-      <span className="final-starter-preview__identity"><i>L</i><b>Luster Nail Studio</b></span>
+      <span className="final-starter-preview__identity">
+        {portraitUrl
+          ? <img alt="" className="final-starter-preview__portrait" src={portraitUrl} />
+          : <i>L</i>}
+        <b>{businessName}</b>
+      </span>
       <span className="final-starter-preview__nav">
         {definition.navigationItems.map((item, index) => (
           <span className={index === 0 ? 'is-poster-active' : undefined} key={item}>{item}</span>
@@ -503,14 +517,18 @@ function PreviewSceneContent({ scene }: { scene: PreviewScene }) {
 
 function StarterPreview({
   active,
+  businessName,
   definition,
   pageVisible,
+  portraitUrl,
   reducedMotion,
   starterId,
 }: {
   active: boolean;
+  businessName?: string;
   definition: StarterPreviewDefinition;
   pageVisible: boolean;
+  portraitUrl?: string;
   reducedMotion: boolean;
   starterId: OriginStarter;
 }) {
@@ -534,7 +552,11 @@ function StarterPreview({
       data-testid={`starter-preview-${starterId}`}
       style={previewStyle}
     >
-      <PreviewHeader definition={definition} />
+      <PreviewHeader
+        businessName={businessName}
+        definition={definition}
+        portraitUrl={portraitUrl}
+      />
       <span className="final-starter-preview__viewport">
         <PreviewPoster poster={definition.poster} />
         <span className="final-starter-preview__motion">
@@ -557,9 +579,79 @@ function StarterPreview({
   );
 }
 
+export type StarterChoiceGridProps = {
+  businessName?: string;
+  onChoose: (starter: OriginStarter) => void;
+  portraitUrl?: string;
+  reducedMotion?: boolean;
+  selectedStarter?: OriginStarter | null;
+};
+
+export function StarterChoiceGrid({
+  businessName,
+  onChoose,
+  portraitUrl,
+  reducedMotion = false,
+  selectedStarter = null,
+}: StarterChoiceGridProps) {
+  const playback = useStarterPreviewPlayback(reducedMotion);
+
+  return (
+    <>
+      <div className="final-starter-grid">
+        {STARTER_CHOICES.map((starter) => {
+          const previewActive = playback.activeId === starter.id;
+          return (
+            <button
+              aria-pressed={selectedStarter === starter.id}
+              className="final-starter-card"
+              data-preview-active={previewActive ? 'true' : 'false'}
+              data-selected={selectedStarter === starter.id ? 'true' : 'false'}
+              data-starter-id={starter.id}
+              key={starter.id}
+              ref={(element) => playback.registerCard(starter.id, element)}
+              type="button"
+              onBlur={() => playback.onCardBlur(starter.id)}
+              onClick={() => onChoose(starter.id)}
+              onFocus={() => playback.onCardFocus(starter.id)}
+              onMouseEnter={() => playback.onCardMouseEnter(starter.id)}
+              onMouseLeave={() => playback.onCardMouseLeave(starter.id)}
+            >
+              <span className="final-starter-card__copy">
+                <span className="final-starter-card__identity">
+                  <strong>{starter.title}</strong>
+                  <small>{starter.description}</small>
+                </span>
+                <span className="final-starter-card__included">
+                  <small>{starter.includesLabel}</small>
+                  <span>{starter.includedItems.join(' · ')}</span>
+                </span>
+                <span className="final-starter-card__action">{starter.cta} <ArrowRight aria-hidden="true" size={18} /></span>
+              </span>
+              <StarterPreview
+                active={previewActive}
+                businessName={businessName}
+                definition={starter.preview}
+                pageVisible={playback.pageVisible}
+                portraitUrl={portraitUrl}
+                reducedMotion={playback.prefersReducedMotion}
+                starterId={starter.id}
+              />
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="final-starter-reassurance">
+        <strong>Nothing is permanent.</strong>
+        <span>Every starting point uses the same editor. Add, remove, or rearrange pages and sections anytime.</span>
+      </div>
+    </>
+  );
+}
+
 export function StarterChooser({ onChoose, onImport }: StarterChooserProps) {
   const importInputRef = useRef<HTMLInputElement>(null);
-  const playback = useStarterPreviewPlayback();
 
   return (
     <main className="final-starter-screen">
@@ -576,50 +668,7 @@ export function StarterChooser({ onChoose, onImport }: StarterChooserProps) {
           Start simple or with a full website. You can add or change pages and sections anytime.
         </p>
 
-        <div className="final-starter-grid">
-          {STARTER_CHOICES.map((starter) => {
-            const previewActive = playback.activeId === starter.id;
-            return (
-              <button
-                className="final-starter-card"
-                data-preview-active={previewActive ? 'true' : 'false'}
-                data-starter-id={starter.id}
-                key={starter.id}
-                ref={(element) => playback.registerCard(starter.id, element)}
-                type="button"
-                onBlur={() => playback.onCardBlur(starter.id)}
-                onClick={() => onChoose(starter.id)}
-                onFocus={() => playback.onCardFocus(starter.id)}
-                onMouseEnter={() => playback.onCardMouseEnter(starter.id)}
-                onMouseLeave={() => playback.onCardMouseLeave(starter.id)}
-              >
-                <span className="final-starter-card__copy">
-                  <span className="final-starter-card__identity">
-                    <strong>{starter.title}</strong>
-                    <small>{starter.description}</small>
-                  </span>
-                  <span className="final-starter-card__included">
-                    <small>{starter.includesLabel}</small>
-                    <span>{starter.includedItems.join(' · ')}</span>
-                  </span>
-                  <span className="final-starter-card__action">{starter.cta} <ArrowRight aria-hidden="true" size={18} /></span>
-                </span>
-                <StarterPreview
-                  active={previewActive}
-                  definition={starter.preview}
-                  pageVisible={playback.pageVisible}
-                  reducedMotion={playback.prefersReducedMotion}
-                  starterId={starter.id}
-                />
-              </button>
-            );
-          })}
-        </div>
-
-        <div className="final-starter-reassurance">
-          <strong>Nothing is permanent.</strong>
-          <span>Every starting point uses the same editor. Add, remove, or rearrange pages and sections anytime.</span>
-        </div>
+        <StarterChoiceGrid onChoose={onChoose} />
 
         {onImport ? (
           <div className="final-starter-import">
