@@ -1,4 +1,4 @@
-import { Check, ChevronUp, Circle, Monitor, Smartphone, Tablet, TriangleAlert } from 'lucide-react';
+import { Check, ChevronDown, Circle, Monitor, Smartphone, Tablet, TriangleAlert } from 'lucide-react';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
@@ -52,11 +52,7 @@ export function FinalReviewScreen({
 }: FinalReviewScreenProps) {
   const readinessContentId = useId();
   const [device, setDevice] = useState<OnboardingPreviewDevice>('phone');
-  const [drawerOpen, setDrawerOpen] = useState(() => (
-    typeof window !== 'undefined'
-    && typeof window.matchMedia === 'function'
-    && window.matchMedia('(max-width: 919px)').matches
-  ));
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [compactReadiness, setCompactReadiness] = useState(() => (
     typeof window !== 'undefined'
     && typeof window.matchMedia === 'function'
@@ -107,6 +103,14 @@ export function FinalReviewScreen({
   const optionalImprovementCount = readiness.filter(
     ({ status }) => status === 'optional' || status === 'recommended',
   ).length;
+  const mobileReadinessHeading = needsAttention.length === 0
+    ? 'Ready to go'
+    : 'Needs attention';
+  const mobileReadinessSummary = needsAttention.length > 0
+    ? `${needsAttention.length} ${needsAttention.length === 1 ? 'item' : 'items'} to review`
+    : optionalImprovementCount > 0
+      ? `${optionalImprovementCount} optional ${optionalImprovementCount === 1 ? 'improvement' : 'improvements'}`
+      : 'Your website is ready';
   const readinessGroups = [
     {
       items: readiness.filter(({ status }) => status === 'needs_attention'),
@@ -155,16 +159,22 @@ export function FinalReviewScreen({
           </button>
         </div>
         <aside className={`onboarding-readiness${drawerOpen ? ' is-open' : ''}`} aria-label="Site readiness">
-          <button aria-controls={readinessContentId} aria-expanded={drawerOpen} className="onboarding-readiness__mobile-trigger" type="button" onClick={() => setDrawerOpen((current) => !current)}>
-            <span>
-              <strong>Site readiness</strong>
-              <small>{needsAttention.length === 0
-                ? `Ready to go${optionalImprovementCount > 0
-                  ? ` · ${optionalImprovementCount} optional ${optionalImprovementCount === 1 ? 'improvement' : 'improvements'}`
-                  : ''}`
-                : `${needsAttention.length} to review`}</small>
+          <button
+            aria-controls={readinessContentId}
+            aria-expanded={drawerOpen}
+            aria-label={`Site readiness. ${mobileReadinessHeading}. ${mobileReadinessSummary}. ${drawerOpen ? 'Hide checklist' : 'View checklist'}`}
+            className="onboarding-readiness__mobile-trigger"
+            type="button"
+            onClick={() => setDrawerOpen((current) => !current)}
+          >
+            <span className="onboarding-readiness__mobile-copy">
+              <strong>{mobileReadinessHeading}</strong>
+              <small>{mobileReadinessSummary}</small>
             </span>
-            <ChevronUp aria-hidden="true" size={18} />
+            <span className="onboarding-readiness__mobile-action">
+              {drawerOpen ? 'Hide checklist' : 'View checklist'}
+              <ChevronDown aria-hidden="true" size={18} />
+            </span>
           </button>
           <div
             ref={readinessContentRef}

@@ -71,10 +71,10 @@ describe('DashboardPreviewSurface', () => {
   it('arrives directly at the dashboard payoff and never auto-opens the optional tour', async () => {
     renderSurface();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { level: 1, name: 'You’re ready' })).toBeVisible();
+    expect(screen.getByRole('heading', { level: 1, name: 'Your Luster site is ready' })).toBeVisible();
     expect(screen.getByText(/website, booking page and service menu are set up/iu)).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Today at Isla Nail Studio' })).toBeVisible();
-    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'You’re ready' })).toHaveFocus());
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'Your Luster site is ready' })).toHaveFocus());
   });
 
   it('orders Today and Website first and keeps website editing one action away', async () => {
@@ -97,7 +97,7 @@ describe('DashboardPreviewSurface', () => {
   it('opens the five-step tour only on request and highlights the real storyboard', async () => {
     const user = userEvent.setup();
     const { onTourCompletedChange } = renderSurface();
-    const welcome = screen.getByRole('heading', { name: 'You’re ready' }).closest('section')!;
+    const welcome = screen.getByRole('heading', { name: 'Your Luster site is ready' }).closest('section')!;
     await user.click(within(welcome).getByRole('button', { name: 'Take a quick tour' }));
 
     const dialog = screen.getByRole('dialog', { name: 'A quick look around Luster' });

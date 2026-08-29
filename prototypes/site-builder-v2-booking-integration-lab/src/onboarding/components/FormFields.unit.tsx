@@ -7,7 +7,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createDefaultBusinessProfile } from '../model/defaults';
 import { BusinessScreen } from '../screens/BasicsScreens';
-import { focusFirstInvalidControl, NativeSwitch } from './FormFields';
+import {
+  focusFirstInvalidControl,
+  ImageUploadField,
+  NativeSwitch,
+} from './FormFields';
 
 describe('focusFirstInvalidControl', () => {
   it('focuses and scrolls the first enabled control nested in the first invalid group', async () => {
@@ -195,5 +199,65 @@ describe('NativeSwitch', () => {
     const callCount = onChange.mock.calls.length;
     await user.click(disabledControl.closest('label') as HTMLElement);
     expect(onChange).toHaveBeenCalledTimes(callCount);
+  });
+});
+
+describe('ImageUploadField', () => {
+  it('shows processing and then a ready thumbnail before offering Replace or Remove', async () => {
+    const user = userEvent.setup();
+    let finishUpload: (() => void) | undefined;
+
+    function Harness() {
+      const [currentLabel, setCurrentLabel] = useState<string>();
+      return (
+        <ImageUploadField
+          chooseLabel="Choose profile photo"
+          currentLabel={currentLabel}
+          label="Profile photo"
+          onRemove={() => setCurrentLabel(undefined)}
+          onSelect={async (file) => {
+            await new Promise<void>((resolve) => { finishUpload = resolve; });
+            setCurrentLabel(file.name);
+          }}
+          previewUrl={currentLabel ? 'blob:profile-photo' : undefined}
+          readyLabel="Photo ready"
+        />
+      );
+    }
+
+    render(<Harness />);
+    const file = new File(['jpeg'], 'IMG_5222.jpeg', { type: 'image/jpeg' });
+    await user.upload(screen.getByLabelText('Profile photo'), file);
+
+    expect(screen.getByRole('status')).toHaveTextContent('Processing photo…IMG_5222.jpeg');
+    finishUpload?.();
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Photo readyIMG_5222.jpeg'));
+    expect(screen.getByRole('button', { name: 'Replace' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeEnabled();
+  });
+
+  it('keeps a precise failed row with Retry and Choose another image', async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn(async () => {
+      throw new Error('This private tab isn’t allowing Luster to save images. Open this page in a regular tab and try again.');
+    });
+    render(
+      <ImageUploadField
+        label="Gallery photo"
+        onSelect={onSelect}
+      />,
+    );
+
+    await user.upload(
+      screen.getByLabelText('Gallery photo'),
+      new File(['jpeg'], 'IMG_5222.jpeg', { type: 'image/jpeg' }),
+    );
+
+    const error = await screen.findByRole('alert');
+    expect(error).toHaveTextContent('IMG_5222.jpeg');
+    expect(error).toHaveTextContent('private tab');
+    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('button', { name: 'Choose another image' })).toBeEnabled();
   });
 });

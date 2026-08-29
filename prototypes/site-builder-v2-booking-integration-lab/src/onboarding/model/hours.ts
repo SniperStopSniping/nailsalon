@@ -18,7 +18,7 @@ export type PublicWeeklyHoursRow = {
   weekday: Weekday;
 };
 
-const WEEKDAYS: readonly Weekday[] = [
+export const WEEKDAYS: readonly Weekday[] = [
   'monday',
   'tuesday',
   'wednesday',
@@ -28,7 +28,7 @@ const WEEKDAYS: readonly Weekday[] = [
   'sunday',
 ];
 
-const WEEKDAY_LABELS: Record<Weekday, string> = {
+export const WEEKDAY_LABELS: Record<Weekday, string> = {
   friday: 'Friday',
   monday: 'Monday',
   saturday: 'Saturday',
@@ -48,7 +48,7 @@ const WEEKDAY_BY_LABEL: Record<string, Weekday> = {
   Wednesday: 'wednesday',
 };
 
-const parseTime = (value: string): number | null => {
+export const parseHoursTime = (value: string): number | null => {
   const match = /^(\d{2}):(\d{2})$/u.exec(value.trim());
   if (!match) return null;
   const hours = Number(match[1]);
@@ -59,16 +59,58 @@ const parseTime = (value: string): number | null => {
 
 export const isValidOpenHoursDay = (day: DayHoursDraft): boolean => {
   if (day.closed) return false;
-  const open = parseTime(day.open);
-  const close = parseTime(day.close);
+  const open = parseHoursTime(day.open);
+  const close = parseHoursTime(day.close);
   return open !== null && close !== null && close > open;
 };
+
+export type HoursIntervalError = 'closing_not_after_open' | 'partial';
+
+export const getHoursIntervalError = (
+  openValue: string,
+  closeValue: string,
+): HoursIntervalError | null => {
+  const hasOpen = Boolean(openValue.trim());
+  const hasClose = Boolean(closeValue.trim());
+  if (!hasOpen && !hasClose) return 'partial';
+  if (!hasOpen || !hasClose) return 'partial';
+  const open = parseHoursTime(openValue);
+  const close = parseHoursTime(closeValue);
+  if (open === null || close === null) return 'partial';
+  return close > open ? null : 'closing_not_after_open';
+};
+
+export const getHoursIntervalErrorMessage = (
+  error: HoursIntervalError,
+): string => error === 'closing_not_after_open'
+  ? 'Closing time must be later than opening time.'
+  : 'Choose both an opening and closing time.';
+
+export const isInvalidEnteredHoursDay = (day: DayHoursDraft): boolean => {
+  if (day.closed) return false;
+  if (!day.open.trim() && !day.close.trim()) return false;
+  return getHoursIntervalError(day.open, day.close) !== null;
+};
+
+export const hasInvalidEnteredWeeklyHours = (hours: WeeklyHoursDraft): boolean =>
+  Object.values(hours.days).some(isInvalidEnteredHoursDay);
 
 const formatTime = (minutes: number): string => new Intl.DateTimeFormat('en-US', {
   hour: 'numeric',
   minute: '2-digit',
   timeZone: 'UTC',
 }).format(new Date(Date.UTC(2026, 0, 1, Math.floor(minutes / 60), minutes % 60)));
+
+export const formatHoursTimeValue = (value: string): string => {
+  const minutes = parseHoursTime(value);
+  return minutes === null ? value : formatTime(minutes);
+};
+
+export const formatHoursInterval = (day: DayHoursDraft): string => {
+  if (day.closed) return 'Closed';
+  if (!isValidOpenHoursDay(day)) return 'Needs attention';
+  return `${formatHoursTimeValue(day.open)}–${formatHoursTimeValue(day.close)}`;
+};
 
 const nextOpeningLabel = (
   weekday: Weekday,
@@ -110,13 +152,108 @@ export const getConfiguredOpenDayCount = (hours: WeeklyHoursDraft): number =>
 export const hasConfiguredWeeklyHours = (hours: WeeklyHoursDraft): boolean =>
   getConfiguredOpenDayCount(hours) > 0;
 
+export const hasCompleteWeeklyHours = (hours: WeeklyHoursDraft): boolean =>
+  hasConfiguredWeeklyHours(hours) && !hasInvalidEnteredWeeklyHours(hours);
+
+export const applyRegularHours = (
+  hours: WeeklyHoursDraft,
+  selectedDays: readonly Weekday[],
+  open: string,
+  close: string,
+): WeeklyHoursDraft | null => {
+  if (selectedDays.length === 0 || getHoursIntervalError(open, close)) return null;
+  const selected = new Set(selectedDays);
+  const initializeClosedDays = hours.setupState !== 'configured';
+  const days = Object.fromEntries(WEEKDAYS.map((weekday) => {
+    if (selected.has(weekday)) {
+      return [weekday, { close, closed: false, open }];
+    }
+    if (initializeClosedDays) {
+      return [weekday, { close: '', closed: true, open: '' }];
+    }
+    return [weekday, { ...hours.days[weekday] }];
+  })) as WeeklyHoursDraft['days'];
+  return {
+    ...hours,
+    days,
+    setupState: 'configured',
+  };
+};
+
+export const updateWeeklyHoursDay = (
+  hours: WeeklyHoursDraft,
+  weekday: Weekday,
+  day: DayHoursDraft,
+): WeeklyHoursDraft | null => {
+  if (!day.closed && getHoursIntervalError(day.open, day.close)) return null;
+  const days = {
+    ...hours.days,
+    [weekday]: { ...day },
+  };
+  return {
+    ...hours,
+    days,
+    setupState: Object.values(days).some(isValidOpenHoursDay)
+      ? 'configured'
+      : 'unset',
+  };
+};
+
+export const copyWeeklyHoursDay = (
+  hours: WeeklyHoursDraft,
+  sourceDay: Weekday,
+  targetDays: readonly Weekday[],
+): WeeklyHoursDraft => {
+  const source = hours.days[sourceDay];
+  const targets = new Set(targetDays.filter((weekday) => weekday !== sourceDay));
+  const days = Object.fromEntries(WEEKDAYS.map((weekday) => [
+    weekday,
+    targets.has(weekday) ? { ...source } : { ...hours.days[weekday] },
+  ])) as WeeklyHoursDraft['days'];
+  return {
+    ...hours,
+    days,
+    setupState: Object.values(days).some(isValidOpenHoursDay)
+      ? 'configured'
+      : 'unset',
+  };
+};
+
 export const getWeeklyHoursSetupSummary = (hours: WeeklyHoursDraft): string => {
   if (hours.setupState === 'unset') return 'Not set · Optional';
   if (hours.setupState === 'skipped') return 'Not shown on your site';
+  if (hasInvalidEnteredWeeklyHours(hours)) return 'Finish your hours';
   const openDays = getConfiguredOpenDayCount(hours);
   if (openDays === 0) return 'Not set · Optional';
   if (!hours.showOnSite) return 'Not shown on your site';
   return `${openDays} day${openDays === 1 ? '' : 's'} · Shown on your site`;
+};
+
+export const getWeeklyHoursCardSummary = (hours: WeeklyHoursDraft): string => {
+  if (hours.setupState === 'unset') return 'Add your business hours';
+  if (hours.setupState === 'skipped' || !hours.showOnSite) {
+    return 'Not shown on your website';
+  }
+  if (hasInvalidEnteredWeeklyHours(hours)) return 'Finish your hours';
+  const openDays = WEEKDAYS.filter((weekday) => isValidOpenHoursDay(hours.days[weekday]));
+  if (openDays.length === 0) return 'Add your business hours';
+  const first = hours.days[openDays[0] ?? 'monday'];
+  const sharesInterval = openDays.every((weekday) => {
+    const day = hours.days[weekday];
+    return day.open === first.open && day.close === first.close;
+  });
+  const dayLabel = openDays.length === 7
+    ? 'Every day'
+    : openDays.length === 6
+      && openDays.every((weekday) => weekday !== 'sunday')
+      ? 'Mon–Sat'
+      : openDays.length === 5
+        && openDays.every((weekday) => weekday !== 'saturday' && weekday !== 'sunday')
+        ? 'Mon–Fri'
+        : `${openDays.length} day${openDays.length === 1 ? '' : 's'}`;
+  return sharesInterval
+    ? `${dayLabel} · ${formatHoursInterval(first)}`
+    : `${dayLabel} configured`;
 };
 
 export const getPublicWeeklyHours = (
@@ -125,15 +262,15 @@ export const getPublicWeeklyHours = (
   if (
     hours.setupState !== 'configured'
     || !hours.showOnSite
-    || !hasConfiguredWeeklyHours(hours)
+    || !hasCompleteWeeklyHours(hours)
   ) return [];
   return WEEKDAYS.flatMap((weekday) => {
     const day = hours.days[weekday];
     if (day.closed) {
       return [{ hours: 'Closed', label: WEEKDAY_LABELS[weekday], weekday }];
     }
-    const open = parseTime(day.open);
-    const close = parseTime(day.close);
+    const open = parseHoursTime(day.open);
+    const close = parseHoursTime(day.close);
     if (open === null || close === null || close <= open) return [];
     return [{
       hours: `${formatTime(open)}–${formatTime(close)}`,
@@ -151,13 +288,13 @@ export const getWeeklyHoursPreviewStatus = (
   if (
     hours.setupState !== 'configured'
     || !hours.showOnSite
-    || !hasConfiguredWeeklyHours(hours)
+    || !hasCompleteWeeklyHours(hours)
   ) return null;
   const clock = getPreviewClock(timestamp, timeZone);
   if (!clock) return null;
   const day = hours.days[clock.weekday];
-  const open = parseTime(day.open);
-  const close = parseTime(day.close);
+  const open = parseHoursTime(day.open);
+  const close = parseHoursTime(day.close);
   if (
     !day.closed
     && open !== null
@@ -181,7 +318,7 @@ export const getWeeklyHoursPreviewStatus = (
     if (!candidateWeekday) continue;
     const candidate = hours.days[candidateWeekday];
     if (!isValidOpenHoursDay(candidate)) continue;
-    const candidateOpen = parseTime(candidate.open);
+    const candidateOpen = parseHoursTime(candidate.open);
     if (candidateOpen === null) continue;
     if (dayOffset === 0 && clock.minutes >= candidateOpen) continue;
     return {

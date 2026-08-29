@@ -330,16 +330,17 @@ type ConfirmationDialogProps = {
   confirmLabel: string;
   danger?: boolean;
   description: string;
+  pending?: boolean;
   onClose: () => void;
   onConfirm: () => void;
   open: boolean;
   title: string;
 };
 
-export function ConfirmationDialog({ cancelLabel = 'Cancel', confirmLabel, danger = false, description, onClose, onConfirm, open, title }: ConfirmationDialogProps) {
+export function ConfirmationDialog({ cancelLabel = 'Cancel', confirmLabel, danger = false, description, onClose, onConfirm, open, pending = false, title }: ConfirmationDialogProps) {
   return (
-    <Dialog description={description} onClose={onClose} open={open} title={title}>
-      <div className="dialog-actions"><button className="secondary-button" type="button" onClick={onClose}>{cancelLabel}</button><button className={danger ? 'danger-button' : 'primary-button'} type="button" onClick={onConfirm}>{confirmLabel}</button></div>
+    <Dialog closeDisabled={pending} description={description} onClose={() => { if (!pending) onClose(); }} open={open} title={title}>
+      <div aria-busy={pending || undefined} className="dialog-actions"><button className="secondary-button" disabled={pending} type="button" onClick={onClose}>{cancelLabel}</button><button className={danger ? 'danger-button' : 'primary-button'} disabled={pending} type="button" onClick={onConfirm}>{pending ? 'Starting over…' : confirmLabel}</button></div>
     </Dialog>
   );
 }

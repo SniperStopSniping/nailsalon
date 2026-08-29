@@ -6,6 +6,13 @@
   padding-bottom: max(4px, env(safe-area-inset-bottom));
 }
 
+.onboarding-plan-sheet__status-note {
+  margin: 0;
+  color: var(--onboarding-muted);
+  font-size: .68rem;
+  line-height: 1.4;
+}
+
 .onboarding-plan-sheet .onboarding-plan-grid {
   display: grid;
   min-width: 0;
@@ -183,23 +190,54 @@
   cursor: pointer;
 }
 
-.onboarding-plan-comparison__rows {
+.onboarding-plan-comparison__groups {
   display: grid;
   min-width: 0;
+  gap: 0;
   border-top: 1px solid var(--onboarding-line);
 }
 
-.onboarding-plan-comparison__rows > div {
+.onboarding-plan-comparison__groups > section {
   display: grid;
   min-width: 0;
-  gap: 2px;
-  padding: 10px 14px;
+  gap: 7px;
+  padding: 12px 14px;
   border-bottom: 1px solid var(--onboarding-line);
 }
 
-.onboarding-plan-comparison__rows > div:last-child { border-bottom: 0; }
-.onboarding-plan-comparison__rows strong { font-size: .72rem; }
-.onboarding-plan-comparison__rows span { color: var(--onboarding-muted); font-size: .68rem; }
+.onboarding-plan-comparison__groups > section:last-child { border-bottom: 0; }
+
+.onboarding-plan-comparison__groups h3 {
+  margin: 0;
+  color: var(--onboarding-muted);
+  font-size: .64rem;
+  font-weight: 820;
+  letter-spacing: .055em;
+  text-transform: uppercase;
+}
+
+.onboarding-plan-comparison__groups ul {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding-plan-comparison__groups li {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 7px;
+  color: var(--onboarding-ink);
+  font-size: .7rem;
+  line-height: 1.35;
+}
+
+.onboarding-plan-comparison__groups li svg {
+  flex: 0 0 auto;
+  color: var(--onboarding-success);
+}
 
 .onboarding-plan-sheet .onboarding-plan-disclaimer {
   margin: 0;
@@ -241,6 +279,16 @@
 }
 
 @media (max-width: 699px) {
+  .dialog-panel--bottom-sheet:has(.onboarding-plan-sheet) {
+    height: min(96dvh, 900px);
+    max-height: calc(100dvh - max(4px, env(safe-area-inset-top)));
+  }
+
+  .dialog-panel--bottom-sheet:has(.onboarding-plan-sheet) .dialog-body {
+    flex: 1 1 auto;
+    overflow-y: auto;
+  }
+
   .onboarding-plan-sheet .onboarding-plan-card:not(.is-selected) > p,
   .onboarding-plan-sheet .onboarding-plan-card:not(.is-selected) > ul {
     display: none;

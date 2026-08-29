@@ -8,6 +8,7 @@ import './onboarding/onboarding.css';
 import './onboarding/daniela-basics-booking.css';
 import './onboarding/gallery-policy-polish.css';
 import './onboarding/daniela-about-style.css';
+import './onboarding/feedback/feedback.css';
 
 const rootElement = document.getElementById('root');
 

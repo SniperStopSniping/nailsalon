@@ -1098,12 +1098,12 @@ body.onboarding-modal-open {
   white-space: nowrap;
 }
 
-.onboarding-collapsible-card__trigger > span:last-child:not(:first-child) {
+.onboarding-collapsible-card__state {
   flex: 0 0 auto;
   padding: 4px 7px;
   border-radius: 999px;
-  color: var(--onboarding-success);
-  background: #e8f4ee;
+  color: var(--onboarding-accent-dark);
+  background: var(--onboarding-accent-soft);
   font-size: 0.64rem;
   font-weight: 790;
 }
@@ -1132,6 +1132,97 @@ body.onboarding-modal-open {
   border: 1px dashed #c9b9b7;
   border-radius: 14px;
   background: var(--onboarding-surface-soft);
+}
+
+.onboarding-image-upload.is-processing {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--onboarding-accent) 42%, var(--onboarding-line));
+}
+
+.onboarding-image-upload.is-ready {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--onboarding-success) 38%, var(--onboarding-line));
+}
+
+.onboarding-image-upload.has-error {
+  border-style: solid;
+  border-color: var(--onboarding-danger);
+}
+
+.onboarding-image-upload__status {
+  display: flex;
+  min-width: 0;
+  min-height: 58px;
+  align-items: center;
+  gap: 11px;
+  padding: 9px 10px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.84);
+}
+
+.onboarding-image-upload__status img,
+.onboarding-image-upload__ready-mark {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 48px;
+  place-items: center;
+  border-radius: 10px;
+  object-fit: cover;
+  color: var(--onboarding-success);
+  background: #e8f4ee;
+}
+
+.onboarding-image-upload__status > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.onboarding-image-upload__status strong,
+.onboarding-image-upload__status small {
+  overflow-wrap: anywhere;
+}
+
+.onboarding-image-upload__status small {
+  color: var(--onboarding-muted);
+}
+
+.onboarding-image-upload__spinner {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  border: 3px solid var(--onboarding-accent-soft);
+  border-top-color: var(--onboarding-accent);
+  border-radius: 999px;
+  animation: onboarding-upload-spin 760ms linear infinite;
+}
+
+.onboarding-image-upload__failure {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 12px;
+  color: #7d2938;
+  background: #fff0f1;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.onboarding-image-upload__failure > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+}
+
+.onboarding-image-upload__failure button {
+  min-height: 44px;
+}
+
+@keyframes onboarding-upload-spin {
+  to { transform: rotate(360deg); }
 }
 
 .onboarding-image-upload > p {
@@ -2365,7 +2456,7 @@ body.onboarding-modal-open {
 }
 
 .onboarding-preview-stage.is-fit-available {
-  height: 100%;
+  height: var(--preview-stage-height);
   min-height: 0;
 }
 
@@ -3102,15 +3193,14 @@ body.onboarding-modal-open {
 }
 
 .onboarding-readiness {
-  position: sticky;
-  z-index: 8;
-  bottom: calc(106px + env(safe-area-inset-bottom));
+  position: relative;
+  z-index: 1;
   min-width: 0;
   overflow: hidden;
   border: 1px solid var(--onboarding-line);
   border-radius: 17px;
   background: var(--onboarding-surface);
-  box-shadow: 0 15px 44px rgba(64, 42, 46, 0.15);
+  box-shadow: 0 10px 28px rgba(64, 42, 46, 0.09);
 }
 
 .onboarding-readiness__mobile-trigger {
@@ -3126,8 +3216,9 @@ body.onboarding-modal-open {
   text-align: left;
 }
 
-.onboarding-readiness__mobile-trigger > span {
+.onboarding-readiness__mobile-copy {
   display: grid;
+  min-width: 0;
   gap: 2px;
 }
 
@@ -3136,11 +3227,21 @@ body.onboarding-modal-open {
   font-size: 0.68rem;
 }
 
-.onboarding-readiness__mobile-trigger svg {
+.onboarding-readiness__mobile-action {
+  display: inline-flex;
+  min-width: max-content;
+  align-items: center;
+  gap: 5px;
+  color: var(--onboarding-accent-dark);
+  font-size: 0.68rem;
+  font-weight: 780;
+}
+
+.onboarding-readiness__mobile-action svg {
   transition: transform 150ms ease;
 }
 
-.onboarding-readiness.is-open .onboarding-readiness__mobile-trigger svg {
+.onboarding-readiness.is-open .onboarding-readiness__mobile-action svg {
   transform: rotate(180deg);
 }
 
@@ -3150,10 +3251,9 @@ body.onboarding-modal-open {
 }
 
 .onboarding-readiness.is-open .onboarding-readiness__content {
-  max-height: min(46vh, 430px);
+  max-height: none;
   padding: 0 13px 13px;
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  overflow: visible;
 }
 
 .onboarding-readiness__content h2 {
@@ -3241,6 +3341,11 @@ body.onboarding-modal-open {
 
 /* Dialog content: the shared Dialog owns focus, scroll lock, and restoration. */
 
+.dialog-panel--sheet:has(.onboarding-preview-overlay) {
+  height: auto;
+  max-height: calc(100dvh - 16px);
+}
+
 .dialog-panel:has(.onboarding-subflow),
 .dialog-panel:has(.onboarding-preview-overlay),
 .dialog-panel:has(.onboarding-plan-sheet),
@@ -3273,27 +3378,28 @@ body.onboarding-modal-open {
 }
 
 .dialog-panel:has(.onboarding-preview-overlay) .dialog-body {
-  display: flex;
+  display: block;
   width: 100%;
   min-height: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   padding: 0;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .onboarding-preview-overlay {
   display: grid;
   position: relative;
   width: 100%;
-  height: 100%;
+  height: auto;
   min-width: 0;
   min-height: 0;
-  flex: 1 1 auto;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto;
+  align-content: start;
   gap: 10px;
   padding: 10px max(10px, env(safe-area-inset-right))
     max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
-  overflow: hidden;
+  overflow-x: hidden;
   color: var(--onboarding-ink);
   background: #e8e2df;
 }
@@ -3317,7 +3423,10 @@ body.onboarding-modal-open {
 }
 
 .onboarding-preview-overlay .onboarding-preview-stage {
-  height: 100%;
+  height: min(
+    var(--preview-stage-height),
+    clamp(210px, 64svh, 600px)
+  );
   min-height: 0;
 }
 
@@ -3931,8 +4040,15 @@ body.onboarding-modal-open {
 }
 
 .onboarding-app.is-reduced-motion .onboarding-autosave-status.is-saving::before,
+.onboarding-app.is-reduced-motion .onboarding-image-upload__spinner,
 .onboarding-app.is-reduced-motion .is-spinning {
   animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-image-upload__spinner {
+    animation: none;
+  }
 }
 
 @media (min-width: 768px) {
@@ -4073,7 +4189,8 @@ body.onboarding-modal-open {
 
   .dialog-panel--sheet:has(.onboarding-preview-overlay) {
     width: min(1180px, calc(100vw - 28px));
-    height: calc(100vh - 28px);
+    height: auto;
+    max-height: calc(100dvh - 28px);
     margin: auto;
     border-radius: 20px;
   }
@@ -4176,9 +4293,9 @@ body.onboarding-modal-open {
 }
 
 .onboarding-app.is-small-phone-fixture .onboarding-readiness {
-  position: sticky;
+  position: relative;
   top: auto;
-  bottom: calc(106px + env(safe-area-inset-bottom));
+  bottom: auto;
 }
 
 .onboarding-app.is-small-phone-fixture .onboarding-readiness__mobile-trigger {
@@ -4194,9 +4311,9 @@ body.onboarding-modal-open {
 .onboarding-app.is-small-phone-fixture
   .onboarding-readiness.is-open
   .onboarding-readiness__content {
-  max-height: min(46vh, 430px);
+  max-height: none;
   padding: 0 13px 13px;
-  overflow-y: auto;
+  overflow: visible;
 }
 
 @media (max-width: 919px) {
@@ -4285,9 +4402,8 @@ body.onboarding-modal-open {
   }
 
   .dialog-panel--sheet:has(.onboarding-preview-overlay) {
-    height: 100vh;
-    height: 100dvh;
-    max-height: none;
+    height: auto;
+    max-height: 100dvh;
     border-radius: 0;
   }
 
@@ -4407,6 +4523,13 @@ body.onboarding-modal-open {
     order: initial;
     padding: 6px 5px;
     font-size: 0.65rem;
+  }
+}
+
+@media (max-width: 699px) {
+  .dialog-panel--bottom-sheet:has(.onboarding-plan-sheet) {
+    height: min(96dvh, 900px);
+    max-height: calc(100dvh - max(4px, env(safe-area-inset-top)));
   }
 }
 
@@ -4557,8 +4680,12 @@ body.onboarding-modal-open {
 
   .onboarding-preview-overlay {
     grid-template-columns: auto minmax(0, 1fr) auto;
-    grid-template-rows: minmax(0, 1fr);
+    grid-template-rows: auto;
     align-items: center;
+  }
+
+  .onboarding-preview-overlay .onboarding-preview-stage {
+    height: min(var(--preview-stage-height), calc(100dvh - 120px));
   }
 
   .onboarding-preview-overlay .onboarding-device-switcher {

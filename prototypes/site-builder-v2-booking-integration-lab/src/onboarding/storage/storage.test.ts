@@ -145,6 +145,30 @@ describe('onboarding browser-local storage', () => {
     })).status).toBe('error');
   });
 
+  it('normalizes absent or malformed current milestone state to known deduplicated ids', () => {
+    const absent = createDefaultOnboardingState();
+    delete absent.reviewOptions.feedbackMilestones;
+    expect(parseOnboardingState(JSON.stringify(absent))).toMatchObject({
+      state: { reviewOptions: { feedbackMilestones: [] } },
+      status: 'loaded',
+    });
+
+    const malformed = createDefaultOnboardingState() as unknown as {
+      reviewOptions: Record<string, unknown>;
+    };
+    malformed.reviewOptions.feedbackMilestones = [
+      'stage_basics',
+      'stage_basics',
+      'unknown_milestone',
+      42,
+      null,
+    ];
+    expect(parseOnboardingState(JSON.stringify(malformed))).toMatchObject({
+      state: { reviewOptions: { feedbackMilestones: ['stage_basics'] } },
+      status: 'loaded',
+    });
+  });
+
   it('migrates legacy hours without treating the old seeded schedule as owner-provided', () => {
     const untouched = parseOnboardingState(JSON.stringify(createLegacySavedState({
       phone: '416-555-0100',

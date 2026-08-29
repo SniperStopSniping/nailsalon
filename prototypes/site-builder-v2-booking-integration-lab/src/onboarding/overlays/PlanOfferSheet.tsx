@@ -1,7 +1,8 @@
 import { Check } from 'lucide-react';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import { Dialog } from '../../ui/Dialog';
+import { useFeedback } from '../feedback/useFeedback';
 import type { FoundingOfferMode, PlanIntent, PlanOfferDraft } from '../model/types';
 import './plan-offer.css';
 
@@ -19,30 +20,34 @@ export type OnboardingPlanOption = {
 };
 
 export type OnboardingPlanConfiguration = {
-  comparisonRows: readonly { description: string; feature: string }[];
+  comparisonRows: readonly {
+    feature: string;
+    group: 'included_now' | 'planned_paid';
+  }[];
   foundingMode: FoundingOfferMode;
   options: readonly OnboardingPlanOption[];
+  showPlanComparison: boolean;
 };
 
 const FREE_OPTION: OnboardingPlanOption = {
-  description: 'Start using your booking page and basic website. Upgrade whenever you’re ready.',
+  description: 'Start using your booking page, service menu and basic website.',
   enabled: true,
   features: ['Online booking', 'Basic website', 'Service menu', 'Upgrade later'],
   id: 'free',
   planIntent: 'free',
-  priceLabel: 'Always free to start',
+  priceLabel: '$0 to start',
   title: 'Free',
 };
 
 const FOUNDING_OPTION: OnboardingPlanOption = {
   badge: 'Early interest',
-  description: 'Reserve your interest in an early Luster offer while final features and pricing are being confirmed.',
+  description: 'Reserve your interest in an early Luster offer while final details are confirmed.',
   enabled: true,
   features: [
-    'Additional website tools',
+    'More website tools',
     'Advanced sections',
-    'More design controls',
-    'Founding-member benefits to be confirmed',
+    'Additional design options',
+    'Founding benefits to be confirmed',
   ],
   id: 'founding',
   planIntent: 'founding',
@@ -51,7 +56,7 @@ const FOUNDING_OPTION: OnboardingPlanOption = {
 };
 
 const MONTHLY_OPTION: OnboardingPlanOption = {
-  description: 'Tell us you’re interested in the complete monthly Luster website experience.',
+  description: 'Tell us you are interested in Luster’s complete monthly website experience.',
   enabled: true,
   features: [
     'Complete website tools',
@@ -62,18 +67,19 @@ const MONTHLY_OPTION: OnboardingPlanOption = {
   id: 'monthly',
   planIntent: 'monthly',
   priceLabel: 'Price coming soon',
-  title: 'Monthly plan',
+  title: 'Monthly',
 };
 
 export const createLabPlanConfiguration = (
   foundingMode: FoundingOfferMode = 'lifetime',
 ): OnboardingPlanConfiguration => ({
   comparisonRows: [
-    { description: 'Included with every plan', feature: 'Online booking' },
-    { description: 'Included with every plan', feature: 'Basic website' },
-    { description: 'Planned for paid options', feature: 'Advanced website sections' },
-    { description: 'Planned for paid options', feature: 'Gallery and Canva tools' },
-    { description: 'Planned for paid options', feature: 'More design customization' },
+    { feature: 'Online booking', group: 'included_now' },
+    { feature: 'Basic website', group: 'included_now' },
+    { feature: 'Service menu', group: 'included_now' },
+    { feature: 'More website sections', group: 'planned_paid' },
+    { feature: 'Gallery and Canva tools', group: 'planned_paid' },
+    { feature: 'Additional customization', group: 'planned_paid' },
   ],
   foundingMode,
   options: [
@@ -81,7 +87,13 @@ export const createLabPlanConfiguration = (
     ...(foundingMode === 'hidden' ? [] : [FOUNDING_OPTION]),
     MONTHLY_OPTION,
   ],
+  showPlanComparison: true,
 });
+
+const COMPARISON_GROUPS = [
+  { id: 'included_now', label: 'Included now' },
+  { id: 'planned_paid', label: 'Planned for paid options' },
+] as const;
 
 const ACTION_LABELS: Record<PlanIntent, string> = {
   founding: 'Reserve founding offer',
@@ -98,6 +110,8 @@ type PlanOfferSheetProps = {
 };
 
 export function PlanOfferSheet({ configuration, offer, onChoose, onClose, open }: PlanOfferSheetProps) {
+  const feedback = useFeedback();
+  const choosingRef = useRef(false);
   const radioName = useId();
   const resolvedConfiguration = configuration ?? createLabPlanConfiguration(offer.foundingMode);
   const visibleOptions = useMemo(() => resolvedConfiguration.options.filter((option) => (
@@ -109,9 +123,14 @@ export function PlanOfferSheet({ configuration, offer, onChoose, onClose, open }
     ? 'free'
     : visibleOptions[0]?.planIntent ?? 'free';
   const [selectedIntent, setSelectedIntent] = useState<PlanIntent>(initialIntent);
+  const [choosing, setChoosing] = useState(false);
 
   useEffect(() => {
-    if (open) setSelectedIntent(initialIntent);
+    if (open) {
+      choosingRef.current = false;
+      setChoosing(false);
+      setSelectedIntent(initialIntent);
+    }
   }, [initialIntent, open]);
 
   const selectedOption = visibleOptions.find((option) => option.planIntent === selectedIntent)
@@ -119,7 +138,7 @@ export function PlanOfferSheet({ configuration, offer, onChoose, onClose, open }
 
   return (
     <Dialog
-      description="Nothing is charged today. Continue free, or tell us which plan you’re interested in. Final prices and features are still being confirmed."
+      description="Start free today, or tell us which future Luster plan interests you. Nothing is charged now, and you can upgrade later."
       initialFocusSelector="[data-dialog-title]"
       onClose={onClose}
       open={open}
@@ -127,6 +146,9 @@ export function PlanOfferSheet({ configuration, offer, onChoose, onClose, open }
       variant="bottom-sheet"
     >
       <div className="onboarding-plan-sheet">
+        <p className="onboarding-plan-sheet__status-note">
+          Final paid-plan pricing and features are still being confirmed.
+        </p>
         <fieldset className="onboarding-plan-grid">
           <legend className="visually-hidden">Choose a plan interest</legend>
           {visibleOptions.map((option) => {
@@ -138,7 +160,10 @@ export function PlanOfferSheet({ configuration, offer, onChoose, onClose, open }
                   name={radioName}
                   type="radio"
                   value={option.planIntent}
-                  onChange={() => setSelectedIntent(option.planIntent)}
+                  onChange={() => {
+                    feedback.send({ kind: 'selection' });
+                    setSelectedIntent(option.planIntent);
+                  }}
                 />
                 <span className="onboarding-plan-card__selection" aria-hidden="true">
                   {selected ? <Check size={15} /> : null}
@@ -161,17 +186,31 @@ export function PlanOfferSheet({ configuration, offer, onChoose, onClose, open }
           })}
         </fieldset>
 
-        <details className="onboarding-plan-comparison">
-          <summary>Compare what’s included</summary>
-          <div className="onboarding-plan-comparison__rows">
-            {resolvedConfiguration.comparisonRows.map((row) => (
-              <div key={row.feature}>
-                <strong>{row.feature}</strong>
-                <span>{row.description}</span>
-              </div>
-            ))}
-          </div>
-        </details>
+        {resolvedConfiguration.showPlanComparison ? (
+          <details className="onboarding-plan-comparison">
+            <summary>Compare options</summary>
+            <div className="onboarding-plan-comparison__groups">
+              {COMPARISON_GROUPS.map((group) => {
+                const rows = resolvedConfiguration.comparisonRows.filter(
+                  (row) => row.group === group.id,
+                );
+                return rows.length > 0 ? (
+                  <section key={group.id}>
+                    <h3>{group.label}</h3>
+                    <ul>
+                      {rows.map((row) => (
+                        <li key={row.feature}>
+                          <Check aria-hidden="true" size={14} />
+                          <span>{row.feature}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </section>
+                ) : null;
+              })}
+            </div>
+          </details>
+        ) : null}
 
         <p className="onboarding-plan-disclaimer">
           This saves your interest only. There is no payment or plan access change today.
@@ -180,11 +219,20 @@ export function PlanOfferSheet({ configuration, offer, onChoose, onClose, open }
         <div className="onboarding-plan-sheet__action">
           <button
             data-plan-intent={selectedOption?.planIntent}
-            disabled={!selectedOption}
+            disabled={!selectedOption || choosing}
             type="button"
-            onClick={() => { if (selectedOption) onChoose(selectedOption.planIntent); }}
+            onClick={() => {
+              if (!selectedOption || choosingRef.current) return;
+              choosingRef.current = true;
+              setChoosing(true);
+              onChoose(selectedOption.planIntent);
+              window.setTimeout(() => {
+                choosingRef.current = false;
+                setChoosing(false);
+              }, 0);
+            }}
           >
-            {ACTION_LABELS[selectedOption?.planIntent ?? 'free']}
+            {choosing ? 'Continuing…' : ACTION_LABELS[selectedOption?.planIntent ?? 'free']}
           </button>
         </div>
       </div>

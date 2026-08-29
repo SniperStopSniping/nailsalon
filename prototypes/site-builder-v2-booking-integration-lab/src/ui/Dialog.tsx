@@ -13,6 +13,7 @@ import { isEscapeHandledInsideActiveControl } from './dialog-events';
 
 type DialogProps = {
   children: ReactNode;
+  closeDisabled?: boolean;
   description?: string;
   initialFocusSelector?: string;
   onClose: () => void;
@@ -81,6 +82,7 @@ const matchesWideDialogViewport = (): boolean => (
 
 export function Dialog({
   children,
+  closeDisabled = false,
   description,
   initialFocusSelector,
   onClose,
@@ -92,6 +94,7 @@ export function Dialog({
   const titleId = useId();
   const descriptionId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
+  const closeDisabledRef = useRef(closeDisabled);
   const onCloseRef = useRef(onClose);
   const restoreFocusOnCloseRef = useRef(restoreFocusOnClose);
   const stackTokenRef = useRef(Symbol('luster-lab-dialog'));
@@ -107,6 +110,7 @@ export function Dialog({
     onCloseRef.current = onClose;
   }, [onClose]);
 
+  closeDisabledRef.current = closeDisabled;
   restoreFocusOnCloseRef.current = restoreFocusOnClose;
 
   useEffect(() => {
@@ -157,7 +161,7 @@ export function Dialog({
         && !isEscapeHandledInsideActiveControl(event)
       ) {
         event.preventDefault();
-        onCloseRef.current();
+        if (!closeDisabledRef.current) onCloseRef.current();
         return;
       }
 
@@ -237,6 +241,7 @@ export function Dialog({
         </div>
         <button
           className="icon-button"
+          disabled={closeDisabled}
           type="button"
           aria-label={`Close ${title}`}
           onClick={() => onCloseRef.current()}
@@ -257,7 +262,7 @@ export function Dialog({
         data-testid="dialog-backdrop"
         onMouseDown={(event) => {
           if (event.currentTarget === event.target) {
-            onClose();
+            if (!closeDisabled) onClose();
           }
         }}
       >

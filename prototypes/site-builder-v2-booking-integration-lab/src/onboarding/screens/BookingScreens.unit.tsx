@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { vi } from 'vitest';
 
+import { FeedbackProvider } from '../feedback/FeedbackProvider';
 import { createDefaultBusinessProfile } from '../model/defaults';
 import {
   getDepositPolicyMode,
@@ -136,7 +137,7 @@ describe('BookingPreferencesScreen', () => {
       );
     }
 
-    render(<Harness />);
+    render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
     await user.click(screen.getByRole('button', { name: 'Review services' }));
     let library = screen.getByRole('dialog', { name: 'Choose your services' });
     expect(within(library).queryByText('French')).not.toBeInTheDocument();
@@ -146,6 +147,9 @@ describe('BookingPreferencesScreen', () => {
     expect(russianItem).not.toBeNull();
     await user.click(within(russianItem!).getByRole('button', { name: 'Remove Russian Manicure' }));
     expect(latest.serviceMenu.selectedServiceIds).not.toContain('svc-manicure-russian');
+    expect(screen.getByText('Russian Manicure removed.', {
+      selector: '.onboarding-feedback span',
+    })).toBeVisible();
     library = screen.getByRole('dialog', { name: 'Choose your services' });
     const updatedRussianItem = within(library).getByText('Russian Manicure').closest('li');
     expect(updatedRussianItem).not.toBeNull();
@@ -156,10 +160,85 @@ describe('BookingPreferencesScreen', () => {
     expect(classicItem).toHaveTextContent('Manicure · 45 min$35');
     await user.click(within(classicItem!).getByRole('button', { name: 'Add Classic Manicure' }));
     expect(latest.serviceMenu.selectedServiceIds).toContain('svc-manicure-classic');
+    expect(screen.getByText('Classic Manicure added.', {
+      selector: '.onboarding-feedback span',
+    })).toBeVisible();
 
     await user.click(within(library).getByRole('tab', { name: 'Add-ons' }));
     expect(within(library).getByText('French')).toBeVisible();
     expect(within(library).queryByText('Russian Manicure')).not.toBeInTheDocument();
+  });
+
+  it('keeps the category rail separate from results and reveals the selected category', async () => {
+    const user = userEvent.setup();
+    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    try {
+      render(
+        <BookingPreferencesScreen
+          profile={createDefaultBusinessProfile()}
+          onBack={vi.fn()}
+          onBookingPreferencesChange={vi.fn()}
+          onContinue={vi.fn()}
+          onDepositChange={vi.fn()}
+          onServiceMenuChange={vi.fn()}
+        />,
+      );
+      await user.click(screen.getByRole('button', { name: 'Review services' }));
+      const library = screen.getByRole('dialog', { name: 'Choose your services' });
+      const categories = within(library).getByLabelText('Service categories');
+      const servicesTab = within(library).getByRole('tab', { name: 'Services' });
+      const addOnsTab = within(library).getByRole('tab', { name: 'Add-ons' });
+
+      await waitFor(() => expect(within(library).getByRole('button', {
+        name: 'Close Choose your services',
+      })).toHaveFocus());
+      servicesTab.focus();
+      await user.keyboard('{ArrowRight}');
+      await waitFor(() => expect(addOnsTab).toHaveFocus());
+      expect(addOnsTab).toHaveAttribute('aria-selected', 'true');
+      expect(within(library).getByRole('tabpanel')).toHaveAttribute(
+        'aria-labelledby',
+        'onboarding-service-library-tab-add-ons',
+      );
+      await user.keyboard('{ArrowLeft}');
+      await waitFor(() => expect(servicesTab).toHaveFocus());
+      expect(servicesTab).toHaveAttribute('aria-selected', 'true');
+
+      expect(categories.parentElement).toHaveClass(
+        'onboarding-service-library__category-rail',
+      );
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalled());
+      scrollIntoView.mockClear();
+      await user.click(within(categories).getByRole('button', { name: 'Manicure' }));
+
+      expect(within(categories).getByRole('button', { name: 'Manicure' }))
+        .toHaveAttribute('aria-pressed', 'true');
+      await waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({
+        behavior: 'auto',
+        block: 'nearest',
+        inline: 'nearest',
+      }));
+
+      await user.click(within(library).getByRole('tab', { name: 'Add-ons' }));
+      const addOnCategories = within(library).getByLabelText('Add-on categories');
+      expect(within(addOnCategories).getByRole('button', { name: 'All add-ons' }))
+        .toHaveAttribute('aria-pressed', 'true');
+    } finally {
+      if (originalScrollIntoView) {
+        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+          configurable: true,
+          value: originalScrollIntoView,
+        });
+      } else {
+        delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+      }
+    }
   });
 
   it('normalizes notice presets and custom day amounts to minutes', async () => {

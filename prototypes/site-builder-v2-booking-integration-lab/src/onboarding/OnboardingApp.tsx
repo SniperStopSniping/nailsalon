@@ -20,6 +20,7 @@ import type { LabDocumentController } from '../ui/useLabDocument';
 import { OnboardingShell } from './components/OnboardingShell';
 import { CORE_SCREEN_ORDER } from './copy';
 import { recordOnboardingEvent } from './events/journal';
+import { useFeedback } from './feedback/useFeedback';
 import {
   useCanvaIntegration,
   type CanvaIntegrationResult,
@@ -33,6 +34,7 @@ import {
   onboardingMediaPort,
   resolveOnboardingImageUrl,
 } from './integrations/adapters/media';
+import { ONBOARDING_MEDIA_STORAGE_UNAVAILABLE_MESSAGE } from './integrations/contracts/media';
 import {
   getNextScreen,
   getScreenStage,
@@ -152,6 +154,11 @@ export const getOnboardingAssetIds = (
   ...state.canva.ownedAssetIds,
   ...state.canva.images.flatMap((image) => image.storageId ? [image.storageId] : []),
 ])];
+
+export const isOnboardingResetBlocked = (
+  documentTransactionPending: boolean,
+  profileMediaOperationCount: number,
+): boolean => documentTransactionPending || profileMediaOperationCount > 0;
 
 /** Current display references only; excludes the retained cleanup-retry list. */
 export const getOnboardingReferencedAssetIds = (
@@ -405,6 +412,7 @@ export function OnboardingApp({
   const [writingHelperOpen, setWritingHelperOpen] = useState(false);
   const [labOptionsOpen, setLabOptionsOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  const [resetPending, setResetPending] = useState(false);
   const [pendingStarter, setPendingStarter] = useState<StarterId | null>(null);
   const [error, setError] = useState('');
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -422,11 +430,86 @@ export function OnboardingApp({
   const applyingPopStateRef = useRef(false);
   const continueAfterPreviewCloseRef = useRef(false);
   const cleanupRetrySignatureRef = useRef('');
+  const profileMediaOperationsRef = useRef(0);
+  const feedbackInitializedRef = useRef(false);
+  const previousCompletedStagesRef = useRef(new Set(
+    getCompletedEssentialStages(onboarding.state),
+  ));
+  const previousEssentialsRemainingRef = useRef(getEssentialsLeft(onboarding.state));
+  const feedback = useFeedback();
   const screen = onboarding.state.progress.currentScreen;
   const aboutEnabled = onboarding.state.recipe.aboutEnabled;
   const builderHasBeenEntered = onboarding.state.planOffer.planIntent !== null
     || onboarding.state.progress.sessionStatus === 'builder'
     || onboarding.state.progress.sessionStatus === 'dashboard';
+  const completedStages = getCompletedEssentialStages(onboarding.state);
+  const essentialsRemaining = getEssentialsLeft(onboarding.state);
+
+  useEffect(() => {
+    feedback.configure({
+      reducedMotion: onboarding.state.reviewOptions.reducedMotion,
+    });
+  }, [feedback, onboarding.state.reviewOptions.reducedMotion]);
+
+  useEffect(() => {
+    if (!feedbackInitializedRef.current) {
+      feedbackInitializedRef.current = true;
+      previousCompletedStagesRef.current = new Set(completedStages);
+      previousEssentialsRemainingRef.current = essentialsRemaining;
+      return;
+    }
+    const milestoneIds = onboarding.state.reviewOptions.feedbackMilestones ?? [];
+    const milestonesToRemember: string[] = [];
+    const reachedAllRequired = previousEssentialsRemainingRef.current > 0
+      && essentialsRemaining === 0;
+    const stageMessages = {
+      basics: 'Basics complete',
+      booking: 'Booking is ready',
+      design: 'Your website style is set',
+    } as const;
+    for (const stage of completedStages) {
+      if (stage === 'review') continue;
+      const milestoneId = `stage_${stage}`;
+      if (
+        previousCompletedStagesRef.current.has(stage)
+        || milestoneIds.includes(milestoneId)
+      ) continue;
+      feedback.send({
+        kind: 'stage_complete',
+        message: stageMessages[stage],
+        onceKey: milestoneId,
+      });
+      milestonesToRemember.push(milestoneId);
+    }
+    if (reachedAllRequired && !milestoneIds.includes('all_required_complete')) {
+      feedback.send({
+        kind: 'milestone',
+        message: 'Everything you need is ready',
+        onceKey: 'all_required_complete',
+      });
+      milestonesToRemember.push('all_required_complete');
+    }
+    previousCompletedStagesRef.current = new Set(completedStages);
+    previousEssentialsRemainingRef.current = essentialsRemaining;
+    if (milestonesToRemember.length > 0) {
+      onboarding.updateState((current) => ({
+        ...current,
+        reviewOptions: {
+          ...current.reviewOptions,
+          feedbackMilestones: [...new Set([
+            ...(current.reviewOptions.feedbackMilestones ?? []),
+            ...milestonesToRemember,
+          ])],
+        },
+      }));
+    }
+  }, [
+    completedStages.join('|'),
+    essentialsRemaining,
+    feedback,
+    onboarding.state.reviewOptions.feedbackMilestones?.join('|'),
+    onboarding.updateState,
+  ]);
 
   const updateState: OnboardingStateUpdater = useCallback((update) => {
     onboarding.updateState((current) => withObservableRecipeEvents(current, update(current)));
@@ -781,8 +864,10 @@ export function OnboardingApp({
     }
   };
   const selectImage = async (file: File, kind: 'logo' | 'profile') => {
+    setError('');
+    profileMediaOperationsRef.current += 1;
     try {
-      if (!assetRepository) throw new Error('Image storage is unavailable in this browser.');
+      if (!assetRepository) throw new Error(ONBOARDING_MEDIA_STORAGE_UNAVAILABLE_MESSAGE);
       const previous = kind === 'profile'
         ? onboarding.state.profile.profilePhoto
         : onboarding.state.profile.logo;
@@ -806,7 +891,15 @@ export function OnboardingApp({
       }
       setError('');
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'The selected image could not be read.');
+      const message = cause instanceof Error
+        ? cause.message
+        : 'This photo couldn’t be saved. Try selecting it again or choose another copy.';
+      throw new Error(message, { cause });
+    } finally {
+      profileMediaOperationsRef.current = Math.max(
+        0,
+        profileMediaOperationsRef.current - 1,
+      );
     }
   };
 
@@ -834,7 +927,19 @@ export function OnboardingApp({
         starter,
         starterDocumentSiteId: result.document.siteId,
       },
+      reviewOptions: {
+        ...current.reviewOptions,
+        feedbackMilestones: [...new Set([
+          ...(current.reviewOptions.feedbackMilestones ?? []),
+          'starting_site_ready',
+        ])],
+      },
     }, { starter, type: 'starter_selected' })));
+    feedback.send({
+      kind: 'milestone',
+      message: 'Your starting site is ready',
+      onceKey: 'starting_site_ready',
+    });
     setError('');
   };
 
@@ -894,6 +999,10 @@ export function OnboardingApp({
 
   const applyFixture = async (id: LabReviewFixtureId) => {
     try {
+      if (profileMediaOperationsRef.current > 0) {
+        setError('Finish the current image upload before loading a Lab fixture.');
+        return;
+      }
       const onboardingAssetIds = getOnboardingAssetIds(onboarding.state);
       if (!lab.resetLab()) {
         setError('Finish the current image upload before loading a Lab fixture.');
@@ -943,13 +1052,18 @@ export function OnboardingApp({
   };
 
   const confirmReset = async () => {
+    if (resetPending) return;
+    if (isOnboardingResetBlocked(
+      lab.transactionPending,
+      profileMediaOperationsRef.current,
+    )) {
+      setError('Finish the current image upload before starting over.');
+      return;
+    }
+    setResetPending(true);
     try {
       const onboardingAssetIds = getOnboardingAssetIds(onboarding.state);
       const previousState = structuredClone(onboarding.state);
-      if (lab.transactionPending) {
-        setError('Finish the current image upload before restarting onboarding.');
-        return;
-      }
       if (!onboarding.reset()) {
         setError('Onboarding browser storage could not be cleared.');
         return;
@@ -973,6 +1087,7 @@ export function OnboardingApp({
           },
         }));
       }
+      feedback.resetSession();
       setPreviewSource(null);
       setGalleryOpen(false);
       setCanvaOpen(false);
@@ -997,6 +1112,8 @@ export function OnboardingApp({
       } satisfies OnboardingBrowserHistoryState, '');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Setup could not be restarted safely.');
+    } finally {
+      setResetPending(false);
     }
   };
 
@@ -1062,9 +1179,9 @@ export function OnboardingApp({
           <PhotoSocialScreen
             onBack={goBack}
             onContinue={onboarding.continueFlow}
-            onLogoSelected={(file) => { void selectImage(file, 'logo'); }}
+            onLogoSelected={(file) => selectImage(file, 'logo')}
             onProfileChange={updatePhotoProfile}
-            onProfilePhotoSelected={(file) => { void selectImage(file, 'profile'); }}
+            onProfilePhotoSelected={(file) => selectImage(file, 'profile')}
             onSkipPhoto={() => onboarding.skip('photo')}
             profile={onboarding.state.profile}
           />
@@ -1230,9 +1347,9 @@ export function OnboardingApp({
         {screen === 'welcome' ? content : (
           <OnboardingShell
             autosaveState={onboarding.saveStatus}
-            completedStages={getCompletedEssentialStages(onboarding.state)}
+            completedStages={completedStages}
             currentStage={getScreenStage(screen)}
-            essentialsRemaining={getEssentialsLeft(onboarding.state)}
+            essentialsRemaining={essentialsRemaining}
             onLabOptions={auditMode ? () => setLabOptionsOpen(true) : undefined}
             onRestart={() => setResetOpen(true)}
             onSaveForLater={() => {
@@ -1306,12 +1423,14 @@ export function OnboardingApp({
           : `Switch to ${pendingStarterLabel}?`}
       />
       <ConfirmationDialog
+        cancelLabel="Keep my setup"
         confirmLabel="Start over"
         danger
-        description="This clears your setup answers, setup activity, uploaded setup images, and starting site from this device. Other saved Builder work stays untouched."
-        onClose={() => setResetOpen(false)}
+        description="This clears your onboarding answers, uploaded setup images and starting website from this device. Other saved Builder work stays untouched."
+        onClose={() => { if (!resetPending) setResetOpen(false); }}
         onConfirm={() => { void confirmReset(); }}
         open={resetOpen}
+        pending={resetPending}
         title="Start over?"
       />
     </div>

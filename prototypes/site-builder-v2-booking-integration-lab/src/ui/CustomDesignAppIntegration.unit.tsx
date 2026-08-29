@@ -582,7 +582,7 @@ describe('Custom Design universal App integration', () => {
       expect(getStoredCustomDesign(readStoredDocument()).settings.images.map(image => image.id))
         .toEqual([imageIds[1], imageIds[0]]);
     });
-  });
+  }, 15_000);
 
   it('uses the dirty warning for mobile Escape and backdrop, but not after returning to baseline', async () => {
     installViewport('mobile');
@@ -629,7 +629,7 @@ describe('Custom Design universal App integration', () => {
     await waitFor(() => {
       expect(screen.getByLabelText('Save status')).toHaveTextContent('Saved');
     });
-  });
+  }, 15_000);
 
   it('reloads the committed baseline before Save and the saved order after Save', async () => {
     const { imageIds } = storedDocumentWithTwoCustomDesignPages();

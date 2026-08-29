@@ -6,6 +6,7 @@ import {
 import {
   CUSTOM_DESIGN_MAX_DECODED_PIXELS,
   CUSTOM_DESIGN_MAX_IMAGE_DIMENSION_PX,
+  decodeImageInBrowser,
   detectImageMimeType,
   generateImageThumbnail,
   getOrientedDimensions,
@@ -79,6 +80,9 @@ describe('custom design image processing', () => {
     await expect(
       detectImageMimeType(makeFile('image/webp', 'design.webp')),
     ).resolves.toBe('image/webp');
+    await expect(detectImageMimeType(new File([
+      new Uint8Array([0xff, 0xd8, 0xff, 0xc2, 0x00, 0x11]),
+    ], 'progressive.jpg', { type: 'image/jpeg' }))).resolves.toBe('image/jpeg');
     await expect(
       detectImageMimeType(
         new File([new Uint8Array([1, 2, 3])], 'fake.png', {
@@ -230,6 +234,81 @@ describe('custom design image processing', () => {
     expect(prepared.blob).toBe(file);
     expect(prepared.thumbnailBlob).toBeUndefined();
     expect(prepared.metadata.thumbnail).toBeUndefined();
+  });
+
+  it('requires a thumbnail for onboarding surfaces that promise an accepted preview', async () => {
+    await expect(prepareImageAsset(makeFile('image/png'), {
+      assetId: 'thumbnail-required',
+      decodeImage: decodePortrait,
+      generateThumbnail: vi.fn().mockResolvedValue(null),
+      requireThumbnail: true,
+    })).rejects.toMatchObject({ code: 'thumbnail_failed' });
+  });
+
+  it('falls back from createImageBitmap to HTMLImageElement.decode and revokes its URL', async () => {
+    const originalBitmap = Object.getOwnPropertyDescriptor(globalThis, 'createImageBitmap');
+    const originalImage = Object.getOwnPropertyDescriptor(globalThis, 'Image');
+    const originalCreateUrl = Object.getOwnPropertyDescriptor(globalThis.URL, 'createObjectURL');
+    const originalRevokeUrl = Object.getOwnPropertyDescriptor(globalThis.URL, 'revokeObjectURL');
+    const decode = vi.fn().mockRejectedValue(new Error('Safari decode timing'));
+    const createObjectURL = vi.fn(() => 'blob:test-image');
+    const revokeObjectURL = vi.fn();
+
+    class TestImage {
+      naturalHeight = 1_200;
+      naturalWidth = 900;
+      onerror: OnErrorEventHandler = null;
+      onload: ((this: GlobalEventHandlers, ev: Event) => unknown) | null = null;
+      decode = decode;
+
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.call(
+          this as unknown as GlobalEventHandlers,
+          new Event('load'),
+        ));
+      }
+    }
+
+    Object.defineProperty(globalThis, 'createImageBitmap', {
+      configurable: true,
+      value: vi.fn().mockRejectedValue(new Error('unsupported option')),
+    });
+    Object.defineProperty(globalThis, 'Image', {
+      configurable: true,
+      value: TestImage,
+    });
+    Object.defineProperty(globalThis.URL, 'createObjectURL', {
+      configurable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(globalThis.URL, 'revokeObjectURL', {
+      configurable: true,
+      value: revokeObjectURL,
+    });
+
+    try {
+      await expect(decodeImageInBrowser(makeFile('image/jpeg'))).resolves.toMatchObject({
+        height: 1_200,
+        orientationApplied: true,
+        width: 900,
+      });
+      expect(decode).toHaveBeenCalledOnce();
+      expect(createObjectURL).toHaveBeenCalledOnce();
+      expect(revokeObjectURL).toHaveBeenCalledWith('blob:test-image');
+    } finally {
+      const restore = (
+        target: object,
+        key: PropertyKey,
+        descriptor: PropertyDescriptor | undefined,
+      ) => {
+        if (descriptor) Object.defineProperty(target, key, descriptor);
+        else Reflect.deleteProperty(target, key);
+      };
+      restore(globalThis, 'createImageBitmap', originalBitmap);
+      restore(globalThis, 'Image', originalImage);
+      restore(globalThis.URL, 'createObjectURL', originalCreateUrl);
+      restore(globalThis.URL, 'revokeObjectURL', originalRevokeUrl);
+    }
   });
 
   it('records a bounded optional thumbnail without placing it in metadata JSON', async () => {

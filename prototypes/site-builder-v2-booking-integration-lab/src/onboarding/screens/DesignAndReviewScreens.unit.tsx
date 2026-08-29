@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
@@ -116,9 +119,10 @@ describe('About onboarding screens', () => {
     expect(screen.queryByRole('button', { name: /Next About design/u }))
       .not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Content' })).not.toBeInTheDocument();
-    expect(within(screen.getByRole('group', { name: 'About design presets' }))
-      .getAllByRole('button', { pressed: true })).toHaveLength(1);
-    expect(screen.getByText('✓ Selected')).toBeVisible();
+    const presets = within(screen.getByRole('group', { name: 'About design presets' }));
+    const selectedPreset = presets.getAllByRole('button', { pressed: true });
+    expect(selectedPreset).toHaveLength(1);
+    expect(within(selectedPreset[0]!).getByText('Selected')).toBeVisible();
   });
 
   it('keeps the shared Instagram independently available while contact is Booking-only', async () => {
@@ -151,6 +155,36 @@ describe('About onboarding screens', () => {
 });
 
 describe('SiteStyleScreen', () => {
+  it('keeps six mobile styles in a visible two-column grid with compact descriptions', () => {
+    const css = readFileSync(
+      join(process.cwd(), 'src/onboarding/daniela-about-style.css'),
+      'utf8',
+    );
+
+    expect(css).toMatch(
+      /\.onboarding-screen--style \.onboarding-style-grid \{[^}]*display: grid;[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);[^}]*overflow: visible;/su,
+    );
+    expect(css).toMatch(
+      /\.onboarding-screen--style \.onboarding-style-card > small \{[^}]*-webkit-line-clamp: 3;/su,
+    );
+    expect(css).not.toContain('scroll-snap-type: inline mandatory');
+  });
+
+  it('keeps physical-phone About spacing distinct between actions, facts, and major groups', () => {
+    const css = readFileSync(
+      join(process.cwd(), 'src/onboarding/daniela-about-style.css'),
+      'utf8',
+    );
+
+    expect(css).toMatch(/\.onboarding-about-facts \{[^}]*gap: 10px;/su);
+    expect(css).toMatch(
+      /\.onboarding-customer-about \.onboarding-customer-actions \{[^}]*gap: 12px;[^}]*margin-top: 16px;/su,
+    );
+    expect(css).toMatch(
+      /@container onboarding-preview \(max-width: 559px\) \{[\s\S]*?\.onboarding-customer-about \{[^}]*gap: 20px;/u,
+    );
+  });
+
   it('updates only customer-site roles and explicitly confirms the selected style', async () => {
     const user = userEvent.setup();
     const initial = createDanielaFixtureState();
@@ -304,7 +338,7 @@ describe('FinalReviewScreen', () => {
     expect(onOpenBuilder).toHaveBeenCalledOnce();
   });
 
-  it('opens mobile readiness on first entry and becomes inert only after the owner collapses it', async () => {
+  it('keeps mobile readiness collapsed below the preview until the owner opens it', async () => {
     const matchMedia = vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
       addEventListener: vi.fn(),
       addListener: vi.fn(),
@@ -332,12 +366,16 @@ describe('FinalReviewScreen', () => {
     const detail = within(readiness).getByText(/Your website is saved/u)
       .closest<HTMLElement>('.onboarding-readiness__content');
     if (!detail) throw new Error('Missing readiness detail panel.');
-    await waitFor(() => expect(detail.inert).toBe(false));
-    expect(detail).not.toHaveAttribute('aria-hidden');
-
-    await userEvent.setup().click(screen.getByRole('button', { name: /Site readiness/u }));
+    expect(screen.getByRole('button', { name: /Ready to go.*View checklist/iu }))
+      .toHaveAttribute('aria-expanded', 'false');
     await waitFor(() => expect(detail.inert).toBe(true));
     expect(detail).toHaveAttribute('aria-hidden', 'true');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /View checklist/u }));
+    await waitFor(() => expect(detail.inert).toBe(false));
+    expect(detail).not.toHaveAttribute('aria-hidden');
+    expect(screen.getByRole('button', { name: /Hide checklist/u }))
+      .toHaveAttribute('aria-expanded', 'true');
     matchMedia.mockRestore();
   });
 

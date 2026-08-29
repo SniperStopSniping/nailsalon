@@ -1,11 +1,16 @@
+import { Check, ChevronDown, ChevronUp } from 'lucide-react';
 import {
+  useEffect,
   useId,
   useRef,
+  useState,
   type ChangeEvent,
   type InputHTMLAttributes,
   type ReactNode,
   type TextareaHTMLAttributes,
 } from 'react';
+
+import { useFeedback } from '../feedback/useFeedback';
 
 export const focusAndRevealControl = (
   target: HTMLElement,
@@ -204,6 +209,7 @@ export function ChoiceGroup<T extends string>({
   value,
 }: ChoiceGroupProps<T>) {
   const errorId = useId();
+  const feedback = useFeedback();
 
   return (
     <fieldset
@@ -220,7 +226,10 @@ export function ChoiceGroup<T extends string>({
               name={name}
               type="radio"
               value={option.value}
-              onChange={() => onChange(option.value)}
+              onChange={() => {
+                feedback.send({ kind: 'selection' });
+                onChange(option.value);
+              }}
             />
             <span>
               <strong>{option.label}</strong>
@@ -251,6 +260,7 @@ export function NativeSwitch({
 }: NativeSwitchProps) {
   const id = useId();
   const descriptionId = `${id}-description`;
+  const feedback = useFeedback();
 
   return (
     <div className="onboarding-switch-row">
@@ -267,7 +277,10 @@ export function NativeSwitch({
           id={id}
           role="switch"
           type="checkbox"
-          onChange={(event) => onChange(event.target.checked)}
+          onChange={(event) => {
+            feedback.send({ kind: 'selection' });
+            onChange(event.target.checked);
+          }}
         />
       </label>
     </div>
@@ -298,6 +311,7 @@ export function CollapsibleFormCard({
   title,
 }: CollapsibleFormCardProps) {
   const panelId = `${id}-panel`;
+  const feedback = useFeedback();
   const resolvedStatus = errorCount > 0
     ? 'finish'
     : status ?? (completed ? 'complete' : 'set_up');
@@ -308,6 +322,18 @@ export function CollapsibleFormCard({
       : resolvedStatus === 'finish'
         ? 'Finish'
         : 'Set up';
+  const previousStatusRef = useRef(resolvedStatus);
+
+  useEffect(() => {
+    if (previousStatusRef.current !== 'complete' && resolvedStatus === 'complete') {
+      feedback.send({
+        kind: 'completed',
+        message: `${title} complete`,
+        targetId: id,
+      });
+    }
+    previousStatusRef.current = resolvedStatus;
+  }, [feedback, id, resolvedStatus, title]);
 
   return (
     <section
@@ -332,7 +358,13 @@ export function CollapsibleFormCard({
               : statusLabel}
           </span>
           <span aria-hidden="true" className="onboarding-collapsible-card__chevron">
-            {open ? '⌃' : '⌄'}
+            {resolvedStatus === 'complete' && !open ? (
+              <Check size={15} strokeWidth={2.5} />
+            ) : open ? (
+              <ChevronUp size={16} />
+            ) : (
+              <ChevronDown size={16} />
+            )}
           </span>
         </span>
       </button>
@@ -346,36 +378,97 @@ export function CollapsibleFormCard({
 type ImageUploadFieldProps = {
   accept?: string;
   currentLabel?: string;
+  currentSummary?: string;
   chooseLabel?: string;
   label: string;
   needsReselect?: boolean;
   onRemove?: () => void;
-  onSelect: (file: File) => void;
+  onSelect: (file: File) => Promise<void> | void;
+  previewUrl?: string;
+  readyLabel?: string;
 };
 
 export function ImageUploadField({
-  accept = 'image/png,image/jpeg,image/webp',
+  accept = 'image/png,image/jpeg,image/webp,image/heic,image/heif,.heic,.heif',
   chooseLabel = 'Choose from files or photos',
   currentLabel,
+  currentSummary,
   label,
   needsReselect = false,
   onRemove,
   onSelect,
+  previewUrl,
+  readyLabel = 'Photo ready',
 }: ImageUploadFieldProps) {
   const id = useId();
   const inputRef = useRef<HTMLInputElement>(null);
+  const retryFileRef = useRef<File | null>(null);
+  const [processingFileName, setProcessingFileName] = useState('');
+  const [failure, setFailure] = useState('');
+  const feedback = useFeedback();
+  const processing = Boolean(processingFileName);
+
+  const processFile = async (file: File) => {
+    retryFileRef.current = file;
+    setFailure('');
+    setProcessingFileName(file.name);
+    try {
+      await onSelect(file);
+      retryFileRef.current = null;
+      feedback.send({ announce: false, kind: 'added', message: readyLabel });
+    } catch (cause) {
+      setFailure(cause instanceof Error
+        ? cause.message
+        : 'This photo couldn’t be saved. Try selecting it again or choose another copy.');
+    } finally {
+      setProcessingFileName('');
+    }
+  };
+
   const handleChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) onSelect(file);
+    if (file) void processFile(file);
     event.target.value = '';
   };
 
+  const remove = () => {
+    retryFileRef.current = null;
+    setFailure('');
+    onRemove?.();
+    feedback.send({ kind: 'removed', message: `${label} removed` });
+  };
+
   return (
-    <div className="onboarding-image-upload">
+    <div className={`onboarding-image-upload${processing ? ' is-processing' : ''}${failure ? ' has-error' : ''}${currentLabel && !needsReselect ? ' is-ready' : ''}`}>
       <span id={`${id}-label`}>{label}</span>
-      {currentLabel ? <p>{currentLabel}</p> : null}
+      {processing ? (
+        <div aria-live="polite" className="onboarding-image-upload__status" role="status">
+          <span aria-hidden="true" className="onboarding-image-upload__spinner" />
+          <span><strong>Processing photo…</strong><small>{processingFileName}</small></span>
+        </div>
+      ) : currentLabel && !needsReselect ? (
+        <div aria-live="polite" className="onboarding-image-upload__status is-ready" role="status">
+          {previewUrl ? <img alt="" src={previewUrl} /> : <span aria-hidden="true" className="onboarding-image-upload__ready-mark"><Check size={18} /></span>}
+          <span><strong>{readyLabel}</strong><small>{currentLabel}{currentSummary ? ` · ${currentSummary}` : ''}</small></span>
+        </div>
+      ) : null}
       {needsReselect ? (
         <p role="status">This saved image is no longer available on this device. Select it again to restore it.</p>
+      ) : null}
+      {failure ? (
+        <div aria-live="assertive" className="onboarding-image-upload__failure" role="alert">
+          <strong>{retryFileRef.current?.name ?? 'Selected image'}</strong>
+          <span>{failure}</span>
+          <div>
+            {retryFileRef.current ? (
+              <button disabled={processing} type="button" onClick={() => {
+                const file = retryFileRef.current;
+                if (file) void processFile(file);
+              }}>Retry</button>
+            ) : null}
+            <button disabled={processing} type="button" onClick={() => inputRef.current?.click()}>Choose another image</button>
+          </div>
+        </div>
       ) : null}
       <input
         ref={inputRef}
@@ -387,11 +480,11 @@ export function ImageUploadField({
         onChange={handleChange}
       />
       <div className="onboarding-image-upload__actions">
-        <button type="button" onClick={() => inputRef.current?.click()}>
+        <button disabled={processing} type="button" onClick={() => inputRef.current?.click()}>
           {needsReselect ? 'Select again' : currentLabel ? 'Replace' : chooseLabel}
         </button>
         {currentLabel && onRemove ? (
-          <button type="button" onClick={onRemove}>Remove</button>
+          <button disabled={processing} type="button" onClick={remove}>Remove</button>
         ) : null}
       </div>
     </div>

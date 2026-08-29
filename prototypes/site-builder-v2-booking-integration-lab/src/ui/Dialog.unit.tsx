@@ -104,6 +104,21 @@ describe('Dialog document lifecycle', () => {
     expect(onClose).toHaveBeenCalledWith();
   });
 
+  it('blocks X, Escape, and backdrop dismissal during an atomic mutation', async () => {
+    installViewport(false);
+    const onClose = vi.fn();
+    render(
+      <Dialog closeDisabled onClose={onClose} open title="Saving Gallery">
+        <p>Saving…</p>
+      </Dialog>,
+    );
+
+    expect(screen.getByRole('button', { name: 'Close Saving Gallery' })).toBeDisabled();
+    await userEvent.setup().keyboard('{Escape}');
+    fireEvent.mouseDown(screen.getByTestId('dialog-backdrop'));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('releases nested modal locks only after the final owner closes and restores the exact baseline', async () => {
     installViewport(false);
     document.body.style.setProperty('overflow', 'auto', 'important');

@@ -1,15 +1,16 @@
-import type {
-  AssetRepository,
-  ImageAssetMetadata,
-  PreparedImageAsset,
+import {
+  AssetStorageError,
+  ImageUploadError,
+  type AssetRepository,
+  type ImageAssetMetadata,
+  type PreparedImageAsset,
 } from '../../../custom-design/assets';
-import { ONBOARDING_IMAGE_DECODE_ERROR } from '../../model/local-images';
 import type { LocalImageReference } from '../../model/types';
 import { resolveOnboardingImageUrl } from '../adapters/media';
 import { LAB_ONBOARDING_MEDIA_PORT } from './media-port';
 
 const mediaMocks = vi.hoisted(() => ({
-  decode: vi.fn(),
+  normalize: vi.fn(),
   prepare: vi.fn(),
 }));
 
@@ -17,11 +18,12 @@ vi.mock('../../model/local-images', async (importOriginal) => {
   const original = await importOriginal<typeof import('../../model/local-images')>();
   return {
     ...original,
-    decodeOnboardingLocalImage: mediaMocks.decode,
+    normalizeOnboardingLocalImage: mediaMocks.normalize,
   };
 });
 
-vi.mock('../../../custom-design/assets/image-processing', () => ({
+vi.mock('../../../custom-design/assets/image-processing', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../../../custom-design/assets/image-processing')>(),
   prepareImageAsset: mediaMocks.prepare,
 }));
 
@@ -93,7 +95,7 @@ const indexedImage = (storageId: string): LocalImageReference => ({
 describe('LAB_ONBOARDING_MEDIA_PORT', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mediaMocks.decode.mockResolvedValue({ height: 900, width: 600 });
+    mediaMocks.normalize.mockImplementation(async (selectedFile: File) => selectedFile);
     mediaMocks.prepare.mockImplementation(async (
       selectedFile: File,
       options: { assetId: string },
@@ -115,10 +117,13 @@ describe('LAB_ONBOARDING_MEDIA_PORT', () => {
       'profile',
     );
 
-    expect(mediaMocks.decode).toHaveBeenCalledWith(selectedFile);
+    expect(mediaMocks.normalize).toHaveBeenCalledWith(selectedFile);
     expect(mediaMocks.prepare).toHaveBeenCalledWith(
       selectedFile,
-      expect.objectContaining({ assetId: expect.stringMatching(/^onboarding_profile_/u) }),
+      expect.objectContaining({
+        assetId: expect.stringMatching(/^onboarding_profile_/u),
+        requireThumbnail: true,
+      }),
     );
     expect(harness.stage).toHaveBeenCalledOnce();
     expect(harness.commit).toHaveBeenCalledWith(reference.storageId);
@@ -136,23 +141,38 @@ describe('LAB_ONBOARDING_MEDIA_PORT', () => {
 
   it('does not create or discard a repository record when decoding fails', async () => {
     const harness = createRepository();
-    mediaMocks.decode.mockRejectedValueOnce(new Error('native decoder detail'));
+    mediaMocks.prepare.mockRejectedValueOnce(new ImageUploadError(
+      'decode_failed',
+      'native decoder detail',
+    ));
 
     await expect(LAB_ONBOARDING_MEDIA_PORT.storeOne(
       harness.repository,
       file('corrupt.png'),
       'logo',
-    )).rejects.toThrow('native decoder detail');
+    )).rejects.toMatchObject({
+      failure: expect.objectContaining({
+        code: 'decode_failed',
+        fileName: 'corrupt.png',
+        message: 'This logo couldn’t be read. Try selecting it again or choose another copy.',
+        retryable: true,
+        stage: 'decode',
+      }),
+    });
 
-    expect(mediaMocks.prepare).not.toHaveBeenCalled();
+    expect(mediaMocks.normalize).toHaveBeenCalledOnce();
+    expect(mediaMocks.prepare).toHaveBeenCalledOnce();
     expect(harness.stage).not.toHaveBeenCalled();
     expect(harness.commit).not.toHaveBeenCalled();
     expect(harness.discard).not.toHaveBeenCalled();
   });
 
-  it.each(['stage', 'commit'] as const)(
+  it.each([
+    ['stage', 'storage_stage'],
+    ['commit', 'storage_commit'],
+  ] as const)(
     'discards the candidate asset after a %s failure and exposes safe owner copy',
-    async (failedOperation) => {
+    async (failedOperation, failureStage) => {
       const harness = createRepository();
       harness[failedOperation].mockRejectedValueOnce(new Error('low-level storage detail'));
 
@@ -160,7 +180,14 @@ describe('LAB_ONBOARDING_MEDIA_PORT', () => {
         harness.repository,
         file(`${failedOperation}.png`),
         'logo',
-      )).rejects.toThrow(ONBOARDING_IMAGE_DECODE_ERROR);
+      )).rejects.toMatchObject({
+        failure: expect.objectContaining({
+          code: 'storage_unknown',
+          message: 'The image was read, but couldn’t be saved on this device. Try again in a regular browser tab.',
+          retryable: true,
+          stage: failureStage,
+        }),
+      });
 
       const prepared = mediaMocks.prepare.mock.results[0]?.value;
       const preparedAsset = await prepared as PreparedImageAsset;
@@ -184,11 +211,11 @@ describe('LAB_ONBOARDING_MEDIA_PORT', () => {
     });
     harness.commit.mockImplementation(async (assetId: string) =>
       metadataFor(assetId, acceptedFiles.get(assetId)));
-    mediaMocks.decode.mockImplementation(async (selectedFile: File) => {
+    mediaMocks.normalize.mockImplementation(async (selectedFile: File) => {
       if (selectedFile.name === 'broken.png') {
-        throw new Error(ONBOARDING_IMAGE_DECODE_ERROR);
+        throw new ImageUploadError('decode_failed', 'native decoder detail');
       }
-      return { height: 900, width: 600 };
+      return selectedFile;
     });
 
     const result = await LAB_ONBOARDING_MEDIA_PORT.storeBatch(
@@ -205,12 +232,57 @@ describe('LAB_ONBOARDING_MEDIA_PORT', () => {
       image.source === 'indexed_db'
       && image.storageId !== undefined
       && image.previewUrl === undefined)).toBe(true);
-    expect(result.failures).toEqual([{
+    expect(result.failures).toEqual([expect.objectContaining({
+      code: 'decode_failed',
       fileName: 'broken.png',
-      message: ONBOARDING_IMAGE_DECODE_ERROR,
-    }]);
+      index: 1,
+      message: 'This photo couldn’t be read. Try selecting it again or choose another copy.',
+      retryable: true,
+      stage: 'decode',
+    })]);
     expect(harness.stage).toHaveBeenCalledTimes(2);
     expect(harness.commit).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ['security', 'This browser tab isn’t allowing Luster to save images. If you’re using a private tab, open this page in a regular tab and try again.'],
+    ['quota_exceeded', 'This browser doesn’t have enough storage available for the image. Remove another image or try a smaller file.'],
+  ] as const)('classifies %s storage failures without calling the image corrupt', async (code, message) => {
+    const harness = createRepository();
+    harness.stage.mockRejectedValueOnce(new AssetStorageError(code, 'private detail'));
+
+    await expect(LAB_ONBOARDING_MEDIA_PORT.storeOne(
+      harness.repository,
+      file('iphone.jpeg'),
+      'profile',
+    )).rejects.toMatchObject({
+      failure: {
+        code: `storage_${code}`,
+        fileName: 'iphone.jpeg',
+        index: 0,
+        message,
+        retryable: true,
+        stage: 'storage_stage',
+      },
+    });
+  });
+
+  it('normalizes a file exactly once before one shared prepare/decode pass', async () => {
+    const harness = createRepository();
+    const iphoneFile = file('IMG_5222.jpeg');
+    const normalized = file('IMG_5222.jpg');
+    mediaMocks.normalize.mockResolvedValueOnce(normalized);
+
+    await LAB_ONBOARDING_MEDIA_PORT.storeOne(
+      harness.repository,
+      iphoneFile,
+      'profile',
+    );
+
+    expect(mediaMocks.normalize).toHaveBeenCalledOnce();
+    expect(mediaMocks.normalize).toHaveBeenCalledWith(iphoneFile);
+    expect(mediaMocks.prepare).toHaveBeenCalledOnce();
+    expect(mediaMocks.prepare).toHaveBeenCalledWith(normalized, expect.any(Object));
   });
 
   it('deletes only unique owned IndexedDB records and returns bounded deletion errors', async () => {

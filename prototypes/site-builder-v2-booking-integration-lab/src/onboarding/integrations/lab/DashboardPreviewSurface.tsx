@@ -10,6 +10,7 @@ import {
   LayoutDashboard,
   MoreHorizontal,
   Scissors,
+  Sparkles,
   Users,
 } from 'lucide-react';
 import {
@@ -22,6 +23,7 @@ import {
 
 import type { SiteBuilderDocument } from '../../../model/types';
 import { Dialog } from '../../../ui/Dialog';
+import { useFeedback } from '../../feedback/useFeedback';
 import type { BusinessProfileDraft, PlanIntent } from '../../model/types';
 import { serviceMenuPort } from '../adapters/service-menu';
 import type {
@@ -212,6 +214,7 @@ export function DashboardPreviewSurface({
   selectedServiceIds,
   tourCompleted,
 }: DashboardPreviewSurfaceProps) {
+  const feedback = useFeedback();
   const headingRef = useRef<HTMLHeadingElement>(null);
   const storyboardRef = useRef<HTMLElement>(null);
   const storyboardHeadingRef = useRef<HTMLHeadingElement>(null);
@@ -236,6 +239,18 @@ export function DashboardPreviewSurface({
   const storyboard = STORYBOARD_COPY[destination];
   const doneItems = checklist.filter((item) => item.status === 'complete' || item.status === 'connected');
   const nextItems = checklist.filter((item) => item.status !== 'complete' && item.status !== 'connected');
+
+  useEffect(() => {
+    feedback.configure({ reducedMotion });
+  }, [feedback, reducedMotion]);
+
+  useEffect(() => {
+    feedback.send({
+      kind: 'milestone',
+      message: 'Your Luster site is ready',
+      onceKey: 'dashboard_arrival',
+    });
+  }, [feedback]);
 
   useEffect(() => {
     if (tourOpen || hasFocusedDashboardRef.current) return undefined;
@@ -311,8 +326,10 @@ export function DashboardPreviewSurface({
 
       {welcomeVisible ? (
         <section className="lab-dashboard-preview__welcome">
+          <Sparkles aria-hidden="true" className="lab-dashboard-preview__welcome-icon" size={30} />
+          <span aria-hidden="true" className="lab-dashboard-preview__welcome-glow" />
           <p>{planLabel(planIntent)}</p>
-          <h1 ref={headingRef} tabIndex={-1}>You’re ready</h1>
+          <h1 ref={headingRef} tabIndex={-1}>Your Luster site is ready</h1>
           <p>{ownerName}, your website, booking page and service menu are set up. This is where you’ll manage appointments, clients, services and your site.</p>
           <div className="lab-dashboard-preview__handoff-actions">
             <button className="is-primary" type="button" onClick={onEditWebsite}>Edit my website</button>
@@ -369,7 +386,7 @@ export function DashboardPreviewSurface({
             ) : null}
             {destination === 'services' ? selectedServices.slice(0, 4).map((service) => (
               <article key={service.id}>
-                <span aria-hidden="true">✓</span>
+                <span aria-hidden="true"><Check size={16} strokeWidth={2.5} /></span>
                 <strong>{service.name}</strong>
                 <small>{service.durationLabel} · {service.priceLabel}</small>
               </article>

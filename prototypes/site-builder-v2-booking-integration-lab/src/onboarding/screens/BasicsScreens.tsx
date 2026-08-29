@@ -1,6 +1,7 @@
 import { useId, useRef, useState, type FormEvent } from 'react';
 
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
+import { WeeklyHoursEditor } from '../components/WeeklyHoursEditor';
 import { SCREEN_METADATA } from '../copy';
 import { resolveOnboardingImageUrl } from '../integrations/adapters/media';
 import {
@@ -11,20 +12,17 @@ import {
 } from '../model/contact';
 import {
   getPublicWeeklyHours,
+  getWeeklyHoursCardSummary,
   getWeeklyHoursPreviewStatus,
-  getWeeklyHoursSetupSummary,
-  hasConfiguredWeeklyHours,
-  isValidOpenHoursDay,
+  hasCompleteWeeklyHours,
 } from '../model/hours';
 import { getPublicLocationPreview } from '../model/location';
 import type {
   AddressVisibility,
   BusinessProfileDraft,
   BusinessStructure,
-  DayHoursDraft,
   LocationType,
   PreferredContactMethod,
-  Weekday,
 } from '../model/types';
 import {
   ChoiceGroup,
@@ -72,16 +70,6 @@ const ADDRESS_VISIBILITY: readonly ChoiceOption<AddressVisibility>[] = [
   { label: 'Show publicly', value: 'public' },
   { label: 'Show after booking', value: 'after_booking' },
   { label: 'Do not show', value: 'hidden' },
-];
-
-const WEEKDAYS: readonly { id: Weekday; label: string }[] = [
-  { id: 'monday', label: 'Monday' },
-  { id: 'tuesday', label: 'Tuesday' },
-  { id: 'wednesday', label: 'Wednesday' },
-  { id: 'thursday', label: 'Thursday' },
-  { id: 'friday', label: 'Friday' },
-  { id: 'saturday', label: 'Saturday' },
-  { id: 'sunday', label: 'Sunday' },
 ];
 
 function initialsFor(profile: BusinessProfileDraft): string {
@@ -196,8 +184,8 @@ export function BusinessScreen({
 
 type PhotoSocialScreenProps = SharedBasicsScreenProps & {
   onContinue: () => void;
-  onLogoSelected: (file: File) => void;
-  onProfilePhotoSelected: (file: File) => void;
+  onLogoSelected: (file: File) => Promise<void>;
+  onProfilePhotoSelected: (file: File) => Promise<void>;
   onSkipPhoto: () => void;
 };
 
@@ -215,6 +203,7 @@ export function PhotoSocialScreen({
     .flatMap((image) => image?.storageId ? [image.storageId] : []);
   const imageAssets = useCustomDesignAssetMap(imageAssetIds);
   const profileImage = resolveOnboardingImageUrl(profile.profilePhoto, imageAssets);
+  const logoImage = resolveOnboardingImageUrl(profile.logo, imageAssets);
 
   return (
     <section aria-labelledby="photo-social-heading" className="onboarding-screen onboarding-photo-social-screen">
@@ -228,18 +217,28 @@ export function PhotoSocialScreen({
           <ImageUploadField
             chooseLabel="Choose profile photo"
             currentLabel={profile.profilePhoto?.fileName}
+            currentSummary={profile.profilePhoto?.width && profile.profilePhoto.height
+              ? `${profile.profilePhoto.width} × ${profile.profilePhoto.height}`
+              : undefined}
             label="Profile photo"
             needsReselect={profile.profilePhoto?.source === 'missing'}
             onRemove={() => onProfileChange({ profilePhoto: undefined })}
             onSelect={onProfilePhotoSelected}
+            previewUrl={profileImage ?? undefined}
+            readyLabel="Photo ready"
           />
           <ImageUploadField
             chooseLabel="Choose logo"
             currentLabel={profile.logo?.fileName}
+            currentSummary={profile.logo?.width && profile.logo.height
+              ? `${profile.logo.width} × ${profile.logo.height}`
+              : undefined}
             label="Logo"
             needsReselect={profile.logo?.source === 'missing'}
             onRemove={() => onProfileChange({ logo: undefined })}
             onSelect={onLogoSelected}
+            previewUrl={logoImage ?? undefined}
+            readyLabel="Logo ready"
           />
           <TextField
             autoComplete="off"
@@ -340,21 +339,6 @@ export function LocationContactScreen({
   const updateLocation = (patch: Partial<BusinessProfileDraft['location']>) => {
     onProfileChange({ location: { ...profile.location, ...patch } });
   };
-  const updateDay = (day: Weekday, patch: Partial<DayHoursDraft>) => {
-    const days = {
-      ...profile.hours.days,
-      [day]: { ...profile.hours.days[day], ...patch },
-    };
-    onProfileChange({
-      hours: {
-        ...profile.hours,
-        days,
-        setupState: hasConfiguredWeeklyHours({ ...profile.hours, days })
-          ? 'configured'
-          : 'unset',
-      },
-    });
-  };
   const availableContactMethods = getAvailableContactMethods(profile);
   const hasAnyContact = availableContactMethods.length > 0;
   const hasCoherentPreferredContact = contactMethodHasValue(
@@ -417,18 +401,13 @@ export function LocationContactScreen({
       : availableContactMethods.length === 1
         ? `${CONTACT_METHODS.find(({ value }) => value === availableContactMethods[0])?.label} added`
       : 'Add phone, email or Instagram';
-  const rawHoursSummary = getWeeklyHoursSetupSummary(profile.hours);
-  const hoursSummary = profile.hours.setupState === 'unset'
-    ? 'Add your business hours'
-    : profile.hours.setupState === 'skipped' || !profile.hours.showOnSite
-      ? 'Not shown on your website'
-      : rawHoursSummary.replace(' · Shown on your site', '');
+  const hoursSummary = getWeeklyHoursCardSummary(profile.hours);
   const hoursStatus = getWeeklyHoursPreviewStatus(profile.hours, previewTimestamp);
 
   const publicLocation = getPublicLocationPreview(profile.location);
   const publicContact = getPublicContactPreview(profile);
   const publicWeeklyHours = getPublicWeeklyHours(profile.hours);
-  const hasConfiguredHours = hasConfiguredWeeklyHours(profile.hours);
+  const hasCompleteHours = hasCompleteWeeklyHours(profile.hours);
 
   return (
     <section aria-labelledby="location-contact-heading" className="onboarding-screen onboarding-location-contact-screen">
@@ -721,106 +700,46 @@ export function LocationContactScreen({
           </CollapsibleFormCard>
 
           <CollapsibleFormCard
-            completed={profile.hours.setupState === 'configured' && hasConfiguredHours}
+            completed={profile.hours.setupState === 'configured' && hasCompleteHours}
             id="onboarding-hours-card"
             open={openCard === 'hours'}
             summary={hoursSummary}
             status={profile.hours.setupState === 'skipped'
               || (profile.hours.setupState === 'configured' && !profile.hours.showOnSite)
               ? 'not_shown'
-              : profile.hours.setupState === 'configured' && hasConfiguredHours
+              : profile.hours.setupState === 'configured' && hasCompleteHours
                 ? 'complete'
+                : profile.hours.setupState === 'configured'
+                  ? 'finish'
                 : 'set_up'}
             title="Hours"
             onToggle={() => setOpenCard('hours')}
           >
             <NativeSwitch
-              checked={profile.hours.showOnSite}
-              description={profile.hours.setupState === 'configured' && hasConfiguredHours
+              checked={profile.hours.setupState === 'configured'
+                && hasCompleteHours
+                && profile.hours.showOnSite}
+              description={profile.hours.setupState === 'configured' && hasCompleteHours
                 ? profile.hours.showOnSite
                   ? 'Your current open or closed status appears in connected previews.'
                   : 'Not shown on your site'
                 : 'Add hours before showing a public status.'}
-              disabled={profile.hours.setupState !== 'configured' || !hasConfiguredHours}
+              disabled={profile.hours.setupState !== 'configured' || !hasCompleteHours}
               label="Show hours on my website"
               onChange={(showOnSite) => onProfileChange({
                 hours: { ...profile.hours, showOnSite },
               })}
             />
-            <div className="onboarding-hours-grid">
-              {WEEKDAYS.map(({ id, label }) => {
-                const day = profile.hours.days[id];
-                return (
-                  <fieldset className="onboarding-hours-day" key={id}>
-                    <legend>{label}</legend>
-                    <label>
-                      <input
-                        checked={day.closed}
-                        type="checkbox"
-                        onChange={(event) => updateDay(id, { closed: event.target.checked })}
-                      />
-                      Closed
-                    </label>
-                    <label>
-                      Opens
-                      <input
-                        aria-label={`${label} opens`}
-                        disabled={day.closed}
-                        type="time"
-                        value={day.open}
-                        onChange={(event) => updateDay(id, { open: event.target.value })}
-                      />
-                    </label>
-                    <label>
-                      Closes
-                      <input
-                        aria-label={`${label} closes`}
-                        disabled={day.closed}
-                        type="time"
-                        value={day.close}
-                        onChange={(event) => updateDay(id, { close: event.target.value })}
-                      />
-                    </label>
-                  </fieldset>
-                );
-              })}
-            </div>
-            <div className="onboarding-inline-actions">
-              <button
-                disabled={!isValidOpenHoursDay(profile.hours.days.monday)}
-                type="button"
-                onClick={() => {
-                  const monday = profile.hours.days.monday;
-                  onProfileChange({
-                    hours: {
-                      ...profile.hours,
-                      days: {
-                        ...profile.hours.days,
-                        friday: { ...monday },
-                        monday: { ...monday },
-                        thursday: { ...monday },
-                        tuesday: { ...monday },
-                        wednesday: { ...monday },
-                      },
-                      setupState: 'configured',
-                    },
-                  });
-                }}
-              >
-                Copy Monday to weekdays
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  onProfileChange({
-                    hours: { ...profile.hours, setupState: 'skipped' },
-                  });
-                  onSkipHours();
-                }}
-              >
-                Skip hours for now
-              </button>
-            </div>
+            <WeeklyHoursEditor
+              hours={profile.hours}
+              onChange={(hours) => onProfileChange({ hours })}
+              onSkip={() => {
+                onProfileChange({
+                  hours: { ...profile.hours, setupState: 'skipped' },
+                });
+                onSkipHours();
+              }}
+            />
             <p className="onboarding-field-hint">
               Website hours show clients when your business is open. Bookable appointment
               times follow your Booking availability, which you can manage from your dashboard.

@@ -2,9 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import { createDefaultWeeklyHours } from './defaults';
 import {
+  applyRegularHours,
+  copyWeeklyHoursDay,
   getPublicWeeklyHours,
+  getHoursIntervalError,
+  getWeeklyHoursCardSummary,
   getWeeklyHoursPreviewStatus,
   getWeeklyHoursSetupSummary,
+  hasCompleteWeeklyHours,
+  updateWeeklyHoursDay,
 } from './hours';
 
 const configuredHours = () => {
@@ -37,12 +43,91 @@ describe('honest weekly-hours state', () => {
     hours.days.monday.open = '09:00';
     hours.days.sunday.closed = true;
 
-    expect(getWeeklyHoursSetupSummary(hours)).toBe('Not set · Optional');
+    expect(getWeeklyHoursSetupSummary(hours)).toBe('Finish your hours');
     expect(getPublicWeeklyHours(hours)).toEqual([]);
     expect(getWeeklyHoursPreviewStatus(
       hours,
       '2026-08-27T18:30:00.000Z',
     )).toBeNull();
+  });
+
+  it.each([
+    ['Every day', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']],
+    ['Monday–Friday', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']],
+    ['Monday–Saturday', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']],
+    ['custom days', ['tuesday', 'thursday', 'saturday']],
+  ] as const)('applies one valid interval atomically to %s', (_, selectedDays) => {
+    const initial = createDefaultWeeklyHours();
+    const hours = applyRegularHours(initial, selectedDays, '10:00', '19:00');
+
+    expect(hours).not.toBeNull();
+    expect(hours?.setupState).toBe('configured');
+    for (const weekday of selectedDays) {
+      expect(hours?.days[weekday]).toEqual({
+        close: '19:00',
+        closed: false,
+        open: '10:00',
+      });
+    }
+    expect(Object.entries(hours?.days ?? {}).filter(([, day]) => day.closed))
+      .toHaveLength(7 - selectedDays.length);
+    expect(hasCompleteWeeklyHours(hours!)).toBe(true);
+  });
+
+  it('rejects partial, equal, and close-before-open intervals without changing the schedule', () => {
+    const hours = createDefaultWeeklyHours();
+
+    expect(getHoursIntervalError('10:00', '')).toBe('partial');
+    expect(getHoursIntervalError('10:00', '10:00')).toBe('closing_not_after_open');
+    expect(getHoursIntervalError('10:50', '09:50')).toBe('closing_not_after_open');
+    expect(applyRegularHours(hours, ['monday'], '10:50', '09:50')).toBeNull();
+    expect(updateWeeklyHoursDay(hours, 'monday', {
+      close: '09:50',
+      closed: false,
+      open: '10:50',
+    })).toBeNull();
+    expect(hours).toEqual(createDefaultWeeklyHours());
+  });
+
+  it('adjusts and copies individual days without introducing another schedule', () => {
+    const initial = applyRegularHours(
+      createDefaultWeeklyHours(),
+      ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'],
+      '10:00',
+      '19:00',
+    )!;
+    const friday = updateWeeklyHoursDay(initial, 'friday', {
+      close: '17:00',
+      closed: false,
+      open: '09:00',
+    })!;
+    const copied = copyWeeklyHoursDay(friday, 'friday', ['saturday', 'sunday']);
+
+    expect(copied.days.friday).toEqual({ close: '17:00', closed: false, open: '09:00' });
+    expect(copied.days.saturday).toEqual(copied.days.friday);
+    expect(copied.days.sunday).toEqual(copied.days.friday);
+    expect(copied.days.monday).toEqual(initial.days.monday);
+  });
+
+  it('keeps an invalid entered day out of Complete and every public preview', () => {
+    const hours = configuredHours();
+    hours.days.monday = { close: '09:50', closed: false, open: '10:50' };
+
+    expect(hasCompleteWeeklyHours(hours)).toBe(false);
+    expect(getWeeklyHoursSetupSummary(hours)).toBe('Finish your hours');
+    expect(getWeeklyHoursCardSummary(hours)).toBe('Finish your hours');
+    expect(getPublicWeeklyHours(hours)).toEqual([]);
+    expect(getWeeklyHoursPreviewStatus(hours, '2026-08-27T18:30:00.000Z')).toBeNull();
+  });
+
+  it('creates concise common-schedule summaries', () => {
+    const weekdays = applyRegularHours(
+      createDefaultWeeklyHours(),
+      ['monday', 'tuesday', 'wednesday', 'thursday', 'friday'],
+      '09:00',
+      '18:00',
+    )!;
+    expect(getWeeklyHoursCardSummary(weekdays)).toBe('Mon–Fri · 9:00 AM–6:00 PM');
   });
 
   it('derives open-until and closed from the deterministic fixture timestamp', () => {

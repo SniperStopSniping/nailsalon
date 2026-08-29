@@ -34,6 +34,8 @@
 .lab-dashboard-preview__topbar button { display: inline-flex; align-items: center; gap: 6px; padding: 8px 12px; border: 1px solid #d9ccd2; border-radius: 999px; background: #fffdfb; }
 
 .lab-dashboard-preview__welcome {
+  position: relative;
+  overflow: hidden;
   padding: clamp(20px, 4vw, 38px);
   border: 1px solid #e2d7db;
   border-radius: 24px;
@@ -41,7 +43,37 @@
   box-shadow: 0 18px 50px rgba(61, 40, 50, .08);
 }
 
-.lab-dashboard-preview__welcome > p:first-child {
+.lab-dashboard-preview__welcome-icon {
+  position: relative;
+  z-index: 1;
+  color: var(--onboarding-accent);
+  animation: dashboard-welcome-icon 620ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.lab-dashboard-preview__welcome-glow {
+  position: absolute;
+  width: 132px;
+  height: 132px;
+  top: -42px;
+  right: -34px;
+  pointer-events: none;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(235, 174, 200, 0.34), transparent 70%);
+  animation: dashboard-welcome-glow 720ms ease-out both;
+}
+
+@keyframes dashboard-welcome-icon {
+  from { opacity: 0; transform: scale(0.84) rotate(-6deg); }
+  to { opacity: 1; transform: scale(1) rotate(0); }
+}
+
+@keyframes dashboard-welcome-glow {
+  from { opacity: 0; transform: scale(0.72); }
+  45% { opacity: 1; }
+  to { opacity: 0.68; transform: scale(1); }
+}
+
+.lab-dashboard-preview__welcome > p:first-of-type {
   margin-bottom: 5px;
   color: #8e4f70;
   font-size: .7rem;

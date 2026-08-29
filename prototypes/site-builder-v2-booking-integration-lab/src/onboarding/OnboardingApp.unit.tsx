@@ -17,6 +17,7 @@ import {
 } from '../model';
 import { useLabDocument, type LabDocumentController } from '../ui/useLabDocument';
 import { createDanielaFixtureState } from './fixtures';
+import { FeedbackProvider } from './feedback/FeedbackProvider';
 import type { OnboardingLabState } from './model/types';
 import {
   ONBOARDING_STORAGE_KEY,
@@ -27,6 +28,7 @@ import {
   OnboardingApp,
   applyCanvaIntegrationResult,
   getOnboardingAssetIds,
+  isOnboardingResetBlocked,
 } from './OnboardingApp';
 
 const assetProviderMocks = vi.hoisted(() => ({
@@ -161,6 +163,29 @@ const renderAt = (
   };
 };
 
+const renderAtWithFeedback = (
+  state: OnboardingLabState,
+  onEnterBuilder = vi.fn(),
+) => {
+  window.localStorage.setItem(
+    ONBOARDING_STORAGE_KEY,
+    serializeOnboardingState(state),
+  );
+  const document = initializeStarter(state.recipe.starter ?? 'one_page', {
+    siteId: state.recipe.starterDocumentSiteId ?? undefined,
+    siteName: state.profile.businessName,
+  });
+  const lab = createLab(document);
+  return {
+    lab,
+    ...render(
+      <FeedbackProvider testMode>
+        <OnboardingApp auditMode lab={lab} onEnterBuilder={onEnterBuilder} />
+      </FeedbackProvider>,
+    ),
+  };
+};
+
 type BrowserHistoryEntry = {
   lusterOnboarding: true;
   onboardingCursor: number;
@@ -210,6 +235,13 @@ describe('OnboardingApp handoff boundaries', () => {
     window.history.replaceState({}, '', '/');
     window.localStorage.removeItem(SITE_BUILDER_STORAGE_KEY);
     window.localStorage.removeItem(ONBOARDING_STORAGE_KEY);
+  });
+
+  it('blocks Start over while either document or profile media work is pending', () => {
+    expect(isOnboardingResetBlocked(false, 0)).toBe(false);
+    expect(isOnboardingResetBlocked(true, 0)).toBe(true);
+    expect(isOnboardingResetBlocked(false, 1)).toBe(true);
+    expect(isOnboardingResetBlocked(true, 2)).toBe(true);
   });
 
   it('hides Lab review options during the normal owner journey', async () => {
@@ -455,6 +487,38 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(screen.getByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
     expect(currentBrowserHistoryEntry()).toEqual(resetEntry);
     forward.mockRestore();
+  });
+
+  it('uses the exact scoped Start over warning and guards repeat activation while cleanup is pending', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('policies');
+    let finishCleanup: ((errors: Error[]) => void) | undefined;
+    const deleteAssetsIfUnreferenced = vi.fn(() => new Promise<Error[]>((resolve) => {
+      finishCleanup = resolve;
+    }));
+    assetProviderMocks.coordinator = { deleteAssetsIfUnreferenced };
+    const { lab } = renderAt(state);
+
+    await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Start over' }));
+    const dialog = screen.getByRole('dialog', { name: 'Start over?' });
+    expect(dialog).toHaveAccessibleDescription(
+      'This clears your onboarding answers, uploaded setup images and starting website from this device. Other saved Builder work stays untouched.',
+    );
+    expect(within(dialog).getByRole('button', { name: 'Keep my setup' })).toBeEnabled();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Start over' }));
+    const pending = within(dialog).getByRole('button', { name: 'Starting over…' });
+    expect(pending).toBeDisabled();
+    expect(within(dialog).getByRole('button', { name: 'Close Start over?' }))
+      .toBeDisabled();
+    expect(lab.resetLab).toHaveBeenCalledOnce();
+    expect(deleteAssetsIfUnreferenced).toHaveBeenCalledOnce();
+
+    finishCleanup?.([]);
+    const welcomeHeading = await screen.findByRole('heading', { name: 'Let’s build your website' });
+    await waitFor(() => expect(welcomeHeading).toHaveFocus());
+    expect(lab.resetLab).toHaveBeenCalledOnce();
   });
 
   it('deletes a removed, reloaded onboarding-owned asset on Reset while preserving an unrelated asset', async () => {
@@ -743,6 +807,55 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(screen.getByRole('region', {
       name: 'Isla Nail Studio starting website preview',
     })).toBeVisible();
+  });
+
+  it('keeps the starting-site reveal visible while remembering the newly complete Booking stage', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('starter');
+    state.recipe.starter = null;
+    state.recipe.starterDocumentSiteId = null;
+    window.localStorage.setItem(ONBOARDING_STORAGE_KEY, serializeOnboardingState(state));
+    window.localStorage.removeItem(SITE_BUILDER_STORAGE_KEY);
+
+    render(
+      <FeedbackProvider testMode>
+        <RealLabHarness />
+      </FeedbackProvider>,
+    );
+    await user.click(screen.getByRole('button', { name: /Start with One-page/u }));
+
+    expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
+      'Your starting site is ready',
+    );
+    await waitFor(() => {
+      const saved = parseOnboardingState(
+        window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
+      );
+      expect(saved.state.reviewOptions.feedbackMilestones).toEqual(
+        expect.arrayContaining(['starting_site_ready', 'stage_booking']),
+      );
+    });
+  });
+
+  it('shows website-style completion before the queued all-required milestone', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('site_style');
+    state.recipe.styleConfirmed = false;
+    renderAtWithFeedback(state);
+
+    await user.click(screen.getByRole('button', { name: /^Use /u }));
+
+    expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
+      'Your website style is set',
+    );
+    await waitFor(() => {
+      const saved = parseOnboardingState(
+        window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
+      );
+      expect(saved.state.reviewOptions.feedbackMilestones).toEqual(
+        expect.arrayContaining(['stage_design', 'all_required_complete']),
+      );
+    });
   });
 });
 

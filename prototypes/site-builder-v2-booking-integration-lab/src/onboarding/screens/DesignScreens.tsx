@@ -26,6 +26,7 @@ import {
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
 import { SCREEN_METADATA } from '../copy';
 import { recordOnboardingEvent } from '../events/journal';
+import { useFeedback } from '../feedback/useFeedback';
 import {
   buildAboutWordingSuggestion,
   formatAboutListInput,
@@ -730,6 +731,7 @@ export function AboutDesignScreen({
   onContinue: () => void;
   onFullPreview: () => void;
 }) {
+  const feedback = useFeedback();
   return (
     <div className="onboarding-screen onboarding-screen--designer" data-screen="about_design">
       <ScreenHeading id="about_design" status="Optional" />
@@ -752,15 +754,18 @@ export function AboutDesignScreen({
             data-selected={state.recipe.aboutPreset === preset.id ? 'true' : 'false'}
             key={preset.id}
             type="button"
-            onClick={() => onUpdate((current) => ({
-              ...current,
-              recipe: { ...current.recipe, aboutPreset: preset.id },
-            }))}
+            onClick={() => {
+              feedback.send({ kind: 'selection' });
+              onUpdate((current) => ({
+                ...current,
+                recipe: { ...current.recipe, aboutPreset: preset.id },
+              }));
+            }}
           >
             <AboutPresetPoster preset={preset.id} state={state} />
             <strong>{preset.label}</strong>
             <small>{preset.description}</small>
-            {state.recipe.aboutPreset === preset.id ? <span>✓ Selected</span> : null}
+            {state.recipe.aboutPreset === preset.id ? <span><Check aria-hidden="true" size={14} /> Selected</span> : null}
           </button>
         ))}
       </div>
@@ -1477,6 +1482,7 @@ export function SiteStyleScreen({
   onFullPreview: () => void;
   onKeepCurrent?: () => void;
 }) {
+  const feedback = useFeedback();
   const confirmedStyleAtEntry = useRef(state.recipe.stylePreset);
   const selectedStyle = STYLE_PRESETS.find((preset) =>
     preset.id === state.recipe.stylePreset) ?? STYLE_PRESETS[0];
@@ -1516,10 +1522,13 @@ export function SiteStyleScreen({
                   '--swatch-surface': roles.surface,
                 } as CSSProperties}
                 type="button"
-                onClick={() => onUpdate((current) => ({
-                  ...current,
-                  recipe: { ...current.recipe, styleConfirmed: false, stylePreset: preset.id },
-                }))}
+                onClick={() => {
+                  feedback.send({ kind: 'selection' });
+                  onUpdate((current) => ({
+                    ...current,
+                    recipe: { ...current.recipe, styleConfirmed: false, stylePreset: preset.id },
+                  }));
+                }}
               >
                 <span className="onboarding-style-swatch" aria-hidden="true">
                   <i>Aa</i>

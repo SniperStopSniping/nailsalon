@@ -301,6 +301,10 @@
   color: var(--customer-ink);
 }
 
+.onboarding-about-biography details {
+  margin-top: 8px;
+}
+
 .onboarding-about-biography summary,
 .onboarding-about-facts-more summary {
   display: inline-flex;
@@ -315,11 +319,15 @@
   text-underline-offset: 3px;
 }
 
+.onboarding-about-biography details[open] summary {
+  margin-bottom: 8px;
+}
+
 .onboarding-about-specialties {
   display: flex;
   min-width: 0;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   margin: 12px 0 4px;
   padding: 0;
   list-style: none;
@@ -344,7 +352,7 @@
 
 .onboarding-about-facts {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
+  gap: 10px;
 }
 
 .onboarding-about-facts > div,
@@ -402,7 +410,7 @@
   display: grid;
   min-width: 0;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px;
+  gap: 10px;
   margin: 0;
 }
 
@@ -410,8 +418,14 @@
   display: flex;
   min-width: 0;
   flex-wrap: wrap;
-  gap: 7px;
-  margin-top: 12px;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.onboarding-customer-about .onboarding-customer-actions a {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 .onboarding-customer-about .onboarding-customer-actions a:first-child {
@@ -444,7 +458,7 @@
 
 @container onboarding-preview (max-width: 559px) {
   .onboarding-customer-about {
-    gap: 14px;
+    gap: 20px;
     padding: 28px 18px;
   }
 
@@ -496,11 +510,11 @@
   }
 
   .onboarding-customer-about.is-before-booking .onboarding-about-profile {
-    gap: 8px;
+    gap: 16px;
   }
 
   .onboarding-customer-about.is-before-booking .onboarding-customer-actions {
-    margin-top: 5px;
+    margin-top: 16px;
   }
 
   .onboarding-customer-about.is-before-booking .onboarding-customer-actions a:first-child,
@@ -775,72 +789,54 @@
   }
 
   .onboarding-screen--style .onboarding-style-grid {
-    display: flex;
-    width: calc(100% + 14px);
-    margin-right: -14px;
-    padding: 1px 14px 4px 1px;
-    overflow-x: auto;
-    overscroll-behavior-inline: contain;
-    scroll-padding-inline: 1px 14px;
-    scroll-snap-type: inline mandatory;
-    scrollbar-width: none;
-  }
-
-  .onboarding-screen--style .onboarding-style-grid::-webkit-scrollbar {
-    display: none;
+    display: grid;
+    width: 100%;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-right: 0;
+    padding: 0;
+    overflow: visible;
   }
 
   .onboarding-screen--style .onboarding-style-card {
     display: grid;
     position: relative;
-    min-width: min(276px, calc(100vw - 34px));
-    height: 104px;
-    min-height: 104px;
-    flex: 0 0 min(276px, calc(100vw - 34px));
-    grid-template-columns: 92px minmax(0, 1fr);
-    grid-template-rows: auto minmax(0, 1fr);
-    align-content: stretch;
-    gap: 3px 10px;
-    padding: 6px;
+    min-width: 0;
+    min-height: 218px;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(2.7em, auto) auto;
+    align-content: start;
+    gap: 6px;
+    padding: 8px;
     overflow: hidden;
-    scroll-snap-align: start;
-  }
-
-  .onboarding-screen--style .onboarding-style-card > .onboarding-style-swatch {
-    grid-column: 1;
-    grid-row: 1 / -1;
-  }
-
-  .onboarding-screen--style .onboarding-style-card > strong,
-  .onboarding-screen--style .onboarding-style-card > small {
-    grid-column: 2;
   }
 
   .onboarding-screen--style .onboarding-style-card > small {
     display: -webkit-box;
+    min-height: 2.7em;
     overflow: hidden;
     -webkit-box-orient: vertical;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 3;
   }
 
   .onboarding-screen--style .onboarding-style-card > .onboarding-style-card__statuses {
-    position: absolute;
-    right: 6px;
-    bottom: 6px;
-    left: 108px;
-    min-height: 18px;
+    position: static;
+    min-width: 0;
+    min-height: 30px;
+    align-content: start;
   }
 
   .onboarding-screen--style .onboarding-style-card__statuses em {
-    min-height: 18px;
-    padding: 2px 5px;
+    min-height: 28px;
+    padding: 3px 5px;
     font-size: 0.54rem;
+    line-height: 1.2;
   }
 
   .onboarding-screen--style .onboarding-style-swatch {
-    width: 92px;
-    height: 80px;
-    padding: 6px;
+    width: 100%;
+    height: 88px;
+    padding: 7px;
   }
 
   .onboarding-screen--style .onboarding-style-reassurance {

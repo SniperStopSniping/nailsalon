@@ -255,6 +255,7 @@ export const createDefaultOnboardingState = (): OnboardingLabState => ({
   recipe: createDefaultSiteRecipe(),
   reviewOptions: {
     appliedFixtureId: null,
+    feedbackMilestones: [],
     previewTimestamp: DEFAULT_PREVIEW_TIMESTAMP,
     reducedMotion: false,
     viewportFixture: null,

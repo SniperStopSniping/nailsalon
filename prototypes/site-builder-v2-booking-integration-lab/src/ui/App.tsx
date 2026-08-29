@@ -91,6 +91,7 @@ import {
   getOnboardingReferencedAssetIds,
   OnboardingApp,
 } from '../onboarding/OnboardingApp';
+import { FeedbackProvider } from '../onboarding/feedback/FeedbackProvider';
 import { DashboardPreviewSurface } from '../onboarding/integrations/lab/DashboardPreviewSurface';
 import { LAB_DASHBOARD_HANDOFF_PORT } from '../onboarding/integrations/lab/createLabDashboardPorts';
 import { createOnboardingBookingFixture } from '../onboarding/model/booking-preview';
@@ -271,11 +272,14 @@ const restoreVisibleFocus = (element: HTMLElement | null): boolean => {
 type LabDocumentController = ReturnType<typeof useLabDocument>;
 
 const getInitialSurface = (): 'builder' | 'dashboard' | 'onboarding' => {
+  const search = new URLSearchParams(window.location.search);
   const builderTestHarnessEnabled = import.meta.env.MODE === 'test'
-    || import.meta.env.VITE_LUSTER_BUILDER_TEST_HARNESS === '1';
+    || import.meta.env.VITE_LUSTER_BUILDER_TEST_HARNESS === '1'
+    || search.get('audit') === '1'
+    || search.get('labReview') === '1';
   if (
     builderTestHarnessEnabled
-    && new URLSearchParams(window.location.search).get('surface') === 'builder'
+    && search.get('surface') === 'builder'
   ) {
     return 'builder';
   }
@@ -314,32 +318,34 @@ export function App() {
   }, [lab.getReachableAssetIds]);
   return (
     <CustomDesignAssetProvider getReachableAssetIds={getReachableAssetIds}>
-      {surface === 'dashboard' ? (
-        <DashboardHandoffSurface
-          auditMode={auditMode}
-          lab={lab}
-          onEditWebsite={() => setSurface('builder')}
-          onReturnToReview={() => setSurface('review')}
-        />
-      ) : surface === 'builder' ? (
-        <div className="onboarding-builder-surface">
-          <button
-            className="onboarding-builder-return"
-            type="button"
-            onClick={() => setSurface('dashboard')}
-          >
-            Back to dashboard
-          </button>
-          <BuilderApp lab={lab} />
-        </div>
-      ) : (
-        <OnboardingApp
-          auditMode={auditMode}
-          forceReview={surface === 'review'}
-          lab={lab}
-          onEnterDashboard={() => setSurface('dashboard')}
-        />
-      )}
+      <FeedbackProvider>
+        {surface === 'dashboard' ? (
+          <DashboardHandoffSurface
+            auditMode={auditMode}
+            lab={lab}
+            onEditWebsite={() => setSurface('builder')}
+            onReturnToReview={() => setSurface('review')}
+          />
+        ) : surface === 'builder' ? (
+          <div className="onboarding-builder-surface">
+            <button
+              className="onboarding-builder-return"
+              type="button"
+              onClick={() => setSurface('dashboard')}
+            >
+              Back to dashboard
+            </button>
+            <BuilderApp lab={lab} />
+          </div>
+        ) : (
+          <OnboardingApp
+            auditMode={auditMode}
+            forceReview={surface === 'review'}
+            lab={lab}
+            onEnterDashboard={() => setSurface('dashboard')}
+          />
+        )}
+      </FeedbackProvider>
     </CustomDesignAssetProvider>
   );
 }

@@ -31,9 +31,13 @@ export type ImageUploadErrorCode =
   | 'file_too_large'
   | 'invalid_capacity'
   | 'invalid_file_size'
+  | 'normalization_failed'
+  | 'orientation_failed'
   | 'signature_mismatch'
   | 'section_too_large'
+  | 'thumbnail_failed'
   | 'too_many_images'
+  | 'unsupported_heic'
   | 'unsupported_type';
 
 export class ImageUploadError extends Error {
@@ -72,6 +76,7 @@ export type PrepareImageOptions = {
   createdAt?: string;
   decodeImage?: ImageDecoder;
   generateThumbnail?: ThumbnailGenerator;
+  requireThumbnail?: boolean;
 };
 
 export type UploadCapacity = {
@@ -377,12 +382,24 @@ export const decodeImageInBrowser: ImageDecoder = async (blob) => {
 
   const url = globalThis.URL.createObjectURL(blob);
   try {
-    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
-      const element = new globalThis.Image();
-      element.onload = () => resolve(element);
-      element.onerror = () => reject(new Error('Image decode failed.'));
-      element.src = url;
+    const image = new globalThis.Image();
+    const loaded = new Promise<HTMLImageElement>((resolve, reject) => {
+      image.onload = () => resolve(image);
+      image.onerror = () => reject(new Error('Image decode failed.'));
     });
+    image.src = url;
+    if (typeof image.decode === 'function') {
+      try {
+        await image.decode();
+      } catch {
+        // Safari can reject decode() for an otherwise loadable image. The
+        // load event remains the compatibility fallback and still verifies
+        // that the browser can render the selected bytes.
+        await loaded;
+      }
+    } else {
+      await loaded;
+    }
     return {
       height: image.naturalHeight,
       orientationApplied: true,
@@ -481,7 +498,16 @@ export const prepareImageAsset = async (
     );
   }
 
-  const orientation = await readExifOrientation(file);
+  let orientation: ExifOrientation;
+  try {
+    orientation = await readExifOrientation(file);
+  } catch (error) {
+    throw new ImageUploadError(
+      'orientation_failed',
+      'This image’s orientation information could not be read.',
+      error,
+    );
+  }
   const decodeImage = options.decodeImage ?? decodeImageInBrowser;
   let decoded: DecodedImage;
   try {
@@ -525,7 +551,14 @@ export const prepareImageAsset = async (
         ...dimensions,
         orientation,
       });
-    } catch {
+    } catch (error) {
+      if (options.requireThumbnail) {
+        throw new ImageUploadError(
+          'thumbnail_failed',
+          'A preview thumbnail could not be created for this image.',
+          error,
+        );
+      }
       // The original remains usable when optional editor thumbnail creation is
       // unsupported or fails (for example, a restricted canvas implementation).
       thumbnailBlob = null;
@@ -562,6 +595,12 @@ export const prepareImageAsset = async (
             mimeType: thumbnailMimeType,
           }
         : undefined;
+    if (options.requireThumbnail && !thumbnail) {
+      throw new ImageUploadError(
+        'thumbnail_failed',
+        'A preview thumbnail could not be created for this image.',
+      );
+    }
     const metadata: ImageAssetMetadata = {
       aspectRatio: dimensions.width / dimensions.height,
       byteSize: file.size,

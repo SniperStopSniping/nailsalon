@@ -290,7 +290,7 @@ describe('LocationContactScreen', () => {
     expect(screen.getByLabelText('Phone number clients can use')).toHaveValue('416-555-0100');
   });
 
-  it('copies Monday hours only to weekdays and keeps native closed controls', async () => {
+  it('applies one regular schedule and keeps individual Closed controls', async () => {
     const user = userEvent.setup();
 
     function Harness() {
@@ -313,21 +313,17 @@ describe('LocationContactScreen', () => {
 
     render(<Harness />);
     await user.click(screen.getByRole('button', { name: /Hours/ }));
-    const monday = screen.getByRole('group', { name: 'Monday' });
-    const sunday = screen.getByRole('group', { name: 'Sunday' });
-    const copyWeekdays = screen.getByRole('button', { name: 'Copy Monday to weekdays' });
-    expect(copyWeekdays).toBeDisabled();
-    expect(within(sunday).getByRole('checkbox', { name: 'Closed' })).not.toBeChecked();
-    await user.click(within(sunday).getByRole('checkbox', { name: 'Closed' }));
-    await user.clear(within(monday).getByLabelText('Monday opens'));
-    await user.type(within(monday).getByLabelText('Monday opens'), '11:00');
-    expect(copyWeekdays).toBeDisabled();
-    await user.type(within(monday).getByLabelText('Monday closes'), '18:00');
-    expect(copyWeekdays).toBeEnabled();
-    await user.click(copyWeekdays);
-    expect(screen.getByLabelText('Friday opens')).toHaveValue('11:00');
-    expect(screen.getByLabelText('Friday closes')).toHaveValue('18:00');
-    expect(within(sunday).getByRole('checkbox', { name: 'Closed' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Monday–Saturday' })).toBeChecked();
+    expect(screen.queryByRole('button', { name: 'Edit Monday hours' })).not.toBeInTheDocument();
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Opens' }), '11:00');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Closes' }), '18:00');
+    await user.click(screen.getByRole('button', { name: 'Apply to selected days' }));
+    expect(screen.getByRole('button', { name: 'Edit Friday hours' })).toBeVisible();
+    expect(screen.getByRole('button', { name: /Hours/ })).toHaveTextContent(
+      'Mon–Sat · 11:00 AM–6:00 PM',
+    );
+    await user.click(screen.getByRole('button', { name: 'Edit Sunday hours' }));
+    expect(screen.getByRole('checkbox', { name: 'Closed' })).toBeChecked();
   });
 
   it('keeps hours optional and only shows a deterministic public status when configured and visible', async () => {
@@ -354,21 +350,31 @@ describe('LocationContactScreen', () => {
     expect(within(preview).queryByText(/Open until|Closed/u)).not.toBeInTheDocument();
 
     await user.click(hoursCard);
-    await user.type(screen.getByLabelText('Thursday opens'), '10:00');
-    expect(hoursCard).toHaveTextContent('Add your business hours');
-    expect(screen.getByRole('switch', { name: 'Show hours on my website' })).toBeDisabled();
+    const showHours = screen.getByRole('switch', { name: 'Show hours on my website' });
+    expect(showHours).toBeDisabled();
+    expect(showHours).not.toBeChecked();
     expect(within(preview).queryByText(/Open until|Closed/u)).not.toBeInTheDocument();
-    await user.type(screen.getByLabelText('Thursday closes'), '18:00');
-    expect(screen.getByRole('switch', { name: 'Show hours on my website' })).toBeEnabled();
+    await user.click(screen.getByRole('radio', { name: 'Custom days' }));
+    for (const day of ['Mon', 'Tue', 'Wed', 'Fri', 'Sat']) {
+      await user.click(screen.getByRole('checkbox', { name: day }));
+    }
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Opens' }), '10:00');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Closes' }), '18:00');
+    await user.click(screen.getByRole('button', { name: 'Apply to selected days' }));
+    expect(showHours).toBeEnabled();
+    expect(showHours).toBeChecked();
     expect(within(preview).getByText('Open until 6:00 PM')).toBeVisible();
 
     await user.click(screen.getByRole('switch', { name: 'Show hours on my website' }));
     expect(hoursCard).toHaveTextContent('Not shown on your website');
     expect(within(preview).queryByText(/Open until|Closed/u)).not.toBeInTheDocument();
 
+    await user.click(showHours);
+    expect(showHours).toBeChecked();
     await user.click(screen.getByRole('button', { name: 'Skip hours for now' }));
     expect(hoursCard).toHaveTextContent('Not shown on your website');
     expect(hoursCard).not.toHaveTextContent('Complete');
+    expect(showHours).not.toBeChecked();
     expect(within(preview).queryByText(/Open until|Closed/u)).not.toBeInTheDocument();
   });
 });

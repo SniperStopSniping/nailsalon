@@ -27,17 +27,26 @@ const installMatchMedia = () => {
 describe('SetupPreviewOverlay shared preview targeting', () => {
   beforeEach(installMatchMedia);
 
-  it('allocates a definite flex height to the shared overlay preview', () => {
+  it('shrink-wraps the shared overlay around the scaled stage instead of reserving a blank flex row', () => {
     const css = readFileSync(
       join(process.cwd(), 'src/onboarding/onboarding.css'),
       'utf8',
     );
 
     expect(css).toMatch(
-      /\.dialog-panel:has\(\.onboarding-preview-overlay\) \.dialog-body \{[^}]*flex: 1 1 auto;/su,
+      /\.dialog-panel--sheet:has\(\.onboarding-preview-overlay\) \{[^}]*height: auto;/su,
     );
     expect(css).toMatch(
-      /\.onboarding-preview-overlay \{[^}]*height: 100%;[^}]*flex: 1 1 auto;/su,
+      /\.onboarding-preview-overlay \{[^}]*height: auto;[^}]*grid-template-rows: auto auto auto;/su,
+    );
+    expect(css).toMatch(
+      /\.onboarding-preview-overlay \.onboarding-preview-stage \{[^}]*var\(--preview-stage-height\)[^}]*clamp\(210px, 64svh, 600px\)/su,
+    );
+    expect(css).not.toMatch(
+      /\.onboarding-preview-overlay \.onboarding-preview-stage \{[^}]*height: 100%/su,
+    );
+    expect(css).not.toMatch(
+      /\.dialog-panel--sheet:has\(\.onboarding-preview-overlay\) \{[^}]*\n\s+height: (?:100d?vh|calc\(100vh - 28px\))/su,
     );
   });
 

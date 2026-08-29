@@ -343,6 +343,7 @@ export type LabViewportFixture = 'small_phone' | null;
 
 export type LabReviewOptions = {
   appliedFixtureId: string | null;
+  feedbackMilestones?: string[];
   previewTimestamp: string;
   reducedMotion: boolean;
   viewportFixture: LabViewportFixture;

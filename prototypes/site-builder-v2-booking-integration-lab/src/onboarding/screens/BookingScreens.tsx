@@ -1,4 +1,12 @@
-import { useId, useState, type FormEvent, type ReactNode } from 'react';
+import { Check, Plus, Search, Sparkles } from 'lucide-react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from 'react';
 
 import { Dialog } from '../../ui/Dialog';
 import { StarterChoiceGrid } from '../../ui/StarterChooser';
@@ -11,6 +19,7 @@ import {
 } from '../components/FormFields';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
 import { SCREEN_METADATA } from '../copy';
+import { useFeedback } from '../feedback/useFeedback';
 import { bookingPreferencesPort } from '../integrations/adapters/booking-preferences';
 import { serviceMenuPort } from '../integrations/adapters/service-menu';
 import type {
@@ -104,9 +113,13 @@ function ServiceLibraryDialog({
   open,
   serviceMenu,
 }: ServiceLibraryDialogProps) {
+  const feedback = useFeedback();
   const [activeTab, setActiveTab] = useState<'services' | 'add_ons'>('services');
   const [activeCategoryId, setActiveCategoryId] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const categoryScrollerRef = useRef<HTMLDivElement>(null);
+  const activeCategoryRef = useRef<HTMLButtonElement>(null);
+  const [categoryOverflow, setCategoryOverflow] = useState({ left: false, right: false });
   const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
   const selectedIds = new Set(
     serviceMenuPort.normalizeSelection(serviceMenu).selectedServiceIds,
@@ -131,6 +144,39 @@ function ServiceLibraryDialog({
   const selectedServiceCount = selectedIds.size;
   const selectedAddOnCount = selectedAddOnIds.size;
 
+  useEffect(() => {
+    if (!open) return undefined;
+    const scroller = categoryScrollerRef.current;
+    if (!scroller) return undefined;
+    const updateOverflow = () => {
+      const maximum = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+      setCategoryOverflow({
+        left: scroller.scrollLeft > 1,
+        right: scroller.scrollLeft < maximum - 1,
+      });
+    };
+    const revealSelected = () => {
+      activeCategoryRef.current?.scrollIntoView?.({
+        behavior: 'auto',
+        block: 'nearest',
+        inline: 'nearest',
+      });
+      updateOverflow();
+    };
+    revealSelected();
+    const frame = window.requestAnimationFrame(revealSelected);
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(revealSelected);
+    observer?.observe(scroller);
+    window.addEventListener('resize', revealSelected);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer?.disconnect();
+      window.removeEventListener('resize', revealSelected);
+    };
+  }, [activeCategoryId, activeTab, open]);
+
   return (
     <Dialog
       description="Remove anything you don’t offer or add services from the library. You can change prices and durations later."
@@ -142,7 +188,7 @@ function ServiceLibraryDialog({
       <div className="onboarding-service-library">
         <label className="onboarding-service-library__search">
           <span className="visually-hidden">Search services</span>
-          <span aria-hidden="true">⌕</span>
+          <Search aria-hidden="true" size={18} />
           <input
             placeholder="Search services"
             type="search"
@@ -150,44 +196,95 @@ function ServiceLibraryDialog({
             onChange={(event) => setSearchQuery(event.target.value)}
           />
         </label>
-        <div aria-label="Service library type" className="onboarding-service-library__tabs" role="tablist">
+        <div
+          aria-label="Service library type"
+          className="onboarding-service-library__tabs"
+          role="tablist"
+          onKeyDown={(event) => {
+            if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
+            event.preventDefault();
+            const nextTab = event.key === 'ArrowLeft' || event.key === 'Home'
+              ? 'services'
+              : 'add_ons';
+            const tabList = event.currentTarget;
+            setActiveTab(nextTab);
+            setActiveCategoryId('all');
+            window.requestAnimationFrame(() => {
+              tabList.querySelector<HTMLElement>(`[data-library-tab="${nextTab}"]`)?.focus();
+            });
+          }}
+        >
           <button
+            aria-controls="onboarding-service-library-results"
             aria-selected={activeTab === 'services'}
+            data-library-tab="services"
+            id="onboarding-service-library-tab-services"
             role="tab"
+            tabIndex={activeTab === 'services' ? 0 : -1}
             type="button"
             onClick={() => { setActiveTab('services'); setActiveCategoryId('all'); }}
           >
             Services
           </button>
           <button
+            aria-controls="onboarding-service-library-results"
             aria-selected={activeTab === 'add_ons'}
+            data-library-tab="add_ons"
+            id="onboarding-service-library-tab-add-ons"
             role="tab"
+            tabIndex={activeTab === 'add_ons' ? 0 : -1}
             type="button"
             onClick={() => { setActiveTab('add_ons'); setActiveCategoryId('all'); }}
           >
             Add-ons
           </button>
         </div>
-        <div aria-label={`${activeTab === 'services' ? 'Service' : 'Add-on'} categories`} className="onboarding-service-library__chips">
-          <button
-            aria-pressed={activeCategoryId === 'all'}
-            type="button"
-            onClick={() => setActiveCategoryId('all')}
+        <div
+          className={`onboarding-service-library__category-rail${categoryOverflow.left ? ' has-left-overflow' : ''}${categoryOverflow.right ? ' has-right-overflow' : ''}`}
+        >
+          <div
+            ref={categoryScrollerRef}
+            aria-label={`${activeTab === 'services' ? 'Service' : 'Add-on'} categories`}
+            className="onboarding-service-library__chips"
+            onScroll={(event) => {
+              const scroller = event.currentTarget;
+              const maximum = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+              setCategoryOverflow({
+                left: scroller.scrollLeft > 1,
+                right: scroller.scrollLeft < maximum - 1,
+              });
+            }}
           >
-            {activeTab === 'services' ? 'All' : 'All add-ons'}
-          </button>
-          {(activeTab === 'services' ? serviceCategories : addOnCategories).map(({ id, label }) => (
             <button
-              aria-pressed={activeCategoryId === id}
-              key={id}
+              ref={activeCategoryId === 'all' ? activeCategoryRef : undefined}
+              aria-pressed={activeCategoryId === 'all'}
               type="button"
-              onClick={() => setActiveCategoryId(id)}
+              onClick={() => setActiveCategoryId('all')}
             >
-              {label}
+              {activeTab === 'services' ? 'All' : 'All add-ons'}
             </button>
-          ))}
+            {(activeTab === 'services' ? serviceCategories : addOnCategories).map(({ id, label }) => (
+              <button
+                ref={activeCategoryId === id ? activeCategoryRef : undefined}
+                aria-pressed={activeCategoryId === id}
+                key={id}
+                type="button"
+                onClick={() => setActiveCategoryId(id)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
-        <ul className="onboarding-service-library__list" aria-label={activeTab === 'services' ? 'Library services' : 'Library add-ons'}>
+        <ul
+          aria-label={activeTab === 'services' ? 'Library services' : 'Library add-ons'}
+          aria-labelledby={activeTab === 'services'
+            ? 'onboarding-service-library-tab-services'
+            : 'onboarding-service-library-tab-add-ons'}
+          className="onboarding-service-library__list"
+          id="onboarding-service-library-results"
+          role="tabpanel"
+        >
         {libraryItems.map((item) => {
           const selected = item.itemKind === 'service'
             ? selectedIds.has(item.id)
@@ -198,7 +295,7 @@ function ServiceLibraryDialog({
                 <img alt={item.imageAlt ?? ''} src={item.imageSrc} />
               ) : (
                 <span aria-hidden="true" className="onboarding-service-library__icon">
-                  {item.itemKind === 'add_on' ? '✦' : 'LN'}
+                  <Sparkles size={20} strokeWidth={1.8} />
                 </span>
               )}
               <span className="onboarding-service-library__item-copy">
@@ -210,13 +307,21 @@ function ServiceLibraryDialog({
                 aria-label={`${selected ? 'Remove' : 'Add'} ${item.name}`}
                 aria-pressed={selected}
                 type="button"
-                onClick={() => onServiceMenuChange(
-                  item.itemKind === 'service'
-                    ? serviceMenuPort.setServiceSelected(serviceMenu, item.id, !selected)
-                    : serviceMenuPort.setAddOnSelected(serviceMenu, item.id, !selected),
-                )}
+                onClick={() => {
+                  onServiceMenuChange(
+                    item.itemKind === 'service'
+                      ? serviceMenuPort.setServiceSelected(serviceMenu, item.id, !selected)
+                      : serviceMenuPort.setAddOnSelected(serviceMenu, item.id, !selected),
+                  );
+                  feedback.send({
+                    kind: selected ? 'removed' : 'added',
+                    message: `${item.name} ${selected ? 'removed.' : 'added.'}`,
+                    targetId: item.id,
+                  });
+                }}
               >
-                {selected ? '✓ Added' : '＋ Add'}
+                {selected ? <Check aria-hidden="true" size={16} /> : <Plus aria-hidden="true" size={16} />}
+                {selected ? 'Added' : 'Add'}
               </button>
             </li>
           );
@@ -226,7 +331,7 @@ function ServiceLibraryDialog({
           <p className="onboarding-service-library__empty">No matching {activeTab === 'services' ? 'services' : 'add-ons'}.</p>
         ) : null}
         <footer className="onboarding-service-library__footer">
-          <span aria-live="polite">
+          <span>
             <strong>{selectedServiceCount} {selectedServiceCount === 1 ? 'service' : 'services'} selected</strong>
             {selectedAddOnCount > 0 ? <small>{selectedAddOnCount} add-on{selectedAddOnCount === 1 ? '' : 's'} added</small> : null}
           </span>
@@ -258,6 +363,7 @@ export function BookingPreferencesScreen({
   previewTimestamp = DEFAULT_PREVIEW_TIMESTAMP,
   profile,
 }: BookingPreferencesScreenProps) {
+  const feedback = useFeedback();
   const copy = SCREEN_METADATA.booking_preferences;
   const formId = useId();
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -401,10 +507,19 @@ export function BookingPreferencesScreen({
               </button>
               <button
                 type="button"
-                onClick={() => onServiceMenuChange({
-                  ...profile.serviceMenu,
-                  reviewed: true,
-                })}
+                onClick={() => {
+                  onServiceMenuChange({
+                    ...profile.serviceMenu,
+                    reviewed: true,
+                  });
+                  if (!profile.serviceMenu.reviewed) {
+                    feedback.send({
+                      kind: 'milestone',
+                      message: `Your service menu is ready. ${selectedServices.length} ${selectedServices.length === 1 ? 'service' : 'services'} added.`,
+                      onceKey: 'service_menu_ready',
+                    });
+                  }
+                }}
               >
                 Continue with these {selectedServices.length} {selectedServices.length === 1 ? 'service' : 'services'}
               </button>

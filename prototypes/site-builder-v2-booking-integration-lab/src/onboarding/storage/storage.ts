@@ -29,6 +29,23 @@ import {
 
 export const ONBOARDING_STORAGE_KEY = 'luster:onboarding-v1-lab';
 
+const FEEDBACK_MILESTONE_IDS = new Set([
+  'all_required_complete',
+  'stage_basics',
+  'stage_booking',
+  'stage_design',
+  'starting_site_ready',
+]);
+
+const normalizeFeedbackMilestones = (value: unknown): string[] => [
+  ...new Set(
+    Array.isArray(value)
+      ? value.filter((item): item is string =>
+          typeof item === 'string' && FEEDBACK_MILESTONE_IDS.has(item))
+      : [],
+  ),
+];
+
 export type OnboardingStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
 
 export type LoadOnboardingStateResult =
@@ -735,6 +752,9 @@ const migrateLegacyOnboardingState = (
     },
     reviewOptions: {
       ...(reviewOptions as unknown as OnboardingLabState['reviewOptions']),
+      feedbackMilestones: normalizeFeedbackMilestones(
+        reviewOptions.feedbackMilestones,
+      ),
       previewTimestamp: typeof reviewOptions.previewTimestamp === 'string'
         ? reviewOptions.previewTimestamp
         : defaults.reviewOptions.previewTimestamp,
@@ -805,7 +825,18 @@ export const parseOnboardingState = (
       status: 'error',
     };
   }
-  return { state: normalizedValue, status: 'loaded' };
+  return {
+    state: {
+      ...normalizedValue,
+      reviewOptions: {
+        ...normalizedValue.reviewOptions,
+        feedbackMilestones: normalizeFeedbackMilestones(
+          normalizedValue.reviewOptions.feedbackMilestones,
+        ),
+      },
+    },
+    status: 'loaded',
+  };
 };
 
 export const loadOnboardingState = (
