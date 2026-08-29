@@ -45,6 +45,7 @@ export const getEssentialResults = (
   },
   {
     complete: nonBlank(state.profile.location.cityOrArea)
+      && state.profile.location.locationType !== null
       && hasPublicContactMethod(state),
     id: 'location_contact',
     label: 'Location and contact',
@@ -93,9 +94,9 @@ export const getEssentialsLeft = (state: OnboardingLabState): number =>
 export const getEssentialsMessage = (state: OnboardingLabState): string => {
   const count = getEssentialsLeft(state);
   if (count === 0) {
-    return 'All essentials complete';
+    return 'All required steps complete';
   }
-  return `${count} ${count === 1 ? 'essential' : 'essentials'} left`;
+  return `${count} required ${count === 1 ? 'step' : 'steps'} left`;
 };
 
 export const getFirstIncompleteEssentialScreen = (

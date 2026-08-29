@@ -120,6 +120,7 @@ const isOnboardingBrowserHistoryState = (
 };
 
 type OnboardingAppProps = {
+  auditMode?: boolean;
   forceReview?: boolean;
   lab: LabDocumentController;
   onEnterBuilder?: () => void;
@@ -376,6 +377,7 @@ const previewFor = (
 );
 
 export function OnboardingApp({
+  auditMode = false,
   forceReview = false,
   lab,
   onEnterBuilder,
@@ -1231,7 +1233,7 @@ export function OnboardingApp({
             completedStages={getCompletedEssentialStages(onboarding.state)}
             currentStage={getScreenStage(screen)}
             essentialsRemaining={getEssentialsLeft(onboarding.state)}
-            onLabOptions={() => setLabOptionsOpen(true)}
+            onLabOptions={auditMode ? () => setLabOptionsOpen(true) : undefined}
             onRestart={() => setResetOpen(true)}
             onSaveForLater={() => {
               const result = onboarding.pause();
@@ -1277,14 +1279,16 @@ export function OnboardingApp({
         onClose={dismissPlan}
         open={planOpen}
       />
-      <LabReviewOptions
-        appliedFixtureId={onboarding.state.reviewOptions.appliedFixtureId}
-        eventCount={onboarding.state.eventJournal.length}
-        onApply={(id) => { void applyFixture(id); }}
-        onClose={() => setLabOptionsOpen(false)}
-        onExport={() => downloadEventJournal(onboarding.eventLogJson())}
-        open={labOptionsOpen}
-      />
+      {auditMode ? (
+        <LabReviewOptions
+          appliedFixtureId={onboarding.state.reviewOptions.appliedFixtureId}
+          eventCount={onboarding.state.eventJournal.length}
+          onApply={(id) => { void applyFixture(id); }}
+          onClose={() => setLabOptionsOpen(false)}
+          onExport={() => downloadEventJournal(onboarding.eventLogJson())}
+          open={labOptionsOpen}
+        />
+      ) : null}
       <ConfirmationDialog
         cancelLabel="Keep current"
         confirmLabel={builderHasBeenEntered
@@ -1302,13 +1306,13 @@ export function OnboardingApp({
           : `Switch to ${pendingStarterLabel}?`}
       />
       <ConfirmationDialog
-        confirmLabel="Restart onboarding"
+        confirmLabel="Start over"
         danger
         description="This clears your setup answers, setup activity, uploaded setup images, and starting site from this device. Other saved Builder work stays untouched."
         onClose={() => setResetOpen(false)}
         onConfirm={() => { void confirmReset(); }}
         open={resetOpen}
-        title="Restart onboarding?"
+        title="Start over?"
       />
     </div>
   );

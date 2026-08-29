@@ -168,16 +168,81 @@ const deriveRepairs = (policies: PoliciesDraft): string => {
 };
 
 const deriveOther = (policies: PoliciesDraft): string => joinSentences([
-  policies.other.guests ? `Guests: ${policies.other.guests}` : '',
-  policies.other.children ? `Children: ${policies.other.children}` : '',
-  policies.other.appointmentPreparation
-    ? `Appointment preparation: ${policies.other.appointmentPreparation}`
-    : '',
-  policies.other.outsideRemoval
-    ? `Removal from another salon: ${policies.other.outsideRemoval}`
-    : '',
+  policies.other.guests === 'No guests'
+    ? 'Please come to your appointment without guests'
+    : policies.other.guests === 'One guest allowed'
+      ? 'You’re welcome to bring one guest'
+      : policies.other.guests === 'Guests welcome'
+        ? policies.other.children === 'Children welcome'
+          ? 'Guests and children are welcome'
+          : 'Guests are welcome'
+        : policies.other.guests,
+  policies.other.children === 'Children welcome'
+    ? policies.other.guests === 'Guests welcome' ? '' : 'Children are welcome'
+    : policies.other.children === 'No children unless receiving a service'
+      ? 'Please bring children only when they are receiving a service'
+      : policies.other.children === 'Please arrange childcare'
+        ? 'Please arrange childcare before your appointment'
+        : policies.other.children,
+  policies.other.appointmentPreparation,
+  policies.other.outsideRemoval,
   policies.other.custom,
 ]);
+
+const hasCancellationNotice = (policies: PoliciesDraft): boolean => {
+  if (!policies.cancellations.notice) return false;
+  return policies.cancellations.notice !== 'custom'
+    || Boolean(policies.cancellations.customNotice.trim());
+};
+
+const hasCancellationConsequence = (policies: PoliciesDraft): boolean => {
+  const consequence = policies.cancellations.consequence;
+  if (!consequence) return false;
+  if (consequence === 'deposit_lost') return getDepositPolicyMode(policies) === 'fixed';
+  return consequence !== 'custom'
+    || Boolean(policies.cancellations.customConsequence.trim());
+};
+
+/**
+ * A policy is complete only when its structured answers can produce useful,
+ * owner-approved client wording. This deliberately does not treat a lone
+ * partial answer or an empty “Something else” choice as complete.
+ */
+export const isPolicySectionComplete = (
+  policies: PoliciesDraft,
+  sectionId: PolicySectionId,
+): boolean => {
+  switch (sectionId) {
+    case 'cancellations':
+      return hasCancellationNotice(policies) && hasCancellationConsequence(policies);
+    case 'deposits':
+      return getDepositPolicyMode(policies) === 'none'
+        || (policies.deposits.amountCents !== null
+          && policies.deposits.refundable !== null
+          && policies.deposits.transferable !== null);
+    case 'late_arrivals':
+      return Boolean(policies.lateArrivals.gracePeriodMinutes.trim())
+        && policies.lateArrivals.shortenService !== null
+        && policies.lateArrivals.rescheduleAfterLimit !== null;
+    case 'no_shows': {
+      const hasPreset = policies.noShows.loseDeposit
+        ? getDepositPolicyMode(policies) === 'fixed'
+        : policies.noShows.fullCharge || policies.noShows.paymentRequiredToRebook;
+      return hasPreset || Boolean(policies.noShows.custom.trim());
+    }
+    case 'repairs':
+      return policies.repairs.noRepairPolicy
+        || Boolean(policies.repairs.freeRepairWindowDays.trim());
+    case 'other':
+      return [
+        policies.other.guests,
+        policies.other.children,
+        policies.other.appointmentPreparation,
+        policies.other.outsideRemoval,
+        policies.other.custom,
+      ].some((value) => Boolean(value.trim()));
+  }
+};
 
 export const derivePolicySuggestedWording = (
   policies: PoliciesDraft,

@@ -17,7 +17,8 @@ import { serviceMenuPort } from '../integrations/adapters/service-menu';
 
 export const DEFAULT_OFFER_SEEDED_AT = '2026-08-27T12:00:00.000Z';
 export const DEFAULT_OFFER_EXPIRES_AT = '2026-08-28T12:00:00.000Z';
-export const DEFAULT_PREVIEW_TIMESTAMP = '2026-08-27T18:30:00.000Z';
+/** Normal owner mode anchors seeded availability to the current Lab clock. */
+export const DEFAULT_PREVIEW_TIMESTAMP = new Date().toISOString();
 
 const WEEKDAYS: readonly Weekday[] = [
   'monday',
@@ -148,7 +149,7 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
     ) as Record<AboutElementId, boolean>,
     yearsOfExperience: '',
   },
-  bookingOnlyContact: false,
+  bookingOnlyContact: true,
   bookingPreferences: {
     minimumNoticeMinutes: 120,
     newClientStatus: null,

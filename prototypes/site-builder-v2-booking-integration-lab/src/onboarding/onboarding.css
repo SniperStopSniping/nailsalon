@@ -3201,7 +3201,8 @@ body.onboarding-modal-open {
   color: #a46a23;
 }
 
-.onboarding-readiness__content li > span {
+.onboarding-readiness__content li > span,
+.onboarding-readiness__content li > div {
   display: grid;
   min-width: 0;
   gap: 2px;

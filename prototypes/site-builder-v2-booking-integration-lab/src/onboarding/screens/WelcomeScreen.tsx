@@ -40,6 +40,9 @@ export function WelcomeScreen({
         <p className="onboarding-lab-note">
           Your progress saves automatically on this device.
         </p>
+        <p className="onboarding-welcome__reassurance">
+          You’ll preview your site before choosing a plan.
+        </p>
       </section>
     </main>
   );

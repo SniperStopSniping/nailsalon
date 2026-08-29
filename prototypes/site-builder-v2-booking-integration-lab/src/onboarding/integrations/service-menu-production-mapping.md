@@ -37,3 +37,13 @@ rewrite a Library template.
 This table is migration metadata, not a second catalogue. Names, prices,
 durations, categories, images, and compatibility remain owned by the existing
 Production Library and owner-menu records.
+
+The separate Add-ons tab derives from the canonical Booking `MOCK_ADD_ONS`
+fixture and stores only these stable IDs:
+
+| Lab selected add-on ID | Production canonical add-on/library ID | Future owner-service operation |
+| --- | --- | --- |
+| `addon-french` | `french_tips` | Resolve the tenant-owned add-on by template key; activate/deactivate through the existing owner-menu seam. |
+| `addon-chrome` | `chrome` | Same authenticated, tenant-scoped add-on operation. |
+| `addon-simple-art` | `simple_nail_art` | Same authenticated, tenant-scoped add-on operation. |
+| `addon-detailed-art` | `detailed_nail_art` | Same authenticated, tenant-scoped add-on operation. |

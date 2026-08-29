@@ -39,6 +39,7 @@ import {
   type ChoiceOption,
 } from '../components/FormFields';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
+import '../daniela-basics-booking.css';
 
 type ProfilePatch = Partial<BusinessProfileDraft>;
 
@@ -94,7 +95,7 @@ function initialsFor(profile: BusinessProfileDraft): string {
 
 function businessStructureLabel(value: BusinessStructure | null): string {
   return BUSINESS_STRUCTURES.find((option) => option.value === value)?.label
-    ?? 'Business structure';
+    ?? 'Solo or team';
 }
 
 type BusinessScreenProps = SharedBasicsScreenProps & {
@@ -134,7 +135,7 @@ export function BusinessScreen({
   return (
     <section aria-labelledby="business-screen-heading" className="onboarding-screen onboarding-business-screen">
       <header className="onboarding-screen__heading">
-        <p className="onboarding-screen-status">Essential</p>
+        <p className="onboarding-screen-status">Required step</p>
         <h1 id="business-screen-heading">{copy.heading}</h1>
         <p>{copy.supportingCopy}</p>
       </header>
@@ -225,15 +226,17 @@ export function PhotoSocialScreen({
       <div className="onboarding-split-layout">
         <div className="onboarding-form-stack">
           <ImageUploadField
+            chooseLabel="Choose profile photo"
             currentLabel={profile.profilePhoto?.fileName}
-            label="Profile photo (optional)"
+            label="Profile photo"
             needsReselect={profile.profilePhoto?.source === 'missing'}
             onRemove={() => onProfileChange({ profilePhoto: undefined })}
             onSelect={onProfilePhotoSelected}
           />
           <ImageUploadField
+            chooseLabel="Choose logo"
             currentLabel={profile.logo?.fileName}
-            label="Logo (optional)"
+            label="Logo"
             needsReselect={profile.logo?.source === 'missing'}
             onRemove={() => onProfileChange({ logo: undefined })}
             onSelect={onLogoSelected}
@@ -241,7 +244,7 @@ export function PhotoSocialScreen({
           <TextField
             autoComplete="off"
             hint="You can enter @yourstudio or yourstudio."
-            label="Instagram handle (optional)"
+            label="Instagram handle"
             value={profile.instagram}
             onChange={(event) => onProfileChange({ instagram: event.target.value })}
           />
@@ -299,7 +302,9 @@ export function LocationContactScreen({
   );
 
   const revealError = (fieldId: string, keepSummaryVisible = false) => {
-    const card: LocationCardId = fieldId === 'cityOrArea' ? 'location' : 'contact';
+    const card: LocationCardId = fieldId === 'cityOrArea' || fieldId === 'locationType'
+      ? 'location'
+      : 'contact';
     setOpenCard(card);
     window.requestAnimationFrame(() => {
       const panel = formRef.current?.querySelector<HTMLElement>(
@@ -307,6 +312,8 @@ export function LocationContactScreen({
       );
       const requestedTarget = fieldId === 'cityOrArea'
         ? panel?.querySelector<HTMLElement>('input[autocomplete="address-level2"]')
+        : fieldId === 'locationType'
+          ? panel?.querySelector<HTMLElement>('input[name="location-type"]')
         : fieldId === 'preferredContact'
           ? panel?.querySelector<HTMLElement>('input[name="public-contact-method"]')
           : panel?.querySelector<HTMLElement>('input[autocomplete="tel"], input[type="email"]');
@@ -363,8 +370,11 @@ export function LocationContactScreen({
     if (!profile.location.cityOrArea.trim()) {
       nextErrors.cityOrArea = 'Add a city or general service area.';
     }
+    if (!profile.location.locationType) {
+      nextErrors.locationType = 'Choose where you see clients.';
+    }
     if (!profile.bookingOnlyContact && !hasAnyContact) {
-      nextErrors.contact = 'Add at least one public contact method, or choose online booking only.';
+      nextErrors.contact = 'Add a phone number, email or Instagram so clients can reach you—or choose “Clients should use online booking only” to keep your details private.';
     } else if (
       !profile.bookingOnlyContact
       && availableContactMethods.length >= 2
@@ -390,16 +400,29 @@ export function LocationContactScreen({
     onContinue();
   };
 
+  const locationComplete = Boolean(
+    profile.location.cityOrArea.trim()
+      && profile.location.locationType
+      && profile.location.addressVisibility,
+  );
   const locationSummary = profile.location.cityOrArea.trim()
-    || 'Add your general area';
+    ? profile.location.locationType
+      ? profile.location.cityOrArea.trim()
+      : `${profile.location.cityOrArea.trim()} · Add where you see clients`
+    : 'Add your general area';
   const contactSummary = profile.bookingOnlyContact
     ? 'Online booking only'
     : hasCoherentPreferredContact && profile.preferredContact
       ? `${CONTACT_METHODS.find(({ value }) => value === profile.preferredContact)?.label} shown first`
       : availableContactMethods.length === 1
         ? `${CONTACT_METHODS.find(({ value }) => value === availableContactMethods[0])?.label} added`
-      : 'Add a public contact method';
-  const hoursSummary = getWeeklyHoursSetupSummary(profile.hours);
+      : 'Add phone, email or Instagram';
+  const rawHoursSummary = getWeeklyHoursSetupSummary(profile.hours);
+  const hoursSummary = profile.hours.setupState === 'unset'
+    ? 'Add your business hours'
+    : profile.hours.setupState === 'skipped' || !profile.hours.showOnSite
+      ? 'Not shown on your website'
+      : rawHoursSummary.replace(' · Shown on your site', '');
   const hoursStatus = getWeeklyHoursPreviewStatus(profile.hours, previewTimestamp);
 
   const publicLocation = getPublicLocationPreview(profile.location);
@@ -410,7 +433,7 @@ export function LocationContactScreen({
   return (
     <section aria-labelledby="location-contact-heading" className="onboarding-screen onboarding-location-contact-screen">
       <header className="onboarding-screen__heading">
-        <p className="onboarding-screen-status">Essential</p>
+        <p className="onboarding-screen-status">Required step</p>
         <h1 id="location-contact-heading">{copy.heading}</h1>
         <p>{copy.supportingCopy}</p>
       </header>
@@ -418,8 +441,8 @@ export function LocationContactScreen({
         <form id={formId} noValidate ref={formRef} onSubmit={submit}>
           <ValidationSummary errors={errors} onSelectError={(fieldId) => revealError(fieldId)} />
           <CollapsibleFormCard
-            completed={Boolean(profile.location.cityOrArea.trim())}
-            errorCount={errors.cityOrArea ? 1 : 0}
+            completed={locationComplete}
+            errorCount={[errors.cityOrArea, errors.locationType].filter(Boolean).length}
             id="onboarding-location-card"
             open={openCard === 'location'}
             summary={locationSummary}
@@ -437,30 +460,43 @@ export function LocationContactScreen({
                 updateLocation({ cityOrArea: event.target.value });
               }}
             />
-            <TextField
-              autoComplete="street-address"
-              label="Exact address (optional)"
-              value={profile.location.exactAddress}
-              onChange={(event) => updateLocation({ exactAddress: event.target.value })}
-            />
             <ChoiceGroup
+              error={errors.locationType}
               legend="Where do you see clients?"
               name="location-type"
               options={LOCATION_TYPES}
               value={profile.location.locationType}
-              onChange={(locationType) => updateLocation({ locationType })}
+              onChange={(locationType) => {
+                setErrors((current) => ({ ...current, locationType: '' }));
+                updateLocation({
+                  locationType,
+                  ...(locationType === 'home_studio'
+                    ? { addressVisibility: 'hidden' as const }
+                    : {}),
+                });
+              }}
             />
             <ChoiceGroup
-              legend="Address visibility"
+              legend="Who can see your address?"
               name="address-visibility"
               options={ADDRESS_VISIBILITY}
               value={profile.location.addressVisibility}
               onChange={(addressVisibility) => updateLocation({ addressVisibility })}
             />
+            {profile.location.addressVisibility !== 'hidden' ? (
+              <TextField
+                autoComplete="street-address"
+                label="Exact address (optional)"
+                value={profile.location.exactAddress}
+                onChange={(event) => updateLocation({ exactAddress: event.target.value })}
+              />
+            ) : null}
             <NativeSwitch
-              checked={profile.location.allowGeneralAreaDirections}
+              checked={profile.location.addressVisibility === 'public'
+                && !profile.location.exactAddress.trim()
+                && profile.location.allowGeneralAreaDirections}
               description={profile.location.addressVisibility !== 'public'
-                ? 'Directions stay hidden unless your location is public.'
+                ? 'Make your general area public to offer Directions.'
                 : profile.location.exactAddress.trim()
                   ? 'Directions use your public exact address.'
                   : 'Allow a Directions action to your city or general service area.'}
@@ -471,21 +507,28 @@ export function LocationContactScreen({
                 allowGeneralAreaDirections,
               })}
             />
-            <TextField
-              label="Parking (optional)"
-              value={profile.location.parking}
-              onChange={(event) => updateLocation({ parking: event.target.value })}
-            />
-            <TextAreaField
-              label="Entrance instructions (optional)"
-              value={profile.location.entranceInstructions}
-              onChange={(event) => updateLocation({ entranceInstructions: event.target.value })}
-            />
-            <TextField
-              label="Transit information (optional)"
-              value={profile.location.transitInformation}
-              onChange={(event) => updateLocation({ transitInformation: event.target.value })}
-            />
+            <details className="onboarding-arrival-details">
+              <summary>
+                <span><strong>Arrival details · Optional</strong><small>Help clients find and enter your location.</small></span>
+              </summary>
+              <div>
+                <TextField
+                  label="Parking"
+                  value={profile.location.parking}
+                  onChange={(event) => updateLocation({ parking: event.target.value })}
+                />
+                <TextAreaField
+                  label="Entrance instructions"
+                  value={profile.location.entranceInstructions}
+                  onChange={(event) => updateLocation({ entranceInstructions: event.target.value })}
+                />
+                <TextField
+                  label="Transit information"
+                  value={profile.location.transitInformation}
+                  onChange={(event) => updateLocation({ transitInformation: event.target.value })}
+                />
+              </div>
+            </details>
           </CollapsibleFormCard>
 
           <CollapsibleFormCard
@@ -494,9 +537,11 @@ export function LocationContactScreen({
             id="onboarding-contact-card"
             open={openCard === 'contact'}
             summary={contactSummary}
-            title="How should clients contact you?"
+            title="Contact"
+            status={profile.bookingOnlyContact || hasCoherentPreferredContact ? 'complete' : 'set_up'}
             onToggle={() => setOpenCard('contact')}
           >
+            <h2 className="onboarding-card-section-heading">How should clients contact you?</h2>
             <NativeSwitch
               checked={profile.bookingOnlyContact}
               description="Your website will guide clients to Booking and keep your personal contact details private."
@@ -520,7 +565,7 @@ export function LocationContactScreen({
                 aria-describedby={errors.contact ? contactErrorId : undefined}
                 aria-invalid={errors.contact ? 'true' : undefined}
                 autoComplete="tel"
-                label="Client contact number"
+                label="Phone number clients can use"
                 type="tel"
                 value={profile.clientContact.primaryNumber}
                 onChange={(event) => {
@@ -544,7 +589,7 @@ export function LocationContactScreen({
                 <legend>Clients can:</legend>
                 <NativeSwitch
                   checked={profile.clientContact.callEnabled}
-                  description="Use the client contact number for calls."
+                  description="Clients see a Call button on your site."
                   label="Call this number"
                   onChange={(callEnabled) => {
                     setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
@@ -560,7 +605,7 @@ export function LocationContactScreen({
                 />
                 <NativeSwitch
                   checked={profile.clientContact.textEnabled}
-                  description="Use the client contact number for text messages."
+                  description="Clients see a Text button on your site."
                   label="Text this number"
                   onChange={(textEnabled) => {
                     setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
@@ -680,6 +725,12 @@ export function LocationContactScreen({
             id="onboarding-hours-card"
             open={openCard === 'hours'}
             summary={hoursSummary}
+            status={profile.hours.setupState === 'skipped'
+              || (profile.hours.setupState === 'configured' && !profile.hours.showOnSite)
+              ? 'not_shown'
+              : profile.hours.setupState === 'configured' && hasConfiguredHours
+                ? 'complete'
+                : 'set_up'}
             title="Hours"
             onToggle={() => setOpenCard('hours')}
           >
@@ -771,8 +822,8 @@ export function LocationContactScreen({
               </button>
             </div>
             <p className="onboarding-field-hint">
-              Website hours tell clients when your business is open. Bookable appointment
-              times can still follow a different availability schedule.
+              Website hours show clients when your business is open. Bookable appointment
+              times follow your Booking availability, which you can manage from your dashboard.
             </p>
           </CollapsibleFormCard>
         </form>

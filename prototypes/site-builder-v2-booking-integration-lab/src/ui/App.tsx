@@ -292,8 +292,16 @@ const getInitialSurface = (): 'builder' | 'dashboard' | 'onboarding' => {
   }
 };
 
+const getAuditMode = (): boolean => {
+  const search = new URLSearchParams(window.location.search);
+  return import.meta.env.MODE === 'test'
+    || search.get('audit') === '1'
+    || search.get('labReview') === '1';
+};
+
 export function App() {
   const lab = useLabDocument();
+  const auditMode = getAuditMode();
   const [surface, setSurface] = useState<'builder' | 'dashboard' | 'onboarding' | 'review'>(getInitialSurface);
   const getReachableAssetIds = useCallback(() => {
     const reachable = new Set(lab.getReachableAssetIds());
@@ -308,6 +316,7 @@ export function App() {
     <CustomDesignAssetProvider getReachableAssetIds={getReachableAssetIds}>
       {surface === 'dashboard' ? (
         <DashboardHandoffSurface
+          auditMode={auditMode}
           lab={lab}
           onEditWebsite={() => setSurface('builder')}
           onReturnToReview={() => setSurface('review')}
@@ -319,12 +328,13 @@ export function App() {
             type="button"
             onClick={() => setSurface('dashboard')}
           >
-            Back to dashboard preview · Lab
+            Back to dashboard
           </button>
           <BuilderApp lab={lab} />
         </div>
       ) : (
         <OnboardingApp
+          auditMode={auditMode}
           forceReview={surface === 'review'}
           lab={lab}
           onEnterDashboard={() => setSurface('dashboard')}
@@ -335,10 +345,12 @@ export function App() {
 }
 
 function DashboardHandoffSurface({
+  auditMode,
   lab,
   onEditWebsite,
   onReturnToReview,
 }: {
+  auditMode: boolean;
   lab: LabDocumentController;
   onEditWebsite: () => void;
   onReturnToReview: () => void;
@@ -367,6 +379,7 @@ function DashboardHandoffSurface({
 
   return (
     <DashboardPreviewSurface
+      auditMode={auditMode}
       document={lab.document}
       fixtures={state.dashboardHandoff.checklistFixtures}
       onEditWebsite={onEditWebsite}

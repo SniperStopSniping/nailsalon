@@ -58,6 +58,54 @@ const humanList = (values: readonly string[]): string => {
   return `${values.slice(0, -1).join(', ')}, and ${values.at(-1)}`;
 };
 
+export type ResolvedAboutBio = {
+  expanded: string | null;
+  lead: string | null;
+  source: 'full_only' | 'none' | 'short_and_full' | 'short_only';
+};
+
+const ABOUT_BIO_LEAD_MAX_LENGTH = 168;
+
+const createBioLead = (value: string): string => {
+  const clean = cleanInlineValue(value);
+  if (clean.length <= ABOUT_BIO_LEAD_MAX_LENGTH) return clean;
+
+  const candidate = clean.slice(0, ABOUT_BIO_LEAD_MAX_LENGTH + 1);
+  const firstBoundary = candidate.search(/[.!?]\s/u);
+  if (firstBoundary >= 48) return candidate.slice(0, firstBoundary + 1).trim();
+
+  const lastSpace = candidate.lastIndexOf(' ');
+  return `${candidate.slice(0, lastSpace >= 72 ? lastSpace : ABOUT_BIO_LEAD_MAX_LENGTH).trim()}…`;
+};
+
+/**
+ * One biography contract for every About preset. The renderer can change the
+ * composition, but it may never discard the owner's longer story.
+ */
+export const resolveAboutBio = (
+  shortBio: string,
+  fullBio: string,
+): ResolvedAboutBio => {
+  const short = shortBio.trim();
+  const full = fullBio.trim();
+
+  if (short && full) {
+    return { expanded: full, lead: short, source: 'short_and_full' };
+  }
+  if (short) {
+    return { expanded: null, lead: short, source: 'short_only' };
+  }
+  if (full) {
+    const lead = createBioLead(full);
+    return {
+      expanded: lead === full ? null : full,
+      lead,
+      source: 'full_only',
+    };
+  }
+  return { expanded: null, lead: null, source: 'none' };
+};
+
 /**
  * Converts the raw editing buffer into the structured Business Profile value.
  * Parsing happens only at a deliberate commit point so typing, paste, IME,

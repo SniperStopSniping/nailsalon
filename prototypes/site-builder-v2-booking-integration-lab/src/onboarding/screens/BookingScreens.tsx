@@ -24,6 +24,7 @@ import type {
   ServiceMenuItem,
   ServiceMenuSelectionDraft,
 } from '../integrations/contracts/service-menu';
+import { DEFAULT_PREVIEW_TIMESTAMP } from '../model/defaults';
 import { getPublicLocationPreview } from '../model/location';
 import { getDepositPolicyMode } from '../model/policies';
 import type {
@@ -91,8 +92,6 @@ const formatMinimumNotice = (minimumNoticeMinutes: number): string => {
 };
 
 type ServiceLibraryDialogProps = {
-  activeCategoryId: string;
-  onActiveCategoryChange: (categoryId: string) => void;
   onClose: () => void;
   onServiceMenuChange: (draft: ServiceMenuSelectionDraft) => void;
   open: boolean;
@@ -100,69 +99,140 @@ type ServiceLibraryDialogProps = {
 };
 
 function ServiceLibraryDialog({
-  activeCategoryId,
-  onActiveCategoryChange,
   onClose,
   onServiceMenuChange,
   open,
   serviceMenu,
 }: ServiceLibraryDialogProps) {
+  const [activeTab, setActiveTab] = useState<'services' | 'add_ons'>('services');
+  const [activeCategoryId, setActiveCategoryId] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const normalizedSearch = searchQuery.trim().toLocaleLowerCase();
   const selectedIds = new Set(
     serviceMenuPort.normalizeSelection(serviceMenu).selectedServiceIds,
   );
-  const libraryServices = serviceMenuPort.getLibraryServices().filter(
-    ({ categoryId }) => activeCategoryId === 'all' || categoryId === activeCategoryId,
+  const selectedAddOnIds = new Set(
+    serviceMenuPort.normalizeSelection(serviceMenu).selectedAddOnIds ?? [],
   );
+  const allItems = activeTab === 'services'
+    ? serviceMenuPort.getLibraryServices().filter(({ categoryId }) => categoryId !== 'add_ons')
+    : serviceMenuPort.getLibraryAddOns();
+  const libraryItems = allItems.filter((item) => (
+    (activeCategoryId === 'all' || item.categoryId === activeCategoryId)
+      && (!normalizedSearch || item.name.toLocaleLowerCase().includes(normalizedSearch))
+  ));
+  const serviceCategories = serviceMenuPort.getCategories().filter(({ id }) => id !== 'add_ons');
+  const addOnCategories = Array.from(new Map(
+    serviceMenuPort.getLibraryAddOns().map(({ categoryId, categoryLabel }) => [
+      categoryId,
+      { id: categoryId, label: categoryLabel },
+    ]),
+  ).values());
+  const selectedServiceCount = selectedIds.size;
+  const selectedAddOnCount = selectedAddOnIds.size;
 
   return (
     <Dialog
-      description="Add services from the existing nail-service Library. Prices and durations are shown before you add anything."
+      description="Remove anything you don’t offer or add services from the library. You can change prices and durations later."
       onClose={onClose}
       open={open}
-      title="Service Library"
+      title="Choose your services"
       variant="section-library"
     >
-      <label className="onboarding-select-field">
-        <span>Category</span>
-        <select
-          value={activeCategoryId}
-          onChange={(event) => onActiveCategoryChange(event.target.value)}
-        >
-          <option value="all">All services</option>
-          {serviceMenuPort.getCategories().map(({ id, label }) => (
-            <option key={id} value={id}>{label}</option>
+      <div className="onboarding-service-library">
+        <label className="onboarding-service-library__search">
+          <span className="visually-hidden">Search services</span>
+          <span aria-hidden="true">⌕</span>
+          <input
+            placeholder="Search services"
+            type="search"
+            value={searchQuery}
+            onChange={(event) => setSearchQuery(event.target.value)}
+          />
+        </label>
+        <div aria-label="Service library type" className="onboarding-service-library__tabs" role="tablist">
+          <button
+            aria-selected={activeTab === 'services'}
+            role="tab"
+            type="button"
+            onClick={() => { setActiveTab('services'); setActiveCategoryId('all'); }}
+          >
+            Services
+          </button>
+          <button
+            aria-selected={activeTab === 'add_ons'}
+            role="tab"
+            type="button"
+            onClick={() => { setActiveTab('add_ons'); setActiveCategoryId('all'); }}
+          >
+            Add-ons
+          </button>
+        </div>
+        <div aria-label={`${activeTab === 'services' ? 'Service' : 'Add-on'} categories`} className="onboarding-service-library__chips">
+          <button
+            aria-pressed={activeCategoryId === 'all'}
+            type="button"
+            onClick={() => setActiveCategoryId('all')}
+          >
+            {activeTab === 'services' ? 'All' : 'All add-ons'}
+          </button>
+          {(activeTab === 'services' ? serviceCategories : addOnCategories).map(({ id, label }) => (
+            <button
+              aria-pressed={activeCategoryId === id}
+              key={id}
+              type="button"
+              onClick={() => setActiveCategoryId(id)}
+            >
+              {label}
+            </button>
           ))}
-        </select>
-      </label>
-      <ul className="onboarding-review-list" aria-label="Library services">
-        {libraryServices.map((service) => {
-          const selected = selectedIds.has(service.id);
+        </div>
+        <ul className="onboarding-service-library__list" aria-label={activeTab === 'services' ? 'Library services' : 'Library add-ons'}>
+        {libraryItems.map((item) => {
+          const selected = item.itemKind === 'service'
+            ? selectedIds.has(item.id)
+            : selectedAddOnIds.has(item.id);
           return (
-            <li key={service.id}>
-              <span>
-                <strong>{service.name}</strong>
-                <small>
-                  {service.categoryLabel}
-                  {' · '}
-                  {service.durationLabel}
-                  {' · '}
-                  {service.priceLabel}
-                </small>
+            <li className={selected ? 'is-selected' : undefined} key={item.id}>
+              {item.imageSrc ? (
+                <img alt={item.imageAlt ?? ''} src={item.imageSrc} />
+              ) : (
+                <span aria-hidden="true" className="onboarding-service-library__icon">
+                  {item.itemKind === 'add_on' ? '✦' : 'LN'}
+                </span>
+              )}
+              <span className="onboarding-service-library__item-copy">
+                <strong>{item.name}</strong>
+                <small>{item.categoryLabel} · {item.durationLabel}</small>
+                <b>{item.priceLabel}</b>
               </span>
               <button
+                aria-label={`${selected ? 'Remove' : 'Add'} ${item.name}`}
                 aria-pressed={selected}
                 type="button"
                 onClick={() => onServiceMenuChange(
-                  serviceMenuPort.setServiceSelected(serviceMenu, service.id, !selected),
+                  item.itemKind === 'service'
+                    ? serviceMenuPort.setServiceSelected(serviceMenu, item.id, !selected)
+                    : serviceMenuPort.setAddOnSelected(serviceMenu, item.id, !selected),
                 )}
               >
-                {selected ? 'Remove' : 'Add service'}
+                {selected ? '✓ Added' : '＋ Add'}
               </button>
             </li>
           );
         })}
-      </ul>
-      <button type="button" onClick={onClose}>Done</button>
+        </ul>
+        {libraryItems.length === 0 ? (
+          <p className="onboarding-service-library__empty">No matching {activeTab === 'services' ? 'services' : 'add-ons'}.</p>
+        ) : null}
+        <footer className="onboarding-service-library__footer">
+          <span aria-live="polite">
+            <strong>{selectedServiceCount} {selectedServiceCount === 1 ? 'service' : 'services'} selected</strong>
+            {selectedAddOnCount > 0 ? <small>{selectedAddOnCount} add-on{selectedAddOnCount === 1 ? '' : 's'} added</small> : null}
+          </span>
+          <button type="button" onClick={onClose}>Done</button>
+        </footer>
+      </div>
     </Dialog>
   );
 }
@@ -185,14 +255,13 @@ export function BookingPreferencesScreen({
   onDepositChange,
   onServiceMenuChange,
   onValidationFailure,
-  previewTimestamp = '2026-08-27T18:30:00.000Z',
+  previewTimestamp = DEFAULT_PREVIEW_TIMESTAMP,
   profile,
 }: BookingPreferencesScreenProps) {
   const copy = SCREEN_METADATA.booking_preferences;
   const formId = useId();
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [serviceLibraryOpen, setServiceLibraryOpen] = useState(false);
-  const [activeServiceCategoryId, setActiveServiceCategoryId] = useState('all');
   const [editingCustomNotice, setEditingCustomNotice] = useState(false);
   const initialCustomNotice = bookingPreferencesPort.getCustomMinimumNoticeInput(
     profile.bookingPreferences.minimumNoticeMinutes,
@@ -266,7 +335,7 @@ export function BookingPreferencesScreen({
   return (
     <section aria-labelledby="booking-preferences-heading" className="onboarding-screen onboarding-booking-preferences-screen">
       <header className="onboarding-screen__heading">
-        <p className="onboarding-screen-status">Essential</p>
+        <p className="onboarding-screen-status">Required step</p>
         <h1 id="booking-preferences-heading">{copy.heading}</h1>
         <p>{copy.supportingCopy}</p>
       </header>
@@ -300,28 +369,32 @@ export function BookingPreferencesScreen({
               <h2 id="service-menu-heading">Your service menu is ready</h2>
               <p>
                 We added popular nail services to get you started. Remove anything you don’t
-                offer. You can change prices, durations, deposits, add-ons and photos anytime.
+                offer. You can change prices, durations, add-ons and photos later.
               </p>
             </div>
-            <p aria-live="polite"><strong>{selectedServices.length}</strong> selected</p>
+            <p aria-live="polite" className="onboarding-service-menu-count">
+              <strong>{selectedServices.length} {selectedServices.length === 1 ? 'service' : 'services'} on your menu</strong>
+              {selectedServices.length > 6 ? <span> · showing 6</span> : null}
+            </p>
             {selectedServices.length > 0 ? (
-              <ul className="onboarding-service-menu-sample" aria-label="Sample of selected services">
-                {selectedServices.slice(0, 4).map((service: ServiceMenuItem) => (
+              <ul className="onboarding-service-menu-sample" aria-label="Selected services">
+                {selectedServices.slice(0, 6).map((service: ServiceMenuItem) => (
                   <li key={service.id}>
-                    <span>
+                    {service.imageSrc ? <img alt={service.imageAlt ?? ''} src={service.imageSrc} /> : <span aria-hidden="true" className="onboarding-service-menu-sample__icon">LN</span>}
+                    <span className="onboarding-service-menu-sample__copy">
                       <strong>{service.name}</strong>
-                      <small>
-                        {service.categoryLabel}
-                        {' · '}
-                        {service.durationLabel}
-                        {' · '}
-                        {service.priceLabel}
-                      </small>
+                      <small>{service.categoryLabel} · {service.durationLabel}</small>
                     </span>
+                    <b>{service.priceLabel}</b>
                   </li>
                 ))}
               </ul>
             ) : <p>No services selected yet.</p>}
+            {selectedServices.length > 6 ? (
+              <button className="onboarding-service-menu-card__more" type="button" onClick={() => setServiceLibraryOpen(true)}>
+                See the other {selectedServices.length - 6}
+              </button>
+            ) : null}
             <div className="onboarding-inline-actions">
               <button type="button" onClick={() => setServiceLibraryOpen(true)}>
                 Review services
@@ -333,13 +406,12 @@ export function BookingPreferencesScreen({
                   reviewed: true,
                 })}
               >
-                Looks good
+                Continue with these {selectedServices.length} {selectedServices.length === 1 ? 'service' : 'services'}
               </button>
             </div>
             {profile.serviceMenu.reviewed
               ? <p role="status">Service menu reviewed. You can change it anytime.</p>
               : null}
-            <small>You can change prices, durations, add-ons and service photos later.</small>
           </section>
           <label className="onboarding-select-field">
             <span>How much notice do you need before an appointment?</span>
@@ -557,8 +629,6 @@ export function BookingPreferencesScreen({
         primaryLabel={copy.primaryAction}
       />
       <ServiceLibraryDialog
-        activeCategoryId={activeServiceCategoryId}
-        onActiveCategoryChange={setActiveServiceCategoryId}
         onClose={() => setServiceLibraryOpen(false)}
         onServiceMenuChange={onServiceMenuChange}
         open={serviceLibraryOpen}
@@ -595,7 +665,7 @@ export function StartingPointScreen({
   return (
     <section aria-labelledby="starting-point-heading" className="onboarding-screen onboarding-starter-screen">
       <header className="onboarding-screen__heading">
-        <p className="onboarding-screen-status">Essential</p>
+        <p className="onboarding-screen-status">Required step</p>
         <h1 id="starting-point-heading">{copy.heading}</h1>
         <p>{copy.supportingCopy}</p>
       </header>
@@ -610,7 +680,10 @@ export function StartingPointScreen({
           selectedStarter={selectedStarter}
         />
       </div>
-      <footer aria-label="Onboarding actions" className="sticky-onboarding-actions">
+      <footer
+        aria-label="Onboarding actions"
+        className="sticky-onboarding-actions sticky-onboarding-actions--back-only"
+      >
         <button type="button" onClick={onBack}>Back</button>
       </footer>
     </section>

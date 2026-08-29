@@ -26,7 +26,10 @@ import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomD
 import { getStarterDocumentOutline } from '../../model/starters';
 import type { SiteBuilderDocument } from '../../model/types';
 import { bookingPreferencesPort } from '../integrations/adapters/booking-preferences';
-import { aboutPresetSupportsElement } from '../model/about';
+import {
+  aboutPresetSupportsElement,
+  resolveAboutBio,
+} from '../model/about';
 import { createOnboardingBookingFixture } from '../model/booking-preview';
 import { resolveOnboardingImageUrl } from '../integrations/adapters/media';
 import { getPublicContactActions } from '../model/contact';
@@ -49,6 +52,7 @@ import type {
   AboutPresetId,
   BusinessProfileDraft,
   OnboardingLabState,
+  OnboardingSiteRecipe,
   PolicySectionId,
   SiteStylePresetId,
 } from '../model/types';
@@ -67,7 +71,7 @@ export const ONBOARDING_PREVIEW_VIEWPORTS: Record<OnboardingPreviewDevice, {
   tablet: { height: 900, width: 768 },
 };
 
-type StyleRoles = {
+export type StyleRoles = {
   accent: string;
   bodyFont: string;
   buttonRadius: string;
@@ -77,81 +81,95 @@ type StyleRoles = {
   line: string;
   muted: string;
   radius: string;
+  secondaryAccent: string;
+  spacingMood: string;
   surface: string;
 };
 
 export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   modern: {
-    accent: '#81536c',
+    accent: '#a44f3e',
     bodyFont: "Inter, ui-sans-serif, system-ui, sans-serif",
-    buttonRadius: '999px',
-    ground: '#f7f3f0',
-    headingFont: "Inter, ui-sans-serif, system-ui, sans-serif",
-    ink: '#2f272b',
-    line: '#ded4d7',
-    muted: '#74676d',
+    buttonRadius: '16px',
+    ground: '#f7f0e6',
+    headingFont: "Newsreader, Georgia, 'Times New Roman', serif",
+    ink: '#332824',
+    line: '#ddcfc5',
+    muted: '#756761',
     radius: '24px',
-    surface: '#fffdfb',
+    secondaryAccent: '#d9a07d',
+    spacingMood: 'clamp(28px, 7cqw, 72px)',
+    surface: '#fffcf8',
   },
   editorial: {
-    accent: '#6e243e',
+    accent: '#771d36',
     bodyFont: "Inter, ui-sans-serif, system-ui, sans-serif",
     buttonRadius: '2px',
-    ground: '#f4efe9',
-    headingFont: "Georgia, 'Times New Roman', serif",
-    ink: '#211b1d',
-    line: '#cfc1ba',
-    muted: '#71645f',
+    ground: '#fbf7ef',
+    headingFont: "Newsreader, Georgia, 'Times New Roman', serif",
+    ink: '#20191a',
+    line: '#c9beb2',
+    muted: '#6f625d',
     radius: '4px',
-    surface: '#fffaf3',
+    secondaryAccent: '#c79280',
+    spacingMood: 'clamp(32px, 8cqw, 84px)',
+    surface: '#fffdf8',
   },
   soft: {
-    accent: '#a45578',
+    accent: '#9d5374',
     bodyFont: "Inter, ui-sans-serif, system-ui, sans-serif",
     buttonRadius: '999px',
-    ground: '#fff5f7',
-    headingFont: "Georgia, 'Times New Roman', serif",
-    ink: '#412d36',
-    line: '#ecd6de',
-    muted: '#806c75',
+    ground: '#fff2f5',
+    headingFont: "Newsreader, Georgia, 'Times New Roman', serif",
+    ink: '#4b303a',
+    line: '#ead4dc',
+    muted: '#806a73',
     radius: '32px',
+    secondaryAccent: '#c7a5d5',
+    spacingMood: 'clamp(30px, 8cqw, 78px)',
     surface: '#fffefe',
   },
   minimal: {
-    accent: '#303b39',
+    accent: '#285346',
     bodyFont: "Inter, ui-sans-serif, system-ui, sans-serif",
-    buttonRadius: '8px',
-    ground: '#f4f5f2',
+    buttonRadius: '6px',
+    ground: '#f5f6f1',
     headingFont: "Inter, ui-sans-serif, system-ui, sans-serif",
-    ink: '#202522',
-    line: '#d5d9d3',
-    muted: '#68706b',
-    radius: '12px',
+    ink: '#202823',
+    line: '#d2d9d1',
+    muted: '#647069',
+    radius: '10px',
+    secondaryAccent: '#98a997',
+    spacingMood: 'clamp(24px, 6cqw, 64px)',
     surface: '#ffffff',
   },
   bold: {
-    accent: '#ff5a5f',
+    accent: '#c9322c',
     bodyFont: "Inter, ui-sans-serif, system-ui, sans-serif",
-    buttonRadius: '0px',
-    ground: '#f4df55',
+    buttonRadius: '4px',
+    ground: '#f4df53',
     headingFont: "Arial Black, Inter, ui-sans-serif, sans-serif",
-    ink: '#181818',
-    line: '#181818',
-    muted: '#514b28',
+    ink: '#171717',
+    line: '#171717',
+    muted: '#514a24',
     radius: '0px',
-    surface: '#fffdf2',
+    secondaryAccent: '#1646b7',
+    spacingMood: 'clamp(26px, 7cqw, 70px)',
+    surface: '#fff8dc',
   },
   luxury: {
-    accent: '#b89a5f',
+    accent: '#c9a45f',
     bodyFont: "Inter, ui-sans-serif, system-ui, sans-serif",
     buttonRadius: '2px',
-    ground: '#171514',
-    headingFont: "Georgia, 'Times New Roman', serif",
-    ink: '#f6f0e5',
-    line: '#4a4339',
-    muted: '#bdb3a4',
-    radius: '2px',
-    surface: '#24211e',
+    ground: '#171315',
+    headingFont: "Newsreader, Georgia, 'Times New Roman', serif",
+    ink: '#f9eedc',
+    line: '#514349',
+    muted: '#c8b8ae',
+    radius: '10px',
+    secondaryAccent: '#6e294f',
+    spacingMood: 'clamp(34px, 9cqw, 88px)',
+    surface: '#231c21',
   },
 };
 
@@ -261,22 +279,36 @@ function AboutActions({ profile }: { profile: BusinessProfileDraft }) {
   );
 }
 
-function AboutFacts({
-  hoursStatus,
-  profile,
-  scope = 'all',
-}: {
-  hoursStatus: WeeklyHoursPreviewStatus | null;
-  profile: BusinessProfileDraft;
-  scope?: 'all' | 'profile';
-}) {
+type AboutFact = {
+  label: string;
+  value: string;
+};
+
+const getAboutFacts = (
+  profile: BusinessProfileDraft,
+  hoursStatus: WeeklyHoursPreviewStatus | null,
+): AboutFact[] => {
   const visibility = profile.about.visibility;
   const facts: Array<{ label: string; value: string }> = [];
-  if (isAboutVisible(visibility, 'specialties') && profile.about.specialties.length > 0) {
-    facts.push({ label: 'Specialties', value: profile.about.specialties.join(' · ') });
-  }
   if (isAboutVisible(visibility, 'experience') && profile.about.yearsOfExperience.trim()) {
-    facts.push({ label: 'Experience', value: profile.about.yearsOfExperience.trim() });
+    const years = profile.about.yearsOfExperience.trim();
+    facts.push({
+      label: 'Experience',
+      value: /^\d+$/u.test(years) ? `${years} years` : years,
+    });
+  }
+  for (const fact of getCustomerProfileFacts(profile).filter(
+    (item) => item.id === 'service_location',
+  )) {
+    facts.push({ label: fact.label, value: fact.value });
+  }
+  const visitMode = labelForVisitMode(profile);
+  if (isAboutVisible(visibility, 'appointment_status') && visitMode) {
+    facts.push({ label: 'Appointments', value: visitMode });
+  }
+  const newClients = labelForNewClients(profile);
+  if (isAboutVisible(visibility, 'new_client_status') && newClients) {
+    facts.push({ label: 'New clients', value: newClients });
   }
   if (isAboutVisible(visibility, 'certifications') && profile.about.certifications.length > 0) {
     facts.push({ label: 'Certifications', value: profile.about.certifications.join(' · ') });
@@ -284,35 +316,66 @@ function AboutFacts({
   if (isAboutVisible(visibility, 'languages') && profile.about.languages.length > 0) {
     facts.push({ label: 'Languages', value: profile.about.languages.join(' · ') });
   }
-  for (const fact of getCustomerProfileFacts(profile)) {
-    facts.push({ label: fact.label, value: fact.value });
-  }
-  if (scope === 'all') {
-    const visitMode = labelForVisitMode(profile);
-    if (isAboutVisible(visibility, 'appointment_status') && visitMode) {
-      facts.push({ label: 'Appointments', value: visitMode });
-    }
-    const newClients = labelForNewClients(profile);
-    if (isAboutVisible(visibility, 'new_client_status') && newClients) {
-      facts.push({ label: 'New clients', value: newClients });
-    }
-    if (hoursStatus) {
-      facts.push({ label: 'Hours', value: hoursStatus.label });
-    }
-  }
+  if (hoursStatus) facts.push({ label: 'Hours', value: hoursStatus.label });
+
+  return facts;
+};
+
+function AboutFacts({
+  excludeLabels = [],
+  hoursStatus,
+  maxVisible = 4,
+  presentation = 'grid',
+  profile,
+}: {
+  excludeLabels?: readonly string[];
+  hoursStatus: WeeklyHoursPreviewStatus | null;
+  maxVisible?: number;
+  presentation?: 'grid' | 'pills';
+  profile: BusinessProfileDraft;
+}) {
+  const facts = getAboutFacts(profile, hoursStatus)
+    .filter((fact) => !excludeLabels.includes(fact.label));
   if (facts.length === 0) return null;
+  const visibleFacts = facts.slice(0, maxVisible);
+  const additionalFacts = facts.slice(maxVisible);
+
   return (
-    <dl className="onboarding-about-facts">
-      {facts.map((fact) => <div key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>)}
-    </dl>
+    <div className="onboarding-about-facts-wrap">
+      <dl className={`onboarding-about-facts is-${presentation}`}>
+        {visibleFacts.map((fact) => (
+          <div key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>
+        ))}
+      </dl>
+      {additionalFacts.length > 0 ? (
+        <details className="onboarding-about-facts-more">
+          <summary>More details</summary>
+          <dl>
+            {additionalFacts.map((fact) => (
+              <div key={fact.label}><dt>{fact.label}</dt><dd>{fact.value}</dd></div>
+            ))}
+          </dl>
+        </details>
+      ) : null}
+    </div>
   );
 }
 
-function AboutCopy({ profile, long = false }: { profile: BusinessProfileDraft; long?: boolean }) {
+function AboutSpecialties({ profile }: { profile: BusinessProfileDraft }) {
+  const specialties = isAboutVisible(profile.about.visibility, 'specialties')
+    ? profile.about.specialties.filter((specialty) => specialty.trim())
+    : [];
+  if (specialties.length === 0) return null;
+  return (
+    <ul aria-label="Specialties" className="onboarding-about-specialties">
+      {specialties.map((specialty) => <li key={specialty}>{specialty}</li>)}
+    </ul>
+  );
+}
+
+function AboutCopy({ profile }: { profile: BusinessProfileDraft }) {
   const visibility = profile.about.visibility;
-  const copy = long && profile.about.fullBio.trim()
-    ? profile.about.fullBio.trim()
-    : profile.about.shortBio.trim();
+  const bio = resolveAboutBio(profile.about.shortBio, profile.about.fullBio);
   const heading = isAboutVisible(visibility, 'owner_name') && profile.ownerName.trim()
     ? profile.ownerName.trim()
     : isAboutVisible(visibility, 'salon_name') && profile.businessName.trim()
@@ -325,13 +388,25 @@ function AboutCopy({ profile, long = false }: { profile: BusinessProfileDraft; l
       {isAboutVisible(visibility, 'salon_name') && profile.businessName.trim()
         ? <p className="onboarding-about-salon">{profile.businessName.trim()}</p>
         : null}
-      {isAboutVisible(visibility, 'bio') && copy ? <p>{copy}</p> : null}
-      {profile.about.clientAppreciation.trim() ? <blockquote>“{profile.about.clientAppreciation.trim()}”</blockquote> : null}
+      {isAboutVisible(visibility, 'bio') && bio.lead ? (
+        <div className="onboarding-about-biography">
+          <p>{bio.lead}</p>
+          {bio.expanded ? (
+            <details>
+              <summary>Read more</summary>
+              <p>{bio.expanded}</p>
+            </details>
+          ) : null}
+        </div>
+      ) : null}
+      {profile.about.clientAppreciation.trim() ? (
+        <blockquote>“{profile.about.clientAppreciation.trim()}”</blockquote>
+      ) : null}
     </div>
   );
 }
 
-function PolicySummary({ profile }: { profile: BusinessProfileDraft }) {
+const getPolicySummaryText = (profile: BusinessProfileDraft): string => {
   const values: string[] = [];
   const notice = profile.policies.cancellations.notice;
   if (
@@ -349,7 +424,12 @@ function PolicySummary({ profile }: { profile: BusinessProfileDraft }) {
   ) {
     values.push(`${profile.policies.lateArrivals.gracePeriodMinutes.trim()}-minute late limit`);
   }
-  return values.length > 0 ? <p className="onboarding-policy-summary">{values.join(' · ')}</p> : null;
+  return values.join(' · ');
+};
+
+function PolicySummary({ profile }: { profile: BusinessProfileDraft }) {
+  const summary = getPolicySummaryText(profile);
+  return summary ? <p className="onboarding-policy-summary">{summary}</p> : null;
 }
 
 function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
@@ -367,6 +447,16 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
     && isAboutVisible(visibility, 'policy_summary')
     ? <PolicySummary profile={profile} />
     : null;
+  const policySummaryText = showPolicySummary
+    && supports('policy_summary')
+    && isAboutVisible(visibility, 'policy_summary')
+    ? getPolicySummaryText(profile)
+    : '';
+  const bookingCardItems = [
+    isAboutVisible(visibility, 'appointment_status') ? labelForVisitMode(profile) : null,
+    isAboutVisible(visibility, 'new_client_status') ? labelForNewClients(profile) : null,
+    policySummaryText || null,
+  ].filter((value): value is string => Boolean(value)).slice(0, 3);
 
   if (preset === 'editorial_portrait') {
     return (
@@ -376,10 +466,13 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
         data-preview-target="about"
       >
         {showPortrait ? <Portrait large profile={profile} respectAboutVisibility /> : null}
-        <AboutCopy long profile={profile} />
-        <AboutFacts hoursStatus={hoursStatus} profile={profile} />
-        {policySummary}
-        <AboutActions profile={profile} />
+        <div className="onboarding-about-editorial-story">
+          <AboutCopy profile={profile} />
+          <AboutSpecialties profile={profile} />
+          <AboutActions profile={profile} />
+          <AboutFacts hoursStatus={hoursStatus} maxVisible={2} presentation="pills" profile={profile} />
+          {policySummary}
+        </div>
       </section>
     );
   }
@@ -391,11 +484,14 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
         className="onboarding-customer-about is-quick-facts"
         data-preview-target="about"
       >
-        {showPortrait ? <Portrait profile={profile} respectAboutVisibility /> : null}
-        <AboutCopy profile={profile} />
-        <AboutFacts hoursStatus={hoursStatus} profile={profile} />
-        {policySummary}
+        <div className="onboarding-about-quick-identity">
+          {showPortrait ? <Portrait profile={profile} respectAboutVisibility /> : null}
+          <AboutCopy profile={profile} />
+        </div>
         <AboutActions profile={profile} />
+        <AboutFacts hoursStatus={hoursStatus} profile={profile} />
+        <AboutSpecialties profile={profile} />
+        {policySummary}
       </section>
     );
   }
@@ -408,22 +504,33 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
         data-preview-target="about"
       >
         <div className="onboarding-about-profile">
-          {showPortrait ? <Portrait profile={profile} respectAboutVisibility /> : null}
-          <AboutCopy profile={profile} />
-          <AboutFacts hoursStatus={hoursStatus} profile={profile} scope="profile" />
+          <div className="onboarding-about-before-identity">
+            {showPortrait ? <Portrait profile={profile} respectAboutVisibility /> : null}
+            <AboutCopy profile={profile} />
+          </div>
+          <AboutSpecialties profile={profile} />
+          <AboutActions profile={profile} />
         </div>
-        <div className="onboarding-before-booking-card">
-          <h3>Before you book</h3>
-          {isAboutVisible(visibility, 'appointment_status') && labelForVisitMode(profile)
-            ? <p><Clock3 aria-hidden="true" size={16} /> {labelForVisitMode(profile)}</p>
-            : null}
-          {isAboutVisible(visibility, 'new_client_status') && labelForNewClients(profile)
-            ? <p><Sparkles aria-hidden="true" size={16} /> {labelForNewClients(profile)}</p>
-            : null}
-          {hoursStatus ? <p><Clock3 aria-hidden="true" size={16} /> {hoursStatus.label}</p> : null}
-          {policySummary}
-        </div>
-        <AboutActions profile={profile} />
+        {bookingCardItems.length > 0 ? (
+          <div className="onboarding-before-booking-card">
+            <h3>Before you book</h3>
+            {bookingCardItems.map((item, index) => (
+              <p className={item === policySummaryText ? 'onboarding-policy-summary' : undefined} key={item}>
+                {index === 1
+                  ? <Sparkles aria-hidden="true" size={16} />
+                  : <Clock3 aria-hidden="true" size={16} />}
+                {item}
+              </p>
+            ))}
+          </div>
+        ) : null}
+        <AboutFacts
+          excludeLabels={['Appointments', 'New clients']}
+          hoursStatus={hoursStatus}
+          maxVisible={2}
+          presentation="pills"
+          profile={profile}
+        />
       </section>
     );
   }
@@ -434,7 +541,13 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
       className="onboarding-customer-about is-photo-right"
       data-preview-target="about"
     >
-      <div><AboutCopy profile={profile} /><AboutFacts hoursStatus={hoursStatus} profile={profile} />{policySummary}<AboutActions profile={profile} /></div>
+      <div className="onboarding-about-photo-copy">
+        <AboutCopy profile={profile} />
+        <AboutSpecialties profile={profile} />
+        <AboutActions profile={profile} />
+        <AboutFacts hoursStatus={hoursStatus} maxVisible={2} presentation="pills" profile={profile} />
+        {policySummary}
+      </div>
       {showPortrait ? <Portrait large profile={profile} respectAboutVisibility /> : null}
     </section>
   );
@@ -563,8 +676,115 @@ const STARTER_STRUCTURE_COPY = {
   },
 } as const;
 
-function StarterStructure({ document }: { document: SiteBuilderDocument | null }) {
-  const outline = useMemo(() => getStarterDocumentOutline(document), [document]);
+type CurrentPreviewOutlineSection = {
+  id: string;
+  label: string;
+  sectionType: string;
+};
+
+type CurrentPreviewOutlinePage = {
+  id: string;
+  label: string;
+  sections: CurrentPreviewOutlineSection[];
+};
+
+type CurrentPreviewOutlineOptions = {
+  galleryHasContent?: boolean;
+  includeOptionalSections?: boolean;
+  policiesHaveContent?: boolean;
+};
+
+const insertPreviewSection = (
+  pages: CurrentPreviewOutlinePage[],
+  section: CurrentPreviewOutlineSection,
+  placement: 'before_booking' | 'after_booking',
+): void => {
+  if (pages.some((page) => page.sections.some((item) => (
+    item.label.toLowerCase().includes(section.label.toLowerCase())
+  )))) return;
+  const target = pages.find((page) => page.sections.some(
+    (item) => item.sectionType === 'booking',
+  )) ?? pages[0];
+  if (!target) return;
+  const bookingIndex = target.sections.findIndex((item) => item.sectionType === 'booking');
+  const insertionIndex = bookingIndex < 0
+    ? target.sections.length
+    : placement === 'before_booking'
+      ? bookingIndex
+      : bookingIndex + 1;
+  target.sections.splice(insertionIndex, 0, section);
+};
+
+/**
+ * A truthful outline of the current preview. It starts with the real universal
+ * starter document and filters isolated onboarding-preview modules without
+ * mutating or pretending they are universal document sections.
+ */
+export const getCurrentPreviewOutline = (
+  document: SiteBuilderDocument | null,
+  recipe: OnboardingSiteRecipe,
+  {
+    galleryHasContent = recipe.galleryEnabled,
+    includeOptionalSections = true,
+    policiesHaveContent = recipe.policiesEnabled,
+  }: CurrentPreviewOutlineOptions = {},
+): CurrentPreviewOutlinePage[] => {
+  const pages: CurrentPreviewOutlinePage[] = getStarterDocumentOutline(document)
+    .map((page) => ({
+      ...page,
+      sections: page.sections
+        .filter((section) => {
+          if (!includeOptionalSections) return true;
+          const label = section.label.toLowerCase();
+          if (label.includes('about')) return recipe.aboutEnabled;
+          if (label.includes('gallery') || label.includes('featured work')) {
+            return recipe.galleryEnabled && galleryHasContent;
+          }
+          if (section.sectionType === 'custom_design') return recipe.canvaEnabled;
+          return true;
+        })
+        .map((section) => ({
+          ...section,
+          label: section.sectionType === 'custom_design' ? 'Canva design' : section.label,
+        })),
+    }))
+    .filter((page) => page.sections.length > 0);
+  if (!includeOptionalSections) return pages;
+  if (recipe.aboutEnabled) {
+    insertPreviewSection(pages, {
+      id: 'onboarding-preview-about',
+      label: 'About',
+      sectionType: 'onboarding_preview_about',
+    }, 'before_booking');
+  }
+  const hasGalleryOutline = pages.some((page) => page.sections.some((item) => {
+    const label = item.label.toLowerCase();
+    return label.includes('gallery') || label.includes('featured work');
+  }));
+  if (recipe.galleryEnabled && galleryHasContent && !hasGalleryOutline) {
+    insertPreviewSection(pages, {
+      id: 'onboarding-preview-gallery',
+      label: 'Gallery',
+      sectionType: 'onboarding_preview_gallery',
+    }, 'before_booking');
+  }
+  if (recipe.policiesEnabled && policiesHaveContent) {
+    insertPreviewSection(pages, {
+      id: 'onboarding-preview-policies',
+      label: 'Policies',
+      sectionType: 'onboarding_preview_policies',
+    }, 'after_booking');
+  }
+  return pages;
+};
+
+function StarterStructure({
+  document,
+  outline,
+}: {
+  document: SiteBuilderDocument | null;
+  outline: CurrentPreviewOutlinePage[];
+}) {
   if (!document || outline.length === 0) return null;
   const copy = STARTER_STRUCTURE_COPY[document.originStarter];
   return (
@@ -584,9 +804,7 @@ function StarterStructure({ document }: { document: SiteBuilderDocument | null }
           >
             {outline.length > 1 ? <h3>{page.label}</h3> : null}
             <ol>
-              {page.sections
-                .filter((section) => section.sectionType !== 'custom_design')
-                .map((section) => (
+              {page.sections.map((section) => (
                   <li data-preview-outline-section-id={section.id} key={section.id}>
                     {section.label}
                   </li>
@@ -804,6 +1022,8 @@ export function OnboardingSitePreview({
     '--customer-line': roles.line,
     '--customer-muted': roles.muted,
     '--customer-radius': roles.radius,
+    '--customer-secondary-accent': roles.secondaryAccent,
+    '--customer-section-space': roles.spacingMood,
     '--customer-surface': roles.surface,
   } as CSSProperties;
   const visitMode = labelForVisitMode(profile);
@@ -817,14 +1037,35 @@ export function OnboardingSitePreview({
   );
   const title = profile.businessName.trim() || 'Your nail studio';
   const area = profile.location.cityOrArea.trim();
+  const policiesHaveContent = recipe.policiesEnabled && (
+    ['cancellations', 'deposits', 'late_arrivals', 'no_shows', 'repairs', 'other'] as const
+  ).some((id) => Boolean(textForPolicy(profile, id)));
+  const currentOutline = useMemo(
+    () => getCurrentPreviewOutline(document, recipe, {
+      galleryHasContent: state.gallery.images.length > 0,
+      includeOptionalSections,
+      policiesHaveContent,
+    }),
+    [
+      document,
+      includeOptionalSections,
+      policiesHaveContent,
+      recipe,
+      state.gallery.images.length,
+    ],
+  );
   const navigationItems = useMemo(() => {
     if (!document?.navigation.enabled) return [];
     const pagesById = new Map(document.pages.map((page) => [page.id, page]));
+    const visiblePageIds = new Set(currentOutline.map((page) => page.id));
     return [...document.navigation.items]
       .sort((left, right) => left.order - right.order)
-      .filter((item) => pagesById.get(item.pageId)?.visibleInNavigation)
+      .filter((item) => (
+        pagesById.get(item.pageId)?.visibleInNavigation
+        && visiblePageIds.has(item.pageId)
+      ))
       .map((item) => ({ label: item.label, pageId: item.pageId }));
-  }, [document]);
+  }, [currentOutline, document]);
   const revealDocumentTarget = useCallback((target: CustomDesignDocumentNavigationTarget) => {
     const preview = previewRef.current;
     if (!preview) return;
@@ -917,7 +1158,7 @@ export function OnboardingSitePreview({
         </header>
 
         <div className="onboarding-customer-content">
-          <StarterStructure document={document} />
+          <StarterStructure document={document} outline={currentOutline} />
 
           <section className="onboarding-customer-hero">
             <div>

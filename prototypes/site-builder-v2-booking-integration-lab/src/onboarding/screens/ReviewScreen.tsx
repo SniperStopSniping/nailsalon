@@ -52,7 +52,11 @@ export function FinalReviewScreen({
 }: FinalReviewScreenProps) {
   const readinessContentId = useId();
   const [device, setDevice] = useState<OnboardingPreviewDevice>('phone');
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(() => (
+    typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia('(max-width: 919px)').matches
+  ));
   const [compactReadiness, setCompactReadiness] = useState(() => (
     typeof window !== 'undefined'
     && typeof window.matchMedia === 'function'
@@ -100,6 +104,23 @@ export function FinalReviewScreen({
     [customDesignAssetIssues, document, state],
   );
   const primaryLabel = getBuilderPrimaryLabel(state, document, customDesignAssetIssues);
+  const optionalImprovementCount = readiness.filter(
+    ({ status }) => status === 'optional' || status === 'recommended',
+  ).length;
+  const readinessGroups = [
+    {
+      items: readiness.filter(({ status }) => status === 'needs_attention'),
+      label: 'Needs attention',
+    },
+    {
+      items: readiness.filter(({ status }) => status === 'ready'),
+      label: 'Ready',
+    },
+    {
+      items: readiness.filter(({ status }) => status === 'optional' || status === 'recommended'),
+      label: 'Optional improvements',
+    },
+  ].filter(({ items }) => items.length > 0);
   const finalPrimaryLabel = primaryLabel;
   const handlePrimary = () => {
     const first = needsAttention.find((item) => item.screen);
@@ -135,7 +156,14 @@ export function FinalReviewScreen({
         </div>
         <aside className={`onboarding-readiness${drawerOpen ? ' is-open' : ''}`} aria-label="Site readiness">
           <button aria-controls={readinessContentId} aria-expanded={drawerOpen} className="onboarding-readiness__mobile-trigger" type="button" onClick={() => setDrawerOpen((current) => !current)}>
-            <span><strong>Site readiness</strong><small>{needsAttention.length === 0 ? 'Ready to go' : `${needsAttention.length} to review`}</small></span>
+            <span>
+              <strong>Site readiness</strong>
+              <small>{needsAttention.length === 0
+                ? `Ready to go${optionalImprovementCount > 0
+                  ? ` · ${optionalImprovementCount} optional ${optionalImprovementCount === 1 ? 'improvement' : 'improvements'}`
+                  : ''}`
+                : `${needsAttention.length} to review`}</small>
+            </span>
             <ChevronUp aria-hidden="true" size={18} />
           </button>
           <div
@@ -146,8 +174,11 @@ export function FinalReviewScreen({
           >
             <h2>Site readiness</h2>
             <p>Your website is saved. You can edit it anytime from your dashboard.</p>
-            <ul>
-              {readiness.map((item) => {
+            {readinessGroups.map((group) => (
+              <section className="onboarding-readiness__group" key={group.label}>
+                <h3>{group.label}</h3>
+                <ul>
+              {group.items.map((item) => {
                 const Icon = STATUS_ICONS[item.status];
                 const editScreen = item.screen
                   ?? (item.id === 'booking-path' ? 'booking_preferences'
@@ -177,7 +208,9 @@ export function FinalReviewScreen({
                   </li>
                 );
               })}
-            </ul>
+                </ul>
+              </section>
+            ))}
           </div>
         </aside>
       </div>

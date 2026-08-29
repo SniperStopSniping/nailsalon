@@ -21,7 +21,7 @@ const DASHBOARD_TOUR_STEPS = [
     title: 'Your day at a glance',
   },
   {
-    description: 'Review weekly and monthly appointments, Google Busy or Free events, and add an appointment.',
+    description: 'Review weekly and monthly Luster appointments and add an appointment. Calendar events appear here after you connect Google Calendar.',
     destination: 'calendar',
     id: 'calendar',
     title: 'Your calendar',

@@ -47,21 +47,32 @@ export const getReadinessItems = (
       status: 'needs_attention',
     });
   } else {
-    items.push({ id: 'booking-path', label: 'Booking path available', status: 'ready' });
+    items.push({ id: 'booking-path', label: 'Clients can book you', status: 'ready' });
   }
   if (state.profile.businessName.trim()) {
-    items.push({ id: 'business-name', label: 'Business name added', status: 'ready' });
+    items.push({ id: 'business-name', label: 'Business information', status: 'ready' });
   }
-  if (hasPublicContactMethod(state)) {
-    items.push({ id: 'contact', label: 'Contact method added', status: 'ready' });
+  if (hasPublicContactMethod(state) || state.profile.bookingOnlyContact) {
+    items.push({ id: 'contact', label: 'Contact and privacy', status: 'ready' });
   }
-  items.push({ id: 'mobile', label: 'Mobile layout ready', status: 'ready' });
+  items.push({ id: 'mobile', label: 'Looks right on a phone', status: 'ready' });
+  items.push({ id: 'style', label: 'Website style', screen: 'site_style', status: 'ready' });
 
   if (!state.recipe.policiesEnabled) {
     items.push({ id: 'policies', label: 'Add policies', screen: 'policies', status: 'recommended' });
   }
   if (!state.recipe.galleryEnabled) {
-    items.push({ id: 'gallery', label: 'Add work', screen: 'extras', status: 'recommended' });
+    items.push({ id: 'gallery', label: 'Add photos of your work', screen: 'extras', status: 'recommended' });
+  } else if (state.gallery.source === 'mock_luster') {
+    items.push({
+      detail: 'Example gallery — replace before publishing.',
+      id: 'gallery-examples',
+      label: 'Replace example Gallery photos',
+      screen: 'extras',
+      status: 'recommended',
+    });
+  } else {
+    items.push({ id: 'gallery-ready', label: 'Gallery photos', screen: 'extras', status: 'ready' });
   }
   if (!state.recipe.aboutEnabled) {
     items.push({ id: 'about', label: 'Add About', screen: 'about', status: 'recommended' });
@@ -121,7 +132,7 @@ export const getBuilderPrimaryLabel = (
     .filter((item) => item.id.startsWith('essential-') || item.id === 'booking-path-missing')
     .map((item) => item.screen ?? item.id)).size;
   if (essentialCount > 0) {
-    return `Finish ${essentialCount} ${essentialCount === 1 ? 'essential' : 'essentials'}`;
+    return `Finish ${essentialCount} required ${essentialCount === 1 ? 'step' : 'steps'}`;
   }
   if (needsAttention.length > 0) {
     return `Resolve ${needsAttention.length} ${needsAttention.length === 1 ? 'issue' : 'issues'}`;

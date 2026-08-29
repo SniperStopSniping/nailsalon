@@ -5,6 +5,9 @@ import { App } from './ui/App';
 import './styles.css';
 import './ui/final-hybrid.css';
 import './onboarding/onboarding.css';
+import './onboarding/daniela-basics-booking.css';
+import './onboarding/gallery-policy-polish.css';
+import './onboarding/daniela-about-style.css';
 
 const rootElement = document.getElementById('root');
 

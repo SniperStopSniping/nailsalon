@@ -40,3 +40,15 @@ export const SERVICE_MENU_PRODUCTION_MAPPINGS = [
   mappingKind,
   productionCanonicalId,
 })) as readonly ServiceMenuProductionMapping[];
+
+export const ADD_ON_PRODUCTION_MAPPINGS = [
+  ['addon-french', 'french_tips', 'exact_template'],
+  ['addon-chrome', 'chrome', 'exact_template'],
+  ['addon-simple-art', 'simple_nail_art', 'exact_template'],
+  ['addon-detailed-art', 'detailed_nail_art', 'exact_template'],
+].map(([labServiceId, productionCanonicalId, mappingKind]) => ({
+  futureOwnerServiceOperation: TEMPLATE_OPERATION,
+  labServiceId,
+  mappingKind,
+  productionCanonicalId,
+})) as readonly ServiceMenuProductionMapping[];

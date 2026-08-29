@@ -282,6 +282,7 @@ type CollapsibleFormCardProps = {
   onToggle: () => void;
   open: boolean;
   summary?: string;
+  status?: 'set_up' | 'finish' | 'complete' | 'not_shown';
   title: string;
 };
 
@@ -293,14 +294,25 @@ export function CollapsibleFormCard({
   onToggle,
   open,
   summary,
+  status,
   title,
 }: CollapsibleFormCardProps) {
   const panelId = `${id}-panel`;
+  const resolvedStatus = errorCount > 0
+    ? 'finish'
+    : status ?? (completed ? 'complete' : 'set_up');
+  const statusLabel = resolvedStatus === 'complete'
+    ? 'Complete'
+    : resolvedStatus === 'not_shown'
+      ? 'Not shown'
+      : resolvedStatus === 'finish'
+        ? 'Finish'
+        : 'Set up';
 
   return (
     <section
       aria-invalid={errorCount > 0 ? 'true' : undefined}
-      className={`onboarding-collapsible-card${completed ? ' is-complete' : ''}${errorCount > 0 ? ' has-error' : ''}`}
+      className={`onboarding-collapsible-card is-${resolvedStatus}${open ? ' is-open' : ''}${errorCount > 0 ? ' has-error' : ''}`}
     >
       <button
         aria-controls={panelId}
@@ -313,9 +325,16 @@ export function CollapsibleFormCard({
           <strong>{title}</strong>
           {summary ? <small>{summary}</small> : null}
         </span>
-        {errorCount > 0
-          ? <span className="is-error">{errorCount} {errorCount === 1 ? 'issue' : 'issues'}</span>
-          : completed ? <span>Complete</span> : null}
+        <span className="onboarding-collapsible-card__state">
+          <span className={errorCount > 0 ? 'is-error' : undefined}>
+            {errorCount > 0
+              ? `${statusLabel} · ${errorCount} ${errorCount === 1 ? 'issue' : 'issues'}`
+              : statusLabel}
+          </span>
+          <span aria-hidden="true" className="onboarding-collapsible-card__chevron">
+            {open ? '⌃' : '⌄'}
+          </span>
+        </span>
       </button>
       <div hidden={!open} id={panelId}>
         {children}
@@ -327,6 +346,7 @@ export function CollapsibleFormCard({
 type ImageUploadFieldProps = {
   accept?: string;
   currentLabel?: string;
+  chooseLabel?: string;
   label: string;
   needsReselect?: boolean;
   onRemove?: () => void;
@@ -335,6 +355,7 @@ type ImageUploadFieldProps = {
 
 export function ImageUploadField({
   accept = 'image/png,image/jpeg,image/webp',
+  chooseLabel = 'Choose from files or photos',
   currentLabel,
   label,
   needsReselect = false,
@@ -367,7 +388,7 @@ export function ImageUploadField({
       />
       <div className="onboarding-image-upload__actions">
         <button type="button" onClick={() => inputRef.current?.click()}>
-          {needsReselect ? 'Select again' : currentLabel ? 'Replace' : 'Choose from files or photos'}
+          {needsReselect ? 'Select again' : currentLabel ? 'Replace' : chooseLabel}
         </button>
         {currentLabel && onRemove ? (
           <button type="button" onClick={onRemove}>Remove</button>

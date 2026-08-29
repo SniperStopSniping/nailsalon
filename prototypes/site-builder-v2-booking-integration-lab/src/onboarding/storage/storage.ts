@@ -131,9 +131,14 @@ const isServiceMenuSelection = (
 ): value is ServiceMenuSelectionDraft => {
   if (!isRecord(value)) return false;
   const selectedServiceIds = value.selectedServiceIds;
+  const selectedAddOnIds = value.selectedAddOnIds;
   const ownerOverridesByServiceId = value.ownerOverridesByServiceId;
   if (!Array.isArray(selectedServiceIds)
     || !selectedServiceIds.every((item) => typeof item === 'string')
+    || (selectedAddOnIds !== undefined && (
+      !Array.isArray(selectedAddOnIds)
+      || !selectedAddOnIds.every((item) => typeof item === 'string')
+    ))
     || !isRecord(ownerOverridesByServiceId)
     || !Object.values(ownerOverridesByServiceId).every(isOwnerOverride)) {
     return false;
@@ -145,6 +150,12 @@ const isServiceMenuSelection = (
     && normalized.selectedServiceIds.every(
       (serviceId, index) => serviceId === selectedServiceIds[index],
     )
+    && (selectedAddOnIds === undefined || (
+      (normalized.selectedAddOnIds?.length ?? 0) === selectedAddOnIds.length
+      && normalized.selectedAddOnIds?.every(
+        (addOnId, index) => addOnId === selectedAddOnIds[index],
+      ) === true
+    ))
     && Object.keys(normalized.ownerOverridesByServiceId).length
       === Object.keys(ownerOverridesByServiceId).length;
 };

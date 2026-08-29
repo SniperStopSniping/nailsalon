@@ -29,6 +29,7 @@ export const createOnboardingBookingFixture = (
 ): OnboardingBookingFixture => {
   const serviceMenu = serviceMenuPort.normalizeSelection(profile.serviceMenu);
   const selectedIds = new Set(serviceMenu.selectedServiceIds);
+  const selectedAddOnIds = new Set(serviceMenu.selectedAddOnIds ?? []);
   const services = fixture.services.flatMap((service): readonly MockService[] => {
     if (!selectedIds.has(service.id)) return [];
     const override = serviceMenu.ownerOverridesByServiceId[service.id];
@@ -44,6 +45,7 @@ export const createOnboardingBookingFixture = (
 
   return {
     ...fixture,
+    addOns: fixture.addOns.filter(({ id }) => selectedAddOnIds.has(id)),
     labAvailability: {
       minimumNoticeMinutes: profile.bookingPreferences.minimumNoticeMinutes,
     },

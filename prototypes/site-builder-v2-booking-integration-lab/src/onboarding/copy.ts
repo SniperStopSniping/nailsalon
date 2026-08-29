@@ -97,7 +97,7 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
   photo_social: {
     heading: 'Add your photo and Instagram',
     primaryAction: 'Continue',
-    secondaryAction: 'Skip photo for now',
+    secondaryAction: 'Skip for now',
     stage: 'basics',
     status: 'optional',
     supportingCopy: 'Help clients recognize you and find your work.',
@@ -138,14 +138,14 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     secondaryAction: 'I want to use a Canva design',
     stage: 'basics',
     status: null,
-    supportingCopy: 'Tell us about your nail business once. Luster will use your details to create a polished site with booking, policies, contact information, and more.',
+    supportingCopy: 'Tell us about your nail business once. Luster turns your details into a polished website where clients can learn about you and book online.',
   },
 };
 
 export const WELCOME_BENEFITS = [
   'Add your details once',
+  'Start with a ready-made service menu',
   'Switch designs without starting over',
-  'Update your whole site from one place',
 ] as const;
 
 export const ONBOARDING_STAGE_ORDER = (

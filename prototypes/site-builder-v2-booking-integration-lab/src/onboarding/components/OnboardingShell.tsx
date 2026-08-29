@@ -186,7 +186,7 @@ export function OnboardingShell({
               ) : null}
               {onRestart ? (
                 <button role="menuitem" tabIndex={onSaveForLater ? -1 : 0} type="button" onClick={() => runMoreAction(onRestart)}>
-                  Restart onboarding
+                  Start over
                 </button>
               ) : null}
               {onLabOptions ? (

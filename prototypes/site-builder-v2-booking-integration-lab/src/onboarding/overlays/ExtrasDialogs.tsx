@@ -33,6 +33,7 @@ import {
 import type {
   CanvaDisplayMode,
   CanvaPlacement,
+  GalleryDraft,
   GalleryLayout,
   LocalImageReference,
   OnboardingLabState,
@@ -53,16 +54,60 @@ type GalleryDialogProps = {
   state: OnboardingLabState;
 };
 
+const cloneGalleryDraft = (gallery: GalleryDraft): GalleryDraft => ({
+  ...gallery,
+  images: gallery.images.map((image) => ({ ...image })),
+});
+
+const galleryStorageIds = (images: readonly LocalImageReference[]): Set<string> =>
+  new Set(images.flatMap((image) => image.storageId ? [image.storageId] : []));
+
 export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogProps) {
   const inputId = useId();
   const repository = useCustomDesignAssetRepository();
+  const [draft, setDraft] = useState<GalleryDraft>(() => cloneGalleryDraft(state.gallery));
   const [error, setError] = useState('');
   const [showAllFailures, setShowAllFailures] = useState(false);
   const [uploadFailures, setUploadFailures] = useState<CustomDesignUploadFailure[]>([]);
-  const galleryAssetIds = useMemo(() => state.gallery.images.flatMap((image) =>
-    image.storageId ? [image.storageId] : []), [state.gallery.images]);
+  const baselineRef = useRef(cloneGalleryDraft(state.gallery));
+  const createdImagesRef = useRef<LocalImageReference[]>([]);
+  const wasOpenRef = useRef(false);
+  const galleryAssetIds = useMemo(() => draft.images.flatMap((image) =>
+    image.storageId ? [image.storageId] : []), [draft.images]);
   const galleryAssets = useCustomDesignAssetMap(galleryAssetIds);
-  const missingGalleryImages = state.gallery.images.filter((image) => image.source === 'missing');
+  const missingGalleryImages = draft.images.filter((image) => image.source === 'missing');
+
+  useEffect(() => {
+    if (!open) {
+      wasOpenRef.current = false;
+      return;
+    }
+    if (wasOpenRef.current) return;
+    wasOpenRef.current = true;
+    const baseline = cloneGalleryDraft(state.gallery);
+    baselineRef.current = baseline;
+    createdImagesRef.current = [];
+    setDraft(baseline);
+    setError('');
+    setShowAllFailures(false);
+    setUploadFailures([]);
+  }, [open, state.gallery]);
+
+  const cleanupImages = async (images: readonly LocalImageReference[]) => {
+    if (!repository || images.length === 0) return [];
+    return onboardingMediaPort.deleteOwned(repository, images);
+  };
+
+  const closeWithoutSaving = () => {
+    const created = [...createdImagesRef.current];
+    createdImagesRef.current = [];
+    setDraft(cloneGalleryDraft(baselineRef.current));
+    setError('');
+    setUploadFailures([]);
+    onClose();
+    void cleanupImages(created);
+  };
+
   const addUploads = async (files: readonly File[]) => {
     try {
       if (!repository) {
@@ -71,8 +116,8 @@ export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogP
       const upfrontFailures: CustomDesignUploadFailure[] = [];
       const acceptedForDecode: File[] = [];
       let acceptedBytes = 0;
-      const existingUploads = state.gallery.source === 'uploads'
-        ? state.gallery.images.filter((image) => image.source !== 'missing')
+      const existingUploads = draft.source === 'uploads'
+        ? draft.images.filter((image) => image.source !== 'missing')
         : [];
       const remainingCapacity = Math.max(
         0,
@@ -110,18 +155,16 @@ export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogP
       ];
       const rejected = failures.length;
       if (images.length > 0) {
-        onUpdate((current) => ({
+        createdImagesRef.current = [...createdImagesRef.current, ...images];
+        setDraft((current) => ({
           ...current,
-          gallery: {
-            ...current.gallery,
-            images: current.gallery.source === 'uploads'
-              ? [
-                  ...current.gallery.images.filter((image) => image.source !== 'missing'),
-                  ...images,
-                ]
-              : images,
-            source: 'uploads',
-          },
+          images: current.source === 'uploads'
+            ? [
+                ...current.images.filter((image) => image.source !== 'missing'),
+                ...images,
+              ]
+            : images,
+          source: 'uploads',
         }));
       }
       setShowAllFailures(false);
@@ -139,71 +182,108 @@ export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogP
       setError(cause instanceof Error ? cause.message : 'The selected images could not be read.');
     }
   };
-  const selectTemporaryExamples = async () => {
-    const removedUploads = state.gallery.source === 'uploads'
-      ? state.gallery.images.filter((image) => image.source === 'indexed_db' && image.storageId)
-      : [];
-    const cleanupIds = removedUploads.flatMap((image) => image.storageId ? [image.storageId] : []);
-    onUpdate((current) => ({
+  const selectTemporaryExamples = () => {
+    setDraft((current) => ({
       ...current,
-      canva: {
-        ...current.canva,
-        ownedAssetIds: [...new Set([...current.canva.ownedAssetIds, ...cleanupIds])],
-      },
-      gallery: { ...current.gallery, images: MOCK_GALLERY_IMAGES, source: 'mock_luster' },
+      images: MOCK_GALLERY_IMAGES.map((image) => ({ ...image })),
+      source: 'mock_luster',
     }));
     setShowAllFailures(false);
     setUploadFailures([]);
-    if (cleanupIds.length === 0) {
-      setError('');
-      return;
-    }
-    if (!repository) {
-      setError('The example photos are selected. This browser will retry cleaning up the earlier uploads later.');
-      return;
-    }
-    const cleanupErrors = await onboardingMediaPort.deleteOwned(repository, removedUploads);
-    if (cleanupErrors.length > 0) {
-      setError('The example photos are selected. This browser will retry cleaning up the earlier uploads later.');
-      return;
-    }
-    const cleanedIds = new Set(cleanupIds);
-    onUpdate((current) => ({
-      ...current,
-      canva: {
-        ...current.canva,
-        ownedAssetIds: current.canva.ownedAssetIds.filter((assetId) => !cleanedIds.has(assetId)),
-      },
-    }));
     setError('');
   };
-  const canAdd = state.gallery.source !== null && (
-    state.gallery.source === 'mock_luster'
-    || state.gallery.images.some((image) => image.source !== 'missing')
+  const removeDraftImage = (imageId: string) => {
+    setDraft((current) => {
+      const images = current.images.filter((image) => image.id !== imageId);
+      return { ...current, images, source: images.length > 0 ? current.source : null };
+    });
+  };
+  const moveDraftImage = (imageId: string, direction: -1 | 1) => {
+    setDraft((current) => {
+      const index = current.images.findIndex((image) => image.id === imageId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.images.length) return current;
+      const images = [...current.images];
+      const moved = images[index];
+      const displaced = images[nextIndex];
+      if (!moved || !displaced) return current;
+      images[index] = displaced;
+      images[nextIndex] = moved;
+      return { ...current, images };
+    });
+  };
+  const canAdd = draft.source !== null && (
+    draft.source === 'mock_luster'
+    || draft.images.some((image) => image.source !== 'missing')
   );
-  const save = () => {
+  const save = async () => {
     if (!canAdd) {
       setError('Choose portfolio images or temporary example photos first.');
       return;
     }
+    const savedIds = galleryStorageIds(draft.images);
+    const removedBaseline = baselineRef.current.images.filter((image) =>
+      image.storageId && !savedIds.has(image.storageId));
+    const unusedCreated = createdImagesRef.current.filter((image) =>
+      image.storageId && !savedIds.has(image.storageId));
+    const cleanupErrors = await cleanupImages([...removedBaseline, ...unusedCreated]);
+    const retryIds = [...removedBaseline, ...unusedCreated].flatMap((image) =>
+      image.storageId ? [image.storageId] : []);
     onUpdate((current) => ({
       ...current,
+      canva: cleanupErrors.length > 0 ? {
+        ...current.canva,
+        ownedAssetIds: [...new Set([...current.canva.ownedAssetIds, ...retryIds])],
+      } : current.canva,
+      gallery: cloneGalleryDraft(draft),
       recipe: { ...current.recipe, galleryEnabled: true },
     }));
+    createdImagesRef.current = [];
+    baselineRef.current = cloneGalleryDraft(draft);
+    onClose();
+  };
+
+  const removeGallery = async () => {
+    const baselineIds = galleryStorageIds(baselineRef.current.images);
+    const allDraftImages = [...baselineRef.current.images, ...createdImagesRef.current]
+      .filter((image, index, images) => image.storageId
+        && images.findIndex((candidate) => candidate.storageId === image.storageId) === index);
+    const cleanupErrors = await cleanupImages(allDraftImages);
+    onUpdate((current) => ({
+      ...current,
+      canva: cleanupErrors.length > 0 ? {
+        ...current.canva,
+        ownedAssetIds: [...new Set([
+          ...current.canva.ownedAssetIds,
+          ...baselineIds,
+          ...galleryStorageIds(createdImagesRef.current),
+        ])],
+      } : current.canva,
+      gallery: { ...current.gallery, images: [], source: null },
+      recipe: { ...current.recipe, galleryEnabled: false },
+    }));
+    createdImagesRef.current = [];
     onClose();
   };
 
   return (
-    <Dialog description="Choose the work and layout clients will see in your Gallery." onClose={onClose} open={open} title="Add Gallery" variant="bottom-sheet">
+    <Dialog
+      description="Choose the work and layout clients will see in your Gallery. Changes are saved only when you confirm."
+      onClose={closeWithoutSaving}
+      open={open}
+      title={state.recipe.galleryEnabled ? 'Edit Gallery' : 'Add Gallery'}
+      variant="bottom-sheet"
+    >
       <div className="onboarding-subflow">
         <Images aria-hidden="true" size={28} />
         <div className="onboarding-subflow-choice-grid">
           <button
-            aria-pressed={state.gallery.source === 'mock_luster'}
+            aria-pressed={draft.source === 'mock_luster'}
             type="button"
-            onClick={() => { void selectTemporaryExamples(); }}
+            onClick={selectTemporaryExamples}
           >
-            <strong>Use temporary example photos</strong><small>Four sample nail photos for this setup preview</small>
+            <strong>Use example nail photos</strong>
+            <small>Four example nail photos — they stay on your site until you replace them.</small>
           </button>
           <label htmlFor={inputId} className="onboarding-upload-choice">
             <strong>Upload portfolio photos</strong><small>PNG, JPG, or WebP</small>
@@ -220,15 +300,26 @@ export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogP
             }}
           />
         </div>
-        {state.gallery.images.length > 0 ? (
-          <div className="onboarding-upload-thumbnails">
-            {state.gallery.images.map((image) => {
+        {draft.images.length > 0 ? (
+          <ol aria-label="Gallery image order" className="onboarding-gallery-draft-list">
+            {draft.images.map((image, index) => {
               const source = resolveOnboardingImageUrl(image, galleryAssets);
-              return source
-                ? <img alt={image.altText ?? ''} key={image.id} src={source} />
-                : null;
+              return (
+                <li key={image.id}>
+                  {source ? <img alt={image.altText ?? ''} src={source} /> : <span aria-hidden="true"><FileImage size={20} /></span>}
+                  <div>
+                    <strong>{image.fileName}</strong>
+                    <small>{image.source === 'fixture' ? 'Example photo' : 'Your photo'}</small>
+                  </div>
+                  <div className="onboarding-gallery-draft-list__actions">
+                    <button aria-label={`Move ${image.fileName} earlier`} disabled={index === 0} type="button" onClick={() => moveDraftImage(image.id, -1)}>↑</button>
+                    <button aria-label={`Move ${image.fileName} later`} disabled={index === draft.images.length - 1} type="button" onClick={() => moveDraftImage(image.id, 1)}>↓</button>
+                    <button aria-label={`Remove ${image.fileName}`} type="button" onClick={() => removeDraftImage(image.id)}>Remove</button>
+                  </div>
+                </li>
+              );
             })}
-          </div>
+          </ol>
         ) : null}
         {missingGalleryImages.length > 0 ? (
           <div className="onboarding-inline-error" role="status">
@@ -241,7 +332,7 @@ export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogP
           </div>
         ) : null}
         <fieldset className="onboarding-layout-choice"><legend>Gallery layout</legend>
-          {(['grid', 'carousel', 'editorial'] as GalleryLayout[]).map((layout) => <label key={layout}><input checked={state.gallery.layout === layout} name="gallery-layout" type="radio" onChange={() => onUpdate((current) => ({ ...current, gallery: { ...current.gallery, layout } }))} /><span>{layout}</span></label>)}
+          {(['grid', 'carousel', 'editorial'] as GalleryLayout[]).map((layout) => <label key={layout}><input checked={draft.layout === layout} name="gallery-layout" type="radio" onChange={() => setDraft((current) => ({ ...current, layout }))} /><span>{layout}</span></label>)}
         </fieldset>
         {error ? (
           <div className="onboarding-inline-error" role="alert">
@@ -265,9 +356,9 @@ export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogP
           </div>
         ) : null}
         <footer className="onboarding-overlay-actions">
-          <button type="button" onClick={onClose}>Cancel</button>
-          {state.recipe.galleryEnabled ? <button type="button" onClick={() => { onUpdate((current) => ({ ...current, recipe: { ...current.recipe, galleryEnabled: false } })); onClose(); }}>Remove Gallery</button> : null}
-          <button className="is-primary" type="button" onClick={save}>Add Gallery</button>
+          <button type="button" onClick={closeWithoutSaving}>Cancel</button>
+          {state.recipe.galleryEnabled ? <button type="button" onClick={() => { void removeGallery(); }}>Remove Gallery</button> : null}
+          <button className="is-primary" type="button" onClick={() => { void save(); }}>{state.recipe.galleryEnabled ? 'Save Gallery' : 'Add Gallery'}</button>
         </footer>
       </div>
     </Dialog>
