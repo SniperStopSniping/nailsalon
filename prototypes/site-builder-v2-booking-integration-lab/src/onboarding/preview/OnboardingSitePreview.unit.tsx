@@ -9,6 +9,7 @@ import type { CustomDesignSectionInstance } from '../../model/types';
 import { createDanielaFixtureState } from '../fixtures';
 import { createDefaultOnboardingState } from '../model/defaults';
 import type { AboutPresetId } from '../model/types';
+import { parseOnboardingState } from '../storage/storage';
 import {
   getOnboardingDocumentBookingSequence,
   ONBOARDING_PREVIEW_VIEWPORTS,
@@ -64,6 +65,38 @@ const customSection = (
 });
 
 describe('OnboardingSitePreview shared profile composition', () => {
+  it('uses minimum notice to filter the same seeded Booking availability in customer previews', () => {
+    const state = createDefaultOnboardingState();
+    state.profile.bookingPreferences.minimumNoticeMinutes = 1_440;
+    state.reviewOptions.previewTimestamp = '2026-08-27T18:30:00.000Z';
+
+    const { rerender } = render(
+      <OnboardingSitePreview document={initializeStarter('quick_book')} label="Notice preview" state={state} />,
+    );
+    let preview = screen.getByRole('region', { name: 'Notice preview' });
+    expect(preview.querySelector('[data-bookable-time="2026-08-28T20:30:00.000Z"]'))
+      .not.toBeNull();
+    expect(preview.querySelector('[data-bookable-time="2026-08-27T19:30:00.000Z"]'))
+      .toBeNull();
+
+    const withoutNotice = {
+      ...state,
+      profile: {
+        ...state.profile,
+        bookingPreferences: {
+          ...state.profile.bookingPreferences,
+          minimumNoticeMinutes: 0,
+        },
+      },
+    };
+    rerender(
+      <OnboardingSitePreview document={initializeStarter('quick_book')} label="Notice preview" state={withoutNotice} />,
+    );
+    preview = screen.getByRole('region', { name: 'Notice preview' });
+    expect(preview.querySelector('[data-bookable-time="2026-08-27T19:30:00.000Z"]'))
+      .not.toBeNull();
+  });
+
   it('omits every opening claim until the owner configures public hours', () => {
     const state = createDefaultOnboardingState();
     state.profile.businessName = 'Mia’s Nail Studio';
@@ -283,6 +316,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const preview = screen.getByRole('region', { name: `${preset} preview` });
     const about = within(preview).getByRole('region', { name: /About/u });
 
+    expect(about).toHaveAttribute('data-preview-target', 'about');
     expect(within(about).getByRole('img', {
       name: 'Daniela portrait illustration',
     })).toBeVisible();
@@ -372,6 +406,41 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(about).getByRole('img', {
       name: 'Business owner portrait placeholder',
     })).toBeVisible();
+  });
+
+  it('renders structural About content after migrating a legacy draft that hid removed controls', () => {
+    const legacy = createDanielaFixtureState() as unknown as Record<string, unknown>;
+    legacy.schemaVersion = 6;
+    const profile = legacy.profile as Record<string, unknown>;
+    const about = profile.about as Record<string, unknown>;
+    about.visibility = {
+      ...(about.visibility as Record<string, boolean>),
+      bio: false,
+      book_button: false,
+      owner_name: false,
+      profile_photo: false,
+      salon_name: false,
+      specialties: false,
+    };
+    (legacy.recipe as Record<string, unknown>).aboutPreset = 'editorial_portrait';
+    const migrated = parseOnboardingState(JSON.stringify(legacy)).state;
+
+    render(
+      <OnboardingSitePreview
+        document={initializeStarter('one_page')}
+        label="Migrated About preview"
+        state={migrated}
+      />,
+    );
+    const aboutRegion = within(screen.getByRole('region', { name: 'Migrated About preview' }))
+      .getByRole('region', { name: 'About' });
+
+    expect(within(aboutRegion).getByRole('heading', { name: 'Daniela' })).toBeVisible();
+    expect(within(aboutRegion).getByText('Isla Nail Studio')).toBeVisible();
+    expect(within(aboutRegion).getByText(migrated.profile.about.fullBio)).toBeVisible();
+    expect(within(aboutRegion).getByRole('link', { name: 'Book now' })).toBeVisible();
+    expect(within(aboutRegion).queryByText('Russian Manicure · BIAB · Gel-X · Hard Gel'))
+      .not.toBeInTheDocument();
   });
 
   it('keeps six specialties and a long custom specialty in separate semantic fact cells', () => {
@@ -505,6 +574,64 @@ describe('OnboardingSitePreview shared profile composition', () => {
       />,
     );
     expect(customerSurface.inert).toBe(false);
+  });
+
+  it('positions and resets the internal preview frame without moving the outer page', () => {
+    const offsetTopDescriptor = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      'offsetTop',
+    );
+    Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
+      configurable: true,
+      get() {
+        return (this as HTMLElement).dataset.previewTarget === 'about' ? 468 : 0;
+      },
+    });
+    document.documentElement.scrollTop = 137;
+    document.body.scrollTop = 89;
+
+    try {
+      const state = createDanielaFixtureState();
+      const view = render(
+        <OnboardingSitePreview
+          document={initializeStarter('one_page')}
+          initialTarget="about"
+          label="Targeted About preview"
+          state={state}
+        />,
+      );
+      const stage = screen.getByRole('region', { name: 'Targeted About preview' });
+      const frame = stage.querySelector<HTMLElement>('[data-preview-scroll-container="true"]');
+
+      expect(stage).toHaveAttribute('data-preview-initial-target', 'about');
+      expect(frame).not.toBeNull();
+      expect(frame?.scrollTop).toBe(468);
+      expect(document.documentElement.scrollTop).toBe(137);
+      expect(document.body.scrollTop).toBe(89);
+
+      if (frame) frame.scrollTop = 712;
+      view.rerender(
+        <OnboardingSitePreview
+          document={initializeStarter('one_page')}
+          initialTarget="top"
+          label="Targeted About preview"
+          state={state}
+        />,
+      );
+
+      expect(stage).toHaveAttribute('data-preview-initial-target', 'top');
+      expect(frame?.scrollTop).toBe(0);
+      expect(document.documentElement.scrollTop).toBe(137);
+      expect(document.body.scrollTop).toBe(89);
+    } finally {
+      if (offsetTopDescriptor) {
+        Object.defineProperty(HTMLElement.prototype, 'offsetTop', offsetTopDescriptor);
+      } else {
+        Reflect.deleteProperty(HTMLElement.prototype, 'offsetTop');
+      }
+      document.documentElement.scrollTop = 0;
+      document.body.scrollTop = 0;
+    }
   });
 
   it('publishes both allowed phone actions, emphasizes the preferred one, and preserves a distinct text number', () => {

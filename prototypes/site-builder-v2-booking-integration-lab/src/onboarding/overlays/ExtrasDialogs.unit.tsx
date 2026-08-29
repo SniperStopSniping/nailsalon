@@ -3,6 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeEach, vi } from 'vitest';
 
+import type {
+  AssetRepository,
+  ImageAssetMetadata,
+  PreparedImageAsset,
+} from '../../custom-design/assets';
 import { createDefaultCustomDesignSettings } from '../../custom-design/model/settings';
 import { initializeStarter } from '../../model';
 import type { CustomDesignSectionInstance } from '../../model/types';
@@ -15,11 +20,18 @@ import { CanvaDialog, GalleryDialog } from './ExtrasDialogs';
 
 const mocks = vi.hoisted(() => ({
   decodeOnboardingLocalImage: vi.fn(),
+  prepareImageAsset: vi.fn(),
   useCustomDesignAssetMap: vi.fn(),
+  useCustomDesignAssetRepository: vi.fn(),
 }));
 
 vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
   useCustomDesignAssetMap: mocks.useCustomDesignAssetMap,
+  useCustomDesignAssetRepository: mocks.useCustomDesignAssetRepository,
+}));
+
+vi.mock('../../custom-design/assets/image-processing', () => ({
+  prepareImageAsset: mocks.prepareImageAsset,
 }));
 
 vi.mock('../model/local-images', async (importOriginal) => ({
@@ -47,6 +59,32 @@ const restoreUrlMethod = (
   }
 };
 
+const repositoryMetadata = new Map<string, ImageAssetMetadata>();
+
+const assetRepository: AssetRepository = {
+  clear: vi.fn(async () => 0),
+  close: vi.fn(),
+  commit: vi.fn(async (assetId: string) => {
+    const metadata = repositoryMetadata.get(assetId);
+    if (!metadata) throw new Error(`Missing staged asset ${assetId}`);
+    return metadata;
+  }),
+  commitBatch: vi.fn(async () => []),
+  delete: vi.fn(async () => true),
+  deleteDatabase: vi.fn(async () => undefined),
+  discard: vi.fn(async () => true),
+  get: vi.fn(async () => null),
+  getMetadata: vi.fn(async () => null),
+  getOriginal: vi.fn(async () => null),
+  getThumbnail: vi.fn(async () => null),
+  has: vi.fn(async () => false),
+  list: vi.fn(async () => []),
+  stage: vi.fn(async (asset: PreparedImageAsset) => {
+    repositoryMetadata.set(asset.metadata.id, asset.metadata);
+    return asset.metadata;
+  }),
+};
+
 const installMatchMedia = () => {
   vi.stubGlobal('matchMedia', vi.fn((query: string): MediaQueryList => ({
     addEventListener: vi.fn(),
@@ -63,10 +101,38 @@ const installMatchMedia = () => {
 describe('optional Gallery and Canva surfaces', () => {
   beforeEach(() => {
     installMatchMedia();
+    repositoryMetadata.clear();
     mocks.decodeOnboardingLocalImage.mockReset();
     mocks.decodeOnboardingLocalImage.mockResolvedValue({ height: 1_200, width: 900 });
+    mocks.prepareImageAsset.mockReset();
+    mocks.prepareImageAsset.mockImplementation(async (
+      file: File,
+      { assetId }: { assetId: string },
+    ): Promise<PreparedImageAsset> => ({
+      blob: file,
+      metadata: {
+        aspectRatio: 0.75,
+        byteSize: file.size,
+        createdAt: '2026-08-29T12:00:00.000Z',
+        fileName: file.name,
+        height: 1_200,
+        id: assetId,
+        mimeType: file.type as ImageAssetMetadata['mimeType'],
+        orientation: 1,
+        width: 900,
+      },
+    }));
     mocks.useCustomDesignAssetMap.mockReset();
-    mocks.useCustomDesignAssetMap.mockReturnValue(new Map());
+    mocks.useCustomDesignAssetMap.mockImplementation((assetIds: readonly string[]) => new Map(
+      assetIds.map((assetId) => [assetId, {
+        original: { status: 'ready', url: `blob:original-${assetId}` },
+        thumbnail: { status: 'ready', url: `blob:thumbnail-${assetId}` },
+      }]),
+    ));
+    mocks.useCustomDesignAssetRepository.mockReset();
+    mocks.useCustomDesignAssetRepository.mockReturnValue(assetRepository);
+    vi.mocked(assetRepository.delete).mockReset();
+    vi.mocked(assetRepository.delete).mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -79,23 +145,23 @@ describe('optional Gallery and Canva surfaces', () => {
     const state = createDanielaFixtureState();
     state.recipe.galleryEnabled = false;
     state.recipe.canvaEnabled = false;
-    const onSkip = vi.fn();
+    const onContinue = vi.fn();
     const view = render(
       <ExtrasScreen
         onBack={vi.fn()}
-        onContinue={vi.fn()}
+        onContinue={onContinue}
         onOpenCanva={vi.fn()}
         onOpenGallery={vi.fn()}
-        onSkip={onSkip}
+        onSkip={vi.fn()}
         state={state}
       />,
     );
-    expect(screen.getByText('Upload portfolio photos or start with the Luster sample portfolio.')).toBeVisible();
-    expect(screen.getByText(/add them as a Custom Design section/u)).toBeVisible();
-    expect(screen.queryByText(/real Custom Design section/u)).not.toBeInTheDocument();
+    expect(screen.getByText('Add photos of your nail sets so clients can see your style.')).toBeVisible();
+    expect(screen.getByText('Upload your Canva pages and we’ll add them to your website.')).toBeVisible();
+    expect(screen.queryByText(/Custom Design section/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Added:/)).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Skip extras' }));
-    expect(onSkip).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole('button', { name: 'Continue to review' }));
+    expect(onContinue).toHaveBeenCalledOnce();
     expect(state.recipe).toMatchObject({ canvaEnabled: false, galleryEnabled: false });
 
     const both = structuredClone(state);
@@ -107,13 +173,15 @@ describe('optional Gallery and Canva surfaces', () => {
         onContinue={vi.fn()}
         onOpenCanva={vi.fn()}
         onOpenGallery={vi.fn()}
-        onSkip={onSkip}
+        onSkip={vi.fn()}
         state={both}
       />,
     );
     expect(screen.getByText('Added: Gallery and Canva')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Edit Gallery' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Edit Canva design' })).toBeVisible();
+    expect(screen.getByText('✓ Gallery added')).toBeVisible();
+    expect(screen.getByText('✓ Canva design added')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Edit design' })).toBeVisible();
   });
 
   it('creates only a preview Gallery draft after explicit portfolio confirmation', async () => {
@@ -139,13 +207,130 @@ describe('optional Gallery and Canva surfaces', () => {
     let dialog = screen.getByRole('dialog', { name: 'Add Gallery' });
     await user.click(within(dialog).getByRole('button', { name: 'Add Gallery' }));
     expect(within(dialog).getByRole('alert')).toHaveTextContent(/Choose portfolio images/i);
-    await user.click(within(dialog).getByRole('button', { name: /Use Luster sample portfolio/ }));
+    await user.click(within(dialog).getByRole('button', { name: /Use temporary example photos/ }));
     await user.click(within(dialog).getByRole('radio', { name: 'editorial' }));
     await user.click(within(dialog).getByRole('button', { name: 'Add Gallery' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add Gallery' })).not.toBeInTheDocument());
     expect(latestState.gallery).toMatchObject({ layout: 'editorial', source: 'mock_luster' });
     expect(latestState.gallery.images).toHaveLength(4);
     expect(latestState.recipe.galleryEnabled).toBe(true);
+  });
+
+  it('cleans only replaced Gallery uploads when temporary examples are selected', async () => {
+    const user = userEvent.setup();
+    const initial = createDanielaFixtureState();
+    initial.gallery.source = 'uploads';
+    initial.gallery.images = [{
+      fileName: 'first.png',
+      id: 'gallery-first',
+      mimeType: 'image/png',
+      source: 'indexed_db',
+      storageId: 'gallery-asset-first',
+    }, {
+      fileName: 'second.webp',
+      id: 'gallery-second',
+      mimeType: 'image/webp',
+      source: 'indexed_db',
+      storageId: 'gallery-asset-second',
+    }];
+    initial.canva.ownedAssetIds = ['unrelated-cleanup-retry'];
+    let latestState = initial;
+
+    function Harness() {
+      const [state, setState] = useState(initial);
+      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+        const next = transform(current);
+        latestState = next;
+        return next;
+      });
+      return <GalleryDialog onClose={vi.fn()} onUpdate={update} open state={state} />;
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByRole('button', { name: /Use temporary example photos/u }));
+
+    await waitFor(() => expect(latestState.gallery.source).toBe('mock_luster'));
+    await waitFor(() => expect(latestState.canva.ownedAssetIds).toEqual([
+      'unrelated-cleanup-retry',
+    ]));
+    expect(assetRepository.delete).toHaveBeenCalledTimes(2);
+    expect(assetRepository.delete).toHaveBeenCalledWith('gallery-asset-first');
+    expect(assetRepository.delete).toHaveBeenCalledWith('gallery-asset-second');
+    expect(assetRepository.delete).not.toHaveBeenCalledWith('unrelated-cleanup-retry');
+    expect(latestState.gallery.images).toHaveLength(4);
+    expect(latestState.gallery.images.every((image) => image.source === 'fixture')).toBe(true);
+  });
+
+  it('retains replaced Gallery asset IDs in the existing cleanup ledger when deletion fails', async () => {
+    const user = userEvent.setup();
+    const initial = createDanielaFixtureState();
+    initial.gallery.source = 'uploads';
+    initial.gallery.images = [{
+      fileName: 'retry.png',
+      id: 'gallery-retry',
+      mimeType: 'image/png',
+      source: 'indexed_db',
+      storageId: 'gallery-asset-retry',
+    }];
+    initial.canva.ownedAssetIds = ['earlier-cleanup-retry'];
+    let latestState = initial;
+    vi.mocked(assetRepository.delete).mockRejectedValueOnce(new Error('IndexedDB unavailable'));
+
+    function Harness() {
+      const [state, setState] = useState(initial);
+      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+        const next = transform(current);
+        latestState = next;
+        return next;
+      });
+      return <GalleryDialog onClose={vi.fn()} onUpdate={update} open state={state} />;
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByRole('button', { name: /Use temporary example photos/u }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'This browser will retry cleaning up the earlier uploads later.',
+    );
+    expect(latestState.gallery.source).toBe('mock_luster');
+    expect(latestState.canva.ownedAssetIds).toEqual([
+      'earlier-cleanup-retry',
+      'gallery-asset-retry',
+    ]);
+    expect(assetRepository.delete).toHaveBeenCalledOnce();
+    expect(assetRepository.delete).toHaveBeenCalledWith('gallery-asset-retry');
+  });
+
+  it('names migrated missing Gallery metadata and requires the owner to reselect or use examples', async () => {
+    const user = userEvent.setup();
+    const initial = createDanielaFixtureState();
+    initial.gallery.source = 'uploads';
+    initial.gallery.images = [{
+      fileName: 'saved-nail-set.jpg',
+      height: 900,
+      id: 'legacy-missing-gallery',
+      mimeType: 'image/jpeg',
+      source: 'missing',
+      width: 900,
+    }];
+
+    render(
+      <GalleryDialog
+        onClose={vi.fn()}
+        onUpdate={vi.fn()}
+        open
+        state={initial}
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'One saved Gallery image is no longer available on this device.',
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('saved-nail-set.jpg');
+    await user.click(screen.getByRole('button', { name: 'Add Gallery' }));
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Choose portfolio images or temporary example photos first.',
+    );
   });
 
   it('keeps only valid Gallery uploads and reports partial success truthfully', async () => {
@@ -344,7 +529,8 @@ describe('optional Gallery and Canva surfaces', () => {
       />,
     );
     const dialog = screen.getByRole('dialog', { name: 'Upload a Canva design' });
-    expect(within(dialog).getByText('Recommended from your welcome choice')).toBeVisible();
+    expect(within(dialog).getByText('Recommended for you')).toBeVisible();
+    expect(within(dialog).getByText('You told us you already have a Canva design.')).toBeVisible();
     const file = new File(['page'], 'isla-canva.png', { type: 'image/png' });
     expect(within(dialog).getByLabelText(/Choose Canva pages/)).toHaveClass('visually-hidden');
     await user.upload(within(dialog).getByLabelText(/Choose Canva pages/), file);

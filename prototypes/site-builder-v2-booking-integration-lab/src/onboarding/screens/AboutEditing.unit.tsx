@@ -73,6 +73,7 @@ describe('About list editing', () => {
       />,
     );
 
+    await user.click(screen.getByText('More about you'));
     const certifications = screen.getByRole('textbox', { name: 'Certifications — optional' });
     const languages = screen.getByRole('textbox', { name: 'Languages — optional' });
     const customSpecialties = screen.getByRole('textbox', {
@@ -145,6 +146,7 @@ describe('About list editing', () => {
       />,
     );
 
+    await user.click(screen.getByText('More about you'));
     const certifications = screen.getByRole('textbox', { name: 'Certifications — optional' });
     await user.type(certifications, 'CND Certified; Gel-X Advanced');
     expect(certifications).toHaveFocus();
@@ -160,6 +162,7 @@ describe('About list editing', () => {
         onState={(state) => { latest = state; }}
       />,
     );
+    await user.click(screen.getByText('More about you'));
     expect(screen.getByRole('textbox', { name: 'Certifications — optional' }))
       .toHaveValue('CND Certified, Gel-X Advanced');
   });
@@ -176,6 +179,7 @@ describe('About list editing', () => {
       />,
     );
 
+    await user.click(screen.getByText('More about you'));
     const certifications = screen.getByRole('textbox', {
       name: 'Certifications — optional',
     });
@@ -201,6 +205,7 @@ describe('About list editing', () => {
         onState={(state) => { latest = state; }}
       />,
     );
+    await user.click(screen.getByText('More about you'));
     const languages = screen.getByRole('textbox', { name: 'Languages — optional' });
 
     fireEvent.compositionStart(languages);
@@ -233,6 +238,7 @@ describe('About list editing', () => {
         onState={(state) => { latest = state; }}
       />,
     );
+    await user.click(screen.getByText('More about you'));
     expect(screen.getByRole('textbox', { name: 'Languages — optional' }))
       .toHaveValue('English, 日本語');
     remount.unmount();

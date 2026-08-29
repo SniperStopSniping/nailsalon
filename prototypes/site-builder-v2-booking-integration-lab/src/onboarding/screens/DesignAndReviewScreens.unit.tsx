@@ -111,17 +111,23 @@ describe('About onboarding screens', () => {
     expect(within(preview).getByText(originalProfile.about.shortBio)).toBeVisible();
     expect(latestState.profile).toEqual(originalProfile);
     expect(screen.queryByRole('textbox', { name: /bio/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Previous About design/u }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Next About design/u }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Content' })).not.toBeInTheDocument();
+    expect(within(screen.getByRole('group', { name: 'About design presets' }))
+      .getAllByRole('button', { pressed: true })).toHaveLength(1);
+    expect(screen.getByText('✓ Selected')).toBeVisible();
   });
 
-  it('honestly disables the saved Instagram visibility choice while contact is Booking-only', () => {
+  it('keeps the shared Instagram independently available while contact is Booking-only', () => {
     const initial = aboutState();
-    initial.progress.currentScreen = 'about_design';
     initial.profile.bookingOnlyContact = true;
     initial.profile.about.visibility.instagram = true;
 
     render(
-      <AboutDesignScreen
-        document={null}
+      <AboutScreen
         onBack={vi.fn()}
         onContinue={vi.fn()}
         onFullPreview={vi.fn()}
@@ -130,18 +136,15 @@ describe('About onboarding screens', () => {
       />,
     );
 
-    const disclosure = screen.getByText('Content shown on your site').closest('details');
-    if (!disclosure) throw new Error('Missing About content disclosure');
-    const instagram = within(disclosure).getByRole('switch', {
-      hidden: true,
-      name: 'Instagram',
+    const instagram = screen.getByRole('switch', {
+      name: 'Show Instagram in About',
     });
     expect(instagram).toBeChecked();
-    expect(instagram).toBeDisabled();
-    expect(within(disclosure).getByText(
-      'Not shown while clients use Booking only. Your Instagram is still saved.',
-    )).toBeInTheDocument();
-    expect(screen.queryByText('@islanail.studio')).not.toBeInTheDocument();
+    expect(instagram).toBeEnabled();
+    expect(screen.getByRole('textbox', { name: 'Instagram handle — optional' }))
+      .toHaveValue('@islanail.studio');
+    expect(within(screen.getByRole('region', { name: 'About section live preview' }))
+      .getByText('@islanail.studio')).toBeVisible();
   });
 });
 
@@ -194,7 +197,7 @@ describe('SiteStyleScreen', () => {
       'luxury',
     );
     expect(latestState.recipe.styleConfirmed).toBe(false);
-    await user.click(screen.getByRole('button', { name: 'Use this style' }));
+    await user.click(screen.getByRole('button', { name: 'Use Luxury' }));
     expect(latestState.recipe).toMatchObject({
       styleConfirmed: true,
       stylePreset: 'luxury',
@@ -206,22 +209,27 @@ describe('SiteStyleScreen', () => {
     const initial = createDanielaFixtureState();
     initial.recipe.styleConfirmed = false;
     initial.recipe.stylePreset = 'modern';
-    let confirmed = false;
+    const onContinue = vi.fn();
     render(
       <SiteStyleScreen
         document={null}
         onBack={vi.fn()}
-        onContinue={vi.fn()}
+        onContinue={onContinue}
         onFullPreview={vi.fn()}
-        onKeepCurrent={() => { confirmed = true; }}
         onUpdate={vi.fn()}
         state={initial}
       />,
     );
 
-    expect(screen.getByRole('button', { name: /Modern/ })).toHaveAttribute('aria-pressed', 'true');
-    await user.click(screen.getByRole('button', { name: 'Keep current style' }));
-    expect(confirmed).toBe(true);
+    expect(within(screen.getByRole('group', { name: 'Site style presets' }))
+      .getByRole('button', { name: /Modern/ })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByText(
+      'Your pages, photos and information stay the same — only the style changes.',
+    )).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Keep current style' }))
+      .not.toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Use Modern' }));
+    expect(onContinue).toHaveBeenCalledOnce();
   });
 });
 
@@ -276,10 +284,14 @@ describe('FinalReviewScreen', () => {
     );
 
     expect(screen.getByText('Booking path available')).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Open my Builder' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Finish setup' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Edit Booking path available' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Edit Business name added' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Edit Contact method added' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Edit Mobile layout ready' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Tablet' }));
     expect(screen.getByRole('region', { name: 'Final tablet customer preview' })).toHaveAttribute('data-preview-device', 'tablet');
-    await user.click(screen.getByRole('button', { name: 'Open my Builder' }));
+    await user.click(screen.getByRole('button', { name: 'Finish setup' }));
     expect(onOpenBuilder).toHaveBeenCalledOnce();
   });
 
@@ -307,9 +319,9 @@ describe('FinalReviewScreen', () => {
         state={state}
       />,
     );
-    const detail = screen.getByText(/No percentage score/u).closest<HTMLElement>(
-      '.onboarding-readiness__content',
-    );
+    const readiness = screen.getByRole('complementary', { name: 'Site readiness' });
+    const detail = within(readiness).getByText(/Your website is saved/u)
+      .closest<HTMLElement>('.onboarding-readiness__content');
     if (!detail) throw new Error('Missing readiness detail panel.');
     await waitFor(() => expect(detail.inert).toBe(true));
     expect(detail).toHaveAttribute('aria-hidden', 'true');

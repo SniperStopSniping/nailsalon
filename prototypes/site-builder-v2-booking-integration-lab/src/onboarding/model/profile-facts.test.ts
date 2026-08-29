@@ -26,7 +26,7 @@ describe('customer-facing Business Profile facts', () => {
     const facts = getCustomerProfileFacts(profile);
     expect(facts).toEqual([
       { id: 'business_structure', label: 'Business', value: 'Team salon' },
-      { id: 'service_location', label: 'Appointments', value: 'Private home studio' },
+      { id: 'service_location', label: 'Studio', value: 'Private home studio' },
     ]);
     expect(JSON.stringify(facts)).not.toMatch(/multi_tech|home_studio/u);
   });

@@ -11,6 +11,10 @@ import {
   PhotoSocialScreen,
 } from './BasicsScreens';
 
+vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
+  useCustomDesignAssetMap: () => new Map(),
+}));
+
 function useProfileHarness() {
   const [profile, setProfile] = useState(createDefaultBusinessProfile);
   return {
@@ -42,7 +46,7 @@ describe('BusinessScreen', () => {
 
     render(<Harness />);
     await user.click(screen.getByRole('button', { name: 'Continue' }));
-    expect(screen.getAllByText('Add your business or salon name.').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Add your salon or studio name.').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Add your name.').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Choose who you’re setting Luster up for.').length)
       .toBeGreaterThan(0);
@@ -52,7 +56,7 @@ describe('BusinessScreen', () => {
       'businessStructure',
     ]);
 
-    await user.type(screen.getByLabelText('Business or salon name'), 'Isla Nail Studio');
+    await user.type(screen.getByLabelText('Salon or studio name'), 'Isla Nail Studio');
     await user.type(screen.getByLabelText('Your name'), 'Daniela');
     await user.click(screen.getByRole('radio', { name: 'Solo nail tech' }));
     expect(screen.getByRole('group', { name: 'Who are you setting Luster up for?' }))
@@ -88,6 +92,10 @@ describe('PhotoSocialScreen', () => {
     }
 
     render(<Harness />);
+    expect(screen.getByRole('heading', { name: 'Add your photo and Instagram' })).toBeVisible();
+    expect(screen.getByText('Help clients recognize you and find your work.')).toBeVisible();
+    expect(screen.queryByRole('group', { name: /Preferred contact method/u }))
+      .not.toBeInTheDocument();
     expect(screen.getByLabelText('Profile photo placeholder')).toHaveTextContent('D');
     const photo = new File(['portrait'], 'daniela.png', { type: 'image/png' });
     await user.upload(screen.getByLabelText('Profile photo (optional)'), photo);
@@ -97,6 +105,40 @@ describe('PhotoSocialScreen', () => {
       .toHaveTextContent('@islanail.studio');
     expect(screen.getByText('You can enter @yourstudio or yourstudio.')).toBeVisible();
     expect(screen.queryByLabelText('Website')).not.toBeInTheDocument();
+  });
+
+  it('identifies migrated metadata-only images and offers a truthful reselect action', () => {
+    const profile = createDefaultBusinessProfile();
+    profile.profilePhoto = {
+      fileName: 'saved-owner.png',
+      id: 'legacy-owner-photo',
+      mimeType: 'image/png',
+      source: 'missing',
+    };
+    profile.logo = {
+      fileName: 'saved-logo.webp',
+      id: 'legacy-logo',
+      mimeType: 'image/webp',
+      source: 'missing',
+    };
+
+    render(
+      <PhotoSocialScreen
+        profile={profile}
+        onBack={vi.fn()}
+        onContinue={vi.fn()}
+        onLogoSelected={vi.fn()}
+        onProfileChange={vi.fn()}
+        onProfilePhotoSelected={vi.fn()}
+        onSkipPhoto={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByText(
+      'This saved image is no longer available on this device. Select it again to restore it.',
+    )).toHaveLength(2);
+    expect(screen.getAllByRole('button', { name: 'Select again' })).toHaveLength(2);
+    expect(screen.getByLabelText('Profile photo placeholder')).toBeVisible();
   });
 });
 
@@ -121,14 +163,14 @@ describe('LocationContactScreen', () => {
 
     render(<Harness />);
     await user.type(screen.getByLabelText('City or general service area'), 'Scarborough, Ontario');
-    await user.click(screen.getByRole('button', { name: /Contact/ }));
+    await user.click(screen.getByRole('button', { name: /How should clients contact you/ }));
     expect(screen.getByRole('button', { name: /Location/ })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('button', { name: /Contact/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /How should clients contact you/ })).toHaveAttribute('aria-expanded', 'true');
 
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
     expect(screen.getByRole('alert')).toHaveTextContent('1 answer needs attention.');
     expect(screen.getAllByText(
-      'Add at least one public contact method, or choose Booking only.',
+      'Add at least one public contact method, or choose online booking only.',
     ).length).toBeGreaterThan(0);
     expect(screen.getByRole('group', { name: 'Clients can:' })).toHaveAttribute(
       'aria-invalid',
@@ -140,9 +182,11 @@ describe('LocationContactScreen', () => {
     const contactDescriptionId = primaryNumber.getAttribute('aria-describedby');
     expect(contactDescriptionId).toBeTruthy();
     expect(document.getElementById(contactDescriptionId ?? '')).toHaveTextContent(
-      'Add at least one public contact method, or choose Booking only.',
+      'Add at least one public contact method, or choose online booking only.',
     );
-    await user.click(screen.getByRole('switch', { name: 'Clients should use Booking only' }));
+    await user.click(screen.getByRole('switch', {
+      name: 'Clients should use online booking only',
+    }));
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
     expect(onContinue).toHaveBeenCalledOnce();
   });
@@ -207,7 +251,7 @@ describe('LocationContactScreen', () => {
     }
 
     render(<Harness />);
-    await user.click(screen.getByRole('button', { name: /Contact/ }));
+    await user.click(screen.getByRole('button', { name: /How should clients contact you/ }));
     await user.type(screen.getByLabelText('Client contact number'), '416-555-0100');
     await user.click(screen.getByRole('switch', { name: 'Call this number' }));
     await user.click(screen.getByRole('switch', { name: 'Text this number' }));
@@ -224,10 +268,15 @@ describe('LocationContactScreen', () => {
 
     await user.click(screen.getByRole('switch', { name: 'Text this number' }));
     expect(screen.queryByRole('radio', { name: 'Text' })).not.toBeInTheDocument();
-    expect(screen.getByRole('radio', { name: 'Call' })).toBeChecked();
+    expect(screen.queryByRole('radio', { name: 'Call' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', {
+      name: /How should clients contact you\? Call shown first/u,
+    })).toBeVisible();
     expect(screen.queryByLabelText('Text message number')).not.toBeInTheDocument();
 
-    await user.click(screen.getByRole('switch', { name: 'Clients should use Booking only' }));
+    await user.click(screen.getByRole('switch', {
+      name: 'Clients should use online booking only',
+    }));
     expect(within(preview).getByText('Booking is the best way to reach us')).toBeVisible();
     expect(within(preview).queryByText('416-555-0100')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Client contact number')).toHaveValue('416-555-0100');

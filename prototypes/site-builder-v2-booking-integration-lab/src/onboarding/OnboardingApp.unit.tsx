@@ -31,11 +31,13 @@ import {
 
 const assetProviderMocks = vi.hoisted(() => ({
   coordinator: null as unknown,
+  repository: null as unknown,
 }));
 
 vi.mock('../custom-design/integration/CustomDesignAssetProvider', () => ({
   useCustomDesignAssetCoordinator: () => assetProviderMocks.coordinator,
   useCustomDesignAssetMap: () => new Map(),
+  useCustomDesignAssetRepository: () => assetProviderMocks.repository,
   useCustomDesignAssetStorageError: () => null,
 }));
 
@@ -199,6 +201,7 @@ function RealLabHarness({ onEnterBuilder = vi.fn() }: { onEnterBuilder?: () => v
 describe('OnboardingApp handoff boundaries', () => {
   beforeEach(() => {
     assetProviderMocks.coordinator = null;
+    assetProviderMocks.repository = null;
     installMatchMedia();
     window.history.replaceState({}, '', '/');
     window.localStorage.removeItem(SITE_BUILDER_STORAGE_KEY);
@@ -211,13 +214,13 @@ describe('OnboardingApp handoff boundaries', () => {
     const { onEnterBuilder } = renderAt(state);
 
     expect(screen.getByRole('heading', { name: 'Your starting site is ready' })).toBeVisible();
-    expect(screen.queryByRole('button', { name: /open my builder/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /finish setup/i })).not.toBeInTheDocument();
     expect(screen.queryByText('Founding Nail Tech Lifetime Access')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Preview my site' }));
     const dialog = screen.getByRole('dialog', { name: 'Preview your starting site' });
     expect(within(dialog).getByRole('button', { name: 'Continue setup' })).toBeVisible();
-    expect(within(dialog).queryByRole('button', { name: /open my builder/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /finish setup/i })).not.toBeInTheDocument();
     expect(within(dialog).queryByText(/lifetime access/i)).not.toBeInTheDocument();
     expect(onEnterBuilder).not.toHaveBeenCalled();
 
@@ -379,7 +382,7 @@ describe('OnboardingApp handoff boundaries', () => {
       expect(await screen.findByRole('dialog', {
         name: 'Preview your starting site',
       })).toBeVisible();
-      expect(screen.queryByRole('button', { name: /Open my Builder/iu }))
+      expect(screen.queryByRole('button', { name: /Finish setup/iu }))
         .not.toBeInTheDocument();
     }
   });
@@ -602,17 +605,17 @@ describe('OnboardingApp handoff boundaries', () => {
     ).state.canva.ownedAssetIds).toEqual(['fixture-orphan-retry']));
   });
 
-  it('shows the plan offer only after the explicit final handoff and enters Builder after Continue free', async () => {
+  it('shows the plan offer only after Finish setup and enters the dashboard after Continue free', async () => {
     const user = userEvent.setup();
     const state = stateAt('final_preview');
     const onEnterBuilder = vi.fn();
     const { lab } = renderAt(state, onEnterBuilder);
 
-    expect(screen.getByRole('button', { name: 'Open my Builder' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Finish setup' })).toBeVisible();
     expect(screen.queryByRole('dialog', { name: 'Your site is saved' })).not.toBeInTheDocument();
     expect(onEnterBuilder).not.toHaveBeenCalled();
 
-    await user.click(screen.getByRole('button', { name: 'Open my Builder' }));
+    await user.click(screen.getByRole('button', { name: 'Finish setup' }));
     expect(lab.syncSiteName).toHaveBeenCalledWith('Isla Nail Studio');
     const offer = screen.getByRole('dialog', { name: 'Your site is saved' });
     expect(within(offer).getByRole('button', { name: 'Continue free' })).toBeVisible();
@@ -622,7 +625,7 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(onEnterBuilder).toHaveBeenCalledOnce();
     const saved = window.localStorage.getItem(ONBOARDING_STORAGE_KEY);
     expect(saved).toContain('"planIntent":"free"');
-    expect(saved).toContain('"sessionStatus":"builder"');
+    expect(saved).toContain('"sessionStatus":"dashboard"');
   });
 
   it('treats the plan offer as a Review overlay for browser Back and Forward', async () => {
@@ -630,7 +633,7 @@ describe('OnboardingApp handoff boundaries', () => {
     const state = stateAt('final_preview');
     renderAt(state);
     const baseEntry = currentBrowserHistoryEntry();
-    const builderTrigger = screen.getByRole('button', { name: 'Open my Builder' });
+    const builderTrigger = screen.getByRole('button', { name: 'Finish setup' });
 
     await user.click(builderTrigger);
     const planEntry = currentBrowserHistoryEntry();

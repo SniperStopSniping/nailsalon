@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { vi } from 'vitest';
@@ -6,7 +6,6 @@ import { vi } from 'vitest';
 import { createDefaultBusinessProfile } from '../model/defaults';
 import {
   getDepositPolicyMode,
-  updateDepositPolicyMode,
 } from '../model/policies';
 import type { BookingPreferencesDraft, StarterId } from '../model/types';
 import {
@@ -34,35 +33,42 @@ describe('BookingPreferencesScreen', () => {
           onBack={vi.fn()}
           onBookingPreferencesChange={patchPreferences}
           onContinue={onContinue}
-          onDepositModeChange={vi.fn()}
+          onDepositChange={(deposit) => setProfile((current) => ({
+            ...current,
+            policies: { ...current.policies, deposits: deposit },
+          }))}
+          onServiceMenuChange={(serviceMenu) => setProfile((current) => ({
+            ...current,
+            serviceMenu,
+          }))}
         />
       );
     }
 
     render(<Harness />);
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent('24 ready');
+      .toHaveTextContent('6 selected');
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent('Availability sourceConnected');
+      .toHaveTextContent('Minimum notice2 hours');
     expect(screen.queryByText(/Booking mock/u)).not.toBeInTheDocument();
-    expect(screen.getByText(/won’t need to re-enter services, prices, or durations/i)).toBeVisible();
+    expect(screen.queryByText(/Availability sourceConnected/u)).not.toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
-      .toHaveTextContent('Russian Manicure + French1 hr 45 min · From $80');
+      .toHaveTextContent('Russian Manicure1 hr 30 min · From $65');
     expect(screen.queryByText(/Tomorrow at 10:30 AM/u)).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Save booking information' }));
+    await user.click(screen.getByRole('button', { name: 'Save booking setup' }));
     expect(screen.getAllByText('Choose how clients can visit you.').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Choose your new-client status.').length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole('radio', { name: 'Appointment only' }));
-    await user.click(within(screen.getByRole('group', { name: 'Accepting new clients' }))
+    await user.click(within(screen.getByRole('group', { name: 'Are you accepting new clients?' }))
       .getByRole('radio', { name: 'Yes' }));
     expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
       .toHaveTextContent('Appointment onlyNew clients welcome');
-    await user.click(screen.getByRole('button', { name: 'Save booking information' }));
+    await user.click(screen.getByRole('button', { name: 'Save booking setup' }));
     expect(onContinue).toHaveBeenCalledOnce();
   });
 
-  it('stores the deposit answer in the shared policy draft and leaves Booking preferences untouched', async () => {
+  it('stores one fixed deposit amount in the shared policy draft', async () => {
     const user = userEvent.setup();
     let latest = createDefaultBusinessProfile();
     const originalBookingPreferences = latest.bookingPreferences;
@@ -81,11 +87,49 @@ describe('BookingPreferencesScreen', () => {
             return latest;
           })}
           onContinue={vi.fn()}
-          onDepositModeChange={(mode) => setProfile((current) => {
+          onDepositChange={(deposit) => setProfile((current) => {
             latest = {
               ...current,
-              policies: updateDepositPolicyMode(current.policies, mode),
+              policies: { ...current.policies, deposits: deposit },
             };
+            return latest;
+          })}
+          onServiceMenuChange={vi.fn()}
+        />
+      );
+    }
+
+    render(<Harness />);
+    const depositQuestion = screen.getByRole('group', {
+      name: 'How do you handle booking deposits?',
+    });
+    await user.click(within(depositQuestion).getByRole('radio', {
+      name: 'Same deposit for every service',
+    }));
+    await user.click(within(screen.getByRole('group', { name: 'Deposit amount' }))
+      .getByRole('radio', { name: '$25' }));
+
+    expect(getDepositPolicyMode(latest.policies)).toBe('fixed');
+    expect(latest.policies.deposits.amountCents).toBe(2_500);
+    expect(latest.bookingPreferences).toBe(originalBookingPreferences);
+    expect(screen.queryByText(/depends on the service/i)).not.toBeInTheDocument();
+  });
+
+  it('removes and adds existing canonical services through the Library port', async () => {
+    const user = userEvent.setup();
+    let latest = createDefaultBusinessProfile();
+
+    function Harness() {
+      const [profile, setProfile] = useState(latest);
+      return (
+        <BookingPreferencesScreen
+          profile={profile}
+          onBack={vi.fn()}
+          onBookingPreferencesChange={vi.fn()}
+          onContinue={vi.fn()}
+          onDepositChange={vi.fn()}
+          onServiceMenuChange={(serviceMenu) => setProfile((current) => {
+            latest = { ...current, serviceMenu };
             return latest;
           })}
         />
@@ -93,25 +137,167 @@ describe('BookingPreferencesScreen', () => {
     }
 
     render(<Harness />);
-    const depositQuestion = screen.getByRole('group', {
-      name: 'Do you generally require a deposit?',
+    await user.click(screen.getByRole('button', { name: 'Review services' }));
+    let library = screen.getByRole('dialog', { name: 'Service Library' });
+    const russianItem = within(library).getByText('Russian Manicure').closest('li');
+    expect(russianItem).not.toBeNull();
+    await user.click(within(russianItem!).getByRole('button', { name: 'Remove' }));
+    expect(latest.serviceMenu.selectedServiceIds).not.toContain('svc-manicure-russian');
+    library = screen.getByRole('dialog', { name: 'Service Library' });
+    const updatedRussianItem = within(library).getByText('Russian Manicure').closest('li');
+    expect(updatedRussianItem).not.toBeNull();
+    expect(within(updatedRussianItem!).getByRole('button', { name: 'Add service' })).toBeVisible();
+    expect(within(library).getByText('Classic Manicure')).toBeVisible();
+    expect(within(library).getByText(/45 min · \$35/u)).toBeVisible();
+    const classicItem = within(library).getByText('Classic Manicure').closest('li');
+    expect(classicItem).not.toBeNull();
+    await user.click(within(classicItem!).getByRole('button', { name: 'Add service' }));
+    expect(latest.serviceMenu.selectedServiceIds).toContain('svc-manicure-classic');
+  });
+
+  it('normalizes notice presets and custom day amounts to minutes', async () => {
+    const user = userEvent.setup();
+    let latest = createDefaultBusinessProfile();
+
+    function Harness() {
+      const [profile, setProfile] = useState(latest);
+      return (
+        <BookingPreferencesScreen
+          profile={profile}
+          onBack={vi.fn()}
+          onBookingPreferencesChange={(patch) => setProfile((current) => {
+            latest = {
+              ...current,
+              bookingPreferences: { ...current.bookingPreferences, ...patch },
+            };
+            return latest;
+          })}
+          onContinue={vi.fn()}
+          onDepositChange={vi.fn()}
+          onServiceMenuChange={vi.fn()}
+        />
+      );
+    }
+
+    render(<Harness />);
+    await user.selectOptions(screen.getByRole('combobox', {
+      name: 'How much notice do you need before an appointment?',
+    }), 'preset:720');
+    expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(720);
+
+    await user.selectOptions(screen.getByRole('combobox', {
+      name: 'How much notice do you need before an appointment?',
+    }), 'custom');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Unit' }), 'days');
+    await user.clear(screen.getByRole('spinbutton', { name: 'Custom amount' }));
+    await user.type(screen.getByRole('spinbutton', { name: 'Custom amount' }), '5');
+    expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(7_200);
+
+  });
+
+  it('changes the displayed bookable appointment times when minimum notice changes', async () => {
+    const user = userEvent.setup();
+    function Harness() {
+      const [profile, setProfile] = useState(createDefaultBusinessProfile);
+      return (
+        <BookingPreferencesScreen
+          onBack={vi.fn()}
+          onBookingPreferencesChange={(patch) => setProfile((current) => ({
+            ...current,
+            bookingPreferences: { ...current.bookingPreferences, ...patch },
+          }))}
+          onContinue={vi.fn()}
+          onDepositChange={vi.fn()}
+          onServiceMenuChange={vi.fn()}
+          previewTimestamp="2026-08-27T18:30:00.000Z"
+          profile={profile}
+        />
+      );
+    }
+
+    render(<Harness />);
+    const notice = screen.getByRole('combobox', {
+      name: 'How much notice do you need before an appointment?',
     });
-    await user.click(within(depositQuestion).getByRole('radio', {
-      name: /Depends on the service/u,
-    }));
+    expect(document.querySelector('[data-bookable-time="2026-08-27T19:30:00.000Z"]'))
+      .toBeNull();
+    expect(document.querySelector('[data-bookable-time="2026-08-27T22:30:00.000Z"]'))
+      .not.toBeNull();
 
-    expect(getDepositPolicyMode(latest.policies)).toBe('depends_on_service');
-    expect(latest.policies.deposits.amountType).toBe('service_defined');
-    expect(latest.policies.copy.deposits.suggestedWording)
-      .toContain('Booking shows the deposit for each service');
-    expect(latest.bookingPreferences).toBe(originalBookingPreferences);
+    await user.selectOptions(notice, 'preset:0');
+    expect(document.querySelector('[data-bookable-time="2026-08-27T19:30:00.000Z"]'))
+      .not.toBeNull();
 
-    await user.click(within(depositQuestion).getByRole('radio', { name: 'Yes' }));
-    expect(getDepositPolicyMode(latest.policies)).toBe('generally_required');
-    expect(latest.policies.deposits.amountType).toBeNull();
-    expect(latest.policies.copy.deposits.suggestedWording)
-      .toContain('A deposit is required to reserve your appointment');
-    expect(latest.bookingPreferences).toBe(originalBookingPreferences);
+    await user.selectOptions(notice, 'preset:4320');
+    expect(document.querySelector('[data-bookable-time="2026-08-30T20:30:00.000Z"]'))
+      .not.toBeNull();
+    expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
+      .toHaveTextContent(/Earliest bookable time.*Sun, Aug 30 · 4:30 p\.m\./u);
+  });
+
+  it('blocks blank custom notice and deposit values, focuses the first error, and preserves valid state', async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+    let latest = createDefaultBusinessProfile();
+    latest.bookingPreferences.visitMode = 'appointment_only';
+    latest.bookingPreferences.newClientStatus = 'yes';
+
+    function Harness() {
+      const [profile, setProfile] = useState(latest);
+      return (
+        <BookingPreferencesScreen
+          profile={profile}
+          onBack={vi.fn()}
+          onBookingPreferencesChange={(patch) => setProfile((current) => {
+            latest = {
+              ...current,
+              bookingPreferences: { ...current.bookingPreferences, ...patch },
+            };
+            return latest;
+          })}
+          onContinue={onContinue}
+          onDepositChange={(deposit) => setProfile((current) => {
+            latest = {
+              ...current,
+              policies: { ...current.policies, deposits: deposit },
+            };
+            return latest;
+          })}
+          onServiceMenuChange={vi.fn()}
+        />
+      );
+    }
+
+    render(<Harness />);
+    await user.selectOptions(screen.getByRole('combobox', {
+      name: 'How much notice do you need before an appointment?',
+    }), 'custom');
+    const notice = screen.getByRole('spinbutton', { name: 'Custom amount' });
+    await user.clear(notice);
+    await user.click(screen.getByRole('radio', { name: 'Same deposit for every service' }));
+    await user.click(within(screen.getByRole('group', { name: 'Deposit amount' }))
+      .getByRole('radio', { name: 'Custom amount' }));
+    const deposit = screen.getByRole('spinbutton', { name: 'Custom deposit amount' });
+    await user.clear(deposit);
+
+    await user.click(screen.getByRole('button', { name: 'Save booking setup' }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('2 answers need attention');
+    expect(screen.getAllByText('Enter a custom notice amount greater than zero.'))
+      .toHaveLength(2);
+    expect(screen.getAllByText('Enter a custom deposit amount greater than zero.'))
+      .toHaveLength(2);
+    await waitFor(() => expect(notice).toHaveFocus());
+    expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(120);
+    expect(latest.policies.deposits.amountCents).toBe(2_000);
+    expect(onContinue).not.toHaveBeenCalled();
+
+    await user.type(notice, '6');
+    await user.type(deposit, '35.5');
+    expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(360);
+    expect(latest.policies.deposits.amountCents).toBe(3_550);
+    await user.click(screen.getByRole('button', { name: 'Save booking setup' }));
+    expect(onContinue).toHaveBeenCalledOnce();
   });
 });
 

@@ -219,7 +219,7 @@ describe('useOnboardingState', () => {
     expect(hook.result.current.state.eventJournal.at(-1)?.type).toBe('open_builder');
   });
 
-  it.each(['lifetime', 'monthly', 'free'] as const)(
+  it.each(['founding', 'monthly', 'free'] as const)(
     'persists the %s plan intent and its journal event synchronously',
     (intent) => {
       const storage = createMemoryStorage();
@@ -233,7 +233,7 @@ describe('useOnboardingState', () => {
       expect(persisted).toBeDefined();
       expect(JSON.parse(persisted ?? '{}')).toMatchObject({
         planOffer: { planIntent: intent },
-        progress: { sessionStatus: 'builder' },
+        progress: { sessionStatus: 'dashboard' },
       });
       expect(hook.result.current.state.eventJournal.at(-1)).toMatchObject({
         intent,

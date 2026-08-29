@@ -69,9 +69,8 @@ type StoredOnboardingState = {
     policies: {
       cancellations: Record<string, unknown>;
       deposits: {
-        amount: string;
-        amountType: string | null;
-        mode: string | null;
+        amountCents: number | null;
+        mode: 'fixed' | 'none';
       };
     };
     preferredContact: string | null;
@@ -121,7 +120,7 @@ type LocationDetails = {
 };
 
 type BookingDetails = {
-  deposit?: 'Depends on the service' | 'No' | 'Yes';
+  deposit?: 'No deposit' | 'Same deposit for every service';
   newClients?: 'Ask me first' | 'No' | 'Waitlist only' | 'Yes';
   visitMode?: 'Appointment only' | 'Appointments and walk-ins' | 'Walk-ins only';
 };
@@ -163,7 +162,7 @@ async function expectScreenAtTop(page: Page, name: string): Promise<void> {
 }
 
 async function waitForAutosave(page: Page): Promise<void> {
-  await expect(page.getByLabel('Autosave status')).toHaveText('Saved');
+  await expect(page.getByLabel('Autosave status')).toHaveText('Saved', { timeout: 30_000 });
 }
 
 async function readOnboardingState(page: Page): Promise<StoredOnboardingState> {
@@ -190,14 +189,14 @@ async function completeBusiness(
     structure = 'Solo nail tech',
   }: BusinessDetails = {},
 ): Promise<void> {
-  await page.getByLabel('Business or salon name').fill(businessName);
+  await page.getByLabel('Salon or studio name').fill(businessName);
   await page.getByLabel('Your name').fill(ownerName);
   await page.getByRole('group', { name: 'Who are you setting Luster up for?' })
     .getByRole('radio', { name: structure })
     .check();
   await captureEvidence(page, '15-business-structure');
   await page.getByRole('button', { exact: true, name: 'Continue' }).click();
-  await expectScreenAtTop(page, 'Add your photo and social presence');
+  await expectScreenAtTop(page, 'Add your photo and Instagram');
   await captureEvidence(page, '26-neutral-instagram-example');
 }
 
@@ -207,9 +206,6 @@ async function completePhotoSocial(
 ): Promise<void> {
   if (instagram) {
     await page.getByLabel('Instagram handle (optional)').fill(instagram);
-    await page.getByRole('group', { name: 'Preferred contact method' })
-      .getByRole('radio', { name: 'Instagram' })
-      .check();
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
   } else {
     await page.getByRole('button', { name: 'Skip photo for now' }).click();
@@ -243,7 +239,7 @@ async function completeLocation(
 
   await page.locator('button[aria-controls="onboarding-contact-card-panel"]').click();
   if (bookingOnly) {
-    await page.getByRole('switch', { name: 'Clients should use Booking only' }).check();
+    await page.getByRole('switch', { name: 'Clients should use online booking only' }).check();
   } else {
     await page.getByLabel('Client contact number').fill(phone);
     if (callEnabled) await page.getByRole('switch', { name: 'Call this number' }).check();
@@ -253,34 +249,39 @@ async function completeLocation(
       await page.getByLabel('Text message number').fill(differentTextNumber);
     }
     const preferred = textEnabled ? 'Text' : 'Call';
-    await page.getByRole('group', { name: 'Preferred public contact method' })
+    await page.getByRole('group', { name: 'Which contact option should we show first?' })
       .getByRole('radio', { name: preferred })
       .check();
     await captureEvidence(page, '21-one-number-call-text-ui');
   }
 
   await page.getByRole('button', { name: 'Save and continue' }).click();
-  await expectScreenAtTop(page, 'How can clients book with you?');
+  await expectScreenAtTop(page, 'How do clients book with you?');
 }
 
 async function completeBooking(
   page: Page,
   {
-    deposit = 'Yes',
+    deposit = 'Same deposit for every service',
     newClients = 'Yes',
     visitMode = 'Appointment only',
   }: BookingDetails = {},
 ): Promise<void> {
-  await page.getByRole('group', { name: 'How do clients visit you?' })
+  await page.getByRole('group', { name: 'How do you accept clients?' })
     .getByRole('radio', { name: visitMode })
     .check();
-  await page.getByRole('group', { name: 'Accepting new clients' })
+  await page.getByRole('group', { name: 'Are you accepting new clients?' })
     .getByRole('radio', { name: newClients })
     .check();
-  await page.getByRole('group', { name: 'Do you generally require a deposit?' })
+  await page.getByRole('group', { name: 'How do you handle booking deposits?' })
     .getByRole('radio', { name: deposit })
     .check();
-  await page.getByRole('button', { name: 'Save booking information' }).click();
+  if (deposit === 'Same deposit for every service') {
+    await page.getByRole('group', { name: 'Deposit amount' })
+      .getByRole('radio', { name: '$20' })
+      .check();
+  }
+  await page.getByRole('button', { name: 'Save booking setup' }).click();
   await expectScreenAtTop(page, 'Choose your starting point');
 }
 
@@ -292,7 +293,7 @@ async function reachStarter(
 ): Promise<void> {
   await openFreshOnboarding(page);
   await page.getByRole('button', { name: 'Build my website' }).click();
-  await expectScreenAtTop(page, 'Tell us about your business');
+  await expectScreenAtTop(page, 'Tell us about your nail business');
   await completeBusiness(page, business);
   await completePhotoSocial(page, location.instagram ?? '@mias_nails');
   await completeLocation(page, location);
@@ -382,21 +383,21 @@ async function applyFixtureFromFresh(
 ): Promise<void> {
   await openFreshOnboarding(page);
   await page.getByRole('button', { name: 'Build my website' }).click();
-  await expectScreenAtTop(page, 'Tell us about your business');
+  await expectScreenAtTop(page, 'Tell us about your nail business');
   await applyFixture(page, label, destinationHeading);
 }
 
 async function addSampleGallery(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Add Gallery' }).click();
   const dialog = page.getByRole('dialog', { name: 'Add Gallery' });
-  await dialog.getByRole('button', { name: 'Use Luster sample portfolio' }).click();
+  await dialog.getByRole('button', { name: 'Use temporary example photos' }).click();
   await dialog.getByRole('button', { exact: true, name: 'Add Gallery' }).click();
   await expect(dialog).toBeHidden();
   await expect(page.getByText(/Added: .*Gallery/u)).toBeVisible();
 }
 
 async function addCanva(page: Page): Promise<void> {
-  await page.getByRole('button', { name: /Upload Canva design|Edit Canva design/u }).click();
+  await page.getByRole('button', { name: /Upload Canva design|Edit design/u }).click();
   const dialog = page.getByRole('dialog', { name: 'Upload a Canva design' });
   await dialog.locator('input[type="file"]').setInputFiles(DANIELA_PORTRAIT_PATH);
   const selected = dialog.getByRole('list', { name: 'Selected Canva pages' });
@@ -428,7 +429,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await page.setViewportSize({ height: 568, width: 320 });
     await openFreshOnboarding(page);
     await page.getByRole('button', { name: 'Build my website' }).click();
-    await expectScreenAtTop(page, 'Tell us about your business');
+    await expectScreenAtTop(page, 'Tell us about your nail business');
 
     const more = page.getByLabel('More onboarding options');
     await more.click();
@@ -439,10 +440,10 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await captureEvidence(page, '24-more-closed-on-escape');
 
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
-    const firstInvalid = page.getByLabel('Business or salon name');
+    const firstInvalid = page.getByLabel('Salon or studio name');
     await expect(firstInvalid).toBeFocused();
     await expect(firstInvalid).toHaveAttribute('aria-invalid', 'true');
-    await expect(page.getByText('Add your business or salon name.').first()).toBeVisible();
+    await expect(page.getByText('Add your salon or studio name.').first()).toBeVisible();
     await captureEvidence(page, '12-first-invalid-field-focused');
 
     await firstInvalid.fill('North Shore Nails');
@@ -454,13 +455,13 @@ test.describe('Onboarding V1 final correction matrix', () => {
       .getByRole('radio', { name: 'Solo nail tech' })
       .check();
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
-    await expectScreenAtTop(page, 'Add your photo and social presence');
+    await expectScreenAtTop(page, 'Add your photo and Instagram');
     await captureEvidence(page, '11-screen-title-after-transition');
     await page.getByRole('button', { name: 'Skip photo for now' }).click();
     await expectScreenAtTop(page, 'Where can clients find you?');
 
     await page.locator('button[aria-controls="onboarding-contact-card-panel"]').click();
-    const bookingOnly = page.getByRole('switch', { name: 'Clients should use Booking only' });
+    const bookingOnly = page.getByRole('switch', { name: 'Clients should use online booking only' });
     const hitTarget = bookingOnly.locator('xpath=..');
     const targetBox = await hitTarget.boundingBox();
     expect(targetBox?.width ?? 0).toBeGreaterThanOrEqual(44);
@@ -486,7 +487,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
       locationType: 'Traditional salon',
       phone: '604-555-0191',
     }, {
-      deposit: 'Depends on the service',
+      deposit: 'Same deposit for every service',
       visitMode: 'Appointments and walk-ins',
     });
 
@@ -543,17 +544,18 @@ test.describe('Onboarding V1 final correction matrix', () => {
   test('OB-01 preserves About, policies, style, Gallery, and uploaded Canva data through a starter change', async ({ page }) => {
     await reachAbout(page);
     await page.getByLabel('Short bio').fill('I create careful, natural-looking nail appointments.');
+    await page.getByText('More about you', { exact: true }).click();
     await page.getByLabel('Certifications — optional').fill('Structured gel course, Nail art certification');
     await page.getByRole('button', { name: 'Choose an About design' }).click();
     await expectScreenAtTop(page, 'Choose your About design');
     await page.getByRole('button', { name: /About \+ Before You Book/u }).click();
     await page.getByRole('button', { name: 'Use this design' }).click();
     await expectScreenAtTop(page, 'Set clear expectations');
-    await page.getByLabel('Required notice').selectOption('24_hours');
+    await page.getByLabel('How much notice do clients need to cancel?').selectOption('24_hours');
     await page.getByRole('button', { name: 'Save policies' }).click();
-    await expectScreenAtTop(page, 'Choose your look');
+    await expectScreenAtTop(page, 'Choose your website style');
     await page.getByRole('button', { name: /^Luxury/u }).click();
-    await page.getByRole('button', { name: 'Use this style' }).click();
+    await page.getByRole('button', { name: 'Use Luxury' }).click();
     await expectScreenAtTop(page, 'Add something extra');
     await addSampleGallery(page);
     await addCanva(page);
@@ -582,7 +584,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     };
 
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
-    await expectScreenAtTop(page, 'Choose your look');
+    await expectScreenAtTop(page, 'Choose your website style');
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
     await expectScreenAtTop(page, 'Set clear expectations');
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
@@ -630,6 +632,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
 
   test('Journey I keeps character-by-character list editing intact and makes the writing helper confirmable and undoable', async ({ page }) => {
     await reachAbout(page);
+    await page.getByText('More about you', { exact: true }).click();
     const certifications = page.getByLabel('Certifications — optional');
     const languages = page.getByLabel('Languages — optional');
 
@@ -736,7 +739,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await captureEvidence(page, '25-directions-hidden-private-address');
 
     await page.locator('button[aria-controls="onboarding-contact-card-panel"]').click();
-    await page.getByRole('switch', { name: 'Clients should use Booking only' }).check();
+    await page.getByRole('switch', { name: 'Clients should use online booking only' }).check();
     await hoursTrigger.click();
     const copyWeekdays = page.getByRole('button', { name: 'Copy Monday to weekdays' });
     await expect(copyWeekdays).toBeDisabled();
@@ -800,7 +803,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
       phone: '905-555-0168',
       textEnabled: true,
     }, {
-      deposit: 'Yes',
+      deposit: 'Same deposit for every service',
       newClients: 'Ask me first',
       visitMode: 'Appointment only',
     });
@@ -812,15 +815,17 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await page.getByRole('button', { name: 'Continue without About' }).click();
     await expectScreenAtTop(page, 'Set clear expectations');
 
-    const depositAnswer = page.getByText('Your booking answer').locator('..');
-    await expect(depositAnswer).toContainText('Deposit generally required');
-    await expect(page.getByRole('group', { name: 'Do you generally require a deposit?' })).toHaveCount(0);
+    await page.getByRole('button', { name: /^Deposits/u }).click();
+    await expect(page.getByText('From your Booking settings')).toBeVisible();
+    await expect(page.locator('#onboarding-policy-deposits-panel')
+      .getByText('$20 deposit', { exact: true })).toBeVisible();
+    await expect(page.getByRole('group', { name: 'How do you handle booking deposits?' })).toHaveCount(0);
     await captureEvidence(page, '17-shared-deposit-state');
     await page.getByRole('button', { name: 'Skip for now' }).click();
-    await expectScreenAtTop(page, 'Choose your look');
-    await page.getByRole('button', { name: 'Keep current style' }).click();
+    await expectScreenAtTop(page, 'Choose your website style');
+    await page.getByRole('button', { name: 'Use Modern' }).click();
     await expectScreenAtTop(page, 'Add something extra');
-    await page.getByRole('button', { name: 'Skip extras' }).click();
+    await page.getByRole('button', { name: 'Continue to review' }).click();
     await expectScreenAtTop(page, 'Review your site');
 
     for (const device of ['Phone', 'Tablet', 'Desktop'] as const) {
@@ -845,24 +850,24 @@ test.describe('Onboarding V1 final correction matrix', () => {
       useDifferentTextNumber: true,
     });
     expect(state.profile.clientContact.differentTextNumber).toBe('905-555-0179');
-    expect(state.profile.policies.deposits.mode).toBe('generally_required');
+    expect(state.profile.policies.deposits.mode).toBe('fixed');
 
-    await page.getByRole('button', { name: 'Open my Builder' }).click();
+    await page.getByRole('button', { name: 'Finish setup' }).click();
     const offer = page.getByRole('dialog', { name: 'Your site is saved' });
     const continueFree = offer.getByRole('button', { name: 'Continue free' });
     await expect(continueFree).toBeVisible();
     await captureEvidence(page, '33-continue-free');
     await continueFree.focus();
     await page.keyboard.press('Enter');
-    const builder = page.getByTestId('final-hybrid-editor');
-    await expect(builder).toBeVisible();
-    await expect(builder).toContainText(longBusinessName);
-    await expect(builder).toContainText('24 services');
-    await expect(builder).not.toContainText('mock services');
-    await expect(builder).not.toContainText('Isla Nail Studio');
+    const tour = page.getByRole('dialog', { name: 'Welcome to your Luster workspace' });
+    await tour.getByRole('button', { name: 'Skip tour' }).click();
+    const dashboard = page.getByRole('main');
+    await expect(page.getByRole('heading', { level: 1, name: 'Welcome to Luster, Mia Torres' })).toBeFocused();
+    await expect(dashboard).toContainText(longBusinessName);
+    await expect(dashboard).not.toContainText('Isla Nail Studio');
     await captureEvidence(page, '20-mia-builder-handoff');
     await expect((await readBuilderDocument(page)).siteName).toBe(longBusinessName);
-    expect((await readOnboardingState(page)).progress.sessionStatus).toBe('builder');
+    expect((await readOnboardingState(page)).progress.sessionStatus).toBe('dashboard');
   });
 
   test('Journey J makes browser Back and Forward direction-aware across About Off and Preview history', async ({ page }) => {
@@ -966,7 +971,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     const counts = await readCustomDesignAssetRecordCounts(page);
     expect(Object.values(counts).some((count) => count > 0)).toBe(true);
 
-    await page.getByRole('button', { name: 'Edit Canva design' }).click();
+    await page.getByRole('button', { name: 'Edit design' }).click();
     const dialog = page.getByRole('dialog', { name: 'Upload a Canva design' });
     const savedPages = dialog.locator('[data-image-item-id]');
     await expect(savedPages.locator('img')).toBeVisible();

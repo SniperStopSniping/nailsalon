@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { createDanielaFixtureState } from '../fixtures';
 import { createDefaultOnboardingState } from '../model/defaults';
+import { ONBOARDING_SCHEMA_VERSION } from '../model/types';
 import {
   clearOnboardingState,
   loadOnboardingState,
   ONBOARDING_STORAGE_KEY,
   parseOnboardingState,
   saveOnboardingState,
+  serializeOnboardingState,
   type OnboardingStorage,
 } from './storage';
 
@@ -36,7 +38,7 @@ const createLegacySavedState = (
     phone?: string;
     policyRequired?: boolean | null;
     preferredContact?: 'text' | 'call' | 'instagram' | 'email' | null;
-    schemaVersion?: 1 | 2 | 3 | 4;
+    schemaVersion?: 1 | 2 | 3 | 4 | 5 | 6;
     skipped?: boolean;
     textPhone?: string;
   } = {},
@@ -109,6 +111,7 @@ describe('onboarding browser-local storage', () => {
     const state = createDanielaFixtureState();
     state.recipe.aboutEnabled = false;
     state.planOffer.fixtureState = 'expiring';
+    state.planOffer.foundingMode = 'locked_monthly';
 
     const saved = saveOnboardingState(state, {
       storage,
@@ -126,6 +129,7 @@ describe('onboarding browser-local storage', () => {
     expect(loaded.state.profile.about.shortBio).toBe(state.profile.about.shortBio);
     expect(loaded.state.recipe.aboutEnabled).toBe(false);
     expect(loaded.state.planOffer.fixtureState).toBe('expiring');
+    expect(loaded.state.planOffer.foundingMode).toBe('locked_monthly');
     expect(loaded.state.progress.lastSavedAt).toBe('2026-08-27T14:00:00.000Z');
     expect(storage.values.get('unrelated')).toBe('keep me');
   });
@@ -190,7 +194,7 @@ describe('onboarding browser-local storage', () => {
     })));
 
     expect(result.status).toBe('loaded');
-    expect(result.state.schemaVersion).toBe(5);
+    expect(result.state.schemaVersion).toBe(ONBOARDING_SCHEMA_VERSION);
     expect(result.state.profile.businessStructure).toBe('solo');
     expect(result.state.profile.location).toMatchObject({
       allowGeneralAreaDirections: false,
@@ -205,7 +209,7 @@ describe('onboarding browser-local storage', () => {
     });
     expect(result.state.profile.preferredContact).toBe('text');
     expect(result.state.reviewOptions.previewTimestamp).toBe('2026-09-01T15:00:00.000Z');
-    expect(result.state.profile.policies.deposits.mode).toBe('generally_required');
+    expect(result.state.profile.policies.deposits.mode).toBe('fixed');
     expect(result.state.profile.bookingPreferences).not.toHaveProperty('depositPreference');
     expect(result.state.profile.policies.deposits).not.toHaveProperty('required');
   });
@@ -218,7 +222,7 @@ describe('onboarding browser-local storage', () => {
 
     const migrated = parseOnboardingState(JSON.stringify(legacy));
     expect(migrated.status).toBe('loaded');
-    expect(migrated.state.schemaVersion).toBe(5);
+    expect(migrated.state.schemaVersion).toBe(ONBOARDING_SCHEMA_VERSION);
     expect(migrated.state.canva.uploadResult).toBeNull();
 
     migrated.state.canva.uploadResult = {
@@ -267,7 +271,7 @@ describe('onboarding browser-local storage', () => {
     const migrated = parseOnboardingState(JSON.stringify(legacy));
 
     expect(migrated.status).toBe('loaded');
-    expect(migrated.state.schemaVersion).toBe(5);
+    expect(migrated.state.schemaVersion).toBe(ONBOARDING_SCHEMA_VERSION);
     expect(migrated.state.canva.ownedAssetIds).toEqual([
       'asset-first',
       'asset-second',
@@ -291,11 +295,260 @@ describe('onboarding browser-local storage', () => {
     })));
     expect(serviceDefined.status).toBe('loaded');
     expect(serviceDefined.state.profile.policies.deposits).toMatchObject({
-      amountType: 'service_defined',
-      mode: 'depends_on_service',
+      legacyV5Archive: {
+        amountType: 'service_defined',
+        mode: 'depends_on_service',
+      },
+      mode: 'none',
     });
     expect(serviceDefined.state.profile.bookingPreferences).not.toHaveProperty('depositPreference');
     expect(serviceDefined.state.profile.policies.deposits).not.toHaveProperty('required');
+  });
+
+  it('losslessly migrates v5 notice, fixed deposit, plan, services, and dashboard defaults', () => {
+    const legacy = createDefaultOnboardingState() as unknown as Record<string, unknown>;
+    legacy.schemaVersion = 5;
+    delete legacy.dashboardHandoff;
+    const profile = legacy.profile as Record<string, unknown>;
+    delete profile.serviceMenu;
+    profile.bookingPreferences = {
+      advanceNotice: 'custom',
+      customAdvanceNotice: '5 days',
+      newClientStatus: 'yes',
+      visitMode: 'appointment_only',
+    };
+    const policies = profile.policies as Record<string, unknown>;
+    const copy = policies.copy as Record<string, Record<string, unknown>>;
+    copy.deposits!.wordingOverride = 'A $25 deposit reserves your appointment.';
+    policies.deposits = {
+      amount: '25',
+      amountType: 'fixed',
+      mode: 'generally_required',
+      refundable: false,
+      transferable: true,
+    };
+    (legacy.planOffer as Record<string, unknown>).planIntent = 'lifetime';
+
+    const migrated = parseOnboardingState(JSON.stringify(legacy));
+
+    expect(migrated.status).toBe('loaded');
+    expect(migrated.state.schemaVersion).toBe(ONBOARDING_SCHEMA_VERSION);
+    expect(migrated.state.profile.bookingPreferences).toMatchObject({
+      legacyV5Archive: {
+        advanceNotice: 'custom',
+        customAdvanceNotice: '5 days',
+      },
+      minimumNoticeMinutes: 7_200,
+    });
+    expect(migrated.state.profile.policies.deposits).toMatchObject({
+      amountCents: 2_500,
+      legacyV5Archive: {
+        amount: '25',
+        amountType: 'fixed',
+        mode: 'generally_required',
+      },
+      mode: 'fixed',
+      refundable: false,
+      transferable: true,
+      wordingOverride: 'A $25 deposit reserves your appointment.',
+    });
+    expect(migrated.state.profile.serviceMenu.selectedServiceIds.length).toBeGreaterThan(0);
+    expect(migrated.state.dashboardHandoff).toEqual({
+      checklistFixtures: {
+        googleCalendar: 'not_connected',
+        payments: 'not_connected',
+        shareBookingLink: 'not_connected',
+      },
+      tourCompleted: false,
+    });
+    expect(migrated.state.planOffer.planIntent).toBe('founding');
+  });
+
+  it('migrates legacy profile, logo, and Gallery bytes to truthful metadata-only missing state', () => {
+    const legacy = createDefaultOnboardingState() as unknown as Record<string, unknown>;
+    legacy.schemaVersion = 5;
+    const profile = legacy.profile as Record<string, unknown>;
+    profile.profilePhoto = {
+      altText: 'Owner portrait',
+      fileName: 'owner.png',
+      height: 900,
+      id: 'legacy-profile',
+      mimeType: 'image/png',
+      previewUrl: 'data:image/png;base64,PROFILE_BYTES',
+      source: 'data_url',
+      width: 600,
+    };
+    profile.logo = {
+      fileName: 'logo.webp',
+      id: 'legacy-logo',
+      mimeType: 'image/webp',
+      previewUrl: 'blob:legacy-logo-object-url',
+      source: 'fixture',
+    };
+    legacy.gallery = {
+      images: [{
+        fileName: 'nails.jpg',
+        height: 800,
+        id: 'legacy-gallery',
+        mimeType: 'image/jpeg',
+        previewUrl: 'data:image/jpeg;base64,GALLERY_BYTES',
+        source: 'data_url',
+        width: 800,
+      }, {
+        fileName: 'stored.png',
+        id: 'stored-gallery',
+        mimeType: 'image/png',
+        previewUrl: 'data:image/png;base64,STALE_PREVIEW_BYTES',
+        source: 'indexed_db',
+        storageId: 'gallery-asset-stored',
+      }],
+      layout: 'carousel',
+      source: 'uploads',
+    };
+
+    const migrated = parseOnboardingState(JSON.stringify(legacy));
+
+    expect(migrated.status).toBe('loaded');
+    expect(migrated.state.profile.profilePhoto).toEqual({
+      altText: 'Owner portrait',
+      fileName: 'owner.png',
+      height: 900,
+      id: 'legacy-profile',
+      mimeType: 'image/png',
+      source: 'missing',
+      width: 600,
+    });
+    expect(migrated.state.profile.logo).toEqual({
+      fileName: 'logo.webp',
+      id: 'legacy-logo',
+      mimeType: 'image/webp',
+      source: 'missing',
+    });
+    expect(migrated.state.gallery.images).toEqual([
+      expect.objectContaining({
+        fileName: 'nails.jpg',
+        source: 'missing',
+        width: 800,
+      }),
+      expect.objectContaining({
+        fileName: 'stored.png',
+        source: 'indexed_db',
+        storageId: 'gallery-asset-stored',
+      }),
+    ]);
+    const serialized = serializeOnboardingState(migrated.state);
+    expect(serialized).not.toContain('data:image');
+    expect(serialized).not.toContain('blob:');
+    expect(serialized).not.toContain('PROFILE_BYTES');
+    expect(serialized).not.toContain('GALLERY_BYTES');
+    expect(parseOnboardingState(serialized).status).toBe('loaded');
+  });
+
+  it('normalizes contaminated v6 image references before validation and every current save', () => {
+    const legacyV6 = createDefaultOnboardingState() as unknown as Record<string, unknown>;
+    legacyV6.schemaVersion = 6;
+    const legacyPlanOffer = legacyV6.planOffer as Record<string, unknown>;
+    delete legacyPlanOffer.foundingMode;
+    const legacyProfile = legacyV6.profile as Record<string, unknown>;
+    legacyProfile.profilePhoto = {
+      fileName: 'legacy-owner.png',
+      id: 'legacy-owner',
+      mimeType: 'image/png',
+      previewUrl: 'data:image/png;base64,DO_NOT_SAVE',
+      source: 'data_url',
+    };
+    legacyV6.gallery = {
+      images: [{
+        fileName: 'legacy-gallery.png',
+        id: 'legacy-gallery-current',
+        mimeType: 'image/png',
+        previewUrl: 'blob:stale-gallery-preview',
+        source: 'fixture',
+      }],
+      layout: 'grid',
+      source: 'uploads',
+    };
+    const migrated = parseOnboardingState(JSON.stringify(legacyV6));
+    expect(migrated).toMatchObject({
+      state: {
+        gallery: { images: [expect.objectContaining({ source: 'missing' })] },
+        profile: { profilePhoto: expect.objectContaining({ source: 'missing' }) },
+      },
+      status: 'loaded',
+    });
+
+    const state = migrated.state;
+    state.profile.logo = {
+      fileName: 'legacy-logo.png',
+      id: 'legacy-logo-current',
+      mimeType: 'image/png',
+      previewUrl: 'data:image/png;base64,CURRENT_BYTES',
+      source: 'data_url',
+    };
+    const storage = createMemoryStorage();
+
+    const saved = saveOnboardingState(state, {
+      storage,
+      timestamp: '2026-08-29T18:00:00.000Z',
+    });
+
+    expect(saved.success).toBe(true);
+    if (!saved.success) throw new Error('Expected the normalized state to save.');
+    expect(saved.state.profile.profilePhoto?.source).toBe('missing');
+    expect(saved.state.profile.logo?.source).toBe('missing');
+    expect(saved.state.gallery.images[0]?.source).toBe('missing');
+    const json = storage.values.get(ONBOARDING_STORAGE_KEY) ?? '';
+    expect(json).not.toContain('DO_NOT_SAVE');
+    expect(json).not.toContain('CURRENT_BYTES');
+    expect(json).not.toContain('data:image');
+    expect(json).not.toContain('blob:');
+    expect(loadOnboardingState(storage)).toMatchObject({
+      state: {
+        gallery: { images: [expect.objectContaining({ source: 'missing' })] },
+        profile: { profilePhoto: expect.objectContaining({ source: 'missing' }) },
+      },
+      status: 'loaded',
+    });
+  });
+
+  it('normalizes removed structural About visibility while preserving optional choices and data', () => {
+    const legacy = createDanielaFixtureState() as unknown as Record<string, unknown>;
+    legacy.schemaVersion = 6;
+    const profile = legacy.profile as Record<string, unknown>;
+    const about = profile.about as Record<string, unknown>;
+    about.visibility = {
+      ...(about.visibility as Record<string, boolean>),
+      bio: false,
+      book_button: false,
+      certifications: false,
+      owner_name: false,
+      profile_photo: false,
+      salon_name: false,
+      specialties: false,
+    };
+    (legacy.recipe as Record<string, unknown>).aboutPreset = 'editorial_portrait';
+    (legacy.dashboardHandoff as Record<string, unknown>).tourCompleted = true;
+    delete (legacy.planOffer as Record<string, unknown>).foundingMode;
+
+    const migrated = parseOnboardingState(JSON.stringify(legacy));
+
+    expect(migrated.status).toBe('loaded');
+    expect(migrated.state.profile.about.visibility).toMatchObject({
+      bio: true,
+      book_button: true,
+      certifications: false,
+      owner_name: true,
+      profile_photo: true,
+      salon_name: true,
+      specialties: false,
+    });
+    expect(migrated.state.profile.about.shortBio).toBe(
+      createDanielaFixtureState().profile.about.shortBio,
+    );
+    expect(migrated.state.recipe.aboutPreset).toBe('editorial_portrait');
+    expect(migrated.state.planOffer.foundingMode).toBe('lifetime');
+    expect(migrated.state.dashboardHandoff.tourCompleted).toBe(true);
+    expect(migrated.state.schemaVersion).toBe(ONBOARDING_SCHEMA_VERSION);
   });
 
   it('preserves an explicit Screen 4 location and a text-only number during v2 migration', () => {

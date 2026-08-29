@@ -21,6 +21,10 @@ describe('onboarding Lab review fixtures', () => {
       'Preview time · Open',
       'Preview time · Closed',
       'Lifetime offer available',
+      'Founding offer · Discounted annual',
+      'Founding offer · Locked monthly',
+      'Founding offer · Free beta',
+      'Founding offer · Hidden',
       'Offer expiring',
       'Offer expired',
       'No offer',
@@ -85,5 +89,20 @@ describe('onboarding Lab review fixtures', () => {
 
     expect(second.planOffer.seededAt).toBe('2026-08-27T12:00:00.000Z');
     expect(second.planOffer.expiresAt).toBe('2026-08-28T12:00:00.000Z');
+  });
+
+  it('exposes every configurable founding mode as persisted Lab state', () => {
+    expect(applyLabReviewFixture('lifetime_offer_available').planOffer.foundingMode)
+      .toBe('lifetime');
+    expect(applyLabReviewFixture('founding_discounted_annual').planOffer.foundingMode)
+      .toBe('discounted_annual');
+    expect(applyLabReviewFixture('founding_locked_monthly').planOffer.foundingMode)
+      .toBe('locked_monthly');
+    expect(applyLabReviewFixture('founding_free_beta').planOffer.foundingMode)
+      .toBe('free_beta');
+    expect(applyLabReviewFixture('founding_hidden').planOffer).toMatchObject({
+      fixtureState: 'none',
+      foundingMode: 'hidden',
+    });
   });
 });

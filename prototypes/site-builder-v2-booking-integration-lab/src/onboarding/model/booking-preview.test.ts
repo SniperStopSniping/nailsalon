@@ -7,7 +7,7 @@ import {
 } from './booking-preview';
 
 describe('onboarding Booking preview adapter', () => {
-  it('personalizes only salon metadata and preserves canonical Booking data', () => {
+  it('personalizes salon metadata and filters the canonical Booking data by selected IDs', () => {
     const profile = createDefaultBusinessProfile();
     profile.businessName = 'Cedar Tips';
     profile.location.cityOrArea = 'Ottawa, Ontario';
@@ -18,9 +18,12 @@ describe('onboarding Booking preview adapter', () => {
       location: 'Ottawa, Ontario',
       name: 'Cedar Tips',
     });
-    expect(fixture.services).toBe(CANONICAL_SERVICES);
+    expect(fixture.services.map(({ id }) => id))
+      .toEqual(profile.serviceMenu.selectedServiceIds);
+    expect(fixture.services.every((service) => CANONICAL_SERVICES.includes(service))).toBe(true);
     expect(fixture.addOns).toBe(MOCK_ADD_ONS);
     expect(fixture.categories).toBe(CANONICAL_ONBOARDING_BOOKING_FIXTURE.categories);
+    expect(fixture.labAvailability.minimumNoticeMinutes).toBe(120);
   });
 
   it('uses an exact address only when the profile marks it public', () => {
@@ -47,6 +50,24 @@ describe('onboarding Booking preview adapter', () => {
     if (businessName !== 'Isla Nail Studio') {
       expect(source.salon.name).not.toBe('Isla Nail Studio');
     }
-    expect(source.services).toBe(CANONICAL_SERVICES);
+    expect(source.services.map(({ id }) => id))
+      .toEqual(profile.serviceMenu.selectedServiceIds);
+  });
+
+  it('updates the Booking preview after canonical services are removed or added', () => {
+    const profile = createDefaultBusinessProfile();
+    profile.serviceMenu.selectedServiceIds = [
+      'svc-manicure-gel',
+      'svc-pedicure-classic',
+    ];
+    profile.bookingPreferences.minimumNoticeMinutes = 720;
+
+    const fixture = createOnboardingBookingFixture(profile);
+
+    expect(fixture.services.map(({ id }) => id)).toEqual([
+      'svc-manicure-gel',
+      'svc-pedicure-classic',
+    ]);
+    expect(fixture.labAvailability.minimumNoticeMinutes).toBe(720);
   });
 });

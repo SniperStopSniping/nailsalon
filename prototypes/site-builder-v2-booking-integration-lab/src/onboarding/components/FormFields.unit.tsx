@@ -101,7 +101,7 @@ describe('focusFirstInvalidControl', () => {
 
     render(<Harness />);
     const businessName = screen.getByRole('textbox', {
-      name: 'Business or salon name',
+      name: 'Salon or studio name',
     });
     const ownerName = screen.getByRole('textbox', { name: 'Your name' });
     const summaryScroll = vi.fn();
@@ -115,7 +115,7 @@ describe('focusFirstInvalidControl', () => {
       'Check the highlighted information.3 answers need attention.',
     );
     expect(businessName).toHaveAttribute('aria-invalid', 'true');
-    expect(businessName).toHaveAccessibleDescription('Add your business or salon name.');
+    expect(businessName).toHaveAccessibleDescription('Add your salon or studio name.');
     expect(ownerName).toHaveAccessibleDescription('Add your name.');
     expect(screen.getByRole('group', {
       name: 'Who are you setting Luster up for?',

@@ -37,12 +37,19 @@ describe('Builder onboarding business metadata adapter', () => {
     expect(metadata.currentHoursStatusLabel).toBeUndefined();
     expect(metadata.weeklyHours).toEqual([]);
     expect(metadata.directions).toBeNull();
+    expect(metadata.contacts).toHaveLength(2);
     expect(metadata.contacts).toMatchObject([
       {
         actionLabel: 'Book now',
         detail: 'Booking is the best way to reach us',
         href: '#booking',
         method: 'booking',
+      },
+      {
+        actionLabel: 'Instagram',
+        detail: '@islanail.studio',
+        href: 'https://www.instagram.com/islanail.studio/',
+        method: 'instagram',
       },
     ]);
     expect(JSON.stringify(metadata)).not.toContain('416-555-0100');

@@ -169,7 +169,7 @@ async function applyFixtureFromFresh(
 ): Promise<void> {
   await openFresh(page);
   await page.getByRole('button', { name: 'Build my website' }).click();
-  await expectAtTop(page, 'Tell us about your business');
+  await expectAtTop(page, 'Tell us about your nail business');
   await applyFixture(page, label, destinationHeading);
 }
 
@@ -190,7 +190,7 @@ async function readDocument(page: Page): Promise<StoredDocument> {
 }
 
 async function openCanvaDialog(page: Page): Promise<Locator> {
-  await page.getByRole('button', { name: /Upload Canva design|Edit Canva design/u }).click();
+  await page.getByRole('button', { name: /Upload Canva design|Edit design/u }).click();
   const dialog = page.getByRole('dialog', { name: 'Upload a Canva design' });
   await expect(dialog).toBeVisible();
   return dialog;
@@ -242,7 +242,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
 
   test('A04-1 and A16-2 put the style task first and keep its inline preview inert', async ({ page }) => {
     await page.setViewportSize({ height: 568, width: 320 });
-    await applyFixtureFromFresh(page, 'Policies Off', 'Choose your look');
+    await applyFixtureFromFresh(page, 'Policies Off', 'Choose your website style');
 
     const styleOption = page.getByRole('button', { name: /^Modern/u });
     for (const viewport of [
@@ -253,9 +253,9 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     ]) {
       await page.setViewportSize(viewport);
       await page.evaluate(() => window.scrollTo({ left: 0, top: 0 }));
-      await heading(page, 'Choose your look').focus();
+      await heading(page, 'Choose your website style').focus();
       await expect(styleOption).toBeVisible();
-      const titleBox = await heading(page, 'Choose your look').boundingBox();
+      const titleBox = await heading(page, 'Choose your website style').boundingBox();
       const optionBox = await styleOption.boundingBox();
       const headerBox = await page.locator('.onboarding-shell__header').boundingBox();
       const footerBox = await page.locator('.sticky-onboarding-actions').boundingBox();
@@ -277,7 +277,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     }
     await page.setViewportSize({ height: 568, width: 320 });
     await page.evaluate(() => window.scrollTo({ left: 0, top: 0 }));
-    await heading(page, 'Choose your look').focus();
+    await heading(page, 'Choose your website style').focus();
 
     const inlineStage = page.locator(
       '[data-screen="site_style"] [data-preview-interaction="inline"]',
@@ -285,7 +285,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await expect(inlineStage).toBeVisible();
     await expect(inlineStage.locator('.onboarding-site-preview')).toHaveAttribute('inert', '');
 
-    await heading(page, 'Choose your look').focus();
+    await heading(page, 'Choose your website style').focus();
     for (let index = 0; index < 18; index += 1) {
       await page.keyboard.press('Tab');
       const insidePreview = await page.evaluate(() => Boolean(
@@ -346,7 +346,9 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.getByRole('button', { name: 'Edit About section' }).click();
     await expectAtTop(page, 'Would you like an About section?');
 
+    await page.locator('details.onboarding-about-more > summary').click();
     const certifications = page.getByLabel('Certifications — optional');
+    await expect(certifications).toBeVisible();
     await expect(page.getByLabel('About section live preview')
       .locator('.onboarding-site-preview')).toHaveAttribute('inert', '');
     await certifications.pressSequentially(
@@ -406,16 +408,16 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.getByRole('button', { name: 'Use this design' }).click();
     await expectAtTop(page, 'Set clear expectations');
     await page.getByRole('button', { name: 'Save policies' }).click();
-    await expectAtTop(page, 'Choose your look');
+    await expectAtTop(page, 'Choose your website style');
     const stylePreview = page.locator(
       '[data-screen="site_style"] [data-preview-interaction="inline"]',
     );
     for (const value of ['Russian Manicure', 'BIAB', 'Gel-X', 'Hard Gel', 'Structured gel', 'Bridal nails', '6', 'English', 'Spanish']) {
       await expect(stylePreview).toContainText(value);
     }
-    await page.getByRole('button', { name: 'Keep current style' }).click();
+    await page.getByRole('button', { name: 'Continue with Soft' }).click();
     await expectAtTop(page, 'Add something extra');
-    await page.getByRole('button', { name: 'Skip extras' }).click();
+    await page.getByRole('button', { name: 'Continue to review' }).click();
     await expectAtTop(page, 'Review your site');
     const finalPreview = page.getByLabel('Final phone customer preview');
     for (const value of ['Russian Manicure', 'BIAB', 'Gel-X', 'Hard Gel', 'Structured gel', 'Bridal nails', '6', 'English', 'Spanish']) {
@@ -502,7 +504,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
     await expectAtTop(page, 'Add something extra');
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
-    await expectAtTop(page, 'Choose your look');
+    await expectAtTop(page, 'Choose your website style');
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
     await expectAtTop(page, 'Set clear expectations');
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
@@ -514,11 +516,11 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
     await expectAtTop(page, 'Choose your starting point');
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
-    await expectAtTop(page, 'How can clients book with you?');
-    await page.getByRole('group', { name: 'Do you generally require a deposit?' })
-      .getByRole('radio', { name: 'No' })
+    await expectAtTop(page, 'How do clients book with you?');
+    await page.getByRole('group', { name: 'How do you handle booking deposits?' })
+      .getByRole('radio', { name: 'No deposit' })
       .check();
-    await page.getByRole('button', { name: 'Save booking information' }).click();
+    await page.getByRole('button', { name: 'Save booking setup' }).click();
     await expectAtTop(page, 'Choose your starting point');
     await page.locator('[data-starter-id="one_page"]').click();
     await expectAtTop(page, 'Your starting site is ready');
@@ -529,7 +531,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.getByRole('button', { name: 'Use this design' }).click();
     await expectAtTop(page, 'Set clear expectations');
     const policyPreview = page.locator('.onboarding-policy-copy-list');
-    await expect(policyPreview).toContainText('No deposit is generally required');
+    await expect(policyPreview).toContainText('No deposit is required');
     await expect(policyPreview).not.toContainText(/deposit (?:is|will be) lost|forfeit(?:ed)? the deposit/u);
     await capture(page, '07-no-deposit-consistent-policies');
   });
@@ -591,11 +593,11 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await capture(page, '09-one-page-preview');
   });
 
-  test('A13-F1, A16-1, A16-6, and A16-5 give the plan overlay truthful history and Builder focus', async ({ page }) => {
+  test('A13-F1, A16-1, A16-6, and A16-5 give the plan overlay truthful history and dashboard focus', async ({ page }) => {
     await page.setViewportSize({ height: 430, width: 932 });
     await applyFixtureFromFresh(page, 'All essentials complete', 'Review your site');
-    const openBuilder = page.getByRole('button', { name: 'Open my Builder' });
-    await openBuilder.click();
+    const finishSetup = page.getByRole('button', { name: 'Finish setup' });
+    await finishSetup.click();
     let dialog = page.getByRole('dialog', { name: 'Your site is saved' });
     const planHeading = dialog.getByRole('heading', { level: 2, name: 'Your site is saved' });
     await expect(planHeading).toBeFocused();
@@ -605,8 +607,8 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     expect((focusBox?.y ?? 9999) + (focusBox?.height ?? 0)).toBeLessThanOrEqual(430);
     expect(dialogBox?.y ?? -1).toBeGreaterThanOrEqual(0);
     expect((dialogBox?.y ?? 9999) + (dialogBox?.height ?? 0)).toBeLessThanOrEqual(430);
-    await expect(dialog.getByRole('button', { name: 'Choose Founding Nail Tech Lifetime Access' })).toBeVisible();
-    await expect(dialog.getByRole('button', { name: 'Choose Monthly plan' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Choose founding lifetime offer' })).toBeVisible();
+    await expect(dialog.getByRole('button', { name: 'Choose monthly plan' })).toBeVisible();
     await expect(dialog.getByRole('button', { name: 'Continue free' })).toBeVisible();
     await capture(page, '14-plan-sheet-heading-focus');
     await capture(page, '36-unclipped-landscape-plan-sheet');
@@ -624,40 +626,47 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await expect(dialog.getByRole('heading', { name: 'Your site is saved' })).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
-    await expect(openBuilder).toBeFocused();
+    await expect(finishSetup).toBeFocused();
 
-    await openBuilder.click();
+    await finishSetup.click();
     dialog = page.getByRole('dialog', { name: 'Your site is saved' });
     await dialog.getByRole('button', { name: 'Close Your site is saved' }).click();
     await expect(dialog).toBeHidden();
-    await expect(openBuilder).toBeFocused();
+    await expect(finishSetup).toBeFocused();
 
-    await openBuilder.click();
+    await finishSetup.click();
     dialog = page.getByRole('dialog', { name: 'Your site is saved' });
     await page.getByTestId('dialog-backdrop').dispatchEvent('mousedown');
     await expect(dialog).toBeHidden();
-    await expect(openBuilder).toBeFocused();
+    await expect(finishSetup).toBeFocused();
 
-    await openBuilder.click();
+    await finishSetup.click();
     await page.reload();
     dialog = page.getByRole('dialog', { name: 'Your site is saved' });
     await expect(dialog).toBeVisible();
     await expect(dialog.getByRole('heading', { name: 'Your site is saved' })).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
-    await expect(openBuilder).toBeFocused();
+    await expect(finishSetup).toBeFocused();
 
-    await openBuilder.click();
+    await finishSetup.click();
     await page.getByRole('dialog', { name: 'Your site is saved' })
       .getByRole('button', { name: 'Continue free' })
       .click();
-    const builder = page.getByTestId('final-hybrid-editor');
-    await expect(builder).toBeVisible();
-    const builderHeading = builder.locator('h1[data-builder-start]');
-    await expect(builderHeading).toBeFocused();
+    const tour = page.getByRole('dialog', { name: 'Welcome to your Luster workspace' });
+    await expect(tour).toBeVisible();
+    await expect(tour.getByRole('heading', { name: 'Your day at a glance' })).toBeFocused();
+    await tour.getByRole('button', { name: 'Skip tour' }).click();
+    const dashboardHeading = page.getByRole('heading', {
+      level: 1,
+      name: /Welcome to Luster,/u,
+    });
+    await expect(dashboardHeading).toBeFocused();
+    await expect(page.getByRole('navigation', { name: 'Dashboard preview destinations' }))
+      .toBeVisible();
     await expect(page.locator('h1:visible')).toHaveCount(1);
-    await capture(page, '40-builder-one-h1-focus');
-    await capture(page, '45-continue-free-builder-handoff');
+    await capture(page, '40-dashboard-one-h1-focus');
+    await capture(page, '45-continue-free-dashboard-handoff');
   });
 
   test('A13-F2 renders real target device widths inside a contained phone host', async ({ page }) => {
@@ -752,15 +761,15 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.setViewportSize({ height: 390, width: 844 });
     await openFresh(page);
     await page.getByRole('button', { name: 'Build my website' }).click();
-    await expectAtTop(page, 'Tell us about your business');
+    await expectAtTop(page, 'Tell us about your nail business');
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
 
     const summary = page.getByRole('alert').filter({ hasText: 'Check the highlighted information.' });
     await expect(summary).toContainText('3 answers need attention.');
-    await expect(summary).toContainText('Add your business or salon name.');
+    await expect(summary).toContainText('Add your salon or studio name.');
     await expect(summary).toContainText('Add your name.');
     await expect(summary).toContainText('Choose who you’re setting Luster up for.');
-    await expect(page.getByLabel('Business or salon name')).toBeFocused();
+    await expect(page.getByLabel('Salon or studio name')).toBeFocused();
     const summaryBox = await summary.boundingBox();
     const stickyTop = await page.evaluate(() => Math.max(
       document.querySelector('.onboarding-shell__header')?.getBoundingClientRect().bottom ?? 0,
@@ -768,7 +777,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     ));
     expect(summaryBox?.y ?? -1).toBeGreaterThanOrEqual(stickyTop);
     expect((summaryBox?.y ?? 9999) + (summaryBox?.height ?? 0)).toBeLessThanOrEqual(390);
-    const firstFieldBox = await page.getByLabel('Business or salon name').boundingBox();
+    const firstFieldBox = await page.getByLabel('Salon or studio name').boundingBox();
     const shellHeaderBox = await page.locator('.onboarding-shell__header').boundingBox();
     await captureJson('35-landscape-validation-bounds', {
       firstField: firstFieldBox,
@@ -780,7 +789,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
 
     await page.setViewportSize({ height: 360, width: 320 });
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
-    await expect(page.getByLabel('Business or salon name')).toBeFocused();
+    await expect(page.getByLabel('Salon or studio name')).toBeFocused();
     const compactBusinessBounds = await page.evaluate(() => {
       const alert = [...document.querySelectorAll<HTMLElement>('[role="alert"]')]
         .find((element) => element.textContent?.includes('Check the highlighted information.'))
@@ -798,7 +807,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
 
     await page.setViewportSize({ height: 390, width: 844 });
 
-    await page.getByLabel('Business or salon name').fill('Validation Studio');
+    await page.getByLabel('Salon or studio name').fill('Validation Studio');
     await page.getByLabel('Your name').fill('Val Owner');
     await page.getByRole('radio', { name: 'Solo nail tech' }).check();
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
@@ -806,7 +815,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.getByRole('button', { name: 'Save and continue' }).click();
     await expect(page.getByLabel('City or general service area')).toBeFocused();
     await expect(page.getByRole('button', { name: /Location.*issue/u })).toBeVisible();
-    await expect(page.getByRole('button', { name: /Contact.*issue/u })).toBeVisible();
+    await expect(page.getByRole('button', { name: /How should clients contact you\?.*issue/u })).toBeVisible();
     await expect(page.getByRole('alert').filter({ hasText: 'Check the highlighted information.' }))
       .toContainText('2 answers need attention.');
     const locationBounds = await page.evaluate(() => {
@@ -881,8 +890,8 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.getByRole('button', { name: 'Choose an About design' }).click();
     await page.getByRole('button', { name: 'Use this design' }).click();
     await page.getByRole('button', { name: 'Save policies' }).click();
-    await page.getByRole('button', { name: 'Keep current style' }).click();
-    await page.getByRole('button', { name: 'Skip extras' }).click();
+    await page.getByRole('button', { name: 'Continue with Soft' }).click();
+    await page.getByRole('button', { name: 'Continue to review' }).click();
     await expectAtTop(page, 'Review your site');
     const editAbout = page.getByRole('button', { name: 'Edit About section' });
     await expect(editAbout).toBeVisible();
@@ -976,13 +985,13 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.setViewportSize({ height: 568, width: 320 });
     await openFresh(page);
     await page.getByRole('button', { name: 'Build my website' }).click();
-    await expectAtTop(page, 'Tell us about your business');
+    await expectAtTop(page, 'Tell us about your nail business');
 
-    const businessName = page.getByLabel('Business or salon name');
+    const businessName = page.getByLabel('Salon or studio name');
     await businessName.pressSequentially('Immediate Pagehide Studio', { delay: 4 });
     await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
     await page.reload();
-    await expect(heading(page, 'Tell us about your business')).toBeVisible();
+    await expect(heading(page, 'Tell us about your nail business')).toBeVisible();
     await expect(businessName).toHaveValue('Immediate Pagehide Studio');
 
     const more = page.getByLabel('More onboarding options');
@@ -1008,7 +1017,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.reload();
     await expect(pausedHeading).toBeFocused();
     await page.getByRole('button', { name: 'Resume setup' }).click();
-    await expectAtTop(page, 'Tell us about your business');
+    await expectAtTop(page, 'Tell us about your nail business');
   });
 
   test('A11-1–A11-3 and A16-3 make the writing helper dismissible, focused, and revision-safe', async ({ page }) => {
@@ -1134,7 +1143,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await expect.poll(async () => (await readState(page)).canva.displayMode).toBe('poster');
     await capture(page, '23-canva-settings-only-save');
 
-    await page.getByRole('button', { name: 'Skip extras' }).click();
+    await page.getByRole('button', { name: 'Continue to review' }).click();
     await expectAtTop(page, 'Review your site');
     await page.getByRole('group', { name: 'Customer preview device size' })
       .getByRole('button', { name: 'Desktop' })
@@ -1147,11 +1156,11 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
 
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
     await expectAtTop(page, 'Add something extra');
-    await page.getByRole('button', { name: 'Edit Canva design' }).click();
+    await page.getByRole('button', { name: 'Edit design' }).click();
     dialog = page.getByRole('dialog', { name: 'Upload a Canva design' });
     await dialog.getByRole('radio', { name: 'Contained' }).check();
     await dialog.getByRole('button', { name: 'Save Canva design' }).click();
-    await page.getByRole('button', { name: 'Skip extras' }).click();
+    await page.getByRole('button', { name: 'Continue to review' }).click();
     await page.getByRole('group', { name: 'Customer preview device size' })
       .getByRole('button', { name: 'Desktop' })
       .click();
@@ -1162,11 +1171,11 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await capture(page, '19-canva-contained-mode');
 
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
-    await page.getByRole('button', { name: 'Edit Canva design' }).click();
+    await page.getByRole('button', { name: 'Edit design' }).click();
     dialog = page.getByRole('dialog', { name: 'Upload a Canva design' });
     await dialog.getByRole('radio', { name: 'Full width' }).check();
     await dialog.getByRole('button', { name: 'Save Canva design' }).click();
-    await page.getByRole('button', { name: 'Skip extras' }).click();
+    await page.getByRole('button', { name: 'Continue to review' }).click();
     await page.getByRole('group', { name: 'Customer preview device size' })
       .getByRole('button', { name: 'Desktop' })
       .click();
@@ -1214,7 +1223,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await clearCustomDesignAssets(page);
     await page.reload();
     await expectAtTop(page, 'Add something extra');
-    await page.getByRole('button', { name: 'Skip extras' }).click();
+    await page.getByRole('button', { name: 'Continue to review' }).click();
     await expectAtTop(page, 'Review your site');
     const readiness = page.getByLabel('Site readiness');
     await expect(readiness).toContainText('Needs attention');
@@ -1224,20 +1233,20 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await capture(page, '24-missing-canva-asset-readiness');
   });
 
-  test('Journey I completes the full onboarding and free Builder handoff with keyboard input only', async ({ page }) => {
+  test('Journey I completes the full onboarding and free dashboard handoff with keyboard input only', async ({ page }) => {
     await page.setViewportSize({ height: 800, width: 1180 });
     await openFresh(page);
     await activateWithKeyboard(page.getByRole('button', { name: 'Build my website' }));
-    await expectAtTop(page, 'Tell us about your business');
+    await expectAtTop(page, 'Tell us about your nail business');
 
-    await page.getByLabel('Business or salon name').focus();
+    await page.getByLabel('Salon or studio name').focus();
     await page.keyboard.type('Keyboard Nail Studio');
     await page.getByLabel('Your name').focus();
     await page.keyboard.type('Kai');
     await page.getByRole('radio', { name: 'Solo nail tech' }).focus();
     await page.keyboard.press('Space');
     await activateWithKeyboard(page.getByRole('button', { exact: true, name: 'Continue' }));
-    await expectAtTop(page, 'Add your photo and social presence');
+    await expectAtTop(page, 'Add your photo and Instagram');
 
     await activateWithKeyboard(page.getByRole('button', { name: 'Skip photo for now' }));
     await expectAtTop(page, 'Where can clients find you?');
@@ -1246,10 +1255,10 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await activateWithKeyboard(page.locator(
       'button[aria-controls="onboarding-contact-card-panel"]',
     ));
-    await page.getByRole('switch', { name: 'Clients should use Booking only' }).focus();
+    await page.getByRole('switch', { name: 'Clients should use online booking only' }).focus();
     await page.keyboard.press('Space');
     await activateWithKeyboard(page.getByRole('button', { name: 'Save and continue' }));
-    await expectAtTop(page, 'How can clients book with you?');
+    await expectAtTop(page, 'How do clients book with you?');
 
     await page.getByRole('radio', { name: 'Appointment only' }).focus();
     await page.keyboard.press('Space');
@@ -1257,7 +1266,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
       .getByRole('radio', { name: 'Yes' }).focus();
     await page.keyboard.press('Space');
     await activateWithKeyboard(page.getByRole('button', {
-      name: 'Save booking information',
+      name: 'Save booking setup',
     }));
     await expectAtTop(page, 'Choose your starting point');
 
@@ -1275,27 +1284,27 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await expectAtTop(page, 'Set clear expectations');
 
     await activateWithKeyboard(page.getByRole('button', { name: 'Skip for now' }));
-    await expectAtTop(page, 'Choose your look');
+    await expectAtTop(page, 'Choose your website style');
     await expect(page.locator(
       '[data-screen="site_style"] [data-preview-interaction="inline"] .onboarding-site-preview',
     )).toHaveAttribute('inert', '');
-    await activateWithKeyboard(page.getByRole('button', { name: 'Keep current style' }));
+    await activateWithKeyboard(page.getByRole('button', { name: 'Use Modern' }));
     await expectAtTop(page, 'Add something extra');
-    await activateWithKeyboard(page.getByRole('button', { name: 'Skip extras' }));
+    await activateWithKeyboard(page.getByRole('button', { name: 'Continue to review' }));
     await expectAtTop(page, 'Review your site');
 
-    let tabsToBuilder = 0;
-    while (tabsToBuilder < 25) {
+    let tabsToFinish = 0;
+    while (tabsToFinish < 25) {
       await page.keyboard.press('Tab');
-      tabsToBuilder += 1;
+      tabsToFinish += 1;
       const activeName = await page.evaluate(() =>
         document.activeElement?.getAttribute('aria-label')
         ?? document.activeElement?.textContent?.trim()
         ?? '');
-      if (activeName.includes('Open my Builder')) break;
+      if (activeName.includes('Finish setup')) break;
     }
-    expect(tabsToBuilder).toBeLessThan(25);
-    await expect(page.getByRole('button', { name: 'Open my Builder' })).toBeFocused();
+    expect(tabsToFinish).toBeLessThan(25);
+    await expect(page.getByRole('button', { name: 'Finish setup' })).toBeFocused();
     await page.keyboard.press('Enter');
 
     const plan = page.getByRole('dialog', { name: 'Your site is saved' });
@@ -1311,8 +1320,11 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     expect(tabsToFree).toBeLessThan(12);
     await expect(plan.getByRole('button', { name: 'Continue free' })).toBeFocused();
     await page.keyboard.press('Enter');
-    await expect(page.getByTestId('final-hybrid-editor')).toBeVisible();
-    await expect(page.locator('[data-builder-start]')).toBeFocused();
+    const tour = page.getByRole('dialog', { name: 'Welcome to your Luster workspace' });
+    await expect(tour.getByRole('heading', { name: 'Your day at a glance' })).toBeFocused();
+    await activateWithKeyboard(tour.getByRole('button', { name: 'Skip tour' }));
+    await expect(page.getByRole('heading', { level: 1, name: /Welcome to Luster,/u }))
+      .toBeFocused();
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
   });
 
