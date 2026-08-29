@@ -24,6 +24,10 @@ export type LabReviewFixtureId =
   | 'preview_time_open'
   | 'preview_time_closed'
   | 'lifetime_offer_available'
+  | 'founding_discounted_annual'
+  | 'founding_locked_monthly'
+  | 'founding_free_beta'
+  | 'founding_hidden'
   | 'offer_expiring'
   | 'offer_expired'
   | 'offer_none'
@@ -91,7 +95,7 @@ export const createDanielaFixtureState = (): OnboardingLabState => {
   state.profile.hours.days.sunday = { close: '', closed: true, open: '' };
   state.profile.bookingPreferences.visitMode = 'appointment_only';
   state.profile.bookingPreferences.newClientStatus = 'yes';
-  state.profile.bookingPreferences.advanceNotice = '24_hours';
+  state.profile.bookingPreferences.minimumNoticeMinutes = 1_440;
   state.profile.about.shortBio = 'I create thoughtful, detailed nail appointments in a calm private studio.';
   state.profile.about.fullBio = 'I’m Daniela, the nail artist behind Isla Nail Studio. I specialize in structured manicures and durable, natural-looking enhancements designed around each client.';
   state.profile.about.specialties = [
@@ -111,11 +115,11 @@ export const createDanielaFixtureState = (): OnboardingLabState => {
       notice: '24_hours',
     },
     deposits: {
-      amount: '50',
-      amountType: 'fixed',
-      mode: 'generally_required',
+      amountCents: 5_000,
+      mode: 'fixed',
       refundable: false,
       transferable: true,
+      wordingOverride: '',
     },
     lateArrivals: {
       gracePeriodMinutes: '15',
@@ -194,8 +198,34 @@ export const LAB_REVIEW_FIXTURES: readonly LabReviewFixture[] = [
   fixture('lifetime_offer_available', 'Lifetime offer available', () => {
     const state = createDanielaFixtureState();
     state.planOffer.fixtureState = 'available';
+    state.planOffer.foundingMode = 'lifetime';
     state.planOffer.seededAt = DEFAULT_OFFER_SEEDED_AT;
     state.planOffer.expiresAt = DEFAULT_OFFER_EXPIRES_AT;
+    return state;
+  }),
+  fixture('founding_discounted_annual', 'Founding offer · Discounted annual', () => {
+    const state = createDanielaFixtureState();
+    state.planOffer.fixtureState = 'available';
+    state.planOffer.foundingMode = 'discounted_annual';
+    return state;
+  }),
+  fixture('founding_locked_monthly', 'Founding offer · Locked monthly', () => {
+    const state = createDanielaFixtureState();
+    state.planOffer.fixtureState = 'available';
+    state.planOffer.foundingMode = 'locked_monthly';
+    return state;
+  }),
+  fixture('founding_free_beta', 'Founding offer · Free beta', () => {
+    const state = createDanielaFixtureState();
+    state.planOffer.fixtureState = 'available';
+    state.planOffer.foundingMode = 'free_beta';
+    return state;
+  }),
+  fixture('founding_hidden', 'Founding offer · Hidden', () => {
+    const state = createDanielaFixtureState();
+    state.planOffer.fixtureState = 'none';
+    state.planOffer.foundingMode = 'hidden';
+    state.planOffer.expiresAt = null;
     return state;
   }),
   fixture('offer_expiring', 'Offer expiring', () => {

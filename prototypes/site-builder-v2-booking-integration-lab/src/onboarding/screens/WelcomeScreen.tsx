@@ -18,7 +18,7 @@ export function WelcomeScreen({
         <strong>Luster</strong>
       </div>
       <section aria-labelledby="welcome-heading" className="onboarding-welcome__content">
-        <p className="onboarding-screen-kicker">Your website starts here</p>
+        <p className="onboarding-screen-kicker">YOUR WEBSITE STARTS HERE</p>
         <h1 id="welcome-heading">{copy.heading}</h1>
         <p>{copy.supportingCopy}</p>
         <ul aria-label="What Luster will do" className="onboarding-welcome__benefits">

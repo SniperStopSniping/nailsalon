@@ -1,4 +1,7 @@
-export const ONBOARDING_SCHEMA_VERSION = 5 as const;
+import type { DepositDraft } from '../integrations/contracts/booking-preferences';
+import type { ServiceMenuSelectionDraft } from '../integrations/contracts/service-menu';
+
+export const ONBOARDING_SCHEMA_VERSION = 7 as const;
 
 export type OnboardingStage = 'basics' | 'booking' | 'design' | 'review';
 
@@ -65,7 +68,11 @@ export type LocalImageReference = {
   id: string;
   fileName: string;
   mimeType: string;
-  source: 'fixture' | 'indexed_db' | 'data_url';
+  /**
+   * `data_url` is retained only so a legacy browser draft can be normalized.
+   * Current state serialization converts it to metadata-only `missing` state.
+   */
+  source: 'fixture' | 'indexed_db' | 'data_url' | 'missing';
   storageId?: string;
   previewUrl?: string;
   width?: number;
@@ -125,16 +132,23 @@ export type VisitMode =
 
 export type NewClientStatus = 'yes' | 'no' | 'ask_first' | 'waitlist_only';
 
-export type AdvanceNotice = 'same_day' | '24_hours' | '48_hours' | 'custom';
-
 export type BookingPreferencesDraft = {
   visitMode: VisitMode | null;
   newClientStatus: NewClientStatus | null;
-  advanceNotice: AdvanceNotice | null;
-  customAdvanceNotice: string;
+  minimumNoticeMinutes: number;
+  legacyV5Archive?: {
+    advanceNotice: 'same_day' | '24_hours' | '48_hours' | 'custom' | null;
+    customAdvanceNotice: string;
+  };
 };
 
-export type CancellationNotice = '12_hours' | '24_hours' | '48_hours' | 'custom';
+export type CancellationNotice =
+  | 'same_day'
+  | '12_hours'
+  | '24_hours'
+  | '48_hours'
+  | '72_hours'
+  | 'custom';
 
 export type CancellationConsequence =
   | 'deposit_lost'
@@ -142,12 +156,7 @@ export type CancellationConsequence =
   | 'full_service_charge'
   | 'custom';
 
-export type DepositPolicyMode =
-  | 'none'
-  | 'generally_required'
-  | 'depends_on_service';
-
-export type DepositAmountType = 'fixed' | 'percentage' | 'service_defined';
+export type DepositPolicyMode = DepositDraft['mode'];
 
 export type PolicySectionId =
   | 'cancellations'
@@ -171,13 +180,7 @@ export type PoliciesDraft = {
     consequence: CancellationConsequence | null;
     customConsequence: string;
   };
-  deposits: {
-    mode: DepositPolicyMode | null;
-    amountType: DepositAmountType | null;
-    amount: string;
-    refundable: boolean | null;
-    transferable: boolean | null;
-  };
+  deposits: DepositDraft;
   lateArrivals: {
     gracePeriodMinutes: string;
     shortenService: boolean | null;
@@ -224,6 +227,7 @@ export type BusinessProfileDraft = {
   hours: WeeklyHoursDraft;
   about: AboutProfileDraft;
   bookingPreferences: BookingPreferencesDraft;
+  serviceMenu: ServiceMenuSelectionDraft;
   policies: PoliciesDraft;
   brand: BrandStyleDraft;
 };
@@ -292,17 +296,38 @@ export type CanvaDraft = {
   uploadResult: CanvaUploadResultDraft | null;
 };
 
-export type PlanIntent = 'lifetime' | 'monthly' | 'free';
+export type PlanIntent = 'founding' | 'monthly' | 'free';
 export type PlanOfferFixtureState = 'available' | 'expiring' | 'expired' | 'none';
+export type FoundingOfferMode =
+  | 'lifetime'
+  | 'discounted_annual'
+  | 'locked_monthly'
+  | 'free_beta'
+  | 'hidden';
 
 export type PlanOfferDraft = {
   fixtureState: PlanOfferFixtureState;
+  foundingMode: FoundingOfferMode;
   seededAt: string;
   expiresAt: string | null;
   planIntent: PlanIntent | null;
 };
 
-export type OnboardingSessionStatus = 'active' | 'paused' | 'builder';
+export type OnboardingSessionStatus = 'active' | 'paused' | 'builder' | 'dashboard';
+
+export type SetupChecklistFixtureStatus =
+  | 'not_connected'
+  | 'connected'
+  | 'needs_attention';
+
+export type DashboardHandoffDraft = {
+  checklistFixtures: {
+    googleCalendar: SetupChecklistFixtureStatus;
+    payments: SetupChecklistFixtureStatus;
+    shareBookingLink: SetupChecklistFixtureStatus;
+  };
+  tourCompleted: boolean;
+};
 
 export type OnboardingProgress = {
   currentScreen: OnboardingScreenId;
@@ -351,6 +376,7 @@ export type OnboardingEvent = OnboardingEventInput & {
 export type OnboardingLabState = {
   schemaVersion: typeof ONBOARDING_SCHEMA_VERSION;
   profile: BusinessProfileDraft;
+  dashboardHandoff: DashboardHandoffDraft;
   recipe: OnboardingSiteRecipe;
   progress: OnboardingProgress;
   gallery: GalleryDraft;

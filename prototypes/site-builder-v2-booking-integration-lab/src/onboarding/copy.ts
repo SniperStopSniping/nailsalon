@@ -48,7 +48,7 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     primaryAction: 'Choose an About design',
     stage: 'design',
     status: 'optional',
-    supportingCopy: 'Share the details that help clients feel comfortable booking with you.',
+    supportingCopy: 'Share a little about yourself so clients feel comfortable booking with you.',
   },
   about_design: {
     heading: 'Choose your About design',
@@ -56,17 +56,17 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     secondaryAction: 'Back to edit About',
     stage: 'design',
     status: 'optional',
-    supportingCopy: 'Switch designs without re-entering your information.',
+    supportingCopy: 'Your information stays the same when you switch designs.',
   },
   booking_preferences: {
-    heading: 'How can clients book with you?',
-    primaryAction: 'Save booking information',
+    heading: 'How do clients book with you?',
+    primaryAction: 'Save booking setup',
     stage: 'booking',
     status: 'essential',
-    supportingCopy: 'We’ll show this information clearly across your site.',
+    supportingCopy: 'We’ll use these settings on your website and when showing available appointments.',
   },
   business: {
-    heading: 'Tell us about your business',
+    heading: 'Tell us about your nail business',
     primaryAction: 'Continue',
     stage: 'basics',
     status: 'essential',
@@ -75,18 +75,17 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
   extras: {
     heading: 'Add something extra',
     primaryAction: 'Continue to review',
-    secondaryAction: 'Skip extras',
     stage: 'design',
     status: 'optional',
-    supportingCopy: 'Make your first site more personal, or skip this for now.',
+    supportingCopy: 'Make your first site more personal, or continue without adding anything.',
   },
   final_preview: {
     heading: 'Review your site',
-    primaryAction: 'Open my Builder',
-    secondaryAction: 'Edit setup',
+    primaryAction: 'Finish setup',
+    secondaryAction: 'Change setup',
     stage: 'review',
     status: null,
-    supportingCopy: 'Check the customer experience before opening the full Builder.',
+    supportingCopy: 'Your website is saved. You can edit it anytime from your dashboard.',
   },
   location_contact: {
     heading: 'Where can clients find you?',
@@ -96,12 +95,12 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     supportingCopy: 'Add only what you’re comfortable sharing publicly.',
   },
   photo_social: {
-    heading: 'Add your photo and social presence',
+    heading: 'Add your photo and Instagram',
     primaryAction: 'Continue',
     secondaryAction: 'Skip photo for now',
     stage: 'basics',
     status: 'optional',
-    supportingCopy: 'Help clients recognize you and connect with your business.',
+    supportingCopy: 'Help clients recognize you and find your work.',
   },
   policies: {
     heading: 'Set clear expectations',
@@ -112,12 +111,11 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     supportingCopy: 'Answer a few questions and Luster will organize the wording for you.',
   },
   site_style: {
-    heading: 'Choose your look',
+    heading: 'Choose your website style',
     primaryAction: 'Use this style',
-    secondaryAction: 'Keep current style',
     stage: 'design',
     status: 'essential',
-    supportingCopy: 'See your actual information in every style.',
+    supportingCopy: 'Pick the colours, fonts and overall feel of your site. You can change this anytime.',
   },
   starter: {
     heading: 'Choose your starting point',
@@ -137,17 +135,17 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
   welcome: {
     heading: 'Let’s build your website',
     primaryAction: 'Build my website',
-    secondaryAction: 'I already have a Canva design',
+    secondaryAction: 'I want to use a Canva design',
     stage: 'basics',
     status: null,
-    supportingCopy: 'Add your business information once. Luster will use it across your website, booking page, policies, contact details, and future sections.',
+    supportingCopy: 'Tell us about your nail business once. Luster will use your details to create a polished site with booking, policies, contact information, and more.',
   },
 };
 
 export const WELCOME_BENEFITS = [
-  'Enter information once',
-  'Change designs without retyping',
-  'Update connected sections automatically',
+  'Add your details once',
+  'Switch designs without starting over',
+  'Update your whole site from one place',
 ] as const;
 
 export const ONBOARDING_STAGE_ORDER = (

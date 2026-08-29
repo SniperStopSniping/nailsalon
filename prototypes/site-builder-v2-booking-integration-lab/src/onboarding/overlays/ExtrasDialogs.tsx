@@ -3,6 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 
 import {
   useCustomDesignAssetMap,
+  useCustomDesignAssetRepository,
   type CustomDesignAssetUrlPair,
 } from '../../custom-design/integration/CustomDesignAssetProvider';
 import { CustomDesignImageManager } from '../../custom-design/integration/CustomDesignImageManager';
@@ -22,10 +23,13 @@ import {
   type CanvaManagerResult,
 } from '../extras/useCanvaIntegration';
 import {
-  decodeOnboardingLocalImage,
   ONBOARDING_GALLERY_MAX_FILES,
   ONBOARDING_GALLERY_MAX_TOTAL_BYTES,
 } from '../model/local-images';
+import {
+  onboardingMediaPort,
+  resolveOnboardingImageUrl,
+} from '../integrations/adapters/media';
 import type {
   CanvaDisplayMode,
   CanvaPlacement,
@@ -42,33 +46,6 @@ const MOCK_GALLERY_IMAGES: LocalImageReference[] = [
   { altText: 'French manicure', fileName: 'french.webp', id: 'gallery-mock-french', mimeType: 'image/webp', previewUrl: '/manicure-french.webp', source: 'fixture' },
 ];
 
-const readFileAsDataUrl = (file: File): Promise<string> => new Promise((resolve, reject) => {
-  const reader = new FileReader();
-  reader.onerror = () => reject(reader.error ?? new Error('The image could not be read.'));
-  reader.onload = () => {
-    if (typeof reader.result === 'string') {
-      resolve(reader.result);
-      return;
-    }
-    reject(new Error('The image could not be read.'));
-  };
-  reader.readAsDataURL(file);
-});
-
-const readLocalImage = async (file: File): Promise<LocalImageReference> => {
-  const dimensions = await decodeOnboardingLocalImage(file);
-  const previewUrl = await readFileAsDataUrl(file);
-  return {
-    altText: 'Uploaded portfolio work',
-    fileName: file.name,
-    ...dimensions,
-    id: `gallery-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-    mimeType: file.type,
-    previewUrl,
-    source: 'data_url',
-  };
-};
-
 type GalleryDialogProps = {
   onClose: () => void;
   onUpdate: OnboardingStateUpdater;
@@ -78,16 +55,31 @@ type GalleryDialogProps = {
 
 export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogProps) {
   const inputId = useId();
+  const repository = useCustomDesignAssetRepository();
   const [error, setError] = useState('');
   const [showAllFailures, setShowAllFailures] = useState(false);
   const [uploadFailures, setUploadFailures] = useState<CustomDesignUploadFailure[]>([]);
+  const galleryAssetIds = useMemo(() => state.gallery.images.flatMap((image) =>
+    image.storageId ? [image.storageId] : []), [state.gallery.images]);
+  const galleryAssets = useCustomDesignAssetMap(galleryAssetIds);
+  const missingGalleryImages = state.gallery.images.filter((image) => image.source === 'missing');
   const addUploads = async (files: readonly File[]) => {
     try {
+      if (!repository) {
+        throw new Error('Photo storage is unavailable in this browser.');
+      }
       const upfrontFailures: CustomDesignUploadFailure[] = [];
       const acceptedForDecode: File[] = [];
       let acceptedBytes = 0;
+      const existingUploads = state.gallery.source === 'uploads'
+        ? state.gallery.images.filter((image) => image.source !== 'missing')
+        : [];
+      const remainingCapacity = Math.max(
+        0,
+        ONBOARDING_GALLERY_MAX_FILES - existingUploads.length,
+      );
       for (const file of files) {
-        if (acceptedForDecode.length >= ONBOARDING_GALLERY_MAX_FILES) {
+        if (acceptedForDecode.length >= remainingCapacity) {
           upfrontFailures.push({
             code: 'too_many_images',
             fileName: file.name,
@@ -106,21 +98,30 @@ export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogP
         acceptedForDecode.push(file);
         acceptedBytes += file.size;
       }
-      const results = await Promise.allSettled(acceptedForDecode.map(readLocalImage));
-      const images = results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
-      const failures = [...upfrontFailures, ...results.flatMap((result, index) => result.status === 'rejected'
-        ? [{
-            fileName: acceptedForDecode[index]?.name ?? `Image ${index + 1}`,
-            message: result.reason instanceof Error
-              ? result.reason.message
-              : 'This image couldn’t be opened. Try exporting or selecting it again.',
-          }]
-        : [])];
+      const result = await onboardingMediaPort.storeBatch(
+        repository,
+        acceptedForDecode,
+        'gallery',
+      );
+      const images = result.accepted;
+      const failures = [
+        ...upfrontFailures,
+        ...result.failures,
+      ];
       const rejected = failures.length;
       if (images.length > 0) {
         onUpdate((current) => ({
           ...current,
-          gallery: { ...current.gallery, images, source: 'uploads' },
+          gallery: {
+            ...current.gallery,
+            images: current.gallery.source === 'uploads'
+              ? [
+                  ...current.gallery.images.filter((image) => image.source !== 'missing'),
+                  ...images,
+                ]
+              : images,
+            source: 'uploads',
+          },
         }));
       }
       setShowAllFailures(false);
@@ -138,10 +139,51 @@ export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogP
       setError(cause instanceof Error ? cause.message : 'The selected images could not be read.');
     }
   };
-  const canAdd = state.gallery.source !== null && (state.gallery.source === 'mock_luster' || state.gallery.images.length > 0);
+  const selectTemporaryExamples = async () => {
+    const removedUploads = state.gallery.source === 'uploads'
+      ? state.gallery.images.filter((image) => image.source === 'indexed_db' && image.storageId)
+      : [];
+    const cleanupIds = removedUploads.flatMap((image) => image.storageId ? [image.storageId] : []);
+    onUpdate((current) => ({
+      ...current,
+      canva: {
+        ...current.canva,
+        ownedAssetIds: [...new Set([...current.canva.ownedAssetIds, ...cleanupIds])],
+      },
+      gallery: { ...current.gallery, images: MOCK_GALLERY_IMAGES, source: 'mock_luster' },
+    }));
+    setShowAllFailures(false);
+    setUploadFailures([]);
+    if (cleanupIds.length === 0) {
+      setError('');
+      return;
+    }
+    if (!repository) {
+      setError('The example photos are selected. This browser will retry cleaning up the earlier uploads later.');
+      return;
+    }
+    const cleanupErrors = await onboardingMediaPort.deleteOwned(repository, removedUploads);
+    if (cleanupErrors.length > 0) {
+      setError('The example photos are selected. This browser will retry cleaning up the earlier uploads later.');
+      return;
+    }
+    const cleanedIds = new Set(cleanupIds);
+    onUpdate((current) => ({
+      ...current,
+      canva: {
+        ...current.canva,
+        ownedAssetIds: current.canva.ownedAssetIds.filter((assetId) => !cleanedIds.has(assetId)),
+      },
+    }));
+    setError('');
+  };
+  const canAdd = state.gallery.source !== null && (
+    state.gallery.source === 'mock_luster'
+    || state.gallery.images.some((image) => image.source !== 'missing')
+  );
   const save = () => {
     if (!canAdd) {
-      setError('Choose portfolio images or the Luster sample portfolio first.');
+      setError('Choose portfolio images or temporary example photos first.');
       return;
     }
     onUpdate((current) => ({
@@ -159,9 +201,9 @@ export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogP
           <button
             aria-pressed={state.gallery.source === 'mock_luster'}
             type="button"
-            onClick={() => onUpdate((current) => ({ ...current, gallery: { ...current.gallery, images: MOCK_GALLERY_IMAGES, source: 'mock_luster' } }))}
+            onClick={() => { void selectTemporaryExamples(); }}
           >
-            <strong>Use Luster sample portfolio</strong><small>Four sample nail photos</small>
+            <strong>Use temporary example photos</strong><small>Four sample nail photos for this setup preview</small>
           </button>
           <label htmlFor={inputId} className="onboarding-upload-choice">
             <strong>Upload portfolio photos</strong><small>PNG, JPG, or WebP</small>
@@ -180,7 +222,22 @@ export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogP
         </div>
         {state.gallery.images.length > 0 ? (
           <div className="onboarding-upload-thumbnails">
-            {state.gallery.images.map((image) => image.previewUrl ? <img alt={image.altText ?? ''} key={image.id} src={image.previewUrl} /> : null)}
+            {state.gallery.images.map((image) => {
+              const source = resolveOnboardingImageUrl(image, galleryAssets);
+              return source
+                ? <img alt={image.altText ?? ''} key={image.id} src={source} />
+                : null;
+            })}
+          </div>
+        ) : null}
+        {missingGalleryImages.length > 0 ? (
+          <div className="onboarding-inline-error" role="status">
+            <p>{missingGalleryImages.length === 1
+              ? 'One saved Gallery image is no longer available on this device. Select it again to restore it.'
+              : `${missingGalleryImages.length} saved Gallery images are no longer available on this device. Select them again to restore them.`}</p>
+            <ul>
+              {missingGalleryImages.map((image) => <li key={image.id}>{image.fileName}</li>)}
+            </ul>
           </div>
         ) : null}
         <fieldset className="onboarding-layout-choice"><legend>Gallery layout</legend>
@@ -846,8 +903,13 @@ export function CanvaDialog({
       <Dialog description="Your uploaded design is added as a section you can move or edit later." onClose={requestClose} open={open} title="Upload a Canva design" variant="bottom-sheet">
         <div aria-busy={pending} className="onboarding-subflow">
         <FileImage aria-hidden="true" size={28} />
-        {state.recipe.wantsCanvaFromWelcome ? <p className="onboarding-prototype-state">Recommended from your welcome choice</p> : null}
-        <p>PNG, JPG, and WebP are supported. Export Canva pages as images before uploading.</p>
+        {state.recipe.wantsCanvaFromWelcome ? (
+          <div className="onboarding-prototype-state">
+            <strong>Recommended for you</strong>
+            <span>You told us you already have a Canva design.</span>
+          </div>
+        ) : null}
+        <p>Export your Canva design as PNG, JPG or WebP. You can upload up to 10 pages.</p>
         {section && controller ? (
           <CanvaManager
             controller={controller}
@@ -871,7 +933,7 @@ export function CanvaDialog({
           />
         ) : (
           <>
-            <label className="onboarding-upload-choice" htmlFor={inputId}><strong>Choose Canva pages</strong><small>Up to 10 images · stored in this browser</small></label>
+            <label className="onboarding-upload-choice" htmlFor={inputId}><strong>Choose Canva pages</strong><small>Up to 10 pages</small></label>
             <input
               accept="image/png,image/jpeg,image/webp"
               className="visually-hidden"

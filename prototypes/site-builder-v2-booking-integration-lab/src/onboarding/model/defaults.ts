@@ -3,6 +3,7 @@ import {
   type AboutElementId,
   type BusinessProfileDraft,
   type CanvaDraft,
+  type DashboardHandoffDraft,
   type GalleryDraft,
   type OnboardingLabState,
   type OnboardingProgress,
@@ -12,6 +13,7 @@ import {
   type Weekday,
   type WeeklyHoursDraft,
 } from './types';
+import { serviceMenuPort } from '../integrations/adapters/service-menu';
 
 export const DEFAULT_OFFER_SEEDED_AT = '2026-08-27T12:00:00.000Z';
 export const DEFAULT_OFFER_EXPIRES_AT = '2026-08-28T12:00:00.000Z';
@@ -102,11 +104,11 @@ export const createDefaultPolicies = (): PoliciesDraft => ({
     },
   },
   deposits: {
-    amount: '',
-    amountType: null,
-    mode: null,
+    amountCents: null,
+    mode: 'none',
     refundable: null,
     transferable: null,
+    wordingOverride: '',
   },
   lateArrivals: {
     gracePeriodMinutes: '',
@@ -148,8 +150,7 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
   },
   bookingOnlyContact: false,
   bookingPreferences: {
-    advanceNotice: null,
-    customAdvanceNotice: '',
+    minimumNoticeMinutes: 120,
     newClientStatus: null,
     visitMode: null,
   },
@@ -182,6 +183,7 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
   ownerName: '',
   policies: createDefaultPolicies(),
   preferredContact: null,
+  serviceMenu: serviceMenuPort.createDefaultSelection(),
 });
 
 export const createDefaultSiteRecipe = (): OnboardingSiteRecipe => ({
@@ -227,12 +229,23 @@ export const createDefaultCanvaDraft = (): CanvaDraft => ({
 export const createDefaultPlanOffer = (): PlanOfferDraft => ({
   expiresAt: DEFAULT_OFFER_EXPIRES_AT,
   fixtureState: 'available',
+  foundingMode: 'lifetime',
   planIntent: null,
   seededAt: DEFAULT_OFFER_SEEDED_AT,
 });
 
+export const createDefaultDashboardHandoff = (): DashboardHandoffDraft => ({
+  checklistFixtures: {
+    googleCalendar: 'not_connected',
+    payments: 'not_connected',
+    shareBookingLink: 'not_connected',
+  },
+  tourCompleted: false,
+});
+
 export const createDefaultOnboardingState = (): OnboardingLabState => ({
   canva: createDefaultCanvaDraft(),
+  dashboardHandoff: createDefaultDashboardHandoff(),
   eventJournal: [],
   gallery: createDefaultGalleryDraft(),
   planOffer: createDefaultPlanOffer(),

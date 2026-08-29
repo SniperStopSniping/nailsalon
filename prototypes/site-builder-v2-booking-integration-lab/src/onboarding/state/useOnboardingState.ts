@@ -379,7 +379,7 @@ export function useOnboardingState(
     const next = recordOnboardingEvent({
       ...current,
       planOffer: { ...current.planOffer, planIntent: intent },
-      progress: { ...current.progress, sessionStatus: 'builder' },
+      progress: { ...current.progress, sessionStatus: 'dashboard' },
     }, { intent, type: 'offer_choice' });
     return persistSnapshot(next);
   }, [persistSnapshot]);

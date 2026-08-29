@@ -7,10 +7,12 @@ import type { OnboardingLabState } from '../model/types';
 import {
   OnboardingSitePreview,
   type OnboardingPreviewDevice,
+  type OnboardingPreviewInitialTarget,
 } from '../preview/OnboardingSitePreview';
 
 type SetupPreviewOverlayProps = {
   document: SiteBuilderDocument | null;
+  initialTarget?: OnboardingPreviewInitialTarget;
   onClose: () => void;
   onContinue: () => void;
   open: boolean;
@@ -20,6 +22,7 @@ type SetupPreviewOverlayProps = {
 
 export function SetupPreviewOverlay({
   document,
+  initialTarget,
   onClose,
   onContinue,
   open,
@@ -36,6 +39,8 @@ export function SetupPreviewOverlay({
     : source === 'site_style'
       ? 'Preview your look'
       : 'Preview your site';
+  const resolvedInitialTarget = initialTarget
+    ?? (source === 'about' || source === 'about_design' ? 'about' : 'top');
 
   return (
     <Dialog
@@ -67,6 +72,7 @@ export function SetupPreviewOverlay({
           document={document}
           fitAvailable
           includeOptionalSections={source !== 'starting_preview'}
+          initialTarget={resolvedInitialTarget}
           interactionMode="interactive"
           label={`${title} — ${device}`}
           state={state}

@@ -1,9 +1,16 @@
 import { createMenuFixture } from '../../booking/helpers';
-import type { MockMenuFixture } from '../../booking/types';
+import type { MockMenuFixture, MockService } from '../../booking/types';
+import { serviceMenuPort } from '../integrations/adapters/service-menu';
 import { getPublicLocationPreview } from './location';
 import type { BusinessProfileDraft } from './types';
 
 export const CANONICAL_ONBOARDING_BOOKING_FIXTURE = createMenuFixture();
+
+export type OnboardingBookingFixture = MockMenuFixture & {
+  readonly labAvailability: {
+    readonly minimumNoticeMinutes: number;
+  };
+};
 
 export const getOnboardingPreviewLocation = (
   profile: BusinessProfileDraft,
@@ -19,13 +26,34 @@ export const getOnboardingPreviewLocation = (
 export const createOnboardingBookingFixture = (
   profile: BusinessProfileDraft,
   fixture: MockMenuFixture = CANONICAL_ONBOARDING_BOOKING_FIXTURE,
-): MockMenuFixture => ({
-  ...fixture,
-  salon: {
-    ...fixture.salon,
-    id: 'onboarding-preview-salon',
-    location: getOnboardingPreviewLocation(profile),
-    name: profile.businessName.trim() || 'Your nail studio',
-    slug: 'onboarding-preview',
-  },
-});
+): OnboardingBookingFixture => {
+  const serviceMenu = serviceMenuPort.normalizeSelection(profile.serviceMenu);
+  const selectedIds = new Set(serviceMenu.selectedServiceIds);
+  const services = fixture.services.flatMap((service): readonly MockService[] => {
+    if (!selectedIds.has(service.id)) return [];
+    const override = serviceMenu.ownerOverridesByServiceId[service.id];
+    if (!override) return [service];
+    return [{
+      ...service,
+      durationMinutes: override.durationMinutes ?? service.durationMinutes,
+      price: override.priceCents === undefined
+        ? service.price
+        : { amountCents: override.priceCents, behavior: 'fixed' },
+    }];
+  });
+
+  return {
+    ...fixture,
+    labAvailability: {
+      minimumNoticeMinutes: profile.bookingPreferences.minimumNoticeMinutes,
+    },
+    salon: {
+      ...fixture.salon,
+      id: 'onboarding-preview-salon',
+      location: getOnboardingPreviewLocation(profile),
+      name: profile.businessName.trim() || 'Your nail studio',
+      slug: 'onboarding-preview',
+    },
+    services,
+  };
+};

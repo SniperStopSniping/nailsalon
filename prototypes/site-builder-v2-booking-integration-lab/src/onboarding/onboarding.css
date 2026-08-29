@@ -1521,6 +1521,21 @@ body.onboarding-modal-open {
   font-size: 0.78rem;
 }
 
+.onboarding-booking-time-preview > div {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.onboarding-booking-time-preview > div > span {
+  padding: 5px 7px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  color: #fff;
+  font-size: 0.66rem;
+}
+
 /* Existing animated starter chooser, contained inside onboarding */
 
 .onboarding-starter-grid {
@@ -1630,6 +1645,88 @@ body.onboarding-modal-open {
 
 .onboarding-about-fields:disabled {
   opacity: 0.52;
+}
+
+.onboarding-about-field-with-visibility,
+.onboarding-about-shared-details,
+.onboarding-about-more {
+  min-width: 0;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 15px;
+  background: var(--onboarding-surface);
+}
+
+.onboarding-about-field-with-visibility {
+  display: grid;
+  gap: 4px;
+  padding: 13px;
+}
+
+.onboarding-about-field-with-visibility > .onboarding-field,
+.onboarding-about-field-with-visibility > .onboarding-chip-fieldset,
+.onboarding-about-more .onboarding-field {
+  margin-bottom: 0;
+}
+
+.onboarding-about-field-with-visibility > .onboarding-switch-row {
+  margin-top: 4px;
+  border-top: 1px solid var(--onboarding-line);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.onboarding-about-more {
+  overflow: hidden;
+}
+
+.onboarding-about-more > summary {
+  display: flex;
+  min-height: 50px;
+  align-items: center;
+  padding: 11px 14px;
+  color: var(--onboarding-ink);
+  cursor: pointer;
+  font-size: 0.84rem;
+  font-weight: 800;
+}
+
+.onboarding-about-more__fields {
+  display: grid;
+  min-width: 0;
+  gap: 13px;
+  padding: 2px 13px 13px;
+}
+
+.onboarding-about-shared-details {
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+}
+
+.onboarding-about-shared-details > div:first-child {
+  margin-bottom: 2px;
+}
+
+.onboarding-about-shared-details h2,
+.onboarding-about-shared-details p {
+  margin: 0;
+}
+
+.onboarding-about-shared-details h2 {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1rem;
+  font-weight: 560;
+}
+
+.onboarding-about-shared-details p {
+  margin-top: 3px;
+  color: var(--onboarding-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.onboarding-about-shared-details > .onboarding-switch-row {
+  box-shadow: none;
 }
 
 .onboarding-prototype-helper {
@@ -1938,8 +2035,26 @@ body.onboarding-modal-open {
   grid-template-columns: 1.25fr 0.75fr;
 }
 
+.onboarding-about-poster.is-photo_right i:first-child {
+  grid-column: 2;
+  grid-row: 1 / -1;
+}
+
+.onboarding-about-poster.is-photo_right i:not(:first-child) {
+  grid-column: 1;
+}
+
 .onboarding-about-poster.is-editorial_portrait {
-  grid-template-columns: 0.9fr 1.1fr;
+  grid-template-columns: 1.35fr 0.65fr;
+}
+
+.onboarding-about-poster.is-editorial_portrait i:first-child {
+  grid-column: 1;
+  grid-row: 1 / -1;
+}
+
+.onboarding-about-poster.is-editorial_portrait i:not(:first-child) {
+  grid-column: 2;
 }
 
 .onboarding-about-poster.is-profile_quick_facts {
@@ -1947,6 +2062,7 @@ body.onboarding-modal-open {
 }
 
 .onboarding-about-poster.is-about_before_you_book i:last-child {
+  grid-row: 2 / -1;
   background: #3d2d32;
 }
 
@@ -2079,6 +2195,7 @@ body.onboarding-modal-open {
   position: relative;
 }
 
+.onboarding-preset-card > span:last-child,
 .onboarding-style-card > span:last-child {
   display: inline-flex;
   align-items: center;
@@ -2088,12 +2205,22 @@ body.onboarding-modal-open {
   font-weight: 800;
 }
 
+.onboarding-style-reassurance {
+  margin: -5px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 11px;
+  color: var(--onboarding-muted);
+  background: var(--onboarding-surface-soft);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
 .onboarding-style-swatch {
   display: grid;
   height: 72px;
-  grid-template-columns: 1.3fr 0.7fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 4px;
+  grid-template-rows: auto 1fr auto;
+  gap: 2px;
   padding: 8px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--swatch-ink) 14%, transparent);
@@ -2103,17 +2230,36 @@ body.onboarding-modal-open {
 
 .onboarding-style-swatch i {
   display: block;
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--swatch-ink) 12%, white);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--swatch-ink);
+  background: transparent;
+  font-style: normal;
+  line-height: 1.1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .onboarding-style-swatch i:first-child {
-  grid-row: 1 / -1;
-  background: var(--swatch-ink);
+  font-family: var(--swatch-heading-font);
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.onboarding-style-swatch i:nth-child(2) {
+  font-family: var(--swatch-body-font);
+  font-size: 0.46rem;
 }
 
 .onboarding-style-swatch i:last-child {
+  width: fit-content;
+  padding: 4px 7px;
+  border-radius: var(--swatch-button-radius);
+  color: var(--swatch-ground);
   background: var(--swatch-accent);
+  font-family: var(--swatch-body-font);
+  font-size: 0.48rem;
+  font-weight: 750;
 }
 
 .onboarding-extra-grid {
@@ -2778,6 +2924,53 @@ body.onboarding-modal-open {
   font-size: 0.79rem;
 }
 
+.onboarding-customer-bookable-times {
+  display: grid;
+  min-width: 0;
+  gap: 9px;
+  margin: 0 auto 12px;
+  padding: 12px;
+  border: 1px solid var(--customer-line);
+  border-radius: var(--customer-radius);
+  background: var(--customer-surface);
+}
+
+.onboarding-customer-bookable-times > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.onboarding-customer-bookable-times > div:first-child > span {
+  color: var(--customer-ink);
+  font-size: 0.78rem;
+  font-weight: 760;
+}
+
+.onboarding-customer-bookable-times small,
+.onboarding-customer-bookable-times p {
+  margin: 0;
+  color: var(--customer-muted);
+  font-size: 0.67rem;
+  line-height: 1.4;
+}
+
+.onboarding-customer-bookable-times > div:last-child {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.onboarding-customer-bookable-times > div:last-child > span {
+  padding: 6px 8px;
+  border: 1px solid var(--customer-line);
+  border-radius: 999px;
+  color: var(--customer-ink);
+  background: var(--customer-ground);
+  font-size: 0.67rem;
+  font-weight: 690;
+}
+
 .onboarding-customer-footer {
   display: grid;
   min-width: 0;
@@ -3080,7 +3273,9 @@ body.onboarding-modal-open {
 
 .dialog-panel:has(.onboarding-preview-overlay) .dialog-body {
   display: flex;
+  width: 100%;
   min-height: 0;
+  flex: 1 1 auto;
   padding: 0;
   overflow: hidden;
 }
@@ -3089,8 +3284,10 @@ body.onboarding-modal-open {
   display: grid;
   position: relative;
   width: 100%;
+  height: 100%;
   min-width: 0;
   min-height: 0;
+  flex: 1 1 auto;
   grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 10px;
   padding: 10px max(10px, env(safe-area-inset-right))
@@ -4016,6 +4213,19 @@ body.onboarding-modal-open {
 }
 
 @media (max-width: 479px) {
+  .onboarding-screen--style > .sticky-onboarding-actions {
+    display: flex;
+    align-items: stretch;
+  }
+
+  .onboarding-screen--style > .sticky-onboarding-actions > button {
+    width: auto;
+    min-width: 0;
+    flex: 1 1 0;
+    grid-column: auto;
+    grid-row: auto;
+  }
+
   .onboarding-shell__brand > strong {
     display: none;
   }
@@ -4313,6 +4523,20 @@ body.onboarding-modal-open {
   .onboarding-screen--style .onboarding-style-card {
     gap: 3px;
     padding: 4px;
+  }
+
+  .onboarding-screen--style > .onboarding-screen__form {
+    gap: 4px;
+  }
+
+  .onboarding-screen--style .onboarding-screen__heading {
+    margin-bottom: 0;
+  }
+
+  .onboarding-screen--style .onboarding-style-reassurance {
+    margin: 0;
+    padding: 6px 10px;
+    line-height: 1.25;
   }
 
   .onboarding-screen--style .onboarding-style-card small {

@@ -126,5 +126,5 @@ export const getBuilderPrimaryLabel = (
   if (needsAttention.length > 0) {
     return `Resolve ${needsAttention.length} ${needsAttention.length === 1 ? 'issue' : 'issues'}`;
   }
-  return 'Open my Builder';
+  return 'Finish setup';
 };

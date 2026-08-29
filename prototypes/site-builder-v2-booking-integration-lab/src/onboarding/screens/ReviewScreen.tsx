@@ -100,6 +100,7 @@ export function FinalReviewScreen({
     [customDesignAssetIssues, document, state],
   );
   const primaryLabel = getBuilderPrimaryLabel(state, document, customDesignAssetIssues);
+  const finalPrimaryLabel = primaryLabel;
   const handlePrimary = () => {
     const first = needsAttention.find((item) => item.screen);
     if (first?.screen) {
@@ -134,7 +135,7 @@ export function FinalReviewScreen({
         </div>
         <aside className={`onboarding-readiness${drawerOpen ? ' is-open' : ''}`} aria-label="Site readiness">
           <button aria-controls={readinessContentId} aria-expanded={drawerOpen} className="onboarding-readiness__mobile-trigger" type="button" onClick={() => setDrawerOpen((current) => !current)}>
-            <span><strong>Site readiness</strong><small>{needsAttention.length === 0 ? 'Ready to open' : `${needsAttention.length} to review`}</small></span>
+            <span><strong>Site readiness</strong><small>{needsAttention.length === 0 ? 'Ready to go' : `${needsAttention.length} to review`}</small></span>
             <ChevronUp aria-hidden="true" size={18} />
           </button>
           <div
@@ -144,11 +145,16 @@ export function FinalReviewScreen({
             id={readinessContentId}
           >
             <h2>Site readiness</h2>
-            <p>No percentage score—just what is ready and what you may want to revisit.</p>
+            <p>Your website is saved. You can edit it anytime from your dashboard.</p>
             <ul>
               {readiness.map((item) => {
                 const Icon = STATUS_ICONS[item.status];
-                const editScreen = item.screen;
+                const editScreen = item.screen
+                  ?? (item.id === 'booking-path' ? 'booking_preferences'
+                    : item.id === 'business-name' ? 'business'
+                      : item.id === 'contact' ? 'location_contact'
+                        : item.id === 'mobile' ? 'site_style'
+                          : null);
                 return (
                   <li data-status={item.status} key={item.id}>
                     <Icon aria-hidden="true" size={16} />
@@ -175,7 +181,15 @@ export function FinalReviewScreen({
           </div>
         </aside>
       </div>
-      <StickyOnboardingActions backLabel="Back" primaryId={BUILDER_HANDOFF_TRIGGER_ID} primaryLabel={primaryLabel} skipLabel="Edit setup" onBack={onBack} onPrimary={handlePrimary} onSkip={() => onEdit(needsAttention.find((item) => item.screen)?.screen ?? 'business')} />
+      <StickyOnboardingActions
+        backLabel="Back"
+        primaryId={BUILDER_HANDOFF_TRIGGER_ID}
+        primaryLabel={finalPrimaryLabel}
+        skipLabel={SCREEN_METADATA.final_preview.secondaryAction}
+        onBack={onBack}
+        onPrimary={handlePrimary}
+        onSkip={() => onEdit(needsAttention.find((item) => item.screen)?.screen ?? 'business')}
+      />
     </div>
   );
 }

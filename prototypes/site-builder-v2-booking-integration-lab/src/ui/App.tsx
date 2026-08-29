@@ -87,11 +87,17 @@ import {
   type SectionSize,
   type SiteBuilderDocument,
 } from '../model';
-import { OnboardingApp } from '../onboarding/OnboardingApp';
+import {
+  getOnboardingReferencedAssetIds,
+  OnboardingApp,
+} from '../onboarding/OnboardingApp';
+import { DashboardPreviewSurface } from '../onboarding/integrations/lab/DashboardPreviewSurface';
+import { LAB_DASHBOARD_HANDOFF_PORT } from '../onboarding/integrations/lab/createLabDashboardPorts';
 import { createOnboardingBookingFixture } from '../onboarding/model/booking-preview';
 import {
   loadOnboardingState,
   ONBOARDING_STORAGE_KEY,
+  saveOnboardingState,
 } from '../onboarding/storage/storage';
 import { BookingSectionCard, type BookingCollapseReport } from './BookingSectionCard';
 import {
@@ -264,7 +270,7 @@ const restoreVisibleFocus = (element: HTMLElement | null): boolean => {
 
 type LabDocumentController = ReturnType<typeof useLabDocument>;
 
-const getInitialSurface = (): 'builder' | 'onboarding' => {
+const getInitialSurface = (): 'builder' | 'dashboard' | 'onboarding' => {
   const builderTestHarnessEnabled = import.meta.env.MODE === 'test'
     || import.meta.env.VITE_LUSTER_BUILDER_TEST_HARNESS === '1';
   if (
@@ -273,6 +279,11 @@ const getInitialSurface = (): 'builder' | 'onboarding' => {
   ) {
     return 'builder';
   }
+  const loaded = loadOnboardingState();
+  if (
+    loaded.status === 'loaded'
+    && loaded.state.progress.sessionStatus === 'dashboard'
+  ) return 'dashboard';
   if (import.meta.env.MODE !== 'test') return 'onboarding';
   try {
     return window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ? 'onboarding' : 'builder';
@@ -283,17 +294,32 @@ const getInitialSurface = (): 'builder' | 'onboarding' => {
 
 export function App() {
   const lab = useLabDocument();
-  const [surface, setSurface] = useState<'builder' | 'onboarding' | 'review'>(getInitialSurface);
+  const [surface, setSurface] = useState<'builder' | 'dashboard' | 'onboarding' | 'review'>(getInitialSurface);
+  const getReachableAssetIds = useCallback(() => {
+    const reachable = new Set(lab.getReachableAssetIds());
+    const loaded = loadOnboardingState();
+    if (loaded.status === 'loaded') {
+      getOnboardingReferencedAssetIds(loaded.state)
+        .forEach((assetId) => reachable.add(assetId));
+    }
+    return reachable;
+  }, [lab.getReachableAssetIds]);
   return (
-    <CustomDesignAssetProvider getReachableAssetIds={lab.getReachableAssetIds}>
-      {surface === 'builder' ? (
+    <CustomDesignAssetProvider getReachableAssetIds={getReachableAssetIds}>
+      {surface === 'dashboard' ? (
+        <DashboardHandoffSurface
+          lab={lab}
+          onEditWebsite={() => setSurface('builder')}
+          onReturnToReview={() => setSurface('review')}
+        />
+      ) : surface === 'builder' ? (
         <div className="onboarding-builder-surface">
           <button
             className="onboarding-builder-return"
             type="button"
-            onClick={() => setSurface('review')}
+            onClick={() => setSurface('dashboard')}
           >
-            Back to onboarding review · Lab
+            Back to dashboard preview · Lab
           </button>
           <BuilderApp lab={lab} />
         </div>
@@ -301,10 +327,57 @@ export function App() {
         <OnboardingApp
           forceReview={surface === 'review'}
           lab={lab}
-          onEnterBuilder={() => setSurface('builder')}
+          onEnterDashboard={() => setSurface('dashboard')}
         />
       )}
     </CustomDesignAssetProvider>
+  );
+}
+
+function DashboardHandoffSurface({
+  lab,
+  onEditWebsite,
+  onReturnToReview,
+}: {
+  lab: LabDocumentController;
+  onEditWebsite: () => void;
+  onReturnToReview: () => void;
+}) {
+  const initial = useMemo(() => loadOnboardingState(), []);
+  const [state, setState] = useState(initial.state);
+  const updateTourCompleted = useCallback((tourCompleted: boolean) => {
+    setState((current) => {
+      const next = {
+        ...current,
+        dashboardHandoff: {
+          ...current.dashboardHandoff,
+          tourCompleted,
+        },
+      };
+      saveOnboardingState(next);
+      return next;
+    });
+  }, []);
+  const returnToOnboardingReview = useCallback(() => {
+    const reviewState = LAB_DASHBOARD_HANDOFF_PORT.prepareOnboardingReview(state);
+    const saved = saveOnboardingState(reviewState);
+    setState(saved.success ? saved.state : reviewState);
+    onReturnToReview();
+  }, [onReturnToReview, state]);
+
+  return (
+    <DashboardPreviewSurface
+      document={lab.document}
+      fixtures={state.dashboardHandoff.checklistFixtures}
+      onEditWebsite={onEditWebsite}
+      onReturnToReview={returnToOnboardingReview}
+      onTourCompletedChange={updateTourCompleted}
+      planIntent={state.planOffer.planIntent}
+      profile={state.profile}
+      reducedMotion={state.reviewOptions.reducedMotion}
+      selectedServiceIds={state.profile.serviceMenu.selectedServiceIds}
+      tourCompleted={state.dashboardHandoff.tourCompleted}
+    />
   );
 }
 
@@ -473,7 +546,9 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
 
   const onboardingHandoffState = useMemo(() => {
     const loaded = loadOnboardingState();
-    return loaded.status === 'loaded' && loaded.state.progress.sessionStatus === 'builder'
+    return loaded.status === 'loaded'
+      && (loaded.state.progress.sessionStatus === 'builder'
+        || loaded.state.progress.sessionStatus === 'dashboard')
       ? loaded.state
       : null;
   }, [document?.siteName]);

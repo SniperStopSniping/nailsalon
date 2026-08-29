@@ -1,0 +1,61 @@
+.onboarding-plan-comparison {
+  margin-top: 14px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 14px;
+  background: var(--onboarding-surface);
+}
+
+.onboarding-plan-comparison summary {
+  min-height: 44px;
+  padding: 12px 14px;
+  font-weight: 780;
+  cursor: pointer;
+}
+
+.onboarding-plan-card.is-founding {
+  border-color: #c49a45;
+  background: linear-gradient(145deg, #fffdf5, #fbf2db);
+}
+
+.onboarding-plan-card h3 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 1.25rem;
+  font-weight: 550;
+  line-height: 1.12;
+}
+
+.onboarding-plan-comparison__scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.onboarding-plan-comparison__table {
+  width: 100%;
+  min-width: 560px;
+  border-collapse: collapse;
+  border-top: 1px solid var(--onboarding-line);
+  background: var(--onboarding-surface);
+}
+
+.onboarding-plan-comparison__table :where(th, td) {
+  min-width: 0;
+  padding: 10px 12px;
+  border-right: 1px solid var(--onboarding-line);
+  border-bottom: 1px solid var(--onboarding-line);
+  text-align: left;
+}
+
+.onboarding-plan-comparison__table :where(th, td):last-child {
+  border-right: 0;
+}
+
+.onboarding-plan-comparison__table thead th {
+  color: var(--onboarding-ink);
+  font-size: .72rem;
+}
+
+.onboarding-plan-comparison__table tbody td {
+  color: var(--onboarding-muted);
+  font-size: .78rem;
+}

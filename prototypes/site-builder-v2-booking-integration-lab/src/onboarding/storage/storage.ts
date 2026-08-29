@@ -1,3 +1,10 @@
+import { bookingPreferencesPort } from '../integrations/adapters/booking-preferences';
+import { serviceMenuPort } from '../integrations/adapters/service-menu';
+import type {
+  DepositDraft,
+  LegacyV5DepositArchive,
+} from '../integrations/contracts/booking-preferences';
+import type { ServiceMenuSelectionDraft } from '../integrations/contracts/service-menu';
 import { createDefaultOnboardingState } from '../model/defaults';
 import { getCoherentPreferredContact } from '../model/contact';
 import {
@@ -6,11 +13,16 @@ import {
   type BusinessStructure,
   type CanvaDraft,
   type ClientContactDraft,
-  type DepositAmountType,
-  type DepositPolicyMode,
+  type DashboardHandoffDraft,
+  type FoundingOfferMode,
+  type GalleryDraft,
+  type LocalImageReference,
   type LocationType,
   type OnboardingLabState,
+  type OnboardingSessionStatus,
   type OnboardingScreenId,
+  type PlanIntent,
+  type SetupChecklistFixtureStatus,
   type Weekday,
   type WeeklyHoursDraft,
 } from '../model/types';
@@ -64,6 +76,14 @@ const WEEKDAYS: readonly Weekday[] = [
   'sunday',
 ];
 
+const STRUCTURAL_ABOUT_VISIBILITY = [
+  'profile_photo',
+  'owner_name',
+  'salon_name',
+  'bio',
+  'book_button',
+] as const;
+
 const isDayHours = (value: unknown): boolean => isRecord(value)
   && typeof value.closed === 'boolean'
   && typeof value.open === 'string'
@@ -89,17 +109,78 @@ const isClientContactDraft = (value: unknown): value is ClientContactDraft => is
 const isBusinessStructure = (value: unknown): value is BusinessStructure | null =>
   value === null || value === 'solo' || value === 'multi_tech';
 
-const isDepositPolicyMode = (value: unknown): value is DepositPolicyMode | null =>
-  value === null
-  || value === 'none'
-  || value === 'generally_required'
-  || value === 'depends_on_service';
+const isNullableBoolean = (value: unknown): value is boolean | null =>
+  value === null || typeof value === 'boolean';
 
-const isDepositAmountType = (value: unknown): value is DepositAmountType | null =>
-  value === null
-  || value === 'fixed'
-  || value === 'percentage'
-  || value === 'service_defined';
+const isDepositDraft = (value: unknown): value is DepositDraft => isRecord(value)
+  && (value.mode === 'none' || value.mode === 'fixed')
+  && (value.amountCents === null
+    || (Number.isSafeInteger(value.amountCents) && Number(value.amountCents) >= 0))
+  && isNullableBoolean(value.refundable)
+  && isNullableBoolean(value.transferable)
+  && typeof value.wordingOverride === 'string';
+
+const isOwnerOverride = (value: unknown): boolean => isRecord(value)
+  && (value.durationMinutes === undefined
+    || (Number.isSafeInteger(value.durationMinutes) && Number(value.durationMinutes) > 0))
+  && (value.priceCents === undefined
+    || (Number.isSafeInteger(value.priceCents) && Number(value.priceCents) >= 0));
+
+const isServiceMenuSelection = (
+  value: unknown,
+): value is ServiceMenuSelectionDraft => {
+  if (!isRecord(value)) return false;
+  const selectedServiceIds = value.selectedServiceIds;
+  const ownerOverridesByServiceId = value.ownerOverridesByServiceId;
+  if (!Array.isArray(selectedServiceIds)
+    || !selectedServiceIds.every((item) => typeof item === 'string')
+    || !isRecord(ownerOverridesByServiceId)
+    || !Object.values(ownerOverridesByServiceId).every(isOwnerOverride)) {
+    return false;
+  }
+  const normalized = serviceMenuPort.normalizeSelection(
+    value as ServiceMenuSelectionDraft,
+  );
+  return normalized.selectedServiceIds.length === selectedServiceIds.length
+    && normalized.selectedServiceIds.every(
+      (serviceId, index) => serviceId === selectedServiceIds[index],
+    )
+    && Object.keys(normalized.ownerOverridesByServiceId).length
+      === Object.keys(ownerOverridesByServiceId).length;
+};
+
+const isChecklistFixtureStatus = (
+  value: unknown,
+): value is SetupChecklistFixtureStatus => value === 'not_connected'
+  || value === 'connected'
+  || value === 'needs_attention';
+
+const isDashboardHandoffDraft = (
+  value: unknown,
+): value is DashboardHandoffDraft => isRecord(value)
+  && typeof value.tourCompleted === 'boolean'
+  && isRecord(value.checklistFixtures)
+  && isChecklistFixtureStatus(value.checklistFixtures.googleCalendar)
+  && isChecklistFixtureStatus(value.checklistFixtures.payments)
+  && isChecklistFixtureStatus(value.checklistFixtures.shareBookingLink);
+
+const isSessionStatus = (value: unknown): value is OnboardingSessionStatus =>
+  value === 'active'
+  || value === 'paused'
+  || value === 'builder'
+  || value === 'dashboard';
+
+const isPlanIntent = (value: unknown): value is PlanIntent | null => value === null
+  || value === 'founding'
+  || value === 'monthly'
+  || value === 'free';
+
+const isFoundingOfferMode = (value: unknown): value is FoundingOfferMode =>
+  value === 'lifetime'
+  || value === 'discounted_annual'
+  || value === 'locked_monthly'
+  || value === 'free_beta'
+  || value === 'hidden';
 
 const isCanvaUploadResult = (
   value: unknown,
@@ -117,8 +198,130 @@ const isCanvaUploadResult = (
 const isStringArray = (value: unknown): value is string[] =>
   Array.isArray(value) && value.every((item) => typeof item === 'string');
 
+const isUnsafeEphemeralImageUrl = (value: unknown): boolean => typeof value === 'string'
+  && /^\s*(?:blob|data):/iu.test(value);
+
+const copySafeImageMetadata = (
+  value: Record<string, unknown>,
+): Omit<LocalImageReference, 'source'> | null => {
+  if (typeof value.id !== 'string'
+    || typeof value.fileName !== 'string'
+    || typeof value.mimeType !== 'string') {
+    return null;
+  }
+  return {
+    ...(typeof value.altText === 'string' ? { altText: value.altText } : {}),
+    fileName: value.fileName,
+    ...(typeof value.height === 'number' && Number.isFinite(value.height) && value.height > 0
+      ? { height: value.height }
+      : {}),
+    id: value.id,
+    mimeType: value.mimeType,
+    ...(typeof value.width === 'number' && Number.isFinite(value.width) && value.width > 0
+      ? { width: value.width }
+      : {}),
+  };
+};
+
+/**
+ * Converts legacy in-document image bytes and ephemeral object URLs into an
+ * honest metadata-only state. The filename/dimensions remain available so the
+ * owner can identify what needs to be selected again on this device.
+ */
+const normalizeLocalImageReference = (
+  value: unknown,
+): LocalImageReference | undefined => {
+  if (!isRecord(value)) return undefined;
+  const metadata = copySafeImageMetadata(value);
+  if (!metadata) return undefined;
+  const storageId = typeof value.storageId === 'string' && value.storageId.trim()
+    ? value.storageId
+    : undefined;
+  const previewUrl = typeof value.previewUrl === 'string' && value.previewUrl.trim()
+    ? value.previewUrl
+    : undefined;
+
+  if (value.source === 'indexed_db' && storageId) {
+    return { ...metadata, source: 'indexed_db', storageId };
+  }
+  if (value.source === 'fixture' && !isUnsafeEphemeralImageUrl(previewUrl)) {
+    return {
+      ...metadata,
+      ...(previewUrl ? { previewUrl } : {}),
+      source: 'fixture',
+    };
+  }
+  if (value.source === 'missing'
+    || value.source === 'data_url'
+    || isUnsafeEphemeralImageUrl(previewUrl)
+    || (value.source === 'indexed_db' && !storageId)) {
+    return { ...metadata, source: 'missing' };
+  }
+  return undefined;
+};
+
+const normalizeGalleryDraft = (
+  value: unknown,
+  fallback: GalleryDraft,
+): GalleryDraft => {
+  if (!isRecord(value)) return fallback;
+  const images = Array.isArray(value.images)
+    ? value.images.flatMap((image) => {
+        const normalized = normalizeLocalImageReference(image);
+        return normalized ? [normalized] : [];
+      })
+    : [];
+  const source = value.source === 'uploads' || value.source === 'mock_luster'
+    ? value.source
+    : null;
+  const layout = value.layout === 'grid'
+    || value.layout === 'carousel'
+    || value.layout === 'editorial'
+    ? value.layout
+    : fallback.layout;
+  return {
+    images,
+    layout,
+    source: images.length > 0 ? source : null,
+  };
+};
+
+const normalizeOnboardingMediaReferences = <T>(value: T): T => {
+  if (!isRecord(value)) return value;
+  const defaults = createDefaultOnboardingState();
+  const profile = isRecord(value.profile) ? { ...value.profile } : null;
+  if (profile) {
+    const profilePhoto = normalizeLocalImageReference(profile.profilePhoto);
+    const logo = normalizeLocalImageReference(profile.logo);
+    delete profile.profilePhoto;
+    delete profile.logo;
+    if (profilePhoto) profile.profilePhoto = profilePhoto;
+    if (logo) profile.logo = logo;
+  }
+  return {
+    ...value,
+    gallery: normalizeGalleryDraft(value.gallery, defaults.gallery),
+    ...(profile ? { profile } : {}),
+  } as T;
+};
+
+const isCurrentLocalImageReference = (
+  value: unknown,
+): value is LocalImageReference => {
+  const normalized = normalizeLocalImageReference(value);
+  if (!normalized || !isRecord(value) || normalized.source === 'data_url') return false;
+  return JSON.stringify(normalized) === JSON.stringify(value);
+};
+
+const isGalleryDraft = (value: unknown): value is GalleryDraft => isRecord(value)
+  && (value.layout === 'grid' || value.layout === 'carousel' || value.layout === 'editorial')
+  && (value.source === null || value.source === 'uploads' || value.source === 'mock_luster')
+  && Array.isArray(value.images)
+  && value.images.every(isCurrentLocalImageReference);
+
 type SharedStateShape = Record<string, unknown> & {
   canva: Record<string, unknown>;
+  planOffer: Record<string, unknown>;
   profile: Record<string, unknown>;
   progress: Record<string, unknown>;
   reviewOptions: Record<string, unknown>;
@@ -150,15 +353,27 @@ const isOnboardingState = (value: unknown): value is OnboardingLabState => {
   return isWeeklyHoursDraft(value.profile.hours)
     && isBusinessStructure(value.profile.businessStructure)
     && isClientContactDraft(value.profile.clientContact)
+    && (value.profile.profilePhoto === undefined
+      || isCurrentLocalImageReference(value.profile.profilePhoto))
+    && (value.profile.logo === undefined
+      || isCurrentLocalImageReference(value.profile.logo))
+    && isGalleryDraft(value.gallery)
     && isRecord(value.profile.bookingPreferences)
+    && Number.isSafeInteger(value.profile.bookingPreferences.minimumNoticeMinutes)
+    && Number(value.profile.bookingPreferences.minimumNoticeMinutes) >= 0
     && !('depositPreference' in value.profile.bookingPreferences)
+    && isServiceMenuSelection(value.profile.serviceMenu)
     && isRecord(value.profile.policies)
-    && isRecord(value.profile.policies.deposits)
-    && isDepositPolicyMode(value.profile.policies.deposits.mode)
-    && isDepositAmountType(value.profile.policies.deposits.amountType)
+    && isDepositDraft(value.profile.policies.deposits)
+    && !('amount' in value.profile.policies.deposits)
+    && !('amountType' in value.profile.policies.deposits)
     && !('required' in value.profile.policies.deposits)
+    && isDashboardHandoffDraft(value.dashboardHandoff)
     && isRecord(value.profile.location)
     && typeof value.profile.location.allowGeneralAreaDirections === 'boolean'
+    && isSessionStatus(value.progress.sessionStatus)
+    && isPlanIntent(value.planOffer.planIntent)
+    && isFoundingOfferMode(value.planOffer.foundingMode)
     && typeof value.reviewOptions.previewTimestamp === 'string'
     && isStringArray(value.canva.ownedAssetIds)
     && isCanvaUploadResult(value.canva.uploadResult);
@@ -232,11 +447,27 @@ const migrateClientContact = (
   };
 };
 
-const migrateDepositMode = (
+type LegacyDepositMode = LegacyV5DepositArchive['mode'];
+type LegacyDepositAmountType = LegacyV5DepositArchive['amountType'];
+
+const isLegacyDepositMode = (value: unknown): value is LegacyDepositMode =>
+  value === null
+  || value === 'none'
+  || value === 'generally_required'
+  || value === 'depends_on_service';
+
+const isLegacyDepositAmountType = (
+  value: unknown,
+): value is LegacyDepositAmountType => value === null
+  || value === 'fixed'
+  || value === 'percentage'
+  || value === 'service_defined';
+
+const migrateLegacyDepositMode = (
   deposits: Record<string, unknown>,
   bookingPreferences: Record<string, unknown>,
-): DepositPolicyMode | null => {
-  if (isDepositPolicyMode(deposits.mode)) return deposits.mode;
+): LegacyDepositMode => {
+  if (isLegacyDepositMode(deposits.mode)) return deposits.mode;
   if (deposits.required === true) return 'generally_required';
   if (deposits.required === false) return 'none';
   switch (bookingPreferences.depositPreference) {
@@ -245,6 +476,69 @@ const migrateDepositMode = (
     case 'depends_on_service': return 'depends_on_service';
     default: return null;
   }
+};
+
+const parseLegacyFixedDepositCents = (value: unknown): number | null => {
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const parsed = Number(String(value).trim().replace(/^\$/u, '').replaceAll(',', ''));
+  return bookingPreferencesPort.normalizeCustomDepositAmount(String(parsed));
+};
+
+const migrateMinimumNoticeMinutes = (
+  bookingPreferences: Record<string, unknown>,
+): BusinessProfileDraft['bookingPreferences'] => {
+  const advanceNotice = bookingPreferences.advanceNotice;
+  const customAdvanceNotice = typeof bookingPreferences.customAdvanceNotice === 'string'
+    ? bookingPreferences.customAdvanceNotice
+    : '';
+  let minimumNoticeMinutes = 120;
+  if (Number.isSafeInteger(bookingPreferences.minimumNoticeMinutes)
+    && Number(bookingPreferences.minimumNoticeMinutes) >= 0) {
+    minimumNoticeMinutes = Number(bookingPreferences.minimumNoticeMinutes);
+  } else if (advanceNotice === 'same_day') {
+    minimumNoticeMinutes = 0;
+  } else if (advanceNotice === '24_hours') {
+    minimumNoticeMinutes = 1_440;
+  } else if (advanceNotice === '48_hours') {
+    minimumNoticeMinutes = 2_880;
+  } else if (advanceNotice === 'custom') {
+    const match = customAdvanceNotice.trim().match(
+      /^(\d+(?:\.\d+)?)\s*(hours?|hrs?|days?)?$/iu,
+    );
+    if (match) {
+      const normalized = bookingPreferencesPort.normalizeCustomMinimumNotice(
+        match[1] ?? '0',
+        match[2]?.toLocaleLowerCase('en-US').startsWith('day') ? 'days' : 'hours',
+      );
+      if (normalized !== null) minimumNoticeMinutes = normalized;
+    }
+  }
+
+  return {
+    minimumNoticeMinutes,
+    newClientStatus: bookingPreferences.newClientStatus === 'yes'
+      || bookingPreferences.newClientStatus === 'no'
+      || bookingPreferences.newClientStatus === 'ask_first'
+      || bookingPreferences.newClientStatus === 'waitlist_only'
+      ? bookingPreferences.newClientStatus
+      : null,
+    visitMode: bookingPreferences.visitMode === 'appointment_only'
+      || bookingPreferences.visitMode === 'walk_ins_only'
+      || bookingPreferences.visitMode === 'appointments_and_walk_ins'
+      ? bookingPreferences.visitMode
+      : null,
+    ...(advanceNotice === 'same_day'
+      || advanceNotice === '24_hours'
+      || advanceNotice === '48_hours'
+      || advanceNotice === 'custom'
+      ? {
+          legacyV5Archive: {
+            advanceNotice,
+            customAdvanceNotice,
+          },
+        }
+      : {}),
+  };
 };
 
 const migrateDepositPolicy = (
@@ -256,20 +550,42 @@ const migrateDepositPolicy = (
   const bookingPreferences = isRecord(profile.bookingPreferences)
     ? profile.bookingPreferences
     : {};
-  const mode = migrateDepositMode(deposits, bookingPreferences);
-  const amountType = mode === 'depends_on_service'
-    ? 'service_defined'
-    : deposits.amountType === 'fixed' || deposits.amountType === 'percentage'
-      ? deposits.amountType
+  const legacyMode = migrateLegacyDepositMode(deposits, bookingPreferences);
+  const legacyAmountType = isLegacyDepositAmountType(deposits.amountType)
+    ? deposits.amountType
+    : legacyMode === 'depends_on_service'
+      ? 'service_defined'
       : null;
-  const { depositPreference: _legacyPreference, ...bookingValues } = bookingPreferences;
-  const { required: _legacyRequired, ...depositValues } = deposits;
+  const legacyAmount = typeof deposits.amount === 'string'
+    ? deposits.amount
+    : typeof deposits.amount === 'number'
+      ? String(deposits.amount)
+      : '';
+  const depositCopy = isRecord(policies.copy)
+    && isRecord(policies.copy.deposits)
+    ? policies.copy.deposits
+    : {};
+  const migratedDeposit = bookingPreferencesPort.normalizeDepositDraft({
+    amountCents: legacyMode === 'generally_required' && legacyAmountType === 'fixed'
+      ? parseLegacyFixedDepositCents(legacyAmount)
+      : null,
+    legacyV5Archive: {
+      amount: legacyAmount,
+      amountType: legacyAmountType,
+      mode: legacyMode,
+    },
+    mode: legacyMode === 'generally_required' ? 'fixed' : 'none',
+    refundable: isNullableBoolean(deposits.refundable) ? deposits.refundable : null,
+    transferable: isNullableBoolean(deposits.transferable) ? deposits.transferable : null,
+    wordingOverride: typeof deposits.wordingOverride === 'string'
+      ? deposits.wordingOverride
+      : typeof depositCopy.wordingOverride === 'string'
+        ? depositCopy.wordingOverride
+        : '',
+  });
 
   return {
-    bookingPreferences: {
-      ...defaults.bookingPreferences,
-      ...(bookingValues as BusinessProfileDraft['bookingPreferences']),
-    },
+    bookingPreferences: migrateMinimumNoticeMinutes(bookingPreferences),
     policies: {
       ...defaults.policies,
       ...(policies as BusinessProfileDraft['policies']),
@@ -279,12 +595,7 @@ const migrateDepositPolicy = (
           ? policies.copy as BusinessProfileDraft['policies']['copy']
           : {}),
       },
-      deposits: {
-        ...defaults.policies.deposits,
-        ...(depositValues as BusinessProfileDraft['policies']['deposits']),
-        amountType,
-        mode,
-      },
+      deposits: migratedDeposit,
     },
   };
 };
@@ -313,12 +624,34 @@ const migrateBusinessProfile = (
     : undefined;
   const location = isRecord(value.location) ? value.location : {};
   const depositPolicy = migrateDepositPolicy(value);
+  const serviceMenu = isServiceMenuSelection(value.serviceMenu)
+    ? serviceMenuPort.normalizeSelection(value.serviceMenu)
+    : defaults.serviceMenu;
+  const legacyAbout = isRecord(value.about) ? value.about : {};
+  const legacyAboutVisibility = isRecord(legacyAbout.visibility)
+    ? legacyAbout.visibility
+    : {};
+  const aboutVisibility = Object.fromEntries(
+    Object.entries(defaults.about.visibility).map(([element, defaultVisible]) => [
+      element,
+      typeof legacyAboutVisibility[element] === 'boolean'
+        ? legacyAboutVisibility[element]
+        : defaultVisible,
+    ]),
+  ) as BusinessProfileDraft['about']['visibility'];
+  for (const element of STRUCTURAL_ABOUT_VISIBILITY) aboutVisibility[element] = true;
   const migratedProfile = {
     ...defaults,
     ...(nextProfile as unknown as BusinessProfileDraft),
+    about: {
+      ...defaults.about,
+      ...(legacyAbout as unknown as BusinessProfileDraft['about']),
+      visibility: aboutVisibility,
+    },
     businessStructure,
     clientContact: migrateClientContact(value),
     ...depositPolicy,
+    serviceMenu,
     location: {
       ...defaults.location,
       ...(location as unknown as BusinessProfileDraft['location']),
@@ -343,6 +676,7 @@ const migrateLegacyOnboardingState = (
   const defaults = createDefaultOnboardingState();
   const profile = value.profile as Record<string, unknown>;
   const reviewOptions = value.reviewOptions as Record<string, unknown>;
+  const planOffer = value.planOffer;
   const legacyHours = isLegacyWeeklyHoursDraft(profile.hours) ? profile.hours : null;
   const edited = legacyHours ? legacyHoursWereEdited(legacyHours) : false;
   const hours = legacyHours
@@ -369,6 +703,21 @@ const migrateLegacyOnboardingState = (
         ? value.canva.uploadResult
         : null,
     },
+    dashboardHandoff: isDashboardHandoffDraft(value.dashboardHandoff)
+      ? value.dashboardHandoff
+      : defaults.dashboardHandoff,
+    planOffer: {
+      ...defaults.planOffer,
+      ...(value.planOffer as unknown as OnboardingLabState['planOffer']),
+      foundingMode: isFoundingOfferMode(planOffer.foundingMode)
+        ? planOffer.foundingMode
+        : defaults.planOffer.foundingMode,
+      planIntent: planOffer.planIntent === 'lifetime'
+        ? 'founding'
+        : isPlanIntent(planOffer.planIntent)
+          ? planOffer.planIntent
+          : null,
+    },
     profile: {
       ...migrateBusinessProfile(profile),
       hours,
@@ -390,6 +739,8 @@ const isLegacyOnboardingState = (value: unknown): value is SharedStateShape =>
     || (value.schemaVersion === 2 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 3 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 4 && isWeeklyHoursDraft(value.profile.hours))
+    || (value.schemaVersion === 5 && isWeeklyHoursDraft(value.profile.hours))
+    || (value.schemaVersion === 6 && isWeeklyHoursDraft(value.profile.hours))
   );
 
 const defaultStorage = (): OnboardingStorage => {
@@ -417,7 +768,7 @@ export const withLastSavedAt = (
 
 export const serializeOnboardingState = (
   state: OnboardingLabState,
-): string => JSON.stringify(state);
+): string => JSON.stringify(normalizeOnboardingMediaReferences(state));
 
 export const parseOnboardingState = (
   json: string,
@@ -432,17 +783,18 @@ export const parseOnboardingState = (
       status: 'error',
     };
   }
-  if (isLegacyOnboardingState(value)) {
-    return { state: migrateLegacyOnboardingState(value), status: 'loaded' };
+  const normalizedValue = normalizeOnboardingMediaReferences(value);
+  if (isLegacyOnboardingState(normalizedValue)) {
+    return { state: migrateLegacyOnboardingState(normalizedValue), status: 'loaded' };
   }
-  if (!isOnboardingState(value)) {
+  if (!isOnboardingState(normalizedValue)) {
     return {
       message: 'Saved onboarding progress is incomplete or uses an unsupported version.',
       state: createDefaultOnboardingState(),
       status: 'error',
     };
   }
-  return { state: value, status: 'loaded' };
+  return { state: normalizedValue, status: 'loaded' };
 };
 
 export const loadOnboardingState = (
@@ -469,10 +821,10 @@ export const saveOnboardingState = (
     timestamp?: string;
   } = {},
 ): SaveOnboardingStateResult => {
-  const savedState = withLastSavedAt(
+  const savedState = normalizeOnboardingMediaReferences(withLastSavedAt(
     state,
     options.timestamp ?? new Date().toISOString(),
-  );
+  ));
   try {
     (options.storage ?? defaultStorage()).setItem(
       ONBOARDING_STORAGE_KEY,

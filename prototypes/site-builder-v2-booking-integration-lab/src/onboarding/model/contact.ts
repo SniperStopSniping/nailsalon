@@ -109,16 +109,22 @@ export const getPublicContactActions = (
       { type: 'start_booking' },
       { bookingHref: '#booking' },
     );
-    return resolution.status === 'resolved'
-      ? [{
+    const bookingAction = resolution.status === 'resolved'
+      ? {
           actionLabel: 'Book now',
           detail: 'Booking is the best way to reach us',
           external: resolution.external,
           href: resolution.href,
           method: 'booking',
           preferred: true,
-        }]
-      : [];
+        } satisfies PublicContactAction
+      : null;
+    const instagramAction = profile.instagram.trim()
+      ? getResolvedContactAction(profile, 'instagram', false)
+      : null;
+    return [bookingAction, instagramAction].filter(
+      (action): action is PublicContactAction => action !== null,
+    );
   }
 
   const preferred = getCoherentPreferredContact(profile);

@@ -213,7 +213,7 @@ const prepareImageTransition = (
     ? locateCustomDesign(history.present, sectionId)
     : null;
   if (!current || current.pageId === null) {
-    throw new Error('This Custom Design section is no longer available.');
+    throw new Error('This Canva design is no longer available.');
   }
   if (JSON.stringify(current.section.settings.images) !== expectedImagesJson) {
     throw new Error(
@@ -307,7 +307,7 @@ const ensureCustomDesignSection = (
 
     const moved = locateCustomDesign(next, requested.section.id);
     if (!moved || moved.pageId === null) {
-      throw new Error('The Custom Design section could not be placed.');
+      throw new Error('The Canva design could not be placed.');
     }
     if (!moved.section.visible) {
       next = runDocumentCommand(lab, {
@@ -336,7 +336,7 @@ const ensureCustomDesignSection = (
       (section): section is CustomDesignSectionInstance =>
         section.sectionType === 'custom_design' && !beforeIds.has(section.id),
     );
-  if (!created) throw new Error('The Custom Design section was not created.');
+  if (!created) throw new Error('The Canva design was not created.');
 
   return { created: true, document: next, sectionId: created.id };
 };
@@ -384,7 +384,7 @@ export const integrateCanvaDesign = async ({
     createdSectionId = ensured.created ? ensured.sectionId : null;
     const current = locateCustomDesign(ensured.document, ensured.sectionId);
     if (!current || current.pageId === null) {
-      throw new Error('The Custom Design section is no longer available.');
+      throw new Error('The Canva design is no longer available.');
     }
     const expectedImagesJson = JSON.stringify(current.section.settings.images);
 
@@ -468,7 +468,7 @@ const updateCanvaSettings = (
   const history = lab.getHistorySnapshot();
   const current = history ? locateCustomDesign(history.present, sectionId) : null;
   if (!current || current.pageId === null) {
-    return managerFailure('This Custom Design section is no longer available.');
+    return managerFailure('This Canva design is no longer available.');
   }
   const nextSettings = update(current.section.settings);
   const result = lab.runCommand({
@@ -584,7 +584,7 @@ export const replaceCanvaImage = async (
   const history = lab.getHistorySnapshot();
   const current = history ? locateCustomDesign(history.present, sectionId) : null;
   if (!current || current.pageId === null) {
-    return managerFailure('This Custom Design section is no longer available.', file.name);
+    return managerFailure('This Canva design is no longer available.', file.name);
   }
   const replacedImage = current.section.settings.images.find(
     image => image.id === imageItemId,
@@ -648,7 +648,7 @@ export const removeCanvaDesign = async (
   const checkpoint = lab.createHistoryCheckpoint();
   const current = checkpoint ? locateCustomDesign(checkpoint.present, sectionId) : null;
   if (!current || current.pageId === null) {
-    return managerFailure('This Custom Design section is no longer available.');
+    return managerFailure('This Canva design is no longer available.');
   }
   const assetIds = current.section.settings.images.map(image => image.assetId);
   try {

@@ -328,6 +328,7 @@ type ImageUploadFieldProps = {
   accept?: string;
   currentLabel?: string;
   label: string;
+  needsReselect?: boolean;
   onRemove?: () => void;
   onSelect: (file: File) => void;
 };
@@ -336,6 +337,7 @@ export function ImageUploadField({
   accept = 'image/png,image/jpeg,image/webp',
   currentLabel,
   label,
+  needsReselect = false,
   onRemove,
   onSelect,
 }: ImageUploadFieldProps) {
@@ -351,6 +353,9 @@ export function ImageUploadField({
     <div className="onboarding-image-upload">
       <span id={`${id}-label`}>{label}</span>
       {currentLabel ? <p>{currentLabel}</p> : null}
+      {needsReselect ? (
+        <p role="status">This saved image is no longer available on this device. Select it again to restore it.</p>
+      ) : null}
       <input
         ref={inputRef}
         accept={accept}
@@ -362,7 +367,7 @@ export function ImageUploadField({
       />
       <div className="onboarding-image-upload__actions">
         <button type="button" onClick={() => inputRef.current?.click()}>
-          {currentLabel ? 'Replace' : 'Choose from files or photos'}
+          {needsReselect ? 'Select again' : currentLabel ? 'Replace' : 'Choose from files or photos'}
         </button>
         {currentLabel && onRemove ? (
           <button type="button" onClick={onRemove}>Remove</button>

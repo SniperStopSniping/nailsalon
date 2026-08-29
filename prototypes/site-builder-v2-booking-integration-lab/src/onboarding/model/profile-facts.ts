@@ -43,7 +43,7 @@ export const getCustomerProfileFacts = (
       ? [{ id: 'business_structure', label: 'Business', value: structure } as const]
       : []),
     ...(serviceLocation
-      ? [{ id: 'service_location', label: 'Appointments', value: serviceLocation } as const]
+      ? [{ id: 'service_location', label: 'Studio', value: serviceLocation } as const]
       : []),
   ];
 };

@@ -7,7 +7,11 @@ import {
   type ReactNode,
 } from 'react';
 
-import { useCustomDesignAssetCoordinator } from '../custom-design/integration/CustomDesignAssetProvider';
+import {
+  useCustomDesignAssetCoordinator,
+  useCustomDesignAssetMap,
+  useCustomDesignAssetRepository,
+} from '../custom-design/integration/CustomDesignAssetProvider';
 import { formatCustomDesignUploadSummary } from '../custom-design/integration/upload-summary';
 import type { SiteBuilderDocument } from '../model/types';
 import { Dialog } from '../ui/Dialog';
@@ -25,8 +29,10 @@ import {
   applyLabReviewFixture,
   type LabReviewFixtureId,
 } from './fixtures';
-import { decodeOnboardingLocalImage } from './model/local-images';
-import { updateDepositPolicyMode } from './model/policies';
+import {
+  onboardingMediaPort,
+  resolveOnboardingImageUrl,
+} from './integrations/adapters/media';
 import {
   getNextScreen,
   getScreenStage,
@@ -38,14 +44,13 @@ import type {
   BusinessProfileDraft,
   CanvaDisplayMode,
   CanvaPlacement,
-  LocalImageReference,
   OnboardingLabState,
   OnboardingScreenId,
   PlanIntent,
   StarterId,
 } from './model/types';
 import { CanvaDialog, GalleryDialog } from './overlays/ExtrasDialogs';
-import { PlanOfferSheet } from './overlays/PlanOfferSheet';
+import { createLabPlanConfiguration, PlanOfferSheet } from './overlays/PlanOfferSheet';
 import { SetupPreviewOverlay } from './overlays/SetupPreviewOverlay';
 import { OnboardingSitePreview } from './preview/OnboardingSitePreview';
 import {
@@ -117,34 +122,14 @@ const isOnboardingBrowserHistoryState = (
 type OnboardingAppProps = {
   forceReview?: boolean;
   lab: LabDocumentController;
-  onEnterBuilder: () => void;
+  onEnterBuilder?: () => void;
+  onEnterDashboard?: () => void;
 };
 
 const STARTER_LABELS: Record<StarterId, string> = {
   multi_page: 'Multi-page website',
   one_page: 'One-page website',
   quick_book: 'Quick Book',
-};
-
-const readLocalImage = async (
-  file: File,
-  kind: 'logo' | 'profile',
-): Promise<LocalImageReference> => {
-  const dimensions = await decodeOnboardingLocalImage(file);
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onerror = () => reject(reader.error ?? new Error('The selected image could not be read.'));
-    reader.onload = () => resolve({
-      altText: kind === 'profile' ? 'Business owner portrait' : 'Business logo',
-      fileName: file.name,
-      id: `${kind}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      mimeType: file.type,
-      previewUrl: String(reader.result),
-      source: 'data_url',
-      ...dimensions,
-    });
-    reader.readAsDataURL(file);
-  });
 };
 
 const continueFrom = (state: OnboardingLabState): OnboardingLabState => {
@@ -160,7 +145,20 @@ const continueFrom = (state: OnboardingLabState): OnboardingLabState => {
 export const getOnboardingAssetIds = (
   state: OnboardingLabState,
 ): string[] => [...new Set([
+  ...[state.profile.profilePhoto, state.profile.logo]
+    .flatMap((image) => image?.storageId ? [image.storageId] : []),
+  ...state.gallery.images.flatMap((image) => image.storageId ? [image.storageId] : []),
   ...state.canva.ownedAssetIds,
+  ...state.canva.images.flatMap((image) => image.storageId ? [image.storageId] : []),
+])];
+
+/** Current display references only; excludes the retained cleanup-retry list. */
+export const getOnboardingReferencedAssetIds = (
+  state: OnboardingLabState,
+): string[] => [...new Set([
+  ...[state.profile.profilePhoto, state.profile.logo]
+    .flatMap((image) => image?.storageId ? [image.storageId] : []),
+  ...state.gallery.images.flatMap((image) => image.storageId ? [image.storageId] : []),
   ...state.canva.images.flatMap((image) => image.storageId ? [image.storageId] : []),
 ])];
 
@@ -377,9 +375,27 @@ const previewFor = (
   />
 );
 
-export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: OnboardingAppProps) {
+export function OnboardingApp({
+  forceReview = false,
+  lab,
+  onEnterBuilder,
+  onEnterDashboard,
+}: OnboardingAppProps) {
   const onboarding = useOnboardingState();
+  // onEnterBuilder is retained only as a test/backward-compatible callback
+  // name. The product handoff now always targets the dashboard port.
+  const enterDashboard = onEnterDashboard ?? onEnterBuilder ?? (() => {});
   const coordinator = useCustomDesignAssetCoordinator();
+  const assetRepository = useCustomDesignAssetRepository();
+  const profileAssetIds = [
+    onboarding.state.profile.profilePhoto?.storageId,
+    onboarding.state.profile.logo?.storageId,
+  ].filter((assetId): assetId is string => Boolean(assetId));
+  const profileAssets = useCustomDesignAssetMap(profileAssetIds);
+  const profilePortraitUrl = resolveOnboardingImageUrl(
+    onboarding.state.profile.profilePhoto,
+    profileAssets,
+  );
   const [previewSource, setPreviewSource] = useState<PreviewSource | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [canvaOpen, setCanvaOpen] = useState(false);
@@ -407,7 +423,8 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
   const screen = onboarding.state.progress.currentScreen;
   const aboutEnabled = onboarding.state.recipe.aboutEnabled;
   const builderHasBeenEntered = onboarding.state.planOffer.planIntent !== null
-    || onboarding.state.progress.sessionStatus === 'builder';
+    || onboarding.state.progress.sessionStatus === 'builder'
+    || onboarding.state.progress.sessionStatus === 'dashboard';
 
   const updateState: OnboardingStateUpdater = useCallback((update) => {
     onboarding.updateState((current) => withObservableRecipeEvents(current, update(current)));
@@ -495,8 +512,12 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
   useEffect(() => {
     if (mountedRef.current) return;
     mountedRef.current = true;
-    if (onboarding.state.progress.sessionStatus === 'builder' && !forceReview) {
-      onEnterBuilder();
+    if (
+      (onboarding.state.progress.sessionStatus === 'builder'
+        || onboarding.state.progress.sessionStatus === 'dashboard')
+      && !forceReview
+    ) {
+      enterDashboard();
       return;
     }
     if (
@@ -508,7 +529,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
     }
   }, [
     forceReview,
-    onEnterBuilder,
+    enterDashboard,
     onboarding.resume,
     onboarding.state.progress.currentScreen,
     onboarding.state.progress.lastSavedAt,
@@ -728,10 +749,59 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
   };
 
   const updateProfile = (patch: Partial<BusinessProfileDraft>) => onboarding.updateProfile(patch);
+  const updatePhotoProfile = (patch: Partial<BusinessProfileDraft>) => {
+    const removed = [
+      ...('profilePhoto' in patch && !patch.profilePhoto && onboarding.state.profile.profilePhoto
+        ? [onboarding.state.profile.profilePhoto]
+        : []),
+      ...('logo' in patch && !patch.logo && onboarding.state.profile.logo
+        ? [onboarding.state.profile.logo]
+        : []),
+    ];
+    onboarding.updateProfile(patch);
+    if (assetRepository && removed.length > 0) {
+      void onboardingMediaPort.deleteOwned(assetRepository, removed).then((cleanupErrors) => {
+        if (cleanupErrors.length > 0) {
+          const cleanupIds = removed.flatMap((image) => image.storageId ? [image.storageId] : []);
+          onboarding.updateState((current) => ({
+            ...current,
+            canva: {
+              ...current.canva,
+              ownedAssetIds: [...new Set([
+                ...current.canva.ownedAssetIds,
+                ...cleanupIds,
+              ])],
+            },
+          }));
+          setError('Your image was removed from the site, but this browser still needs to finish cleaning up its earlier copy.');
+        }
+      });
+    }
+  };
   const selectImage = async (file: File, kind: 'logo' | 'profile') => {
     try {
-      const image = await readLocalImage(file, kind);
+      if (!assetRepository) throw new Error('Image storage is unavailable in this browser.');
+      const previous = kind === 'profile'
+        ? onboarding.state.profile.profilePhoto
+        : onboarding.state.profile.logo;
+      const image = await onboardingMediaPort.storeOne(assetRepository, file, kind);
       onboarding.updateProfile(kind === 'profile' ? { profilePhoto: image } : { logo: image });
+      if (previous) {
+        void onboardingMediaPort.deleteOwned(assetRepository, [previous]).then((cleanupErrors) => {
+          if (cleanupErrors.length === 0 || !previous.storageId) return;
+          onboarding.updateState((current) => ({
+            ...current,
+            canva: {
+              ...current.canva,
+              ownedAssetIds: [...new Set([
+                ...current.canva.ownedAssetIds,
+                previous.storageId as string,
+              ])],
+            },
+          }));
+          setError('Your new image is saved, but this browser still needs to finish cleaning up its earlier copy.');
+        });
+      }
       setError('');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'The selected image could not be read.');
@@ -956,7 +1026,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
       screen: 'final_preview',
     } satisfies OnboardingBrowserHistoryState, '');
     setPlanOpen(false);
-    onEnterBuilder();
+    enterDashboard();
   };
 
   const renderScreen = (): ReactNode => {
@@ -991,7 +1061,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
             onBack={goBack}
             onContinue={onboarding.continueFlow}
             onLogoSelected={(file) => { void selectImage(file, 'logo'); }}
-            onProfileChange={updateProfile}
+            onProfileChange={updatePhotoProfile}
             onProfilePhotoSelected={(file) => { void selectImage(file, 'profile'); }}
             onSkipPhoto={() => onboarding.skip('photo')}
             profile={onboarding.state.profile}
@@ -1017,10 +1087,15 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
               bookingPreferences: { ...onboarding.state.profile.bookingPreferences, ...patch },
             })}
             onContinue={onboarding.continueFlow}
-            onDepositModeChange={(mode) => onboarding.updateProfile({
-              policies: updateDepositPolicyMode(onboarding.state.profile.policies, mode),
+            onDepositChange={(deposits) => onboarding.updateProfile({
+              policies: {
+                ...onboarding.state.profile.policies,
+                deposits,
+              },
             })}
+            onServiceMenuChange={(serviceMenu) => onboarding.updateProfile({ serviceMenu })}
             onValidationFailure={(fieldIds) => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
+            previewTimestamp={onboarding.state.reviewOptions.previewTimestamp}
             profile={onboarding.state.profile}
           />
         );
@@ -1032,7 +1107,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
             onBack={goBack}
             onChooseStarter={selectStarter}
             ownerName={onboarding.state.profile.ownerName}
-            portraitUrl={onboarding.state.profile.profilePhoto?.previewUrl}
+            portraitUrl={profilePortraitUrl ?? undefined}
             reducedMotion={onboarding.state.reviewOptions.reducedMotion}
             selectedStarter={lab.document?.originStarter ?? onboarding.state.recipe.starter}
           />
@@ -1051,6 +1126,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
       case 'about':
         return (
           <AboutScreen
+            document={lab.document}
             onBack={goBack}
             onContinue={onboarding.continueFlow}
             onFullPreview={() => openPreview('about')}
@@ -1066,6 +1142,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
           <PoliciesScreen
             onBack={goBack}
             onContinue={onboarding.continueFlow}
+            onEditBooking={() => onboarding.viewScreen('booking_preferences')}
             onSkip={() => {
               updateState((current) => ({
                 ...current,
@@ -1194,6 +1271,7 @@ export function OnboardingApp({ forceReview = false, lab, onEnterBuilder }: Onbo
         state={onboarding.state}
       />
       <PlanOfferSheet
+        configuration={createLabPlanConfiguration(onboarding.state.planOffer.foundingMode)}
         offer={onboarding.state.planOffer}
         onChoose={choosePlan}
         onClose={dismissPlan}

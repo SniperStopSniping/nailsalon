@@ -1,3 +1,6 @@
+import { formatMoney } from '../../booking/helpers';
+import { bookingPreferencesPort } from '../integrations/adapters/booking-preferences';
+import type { DepositDraft } from '../integrations/contracts/booking-preferences';
 import type {
   DepositPolicyMode,
   PoliciesDraft,
@@ -7,8 +10,6 @@ import type {
 export type { DepositPolicyMode } from './types';
 
 const DEPOSIT_REFERENCE_PATTERN = /\bdeposits?\b/iu;
-const CONDITIONAL_DEPOSIT_PATTERN = /\bany\s+required\s+deposits?\b|\bdeposits?\b[^.]{0,100}\bdepend(?:s|ent)?\b[^.]{0,80}\bservices?\b|\bdeposits?\b[^.]{0,100}\b(?:if|when|where)\b[^.]{0,80}\b(?:booked\s+)?services?\b[^.]{0,60}\brequir(?:e|ed|es)\b|\b(?:booked\s+)?services?\b[^.]{0,80}\brequir(?:e|ed|es)\b[^.]{0,80}\bdeposits?\b/iu;
-
 const sentence = (value: string): string => {
   const trimmed = value.trim();
   if (!trimmed) return '';
@@ -23,22 +24,17 @@ const joinSentences = (values: Array<string | null | undefined>): string => valu
 
 export const getDepositPolicyMode = (
   policies: PoliciesDraft,
-): DepositPolicyMode | null => policies.deposits.mode;
+): DepositPolicyMode => policies.deposits.mode;
 
 export const deriveDepositForfeitWording = (
   policies: PoliciesDraft,
   context: 'cancellation' | 'no_show',
 ): string => {
   const mode = getDepositPolicyMode(policies);
-  if (mode === 'generally_required') {
+  if (mode === 'fixed') {
     return context === 'cancellation'
       ? 'Cancellations after the deadline will result in the deposit being lost'
       : 'A missed appointment will forfeit the deposit';
-  }
-  if (mode === 'depends_on_service') {
-    return context === 'cancellation'
-      ? 'Any required deposit may be forfeited for cancellations after the deadline'
-      : 'Any required deposit may be forfeited after a missed appointment';
   }
   return '';
 };
@@ -56,18 +52,17 @@ const resolveDepositAwareWording = (
   if (!DEPOSIT_REFERENCE_PATTERN.test(trimmed)) return trimmed;
 
   const mode = getDepositPolicyMode(policies);
-  if (mode === null || mode === 'none') return fallback;
-  if (mode === 'depends_on_service' && !CONDITIONAL_DEPOSIT_PATTERN.test(trimmed)) {
-    return fallback;
-  }
+  if (mode === 'none') return fallback;
   return trimmed;
 };
 
 const cancellationNotice = (policies: PoliciesDraft): string => {
   switch (policies.cancellations.notice) {
+    case 'same_day': return 'the same day';
     case '12_hours': return '12 hours';
     case '24_hours': return '24 hours';
     case '48_hours': return '48 hours';
+    case '72_hours': return '72 hours';
     case 'custom': return policies.cancellations.customNotice.trim();
     default: return '';
   }
@@ -90,35 +85,26 @@ const cancellationConsequence = (policies: PoliciesDraft): string => {
 const deriveCancellations = (policies: PoliciesDraft): string => {
   const notice = cancellationNotice(policies);
   return joinSentences([
-    notice ? `Please cancel or reschedule at least ${notice} before your appointment` : '',
+    policies.cancellations.notice === 'same_day'
+      ? 'Please cancel or reschedule before the day of your appointment'
+      : notice ? `Please cancel or reschedule at least ${notice} before your appointment` : '',
     cancellationConsequence(policies),
   ]);
 };
 
-const formatDepositAmount = (deposits: PoliciesDraft['deposits']): string => {
-  const cleanAmount = deposits.amount.trim().replace(/^[$%]/u, '').replace(/%$/u, '');
-  if (!cleanAmount) return '';
-  if (deposits.amountType === 'percentage') return `${cleanAmount}%`;
-  if (deposits.amountType === 'fixed') return `$${cleanAmount}`;
-  return '';
-};
+const formatDepositAmount = (deposits: PoliciesDraft['deposits']): string =>
+  deposits.amountCents === null ? '' : formatMoney(deposits.amountCents);
 
 export const deriveDepositPolicySummary = (policies: PoliciesDraft): string => {
   const mode = getDepositPolicyMode(policies);
-  if (mode === 'none') return 'No general deposit';
-  if (mode === 'depends_on_service') return 'Deposit depends on the service';
-  if (mode !== 'generally_required') return '';
+  if (mode === 'none') return 'No deposit';
   const amount = formatDepositAmount(policies.deposits);
-  return amount ? `${amount} deposit` : 'Deposit generally required';
+  return amount ? `${amount} deposit` : 'Fixed deposit';
 };
 
 const deriveDeposits = (policies: PoliciesDraft): string => {
   const mode = getDepositPolicyMode(policies);
-  if (mode === null) return '';
-  if (mode === 'none') return 'No deposit is generally required.';
-  if (mode === 'depends_on_service') {
-    return 'Deposit requirements depend on the service. Booking shows the deposit for each service.';
-  }
+  if (mode === 'none') return 'No deposit is required.';
 
   const { deposits } = policies;
   const formattedAmount = formatDepositAmount(deposits);
@@ -220,7 +206,9 @@ export const getResolvedPolicyWording = (
   const suggested = derivePolicySuggestedWording(policies, sectionId).trim();
   if (copy.useSuggestedWording) return suggested;
 
-  const override = copy.wordingOverride.trim();
+  const override = sectionId === 'deposits'
+    ? policies.deposits.wordingOverride.trim()
+    : copy.wordingOverride.trim();
   return sectionId === 'cancellations'
     || sectionId === 'deposits'
     || sectionId === 'no_shows'
@@ -252,20 +240,13 @@ export const updateDepositPolicyMode = (
   policies: PoliciesDraft,
   mode: DepositPolicyMode,
 ): PoliciesDraft => {
-  const current = policies.deposits;
-  const nextAmountType = mode === 'depends_on_service'
-    ? 'service_defined'
-    : current.amountType === 'service_defined'
-      ? null
-      : current.amountType;
-  const deposits: PoliciesDraft['deposits'] = {
-    ...current,
-    amountType: nextAmountType,
-    mode,
-  };
-
-  return refreshPolicySuggestedWording({
-    ...policies,
-    deposits,
-  });
+  return updateDepositDraft(policies, { mode });
 };
+
+export const updateDepositDraft = (
+  policies: PoliciesDraft,
+  patch: Partial<Omit<DepositDraft, 'legacyV5Archive'>>,
+): PoliciesDraft => refreshPolicySuggestedWording({
+  ...policies,
+  deposits: bookingPreferencesPort.updateDepositDraft(policies.deposits, patch),
+});

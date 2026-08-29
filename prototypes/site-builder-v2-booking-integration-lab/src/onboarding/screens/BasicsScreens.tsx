@@ -1,6 +1,8 @@
 import { useId, useRef, useState, type FormEvent } from 'react';
 
+import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
 import { SCREEN_METADATA } from '../copy';
+import { resolveOnboardingImageUrl } from '../integrations/adapters/media';
 import {
   contactMethodHasValue,
   getAvailableContactMethods,
@@ -114,7 +116,7 @@ export function BusinessScreen({
   const submit = (event: FormEvent) => {
     event.preventDefault();
     const nextErrors: Record<string, string> = {};
-    if (!profile.businessName.trim()) nextErrors.businessName = 'Add your business or salon name.';
+    if (!profile.businessName.trim()) nextErrors.businessName = 'Add your salon or studio name.';
     if (!profile.ownerName.trim()) nextErrors.ownerName = 'Add your name.';
     if (!profile.businessStructure) {
       nextErrors.businessStructure = 'Choose who you’re setting Luster up for.';
@@ -142,7 +144,7 @@ export function BusinessScreen({
           <TextField
             autoComplete="organization"
             error={errors.businessName}
-            label="Business or salon name"
+            label="Salon or studio name"
             required
             value={profile.businessName}
             onChange={(event) => {
@@ -177,7 +179,7 @@ export function BusinessScreen({
           <span aria-hidden="true" className="business-preview-card__mark">
             {initialsFor(profile)}
           </span>
-          <p>{profile.businessName.trim() || 'Your business name'}</p>
+          <p>{profile.businessName.trim() || 'Your salon or studio name'}</p>
           <strong>{profile.ownerName.trim() || 'Your name'}</strong>
           <span>{businessStructureLabel(profile.businessStructure)}</span>
         </aside>
@@ -208,7 +210,10 @@ export function PhotoSocialScreen({
   profile,
 }: PhotoSocialScreenProps) {
   const copy = SCREEN_METADATA.photo_social;
-  const profileImage = profile.profilePhoto?.previewUrl;
+  const imageAssetIds = [profile.profilePhoto, profile.logo]
+    .flatMap((image) => image?.storageId ? [image.storageId] : []);
+  const imageAssets = useCustomDesignAssetMap(imageAssetIds);
+  const profileImage = resolveOnboardingImageUrl(profile.profilePhoto, imageAssets);
 
   return (
     <section aria-labelledby="photo-social-heading" className="onboarding-screen onboarding-photo-social-screen">
@@ -222,12 +227,14 @@ export function PhotoSocialScreen({
           <ImageUploadField
             currentLabel={profile.profilePhoto?.fileName}
             label="Profile photo (optional)"
+            needsReselect={profile.profilePhoto?.source === 'missing'}
             onRemove={() => onProfileChange({ profilePhoto: undefined })}
             onSelect={onProfilePhotoSelected}
           />
           <ImageUploadField
             currentLabel={profile.logo?.fileName}
             label="Logo (optional)"
+            needsReselect={profile.logo?.source === 'missing'}
             onRemove={() => onProfileChange({ logo: undefined })}
             onSelect={onLogoSelected}
           />
@@ -237,20 +244,6 @@ export function PhotoSocialScreen({
             label="Instagram handle (optional)"
             value={profile.instagram}
             onChange={(event) => onProfileChange({ instagram: event.target.value })}
-          />
-          <ChoiceGroup
-            legend="Preferred contact method"
-            name="preferred-contact"
-            options={CONTACT_METHODS}
-            value={profile.preferredContact}
-            onChange={(preferredContact) => onProfileChange({
-              clientContact: preferredContact === 'call'
-                ? { ...profile.clientContact, callEnabled: true }
-                : preferredContact === 'text'
-                  ? { ...profile.clientContact, textEnabled: true }
-                  : profile.clientContact,
-              preferredContact,
-            })}
           />
         </div>
         <aside aria-label="Profile preview" className="onboarding-profile-preview">
@@ -301,6 +294,9 @@ export function LocationContactScreen({
   const contactErrorId = `${formId}-contact-error`;
   const [openCard, setOpenCard] = useState<LocationCardId>('location');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [editingInstagram, setEditingInstagram] = useState(
+    !profile.instagram.trim(),
+  );
 
   const revealError = (fieldId: string, keepSummaryVisible = false) => {
     const card: LocationCardId = fieldId === 'cityOrArea' ? 'location' : 'contact';
@@ -368,12 +364,13 @@ export function LocationContactScreen({
       nextErrors.cityOrArea = 'Add a city or general service area.';
     }
     if (!profile.bookingOnlyContact && !hasAnyContact) {
-      nextErrors.contact = 'Add at least one public contact method, or choose Booking only.';
+      nextErrors.contact = 'Add at least one public contact method, or choose online booking only.';
     } else if (
       !profile.bookingOnlyContact
+      && availableContactMethods.length >= 2
       && !hasCoherentPreferredContact
     ) {
-      nextErrors.preferredContact = 'Choose a preferred method that has contact information.';
+      nextErrors.preferredContact = 'Choose which contact option clients should see first.';
     }
     setErrors(nextErrors);
     const failedFields = Object.keys(nextErrors);
@@ -383,15 +380,24 @@ export function LocationContactScreen({
       if (firstFailedField) revealError(firstFailedField, true);
       return;
     }
+    if (
+      !profile.bookingOnlyContact
+      && availableContactMethods.length === 1
+      && !hasCoherentPreferredContact
+    ) {
+      onProfileChange({ preferredContact: availableContactMethods[0] ?? null });
+    }
     onContinue();
   };
 
   const locationSummary = profile.location.cityOrArea.trim()
     || 'Add your general area';
   const contactSummary = profile.bookingOnlyContact
-    ? 'Clients use Booking only'
+    ? 'Online booking only'
     : hasCoherentPreferredContact && profile.preferredContact
-      ? `Preferred: ${CONTACT_METHODS.find(({ value }) => value === profile.preferredContact)?.label}`
+      ? `${CONTACT_METHODS.find(({ value }) => value === profile.preferredContact)?.label} shown first`
+      : availableContactMethods.length === 1
+        ? `${CONTACT_METHODS.find(({ value }) => value === availableContactMethods[0])?.label} added`
       : 'Add a public contact method';
   const hoursSummary = getWeeklyHoursSetupSummary(profile.hours);
   const hoursStatus = getWeeklyHoursPreviewStatus(profile.hours, previewTimestamp);
@@ -488,13 +494,13 @@ export function LocationContactScreen({
             id="onboarding-contact-card"
             open={openCard === 'contact'}
             summary={contactSummary}
-            title="Contact"
+            title="How should clients contact you?"
             onToggle={() => setOpenCard('contact')}
           >
             <NativeSwitch
               checked={profile.bookingOnlyContact}
-              description="Your website guides clients to Booking and keeps saved contact details private."
-              label="Clients should use Booking only"
+              description="Your website will guide clients to Booking and keep your personal contact details private."
+              label="Clients should use online booking only"
               onChange={(bookingOnlyContact) => {
                 setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
                 onProfileChange({
@@ -505,115 +511,148 @@ export function LocationContactScreen({
                 });
               }}
             />
-            <TextField
-              aria-describedby={errors.contact ? contactErrorId : undefined}
-              aria-invalid={errors.contact ? 'true' : undefined}
-              autoComplete="tel"
-              label="Client contact number"
-              type="tel"
-              value={profile.clientContact.primaryNumber}
-              onChange={(event) => {
-                setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
-                onProfileChange({
-                  clientContact: {
+            <fieldset
+              className="onboarding-public-contact-fields"
+              disabled={profile.bookingOnlyContact}
+            >
+              <legend className="visually-hidden">Public phone and email contact details</legend>
+              <TextField
+                aria-describedby={errors.contact ? contactErrorId : undefined}
+                aria-invalid={errors.contact ? 'true' : undefined}
+                autoComplete="tel"
+                label="Client contact number"
+                type="tel"
+                value={profile.clientContact.primaryNumber}
+                onChange={(event) => {
+                  setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
+                  const clientContact = {
                     ...profile.clientContact,
                     primaryNumber: event.target.value,
-                  },
-                });
-              }}
-            />
-            <fieldset
-              aria-describedby={errors.contact ? contactErrorId : undefined}
-              aria-invalid={errors.contact ? 'true' : undefined}
-              className="onboarding-contact-uses"
-            >
-              <legend>Clients can:</legend>
-              <NativeSwitch
-                checked={profile.clientContact.callEnabled}
-                description="Use the client contact number for calls."
-                label="Call this number"
-                onChange={(callEnabled) => {
-                  setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
-                  const clientContact = { ...profile.clientContact, callEnabled };
+                  };
                   const nextProfile = { ...profile, clientContact };
                   onProfileChange({
                     clientContact,
-                    preferredContact: callEnabled && !profile.preferredContact
-                      ? 'call'
-                      : getCoherentPreferredContact(nextProfile),
+                    preferredContact: getCoherentPreferredContact(nextProfile),
                   });
                 }}
               />
-              <NativeSwitch
-                checked={profile.clientContact.textEnabled}
-                description="Use the client contact number for text messages."
-                label="Text this number"
-                onChange={(textEnabled) => {
-                  setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
-                  const clientContact = { ...profile.clientContact, textEnabled };
-                  const nextProfile = { ...profile, clientContact };
-                  onProfileChange({
-                    clientContact,
-                    preferredContact: textEnabled && !profile.preferredContact
-                      ? 'text'
-                      : getCoherentPreferredContact(nextProfile),
-                  });
-                }}
-              />
-            </fieldset>
-            {profile.clientContact.textEnabled ? (
-              <NativeSwitch
-                checked={profile.clientContact.useDifferentTextNumber}
-                description="Keep calls on the primary number and route texts somewhere else."
-                label="Use a different number for text messages"
-                onChange={(useDifferentTextNumber) => {
-                  setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
-                  onProfileChange({
-                    clientContact: { ...profile.clientContact, useDifferentTextNumber },
-                  });
-                }}
-              />
-            ) : null}
-            {profile.clientContact.textEnabled
-              && profile.clientContact.useDifferentTextNumber ? (
-                <TextField
-                  autoComplete="tel"
-                  label="Text message number"
-                  type="tel"
-                  value={profile.clientContact.differentTextNumber}
-                  onChange={(event) => {
+              <fieldset
+                aria-describedby={errors.contact ? contactErrorId : undefined}
+                aria-invalid={errors.contact ? 'true' : undefined}
+                className="onboarding-contact-uses"
+              >
+                <legend>Clients can:</legend>
+                <NativeSwitch
+                  checked={profile.clientContact.callEnabled}
+                  description="Use the client contact number for calls."
+                  label="Call this number"
+                  onChange={(callEnabled) => {
+                    setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
+                    const clientContact = { ...profile.clientContact, callEnabled };
+                    const nextProfile = { ...profile, clientContact };
+                    onProfileChange({
+                      clientContact,
+                      preferredContact: callEnabled && !profile.preferredContact
+                        ? 'call'
+                        : getCoherentPreferredContact(nextProfile),
+                    });
+                  }}
+                />
+                <NativeSwitch
+                  checked={profile.clientContact.textEnabled}
+                  description="Use the client contact number for text messages."
+                  label="Text this number"
+                  onChange={(textEnabled) => {
+                    setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
+                    const clientContact = { ...profile.clientContact, textEnabled };
+                    const nextProfile = { ...profile, clientContact };
+                    onProfileChange({
+                      clientContact,
+                      preferredContact: textEnabled && !profile.preferredContact
+                        ? 'text'
+                        : getCoherentPreferredContact(nextProfile),
+                    });
+                  }}
+                />
+              </fieldset>
+              {profile.clientContact.textEnabled ? (
+                <NativeSwitch
+                  checked={profile.clientContact.useDifferentTextNumber}
+                  description="Keep calls on the primary number and route texts somewhere else."
+                  label="Use a different number for text messages"
+                  onChange={(useDifferentTextNumber) => {
                     setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
                     onProfileChange({
-                      clientContact: {
-                        ...profile.clientContact,
-                        differentTextNumber: event.target.value,
-                      },
+                      clientContact: { ...profile.clientContact, useDifferentTextNumber },
+                      preferredContact: profile.preferredContact,
                     });
                   }}
                 />
               ) : null}
-            <TextField
-              autoComplete="email"
-              label="Email (optional)"
-              type="email"
-              value={profile.email}
-              onChange={(event) => {
-                setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
-                onProfileChange({ email: event.target.value });
-              }}
-            />
-            <TextField
-              label="Instagram"
-              value={profile.instagram}
-              onChange={(event) => {
-                setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
-                onProfileChange({ instagram: event.target.value });
-              }}
-            />
-            {!profile.bookingOnlyContact && availableContactOptions.length > 0 ? (
+              {profile.clientContact.textEnabled
+                && profile.clientContact.useDifferentTextNumber ? (
+                  <TextField
+                    autoComplete="tel"
+                    label="Text message number"
+                    type="tel"
+                    value={profile.clientContact.differentTextNumber}
+                    onChange={(event) => {
+                      setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
+                      const clientContact = {
+                        ...profile.clientContact,
+                        differentTextNumber: event.target.value,
+                      };
+                      onProfileChange({
+                        clientContact,
+                        preferredContact: profile.preferredContact,
+                      });
+                    }}
+                  />
+                ) : null}
+              <TextField
+                autoComplete="email"
+                label="Email (optional)"
+                type="email"
+                value={profile.email}
+                onChange={(event) => {
+                  setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
+                  const email = event.target.value;
+                  onProfileChange({
+                    email,
+                    preferredContact: getCoherentPreferredContact({ ...profile, email }),
+                  });
+                }}
+              />
+            </fieldset>
+            <div className="onboarding-shared-instagram">
+              <div>
+                <span>Instagram</span>
+                <strong>{profile.instagram.trim() || 'Not added yet'}</strong>
+                <small>Shared with Photo and Instagram. Changes update everywhere.</small>
+              </div>
+              <button type="button" onClick={() => setEditingInstagram((current) => !current)}>
+                {editingInstagram ? 'Done' : 'Edit'}
+              </button>
+            </div>
+            {editingInstagram ? (
+              <TextField
+                hint="Use a handle such as @yourstudio."
+                label="Instagram handle"
+                value={profile.instagram}
+                onChange={(event) => {
+                  setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
+                  const instagram = event.target.value;
+                  onProfileChange({
+                    instagram,
+                    preferredContact: getCoherentPreferredContact({ ...profile, instagram }),
+                  });
+                }}
+              />
+            ) : null}
+            {!profile.bookingOnlyContact && availableContactOptions.length >= 2 ? (
               <ChoiceGroup
                 error={errors.preferredContact}
-                legend="Preferred public contact method"
+                legend="Which contact option should we show first?"
                 name="public-contact-method"
                 options={availableContactOptions}
                 value={profile.preferredContact}
@@ -731,6 +770,10 @@ export function LocationContactScreen({
                 Skip hours for now
               </button>
             </div>
+            <p className="onboarding-field-hint">
+              Website hours tell clients when your business is open. Bookable appointment
+              times can still follow a different availability schedule.
+            </p>
           </CollapsibleFormCard>
         </form>
 
