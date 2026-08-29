@@ -8,6 +8,7 @@ import {
   derivePolicySuggestedWording,
   getDepositPolicyMode,
   getPolicyDisplayWording,
+  isPolicySectionComplete,
   refreshPolicySuggestedWording,
   updateDepositDraft,
   updateDepositPolicyMode,
@@ -103,5 +104,47 @@ describe('policy suggested wording', () => {
 
     expect(wording).toContain('$25 deposit');
     expect(wording).not.toMatch(/depending on the service|percentage/iu);
+  });
+
+  it('requires every answer needed for meaningful client wording', () => {
+    const policies = createDefaultPolicies();
+    policies.cancellations.notice = '24_hours';
+    expect(isPolicySectionComplete(policies, 'cancellations')).toBe(false);
+
+    policies.cancellations.consequence = 'custom';
+    expect(isPolicySectionComplete(policies, 'cancellations')).toBe(false);
+
+    policies.cancellations.customConsequence = 'Please contact me directly.';
+    expect(isPolicySectionComplete(policies, 'cancellations')).toBe(true);
+
+    policies.lateArrivals.gracePeriodMinutes = '15';
+    expect(isPolicySectionComplete(policies, 'late_arrivals')).toBe(false);
+    policies.lateArrivals.shortenService = true;
+    policies.lateArrivals.rescheduleAfterLimit = false;
+    expect(isPolicySectionComplete(policies, 'late_arrivals')).toBe(true);
+  });
+
+  it('turns guest and children facts into natural client sentences', () => {
+    const policies = createDefaultPolicies();
+    policies.other.guests = 'Guests welcome';
+    policies.other.children = 'Children welcome';
+    policies.other.appointmentPreparation = 'Please come with bare nails';
+    policies.other.outsideRemoval = 'Removing another salon’s work costs an additional $10';
+
+    expect(derivePolicySuggestedWording(policies, 'other')).toBe(
+      'Guests and children are welcome. Please come with bare nails. Removing another salon’s work costs an additional $10.',
+    );
+    expect(derivePolicySuggestedWording(policies, 'other'))
+      .not.toMatch(/Guests:|Children:|Appointment preparation:/u);
+  });
+
+  it('does not mark an empty custom answer complete', () => {
+    const policies = createDefaultPolicies();
+    policies.noShows.custom = '';
+    policies.repairs.freeRepairWindowDays = '';
+
+    expect(isPolicySectionComplete(policies, 'no_shows')).toBe(false);
+    expect(isPolicySectionComplete(policies, 'repairs')).toBe(false);
+    expect(isPolicySectionComplete(policies, 'other')).toBe(false);
   });
 });

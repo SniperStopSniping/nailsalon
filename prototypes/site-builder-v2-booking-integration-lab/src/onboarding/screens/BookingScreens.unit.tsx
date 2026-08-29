@@ -47,7 +47,7 @@ describe('BookingPreferencesScreen', () => {
 
     render(<Harness />);
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent('6 selected');
+      .toHaveTextContent('Services6 selected');
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
       .toHaveTextContent('Minimum notice2 hours');
     expect(screen.queryByText(/Booking mock/u)).not.toBeInTheDocument();
@@ -138,21 +138,28 @@ describe('BookingPreferencesScreen', () => {
 
     render(<Harness />);
     await user.click(screen.getByRole('button', { name: 'Review services' }));
-    let library = screen.getByRole('dialog', { name: 'Service Library' });
+    let library = screen.getByRole('dialog', { name: 'Choose your services' });
+    expect(within(library).queryByText('French')).not.toBeInTheDocument();
+    expect(within(library).getByText('6 services selected')).toBeVisible();
+    expect(within(library).getByRole('button', { name: 'Done' })).toBeVisible();
     const russianItem = within(library).getByText('Russian Manicure').closest('li');
     expect(russianItem).not.toBeNull();
-    await user.click(within(russianItem!).getByRole('button', { name: 'Remove' }));
+    await user.click(within(russianItem!).getByRole('button', { name: 'Remove Russian Manicure' }));
     expect(latest.serviceMenu.selectedServiceIds).not.toContain('svc-manicure-russian');
-    library = screen.getByRole('dialog', { name: 'Service Library' });
+    library = screen.getByRole('dialog', { name: 'Choose your services' });
     const updatedRussianItem = within(library).getByText('Russian Manicure').closest('li');
     expect(updatedRussianItem).not.toBeNull();
-    expect(within(updatedRussianItem!).getByRole('button', { name: 'Add service' })).toBeVisible();
+    expect(within(updatedRussianItem!).getByRole('button', { name: 'Add Russian Manicure' })).toBeVisible();
     expect(within(library).getByText('Classic Manicure')).toBeVisible();
-    expect(within(library).getByText(/45 min · \$35/u)).toBeVisible();
     const classicItem = within(library).getByText('Classic Manicure').closest('li');
     expect(classicItem).not.toBeNull();
-    await user.click(within(classicItem!).getByRole('button', { name: 'Add service' }));
+    expect(classicItem).toHaveTextContent('Manicure · 45 min$35');
+    await user.click(within(classicItem!).getByRole('button', { name: 'Add Classic Manicure' }));
     expect(latest.serviceMenu.selectedServiceIds).toContain('svc-manicure-classic');
+
+    await user.click(within(library).getByRole('tab', { name: 'Add-ons' }));
+    expect(within(library).getByText('French')).toBeVisible();
+    expect(within(library).queryByText('Russian Manicure')).not.toBeInTheDocument();
   });
 
   it('normalizes notice presets and custom day amounts to minutes', async () => {
@@ -221,7 +228,7 @@ describe('BookingPreferencesScreen', () => {
     });
     expect(document.querySelector('[data-bookable-time="2026-08-27T19:30:00.000Z"]'))
       .toBeNull();
-    expect(document.querySelector('[data-bookable-time="2026-08-27T22:30:00.000Z"]'))
+    expect(document.querySelector('[data-bookable-time="2026-08-27T22:00:00.000Z"]'))
       .not.toBeNull();
 
     await user.selectOptions(notice, 'preset:0');
@@ -229,10 +236,10 @@ describe('BookingPreferencesScreen', () => {
       .not.toBeNull();
 
     await user.selectOptions(notice, 'preset:4320');
-    expect(document.querySelector('[data-bookable-time="2026-08-30T20:30:00.000Z"]'))
+    expect(document.querySelector('[data-bookable-time="2026-08-30T19:30:00.000Z"]'))
       .not.toBeNull();
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent(/Earliest bookable time.*Sun, Aug 30 · 4:30 p\.m\./u);
+      .toHaveTextContent(/Earliest bookable time.*Sun, Aug 30 · 3:30 p\.m\./u);
   });
 
   it('blocks blank custom notice and deposit values, focuses the first error, and preserves valid state', async () => {

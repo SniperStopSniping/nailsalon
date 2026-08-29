@@ -42,7 +42,7 @@ describe('centralized onboarding metadata', () => {
 
   it('uses the owner-reviewed nail-business copy and dashboard handoff language', () => {
     expect(SCREEN_METADATA.welcome.supportingCopy).toBe(
-      'Tell us about your nail business once. Luster will use your details to create a polished site with booking, policies, contact information, and more.',
+      'Tell us about your nail business once. Luster turns your details into a polished website where clients can learn about you and book online.',
     );
     expect(SCREEN_METADATA.business.heading).toBe('Tell us about your nail business');
     expect(SCREEN_METADATA.photo_social.heading).toBe('Add your photo and Instagram');

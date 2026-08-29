@@ -12,6 +12,7 @@ import {
 describe('onboarding readiness contact metadata', () => {
   it('marks contact ready only for a coherent public method or Booking-only choice', () => {
     const state = createDefaultOnboardingState();
+    state.profile.bookingOnlyContact = false;
     state.profile.clientContact.primaryNumber = '416-555-0100';
     state.profile.preferredContact = 'call';
     expect(getReadinessItems(state, null).some((item) => item.id === 'contact')).toBe(false);
@@ -19,7 +20,7 @@ describe('onboarding readiness contact metadata', () => {
     state.profile.clientContact.callEnabled = true;
     expect(getReadinessItems(state, null)).toContainEqual({
       id: 'contact',
-      label: 'Contact method added',
+      label: 'Contact and privacy',
       status: 'ready',
     });
 
@@ -27,7 +28,7 @@ describe('onboarding readiness contact metadata', () => {
     state.profile.bookingOnlyContact = true;
     expect(getReadinessItems(state, null)).toContainEqual({
       id: 'contact',
-      label: 'Contact method added',
+      label: 'Contact and privacy',
       status: 'ready',
     });
   });

@@ -50,9 +50,10 @@ function PoliciesHarness({
 }
 
 const previewCard = (name: string): HTMLElement => {
-  const heading = screen.getByRole('heading', { name });
-  const card = heading.closest('article');
+  const summary = screen.getByText(name, { selector: 'summary' });
+  const card = summary.closest('details');
   if (!card) throw new Error(`Missing ${name} policy preview card`);
+  card.open = true;
   return card;
 };
 
@@ -79,7 +80,7 @@ describe('PoliciesScreen', () => {
     );
     await user.type(screen.getByRole('textbox', { name: 'Custom notice' }), '36 hours');
     await user.selectOptions(
-      screen.getByLabelText('What happens after the cancellation deadline?'),
+      screen.getByLabelText('What happens if they cancel late?'),
       'custom',
     );
     await user.type(
@@ -144,7 +145,10 @@ describe('PoliciesScreen', () => {
     expect(onEditBooking).toHaveBeenCalledOnce();
 
     await user.click(screen.getByRole('button', { name: /No-shows/u }));
-    await user.selectOptions(screen.getByLabelText('What happens after a no-show?'), 'deposit_lost');
+    await user.selectOptions(
+      screen.getByLabelText('What happens if a client misses their appointment?'),
+      'deposit_lost',
+    );
     expect(latest.profile.policies.noShows.loseDeposit).toBe(true);
     expect(within(previewCard('No-shows')).getByText(/forfeit the deposit/u)).toBeVisible();
   });
@@ -193,10 +197,10 @@ describe('PoliciesScreen', () => {
     const view = render(<PoliciesHarness initial={initial} />);
 
     expect(screen.getByRole('button', { name: /Cancellations/u }))
-      .toHaveTextContent('24 hours’ notice');
+      .toHaveTextContent('Finish this policy');
     expect(screen.getByRole('button', { name: /Cancellations/u }))
       .not.toHaveTextContent(/deposit/iu);
-    expect(screen.getByLabelText('What happens after the cancellation deadline?'))
+    expect(screen.getByLabelText('What happens if they cancel late?'))
       .toHaveValue('');
     expect(screen.queryByRole('option', { name: 'Keep the deposit' }))
       .not.toBeInTheDocument();
@@ -206,7 +210,8 @@ describe('PoliciesScreen', () => {
       .not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /No-shows/u }));
-    expect(screen.getByLabelText('What happens after a no-show?')).toHaveValue('');
+    expect(screen.getByLabelText('What happens if a client misses their appointment?'))
+      .toHaveValue('');
     expect(initial.profile.policies.cancellations.consequence).toBe('deposit_lost');
     expect(initial.profile.policies.noShows.loseDeposit).toBe(true);
 
@@ -214,7 +219,7 @@ describe('PoliciesScreen', () => {
     initial.profile.policies.deposits.mode = 'fixed';
     initial.profile.policies.deposits.amountCents = 2_000;
     render(<PoliciesHarness initial={initial} />);
-    expect(screen.getByLabelText('What happens after the cancellation deadline?'))
+    expect(screen.getByLabelText('What happens if they cancel late?'))
       .toHaveValue('deposit_lost');
     expect(screen.getByRole('option', { name: 'Keep the deposit' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /No-shows/u }))
@@ -228,5 +233,58 @@ describe('PoliciesScreen', () => {
 
     await user.click(screen.getByRole('button', { name: 'Skip for now' }));
     expect(onSkip).toHaveBeenCalledOnce();
+  });
+
+  it('does not call a partial or blank custom cancellation policy complete', async () => {
+    const user = userEvent.setup();
+    render(<PoliciesHarness initial={policyState('blank')} />);
+    const cancellations = () => screen.getByRole('button', { name: /Cancellations/u });
+
+    expect(cancellations()).toHaveTextContent('Choose your rules');
+    expect(cancellations()).toHaveTextContent('Set up');
+    await user.selectOptions(
+      screen.getByLabelText('How much notice do clients need to cancel?'),
+      '24_hours',
+    );
+    expect(cancellations()).toHaveTextContent('Finish this policy');
+    expect(cancellations()).not.toHaveTextContent('Complete');
+    await user.selectOptions(
+      screen.getByLabelText('What happens if they cancel late?'),
+      'custom',
+    );
+    expect(cancellations()).toHaveTextContent('Add your wording');
+    expect(cancellations()).not.toHaveTextContent('Complete');
+    await user.type(
+      screen.getByRole('textbox', { name: 'Custom consequence' }),
+      'Please contact me directly.',
+    );
+    expect(cancellations()).toHaveTextContent('Complete');
+  });
+
+  it('keeps policy visibility controls inside their client-copy disclosures', async () => {
+    const user = userEvent.setup();
+    render(<PoliciesHarness initial={policyState('daniela')} />);
+
+    expect(screen.getByRole('switch', { name: 'Show policies on my website' }))
+      .toBeVisible();
+    expect(screen.getByRole('switch', { name: 'Show Cancellations on my website' }))
+      .not.toBeVisible();
+    await user.click(screen.getByText('Cancellations', { selector: 'summary' }));
+    expect(screen.getByRole('switch', { name: 'Show Cancellations on my website' }))
+      .toBeVisible();
+    expect(screen.getByText('You can add or change policies later from your dashboard.'))
+      .toBeVisible();
+  });
+
+  it('shows guests and children as natural client prose', async () => {
+    const user = userEvent.setup();
+    render(<PoliciesHarness initial={policyState('blank')} />);
+
+    await user.click(screen.getByRole('button', { name: /Guests & appointment details/u }));
+    await user.selectOptions(screen.getByLabelText('Guests'), 'Guests welcome');
+    await user.selectOptions(screen.getByLabelText('Children'), 'Children welcome');
+    const card = previewCard('Guests & appointment details');
+    expect(within(card).getByText('Guests and children are welcome.')).toBeVisible();
+    expect(card).not.toHaveTextContent(/Guests:|Children:/u);
   });
 });

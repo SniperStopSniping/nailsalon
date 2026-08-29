@@ -21,7 +21,7 @@ describe('onboarding Booking preview adapter', () => {
     expect(fixture.services.map(({ id }) => id))
       .toEqual(profile.serviceMenu.selectedServiceIds);
     expect(fixture.services.every((service) => CANONICAL_SERVICES.includes(service))).toBe(true);
-    expect(fixture.addOns).toBe(MOCK_ADD_ONS);
+    expect(fixture.addOns.map(({ id }) => id)).toEqual(['addon-french']);
     expect(fixture.categories).toBe(CANONICAL_ONBOARDING_BOOKING_FIXTURE.categories);
     expect(fixture.labAvailability.minimumNoticeMinutes).toBe(120);
   });
@@ -69,5 +69,19 @@ describe('onboarding Booking preview adapter', () => {
       'svc-pedicure-classic',
     ]);
     expect(fixture.labAvailability.minimumNoticeMinutes).toBe(720);
+  });
+
+  it('publishes only the canonical add-ons selected through the shared menu port', () => {
+    const profile = createDefaultBusinessProfile();
+    profile.serviceMenu.selectedAddOnIds = ['addon-french', 'unknown-addon'];
+
+    const fixture = createOnboardingBookingFixture(profile);
+
+    expect(fixture.addOns).toEqual([
+      MOCK_ADD_ONS.find(({ id }) => id === 'addon-french'),
+    ]);
+    expect(fixture.addOns[0]).toBe(
+      MOCK_ADD_ONS.find(({ id }) => id === 'addon-french'),
+    );
   });
 });

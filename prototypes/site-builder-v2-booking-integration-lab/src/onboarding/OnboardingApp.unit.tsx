@@ -140,7 +140,11 @@ const createLab = (document: SiteBuilderDocument): LabDocumentController => ({
   undo: vi.fn(() => false),
 });
 
-const renderAt = (state: OnboardingLabState, onEnterBuilder = vi.fn()) => {
+const renderAt = (
+  state: OnboardingLabState,
+  onEnterBuilder = vi.fn(),
+  auditMode = true,
+) => {
   window.localStorage.setItem(
     ONBOARDING_STORAGE_KEY,
     serializeOnboardingState(state),
@@ -153,7 +157,7 @@ const renderAt = (state: OnboardingLabState, onEnterBuilder = vi.fn()) => {
   return {
     lab,
     onEnterBuilder,
-    ...render(<OnboardingApp lab={lab} onEnterBuilder={onEnterBuilder} />),
+    ...render(<OnboardingApp auditMode={auditMode} lab={lab} onEnterBuilder={onEnterBuilder} />),
   };
 };
 
@@ -206,6 +210,15 @@ describe('OnboardingApp handoff boundaries', () => {
     window.history.replaceState({}, '', '/');
     window.localStorage.removeItem(SITE_BUILDER_STORAGE_KEY);
     window.localStorage.removeItem(ONBOARDING_STORAGE_KEY);
+  });
+
+  it('hides Lab review options during the normal owner journey', async () => {
+    const user = userEvent.setup();
+    renderAt(stateAt('policies'), vi.fn(), false);
+    await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
+    expect(screen.queryByRole('menuitem', { name: 'Lab review options' })).not.toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Start over' })).toBeVisible();
+    expect(screen.getByRole('menuitem', { name: 'Save and finish later' })).toBeVisible();
   });
 
   it('keeps the starting-site Preview inside setup and never exposes Builder or plans', async () => {
@@ -420,10 +433,10 @@ describe('OnboardingApp handoff boundaries', () => {
     const forward = vi.spyOn(window.history, 'forward').mockImplementation(() => undefined);
 
     await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Restart onboarding' }));
-    const confirmation = screen.getByRole('dialog', { name: 'Restart onboarding?' });
+    await user.click(screen.getByRole('menuitem', { name: 'Start over' }));
+    const confirmation = screen.getByRole('dialog', { name: 'Start over?' });
     await user.click(within(confirmation).getByRole('button', {
-      name: 'Restart onboarding',
+      name: 'Start over',
     }));
 
     expect(await screen.findByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
@@ -461,9 +474,9 @@ describe('OnboardingApp handoff boundaries', () => {
     ).state.canva.ownedAssetIds).toEqual(['onboarding-removed']);
 
     await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Restart onboarding' }));
-    await user.click(within(screen.getByRole('dialog', { name: 'Restart onboarding?' }))
-      .getByRole('button', { name: 'Restart onboarding' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Start over' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Start over?' }))
+      .getByRole('button', { name: 'Start over' }));
 
     expect(await screen.findByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
     await waitFor(async () => {
@@ -520,9 +533,9 @@ describe('OnboardingApp handoff boundaries', () => {
 
     const { lab } = renderAt(state);
     await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Restart onboarding' }));
-    await user.click(within(screen.getByRole('dialog', { name: 'Restart onboarding?' }))
-      .getByRole('button', { name: 'Restart onboarding' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Start over' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Start over?' }))
+      .getByRole('button', { name: 'Start over' }));
 
     expect(await screen.findByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
     expect(await screen.findByRole('alert')).toHaveTextContent('cleanup list');
@@ -548,9 +561,9 @@ describe('OnboardingApp handoff boundaries', () => {
     );
 
     await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Restart onboarding' }));
-    await user.click(within(screen.getByRole('dialog', { name: 'Restart onboarding?' }))
-      .getByRole('button', { name: 'Restart onboarding' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Start over' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Start over?' }))
+      .getByRole('button', { name: 'Start over' }));
 
     expect(await screen.findByText('Onboarding browser storage could not be cleared.'))
       .toBeVisible();
@@ -569,9 +582,9 @@ describe('OnboardingApp handoff boundaries', () => {
     vi.mocked(lab.resetLab).mockReturnValueOnce(false);
 
     await user.click(screen.getByRole('button', { name: 'More onboarding options' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Restart onboarding' }));
-    await user.click(within(screen.getByRole('dialog', { name: 'Restart onboarding?' }))
-      .getByRole('button', { name: 'Restart onboarding' }));
+    await user.click(screen.getByRole('menuitem', { name: 'Start over' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Start over?' }))
+      .getByRole('button', { name: 'Start over' }));
 
     expect(await screen.findByText('Setup could not be restarted safely. Your setup was restored.'))
       .toBeVisible();

@@ -22,119 +22,42 @@ const installMatchMedia = () => {
 describe('PlanOfferSheet', () => {
   beforeEach(installMatchMedia);
 
-  it('is absent until explicitly opened and exposes three full-size keyboard actions', async () => {
+  it('opens with Free selected, three selectable cards, and exactly one primary action', async () => {
     const user = userEvent.setup();
     const onChoose = vi.fn();
     const offer = createDefaultPlanOffer();
     const view = render(
-      <PlanOfferSheet
-        offer={offer}
-        onChoose={onChoose}
-        onClose={vi.fn()}
-        open={false}
-      />,
+      <PlanOfferSheet offer={offer} onChoose={onChoose} onClose={vi.fn()} open={false} />,
     );
 
     expect(screen.queryByRole('dialog', { name: 'Your site is saved' })).not.toBeInTheDocument();
-    expect(onChoose).not.toHaveBeenCalled();
+    view.rerender(<PlanOfferSheet offer={offer} onChoose={onChoose} onClose={vi.fn()} open />);
 
-    view.rerender(
-      <PlanOfferSheet
-        offer={offer}
-        onChoose={onChoose}
-        onClose={vi.fn()}
-        open
-      />,
-    );
     const dialog = screen.getByRole('dialog', { name: 'Your site is saved' });
     const heading = within(dialog).getByRole('heading', { name: 'Your site is saved' });
-    const founding = within(dialog).getByRole('button', {
-      name: 'Choose founding lifetime offer',
-    });
-    const monthly = within(dialog).getByRole('button', { name: 'Choose monthly plan' });
-    const free = within(dialog).getByRole('button', { name: 'Continue free' });
-    expect(founding).toBeEnabled();
-    expect(monthly).toBeEnabled();
-    expect(free).toBeEnabled();
-    expect(within(dialog).getByText(/You won’t be charged today/u)).toBeVisible();
-    expect(within(dialog).getByText(/Prices and included features are shown for review/iu)).toBeVisible();
-    expect(within(dialog).queryByText(/Lab|prototype|Stripe|server-backed|subscription enforcement/u))
-      .not.toBeInTheDocument();
-    expect(dialog).toHaveAccessibleDescription(/Continue free, or choose a plan/u);
+    const free = within(dialog).getByRole('radio', { name: /Free Always free to start/iu });
+    const founding = within(dialog).getByRole('radio', { name: /Founding offer/iu });
+    const monthly = within(dialog).getByRole('radio', { name: /Monthly plan/iu });
+    expect(free).toBeChecked();
+    expect(founding).not.toBeChecked();
+    expect(monthly).not.toBeChecked();
+    expect(within(dialog).getAllByRole('radio')).toHaveLength(3);
+    expect(within(dialog).getAllByRole('button', { name: /Continue free|Reserve founding offer|interested in monthly/iu })).toHaveLength(1);
+    expect(within(dialog).getByText(/Nothing is charged today/u)).toBeVisible();
     await waitFor(() => expect(heading).toHaveFocus());
-    expect(free).not.toHaveFocus();
 
     await user.click(founding);
-    await user.click(monthly);
-    await user.click(free);
-    expect(onChoose.mock.calls.map(([intent]) => intent)).toEqual([
-      'founding',
-      'monthly',
-      'free',
-    ]);
+    expect(founding).toBeChecked();
+    expect(onChoose).not.toHaveBeenCalled();
+    await user.click(within(dialog).getByRole('button', { name: 'Reserve founding offer' }));
+    expect(onChoose).toHaveBeenCalledOnce();
+    expect(onChoose).toHaveBeenCalledWith('founding');
   });
 
-  it('keeps monthly and free available when the configured founding fixture is expired', () => {
-    const offer = createDefaultPlanOffer();
-    offer.fixtureState = 'expired';
-    render(
-      <PlanOfferSheet
-        offer={offer}
-        onChoose={vi.fn()}
-        onClose={vi.fn()}
-        open
-      />,
-    );
-
-    const dialog = screen.getByRole('dialog', { name: 'Your site is saved' });
-    expect(within(dialog).getByRole('button', {
-      name: 'Founding Nail Tech Lifetime Access unavailable',
-    })).toBeDisabled();
-    expect(within(dialog).getByRole('button', { name: 'Choose monthly plan' })).toBeEnabled();
-    expect(within(dialog).getByRole('button', { name: 'Continue free' })).toBeEnabled();
-    expect(within(dialog).getByText('Founding offer has ended')).toBeVisible();
-  });
-
-  it.each([
-    ['lifetime', 'Founding Nail Tech Lifetime Access'],
-    ['discounted_annual', 'Founding annual access'],
-    ['locked_monthly', 'Founding monthly rate'],
-    ['free_beta', 'Founding Nail Tech beta'],
-  ] as const)('drives the %s founding offer entirely from configuration', (mode, title) => {
-    render(
-      <PlanOfferSheet
-        configuration={createLabPlanConfiguration(mode)}
-        offer={createDefaultPlanOffer()}
-        onChoose={vi.fn()}
-        onClose={vi.fn()}
-        open
-      />,
-    );
-
-    expect(screen.getByRole('heading', { name: title })).toBeVisible();
-  });
-
-  it('resolves its founding configuration from the persisted offer state', () => {
-    const offer = createDefaultPlanOffer();
-    offer.foundingMode = 'free_beta';
-    render(
-      <PlanOfferSheet
-        offer={offer}
-        onChoose={vi.fn()}
-        onClose={vi.fn()}
-        open
-      />,
-    );
-
-    expect(screen.getByRole('heading', { name: 'Founding Nail Tech beta' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Join founding beta' })).toBeEnabled();
-  });
-
-  it('can hide the founding offer and its comparison column', async () => {
+  it('uses truthful interest copy without urgency, lifetime promises, checkout, or a table', async () => {
     const user = userEvent.setup();
     render(
       <PlanOfferSheet
-        configuration={createLabPlanConfiguration('hidden')}
         offer={createDefaultPlanOffer()}
         onChoose={vi.fn()}
         onClose={vi.fn()}
@@ -142,33 +65,61 @@ describe('PlanOfferSheet', () => {
       />,
     );
 
-    expect(screen.queryByText(/Founding/iu)).not.toBeInTheDocument();
-    expect(screen.getByText('Choose the option that fits you')).toBeVisible();
-    await user.click(screen.getByText('Compare plans'));
-    const table = screen.getByRole('table', { name: 'Plan feature comparison' });
-    expect(within(table).queryByRole('columnheader', { name: /Founding/iu })).not.toBeInTheDocument();
-    expect(within(table).getByRole('columnheader', { name: 'Monthly plan' })).toBeVisible();
-    expect(within(table).getByRole('columnheader', { name: 'Continue free' })).toBeVisible();
+    const dialog = screen.getByRole('dialog', { name: 'Your site is saved' });
+    expect(within(dialog).getByText('Always free to start')).toBeVisible();
+    expect(within(dialog).getAllByText('Price coming soon')).toHaveLength(2);
+    expect(within(dialog).getByText(/Final prices and features are still being confirmed/u)).toBeVisible();
+    expect(within(dialog).queryByText(/lifetime|ending soon|expires|countdown|buy|purchase|checkout/iu)).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('table')).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByText('Compare what’s included'));
+    expect(within(dialog).getAllByText('Online booking')).toHaveLength(2);
+    expect(within(dialog).getAllByText('Included with every plan')).toHaveLength(2);
+    expect(within(dialog).getAllByText('Planned for paid options')).toHaveLength(3);
   });
 
-  it('hides a founding option when the offer fixture is set to none', () => {
+  it('keeps Free and Monthly coherent when the founding option is hidden or expired', () => {
     const offer = createDefaultPlanOffer();
-    offer.fixtureState = 'none';
-    render(
+    const view = render(
       <PlanOfferSheet
+        configuration={createLabPlanConfiguration('hidden')}
         offer={offer}
         onChoose={vi.fn()}
         onClose={vi.fn()}
         open
       />,
     );
+    expect(screen.queryByRole('radio', { name: /Founding offer/iu })).not.toBeInTheDocument();
+    expect(screen.getByRole('radio', { name: /Free Always free to start/iu })).toBeChecked();
+    expect(screen.getByRole('radio', { name: /Monthly plan/iu })).toBeEnabled();
 
-    expect(screen.queryByRole('button', { name: /founding/iu })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Choose monthly plan' })).toBeEnabled();
+    offer.fixtureState = 'expired';
+    view.rerender(
+      <PlanOfferSheet offer={offer} onChoose={vi.fn()} onClose={vi.fn()} open />,
+    );
+    expect(screen.queryByRole('radio', { name: /Founding offer/iu })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Continue free' })).toBeEnabled();
   });
 
-  it('restores focus to the handoff control after the sheet closes', async () => {
+  it.each(['lifetime', 'discounted_annual', 'locked_monthly', 'free_beta'] as const)(
+    'normalizes legacy %s configuration to the truthful generic founding-interest card',
+    (mode) => {
+      render(
+        <PlanOfferSheet
+          configuration={createLabPlanConfiguration(mode)}
+          offer={createDefaultPlanOffer()}
+          onChoose={vi.fn()}
+          onClose={vi.fn()}
+          open
+        />,
+      );
+      expect(screen.getByRole('radio', { name: /Founding offer/iu })).toBeEnabled();
+      expect(screen.queryByText(/Lifetime Access|annual access|locked founding rate|beta access/iu))
+        .not.toBeInTheDocument();
+    },
+  );
+
+  it('restores focus to Finish setup after Escape or the close control', async () => {
     const user = userEvent.setup();
 
     function Harness() {
@@ -189,9 +140,11 @@ describe('PlanOfferSheet', () => {
     render(<Harness />);
     const handoff = screen.getByRole('button', { name: 'Finish setup' });
     await user.click(handoff);
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Your site is saved' }))
-      .toHaveFocus());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Your site is saved' })).toHaveFocus());
+    await user.keyboard('{Escape}');
+    await waitFor(() => expect(handoff).toHaveFocus());
 
+    await user.click(handoff);
     await user.click(screen.getByRole('button', { name: 'Close Your site is saved' }));
     await waitFor(() => expect(handoff).toHaveFocus());
   });

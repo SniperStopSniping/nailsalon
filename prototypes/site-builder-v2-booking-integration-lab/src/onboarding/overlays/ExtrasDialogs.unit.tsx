@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { afterEach, beforeEach, vi } from 'vitest';
@@ -13,7 +13,7 @@ import { initializeStarter } from '../../model';
 import type { CustomDesignSectionInstance } from '../../model/types';
 import { createDanielaFixtureState } from '../fixtures';
 import type { CanvaIntegrationController } from '../extras/useCanvaIntegration';
-import type { OnboardingLabState } from '../model/types';
+import type { LocalImageReference, OnboardingLabState } from '../model/types';
 import { ExtrasScreen, type OnboardingStateUpdater } from '../screens/DesignScreens';
 import { parseOnboardingState } from '../storage/storage';
 import { CanvaDialog, GalleryDialog } from './ExtrasDialogs';
@@ -60,6 +60,18 @@ const restoreUrlMethod = (
 };
 
 const repositoryMetadata = new Map<string, ImageAssetMetadata>();
+const MOCK_GALLERY_IMAGES_FOR_TEST: LocalImageReference[] = [
+  { fileName: 'russian.webp', id: 'test-gallery-russian' },
+  { fileName: 'nude.webp', id: 'test-gallery-nude' },
+  { fileName: 'chrome.webp', id: 'test-gallery-chrome' },
+  { fileName: 'french.webp', id: 'test-gallery-french' },
+].map(({ fileName, id }) => ({
+  fileName,
+  id,
+  mimeType: 'image/webp' as const,
+  previewUrl: '/manicure-french.webp',
+  source: 'fixture' as const,
+}));
 
 const assetRepository: AssetRepository = {
   clear: vi.fn(async () => 0),
@@ -157,7 +169,7 @@ describe('optional Gallery and Canva surfaces', () => {
       />,
     );
     expect(screen.getByText('Add photos of your nail sets so clients can see your style.')).toBeVisible();
-    expect(screen.getByText('Upload your Canva pages and we’ll add them to your website.')).toBeVisible();
+    expect(screen.getByText('Upload pages you exported from Canva and add them to your website.')).toBeVisible();
     expect(screen.queryByText(/Custom Design section/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/^Added:/)).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Continue to review' }));
@@ -207,7 +219,7 @@ describe('optional Gallery and Canva surfaces', () => {
     let dialog = screen.getByRole('dialog', { name: 'Add Gallery' });
     await user.click(within(dialog).getByRole('button', { name: 'Add Gallery' }));
     expect(within(dialog).getByRole('alert')).toHaveTextContent(/Choose portfolio images/i);
-    await user.click(within(dialog).getByRole('button', { name: /Use temporary example photos/ }));
+    await user.click(within(dialog).getByRole('button', { name: /Use example nail photos/ }));
     await user.click(within(dialog).getByRole('radio', { name: 'editorial' }));
     await user.click(within(dialog).getByRole('button', { name: 'Add Gallery' }));
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Add Gallery' })).not.toBeInTheDocument());
@@ -216,9 +228,32 @@ describe('optional Gallery and Canva surfaces', () => {
     expect(latestState.recipe.galleryEnabled).toBe(true);
   });
 
+  it('labels an added example Gallery truthfully in the Extras card', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.galleryEnabled = true;
+    state.gallery = {
+      images: MOCK_GALLERY_IMAGES_FOR_TEST.map((image) => ({ ...image })),
+      layout: 'grid',
+      source: 'mock_luster',
+    };
+    render(
+      <ExtrasScreen
+        onBack={vi.fn()}
+        onContinue={vi.fn()}
+        onOpenCanva={vi.fn()}
+        onOpenGallery={vi.fn()}
+        state={state}
+      />,
+    );
+
+    expect(screen.getByText('4 example photos · Grid')).toBeVisible();
+    expect(screen.getByText('Swap in your own photos whenever you’re ready.')).toBeVisible();
+  });
+
   it('cleans only replaced Gallery uploads when temporary examples are selected', async () => {
     const user = userEvent.setup();
     const initial = createDanielaFixtureState();
+    initial.recipe.galleryEnabled = true;
     initial.gallery.source = 'uploads';
     initial.gallery.images = [{
       fileName: 'first.png',
@@ -247,7 +282,10 @@ describe('optional Gallery and Canva surfaces', () => {
     }
 
     render(<Harness />);
-    await user.click(screen.getByRole('button', { name: /Use temporary example photos/u }));
+    await user.click(screen.getByRole('button', { name: /Use example nail photos/u }));
+    expect(latestState.gallery.source).toBe('uploads');
+    expect(assetRepository.delete).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Save Gallery' }));
 
     await waitFor(() => expect(latestState.gallery.source).toBe('mock_luster'));
     await waitFor(() => expect(latestState.canva.ownedAssetIds).toEqual([
@@ -264,6 +302,7 @@ describe('optional Gallery and Canva surfaces', () => {
   it('retains replaced Gallery asset IDs in the existing cleanup ledger when deletion fails', async () => {
     const user = userEvent.setup();
     const initial = createDanielaFixtureState();
+    initial.recipe.galleryEnabled = true;
     initial.gallery.source = 'uploads';
     initial.gallery.images = [{
       fileName: 'retry.png',
@@ -287,11 +326,10 @@ describe('optional Gallery and Canva surfaces', () => {
     }
 
     render(<Harness />);
-    await user.click(screen.getByRole('button', { name: /Use temporary example photos/u }));
+    await user.click(screen.getByRole('button', { name: /Use example nail photos/u }));
+    await user.click(screen.getByRole('button', { name: 'Save Gallery' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      'This browser will retry cleaning up the earlier uploads later.',
-    );
+    await waitFor(() => expect(latestState.gallery.source).toBe('mock_luster'));
     expect(latestState.gallery.source).toBe('mock_luster');
     expect(latestState.canva.ownedAssetIds).toEqual([
       'earlier-cleanup-retry',
@@ -369,6 +407,10 @@ describe('optional Gallery and Canva surfaces', () => {
     const alert = await within(dialog).findByRole('alert');
     expect(alert).toHaveTextContent('1 image was added and 1 was skipped.');
     expect(alert).toHaveTextContent('corrupt.png: This image couldn’t be opened.');
+    expect(latestState.gallery.source).toBe(null);
+    expect(latestState.gallery.images).toEqual([]);
+    expect(within(dialog).getByText('valid.png')).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: 'Add Gallery' }));
     expect(latestState.gallery.source).toBe('uploads');
     expect(latestState.gallery.images).toEqual([
       expect.objectContaining({
@@ -378,7 +420,7 @@ describe('optional Gallery and Canva surfaces', () => {
         width: 900,
       }),
     ]);
-    expect(latestState.recipe.galleryEnabled).toBe(false);
+    expect(latestState.recipe.galleryEnabled).toBe(true);
     expect(within(dialog).getAllByRole('img')).toHaveLength(1);
   });
 
@@ -419,6 +461,9 @@ describe('optional Gallery and Canva surfaces', () => {
     expect(alert).toHaveTextContent(
       'gallery-10.png: Skipped because a Gallery can contain up to 8 images.',
     );
+    expect(latestState.gallery.images).toHaveLength(0);
+    expect(within(dialog).getAllByText('Your photo')).toHaveLength(8);
+    await user.click(within(dialog).getByRole('button', { name: 'Add Gallery' }));
     expect(latestState.gallery.images).toHaveLength(8);
   });
 
@@ -500,6 +545,137 @@ describe('optional Gallery and Canva surfaces', () => {
     expect(latestState.gallery).toMatchObject({ images: [], source: null });
     expect(latestState.recipe.galleryEnabled).toBe(false);
     expect(within(dialog).queryByRole('img')).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['Cancel', async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    }],
+    ['X', async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.click(screen.getByRole('button', { name: 'Close Edit Gallery' }));
+    }],
+    ['Escape', async (user: ReturnType<typeof userEvent.setup>) => {
+      await user.keyboard('{Escape}');
+    }],
+    ['backdrop', async () => {
+      fireEvent.mouseDown(screen.getByTestId('dialog-backdrop'));
+    }],
+  ])('restores the exact Gallery baseline after %s dismissal', async (_label, dismiss) => {
+    const user = userEvent.setup();
+    const initial = createDanielaFixtureState();
+    initial.recipe.galleryEnabled = true;
+    initial.gallery = {
+      images: [
+        {
+          altText: 'First baseline set',
+          fileName: 'first.webp',
+          id: 'baseline-first',
+          mimeType: 'image/webp',
+          previewUrl: '/manicure-french.webp',
+          source: 'fixture',
+        },
+        {
+          altText: 'Second baseline set',
+          fileName: 'second.webp',
+          id: 'baseline-second',
+          mimeType: 'image/webp',
+          previewUrl: '/manicure-gel-nude.webp',
+          source: 'fixture',
+        },
+      ],
+      layout: 'carousel',
+      source: 'mock_luster',
+    };
+    const exactBaseline = structuredClone(initial);
+    let latestState = initial;
+
+    function Harness() {
+      const [state, setState] = useState(initial);
+      const [open, setOpen] = useState(true);
+      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+        const next = transform(current);
+        latestState = next;
+        return next;
+      });
+      return <GalleryDialog onClose={() => setOpen(false)} onUpdate={update} open={open} state={state} />;
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByRole('radio', { name: 'editorial' }));
+    await user.click(screen.getByRole('button', { name: 'Remove first.webp' }));
+    await user.click(screen.getByRole('button', { name: /Use example nail photos/u }));
+    await dismiss(user);
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit Gallery' }))
+      .not.toBeInTheDocument());
+    expect(latestState).toEqual(exactBaseline);
+    expect(assetRepository.delete).not.toHaveBeenCalled();
+  });
+
+  it('removes staged Gallery uploads when Cancel discards the draft', async () => {
+    const user = userEvent.setup();
+    const initial = createDanielaFixtureState();
+    initial.recipe.galleryEnabled = false;
+    initial.gallery = { images: [], layout: 'grid', source: null };
+    const exactBaseline = structuredClone(initial);
+    let latestState = initial;
+
+    function Harness() {
+      const [state, setState] = useState(initial);
+      const [open, setOpen] = useState(true);
+      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+        const next = transform(current);
+        latestState = next;
+        return next;
+      });
+      return <GalleryDialog onClose={() => setOpen(false)} onUpdate={update} open={open} state={state} />;
+    }
+
+    render(<Harness />);
+    await user.upload(
+      screen.getByLabelText(/Upload portfolio photos/u),
+      new File(['draft'], 'draft.png', { type: 'image/png' }),
+    );
+    expect(await screen.findByText('draft.png')).toBeVisible();
+    expect(latestState).toEqual(exactBaseline);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    await waitFor(() => expect(assetRepository.delete).toHaveBeenCalledOnce());
+    expect(latestState).toEqual(exactBaseline);
+  });
+
+  it('commits Gallery layout, removals, and order only after Save', async () => {
+    const user = userEvent.setup();
+    const initial = createDanielaFixtureState();
+    initial.recipe.galleryEnabled = true;
+    initial.gallery = {
+      images: MOCK_GALLERY_IMAGES_FOR_TEST.slice(0, 3).map((image) => ({ ...image })),
+      layout: 'grid',
+      source: 'mock_luster',
+    };
+    const baseline = structuredClone(initial.gallery);
+    let latestState = initial;
+
+    function Harness() {
+      const [state, setState] = useState(initial);
+      const update: OnboardingStateUpdater = (transform) => setState((current) => {
+        const next = transform(current);
+        latestState = next;
+        return next;
+      });
+      return <GalleryDialog onClose={vi.fn()} onUpdate={update} open state={state} />;
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByRole('radio', { name: 'carousel' }));
+    await user.click(screen.getByRole('button', { name: 'Move russian.webp later' }));
+    await user.click(screen.getByRole('button', { name: 'Remove chrome.webp' }));
+    expect(latestState.gallery).toEqual(baseline);
+
+    await user.click(screen.getByRole('button', { name: 'Save Gallery' }));
+    expect(latestState.gallery.layout).toBe('carousel');
+    expect(latestState.gallery.images.map(({ fileName }) => fileName))
+      .toEqual(['nude.webp', 'russian.webp']);
   });
 
   it('passes confirmed Canva files, display, and placement through the real integration seam', async () => {

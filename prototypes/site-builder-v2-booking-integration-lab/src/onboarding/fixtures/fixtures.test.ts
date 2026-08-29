@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { DEFAULT_PREVIEW_TIMESTAMP } from '../model/defaults';
 import { getWeeklyHoursPreviewStatus } from '../model/hours';
 import { getEssentialsLeft } from '../progress/essentials';
 import {
@@ -74,7 +75,7 @@ describe('onboarding Lab review fixtures', () => {
       closed: false,
       open: '10:00',
     });
-    expect(state.reviewOptions.previewTimestamp).toBe('2026-08-27T18:30:00.000Z');
+    expect(state.reviewOptions.previewTimestamp).toBe(DEFAULT_PREVIEW_TIMESTAMP);
   });
 
   it('provides coherent complete and one-missing essential states', () => {

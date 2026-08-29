@@ -33,11 +33,11 @@ describe('Lab BookingPreferencesPort', () => {
     const threeDays = port.getAvailabilityPreview(4_320, previewTimestamp);
 
     expect(noNotice.bookableTimes[0]?.id).toBe('lab-time-60');
-    expect(twoHours.bookableTimes[0]?.id).toBe('lab-time-240');
-    expect(threeDays.bookableTimes.map(({ id }) => id)).toEqual([
-      'lab-time-4440',
-      'lab-time-5880',
-    ]);
+    expect(twoHours.bookableTimes[0]?.id).toBe('lab-time-210');
+    expect(threeDays.bookableTimes[0]?.id).toBe('lab-time-4380');
+    expect(threeDays.bookableTimes.every(({ startsAt }) => (
+      startsAt >= threeDays.cutoffAt
+    ))).toBe(true);
   });
 
   it('rejects blank, zero, and invalid custom values instead of converting them to zero', () => {

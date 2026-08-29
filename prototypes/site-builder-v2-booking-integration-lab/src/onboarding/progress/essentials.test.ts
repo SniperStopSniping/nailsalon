@@ -18,7 +18,7 @@ describe('onboarding essentials', () => {
   it('defines exactly five essentials and keeps optional content out', () => {
     const state = createDefaultOnboardingState();
     expect(getEssentialResults(state)).toHaveLength(5);
-    expect(getEssentialsMessage(state)).toBe('5 essentials left');
+    expect(getEssentialsMessage(state)).toBe('5 required steps left');
 
     state.profile.profilePhoto = {
       fileName: 'portrait.webp',
@@ -42,7 +42,7 @@ describe('onboarding essentials', () => {
       'starting_point',
       'site_style',
     ]);
-    expect(getEssentialsMessage(state)).toBe('All essentials complete');
+    expect(getEssentialsMessage(state)).toBe('All required steps complete');
     expect(getFirstIncompleteEssentialScreen(state)).toBeNull();
     expect(canOpenBuilder(state)).toBe(true);
   });
@@ -53,6 +53,7 @@ describe('onboarding essentials', () => {
     state.profile.ownerName = 'Daniela';
     state.profile.businessStructure = 'solo';
     state.profile.location.cityOrArea = 'Scarborough, Ontario';
+    state.profile.location.locationType = 'salon_suite';
     state.profile.bookingOnlyContact = true;
 
     expect(getCompletedEssentialIds(state)).toEqual([
@@ -64,6 +65,8 @@ describe('onboarding essentials', () => {
   it('requires an enabled, coherent preferred contact method when not Booking-only', () => {
     const state = createDefaultOnboardingState();
     state.profile.location.cityOrArea = 'Scarborough, Ontario';
+    state.profile.location.locationType = 'salon_suite';
+    state.profile.bookingOnlyContact = false;
     state.profile.clientContact.primaryNumber = '416-555-0100';
     state.profile.preferredContact = 'call';
     expect(getCompletedEssentialIds(state)).not.toContain('location_contact');
@@ -84,7 +87,7 @@ describe('onboarding essentials', () => {
     state.recipe.styleConfirmed = false;
 
     expect(getEssentialsLeft(state)).toBe(2);
-    expect(getEssentialsMessage(state)).toBe('2 essentials left');
+    expect(getEssentialsMessage(state)).toBe('2 required steps left');
     expect(getFirstIncompleteEssentialScreen(state)).toBe('starter');
     expect(canOpenBuilder(state)).toBe(false);
   });

@@ -12,6 +12,7 @@ import {
 describe('client contact model', () => {
   it('uses one number for enabled Call and Text methods', () => {
     const profile = createDefaultBusinessProfile();
+    profile.bookingOnlyContact = false;
     profile.clientContact = {
       callEnabled: true,
       differentTextNumber: '',
@@ -44,6 +45,7 @@ describe('client contact model', () => {
 
   it('uses the disclosed text number and keeps the preferred method coherent', () => {
     const profile = createDefaultBusinessProfile();
+    profile.bookingOnlyContact = false;
     profile.clientContact = {
       callEnabled: true,
       differentTextNumber: '647-555-0199',
@@ -82,6 +84,7 @@ describe('client contact model', () => {
 
   it('publishes every permitted safe channel and emphasizes only the preferred one', () => {
     const profile = createDefaultBusinessProfile();
+    profile.bookingOnlyContact = false;
     profile.clientContact.primaryNumber = '416-555-0100';
     profile.clientContact.callEnabled = true;
     profile.clientContact.textEnabled = true;

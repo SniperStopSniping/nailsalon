@@ -19,9 +19,10 @@ describe('WelcomeScreen', () => {
     expect(screen.getByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
     expect(screen.getByText('YOUR WEBSITE STARTS HERE')).toBeVisible();
     expect(screen.getByText('Add your details once')).toBeVisible();
+    expect(screen.getByText('Start with a ready-made service menu')).toBeVisible();
     expect(screen.getByText('Switch designs without starting over')).toBeVisible();
-    expect(screen.getByText('Update your whole site from one place')).toBeVisible();
     expect(screen.getByText('Your progress saves automatically on this device.')).toBeVisible();
+    expect(screen.getByText('You’ll preview your site before choosing a plan.')).toBeVisible();
     expect(screen.queryByText(/UX Lab|Production/u)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Build my website' }));

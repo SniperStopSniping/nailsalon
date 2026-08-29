@@ -21,7 +21,7 @@ describe('OnboardingShell', () => {
     expect(within(progress).getByText('Booking').closest('li')).toHaveAttribute('aria-current', 'step');
     expect(within(progress).getByText('Basics').closest('li')).toHaveAttribute('data-stage-state', 'complete');
     expect(screen.getByRole('status', { name: 'Autosave status' })).toHaveTextContent('Saving…');
-    expect(screen.getByRole('status', { name: '' })).toHaveTextContent('2 essentials left');
+    expect(screen.getByRole('status', { name: '' })).toHaveTextContent('2 required steps left');
     expect(screen.queryByText(/step \d+ of \d+/i)).not.toBeInTheDocument();
   });
 
@@ -48,7 +48,7 @@ describe('OnboardingShell', () => {
     const details = more.closest('details');
     for (const action of [
       'Save and finish later',
-      'Restart onboarding',
+      'Start over',
       'Lab review options',
     ]) {
       await user.click(more);
@@ -84,7 +84,7 @@ describe('OnboardingShell', () => {
     await user.keyboard('{Enter}');
     expect(details).toHaveAttribute('open');
     const save = screen.getByRole('menuitem', { name: 'Save and finish later' });
-    const restart = screen.getByRole('menuitem', { name: 'Restart onboarding' });
+    const restart = screen.getByRole('menuitem', { name: 'Start over' });
     await waitFor(() => expect(save).toHaveFocus());
 
     await user.keyboard('{ArrowDown}');

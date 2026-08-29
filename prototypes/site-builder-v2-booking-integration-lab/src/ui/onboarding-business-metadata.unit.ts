@@ -6,6 +6,7 @@ import { createOnboardingClientBusinessMetadata } from './onboarding-business-me
 describe('Builder onboarding business metadata adapter', () => {
   it('projects the shared schedule and privacy-safe public metadata', () => {
     const state = createDanielaFixtureState();
+    state.reviewOptions.previewTimestamp = '2026-08-27T18:30:00.000Z';
     state.profile.location.exactAddress = '123 Example Avenue';
     const metadata = createOnboardingClientBusinessMetadata(state);
 

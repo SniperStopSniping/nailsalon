@@ -8,6 +8,7 @@ import {
   buildAboutWordingSuggestion,
   formatAboutListInput,
   parseAboutListInput,
+  resolveAboutBio,
 } from './about';
 import type { AboutPresetId } from './types';
 
@@ -37,6 +38,38 @@ describe('About profile editing helpers', () => {
     expect(first).toContain('Russian Manicure');
     expect(first).toContain('Scarborough, Ontario');
     expect(first).not.toMatch(/\bDaniela creates\b/u);
+  });
+
+  it('resolves short and full biographies without discarding the longer story', () => {
+    expect(resolveAboutBio('A short introduction.', 'My complete story.')).toEqual({
+      expanded: 'My complete story.',
+      lead: 'A short introduction.',
+      source: 'short_and_full',
+    });
+    expect(resolveAboutBio('A short introduction.', '')).toEqual({
+      expanded: null,
+      lead: 'A short introduction.',
+      source: 'short_only',
+    });
+    expect(resolveAboutBio('', '')).toEqual({
+      expanded: null,
+      lead: null,
+      source: 'none',
+    });
+  });
+
+  it('derives a readable lead when only a long full bio exists', () => {
+    const fullBio = [
+      'I built my studio around calm, detailed appointments.',
+      'Every service starts with a thoughtful consultation and careful prep.',
+      'I want clients to leave feeling looked after and confident in their nails.',
+    ].join(' ');
+
+    const resolved = resolveAboutBio('', fullBio);
+
+    expect(resolved.source).toBe('full_only');
+    expect(resolved.lead).toBe('I built my studio around calm, detailed appointments.');
+    expect(resolved.expanded).toBe(fullBio);
   });
 });
 

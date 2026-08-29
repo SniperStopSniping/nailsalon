@@ -98,9 +98,9 @@ describe('PhotoSocialScreen', () => {
       .not.toBeInTheDocument();
     expect(screen.getByLabelText('Profile photo placeholder')).toHaveTextContent('D');
     const photo = new File(['portrait'], 'daniela.png', { type: 'image/png' });
-    await user.upload(screen.getByLabelText('Profile photo (optional)'), photo);
+    await user.upload(screen.getByLabelText('Profile photo'), photo);
     expect(onProfilePhotoSelected).toHaveBeenCalledWith(photo);
-    await user.type(screen.getByLabelText('Instagram handle (optional)'), '@islanail.studio');
+    await user.type(screen.getByLabelText('Instagram handle'), '@islanail.studio');
     expect(screen.getByRole('complementary', { name: 'Profile preview' }))
       .toHaveTextContent('@islanail.studio');
     expect(screen.getByText('You can enter @yourstudio or yourstudio.')).toBeVisible();
@@ -163,26 +163,31 @@ describe('LocationContactScreen', () => {
 
     render(<Harness />);
     await user.type(screen.getByLabelText('City or general service area'), 'Scarborough, Ontario');
-    await user.click(screen.getByRole('button', { name: /How should clients contact you/ }));
+    await user.click(screen.getByRole('radio', { name: 'Salon suite' }));
+    await user.click(screen.getByRole('button', { name: /^Contact/u }));
     expect(screen.getByRole('button', { name: /Location/ })).toHaveAttribute('aria-expanded', 'false');
-    expect(screen.getByRole('button', { name: /How should clients contact you/ })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByRole('button', { name: /^Contact/u })).toHaveAttribute('aria-expanded', 'true');
+
+    await user.click(screen.getByRole('switch', {
+      name: 'Clients should use online booking only',
+    }));
 
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
     expect(screen.getByRole('alert')).toHaveTextContent('1 answer needs attention.');
     expect(screen.getAllByText(
-      'Add at least one public contact method, or choose online booking only.',
+      'Add a phone number, email or Instagram so clients can reach you—or choose “Clients should use online booking only” to keep your details private.',
     ).length).toBeGreaterThan(0);
     expect(screen.getByRole('group', { name: 'Clients can:' })).toHaveAttribute(
       'aria-invalid',
       'true',
     );
-    const primaryNumber = screen.getByLabelText('Client contact number');
+    const primaryNumber = screen.getByLabelText('Phone number clients can use');
     await waitFor(() => expect(primaryNumber).toHaveFocus());
     expect(primaryNumber).toHaveAttribute('aria-invalid', 'true');
     const contactDescriptionId = primaryNumber.getAttribute('aria-describedby');
     expect(contactDescriptionId).toBeTruthy();
     expect(document.getElementById(contactDescriptionId ?? '')).toHaveTextContent(
-      'Add at least one public contact method, or choose online booking only.',
+      'Add a phone number, email or Instagram so clients can reach you—or choose “Clients should use online booking only” to keep your details private.',
     );
     await user.click(screen.getByRole('switch', {
       name: 'Clients should use online booking only',
@@ -251,8 +256,11 @@ describe('LocationContactScreen', () => {
     }
 
     render(<Harness />);
-    await user.click(screen.getByRole('button', { name: /How should clients contact you/ }));
-    await user.type(screen.getByLabelText('Client contact number'), '416-555-0100');
+    await user.click(screen.getByRole('button', { name: /^Contact/u }));
+    await user.click(screen.getByRole('switch', {
+      name: 'Clients should use online booking only',
+    }));
+    await user.type(screen.getByLabelText('Phone number clients can use'), '416-555-0100');
     await user.click(screen.getByRole('switch', { name: 'Call this number' }));
     await user.click(screen.getByRole('switch', { name: 'Text this number' }));
     await user.click(screen.getByRole('radio', { name: 'Text' }));
@@ -270,7 +278,7 @@ describe('LocationContactScreen', () => {
     expect(screen.queryByRole('radio', { name: 'Text' })).not.toBeInTheDocument();
     expect(screen.queryByRole('radio', { name: 'Call' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', {
-      name: /How should clients contact you\? Call shown first/u,
+      name: /Contact Call shown first/u,
     })).toBeVisible();
     expect(screen.queryByLabelText('Text message number')).not.toBeInTheDocument();
 
@@ -279,7 +287,7 @@ describe('LocationContactScreen', () => {
     }));
     expect(within(preview).getByText('Booking is the best way to reach us')).toBeVisible();
     expect(within(preview).queryByText('416-555-0100')).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Client contact number')).toHaveValue('416-555-0100');
+    expect(screen.getByLabelText('Phone number clients can use')).toHaveValue('416-555-0100');
   });
 
   it('copies Monday hours only to weekdays and keeps native closed controls', async () => {
@@ -342,12 +350,12 @@ describe('LocationContactScreen', () => {
     render(<Harness />);
     const preview = screen.getByRole('img', { name: /Location and contact visual preview/u });
     const hoursCard = screen.getByRole('button', { name: /Hours/ });
-    expect(hoursCard).toHaveTextContent('Not set · Optional');
+    expect(hoursCard).toHaveTextContent('Add your business hours');
     expect(within(preview).queryByText(/Open until|Closed/u)).not.toBeInTheDocument();
 
     await user.click(hoursCard);
     await user.type(screen.getByLabelText('Thursday opens'), '10:00');
-    expect(hoursCard).toHaveTextContent('Not set · Optional');
+    expect(hoursCard).toHaveTextContent('Add your business hours');
     expect(screen.getByRole('switch', { name: 'Show hours on my website' })).toBeDisabled();
     expect(within(preview).queryByText(/Open until|Closed/u)).not.toBeInTheDocument();
     await user.type(screen.getByLabelText('Thursday closes'), '18:00');
@@ -355,11 +363,11 @@ describe('LocationContactScreen', () => {
     expect(within(preview).getByText('Open until 6:00 PM')).toBeVisible();
 
     await user.click(screen.getByRole('switch', { name: 'Show hours on my website' }));
-    expect(hoursCard).toHaveTextContent('Not shown on your site');
+    expect(hoursCard).toHaveTextContent('Not shown on your website');
     expect(within(preview).queryByText(/Open until|Closed/u)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: 'Skip hours for now' }));
-    expect(hoursCard).toHaveTextContent('Not shown on your site');
+    expect(hoursCard).toHaveTextContent('Not shown on your website');
     expect(hoursCard).not.toHaveTextContent('Complete');
     expect(within(preview).queryByText(/Open until|Closed/u)).not.toBeInTheDocument();
   });

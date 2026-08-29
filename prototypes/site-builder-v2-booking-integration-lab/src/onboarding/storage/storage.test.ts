@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { createDanielaFixtureState } from '../fixtures';
-import { createDefaultOnboardingState } from '../model/defaults';
+import {
+  createDefaultOnboardingState,
+  DEFAULT_PREVIEW_TIMESTAMP,
+} from '../model/defaults';
 import { ONBOARDING_SCHEMA_VERSION } from '../model/types';
 import {
   clearOnboardingState,
@@ -165,7 +168,7 @@ describe('onboarding browser-local storage', () => {
       useDifferentTextNumber: false,
     });
     expect(untouched.state.reviewOptions.previewTimestamp)
-      .toBe('2026-08-27T18:30:00.000Z');
+      .toBe(DEFAULT_PREVIEW_TIMESTAMP);
 
     const edited = parseOnboardingState(JSON.stringify(createLegacySavedState({ edited: true })));
     expect(edited.state.profile.hours).toMatchObject({

@@ -29,15 +29,16 @@ describe('DashboardPreviewSurface', () => {
     ownerName: 'Daniela',
   };
 
-  const renderSurface = (initialTourCompleted = false) => {
+  const renderSurface = (options: { auditMode?: boolean; tourCompleted?: boolean } = {}) => {
     const onEditWebsite = vi.fn();
     const onReturnToReview = vi.fn();
     const onTourCompletedChange = vi.fn();
 
     function Harness() {
-      const [tourCompleted, setTourCompleted] = useState(initialTourCompleted);
+      const [tourCompleted, setTourCompleted] = useState(options.tourCompleted ?? false);
       return (
         <DashboardPreviewSurface
+          auditMode={options.auditMode}
           document={initializeStarter('one_page', { siteName: profile.businessName })}
           fixtures={{
             googleCalendar: 'not_connected',
@@ -67,52 +68,81 @@ describe('DashboardPreviewSurface', () => {
     };
   };
 
-  it('opens an optional five-part first-time tour and supports skip and replay', async () => {
+  it('arrives directly at the dashboard payoff and never auto-opens the optional tour', async () => {
+    renderSurface();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { level: 1, name: 'You’re ready' })).toBeVisible();
+    expect(screen.getByText(/website, booking page and service menu are set up/iu)).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Today at Isla Nail Studio' })).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('heading', { level: 1, name: 'You’re ready' })).toHaveFocus());
+  });
+
+  it('orders Today and Website first and keeps website editing one action away', async () => {
+    const user = userEvent.setup();
+    const { onEditWebsite } = renderSurface();
+    const navigation = screen.getByRole('navigation', { name: 'Dashboard destinations' });
+    expect(within(navigation).getAllByRole('button').map((button) => button.textContent?.trim())).toEqual([
+      'Today',
+      'Website & Booking Page',
+      'Calendar',
+      'Clients',
+      'Services',
+      'More',
+    ]);
+    expect(within(navigation).getByRole('button', { name: 'Today' })).toHaveAttribute('aria-current', 'page');
+    await user.click(screen.getByRole('button', { name: 'Edit my website' }));
+    expect(onEditWebsite).toHaveBeenCalledOnce();
+  });
+
+  it('opens the five-step tour only on request and highlights the real storyboard', async () => {
     const user = userEvent.setup();
     const { onTourCompletedChange } = renderSurface();
+    const welcome = screen.getByRole('heading', { name: 'You’re ready' }).closest('section')!;
+    await user.click(within(welcome).getByRole('button', { name: 'Take a quick tour' }));
 
-    const dialog = screen.getByRole('dialog', { name: 'Welcome to your Luster workspace' });
-    expect(dialog).toHaveTextContent('1 of 5');
-    expect(screen.getByRole('button', { name: 'Skip tour' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Skip tour' }));
+    const dialog = screen.getByRole('dialog', { name: 'A quick look around Luster' });
+    expect(within(dialog).getByText('1 of 5')).toBeVisible();
+    expect(document.querySelector('.lab-dashboard-storyboard')).toHaveAttribute('data-tour-highlighted', 'true');
+    expect(document.querySelector('.lab-dashboard-tour__miniature')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Today at Isla Nail Studio' })).toBeVisible();
+
+    await user.click(within(dialog).getByRole('button', { name: /Next/iu }));
+    expect(within(dialog).getByText('2 of 5')).toBeVisible();
+    expect(within(dialog).getByRole('heading', { name: 'Your calendar' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Calendar' })).toBeVisible();
+    expect(within(dialog).getByText(/after you connect Google Calendar/iu)).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: /Back/iu }));
+    expect(within(dialog).getByText('1 of 5')).toBeVisible();
+
+    await user.click(within(dialog).getByRole('button', { name: 'Skip tour' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
     expect(onTourCompletedChange).toHaveBeenCalledWith(true);
-    await waitFor(() => expect(screen.getByRole('heading', { level: 1 })).toHaveFocus());
+    expect(document.querySelector('.lab-dashboard-storyboard')).not.toHaveAttribute('data-tour-highlighted');
+    expect(screen.getByRole('button', { name: 'Replay tour' })).toBeVisible();
+  });
+
+  it('supports Next, Back, Done, replay, and focus restoration', async () => {
+    const user = userEvent.setup();
+    renderSurface({ tourCompleted: true });
+    const replay = screen.getByRole('button', { name: 'Replay tour' });
+    await user.click(replay);
+    for (let index = 0; index < 4; index += 1) {
+      await user.click(screen.getByRole('button', { name: /Next/iu }));
+    }
+    expect(screen.getByText('5 of 5')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Today at Isla Nail Studio' })).toHaveFocus());
+
     await user.click(screen.getByRole('button', { name: 'Replay tour' }));
-    expect(screen.getByRole('dialog', { name: 'Welcome to your Luster workspace' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Close Welcome to your Luster workspace' }));
+    await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.getByRole('button', { name: 'Replay tour' })).toHaveFocus());
   });
 
-  it('supports next, back and Done while showing truthful destinations', async () => {
+  it('derives Services from selected canonical IDs without creating dashboard records', async () => {
     const user = userEvent.setup();
-    renderSurface();
-    expect(document.querySelector('.lab-dashboard-tour__miniature.is-today')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: /Next/iu }));
-    expect(screen.getByText('2 of 5')).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Your calendar' })).toBeVisible();
-    expect(document.querySelector('.lab-dashboard-tour__miniature.is-calendar')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: /Back/iu }));
-    expect(screen.getByText('1 of 5')).toBeVisible();
-    for (const destination of ['calendar', 'clients', 'services', 'website']) {
-      await user.click(screen.getByRole('button', { name: /Next/iu }));
-      expect(document.querySelector(`.lab-dashboard-tour__miniature.is-${destination}`))
-        .toBeVisible();
-    }
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', {
-      name: 'Go to dashboard',
-    }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
-    const todayHeading = screen.getByRole('heading', { name: 'Today at Isla Nail Studio' });
-    expect(todayHeading).toBeVisible();
-    await waitFor(() => expect(todayHeading).toHaveFocus());
-  });
-
-  it('derives the Services storyboard and tour miniature from selected canonical service IDs', async () => {
-    const user = userEvent.setup();
-    const siteDocument = initializeStarter('one_page', { siteName: profile.businessName });
     const commonProps = {
-      document: siteDocument,
+      document: initializeStarter('one_page', { siteName: profile.businessName }),
       fixtures: {
         googleCalendar: 'not_connected' as const,
         payments: 'not_connected' as const,
@@ -138,61 +168,59 @@ describe('DashboardPreviewSurface', () => {
     expect(screen.getByText('Russian Manicure')).toBeVisible();
     expect(screen.getByText('Classic Manicure')).toBeVisible();
 
-    view.rerender(
-      <DashboardPreviewSurface
-        {...commonProps}
-        selectedServiceIds={['svc-manicure-gel']}
-      />,
-    );
+    view.rerender(<DashboardPreviewSurface {...commonProps} selectedServiceIds={['svc-manicure-gel']} />);
     expect(screen.getByText('1 selected service')).toBeVisible();
     expect(screen.getByText('Gel Manicure')).toBeVisible();
     expect(screen.queryByText('Russian Manicure')).not.toBeInTheDocument();
-
-    await user.click(screen.getByRole('button', { name: 'Replay tour' }));
-    for (let index = 0; index < 3; index += 1) {
-      await user.click(screen.getByRole('button', { name: /Next/iu }));
-    }
-    const serviceMiniature = document.querySelector('.lab-dashboard-tour__miniature.is-services');
-    expect(serviceMiniature).toHaveTextContent('1 selected service');
-    expect(serviceMiniature).toHaveTextContent('Gel Manicure');
   });
 
-  it('makes Go to dashboard select and focus the Today destination', async () => {
+  it('groups checklist state into Done and Whenever you’re ready with truthful labels', () => {
+    renderSurface();
+    const checklist = screen.getByRole('heading', { name: 'What’s next' }).closest('aside')!;
+    const done = within(checklist).getByRole('heading', { name: 'Done' }).closest('section')!;
+    const next = within(checklist).getByRole('heading', { name: 'Whenever you’re ready' }).closest('section')!;
+    expect(within(done).getByText('Website created')).toBeVisible();
+    expect(within(done).getByText('Booking page ready')).toBeVisible();
+    expect(within(done).getByText('Services added')).toBeVisible();
+    expect(within(done).getByText('Share booking link')).toBeVisible();
+    expect(within(next).getByText('Connect Google Calendar')).toBeVisible();
+    expect(within(next).getByText('Set up payments')).toBeVisible();
+    expect(within(next).getByText('Not connected')).toBeVisible();
+    expect(within(checklist).queryByText('Not shared yet')).not.toBeInTheDocument();
+    expect(within(next).queryByRole('img', { name: /warning|error/iu })).not.toBeInTheDocument();
+  });
+
+  it('hides technical Review controls in normal mode and exposes them only in audit mode', async () => {
+    const normal = renderSurface();
+    expect(screen.queryByRole('button', { name: 'Return to onboarding review · Lab only' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/fixture states/iu)).not.toBeInTheDocument();
+    normal.unmount();
+
     const user = userEvent.setup();
-    renderSurface(true);
-    await user.click(screen.getByRole('button', { name: 'Services' }));
-    await user.click(screen.getByRole('button', { name: 'Go to dashboard' }));
+    const audit = renderSurface({ auditMode: true });
+    await user.click(screen.getByRole('button', { name: 'Return to onboarding review · Lab only' }));
+    expect(audit.onReturnToReview).toHaveBeenCalledOnce();
+    expect(screen.getByText(/explicit UX Lab fixture states/iu)).toBeVisible();
+  });
+
+  it('makes Explore dashboard visibly dismiss the welcome and focus Today', async () => {
+    const user = userEvent.setup();
+    renderSurface();
+    await user.click(screen.getByRole('button', { name: 'Explore dashboard' }));
+    expect(screen.queryByText(/website, booking page and service menu are set up/iu)).not.toBeInTheDocument();
     const todayHeading = screen.getByRole('heading', { name: 'Today at Isla Nail Studio' });
     await waitFor(() => expect(todayHeading).toHaveFocus());
-    expect(screen.getByRole('button', { name: 'Today' })).toHaveAttribute('aria-current', 'page');
-  });
-
-  it('derives checklist status and keeps website and Review one action away', async () => {
-    const user = userEvent.setup();
-    const { onEditWebsite, onReturnToReview } = renderSurface(true);
-    expect(screen.getByText('Website created').closest('li')).toHaveTextContent('Ready');
-    expect(screen.getByText('Services added').closest('li')).toHaveTextContent('Ready');
-    expect(screen.getByText('Connect Google Calendar').closest('li')).toHaveTextContent('Not connected');
-    expect(screen.getByText('Share booking link').closest('li')).toHaveTextContent('Connected');
-    await user.click(screen.getByRole('button', { name: 'Edit website' }));
-    await user.click(screen.getByRole('button', { name: 'Return to onboarding review · Lab only' }));
-    expect(onEditWebsite).toHaveBeenCalledOnce();
-    expect(onReturnToReview).toHaveBeenCalledOnce();
   });
 
   it.each([
-    ['free', 'Continuing free'],
-    ['monthly', 'Monthly plan saved'],
-    ['founding', 'Founding offer saved'],
-  ] as const)('shows the saved %s intent on the dashboard handoff', (planIntent, message) => {
+    ['free', 'Free selected'],
+    ['monthly', 'Monthly interest saved — we’ll let you know when details are ready'],
+    ['founding', 'Founding offer reserved — we’ll let you know when details are ready'],
+  ] as const)('shows the truthful %s intent at dashboard arrival', (planIntent, message) => {
     render(
       <DashboardPreviewSurface
         document={initializeStarter('one_page', { siteName: profile.businessName })}
-        fixtures={{
-          googleCalendar: 'not_connected',
-          payments: 'not_connected',
-          shareBookingLink: 'not_connected',
-        }}
+        fixtures={{ googleCalendar: 'not_connected', payments: 'not_connected', shareBookingLink: 'not_connected' }}
         onEditWebsite={vi.fn()}
         onReturnToReview={vi.fn()}
         onTourCompletedChange={vi.fn()}
@@ -203,9 +231,7 @@ describe('DashboardPreviewSurface', () => {
         tourCompleted
       />,
     );
-
     expect(screen.getByText(message)).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Go to dashboard' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Edit website' })).toBeVisible();
+    expect(screen.queryByText(/purchased|charged|entitled/iu)).not.toBeInTheDocument();
   });
 });

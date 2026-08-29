@@ -74,7 +74,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
       <OnboardingSitePreview document={initializeStarter('quick_book')} label="Notice preview" state={state} />,
     );
     let preview = screen.getByRole('region', { name: 'Notice preview' });
-    expect(preview.querySelector('[data-bookable-time="2026-08-28T20:30:00.000Z"]'))
+    expect(preview.querySelector('[data-bookable-time="2026-08-28T19:30:00.000Z"]'))
       .not.toBeNull();
     expect(preview.querySelector('[data-bookable-time="2026-08-27T19:30:00.000Z"]'))
       .toBeNull();
@@ -151,6 +151,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const state = createDanielaFixtureState();
     state.profile.businessName = 'Cedar Tips';
     state.profile.location.cityOrArea = 'Ottawa, Ontario';
+    state.reviewOptions.previewTimestamp = '2026-08-27T18:30:00.000Z';
     const document = initializeStarter('quick_book');
 
     render(
@@ -322,24 +323,27 @@ describe('OnboardingSitePreview shared profile composition', () => {
     })).toBeVisible();
     expect(within(about).getByRole('heading', { level: 2, name: 'Daniela' })).toBeVisible();
     expect(within(about).getByText('Isla Nail Studio')).toBeVisible();
-    expect(within(about).getByText(
-      preset === 'editorial_portrait'
-        ? state.profile.about.fullBio
-        : state.profile.about.shortBio,
-    )).toBeVisible();
-    expect(within(about).getByText('Russian Manicure · BIAB · Gel-X · Hard Gel')).toBeVisible();
-    expect(within(about).getByText('6')).toBeVisible();
+    expect(within(about).getByText(state.profile.about.shortBio)).toBeVisible();
+    expect(within(about).getByText(state.profile.about.fullBio)).toBeInTheDocument();
+    expect(within(about).getByText('Read more')).toBeInTheDocument();
+    const specialties = within(about).getByRole('list', { name: 'Specialties' });
+    for (const specialty of state.profile.about.specialties) {
+      expect(within(specialties).getByText(specialty)).toBeVisible();
+    }
+    expect(within(about).getByText('6 years')).toBeInTheDocument();
     expect(within(about).getByText('Russian manicure certification · BIAB certification'))
-      .toBeVisible();
-    expect(within(about).getByText('English · Spanish')).toBeVisible();
-    expect(within(about).getByText('Appointment only')).toBeVisible();
-    expect(within(about).getByText('Accepting new clients')).toBeVisible();
+      .toBeInTheDocument();
+    expect(within(about).getByText('English · Spanish')).toBeInTheDocument();
+    expect(within(about).getByText('Appointment only')).toBeInTheDocument();
+    expect(within(about).getByText('Accepting new clients')).toBeInTheDocument();
     expect(within(about).getByText('24-hour notice · $50 deposit · 15-minute late limit'))
       .toBeVisible();
     expect(within(about).getByRole('link', { name: /@islanail\.studio/u })).toBeVisible();
     expect(within(about).getByRole('link', { name: 'Book now' })).toBeVisible();
-    expect(within(about).getByText('Solo nail tech')).toBeVisible();
-    expect(within(about).getByText('Private home studio')).toBeVisible();
+    expect(within(about).queryByText('Solo nail tech')).not.toBeInTheDocument();
+    expect(within(about).getByText('Private home studio')).toBeInTheDocument();
+    expect(about.querySelectorAll('.onboarding-about-facts > div').length)
+      .toBeLessThanOrEqual(4);
   });
 
   it('removes a hidden About fact while preserving its shared profile value', () => {
@@ -437,13 +441,13 @@ describe('OnboardingSitePreview shared profile composition', () => {
 
     expect(within(aboutRegion).getByRole('heading', { name: 'Daniela' })).toBeVisible();
     expect(within(aboutRegion).getByText('Isla Nail Studio')).toBeVisible();
-    expect(within(aboutRegion).getByText(migrated.profile.about.fullBio)).toBeVisible();
+    expect(within(aboutRegion).getByText(migrated.profile.about.fullBio)).toBeInTheDocument();
     expect(within(aboutRegion).getByRole('link', { name: 'Book now' })).toBeVisible();
     expect(within(aboutRegion).queryByText('Russian Manicure · BIAB · Gel-X · Hard Gel'))
       .not.toBeInTheDocument();
   });
 
-  it('keeps six specialties and a long custom specialty in separate semantic fact cells', () => {
+  it('keeps six specialties and a long custom specialty in separate wrapping list items', () => {
     const state = createDanielaFixtureState();
     state.recipe.aboutPreset = 'about_before_you_book';
     state.profile.about.specialties = [
@@ -460,37 +464,45 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
     const about = within(screen.getByRole('region', { name: 'Long specialties preview' }))
       .getByRole('region', { name: /About/u });
-    const label = within(about).getByText('Specialties');
-    const value = within(about).getByText(state.profile.about.specialties.join(' · '));
-
-    expect(label.tagName).toBe('DT');
-    expect(value.tagName).toBe('DD');
-    expect(label.parentElement).toBe(value.parentElement);
-    expect(value).toHaveTextContent('Arte de uñas editorial extremadamente detallado');
+    const list = within(about).getByRole('list', { name: 'Specialties' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(6);
+    expect(within(list).getByText('Arte de uñas editorial extremadamente detallado'))
+      .toBeVisible();
   });
 
   it.each([
     {
       heading: 'A direct path to booking',
-      labels: ['Salon intro', 'Services', 'Booking'],
+      labels: ['Salon intro', 'Services', 'About', 'Gallery', 'Booking', 'Policies'],
       pageHeadings: [],
       starter: 'quick_book',
     },
     {
       heading: 'Everything in one easy scroll',
-      labels: ['Welcome', 'About', 'Services', 'Gallery', 'Reviews', 'Booking'],
+      labels: ['Welcome', 'About', 'Services', 'Gallery', 'Reviews', 'Booking', 'Policies'],
       pageHeadings: [],
       starter: 'one_page',
     },
     {
       heading: 'Explore each part of the studio',
-      labels: ['Welcome', 'Featured work', 'Services', 'Booking', 'Gallery', 'About', 'Visit us', 'Contact'],
+      labels: ['Welcome', 'Featured work', 'Services', 'Booking', 'Policies', 'Gallery', 'About', 'Visit us', 'Contact'],
       pageHeadings: ['Home', 'Services & Booking', 'Gallery', 'About', 'Contact'],
       starter: 'multi_page',
     },
   ] as const)('renders the real $starter document outline distinctly', ({ heading, labels, pageHeadings, starter }) => {
     const state = createDanielaFixtureState();
     state.recipe.starter = starter;
+    state.recipe.galleryEnabled = true;
+    state.gallery.images = [{
+      altText: 'Example nail set',
+      fileName: 'example-gallery.jpg',
+      height: 800,
+      id: 'example-gallery',
+      mimeType: 'image/jpeg',
+      previewUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>',
+      source: 'fixture',
+      width: 800,
+    }];
     const document = initializeStarter(starter);
 
     render(
@@ -508,9 +520,62 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .toEqual(pageHeadings);
   });
 
+  it('shows a confirmed Canva section in the truthful outline without inventing another document section', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'quick_book';
+    state.recipe.canvaEnabled = true;
+    const document = initializeStarter('quick_book');
+    document.pages[0]?.sections.push(customSection('outline', 2.5));
+
+    render(
+      <OnboardingSitePreview document={document} label="Canva outline preview" state={state} />,
+    );
+    const structure = screen.getByRole('region', { name: 'Canva outline preview' })
+      .querySelector('[data-starter-structure="quick_book"]');
+
+    expect(within(structure as HTMLElement).getByText('Canva design')).toBeVisible();
+    expect(document.pages[0]?.sections.filter(
+      (section) => section.sectionType === 'custom_design',
+    )).toHaveLength(1);
+  });
+
+  it('removes optional About and Gallery labels without changing the real starter document', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'one_page';
+    state.recipe.aboutEnabled = false;
+    state.recipe.galleryEnabled = false;
+    state.recipe.policiesEnabled = false;
+    const document = initializeStarter('one_page');
+    const originalDocument = structuredClone(document);
+
+    render(
+      <OnboardingSitePreview document={document} label="Current outline preview" state={state} />,
+    );
+    const preview = screen.getByRole('region', { name: 'Current outline preview' });
+    const structure = preview.querySelector('[data-starter-structure="one_page"]');
+    const labels = within(structure as HTMLElement)
+      .getAllByRole('listitem')
+      .map((item) => item.textContent);
+
+    expect(labels).toEqual(['Welcome', 'Services', 'Reviews', 'Booking']);
+    expect(within(structure as HTMLElement).queryByText('About')).not.toBeInTheDocument();
+    expect(within(structure as HTMLElement).queryByText('Gallery')).not.toBeInTheDocument();
+    expect(within(structure as HTMLElement).queryByText('Policies')).not.toBeInTheDocument();
+    expect(document).toEqual(originalDocument);
+  });
+
   it('connects every visible Multi-page navigation link to its real document page target', () => {
     const state = createDanielaFixtureState();
     state.recipe.starter = 'multi_page';
+    state.recipe.galleryEnabled = true;
+    state.gallery.images = [{
+      altText: 'Example nail set',
+      fileName: 'example-gallery.jpg',
+      id: 'example-gallery-navigation',
+      mimeType: 'image/jpeg',
+      previewUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>',
+      source: 'fixture',
+    }];
     const document = initializeStarter('multi_page');
 
     render(
@@ -703,6 +768,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
   it('reuses one configured schedule and suppresses public status when hours are hidden or skipped', () => {
     const state = createDanielaFixtureState();
     state.recipe.aboutPreset = 'profile_quick_facts';
+    state.reviewOptions.previewTimestamp = '2026-08-27T18:30:00.000Z';
     const view = render(
       <OnboardingSitePreview document={null} label="Shared hours preview" state={state} />,
     );
@@ -716,8 +782,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(weeklyHours).getAllByText('10:00 AM–6:00 PM')).toHaveLength(5);
     expect(within(weeklyHours).getByText('Sunday')).toBeVisible();
     expect(within(weeklyHours).getByText('Closed')).toBeVisible();
-    expect(within(about).getByText('Hours')).toBeVisible();
-    expect(within(about).getByText('Open until 6:00 PM')).toBeVisible();
+    expect(within(about).getByText('Hours')).toBeInTheDocument();
+    expect(within(about).getByText('Open until 6:00 PM')).toBeInTheDocument();
 
     const hidden = {
       ...state,

@@ -1,5 +1,8 @@
-import { CANONICAL_SERVICES } from '../../../booking/data';
-import { SERVICE_MENU_PRODUCTION_MAPPINGS } from '../contracts/service-menu-production-mapping';
+import { CANONICAL_SERVICES, MOCK_ADD_ONS } from '../../../booking/data';
+import {
+  ADD_ON_PRODUCTION_MAPPINGS,
+  SERVICE_MENU_PRODUCTION_MAPPINGS,
+} from '../contracts/service-menu-production-mapping';
 import { createLabServiceMenuPort } from './service-menu-port';
 
 describe('Lab ServiceMenuPort', () => {
@@ -43,5 +46,18 @@ describe('Lab ServiceMenuPort', () => {
       ({ futureOwnerServiceOperation, productionCanonicalId }) =>
         Boolean(futureOwnerServiceOperation && productionCanonicalId),
     )).toBe(true);
+    expect(ADD_ON_PRODUCTION_MAPPINGS.map(({ labServiceId }) => labServiceId))
+      .toEqual(MOCK_ADD_ONS.map(({ id }) => id));
+  });
+
+  it('keeps add-ons distinct and stores canonical add-on IDs only', () => {
+    const initial = port.createDefaultSelection();
+    const firstAddOn = port.getLibraryAddOns()[0]!;
+    const added = port.setAddOnSelected(initial, firstAddOn.id, true);
+
+    expect(firstAddOn.itemKind).toBe('add_on');
+    expect(added.selectedAddOnIds).toEqual([firstAddOn.id]);
+    expect(port.getSelectedAddOns(added)).toEqual([firstAddOn]);
+    expect(port.setAddOnSelected(added, 'unknown-add-on', true)).toEqual(added);
   });
 });

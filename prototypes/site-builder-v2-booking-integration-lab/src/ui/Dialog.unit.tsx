@@ -171,6 +171,31 @@ describe('Dialog document lifecycle', () => {
       .toHaveFocus();
   });
 
+  it('keeps a disclosure summary inside the modal Tab sequence', async () => {
+    installViewport(false);
+    const user = userEvent.setup();
+    render(
+      <Dialog
+        initialFocusSelector="[data-dialog-title]"
+        onClose={vi.fn()}
+        open
+        title="Plan choices"
+      >
+        <details><summary>Compare plans</summary><p>Plan details</p></details>
+        <button type="button">Continue free</button>
+      </Dialog>,
+    );
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Plan choices' }))
+      .toHaveFocus());
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Close Plan choices' })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByText('Compare plans')).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Continue free' })).toHaveFocus();
+  });
+
   it('leaves a wide adjacent context panel nonmodal and untrapped', async () => {
     installViewport(true);
     const user = userEvent.setup();

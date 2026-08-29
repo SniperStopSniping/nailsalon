@@ -104,7 +104,7 @@ describe('About onboarding screens', () => {
 
     await user.click(screen.getByRole('button', { name: /Editorial Portrait/ }));
     expect(container.querySelector('.onboarding-customer-about.is-editorial')).toBeInTheDocument();
-    expect(within(preview).getByText(originalProfile.about.fullBio)).toBeVisible();
+    expect(within(preview).getByText(originalProfile.about.fullBio)).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Profile \+ Quick Facts/ }));
     expect(container.querySelector('.onboarding-customer-about.is-quick-facts')).toBeInTheDocument();
@@ -121,7 +121,8 @@ describe('About onboarding screens', () => {
     expect(screen.getByText('✓ Selected')).toBeVisible();
   });
 
-  it('keeps the shared Instagram independently available while contact is Booking-only', () => {
+  it('keeps the shared Instagram independently available while contact is Booking-only', async () => {
+    const user = userEvent.setup();
     const initial = aboutState();
     initial.profile.bookingOnlyContact = true;
     initial.profile.about.visibility.instagram = true;
@@ -136,12 +137,13 @@ describe('About onboarding screens', () => {
       />,
     );
 
+    await user.click(screen.getByText('Details from your setup'));
     const instagram = screen.getByRole('switch', {
       name: 'Show Instagram in About',
     });
     expect(instagram).toBeChecked();
     expect(instagram).toBeEnabled();
-    expect(screen.getByRole('textbox', { name: 'Instagram handle — optional' }))
+    expect(screen.getByRole('textbox', { name: 'Instagram handle' }))
       .toHaveValue('@islanail.studio');
     expect(within(screen.getByRole('region', { name: 'About section live preview' }))
       .getByText('@islanail.studio')).toBeVisible();
@@ -190,6 +192,8 @@ describe('SiteStyleScreen', () => {
     const ownerSurface = container.querySelector('.onboarding-screen--style');
     expect(ownerSurface).toBeInTheDocument();
     expect(ownerSurface).not.toHaveAttribute('data-style-preset');
+    expect(screen.getByText('On your site now')).toBeVisible();
+    expect(screen.getAllByText('Previewing')).toHaveLength(1);
 
     await user.click(screen.getByRole('button', { name: /Luxury/ }));
     expect(preview.querySelector('[data-style-preset]')).toHaveAttribute(
@@ -197,6 +201,11 @@ describe('SiteStyleScreen', () => {
       'luxury',
     );
     expect(latestState.recipe.styleConfirmed).toBe(false);
+    expect(within(screen.getByRole('group', { name: 'Site style presets' }))
+      .getByRole('button', { name: /Luxury/ })).toHaveAttribute(
+      'data-previewing',
+      'true',
+    );
     await user.click(screen.getByRole('button', { name: 'Use Luxury' }));
     expect(latestState.recipe).toMatchObject({
       styleConfirmed: true,
@@ -256,9 +265,9 @@ describe('FinalReviewScreen', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: 'Finish 1 essential' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Finish 1 required step' })).toBeVisible();
     expect(screen.getByRole('complementary', { name: 'Site readiness' })).toHaveTextContent('Needs attentionSite style');
-    await user.click(screen.getByRole('button', { name: 'Finish 1 essential' }));
+    await user.click(screen.getByRole('button', { name: 'Finish 1 required step' }));
     expect(onEdit).toHaveBeenCalledWith('site_style');
     expect(onOpenBuilder).not.toHaveBeenCalled();
   });
@@ -283,19 +292,19 @@ describe('FinalReviewScreen', () => {
       />,
     );
 
-    expect(screen.getByText('Booking path available')).toBeVisible();
+    expect(screen.getByText('Clients can book you')).toBeVisible();
     expect(screen.getByRole('button', { name: 'Finish setup' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Edit Booking path available' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Edit Business name added' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Edit Contact method added' })).toBeVisible();
-    expect(screen.getByRole('button', { name: 'Edit Mobile layout ready' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Edit Clients can book you' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Edit Business information' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Edit Contact and privacy' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Edit Looks right on a phone' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Tablet' }));
     expect(screen.getByRole('region', { name: 'Final tablet customer preview' })).toHaveAttribute('data-preview-device', 'tablet');
     await user.click(screen.getByRole('button', { name: 'Finish setup' }));
     expect(onOpenBuilder).toHaveBeenCalledOnce();
   });
 
-  it('makes a collapsed mobile readiness drawer inert until the owner opens it', async () => {
+  it('opens mobile readiness on first entry and becomes inert only after the owner collapses it', async () => {
     const matchMedia = vi.spyOn(window, 'matchMedia').mockImplementation((query) => ({
       addEventListener: vi.fn(),
       addListener: vi.fn(),
@@ -323,12 +332,12 @@ describe('FinalReviewScreen', () => {
     const detail = within(readiness).getByText(/Your website is saved/u)
       .closest<HTMLElement>('.onboarding-readiness__content');
     if (!detail) throw new Error('Missing readiness detail panel.');
-    await waitFor(() => expect(detail.inert).toBe(true));
-    expect(detail).toHaveAttribute('aria-hidden', 'true');
-
-    await userEvent.setup().click(screen.getByRole('button', { name: /Site readiness/u }));
     await waitFor(() => expect(detail.inert).toBe(false));
     expect(detail).not.toHaveAttribute('aria-hidden');
+
+    await userEvent.setup().click(screen.getByRole('button', { name: /Site readiness/u }));
+    await waitFor(() => expect(detail.inert).toBe(true));
+    expect(detail).toHaveAttribute('aria-hidden', 'true');
     matchMedia.mockRestore();
   });
 
