@@ -606,7 +606,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     expect((dialogBox?.y ?? 9999) + (dialogBox?.height ?? 0)).toBeLessThanOrEqual(430);
     const freeOption = dialog.getByRole('radio', { name: /^Free/u });
     const foundingOption = dialog.getByRole('radio', { name: /^Founding offer/u });
-    const monthlyOption = dialog.getByRole('radio', { name: /^Monthly plan/u });
+    const monthlyOption = dialog.getByRole('radio', { name: /^Monthly/u });
     await expect(freeOption).toBeVisible();
     await expect(foundingOption).toBeAttached();
     await expect(monthlyOption).toBeAttached();
@@ -661,7 +661,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
       .click();
     const dashboardHeading = page.getByRole('heading', {
       level: 1,
-      name: 'You’re ready',
+      name: 'Your Luster site is ready',
     });
     await expect(dashboardHeading).toBeFocused();
     await expect(page.getByRole('dialog', { name: 'Welcome to your Luster workspace' }))
@@ -1330,7 +1330,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.keyboard.press('Enter');
     await expect(page.getByRole('dialog', { name: 'Welcome to your Luster workspace' }))
       .toHaveCount(0);
-    await expect(page.getByRole('heading', { level: 1, name: 'You’re ready' }))
+    await expect(page.getByRole('heading', { level: 1, name: 'Your Luster site is ready' }))
       .toBeFocused();
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
   });

@@ -290,9 +290,10 @@ test.describe('Onboarding V1 UX Lab', () => {
       .check();
 
     await page.locator('button[aria-controls="onboarding-hours-card-panel"]').click();
-    await page.getByLabel('Monday opens').fill('10:00');
-    await page.getByLabel('Monday closes').fill('18:00');
-    await page.getByRole('button', { name: 'Copy Monday to weekdays' }).click();
+    await page.getByRole('radio', { name: 'Monday–Friday' }).check();
+    await page.getByRole('combobox', { name: 'Opens' }).selectOption('10:00');
+    await page.getByRole('combobox', { name: 'Closes' }).selectOption('18:00');
+    await page.getByRole('button', { name: 'Apply to selected days' }).click();
     await page.getByRole('button', { name: 'Save and continue' }).click();
     await expect(heading(page, 'How can clients book with you?')).toBeVisible();
     await completeBookingPreferences(page);

@@ -68,7 +68,7 @@ type RuntimeMonitor = {
 };
 
 export async function openFreshLab(page: Page): Promise<void> {
-  await page.goto('/?surface=builder');
+  await page.goto('/?audit=1&surface=builder');
   await page.evaluate(async ({ databaseName, storeNames }) => {
     window.localStorage.clear();
 

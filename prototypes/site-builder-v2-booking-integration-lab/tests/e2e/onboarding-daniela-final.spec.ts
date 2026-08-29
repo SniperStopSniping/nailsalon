@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +15,8 @@ import {
   startRuntimeMonitor,
 } from './helpers';
 
-const EVIDENCE_ROOT = '/tmp/luster-onboarding-daniela-final-polish';
+const EVIDENCE_ROOT = process.env.LUSTER_EVIDENCE_DIRECTORY
+  ?? '/tmp/luster-onboarding-physical-iphone-final';
 const EVIDENCE_DIRECTORY = `${EVIDENCE_ROOT}/evidence`;
 const ONBOARDING_STORAGE_KEY = 'luster:onboarding-v1-lab';
 const PORTRAIT_PATH = fileURLToPath(new URL(
@@ -150,6 +152,36 @@ async function expectNoHorizontalOverflow(page: Page): Promise<void> {
   expect(metrics.scrollWidth).toBeLessThanOrEqual(metrics.clientWidth + 1);
 }
 
+async function delayThumbnailGeneration(page: Page, delayMs = 550): Promise<void> {
+  await page.evaluate((delay) => {
+    const original = HTMLCanvasElement.prototype.toBlob;
+    HTMLCanvasElement.prototype.toBlob = function delayedToBlob(
+      callback,
+      type,
+      quality,
+    ) {
+      window.setTimeout(() => original.call(this, callback, type, quality), delay);
+    };
+  }, delayMs);
+}
+
+async function reachPhotoScreen(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Build my website' }).click();
+  await page.getByLabel('Salon or studio name').fill('Daniela Upload Studio');
+  await page.getByLabel('Your name').fill('Daniela');
+  await page.getByRole('group', { name: 'Who are you setting Luster up for?' })
+    .getByRole('radio', { name: 'Solo nail tech' })
+    .check();
+  await page.getByRole('button', { exact: true, name: 'Continue' }).click();
+  await expect(heading(page, 'Add your photo and Instagram')).toBeVisible();
+}
+
+async function reachLocationScreen(page: Page): Promise<void> {
+  await reachPhotoScreen(page);
+  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await expect(heading(page, 'Where can clients find you?')).toBeVisible();
+}
+
 async function completeBasicsToBooking(page: Page): Promise<void> {
   await page.getByLabel('Salon or studio name').fill('Daniela Test Studio');
   await page.getByLabel('Your name').fill('Daniela');
@@ -209,6 +241,141 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await expectNoHorizontalOverflow(page);
   });
 
+  test('physical-iPhone proxy shows processing, accepted thumbnails, and a precise photo failure', async ({ page }) => {
+    await page.setViewportSize({ height: 844, width: 390 });
+    await openNormalFresh(page);
+    await reachPhotoScreen(page);
+    await delayThumbnailGeneration(page);
+
+    const profileField = page.locator('.onboarding-image-upload').filter({
+      has: page.getByText('Profile photo', { exact: true }),
+    });
+    const profileUpload = page.getByLabel('Profile photo', { exact: true })
+      .setInputFiles(PORTRAIT_PATH);
+    await expect(profileField.getByRole('status')).toContainText('Processing photo…');
+    await expect(profileField.getByRole('status')).toContainText('daniela-placeholder.jpg');
+    await captureLocator(profileField, '01-profile-processing');
+    await profileUpload;
+    await expect(profileField.getByRole('status')).toContainText('Photo ready');
+    await expect(profileField.locator('img')).toBeVisible();
+    await expect(page.getByLabel('Profile preview').getByRole('img')).toBeVisible();
+    await captureLocator(profileField, '02-profile-thumbnail-ready');
+
+    const logoField = page.locator('.onboarding-image-upload').filter({
+      has: page.getByText('Logo', { exact: true }),
+    });
+    await page.getByLabel('Logo', { exact: true }).setInputFiles(PORTRAIT_PATH);
+    await expect(logoField.getByRole('status')).toContainText('Logo ready');
+    await expect(logoField.locator('img')).toBeVisible();
+    await captureLocator(logoField, '03-logo-ready');
+
+    await page.getByLabel('Profile photo', { exact: true }).setInputFiles({
+      buffer: Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01, 0x02]),
+      mimeType: 'image/jpeg',
+      name: 'IMG_5222.jpeg',
+    });
+    const failure = profileField.getByRole('alert');
+    await expect(failure).toContainText('IMG_5222.jpeg');
+    await expect(failure).toContainText(
+      'This photo couldn’t be read. Try selecting it again or choose another copy.',
+    );
+    await expect(failure.getByRole('button', { name: 'Retry' })).toBeVisible();
+    await expect(failure.getByRole('button', { name: 'Choose another image' })).toBeVisible();
+    await captureLocator(profileField, '03b-profile-precise-failure');
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test('a private-storage-style denial keeps the image out of state and explains recovery', async ({ page }) => {
+    await page.setViewportSize({ height: 844, width: 390 });
+    await openNormalFresh(page);
+    await reachPhotoScreen(page);
+    await waitForSaved(page);
+    await page.evaluate(() => {
+      IDBDatabase.prototype.transaction = function deniedTransaction() {
+        throw new DOMException('Private storage is unavailable.', 'SecurityError');
+      };
+    });
+
+    const profileField = page.locator('.onboarding-image-upload').filter({
+      has: page.getByText('Profile photo', { exact: true }),
+    });
+    await page.getByLabel('Profile photo', { exact: true }).setInputFiles(PORTRAIT_PATH);
+
+    const failure = profileField.getByRole('alert');
+    await expect(failure).toContainText('daniela-placeholder.jpg');
+    await expect(failure).toContainText(
+      'This browser tab isn’t allowing Luster to save images. If you’re using a private tab, open this page in a regular tab and try again.',
+    );
+    await expect(profileField.getByRole('status')).toHaveCount(0);
+    await expect(page.getByLabel('Profile preview').getByRole('img')).toHaveCount(0);
+    const state = await readState(page);
+    expect((state.profile as StoredOnboardingState['profile'] & {
+      profileImage?: unknown;
+    }).profileImage).toBeUndefined();
+    await captureLocator(profileField, '07-private-storage-failure');
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test('bulk hours apply once, reject inverted times, and distinguish Set up from Complete', async ({ page }) => {
+    await page.setViewportSize({ height: 844, width: 390 });
+    await openNormalFresh(page);
+    await reachLocationScreen(page);
+
+    const trigger = page.locator('button[aria-controls="onboarding-hours-card-panel"]');
+    const card = trigger.locator('..');
+    const stateBadge = trigger.locator('.onboarding-collapsible-card__state');
+    await expect(stateBadge).toContainText('Set up');
+    await expect(card).toHaveClass(/is-set_up/u);
+    const setUpTreatment = await stateBadge.evaluate((element) => {
+      const styles = getComputedStyle(element);
+      return { backgroundColor: styles.backgroundColor, color: styles.color };
+    });
+
+    await trigger.click();
+    await expect(page.getByRole('heading', { name: 'Set your regular hours' })).toBeVisible();
+    await page.getByRole('radio', { name: 'Monday–Saturday' }).check();
+    await captureViewport(page, '08-hours-common-presets');
+    await page.getByRole('combobox', { name: 'Opens' }).selectOption('10:30');
+    const closes = page.getByRole('combobox', { name: 'Closes' });
+    await closes.selectOption('09:30');
+    await page.getByRole('button', { name: 'Apply to selected days' }).click();
+    await expect(page.getByRole('alert')).toHaveText('Closing time must be later than opening time.');
+    await expect(closes).toBeFocused();
+    await expect(page.getByRole('heading', { name: 'Adjust individual days' })).toHaveCount(0);
+    await captureViewport(page, '11-hours-invalid-interval');
+
+    await page.getByRole('combobox', { name: 'Opens' }).selectOption('10:00');
+    await closes.selectOption('21:00');
+    await page.getByRole('button', { name: 'Apply to selected days' }).click();
+    const individualDays = page.locator('.onboarding-individual-hours');
+    await expect(page.getByRole('heading', { name: 'Adjust individual days' })).toBeVisible();
+    await expect(individualDays.getByText('Monday', { exact: true })).toBeVisible();
+    await expect(individualDays.getByText('10:00 AM–9:00 PM', { exact: true }).first())
+      .toBeVisible();
+    await captureViewport(page, '09-hours-apply-selected');
+
+    await page.getByRole('button', { name: 'Edit Sunday hours' }).click();
+    await page.getByRole('checkbox', { name: 'Closed' }).check();
+    await page.getByRole('button', { name: 'Save changes' }).click();
+    await expect(individualDays.getByText('Sunday', { exact: true })).toBeVisible();
+    await expect(individualDays.getByText('Closed', { exact: true })).toBeVisible();
+    await capture(page, '10-hours-individual-rows');
+
+    await expect(stateBadge).toContainText('Complete');
+    await expect(card).toHaveClass(/is-complete/u);
+    const completeTreatment = await stateBadge.evaluate((element) => {
+      const styles = getComputedStyle(element);
+      return { backgroundColor: styles.backgroundColor, color: styles.color };
+    });
+    expect(completeTreatment).not.toEqual(setUpTreatment);
+    await captureLocator(card, '12-hours-complete');
+    await waitForSaved(page);
+    await page.reload();
+    await expect(heading(page, 'Where can clients find you?')).toBeVisible();
+    await expect(page.locator('button[aria-controls="onboarding-hours-card-panel"]')
+      .locator('.onboarding-collapsible-card__state')).toContainText('Complete');
+  });
+
   test('V01 complete Daniela onboarding journey with truthful setup states', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openNormalFresh(page);
@@ -250,21 +417,27 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await page.getByRole('group', { name: 'Which contact option should we show first?' })
       .getByRole('radio', { name: 'Text' })
       .check();
+    await expect(page.locator('button[aria-controls="onboarding-contact-card-panel"]')
+      .locator('.onboarding-collapsible-card__state')).toContainText('Complete');
+    await expect(page.locator('.onboarding-feedback')).toContainText('Basics complete');
+    await captureViewport(page, '34-accordion-completion-interaction');
     await capture(page, '04-contact-setup-complete');
 
     await page.locator('button[aria-controls="onboarding-hours-card-panel"]').click();
     await captureViewport(page, '05a-hours-set-up-supporting');
-    await page.getByLabel('Monday opens').fill('09:00');
-    await page.getByLabel('Monday closes').fill('17:00');
-    await page.getByRole('button', { name: 'Copy Monday to weekdays' }).click();
-    await page.getByRole('group', { name: 'Saturday' }).getByRole('checkbox', { name: 'Closed' }).check();
-    await page.getByRole('group', { name: 'Sunday' }).getByRole('checkbox', { name: 'Closed' }).check();
+    await page.getByRole('radio', { name: 'Monday–Friday' }).check();
+    await page.getByRole('combobox', { name: 'Opens' }).selectOption('09:00');
+    await page.getByRole('combobox', { name: 'Closes' }).selectOption('17:00');
+    await page.getByRole('button', { name: 'Apply to selected days' }).click();
+    await expect(page.getByRole('button', { name: 'Edit Saturday hours' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Edit Sunday hours' })).toBeVisible();
     await capture(page, '05b-hours-complete-supporting');
     const showHours = page.getByRole('switch', { name: 'Show hours on my website' });
     await showHours.uncheck();
     await capture(page, '05-hours-setup-not-shown-complete');
     await showHours.check();
     await page.getByRole('button', { name: 'Save and continue' }).click();
+    await captureViewport(page, '35-basics-stage-complete');
 
     await page.getByRole('group', { name: 'How do you accept clients?' })
       .getByRole('radio', { name: 'Appointment only' })
@@ -285,6 +458,16 @@ test.describe('Daniela-final onboarding acceptance', () => {
 
     await page.locator('[data-starter-id="one_page"]').click();
     await expect(heading(page, 'Your starting site is ready')).toBeVisible();
+    await expect(page.locator('.onboarding-feedback')).toContainText(
+      'Your starting site is ready',
+      { timeout: 6_000 },
+    );
+    await captureViewport(page, '36-starting-site-reveal');
+    await expect(page.locator('.onboarding-feedback')).toContainText(
+      'Booking is ready',
+      { timeout: 8_000 },
+    );
+    await captureViewport(page, '35-booking-stage-complete');
     await page.getByRole('button', { name: 'Continue setting up my site' }).click();
     await page.getByLabel('Short bio').fill('Hi, I’m Daniela. I create thoughtful, detailed nail appointments in a calm private studio.');
     await page.getByRole('checkbox', { name: 'Russian Manicure' }).check();
@@ -320,13 +503,26 @@ test.describe('Daniela-final onboarding acceptance', () => {
       .getByRole('button', { name: /^Modern/u });
     await modern.click();
     await page.getByRole('button', { name: /Use Modern|Continue with Modern/u }).click();
+    await expect(page.locator('.onboarding-feedback')).toContainText(
+      'Your website style is set',
+    );
+    await captureViewport(page, '35-design-stage-complete');
+    await expect(page.locator('.onboarding-feedback')).toContainText(
+      'Everything you need is ready',
+      { timeout: 6_000 },
+    );
+    await captureViewport(page, '37-all-required-complete');
     await page.getByRole('button', { name: 'Continue to review' }).click();
     await expect(heading(page, 'Review your site')).toBeVisible();
     await page.getByRole('button', { name: 'Finish setup' }).click();
     await page.getByRole('dialog', { name: 'Your site is saved' })
       .getByRole('button', { name: 'Continue free' })
       .click();
-    await expect(heading(page, 'You’re ready')).toBeVisible();
+    await expect(heading(page, 'Your Luster site is ready')).toBeVisible();
+    await expect(page.locator('.onboarding-feedback')).toContainText(
+      'Your Luster site is ready',
+    );
+    await captureViewport(page, '38-dashboard-arrival');
   });
 
   test('V02 service library is visual, searchable, and changes one canonical selection', async ({ page }) => {
@@ -354,9 +550,44 @@ test.describe('Daniela-final onboarding acceptance', () => {
     const dialog = page.getByRole('dialog', { name: 'Choose your services' });
     await expect(dialog).toBeVisible();
     await captureViewport(page, '07-service-library-top');
-    const services = dialog.getByRole('list', { name: 'Library services' });
-    await expect(services.locator('img').first()).toBeVisible();
-    const imageMetrics = await services.locator('img').first().evaluate((image) => ({
+    const categoryRail = dialog.locator('.onboarding-service-library__category-rail');
+    const categoryScroller = dialog.getByLabel('Service categories');
+    const resultList = dialog.locator('.onboarding-service-library__list');
+    await expect(resultList).toHaveAttribute('aria-label', 'Library services');
+    const initialRailGeometry = await Promise.all([
+      categoryRail.boundingBox(),
+      categoryScroller.boundingBox(),
+      resultList.boundingBox(),
+    ]);
+    const [initialRailBox, initialScrollerBox, initialResultsBox] = initialRailGeometry;
+    expect(initialRailBox).not.toBeNull();
+    expect(initialScrollerBox).not.toBeNull();
+    expect(initialResultsBox).not.toBeNull();
+    expect(initialRailBox?.height ?? 0).toBeGreaterThanOrEqual(50);
+    expect(initialScrollerBox?.height ?? 0).toBeGreaterThanOrEqual(50);
+    expect(initialResultsBox?.y ?? 0)
+      .toBeGreaterThanOrEqual((initialRailBox?.y ?? 0) + (initialRailBox?.height ?? 0) - 1);
+    await captureLocator(categoryRail, '13-service-rail-top');
+
+    const lastServiceCategory = categoryScroller.getByRole('button').last();
+    await lastServiceCategory.click();
+    await expect(lastServiceCategory).toHaveAttribute('aria-pressed', 'true');
+    await expect.poll(async () => {
+      const [scrollerBox, selectedBox] = await Promise.all([
+        categoryScroller.boundingBox(),
+        lastServiceCategory.boundingBox(),
+      ]);
+      return Boolean(scrollerBox && selectedBox
+        && selectedBox.x >= scrollerBox.x - 1
+        && selectedBox.x + selectedBox.width <= scrollerBox.x + scrollerBox.width + 1);
+    }).toBe(true);
+    await expect(categoryRail).toHaveClass(/has-left-overflow/u);
+    await captureLocator(categoryRail, '14-service-rail-horizontal-scroll');
+    await categoryScroller.getByRole('button', { name: 'Manicure', exact: true }).click();
+    await expect(categoryScroller.getByRole('button', { name: 'Manicure', exact: true }))
+      .toHaveAttribute('aria-pressed', 'true');
+    await expect(resultList.locator('img').first()).toBeVisible();
+    const imageMetrics = await resultList.locator('img').first().evaluate((image) => ({
       complete: (image as HTMLImageElement).complete,
       naturalHeight: (image as HTMLImageElement).naturalHeight,
       naturalWidth: (image as HTMLImageElement).naturalWidth,
@@ -365,7 +596,7 @@ test.describe('Daniela-final onboarding acceptance', () => {
     expect(imageMetrics.naturalWidth).toBeGreaterThan(0);
     expect(imageMetrics.naturalHeight).toBeGreaterThan(0);
 
-    const russianRow = services.getByRole('listitem').filter({ hasText: 'Russian Manicure' });
+    const russianRow = resultList.locator(':scope > li').filter({ hasText: 'Russian Manicure' });
     await expect(russianRow).toContainText('1 hr 30 min');
     await expect(russianRow).toContainText('From $65');
     await captureLocator(russianRow, '09-selected-service-row');
@@ -374,14 +605,26 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await captureLocator(russianRow, '10-unselected-service-row');
 
     await dialog.getByPlaceholder('Search services').pressSequentially('Russian', { delay: 35 });
-    await expect(services.getByRole('listitem')).toHaveCount(1);
+    await expect(resultList.locator(':scope > li')).toHaveCount(1);
     await captureViewport(page, '08-service-search-categories');
-    await services.getByRole('button', { name: 'Add Russian Manicure' }).click();
+    await resultList.getByRole('button', { name: 'Add Russian Manicure' }).click();
+    await expect(page.locator('.onboarding-feedback')).toContainText(
+      'Russian Manicure added.',
+    );
+    await captureViewport(page, '33-service-added-interaction');
     await dialog.getByPlaceholder('Search services').fill('');
 
     await dialog.getByRole('tab', { name: 'Add-ons' }).click();
-    const addOns = dialog.getByRole('list', { name: 'Library add-ons' });
-    const frenchRow = addOns.getByRole('listitem').filter({ hasText: 'French' });
+    const addOnCategories = dialog.getByLabel('Add-on categories');
+    await expect(addOnCategories).toBeVisible();
+    await expect(resultList).toHaveAttribute('aria-label', 'Library add-ons');
+    const [addOnRailBox, addOnResultsBox] = await Promise.all([
+      categoryRail.boundingBox(),
+      resultList.boundingBox(),
+    ]);
+    expect(addOnResultsBox?.y ?? 0)
+      .toBeGreaterThanOrEqual((addOnRailBox?.y ?? 0) + (addOnRailBox?.height ?? 0) - 1);
+    const frenchRow = resultList.locator(':scope > li').filter({ hasText: 'French' });
     await expect(frenchRow).toBeVisible();
     const frenchAction = frenchRow.getByRole('button', { name: /^(?:Add|Remove) French/u });
     const wasSelected = await frenchAction.getAttribute('aria-pressed') === 'true';
@@ -392,10 +635,28 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await frenchRow.getByRole('button', {
       name: `${wasSelected ? 'Add' : 'Remove'} French`,
     }).click();
-    await captureViewport(page, '11-service-library-add-ons');
-    await addOns.getByRole('listitem').last().scrollIntoViewIfNeeded();
+    await captureViewport(page, '15-service-library-add-ons');
+    await resultList.locator(':scope > li').last().scrollIntoViewIfNeeded();
     await expect(dialog.locator('.onboarding-service-library__footer')).toBeVisible();
     await captureViewport(page, '12-service-library-sticky-footer');
+
+    await page.setViewportSize({ height: 390, width: 844 });
+    await expect(dialog).toBeVisible();
+    const [rotatedRailBox, rotatedResultsBox, rotatedFooterBox] = await Promise.all([
+      categoryRail.boundingBox(),
+      resultList.boundingBox(),
+      dialog.locator('.onboarding-service-library__footer').boundingBox(),
+    ]);
+    expect(rotatedRailBox).not.toBeNull();
+    expect(rotatedResultsBox).not.toBeNull();
+    expect(rotatedFooterBox).not.toBeNull();
+    expect(rotatedRailBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+    expect(rotatedResultsBox?.y ?? 0)
+      .toBeGreaterThanOrEqual((rotatedRailBox?.y ?? 0) + (rotatedRailBox?.height ?? 0) - 1);
+    expect((rotatedResultsBox?.y ?? 0) + (rotatedResultsBox?.height ?? 0))
+      .toBeLessThanOrEqual((rotatedFooterBox?.y ?? 0) + 1);
+    await captureViewport(page, '16-service-library-rotated');
+    await page.setViewportSize({ height: 844, width: 390 });
     await dialog.getByRole('button', { name: 'Done' }).click();
     await expect(dialog).toBeHidden();
     await waitForSaved(page);
@@ -496,6 +757,24 @@ test.describe('Daniela-final onboarding acceptance', () => {
     const aboutSection = preview.locator('.onboarding-customer-about.is-before-booking');
     await expect(aboutSection.locator('summary', { hasText: 'Read more' })).toBeVisible();
     await captureLocator(aboutSection, '24-about-read-more');
+
+    await page.setViewportSize({ height: 568, width: 320 });
+    await group.getByRole('button', { name: /^About \+ Before You Book/u })
+      .scrollIntoViewIfNeeded();
+    await expect(aboutSection.getByRole('link', { name: 'Book now' })).toBeVisible();
+    await captureViewport(page, '19-about-spacing-320');
+    await page.setViewportSize({ height: 844, width: 390 });
+    await captureViewport(page, '20-about-spacing-390');
+
+    await page.getByRole('button', { name: 'Open interactive preview' }).click();
+    const fullPreview = page.getByRole('dialog', { name: 'Preview your About section' });
+    await expect(fullPreview).toBeVisible();
+    await expect(fullPreview.locator('.onboarding-preview-stage')).toBeVisible();
+    await captureViewport(page, '18-compact-about-preview');
+    await fullPreview.getByRole('button', {
+      name: 'Close Preview your About section',
+    }).click();
+    await expect(fullPreview).toBeHidden();
     await expectNoHorizontalOverflow(page);
   });
 
@@ -540,6 +819,28 @@ test.describe('Daniela-final onboarding acceptance', () => {
       await capture(page, fileName);
     }
     expect(new Set(tokenSnapshots.values()).size).toBeGreaterThanOrEqual(5);
+    await page.setViewportSize({ height: 568, width: 320 });
+    await group.scrollIntoViewIfNeeded();
+    const cards = group.getByRole('button');
+    await expect(cards).toHaveCount(6);
+    const gridMeasurement = await group.evaluate((element) => {
+      const cardRects = [...element.querySelectorAll<HTMLElement>(':scope > button')]
+        .map((card) => card.getBoundingClientRect());
+      const rows = [...new Set(cardRects.map((rect) => Math.round(rect.y)))];
+      const styles = getComputedStyle(element);
+      return {
+        columns: styles.gridTemplateColumns.split(' ').filter(Boolean).length,
+        groupClientWidth: element.clientWidth,
+        groupScrollWidth: element.scrollWidth,
+        minimumCardWidth: Math.min(...cardRects.map((rect) => rect.width)),
+        rows: rows.length,
+      };
+    });
+    expect(gridMeasurement.columns).toBe(2);
+    expect(gridMeasurement.rows).toBe(3);
+    expect(gridMeasurement.minimumCardWidth).toBeGreaterThan(130);
+    expect(gridMeasurement.groupScrollWidth).toBeLessThanOrEqual(gridMeasurement.groupClientWidth + 1);
+    await captureLocator(group, '21-website-styles-2x3');
     await expectNoHorizontalOverflow(page);
   });
 
@@ -604,6 +905,62 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await capture(page, 'gallery-edits-saved-transactionally-supporting');
   });
 
+  test('physical Gallery upload shows processing, accepted thumbnail, precise failure, save, and reload', async ({ page }) => {
+    await page.setViewportSize({ height: 844, width: 390 });
+    await openAuditFresh(page);
+    await applyFixture(page, 'Canva intent', 'Add something extra');
+    await delayThumbnailGeneration(page);
+
+    await page.getByRole('button', { name: 'Add Gallery' }).click();
+    let dialog = page.getByRole('dialog', { name: 'Add Gallery' });
+    const input = dialog.locator('input[type="file"]');
+    const validUpload = input.setInputFiles(PORTRAIT_PATH);
+    await expect(dialog.getByRole('status').filter({ hasText: 'Processing photo…' }))
+      .toContainText('daniela-placeholder.jpg');
+    await captureLocator(dialog, '04-gallery-processing');
+    await validUpload;
+    await expect(dialog.getByRole('status').filter({ hasText: '1 photo ready' })).toBeVisible();
+    const order = dialog.getByRole('list', { name: 'Gallery image order' });
+    await expect(order.getByRole('listitem')).toHaveCount(1);
+    await expect(order.locator('img')).toBeVisible();
+    await expect(dialog.getByRole('button', { exact: true, name: 'Add Gallery' })).toBeEnabled();
+    await captureLocator(dialog, '05-gallery-thumbnails-ready');
+
+    await input.setInputFiles({
+      buffer: Buffer.from([0xff, 0xd8, 0xff, 0x00, 0x01, 0x02]),
+      mimeType: 'image/jpeg',
+      name: 'IMG_5222.jpeg',
+    });
+    const failure = dialog.getByRole('alert').filter({ hasText: 'IMG_5222.jpeg' });
+    await expect(failure).toContainText('No images were added. 1 image was skipped.');
+    await expect(failure).toContainText(
+      'This photo couldn’t be read. Try selecting it again or choose another copy.',
+    );
+    await expect(failure.getByRole('button', { name: 'Retry' })).toBeVisible();
+    await captureLocator(failure, '06-gallery-precise-failure');
+    await expect(order.getByRole('listitem')).toHaveCount(1);
+
+    await dialog.getByRole('radio', { name: 'grid' }).check();
+    await dialog.getByRole('button', { exact: true, name: 'Add Gallery' }).click();
+    await expect(dialog).toBeHidden();
+    await waitForSaved(page);
+    let state = await readState(page);
+    expect(state.recipe.galleryEnabled).toBe(true);
+    expect(state.gallery.images).toHaveLength(1);
+    expect(state.gallery.images[0]?.storageId).toBeTruthy();
+    await captureViewport(page, '22-gallery-accepted-save');
+
+    await page.reload();
+    await expect(heading(page, 'Add something extra')).toBeVisible();
+    state = await readState(page);
+    expect(state.gallery.images).toHaveLength(1);
+    await page.getByRole('button', { name: 'Edit Gallery' }).click();
+    dialog = page.getByRole('dialog', { name: 'Edit Gallery' });
+    await expect(dialog.getByRole('list', { name: 'Gallery image order' }).locator('img'))
+      .toBeVisible();
+    await captureLocator(dialog, '23-gallery-reload');
+  });
+
   test('preview outline removes About after the owner turns it off', async ({ page }) => {
     await page.setViewportSize({ height: 800, width: 1180 });
     await openAuditFresh(page);
@@ -623,6 +980,97 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await capture(page, '37-preview-outline-about-off');
   });
 
+  test('full customer Preview uses a bounded outer stage and an internally scrollable device', async ({ page }) => {
+    await page.setViewportSize({ height: 844, width: 390 });
+    await openAuditFresh(page);
+    await applyFixture(page, 'Multi-page starter', 'Your starting site is ready');
+    await page.getByRole('button', { name: 'Preview my site' }).click();
+
+    const dialog = page.getByRole('dialog', { name: 'Preview your starting site' });
+    const overlay = dialog.locator('.onboarding-preview-overlay');
+    const stage = overlay.locator('.onboarding-preview-stage');
+    const frame = stage.locator('.onboarding-preview-frame');
+    const actions = overlay.locator('.onboarding-overlay-actions');
+    await expect(dialog).toBeVisible();
+    await expect(stage).toBeVisible();
+    await expect(frame).toBeVisible();
+    const [overlayBox, stageBox, actionBox] = await Promise.all([
+      overlay.boundingBox(),
+      stage.boundingBox(),
+      actions.boundingBox(),
+    ]);
+    expect(overlayBox).not.toBeNull();
+    expect(stageBox).not.toBeNull();
+    expect(actionBox).not.toBeNull();
+    expect(stageBox?.height ?? 0).toBeGreaterThanOrEqual(420);
+    expect(stageBox?.height ?? 9999).toBeLessThanOrEqual(844 * 0.7);
+    expect((actionBox?.y ?? 9999) - ((stageBox?.y ?? 0) + (stageBox?.height ?? 0)))
+      .toBeLessThanOrEqual(24);
+    expect(overlayBox?.height ?? 9999).toBeLessThanOrEqual(844 * 0.9);
+
+    const scrollGeometry = await frame.evaluate((element) => ({
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      scrollTop: element.scrollTop,
+    }));
+    expect(scrollGeometry.scrollHeight).toBeGreaterThan(scrollGeometry.clientHeight);
+    await frame.evaluate((element) => { element.scrollTop = Math.min(240, element.scrollHeight); });
+    await expect.poll(() => frame.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
+    await captureViewport(page, '17-compact-starting-site-preview');
+
+    for (const device of ['Tablet', 'Desktop', 'Phone'] as const) {
+      await overlay.getByRole('button', { name: device }).click();
+      await expect(overlay.getByRole('button', { name: device })).toHaveAttribute('aria-pressed', 'true');
+      await expect(stage.locator(`.onboarding-preview-frame.is-${device.toLowerCase()}`))
+        .toBeVisible();
+      expect((await stage.boundingBox())?.height ?? 9999).toBeLessThanOrEqual(844 * 0.7);
+    }
+    await actions.getByRole('button', { name: 'Back' }).click();
+    await expect(dialog).toBeHidden();
+    await expect(heading(page, 'Your starting site is ready')).toBeVisible();
+  });
+
+  test('Final Review keeps collapsed readiness below the customer website without overlaying it', async ({ page }) => {
+    await page.setViewportSize({ height: 844, width: 390 });
+    await openAuditFresh(page);
+    await applyFixture(page, 'All essentials complete', 'Review your site');
+
+    const preview = page.locator('.onboarding-review-preview');
+    const previewFrame = preview.locator('.onboarding-preview-frame');
+    const readiness = page.getByRole('complementary', { name: 'Site readiness' });
+    const readinessTrigger = readiness.getByRole('button', { name: /Site readiness/u });
+    await expect(preview).toBeVisible();
+    await expect(readiness).toBeVisible();
+    await expect(readinessTrigger).toHaveAttribute('aria-expanded', 'false');
+    const [previewBox, readinessBox] = await Promise.all([
+      preview.boundingBox(),
+      readiness.boundingBox(),
+    ]);
+    expect(previewBox).not.toBeNull();
+    expect(readinessBox).not.toBeNull();
+    expect(readinessBox?.y ?? 0)
+      .toBeGreaterThanOrEqual((previewBox?.y ?? 0) + (previewBox?.height ?? 0) - 1);
+    expect(await readiness.evaluate((element) => getComputedStyle(element).position))
+      .not.toMatch(/absolute|fixed/u);
+    await previewFrame.evaluate((element) => { element.scrollTop = 160; });
+    const previewScrollBefore = await previewFrame.evaluate((element) => element.scrollTop);
+    await captureViewport(page, '24-review-unobstructed');
+    await captureLocator(readiness, '25-readiness-collapsed');
+
+    await readinessTrigger.click();
+    await expect(readinessTrigger).toHaveAttribute('aria-expanded', 'true');
+    await expect(readiness.getByRole('heading', { name: 'Site readiness' })).toBeVisible();
+    expect(await previewFrame.evaluate((element) => element.scrollTop)).toBe(previewScrollBefore);
+    const [expandedPreviewBox, expandedReadinessBox] = await Promise.all([
+      preview.boundingBox(),
+      readiness.boundingBox(),
+    ]);
+    expect(expandedReadinessBox?.y ?? 0)
+      .toBeGreaterThanOrEqual((expandedPreviewBox?.y ?? 0) + (expandedPreviewBox?.height ?? 0) - 1);
+    await capture(page, '26-readiness-expanded-below-preview');
+    await expectNoHorizontalOverflow(page);
+  });
+
   test('V06 plan cards preserve one selected intent and a usable short-phone layout', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openAuditFresh(page);
@@ -631,27 +1079,50 @@ test.describe('Daniela-final onboarding acceptance', () => {
     const plan = page.getByRole('dialog', { name: 'Your site is saved' });
     const free = plan.getByRole('radio', { name: /^Free/u });
     const founding = plan.getByRole('radio', { name: /^Founding offer/u });
-    const monthly = plan.getByRole('radio', { name: /^Monthly plan/u });
+    const monthly = plan.getByRole('radio', { name: /^Monthly/u });
+    const planAction = plan.locator('.onboarding-plan-sheet__action');
     await expect(free).toBeChecked();
-    await captureViewport(page, '39-plan-free-initial');
+    await expect(free.locator('xpath=..')).toContainText('$0 to start');
+    await expect(founding.locator('xpath=..')).toContainText('Price coming soon');
+    await expect(monthly.locator('xpath=..')).toContainText('Price coming soon');
+    await expect(planAction.getByRole('button')).toHaveCount(1);
+    await expect(planAction.getByRole('button', { name: 'Continue free' })).toBeVisible();
+    await expect(plan).not.toContainText(/Lifetime|limited time|countdown|buy now|purchase/u);
+    await expect(plan).toContainText('There is no payment or plan access change today.');
+    const freeCardBox = await free.locator('xpath=..').boundingBox();
+    expect(freeCardBox).not.toBeNull();
+    expect((freeCardBox?.y ?? 9999) + (freeCardBox?.height ?? 0)).toBeLessThanOrEqual(844);
+    await captureViewport(page, '27-plan-free-initial-viewport');
 
     await founding.locator('xpath=..').click();
     await expect(founding).toBeChecked();
-    await expect(plan.getByRole('button', { name: 'Reserve founding offer' })).toBeVisible();
-    await captureViewport(page, '40-plan-founding-selected');
+    await expect(planAction.getByRole('button', { name: 'Reserve founding offer' })).toBeVisible();
+    await expect(planAction.getByRole('button')).toHaveCount(1);
+    await captureViewport(page, '28-plan-founding-selected');
 
     await monthly.locator('xpath=..').click();
     await expect(monthly).toBeChecked();
-    await expect(plan.getByRole('button', { name: 'I’m interested in monthly' })).toBeVisible();
-    await captureViewport(page, '41-plan-monthly-selected');
-    await plan.getByText('Compare what’s included', { exact: true }).click();
-    await capture(page, '42-plan-comparison');
+    await expect(planAction.getByRole('button', { name: 'I’m interested in monthly' })).toBeVisible();
+    await expect(planAction.getByRole('button')).toHaveCount(1);
+    await captureViewport(page, '29-plan-monthly-selected');
+    await plan.getByText('Compare options', { exact: true }).click();
+    const comparison = plan.locator('.onboarding-plan-comparison');
+    await expect(comparison.getByRole('heading', { name: 'Included now' })).toBeVisible();
+    await expect(comparison.getByRole('heading', { name: 'Planned for paid options' }))
+      .toBeVisible();
+    const comparisonGeometry = await comparison.evaluate((element) => ({
+      clientWidth: element.clientWidth,
+      scrollWidth: element.scrollWidth,
+    }));
+    expect(comparisonGeometry.scrollWidth).toBeLessThanOrEqual(comparisonGeometry.clientWidth + 1);
+    await capture(page, '30-plan-compact-comparison');
 
     await page.setViewportSize({ height: 568, width: 320 });
     await free.locator('xpath=..').click();
-    await expect(plan.getByRole('button', { name: 'Continue free' })).toBeVisible();
+    await expect(planAction.getByRole('button', { name: 'Continue free' })).toBeVisible();
+    await expect(planAction.getByRole('button')).toHaveCount(1);
     await expectNoHorizontalOverflow(page);
-    await captureViewport(page, '43-plan-short-phone');
+    await captureViewport(page, '31-plan-short-phone');
   });
 
   test('V07 Continue free reaches the dashboard directly with normal owner controls', async ({ page }) => {
@@ -663,19 +1134,19 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await expect(plan).toBeVisible();
     await expect(plan.getByRole('radio', { name: /^Free/u })).toBeChecked();
     await expect(plan.getByRole('radio', { name: /^Founding offer/u })).toBeVisible();
-    await expect(plan.getByRole('radio', { name: /^Monthly plan/u })).toBeVisible();
+    await expect(plan.getByRole('radio', { name: /^Monthly/u })).toBeVisible();
     await expect(plan.getByRole('button', { name: 'Continue free' })).toBeVisible();
     await expect(plan).toContainText('There is no payment or plan access change today.');
     await captureLocator(plan, '39-plan-free-initial');
     await plan.getByRole('button', { name: 'Continue free' }).click();
 
-    await expect(heading(page, 'You’re ready')).toBeVisible();
+    await expect(heading(page, 'Your Luster site is ready')).toBeVisible();
     await expect(page.getByText(/Daniela, your website, booking page and service menu are set up/u))
       .toBeVisible();
     await captureViewport(page, 'dashboard-audit-arrival-supporting');
 
     await page.goto('/');
-    await expect(heading(page, 'You’re ready')).toBeVisible();
+    await expect(heading(page, 'Your Luster site is ready')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Return to onboarding review · Lab only' }))
       .toHaveCount(0);
     await expect(page.getByText(/Integration rows use explicit UX Lab fixture states/u))
@@ -729,8 +1200,9 @@ test.describe('Daniela-final onboarding acceptance', () => {
       .getByRole('button', { name: 'Continue free' })
       .click();
     await page.goto('/');
-    await expect(heading(page, 'You’re ready')).toBeVisible();
+    await expect(heading(page, 'Your Luster site is ready')).toBeVisible();
     await expect(page.getByRole('dialog', { name: 'A quick look around Luster' })).toHaveCount(0);
+    await captureViewport(page, '39-tour-optional');
     await page.locator('.lab-dashboard-preview__welcome')
       .getByRole('button', { name: 'Take a quick tour' })
       .click();
@@ -739,29 +1211,114 @@ test.describe('Daniela-final onboarding acceptance', () => {
       await expect(tour.getByLabel(`Tour step ${step} of 5`)).toBeVisible();
       await expect(page.locator('.lab-dashboard-storyboard'))
         .toHaveAttribute('data-tour-highlighted', 'true');
+      if (step === 1) await captureViewport(page, '39-tour-spotlight');
       if (step < 5) await tour.getByRole('button', { name: 'Next' }).click();
     }
     await tour.getByRole('button', { name: 'Done' }).click();
     await expect(tour).toBeHidden();
   });
 
+  test('shared completion feedback remains immediate with reduced motion', async ({ page }) => {
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.setViewportSize({ height: 568, width: 320 });
+    await openNormalFresh(page);
+    await reachLocationScreen(page);
+
+    await page.getByLabel('City or general service area').fill('Toronto');
+    await page.getByRole('group', { name: 'Where do you see clients?' })
+      .getByRole('radio', { name: 'Salon suite' })
+      .check();
+    const feedback = page.locator('.onboarding-feedback');
+    await expect(feedback).toContainText('Basics complete');
+    await expect(feedback).toHaveClass(/is-reduced-motion/u);
+    await expect(page.locator('button[aria-controls="onboarding-location-card-panel"]')
+      .locator('.onboarding-collapsible-card__state')).toContainText('Complete');
+    await captureViewport(page, '40-reduced-motion-state');
+    await expectNoHorizontalOverflow(page);
+  });
+
+  test('Start over waits for an in-flight profile upload before clearing setup', async ({ page }) => {
+    await page.setViewportSize({ height: 844, width: 390 });
+    await openNormalFresh(page);
+    await reachPhotoScreen(page);
+    await delayThumbnailGeneration(page, 1_200);
+
+    await page.getByLabel('Profile photo', { exact: true }).setInputFiles(PORTRAIT_PATH);
+    const profileField = page.locator('.onboarding-image-upload').filter({
+      has: page.getByText('Profile photo', { exact: true }),
+    });
+    await expect(profileField.getByRole('status')).toContainText('Processing photo…');
+
+    await page.getByLabel('More onboarding options').click();
+    await page.getByRole('menuitem', { name: 'Start over' }).click();
+    const confirmation = page.getByRole('dialog', { name: 'Start over?' });
+    await confirmation.getByRole('button', { exact: true, name: 'Start over' }).click();
+    await expect(page.getByRole('alert')).toContainText(
+      'Finish the current image upload before starting over.',
+    );
+    await expect(confirmation).toBeVisible();
+    await expect(heading(page, 'Add your photo and Instagram')).toBeVisible();
+
+    await expect.poll(() => page.evaluate((key) => {
+      const raw = window.localStorage.getItem(key);
+      if (!raw) return null;
+      const stored = JSON.parse(raw) as {
+        profile?: { profilePhoto?: { fileName?: string } };
+      };
+      return stored.profile?.profilePhoto?.fileName ?? null;
+    }, ONBOARDING_STORAGE_KEY)).toBe('daniela-placeholder.jpg');
+
+    await confirmation.getByRole('button', { exact: true, name: 'Start over' }).click();
+    await expect(heading(page, 'Let’s build your website')).toBeVisible();
+    await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key),
+      ONBOARDING_STORAGE_KEY)).toBeNull();
+    await page.reload();
+    await expect(heading(page, 'Let’s build your website')).toBeVisible();
+  });
+
   test('live Start over and reload restore a clean Welcome', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openNormalFresh(page);
+    await page.evaluate(() => window.localStorage.setItem(
+      'luster:physical-iphone-unrelated-sentinel',
+      'preserve-me',
+    ));
     await page.getByRole('button', { name: 'Build my website' }).click();
     await page.getByLabel('Salon or studio name').fill('Temporary Studio');
     await page.getByLabel('More onboarding options').click();
     await page.getByRole('menuitem', { name: 'Start over' }).click();
-    const confirmation = page.getByRole('dialog', { name: 'Start over?' });
+    let confirmation = page.getByRole('dialog', { name: 'Start over?' });
     await expect(confirmation).toBeVisible();
-    await confirmation.getByRole('button', { exact: true, name: 'Start over' }).click();
+    await captureLocator(confirmation, '32-start-over-confirmation');
+    await confirmation.getByRole('button', { name: 'Keep my setup' }).click();
+    await expect(confirmation).toBeHidden();
+    await expect(heading(page, 'Tell us about your nail business')).toBeVisible();
+    await expect(page.getByLabel('Salon or studio name')).toHaveValue('Temporary Studio');
+
+    await page.getByLabel('More onboarding options').click();
+    await page.getByRole('menuitem', { name: 'Start over' }).click();
+    confirmation = page.getByRole('dialog', { name: 'Start over?' });
+    const confirmReset = confirmation.getByRole('button', { exact: true, name: 'Start over' });
+    await confirmReset.evaluate((button) => {
+      if (!(button instanceof HTMLButtonElement)) {
+        throw new Error('Start over control is not a button.');
+      }
+      button.click();
+      button.click();
+    });
     await expect(heading(page, 'Let’s build your website')).toBeVisible();
+    await expect.poll(() => page.evaluate(() => window.localStorage.getItem(
+      'luster:physical-iphone-unrelated-sentinel',
+    ))).toBe('preserve-me');
     await page.reload();
     await expect(heading(page, 'Let’s build your website')).toBeVisible();
     await expect(page.getByText('Temporary Studio')).toHaveCount(0);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
     await captureViewport(page, '50-clean-welcome');
+    await page.evaluate(() => window.localStorage.removeItem(
+      'luster:physical-iphone-unrelated-sentinel',
+    ));
   });
 
   test('review and customer previews remain contained at key responsive viewports', async ({ page }) => {

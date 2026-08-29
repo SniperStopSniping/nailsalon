@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 const labUrl = 'http://127.0.0.1:4188';
 const evidenceDirectory = process.env.LUSTER_EVIDENCE_DIRECTORY
-  ?? '/tmp/luster-onboarding-daniela-final-polish';
+  ?? '/tmp/luster-onboarding-physical-iphone-final';
 const captureEvidence = process.env.LUSTER_CAPTURE_EVIDENCE === '1';
 
 export default defineConfig({

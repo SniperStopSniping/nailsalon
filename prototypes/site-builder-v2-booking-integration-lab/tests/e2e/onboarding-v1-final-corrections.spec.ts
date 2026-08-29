@@ -718,7 +718,8 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await completePhotoSocial(page);
 
     const hoursTrigger = page.locator('button[aria-controls="onboarding-hours-card-panel"]');
-    await expect(hoursTrigger).toContainText('Not set · Optional');
+    await expect(hoursTrigger).toContainText('Add your business hours');
+    await expect(hoursTrigger).toContainText('Set up');
     await expect(hoursTrigger).not.toContainText('Complete');
     await captureEvidence(page, '06-untouched-hours-state');
 
@@ -741,19 +742,20 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await page.locator('button[aria-controls="onboarding-contact-card-panel"]').click();
     await page.getByRole('switch', { name: 'Clients should use online booking only' }).check();
     await hoursTrigger.click();
-    const copyWeekdays = page.getByRole('button', { name: 'Copy Monday to weekdays' });
-    await expect(copyWeekdays).toBeDisabled();
-    await page.getByLabel('Monday opens').fill('09:00');
-    await expect(copyWeekdays).toBeDisabled();
-    await expect(hoursTrigger).toContainText('Not set · Optional');
+    await page.getByRole('radio', { name: 'Monday–Friday' }).check();
+    await page.getByRole('combobox', { name: 'Opens' }).selectOption('09:00');
+    await page.getByRole('combobox', { name: 'Closes' }).selectOption('');
+    await page.getByRole('button', { name: 'Apply to selected days' }).click();
+    await expect(page.getByRole('alert')).toContainText(
+      'Choose both an opening and closing time.',
+    );
+    await expect(hoursTrigger).toContainText('Add your business hours');
     await expect(hoursTrigger).not.toContainText('Complete');
     await expect(locationPreview.locator('[aria-label="Weekly hours"]')).toHaveCount(0);
-    await page.getByLabel('Monday closes').fill('17:00');
-    await expect(copyWeekdays).toBeEnabled();
-    await copyWeekdays.click();
-    const sunday = page.getByRole('group', { name: 'Sunday' });
-    await sunday.getByRole('checkbox', { name: 'Closed' }).check();
-    await expect(hoursTrigger).toContainText(/5 days · Shown on your site/u);
+    await page.getByRole('combobox', { name: 'Closes' }).selectOption('17:00');
+    await page.getByRole('button', { name: 'Apply to selected days' }).click();
+    await expect(hoursTrigger).toContainText('Mon–Fri · 9:00 AM–5:00 PM');
+    await expect(hoursTrigger).toContainText('Complete');
     const compactWeeklyHours = locationPreview.locator('[aria-label="Weekly hours"]');
     await expect(compactWeeklyHours).toContainText('Monday');
     await expect(compactWeeklyHours).toContainText('Sunday');
@@ -765,7 +767,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await showHours.uncheck();
     await expect(locationPreview.locator('[aria-label="Weekly hours"]')).toHaveCount(0);
     await expect(locationPreview).not.toContainText(/Open until|Closed/u);
-    await expect(hoursTrigger).toContainText('Not shown on your site');
+    await expect(hoursTrigger).toContainText('Not shown on your website');
     await captureEvidence(page, '08-hidden-hours-preview');
     await showHours.check();
 
