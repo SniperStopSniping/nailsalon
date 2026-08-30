@@ -137,6 +137,32 @@
 }
 
 @layer utilities {
+  /*
+   * The authenticated Workspace owns these tokens. Customer-site style and
+   * palette variables are scoped under the saved-site renderer and must never
+   * recolour Clerk, plans, or owner tools.
+   */
+  .owner-workspace-theme {
+    --owner-ground: #f8f3f0;
+    --owner-surface: #ffffff;
+    --owner-blush: #f9e9ed;
+    --owner-ink: #261d20;
+    --owner-muted: #74666b;
+    --owner-line: #eadde1;
+    --owner-line-strong: #d8c1c8;
+    --owner-accent: #8b3151;
+    --owner-accent-strong: #70233f;
+    --owner-focus: #b85075;
+
+    background: var(--owner-ground);
+    color: var(--owner-ink);
+    color-scheme: light;
+  }
+
+  .owner-surface {
+    color-scheme: light;
+  }
+
   .service-page-viewport {
     min-height: 100vh;
     /* Full-bleed carousels (-mx-4 + fixed-width cards) must scroll inside

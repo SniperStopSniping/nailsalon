@@ -27,6 +27,7 @@ import {
   Scissors,
   Settings,
   Shield,
+  Sparkles,
   Star,
   Users,
 } from 'lucide-react';
@@ -69,6 +70,14 @@ const APPS: AppItem[] = [
     icon: LayoutTemplate,
     gradient: 'from-rose-600 to-amber-400',
     shadowColor: '#e11d48',
+  },
+  {
+    id: 'workspace-tour',
+    name: 'Workspace Tour',
+    description: 'A quick guide to your workspace',
+    icon: Sparkles,
+    gradient: 'from-[#8B3151] to-[#D790A8]',
+    shadowColor: '#8B3151',
   },
   {
     id: 'integrations',

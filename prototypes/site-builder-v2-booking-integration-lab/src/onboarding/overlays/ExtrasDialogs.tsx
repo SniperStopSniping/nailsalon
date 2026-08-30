@@ -31,6 +31,7 @@ import {
   ONBOARDING_MEDIA_STORAGE_UNAVAILABLE_MESSAGE,
   type OnboardingMediaFailure,
 } from '../integrations/contracts/media';
+import { ONBOARDING_EXAMPLE_GALLERY_IMAGES } from '../model/gallery-examples';
 import {
   ONBOARDING_GALLERY_MAX_FILES,
   ONBOARDING_GALLERY_MAX_TOTAL_BYTES,
@@ -44,13 +45,6 @@ import type {
   OnboardingLabState,
 } from '../model/types';
 import type { OnboardingStateUpdater } from '../screens/DesignScreens';
-
-const MOCK_GALLERY_IMAGES: LocalImageReference[] = [
-  { altText: 'Precision Russian manicure', fileName: 'russian-manicure.webp', id: 'gallery-mock-russian', mimeType: 'image/webp', previewUrl: '/manicure-russian-clean.webp', source: 'fixture' },
-  { altText: 'Glossy nude gel manicure', fileName: 'nude-gel.webp', id: 'gallery-mock-nude', mimeType: 'image/webp', previewUrl: '/manicure-gel-nude.webp', source: 'fixture' },
-  { altText: 'Pearl chrome manicure', fileName: 'pearl-chrome.webp', id: 'gallery-mock-pearl', mimeType: 'image/webp', previewUrl: '/manicure-pearl-chrome.webp', source: 'fixture' },
-  { altText: 'French manicure', fileName: 'french.webp', id: 'gallery-mock-french', mimeType: 'image/webp', previewUrl: '/manicure-french.webp', source: 'fixture' },
-];
 
 type GalleryDialogProps = {
   onClose: () => void;
@@ -291,7 +285,7 @@ export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogP
     if (isProcessing || mutationPendingRef.current) return;
     setDraft((current) => ({
       ...current,
-      images: MOCK_GALLERY_IMAGES.map((image) => ({ ...image })),
+      images: ONBOARDING_EXAMPLE_GALLERY_IMAGES.map((image) => ({ ...image })),
       source: 'mock_luster',
     }));
     setShowAllFailures(false);

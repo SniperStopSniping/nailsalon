@@ -41,6 +41,11 @@ const isOwnerBookingPagePreviewRoute = createRouteMatcher([
   '/:locale/admin/booking-page/preview/(.*)',
 ]);
 
+const isOwnerAdminPageRoute = createRouteMatcher([
+  '/admin(.*)',
+  '/:locale/admin(.*)',
+]);
+
 export default async function middleware(
   request: NextRequest,
   event: NextFetchEvent,
@@ -155,7 +160,7 @@ export default async function middleware(
     // But NOT for super-admin-login (that's a public login page)
     const isSuperAdminPage
       = (p === '/super-admin' || p.startsWith('/super-admin/'))
-      || /^\/[a-z]{2}\/super-admin(?:\/|$)/.test(p);
+        || /^\/[a-z]{2}\/super-admin(?:\/|$)/.test(p);
     const isSuperAdminLogin
       = p.includes('super-admin-login');
 
@@ -211,6 +216,21 @@ export default async function middleware(
     finalized.headers.set('Cache-Control', 'private, no-store, max-age=0');
     finalized.headers.set('X-Robots-Tag', 'noindex, nofollow');
     return finalized;
+  }
+
+  // Owner Workspace pages resolve Clerk-backed owners through
+  // getAdminSession(). Establish Clerk request context only when the request
+  // actually carries Clerk's session cookie. Anonymous and repository legacy
+  // session/impersonation paths continue through the existing server guards
+  // without a Clerk handshake.
+  if (isOwnerAdminPageRoute(request)) {
+    const response = request.cookies.get('__session')?.value
+      ? await clerkMiddleware(
+        async (_auth, req) => intlMiddleware(req),
+        clerkOptions,
+      )(request, event)
+      : intlMiddleware(request);
+    return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
   }
 
   // Invitation pages are public, but their server component calls Clerk auth()

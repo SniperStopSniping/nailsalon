@@ -22,6 +22,14 @@ import { AppGrid, type AppId } from '@/components/admin/AppGrid';
 import { AdminDashboardNoticeStack } from '@/components/admin/dashboard/AdminDashboardNoticeStack';
 import { AdminDashboardSkeleton } from '@/components/admin/dashboard/AdminDashboardSkeleton';
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
+import {
+  type OnboardingSiteHandoff,
+  OnboardingWorkspaceHandoff,
+} from '@/components/admin/onboarding/OnboardingWorkspaceHandoff';
+import {
+  WorkspaceQuickTour,
+  type WorkspaceTourTarget,
+} from '@/components/admin/onboarding/WorkspaceQuickTour';
 import { OwnerTodayWorkspace } from '@/components/admin/OwnerTodayWorkspace';
 import {
   OwnerWorkspaceNav,
@@ -331,6 +339,13 @@ function AdminDashboardContent() {
 
   // Swipe page state
   const [workspaceTab, setWorkspaceTab] = useState<OwnerWorkspaceTab>('today');
+  const [onboardingHandoffAvailable, setOnboardingHandoffAvailable]
+    = useState(false);
+  const [onboardingSavedSite, setOnboardingSavedSite] = useState<{
+    previewUrl: string;
+    salonSlug: string;
+  } | null>(null);
+  const [showOnboardingTour, setShowOnboardingTour] = useState(false);
 
   // Modal state
   const [activeModal, setActiveModal] = useState<AppId | null>(null);
@@ -348,9 +363,9 @@ function AdminDashboardContent() {
   const [showWalkIn, setShowWalkIn] = useState(false);
   const activeDashboardSalonSlug
     = adminUser?.impersonation?.salonSlug
-    ?? requestedSalonSlug
-    ?? adminUser?.salons[0]?.slug
-    ?? null;
+      ?? requestedSalonSlug
+      ?? adminUser?.salons[0]?.slug
+      ?? null;
   const activeDashboardSalon = activeDashboardSalonSlug
     ? (adminUser?.salons.find(
         s => s.slug?.toLowerCase() === activeDashboardSalonSlug.toLowerCase(),
@@ -359,6 +374,14 @@ function AdminDashboardContent() {
   const activeDashboardSalonName = activeDashboardSalon?.name ?? null;
   const activeDashboardSalonStatus = activeDashboardSalon?.status ?? null;
   const isFreeSolo = activeDashboardSalon?.freeSoloEnabled === true;
+  const handleOnboardingHandoffChange = useCallback((handoff: OnboardingSiteHandoff | null) => {
+    setOnboardingSavedSite(handoff && activeDashboardSalonSlug
+      ? {
+          previewUrl: handoff.site.previewUrl,
+          salonSlug: activeDashboardSalonSlug,
+        }
+      : null);
+  }, [activeDashboardSalonSlug]);
 
   // Fraud signals - parent owns state
   const [fraudSignals, setFraudSignals] = useState<
@@ -1080,11 +1103,17 @@ function AdminDashboardContent() {
         `/${locale}/admin/luster${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
       );
     } else if (appId === 'booking-page') {
-      // Luster UI/UX plan rev 3, PR 5: a full navigation like 'luster', not a
-      // ?app= modal — the owner Booking Page surface is its own route.
-      router.push(
-        `/${locale}/admin/booking-page${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
-      );
+      const accountBackedPreviewUrl = onboardingSavedSite?.salonSlug
+        === activeDashboardSalonSlug
+        ? onboardingSavedSite.previewUrl
+        : null;
+      // Account-backed onboarding sites always reopen their exact persisted
+      // revision. Legacy salons retain the existing Booking Page route.
+      router.push(accountBackedPreviewUrl ?? (
+        `/${locale}/admin/booking-page${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`
+      ));
+    } else if (appId === 'workspace-tour') {
+      setShowOnboardingTour(true);
     } else if (appId === 'schedule') {
       setShowScheduleCalendar(true);
     } else {
@@ -1169,6 +1198,53 @@ function AdminDashboardContent() {
       setActiveModal('services');
     }
   }, [router, buildAdminUrl]);
+
+  const handleWorkspaceTourTarget = useCallback((target: WorkspaceTourTarget) => {
+    switch (target) {
+      case 'today':
+        handleWorkspaceTab('today');
+        break;
+      case 'calendar':
+        handleWorkspaceTab('calendar');
+        break;
+      case 'clients':
+        handleWorkspaceTab('clients');
+        break;
+      case 'services':
+        handleWorkspaceTab('services');
+        break;
+      case 'website':
+        handleWorkspaceTab('more');
+        window.requestAnimationFrame(() => {
+          document.querySelector<HTMLElement>('[data-testid="admin-app-tile-booking-page"]')
+            ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+        break;
+      default:
+        break;
+    }
+  }, [handleWorkspaceTab]);
+
+  const closeWorkspaceTour = useCallback(() => {
+    setShowOnboardingTour(false);
+    handleWorkspaceTab('today');
+  }, [handleWorkspaceTab]);
+
+  const completeWorkspaceTour = useCallback(() => {
+    setShowOnboardingTour(false);
+    handleWorkspaceTab('today');
+    if (!activeDashboardSalonSlug) {
+      return;
+    }
+    void fetch(
+      `/api/admin/onboarding-site?salonSlug=${encodeURIComponent(activeDashboardSalonSlug)}`,
+      {
+        body: JSON.stringify({ action: 'complete_tour' }),
+        headers: { 'Content-Type': 'application/json' },
+        method: 'PATCH',
+      },
+    );
+  }, [activeDashboardSalonSlug, handleWorkspaceTab]);
 
   // Close modal
   const handleCloseModal = () => {
@@ -1311,7 +1387,8 @@ function AdminDashboardContent() {
 
   return (
     <div
-      className="min-h-screen bg-[#F8F3F0] font-sans text-stone-950"
+      className="owner-workspace-theme min-h-screen bg-[var(--owner-ground)] font-sans text-[var(--owner-ink)]"
+      data-theme-scope="owner"
       style={{
         opacity: mounted ? 1 : 0,
         transition: 'opacity 300ms ease-out',
@@ -1408,36 +1485,51 @@ function AdminDashboardContent() {
                   theme="apple"
                   badges={appBadges}
                   onAppTap={handleAppTap}
-                  hiddenIds={hiddenAppIds}
+                  hiddenIds={onboardingHandoffAvailable
+                    ? hiddenAppIds
+                    : [...hiddenAppIds, 'workspace-tour']}
                 />
               </div>
             )
           : (
-              <OwnerTodayWorkspace
-                salonSlug={activeDashboardSalonSlug || ''}
-                appointments={coreAppointments}
-                analyticsTitle={analyticsUnavailableState?.title}
-                analyticsMessage={analyticsUnavailableState?.description}
-                onRefreshAnalytics={
-                  analyticsUnavailableState ? handleRefreshAnalytics : undefined
-                }
-                onQuickAction={handleQuickAction}
-                onOpenBookings={() => setActiveModal('bookings')}
-                onOpenCalendar={() => setShowScheduleCalendar(true)}
-                onOpenIntegrations={() => openAppViaUrl('integrations')}
-                onOpenAppointment={(appointmentId) => {
-                  setInitialClientId(null);
-                  setInitialAppointmentId(appointmentId);
-                  setActiveModal('bookings');
-                }}
-                onOpenClient={(clientId) => {
-                  setInitialAppointmentId(null);
-                  setInitialClientId(clientId);
-                  setInitialPromotionStage(null);
-                  setPromotionSettingsReturnClientId(null);
-                  setActiveModal('clients');
-                }}
-              />
+              <>
+                {activeDashboardSalonSlug
+                  ? (
+                      <OnboardingWorkspaceHandoff
+                        locale={locale}
+                        onAvailabilityChange={setOnboardingHandoffAvailable}
+                        onHandoffChange={handleOnboardingHandoffChange}
+                        onTakeTour={() => setShowOnboardingTour(true)}
+                        salonSlug={activeDashboardSalonSlug}
+                      />
+                    )
+                  : null}
+                <OwnerTodayWorkspace
+                  salonSlug={activeDashboardSalonSlug || ''}
+                  appointments={coreAppointments}
+                  analyticsTitle={analyticsUnavailableState?.title}
+                  analyticsMessage={analyticsUnavailableState?.description}
+                  onRefreshAnalytics={
+                    analyticsUnavailableState ? handleRefreshAnalytics : undefined
+                  }
+                  onQuickAction={handleQuickAction}
+                  onOpenBookings={() => setActiveModal('bookings')}
+                  onOpenCalendar={() => setShowScheduleCalendar(true)}
+                  onOpenIntegrations={() => openAppViaUrl('integrations')}
+                  onOpenAppointment={(appointmentId) => {
+                    setInitialClientId(null);
+                    setInitialAppointmentId(appointmentId);
+                    setActiveModal('bookings');
+                  }}
+                  onOpenClient={(clientId) => {
+                    setInitialAppointmentId(null);
+                    setInitialClientId(clientId);
+                    setInitialPromotionStage(null);
+                    setPromotionSettingsReturnClientId(null);
+                    setActiveModal('clients');
+                  }}
+                />
+              </>
             )}
 
         <OwnerWorkspaceNav
@@ -1523,6 +1615,13 @@ function AdminDashboardContent() {
           setFraudSignals(prev => prev.filter(s => s.id !== signalId));
           setFraudSignalsTotalCount(prev => Math.max(0, prev - 1));
         }}
+      />
+
+      <WorkspaceQuickTour
+        onClose={closeWorkspaceTour}
+        onComplete={completeWorkspaceTour}
+        onTargetChange={handleWorkspaceTourTarget}
+        open={showOnboardingTour}
       />
     </div>
   );
