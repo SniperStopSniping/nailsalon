@@ -21,6 +21,9 @@ export function onboardingApiError(error: unknown): Response {
       error: { code: error.code, message: error.message },
     }, { status: error.status });
   }
+  // An uncoded failure becomes an opaque 500 for the owner; without this
+  // log line it is invisible to operators as well.
+  console.error('[onboarding-v1] unexpected save failure', error);
   return Response.json({
     error: {
       code: 'SAVE_FAILED',
