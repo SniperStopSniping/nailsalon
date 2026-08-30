@@ -3,7 +3,7 @@ import { useId, useRef, useState, type FormEvent } from 'react';
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
 import { WeeklyHoursEditor } from '../components/WeeklyHoursEditor';
 import { SCREEN_METADATA } from '../copy';
-import { resolveOnboardingImageUrl } from '../integrations/adapters/media';
+import { resolveOnboardingImage } from '../integrations/adapters/media';
 import {
   contactMethodHasValue,
   getAvailableContactMethods,
@@ -205,8 +205,12 @@ export function PhotoSocialScreen({
   const imageAssetIds = [profile.profilePhoto, profile.logo]
     .flatMap((image) => image?.storageId ? [image.storageId] : []);
   const imageAssets = useCustomDesignAssetMap(imageAssetIds);
-  const profileImage = resolveOnboardingImageUrl(profile.profilePhoto, imageAssets);
-  const logoImage = resolveOnboardingImageUrl(profile.logo, imageAssets);
+  const profileImage = resolveOnboardingImage(profile.profilePhoto, imageAssets);
+  const logoImage = resolveOnboardingImage(profile.logo, imageAssets);
+  const profileNeedsReselect = profileImage.status === 'error'
+    || profileImage.status === 'missing';
+  const logoNeedsReselect = logoImage.status === 'error'
+    || logoImage.status === 'missing';
   const instagramResolution = resolveInstagramUsername(profile.instagram);
   const instagramError = getInstagramInputError(profile.instagram);
   const commitInstagram = () => {
@@ -238,30 +242,44 @@ export function PhotoSocialScreen({
       <div className="onboarding-split-layout">
         <div className="onboarding-form-stack">
           <ImageUploadField
+            assetLoading={profileImage.status === 'loading'}
             chooseLabel="Choose profile photo"
             currentLabel={profile.profilePhoto?.fileName}
             currentSummary={profile.profilePhoto?.width && profile.profilePhoto.height
               ? `${profile.profilePhoto.width} × ${profile.profilePhoto.height}`
               : undefined}
             label="Profile photo"
-            needsReselect={profile.profilePhoto?.source === 'missing'}
+            loadingLabel="Loading saved profile photo…"
+            mediaRole="profile"
+            needsReselect={profileNeedsReselect}
             onRemove={() => onProfileChange({ profilePhoto: undefined })}
             onSelect={onProfilePhotoSelected}
-            previewUrl={profileImage ?? undefined}
-            readyLabel="Photo ready"
+            previewAlt={`${profile.ownerName.trim() || 'Owner'} profile photo thumbnail`}
+            previewUrl={profileImage.status === 'ready' ? profileImage.url : undefined}
+            readyLabel="Profile photo ready"
+            recoveryMessage={profileImage.status === 'error'
+              ? 'This saved profile photo couldn’t be loaded on this device. Select it again to restore it.'
+              : 'This saved profile photo is no longer available on this device. Select it again to restore it.'}
           />
           <ImageUploadField
+            assetLoading={logoImage.status === 'loading'}
             chooseLabel="Choose logo"
             currentLabel={profile.logo?.fileName}
             currentSummary={profile.logo?.width && profile.logo.height
               ? `${profile.logo.width} × ${profile.logo.height}`
               : undefined}
             label="Logo"
-            needsReselect={profile.logo?.source === 'missing'}
+            loadingLabel="Loading saved logo…"
+            mediaRole="logo"
+            needsReselect={logoNeedsReselect}
             onRemove={() => onProfileChange({ logo: undefined })}
             onSelect={onLogoSelected}
-            previewUrl={logoImage ?? undefined}
+            previewAlt={`${profile.businessName.trim() || 'Salon'} logo thumbnail`}
+            previewUrl={logoImage.status === 'ready' ? logoImage.url : undefined}
             readyLabel="Logo ready"
+            recoveryMessage={logoImage.status === 'error'
+              ? 'This saved logo couldn’t be loaded on this device. Select it again to restore it.'
+              : 'This saved logo is no longer available on this device. Select it again to restore it.'}
           />
           <TextField
             autoComplete="off"
@@ -275,8 +293,12 @@ export function PhotoSocialScreen({
           />
         </div>
         <aside aria-label="Profile preview" className="onboarding-profile-preview">
-          {profileImage ? (
-            <img alt={profile.profilePhoto?.altText || `${profile.ownerName || 'Owner'} profile`} src={profileImage} />
+          {profileImage.status === 'ready' ? (
+            <img
+              alt={`${profile.ownerName.trim() || 'Owner'} profile photo`}
+              data-media-role="profile"
+              src={profileImage.url}
+            />
           ) : (
             <span aria-label="Profile photo placeholder" className="onboarding-profile-preview__initials">
               {initialsFor(profile)}

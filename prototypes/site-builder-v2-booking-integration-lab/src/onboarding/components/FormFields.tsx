@@ -377,28 +377,38 @@ export function CollapsibleFormCard({
 
 type ImageUploadFieldProps = {
   accept?: string;
+  assetLoading?: boolean;
   currentLabel?: string;
   currentSummary?: string;
   chooseLabel?: string;
   label: string;
+  loadingLabel?: string;
+  mediaRole?: 'logo' | 'profile';
   needsReselect?: boolean;
   onRemove?: () => void;
   onSelect: (file: File) => Promise<void> | void;
+  previewAlt?: string;
   previewUrl?: string;
   readyLabel?: string;
+  recoveryMessage?: string;
 };
 
 export function ImageUploadField({
   accept = 'image/png,image/jpeg,image/webp,image/heic,image/heif,.heic,.heif',
+  assetLoading = false,
   chooseLabel = 'Choose from files or photos',
   currentLabel,
   currentSummary,
   label,
+  loadingLabel = 'Loading saved image…',
+  mediaRole,
   needsReselect = false,
   onRemove,
   onSelect,
+  previewAlt = '',
   previewUrl,
   readyLabel = 'Photo ready',
+  recoveryMessage = 'This saved image is no longer available on this device. Select it again to restore it.',
 }: ImageUploadFieldProps) {
   const id = useId();
   const inputRef = useRef<HTMLInputElement>(null);
@@ -438,22 +448,32 @@ export function ImageUploadField({
     feedback.send({ kind: 'removed', message: `${label} removed` });
   };
 
+  const ready = Boolean(currentLabel && previewUrl && !assetLoading && !needsReselect);
+
   return (
-    <div className={`onboarding-image-upload${processing ? ' is-processing' : ''}${failure ? ' has-error' : ''}${currentLabel && !needsReselect ? ' is-ready' : ''}`}>
+    <div
+      className={`onboarding-image-upload${processing ? ' is-processing' : ''}${failure ? ' has-error' : ''}${ready ? ' is-ready' : ''}${mediaRole ? ` is-${mediaRole}` : ''}`}
+      data-media-role={mediaRole}
+    >
       <span id={`${id}-label`}>{label}</span>
       {processing ? (
         <div aria-live="polite" className="onboarding-image-upload__status" role="status">
           <span aria-hidden="true" className="onboarding-image-upload__spinner" />
           <span><strong>Processing photo…</strong><small>{processingFileName}</small></span>
         </div>
-      ) : currentLabel && !needsReselect ? (
+      ) : currentLabel && assetLoading && !needsReselect ? (
+        <div aria-live="polite" className="onboarding-image-upload__status" role="status">
+          <span aria-hidden="true" className="onboarding-image-upload__spinner" />
+          <span><strong>{loadingLabel}</strong><small>{currentLabel}</small></span>
+        </div>
+      ) : ready ? (
         <div aria-live="polite" className="onboarding-image-upload__status is-ready" role="status">
-          {previewUrl ? <img alt="" src={previewUrl} /> : <span aria-hidden="true" className="onboarding-image-upload__ready-mark"><Check size={18} /></span>}
+          <img alt={previewAlt} src={previewUrl} />
           <span><strong>{readyLabel}</strong><small>{currentLabel}{currentSummary ? ` · ${currentSummary}` : ''}</small></span>
         </div>
       ) : null}
       {needsReselect ? (
-        <p role="status">This saved image is no longer available on this device. Select it again to restore it.</p>
+        <p role="status">{recoveryMessage}</p>
       ) : null}
       {failure ? (
         <div aria-live="assertive" className="onboarding-image-upload__failure" role="alert">

@@ -44,18 +44,25 @@ the bindings and delete the Lab implementations.
   salon-wide fixed deposit.
 - Input: normalized minutes and one `DepositDraft` (`none | fixed`, cents,
   refundability, transferability, wording override).
-- Output: normalized minutes/cents, safe preset/custom choice resolution, and a
-  bounded set of seeded candidate appointment times filtered by the selected
-  notice for the Lab customer preview.
+- Output: normalized minutes/cents and safe preset/custom choice resolution.
+  Normal owner and customer onboarding surfaces describe minimum notice only as
+  a cutoff before an appointment starts; they never present seeded times as
+  available appointments.
 - Browser-local implementation: `lab/booking-preferences-port.ts`; values persist
   only in the onboarding Lab state on this device.
+- Developer-only fixture: `lab/booking-availability-preview.ts` retains a
+  deterministic candidate set for explicit Lab tests. It is not mounted in the
+  normal owner or customer journey. Any future audit-only rendering must be
+  labelled `Example times · Lab only`.
 - Existing Production system: Booking availability hard-codes 120 minutes in
   availability, appointment creation, change-appointment, and Smart Fit paths.
   Salon settings already own `payments.deposit.enabled` and
   `payments.deposit.amountCents` through `/api/admin/salon/settings`.
 - Future seam: add one salon-level `minimumNoticeMinutes` owner setting and make
-  every Booking availability/admission path consume it. Replace the adapter with
-  authenticated settings reads/writes. Map `fixed` to
+  every Booking availability/admission path consume it. Real available times
+  must be derived from staff schedules, service duration, buffers, existing
+  appointments, calendar blocks, minimum notice, timezone, and booking rules.
+  Replace the adapter with authenticated settings reads/writes. Map `fixed` to
   `payments.deposit={enabled:true, amountCents}` and `none` to `enabled:false`.
 - Gap: Production has no configurable minimum-notice field. Deposit wording,
   refundable, and transferable answers remain policy content; they do not
@@ -66,9 +73,10 @@ the bindings and delete the Lab implementations.
 - Feature flag: required for the new Production minimum-notice setting and
   onboarding writes. Existing fixed-deposit writes must retain their current
   provider-readiness safeguards.
-- Tests: every notice preset, custom hours/days normalization, candidate-time
-  filtering, every deposit preset, one shared draft, storage migration, and
-  absence of service-level UI.
+- Tests: every notice preset, custom hours/days normalization, truthful cutoff
+  copy across owner/customer summaries, developer-only candidate-time filtering,
+  every deposit preset, one shared draft, storage migration, and absence of
+  service-level UI.
 - Delete on Production connection: `lab/booking-preferences-port.ts` and
   `lab/booking-availability-preview.ts`; replace the binding in
   `adapters/booking-preferences.ts` with tenant availability/settings reads.

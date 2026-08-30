@@ -37,13 +37,20 @@ import {
   resolveInstagramUsername,
 } from '../model/contact';
 import {
+  deriveDepositsAndCancellationsSummary,
   deriveDepositPolicySummary,
   derivePolicySuggestedWording,
+  getDepositsAndCancellationsDisplayWording,
   getDepositPolicyMode,
+  getLateCancellationChoice,
   getResolvedPolicyWording,
   hasMeaningfulPublishablePolicies,
+  isDepositsAndCancellationsComplete,
+  isDepositsAndCancellationsVisible,
   isPolicySectionComplete,
+  LATE_CANCELLATION_CUSTOM_WORDING,
   refreshPolicySuggestedWording,
+  type LateCancellationChoice,
   updateDepositDraft,
 } from '../model/policies';
 import type {
@@ -763,20 +770,11 @@ export function AboutDesignScreen({
   onFullPreview: () => void;
 }) {
   const feedback = useFeedback();
+  const selectedPreset = ABOUT_PRESETS.find(({ id }) => id === state.recipe.aboutPreset)
+    ?? ABOUT_PRESETS[0]!;
   return (
     <div className="onboarding-screen onboarding-screen--designer" data-screen="about_design">
       <ScreenHeading id="about_design" status="Optional" />
-      <div className="onboarding-designer-preview">
-        <OnboardingSitePreview
-          document={document}
-          initialTarget="about"
-          label="Selected About design preview"
-          state={state}
-        />
-        <button className="onboarding-full-preview-button" type="button" onClick={onFullPreview}>
-          Open interactive preview
-        </button>
-      </div>
       <div aria-label="About design presets" className="onboarding-preset-grid" role="group">
         {ABOUT_PRESETS.map((preset) => (
           <button
@@ -800,8 +798,24 @@ export function AboutDesignScreen({
           </button>
         ))}
       </div>
+      <p aria-live="polite" className="onboarding-about-design-selection-status">
+        {selectedPreset.label} selected
+      </p>
+      <section aria-labelledby="about-design-site-preview-heading" className="onboarding-designer-preview onboarding-about-design-preview">
+        <h2 id="about-design-site-preview-heading">See it on your site</h2>
+        <OnboardingSitePreview
+          document={document}
+          initialTarget="about"
+          label={`Selected About design preview: ${selectedPreset.label}`}
+          state={state}
+        />
+        <button className="onboarding-full-preview-button" type="button" onClick={onFullPreview}>
+          Open interactive preview
+        </button>
+      </section>
       <StickyOnboardingActions
         backLabel="Back to edit About"
+        primaryFirst
         primaryLabel="Use this design"
         onBack={onBack}
         onPrimary={onContinue}
@@ -810,16 +824,25 @@ export function AboutDesignScreen({
   );
 }
 
-const POLICY_CARD_LABELS: Record<PolicySectionId, string> = {
-  cancellations: 'Cancellations',
-  deposits: 'Deposits',
+type OtherPolicySectionId = Exclude<PolicySectionId, 'cancellations' | 'deposits'>;
+type PolicyAccordionId = 'deposits_cancellations' | OtherPolicySectionId;
+
+const OTHER_POLICY_CARD_LABELS: Record<OtherPolicySectionId, string> = {
   late_arrivals: 'Late arrivals',
   no_shows: 'No-shows',
-  other: 'Guests & appointment details',
   repairs: 'Repairs',
+  other: 'Guests & appointment details',
 };
 
-function BooleanChoice({ label, onChange, value }: {
+const OTHER_POLICY_SECTION_IDS: OtherPolicySectionId[] = [
+  'late_arrivals',
+  'no_shows',
+  'repairs',
+  'other',
+];
+
+function BooleanChoice({ hint, label, onChange, value }: {
+  hint?: string;
   label: string;
   onChange: (value: boolean | null) => void;
   value: boolean | null;
@@ -827,6 +850,7 @@ function BooleanChoice({ label, onChange, value }: {
   return (
     <label className="onboarding-select-field">
       <span>{label}</span>
+      {hint ? <small>{hint}</small> : null}
       <select value={value === null ? '' : value ? 'yes' : 'no'} onChange={(event) => onChange(event.target.value === '' ? null : event.target.value === 'yes')}>
         <option value="">Choose</option>
         <option value="yes">Yes</option>
@@ -838,36 +862,163 @@ function BooleanChoice({ label, onChange, value }: {
 
 function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate' | 'state'>) {
   const policiesShown = state.recipe.policiesEnabled;
+  const policies = state.profile.policies;
+  const cancellationsCopy = policies.copy.cancellations;
+  const depositsCopy = policies.copy.deposits;
+  const combinedVisible = isDepositsAndCancellationsVisible(policies);
+  const bothCombinedPoliciesVisible = cancellationsCopy.visible && depositsCopy.visible;
+  const combinedDisplayed = getDepositsAndCancellationsDisplayWording(policies);
+  const combinedUsesSuggested = cancellationsCopy.useSuggestedWording
+    && depositsCopy.useSuggestedWording;
+  const updateCombinedVisibility = (visible: boolean) => onUpdate((current) =>
+    updateProfile(current, (profile) => ({
+      ...profile,
+      policies: {
+        ...profile.policies,
+        copy: {
+          ...profile.policies.copy,
+          cancellations: { ...profile.policies.copy.cancellations, visible },
+          deposits: { ...profile.policies.copy.deposits, visible },
+        },
+      },
+    })));
+  const updateCombinedOverride = (
+    id: 'cancellations' | 'deposits',
+    wordingOverride: string,
+  ) => onUpdate((current) => updateProfile(current, (profile) => ({
+    ...profile,
+    policies: {
+      ...profile.policies,
+      deposits: id === 'deposits'
+        ? { ...profile.policies.deposits, wordingOverride }
+        : profile.policies.deposits,
+      copy: {
+        ...profile.policies.copy,
+        [id]: {
+          ...profile.policies.copy[id],
+          useSuggestedWording: false,
+          ...(id === 'cancellations' ? { wordingOverride } : {}),
+        },
+      },
+    },
+  })));
+  const editCombinedWording = () => onUpdate((current) =>
+    updateProfile(current, (profile) => {
+      const currentPolicies = profile.policies;
+      return {
+        ...profile,
+        policies: {
+          ...currentPolicies,
+          deposits: {
+            ...currentPolicies.deposits,
+            wordingOverride: currentPolicies.deposits.wordingOverride
+              || derivePolicySuggestedWording(currentPolicies, 'deposits'),
+          },
+          copy: {
+            ...currentPolicies.copy,
+            cancellations: {
+              ...currentPolicies.copy.cancellations,
+              useSuggestedWording: false,
+              wordingOverride: currentPolicies.copy.cancellations.wordingOverride
+                || derivePolicySuggestedWording(currentPolicies, 'cancellations'),
+            },
+            deposits: {
+              ...currentPolicies.copy.deposits,
+              useSuggestedWording: false,
+            },
+          },
+        },
+      };
+    }));
+  const useCombinedSuggestedWording = () => onUpdate((current) =>
+    updateProfile(current, (profile) => {
+      const currentPolicies = profile.policies;
+      return {
+        ...profile,
+        policies: {
+          ...currentPolicies,
+          copy: {
+            ...currentPolicies.copy,
+            cancellations: {
+              ...currentPolicies.copy.cancellations,
+              suggestedWording: derivePolicySuggestedWording(currentPolicies, 'cancellations'),
+              useSuggestedWording: true,
+            },
+            deposits: {
+              ...currentPolicies.copy.deposits,
+              suggestedWording: derivePolicySuggestedWording(currentPolicies, 'deposits'),
+              useSuggestedWording: true,
+            },
+          },
+        },
+      };
+    }));
   return (
     <div className="onboarding-policy-copy-list">
-      {(Object.keys(POLICY_CARD_LABELS) as PolicySectionId[]).map((id) => {
-        const copy = state.profile.policies.copy[id];
-        const suggestedWording = derivePolicySuggestedWording(state.profile.policies, id);
-        const displayed = getResolvedPolicyWording(state.profile.policies, id);
-        const wordingOverride = id === 'deposits'
-          ? state.profile.policies.deposits.wordingOverride
-          : copy.wordingOverride;
+      <details className="onboarding-policy-copy-card">
+        <summary>
+          Deposits & cancellations
+          <span>{!policiesShown
+            ? 'Saved, but not shown on your site'
+            : cancellationsCopy.visible !== depositsCopy.visible
+              ? 'Partly shown on site'
+              : combinedVisible ? 'Shown on site' : 'Not shown'}</span>
+        </summary>
+        <NativeSwitch
+          checked={bothCombinedPoliciesVisible}
+          description={!policiesShown
+            ? 'Turn on Show policies on my website to publish this saved policy.'
+            : cancellationsCopy.visible !== depositsCopy.visible
+              ? 'One legacy policy is hidden. Changing this setting will keep both together.'
+              : undefined}
+          disabled={!policiesShown}
+          label="Show Deposits & cancellations on my website"
+          onChange={updateCombinedVisibility}
+        />
+        {combinedUsesSuggested ? (
+          <p>{combinedDisplayed
+            || 'Answer the questions to create client wording.'}</p>
+        ) : (
+          <>
+            <TextAreaField
+              label="Deposit wording"
+              rows={3}
+              value={policies.deposits.wordingOverride}
+              onChange={(event) => updateCombinedOverride('deposits', event.target.value)}
+            />
+            <TextAreaField
+              label="Cancellation wording"
+              rows={3}
+              value={cancellationsCopy.wordingOverride}
+              onChange={(event) => updateCombinedOverride('cancellations', event.target.value)}
+            />
+            <p className="onboarding-policy-copy-card__effective" role="status">
+              Shown on your site: {combinedDisplayed
+                || 'This policy stays hidden until its wording matches your current answers.'}
+            </p>
+          </>
+        )}
+        <div>
+          <button type="button" onClick={editCombinedWording}>Edit wording</button>
+          <button type="button" onClick={useCombinedSuggestedWording}>Use suggested wording</button>
+        </div>
+      </details>
+      {OTHER_POLICY_SECTION_IDS.map((id) => {
+        const copy = policies.copy[id];
+        const suggestedWording = derivePolicySuggestedWording(policies, id);
+        const displayed = getResolvedPolicyWording(policies, id);
+        const wordingOverride = copy.wordingOverride;
         const updateCopy = (values: Partial<typeof copy>) => onUpdate((current) =>
           updateProfile(current, (profile) => {
-            const { wordingOverride: nextWordingOverride, ...copyValues } = values;
             return {
               ...profile,
               policies: {
                 ...profile.policies,
-                deposits: id === 'deposits' && nextWordingOverride !== undefined
-                  ? {
-                      ...profile.policies.deposits,
-                      wordingOverride: nextWordingOverride,
-                    }
-                  : profile.policies.deposits,
                 copy: {
                   ...profile.policies.copy,
                   [id]: {
                     ...profile.policies.copy[id],
-                    ...copyValues,
-                    ...(id !== 'deposits' && nextWordingOverride !== undefined
-                      ? { wordingOverride: nextWordingOverride }
-                      : {}),
+                    ...values,
                   },
                 },
               },
@@ -876,7 +1027,7 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
         return (
           <details className="onboarding-policy-copy-card" key={id}>
             <summary>
-              {POLICY_CARD_LABELS[id]}
+              {OTHER_POLICY_CARD_LABELS[id]}
               <span>{!policiesShown
                 ? 'Saved, but not shown on your site'
                 : copy.visible ? 'Shown on site' : 'Not shown'}</span>
@@ -887,12 +1038,12 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
                 ? 'Turn on Show policies on my website to publish this saved policy.'
                 : undefined}
               disabled={!policiesShown}
-              label={`Show ${POLICY_CARD_LABELS[id]} on my website`}
+              label={`Show ${OTHER_POLICY_CARD_LABELS[id]} on my website`}
               onChange={(visible) => updateCopy({ visible })}
             />
             {copy.useSuggestedWording ? <p>{displayed || 'Answer the questions to create client wording.'}</p> : (
               <>
-                <TextAreaField label={`${POLICY_CARD_LABELS[id]} wording`} rows={3} value={wordingOverride} onChange={(event) => updateCopy({ wordingOverride: event.target.value })} />
+                <TextAreaField label={`${OTHER_POLICY_CARD_LABELS[id]} wording`} rows={3} value={wordingOverride} onChange={(event) => updateCopy({ wordingOverride: event.target.value })} />
                 {displayed !== wordingOverride.trim() ? (
                   <p className="onboarding-policy-copy-card__effective" role="status">
                     Shown on your site: {displayed || 'This policy stays hidden until its wording matches your current answers.'}
@@ -927,7 +1078,22 @@ export function PoliciesScreen({
   const feedback = useFeedback();
   const depositMode = getDepositPolicyMode(policies);
   const depositSummary = deriveDepositPolicySummary(policies);
-  const [openPolicy, setOpenPolicy] = useState<PolicySectionId | null>('cancellations');
+  const combinedPolicyComplete = isDepositsAndCancellationsComplete(policies);
+  const combinedPolicySummary = deriveDepositsAndCancellationsSummary(policies);
+  const lateCancellationChoice = getLateCancellationChoice(policies);
+  const customLateCancellationOpen = policies.cancellations.consequence === 'custom'
+    && !Object.values(LATE_CANCELLATION_CUSTOM_WORDING).some(
+      (wording) => wording === policies.cancellations.customConsequence.trim(),
+    );
+  const visibleLateCancellationChoice = customLateCancellationOpen
+    ? 'custom'
+    : lateCancellationChoice;
+  const combinedPolicyHasAnswer = depositMode === 'fixed'
+    || policies.cancellations.notice !== null
+    || Boolean(visibleLateCancellationChoice);
+  const [openPolicy, setOpenPolicy] = useState<PolicyAccordionId | null>(
+    'deposits_cancellations',
+  );
   const [customLateOpen, setCustomLateOpen] = useState(
     Boolean(policies.lateArrivals.gracePeriodMinutes.trim())
       && !['5', '10', '15', '20'].includes(policies.lateArrivals.gracePeriodMinutes.trim()),
@@ -967,39 +1133,6 @@ export function PoliciesScreen({
   };
   const policyComplete = (sectionId: PolicySectionId) =>
     isPolicySectionComplete(policies, sectionId);
-  const cancellationNeedsWording = (
-    policies.cancellations.notice === 'custom'
-      && !policies.cancellations.customNotice.trim()
-  ) || (
-    policies.cancellations.consequence === 'custom'
-      && !policies.cancellations.customConsequence.trim()
-  );
-  const cancellationNoticeSummary = policies.cancellations.notice === 'same_day'
-    ? 'Same-day notice'
-    : policies.cancellations.notice === '12_hours'
-    ? '12 hours’ notice'
-    : policies.cancellations.notice === '24_hours'
-      ? '24 hours’ notice'
-      : policies.cancellations.notice === '48_hours'
-        ? '48 hours’ notice'
-        : policies.cancellations.notice === '72_hours'
-          ? '72 hours’ notice'
-        : policies.cancellations.notice === 'custom'
-          ? policies.cancellations.customNotice.trim() || 'Add your wording'
-          : 'Choose your cancellation rules';
-  const visibleCancellationConsequence = depositMode === 'none'
-    && policies.cancellations.consequence === 'deposit_lost'
-    ? null
-    : policies.cancellations.consequence;
-  const cancellationConsequenceSummary = visibleCancellationConsequence === 'deposit_lost'
-    ? 'Deposit is kept after the deadline'
-    : visibleCancellationConsequence === 'cancellation_fee'
-      ? 'Cancellation fee after the deadline'
-      : visibleCancellationConsequence === 'full_service_charge'
-        ? 'Full service price after the deadline'
-        : visibleCancellationConsequence === 'custom'
-          ? policies.cancellations.customConsequence.trim() || 'Add your wording'
-          : '';
   const lateArrivalSummary = policies.lateArrivals.gracePeriodMinutes.trim()
     ? policyComplete('late_arrivals')
       ? `${policies.lateArrivals.gracePeriodMinutes.trim()}-minute grace period`
@@ -1046,7 +1179,7 @@ export function PoliciesScreen({
     : otherHasAnswer
       ? 'Appointment details added'
       : 'Add any helpful appointment details';
-  const togglePolicy = (id: PolicySectionId) => setOpenPolicy((current) =>
+  const togglePolicy = (id: PolicyAccordionId) => setOpenPolicy((current) =>
     current === id ? null : id);
   const savePolicies = () => {
     const hasPublishablePolicies = hasMeaningfulPublishablePolicies(policies);
@@ -1076,25 +1209,26 @@ export function PoliciesScreen({
         />
         <div className="onboarding-policy-questions">
           <CollapsibleFormCard
-            completed={policyComplete('cancellations')}
-            id="onboarding-policy-cancellations"
-            open={openPolicy === 'cancellations'}
-            summary={cancellationNeedsWording
-              ? 'Add your wording'
-              : policyComplete('cancellations')
-                ? [cancellationNoticeSummary, cancellationConsequenceSummary]
-                    .filter(Boolean).join(' · ')
-                : policies.cancellations.notice || visibleCancellationConsequence
-                  ? 'Finish this policy'
-                  : 'Choose your rules'}
-            status={policyComplete('cancellations')
-              ? 'complete'
-              : policies.cancellations.notice || visibleCancellationConsequence
-                ? 'finish'
-                : 'set_up'}
-            title="Cancellations"
-            onToggle={() => togglePolicy('cancellations')}
+            completed={combinedPolicyComplete}
+            id="onboarding-policy-deposits-cancellations"
+            open={openPolicy === 'deposits_cancellations'}
+            summary={combinedPolicySummary}
+            status={combinedPolicyComplete
+              ? state.recipe.policiesEnabled ? 'complete' : 'not_shown'
+              : combinedPolicyHasAnswer ? 'finish' : 'set_up'}
+            title="Deposits & cancellations"
+            onToggle={() => togglePolicy('deposits_cancellations')}
           >
+            <div className="onboarding-deposit-answer">
+              <span>From your Booking settings</span>
+              <strong>{depositSummary}</strong>
+              <small>The deposit type and amount are set once in Booking.</small>
+              {onEditBooking ? (
+                <button type="button" onClick={onEditBooking}>
+                  {depositMode === 'fixed' ? 'Edit deposit in Booking' : 'Change in Booking'}
+                </button>
+              ) : null}
+            </div>
             <label className="onboarding-select-field">
               <span>How much notice do clients need to cancel?</span>
               <select
@@ -1113,7 +1247,7 @@ export function PoliciesScreen({
                 <option value="24_hours">24 hours</option>
                 <option value="48_hours">48 hours</option>
                 <option value="72_hours">72 hours</option>
-                <option value="custom">Another amount</option>
+                <option value="custom">Custom</option>
               </select>
             </label>
             {policies.cancellations.notice === 'custom' ? (
@@ -1128,29 +1262,60 @@ export function PoliciesScreen({
               />
             ) : null}
             <label className="onboarding-select-field">
-              <span>What happens if they cancel late?</span>
+              <span>{depositMode === 'fixed'
+                ? 'What happens to the deposit if they cancel late?'
+                : 'What happens if they cancel late?'}</span>
               <select
-                value={visibleCancellationConsequence ?? ''}
-                onChange={(event) => updatePolicies((current) => ({
-                  ...current,
-                  cancellations: {
-                    ...current.cancellations,
-                    consequence: event.target.value as typeof policies.cancellations.consequence,
-                  },
-                }))}
+                value={visibleLateCancellationChoice}
+                onChange={(event) => {
+                  const choice = event.target.value as LateCancellationChoice;
+                  updatePolicies((current) => {
+                    const presetWording = choice === 'case_by_case'
+                      || choice === 'move_deposit'
+                      || choice === 'refund_deposit'
+                      ? LATE_CANCELLATION_CUSTOM_WORDING[choice]
+                      : null;
+                    const customConsequence = presetWording
+                      ?? (choice === 'custom'
+                        && Object.values(LATE_CANCELLATION_CUSTOM_WORDING).some(
+                          (wording) => wording === current.cancellations.customConsequence,
+                        )
+                          ? ''
+                          : current.cancellations.customConsequence);
+                    const consequence: PoliciesDraft['cancellations']['consequence'] =
+                      choice === 'deposit_lost'
+                      || choice === 'cancellation_fee'
+                      || choice === 'full_service_charge'
+                        ? choice
+                        : choice === '' ? null : 'custom';
+                    return {
+                      ...current,
+                      cancellations: {
+                        ...current.cancellations,
+                        consequence,
+                        customConsequence,
+                      },
+                    };
+                  });
+                }}
               >
                 <option value="">Choose what happens</option>
                 {depositMode === 'fixed' ? (
-                  <option value="deposit_lost">Keep the deposit</option>
+                  <>
+                    <option value="deposit_lost">Keep the deposit</option>
+                    <option value="move_deposit">Move it to a new appointment</option>
+                    <option value="refund_deposit">Refund it</option>
+                  </>
                 ) : null}
+                <option value="case_by_case">Handle it case by case</option>
                 <option value="cancellation_fee">Charge a cancellation fee</option>
                 <option value="full_service_charge">Charge the full service price</option>
-                <option value="custom">Something else</option>
+                <option value="custom">Custom</option>
               </select>
             </label>
-            {policies.cancellations.consequence === 'custom' ? (
+            {customLateCancellationOpen ? (
               <TextAreaField
-                label="Custom consequence"
+                label="Custom late-cancellation rule"
                 placeholder="Describe what happens after the deadline"
                 rows={2}
                 value={policies.cancellations.customConsequence}
@@ -1160,36 +1325,16 @@ export function PoliciesScreen({
                 }))}
               />
             ) : null}
-          </CollapsibleFormCard>
-          <CollapsibleFormCard
-            completed={policyComplete('deposits')}
-            id="onboarding-policy-deposits"
-            open={openPolicy === 'deposits'}
-            summary={depositSummary}
-            status={policyComplete('deposits')
-              ? 'complete'
-              : depositMode === 'fixed' ? 'finish' : 'set_up'}
-            title="Deposits"
-            onToggle={() => togglePolicy('deposits')}
-          >
-            <div className="onboarding-deposit-answer">
-              <span>From your Booking settings</span>
-              <strong>{depositSummary}</strong>
-              <small>The deposit choice and amount are set once in Booking.</small>
-              {onEditBooking ? (
-                <button type="button" onClick={onEditBooking}>
-                  Edit deposit in Booking
-                </button>
-              ) : null}
-            </div>
             {depositMode === 'fixed' ? (
               <div className="onboarding-deposit-details">
                 <BooleanChoice
+                  hint="This applies before the late-cancellation deadline."
                   label="Can clients get their deposit back?"
                   value={policies.deposits.refundable}
                   onChange={(refundable) => updateDepositPolicy({ refundable })}
                 />
                 <BooleanChoice
+                  hint="This applies when they reschedule before the deadline."
                   label="Can clients move it to another appointment?"
                   value={policies.deposits.transferable}
                   onChange={(transferable) => updateDepositPolicy({ transferable })}

@@ -396,14 +396,13 @@ export function OnboardingApp({
   const enterDashboard = onEnterDashboard ?? onEnterBuilder ?? (() => {});
   const coordinator = useCustomDesignAssetCoordinator();
   const assetRepository = useCustomDesignAssetRepository();
-  const profileAssetIds = [
-    onboarding.state.profile.profilePhoto?.storageId,
-    onboarding.state.profile.logo?.storageId,
-  ].filter((assetId): assetId is string => Boolean(assetId));
-  const profileAssets = useCustomDesignAssetMap(profileAssetIds);
-  const profilePortraitUrl = resolveOnboardingImageUrl(
-    onboarding.state.profile.profilePhoto,
-    profileAssets,
+  const starterLogoAssetIds = onboarding.state.profile.logo?.storageId
+    ? [onboarding.state.profile.logo.storageId]
+    : [];
+  const starterLogoAssets = useCustomDesignAssetMap(starterLogoAssetIds);
+  const starterLogoUrl = resolveOnboardingImageUrl(
+    onboarding.state.profile.logo,
+    starterLogoAssets,
   );
   const [previewSource, setPreviewSource] = useState<PreviewSource | null>(null);
   const [galleryOpen, setGalleryOpen] = useState(false);
@@ -1233,10 +1232,10 @@ export function OnboardingApp({
           <StartingPointScreen
             businessName={onboarding.state.profile.businessName}
             location={onboarding.state.profile.location}
+            logoUrl={starterLogoUrl ?? undefined}
             onBack={goBack}
             onChooseStarter={selectStarter}
             ownerName={onboarding.state.profile.ownerName}
-            portraitUrl={profilePortraitUrl ?? undefined}
             reducedMotion={onboarding.state.reviewOptions.reducedMotion}
             selectedStarter={lab.document?.originStarter ?? onboarding.state.recipe.starter}
           />

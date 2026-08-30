@@ -6,6 +6,7 @@ type StickyOnboardingActionsProps = {
   onSkip?: () => void;
   primaryDisabled?: boolean;
   primaryId?: string;
+  primaryFirst?: boolean;
   primaryLabel: string;
   skipLabel?: string;
 };
@@ -18,23 +19,38 @@ export function StickyOnboardingActions({
   onSkip,
   primaryDisabled = false,
   primaryId,
+  primaryFirst = false,
   primaryLabel,
   skipLabel = 'Skip for now',
 }: StickyOnboardingActionsProps) {
+  const primaryAction = (
+    <button
+      className="sticky-onboarding-actions__primary"
+      disabled={primaryDisabled}
+      form={formId}
+      id={primaryId}
+      type={formId ? 'submit' : 'button'}
+      onClick={formId ? undefined : onPrimary}
+    >
+      {primaryLabel}
+    </button>
+  );
+  const backAction = onBack ? (
+    <button
+      className="sticky-onboarding-actions__back"
+      type="button"
+      onClick={onBack}
+    >
+      {backLabel}
+    </button>
+  ) : <span aria-hidden="true" />;
+
   return (
     <footer
       aria-label="Onboarding actions"
-      className="sticky-onboarding-actions"
+      className={`sticky-onboarding-actions${primaryFirst ? ' is-primary-first' : ''}`}
     >
-      {onBack ? (
-        <button
-          className="sticky-onboarding-actions__back"
-          type="button"
-          onClick={onBack}
-        >
-          {backLabel}
-        </button>
-      ) : <span aria-hidden="true" />}
+      {primaryFirst ? primaryAction : backAction}
       {onSkip ? (
         <button
           className="sticky-onboarding-actions__skip"
@@ -44,16 +60,7 @@ export function StickyOnboardingActions({
           {skipLabel}
         </button>
       ) : null}
-      <button
-        className="sticky-onboarding-actions__primary"
-        disabled={primaryDisabled}
-        form={formId}
-        id={primaryId}
-        type={formId ? 'submit' : 'button'}
-        onClick={formId ? undefined : onPrimary}
-      >
-        {primaryLabel}
-      </button>
+      {primaryFirst ? backAction : primaryAction}
     </footer>
   );
 }

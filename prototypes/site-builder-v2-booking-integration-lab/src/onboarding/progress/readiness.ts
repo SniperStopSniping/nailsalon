@@ -1,6 +1,10 @@
 import type { SiteBuilderDocument } from '../../model/types';
 import { getIncompleteEssentials, hasPublicContactMethod } from './essentials';
-import { hasMeaningfulPublishablePolicies } from '../model/policies';
+import {
+  getDepositsAndCancellationsDisplayWording,
+  isDepositsAndCancellationsComplete,
+  isDepositsAndCancellationsVisible,
+} from '../model/policies';
 import type { OnboardingLabState, OnboardingScreenId } from '../model/types';
 
 export type ReadinessStatus = 'ready' | 'recommended' | 'optional' | 'needs_attention';
@@ -59,13 +63,13 @@ export const getReadinessItems = (
   items.push({ id: 'mobile', label: 'Looks right on a phone', status: 'ready' });
   items.push({ id: 'style', label: 'Website style', screen: 'site_style', status: 'ready' });
 
-  const hasPublishablePolicies = hasMeaningfulPublishablePolicies(
-    state.profile.policies,
-  );
-  if (!hasPublishablePolicies) {
+  const combinedPolicyReady = isDepositsAndCancellationsComplete(state.profile.policies)
+    && isDepositsAndCancellationsVisible(state.profile.policies)
+    && Boolean(getDepositsAndCancellationsDisplayWording(state.profile.policies).trim());
+  if (!combinedPolicyReady) {
     items.push({
       id: 'policies',
-      label: 'Add policies',
+      label: 'Deposits & cancellation policy',
       screen: 'policies',
       status: 'recommended',
     });
@@ -73,9 +77,16 @@ export const getReadinessItems = (
     items.push({
       detail: 'Your policy answers are saved, but not shown on your site.',
       id: 'policies',
-      label: 'Show saved policies',
+      label: 'Deposits & cancellation policy',
       screen: 'policies',
       status: 'recommended',
+    });
+  } else {
+    items.push({
+      id: 'policies',
+      label: 'Deposits & cancellation policy',
+      screen: 'policies',
+      status: 'ready',
     });
   }
   if (!state.recipe.galleryEnabled) {

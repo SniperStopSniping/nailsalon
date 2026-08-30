@@ -33,8 +33,11 @@ import type {
   ServiceMenuItem,
   ServiceMenuSelectionDraft,
 } from '../integrations/contracts/service-menu';
-import { DEFAULT_PREVIEW_TIMESTAMP } from '../model/defaults';
 import { getPublicLocationPreview } from '../model/location';
+import {
+  formatMinimumNoticeDuration,
+  getMinimumNoticeCopy,
+} from '../model/minimum-notice';
 import { getDepositPolicyMode } from '../model/policies';
 import type {
   BookingPreferencesDraft,
@@ -72,7 +75,7 @@ const MINIMUM_NOTICE_LABELS: Record<MinimumNoticeChoice, string> = {
   'preset:1440': '1 day',
   'preset:2880': '2 days',
   'preset:4320': '3 days',
-  custom: 'Custom amount',
+  custom: 'Custom',
 };
 
 const minimumNoticeOptions = Object.entries(MINIMUM_NOTICE_LABELS) as Array<[
@@ -87,18 +90,6 @@ const DEPOSIT_AMOUNT_LABELS = Object.fromEntries([
   ]),
   ['custom', 'Custom amount'],
 ]) as Record<DepositAmountChoice, string>;
-
-const formatMinimumNotice = (minimumNoticeMinutes: number): string => {
-  const choice = bookingPreferencesPort.getMinimumNoticeChoice(minimumNoticeMinutes);
-  if (choice !== 'custom') return MINIMUM_NOTICE_LABELS[choice];
-  const { amount, unit } = bookingPreferencesPort.getCustomMinimumNoticeInput(
-    minimumNoticeMinutes,
-  );
-  if (!amount) return 'No minimum notice';
-  const numericAmount = Number(amount);
-  const singular = numericAmount === 1;
-  return `${amount} ${singular ? unit.slice(0, -1) : unit}`;
-};
 
 type ServiceLibraryDialogProps = {
   onClose: () => void;
@@ -360,7 +351,6 @@ export function BookingPreferencesScreen({
   onDepositChange,
   onServiceMenuChange,
   onValidationFailure,
-  previewTimestamp = DEFAULT_PREVIEW_TIMESTAMP,
   profile,
 }: BookingPreferencesScreenProps) {
   const feedback = useFeedback();
@@ -394,11 +384,7 @@ export function BookingPreferencesScreen({
   const depositAmountChoice = editingCustomDeposit
     ? 'custom'
     : storedDepositAmountChoice;
-  const availabilityPreview = bookingPreferencesPort.getAvailabilityPreview(
-    preferences.minimumNoticeMinutes,
-    previewTimestamp,
-  );
-  const firstBookableTime = availabilityPreview.bookableTimes[0] ?? null;
+  const minimumNoticeCopy = getMinimumNoticeCopy(preferences.minimumNoticeMinutes);
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -529,8 +515,12 @@ export function BookingPreferencesScreen({
               : null}
           </section>
           <label className="onboarding-select-field">
-            <span>How much notice do you need before an appointment?</span>
+            <span id={`${formId}-minimum-notice-label`}>
+              How much notice do you need before an appointment?
+            </span>
             <select
+              aria-describedby={`${formId}-minimum-notice-hint`}
+              aria-labelledby={`${formId}-minimum-notice-label`}
               value={noticeChoice}
               onChange={(event) => {
                 const choice = event.target.value as MinimumNoticeChoice;
@@ -550,6 +540,9 @@ export function BookingPreferencesScreen({
                 <option key={value} value={value}>{label}</option>
               ))}
             </select>
+            <small className="onboarding-field__hint" id={`${formId}-minimum-notice-hint`}>
+              {minimumNoticeCopy.helper}
+            </small>
           </label>
           {noticeChoice === 'custom' ? (
             <div className="onboarding-inline-fields">
@@ -693,36 +686,22 @@ export function BookingPreferencesScreen({
             <dl>
               <div><dt>Services</dt><dd>{selectedServices.length} selected</dd></div>
               <div><dt>Prices and durations</dt><dd>{selectedServices.length > 0 ? 'Ready' : 'Choose services'}</dd></div>
-              <div><dt>Minimum notice</dt><dd>{formatMinimumNotice(preferences.minimumNoticeMinutes)}</dd></div>
+              <div><dt>Minimum notice</dt><dd>{formatMinimumNoticeDuration(preferences.minimumNoticeMinutes)}</dd></div>
               <div><dt>Deposits</dt><dd>{profile.policies.deposits.mode === 'fixed'
                 ? profile.policies.deposits.amountCents === null
                   ? 'Fixed amount to finish'
                   : `$${profile.policies.deposits.amountCents / 100} for every service`
                 : 'No deposit'}</dd></div>
-              <div>
-                <dt>Earliest bookable time</dt>
-                <dd>{firstBookableTime?.label ?? 'No times in this preview window'}</dd>
-              </div>
+              <div><dt>Booking cutoff</dt><dd>{minimumNoticeCopy.summary}</dd></div>
             </dl>
             <p>Your customer preview updates as you make these choices.</p>
           </aside>
           <aside aria-label="Customer booking information preview" className="onboarding-booking-info-preview">
             {visitModeLabel ? <strong>{visitModeLabel}</strong> : null}
             {acceptingLabel ? <span>{acceptingLabel}</span> : null}
-            <span>{formatMinimumNotice(preferences.minimumNoticeMinutes)} notice</span>
-            <div
-              aria-label="Bookable appointment times after minimum notice"
-              className="onboarding-booking-time-preview"
-              data-availability-source={availabilityPreview.source}
-            >
-              <small>Available times after your notice</small>
-              {availabilityPreview.bookableTimes.length > 0 ? (
-                <div>
-                  {availabilityPreview.bookableTimes.slice(0, 3).map((time) => (
-                    <span data-bookable-time={time.startsAt} key={time.id}>{time.label}</span>
-                  ))}
-                </div>
-              ) : <span>No times in this preview window</span>}
+            <div className="onboarding-booking-notice-preview">
+              <small>Minimum booking notice</small>
+              <strong>{minimumNoticeCopy.customer}</strong>
             </div>
             {selectedService ? (
               <div className="onboarding-booking-info-preview__service">
@@ -755,22 +734,22 @@ export function BookingPreferencesScreen({
 
 type StartingPointScreenProps = {
   businessName: string;
+  logoUrl?: string;
   location?: LocationDraft;
   onBack: () => void;
   onChooseStarter: (starter: StarterId) => void;
   ownerName?: string;
-  portraitUrl?: string;
   reducedMotion?: boolean;
   selectedStarter: StarterId | null;
 };
 
 export function StartingPointScreen({
   businessName,
+  logoUrl,
   location,
   onBack,
   onChooseStarter,
   ownerName,
-  portraitUrl,
   reducedMotion = false,
   selectedStarter,
 }: StartingPointScreenProps) {
@@ -787,9 +766,9 @@ export function StartingPointScreen({
       <div className="onboarding-starter-grid">
         <StarterChoiceGrid
           businessName={businessName.trim() || 'Your business'}
+          logoUrl={logoUrl}
           onChoose={onChooseStarter}
           ownerName={ownerName}
-          portraitUrl={portraitUrl}
           publicLocation={publicLocation}
           reducedMotion={reducedMotion}
           selectedStarter={selectedStarter}

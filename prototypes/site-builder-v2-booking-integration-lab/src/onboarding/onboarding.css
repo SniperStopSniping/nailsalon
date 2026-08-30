@@ -1174,6 +1174,16 @@ body.onboarding-modal-open {
   background: #e8f4ee;
 }
 
+.onboarding-image-upload.is-profile .onboarding-image-upload__status img {
+  object-position: center 30%;
+}
+
+.onboarding-image-upload.is-logo .onboarding-image-upload__status img {
+  padding: 4px;
+  object-fit: contain;
+  background: transparent;
+}
+
 .onboarding-image-upload__status > span:last-child {
   display: grid;
   min-width: 0;
@@ -1489,6 +1499,7 @@ body.onboarding-modal-open {
   width: 108px;
   height: 108px;
   object-fit: cover;
+  object-position: center 30%;
   border-radius: 30px;
   box-shadow: 0 12px 28px rgba(67, 43, 48, 0.16);
 }
@@ -2595,6 +2606,15 @@ body.onboarding-modal-open {
   font-style: normal;
 }
 
+.onboarding-customer-brand img {
+  display: block;
+  width: 27px;
+  height: 27px;
+  flex: 0 0 27px;
+  object-fit: contain;
+  object-position: center;
+}
+
 .onboarding-customer-brand strong {
   min-width: 0;
   overflow: hidden;
@@ -2793,6 +2813,7 @@ body.onboarding-modal-open {
   height: 112px;
   flex: 0 0 auto;
   object-fit: cover;
+  object-position: center 30%;
   border-radius: var(--customer-radius);
   background: color-mix(
     in srgb,
@@ -4079,6 +4100,122 @@ body.onboarding-modal-open {
 .onboarding-app.is-reduced-motion .onboarding-image-upload__spinner,
 .onboarding-app.is-reduced-motion .is-spinning {
   animation: none;
+}
+
+/* Final owner iPhone corrections: inline previews are decision aids, never nested browsers. */
+
+.onboarding-about-design-preview .onboarding-preview-stage[data-preview-interaction="inline"] {
+  touch-action: pan-y;
+}
+
+.onboarding-about-design-preview .onboarding-preview-stage[data-preview-interaction="inline"] .onboarding-preview-frame {
+  overflow: hidden;
+  overscroll-behavior: auto;
+  pointer-events: none;
+  scrollbar-gutter: auto;
+  touch-action: pan-y;
+}
+
+.onboarding-screen--designer[data-screen="about_design"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+
+.onboarding-screen--designer[data-screen="about_design"] > * {
+  min-width: 0;
+  grid-column: 1;
+}
+
+.onboarding-screen--designer[data-screen="about_design"] .onboarding-preset-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.onboarding-about-design-selection-status {
+  margin: 0;
+  color: var(--onboarding-accent-dark);
+  font-size: 0.78rem;
+  font-weight: 790;
+}
+
+.onboarding-about-design-preview {
+  display: grid;
+  width: 100%;
+  gap: 12px;
+  margin: 4px 0 0;
+  place-items: stretch;
+}
+
+.onboarding-about-design-preview > h2 {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(1.2rem, 5vw, 1.55rem);
+}
+
+.onboarding-about-design-preview .onboarding-preview-stage {
+  height: clamp(280px, 55svh, 460px);
+  min-height: 280px;
+  border-radius: 22px;
+}
+
+.onboarding-about-design-preview .onboarding-full-preview-button {
+  justify-self: stretch;
+}
+
+.sticky-onboarding-actions.is-primary-first > .sticky-onboarding-actions__primary {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  order: 1;
+  color: white;
+  border-color: var(--onboarding-accent);
+  background: var(--onboarding-accent);
+  box-shadow: 0 8px 20px rgba(116, 35, 66, 0.18);
+}
+
+.sticky-onboarding-actions.is-primary-first > .sticky-onboarding-actions__back {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  order: 2;
+  color: var(--onboarding-ink);
+  border-color: var(--onboarding-line);
+  background: var(--onboarding-surface);
+  box-shadow: none;
+}
+
+.onboarding-customer-booking-notice {
+  display: grid;
+  gap: 5px;
+  padding: 12px 14px;
+  border: 1px solid var(--customer-line);
+  border-radius: var(--customer-radius);
+  background: var(--customer-surface);
+}
+
+.onboarding-customer-booking-notice > span {
+  color: var(--customer-muted);
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.onboarding-customer-booking-notice > strong {
+  color: var(--customer-ink);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+@media (min-width: 920px) {
+  .onboarding-screen--designer[data-screen="about_design"] .onboarding-preset-grid,
+  .onboarding-screen--designer[data-screen="about_design"] .onboarding-about-design-selection-status,
+  .onboarding-screen--designer[data-screen="about_design"] .onboarding-about-design-preview {
+    width: min(100%, 920px);
+    justify-self: center;
+  }
+
+  .onboarding-about-design-preview .onboarding-preview-stage {
+    height: min(58svh, 540px);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

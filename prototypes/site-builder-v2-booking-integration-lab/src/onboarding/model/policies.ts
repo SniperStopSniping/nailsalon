@@ -2,6 +2,7 @@ import { formatMoney } from '../../booking/helpers';
 import { bookingPreferencesPort } from '../integrations/adapters/booking-preferences';
 import type { DepositDraft } from '../integrations/contracts/booking-preferences';
 import type {
+  CancellationConsequence,
   DepositPolicyMode,
   PoliciesDraft,
   PolicySectionId,
@@ -10,6 +11,19 @@ import type {
 export type { DepositPolicyMode } from './types';
 
 const DEPOSIT_REFERENCE_PATTERN = /\bdeposits?\b/iu;
+const NO_DEPOSIT_CLAIM_PATTERN = /(?:\bno\s+deposits?\b|\bwithout\s+(?:a\s+)?deposit\b|\bdo(?:es)?n['’]?t\s+require\s+(?:a\s+)?deposit\b|\bdeposits?\s+(?:is|are)\s+not\s+required\b)/iu;
+const FIXED_DEPOSIT_AMOUNT_PATTERN = /\$(\d+(?:\.\d{1,2})?)\s+deposit\b/iu;
+export const LATE_CANCELLATION_CUSTOM_WORDING = {
+  case_by_case: 'Handle the late cancellation case by case',
+  move_deposit: 'Move the deposit to a new appointment',
+  refund_deposit: 'Refund the deposit after a late cancellation',
+} as const;
+
+export type LateCancellationChoice =
+  | ''
+  | CancellationConsequence
+  | keyof typeof LATE_CANCELLATION_CUSTOM_WORDING;
+
 const sentence = (value: string): string => {
   const trimmed = value.trim();
   if (!trimmed) return '';
@@ -53,6 +67,13 @@ const resolveDepositAwareWording = (
 
   const mode = getDepositPolicyMode(policies);
   if (mode === 'none') return fallback;
+  if (NO_DEPOSIT_CLAIM_PATTERN.test(trimmed)) return fallback;
+
+  const statedAmount = trimmed.match(FIXED_DEPOSIT_AMOUNT_PATTERN)?.[1];
+  if (statedAmount && policies.deposits.amountCents !== null) {
+    const statedAmountCents = Math.round(Number(statedAmount) * 100);
+    if (statedAmountCents !== policies.deposits.amountCents) return fallback;
+  }
   return trimmed;
 };
 
@@ -68,6 +89,12 @@ const cancellationNotice = (policies: PoliciesDraft): string => {
   }
 };
 
+const noticeModifier = (value: string): string => {
+  if (/^1\s+(?:hour|day)$/iu.test(value)) return `${value}’s`;
+  if (/^\d+\s+(?:hours|days)$/iu.test(value)) return `${value}’`;
+  return value;
+};
+
 const cancellationConsequence = (policies: PoliciesDraft): string => {
   switch (policies.cancellations.consequence) {
     case 'deposit_lost': return deriveDepositForfeitWording(policies, 'cancellation');
@@ -80,6 +107,30 @@ const cancellationConsequence = (policies: PoliciesDraft): string => {
     );
     default: return '';
   }
+};
+
+export const getLateCancellationChoice = (
+  policies: PoliciesDraft,
+): LateCancellationChoice => {
+  const consequence = policies.cancellations.consequence;
+  if (!consequence) return '';
+  if (consequence === 'deposit_lost') {
+    return getDepositPolicyMode(policies) === 'fixed' ? consequence : '';
+  }
+  if (consequence !== 'custom') return consequence;
+
+  const custom = policies.cancellations.customConsequence.trim();
+  const preset = Object.entries(LATE_CANCELLATION_CUSTOM_WORDING).find(
+    ([, wording]) => wording === custom,
+  );
+  if (preset) {
+    const choice = preset[0] as keyof typeof LATE_CANCELLATION_CUSTOM_WORDING;
+    return getDepositPolicyMode(policies) === 'none'
+      && (choice === 'move_deposit' || choice === 'refund_deposit')
+      ? ''
+      : choice;
+  }
+  return resolveDepositAwareWording(policies, custom) ? 'custom' : '';
 };
 
 const deriveCancellations = (policies: PoliciesDraft): string => {
@@ -100,6 +151,31 @@ export const deriveDepositPolicySummary = (policies: PoliciesDraft): string => {
   if (mode === 'none') return 'No deposit';
   const amount = formatDepositAmount(policies.deposits);
   return amount ? `${amount} deposit` : 'Fixed deposit';
+};
+
+const cancellationNoticeSummary = (policies: PoliciesDraft): string => {
+  switch (policies.cancellations.notice) {
+    case 'same_day': return 'Same-day notice';
+    case '12_hours': return '12 hours’ notice';
+    case '24_hours': return '24 hours’ notice';
+    case '48_hours': return '48 hours’ notice';
+    case '72_hours': return '72 hours’ notice';
+    case 'custom': return policies.cancellations.customNotice.trim();
+    default: return '';
+  }
+};
+
+const lateCancellationSummary = (policies: PoliciesDraft): string => {
+  switch (getLateCancellationChoice(policies)) {
+    case 'deposit_lost': return 'deposit kept after late cancellation';
+    case 'move_deposit': return 'deposit moved after late cancellation';
+    case 'refund_deposit': return 'deposit refunded after late cancellation';
+    case 'case_by_case': return 'late cancellations handled case by case';
+    case 'cancellation_fee': return 'cancellation fee after the deadline';
+    case 'full_service_charge': return 'full service price after the deadline';
+    case 'custom': return policies.cancellations.customConsequence.trim();
+    default: return '';
+  }
 };
 
 const deriveDeposits = (policies: PoliciesDraft): string => {
@@ -123,6 +199,53 @@ const deriveDeposits = (policies: PoliciesDraft): string => {
       : deposits.transferable
         ? 'Deposits may be transferred to a rescheduled appointment'
         : 'Deposits cannot be transferred to another appointment',
+  ]);
+};
+
+const deriveCombinedLateCancellation = (policies: PoliciesDraft): string => {
+  switch (getLateCancellationChoice(policies)) {
+    case 'deposit_lost': return 'Deposits are kept after late cancellations';
+    case 'move_deposit': return 'After a late cancellation, the deposit can be moved to a new appointment';
+    case 'refund_deposit': return 'Deposits are refunded after late cancellations';
+    case 'case_by_case': return 'Late cancellations are handled case by case';
+    case 'cancellation_fee': return 'Late cancellations incur a cancellation fee';
+    case 'full_service_charge': return 'Late cancellations are charged the full service price';
+    case 'custom': return resolveDepositAwareWording(
+      policies,
+      policies.cancellations.customConsequence,
+    );
+    default: return '';
+  }
+};
+
+export const deriveDepositsAndCancellationsSuggestedWording = (
+  policies: PoliciesDraft,
+): string => {
+  const mode = getDepositPolicyMode(policies);
+  const notice = cancellationNotice(policies);
+  const amount = formatDepositAmount(policies.deposits);
+  return joinSentences([
+    mode === 'none'
+      ? 'No deposit is required'
+      : amount
+        ? `A ${amount} deposit is required to book`
+        : 'A deposit is required to book',
+    policies.cancellations.notice === 'same_day'
+      ? 'Please cancel or reschedule before the day of your appointment'
+      : notice
+        ? `Please provide at least ${noticeModifier(notice)} notice when cancelling or rescheduling`
+        : '',
+    deriveCombinedLateCancellation(policies),
+    mode === 'fixed' && policies.deposits.refundable !== null
+      ? policies.deposits.refundable
+        ? 'Before the deadline, deposits are refundable'
+        : 'Before the deadline, deposits are non-refundable'
+      : '',
+    mode === 'fixed' && policies.deposits.transferable !== null
+      ? policies.deposits.transferable
+        ? 'Before the deadline, deposits can be moved to a rescheduled appointment'
+        : 'Before the deadline, deposits cannot be moved to another appointment'
+      : '',
   ]);
 };
 
@@ -196,11 +319,7 @@ const hasCancellationNotice = (policies: PoliciesDraft): boolean => {
 };
 
 const hasCancellationConsequence = (policies: PoliciesDraft): boolean => {
-  const consequence = policies.cancellations.consequence;
-  if (!consequence) return false;
-  if (consequence === 'deposit_lost') return getDepositPolicyMode(policies) === 'fixed';
-  return consequence !== 'custom'
-    || Boolean(policies.cancellations.customConsequence.trim());
+  return Boolean(getLateCancellationChoice(policies));
 };
 
 /**
@@ -242,6 +361,28 @@ export const isPolicySectionComplete = (
         policies.other.custom,
       ].some((value) => Boolean(value.trim()));
   }
+};
+
+export const isDepositsAndCancellationsComplete = (
+  policies: PoliciesDraft,
+): boolean => isPolicySectionComplete(policies, 'deposits')
+  && isPolicySectionComplete(policies, 'cancellations');
+
+export const deriveDepositsAndCancellationsSummary = (
+  policies: PoliciesDraft,
+): string => {
+  if (!isDepositsAndCancellationsComplete(policies)) {
+    return 'Finish your deposit and cancellation rules';
+  }
+
+  const summary = [
+    deriveDepositPolicySummary(policies),
+    cancellationNoticeSummary(policies),
+  ];
+  if (getDepositPolicyMode(policies) === 'fixed') {
+    summary.push(lateCancellationSummary(policies));
+  }
+  return summary.filter(Boolean).join(' · ');
 };
 
 export const derivePolicySuggestedWording = (
@@ -288,6 +429,39 @@ export const getPolicyDisplayWording = (
   ? getResolvedPolicyWording(policies, sectionId)
   : '';
 
+export const isDepositsAndCancellationsVisible = (
+  policies: PoliciesDraft,
+): boolean => policies.copy.deposits.visible || policies.copy.cancellations.visible;
+
+/**
+ * Reads the two legacy copy records as a single customer policy without
+ * collapsing either record or discarding either owner-authored override.
+ */
+export const getDepositsAndCancellationsDisplayWording = (
+  policies: PoliciesDraft,
+): string => {
+  const depositsVisible = policies.copy.deposits.visible;
+  const cancellationsVisible = policies.copy.cancellations.visible;
+  if (!depositsVisible && !cancellationsVisible) return '';
+
+  if (
+    depositsVisible
+    && cancellationsVisible
+    && policies.copy.deposits.useSuggestedWording
+    && policies.copy.cancellations.useSuggestedWording
+  ) {
+    return deriveDepositsAndCancellationsSuggestedWording(policies);
+  }
+
+  return [
+    depositsVisible ? getResolvedPolicyWording(policies, 'deposits') : '',
+    cancellationsVisible ? getResolvedPolicyWording(policies, 'cancellations') : '',
+  ]
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .join(' ');
+};
+
 /**
  * Whether Save policies has at least one visible, customer-ready policy to
  * publish. The master recipe flag deliberately is not part of this decision:
@@ -296,16 +470,14 @@ export const getPolicyDisplayWording = (
 export const hasMeaningfulPublishablePolicies = (
   policies: PoliciesDraft,
 ): boolean => (
-  Object.keys(policies.copy) as PolicySectionId[]
+  isDepositsAndCancellationsComplete(policies)
+  && isDepositsAndCancellationsVisible(policies)
+  && Boolean(getDepositsAndCancellationsDisplayWording(policies).trim())
+) || (
+  ['late_arrivals', 'no_shows', 'repairs', 'other'] as const
 ).some((sectionId) => (
   policies.copy[sectionId].visible
   && isPolicySectionComplete(policies, sectionId)
-  && (
-    sectionId !== 'deposits'
-    || getDepositPolicyMode(policies) !== 'none'
-    || Boolean(policies.copy.deposits.suggestedWording.trim())
-    || Boolean(policies.deposits.wordingOverride.trim())
-  )
   && Boolean(getResolvedPolicyWording(policies, sectionId).trim())
 ));
 

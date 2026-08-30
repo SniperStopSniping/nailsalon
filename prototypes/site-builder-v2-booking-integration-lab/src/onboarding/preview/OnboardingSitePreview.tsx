@@ -25,7 +25,6 @@ import type { CustomDesignDocumentNavigationTarget } from '../../custom-design/i
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
 import { getStarterDocumentOutline } from '../../model/starters';
 import type { SiteBuilderDocument } from '../../model/types';
-import { bookingPreferencesPort } from '../integrations/adapters/booking-preferences';
 import {
   aboutPresetSupportsElement,
   resolveAboutBio,
@@ -38,13 +37,16 @@ import {
   getWeeklyHoursPreviewStatus,
   type WeeklyHoursPreviewStatus,
 } from '../model/hours';
+import { getMinimumNoticeCopy } from '../model/minimum-notice';
 import {
   getPublicDirectionsAction,
   getPublicLocationPreview,
 } from '../model/location';
 import {
   deriveDepositPolicySummary,
+  getDepositsAndCancellationsDisplayWording,
   getPolicyDisplayWording,
+  isDepositsAndCancellationsComplete,
 } from '../model/policies';
 import { getCustomerProfileFacts } from '../model/profile-facts';
 import type {
@@ -227,6 +229,39 @@ const isAboutVisible = (
   id: AboutElementId,
 ): boolean => visibility[id];
 
+const identityInitials = (value: string, fallback = 'L'): string => {
+  const initials = value
+    .trim()
+    .split(/\s+/u)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toLocaleUpperCase())
+    .join('');
+  return initials || fallback;
+};
+
+function Brand({ profile }: { profile: BusinessProfileDraft }) {
+  const assetIds = profile.logo?.storageId ? [profile.logo.storageId] : [];
+  const assets = useCustomDesignAssetMap(assetIds);
+  const source = resolveOnboardingImageUrl(profile.logo, assets);
+  const title = profile.businessName.trim() || 'Your nail studio';
+
+  return (
+    <span className="onboarding-customer-brand" title={title}>
+      {source ? (
+        <img
+          alt={`${title} logo`}
+          data-media-role="logo"
+          src={source}
+        />
+      ) : (
+        <i aria-hidden="true">{identityInitials(title)}</i>
+      )}
+      <strong>{title}</strong>
+    </span>
+  );
+}
+
 function Portrait({
   large = false,
   profile,
@@ -245,23 +280,24 @@ function Portrait({
     ? (profile.about.visibility.owner_name ? profile.ownerName : '')
       || (profile.about.visibility.salon_name ? profile.businessName : '')
     : profile.ownerName || profile.businessName;
-  const initials = (visibleIdentity || 'L')
-    .split(/\s+/u)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join('');
+  const initials = identityInitials(visibleIdentity);
+  const altText = profile.profilePhoto?.source === 'fixture'
+    && profile.profilePhoto.altText?.trim()
+    ? profile.profilePhoto.altText
+    : `${visibleIdentity || 'Business owner'} profile photo`;
 
   return source ? (
     <img
-      alt={profile.profilePhoto?.altText || `${visibleIdentity || 'Business owner'} portrait`}
+      alt={altText}
       className={`onboarding-customer-portrait${large ? ' is-large' : ''}`}
+      data-media-role="profile"
       src={source}
     />
   ) : (
     <span
       aria-label={`${visibleIdentity || 'Business owner'} portrait placeholder`}
       className={`onboarding-customer-portrait onboarding-customer-portrait--initials${large ? ' is-large' : ''}`}
+      data-media-role="profile"
       role="img"
     >
       {initials || 'L'}
@@ -426,14 +462,16 @@ function AboutCopy({ profile }: { profile: BusinessProfileDraft }) {
 const getPolicySummaryText = (profile: BusinessProfileDraft): string => {
   const values: string[] = [];
   const notice = profile.policies.cancellations.notice;
-  if (
-    profile.policies.copy.cancellations.visible
-    && notice
-    && notice !== 'custom'
-  ) values.push(notice.replace('_', '-').replace('hours', 'hour notice'));
-  const depositSummary = deriveDepositPolicySummary(profile.policies);
-  if (profile.policies.copy.deposits.visible && depositSummary) {
-    values.push(depositSummary);
+  if (isDepositsAndCancellationsComplete(profile.policies)) {
+    if (
+      profile.policies.copy.cancellations.visible
+      && notice
+      && notice !== 'custom'
+    ) values.push(notice.replace('_', '-').replace('hours', 'hour notice'));
+    const depositSummary = deriveDepositPolicySummary(profile.policies);
+    if (profile.policies.copy.deposits.visible && depositSummary) {
+      values.push(depositSummary);
+    }
   }
   if (
     profile.policies.copy.late_arrivals.visible
@@ -635,8 +673,26 @@ function ContactSection({ profile }: { profile: BusinessProfileDraft }) {
 }
 
 function PoliciesSection({ profile }: { profile: BusinessProfileDraft }) {
-  const cards = (['cancellations', 'deposits', 'late_arrivals', 'no_shows', 'repairs', 'other'] as const)
-    .map((id) => ({ id, text: textForPolicy(profile, id) }))
+  const combinedPolicyText = isDepositsAndCancellationsComplete(profile.policies)
+    ? getDepositsAndCancellationsDisplayWording(profile.policies)
+    : '';
+  const cards = [
+    {
+      id: 'deposits_cancellations',
+      label: 'Deposits & cancellations',
+      text: combinedPolicyText,
+    },
+    ...(['late_arrivals', 'no_shows', 'repairs', 'other'] as const).map((id) => ({
+      id,
+      label: {
+        late_arrivals: 'Late arrivals',
+        no_shows: 'No-shows',
+        other: 'Guests & appointment details',
+        repairs: 'Repairs',
+      }[id],
+      text: textForPolicy(profile, id),
+    })),
+  ]
     .filter((card) => card.text);
   if (cards.length === 0) return null;
   return (
@@ -647,7 +703,7 @@ function PoliciesSection({ profile }: { profile: BusinessProfileDraft }) {
       <div className="onboarding-policy-grid">
         {cards.map((card) => (
           <article key={card.id}>
-            <h3>{card.id.replace('_', ' ')}</h3>
+            <h3>{card.label}</h3>
             <p>{card.text}</p>
           </article>
         ))}
@@ -837,12 +893,10 @@ function StarterStructure({
 function BookingSection({
   document,
   device,
-  previewTimestamp,
   profile,
 }: {
   document: SiteBuilderDocument | null;
   device: OnboardingPreviewDevice;
-  previewTimestamp: string;
   profile: BusinessProfileDraft;
 }) {
   const bookingSettings = document?.pages
@@ -862,12 +916,9 @@ function BookingSection({
     fixture.services,
     fixture.addOns,
   ), [fixture.addOns, fixture.services, session.selection]);
-  const availabilityPreview = useMemo(
-    () => bookingPreferencesPort.getAvailabilityPreview(
-      profile.bookingPreferences.minimumNoticeMinutes,
-      previewTimestamp,
-    ),
-    [previewTimestamp, profile.bookingPreferences.minimumNoticeMinutes],
+  const minimumNoticeCopy = useMemo(
+    () => getMinimumNoticeCopy(profile.bookingPreferences.minimumNoticeMinutes),
+    [profile.bookingPreferences.minimumNoticeMinutes],
   );
 
   return (
@@ -885,21 +936,11 @@ function BookingSection({
         </div>
       ) : null}
       <section
-        aria-label="Available appointment times"
-        className="onboarding-customer-bookable-times"
-        data-availability-source={availabilityPreview.source}
+        aria-label="Minimum booking notice"
+        className="onboarding-customer-booking-notice"
       >
-        <div>
-          <span>Available appointment times</span>
-          <small>Based on the minimum booking notice</small>
-        </div>
-        {availabilityPreview.bookableTimes.length > 0 ? (
-          <div>
-            {availabilityPreview.bookableTimes.slice(0, 4).map((time) => (
-              <span data-bookable-time={time.startsAt} key={time.id}>{time.label}</span>
-            ))}
-          </div>
-        ) : <p>No appointment times are shown in this preview window.</p>}
+        <span>Minimum booking notice</span>
+        <strong>{minimumNoticeCopy.customer}</strong>
       </section>
       <BookingSectionRenderer
         fixture={fixture}
@@ -955,7 +996,6 @@ export const getOnboardingDocumentBookingSequence = (
 function BookingDocumentSections({
   device,
   document,
-  previewTimestamp,
   profile,
   onDocumentTarget,
   showCustomDesign,
@@ -963,7 +1003,6 @@ function BookingDocumentSections({
   device: OnboardingPreviewDevice;
   document: SiteBuilderDocument | null;
   onDocumentTarget: (target: CustomDesignDocumentNavigationTarget) => void;
-  previewTimestamp: string;
   profile: BusinessProfileDraft;
   showCustomDesign: boolean;
 }) {
@@ -985,7 +1024,6 @@ function BookingDocumentSections({
       <BookingSection
         device={device}
         document={document}
-        previewTimestamp={previewTimestamp}
         profile={profile}
       />
       {showCustomDesign && sequence?.afterBookingCustomDesignIds.length ? (
@@ -1055,8 +1093,13 @@ export function OnboardingSitePreview({
   const title = profile.businessName.trim() || 'Your nail studio';
   const area = profile.location.cityOrArea.trim();
   const policiesHaveContent = recipe.policiesEnabled && (
-    ['cancellations', 'deposits', 'late_arrivals', 'no_shows', 'repairs', 'other'] as const
-  ).some((id) => Boolean(textForPolicy(profile, id)));
+    (
+      isDepositsAndCancellationsComplete(profile.policies)
+      && Boolean(getDepositsAndCancellationsDisplayWording(profile.policies))
+    )
+    || (['late_arrivals', 'no_shows', 'repairs', 'other'] as const)
+      .some((id) => Boolean(textForPolicy(profile, id)))
+  );
   const currentOutline = useMemo(
     () => getCurrentPreviewOutline(document, recipe, {
       galleryHasContent: state.gallery.images.length > 0,
@@ -1134,6 +1177,9 @@ export function OnboardingSitePreview({
   }, [fitAvailable, viewport.height, viewport.width]);
 
   useLayoutEffect(() => {
+    if (frameRef.current) {
+      frameRef.current.inert = interactionMode === 'inline';
+    }
     if (previewRef.current) {
       previewRef.current.inert = interactionMode === 'inline';
     }
@@ -1182,10 +1228,11 @@ export function OnboardingSitePreview({
         data-preview-scroll-container="true"
         data-style-preset={recipe.stylePreset}
         ref={frameRef}
+        tabIndex={interactionMode === 'inline' ? -1 : 0}
       >
       <div className="onboarding-site-preview" ref={previewRef} style={style}>
         <header className="onboarding-customer-header">
-          <span className="onboarding-customer-brand" title={title}><i aria-hidden="true">L</i><strong>{title}</strong></span>
+          <Brand profile={profile} />
           <nav aria-label="Customer preview navigation">
             {navigationItems.slice(0, 4).map((item) => (
               <a href={`#preview-page-${item.pageId}`} key={item.pageId}>
@@ -1227,7 +1274,6 @@ export function OnboardingSitePreview({
             device={device}
             document={document}
             onDocumentTarget={revealDocumentTarget}
-            previewTimestamp={state.reviewOptions.previewTimestamp}
             profile={profile}
             showCustomDesign={includeOptionalSections}
           />

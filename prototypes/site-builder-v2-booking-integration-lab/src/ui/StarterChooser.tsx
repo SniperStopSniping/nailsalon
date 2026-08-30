@@ -431,17 +431,17 @@ function useStarterPreviewPlayback(forceReducedMotion = false) {
 function PreviewHeader({
   businessName = 'Your studio',
   definition,
-  portraitUrl,
+  logoUrl,
 }: {
   businessName?: string;
   definition: StarterPreviewDefinition;
-  portraitUrl?: string;
+  logoUrl?: string;
 }) {
   return (
     <span className="final-starter-preview__header">
       <span className="final-starter-preview__identity">
-        {portraitUrl
-          ? <img alt="" className="final-starter-preview__portrait" src={portraitUrl} />
+        {logoUrl
+          ? <img alt="" className="final-starter-preview__logo" data-media-role="logo" src={logoUrl} />
           : <i>{businessName.trim().charAt(0).toLocaleUpperCase() || 'Y'}</i>}
         <b title={businessName}>{businessName}</b>
       </span>
@@ -572,9 +572,9 @@ function StarterPreview({
   active,
   businessName,
   definition,
+  logoUrl,
   ownerName,
   pageVisible,
-  portraitUrl,
   publicLocation,
   reducedMotion,
   starterId,
@@ -582,9 +582,9 @@ function StarterPreview({
   active: boolean;
   businessName?: string;
   definition: StarterPreviewDefinition;
+  logoUrl?: string;
   ownerName?: string;
   pageVisible: boolean;
-  portraitUrl?: string;
   publicLocation?: string;
   reducedMotion: boolean;
   starterId: OriginStarter;
@@ -615,7 +615,7 @@ function StarterPreview({
       <PreviewHeader
         businessName={resolvedBusinessName}
         definition={definition}
-        portraitUrl={portraitUrl}
+        logoUrl={logoUrl}
       />
       <span className="final-starter-preview__viewport">
         <PreviewPoster
@@ -651,9 +651,9 @@ function StarterPreview({
 
 export type StarterChoiceGridProps = {
   businessName?: string;
+  logoUrl?: string;
   onChoose: (starter: OriginStarter) => void;
   ownerName?: string;
-  portraitUrl?: string;
   publicLocation?: string;
   reducedMotion?: boolean;
   selectedStarter?: OriginStarter | null;
@@ -661,9 +661,9 @@ export type StarterChoiceGridProps = {
 
 export function StarterChoiceGrid({
   businessName,
+  logoUrl,
   onChoose,
   ownerName,
-  portraitUrl,
   publicLocation,
   reducedMotion = false,
   selectedStarter = null,
@@ -715,9 +715,9 @@ export function StarterChoiceGrid({
                 active={previewActive}
                 businessName={businessName}
                 definition={starter.preview}
+                logoUrl={logoUrl}
                 ownerName={ownerName}
                 pageVisible={playback.pageVisible}
-                portraitUrl={portraitUrl}
                 publicLocation={publicLocation}
                 reducedMotion={playback.prefersReducedMotion}
                 starterId={starter.id}
