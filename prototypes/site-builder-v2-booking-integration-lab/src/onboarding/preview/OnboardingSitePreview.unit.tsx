@@ -100,6 +100,9 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const aboutProfile = about.querySelector<HTMLImageElement>(
       'img[data-media-role="profile"]',
     );
+    const heroProfile = preview.querySelector(
+      '.onboarding-customer-hero [data-media-role="profile"]',
+    );
 
     if (logo) {
       expect(headerLogo).toHaveAttribute('src', 'blob:logo-asset-thumbnail');
@@ -121,6 +124,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
 
     expect(brand?.querySelector('[data-media-role="profile"]')).toBeNull();
     expect(about.querySelector('[data-media-role="logo"]')).toBeNull();
+    expect(heroProfile).toBeNull();
+    expect(preview.querySelectorAll('[data-media-role="profile"]')).toHaveLength(1);
   });
 
   it('presents minimum notice as a cutoff without seeded availability claims', () => {

@@ -909,3 +909,50 @@
     transition: none;
   }
 }
+
+/* Keep customer-media roles legible after the phone preview is scaled. */
+.onboarding-customer-brand img[data-media-role="logo"] {
+  box-sizing: border-box;
+  width: clamp(40px, 14cqw, 68px);
+  height: 40px;
+  flex: 0 1 clamp(40px, 14cqw, 68px);
+  padding: 2px;
+  border: 1px solid var(--customer-line);
+  border-radius: calc(var(--customer-radius) * 0.42);
+  background: var(--customer-surface);
+  object-fit: contain;
+  object-position: center;
+}
+
+/* About uses an explicit primary-first order; defeat legacy positional fallbacks. */
+.onboarding-screen--designer[data-screen="about_design"]
+  > footer.sticky-onboarding-actions.is-primary-first
+  > button.sticky-onboarding-actions__primary {
+  width: 100%;
+  min-width: 0;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  justify-self: stretch;
+  color: white;
+  border-color: var(--onboarding-accent);
+  background: var(--onboarding-accent);
+  box-shadow: 0 8px 20px rgba(116, 35, 66, 0.18);
+}
+
+.onboarding-screen--designer[data-screen="about_design"]
+  > footer.sticky-onboarding-actions.is-primary-first
+  > button.sticky-onboarding-actions__back {
+  width: auto;
+  min-width: min(180px, 100%);
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: start;
+  color: var(--onboarding-accent-dark);
+  border-color: color-mix(
+    in srgb,
+    var(--onboarding-accent) 34%,
+    var(--onboarding-line)
+  );
+  background: var(--onboarding-surface);
+  box-shadow: none;
+}

@@ -37,6 +37,20 @@ const aboutState = (): OnboardingLabState => {
 };
 
 describe('About onboarding screens', () => {
+  it('keeps Use this design visually primary and Back to edit About secondary', () => {
+    const css = readFileSync(
+      join(process.cwd(), 'src/onboarding/daniela-about-style.css'),
+      'utf8',
+    );
+
+    expect(css).toMatch(
+      /data-screen="about_design"[\s\S]*?button\.sticky-onboarding-actions__primary \{[^}]*width: 100%;[^}]*grid-column: 1 \/ -1;[^}]*background: var\(--onboarding-accent\);/u,
+    );
+    expect(css).toMatch(
+      /data-screen="about_design"[\s\S]*?button\.sticky-onboarding-actions__back \{[^}]*width: auto;[^}]*justify-self: start;[^}]*background: var\(--onboarding-surface\);/u,
+    );
+  });
+
   it('preserves disabled About data and conditionally routes straight to Policies', async () => {
     const user = userEvent.setup();
     const initial = aboutState();

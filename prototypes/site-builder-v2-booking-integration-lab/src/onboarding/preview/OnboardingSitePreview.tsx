@@ -1264,7 +1264,6 @@ export function OnboardingSitePreview({
               </div>
               <a className="onboarding-customer-primary" href="#booking">Book an appointment</a>
             </div>
-            {profile.profilePhoto || profile.ownerName.trim() ? <Portrait large profile={profile} /> : null}
           </section>
 
           {includeOptionalSections && recipe.aboutEnabled ? (
