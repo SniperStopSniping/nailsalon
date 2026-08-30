@@ -1,13 +1,12 @@
 'use client';
 
-import { SignIn, SignUp, useAuth } from '@clerk/nextjs';
+import { useAuth, useUser } from '@clerk/nextjs';
 import {
   Check,
   CheckCircle2,
   ChevronDown,
   CircleAlert,
   CloudUpload,
-  LockKeyhole,
   Sparkles,
 } from 'lucide-react';
 import {
@@ -30,8 +29,6 @@ import { recordOnboardingEvent } from '../../../prototypes/site-builder-v2-booki
 import { FeedbackProvider } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/feedback/FeedbackProvider';
 import { useFeedback } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/feedback/useFeedback';
 import { createAnonymousDraftId } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
-import { SITE_PALETTE_BY_ID } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/palettes';
-import { getSiteStyleLabel } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/site-styles';
 import type {
   OnboardingEventInput,
   OnboardingLabState,
@@ -43,20 +40,25 @@ import {
   type OnboardingSavePayload,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/OnboardingApp';
 import { createLabPlanConfiguration } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/overlays/PlanOfferSheet';
-import { OnboardingSitePreview } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/preview/OnboardingSitePreview';
 import {
   loadOnboardingState,
   saveOnboardingState,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
 import { useLabDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/ui/useLabDocument';
+import { PremiumAccountGate } from './account-gate/AccountGate';
 import {
   getOnboardingIntegrationRoute,
   hasAccountGateQuery,
   pushAccountGateHistory,
 } from './account-history';
 import {
+  FALLBACK_AUTH_PROVIDER_AVAILABILITY,
+  type OnboardingAuthProviderAvailability,
+} from './auth-providers';
+import {
   claimOnboardingDraft,
   getOnboardingDraftClaimStatus,
+  OnboardingIntegrationRequestError,
   saveOnboardingPlanIntent,
 } from './client';
 import type {
@@ -110,19 +112,6 @@ const PLAN_ACTIONS: Record<OnboardingPlanIntent, string> = {
   founding_interest: 'Reserve founding offer',
   free: 'Continue free',
   monthly_interest: 'I’m interested in monthly',
-};
-
-const ACCOUNT_CLERK_APPEARANCE = {
-  elements: {
-    headerSubtitle: { display: 'none' },
-    headerTitle: { display: 'none' },
-  },
-} as const;
-
-const makePreviewInert = (element: HTMLDivElement | null): void => {
-  if (element) {
-    element.inert = true;
-  }
 };
 
 const getPayloadFromBrowser = (
@@ -185,9 +174,11 @@ const usePersistentFlow = () => {
 };
 
 export function OnboardingV1Integration({
+  authProviders = FALLBACK_AUTH_PROVIDER_AVAILABILITY,
   initialResumeDraft,
   locale,
 }: {
+  authProviders?: OnboardingAuthProviderAvailability;
   initialResumeDraft?: InitialOnboardingResumeDraft;
   locale: string;
 }) {
@@ -213,6 +204,7 @@ export function OnboardingV1Integration({
   return mounted
     ? (
         <OnboardingV1Runtime
+          authProviders={authProviders}
           initialResumeDraft={initialResumeDraft}
           locale={locale}
         />
@@ -226,9 +218,11 @@ export function OnboardingV1Integration({
 }
 
 function OnboardingV1Runtime({
+  authProviders,
   initialResumeDraft,
   locale,
 }: {
+  authProviders: OnboardingAuthProviderAvailability;
   initialResumeDraft?: InitialOnboardingResumeDraft;
   locale: string;
 }) {
@@ -250,20 +244,32 @@ function OnboardingV1Runtime({
       repository={resumeRepository}
     >
       <FeedbackProvider testMode={false}>
-        <OnboardingIntegrationController lab={lab} locale={locale} />
+        <OnboardingIntegrationController
+          authProviders={authProviders}
+          lab={lab}
+          locale={locale}
+        />
       </FeedbackProvider>
     </CustomDesignAssetProvider>
   );
 }
 
 function OnboardingIntegrationController({
+  authProviders,
   lab,
   locale,
 }: {
+  authProviders: OnboardingAuthProviderAvailability;
   lab: ReturnType<typeof useLabDocument>;
   locale: string;
 }) {
   const { isLoaded, isSignedIn } = useAuth();
+  const { isLoaded: userLoaded, user } = useUser();
+  // A signed-in session only unlocks account-backed work once its primary
+  // email is verified — the same contract the server enforces at claim time.
+  const emailVerified = user?.primaryEmailAddress?.verification?.status === 'verified';
+  const authSettled = isLoaded && (!isSignedIn || userLoaded);
+  const accountReady = isSignedIn === true && emailVerified;
   const repository = useCustomDesignAssetRepository();
   const [flow, setFlow] = usePersistentFlow();
   const [payload, setPayload] = useState<OnboardingSavePayload | null>(null);
@@ -420,6 +426,22 @@ function OnboardingIntegrationController({
       await finishCoreClaim(result.value, currentPayload, idempotencyKey);
     } catch (error) {
       recordIntegrationEvent({ type: 'draft_claim_failed' });
+      if (
+        error instanceof OnboardingIntegrationRequestError
+        && error.code === 'EMAIL_NOT_VERIFIED'
+        && !coreSavedSite
+      ) {
+        // The server refused an unverified identity. Refresh the client's
+        // view of the email and return to the account gate's verification
+        // step instead of a dead-end failure screen.
+        void user?.reload().catch(() => undefined);
+        setFlow(current => ({
+          ...current,
+          errorMessage: 'Verify your email to finish saving your site.',
+          phase: 'account',
+        }));
+        return;
+      }
       setFlow(current => ({
         ...current,
         errorMessage: error instanceof Error && error.message.trim()
@@ -432,10 +454,10 @@ function OnboardingIntegrationController({
     } finally {
       claimInFlightRef.current = false;
     }
-  }, [finishCoreClaim, resolvePayload, setFlow]);
+  }, [finishCoreClaim, resolvePayload, setFlow, user]);
 
   useEffect(() => {
-    if (!isLoaded || !isSignedIn || flow.phase !== 'account') {
+    if (!authSettled || !accountReady || flow.phase !== 'account') {
       return;
     }
     const resumePhase = phaseAfterOnboardingReauthentication(flow);
@@ -452,12 +474,12 @@ function OnboardingIntegrationController({
       type: authMode === 'sign-in' ? 'sign_in_completed' : 'sign_up_completed',
     }, true);
     void claim();
-  }, [authMode, claim, flow, isLoaded, isSignedIn, setFlow]);
+  }, [accountReady, authMode, authSettled, claim, flow, setFlow]);
 
   useEffect(() => {
     if (!shouldReturnInterruptedSaveToAccountGate({
-      isLoaded,
-      isSignedIn: isSignedIn === true,
+      isLoaded: authSettled,
+      isSignedIn: accountReady,
       phase: flow.phase,
     })) {
       return;
@@ -466,19 +488,21 @@ function OnboardingIntegrationController({
     setFlow(current => ({
       ...current,
       authMode: 'sign-in',
-      errorMessage: 'Sign in again to finish saving your site. Your work is still safe on this device.',
+      errorMessage: isSignedIn
+        ? 'Verify your email to finish saving your site. Your work is still safe on this device.'
+        : 'Sign in again to finish saving your site. Your work is still safe on this device.',
       phase: 'account',
       reauthResumePhase: current.phase === 'account' || current.phase === 'onboarding'
         ? null
         : current.phase,
     }));
     pushAccountGateHistory(locale);
-  }, [flow.phase, isLoaded, isSignedIn, locale, setFlow]);
+  }, [accountReady, authSettled, flow.phase, isSignedIn, locale, setFlow]);
 
   useEffect(() => {
     if (
-      !isLoaded
-      || !isSignedIn
+      !authSettled
+      || !accountReady
       || flow.phase !== 'conflict'
       || conflict
       || claimInFlightRef.current
@@ -486,7 +510,7 @@ function OnboardingIntegrationController({
       return;
     }
     void claim(undefined, flow.claimIdempotencyKey);
-  }, [claim, conflict, flow.claimIdempotencyKey, flow.phase, isLoaded, isSignedIn]);
+  }, [accountReady, authSettled, claim, conflict, flow.claimIdempotencyKey, flow.phase]);
 
   useEffect(() => {
     if (authMode === flow.authMode) {
@@ -498,8 +522,8 @@ function OnboardingIntegrationController({
   useEffect(() => {
     if (!shouldRecoverInterruptedOnboardingSave({
       claimInFlight: claimInFlightRef.current,
-      isLoaded,
-      isSignedIn: isSignedIn === true,
+      isLoaded: authSettled,
+      isSignedIn: accountReady,
       phase: flow.phase,
       recoveryInFlight: resumeInFlightRef.current,
     })) {
@@ -550,12 +574,12 @@ function OnboardingIntegrationController({
     })();
     return () => controller.abort();
   }, [
+    accountReady,
+    authSettled,
     claim,
     finishCoreClaim,
     flow.claimIdempotencyKey,
     flow.phase,
-    isLoaded,
-    isSignedIn,
     resolvePayload,
     setFlow,
   ]);
@@ -596,12 +620,14 @@ function OnboardingIntegrationController({
     setPayload(nextPayload);
     recordIntegrationEvent({ type: 'final_review_completed' }, true);
     recordIntegrationEvent({ type: 'save_site_started' });
-    if (isLoaded && isSignedIn) {
+    if (authSettled && accountReady) {
       void claim(undefined, latestFlowRef.current.claimIdempotencyKey);
       return;
     }
     recordIntegrationEvent({ type: 'account_gate_viewed' }, true);
-    recordIntegrationEvent({ type: 'sign_up_started' }, true);
+    if (!isSignedIn) {
+      recordIntegrationEvent({ type: 'sign_up_started' }, true);
+    }
     setFlow(current => ({
       ...current,
       authMode: 'sign-up',
@@ -609,7 +635,7 @@ function OnboardingIntegrationController({
       phase: 'account',
     }));
     pushAccountGateHistory(locale);
-  }, [claim, isLoaded, isSignedIn, locale, setFlow]);
+  }, [accountReady, authSettled, claim, isSignedIn, locale, setFlow]);
 
   const returnToReview = useCallback(() => {
     setConflict(null);
@@ -713,12 +739,14 @@ function OnboardingIntegrationController({
     case 'account':
       return currentPayload
         ? (
-            <AccountGate
+            <PremiumAccountGate
               authMode={authMode}
               document={currentPayload.document}
               errorMessage={flow.errorMessage}
               locale={locale}
+              needsSessionEmailVerification={isSignedIn === true && userLoaded && !emailVerified}
               onCancel={returnToReview}
+              providers={authProviders}
               state={currentPayload.state}
             />
           )
@@ -732,7 +760,7 @@ function OnboardingIntegrationController({
               onChoose={chooseConflictTarget}
             />
           )
-        : <SavingScreen mediaCount={0} step="core" />;
+        : <SavingScreen mediaCount={0} salonName="your website" step="core" />;
     case 'failure':
       return (
         <IntegrationFailure
@@ -792,6 +820,7 @@ function OnboardingIntegrationController({
       return (
         <SavingScreen
           mediaCount={currentPayload ? countSavedMedia(currentPayload.state) : 0}
+          salonName={currentPayload?.state.profile.businessName.trim() || 'your website'}
           step={savingStep}
         />
       );
@@ -827,145 +856,16 @@ function OwnerSurface({ children, modifier = '' }: {
   );
 }
 
-function AccountGate({
-  authMode,
-  document,
-  errorMessage,
-  locale,
-  onCancel,
-  state,
-}: {
-  authMode: 'sign-in' | 'sign-up';
-  document: SiteBuilderDocument;
-  errorMessage: string | null;
-  locale: string;
-  onCancel: () => void;
-  state: OnboardingLabState;
+function SavingScreen({ mediaCount, salonName, step }: {
+  mediaCount: number;
+  salonName: string;
+  step: SavingStep;
 }) {
-  const clerkPanelRef = useRef<HTMLElement>(null);
-  const onboardingRoute = getOnboardingIntegrationRoute(locale);
-  const claimUrl = `${onboardingRoute}?claim=1`;
-  const accountTitle = authMode === 'sign-up'
-    ? 'Create your free Luster account'
-    : 'Sign in to save your site';
-  const salonName = state.profile.businessName.trim() || 'Your nail studio';
-  const selectedServices = state.profile.serviceMenu.selectedServiceIds.length;
-  useEffect(() => {
-    const root = clerkPanelRef.current;
-    if (!root) {
-      return undefined;
-    }
-    const keepOwnerHeadingAuthoritative = () => {
-      root.querySelectorAll('h1').forEach((heading) => {
-        heading.setAttribute('aria-hidden', 'true');
-        heading.setAttribute('role', 'presentation');
-      });
-    };
-    keepOwnerHeadingAuthoritative();
-    const observer = new MutationObserver(keepOwnerHeadingAuthoritative);
-    observer.observe(root, { childList: true, subtree: true });
-    return () => observer.disconnect();
-  }, [authMode]);
-  return (
-    <OwnerSurface modifier="is-account">
-      <div className="onboarding-account-layout">
-        <section className="onboarding-account-copy">
-          <p className="onboarding-integration-eyebrow">Save your site</p>
-          <h1 className="onboarding-account-title">{accountTitle}</h1>
-          <p className="onboarding-integration-lede">
-            Your website, booking settings, services, policies and photos are ready.
-            {' '}
-            {authMode === 'sign-up'
-              ? 'Create an account to save everything and continue on any device.'
-              : 'Sign in to connect everything to your account.'}
-          </p>
-          {errorMessage
-            ? <p className="onboarding-account-session-note" role="status">{errorMessage}</p>
-            : null}
-          <div className="onboarding-account-ready-card">
-            <div>
-              <span className="onboarding-account-ready-card__check" aria-hidden="true">
-                <Check size={16} />
-              </span>
-              <div>
-                <strong>
-                  {salonName}
-                  {' '}
-                  is ready to save
-                </strong>
-                <p>
-                  {getSiteStyleLabel(state.recipe.stylePreset)}
-                  {' '}
-                  ·
-                  {' '}
-                  {SITE_PALETTE_BY_ID[state.recipe.palettePreset].label}
-                  {' '}
-                  ·
-                  {' '}
-                  {selectedServices}
-                  {' '}
-                  {selectedServices === 1 ? 'service' : 'services'}
-                </p>
-              </div>
-            </div>
-            <div
-              aria-hidden="true"
-              className="onboarding-account-site-miniature"
-              ref={makePreviewInert}
-            >
-              <OnboardingSitePreview
-                document={document}
-                fitAvailable
-                interactionMode="inline"
-                label={`Preview of ${salonName}`}
-                state={state}
-              />
-            </div>
-          </div>
-          <p className="onboarding-account-payment-note">
-            <LockKeyhole aria-hidden="true" size={16} />
-            No payment is required. You’ll choose how you want to start next.
-          </p>
-          <button className="onboarding-integration-text-action" type="button" onClick={onCancel}>
-            Return to Review
-          </button>
-        </section>
-        <section
-          ref={clerkPanelRef}
-          className="onboarding-account-clerk"
-          aria-label={accountTitle}
-        >
-          {authMode === 'sign-up'
-            ? (
-                <SignUp
-                  appearance={ACCOUNT_CLERK_APPEARANCE}
-                  fallbackRedirectUrl={claimUrl}
-                  forceRedirectUrl={claimUrl}
-                  routing="hash"
-                  signInUrl={`${onboardingRoute}?auth=sign-in`}
-                />
-              )
-            : (
-                <SignIn
-                  appearance={ACCOUNT_CLERK_APPEARANCE}
-                  fallbackRedirectUrl={claimUrl}
-                  forceRedirectUrl={claimUrl}
-                  routing="hash"
-                  signUpUrl={`${onboardingRoute}?auth=sign-up`}
-                />
-              )}
-        </section>
-      </div>
-    </OwnerSurface>
-  );
-}
-
-function SavingScreen({ mediaCount, step }: { mediaCount: number; step: SavingStep }) {
   const message = step === 'core'
     ? 'Saving your site…'
     : step === 'media' && mediaCount > 0
       ? `Uploading ${mediaCount} ${mediaCount === 1 ? 'photo' : 'photos'}…`
-      : 'Finalizing your website…';
+      : `Finalizing ${salonName}…`;
   return (
     <OwnerSurface modifier="is-centred">
       <section className="onboarding-integration-state-card" aria-busy="true" aria-live="polite">

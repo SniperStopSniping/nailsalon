@@ -1,0 +1,579 @@
+/*
+ * Premium account milestone. Fixed owner-interface colours only: this dark
+ * plum ground and its berry accents are owner tokens scoped to the account
+ * gate — customer site palettes (Bold, Luxury, Black & Champagne, …) never
+ * recolour this surface.
+ */
+
+.onboarding-integration-owner.is-account {
+  --gate-ground: #150a10;
+  --gate-ground-deep: #0d060a;
+  --gate-ink: #ffffff;
+  --gate-muted: rgb(255 255 255 / 76%);
+  --gate-faint: rgb(255 255 255 / 55%);
+  --gate-line: rgb(255 255 255 / 16%);
+  --gate-accent: #8f3155;
+  --gate-accent-dark: #70213f;
+  --gate-accent-soft: #e79fbb;
+  --gate-danger: #ffb3c2;
+  --gate-focus: #e6d5ff;
+  --gate-surface: rgb(255 255 255 / 6%);
+
+  background: var(--gate-ground);
+  color: var(--gate-ink);
+  padding: 0;
+}
+
+/* Overscroll must reveal the same dark ground, not the document default. */
+body:has(.onboarding-integration-owner.is-account) {
+  background: #150a10;
+}
+
+.onboarding-gate {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  min-height: 100svh;
+  overflow: hidden;
+  padding: calc(20px + env(safe-area-inset-top, 0px)) max(20px, env(safe-area-inset-right, 0px))
+    calc(28px + env(safe-area-inset-bottom, 0px)) max(20px, env(safe-area-inset-left, 0px));
+  position: relative;
+}
+
+.onboarding-gate__glow {
+  background:
+    radial-gradient(ellipse 90% 46% at 50% -8%, rgb(143 49 85 / 42%), transparent 70%),
+    radial-gradient(ellipse 70% 40% at 84% 108%, rgb(112 33 63 / 30%), transparent 72%),
+    linear-gradient(180deg, var(--gate-ground) 0%, var(--gate-ground-deep) 100%);
+  inset: 0;
+  pointer-events: none;
+  position: absolute;
+}
+
+.onboarding-integration-owner.is-account .onboarding-integration-owner__brand {
+  color: var(--gate-accent-soft);
+  justify-content: center;
+  margin: 0 auto;
+  max-width: 560px;
+  position: relative;
+  width: 100%;
+}
+
+.onboarding-gate__column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: center;
+  margin: 0 auto;
+  max-width: 560px;
+  position: relative;
+  width: 100%;
+}
+
+.onboarding-gate__hero {
+  display: flex;
+  flex-direction: column;
+  padding-top: clamp(18px, 5vh, 48px);
+  text-align: center;
+}
+
+.onboarding-integration-eyebrow.is-on-dark {
+  color: var(--gate-accent-soft) !important;
+}
+
+.onboarding-gate__title {
+  color: var(--gate-ink);
+  font-family: Newsreader, Georgia, 'Times New Roman', serif;
+  font-size: clamp(2rem, 8.6vw, 3.4rem);
+  font-weight: 600;
+  letter-spacing: -0.03em;
+  line-height: 1.02;
+  margin: 12px 0 14px;
+  outline: none;
+}
+
+.onboarding-gate__support {
+  color: var(--gate-muted);
+  font-size: clamp(0.94rem, 2.4vw, 1.05rem);
+  line-height: 1.6;
+  margin: 0 auto;
+  max-width: 34rem;
+}
+
+.onboarding-gate__session-note {
+  background: rgb(143 49 85 / 22%);
+  border: 1px solid rgb(231 159 187 / 35%);
+  border-radius: 14px;
+  color: var(--gate-ink);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  margin: 16px auto 0;
+  max-width: 30rem;
+  padding: 11px 14px;
+}
+
+.onboarding-gate__proof {
+  align-items: center;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: clamp(18px, 4vh, 30px) auto;
+}
+
+.onboarding-gate__thumb {
+  background: #221820;
+  border: 1px solid var(--gate-line);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgb(0 0 0 / 45%);
+  height: clamp(120px, 18vh, 176px);
+  margin-bottom: 10px;
+  overflow: hidden;
+  pointer-events: none;
+  position: relative;
+  width: min(100%, 300px);
+}
+
+.onboarding-gate__thumb .onboarding-preview-stage {
+  height: 100%;
+  margin: 0;
+  max-height: none;
+  width: 100%;
+}
+
+.onboarding-gate__proof-line {
+  align-items: center;
+  color: var(--gate-ink);
+  display: flex;
+  font-size: 0.95rem;
+  gap: 7px;
+  margin: 0;
+}
+
+.onboarding-gate__proof-line svg {
+  color: var(--gate-accent-soft);
+  flex: 0 0 auto;
+}
+
+.onboarding-gate__proof-meta {
+  color: var(--gate-faint);
+  font-size: 0.78rem;
+  margin: 0;
+}
+
+.onboarding-gate__actions {
+  display: grid;
+  gap: 12px;
+  margin: clamp(6px, 2vh, 14px) auto 0;
+  max-width: 420px;
+  width: 100%;
+}
+
+.onboarding-gate__provider {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.97rem;
+  font-weight: 750;
+  gap: 10px;
+  justify-content: center;
+  min-height: 52px;
+  padding: 13px 18px;
+  transition:
+    background-color 160ms ease,
+    transform 100ms ease,
+    opacity 160ms ease;
+  width: 100%;
+}
+
+.onboarding-gate__provider:active {
+  transform: scale(0.985);
+}
+
+.onboarding-gate__provider:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.onboarding-gate__provider svg {
+  flex: 0 0 auto;
+}
+
+/* Apple-compliant white treatment on a dark ground; the mark is never berry. */
+.onboarding-gate__provider.is-apple,
+.onboarding-gate__provider.is-google {
+  background: #ffffff;
+  color: #111111;
+}
+
+.onboarding-gate__provider.is-apple:hover,
+.onboarding-gate__provider.is-google:hover {
+  background: #f2edf0;
+}
+
+.onboarding-gate__provider.is-email {
+  background: var(--gate-accent);
+  box-shadow: 0 14px 34px rgb(143 49 85 / 35%);
+  color: #ffffff;
+}
+
+.onboarding-gate__provider.is-email:hover {
+  background: var(--gate-accent-dark);
+}
+
+.onboarding-gate__switch {
+  color: var(--gate-muted);
+  font-size: 0.9rem;
+  margin: 20px 0 0;
+}
+
+.onboarding-gate__switch button,
+.onboarding-gate__text-action {
+  background: transparent;
+  border: 0;
+  color: var(--gate-ink);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 780;
+  min-height: 44px;
+  padding: 8px 6px;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.onboarding-gate__text-action:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.onboarding-gate__reassure {
+  align-items: center;
+  color: var(--gate-faint);
+  display: flex;
+  font-size: 0.8rem;
+  gap: 7px;
+  justify-content: center;
+  line-height: 1.5;
+  margin: 14px auto 0;
+  max-width: 30rem;
+}
+
+.onboarding-gate__reassure.is-secondary {
+  margin-top: 6px;
+}
+
+.onboarding-gate__footer {
+  margin: 18px 0 0;
+  position: relative;
+  text-align: center;
+}
+
+.onboarding-gate__footer .onboarding-gate__text-action {
+  color: var(--gate-muted);
+  font-weight: 650;
+}
+
+/* Focused auth steps (email, password, code, org) */
+
+.onboarding-gate__panel {
+  background: var(--gate-surface);
+  border: 1px solid var(--gate-line);
+  border-radius: 24px;
+  display: flex;
+  flex-direction: column;
+  margin: clamp(12px, 6vh, 40px) auto 0;
+  max-width: 440px;
+  padding: clamp(22px, 5vw, 32px);
+  text-align: left;
+  width: 100%;
+}
+
+.onboarding-gate__panel.is-quiet {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  text-align: center;
+}
+
+.onboarding-gate__panel.is-quiet .onboarding-integration-spinner {
+  margin-bottom: 20px;
+}
+
+.onboarding-gate__step-title {
+  color: var(--gate-ink);
+  font-family: Newsreader, Georgia, 'Times New Roman', serif;
+  font-size: clamp(1.7rem, 6vw, 2.3rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.05;
+  margin: 6px 0 10px;
+  outline: none;
+}
+
+.onboarding-gate__panel .onboarding-gate__support {
+  margin: 0 0 18px;
+}
+
+.onboarding-gate__back {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  color: var(--gate-muted);
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 700;
+  gap: 6px;
+  margin: -6px 0 8px -6px;
+  min-height: 44px;
+  padding: 6px;
+  width: fit-content;
+}
+
+.onboarding-gate__label {
+  color: var(--gate-muted);
+  display: block;
+  font-size: 0.82rem;
+  font-weight: 750;
+  margin: 0 0 7px;
+}
+
+.onboarding-gate__input {
+  background: rgb(255 255 255 / 8%);
+  border: 1px solid rgb(255 255 255 / 26%);
+  border-radius: 14px;
+  box-sizing: border-box;
+  color: var(--gate-ink);
+  font: inherit;
+  font-size: 1rem;
+  min-height: 52px;
+  padding: 13px 15px;
+  width: 100%;
+}
+
+.onboarding-gate__input::placeholder {
+  color: var(--gate-faint);
+}
+
+.onboarding-gate__input:focus-visible {
+  border-color: var(--gate-accent-soft);
+  outline: 3px solid var(--gate-focus);
+  outline-offset: 2px;
+}
+
+.onboarding-gate__input.is-code {
+  font-size: 1.35rem;
+  letter-spacing: 0.35em;
+  text-align: center;
+}
+
+.onboarding-gate__primary {
+  align-items: center;
+  background: var(--gate-accent);
+  border: 1px solid var(--gate-accent);
+  border-radius: 999px;
+  box-shadow: 0 14px 34px rgb(143 49 85 / 35%);
+  color: #ffffff;
+  cursor: pointer;
+  display: inline-flex;
+  font: inherit;
+  font-size: 0.97rem;
+  font-weight: 780;
+  justify-content: center;
+  margin-top: 16px;
+  min-height: 52px;
+  padding: 13px 18px;
+  transition:
+    background-color 160ms ease,
+    transform 100ms ease,
+    opacity 160ms ease;
+  width: 100%;
+}
+
+.onboarding-gate__primary:hover {
+  background: var(--gate-accent-dark);
+}
+
+.onboarding-gate__primary:active {
+  transform: scale(0.985);
+}
+
+.onboarding-gate__primary:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.onboarding-gate__error {
+  color: var(--gate-danger);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  margin: 12px 0 0;
+}
+
+.onboarding-gate__status {
+  color: var(--gate-accent-soft);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  margin: 12px 0 0;
+}
+
+.onboarding-gate__code-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  justify-content: center;
+  margin-top: 8px;
+}
+
+.onboarding-gate__code-actions .onboarding-gate__text-action {
+  font-size: 0.86rem;
+}
+
+.onboarding-gate__org-options {
+  display: grid;
+  gap: 10px;
+  margin-top: 6px;
+}
+
+.onboarding-gate__org-options button {
+  background: rgb(255 255 255 / 8%);
+  border: 1px solid var(--gate-line);
+  border-radius: 14px;
+  color: var(--gate-ink);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  min-height: 52px;
+  padding: 13px 15px;
+  text-align: left;
+}
+
+.onboarding-gate__org-options button:hover {
+  border-color: var(--gate-accent-soft);
+}
+
+.onboarding-integration-spinner.is-on-dark {
+  border-color: rgb(255 255 255 / 22%);
+  border-top-color: var(--gate-accent-soft);
+}
+
+.onboarding-integration-owner.is-account :focus-visible {
+  outline: 3px solid var(--gate-focus);
+  outline-offset: 3px;
+}
+
+/* Entrance: whole sequence completes in under 700ms and never blocks input. */
+@media (prefers-reduced-motion: no-preference) {
+  .onboarding-gate [data-entrance] {
+    animation: onboarding-gate-rise 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .onboarding-integration-owner.is-account .onboarding-integration-owner__brand {
+    animation: onboarding-gate-brand 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .onboarding-gate [data-entrance='2'] {
+    animation-delay: 70ms;
+  }
+
+  .onboarding-gate [data-entrance='3'] {
+    animation-delay: 140ms;
+  }
+
+  .onboarding-gate [data-entrance='4'] {
+    animation-delay: 220ms;
+  }
+
+  .onboarding-gate [data-entrance='5'] {
+    animation-delay: 300ms;
+  }
+}
+
+@keyframes onboarding-gate-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes onboarding-gate-brand {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding-gate [data-entrance],
+  .onboarding-integration-owner.is-account .onboarding-integration-owner__brand {
+    animation: none;
+  }
+
+  .onboarding-gate__provider,
+  .onboarding-gate__primary {
+    transition: none;
+  }
+}
+
+/* Short phones: decorative space and the thumbnail give way before buttons. */
+@media (max-height: 640px) {
+  .onboarding-gate__thumb {
+    display: none;
+  }
+
+  .onboarding-gate__hero {
+    padding-top: 8px;
+  }
+
+  .onboarding-gate__proof {
+    margin: 12px auto;
+  }
+}
+
+@media (max-width: 360px) {
+  .onboarding-gate {
+    padding-left: max(14px, env(safe-area-inset-left, 0px));
+    padding-right: max(14px, env(safe-area-inset-right, 0px));
+  }
+
+  .onboarding-gate__provider {
+    font-size: 0.92rem;
+    gap: 8px;
+    padding: 12px 12px;
+  }
+
+  .onboarding-gate__panel {
+    border-radius: 18px;
+    padding: 18px 16px;
+  }
+}
+
+/* Desktop keeps the same centered milestone with more breathing room. */
+@media (min-width: 900px) {
+  .onboarding-gate__hero {
+    padding-top: 0;
+  }
+
+  .onboarding-gate__thumb {
+    height: 200px;
+    width: 340px;
+  }
+
+  .onboarding-gate__actions {
+    max-width: 400px;
+  }
+}

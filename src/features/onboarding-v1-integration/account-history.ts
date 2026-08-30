@@ -10,7 +10,10 @@ export const getAccountGateUrl = (locale: string): string =>
 
 export const hasAccountGateQuery = (search: string): boolean => {
   const query = new URLSearchParams(search);
-  return query.has('account') || query.has('auth') || query.has('claim');
+  return query.has('account')
+    || query.has('auth')
+    || query.has('claim')
+    || query.has('sso');
 };
 
 export const pushAccountGateHistory = (

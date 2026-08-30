@@ -1,5 +1,6 @@
 import { notFound, redirect } from 'next/navigation';
 
+import { getOnboardingAuthProviderAvailability } from '@/features/onboarding-v1-integration/auth-providers.server';
 import { isOnboardingV1IntegrationEnabled } from '@/features/onboarding-v1-integration/config.server';
 import { OnboardingV1Integration } from '@/features/onboarding-v1-integration/OnboardingV1Integration';
 import { loadInitialOnboardingResumeDraft } from '@/features/onboarding-v1-integration/resume.server';
@@ -30,8 +31,9 @@ export default async function OnboardingV1Page({
     notFound();
   }
   const locale = params.locale === 'fr' ? 'fr' : 'en';
+  const authProviders = await getOnboardingAuthProviderAvailability();
   if (firstQueryValue(searchParams.resume) !== 'review') {
-    return <OnboardingV1Integration locale={locale} />;
+    return <OnboardingV1Integration authProviders={authProviders} locale={locale} />;
   }
 
   const siteId = firstQueryValue(searchParams.site);
@@ -57,6 +59,7 @@ export default async function OnboardingV1Page({
   }
   return (
     <OnboardingV1Integration
+      authProviders={authProviders}
       initialResumeDraft={initialResumeDraft}
       locale={locale}
     />

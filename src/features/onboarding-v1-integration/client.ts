@@ -117,6 +117,41 @@ export const getOnboardingDraftClaimStatus = async (
   return body.data;
 };
 
+export type OnboardingOrganizationResolution = {
+  created: boolean;
+  organizations: { id: string; name: string }[];
+};
+
+/**
+ * Resolves the Clerk "choose-organization" session task server-side so the
+ * owner never lands on a generic organization screen. Returns the owner's
+ * organizations, creating one named after the salon when none exists.
+ */
+export const resolveOnboardingOrganization = async (
+  businessName: string,
+  options: { fetcher?: typeof fetch; signal?: AbortSignal } = {},
+): Promise<OnboardingOrganizationResolution> => {
+  const response = await (options.fetcher ?? fetch)('/api/onboarding/v1/organization', {
+    body: JSON.stringify({ businessName }),
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+    signal: options.signal,
+  });
+  const body = await readJson<
+    DataEnvelope<OnboardingOrganizationResolution> & ErrorEnvelope
+  >(response);
+  if (!response.ok || !body?.data) {
+    throw new OnboardingIntegrationRequestError(
+      ownerMessage(body, 'We couldn’t finish setting up your business. Try again.'),
+      {
+        code: typeof body?.error?.code === 'string' ? body.error.code : undefined,
+        status: response.status,
+      },
+    );
+  }
+  return body.data;
+};
+
 export const saveOnboardingPlanIntent = async (
   request: OnboardingPlanIntentRequest,
   options: { fetcher?: typeof fetch; signal?: AbortSignal } = {},
