@@ -1,6 +1,7 @@
 'use client';
 
 import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/styles.css';
+import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/ui/final-hybrid.css';
 import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/onboarding.css';
 import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/daniela-basics-booking.css';
 import '../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/gallery-policy-polish.css';
