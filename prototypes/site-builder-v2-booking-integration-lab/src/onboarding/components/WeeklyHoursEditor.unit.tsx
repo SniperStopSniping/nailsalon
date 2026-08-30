@@ -25,8 +25,8 @@ describe('WeeklyHoursEditor', () => {
         />
       );
     }
-    render(<Harness />);
-    return { getLatest: () => latest, onSkip };
+    const view = render(<Harness />);
+    return { getLatest: () => latest, onSkip, unmount: view.unmount };
   }
 
   it.each([
@@ -68,6 +68,85 @@ describe('WeeklyHoursEditor', () => {
     expect(getLatest().days.saturday.closed).toBe(false);
     expect(getLatest().days.sunday.closed).toBe(true);
     expect(Object.values(getLatest().days).filter(({ closed }) => !closed)).toHaveLength(3);
+  });
+
+  it('narrows an uncustomized Every day base to Monday–Friday without confirmation', async () => {
+    const user = userEvent.setup();
+    const initial = applyRegularHours(
+      createDefaultWeeklyHours(),
+      ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
+      '10:00',
+      '19:00',
+    )!;
+    const { getLatest } = renderEditor(initial);
+
+    await user.click(screen.getByRole('radio', { name: 'Monday–Friday' }));
+    await user.click(screen.getByRole('button', { name: 'Apply to selected days' }));
+
+    expect(screen.queryByRole('dialog', { name: 'Replace your current hours?' }))
+      .not.toBeInTheDocument();
+    expect(getLatest().days.friday).toEqual({ close: '19:00', closed: false, open: '10:00' });
+    expect(getLatest().days.saturday).toEqual({ close: '', closed: true, open: '' });
+    expect(getLatest().days.sunday).toEqual({ close: '', closed: true, open: '' });
+  });
+
+  it('keeps or replaces individual adjustments only after explicit confirmation', async () => {
+    const user = userEvent.setup();
+    const initial = applyRegularHours(
+      createDefaultWeeklyHours(),
+      ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'],
+      '10:00',
+      '19:00',
+    )!;
+    const { getLatest } = renderEditor(initial);
+
+    await user.click(screen.getByRole('button', { name: 'Edit Friday hours' }));
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Friday opens' }), '09:00');
+    await user.selectOptions(screen.getByRole('combobox', { name: 'Friday closes' }), '17:00');
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await user.click(screen.getByRole('radio', { name: 'Monday–Friday' }));
+    await user.click(screen.getByRole('button', { name: 'Apply to selected days' }));
+
+    const firstDialog = screen.getByRole('dialog', { name: 'Replace your current hours?' });
+    expect(firstDialog).toHaveTextContent('marks the other days Closed');
+    await user.click(within(firstDialog).getByRole('button', { name: 'Keep current hours' }));
+    expect(getLatest().days.friday).toEqual({ close: '17:00', closed: false, open: '09:00' });
+    expect(getLatest().days.saturday).toEqual({ close: '19:00', closed: false, open: '10:00' });
+
+    await user.click(screen.getByRole('button', { name: 'Apply to selected days' }));
+    const secondDialog = screen.getByRole('dialog', { name: 'Replace your current hours?' });
+    await user.click(within(secondDialog).getByRole('button', { name: 'Replace hours' }));
+
+    expect(getLatest().days.friday).toEqual({ close: '19:00', closed: false, open: '10:00' });
+    expect(getLatest().days.saturday).toEqual({ close: '', closed: true, open: '' });
+    expect(getLatest().days.sunday).toEqual({ close: '', closed: true, open: '' });
+    expect(screen.queryByRole('dialog', { name: 'Replace your current hours?' }))
+      .not.toBeInTheDocument();
+  });
+
+  it('retains overwrite protection after remount for a manually closed, single-interval custom week', async () => {
+    const user = userEvent.setup();
+    const initial = applyRegularHours(
+      createDefaultWeeklyHours(),
+      ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'],
+      '10:00',
+      '19:00',
+    )!;
+    const firstMount = renderEditor(initial);
+
+    await user.click(screen.getByRole('button', { name: 'Edit Wednesday hours' }));
+    await user.click(screen.getByRole('checkbox', { name: 'Closed' }));
+    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    const customized = firstMount.getLatest();
+    firstMount.unmount();
+
+    const secondMount = renderEditor(customized);
+    await user.click(screen.getByRole('radio', { name: 'Monday–Friday' }));
+    await user.click(screen.getByRole('button', { name: 'Apply to selected days' }));
+
+    expect(screen.getByRole('dialog', { name: 'Replace your current hours?' })).toBeVisible();
+    expect(secondMount.getLatest()).toEqual(customized);
+    expect(secondMount.getLatest().days.wednesday.closed).toBe(true);
   });
 
   it('blocks and focuses a closing time that is not after opening', async () => {

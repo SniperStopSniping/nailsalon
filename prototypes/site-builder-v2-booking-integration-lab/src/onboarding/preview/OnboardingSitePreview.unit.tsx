@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi } from 'vitest';
 
@@ -11,6 +11,7 @@ import { createDefaultOnboardingState } from '../model/defaults';
 import type { AboutPresetId } from '../model/types';
 import { parseOnboardingState } from '../storage/storage';
 import {
+  calculateOnboardingPreviewScale,
   getOnboardingDocumentBookingSequence,
   ONBOARDING_PREVIEW_VIEWPORTS,
   OnboardingSitePreview,
@@ -296,6 +297,32 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(updatedAbout).getByRole('link', { name: /@isla\.updated/ })).toBeVisible();
     expect(within(updatedAbout).queryByText('@islanail.studio')).not.toBeInTheDocument();
     expect(next.profile.about).toBe(originalProfile.about);
+
+    const pastedUrl = {
+      ...next,
+      profile: {
+        ...next.profile,
+        instagram: 'https://www.instagram.com/islanailstudio/',
+      },
+    };
+    view.rerender(
+      <OnboardingSitePreview document={null} label="Shared profile preview" state={pastedUrl} />,
+    );
+    expect(within(updatedAbout).getByRole('link', { name: '@islanailstudio' }))
+      .toHaveAttribute('href', 'https://www.instagram.com/islanailstudio/');
+
+    view.rerender(
+      <OnboardingSitePreview
+        document={null}
+        label="Shared profile preview"
+        state={{
+          ...pastedUrl,
+          profile: { ...pastedUrl.profile, instagram: 'isla nail studio' },
+        }}
+      />,
+    );
+    expect(within(updatedAbout).queryByRole('link', { name: /instagram/iu }))
+      .not.toBeInTheDocument();
   });
 
   it.each([
@@ -639,6 +666,98 @@ describe('OnboardingSitePreview shared profile composition', () => {
       />,
     );
     expect(customerSurface.inert).toBe(false);
+  });
+
+  it('recomputes each device from one stable unscaled host without ratcheting', async () => {
+    const state = createDanielaFixtureState();
+    const document = initializeStarter('multi_page');
+    let available = { height: 600, width: 360 };
+    const view = render(
+      <OnboardingSitePreview
+        device="phone"
+        document={document}
+        fitAvailable
+        label="Stable scaling preview"
+        state={state}
+      />,
+    );
+    const stage = screen.getByRole('region', { name: 'Stable scaling preview' });
+    const measurementHost = stage.querySelector<HTMLElement>(
+      '[data-preview-measurement-host="true"]',
+    );
+    expect(measurementHost).not.toBeNull();
+    if (!measurementHost) return;
+    measurementHost.getBoundingClientRect = () => ({
+      bottom: available.height,
+      height: available.height,
+      left: 0,
+      right: available.width,
+      top: 0,
+      width: available.width,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    });
+
+    const rerenderFor = (device: 'desktop' | 'phone' | 'tablet') => {
+      view.rerender(
+        <OnboardingSitePreview
+          device={device}
+          document={document}
+          fitAvailable
+          label="Stable scaling preview"
+          state={state}
+        />,
+      );
+      const expected = calculateOnboardingPreviewScale(
+        available,
+        ONBOARDING_PREVIEW_VIEWPORTS[device],
+      );
+      expect(stage).toHaveAttribute('data-preview-scale', expected.toFixed(4));
+    };
+
+    act(() => window.dispatchEvent(new Event('resize')));
+    await act(async () => new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    }));
+    const originalPhoneScale = calculateOnboardingPreviewScale(
+      available,
+      ONBOARDING_PREVIEW_VIEWPORTS.phone,
+    );
+    await waitFor(() => expect(stage).toHaveAttribute(
+      'data-preview-scale',
+      originalPhoneScale.toFixed(4),
+    ));
+
+    for (let cycle = 0; cycle < 10; cycle += 1) {
+      rerenderFor('desktop');
+      rerenderFor('phone');
+      expect(stage).toHaveAttribute('data-preview-scale', originalPhoneScale.toFixed(4));
+    }
+    rerenderFor('tablet');
+    rerenderFor('phone');
+
+    available = { height: 300, width: 700 };
+    act(() => window.dispatchEvent(new Event('orientationchange')));
+    await act(async () => new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    }));
+    await waitFor(() => expect(stage).toHaveAttribute(
+      'data-preview-scale',
+      calculateOnboardingPreviewScale(
+        available,
+        ONBOARDING_PREVIEW_VIEWPORTS.phone,
+      ).toFixed(4),
+    ));
+    available = { height: 600, width: 360 };
+    act(() => window.dispatchEvent(new Event('orientationchange')));
+    await act(async () => new Promise<void>((resolve) => {
+      window.requestAnimationFrame(() => resolve());
+    }));
+    await waitFor(() => expect(stage).toHaveAttribute(
+      'data-preview-scale',
+      originalPhoneScale.toFixed(4),
+    ));
   });
 
   it('positions and resets the internal preview frame without moving the outer page', () => {

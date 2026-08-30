@@ -147,9 +147,9 @@ describe('BookingPreferencesScreen', () => {
     expect(russianItem).not.toBeNull();
     await user.click(within(russianItem!).getByRole('button', { name: 'Remove Russian Manicure' }));
     expect(latest.serviceMenu.selectedServiceIds).not.toContain('svc-manicure-russian');
-    expect(screen.getByText('Russian Manicure removed.', {
-      selector: '.onboarding-feedback span',
-    })).toBeVisible();
+    expect(document.querySelector('.onboarding-feedback')).toBeNull();
+    await waitFor(() => expect(document.querySelector('.visually-hidden[role="status"]'))
+      .toHaveTextContent('Russian Manicure removed.'));
     library = screen.getByRole('dialog', { name: 'Choose your services' });
     const updatedRussianItem = within(library).getByText('Russian Manicure').closest('li');
     expect(updatedRussianItem).not.toBeNull();
@@ -160,9 +160,9 @@ describe('BookingPreferencesScreen', () => {
     expect(classicItem).toHaveTextContent('Manicure · 45 min$35');
     await user.click(within(classicItem!).getByRole('button', { name: 'Add Classic Manicure' }));
     expect(latest.serviceMenu.selectedServiceIds).toContain('svc-manicure-classic');
-    expect(screen.getByText('Classic Manicure added.', {
-      selector: '.onboarding-feedback span',
-    })).toBeVisible();
+    expect(document.querySelector('.onboarding-feedback')).toBeNull();
+    await waitFor(() => expect(document.querySelector('.visually-hidden[role="status"]'))
+      .toHaveTextContent('Classic Manicure added.'));
 
     await user.click(within(library).getByRole('tab', { name: 'Add-ons' }));
     expect(within(library).getByText('French')).toBeVisible();

@@ -827,6 +827,12 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
       'Your starting site is ready',
     );
+    await user.click(screen.getByRole('button', { name: 'Preview my site' }));
+    expect(screen.getByRole('dialog', { name: 'Preview your starting site' })).toBeVisible();
+    await waitFor(() => expect(document.querySelector('.onboarding-feedback')).toBeNull());
+    expect(document.querySelector('.visually-hidden[role="status"]')).toHaveTextContent(
+      'Your starting site is ready',
+    );
     await waitFor(() => {
       const saved = parseOnboardingState(
         window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',

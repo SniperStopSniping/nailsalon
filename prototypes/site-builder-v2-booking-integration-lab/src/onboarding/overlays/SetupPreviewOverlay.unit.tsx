@@ -40,7 +40,13 @@ describe('SetupPreviewOverlay shared preview targeting', () => {
       /\.onboarding-preview-overlay \{[^}]*height: auto;[^}]*grid-template-rows: auto auto auto;/su,
     );
     expect(css).toMatch(
-      /\.onboarding-preview-overlay \.onboarding-preview-stage \{[^}]*var\(--preview-stage-height\)[^}]*clamp\(210px, 64svh, 600px\)/su,
+      /\.onboarding-preview-overlay \.onboarding-preview-stage \{[^}]*height: var\(--preview-stage-height\)/su,
+    );
+    expect(css).toMatch(
+      /\.onboarding-preview-overlay \.onboarding-preview-measurement-host \{[^}]*height: min\(var\(--preview-target-height\), clamp\(210px, 64dvh, 600px\)\)/su,
+    );
+    expect(css).not.toMatch(
+      /\.onboarding-preview-overlay \.onboarding-preview-measurement-host \{[^}]*preview-stage-height/su,
     );
     expect(css).not.toMatch(
       /\.onboarding-preview-overlay \.onboarding-preview-stage \{[^}]*height: 100%/su,

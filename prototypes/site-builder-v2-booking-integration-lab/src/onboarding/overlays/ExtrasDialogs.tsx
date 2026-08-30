@@ -531,7 +531,7 @@ export function GalleryDialog({ onClose, onUpdate, open, state }: GalleryDialogP
                     </div>
                     <div className="onboarding-gallery-draft-list__actions">
                       {failure.retryable ? (
-                        <button disabled={interactionLocked} type="button" onClick={() => retryUploadFailure(failure)}>Retry</button>
+                        <button className="is-primary" disabled={interactionLocked} type="button" onClick={() => retryUploadFailure(failure)}>Retry</button>
                       ) : null}
                       <button disabled={interactionLocked} type="button" onClick={() => galleryInputRef.current?.click()}>Choose another image</button>
                       <button disabled={interactionLocked} type="button" onClick={() => dismissUploadFailure(failure.rowId)}>Dismiss</button>

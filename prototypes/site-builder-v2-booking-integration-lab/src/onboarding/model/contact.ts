@@ -19,6 +19,71 @@ export type PublicContactAction = PublicContactPreview & {
   target?: '_blank';
 };
 
+export type InstagramUsernameResolution =
+  | { status: 'empty'; username: null }
+  | { error: string; status: 'invalid'; username: null }
+  | { status: 'resolved'; username: string };
+
+const INSTAGRAM_USERNAME_PATTERN = /^[A-Za-z0-9._]{1,30}$/u;
+const INSTAGRAM_PROFILE_PREFIX = /^(?:https:\/\/)?(?:www\.)?instagram\.com\//iu;
+const INSTAGRAM_LIKE_PREFIX = /^(?:https?:\/\/)?(?:www\.)?instagram\.com(?:\/|$)/iu;
+
+/**
+ * The single onboarding interpretation of an Instagram profile value. Owner
+ * fields, contact completeness, preferred-contact selection, readiness, and
+ * public links all call this resolver so an invalid value can never appear
+ * configured while being suppressed from the customer site.
+ */
+export const resolveInstagramUsername = (
+  value: unknown,
+): InstagramUsernameResolution => {
+  if (typeof value !== 'string') return { status: 'empty', username: null };
+  const input = value.trim();
+  if (!input) return { status: 'empty', username: null };
+
+  let username = input;
+  if (INSTAGRAM_PROFILE_PREFIX.test(username)) {
+    username = username.replace(INSTAGRAM_PROFILE_PREFIX, '');
+    if (username.endsWith('/')) username = username.slice(0, -1);
+    if (!username || /[/?#]/u.test(username)) {
+      return {
+        error: 'Enter only your Instagram username, such as islanailstudio.',
+        status: 'invalid',
+        username: null,
+      };
+    }
+  } else if (INSTAGRAM_LIKE_PREFIX.test(username) || /^[A-Za-z][A-Za-z0-9+.-]*:\/\//u.test(username)) {
+    return {
+      error: 'Enter only your Instagram username, such as islanailstudio.',
+      status: 'invalid',
+      username: null,
+    };
+  } else if (username.startsWith('@')) {
+    username = username.slice(1);
+  }
+
+  if (username.length > 30) {
+    return {
+      error: 'Instagram usernames can be up to 30 characters.',
+      status: 'invalid',
+      username: null,
+    };
+  }
+  if (!INSTAGRAM_USERNAME_PATTERN.test(username)) {
+    return {
+      error: 'Enter only your Instagram username, such as islanailstudio.',
+      status: 'invalid',
+      username: null,
+    };
+  }
+  return { status: 'resolved', username };
+};
+
+export const getInstagramInputError = (value: unknown): string | undefined => {
+  const resolution = resolveInstagramUsername(value);
+  return resolution.status === 'invalid' ? resolution.error : undefined;
+};
+
 export const getClientTextNumber = (
   profile: BusinessProfileDraft,
 ): string => profile.clientContact.useDifferentTextNumber
@@ -37,7 +102,9 @@ export const contactMethodHasValue = (
   if (method === 'text') {
     return profile.clientContact.textEnabled && Boolean(getClientTextNumber(profile));
   }
-  if (method === 'instagram') return Boolean(profile.instagram.trim());
+  if (method === 'instagram') {
+    return resolveInstagramUsername(profile.instagram).status === 'resolved';
+  }
   return Boolean(profile.email.trim());
 };
 
@@ -78,7 +145,9 @@ const getResolvedContactAction = (
     actionLabel = 'Text';
     action = { destination: { phoneNumber: detail }, type: 'text' };
   } else if (method === 'instagram') {
-    detail = profile.instagram.trim();
+    const instagram = resolveInstagramUsername(profile.instagram);
+    if (instagram.status !== 'resolved') return null;
+    detail = instagram.username;
     actionLabel = 'Instagram';
     action = { destination: { username: detail }, type: 'instagram' };
   } else {
@@ -119,7 +188,7 @@ export const getPublicContactActions = (
           preferred: true,
         } satisfies PublicContactAction
       : null;
-    const instagramAction = profile.instagram.trim()
+    const instagramAction = contactMethodHasValue(profile, 'instagram')
       ? getResolvedContactAction(profile, 'instagram', false)
       : null;
     return [bookingAction, instagramAction].filter(

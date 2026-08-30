@@ -169,6 +169,24 @@ describe('onboarding browser-local storage', () => {
     });
   });
 
+  it('normalizes a valid saved Instagram profile URL without hiding invalid owner input', () => {
+    const valid = createDefaultOnboardingState();
+    valid.profile.instagram = 'https://www.instagram.com/islanailstudio/';
+    valid.profile.bookingOnlyContact = false;
+    valid.profile.preferredContact = 'instagram';
+    const normalized = parseOnboardingState(JSON.stringify(valid));
+    expect(normalized.state.profile.instagram).toBe('islanailstudio');
+    expect(normalized.state.profile.preferredContact).toBe('instagram');
+
+    const invalid = createDefaultOnboardingState();
+    invalid.profile.instagram = 'instagram.com/isla/reels';
+    invalid.profile.bookingOnlyContact = false;
+    invalid.profile.preferredContact = 'instagram';
+    const preserved = parseOnboardingState(JSON.stringify(invalid));
+    expect(preserved.state.profile.instagram).toBe('instagram.com/isla/reels');
+    expect(preserved.state.profile.preferredContact).toBeNull();
+  });
+
   it('migrates legacy hours without treating the old seeded schedule as owner-provided', () => {
     const untouched = parseOnboardingState(JSON.stringify(createLegacySavedState({
       phone: '416-555-0100',

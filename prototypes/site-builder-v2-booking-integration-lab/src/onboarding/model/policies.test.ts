@@ -8,6 +8,7 @@ import {
   derivePolicySuggestedWording,
   getDepositPolicyMode,
   getPolicyDisplayWording,
+  hasMeaningfulPublishablePolicies,
   isPolicySectionComplete,
   refreshPolicySuggestedWording,
   updateDepositDraft,
@@ -122,6 +123,18 @@ describe('policy suggested wording', () => {
     policies.lateArrivals.shortenService = true;
     policies.lateArrivals.rescheduleAfterLimit = false;
     expect(isPolicySectionComplete(policies, 'late_arrivals')).toBe(true);
+  });
+
+  it('only treats visible, meaningful client wording as publishable', () => {
+    const policies = createDefaultPolicies();
+    expect(hasMeaningfulPublishablePolicies(policies)).toBe(false);
+
+    policies.cancellations.notice = '24_hours';
+    policies.cancellations.consequence = 'cancellation_fee';
+    expect(hasMeaningfulPublishablePolicies(policies)).toBe(true);
+
+    policies.copy.cancellations.visible = false;
+    expect(hasMeaningfulPublishablePolicies(policies)).toBe(false);
   });
 
   it('turns guest and children facts into natural client sentences', () => {

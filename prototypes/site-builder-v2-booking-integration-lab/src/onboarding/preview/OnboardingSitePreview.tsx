@@ -62,6 +62,11 @@ export type OnboardingPreviewDevice = 'phone' | 'tablet' | 'desktop';
 export type OnboardingPreviewInitialTarget = 'top' | 'about';
 export type OnboardingPreviewInteractionMode = 'inline' | 'interactive';
 
+type PreviewBounds = {
+  height: number;
+  width: number;
+};
+
 export const ONBOARDING_PREVIEW_VIEWPORTS: Record<OnboardingPreviewDevice, {
   height: number;
   width: number;
@@ -69,6 +74,18 @@ export const ONBOARDING_PREVIEW_VIEWPORTS: Record<OnboardingPreviewDevice, {
   desktop: { height: 760, width: 1180 },
   phone: { height: 780, width: 390 },
   tablet: { height: 900, width: 768 },
+};
+
+export const calculateOnboardingPreviewScale = (
+  available: PreviewBounds,
+  target: PreviewBounds,
+): number => {
+  const nextScale = Math.min(
+    1,
+    available.width / target.width,
+    available.height / target.height,
+  );
+  return Number.isFinite(nextScale) && nextScale > 0 ? nextScale : 1;
 };
 
 export type StyleRoles = {
@@ -272,7 +289,7 @@ function AboutActions({ profile }: { profile: BusinessProfileDraft }) {
           rel={instagram.rel}
           target={instagram.target}
         >
-          <Instagram aria-hidden="true" size={16} /> {profile.instagram}
+          <Instagram aria-hidden="true" size={16} /> @{instagram.detail}
         </a>
       ) : null}
     </div>
@@ -1005,7 +1022,7 @@ export function OnboardingSitePreview({
   state,
 }: OnboardingSitePreviewProps) {
   const frameRef = useRef<HTMLDivElement>(null);
-  const stageRef = useRef<HTMLElement>(null);
+  const measurementHostRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const summaryId = useId();
   const viewport = ONBOARDING_PREVIEW_VIEWPORTS[device];
@@ -1080,23 +1097,40 @@ export function OnboardingSitePreview({
   }, []);
 
   useLayoutEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return undefined;
+    const measurementHost = measurementHostRef.current;
+    if (!measurementHost) return undefined;
+    let measurementFrame: number | null = null;
     const updateScale = () => {
-      const availableWidth = stage.clientWidth || viewport.width;
-      const availableHeight = stage.clientHeight || viewport.height;
-      const nextScale = Math.min(
-        1,
-        availableWidth / viewport.width,
-        availableHeight / viewport.height,
-      );
-      setPreviewScale(Number.isFinite(nextScale) && nextScale > 0 ? nextScale : 1);
+      measurementFrame = null;
+      const bounds = measurementHost.getBoundingClientRect();
+      const nextScale = calculateOnboardingPreviewScale({
+        height: bounds.height || measurementHost.clientHeight || viewport.height,
+        width: bounds.width || measurementHost.clientWidth || viewport.width,
+      }, viewport);
+      setPreviewScale((current) => (
+        Math.abs(current - nextScale) < 0.0001 ? current : nextScale
+      ));
     };
+    const scheduleScaleUpdate = () => {
+      if (measurementFrame !== null) return;
+      measurementFrame = window.requestAnimationFrame(updateScale);
+    };
+    const visualViewport = window.visualViewport;
     updateScale();
-    if (typeof ResizeObserver === 'undefined') return undefined;
-    const observer = new ResizeObserver(updateScale);
-    observer.observe(stage);
-    return () => observer.disconnect();
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(scheduleScaleUpdate);
+    observer?.observe(measurementHost);
+    window.addEventListener('resize', scheduleScaleUpdate);
+    window.addEventListener('orientationchange', scheduleScaleUpdate);
+    visualViewport?.addEventListener('resize', scheduleScaleUpdate);
+    return () => {
+      if (measurementFrame !== null) window.cancelAnimationFrame(measurementFrame);
+      observer?.disconnect();
+      window.removeEventListener('resize', scheduleScaleUpdate);
+      window.removeEventListener('orientationchange', scheduleScaleUpdate);
+      visualViewport?.removeEventListener('resize', scheduleScaleUpdate);
+    };
   }, [fitAvailable, viewport.height, viewport.width]);
 
   useLayoutEffect(() => {
@@ -1130,9 +1164,14 @@ export function OnboardingSitePreview({
       data-preview-initial-target={initialTarget}
       data-preview-interaction={interactionMode}
       data-preview-scale={previewScale.toFixed(4)}
-      ref={stageRef}
       style={stageStyle}
     >
+      <div
+        aria-hidden="true"
+        className="onboarding-preview-measurement-host"
+        data-preview-measurement-host="true"
+        ref={measurementHostRef}
+      />
       <span className="visually-hidden" id={summaryId}>
         Visual preview of {title} at a {viewport.width}-pixel {device} viewport.
         {interactionMode === 'inline' ? ' Open the full preview to use customer controls.' : ''}

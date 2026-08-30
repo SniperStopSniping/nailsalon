@@ -1,5 +1,6 @@
 import type { SiteBuilderDocument } from '../../model/types';
 import { getIncompleteEssentials, hasPublicContactMethod } from './essentials';
+import { hasMeaningfulPublishablePolicies } from '../model/policies';
 import type { OnboardingLabState, OnboardingScreenId } from '../model/types';
 
 export type ReadinessStatus = 'ready' | 'recommended' | 'optional' | 'needs_attention';
@@ -52,14 +53,30 @@ export const getReadinessItems = (
   if (state.profile.businessName.trim()) {
     items.push({ id: 'business-name', label: 'Business information', status: 'ready' });
   }
-  if (hasPublicContactMethod(state) || state.profile.bookingOnlyContact) {
+  if (hasPublicContactMethod(state)) {
     items.push({ id: 'contact', label: 'Contact and privacy', status: 'ready' });
   }
   items.push({ id: 'mobile', label: 'Looks right on a phone', status: 'ready' });
   items.push({ id: 'style', label: 'Website style', screen: 'site_style', status: 'ready' });
 
-  if (!state.recipe.policiesEnabled) {
-    items.push({ id: 'policies', label: 'Add policies', screen: 'policies', status: 'recommended' });
+  const hasPublishablePolicies = hasMeaningfulPublishablePolicies(
+    state.profile.policies,
+  );
+  if (!hasPublishablePolicies) {
+    items.push({
+      id: 'policies',
+      label: 'Add policies',
+      screen: 'policies',
+      status: 'recommended',
+    });
+  } else if (!state.recipe.policiesEnabled) {
+    items.push({
+      detail: 'Your policy answers are saved, but not shown on your site.',
+      id: 'policies',
+      label: 'Show saved policies',
+      screen: 'policies',
+      status: 'recommended',
+    });
   }
   if (!state.recipe.galleryEnabled) {
     items.push({ id: 'gallery', label: 'Add photos of your work', screen: 'extras', status: 'recommended' });

@@ -8,7 +8,9 @@ import {
   contactMethodHasValue,
   getAvailableContactMethods,
   getCoherentPreferredContact,
+  getInstagramInputError,
   getPublicContactPreview,
+  resolveInstagramUsername,
 } from '../model/contact';
 import {
   getPublicWeeklyHours,
@@ -199,14 +201,35 @@ export function PhotoSocialScreen({
   profile,
 }: PhotoSocialScreenProps) {
   const copy = SCREEN_METADATA.photo_social;
+  const screenRef = useRef<HTMLElement>(null);
   const imageAssetIds = [profile.profilePhoto, profile.logo]
     .flatMap((image) => image?.storageId ? [image.storageId] : []);
   const imageAssets = useCustomDesignAssetMap(imageAssetIds);
   const profileImage = resolveOnboardingImageUrl(profile.profilePhoto, imageAssets);
   const logoImage = resolveOnboardingImageUrl(profile.logo, imageAssets);
+  const instagramResolution = resolveInstagramUsername(profile.instagram);
+  const instagramError = getInstagramInputError(profile.instagram);
+  const commitInstagram = () => {
+    if (
+      instagramResolution.status === 'resolved'
+      && instagramResolution.username !== profile.instagram
+    ) {
+      onProfileChange({ instagram: instagramResolution.username });
+    }
+  };
+  const continueFromPhotoSocial = () => {
+    if (instagramError) {
+      screenRef.current
+        ?.querySelector<HTMLInputElement>('[data-instagram-input]')
+        ?.focus();
+      return;
+    }
+    commitInstagram();
+    onContinue();
+  };
 
   return (
-    <section aria-labelledby="photo-social-heading" className="onboarding-screen onboarding-photo-social-screen">
+    <section ref={screenRef} aria-labelledby="photo-social-heading" className="onboarding-screen onboarding-photo-social-screen">
       <header className="onboarding-screen__heading">
         <p className="onboarding-screen-status">Optional</p>
         <h1 id="photo-social-heading">{copy.heading}</h1>
@@ -242,9 +265,12 @@ export function PhotoSocialScreen({
           />
           <TextField
             autoComplete="off"
-            hint="You can enter @yourstudio or yourstudio."
+            data-instagram-input
+            error={instagramError}
+            hint="Enter a username or paste an Instagram profile link."
             label="Instagram handle"
             value={profile.instagram}
+            onBlur={commitInstagram}
             onChange={(event) => onProfileChange({ instagram: event.target.value })}
           />
         </div>
@@ -258,12 +284,14 @@ export function PhotoSocialScreen({
           )}
           <strong>{profile.ownerName || 'Your name'}</strong>
           <span>{profile.businessName || 'Your business'}</span>
-          {profile.instagram.trim() ? <span>{profile.instagram.trim()}</span> : null}
+          {instagramResolution.status === 'resolved'
+            ? <span>@{instagramResolution.username}</span>
+            : null}
         </aside>
       </div>
       <StickyOnboardingActions
         onBack={onBack}
-        onPrimary={onContinue}
+        onPrimary={continueFromPhotoSocial}
         onSkip={onSkipPhoto}
         primaryLabel={copy.primaryAction}
         skipLabel={copy.secondaryAction}
@@ -297,14 +325,18 @@ export function LocationContactScreen({
   const [openCard, setOpenCard] = useState<LocationCardId>('location');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [editingInstagram, setEditingInstagram] = useState(
-    !profile.instagram.trim(),
+    !profile.instagram.trim()
+      || resolveInstagramUsername(profile.instagram).status === 'invalid',
   );
+  const instagramResolution = resolveInstagramUsername(profile.instagram);
+  const instagramError = getInstagramInputError(profile.instagram);
 
   const revealError = (fieldId: string, keepSummaryVisible = false) => {
     const card: LocationCardId = fieldId === 'cityOrArea' || fieldId === 'locationType'
       ? 'location'
       : 'contact';
     setOpenCard(card);
+    if (fieldId === 'instagram') setEditingInstagram(true);
     window.requestAnimationFrame(() => {
       const panel = formRef.current?.querySelector<HTMLElement>(
         `#onboarding-${card}-card-panel`,
@@ -315,6 +347,8 @@ export function LocationContactScreen({
           ? panel?.querySelector<HTMLElement>('input[name="location-type"]')
         : fieldId === 'preferredContact'
           ? panel?.querySelector<HTMLElement>('input[name="public-contact-method"]')
+          : fieldId === 'instagram'
+            ? panel?.querySelector<HTMLElement>('[data-instagram-input]')
           : panel?.querySelector<HTMLElement>('input[autocomplete="tel"], input[type="email"]');
       const target = requestedTarget ?? panel?.querySelector<HTMLElement>(
         '[aria-invalid="true"] input:not([disabled]), [aria-invalid="true"] textarea:not([disabled]), [aria-invalid="true"] select:not([disabled]), [aria-invalid="true"] button:not([disabled]), [aria-invalid="true"][tabindex]',
@@ -357,6 +391,7 @@ export function LocationContactScreen({
     if (!profile.location.locationType) {
       nextErrors.locationType = 'Choose where you see clients.';
     }
+    if (instagramError) nextErrors.instagram = instagramError;
     if (!profile.bookingOnlyContact && !hasAnyContact) {
       nextErrors.contact = 'Add a phone number, email or Instagram so clients can reach you—or choose “Clients should use online booking only” to keep your details private.';
     } else if (
@@ -511,13 +546,18 @@ export function LocationContactScreen({
           </CollapsibleFormCard>
 
           <CollapsibleFormCard
-            completed={profile.bookingOnlyContact || hasCoherentPreferredContact}
-            errorCount={[errors.contact, errors.preferredContact].filter(Boolean).length}
+            completed={!instagramError && (
+              profile.bookingOnlyContact || hasCoherentPreferredContact
+            )}
+            errorCount={[errors.contact, errors.instagram, errors.preferredContact]
+              .filter(Boolean).length}
             id="onboarding-contact-card"
             open={openCard === 'contact'}
             summary={contactSummary}
             title="Contact"
-            status={profile.bookingOnlyContact || hasCoherentPreferredContact ? 'complete' : 'set_up'}
+            status={!instagramError && (
+              profile.bookingOnlyContact || hasCoherentPreferredContact
+            ) ? 'complete' : instagramError ? 'finish' : 'set_up'}
             onToggle={() => setOpenCard('contact')}
           >
             <h2 className="onboarding-card-section-heading">How should clients contact you?</h2>
@@ -651,20 +691,69 @@ export function LocationContactScreen({
             <div className="onboarding-shared-instagram">
               <div>
                 <span>Instagram</span>
-                <strong>{profile.instagram.trim() || 'Not added yet'}</strong>
+                <strong>{instagramResolution.status === 'resolved'
+                  ? `@${instagramResolution.username}`
+                  : profile.instagram.trim() || 'Not added yet'}</strong>
                 <small>Shared with Photo and Instagram. Changes update everywhere.</small>
               </div>
-              <button type="button" onClick={() => setEditingInstagram((current) => !current)}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (editingInstagram && instagramError) {
+                    window.requestAnimationFrame(() => {
+                      formRef.current
+                        ?.querySelector<HTMLInputElement>('[data-instagram-input]')
+                        ?.focus({ preventScroll: true });
+                    });
+                    return;
+                  }
+                  if (
+                    editingInstagram
+                    && instagramResolution.status === 'resolved'
+                    && instagramResolution.username !== profile.instagram
+                  ) {
+                    onProfileChange({
+                      instagram: instagramResolution.username,
+                      preferredContact: getCoherentPreferredContact({
+                        ...profile,
+                        instagram: instagramResolution.username,
+                      }),
+                    });
+                  }
+                  setEditingInstagram((current) => !current);
+                }}
+              >
                 {editingInstagram ? 'Done' : 'Edit'}
               </button>
             </div>
             {editingInstagram ? (
               <TextField
-                hint="Use a handle such as @yourstudio."
+                data-instagram-input
+                error={instagramError}
+                hint="Enter a username or paste an Instagram profile link."
                 label="Instagram handle"
                 value={profile.instagram}
+                onBlur={() => {
+                  if (
+                    instagramResolution.status === 'resolved'
+                    && instagramResolution.username !== profile.instagram
+                  ) {
+                    onProfileChange({
+                      instagram: instagramResolution.username,
+                      preferredContact: getCoherentPreferredContact({
+                        ...profile,
+                        instagram: instagramResolution.username,
+                      }),
+                    });
+                  }
+                }}
                 onChange={(event) => {
-                  setErrors((current) => ({ ...current, contact: '', preferredContact: '' }));
+                  setErrors((current) => ({
+                    ...current,
+                    contact: '',
+                    instagram: '',
+                    preferredContact: '',
+                  }));
                   const instagram = event.target.value;
                   onProfileChange({
                     instagram,

@@ -33,6 +33,51 @@ describe('onboarding readiness contact metadata', () => {
     });
   });
 
+  it('does not mark malformed Instagram configured and accepts a normalized profile URL', () => {
+    const state = createDefaultOnboardingState();
+    state.profile.instagram = 'instagram.com/isla/reels';
+    expect(getReadinessItems(state, null).some((item) => item.id === 'contact'))
+      .toBe(false);
+
+    state.profile.bookingOnlyContact = false;
+    state.profile.preferredContact = 'instagram';
+    expect(getReadinessItems(state, null).some((item) => item.id === 'contact'))
+      .toBe(false);
+
+    state.profile.instagram = 'https://www.instagram.com/islanailstudio/';
+    expect(getReadinessItems(state, null)).toContainEqual({
+      id: 'contact',
+      label: 'Contact and privacy',
+      status: 'ready',
+    });
+  });
+
+  it('clears Add policies after meaningful content is saved and names a hidden saved state', () => {
+    const state = createDefaultOnboardingState();
+    state.recipe.policiesEnabled = false;
+    expect(getReadinessItems(state, null)).toContainEqual({
+      id: 'policies',
+      label: 'Add policies',
+      screen: 'policies',
+      status: 'recommended',
+    });
+
+    state.profile.policies.cancellations.notice = '24_hours';
+    state.profile.policies.cancellations.consequence = 'cancellation_fee';
+    state.recipe.policiesEnabled = true;
+    expect(getReadinessItems(state, null).some((item) => item.id === 'policies'))
+      .toBe(false);
+
+    state.recipe.policiesEnabled = false;
+    expect(getReadinessItems(state, null)).toContainEqual({
+      detail: 'Your policy answers are saved, but not shown on your site.',
+      id: 'policies',
+      label: 'Show saved policies',
+      screen: 'policies',
+      status: 'recommended',
+    });
+  });
+
   it('keeps an enabled About section directly editable from final review', () => {
     const state = createDanielaFixtureState();
     const items = getReadinessItems(state, initializeStarter('one_page'));

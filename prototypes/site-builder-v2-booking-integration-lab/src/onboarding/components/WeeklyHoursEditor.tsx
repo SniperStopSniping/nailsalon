@@ -5,6 +5,7 @@ import {
   type Ref,
 } from 'react';
 
+import { Dialog } from '../../ui/Dialog';
 import {
   applyRegularHours,
   copyWeeklyHoursDay,
@@ -67,6 +68,18 @@ const presetForDays = (days: readonly Weekday[]): RegularHoursPreset => {
   return 'custom';
 };
 
+const sameDayHours = (left: DayHoursDraft, right: DayHoursDraft): boolean => (
+  left.close === right.close
+  && left.closed === right.closed
+  && left.open === right.open
+);
+
+const sameWeeklyHours = (left: WeeklyHoursDraft, right: WeeklyHoursDraft): boolean => (
+  left.setupState === right.setupState
+  && left.showOnSite === right.showOnSite
+  && WEEKDAYS.every((weekday) => sameDayHours(left.days[weekday], right.days[weekday]))
+);
+
 const deriveRegularHours = (hours: WeeklyHoursDraft): {
   close: string;
   days: Weekday[];
@@ -93,6 +106,21 @@ const deriveRegularHours = (hours: WeeklyHoursDraft): {
     open,
     preset: presetForDays(common[1]),
   };
+};
+
+const hasIndividualHoursAdjustments = (
+  hours: WeeklyHoursDraft,
+  regularHours: ReturnType<typeof deriveRegularHours>,
+): boolean => {
+  if (hours.setupState !== 'configured') return false;
+  if (regularHours.preset === 'custom') return true;
+  const base = applyRegularHours(
+    hours,
+    PRESET_DAYS[regularHours.preset],
+    regularHours.open,
+    regularHours.close,
+  );
+  return Boolean(base && !sameWeeklyHours(hours, base));
 };
 
 function TimeSelect({
@@ -153,6 +181,10 @@ export function WeeklyHoursEditor({
   const [copyTargets, setCopyTargets] = useState<Weekday[]>([]);
   const [showCopyTargets, setShowCopyTargets] = useState(false);
   const [announcement, setAnnouncement] = useState('');
+  const [hasIndividualAdjustments, setHasIndividualAdjustments] = useState(
+    () => hasIndividualHoursAdjustments(hours, initial),
+  );
+  const [pendingRegularHours, setPendingRegularHours] = useState<WeeklyHoursDraft | null>(null);
 
   const choosePreset = (nextPreset: RegularHoursPreset) => {
     setPreset(nextPreset);
@@ -165,6 +197,17 @@ export function WeeklyHoursEditor({
     setSelectedDays((current) => current.includes(weekday)
       ? current.filter((item) => item !== weekday)
       : WEEKDAYS.filter((item) => item === weekday || current.includes(item)));
+  };
+
+  const commitRegularHours = (next: WeeklyHoursDraft) => {
+    onChange(next);
+    setBulkError('');
+    setHasIndividualAdjustments(false);
+    setEditingDay(null);
+    setDayDraft(null);
+    setCopyTargets([]);
+    setShowCopyTargets(false);
+    setAnnouncement(`Regular hours applied to ${selectedDays.length} ${selectedDays.length === 1 ? 'day' : 'days'}.`);
   };
 
   const apply = () => {
@@ -182,9 +225,11 @@ export function WeeklyHoursEditor({
     }
     const next = applyRegularHours(hours, selectedDays, bulkOpen, bulkClose);
     if (!next) return;
-    onChange(next);
-    setBulkError('');
-    setAnnouncement(`Regular hours applied to ${selectedDays.length} ${selectedDays.length === 1 ? 'day' : 'days'}.`);
+    if (hasIndividualAdjustments && !sameWeeklyHours(hours, next)) {
+      setPendingRegularHours(next);
+      return;
+    }
+    commitRegularHours(next);
   };
 
   const beginDayEdit = (weekday: Weekday) => {
@@ -216,6 +261,7 @@ export function WeeklyHoursEditor({
     if (copyTargets.length > 0) {
       next = copyWeeklyHoursDay(next, editingDay, copyTargets);
     }
+    if (!sameWeeklyHours(hours, next)) setHasIndividualAdjustments(true);
     onChange(next);
     setAnnouncement(copyTargets.length > 0
       ? `${WEEKDAY_LABELS[editingDay]} hours saved and copied to ${copyTargets.length} ${copyTargets.length === 1 ? 'day' : 'days'}.`
@@ -406,6 +452,31 @@ export function WeeklyHoursEditor({
         <button type="button" onClick={onSkip}>Skip hours for now</button>
       </div>
       <p aria-live="polite" className="visually-hidden">{announcement}</p>
+      <Dialog
+        description="This applies the new regular schedule to the selected days and marks the other days Closed. Individual changes to those days will be replaced."
+        initialFocusSelector="[data-dialog-title]"
+        onClose={() => setPendingRegularHours(null)}
+        open={Boolean(pendingRegularHours)}
+        title="Replace your current hours?"
+        variant="bottom-sheet"
+      >
+        <footer className="onboarding-overlay-actions">
+          <button type="button" onClick={() => setPendingRegularHours(null)}>
+            Keep current hours
+          </button>
+          <button
+            className="is-primary"
+            type="button"
+            onClick={() => {
+              const next = pendingRegularHours;
+              setPendingRegularHours(null);
+              if (next) commitRegularHours(next);
+            }}
+          >
+            Replace hours
+          </button>
+        </footer>
+      </Dialog>
     </div>
   );
 }

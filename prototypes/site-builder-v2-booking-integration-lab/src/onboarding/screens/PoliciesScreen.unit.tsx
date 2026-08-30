@@ -1,9 +1,10 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createDanielaFixtureState } from '../fixtures';
+import { FeedbackProvider } from '../feedback/FeedbackProvider';
 import { createDefaultOnboardingState } from '../model/defaults';
 import type { OnboardingLabState } from '../model/types';
 import {
@@ -22,11 +23,13 @@ const policyState = (fixture: 'blank' | 'daniela'): OnboardingLabState => {
 
 function PoliciesHarness({
   initial,
+  onContinue = vi.fn(),
   onEditBooking,
   onSkip = vi.fn(),
   onState,
 }: {
   initial: OnboardingLabState;
+  onContinue?: () => void;
   onEditBooking?: () => void;
   onSkip?: () => void;
   onState?: (state: OnboardingLabState) => void;
@@ -40,7 +43,7 @@ function PoliciesHarness({
   return (
     <PoliciesScreen
       onBack={vi.fn()}
-      onContinue={vi.fn()}
+      onContinue={onContinue}
       onEditBooking={onEditBooking}
       onSkip={onSkip}
       onUpdate={update}
@@ -233,6 +236,48 @@ describe('PoliciesScreen', () => {
 
     await user.click(screen.getByRole('button', { name: 'Skip for now' }));
     expect(onSkip).toHaveBeenCalledOnce();
+  });
+
+  it('re-enables meaningful saved policies and keeps master-hidden copy truthful', async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+    let latest = policyState('blank');
+    latest.recipe.policiesEnabled = false;
+
+    render(
+      <FeedbackProvider testMode>
+        <PoliciesHarness
+          initial={latest}
+          onContinue={onContinue}
+          onState={(state) => { latest = state; }}
+        />
+      </FeedbackProvider>,
+    );
+
+    expect(screen.getByRole('heading', { name: 'Your saved policy wording' }))
+      .toBeVisible();
+    expect(screen.getAllByText('Saved, but not shown on your site').length)
+      .toBeGreaterThan(0);
+    expect(screen.queryByText('Shown on site')).not.toBeInTheDocument();
+    previewCard('Cancellations');
+    expect(screen.getByRole('switch', { name: 'Show Cancellations on my website' }))
+      .toBeDisabled();
+
+    await user.selectOptions(
+      screen.getByLabelText('How much notice do clients need to cancel?'),
+      '24_hours',
+    );
+    await user.selectOptions(
+      screen.getByLabelText('What happens if they cancel late?'),
+      'cancellation_fee',
+    );
+    await user.click(screen.getByRole('button', { name: 'Save policies' }));
+
+    expect(latest.recipe.policiesEnabled).toBe(true);
+    expect(onContinue).toHaveBeenCalledOnce();
+    await waitFor(() => expect(screen.getAllByRole('status').some((status) => (
+      status.textContent === 'Policies added to your site.'
+    ))).toBe(true));
   });
 
   it('does not call a partial or blank custom cancellation policy complete', async () => {

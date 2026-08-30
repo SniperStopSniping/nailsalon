@@ -103,8 +103,47 @@ describe('PhotoSocialScreen', () => {
     await user.type(screen.getByLabelText('Instagram handle'), '@islanail.studio');
     expect(screen.getByRole('complementary', { name: 'Profile preview' }))
       .toHaveTextContent('@islanail.studio');
-    expect(screen.getByText('You can enter @yourstudio or yourstudio.')).toBeVisible();
+    expect(screen.getByText('Enter a username or paste an Instagram profile link.'))
+      .toBeVisible();
     expect(screen.queryByLabelText('Website')).not.toBeInTheDocument();
+  });
+
+  it('normalizes a pasted Instagram profile URL and blocks invalid owner input', async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+
+    function Harness() {
+      const { profile, update } = useProfileHarness();
+      return (
+        <PhotoSocialScreen
+          profile={profile}
+          onBack={vi.fn()}
+          onContinue={onContinue}
+          onLogoSelected={vi.fn()}
+          onProfileChange={update}
+          onProfilePhotoSelected={vi.fn()}
+          onSkipPhoto={vi.fn()}
+        />
+      );
+    }
+
+    render(<Harness />);
+    const instagram = screen.getByLabelText('Instagram handle');
+    await user.type(instagram, 'https://www.instagram.com/islanailstudio/');
+    await user.tab();
+    expect(instagram).toHaveValue('islanailstudio');
+    expect(screen.getByRole('complementary', { name: 'Profile preview' }))
+      .toHaveTextContent('@islanailstudio');
+
+    await user.clear(instagram);
+    await user.type(instagram, 'isla nail studio');
+    expect(instagram).toHaveAttribute('aria-invalid', 'true');
+    expect(screen.getByText(
+      'Enter only your Instagram username, such as islanailstudio.',
+    )).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(onContinue).not.toHaveBeenCalled();
+    expect(instagram).toHaveFocus();
   });
 
   it('identifies migrated metadata-only images and offers a truthful reselect action', () => {
@@ -288,6 +327,57 @@ describe('LocationContactScreen', () => {
     expect(within(preview).getByText('Booking is the best way to reach us')).toBeVisible();
     expect(within(preview).queryByText('416-555-0100')).not.toBeInTheDocument();
     expect(screen.getByLabelText('Phone number clients can use')).toHaveValue('416-555-0100');
+  });
+
+  it('keeps invalid Instagram out of Contact completion and normalizes a valid URL', async () => {
+    const user = userEvent.setup();
+    const onContinue = vi.fn();
+
+    function Harness() {
+      const { profile, update } = useProfileHarness();
+      return (
+        <LocationContactScreen
+          profile={{
+            ...profile,
+            location: {
+              ...profile.location,
+              cityOrArea: 'Toronto',
+              locationType: 'salon_suite',
+            },
+          }}
+          onBack={vi.fn()}
+          onContinue={onContinue}
+          onProfileChange={update}
+          onSkipHours={vi.fn()}
+          previewTimestamp="2026-08-27T18:30:00.000Z"
+        />
+      );
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByRole('button', { name: /^Contact/u }));
+    await user.click(screen.getByRole('switch', {
+      name: 'Clients should use online booking only',
+    }));
+    const instagram = screen.getByLabelText('Instagram handle');
+    await user.type(instagram, 'instagram.com/isla/reels');
+    await user.click(screen.getByRole('button', { name: 'Done' }));
+    expect(instagram).toBeVisible();
+    await waitFor(() => expect(instagram).toHaveFocus());
+    expect(screen.getByRole('button', { name: /^Contact/u })).toHaveTextContent('Finish');
+    expect(screen.getByRole('button', { name: /^Contact/u })).not.toHaveTextContent('Complete');
+    await user.click(screen.getByRole('button', { name: 'Save and continue' }));
+    expect(onContinue).not.toHaveBeenCalled();
+    expect(instagram).toHaveFocus();
+
+    await user.clear(instagram);
+    await user.type(instagram, 'https://instagram.com/islanailstudio/');
+    await user.tab();
+    expect(instagram).toHaveValue('islanailstudio');
+    expect(screen.getByRole('button', { name: /^Contact/u })).toHaveTextContent(
+      'Instagram shown first',
+    );
+    expect(screen.getByRole('button', { name: /^Contact/u })).toHaveTextContent('Complete');
   });
 
   it('applies one regular schedule and keeps individual Closed controls', async () => {

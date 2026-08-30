@@ -152,6 +152,45 @@ describe('About onboarding screens', () => {
     expect(within(screen.getByRole('region', { name: 'About section live preview' }))
       .getByText('@islanail.studio')).toBeVisible();
   });
+
+  it('normalizes the shared Instagram value from About and blocks malformed input', async () => {
+    const user = userEvent.setup();
+    const initial = aboutState();
+    const onContinue = vi.fn();
+
+    function Harness() {
+      const [state, setState] = useState(initial);
+      return (
+        <AboutScreen
+          onBack={vi.fn()}
+          onContinue={onContinue}
+          onFullPreview={vi.fn()}
+          onUpdate={setState}
+          state={state}
+        />
+      );
+    }
+
+    render(<Harness />);
+    await user.click(screen.getByText('Details from your setup'));
+    const instagram = screen.getByRole('textbox', { name: 'Instagram handle' });
+    await user.clear(instagram);
+    await user.type(instagram, 'https://www.instagram.com/islanailstudio/');
+    await user.tab();
+    expect(instagram).toHaveValue('islanailstudio');
+    expect(within(screen.getByRole('region', { name: 'About section live preview' }))
+      .getByText('@islanailstudio')).toBeVisible();
+
+    await user.clear(instagram);
+    await user.type(instagram, 'instagram.com/islanailstudio/reels');
+    expect(instagram).toHaveAttribute('aria-invalid', 'true');
+    await user.click(screen.getByText('Details from your setup'));
+    expect(instagram).not.toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Choose an About design' }));
+    expect(onContinue).not.toHaveBeenCalled();
+    expect(instagram).toBeVisible();
+    await waitFor(() => expect(instagram).toHaveFocus());
+  });
 });
 
 describe('SiteStyleScreen', () => {

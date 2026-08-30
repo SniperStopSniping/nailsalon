@@ -74,6 +74,27 @@ describe('honest weekly-hours state', () => {
     expect(hasCompleteWeeklyHours(hours!)).toBe(true);
   });
 
+  it.each([
+    ['Monday–Friday', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday']],
+    ['Monday–Saturday', ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday']],
+    ['custom Mon/Wed/Fri', ['monday', 'wednesday', 'friday']],
+  ] as const)('replaces an existing weekly base with %s and closes every unselected day', (_, selectedDays) => {
+    const everyDay = applyRegularHours(
+      createDefaultWeeklyHours(),
+      ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'],
+      '10:00',
+      '19:00',
+    )!;
+    const narrowed = applyRegularHours(everyDay, selectedDays, '09:00', '18:00')!;
+    const selected = new Set<string>(selectedDays);
+
+    for (const weekday of ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'] as const) {
+      expect(narrowed.days[weekday]).toEqual(selected.has(weekday)
+        ? { close: '18:00', closed: false, open: '09:00' }
+        : { close: '', closed: true, open: '' });
+    }
+  });
+
   it('rejects partial, equal, and close-before-open intervals without changing the schedule', () => {
     const hours = createDefaultWeeklyHours();
 

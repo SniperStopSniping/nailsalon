@@ -288,6 +288,27 @@ export const getPolicyDisplayWording = (
   ? getResolvedPolicyWording(policies, sectionId)
   : '';
 
+/**
+ * Whether Save policies has at least one visible, customer-ready policy to
+ * publish. The master recipe flag deliberately is not part of this decision:
+ * saving meaningful content is what may turn that one existing flag back on.
+ */
+export const hasMeaningfulPublishablePolicies = (
+  policies: PoliciesDraft,
+): boolean => (
+  Object.keys(policies.copy) as PolicySectionId[]
+).some((sectionId) => (
+  policies.copy[sectionId].visible
+  && isPolicySectionComplete(policies, sectionId)
+  && (
+    sectionId !== 'deposits'
+    || getDepositPolicyMode(policies) !== 'none'
+    || Boolean(policies.copy.deposits.suggestedWording.trim())
+    || Boolean(policies.deposits.wordingOverride.trim())
+  )
+  && Boolean(getResolvedPolicyWording(policies, sectionId).trim())
+));
+
 export const refreshPolicySuggestedWording = (
   policies: PoliciesDraft,
 ): PoliciesDraft => {

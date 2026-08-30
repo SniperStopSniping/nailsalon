@@ -33,10 +33,15 @@ import {
   parseAboutListInput,
 } from '../model/about';
 import {
+  getInstagramInputError,
+  resolveInstagramUsername,
+} from '../model/contact';
+import {
   deriveDepositPolicySummary,
   derivePolicySuggestedWording,
   getDepositPolicyMode,
   getResolvedPolicyWording,
+  hasMeaningfulPublishablePolicies,
   isPolicySectionComplete,
   refreshPolicySuggestedWording,
   updateDepositDraft,
@@ -195,6 +200,7 @@ export function AboutScreen({
   const helperSuggestionId = useId();
   const aboutDisabledMessageId = useId();
   const aboutFieldsRef = useRef<HTMLFieldSetElement>(null);
+  const setupDetailsRef = useRef<HTMLDetailsElement>(null);
   const helperTriggerRef = useRef<HTMLButtonElement>(null);
   const [certificationsInput, setCertificationsInput] = useState(() =>
     formatAboutListInput(about.certifications));
@@ -228,6 +234,8 @@ export function AboutScreen({
         : state.profile.bookingPreferences.newClientStatus === 'waitlist_only'
           ? 'Waitlist only'
           : 'Not answered yet';
+  const instagramResolution = resolveInstagramUsername(state.profile.instagram);
+  const instagramError = getInstagramInputError(state.profile.instagram);
 
   useEffect(() => () => onWritingHelperOpenChange?.(false), [onWritingHelperOpenChange]);
 
@@ -388,6 +396,16 @@ export function AboutScreen({
           ?.focus({ preventScroll: true });
       });
     }
+  };
+  const commitInstagram = () => {
+    if (
+      instagramResolution.status !== 'resolved'
+      || instagramResolution.username === state.profile.instagram
+    ) return;
+    onUpdate((current) => updateProfile(current, (profile) => ({
+      ...profile,
+      instagram: instagramResolution.username,
+    })));
   };
   const toggleSpecialty = (specialty: string) => onUpdate((current) => updateProfile(
     current,
@@ -607,7 +625,7 @@ export function AboutScreen({
               />
             </div>
           </details>
-          <details className="onboarding-about-shared-details">
+          <details ref={setupDetailsRef} className="onboarding-about-shared-details">
             <summary>
               <span>
                 <strong>Details from your setup</strong>
@@ -645,9 +663,12 @@ export function AboutScreen({
               ) : null}
               <div className="onboarding-about-field-with-visibility">
                 <TextField
+                  data-instagram-input
+                  error={instagramError}
                   hint="This is the same Instagram used in your contact details. Editing it here updates it everywhere."
                   label="Instagram handle"
                   value={state.profile.instagram}
+                  onBlur={commitInstagram}
                   onChange={(event) => {
                     const instagram = event.target.value;
                     onUpdate((current) => updateProfile(current, (profile) => ({
@@ -656,7 +677,7 @@ export function AboutScreen({
                     })));
                   }}
                 />
-                {state.profile.instagram.trim() ? (
+                {instagramResolution.status === 'resolved' ? (
                   <AboutFieldVisibility
                     id="instagram"
                     label="Show Instagram in About"
@@ -685,6 +706,16 @@ export function AboutScreen({
         primaryLabel={state.recipe.aboutEnabled ? 'Choose an About design' : 'Continue without About'}
         onBack={onBack}
         onPrimary={() => {
+          if (state.recipe.aboutEnabled && instagramError) {
+            if (setupDetailsRef.current) setupDetailsRef.current.open = true;
+            window.requestAnimationFrame(() => {
+              aboutFieldsRef.current
+                ?.querySelector<HTMLInputElement>('[data-instagram-input]')
+                ?.focus({ preventScroll: true });
+            });
+            return;
+          }
+          commitInstagram();
           commitListInputs();
           onContinue();
         }}
@@ -806,6 +837,7 @@ function BooleanChoice({ label, onChange, value }: {
 }
 
 function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate' | 'state'>) {
+  const policiesShown = state.recipe.policiesEnabled;
   return (
     <div className="onboarding-policy-copy-list">
       {(Object.keys(POLICY_CARD_LABELS) as PolicySectionId[]).map((id) => {
@@ -845,10 +877,16 @@ function PolicyCopyCards({ onUpdate, state }: Pick<SharedScreenProps, 'onUpdate'
           <details className="onboarding-policy-copy-card" key={id}>
             <summary>
               {POLICY_CARD_LABELS[id]}
-              <span>{copy.visible ? 'Shown on site' : 'Not shown'}</span>
+              <span>{!policiesShown
+                ? 'Saved, but not shown on your site'
+                : copy.visible ? 'Shown on site' : 'Not shown'}</span>
             </summary>
             <NativeSwitch
               checked={copy.visible}
+              description={!policiesShown
+                ? 'Turn on Show policies on my website to publish this saved policy.'
+                : undefined}
+              disabled={!policiesShown}
               label={`Show ${POLICY_CARD_LABELS[id]} on my website`}
               onChange={(visible) => updateCopy({ visible })}
             />
@@ -886,6 +924,7 @@ export function PoliciesScreen({
   onSkip: () => void;
 }) {
   const policies = state.profile.policies;
+  const feedback = useFeedback();
   const depositMode = getDepositPolicyMode(policies);
   const depositSummary = deriveDepositPolicySummary(policies);
   const [openPolicy, setOpenPolicy] = useState<PolicySectionId | null>('cancellations');
@@ -1009,6 +1048,21 @@ export function PoliciesScreen({
       : 'Add any helpful appointment details';
   const togglePolicy = (id: PolicySectionId) => setOpenPolicy((current) =>
     current === id ? null : id);
+  const savePolicies = () => {
+    const hasPublishablePolicies = hasMeaningfulPublishablePolicies(policies);
+    if (hasPublishablePolicies) {
+      const wereAlreadyShown = state.recipe.policiesEnabled;
+      onUpdate((current) => ({
+        ...current,
+        recipe: { ...current.recipe, policiesEnabled: true },
+      }));
+      feedback.send({
+        kind: 'completed',
+        message: wereAlreadyShown ? 'Policies updated.' : 'Policies added to your site.',
+      });
+    }
+    onContinue();
+  };
 
   return (
     <div className="onboarding-screen onboarding-screen--split" data-screen="policies">
@@ -1455,14 +1509,22 @@ export function PoliciesScreen({
         </p>
       </div>
       <aside className="onboarding-screen__preview">
-        <div className="onboarding-preview-card"><h2>What your clients will see</h2><PolicyCopyCards onUpdate={onUpdate} state={state} /></div>
+        <div className="onboarding-preview-card">
+          <h2>{state.recipe.policiesEnabled
+            ? 'What your clients will see'
+            : 'Your saved policy wording'}</h2>
+          {!state.recipe.policiesEnabled ? (
+            <p role="status">Policies are saved, but not shown on your site.</p>
+          ) : null}
+          <PolicyCopyCards onUpdate={onUpdate} state={state} />
+        </div>
       </aside>
       <StickyOnboardingActions
         backLabel="Back"
         primaryLabel="Save policies"
         skipLabel="Skip for now"
         onBack={onBack}
-        onPrimary={onContinue}
+        onPrimary={savePolicies}
         onSkip={onSkip}
       />
     </div>

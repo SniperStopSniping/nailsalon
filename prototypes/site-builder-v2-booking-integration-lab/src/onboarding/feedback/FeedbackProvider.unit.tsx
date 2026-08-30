@@ -1,8 +1,12 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
+import { Dialog } from '../../ui/Dialog';
 import { FeedbackProvider } from './FeedbackProvider';
 import { LAB_FEEDBACK_CAPABILITY_PORT } from './lab-feedback-port';
 import { useFeedback } from './useFeedback';
@@ -29,6 +33,7 @@ function Harness() {
       <button type="button" onClick={() => feedback.send({
         kind: 'milestone',
         message: 'Your starting site is ready',
+        replaceVisual: true,
       })}>Starting site milestone</button>
       <button type="button" onClick={() => feedback.send({
         kind: 'stage_complete',
@@ -39,7 +44,41 @@ function Harness() {
         kind: 'added',
         message: 'Photo ready',
       })}>Visual only</button>
+      <button type="button" onClick={() => feedback.setVisualSuppressed(true)}>
+        Suppress visual
+      </button>
+      <button type="button" onClick={() => feedback.setVisualSuppressed(false)}>
+        Resume visual
+      </button>
+      <button type="button" onClick={() => feedback.clearQueuedVisuals()}>
+        Clear queued visuals
+      </button>
+      <button type="button" onClick={() => feedback.send({
+        kind: 'completed',
+        message: 'Gallery photo ready',
+      })}>Dialog feedback</button>
       <output aria-label="feedback results">{results.join(',')}</output>
+    </>
+  );
+}
+
+function SharedDialogHarness() {
+  const feedback = useFeedback();
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>Open shared dialog</button>
+      <Dialog onClose={() => setOpen(false)} open={open} title="Shared dialog">
+        <button
+          type="button"
+          onClick={() => feedback.send({
+            kind: 'added',
+            message: 'Service added inside dialog.',
+          })}
+        >
+          Add in dialog
+        </button>
+      </Dialog>
     </>
   );
 }
@@ -104,6 +143,19 @@ describe('FeedbackProvider', () => {
     }
   });
 
+  it('replaces an obsolete milestone when navigation reveals the starting site', () => {
+    render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Complete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Starting site milestone' }));
+
+    expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
+      'Your starting site is ready',
+    );
+    expect(document.querySelector('.onboarding-feedback')).not.toHaveTextContent(
+      'Everything you need is ready',
+    );
+  });
+
   it('supports visual and haptic confirmation without duplicating a local live status', () => {
     render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
     fireEvent.click(screen.getByRole('button', { name: 'Visual only' }));
@@ -111,6 +163,78 @@ describe('FeedbackProvider', () => {
     expect(document.querySelector('.onboarding-feedback')).toHaveTextContent('Photo ready');
     expect(document.querySelector('.visually-hidden[role="status"]'))
       .toBeEmptyDOMElement();
+  });
+
+  it('suppresses dialog visuals while preserving the polite announcement', async () => {
+    const user = userEvent.setup();
+    render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
+
+    await user.click(screen.getByRole('button', { name: 'Suppress visual' }));
+    await user.click(screen.getByRole('button', { name: 'Reset feedback' }));
+    await user.click(screen.getByRole('button', { name: 'Dialog feedback' }));
+
+    expect(document.querySelector('.onboarding-feedback')).toBeNull();
+    await waitFor(() => expect(document.querySelector('.visually-hidden[role="status"]'))
+      .toHaveTextContent('Gallery photo ready'));
+
+    await user.click(screen.getByRole('button', { name: 'Resume visual' }));
+    await user.click(screen.getByRole('button', { name: 'Add service' }));
+    expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
+      'Russian Manicure added.',
+    );
+  });
+
+  it('uses the shared Dialog lifecycle to suppress local sheet visuals', async () => {
+    const user = userEvent.setup();
+    render(<FeedbackProvider testMode><SharedDialogHarness /></FeedbackProvider>);
+
+    await user.click(screen.getByRole('button', { name: 'Open shared dialog' }));
+    expect(document.documentElement).toHaveClass('luster-dialog-open');
+    await user.click(screen.getByRole('button', { name: 'Add in dialog' }));
+
+    expect(document.querySelector('.onboarding-feedback')).toBeNull();
+    await waitFor(() => expect(document.querySelector('.visually-hidden[role="status"]'))
+      .toHaveTextContent('Service added inside dialog.'));
+
+    await user.click(screen.getByRole('button', { name: 'Close Shared dialog' }));
+    await waitFor(() => expect(document.documentElement).not.toHaveClass('luster-dialog-open'));
+  });
+
+  it('discards obsolete queued milestones without clearing the current visual', () => {
+    vi.useFakeTimers();
+    try {
+      render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
+      fireEvent.click(screen.getByRole('button', { name: 'Starting site milestone' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Booking stage milestone' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Clear queued visuals' }));
+
+      expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
+        'Your starting site is ready',
+      );
+      act(() => vi.advanceTimersByTime(2_800));
+      expect(document.querySelector('.onboarding-feedback')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('uses shared footer clearance and hides shell visuals whenever a modal is active', () => {
+    const css = readFileSync(
+      join(process.cwd(), 'src/onboarding/feedback/feedback.css'),
+      'utf8',
+    );
+
+    expect(css).toMatch(/--onboarding-feedback-footer-clearance: 124px/u);
+    expect(css).toMatch(
+      /bottom: max\([\s\S]*var\(--onboarding-feedback-footer-clearance\)[\s\S]*var\(--onboarding-feedback-footer-gap\)/u,
+    );
+    expect(css).toMatch(
+      /\.onboarding-modal-open \.onboarding-feedback \{\s*display: none;/u,
+    );
+    expect(css).toMatch(/\.luster-dialog-open \.onboarding-feedback,/u);
+    expect(css).toMatch(
+      /@media \(max-height: 400px\)[\s\S]*--onboarding-feedback-footer-clearance: 72px;/u,
+    );
   });
 });
 

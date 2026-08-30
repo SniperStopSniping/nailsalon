@@ -163,15 +163,11 @@ export const applyRegularHours = (
 ): WeeklyHoursDraft | null => {
   if (selectedDays.length === 0 || getHoursIntervalError(open, close)) return null;
   const selected = new Set(selectedDays);
-  const initializeClosedDays = hours.setupState !== 'configured';
   const days = Object.fromEntries(WEEKDAYS.map((weekday) => {
     if (selected.has(weekday)) {
       return [weekday, { close, closed: false, open }];
     }
-    if (initializeClosedDays) {
-      return [weekday, { close: '', closed: true, open: '' }];
-    }
-    return [weekday, { ...hours.days[weekday] }];
+    return [weekday, { close: '', closed: true, open: '' }];
   })) as WeeklyHoursDraft['days'];
   return {
     ...hours,

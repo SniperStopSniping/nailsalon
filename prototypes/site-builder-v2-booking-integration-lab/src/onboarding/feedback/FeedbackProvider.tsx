@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { DIALOG_ACTIVITY_EVENT } from '../../ui/dialog-events';
 import { LAB_FEEDBACK_CAPABILITY_PORT } from './lab-feedback-port';
 import type {
   FeedbackController,
@@ -55,6 +56,9 @@ export function FeedbackProvider({
   const [announcement, setAnnouncement] = useState('');
   const [configuredReducedMotion, setConfiguredReducedMotion] = useState(false);
   const configuredReducedMotionRef = useRef(false);
+  const dialogVisualSuppressedRef = useRef(false);
+  const manualVisualSuppressedRef = useRef(false);
+  const announcementFrameRef = useRef<number | null>(null);
   const oneTimeKeysRef = useRef(new Set<string>());
   const queuedMajorFeedbackRef = useRef<FeedbackRequest[]>([]);
   const lastAnnouncementRef = useRef({ at: 0, message: '' });
@@ -65,6 +69,10 @@ export function FeedbackProvider({
   const motionReduced = reducedMotion || configuredReducedMotion || systemReducedMotion;
 
   const clear = useCallback(() => {
+    if (announcementFrameRef.current !== null) {
+      window.cancelAnimationFrame(announcementFrameRef.current);
+      announcementFrameRef.current = null;
+    }
     queuedMajorFeedbackRef.current = [];
     visibleRef.current = null;
     setVisible(null);
@@ -76,7 +84,19 @@ export function FeedbackProvider({
     setConfiguredReducedMotion(options.reducedMotion);
   }, []);
 
+  const setVisualSuppressed = useCallback((suppressed: boolean) => {
+    manualVisualSuppressedRef.current = suppressed;
+    if (!suppressed) return;
+    queuedMajorFeedbackRef.current = [];
+    visibleRef.current = null;
+    setVisible(null);
+  }, []);
+
   const resetSession = useCallback(() => {
+    if (announcementFrameRef.current !== null) {
+      window.cancelAnimationFrame(announcementFrameRef.current);
+      announcementFrameRef.current = null;
+    }
     oneTimeKeysRef.current.clear();
     queuedMajorFeedbackRef.current = [];
     lastAnnouncementRef.current = { at: 0, message: '' };
@@ -104,9 +124,16 @@ export function FeedbackProvider({
       if (!isDuplicate) {
         lastAnnouncementRef.current = { at: now, message: request.message };
         setAnnouncement('');
-        window.requestAnimationFrame(() => setAnnouncement(request.message ?? ''));
+        if (announcementFrameRef.current !== null) {
+          window.cancelAnimationFrame(announcementFrameRef.current);
+        }
+        announcementFrameRef.current = window.requestAnimationFrame(() => {
+          announcementFrameRef.current = null;
+          setAnnouncement(request.message ?? '');
+        });
       }
     }
+    if (manualVisualSuppressedRef.current || dialogVisualSuppressedRef.current) return;
     idRef.current += 1;
     const nextVisible = {
       id: idRef.current,
@@ -118,9 +145,43 @@ export function FeedbackProvider({
     setVisible(nextVisible);
   }, [reducedMotion, systemReducedMotion, testMode]);
 
+  useEffect(() => {
+    const suppressDialogVisuals = () => {
+      queuedMajorFeedbackRef.current = [];
+      visibleRef.current = null;
+      setVisible(null);
+    };
+    const handleDialogActivity = (event: Event) => {
+      const active = Boolean((event as CustomEvent<{ active?: boolean }>).detail?.active);
+      dialogVisualSuppressedRef.current = active;
+      if (active) suppressDialogVisuals();
+    };
+    dialogVisualSuppressedRef.current = document.documentElement.classList.contains(
+      'luster-dialog-open',
+    );
+    if (dialogVisualSuppressedRef.current) suppressDialogVisuals();
+    window.addEventListener(DIALOG_ACTIVITY_EVENT, handleDialogActivity);
+    return () => {
+      window.removeEventListener(DIALOG_ACTIVITY_EVENT, handleDialogActivity);
+      if (announcementFrameRef.current !== null) {
+        window.cancelAnimationFrame(announcementFrameRef.current);
+        announcementFrameRef.current = null;
+      }
+    };
+  }, []);
+
+  const clearQueuedVisuals = useCallback(() => {
+    queuedMajorFeedbackRef.current = [];
+  }, []);
+
   const send = useCallback((request: FeedbackRequest): boolean => {
     if (request.onceKey && oneTimeKeysRef.current.has(request.onceKey)) return false;
     if (request.onceKey) oneTimeKeysRef.current.add(request.onceKey);
+    if (request.replaceVisual) {
+      queuedMajorFeedbackRef.current = [];
+      present(request);
+      return true;
+    }
     if (
       request.message
       && visibleRef.current
@@ -154,10 +215,12 @@ export function FeedbackProvider({
 
   const controller = useMemo<FeedbackController>(() => ({
     clear,
+    clearQueuedVisuals,
     configure,
     resetSession,
     send,
-  }), [clear, configure, resetSession, send]);
+    setVisualSuppressed,
+  }), [clear, clearQueuedVisuals, configure, resetSession, send, setVisualSuppressed]);
 
   return (
     <FeedbackContext.Provider value={controller}>

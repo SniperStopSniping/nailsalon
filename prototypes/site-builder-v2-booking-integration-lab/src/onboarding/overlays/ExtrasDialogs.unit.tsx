@@ -420,9 +420,8 @@ describe('optional Gallery and Canva surfaces', () => {
     expect(alert).toHaveTextContent('1 image was added and 1 was skipped.');
     expect(alert).toHaveTextContent('corrupt.png');
     expect(alert).toHaveTextContent('This photo couldn’t be read. Try selecting it again or choose another copy.');
-    expect(screen.getByText('1 photo ready.', {
-      selector: '.onboarding-feedback span',
-    })).toBeVisible();
+    expect(document.querySelector('.onboarding-feedback')).toBeNull();
+    expect(within(dialog).getByText('1 photo ready')).toBeVisible();
     expect(latestState.gallery.source).toBe(null);
     expect(latestState.gallery.images).toEqual([]);
     expect(within(dialog).getByText('valid.png')).toBeVisible();
@@ -531,7 +530,9 @@ describe('optional Gallery and Canva surfaces', () => {
     );
     expect(within(dialog).getByRole('button', { name: 'Add Gallery' })).toBeDisabled();
 
-    await user.click(within(alert).getByRole('button', { name: 'Retry' }));
+    const retry = within(alert).getByRole('button', { name: 'Retry' });
+    expect(retry).toHaveClass('is-primary');
+    await user.click(retry);
     expect(await within(dialog).findByText('1 photo ready')).toBeVisible();
     expect(within(dialog).queryByText(/private tab/u)).not.toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: 'Add Gallery' })).toBeEnabled();

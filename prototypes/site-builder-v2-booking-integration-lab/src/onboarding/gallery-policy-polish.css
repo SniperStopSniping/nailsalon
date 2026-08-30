@@ -69,6 +69,12 @@
   opacity: 0.42;
 }
 
+.onboarding-gallery-draft-list__actions button.is-primary {
+  border-color: var(--onboarding-accent);
+  color: white;
+  background: var(--onboarding-accent);
+}
+
 .onboarding-extra-card > button {
   border: 1px solid color-mix(in srgb, var(--onboarding-accent) 55%, var(--onboarding-line));
   color: var(--onboarding-accent-dark);

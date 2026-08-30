@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -236,28 +236,41 @@ describe('ImageUploadField', () => {
     expect(screen.getByRole('button', { name: 'Remove' })).toBeEnabled();
   });
 
-  it('keeps a precise failed row with Retry and Choose another image', async () => {
+  it.each([
+    ['Profile photo', 'Choose profile photo'],
+    ['Logo', 'Choose logo'],
+  ])('keeps a polished, non-duplicated %s failure recovery state', async (label, chooseLabel) => {
     const user = userEvent.setup();
     const onSelect = vi.fn(async () => {
       throw new Error('This private tab isn’t allowing Luster to save images. Open this page in a regular tab and try again.');
     });
     render(
       <ImageUploadField
-        label="Gallery photo"
+        chooseLabel={chooseLabel}
+        label={label}
         onSelect={onSelect}
       />,
     );
 
     await user.upload(
-      screen.getByLabelText('Gallery photo'),
+      screen.getByLabelText(label),
       new File(['jpeg'], 'IMG_5222.jpeg', { type: 'image/jpeg' }),
     );
 
     const error = await screen.findByRole('alert');
     expect(error).toHaveTextContent('IMG_5222.jpeg');
     expect(error).toHaveTextContent('private tab');
-    await user.click(screen.getByRole('button', { name: 'Retry' }));
+    const retry = within(error).getByRole('button', { name: 'Retry' });
+    const chooseAnother = within(error).getByRole('button', { name: 'Choose another image' });
+    expect(retry).toHaveClass('is-primary');
+    expect(chooseAnother).toHaveClass('is-secondary');
+    expect(within(error).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Retry',
+      'Choose another image',
+    ]);
+    expect(screen.queryByRole('button', { name: chooseLabel })).not.toBeInTheDocument();
+    await user.click(retry);
     await waitFor(() => expect(onSelect).toHaveBeenCalledTimes(2));
-    expect(screen.getByRole('button', { name: 'Choose another image' })).toBeEnabled();
+    expect(chooseAnother).toBeEnabled();
   });
 });

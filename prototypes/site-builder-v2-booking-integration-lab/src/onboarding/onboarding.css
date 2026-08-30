@@ -1219,6 +1219,30 @@ body.onboarding-modal-open {
 
 .onboarding-image-upload__failure button {
   min-height: 44px;
+  padding: 9px 13px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 11px;
+  color: var(--onboarding-accent-dark);
+  background: var(--onboarding-surface);
+  font: inherit;
+  font-weight: 780;
+  appearance: none;
+}
+
+.onboarding-image-upload__failure button.is-primary {
+  border-color: var(--onboarding-accent);
+  color: white;
+  background: var(--onboarding-accent);
+}
+
+.onboarding-image-upload__failure button:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--onboarding-accent) 72%, white);
+  outline-offset: 2px;
+}
+
+.onboarding-image-upload__failure button:disabled {
+  cursor: wait;
+  opacity: 0.58;
 }
 
 @keyframes onboarding-upload-spin {
@@ -2455,6 +2479,16 @@ body.onboarding-modal-open {
   container: onboarding-preview-host / inline-size;
 }
 
+.onboarding-preview-measurement-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: var(--preview-target-height);
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .onboarding-preview-stage.is-fit-available {
   height: var(--preview-stage-height);
   min-height: 0;
@@ -3423,11 +3457,13 @@ body.onboarding-modal-open {
 }
 
 .onboarding-preview-overlay .onboarding-preview-stage {
-  height: min(
-    var(--preview-stage-height),
-    clamp(210px, 64svh, 600px)
-  );
+  height: var(--preview-stage-height);
   min-height: 0;
+}
+
+.onboarding-preview-overlay .onboarding-preview-measurement-host {
+  height: min(var(--preview-target-height), clamp(210px, 64vh, 600px));
+  height: min(var(--preview-target-height), clamp(210px, 64dvh, 600px));
 }
 
 .onboarding-preview-overlay .onboarding-device-switcher {
@@ -4685,7 +4721,11 @@ body.onboarding-modal-open {
   }
 
   .onboarding-preview-overlay .onboarding-preview-stage {
-    height: min(var(--preview-stage-height), calc(100dvh - 120px));
+    height: var(--preview-stage-height);
+  }
+
+  .onboarding-preview-overlay .onboarding-preview-measurement-host {
+    height: min(var(--preview-target-height), calc(100dvh - 120px));
   }
 
   .onboarding-preview-overlay .onboarding-device-switcher {

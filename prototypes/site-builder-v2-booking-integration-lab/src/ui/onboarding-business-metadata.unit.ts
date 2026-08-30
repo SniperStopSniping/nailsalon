@@ -48,7 +48,7 @@ describe('Builder onboarding business metadata adapter', () => {
       },
       {
         actionLabel: 'Instagram',
-        detail: '@islanail.studio',
+        detail: 'islanail.studio',
         href: 'https://www.instagram.com/islanail.studio/',
         method: 'instagram',
       },
@@ -87,7 +87,7 @@ describe('Builder onboarding business metadata adapter', () => {
       },
       {
         actionLabel: 'Instagram',
-        detail: '@islanail.studio',
+        detail: 'islanail.studio',
         href: 'https://www.instagram.com/islanail.studio/',
         preferred: false,
       },

@@ -4,6 +4,8 @@
   --luster-motion-complete: 280ms;
   --luster-motion-stage: 440ms;
   --luster-motion-reveal: 680ms;
+  --onboarding-feedback-footer-clearance: 124px;
+  --onboarding-feedback-footer-gap: 16px;
 }
 
 .onboarding-app button,
@@ -24,7 +26,14 @@
   position: fixed;
   z-index: 1500;
   right: max(16px, env(safe-area-inset-right));
-  bottom: max(20px, calc(env(safe-area-inset-bottom) + 14px));
+  bottom: max(
+    20px,
+    calc(
+      env(safe-area-inset-bottom)
+      + var(--onboarding-feedback-footer-clearance)
+      + var(--onboarding-feedback-footer-gap)
+    )
+  );
   display: flex;
   max-width: min(360px, calc(100vw - 32px));
   min-height: 48px;
@@ -40,6 +49,11 @@
   font-weight: 760;
   pointer-events: none;
   animation: onboarding-feedback-in var(--luster-motion-complete) cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.luster-dialog-open .onboarding-feedback,
+.onboarding-modal-open .onboarding-feedback {
+  display: none;
 }
 
 .onboarding-feedback.is-stage_complete,
@@ -96,4 +110,17 @@
 .onboarding-feedback.is-reduced-motion,
 .onboarding-feedback.is-reduced-motion .onboarding-feedback__sparkles {
   animation: none;
+}
+
+@media (min-width: 480px) {
+  :root {
+    --onboarding-feedback-footer-clearance: 66px;
+  }
+}
+
+@media (max-height: 400px) {
+  :root {
+    --onboarding-feedback-footer-clearance: 72px;
+    --onboarding-feedback-footer-gap: 12px;
+  }
 }

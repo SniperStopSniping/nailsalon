@@ -13,12 +13,15 @@ export type FeedbackRequest = {
   kind: FeedbackKind;
   message?: string;
   onceKey?: string;
+  replaceVisual?: boolean;
   targetId?: string;
 };
 
 export type FeedbackController = {
   clear: () => void;
+  clearQueuedVisuals: () => void;
   configure: (options: { reducedMotion: boolean }) => void;
   resetSession: () => void;
   send: (request: FeedbackRequest) => boolean;
+  setVisualSuppressed: (suppressed: boolean) => void;
 };

@@ -438,6 +438,7 @@ export function OnboardingApp({
   const previousEssentialsRemainingRef = useRef(getEssentialsLeft(onboarding.state));
   const feedback = useFeedback();
   const screen = onboarding.state.progress.currentScreen;
+  const previousFeedbackScreenRef = useRef(screen);
   const aboutEnabled = onboarding.state.recipe.aboutEnabled;
   const builderHasBeenEntered = onboarding.state.planOffer.planIntent !== null
     || onboarding.state.progress.sessionStatus === 'builder'
@@ -511,6 +512,12 @@ export function OnboardingApp({
     onboarding.updateState,
   ]);
 
+  useEffect(() => {
+    if (previousFeedbackScreenRef.current === screen) return;
+    previousFeedbackScreenRef.current = screen;
+    feedback.clearQueuedVisuals();
+  }, [feedback, screen]);
+
   const updateState: OnboardingStateUpdater = useCallback((update) => {
     onboarding.updateState((current) => withObservableRecipeEvents(current, update(current)));
   }, [onboarding.updateState]);
@@ -566,12 +573,14 @@ export function OnboardingApp({
   );
 
   useEffect(() => {
+    feedback.setVisualSuppressed(modalOpen);
     if (surfaceRef.current) surfaceRef.current.inert = modalOpen;
     document.documentElement.classList.toggle('onboarding-modal-open', modalOpen);
     return () => {
       document.documentElement.classList.remove('onboarding-modal-open');
+      feedback.setVisualSuppressed(false);
     };
-  }, [modalOpen]);
+  }, [feedback, modalOpen]);
 
   useEffect(() => {
     if (onboarding.state.progress.sessionStatus !== 'active') return undefined;
@@ -939,6 +948,7 @@ export function OnboardingApp({
       kind: 'milestone',
       message: 'Your starting site is ready',
       onceKey: 'starting_site_ready',
+      replaceVisual: true,
     });
     setError('');
   };

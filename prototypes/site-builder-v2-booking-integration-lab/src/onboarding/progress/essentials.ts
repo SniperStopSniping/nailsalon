@@ -3,7 +3,10 @@ import type {
   OnboardingScreenId,
   OnboardingStage,
 } from '../model/types';
-import { contactMethodHasValue } from '../model/contact';
+import {
+  contactMethodHasValue,
+  resolveInstagramUsername,
+} from '../model/contact';
 
 export const ESSENTIAL_IDS = [
   'business',
@@ -27,6 +30,7 @@ const nonBlank = (value: string): boolean => value.trim().length > 0;
 
 export const hasPublicContactMethod = (state: OnboardingLabState): boolean => {
   const { profile } = state;
+  if (resolveInstagramUsername(profile.instagram).status === 'invalid') return false;
   return profile.bookingOnlyContact
     || contactMethodHasValue(profile, profile.preferredContact);
 };

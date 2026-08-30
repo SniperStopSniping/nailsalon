@@ -9,7 +9,10 @@ import {
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
-import { isEscapeHandledInsideActiveControl } from './dialog-events';
+import {
+  announceDialogActivity,
+  isEscapeHandledInsideActiveControl,
+} from './dialog-events';
 
 type DialogProps = {
   children: ReactNode;
@@ -129,6 +132,7 @@ export function Dialog({
     const previouslyFocused = document.activeElement as HTMLElement | null;
     const stackToken = stackTokenRef.current;
     openDialogStack.push(stackToken);
+    announceDialogActivity(openDialogStack.length);
     if (!nonModal) {
       acquireModalScrollLock(stackToken);
     }
@@ -205,6 +209,7 @@ export function Dialog({
       if (stackIndex >= 0) {
         openDialogStack.splice(stackIndex, 1);
       }
+      announceDialogActivity(openDialogStack.length);
       if (!restoreFocusOnCloseRef.current) {
         return;
       }

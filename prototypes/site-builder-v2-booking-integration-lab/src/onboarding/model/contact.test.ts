@@ -5,8 +5,10 @@ import {
   contactMethodHasValue,
   getAvailableContactMethods,
   getCoherentPreferredContact,
+  getInstagramInputError,
   getPublicContactActions,
   getPublicContactPreview,
+  resolveInstagramUsername,
 } from './contact';
 
 describe('client contact model', () => {
@@ -101,5 +103,53 @@ describe('client contact model', () => {
       { label: 'Instagram', preferred: false },
       { label: 'Email', preferred: false },
     ]);
+  });
+
+  it.each([
+    ['islanailstudio', 'islanailstudio'],
+    ['@islanailstudio', 'islanailstudio'],
+    ['instagram.com/islanailstudio', 'islanailstudio'],
+    ['www.instagram.com/islanailstudio', 'islanailstudio'],
+    ['https://instagram.com/islanailstudio', 'islanailstudio'],
+    ['https://www.instagram.com/islanailstudio/', 'islanailstudio'],
+    ['  @Isla.Nails_Studio  ', 'Isla.Nails_Studio'],
+  ])('normalizes the accepted Instagram owner input %s', (input, username) => {
+    expect(resolveInstagramUsername(input)).toEqual({
+      status: 'resolved',
+      username,
+    });
+    expect(getInstagramInputError(input)).toBeUndefined();
+  });
+
+  it.each([
+    ['isla nail studio', 'Enter only your Instagram username'],
+    ['isla-nails', 'Enter only your Instagram username'],
+    ['https://instagram.com/islanailstudio/reels', 'Enter only your Instagram username'],
+    ['http://instagram.com/islanailstudio', 'Enter only your Instagram username'],
+    ['instagram.com/', 'Enter only your Instagram username'],
+    ['abcdefghijklmnopqrstuvwxyz12345', 'Instagram usernames can be up to 30 characters'],
+  ])('rejects invalid Instagram owner input %s', (input, message) => {
+    expect(resolveInstagramUsername(input).status).toBe('invalid');
+    expect(getInstagramInputError(input)).toContain(message);
+  });
+
+  it('excludes an invalid Instagram value from completeness, preference, and public actions', () => {
+    const profile = createDefaultBusinessProfile();
+    profile.bookingOnlyContact = false;
+    profile.instagram = 'instagram.com/isla/reels';
+    profile.preferredContact = 'instagram';
+
+    expect(contactMethodHasValue(profile, 'instagram')).toBe(false);
+    expect(getCoherentPreferredContact(profile)).toBeNull();
+    expect(getPublicContactActions(profile)).toEqual([]);
+
+    profile.instagram = 'https://www.instagram.com/islanailstudio/';
+    expect(contactMethodHasValue(profile, 'instagram')).toBe(true);
+    expect(getCoherentPreferredContact(profile)).toBe('instagram');
+    expect(getPublicContactActions(profile)[0]).toMatchObject({
+      detail: 'islanailstudio',
+      href: 'https://www.instagram.com/islanailstudio/',
+      preferred: true,
+    });
   });
 });

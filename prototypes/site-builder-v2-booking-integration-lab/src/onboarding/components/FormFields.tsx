@@ -461,12 +461,12 @@ export function ImageUploadField({
           <span>{failure}</span>
           <div>
             {retryFileRef.current ? (
-              <button disabled={processing} type="button" onClick={() => {
+              <button className="is-primary" disabled={processing} type="button" onClick={() => {
                 const file = retryFileRef.current;
                 if (file) void processFile(file);
               }}>Retry</button>
             ) : null}
-            <button disabled={processing} type="button" onClick={() => inputRef.current?.click()}>Choose another image</button>
+            <button className="is-secondary" disabled={processing} type="button" onClick={() => inputRef.current?.click()}>Choose another image</button>
           </div>
         </div>
       ) : null}
@@ -479,14 +479,16 @@ export function ImageUploadField({
         type="file"
         onChange={handleChange}
       />
-      <div className="onboarding-image-upload__actions">
-        <button disabled={processing} type="button" onClick={() => inputRef.current?.click()}>
-          {needsReselect ? 'Select again' : currentLabel ? 'Replace' : chooseLabel}
-        </button>
-        {currentLabel && onRemove ? (
-          <button disabled={processing} type="button" onClick={remove}>Remove</button>
-        ) : null}
-      </div>
+      {!failure ? (
+        <div className="onboarding-image-upload__actions">
+          <button disabled={processing} type="button" onClick={() => inputRef.current?.click()}>
+            {needsReselect ? 'Select again' : currentLabel ? 'Replace' : chooseLabel}
+          </button>
+          {currentLabel && onRemove ? (
+            <button disabled={processing} type="button" onClick={remove}>Remove</button>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

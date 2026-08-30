@@ -6,7 +6,10 @@ import type {
 } from '../integrations/contracts/booking-preferences';
 import type { ServiceMenuSelectionDraft } from '../integrations/contracts/service-menu';
 import { createDefaultOnboardingState } from '../model/defaults';
-import { getCoherentPreferredContact } from '../model/contact';
+import {
+  getCoherentPreferredContact,
+  resolveInstagramUsername,
+} from '../model/contact';
 import {
   ONBOARDING_SCHEMA_VERSION,
   type BusinessProfileDraft,
@@ -692,6 +695,11 @@ const migrateBusinessProfile = (
     },
   } satisfies BusinessProfileDraft;
 
+  const instagram = resolveInstagramUsername(migratedProfile.instagram);
+  if (instagram.status === 'resolved') {
+    migratedProfile.instagram = instagram.username;
+  }
+
   if (!migratedProfile.bookingOnlyContact) {
     migratedProfile.preferredContact = getCoherentPreferredContact(migratedProfile);
   }
@@ -825,9 +833,18 @@ export const parseOnboardingState = (
       status: 'error',
     };
   }
+  const instagram = resolveInstagramUsername(normalizedValue.profile.instagram);
+  const profile = {
+    ...normalizedValue.profile,
+    ...(instagram.status === 'resolved' ? { instagram: instagram.username } : {}),
+  };
+  if (!profile.bookingOnlyContact) {
+    profile.preferredContact = getCoherentPreferredContact(profile);
+  }
   return {
     state: {
       ...normalizedValue,
+      profile,
       reviewOptions: {
         ...normalizedValue.reviewOptions,
         feedbackMilestones: normalizeFeedbackMilestones(
