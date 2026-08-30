@@ -6,6 +6,7 @@ import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-i
 import { SITE_BUILDER_STORAGE_KEY } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
 import { saveOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
+import type { OnboardingAuthProviderAvailability } from './auth-providers';
 import type { OnboardingClaimSuccess } from './contracts';
 import {
   createOnboardingIntegrationFlow,
@@ -13,27 +14,53 @@ import {
 } from './flow-storage';
 import { OnboardingV1Integration } from './OnboardingV1Integration';
 
+type MockedClerkUser = {
+  primaryEmailAddress: {
+    attemptVerification: ReturnType<typeof vi.fn>;
+    emailAddress: string;
+    prepareVerification: ReturnType<typeof vi.fn>;
+    verification: { status: string };
+  };
+  reload: ReturnType<typeof vi.fn>;
+} | null;
+
 const mocks = vi.hoisted(() => ({
   auth: { isLoaded: true, isSignedIn: false },
   claim: vi.fn(),
-  cleanupMedia: vi.fn(),
   claimMedia: vi.fn(),
+  cleanupMedia: vi.fn(),
+  clerk: {
+    addListener: vi.fn(() => () => undefined),
+    session: null as unknown,
+    setActive: vi.fn(),
+  },
   lab: {
     document: null as unknown,
     getReachableAssetIds: vi.fn(() => []),
   },
   savePlan: vi.fn(),
+  signIn: { authenticateWithRedirect: vi.fn(), create: vi.fn() },
+  signUp: { create: vi.fn(), prepareEmailAddressVerification: vi.fn() },
+  userState: { isLoaded: true, user: null as unknown },
 }));
 
+const verifiedClerkUser = (): NonNullable<MockedClerkUser> => ({
+  primaryEmailAddress: {
+    attemptVerification: vi.fn(),
+    emailAddress: 'owner@example.com',
+    prepareVerification: vi.fn().mockResolvedValue({}),
+    verification: { status: 'verified' },
+  },
+  reload: vi.fn().mockResolvedValue(undefined),
+});
+
 vi.mock('@clerk/nextjs', () => ({
-  SignIn: () => <div data-testid="clerk-sign-in">Clerk sign in</div>,
-  SignUp: () => (
-    <div data-testid="clerk-sign-up">
-      <h1>Create your account</h1>
-      Clerk sign up
-    </div>
-  ),
+  AuthenticateWithRedirectCallback: () => null,
   useAuth: () => mocks.auth,
+  useClerk: () => mocks.clerk,
+  useSignIn: () => ({ isLoaded: true, setActive: vi.fn(), signIn: mocks.signIn }),
+  useSignUp: () => ({ isLoaded: true, setActive: vi.fn(), signUp: mocks.signUp }),
+  useUser: () => mocks.userState,
 }));
 
 vi.mock('../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/integration/CustomDesignAssetProvider', () => ({
@@ -47,17 +74,30 @@ vi.mock('../../../prototypes/site-builder-v2-booking-integration-lab/src/ui/useL
   useLabDocument: () => mocks.lab,
 }));
 
-vi.mock('./client', () => ({
-  claimOnboardingDraft: (...args: unknown[]) => mocks.claim(...args),
-  getOnboardingDraftClaimStatus: vi.fn(),
-  saveOnboardingPlanIntent: (...args: unknown[]) => mocks.savePlan(...args),
-}));
+vi.mock('./client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('./client')>();
+
+  return {
+    ...actual,
+    claimOnboardingDraft: (...args: unknown[]) => mocks.claim(...args),
+    getOnboardingDraftClaimStatus: vi.fn(),
+    resolveOnboardingOrganization: vi.fn(),
+    saveOnboardingPlanIntent: (...args: unknown[]) => mocks.savePlan(...args),
+  };
+});
 
 vi.mock('./media-claim-client', () => ({
   claimOnboardingMedia: (...args: unknown[]) => mocks.claimMedia(...args),
   cleanupVerifiedUnreferencedOnboardingMedia: (...args: unknown[]) => mocks.cleanupMedia(...args),
   collectOnboardingMediaReferences: () => [],
 }));
+
+const ALL_PROVIDERS: OnboardingAuthProviderAvailability = {
+  apple: true,
+  email: true,
+  google: true,
+  source: 'clerk-environment',
+};
 
 const savedSite: OnboardingClaimSuccess = {
   claimId: 'claim-id',
@@ -100,10 +140,15 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     window.history.replaceState({}, '', '/en/onboarding-v1?account=1');
     mocks.auth.isLoaded = true;
     mocks.auth.isSignedIn = false;
+    mocks.userState.isLoaded = true;
+    mocks.userState.user = null;
+    mocks.clerk.session = null;
     mocks.claim.mockReset();
     mocks.claimMedia.mockReset();
     mocks.cleanupMedia.mockReset();
     mocks.savePlan.mockReset();
+    mocks.signIn.create.mockReset();
+    mocks.signUp.create.mockReset();
     seedAcceptedReview();
     saveOnboardingIntegrationFlow({
       ...createOnboardingIntegrationFlow(),
@@ -111,28 +156,87 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
     });
   });
 
-  it('shows one owner heading and delegates the unauthenticated gate to Clerk', async () => {
-    render(<OnboardingV1Integration locale="en" />);
+  it('shows the premium gate with every configured provider and one owner heading', async () => {
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
     expect(await screen.findByRole('heading', {
       level: 1,
-      name: 'Create your free Luster account',
+      name: 'Save your site. Keep building anywhere.',
     })).toBeVisible();
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
-    expect(screen.getByTestId('clerk-sign-up')).toBeVisible();
-    expect(screen.getByText('Isla Nail Studio is ready to save')).toBeVisible();
-    expect(screen.getByText(/continue on any device/u)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Continue with Apple' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Continue with Google' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Continue with email' })).toBeVisible();
+    expect(screen.queryByText(/facebook/iu)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Log in' })).toBeVisible();
+    expect(screen.getByText(/is ready to save/u)).toBeVisible();
+    expect(screen.getByText(/No payment required/u)).toBeVisible();
     expect(mocks.claim).not.toHaveBeenCalled();
+  });
+
+  it('renders only the configured providers and never a disabled stand-in', async () => {
+    render(
+      <OnboardingV1Integration
+        authProviders={{ apple: false, email: true, google: false, source: 'clerk-environment' }}
+        locale="en"
+      />,
+    );
+
+    expect(await screen.findByRole('button', { name: 'Continue with email' })).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Continue with Apple' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Continue with Google' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Continue with Apple')).not.toBeInTheDocument();
+    expect(screen.queryByText('Continue with Google')).not.toBeInTheDocument();
+  });
+
+  it('keeps a signed-in owner with an unverified email inside verification without claiming', async () => {
+    mocks.auth.isSignedIn = true;
+    const unverifiedUser = verifiedClerkUser();
+    unverifiedUser.primaryEmailAddress.verification.status = 'unverified';
+    mocks.userState.user = unverifiedUser;
+
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByRole('heading', {
+      level: 1,
+      name: 'Check your email',
+    })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Verify and save my site' })).toBeVisible();
+    expect(unverifiedUser.primaryEmailAddress.prepareVerification).toHaveBeenCalledWith({
+      strategy: 'email_code',
+    });
+    expect(mocks.claim).not.toHaveBeenCalled();
+  });
+
+  it('returns a server EMAIL_NOT_VERIFIED refusal to the account gate instead of a dead end', async () => {
+    const { OnboardingIntegrationRequestError } = await import('./client');
+    mocks.auth.isSignedIn = true;
+    const user = verifiedClerkUser();
+    mocks.userState.user = user;
+    mocks.claim.mockRejectedValue(new OnboardingIntegrationRequestError(
+      'Verify your email before saving your Luster site.',
+      { code: 'EMAIL_NOT_VERIFIED', status: 403 },
+    ));
+
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
+
+    expect(await screen.findByText('Verify your email to finish saving your site.')).toBeVisible();
+    expect(screen.queryByRole('heading', {
+      level: 1,
+      name: 'We couldn’t finish saving your site',
+    })).not.toBeInTheDocument();
+    expect(user.reload).toHaveBeenCalled();
   });
 
   it('claims an authenticated draft, reveals the saved site, then offers one plan action', async () => {
     const user = userEvent.setup();
     mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
     mocks.claim.mockResolvedValue({ status: 'saved', value: savedSite });
     mocks.claimMedia.mockResolvedValue({ failures: [], verifiedRevision: 1 });
     mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
 
-    render(<OnboardingV1Integration locale="en" />);
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
     expect(await screen.findByRole('heading', {
       level: 1,
@@ -161,13 +265,14 @@ describe('OnboardingV1Integration rendered account-save flow', () => {
   it('retains a successful core claim when media finalization must be retried', async () => {
     const user = userEvent.setup();
     mocks.auth.isSignedIn = true;
+    mocks.userState.user = verifiedClerkUser();
     mocks.claim.mockResolvedValue({ status: 'saved', value: savedSite });
     mocks.claimMedia
       .mockRejectedValueOnce(new Error('The photo verification was interrupted.'))
       .mockResolvedValueOnce({ failures: [], verifiedRevision: 1 });
     mocks.cleanupMedia.mockResolvedValue({ removedAssetIds: [] });
 
-    render(<OnboardingV1Integration locale="en" />);
+    render(<OnboardingV1Integration authProviders={ALL_PROVIDERS} locale="en" />);
 
     expect(await screen.findByRole('heading', {
       level: 1,
