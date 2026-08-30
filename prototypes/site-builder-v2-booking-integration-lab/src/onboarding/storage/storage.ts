@@ -25,6 +25,7 @@ import {
   type OnboardingSessionStatus,
   type OnboardingScreenId,
   type PlanIntent,
+  type SitePalettePresetId,
   type SetupChecklistFixtureStatus,
   type Weekday,
   type WeeklyHoursDraft,
@@ -206,6 +207,20 @@ const isPlanIntent = (value: unknown): value is PlanIntent | null => value === n
   || value === 'monthly'
   || value === 'free';
 
+const SITE_PALETTE_IDS = new Set<SitePalettePresetId>([
+  'luster_berry',
+  'blush_cocoa',
+  'terracotta_cream',
+  'sage_stone',
+  'lilac_plum',
+  'navy_ivory',
+  'monochrome',
+  'black_champagne',
+]);
+
+const isSitePalettePresetId = (value: unknown): value is SitePalettePresetId =>
+  typeof value === 'string' && SITE_PALETTE_IDS.has(value as SitePalettePresetId);
+
 const isFoundingOfferMode = (value: unknown): value is FoundingOfferMode =>
   value === 'lifetime'
   || value === 'discounted_annual'
@@ -231,6 +246,16 @@ const isStringArray = (value: unknown): value is string[] =>
 
 const isUnsafeEphemeralImageUrl = (value: unknown): boolean => typeof value === 'string'
   && /^\s*(?:blob|data):/iu.test(value);
+
+const isAccountBackedFixtureReference = (
+  previewUrl: string | undefined,
+  storageId: string | undefined,
+): boolean => Boolean(
+  previewUrl
+  && storageId
+  && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(storageId)
+  && previewUrl === `/api/onboarding/v1/media/${encodeURIComponent(storageId)}`,
+);
 
 const copySafeImageMetadata = (
   value: Record<string, unknown>,
@@ -280,6 +305,9 @@ const normalizeLocalImageReference = (
       ...metadata,
       ...(previewUrl ? { previewUrl } : {}),
       source: 'fixture',
+      ...(isAccountBackedFixtureReference(previewUrl, storageId)
+        ? { storageId }
+        : {}),
     };
   }
   if (value.source === 'missing'
@@ -355,6 +383,7 @@ type SharedStateShape = Record<string, unknown> & {
   planOffer: Record<string, unknown>;
   profile: Record<string, unknown>;
   progress: Record<string, unknown>;
+  recipe: Record<string, unknown>;
   reviewOptions: Record<string, unknown>;
 };
 
@@ -382,6 +411,8 @@ const isOnboardingState = (value: unknown): value is OnboardingLabState => {
     return false;
   }
   return isWeeklyHoursDraft(value.profile.hours)
+    && typeof value.anonymousDraftId === 'string'
+    && /^draft_[a-z0-9_-]{12,100}$/iu.test(value.anonymousDraftId)
     && isBusinessStructure(value.profile.businessStructure)
     && isClientContactDraft(value.profile.clientContact)
     && (value.profile.profilePhoto === undefined
@@ -400,6 +431,9 @@ const isOnboardingState = (value: unknown): value is OnboardingLabState => {
     && !('amountType' in value.profile.policies.deposits)
     && !('required' in value.profile.policies.deposits)
     && isDashboardHandoffDraft(value.dashboardHandoff)
+    && isRecord(value.recipe)
+    && isSitePalettePresetId(value.recipe.palettePreset)
+    && typeof value.recipe.paletteConfirmed === 'boolean'
     && isRecord(value.profile.location)
     && typeof value.profile.location.allowGeneralAreaDirections === 'boolean'
     && isSessionStatus(value.progress.sessionStatus)
@@ -754,6 +788,10 @@ const migrateLegacyOnboardingState = (
           ? planOffer.planIntent
           : null,
     },
+    anonymousDraftId: typeof value.anonymousDraftId === 'string'
+      && /^draft_[a-z0-9_-]{12,100}$/iu.test(value.anonymousDraftId)
+      ? value.anonymousDraftId
+      : defaults.anonymousDraftId,
     profile: {
       ...migrateBusinessProfile(profile),
       hours,
@@ -766,6 +804,16 @@ const migrateLegacyOnboardingState = (
       previewTimestamp: typeof reviewOptions.previewTimestamp === 'string'
         ? reviewOptions.previewTimestamp
         : defaults.reviewOptions.previewTimestamp,
+    },
+    recipe: {
+      ...defaults.recipe,
+      ...(value.recipe as OnboardingLabState['recipe']),
+      paletteConfirmed: typeof value.recipe.paletteConfirmed === 'boolean'
+        ? value.recipe.paletteConfirmed
+        : false,
+      palettePreset: isSitePalettePresetId(value.recipe.palettePreset)
+        ? value.recipe.palettePreset
+        : defaults.recipe.palettePreset,
     },
     schemaVersion: ONBOARDING_SCHEMA_VERSION,
   };
@@ -780,6 +828,7 @@ const isLegacyOnboardingState = (value: unknown): value is SharedStateShape =>
     || (value.schemaVersion === 4 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 5 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 6 && isWeeklyHoursDraft(value.profile.hours))
+    || (value.schemaVersion === 7 && isWeeklyHoursDraft(value.profile.hours))
   );
 
 const defaultStorage = (): OnboardingStorage => {

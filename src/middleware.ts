@@ -36,6 +36,11 @@ const isPublicClerkRoute = createRouteMatcher([
   '/:locale/join(.*)',
 ]);
 
+const isPublicOnboardingV1Route = createRouteMatcher([
+  '/onboarding-v1(.*)',
+  '/:locale/onboarding-v1(.*)',
+]);
+
 const isOwnerBookingPagePreviewRoute = createRouteMatcher([
   '/admin/booking-page/preview/(.*)',
   '/:locale/admin/booking-page/preview/(.*)',
@@ -106,6 +111,7 @@ export default async function middleware(
     const isOwnerPath = firstPublicSegment === 'admin'
       || firstPublicSegment === 'super-admin'
       || firstPublicSegment === 'onboarding'
+      || firstPublicSegment === 'onboarding-v1'
       || firstPublicSegment === 'owner-sign-in'
       || firstPublicSegment === 'owner-sign-up'
       || firstPublicSegment === 'owner'
@@ -240,6 +246,18 @@ export default async function middleware(
       request,
       event,
     );
+    return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
+  }
+
+  // Onboarding V1 intentionally shows the completed customer-site value
+  // before account creation. Clerk context is still established so an
+  // existing owner can save immediately, but the route itself remains public
+  // and fail-closed behind its server-side feature flag.
+  if (isPublicOnboardingV1Route(request)) {
+    const response = await clerkMiddleware(
+      async (_auth, req) => intlMiddleware(req),
+      clerkOptions,
+    )(request, event);
     return finalizeResponse((response as NextResponse | undefined) ?? NextResponse.next());
   }
 

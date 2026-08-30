@@ -1,7 +1,7 @@
 import type { DepositDraft } from '../integrations/contracts/booking-preferences';
 import type { ServiceMenuSelectionDraft } from '../integrations/contracts/service-menu';
 
-export const ONBOARDING_SCHEMA_VERSION = 7 as const;
+export const ONBOARDING_SCHEMA_VERSION = 8 as const;
 
 export type OnboardingStage = 'basics' | 'booking' | 'design' | 'review';
 
@@ -246,6 +246,16 @@ export type SiteStylePresetId =
   | 'bold'
   | 'luxury';
 
+export type SitePalettePresetId =
+  | 'luster_berry'
+  | 'blush_cocoa'
+  | 'terracotta_cream'
+  | 'sage_stone'
+  | 'lilac_plum'
+  | 'navy_ivory'
+  | 'monochrome'
+  | 'black_champagne';
+
 export type StarterId = 'quick_book' | 'one_page' | 'multi_page';
 
 export type OnboardingSiteRecipe = {
@@ -259,6 +269,8 @@ export type OnboardingSiteRecipe = {
   wantsCanvaFromWelcome: boolean;
   stylePreset: SiteStylePresetId;
   styleConfirmed: boolean;
+  palettePreset: SitePalettePresetId;
+  paletteConfirmed: boolean;
 };
 
 export type GalleryLayout = 'grid' | 'carousel' | 'editorial';
@@ -356,7 +368,7 @@ export type OnboardingEventInput =
   | { type: 'skip'; screen: OnboardingScreenId; item: OptionalOnboardingItem }
   | { type: 'about_toggled'; enabled: boolean }
   | { type: 'policies_toggled'; enabled: boolean }
-  | { type: 'preset_changed'; presetKind: 'about' | 'style'; presetId: AboutPresetId | SiteStylePresetId }
+  | { type: 'preset_changed'; presetKind: 'about' | 'palette' | 'style'; presetId: AboutPresetId | SitePalettePresetId | SiteStylePresetId }
   | { type: 'preview_opened'; source: 'starting_preview' | 'about' | 'about_design' | 'site_style' | 'final_preview' }
   | { type: 'preview_closed'; source: 'starting_preview' | 'about' | 'about_design' | 'site_style' | 'final_preview' }
   | { type: 'starter_selected'; starter: StarterId }
@@ -367,7 +379,21 @@ export type OnboardingEventInput =
   | { type: 'about_wording_helper'; action: 'opened' | 'used' | 'kept' | 'undone' }
   | { type: 'resume_after_reload'; screen: OnboardingScreenId }
   | { type: 'paused'; screen: OnboardingScreenId }
-  | { type: 'reset' };
+  | { type: 'reset' }
+  | { type: 'final_review_completed' }
+  | { type: 'save_site_started' }
+  | { type: 'account_gate_viewed' }
+  | { type: 'sign_up_started' }
+  | { type: 'sign_up_completed' }
+  | { type: 'sign_in_completed' }
+  | { type: 'draft_claim_started' }
+  | { type: 'draft_claim_completed' }
+  | { type: 'draft_claim_failed' }
+  | { type: 'media_claim_failed' }
+  | { type: 'site_saved' }
+  | { type: 'plan_selected'; intent: PlanIntent }
+  | { type: 'palette_selected'; presetId: SitePalettePresetId }
+  | { type: 'dashboard_entered' };
 
 export type OnboardingEvent = OnboardingEventInput & {
   id: string;
@@ -375,6 +401,7 @@ export type OnboardingEvent = OnboardingEventInput & {
 };
 
 export type OnboardingLabState = {
+  anonymousDraftId: string;
   schemaVersion: typeof ONBOARDING_SCHEMA_VERSION;
   profile: BusinessProfileDraft;
   dashboardHandoff: DashboardHandoffDraft;

@@ -21,6 +21,7 @@ type VisibleFeedback = {
   id: number;
   kind: FeedbackKind;
   message: string;
+  preserveOnNavigation?: boolean;
   targetId?: string;
 };
 
@@ -46,7 +47,7 @@ const FeedbackIcon = ({ kind }: { kind: FeedbackKind }) => {
 export function FeedbackProvider({
   children,
   reducedMotion = false,
-  testMode = import.meta.env.MODE === 'test',
+  testMode = false,
 }: {
   children: ReactNode;
   reducedMotion?: boolean;
@@ -139,6 +140,9 @@ export function FeedbackProvider({
       id: idRef.current,
       kind: request.kind,
       message: request.message,
+      ...(request.preserveOnNavigation
+        ? { preserveOnNavigation: true }
+        : {}),
       ...(request.targetId ? { targetId: request.targetId } : {}),
     } satisfies VisibleFeedback;
     visibleRef.current = nextVisible;
@@ -171,8 +175,23 @@ export function FeedbackProvider({
   }, []);
 
   const clearQueuedVisuals = useCallback(() => {
-    queuedMajorFeedbackRef.current = [];
-  }, []);
+    const preserved = queuedMajorFeedbackRef.current
+      .filter(request => request.preserveOnNavigation === true);
+    queuedMajorFeedbackRef.current = preserved;
+    if (visibleRef.current?.preserveOnNavigation === true) {
+      const retained = {
+        ...visibleRef.current,
+        preserveOnNavigation: false,
+      };
+      visibleRef.current = retained;
+      setVisible(retained);
+      return;
+    }
+    visibleRef.current = null;
+    setVisible(null);
+    const next = queuedMajorFeedbackRef.current.shift();
+    if (next) present(next);
+  }, [present]);
 
   const send = useCallback((request: FeedbackRequest): boolean => {
     if (request.onceKey && oneTimeKeysRef.current.has(request.onceKey)) return false;

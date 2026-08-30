@@ -28,20 +28,70 @@ export type SavedPreviewMediaRecord = SavedPreviewMedia & {
   localItemId: string;
 };
 
+type PersistedSavedPreviewMedia = {
+  altText: string | null;
+  claimStatus: string;
+  fileName: string;
+  fileSize: number | null;
+  height: number | null;
+  id: string;
+  localItemId: string;
+  metadata: Record<string, unknown>;
+  mimeType: string;
+  publicUrl: string | null;
+  role: OnboardingSiteMediaRole;
+  sortOrder: number;
+  storageKey: string | null;
+  width: number | null;
+};
+
 export type SavedSitePreviewModel = {
   document: SiteBuilderDocument;
   media: SavedPreviewMedia[];
   state: OnboardingLabState;
 };
 
+/**
+ * Converts tenant-authorized, revision-scoped media rows into same-origin
+ * customer-preview references. Storage paths and provider URLs never cross
+ * the Server Component boundary.
+ */
+export const createSavedPreviewMediaRecords = (
+  media: readonly PersistedSavedPreviewMedia[],
+): SavedPreviewMediaRecord[] => media.flatMap((item) => {
+  if (
+    item.claimStatus !== 'ready'
+    || !item.storageKey
+    || !item.publicUrl
+    || !item.publicUrl.startsWith('/api/onboarding/v1/media/')
+  ) {
+    return [];
+  }
+  const metadataByteSize = item.metadata.byteSize;
+  return [{
+    altText: item.altText,
+    assetId: item.id,
+    fileName: item.fileName,
+    fileSize: item.fileSize
+      ?? (typeof metadataByteSize === 'number' ? metadataByteSize : null),
+    height: item.height,
+    localItemId: item.localItemId,
+    mimeType: item.mimeType,
+    publicUrl: `/api/onboarding/v1/media/${encodeURIComponent(item.id)}`,
+    role: item.role,
+    sortOrder: item.sortOrder,
+    width: item.width,
+  }];
+});
+
 const imageReference = (
-  media: SavedPreviewMedia | undefined,
+  media: SavedPreviewMediaRecord | undefined,
 ): LocalImageReference | undefined => media
   ? {
       ...(media.altText ? { altText: media.altText } : {}),
       fileName: media.fileName,
       ...(media.height ? { height: media.height } : {}),
-      id: media.assetId,
+      id: media.localItemId,
       mimeType: media.mimeType,
       previewUrl: media.publicUrl,
       source: 'fixture',
@@ -95,7 +145,7 @@ export function createSavedSitePreviewModel(input: {
     return reference ? [reference] : [];
   });
   const assetIdByLocalItemId = new Map(
-    media.map(item => [item.localItemId, item.assetId]),
+    customDesignMedia.map(item => [item.localItemId, item.assetId]),
   );
   const remapSettings = (
     sectionId: string,
@@ -104,26 +154,13 @@ export function createSavedSitePreviewModel(input: {
       { sectionType: 'custom_design' }
     >['settings'],
   ) => {
-    const imageIdMap = new Map(settings.images.map((image, index) => [
-      image.id,
-      assetIdByLocalItemId.get(image.assetId) ?? `missing-${sectionId}-${index}`,
-    ]));
     return {
       ...structuredClone(settings),
-      cta: settings.cta.type === 'none'
-        || settings.cta.placement.type === 'after_all'
-        ? structuredClone(settings.cta)
-        : {
-            ...structuredClone(settings.cta),
-            placement: {
-              imageItemId: imageIdMap.get(settings.cta.placement.imageItemId)
-                ?? `missing-${sectionId}-cta`,
-              type: 'after_image' as const,
-            },
-          },
+      cta: structuredClone(settings.cta),
       images: settings.images.map((image, index) => {
-        const assetId = imageIdMap.get(image.id) ?? `missing-${sectionId}-${index}`;
-        return { ...structuredClone(image), assetId, id: assetId };
+        const assetId = assetIdByLocalItemId.get(image.assetId)
+          ?? `missing-${sectionId}-${index}`;
+        return { ...structuredClone(image), assetId };
       }),
     };
   };
@@ -169,7 +206,7 @@ export function createSavedSitePreviewModel(input: {
         customDesignSectionId: snapshot.customDesign.customDesignSectionId,
         displayMode: snapshot.customDesign.displayMode,
         images: canvaImages,
-        ownedAssetIds: canvaImages.flatMap(image => image.storageId ? [image.storageId] : []),
+        ownedAssetIds: [],
         placement: snapshot.customDesign.placement,
         status: snapshot.customDesign.status,
       },
@@ -187,6 +224,10 @@ export function createSavedSitePreviewModel(input: {
         profilePhoto: imageReference(
           profiles.find(item => item.localItemId === snapshot.profile.profilePhotoItemId),
         ),
+      },
+      reviewOptions: {
+        ...state.reviewOptions,
+        previewTimestamp: snapshot.previewTimestamp,
       },
       recipe: {
         ...state.recipe,

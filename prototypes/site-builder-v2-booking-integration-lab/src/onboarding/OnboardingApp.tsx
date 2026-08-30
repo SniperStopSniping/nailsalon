@@ -1,4 +1,4 @@
-import { Download, FlaskConical, RotateCcw } from 'lucide-react';
+import { Download, FlaskConical } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -39,7 +39,6 @@ import {
   getNextScreen,
   getScreenStage,
   goForward,
-  goToScreen,
   reconcileConditionalHistory,
 } from './model/routing';
 import type {
@@ -125,8 +124,17 @@ type OnboardingAppProps = {
   auditMode?: boolean;
   forceReview?: boolean;
   lab: LabDocumentController;
+  integration?: {
+    onSaveSite: (payload: OnboardingSavePayload) => void;
+    onStartOver?: () => void;
+  };
   onEnterBuilder?: () => void;
   onEnterDashboard?: () => void;
+};
+
+export type OnboardingSavePayload = {
+  document: SiteBuilderDocument;
+  state: OnboardingLabState;
 };
 
 const STARTER_LABELS: Record<StarterId, string> = {
@@ -271,6 +279,17 @@ const withObservableRecipeEvents = (
       type: 'preset_changed',
     });
   }
+  if (current.recipe.palettePreset !== next.recipe.palettePreset) {
+    next = recordOnboardingEvent(next, {
+      presetId: next.recipe.palettePreset,
+      presetKind: 'palette',
+      type: 'preset_changed',
+    });
+    next = recordOnboardingEvent(next, {
+      presetId: next.recipe.palettePreset,
+      type: 'palette_selected',
+    });
+  }
   const currentExtras = [
     current.recipe.galleryEnabled ? 'gallery' as const : null,
     current.recipe.canvaEnabled ? 'canva' as const : null,
@@ -386,6 +405,7 @@ const previewFor = (
 export function OnboardingApp({
   auditMode = false,
   forceReview = false,
+  integration,
   lab,
   onEnterBuilder,
   onEnterDashboard,
@@ -413,6 +433,7 @@ export function OnboardingApp({
   const [resetOpen, setResetOpen] = useState(false);
   const [resetPending, setResetPending] = useState(false);
   const [pendingStarter, setPendingStarter] = useState<StarterId | null>(null);
+  const [startingSiteRevealActive, setStartingSiteRevealActive] = useState(false);
   const [error, setError] = useState('');
   const surfaceRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(false);
@@ -446,6 +467,12 @@ export function OnboardingApp({
   const essentialsRemaining = getEssentialsLeft(onboarding.state);
 
   useEffect(() => {
+    if (!startingSiteRevealActive) return undefined;
+    const timer = window.setTimeout(() => setStartingSiteRevealActive(false), 760);
+    return () => window.clearTimeout(timer);
+  }, [startingSiteRevealActive]);
+
+  useEffect(() => {
     feedback.configure({
       reducedMotion: onboarding.state.reviewOptions.reducedMotion,
     });
@@ -465,7 +492,7 @@ export function OnboardingApp({
     const stageMessages = {
       basics: 'Basics complete',
       booking: 'Booking is ready',
-      design: 'Your website style is set',
+      design: 'Your website design is set',
     } as const;
     for (const stage of completedStages) {
       if (stage === 'review') continue;
@@ -572,14 +599,18 @@ export function OnboardingApp({
   );
 
   useEffect(() => {
-    feedback.setVisualSuppressed(modalOpen);
+    feedback.setVisualSuppressed(modalOpen || screen === 'final_preview');
     if (surfaceRef.current) surfaceRef.current.inert = modalOpen;
     document.documentElement.classList.toggle('onboarding-modal-open', modalOpen);
     return () => {
       document.documentElement.classList.remove('onboarding-modal-open');
       feedback.setVisualSuppressed(false);
     };
-  }, [feedback, modalOpen]);
+  }, [feedback, modalOpen, screen]);
+
+  useEffect(() => () => {
+    feedback.clear();
+  }, [feedback]);
 
   useEffect(() => {
     if (onboarding.state.progress.sessionStatus !== 'active') return undefined;
@@ -947,8 +978,10 @@ export function OnboardingApp({
       kind: 'milestone',
       message: 'Your starting site is ready',
       onceKey: 'starting_site_ready',
+      preserveOnNavigation: true,
       replaceVisual: true,
     });
+    setStartingSiteRevealActive(true);
     setError('');
   };
 
@@ -1119,6 +1152,7 @@ export function OnboardingApp({
         onboardingSession: historySessionRef.current,
         screen: 'welcome',
       } satisfies OnboardingBrowserHistoryState, '');
+      integration?.onStartOver?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Setup could not be restarted safely.');
     } finally {
@@ -1137,6 +1171,17 @@ export function OnboardingApp({
 
   const openBuilder = () => {
     if (!syncBuilderSiteName()) return;
+    if (integration) {
+      if (!lab.document) {
+        setError('Your website preview is still being prepared. Return to your starting point and try again.');
+        return;
+      }
+      integration.onSaveSite({
+        document: structuredClone(lab.document),
+        state: structuredClone(onboarding.state),
+      });
+      return;
+    }
     if (onboarding.requestBuilderHandoff()) openPlan();
   };
   const choosePlan = (intent: PlanIntent) => {
@@ -1248,6 +1293,7 @@ export function OnboardingApp({
             onOpenPreview={() => openPreview('starting_preview')}
             preview={previewFor(onboarding.state, lab.document, 'Personalized starting site preview')}
             profile={onboarding.state.profile}
+            reveal={startingSiteRevealActive}
             starter={onboarding.state.recipe.starter}
           />
         ) : null;
@@ -1323,6 +1369,10 @@ export function OnboardingApp({
             }}
             onOpenBuilder={openBuilder}
             onOpenPreview={() => openPreview('final_preview')}
+            primaryActionLabel={integration ? 'Save my site' : undefined}
+            primarySupportingCopy={integration
+              ? 'Your website is ready. Save it to your Luster account before choosing how you want to start.'
+              : undefined}
             state={onboarding.state}
           />
         );

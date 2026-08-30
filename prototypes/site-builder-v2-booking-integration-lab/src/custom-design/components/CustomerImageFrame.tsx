@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties } from 'react';
+import { useRef, useState } from 'react';
 
 import type { CustomDesignImageItem } from '../model/types';
 import { AccessibilitySummary } from './AccessibilitySummary';

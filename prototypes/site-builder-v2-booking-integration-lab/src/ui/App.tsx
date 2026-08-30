@@ -72,7 +72,6 @@ import type {
 import {
   createCustomDesignIdFactory,
   reconcileCtaPlacementForImages,
-  type CustomDesignAction,
   type CustomDesignInteractiveArea,
   type CustomDesignSettings,
 } from '../custom-design/model';
@@ -82,7 +81,6 @@ import {
   type CommitSectionMoveDestination,
   type OriginStarter,
   type PageDocument,
-  type PlaceholderSectionInstance,
   type SectionInstance,
   type SectionSize,
   type SiteBuilderDocument,

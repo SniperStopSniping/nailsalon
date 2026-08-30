@@ -5,6 +5,8 @@ import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomD
 import type { SiteBuilderDocument } from '../../model/types';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
 import { SCREEN_METADATA } from '../copy';
+import { SITE_PALETTE_BY_ID } from '../model/palettes';
+import { getSiteStyleLabel } from '../model/site-styles';
 import type { OnboardingLabState, OnboardingScreenId } from '../model/types';
 import { OnboardingSitePreview, type OnboardingPreviewDevice } from '../preview/OnboardingSitePreview';
 import {
@@ -38,6 +40,8 @@ type FinalReviewScreenProps = {
   onEditCanva: () => void;
   onOpenBuilder: () => void;
   onOpenPreview: () => void;
+  primaryActionLabel?: string;
+  primarySupportingCopy?: string;
   state: OnboardingLabState;
 };
 
@@ -48,6 +52,8 @@ export function FinalReviewScreen({
   onEditCanva,
   onOpenBuilder,
   onOpenPreview,
+  primaryActionLabel,
+  primarySupportingCopy,
   state,
 }: FinalReviewScreenProps) {
   const readinessContentId = useId();
@@ -99,7 +105,11 @@ export function FinalReviewScreen({
     () => getNeedsAttentionItems(state, document, customDesignAssetIssues),
     [customDesignAssetIssues, document, state],
   );
-  const primaryLabel = getBuilderPrimaryLabel(state, document, customDesignAssetIssues);
+  const primaryLabelFromReadiness = getBuilderPrimaryLabel(
+    state,
+    document,
+    customDesignAssetIssues,
+  );
   const optionalImprovementCount = readiness.filter(
     ({ status }) => status === 'optional' || status === 'recommended',
   ).length;
@@ -125,7 +135,9 @@ export function FinalReviewScreen({
       label: 'Optional improvements',
     },
   ].filter(({ items }) => items.length > 0);
-  const finalPrimaryLabel = primaryLabel;
+  const finalPrimaryLabel = needsAttention.length > 0
+    ? primaryLabelFromReadiness
+    : primaryActionLabel ?? primaryLabelFromReadiness;
   const handlePrimary = () => {
     const first = needsAttention.find((item) => item.screen);
     if (first?.screen) {
@@ -139,7 +151,7 @@ export function FinalReviewScreen({
     <div className="onboarding-screen onboarding-screen--review" data-screen="final_preview">
       <header className="onboarding-screen-heading">
         <h1>{SCREEN_METADATA.final_preview.heading}</h1>
-        <p>{SCREEN_METADATA.final_preview.supportingCopy}</p>
+        <p>{primarySupportingCopy ?? SCREEN_METADATA.final_preview.supportingCopy}</p>
       </header>
       <div aria-label="Customer preview device size" className="onboarding-device-switcher" role="group">
         <button aria-pressed={device === 'phone'} type="button" onClick={() => setDevice('phone')}><Smartphone aria-hidden="true" size={17} /> Phone</button>
@@ -157,6 +169,10 @@ export function FinalReviewScreen({
           <button className="onboarding-full-preview-button" type="button" onClick={onOpenPreview}>
             Open interactive preview
           </button>
+          <dl aria-label="Selected website design" className="onboarding-review-theme-summary">
+            <div><dt>Website style</dt><dd>{getSiteStyleLabel(state.recipe.stylePreset)}</dd></div>
+            <div><dt>Colours</dt><dd>{SITE_PALETTE_BY_ID[state.recipe.palettePreset].label}</dd></div>
+          </dl>
         </div>
         <aside className={`onboarding-readiness${drawerOpen ? ' is-open' : ''}`} aria-label="Site readiness">
           <button
@@ -183,7 +199,11 @@ export function FinalReviewScreen({
             id={readinessContentId}
           >
             <h2>Site readiness</h2>
-            <p>Your website is saved. You can edit it anytime from your dashboard.</p>
+            <p>
+              {primaryActionLabel === 'Save my site'
+                ? 'Your website is ready to save to your Luster account.'
+                : 'Your website is saved. You can edit it anytime from your dashboard.'}
+            </p>
             {readinessGroups.map((group) => (
               <section className="onboarding-readiness__group" key={group.label}>
                 <h3>{group.label}</h3>

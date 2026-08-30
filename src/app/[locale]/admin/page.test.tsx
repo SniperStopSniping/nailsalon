@@ -16,6 +16,7 @@ const {
   ownerTodayWorkspaceSpy,
   swipeablePagesSpy,
   clerkSignOut,
+  ownerAdminFeatureFlags,
 } = vi.hoisted(() => {
   const routerReplace = vi.fn();
   const routerPush = vi.fn();
@@ -37,6 +38,7 @@ const {
     ownerTodayWorkspaceSpy: vi.fn(),
     swipeablePagesSpy: vi.fn(),
     clerkSignOut: vi.fn(),
+    ownerAdminFeatureFlags: { onboardingV1IntegrationEnabled: true },
   };
 });
 
@@ -50,6 +52,10 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => ({
     get: searchParamGet,
   }),
+}));
+
+vi.mock('./OwnerAdminFeatureFlags', () => ({
+  useOwnerAdminFeatureFlags: () => ownerAdminFeatureFlags,
 }));
 
 vi.mock('@/components/admin/AdminModalHost', () => ({
@@ -118,34 +124,50 @@ vi.mock('@/components/admin/onboarding/OnboardingWorkspaceHandoff', () => ({
   OnboardingWorkspaceHandoff: (props: {
     onAvailabilityChange?: (available: boolean) => void;
     onHandoffChange?: (handoff: unknown) => void;
+    onResolutionChange?: (resolution: 'absent' | 'available' | 'error') => void;
   }) => {
     handoffComponentSpy(props);
     return (
-      <button
-        data-testid="load-account-backed-site"
-        onClick={() => {
-          props.onAvailabilityChange?.(true);
-          props.onHandoffChange?.({
-            handoff: { planIntent: 'free', showWelcome: true, tourCompleted: false },
-            setup: {
-              googleCalendar: 'not_started',
-              payments: 'not_started',
-              servicesAdded: true,
-              shareLink: 'not_started',
-            },
-            site: {
-              hasVisibleBookingSection: true,
-              id: 'site_1',
-              previewUrl: '/en/admin/website/preview/site_1',
-              revision: 1,
-              setupUrl: '/en/onboarding-v1?resume=review&site=site_1',
-            },
-          });
-        }}
-        type="button"
-      >
-        Load account-backed website
-      </button>
+      <>
+        <button
+          data-testid="load-account-backed-site"
+          onClick={() => {
+            props.onAvailabilityChange?.(true);
+            props.onResolutionChange?.('available');
+            props.onHandoffChange?.({
+              handoff: { planIntent: 'free', showWelcome: true, tourCompleted: false },
+              setup: {
+                googleCalendar: 'not_started',
+                payments: 'not_started',
+                servicesAdded: true,
+                shareLink: 'not_started',
+              },
+              site: {
+                hasVisibleBookingSection: true,
+                id: 'site_1',
+                previewUrl: '/en/admin/website/preview/site_1',
+                revision: 1,
+                setupAvailable: true,
+                setupUrl: '/en/onboarding-v1?resume=review&site=site_1&revision=1',
+              },
+            });
+          }}
+          type="button"
+        >
+          Load account-backed website
+        </button>
+        <button
+          data-testid="resolve-legacy-site"
+          onClick={() => {
+            props.onAvailabilityChange?.(false);
+            props.onHandoffChange?.(null);
+            props.onResolutionChange?.('absent');
+          }}
+          type="button"
+        >
+          Resolve legacy website
+        </button>
+      </>
     );
   },
 }));
@@ -180,6 +202,7 @@ vi.mock('@/components/ui/workspace-page-header', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  ownerAdminFeatureFlags.onboardingV1IntegrationEnabled = true;
   searchParamGet.mockImplementation(
     (key: string) => (key === 'salon' ? 'salon-b' : null),
   );
@@ -376,7 +399,71 @@ describe('AdminDashboardPage', () => {
     });
   });
 
-  it('opens the exact saved site from Booking Page while preserving the legacy route elsewhere', async () => {
+  it('preserves the exact legacy Booking Page and hides all handoff UI when integration is disabled', async () => {
+    ownerAdminFeatureFlags.onboardingV1IntegrationEnabled = false;
+    fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+
+      if (url.startsWith('/api/admin/auth/me')) {
+        return new Response(JSON.stringify({
+          user: {
+            id: 'admin_1',
+            phone: '+15555550100',
+            name: 'Admin User',
+            isSuperAdmin: false,
+            impersonation: null,
+            salons: [
+              { id: 'sal_b', slug: 'salon-b', name: 'Salon B', status: 'active', role: 'owner' },
+            ],
+          },
+        }), { status: 200 });
+      }
+      if (url === '/api/admin/auth/set-active-salon') {
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      if (url === '/api/admin/fraud-signals') {
+        return new Response(JSON.stringify({ data: { signals: [], unresolvedCount: 0 } }), { status: 200 });
+      }
+      if (url === '/api/admin/settings/modules?salonSlug=salon-b') {
+        return new Response(JSON.stringify({
+          data: {
+            modules: { analyticsDashboard: false },
+            entitledModules: { analyticsDashboard: true },
+            moduleReasons: { analyticsDashboard: 'MODULE_DISABLED' },
+          },
+        }), { status: 200 });
+      }
+
+      throw new Error(`Unhandled fetch: ${url}`);
+    });
+
+    render(<AdminDashboardPage />);
+
+    await screen.findByTestId('owner-today-workspace');
+
+    expect(handoffComponentSpy).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByTestId('owner-nav-more'));
+    await waitFor(() => expect(appGridSpy).toHaveBeenCalled());
+    const appGridProps = appGridSpy.mock.calls.at(-1)?.[0] as {
+      hiddenIds?: string[];
+      onAppTap?: (appId: string) => void;
+    };
+
+    expect(appGridProps.hiddenIds).toContain('workspace-tour');
+
+    act(() => appGridProps.onAppTap?.('booking-page'));
+
+    expect(routerMock.push).toHaveBeenLastCalledWith('/en/admin/booking-page?salon=salon-b');
+    expect(screen.queryByText(/Checking your saved website/i)).not.toBeInTheDocument();
+
+    act(() => appGridProps.onAppTap?.('workspace-tour'));
+
+    expect(screen.queryByTestId('workspace-quick-tour')).not.toBeInTheDocument();
+    expect(handoffComponentSpy).not.toHaveBeenCalled();
+  });
+
+  it('opens the exact saved site from Booking Page while preserving the legacy route elsewhere when integration is enabled', async () => {
     fetchMock.mockImplementation(async (input: RequestInfo | URL) => {
       const url = String(input);
 
@@ -421,6 +508,18 @@ describe('AdminDashboardPage', () => {
 
     await waitFor(() => expect(appGridSpy).toHaveBeenCalled());
     let appGridProps = appGridSpy.mock.calls.at(-1)?.[0] as {
+      onAppTap?: (appId: string) => void;
+    };
+    act(() => appGridProps.onAppTap?.('booking-page'));
+
+    expect(routerMock.push).not.toHaveBeenCalledWith('/en/admin/booking-page?salon=salon-b');
+    expect(screen.getByText(/Checking your saved website/i)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('owner-nav-today'));
+    fireEvent.click(await screen.findByTestId('resolve-legacy-site'));
+    fireEvent.click(screen.getByTestId('owner-nav-more'));
+    await waitFor(() => expect(appGridSpy).toHaveBeenCalled());
+    appGridProps = appGridSpy.mock.calls.at(-1)?.[0] as {
       onAppTap?: (appId: string) => void;
     };
     act(() => appGridProps.onAppTap?.('booking-page'));

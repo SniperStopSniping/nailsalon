@@ -1,10 +1,16 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { saveOnboardingIntegrationRecoveryRecord } from '@/features/onboarding-v1-integration/flow-storage';
 import type { SavedSitePreviewModel } from '@/features/onboarding-v1-integration/saved-preview';
 
 import { SavedSitePreviewClient } from './SavedSitePreviewClient';
+
+const resume = vi.hoisted(() => ({ allowed: true }));
+
+vi.mock('@/features/onboarding-v1-integration/flow-storage', () => ({
+  authorizeVerifiedOnboardingSetupResume: () => true,
+  canResumeVerifiedOnboardingSetup: () => resume.allowed,
+}));
 
 vi.mock('../../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/integration/CustomDesignAssetProvider', () => ({
   CustomDesignAssetProvider: ({ children }: { children: React.ReactNode }) => children,
@@ -31,13 +37,15 @@ const props = {
   model,
   revision: 4,
   salonSlug: 'isla',
-  setupUrl: '/en/onboarding-v1?resume=review&site=site_1',
+  setupAvailable: true,
+  setupUrl: '/en/onboarding-v1?resume=review&site=site_1&revision=4',
   showAuditRevision: false,
   siteId: 'site_1',
 };
 
 beforeEach(() => {
   window.localStorage.clear();
+  resume.allowed = true;
 });
 
 describe('SavedSitePreviewClient', () => {
@@ -54,18 +62,19 @@ describe('SavedSitePreviewClient', () => {
     expect(screen.getByTestId('saved-customer-site')).toHaveAttribute('data-device', 'desktop');
   });
 
-  it('offers setup changes only for a matching verified same-browser revision', async () => {
-    saveOnboardingIntegrationRecoveryRecord({ siteId: 'site_1', verifiedRevision: 4 });
+  it('offers the verified setup fallback without exposing the placeholder editor', async () => {
     render(<SavedSitePreviewClient {...props} />);
 
-    expect(await screen.findByRole('link', { name: 'Change website setup' })).toHaveAttribute(
-      'href',
-      props.setupUrl,
-    );
+    await waitFor(() => {
+      expect(screen.getByRole('link', { name: 'Return to Workspace' })).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('link', { name: 'Change website setup' }))
+      .toHaveAttribute('href', props.setupUrl);
   });
 
-  it('omits setup changes on a different browser or revision', async () => {
-    saveOnboardingIntegrationRecoveryRecord({ siteId: 'site_1', verifiedRevision: 3 });
+  it('omits setup changes without matching local proof', async () => {
+    resume.allowed = false;
     render(<SavedSitePreviewClient {...props} />);
 
     await waitFor(() => {

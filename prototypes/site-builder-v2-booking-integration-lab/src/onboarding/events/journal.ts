@@ -59,9 +59,25 @@ export const sanitizeOnboardingEvent = (
       return { extras: [...new Set(event.extras)], type: event.type };
     case 'open_builder':
     case 'reset':
+    case 'final_review_completed':
+    case 'save_site_started':
+    case 'account_gate_viewed':
+    case 'sign_up_started':
+    case 'sign_up_completed':
+    case 'sign_in_completed':
+    case 'draft_claim_started':
+    case 'draft_claim_completed':
+    case 'draft_claim_failed':
+    case 'media_claim_failed':
+    case 'site_saved':
+    case 'dashboard_entered':
       return { type: event.type };
     case 'offer_choice':
       return { intent: event.intent, type: event.type };
+    case 'plan_selected':
+      return { intent: event.intent, type: event.type };
+    case 'palette_selected':
+      return { presetId: event.presetId, type: event.type };
     case 'validation_failure':
       return {
         fieldIds: safeFieldIds(event.fieldIds),
@@ -75,8 +91,6 @@ export const sanitizeOnboardingEvent = (
       return { screen: event.screen, type: event.type };
   }
 
-  const exhaustive: never = event;
-  return exhaustive;
 };
 
 export const appendOnboardingEvent = (

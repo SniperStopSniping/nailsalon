@@ -34,6 +34,7 @@ const accountDraft = () => {
     source: 'mock_luster',
   };
   state.recipe.galleryEnabled = true;
+  state.reviewOptions.previewTimestamp = '2026-09-04T17:45:00.000Z';
   state.recipe.palettePreset = 'black_champagne';
   state.recipe.starter = 'one_page';
   state.recipe.stylePreset = 'luxury';
@@ -96,22 +97,24 @@ describe('createSavedSitePreviewModel', () => {
     expect(model.document.pages.flatMap(page => page.sections.map(section => section.id)))
       .toEqual(document.pages.flatMap(page => page.sections.map(section => section.id)));
     expect(model.state.profile.profilePhoto).toMatchObject({
-      id: 'server-profile',
+      id: 'profile-local',
       previewUrl: '/api/onboarding/v1/media/server-profile',
+      storageId: 'server-profile',
     });
     expect(model.state.profile.logo).toMatchObject({
-      id: 'server-logo',
+      id: 'logo-local',
       previewUrl: '/api/onboarding/v1/media/server-logo',
+      storageId: 'server-logo',
     });
     expect(model.state.profile.profilePhoto?.id).not.toBe(model.state.profile.logo?.id);
-    expect(JSON.stringify(model)).not.toContain('profile-local');
-    expect(JSON.stringify(model)).not.toContain('logo-local');
     expect(model.state.gallery.images.map(image => image.id))
       .toEqual(snapshot.gallery.imageItemIds);
     expect(model.state.recipe).toMatchObject({
       palettePreset: 'black_champagne',
       stylePreset: 'luxury',
     });
+    expect(model.state.reviewOptions.previewTimestamp)
+      .toBe('2026-09-04T17:45:00.000Z');
   });
 
   it('remaps Custom Design media to server-owned IDs without changing actions or topology', () => {
@@ -189,6 +192,18 @@ describe('createSavedSitePreviewModel', () => {
         role: 'custom_design',
         sortOrder: 0,
         width: 600,
+      }, {
+        altText: 'A profile asset with a colliding local id',
+        assetId: 'server-profile-collision',
+        fileName: 'profile.webp',
+        fileSize: 100,
+        height: 800,
+        localItemId: 'custom-image',
+        mimeType: 'image/webp',
+        publicUrl: '/api/onboarding/v1/media/server-profile-collision',
+        role: 'profile',
+        sortOrder: 0,
+        width: 600,
       }],
       snapshot,
     });
@@ -204,19 +219,26 @@ describe('createSavedSitePreviewModel', () => {
 
     expect(savedCustom.settings.images[0]).toMatchObject({
       assetId: 'server-custom-media',
-      id: 'server-custom-media',
+      id: 'custom-image',
     });
     expect(savedCustom.settings.cta).toMatchObject({
-      placement: { imageItemId: 'server-custom-media', type: 'after_image' },
+      placement: { imageItemId: 'custom-image', type: 'after_image' },
     });
     expect(savedCustom.settings.images[0]?.interactiveAreas[0]?.action).toEqual({
       destination: { pageId: document.pages[0]!.id, sectionId: booking.id },
       type: 'internal',
     });
-    expect(model.media).toEqual([expect.objectContaining({
-      assetId: 'server-custom-media',
-      role: 'custom_design',
-    })]);
-    expect(JSON.stringify(model)).not.toContain('custom-image');
+    expect(model.media).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        assetId: 'server-custom-media',
+        role: 'custom_design',
+      }),
+      expect.objectContaining({
+        assetId: 'server-profile-collision',
+        role: 'profile',
+      }),
+    ]));
+    expect(model.media).toHaveLength(2);
+    expect(savedCustom.settings.images[0]?.assetId).not.toBe('server-profile-collision');
   });
 });

@@ -48,6 +48,7 @@ import {
   getPolicyDisplayWording,
   isDepositsAndCancellationsComplete,
 } from '../model/policies';
+import { SITE_PALETTE_BY_ID } from '../model/palettes';
 import { getCustomerProfileFacts } from '../model/profile-facts';
 import type {
   AboutElementId,
@@ -1067,19 +1068,23 @@ export function OnboardingSitePreview({
   const [previewScale, setPreviewScale] = useState(1);
   const { profile, recipe } = state;
   const roles = ONBOARDING_STYLE_ROLES[recipe.stylePreset];
+  const palette = SITE_PALETTE_BY_ID[recipe.palettePreset];
   const style = {
-    '--customer-accent': roles.accent,
+    '--customer-accent': palette.roles.accent,
     '--customer-body-font': roles.bodyFont,
+    '--customer-button': palette.roles.button,
+    '--customer-button-text': palette.roles.buttonText,
     '--customer-button-radius': roles.buttonRadius,
-    '--customer-ground': roles.ground,
+    '--customer-focus-ring': palette.roles.focusRing,
+    '--customer-ground': palette.roles.ground,
     '--customer-heading-font': roles.headingFont,
-    '--customer-ink': roles.ink,
-    '--customer-line': roles.line,
-    '--customer-muted': roles.muted,
+    '--customer-ink': palette.roles.ink,
+    '--customer-line': palette.roles.line,
+    '--customer-muted': palette.roles.muted,
     '--customer-radius': roles.radius,
-    '--customer-secondary-accent': roles.secondaryAccent,
+    '--customer-secondary-accent': palette.roles.secondaryAccent,
     '--customer-section-space': roles.spacingMood,
-    '--customer-surface': roles.surface,
+    '--customer-surface': palette.roles.surface,
   } as CSSProperties;
   const visitMode = labelForVisitMode(profile);
   const newClients = labelForNewClients(profile);
@@ -1226,6 +1231,7 @@ export function OnboardingSitePreview({
         className={`onboarding-preview-frame is-${device}`}
         data-preview-device={device}
         data-preview-scroll-container="true"
+        data-palette-preset={recipe.palettePreset}
         data-style-preset={recipe.stylePreset}
         ref={frameRef}
         tabIndex={interactionMode === 'inline' ? -1 : 0}

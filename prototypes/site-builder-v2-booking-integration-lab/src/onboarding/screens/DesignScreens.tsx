@@ -53,6 +53,8 @@ import {
   type LateCancellationChoice,
   updateDepositDraft,
 } from '../model/policies';
+import { SITE_PALETTE_PRESETS } from '../model/palettes';
+import { SITE_STYLE_PRESETS } from '../model/site-styles';
 import type {
   AboutElementId,
   AboutPresetId,
@@ -60,7 +62,6 @@ import type {
   OnboardingLabState,
   PoliciesDraft,
   PolicySectionId,
-  SiteStylePresetId,
 } from '../model/types';
 import {
   ONBOARDING_STYLE_ROLES,
@@ -96,19 +97,6 @@ const ABOUT_PRESETS: Array<{
   { description: 'A larger portrait with biography-led typography.', id: 'editorial_portrait', label: 'Editorial Portrait' },
   { description: 'Profile, biography, and an easy-to-scan fact grid.', id: 'profile_quick_facts', label: 'Profile + Quick Facts' },
   { description: 'Your story paired with booking and policy details.', id: 'about_before_you_book', label: 'About + Before You Book' },
-];
-
-const STYLE_PRESETS: Array<{
-  description: string;
-  id: SiteStylePresetId;
-  label: string;
-}> = [
-  { description: 'Clean, warm and polished with rounded details.', id: 'modern', label: 'Modern' },
-  { description: 'Magazine-inspired type with crisp lines and an elevated feel.', id: 'editorial', label: 'Editorial' },
-  { description: 'Blush tones, softer shapes and a calm feminine feel.', id: 'soft', label: 'Soft' },
-  { description: 'Simple neutrals, clean lines and less decoration.', id: 'minimal', label: 'Minimal' },
-  { description: 'High-contrast colours, stronger type and statement details.', id: 'bold', label: 'Bold' },
-  { description: 'Dark tones, refined typography and gold-inspired accents.', id: 'luxury', label: 'Luxury' },
 ];
 
 function AboutPresetPoster({
@@ -1691,9 +1679,10 @@ export function SiteStyleScreen({
 }) {
   const feedback = useFeedback();
   const confirmedStyleAtEntry = useRef(state.recipe.stylePreset);
-  const selectedStyle = STYLE_PRESETS.find((preset) =>
-    preset.id === state.recipe.stylePreset) ?? STYLE_PRESETS[0];
-  const primaryLabel = state.recipe.styleConfirmed
+  const confirmedPaletteAtEntry = useRef(state.recipe.palettePreset);
+  const selectedStyle = SITE_STYLE_PRESETS.find((preset) =>
+    preset.id === state.recipe.stylePreset) ?? SITE_STYLE_PRESETS[0];
+  const primaryLabel = state.recipe.styleConfirmed && state.recipe.paletteConfirmed
     ? `Continue with ${selectedStyle?.label ?? 'this style'}`
     : `Use ${selectedStyle?.label ?? 'this style'}`;
   return (
@@ -1704,7 +1693,7 @@ export function SiteStyleScreen({
           Your pages, photos and information stay the same — only the style changes.
         </p>
         <div aria-label="Site style presets" className="onboarding-style-grid" role="group">
-          {STYLE_PRESETS.map((preset) => {
+          {SITE_STYLE_PRESETS.map((preset) => {
             const roles = ONBOARDING_STYLE_ROLES[preset.id];
             const isCurrentStyle = preset.id === confirmedStyleAtEntry.current;
             const isSelectedStyle = preset.id === state.recipe.stylePreset;
@@ -1759,6 +1748,66 @@ export function SiteStyleScreen({
             );
           })}
         </div>
+        <section className="onboarding-palette-section" aria-labelledby="onboarding-palette-heading">
+          <div className="onboarding-palette-section__heading">
+            <p className="onboarding-screen-kicker">Colours</p>
+            <h2 id="onboarding-palette-heading">Choose your colours</h2>
+            <p>Keep the same layout and fonts, then choose the colours that feel most like your brand.</p>
+          </div>
+          <div aria-label="Website colour palettes" className="onboarding-palette-grid" role="group">
+            {SITE_PALETTE_PRESETS.map((preset) => {
+              const isCurrentPalette = preset.id === confirmedPaletteAtEntry.current;
+              const isSelectedPalette = preset.id === state.recipe.palettePreset;
+              const isPreviewingPalette = isSelectedPalette && !state.recipe.paletteConfirmed;
+              return (
+                <button
+                  aria-pressed={isSelectedPalette}
+                  className="onboarding-palette-card"
+                  data-current={isCurrentPalette ? 'true' : 'false'}
+                  data-previewing={isPreviewingPalette ? 'true' : 'false'}
+                  key={preset.id}
+                  style={{
+                    '--palette-accent': preset.roles.accent,
+                    '--palette-button': preset.roles.button,
+                    '--palette-button-text': preset.roles.buttonText,
+                    '--palette-ground': preset.roles.ground,
+                    '--palette-ink': preset.roles.ink,
+                    '--palette-line': preset.roles.line,
+                    '--palette-secondary': preset.roles.secondaryAccent,
+                    '--palette-surface': preset.roles.surface,
+                  } as CSSProperties}
+                  type="button"
+                  onClick={() => {
+                    feedback.send({ kind: 'selection' });
+                    onUpdate((current) => ({
+                      ...current,
+                      recipe: {
+                        ...current.recipe,
+                        paletteConfirmed: false,
+                        palettePreset: preset.id,
+                      },
+                    }));
+                  }}
+                >
+                  <span aria-hidden="true" className="onboarding-palette-card__preview">
+                    <i /><i /><i /><i /><i />
+                    <b>Book now</b>
+                  </span>
+                  <strong>{preset.label}</strong>
+                  <small>{preset.description}</small>
+                  {isCurrentPalette || isPreviewingPalette ? (
+                    <span className="onboarding-palette-card__status">
+                      {isCurrentPalette ? <em>Current colours</em> : null}
+                      {isPreviewingPalette ? (
+                        <em className="is-previewing"><Check aria-hidden="true" size={14} /> Previewing</em>
+                      ) : null}
+                    </span>
+                  ) : null}
+                </button>
+              );
+            })}
+          </div>
+        </section>
       </div>
       <aside className="onboarding-screen__preview is-preview-first">
         <OnboardingSitePreview document={document} label="Live personalized style preview" state={state} />

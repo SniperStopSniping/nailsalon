@@ -577,6 +577,43 @@ describe('onboarding browser-local storage', () => {
       .not.toBe(loaded.state.profile.logo?.storageId);
   });
 
+  it('retains only same-origin account media IDs on fixture references', () => {
+    const state = createDefaultOnboardingState();
+    const serverMediaId = '33333333-3333-4333-8333-333333333333';
+    state.profile.profilePhoto = {
+      fileName: 'saved-owner.webp',
+      id: 'profile-logical-id',
+      mimeType: 'image/webp',
+      previewUrl: `/api/onboarding/v1/media/${serverMediaId}`,
+      source: 'fixture',
+      storageId: serverMediaId,
+    };
+    state.profile.logo = {
+      fileName: 'remote-logo.webp',
+      id: 'logo-logical-id',
+      mimeType: 'image/webp',
+      previewUrl: 'https://untrusted.example/media/logo.webp',
+      source: 'fixture',
+      storageId: '44444444-4444-4444-8444-444444444444',
+    };
+    const storage = createMemoryStorage();
+
+    expect(saveOnboardingState(state, { storage }).success).toBe(true);
+    const loaded = loadOnboardingState(storage);
+
+    expect(loaded.status).toBe('loaded');
+    expect(loaded.state.profile.profilePhoto).toMatchObject({
+      previewUrl: `/api/onboarding/v1/media/${serverMediaId}`,
+      source: 'fixture',
+      storageId: serverMediaId,
+    });
+    expect(loaded.state.profile.logo).toMatchObject({
+      previewUrl: 'https://untrusted.example/media/logo.webp',
+      source: 'fixture',
+    });
+    expect(loaded.state.profile.logo).not.toHaveProperty('storageId');
+  });
+
   it('normalizes contaminated v6 image references before validation and every current save', () => {
     const legacyV6 = createDefaultOnboardingState() as unknown as Record<string, unknown>;
     legacyV6.schemaVersion = 6;
@@ -681,6 +718,25 @@ describe('onboarding browser-local storage', () => {
     expect(migrated.state.recipe.aboutPreset).toBe('editorial_portrait');
     expect(migrated.state.planOffer.foundingMode).toBe('lifetime');
     expect(migrated.state.dashboardHandoff.tourCompleted).toBe(true);
+    expect(migrated.state.schemaVersion).toBe(ONBOARDING_SCHEMA_VERSION);
+  });
+
+  it('adds one opaque draft identity and default palette when migrating schema v7', () => {
+    const legacy = createDanielaFixtureState() as unknown as Record<string, unknown>;
+    legacy.schemaVersion = 7;
+    delete legacy.anonymousDraftId;
+    const recipe = legacy.recipe as Record<string, unknown>;
+    delete recipe.paletteConfirmed;
+    delete recipe.palettePreset;
+
+    const migrated = parseOnboardingState(JSON.stringify(legacy));
+
+    expect(migrated.status).toBe('loaded');
+    expect(migrated.state.anonymousDraftId).toMatch(/^draft_[a-z0-9_-]{12,100}$/iu);
+    expect(migrated.state.recipe).toMatchObject({
+      paletteConfirmed: false,
+      palettePreset: 'luster_berry',
+    });
     expect(migrated.state.schemaVersion).toBe(ONBOARDING_SCHEMA_VERSION);
   });
 

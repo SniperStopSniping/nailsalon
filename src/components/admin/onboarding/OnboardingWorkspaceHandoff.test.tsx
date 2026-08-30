@@ -1,11 +1,15 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { saveOnboardingIntegrationRecoveryRecord } from '@/features/onboarding-v1-integration/flow-storage';
-
 import { OnboardingWorkspaceHandoff } from './OnboardingWorkspaceHandoff';
 
 const fetchMock = vi.fn();
+const resume = vi.hoisted(() => ({ allowed: true }));
+
+vi.mock('@/features/onboarding-v1-integration/flow-storage', () => ({
+  authorizeVerifiedOnboardingSetupResume: () => true,
+  canResumeVerifiedOnboardingSetup: () => resume.allowed,
+}));
 
 const handoff = {
   handoff: { planIntent: 'free', showWelcome: true, tourCompleted: false },
@@ -20,25 +24,27 @@ const handoff = {
     id: 'site_1',
     previewUrl: '/en/admin/website/preview/site_1',
     revision: 4,
-    setupUrl: '/en/onboarding-v1?resume=review&site=site_1',
+    setupAvailable: true,
+    setupUrl: '/en/onboarding-v1?resume=review&site=site_1&revision=4',
   },
 } as const;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  resume.allowed = true;
   window.localStorage.clear();
   vi.stubGlobal('fetch', fetchMock);
 });
 
 describe('OnboardingWorkspaceHandoff', () => {
   it('shows account-backed actions and derives checklist copy from returned statuses', async () => {
-    saveOnboardingIntegrationRecoveryRecord({ siteId: 'site_1', verifiedRevision: 4 });
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ data: handoff }), { status: 200 }));
     const onTakeTour = vi.fn();
     const onAvailabilityChange = vi.fn();
 
     render(
       <OnboardingWorkspaceHandoff
+        focusWelcome
         locale="en"
         onAvailabilityChange={onAvailabilityChange}
         onTakeTour={onTakeTour}
@@ -47,13 +53,14 @@ describe('OnboardingWorkspaceHandoff', () => {
     );
 
     expect(await screen.findByRole('heading', { name: 'Your Luster site is ready' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Your Luster site is ready' })).toHaveFocus();
     expect(screen.getByRole('link', { name: /Preview website/i })).toHaveAttribute(
       'href',
       '/en/admin/website/preview/site_1',
     );
     expect(await screen.findByRole('link', { name: /Change website setup/i })).toHaveAttribute(
       'href',
-      '/en/onboarding-v1?resume=review&site=site_1',
+      '/en/onboarding-v1?resume=review&site=site_1&revision=4',
     );
     expect(screen.getByText('Website created')).toBeInTheDocument();
     expect(screen.getByText('Booking page ready')).toBeInTheDocument();
@@ -69,8 +76,8 @@ describe('OnboardingWorkspaceHandoff', () => {
     expect(onTakeTour).toHaveBeenCalledTimes(1);
   });
 
-  it('omits the setup fallback without a matching same-browser verified revision', async () => {
-    saveOnboardingIntegrationRecoveryRecord({ siteId: 'another-site', verifiedRevision: 4 });
+  it('omits the unsafe setup/editor fallback when Booking is not ready', async () => {
+    resume.allowed = false;
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({
       data: {
         ...handoff,

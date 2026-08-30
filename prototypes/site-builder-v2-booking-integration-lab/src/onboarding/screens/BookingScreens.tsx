@@ -371,8 +371,11 @@ export function BookingPreferencesScreen({
     profile.policies.deposits.amountCents === null
       ? ''
       : String(profile.policies.deposits.amountCents / 100));
+  const celebrationTimersRef = useRef<number[]>([]);
+  const [menuCelebrating, setMenuCelebrating] = useState(false);
   const preferences = profile.bookingPreferences;
   const selectedServices = serviceMenuPort.getSelectedServices(profile.serviceMenu);
+  const [celebrationCount, setCelebrationCount] = useState(selectedServices.length);
   const selectedService = selectedServices[0];
   const storedNoticeChoice = bookingPreferencesPort.getMinimumNoticeChoice(
     preferences.minimumNoticeMinutes,
@@ -385,6 +388,38 @@ export function BookingPreferencesScreen({
     ? 'custom'
     : storedDepositAmountChoice;
   const minimumNoticeCopy = getMinimumNoticeCopy(preferences.minimumNoticeMinutes);
+
+  useEffect(() => {
+    if (!menuCelebrating) setCelebrationCount(selectedServices.length);
+  }, [menuCelebrating, selectedServices.length]);
+
+  useEffect(() => () => {
+    celebrationTimersRef.current.forEach(timer => window.clearTimeout(timer));
+  }, []);
+
+  const startServiceMenuCelebration = () => {
+    celebrationTimersRef.current.forEach(timer => window.clearTimeout(timer));
+    celebrationTimersRef.current = [];
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    if (reducedMotion || selectedServices.length === 0) {
+      setCelebrationCount(selectedServices.length);
+      setMenuCelebrating(false);
+      return;
+    }
+    setCelebrationCount(0);
+    setMenuCelebrating(true);
+    const interval = Math.max(48, Math.floor(360 / selectedServices.length));
+    for (let count = 1; count <= selectedServices.length; count += 1) {
+      celebrationTimersRef.current.push(window.setTimeout(
+        () => setCelebrationCount(count),
+        interval * count,
+      ));
+    }
+    celebrationTimersRef.current.push(window.setTimeout(
+      () => setMenuCelebrating(false),
+      Math.min(560, interval * selectedServices.length + 140),
+    ));
+  };
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -456,7 +491,10 @@ export function BookingPreferencesScreen({
               onBookingPreferencesChange({ newClientStatus });
             }}
           />
-          <section aria-labelledby="service-menu-heading" className="onboarding-service-menu-card">
+          <section
+            aria-labelledby="service-menu-heading"
+            className={`onboarding-service-menu-card${menuCelebrating ? ' is-celebrating' : ''}`}
+          >
             <div>
               <h2 id="service-menu-heading">Your service menu is ready</h2>
               <p>
@@ -465,7 +503,11 @@ export function BookingPreferencesScreen({
               </p>
             </div>
             <p aria-live="polite" className="onboarding-service-menu-count">
-              <strong>{selectedServices.length} {selectedServices.length === 1 ? 'service' : 'services'} on your menu</strong>
+              <strong>
+                <span aria-hidden={menuCelebrating || undefined}>{celebrationCount}</span>
+                {menuCelebrating ? <span className="visually-hidden">{selectedServices.length}</span> : null}
+                {' '}{selectedServices.length === 1 ? 'service' : 'services'} on your menu
+              </strong>
               {selectedServices.length > 6 ? <span> · showing 6</span> : null}
             </p>
             {selectedServices.length > 0 ? (
@@ -499,6 +541,7 @@ export function BookingPreferencesScreen({
                     reviewed: true,
                   });
                   if (!profile.serviceMenu.reviewed) {
+                    startServiceMenuCelebration();
                     feedback.send({
                       kind: 'milestone',
                       message: `Your service menu is ready. ${selectedServices.length} ${selectedServices.length === 1 ? 'service' : 'services'} added.`,
@@ -692,8 +735,8 @@ export function BookingPreferencesScreen({
                   ? 'Fixed amount to finish'
                   : `$${profile.policies.deposits.amountCents / 100} for every service`
                 : 'No deposit'}</dd></div>
-              <div><dt>Booking cutoff</dt><dd>{minimumNoticeCopy.summary}</dd></div>
             </dl>
+            <p className="onboarding-booking-status-card__notice">{minimumNoticeCopy.helper}</p>
             <p>Your customer preview updates as you make these choices.</p>
           </aside>
           <aside aria-label="Customer booking information preview" className="onboarding-booking-info-preview">
@@ -792,6 +835,7 @@ type StartingPreviewScreenProps = {
   onOpenPreview: () => void;
   preview: ReactNode;
   profile: BusinessProfileDraft;
+  reveal?: boolean;
   starter: StarterId;
 };
 
@@ -807,12 +851,16 @@ export function StartingPreviewScreen({
   onOpenPreview,
   preview,
   profile,
+  reveal = false,
   starter,
 }: StartingPreviewScreenProps) {
   const copy = SCREEN_METADATA.starting_preview;
 
   return (
-    <section aria-labelledby="starting-preview-heading" className="onboarding-screen onboarding-starting-preview-screen">
+    <section
+      aria-labelledby="starting-preview-heading"
+      className={`onboarding-screen onboarding-starting-preview-screen${reveal ? ' is-revealing' : ''}`}
+    >
       <header className="onboarding-screen__heading">
         <h1 id="starting-preview-heading">{copy.heading}</h1>
         <p>{copy.supportingCopy}</p>

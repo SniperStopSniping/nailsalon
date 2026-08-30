@@ -23,6 +23,7 @@ import { AdminDashboardNoticeStack } from '@/components/admin/dashboard/AdminDas
 import { AdminDashboardSkeleton } from '@/components/admin/dashboard/AdminDashboardSkeleton';
 import { AdminSalonSelector } from '@/components/admin/dashboard/AdminSalonSelector';
 import {
+  type OnboardingHandoffResolution,
   type OnboardingSiteHandoff,
   OnboardingWorkspaceHandoff,
 } from '@/components/admin/onboarding/OnboardingWorkspaceHandoff';
@@ -44,6 +45,8 @@ import { formatMoney } from '@/libs/formatMoney';
 import type { AnalyticsResponse } from '@/types/admin';
 import type { RetentionStage } from '@/types/retention';
 import type { ModuleKey } from '@/types/salonPolicy';
+
+import { useOwnerAdminFeatureFlags } from './OwnerAdminFeatureFlags';
 
 type PromotionSettingsStage = Extract<
   RetentionStage,
@@ -286,6 +289,7 @@ function mapAnalyticsModuleStatus(
 
 // Main component that uses useSearchParams (must be wrapped in Suspense)
 function AdminDashboardContent() {
+  const { onboardingV1IntegrationEnabled } = useOwnerAdminFeatureFlags();
   const clerk = useClerk();
   const router = useRouter();
   const params = useParams();
@@ -345,6 +349,10 @@ function AdminDashboardContent() {
     previewUrl: string;
     salonSlug: string;
   } | null>(null);
+  const [onboardingHandoffResolution, setOnboardingHandoffResolution]
+    = useState<'pending' | OnboardingHandoffResolution>(
+      onboardingV1IntegrationEnabled ? 'pending' : 'absent',
+    );
   const [showOnboardingTour, setShowOnboardingTour] = useState(false);
 
   // Modal state
@@ -382,6 +390,25 @@ function AdminDashboardContent() {
         }
       : null);
   }, [activeDashboardSalonSlug]);
+  const handleOnboardingHandoffResolution = useCallback((
+    resolution: OnboardingHandoffResolution,
+  ) => {
+    setOnboardingHandoffResolution(resolution);
+    if (resolution !== 'error') {
+      setNonBlockingMessage(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    setOnboardingHandoffAvailable(false);
+    setOnboardingHandoffResolution(
+      onboardingV1IntegrationEnabled ? 'pending' : 'absent',
+    );
+    setOnboardingSavedSite(null);
+    if (!onboardingV1IntegrationEnabled) {
+      setShowOnboardingTour(false);
+    }
+  }, [activeDashboardSalonSlug, onboardingV1IntegrationEnabled]);
 
   // Fraud signals - parent owns state
   const [fraudSignals, setFraudSignals] = useState<
@@ -1103,17 +1130,34 @@ function AdminDashboardContent() {
         `/${locale}/admin/luster${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
       );
     } else if (appId === 'booking-page') {
+      if (!onboardingV1IntegrationEnabled) {
+        router.push(
+          `/${locale}/admin/booking-page${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
+        );
+        return;
+      }
       const accountBackedPreviewUrl = onboardingSavedSite?.salonSlug
         === activeDashboardSalonSlug
         ? onboardingSavedSite.previewUrl
         : null;
       // Account-backed onboarding sites always reopen their exact persisted
-      // revision. Legacy salons retain the existing Booking Page route.
-      router.push(accountBackedPreviewUrl ?? (
-        `/${locale}/admin/booking-page${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`
-      ));
+      // revision. Until resolution completes (or if it fails), never fail open
+      // into the legacy placeholder editor.
+      if (onboardingHandoffResolution === 'available' && accountBackedPreviewUrl) {
+        router.push(accountBackedPreviewUrl);
+      } else if (onboardingHandoffResolution === 'absent') {
+        router.push(
+          `/${locale}/admin/booking-page${activeDashboardSalonSlug ? `?salon=${encodeURIComponent(activeDashboardSalonSlug)}` : ''}`,
+        );
+      } else {
+        setNonBlockingMessage(onboardingHandoffResolution === 'error'
+          ? 'Your saved website could not be loaded yet. Try again before opening Booking Page.'
+          : 'Checking your saved website… Try Booking Page again in a moment.');
+      }
     } else if (appId === 'workspace-tour') {
-      setShowOnboardingTour(true);
+      if (onboardingV1IntegrationEnabled && onboardingHandoffAvailable) {
+        setShowOnboardingTour(true);
+      }
     } else if (appId === 'schedule') {
       setShowScheduleCalendar(true);
     } else {
@@ -1485,7 +1529,7 @@ function AdminDashboardContent() {
                   theme="apple"
                   badges={appBadges}
                   onAppTap={handleAppTap}
-                  hiddenIds={onboardingHandoffAvailable
+                  hiddenIds={onboardingV1IntegrationEnabled && onboardingHandoffAvailable
                     ? hiddenAppIds
                     : [...hiddenAppIds, 'workspace-tour']}
                 />
@@ -1493,12 +1537,14 @@ function AdminDashboardContent() {
             )
           : (
               <>
-                {activeDashboardSalonSlug
+                {onboardingV1IntegrationEnabled && activeDashboardSalonSlug
                   ? (
                       <OnboardingWorkspaceHandoff
+                        focusWelcome={searchParams.get('onboarding') === 'complete'}
                         locale={locale}
                         onAvailabilityChange={setOnboardingHandoffAvailable}
                         onHandoffChange={handleOnboardingHandoffChange}
+                        onResolutionChange={handleOnboardingHandoffResolution}
                         onTakeTour={() => setShowOnboardingTour(true)}
                         salonSlug={activeDashboardSalonSlug}
                       />
@@ -1617,12 +1663,16 @@ function AdminDashboardContent() {
         }}
       />
 
-      <WorkspaceQuickTour
-        onClose={closeWorkspaceTour}
-        onComplete={completeWorkspaceTour}
-        onTargetChange={handleWorkspaceTourTarget}
-        open={showOnboardingTour}
-      />
+      {onboardingV1IntegrationEnabled
+        ? (
+            <WorkspaceQuickTour
+              onClose={closeWorkspaceTour}
+              onComplete={completeWorkspaceTour}
+              onTargetChange={handleWorkspaceTourTarget}
+              open={showOnboardingTour}
+            />
+          )
+        : null}
     </div>
   );
 }

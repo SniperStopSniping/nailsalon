@@ -45,82 +45,82 @@ export const MOCK_ADD_ONS = deepFreeze<readonly MockAddOn[]>([
 const IMAGE_CATALOG = deepFreeze<Record<string, ServiceImage>>({
   bareNatural: {
     id: 'image-bare-natural',
-    src: '/manicure-bare-natural.webp',
+    src: '/assets/images/services/manicure-bare-natural.webp',
     alt: 'Natural nails with a clean, glossy finish',
   },
   builderOverlay: {
     id: 'image-builder-overlay',
-    src: '/manicure-builder-overlay.webp',
+    src: '/assets/images/services/manicure-builder-overlay.webp',
     alt: 'Structured builder gel overlay on almond-shaped nails',
   },
   cateye: {
     id: 'image-cateye',
-    src: '/manicure-cateye.webp',
+    src: '/assets/images/services/manicure-cateye.webp',
     alt: 'Deep cat-eye nail art with a reflective finish',
   },
   comboFrench: {
     id: 'image-combo-french',
-    src: '/combo-french-luster.webp',
+    src: '/assets/images/services/combo-french-luster.webp',
     alt: 'Coordinated French manicure and pedicure',
   },
   comboPinkBuilder: {
     id: 'image-combo-pink-builder',
-    src: '/combo-pink-builder-luster.webp',
+    src: '/assets/images/services/combo-pink-builder-luster.webp',
     alt: 'Pink builder gel manicure with a polished pedicure',
   },
   comboTaupe: {
     id: 'image-combo-taupe',
-    src: '/combo-taupe-luster.webp',
+    src: '/assets/images/services/combo-taupe-luster.webp',
     alt: 'Taupe gel manicure and pedicure combination',
   },
   hardGel: {
     id: 'image-hard-gel',
-    src: '/extensions-hard-gel-burgundy.webp',
+    src: '/assets/images/services/extensions-hard-gel-burgundy.webp',
     alt: 'Sculpted burgundy hard-gel extensions',
   },
   manicureFrench: {
     id: 'image-manicure-french',
-    src: '/manicure-french.webp',
+    src: '/assets/images/services/manicure-french.webp',
     alt: 'Crisp French manicure on softly shaped nails',
   },
   gelNude: {
     id: 'image-gel-nude',
-    src: '/manicure-gel-nude.webp',
+    src: '/assets/images/services/manicure-gel-nude.webp',
     alt: 'Glossy nude gel manicure',
   },
   lusterPearl: {
     id: 'image-luster-pearl',
-    src: '/manicure-luster-pearl.webp',
+    src: '/assets/images/services/manicure-luster-pearl.webp',
     alt: 'Pearlescent manicure with a luminous finish',
   },
   pearlChrome: {
     id: 'image-pearl-chrome',
-    src: '/manicure-pearl-chrome.webp',
+    src: '/assets/images/services/manicure-pearl-chrome.webp',
     alt: 'Pearl chrome manicure catching the light',
   },
   russianClean: {
     id: 'image-russian-clean',
-    src: '/manicure-russian-clean.webp',
+    src: '/assets/images/services/manicure-russian-clean.webp',
     alt: 'Precision manicure with clean cuticle work',
   },
   pedicureBare: {
     id: 'image-pedicure-bare',
-    src: '/pedicure-bare-natural.webp',
+    src: '/assets/images/services/pedicure-bare-natural.webp',
     alt: 'Natural pedicure with a clean glossy finish',
   },
   pedicureFrench: {
     id: 'image-pedicure-french',
-    src: '/pedicure-french.webp',
+    src: '/assets/images/services/pedicure-french.webp',
     alt: 'Fresh French pedicure',
   },
   pedicureRedClassic: {
     id: 'image-pedicure-red-classic',
-    src: '/pedicure-red-classic.webp',
+    src: '/assets/images/services/pedicure-red-classic.webp',
     alt: 'Classic red pedicure',
   },
   pedicureRedLuster: {
     id: 'image-pedicure-red-luster',
-    src: '/pedicure-red-luster.webp',
+    src: '/assets/images/services/pedicure-red-luster.webp',
     alt: 'Glossy red spa pedicure',
   },
 });

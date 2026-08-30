@@ -81,4 +81,27 @@ describe('local onboarding event journal', () => {
     expect(JSON.stringify(journal)).not.toContain('Sensitive draft biography');
     expect(JSON.stringify(journal)).not.toContain('Generated private wording');
   });
+
+  it('keeps account-save analytics non-sensitive and allow-listed', () => {
+    const input = {
+      address: '123 Private Street',
+      email: 'daniela@example.com',
+      presetId: 'black_champagne',
+      type: 'palette_selected',
+    } as OnboardingEventInput & { address: string; email: string };
+
+    const journal = appendOnboardingEvent([], input, {
+      idFactory: () => 'event-palette',
+      timestamp: '2026-08-30T10:00:00.000Z',
+    });
+
+    expect(journal).toEqual([{
+      id: 'event-palette',
+      presetId: 'black_champagne',
+      timestamp: '2026-08-30T10:00:00.000Z',
+      type: 'palette_selected',
+    }]);
+    expect(JSON.stringify(journal)).not.toContain('daniela@example.com');
+    expect(JSON.stringify(journal)).not.toContain('123 Private Street');
+  });
 });

@@ -323,6 +323,53 @@ async function seedSalon(salonId: string, suffix: string, dayOffset: number): Pr
     providerSid: `SM_purge_${suffix}`,
   });
 
+  // Account-backed Onboarding V1 rows are tenant-owned and revisioned. Seed
+  // every dependency so the purge test proves the explicit child-first order.
+  await db.insert(schema.adminUserSchema).values({
+    email: `onboarding-${suffix}@example.test`,
+    id: id('onboarding_admin'),
+  });
+  await db.insert(schema.onboardingSiteSchema).values({
+    createdByAdminId: id('onboarding_admin'),
+    currentRevision: 1,
+    id: id('onboarding_site'),
+    palettePresetId: 'luster_berry',
+    salonId,
+    stylePresetId: 'modern',
+  });
+  await db.insert(schema.onboardingSiteRevisionSchema).values({
+    createdByAdminId: id('onboarding_admin'),
+    document: {} as unknown as typeof schema.onboardingSiteRevisionSchema.$inferInsert.document,
+    documentFingerprint: `document_${suffix}`,
+    documentVersion: 1,
+    id: id('onboarding_revision'),
+    revision: 1,
+    salonId,
+    siteId: id('onboarding_site'),
+    snapshot: {} as unknown as typeof schema.onboardingSiteRevisionSchema.$inferInsert.snapshot,
+    snapshotFingerprint: `snapshot_${suffix}`,
+    snapshotVersion: 1,
+  });
+  await db.insert(schema.onboardingSiteMediaSchema).values({
+    fileName: 'logo.webp',
+    id: id('onboarding_media'),
+    localItemId: 'logo_item',
+    mimeType: 'image/webp',
+    revisionId: id('onboarding_revision'),
+    role: 'logo',
+    salonId,
+    siteId: id('onboarding_site'),
+  });
+  await db.insert(schema.onboardingDraftClaimSchema).values({
+    anonymousDraftTokenHash: `draft_hash_${suffix}`,
+    claimedByAdminId: id('onboarding_admin'),
+    id: id('onboarding_claim'),
+    lastIdempotencyKeyHash: `claim_hash_${suffix}`,
+    revisionId: id('onboarding_revision'),
+    salonId,
+    siteId: id('onboarding_site'),
+  });
+
   // Migration 0052 backup tables: no foreign keys, so they are invisible to any
   // FK-derived plan and only a seeded row proves the purge covers them.
   await db.execute(

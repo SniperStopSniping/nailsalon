@@ -14,6 +14,10 @@ import {
   serviceSchema,
 } from '@/models/Schema';
 
+import {
+  ADD_ON_PRODUCTION_MAPPINGS,
+  SERVICE_MENU_PRODUCTION_MAPPINGS,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/integrations/contracts/service-menu-production-mapping';
 import type { OnboardingCompiledSiteDocument } from './contracts';
 import { getSavedOnboardingSitePreviewUrl } from './urls';
 
@@ -59,6 +63,14 @@ export function deriveOnboardingSiteHandoff(input: {
 }): OnboardingSiteHandoff {
   const selectedServiceIds = input.document.serviceSelection.selectedServiceIds;
   const activeServiceSourceIds = new Set(input.activeServiceSourceIds);
+  for (const mapping of [
+    ...SERVICE_MENU_PRODUCTION_MAPPINGS,
+    ...ADD_ON_PRODUCTION_MAPPINGS,
+  ]) {
+    if (activeServiceSourceIds.has(mapping.productionCanonicalId)) {
+      activeServiceSourceIds.add(mapping.labServiceId);
+    }
+  }
   const googleCalendar = integrationStatus(
     input.googleReadiness === 'ready',
     input.googleReadiness === 'not_connected',
@@ -96,7 +108,8 @@ export function deriveOnboardingSiteHandoff(input: {
         siteId: input.site.id,
       }),
       revision: input.site.revision,
-      setupUrl: `/${locale}/onboarding-v1?resume=review&site=${encodeURIComponent(input.site.id)}`,
+      setupAvailable: input.salon.publicationStatus !== 'published',
+      setupUrl: `/${locale}/onboarding-v1?resume=review&site=${encodeURIComponent(input.site.id)}&revision=${input.site.revision}`,
     },
   };
 }

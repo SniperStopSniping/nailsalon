@@ -309,6 +309,10 @@ export const serviceSchema = pgTable(
     // Stable key linking this service to a catalog template (e.g. 'luster_manicure').
     // Unique per salon via the partial index below.
     templateKey: text('template_key'),
+    // Stable source identity for an owner-authored service created from the
+    // accepted onboarding catalogue when no exact Product template exists.
+    // It is not a second template catalogue and remains tenant-owned.
+    onboardingSourceServiceId: text('onboarding_source_service_id'),
 
     // Display
     imageUrl: text('image_url'),
@@ -356,6 +360,9 @@ export const serviceSchema = pgTable(
     // Partial unique index (WHERE template_key IS NOT NULL) is created in
     // migrations/0056_booking_category_luster_featuring.sql as
     // service_salon_template_key_idx — one template-derived service per salon.
+    onboardingSourceUniq: uniqueIndex('service_salon_onboarding_source_idx')
+      .on(table.salonId, table.onboardingSourceServiceId)
+      .where(sql`${table.onboardingSourceServiceId} is not null`),
   }),
 );
 
@@ -448,6 +455,9 @@ export const addOnSchema = pgTable(
     // Stable key linking this add-on to a catalog template; unique per salon
     // via the partial index in migrations/0057_add_on_template_key.sql.
     templateKey: text('template_key'),
+    // Stable Lab-catalogue identity for add-ons first owned through the
+    // account-backed onboarding claim. Existing owner add-ons stay unmarked.
+    onboardingSourceAddOnId: text('onboarding_source_add_on_id'),
     descriptionItems: jsonb('description_items').$type<string[] | null>().default(null),
     priceCents: integer('price_cents').notNull(),
     priceDisplayText: text('price_display_text'),
@@ -477,6 +487,9 @@ export const addOnSchema = pgTable(
     salonIdx: index('add_on_salon_idx').on(table.salonId),
     salonSlugIdx: uniqueIndex('add_on_salon_slug_idx').on(table.salonId, table.slug),
     activeCategoryIdx: index('add_on_active_category_idx').on(table.salonId, table.isActive, table.category),
+    onboardingSourceUniq: uniqueIndex('add_on_salon_onboarding_source_idx')
+      .on(table.salonId, table.onboardingSourceAddOnId)
+      .where(sql`${table.onboardingSourceAddOnId} is not null`),
     // Tenant identity referenced by the composite foreign keys from `add_on`
     // itself and from `catalog_rule` (0073).
     salonIdIdKey: uniqueIndex('add_on_salon_id_id_key').on(table.salonId, table.id),
@@ -2027,7 +2040,10 @@ export const adminUserSchema = pgTable(
   'admin_user',
   {
     id: text('id').primaryKey(),
-    phoneE164: text('phone_e164').notNull().unique(), // "+14374289008"
+    // Clerk-first owners may create an account with a verified email and no
+    // phone number. Legacy OTP owners keep a value here; null is never treated
+    // as an OTP identity and PostgreSQL's unique index permits multiple nulls.
+    phoneE164: text('phone_e164').unique(), // "+14374289008" for phone-auth owners
     clerkUserId: text('clerk_user_id'),
     name: text('name'),
     email: text('email'),
@@ -4795,3 +4811,246 @@ export const catalogRuleSchema = pgTable(
   }),
 );
 export type CatalogRule = typeof catalogRuleSchema.$inferSelect;
+
+// =============================================================================
+// ONBOARDING V1 — ACCOUNT-OWNED SITE, REVISIONS, CLAIM, AND MEDIA
+// =============================================================================
+// These records bridge the accepted browser draft into the authenticated
+// Product without making the browser-local Lab an authority. `salon` and its
+// owner menu remain canonical for business and Booking data; the snapshot is
+// an exact revision input/recovery record, while the compiled document owns
+// presentation, visibility, and section order.
+
+export const onboardingSiteSchema = pgTable(
+  'onboarding_site',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id')
+      .notNull()
+      .references(() => salonSchema.id, { onDelete: 'cascade' }),
+    createdByAdminId: text('created_by_admin_id')
+      .notNull()
+      .references(() => adminUserSchema.id, { onDelete: 'restrict' }),
+    status: text('status').$type<'draft' | 'published' | 'archived'>().default('draft').notNull(),
+    currentRevision: integer('current_revision').default(0).notNull(),
+    stylePresetId: text('style_preset_id').notNull(),
+    palettePresetId: text('palette_preset_id').notNull(),
+    serviceMenuApplied: boolean('service_menu_applied').default(true).notNull(),
+    planIntent: text('plan_intent').$type<'free' | 'founding_interest' | 'monthly_interest'>(),
+    planIntentIdempotencyKeyHash: text('plan_intent_idempotency_key_hash'),
+    planIntentUpdatedAt: timestamp('plan_intent_updated_at', { mode: 'date', withTimezone: true }),
+    isCurrent: boolean('is_current').default(true).notNull(),
+    dashboardWelcomeDismissedAt: timestamp('dashboard_welcome_dismissed_at', { mode: 'date', withTimezone: true }),
+    dashboardTourCompletedAt: timestamp('dashboard_tour_completed_at', { mode: 'date', withTimezone: true }),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    salonIdx: index('onboarding_site_salon_idx').on(table.salonId),
+    salonIdIdKey: uniqueIndex('onboarding_site_salon_id_id_key').on(table.salonId, table.id),
+    oneCurrentPerSalon: uniqueIndex('onboarding_site_one_current_per_salon_idx')
+      .on(table.salonId)
+      .where(sql`${table.isCurrent} = true`),
+    statusValid: check(
+      'onboarding_site_status_check',
+      sql`${table.status} IN ('draft', 'published', 'archived')`,
+    ),
+    revisionValid: check(
+      'onboarding_site_revision_check',
+      sql`${table.currentRevision} >= 0`,
+    ),
+    styleValid: check(
+      'onboarding_site_style_check',
+      sql`${table.stylePresetId} IN ('modern', 'editorial', 'soft', 'minimal', 'bold', 'luxury')`,
+    ),
+    paletteValid: check(
+      'onboarding_site_palette_check',
+      sql`${table.palettePresetId} IN ('luster_berry', 'blush_cocoa', 'terracotta_cream', 'sage_stone', 'lilac_plum', 'navy_ivory', 'monochrome', 'black_champagne')`,
+    ),
+    planIntentValid: check(
+      'onboarding_site_plan_intent_check',
+      sql`${table.planIntent} IS NULL OR ${table.planIntent} IN ('free', 'founding_interest', 'monthly_interest')`,
+    ),
+  }),
+);
+
+export const onboardingSiteRevisionSchema = pgTable(
+  'onboarding_site_revision',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id').notNull(),
+    siteId: text('site_id').notNull(),
+    revision: integer('revision').notNull(),
+    createdByAdminId: text('created_by_admin_id')
+      .notNull()
+      .references(() => adminUserSchema.id, { onDelete: 'restrict' }),
+    snapshotVersion: integer('snapshot_version').notNull(),
+    snapshot: jsonb('snapshot')
+      .$type<import('@/features/onboarding-v1-integration/contracts').OnboardingPersistedSnapshot>()
+      .notNull(),
+    snapshotFingerprint: text('snapshot_fingerprint').notNull(),
+    documentVersion: integer('document_version').notNull(),
+    document: jsonb('document')
+      .$type<import('@/features/onboarding-v1-integration/contracts').OnboardingCompiledSiteDocument>()
+      .notNull(),
+    documentFingerprint: text('document_fingerprint').notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+  },
+  table => ({
+    siteRevisionUniq: uniqueIndex('onboarding_site_revision_site_revision_idx').on(
+      table.siteId,
+      table.revision,
+    ),
+    salonIdx: index('onboarding_site_revision_salon_idx').on(table.salonId),
+    salonIdIdKey: uniqueIndex('onboarding_site_revision_salon_id_id_key').on(table.salonId, table.id),
+    revisionValid: check(
+      'onboarding_site_revision_number_check',
+      sql`${table.revision} >= 1`,
+    ),
+    snapshotVersionValid: check(
+      'onboarding_site_revision_snapshot_version_check',
+      sql`${table.snapshotVersion} = 1`,
+    ),
+    documentVersionValid: check(
+      'onboarding_site_revision_document_version_check',
+      sql`${table.documentVersion} = 1`,
+    ),
+    siteTenantFk: foreignKey({
+      columns: [table.salonId, table.siteId],
+      foreignColumns: [onboardingSiteSchema.salonId, onboardingSiteSchema.id],
+      name: 'onboarding_site_revision_site_salon_fk',
+    }).onDelete('cascade'),
+  }),
+);
+
+export const onboardingDraftClaimSchema = pgTable(
+  'onboarding_draft_claim',
+  {
+    id: text('id').primaryKey(),
+    anonymousDraftTokenHash: text('anonymous_draft_token_hash').notNull().unique(),
+    lastIdempotencyKeyHash: text('last_idempotency_key_hash').notNull(),
+    claimedByAdminId: text('claimed_by_admin_id')
+      .notNull()
+      .references(() => adminUserSchema.id, { onDelete: 'restrict' }),
+    salonId: text('salon_id').notNull(),
+    siteId: text('site_id').notNull(),
+    revisionId: text('revision_id').notNull(),
+    status: text('status').$type<'claimed'>().default('claimed').notNull(),
+    claimedAt: timestamp('claimed_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    adminIdx: index('onboarding_draft_claim_admin_idx').on(table.claimedByAdminId),
+    salonIdx: index('onboarding_draft_claim_salon_idx').on(table.salonId),
+    siteIdx: index('onboarding_draft_claim_site_idx').on(table.siteId),
+    statusValid: check(
+      'onboarding_draft_claim_status_check',
+      sql`${table.status} = 'claimed'`,
+    ),
+    siteTenantFk: foreignKey({
+      columns: [table.salonId, table.siteId],
+      foreignColumns: [onboardingSiteSchema.salonId, onboardingSiteSchema.id],
+      name: 'onboarding_draft_claim_site_salon_fk',
+    }).onDelete('cascade'),
+    revisionTenantFk: foreignKey({
+      columns: [table.salonId, table.revisionId],
+      foreignColumns: [onboardingSiteRevisionSchema.salonId, onboardingSiteRevisionSchema.id],
+      name: 'onboarding_draft_claim_revision_salon_fk',
+    }).onDelete('cascade'),
+  }),
+);
+
+export const onboardingSiteMediaSchema = pgTable(
+  'onboarding_site_media',
+  {
+    id: text('id').primaryKey(),
+    salonId: text('salon_id').notNull(),
+    siteId: text('site_id').notNull(),
+    revisionId: text('revision_id').notNull(),
+    role: text('role').$type<'profile' | 'logo' | 'gallery' | 'custom_design'>().notNull(),
+    localItemId: text('local_item_id').notNull(),
+    claimStatus: text('claim_status').$type<'pending' | 'uploading' | 'ready' | 'failed'>().default('pending').notNull(),
+    uploadLeaseId: text('upload_lease_id'),
+    storageProvider: text('storage_provider'),
+    storageKey: text('storage_key'),
+    publicUrl: text('public_url'),
+    imageItemId: text('image_item_id'),
+    fileName: text('file_name').notNull(),
+    mimeType: text('mime_type').notNull(),
+    fileSize: integer('file_size'),
+    width: integer('width'),
+    height: integer('height'),
+    altText: text('alt_text'),
+    accessibleSummary: text('accessible_summary'),
+    decorative: boolean('decorative'),
+    sortOrder: integer('sort_order').default(0).notNull(),
+    displayMode: text('display_mode'),
+    failureCode: text('failure_code'),
+    metadata: jsonb('metadata').$type<Record<string, string | number | boolean | null>>().default({}).notNull(),
+    createdAt: timestamp('created_at', { mode: 'date', withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date', withTimezone: true })
+      .defaultNow()
+      .$onUpdate(() => new Date())
+      .notNull(),
+  },
+  table => ({
+    siteIdx: index('onboarding_site_media_site_idx').on(table.salonId, table.siteId),
+    revisionIdx: index('onboarding_site_media_revision_idx').on(table.salonId, table.revisionId),
+    roleIdx: index('onboarding_site_media_role_idx').on(table.salonId, table.siteId, table.role),
+    revisionLocalRoleUniq: uniqueIndex('onboarding_site_media_revision_role_local_idx').on(
+      table.revisionId,
+      table.role,
+      table.localItemId,
+    ),
+    roleValid: check(
+      'onboarding_site_media_role_check',
+      sql`${table.role} IN ('profile', 'logo', 'gallery', 'custom_design')`,
+    ),
+    statusValid: check(
+      'onboarding_site_media_status_check',
+      sql`${table.claimStatus} IN ('pending', 'uploading', 'ready', 'failed')`,
+    ),
+    uploadLeaseValid: check(
+      'onboarding_site_media_upload_lease_check',
+      sql`(${table.claimStatus} = 'uploading' AND ${table.uploadLeaseId} IS NOT NULL) OR (${table.claimStatus} <> 'uploading' AND ${table.uploadLeaseId} IS NULL)`,
+    ),
+    dimensionsValid: check(
+      'onboarding_site_media_dimensions_check',
+      sql`(${table.width} IS NULL OR ${table.width} > 0) AND (${table.height} IS NULL OR ${table.height} > 0)`,
+    ),
+    fileSizeValid: check(
+      'onboarding_site_media_file_size_check',
+      sql`${table.fileSize} IS NULL OR ${table.fileSize} > 0`,
+    ),
+    readyStorageValid: check(
+      'onboarding_site_media_ready_storage_check',
+      sql`${table.claimStatus} <> 'ready' OR (${table.storageProvider} IS NOT NULL AND ${table.storageKey} IS NOT NULL)`,
+    ),
+    siteTenantFk: foreignKey({
+      columns: [table.salonId, table.siteId],
+      foreignColumns: [onboardingSiteSchema.salonId, onboardingSiteSchema.id],
+      name: 'onboarding_site_media_site_salon_fk',
+    }).onDelete('cascade'),
+    revisionTenantFk: foreignKey({
+      columns: [table.salonId, table.revisionId],
+      foreignColumns: [onboardingSiteRevisionSchema.salonId, onboardingSiteRevisionSchema.id],
+      name: 'onboarding_site_media_revision_salon_fk',
+    }).onDelete('cascade'),
+  }),
+);
+
+export type OnboardingSite = typeof onboardingSiteSchema.$inferSelect;
+export type NewOnboardingSite = typeof onboardingSiteSchema.$inferInsert;
+export type OnboardingSiteRevision = typeof onboardingSiteRevisionSchema.$inferSelect;
+export type NewOnboardingSiteRevision = typeof onboardingSiteRevisionSchema.$inferInsert;
+export type OnboardingDraftClaim = typeof onboardingDraftClaimSchema.$inferSelect;
+export type NewOnboardingDraftClaim = typeof onboardingDraftClaimSchema.$inferInsert;
+export type OnboardingSiteMedia = typeof onboardingSiteMediaSchema.$inferSelect;
+export type NewOnboardingSiteMedia = typeof onboardingSiteMediaSchema.$inferInsert;

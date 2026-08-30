@@ -7,8 +7,8 @@ import {
 } from '@/features/onboarding-v1-integration/contracts';
 import { getClaimedOnboardingSite } from '@/features/onboarding-v1-integration/persistence.server';
 import {
+  createSavedPreviewMediaRecords,
   createSavedSitePreviewModel,
-  type SavedPreviewMediaRecord,
 } from '@/features/onboarding-v1-integration/saved-preview';
 import { getAdminSession } from '@/libs/adminAuth';
 
@@ -50,32 +50,8 @@ export default async function SavedWebsitePreviewPage({
   if (!snapshot.success || !document.success) {
     notFound();
   }
-  const media: SavedPreviewMediaRecord[] = claimed.media.flatMap((item) => {
-    if (
-      item.claimStatus !== 'ready'
-      || !item.storageKey
-      || !item.publicUrl
-      || !item.publicUrl.startsWith('/api/onboarding/v1/media/')
-    ) {
-      return [];
-    }
-    const metadataByteSize = item.metadata.byteSize;
-    return [{
-      altText: item.altText,
-      assetId: item.id,
-      fileName: item.fileName,
-      fileSize: item.fileSize
-        ?? (typeof metadataByteSize === 'number' ? metadataByteSize : null),
-      height: item.height,
-      localItemId: item.localItemId,
-      mimeType: item.mimeType,
-      publicUrl: `/api/onboarding/v1/media/${encodeURIComponent(item.id)}`,
-      role: item.role,
-      sortOrder: item.sortOrder,
-      width: item.width,
-    }];
-  });
-  const setupUrl = `/${locale}/onboarding-v1?resume=review&site=${encodeURIComponent(claimed.site.id)}`;
+  const media = createSavedPreviewMediaRecords(claimed.media);
+  const setupUrl = `/${locale}/onboarding-v1?resume=review&site=${encodeURIComponent(claimed.site.id)}&revision=${claimed.revision.revision}`;
 
   return (
     <SavedSitePreviewClient
@@ -89,6 +65,7 @@ export default async function SavedWebsitePreviewPage({
       revision={claimed.revision.revision}
       salonSlug={claimed.site.salonSlug}
       siteId={claimed.site.id}
+      setupAvailable={claimed.site.salonPublicationStatus !== 'published'}
       setupUrl={setupUrl}
       showAuditRevision={
         process.env.NODE_ENV !== 'production'

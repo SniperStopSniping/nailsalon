@@ -88,7 +88,7 @@ export const BOOKING_TOKEN_PRESETS = deepFreeze<
 });
 
 const cloneLayoutSettings = <Layout extends BookingMenuLayout>(
-  layout: Layout,
+  _layout: Layout,
   settings: LayoutSettingsByLayout[Layout],
 ): LayoutSettingsByLayout[Layout] => ({ ...settings });
 
@@ -169,9 +169,9 @@ function buildSettingsForLayout<Layout extends BookingMenuLayout>(
       return { ...common, layout, layoutSettings: layoutSettings as LayoutSettingsByLayout['category_menu'] };
     case 'editorial_price_list':
       return { ...common, layout, layoutSettings: layoutSettings as LayoutSettingsByLayout['editorial_price_list'] };
+    default:
+      throw new Error('Unsupported Booking layout.');
   }
-
-  throw new Error(`Unsupported Booking layout: ${String(layout)}`);
 }
 
 export function switchBookingLayout(
@@ -353,9 +353,9 @@ function parseLayoutSettings<Layout extends BookingMenuLayout>(
         descriptionLength: expectEnum(input, 'descriptionLength', ['short', 'full'], path, issues),
         dividerStyle: expectEnum(input, 'dividerStyle', ['fine', 'strong', 'none'], path, issues),
       } as LayoutSettingsByLayout[Layout];
+    default:
+      throw new Error('Unsupported Booking layout.');
   }
-
-  throw new Error(`Unsupported Booking layout: ${String(layout)}`);
 }
 
 export function validateBookingPresentationSettings(

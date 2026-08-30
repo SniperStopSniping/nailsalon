@@ -26,8 +26,8 @@ type PreviewFixtureDatabase = {
 };
 const APPLICATION_NAME = 'luster-preview-service-image-fixtures-v1';
 const DATABASE_NAME = 'luster_preview';
-const FINAL_MIGRATION = '0073_l1_catalog_rules_foundation';
-const MIGRATION_COUNT = 74;
+const FINAL_MIGRATION = '0074_onboarding_account_site_foundation';
+const MIGRATION_COUNT = 75;
 const CONFIRM = 'CREATE_SYNTHETIC_PREVIEW_FIXTURES';
 const RESET_CONFIRM = 'DELETE_SYNTHETIC_PREVIEW_FIXTURES';
 const ADMIN_CONFIRM = 'MAP_SYNTHETIC_DEVELOPMENT_USER';
@@ -307,6 +307,9 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'admin_invite', 'admin_invite_created_by_fkey', ['created_by'], 'public', 'admin_user', ['id'], 'NO ACTION', 'NO ACTION'],
   ['public', 'admin_salon_membership', 'admin_salon_membership_admin_id_fkey', ['admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'admin_session', 'admin_session_admin_id_fkey', ['admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'onboarding_draft_claim', 'onboarding_draft_claim_claimed_by_admin_id_fkey', ['claimed_by_admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'RESTRICT'],
+  ['public', 'onboarding_site', 'onboarding_site_created_by_admin_id_fkey', ['created_by_admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'RESTRICT'],
+  ['public', 'onboarding_site_revision', 'onboarding_site_revision_created_by_admin_id_fkey', ['created_by_admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'RESTRICT'],
   ['public', 'salon_signup_invite', 'salon_signup_invite_consumed_by_admin_id_fkey', ['consumed_by_admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'NO ACTION'],
   ['public', 'salon_signup_invite', 'salon_signup_invite_created_by_admin_id_fkey', ['created_by_admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'NO ACTION'],
   ['public', 'time_off_request', 'time_off_request_decided_by_admin_id_fkey', ['decided_by_admin_id'], 'public', 'admin_user', ['id'], 'NO ACTION', 'NO ACTION'],
@@ -333,6 +336,7 @@ const EXPECTED_INCOMING_FOREIGN_KEYS = [
   ['public', 'integration_outbox', 'integration_outbox_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'notification', 'notification_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'notification_delivery', 'notification_delivery_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
+  ['public', 'onboarding_site', 'onboarding_site_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'referral', 'referral_salon_id_salon_id_fk', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'retention_campaign', 'retention_campaign_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],
   ['public', 'retention_campaign_redemption', 'retention_campaign_redemption_salon_id_fkey', ['salon_id'], 'public', 'salon', ['id'], 'NO ACTION', 'CASCADE'],

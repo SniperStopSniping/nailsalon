@@ -14,11 +14,15 @@ import {
   Sparkles,
   X,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { loadOnboardingIntegrationRecoveryRecord } from '@/features/onboarding-v1-integration/flow-storage';
+import {
+  authorizeVerifiedOnboardingSetupResume,
+  canResumeVerifiedOnboardingSetup,
+} from '@/features/onboarding-v1-integration/flow-storage';
 
 export type HandoffSetupStatus = 'complete' | 'needs_attention' | 'not_started';
+export type OnboardingHandoffResolution = 'absent' | 'available' | 'error';
 
 export type OnboardingSiteHandoff = {
   handoff: {
@@ -37,6 +41,7 @@ export type OnboardingSiteHandoff = {
     id: string;
     previewUrl: string;
     revision: number;
+    setupAvailable: boolean;
     setupUrl: string;
   };
 };
@@ -107,21 +112,26 @@ function ChecklistRow({ icon: Icon, item }: {
 }
 
 export function OnboardingWorkspaceHandoff({
+  focusWelcome = false,
   locale,
   onAvailabilityChange,
   onHandoffChange,
+  onResolutionChange,
   onTakeTour,
   salonSlug,
 }: {
+  focusWelcome?: boolean;
   locale: string;
   onAvailabilityChange?: (available: boolean) => void;
   onHandoffChange?: (handoff: OnboardingSiteHandoff | null) => void;
+  onResolutionChange?: (resolution: OnboardingHandoffResolution) => void;
   onTakeTour: () => void;
   salonSlug: string;
 }) {
   const [handoff, setHandoff] = useState<OnboardingSiteHandoff | null>(null);
   const [canChangeSetup, setCanChangeSetup] = useState(false);
   const [dismissStatus, setDismissStatus] = useState<'idle' | 'saving' | 'error'>('idle');
+  const welcomeHeadingRef = useRef<HTMLHeadingElement>(null);
 
   const loadHandoff = useCallback(async (signal?: AbortSignal) => {
     if (!salonSlug) {
@@ -136,6 +146,7 @@ export function OnboardingWorkspaceHandoff({
       setCanChangeSetup(false);
       onAvailabilityChange?.(false);
       onHandoffChange?.(null);
+      onResolutionChange?.('absent');
       return;
     }
     if (!response.ok) {
@@ -148,17 +159,18 @@ export function OnboardingWorkspaceHandoff({
       setCanChangeSetup(false);
       onAvailabilityChange?.(false);
       onHandoffChange?.(null);
+      onResolutionChange?.('error');
       return;
     }
     setHandoff(next);
+    setCanChangeSetup(next.site.setupAvailable && canResumeVerifiedOnboardingSetup({
+      siteId: next.site.id,
+      verifiedRevision: next.site.revision,
+    }));
     onHandoffChange?.(next);
-    const recovery = loadOnboardingIntegrationRecoveryRecord();
-    setCanChangeSetup(
-      recovery?.siteId === next.site.id
-      && recovery.verifiedRevision === next.site.revision,
-    );
     onAvailabilityChange?.(true);
-  }, [locale, onAvailabilityChange, onHandoffChange, salonSlug]);
+    onResolutionChange?.('available');
+  }, [locale, onAvailabilityChange, onHandoffChange, onResolutionChange, salonSlug]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -168,11 +180,18 @@ export function OnboardingWorkspaceHandoff({
       }
       setHandoff(null);
       setCanChangeSetup(false);
-      onAvailabilityChange?.(false);
       onHandoffChange?.(null);
+      onResolutionChange?.('error');
     });
     return () => controller.abort();
-  }, [loadHandoff, onAvailabilityChange, onHandoffChange]);
+  }, [loadHandoff, onHandoffChange, onResolutionChange]);
+
+  useEffect(() => {
+    if (!focusWelcome || !handoff?.handoff.showWelcome) {
+      return;
+    }
+    welcomeHeadingRef.current?.focus({ preventScroll: true });
+  }, [focusWelcome, handoff?.handoff.showWelcome]);
 
   const checklist = useMemo(() => {
     if (!handoff) {
@@ -217,7 +236,7 @@ export function OnboardingWorkspaceHandoff({
       {
         href: handoff.setup.shareLink === 'complete'
           ? handoff.site.previewUrl
-          : `/${locale}/admin/booking-page?salon=${encodeURIComponent(salonSlug)}`,
+          : undefined,
         label: 'Share booking link',
         status: handoff.setup.shareLink,
         ...integrationPresentation('share', handoff.setup.shareLink),
@@ -284,7 +303,12 @@ export function OnboardingWorkspaceHandoff({
               </button>
               <div className="relative pr-10">
                 <p className="text-xs font-semibold uppercase tracking-[0.19em] text-[var(--owner-accent)]">Saved to your account</p>
-                <h2 className="mt-2 text-2xl font-semibold tracking-tight text-[var(--owner-ink)] sm:text-[28px]" id="onboarding-welcome-title">
+                <h2
+                  className="mt-2 text-2xl font-semibold tracking-tight text-[var(--owner-ink)] sm:text-[28px]"
+                  id="onboarding-welcome-title"
+                  ref={welcomeHeadingRef}
+                  tabIndex={-1}
+                >
                   Your Luster site is ready
                 </h2>
                 <p className="mt-2 max-w-xl text-[15px] leading-6 text-[var(--owner-muted)]">
@@ -315,6 +339,10 @@ export function OnboardingWorkspaceHandoff({
                         <a
                           className="flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--owner-line-strong)] bg-white px-5 text-sm font-semibold text-[var(--owner-ink)] transition-colors hover:bg-[var(--owner-ground)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
                           href={handoff.site.setupUrl}
+                          onClick={() => authorizeVerifiedOnboardingSetupResume({
+                            siteId: handoff.site.id,
+                            verifiedRevision: handoff.site.revision,
+                          })}
                         >
                           <Settings2 aria-hidden="true" size={18} />
                           Change website setup

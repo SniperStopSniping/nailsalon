@@ -13,6 +13,7 @@ export type FeedbackRequest = {
   kind: FeedbackKind;
   message?: string;
   onceKey?: string;
+  preserveOnNavigation?: boolean;
   replaceVisual?: boolean;
   targetId?: string;
 };

@@ -844,7 +844,7 @@ function CanvaUploadResultPanel({
       <p>{status.message}</p>
       {status.failures?.length ? (
         <ul className="custom-design-owner-errors">
-          {status.failures.map((failure, index) => {
+          {status.failures.map((failure) => {
             const retryFile = retryFiles.get(failure.retryId);
             return (
               <li key={failure.retryId}>

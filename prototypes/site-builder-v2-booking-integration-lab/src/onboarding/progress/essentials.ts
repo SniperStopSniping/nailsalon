@@ -73,7 +73,7 @@ export const getEssentialResults = (
     stage: 'booking',
   },
   {
-    complete: state.recipe.styleConfirmed,
+    complete: state.recipe.styleConfirmed && state.recipe.paletteConfirmed,
     id: 'site_style',
     label: 'Site style',
     screen: 'site_style',

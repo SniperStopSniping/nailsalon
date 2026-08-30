@@ -1,10 +1,11 @@
+import { serviceMenuPort } from '../integrations/adapters/service-menu';
 import {
-  ONBOARDING_SCHEMA_VERSION,
   type AboutElementId,
   type BusinessProfileDraft,
   type CanvaDraft,
   type DashboardHandoffDraft,
   type GalleryDraft,
+  ONBOARDING_SCHEMA_VERSION,
   type OnboardingLabState,
   type OnboardingProgress,
   type OnboardingSiteRecipe,
@@ -13,12 +14,26 @@ import {
   type Weekday,
   type WeeklyHoursDraft,
 } from './types';
-import { serviceMenuPort } from '../integrations/adapters/service-menu';
 
 export const DEFAULT_OFFER_SEEDED_AT = '2026-08-27T12:00:00.000Z';
 export const DEFAULT_OFFER_EXPIRES_AT = '2026-08-28T12:00:00.000Z';
 /** Normal owner mode anchors seeded availability to the current Lab clock. */
 export const DEFAULT_PREVIEW_TIMESTAMP = new Date().toISOString();
+
+export const createSecureBrowserToken = (prefix: string): string => {
+  const cryptoApi = globalThis.crypto;
+  if (typeof cryptoApi?.randomUUID === 'function') {
+    return `${prefix}_${cryptoApi.randomUUID()}`;
+  }
+  if (typeof cryptoApi?.getRandomValues === 'function') {
+    const bytes = cryptoApi.getRandomValues(new Uint8Array(24));
+    const random = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+    return `${prefix}_${random}`;
+  }
+  throw new Error('Secure random number generation is unavailable.');
+};
+
+export const createAnonymousDraftId = (): string => createSecureBrowserToken('draft');
 
 const WEEKDAYS: readonly Weekday[] = [
   'monday',
@@ -47,7 +62,7 @@ const ABOUT_ELEMENTS: readonly AboutElementId[] = [
 ];
 
 export const createDefaultWeeklyHours = (): WeeklyHoursDraft => ({
-  days: Object.fromEntries(WEEKDAYS.map((day) => [
+  days: Object.fromEntries(WEEKDAYS.map(day => [
     day,
     {
       close: '',
@@ -145,7 +160,7 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
     shortBio: '',
     specialties: [],
     visibility: Object.fromEntries(
-      ABOUT_ELEMENTS.map((element) => [element, true]),
+      ABOUT_ELEMENTS.map(element => [element, true]),
     ) as Record<AboutElementId, boolean>,
     yearsOfExperience: '',
   },
@@ -193,6 +208,8 @@ export const createDefaultSiteRecipe = (): OnboardingSiteRecipe => ({
   canvaEnabled: false,
   galleryEnabled: false,
   policiesEnabled: true,
+  paletteConfirmed: false,
+  palettePreset: 'luster_berry',
   starter: null,
   starterDocumentSiteId: null,
   styleConfirmed: false,
@@ -245,6 +262,7 @@ export const createDefaultDashboardHandoff = (): DashboardHandoffDraft => ({
 });
 
 export const createDefaultOnboardingState = (): OnboardingLabState => ({
+  anonymousDraftId: createAnonymousDraftId(),
   canva: createDefaultCanvaDraft(),
   dashboardHandoff: createDefaultDashboardHandoff(),
   eventJournal: [],

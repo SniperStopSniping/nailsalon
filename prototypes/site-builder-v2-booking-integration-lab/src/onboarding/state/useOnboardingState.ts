@@ -343,6 +343,7 @@ export function useOnboardingState(
       ...current,
       recipe: {
         ...current.recipe,
+        paletteConfirmed: confirmed ? true : current.recipe.paletteConfirmed,
         styleConfirmed: confirmed,
         stylePreset,
       },

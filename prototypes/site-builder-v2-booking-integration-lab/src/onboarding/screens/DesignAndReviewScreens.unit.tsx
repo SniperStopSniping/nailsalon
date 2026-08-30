@@ -263,7 +263,11 @@ describe('SiteStyleScreen', () => {
       });
       const confirm = () => update((current) => ({
         ...current,
-        recipe: { ...current.recipe, styleConfirmed: true },
+        recipe: {
+          ...current.recipe,
+          paletteConfirmed: true,
+          styleConfirmed: true,
+        },
       }));
       return (
         <SiteStyleScreen
@@ -285,11 +289,18 @@ describe('SiteStyleScreen', () => {
       'data-style-preset',
       'modern',
     );
+    expect(preview.querySelector('[data-palette-preset]')).toHaveAttribute(
+      'data-palette-preset',
+      'blush_cocoa',
+    );
     const ownerSurface = container.querySelector('.onboarding-screen--style');
     expect(ownerSurface).toBeInTheDocument();
     expect(ownerSurface).not.toHaveAttribute('data-style-preset');
     expect(screen.getByText('On your site now')).toBeVisible();
     expect(screen.getAllByText('Previewing')).toHaveLength(1);
+    expect(within(screen.getByRole('group', { name: 'Website colour palettes' }))
+      .getAllByRole('button')).toHaveLength(8);
+    expect(screen.getByText('Current colours')).toBeVisible();
 
     await user.click(screen.getByRole('button', { name: /Luxury/ }));
     expect(preview.querySelector('[data-style-preset]')).toHaveAttribute(
@@ -302,8 +313,21 @@ describe('SiteStyleScreen', () => {
       'data-previewing',
       'true',
     );
+    await user.click(screen.getByRole('button', { name: /Black & Champagne/ }));
+    expect(preview.querySelector('[data-palette-preset]')).toHaveAttribute(
+      'data-palette-preset',
+      'black_champagne',
+    );
+    expect(latestState.recipe.paletteConfirmed).toBe(false);
+    expect(within(screen.getByRole('group', { name: 'Website colour palettes' }))
+      .getByRole('button', { name: /Black & Champagne/ })).toHaveAttribute(
+      'data-previewing',
+      'true',
+    );
     await user.click(screen.getByRole('button', { name: 'Use Luxury' }));
     expect(latestState.recipe).toMatchObject({
+      paletteConfirmed: true,
+      palettePreset: 'black_champagne',
       styleConfirmed: true,
       stylePreset: 'luxury',
     });
@@ -389,6 +413,8 @@ describe('FinalReviewScreen', () => {
     );
 
     expect(screen.getByText('Clients can book you')).toBeVisible();
+    expect(screen.getByLabelText('Selected website design'))
+      .toHaveTextContent('Website styleSoftColoursBlush & Cocoa');
     expect(screen.getByRole('button', { name: 'Finish setup' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Edit Clients can book you' })).toBeVisible();
     expect(screen.getByRole('button', { name: 'Edit Business information' })).toBeVisible();
@@ -398,6 +424,27 @@ describe('FinalReviewScreen', () => {
     expect(screen.getByRole('region', { name: 'Final tablet customer preview' })).toHaveAttribute('data-preview-device', 'tablet');
     await user.click(screen.getByRole('button', { name: 'Finish setup' }));
     expect(onOpenBuilder).toHaveBeenCalledOnce();
+  });
+
+  it('uses truthful account-save copy for the integrated Final Review', () => {
+    const state = createDanielaFixtureState();
+    const document = initializeStarter('one_page');
+    render(
+      <FinalReviewScreen
+        document={document}
+        onBack={vi.fn()}
+        onEdit={vi.fn()}
+        onEditCanva={vi.fn()}
+        onOpenBuilder={vi.fn()}
+        onOpenPreview={vi.fn()}
+        primaryActionLabel="Save my site"
+        primarySupportingCopy="Your website is ready. Save it to your Luster account before choosing how you want to start."
+        state={state}
+      />,
+    );
+
+    expect(screen.getByText(/Save it to your Luster account/iu)).toBeVisible();
+    expect(screen.queryByText(/Your website is saved/iu)).not.toBeInTheDocument();
   });
 
   it('keeps mobile readiness collapsed below the preview until the owner opens it', async () => {

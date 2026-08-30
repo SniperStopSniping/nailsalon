@@ -16,6 +16,40 @@ import {
 } from './BookingScreens';
 
 describe('BookingPreferencesScreen', () => {
+  it('shows a one-time, non-blocking service-menu celebration when the menu is confirmed', async () => {
+    const user = userEvent.setup();
+    function Harness() {
+      const [profile, setProfile] = useState(createDefaultBusinessProfile);
+      return (
+        <BookingPreferencesScreen
+          profile={profile}
+          onBack={vi.fn()}
+          onBookingPreferencesChange={vi.fn()}
+          onContinue={vi.fn()}
+          onDepositChange={vi.fn()}
+          onServiceMenuChange={(serviceMenu) => setProfile(current => ({
+            ...current,
+            serviceMenu,
+          }))}
+        />
+      );
+    }
+
+    render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
+    const confirmation = screen.getByRole('button', {
+      name: 'Continue with these 6 services',
+    });
+    await user.click(confirmation);
+
+    expect(document.querySelector('.onboarding-service-menu-card')).toHaveClass(
+      'is-celebrating',
+    );
+    expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
+      'Your service menu is ready. 6 services added.',
+    );
+    expect(confirmation).toBeEnabled();
+  });
+
   it('validates only its two essentials and reads the canonical Booking source', async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
@@ -56,8 +90,9 @@ describe('BookingPreferencesScreen', () => {
     })).toHaveAccessibleDescription(
       'Clients must book at least 2 hours before the appointment starts.',
     );
+    expect(screen.queryByText('Booking cutoff')).not.toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent('Booking cutoffAt least 2 hours before the appointment starts');
+      .toHaveTextContent('Clients must book at least 2 hours before the appointment starts.');
     expect(screen.queryByText(/Booking mock/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/Availability sourceConnected/u)).not.toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
@@ -296,8 +331,9 @@ describe('BookingPreferencesScreen', () => {
     })).toHaveAccessibleDescription(
       'Clients must book at least 3 hours before the appointment starts.',
     );
+    expect(screen.queryByText('Booking cutoff')).not.toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent('Booking cutoffAt least 3 hours before the appointment starts');
+      .toHaveTextContent('Clients must book at least 3 hours before the appointment starts.');
     expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
       .toHaveTextContent('Book at least 3 hours before your appointment.');
 
@@ -313,19 +349,18 @@ describe('BookingPreferencesScreen', () => {
   });
 
   it.each([
-    ['preset:0', 'No minimum notice', 'Clients can book without a minimum-notice requirement.', 'No minimum-notice requirement', 'Clients can book without a minimum-notice requirement.'],
-    ['preset:120', '2 hours', 'Clients must book at least 2 hours before the appointment starts.', 'At least 2 hours before the appointment starts', 'Book at least 2 hours before your appointment.'],
-    ['preset:240', '4 hours', 'Clients must book at least 4 hours before the appointment starts.', 'At least 4 hours before the appointment starts', 'Book at least 4 hours before your appointment.'],
-    ['preset:480', '8 hours', 'Clients must book at least 8 hours before the appointment starts.', 'At least 8 hours before the appointment starts', 'Book at least 8 hours before your appointment.'],
-    ['preset:720', '12 hours', 'Clients must book at least 12 hours before the appointment starts.', 'At least 12 hours before the appointment starts', 'Book at least 12 hours before your appointment.'],
-    ['preset:1440', '1 day', 'Clients must book at least 1 day before the appointment starts.', 'At least 1 day before the appointment starts', 'Book at least 1 day before your appointment.'],
-    ['preset:2880', '2 days', 'Clients must book at least 2 days before the appointment starts.', 'At least 2 days before the appointment starts', 'Book at least 2 days before your appointment.'],
-    ['preset:4320', '3 days', 'Clients must book at least 3 days before the appointment starts.', 'At least 3 days before the appointment starts', 'Book at least 3 days before your appointment.'],
+    ['preset:0', 'No minimum notice', 'Clients can book without a minimum-notice requirement.', 'Clients can book without a minimum-notice requirement.'],
+    ['preset:120', '2 hours', 'Clients must book at least 2 hours before the appointment starts.', 'Book at least 2 hours before your appointment.'],
+    ['preset:240', '4 hours', 'Clients must book at least 4 hours before the appointment starts.', 'Book at least 4 hours before your appointment.'],
+    ['preset:480', '8 hours', 'Clients must book at least 8 hours before the appointment starts.', 'Book at least 8 hours before your appointment.'],
+    ['preset:720', '12 hours', 'Clients must book at least 12 hours before the appointment starts.', 'Book at least 12 hours before your appointment.'],
+    ['preset:1440', '1 day', 'Clients must book at least 1 day before the appointment starts.', 'Book at least 1 day before your appointment.'],
+    ['preset:2880', '2 days', 'Clients must book at least 2 days before the appointment starts.', 'Book at least 2 days before your appointment.'],
+    ['preset:4320', '3 days', 'Clients must book at least 3 days before the appointment starts.', 'Book at least 3 days before your appointment.'],
   ])('renders %s as a cutoff without fabricated times', async (
     choice,
     label,
     helper,
-    summary,
     customer,
   ) => {
     const user = userEvent.setup();
@@ -356,8 +391,9 @@ describe('BookingPreferencesScreen', () => {
     expect(notice).toHaveAccessibleDescription(helper);
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
       .toHaveTextContent(`Minimum notice${label}`);
+    expect(screen.queryByText('Booking cutoff')).not.toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent(`Booking cutoff${summary}`);
+      .toHaveTextContent(helper);
     expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
       .toHaveTextContent(`Minimum booking notice${customer}`);
     expect(screen.queryByText('Available times after your notice')).not.toBeInTheDocument();
@@ -542,6 +578,36 @@ describe('StartingPointScreen', () => {
 });
 
 describe('StartingPreviewScreen', () => {
+  it('applies the bounded reveal treatment only when requested', () => {
+    const profile = createDefaultBusinessProfile();
+    const { rerender } = render(
+      <StartingPreviewScreen
+        preview={<div>Customer site</div>}
+        profile={profile}
+        reveal
+        starter="one_page"
+        onBack={vi.fn()}
+        onContinue={vi.fn()}
+        onOpenPreview={vi.fn()}
+      />,
+    );
+
+    expect(document.querySelector('.onboarding-starting-preview-screen'))
+      .toHaveClass('is-revealing');
+    rerender(
+      <StartingPreviewScreen
+        preview={<div>Customer site</div>}
+        profile={profile}
+        starter="one_page"
+        onBack={vi.fn()}
+        onContinue={vi.fn()}
+        onOpenPreview={vi.fn()}
+      />,
+    );
+    expect(document.querySelector('.onboarding-starting-preview-screen'))
+      .not.toHaveClass('is-revealing');
+  });
+
   it('keeps Preview and setup available without exposing Builder or an offer', async () => {
     const user = userEvent.setup();
     const onOpenPreview = vi.fn();

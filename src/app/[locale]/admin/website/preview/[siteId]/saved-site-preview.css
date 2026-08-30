@@ -3,9 +3,7 @@
   min-height: 100vh;
   min-height: 100dvh;
   overflow-x: clip;
-  background:
-    radial-gradient(circle at 85% 0%, rgba(151, 59, 92, 0.08), transparent 24rem),
-    var(--owner-ground);
+  background: radial-gradient(circle at 85% 0%, rgba(151, 59, 92, 0.08), transparent 24rem), var(--owner-ground);
 }
 
 .saved-site-preview-header,

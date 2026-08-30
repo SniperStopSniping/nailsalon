@@ -50,7 +50,7 @@ beforeEach(() => {
       id: '2d799a1b-2eab-4de5-b005-a1e688658bad',
       previewUrl: '/en/admin/website/preview/2d799a1b-2eab-4de5-b005-a1e688658bad',
       revision: 1,
-      setupUrl: '/en/onboarding-v1?resume=review&site=2d799a1b-2eab-4de5-b005-a1e688658bad',
+      setupUrl: '/en/onboarding-v1?resume=review&site=2d799a1b-2eab-4de5-b005-a1e688658bad&revision=3',
     },
   });
   updateHandoffMock.mockResolvedValue(true);

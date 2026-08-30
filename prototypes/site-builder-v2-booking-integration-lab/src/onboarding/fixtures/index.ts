@@ -12,6 +12,11 @@ import type {
 } from '../model/types';
 import danielaPortraitUrl from './assets/daniela-placeholder.jpg';
 
+const danielaPortraitAsset = danielaPortraitUrl as string | { src: string };
+const danielaPortraitSrc = typeof danielaPortraitAsset === 'string'
+  ? danielaPortraitAsset
+  : danielaPortraitAsset.src;
+
 export type LabReviewFixtureId =
   | 'blank_new_owner'
   | 'daniela_isla'
@@ -75,7 +80,7 @@ export const createDanielaFixtureState = (): OnboardingLabState => {
     height: 1100,
     id: 'fixture_daniela_portrait',
     mimeType: 'image/jpeg',
-    previewUrl: danielaPortraitUrl,
+    previewUrl: danielaPortraitSrc,
     source: 'fixture',
     width: 732,
   };
@@ -141,6 +146,8 @@ export const createDanielaFixtureState = (): OnboardingLabState => {
   state.recipe.aboutEnabled = true;
   state.recipe.aboutPreset = 'about_before_you_book';
   state.recipe.policiesEnabled = true;
+  state.recipe.paletteConfirmed = true;
+  state.recipe.palettePreset = 'blush_cocoa';
   state.recipe.stylePreset = 'soft';
   state.recipe.styleConfirmed = true;
   state.reviewOptions.previewTimestamp = DEFAULT_PREVIEW_TIMESTAMP;

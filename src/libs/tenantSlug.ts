@@ -24,6 +24,7 @@ const RESERVED_PUBLIC_SEGMENTS = new Set([
   'my-referrals',
   'not-found',
   'onboarding',
+  'onboarding-v1',
   'owner',
   'owner-sign-in',
   'owner-sign-up',

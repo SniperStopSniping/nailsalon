@@ -40,6 +40,11 @@ function Harness() {
         message: 'Booking is ready',
       })}>Booking stage milestone</button>
       <button type="button" onClick={() => feedback.send({
+        kind: 'milestone',
+        message: 'Everything you need is ready after navigation',
+        preserveOnNavigation: true,
+      })}>Persistent milestone</button>
+      <button type="button" onClick={() => feedback.send({
         announce: false,
         kind: 'added',
         message: 'Photo ready',
@@ -200,7 +205,7 @@ describe('FeedbackProvider', () => {
     await waitFor(() => expect(document.documentElement).not.toHaveClass('luster-dialog-open'));
   });
 
-  it('discards obsolete queued milestones without clearing the current visual', () => {
+  it('clears obsolete visual milestones as the owner navigates', () => {
     vi.useFakeTimers();
     try {
       render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
@@ -208,11 +213,23 @@ describe('FeedbackProvider', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Booking stage milestone' }));
       fireEvent.click(screen.getByRole('button', { name: 'Clear queued visuals' }));
 
-      expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
-        'Your starting site is ready',
-      );
-      act(() => vi.advanceTimersByTime(2_800));
       expect(document.querySelector('.onboarding-feedback')).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('preserves an explicitly current completion milestone across navigation cleanup', () => {
+    vi.useFakeTimers();
+    try {
+      render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
+      fireEvent.click(screen.getByRole('button', { name: 'Starting site milestone' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Persistent milestone' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Clear queued visuals' }));
+
+      expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
+        'Everything you need is ready after navigation',
+      );
     } finally {
       vi.useRealTimers();
     }

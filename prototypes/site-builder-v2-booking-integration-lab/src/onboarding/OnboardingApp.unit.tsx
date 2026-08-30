@@ -1,4 +1,4 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { IDBFactory } from 'fake-indexeddb';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, vi } from 'vitest';
@@ -866,25 +866,31 @@ describe('OnboardingApp handoff boundaries', () => {
     });
   });
 
-  it('shows website-style completion before the queued all-required milestone', async () => {
-    const user = userEvent.setup();
-    const state = stateAt('site_style');
-    state.recipe.styleConfirmed = false;
-    renderAtWithFeedback(state);
+  it('records completion without covering the Final Review preview', () => {
+    vi.useFakeTimers();
+    try {
+      const state = stateAt('site_style');
+      state.recipe.styleConfirmed = false;
+      renderAtWithFeedback(state);
 
-    await user.click(screen.getByRole('button', { name: /^Use /u }));
+      fireEvent.click(screen.getByRole('button', { name: /^Use /u }));
 
-    expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
-      'Your website style is set',
-    );
-    await waitFor(() => {
+      expect(screen.getByRole('heading', { name: 'Add something extra' })).toBeVisible();
+      act(() => vi.advanceTimersByTime(2_300));
+      expect(screen.getByText('All required steps complete')).toBeVisible();
+      expect(document.querySelector('.onboarding-feedback')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Continue to review' }));
+      expect(screen.getByRole('heading', { name: 'Review your site' })).toBeVisible();
+      expect(document.querySelector('.onboarding-feedback')).toBeNull();
       const saved = parseOnboardingState(
         window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
       );
       expect(saved.state.reviewOptions.feedbackMilestones).toEqual(
         expect.arrayContaining(['stage_design', 'all_required_complete']),
       );
-    });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

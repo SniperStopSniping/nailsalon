@@ -3,7 +3,6 @@ import {
   MINIMUM_NOTICE_PRESET_MINUTES,
   type BookingPreferencesPort,
   type DepositDraft,
-  type MinimumNoticeUnit,
 } from '../contracts/booking-preferences';
 import { createLabBookingAvailabilityPreview } from './booking-availability-preview';
 

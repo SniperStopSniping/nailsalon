@@ -3,7 +3,10 @@
 import { ArrowLeft, Monitor, MonitorSmartphone, Settings2, Smartphone, Tablet } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 
-import { loadOnboardingIntegrationRecoveryRecord } from '@/features/onboarding-v1-integration/flow-storage';
+import {
+  authorizeVerifiedOnboardingSetupResume,
+  canResumeVerifiedOnboardingSetup,
+} from '@/features/onboarding-v1-integration/flow-storage';
 import type { SavedSitePreviewModel } from '@/features/onboarding-v1-integration/saved-preview';
 import { SavedPreviewAssetRepository } from '@/features/onboarding-v1-integration/saved-preview-assets';
 
@@ -30,6 +33,7 @@ export function SavedSitePreviewClient({
   revision,
   salonSlug,
   siteId,
+  setupAvailable,
   setupUrl,
   showAuditRevision,
 }: {
@@ -39,18 +43,18 @@ export function SavedSitePreviewClient({
   revision: number;
   salonSlug: string;
   siteId: string;
+  setupAvailable: boolean;
   setupUrl: string;
   showAuditRevision: boolean;
 }) {
   const [device, setDevice] = useState<OnboardingPreviewDevice>('phone');
   const [canChangeSetup, setCanChangeSetup] = useState(false);
   useEffect(() => {
-    const recovery = loadOnboardingIntegrationRecoveryRecord();
-    setCanChangeSetup(
-      recovery?.siteId === siteId
-      && recovery.verifiedRevision === revision,
-    );
-  }, [revision, siteId]);
+    setCanChangeSetup(setupAvailable && canResumeVerifiedOnboardingSetup({
+      siteId,
+      verifiedRevision: revision,
+    }));
+  }, [revision, setupAvailable, siteId]);
   const repository = useMemo(
     () => new SavedPreviewAssetRepository(model.media),
     [model.media],
@@ -142,6 +146,10 @@ export function SavedSitePreviewClient({
                         <a
                           className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full border border-[var(--owner-line-strong)] bg-white px-5 text-sm font-semibold text-[var(--owner-ink)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--owner-focus)]"
                           href={setupUrl}
+                          onClick={() => authorizeVerifiedOnboardingSetupResume({
+                            siteId,
+                            verifiedRevision: revision,
+                          })}
                         >
                           <Settings2 aria-hidden="true" size={18} />
                           Change website setup

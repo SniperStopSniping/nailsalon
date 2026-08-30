@@ -79,10 +79,32 @@ describe('admin onboarding-site handoff', () => {
       '/en/admin/website/preview/2d799a1b-2eab-4de5-b005-a1e688658bad',
     );
     expect(handoff.site.setupUrl).toContain('resume=review');
+    expect(handoff.site.setupAvailable).toBe(true);
   });
 
   it('does not claim a hidden Booking section is ready', () => {
     expect(hasVisibleBookingSection(document(false))).toBe(false);
+  });
+
+  it('does not offer onboarding replacement over a published business', () => {
+    const handoff = deriveOnboardingSiteHandoff({
+      activeServiceSourceIds: ['service_1'],
+      document: document(),
+      googleReadiness: 'ready',
+      locale: 'en',
+      paymentsStatus: 'charge_ready',
+      salon: { id: 'salon_1', publicationStatus: 'published', slug: 'isla' },
+      site: {
+        dashboardTourCompletedAt: null,
+        dashboardWelcomeDismissedAt: null,
+        id: '2d799a1b-2eab-4de5-b005-a1e688658bad',
+        planIntent: 'free',
+        revision: 3,
+        serviceMenuApplied: true,
+      },
+    });
+
+    expect(handoff.site.setupAvailable).toBe(false);
   });
 
   it('does not count unrelated pre-existing services as onboarding services', () => {
@@ -104,6 +126,29 @@ describe('admin onboarding-site handoff', () => {
     });
 
     expect(handoff.setup.servicesAdded).toBe(false);
+  });
+
+  it('recognizes an active Production template key as its selected Lab service ID', () => {
+    const mapped = document();
+    mapped.serviceSelection.selectedServiceIds = ['svc-manicure-gel'];
+    const handoff = deriveOnboardingSiteHandoff({
+      activeServiceSourceIds: ['gel_manicure'],
+      document: mapped,
+      googleReadiness: 'not_connected',
+      locale: 'en',
+      paymentsStatus: 'not_connected',
+      salon: { id: 'salon_1', publicationStatus: 'draft', slug: 'isla' },
+      site: {
+        dashboardTourCompletedAt: null,
+        dashboardWelcomeDismissedAt: null,
+        id: '2d799a1b-2eab-4de5-b005-a1e688658bad',
+        planIntent: 'free',
+        revision: 3,
+        serviceMenuApplied: true,
+      },
+    });
+
+    expect(handoff.setup.servicesAdded).toBe(true);
   });
 
   it('does not claim services were applied when an existing-site conflict preserved Product data', () => {

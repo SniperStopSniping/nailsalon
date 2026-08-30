@@ -40,12 +40,14 @@ describe('tenantSlug helpers', () => {
     expect(getSalonSlugFromPathname('/en/luster/book/service', ['en', 'fr'])).toBe('luster');
     expect(getSalonSlugFromPathname('/en/book/service', ['en', 'fr'])).toBeNull();
     expect(getSalonSlugFromPathname('/en/join/token', ['en', 'fr'])).toBeNull();
+    expect(getSalonSlugFromPathname('/en/onboarding-v1', ['en', 'fr'])).toBeNull();
     expect(getSalonSlugFromPathname('/en/owner-sign-in', ['en', 'fr'])).toBeNull();
     expect(getSalonSlugFromPathname('/luster', ['en', 'fr'])).toBeNull();
   });
 
   it.each([
     'manage',
+    'onboarding-v1',
     'owner',
     'pay',
     'privacy',
@@ -81,6 +83,7 @@ describe('tenantSlug helpers', () => {
 
   it.each([
     'manage',
+    'onboarding-v1',
     'owner',
     'pay',
     'privacy',

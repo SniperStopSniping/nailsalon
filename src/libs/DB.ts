@@ -13,6 +13,7 @@ import * as schema from '@/models/Schema';
 
 import { deriveBookingCategory } from './bookingCategory';
 import { Env } from './Env';
+import { resolvePGliteRuntimeDataSource } from './pgliteRuntime';
 import {
   createRuntimeDatabasePoolVerifier,
   requireMatchingCachedDatabaseTarget,
@@ -45,6 +46,7 @@ type GlobalWithDb = typeof globalThis & {
   // PGlite
   pgliteClient?: PGlite;
   pgliteDrizzle?: PgliteDatabase<typeof schema>;
+  pgliteDataSource?: string;
   pgliteSeeded?: boolean;
 };
 
@@ -344,12 +346,33 @@ if (runtimeTarget) {
     throw new RuntimeDatabaseGuardError('CACHED_DATABASE_TARGET_MISMATCH');
   }
 
-  // Fallback: PGlite in-memory database (data lost on restart)
-  // Only used when the resolved runtime policy explicitly permits it.
-  console.warn('[DB] No DATABASE_URL found - using PGlite in-memory database. Data will not persist across restarts.');
+  const pgliteDataSource = resolvePGliteRuntimeDataSource({
+    appEnv: Env.APP_ENV,
+    configuredDataDirectory: Env.LUSTER_PGLITE_DATA_DIR,
+    cwd: process.cwd(),
+    nodeEnv: Env.NODE_ENV,
+    vitest: Boolean(process.env.VITEST),
+  });
+
+  // Fallback: PGlite is in-memory by default. The integration lab may opt
+  // into an explicit local path outside the repository so account-backed
+  // owner review survives a dev-server restart.
+  console.warn(pgliteDataSource
+    ? '[DB] No DATABASE_URL found - using task-local file-backed PGlite.'
+    : '[DB] No DATABASE_URL found - using PGlite in-memory database. Data will not persist across restarts.');
+
+  if (
+    globalForDb.pgliteClient
+    && globalForDb.pgliteDataSource !== pgliteDataSource
+  ) {
+    throw new RuntimeDatabaseGuardError('CACHED_DATABASE_TARGET_MISMATCH');
+  }
 
   if (!globalForDb.pgliteClient) {
-    globalForDb.pgliteClient = new PGlite();
+    globalForDb.pgliteClient = pgliteDataSource
+      ? new PGlite(pgliteDataSource)
+      : new PGlite();
+    globalForDb.pgliteDataSource = pgliteDataSource;
     await globalForDb.pgliteClient.waitReady;
 
     globalForDb.pgliteDrizzle = drizzlePglite(globalForDb.pgliteClient, { schema });

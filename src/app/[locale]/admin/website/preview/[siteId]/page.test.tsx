@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   enabled: vi.fn(() => true),
   getAdmin: vi.fn(),
   getClaimed: vi.fn(),
+  mediaRecords: vi.fn(),
   model: vi.fn(),
   notFound: vi.fn(() => {
     throw new Error('NOT_FOUND');
@@ -33,6 +34,7 @@ vi.mock('@/features/onboarding-v1-integration/persistence.server', () => ({
   getClaimedOnboardingSite: mocks.getClaimed,
 }));
 vi.mock('@/features/onboarding-v1-integration/saved-preview', () => ({
+  createSavedPreviewMediaRecords: mocks.mediaRecords,
   createSavedSitePreviewModel: mocks.model,
 }));
 vi.mock('@/libs/adminAuth', () => ({
@@ -52,6 +54,19 @@ beforeEach(() => {
   mocks.getAdmin.mockResolvedValue({ id: 'admin-1' });
   mocks.compileParse.mockReturnValue({ data: { compiled: true }, success: true });
   mocks.snapshotParse.mockReturnValue({ data: { snapshot: true }, success: true });
+  mocks.mediaRecords.mockReturnValue([{
+    altText: 'Saved logo',
+    assetId: '33333333-3333-4333-8333-333333333333',
+    fileName: 'logo.webp',
+    fileSize: 42,
+    height: 200,
+    localItemId: 'browser-local-logo',
+    mimeType: 'image/webp',
+    publicUrl: '/api/onboarding/v1/media/33333333-3333-4333-8333-333333333333',
+    role: 'logo',
+    sortOrder: 0,
+    width: 400,
+  }]);
   mocks.model.mockReturnValue({ document: {}, media: [], state: {} });
   mocks.getClaimed.mockResolvedValue({
     media: [{
@@ -71,7 +86,11 @@ beforeEach(() => {
       width: 400,
     }],
     revision: { document: {}, revision: 4, snapshot: {} },
-    site: { id: siteId, salonSlug: 'isla-nails' },
+    site: {
+      id: siteId,
+      salonPublicationStatus: 'draft',
+      salonSlug: 'isla-nails',
+    },
   });
 });
 
@@ -96,6 +115,7 @@ describe('saved website Preview route', () => {
       embedded: false,
       revision: 4,
       salonSlug: 'isla-nails',
+      setupAvailable: true,
       siteId,
       showAuditRevision: false,
     });

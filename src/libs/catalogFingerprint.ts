@@ -90,6 +90,12 @@ export function bytesToHex(bytes: ArrayBuffer | Uint8Array): string {
  * not a Node builtin. Async because `subtle.digest` has no synchronous form.
  */
 export async function hashCatalogFingerprintWebCrypto(bytes: Uint8Array): Promise<string> {
-  const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+  // TypeScript's resizable-buffer types allow a Uint8Array to be backed by a
+  // SharedArrayBuffer, while Web Crypto's BufferSource contract requires a
+  // plain ArrayBuffer. Copy into an owned buffer so both the browser and Node
+  // paths receive the exact same bytes without an unsafe cast.
+  const owned = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(owned).set(bytes);
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', owned);
   return bytesToHex(digest);
 }
