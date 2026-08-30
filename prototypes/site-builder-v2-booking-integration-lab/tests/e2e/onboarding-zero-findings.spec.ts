@@ -17,6 +17,8 @@ import {
 } from './helpers';
 
 const ONBOARDING_STORAGE_KEY = 'luster:onboarding-v1-lab';
+const STARTER_HEADING = 'Choose your starting point';
+const BASICS_HEADING = 'Make it yours';
 const EVIDENCE_DIRECTORY = '/tmp/luster-onboarding-zero-findings-correction';
 const PORTRAIT_PATH = fileURLToPath(new URL(
   '../../src/onboarding/fixtures/assets/daniela-placeholder.jpg',
@@ -76,6 +78,8 @@ type StoredDocument = {
   }>;
 };
 
+type StarterCardId = StoredDocument['originStarter'];
+
 const runtimeMonitors = new WeakMap<
   Page,
   ReturnType<typeof startRuntimeMonitor>
@@ -115,11 +119,36 @@ async function captureJson(fileName: string, value: unknown): Promise<void> {
 
 async function openFresh(page: Page): Promise<void> {
   await page.goto('/?audit=1');
-  await expect(heading(page, 'Let’s build your website')).toBeVisible();
+  await expect(heading(page, STARTER_HEADING)).toBeVisible();
 }
 
 async function waitForSaved(page: Page): Promise<void> {
   await expect(page.getByLabel('Autosave status')).toHaveText('Saved', { timeout: 20_000 });
+}
+
+/**
+ * The starter entry is the flow's front door and renders outside the shell, so
+ * it carries no autosave indicator. Its written promise plus the persisted
+ * screen stand in for the shell's "Saved" state.
+ */
+async function waitForStarterEntrySaved(page: Page): Promise<void> {
+  await expect(page.getByText('Your progress saves automatically on this device.'))
+    .toBeVisible();
+  await expect.poll(async () => (await readState(page)).progress.currentScreen)
+    .toBe('starter');
+}
+
+/**
+ * Entry is now the starter choice: picking a card plays the selection beat and
+ * lands on the combined "Make it yours" basics screen, which is the first
+ * screen wrapped by the onboarding shell.
+ */
+async function chooseStarterFromEntry(
+  page: Page,
+  starter: StarterCardId = 'quick_book',
+): Promise<void> {
+  await page.locator(`[data-starter-id="${starter}"]`).click();
+  await expectAtTop(page, BASICS_HEADING);
 }
 
 async function expectAtTop(page: Page, name: string): Promise<void> {
@@ -159,6 +188,10 @@ async function applyFixture(
   await dialog.getByRole('button', { exact: true, name: label }).click();
   await expect(dialog).toBeHidden();
   await expectAtTop(page, destinationHeading);
+  if (destinationHeading === STARTER_HEADING) {
+    await waitForStarterEntrySaved(page);
+    return;
+  }
   await waitForSaved(page);
 }
 
@@ -168,8 +201,7 @@ async function applyFixtureFromFresh(
   destinationHeading: string,
 ): Promise<void> {
   await openFresh(page);
-  await page.getByRole('button', { name: 'Build my website' }).click();
-  await expectAtTop(page, 'Tell us about your nail business');
+  await chooseStarterFromEntry(page);
   await applyFixture(page, label, destinationHeading);
 }
 
@@ -508,19 +540,11 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.getByRole('button', { name: 'Back to edit About' }).click();
     await expectAtTop(page, 'Would you like an About section?');
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
-    await expectAtTop(page, 'Your starting site is ready');
-    await page.getByRole('button', { exact: true, name: 'Back' }).click();
-    await expectAtTop(page, 'Choose your starting point');
-    await page.getByRole('button', { exact: true, name: 'Back' }).click();
     await expectAtTop(page, 'How do clients book with you?');
     await page.getByRole('group', { name: 'How do you handle booking deposits?' })
       .getByRole('radio', { name: 'No deposit' })
       .check();
     await page.getByRole('button', { name: 'Save booking setup' }).click();
-    await expectAtTop(page, 'Choose your starting point');
-    await page.locator('[data-starter-id="one_page"]').click();
-    await expectAtTop(page, 'Your starting site is ready');
-    await page.getByRole('button', { name: 'Continue setting up my site' }).click();
     await expectAtTop(page, 'Would you like an About section?');
     await page.getByRole('button', { name: 'Choose an About design' }).click();
     await expectAtTop(page, 'Choose your About design');
@@ -558,12 +582,18 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await capture(page, '10-multi-page-preview');
 
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
-    await expectAtTop(page, 'Choose your starting point');
+    await expectAtTop(page, BASICS_HEADING);
+    await page.getByRole('button', { exact: true, name: 'Back' }).click();
+    await expectAtTop(page, STARTER_HEADING);
+    await expect(page.locator('[data-starter-id="multi_page"]'))
+      .toContainText('Current starting point');
     await page.locator('[data-starter-id="quick_book"]').click();
     const switchQuick = page.getByRole('dialog', { name: 'Switch to Quick Book?' });
     await expect(switchQuick).toContainText('Quick Book');
     await capture(page, '25-starter-switch-named-target');
     await switchQuick.getByRole('button', { exact: true, name: 'Switch to Quick Book' }).click();
+    await expectAtTop(page, BASICS_HEADING);
+    await page.getByRole('button', { exact: true, name: 'Continue' }).click();
     await expectAtTop(page, 'Your starting site is ready');
     preview = page.getByLabel('Isla Nail Studio starting website preview');
     const quickStructure = preview.locator('[data-starter-structure="quick_book"]');
@@ -575,10 +605,15 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await capture(page, '08-quick-book-preview');
 
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
+    await expectAtTop(page, BASICS_HEADING);
+    await page.getByRole('button', { exact: true, name: 'Back' }).click();
+    await expectAtTop(page, STARTER_HEADING);
     await page.locator('[data-starter-id="one_page"]').click();
     const switchOnePage = page.getByRole('dialog', { name: 'Switch to One-page website?' });
     await expect(switchOnePage).toContainText('One-page website');
     await switchOnePage.getByRole('button', { exact: true, name: 'Switch to One-page website' }).click();
+    await expectAtTop(page, BASICS_HEADING);
+    await page.getByRole('button', { exact: true, name: 'Continue' }).click();
     await expectAtTop(page, 'Your starting site is ready');
     preview = page.getByLabel('Isla Nail Studio starting website preview');
     const onePageStructure = preview.locator('[data-starter-structure="one_page"]');
@@ -713,13 +748,22 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
 
   test('A15-01 and A15-02 keep a complete starter choice and compact chrome in short viewports', async ({ page }) => {
     await page.setViewportSize({ height: 390, width: 844 });
-    await applyFixtureFromFresh(page, 'Reduced motion', 'Choose your starting point');
+    await applyFixtureFromFresh(page, 'Reduced motion', STARTER_HEADING);
     const card = page.locator('[data-starter-id="quick_book"]');
     await card.evaluate((element) => element.scrollIntoView({ block: 'center', inline: 'nearest' }));
     let cardBox = await card.boundingBox();
     const clippedBy = (cardBox?.y ?? 0) + (cardBox?.height ?? 0) - 390;
     if (clippedBy > 0) {
-      await page.evaluate((delta) => window.scrollBy({ behavior: 'instant', top: Math.ceil(delta) }), clippedBy);
+      await page.evaluate((delta) => {
+        const amount = Math.ceil(delta);
+        // The starter entry owns its own scroll box in short landscape.
+        const entry = document.querySelector<HTMLElement>('.onboarding-starter-entry');
+        if (entry && entry.scrollHeight > entry.clientHeight) {
+          entry.scrollTop += amount;
+          return;
+        }
+        window.scrollBy({ behavior: 'instant', top: amount });
+      }, clippedBy);
       cardBox = await card.boundingBox();
     }
     const scrollMetrics = await page.evaluate(() => ({
@@ -733,14 +777,16 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
       viewport: page.viewportSize(),
     });
     expect(cardBox?.height ?? 9999).toBeLessThanOrEqual(390);
-    const headerBox = await page.locator('.onboarding-shell__header').boundingBox();
-    const footerBox = await page.locator('.sticky-onboarding-actions').boundingBox();
+    // The starter entry renders outside the shell: the brand is the only
+    // chrome above the cards, and a first entry has no sticky action bar, so
+    // the card must clear the brand and still finish inside the viewport.
+    const brandBox = await page.locator('.onboarding-starter-entry__brand').boundingBox();
+    await expect(page.locator('.onboarding-shell__header')).toHaveCount(0);
     expect(cardBox?.y ?? -1).toBeGreaterThanOrEqual(
-      (headerBox?.y ?? 0) + (headerBox?.height ?? 0),
+      (brandBox?.y ?? 0) + (brandBox?.height ?? 0),
     );
-    expect((cardBox?.y ?? 9999) + (cardBox?.height ?? 0)).toBeLessThanOrEqual(
-      footerBox?.y ?? 390,
-    );
+    expect(cardBox?.y ?? -1).toBeGreaterThanOrEqual(0);
+    expect((cardBox?.y ?? 9999) + (cardBox?.height ?? 0)).toBeLessThanOrEqual(390);
     await expect(card).toContainText('Quick Book');
     await expect(card).toContainText('Start taking bookings with only the essentials.');
     await expect(card).toContainText('Salon intro · Services · Booking');
@@ -751,6 +797,13 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
 
     await page.setViewportSize({ height: 360, width: 320 });
     await page.locator('[data-starter-id="quick_book"]').scrollIntoViewIfNeeded();
+    await expectNoHorizontalOverflow(page);
+    await capture(page, '34-compact-320x360-starter-entry');
+
+    // The shell chrome budget now belongs to the first screen the entry hands
+    // off to, because the starter entry itself no longer renders the shell.
+    await page.locator('[data-starter-id="one_page"]').click();
+    await expect(heading(page, BASICS_HEADING)).toBeVisible();
     const shellChrome = await page.evaluate(() => {
       const header = document.querySelector('.onboarding-shell__header')?.getBoundingClientRect();
       const progress = document.querySelector('.onboarding-stage-progress')?.getBoundingClientRect();
@@ -764,8 +817,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
   test('A15-03 and A15-05 expose every validation error and focus the first invalid field', async ({ page }) => {
     await page.setViewportSize({ height: 390, width: 844 });
     await openFresh(page);
-    await page.getByRole('button', { name: 'Build my website' }).click();
-    await expectAtTop(page, 'Tell us about your nail business');
+    await chooseStarterFromEntry(page);
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
 
     const summary = page.getByRole('alert').filter({ hasText: 'Check the highlighted information.' });
@@ -814,8 +866,15 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.getByLabel('Salon or studio name').fill('Validation Studio');
     await page.getByLabel('Your name').fill('Val Owner');
     await page.getByRole('radio', { name: 'Solo nail tech' }).check();
+    // Photo, logo and Instagram now live in the optional Branding card on this
+    // same screen, so they are skipped by leaving it collapsed and continuing.
+    const branding = page.getByRole('button', { name: /Branding/u });
+    await expect(branding).toContainText('Photo, logo and Instagram · Optional');
+    await expect(branding).toHaveAttribute('aria-expanded', 'false');
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
-    await page.getByRole('button', { name: 'Skip for now' }).click();
+    await expectAtTop(page, 'Your starting site is ready');
+    await page.getByRole('button', { name: 'Continue setting up my site' }).click();
+    await expectAtTop(page, 'Where can clients find you?');
     await page.getByRole('button', { name: 'Save and continue' }).click();
     await expect(page.getByLabel('City or general service area')).toBeFocused();
     await expect(page.getByRole('button', { name: /Location.*2 issues/u })).toBeVisible();
@@ -989,14 +1048,13 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
   test('A04-3, A05-F1, and A16-4 preserve immediate edits and meaningful menu/pause focus', async ({ page }) => {
     await page.setViewportSize({ height: 568, width: 320 });
     await openFresh(page);
-    await page.getByRole('button', { name: 'Build my website' }).click();
-    await expectAtTop(page, 'Tell us about your nail business');
+    await chooseStarterFromEntry(page);
 
     const businessName = page.getByLabel('Salon or studio name');
     await businessName.pressSequentially('Immediate Pagehide Studio', { delay: 4 });
     await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide')));
     await page.reload();
-    await expect(heading(page, 'Tell us about your nail business')).toBeVisible();
+    await expect(heading(page, BASICS_HEADING)).toBeVisible();
     await expect(businessName).toHaveValue('Immediate Pagehide Studio');
 
     const more = page.getByLabel('More onboarding options');
@@ -1022,7 +1080,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.reload();
     await expect(pausedHeading).toBeFocused();
     await page.getByRole('button', { name: 'Resume setup' }).click();
-    await expectAtTop(page, 'Tell us about your nail business');
+    await expectAtTop(page, BASICS_HEADING);
   });
 
   test('A11-1–A11-3 and A16-3 make the writing helper dismissible, focused, and revision-safe', async ({ page }) => {
@@ -1243,8 +1301,12 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
   test('Journey I completes the full onboarding and free dashboard handoff with keyboard input only', async ({ page }) => {
     await page.setViewportSize({ height: 800, width: 1180 });
     await openFresh(page);
-    await activateWithKeyboard(page.getByRole('button', { name: 'Build my website' }));
-    await expectAtTop(page, 'Tell us about your nail business');
+    await expect(page.getByLabel('Luster', { exact: true })).toBeVisible();
+    await expect(page.getByText('Your website starts here')).toBeVisible();
+    await activateWithKeyboard(page.getByRole('button', { name: /Start with Quick Book/u }));
+    await expectAtTop(page, BASICS_HEADING);
+    await expect(page.getByTestId('starter-preview-quick_book')).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Your site so far' })).toBeVisible();
 
     await page.getByLabel('Salon or studio name').focus();
     await page.keyboard.type('Keyboard Nail Studio');
@@ -1252,10 +1314,16 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.keyboard.type('Kai');
     await page.getByRole('radio', { name: 'Solo nail tech' }).focus();
     await page.keyboard.press('Space');
+    // Photo, logo and Instagram are optional inline branding now: leaving the
+    // collapsed card alone is the keyboard equivalent of skipping them.
+    await expect(page.getByRole('button', { name: /Branding/u }))
+      .toHaveAttribute('aria-expanded', 'false');
     await activateWithKeyboard(page.getByRole('button', { exact: true, name: 'Continue' }));
-    await expectAtTop(page, 'Add your photo and Instagram');
+    await expectAtTop(page, 'Your starting site is ready');
 
-    await activateWithKeyboard(page.getByRole('button', { name: 'Skip for now' }));
+    await activateWithKeyboard(page.getByRole('button', {
+      name: 'Continue setting up my site',
+    }));
     await expectAtTop(page, 'Where can clients find you?');
     await page.getByLabel('City or general service area').focus();
     await page.keyboard.type('Hamilton, Ontario');
@@ -1276,13 +1344,6 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.keyboard.press('Space');
     await activateWithKeyboard(page.getByRole('button', {
       name: 'Save booking setup',
-    }));
-    await expectAtTop(page, 'Choose your starting point');
-
-    await activateWithKeyboard(page.getByRole('button', { name: /^Quick Book/u }));
-    await expectAtTop(page, 'Your starting site is ready');
-    await activateWithKeyboard(page.getByRole('button', {
-      name: 'Continue setting up my site',
     }));
     await expectAtTop(page, 'Would you like an About section?');
     await page.getByRole('switch', { name: 'Include an About section' }).focus();
@@ -1336,7 +1397,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
   });
 
-  test('final Reset restores a clean Welcome and removes only onboarding-owned state', async ({ page }) => {
+  test('final Reset restores a clean starting point and removes only onboarding-owned state', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await applyFixtureFromFresh(page, 'Canva intent', 'Add something extra');
     const dialog = await openCanvaDialog(page);
@@ -1354,8 +1415,10 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
       name: 'Start over',
     }).click();
 
-    await expect(heading(page, 'Let’s build your website')).toBeVisible();
+    await expect(heading(page, STARTER_HEADING)).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(page.locator('[data-starter-id]')).toHaveCount(3);
+    await expect(page.locator('[data-starter-id][aria-pressed="true"]')).toHaveCount(0);
     await expect.poll(() => page.evaluate(
       (key) => window.localStorage.getItem(key),
       'luster:onboarding-zero-findings:unrelated-sentinel',
@@ -1378,7 +1441,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
       expect(restored.profile.businessName).toBe('');
       expect(restored.recipe.starter).toBeNull();
       expect(restored.canva.images).toHaveLength(0);
-      expect(restored.progress.currentScreen).toBe('welcome');
+      expect(restored.progress.currentScreen).toBe('starter');
       expect(restored.eventJournal.length).toBeLessThanOrEqual(1);
       if (restored.eventJournal[0]) {
         expect(restored.eventJournal[0].type).toBe('screen_viewed');
@@ -1387,7 +1450,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
       expect(restoredRaw).toBeNull();
     }
     await expectNoHorizontalOverflow(page);
-    await capture(page, '46-clean-welcome-restoration');
+    await capture(page, '46-clean-starter-entry-restoration');
 
     await page.evaluate(() => window.localStorage.removeItem(
       'luster:onboarding-zero-findings:unrelated-sentinel',

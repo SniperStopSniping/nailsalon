@@ -483,6 +483,12 @@ describe('StartingPointScreen', () => {
       />,
     );
 
+    expect(screen.getByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
+    expect(screen.getByLabelText('Luster')).toBeVisible();
+    expect(screen.getByText('Your progress saves automatically on this device.')).toBeVisible();
+    expect(screen.getByText('You’ll preview your site before choosing a plan.')).toBeVisible();
+    expect(screen.getByText('Nothing is permanent.')).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
     const cards = screen.getAllByRole('button', { name: /Start with/ });
     expect(cards).toHaveLength(3);
     expect(screen.getByText('Salon intro · Services · Booking')).toBeVisible();
@@ -498,7 +504,108 @@ describe('StartingPointScreen', () => {
     expect(screen.queryByText(/custom design/i)).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Start with One-page/ }));
-    expect(onChooseStarter).toHaveBeenCalledWith('one_page');
+    await waitFor(() => expect(onChooseStarter).toHaveBeenCalledWith('one_page'));
+  });
+
+  it('plays one commit beat for a first choice and ignores double activation', async () => {
+    const user = userEvent.setup();
+    const onChooseStarter = vi.fn<(starter: StarterId) => void>();
+    render(
+      <StartingPointScreen
+        businessName="Isla Nail Studio"
+        onBack={vi.fn()}
+        onChooseStarter={onChooseStarter}
+        selectedStarter={null}
+      />,
+    );
+
+    const onePage = screen.getByRole('button', { name: /Start with One-page/ });
+    await user.click(onePage);
+    expect(onePage).toHaveAttribute('data-committing', 'true');
+    expect(onChooseStarter).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: /Start with Quick Book/ }));
+    await waitFor(() => expect(onChooseStarter).toHaveBeenCalledWith('one_page'));
+    expect(onChooseStarter).toHaveBeenCalledOnce();
+  });
+
+  it('commits immediately under reduced motion and for an already-selected starter', async () => {
+    const user = userEvent.setup();
+    const onChooseStarter = vi.fn<(starter: StarterId) => void>();
+    const { rerender } = render(
+      <StartingPointScreen
+        businessName="Isla Nail Studio"
+        onBack={vi.fn()}
+        onChooseStarter={onChooseStarter}
+        reducedMotion
+        selectedStarter={null}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: /Start with Multi-page/ }));
+    expect(onChooseStarter).toHaveBeenCalledWith('multi_page');
+
+    onChooseStarter.mockClear();
+    rerender(
+      <StartingPointScreen
+        businessName="Isla Nail Studio"
+        onBack={vi.fn()}
+        onChooseStarter={onChooseStarter}
+        selectedStarter="multi_page"
+      />,
+    );
+    await user.click(screen.getByRole('button', {
+      name: /Continue with this starting point/,
+    }));
+    expect(onChooseStarter).toHaveBeenCalledWith('multi_page');
+  });
+
+  it('notes a Canva intent inline without leaving the screen', async () => {
+    const user = userEvent.setup();
+    const onCanvaIntent = vi.fn();
+    const { rerender } = render(
+      <StartingPointScreen
+        businessName=""
+        onBack={vi.fn()}
+        onCanvaIntent={onCanvaIntent}
+        onChooseStarter={vi.fn()}
+        selectedStarter={null}
+      />,
+    );
+
+    const canvaButton = screen.getByRole('button', { name: 'I want to use a Canva design' });
+    expect(canvaButton).toHaveAttribute('aria-pressed', 'false');
+    await user.click(canvaButton);
+    expect(onCanvaIntent).toHaveBeenCalledOnce();
+
+    rerender(
+      <StartingPointScreen
+        businessName=""
+        canvaIntentNoted
+        onBack={vi.fn()}
+        onCanvaIntent={onCanvaIntent}
+        onChooseStarter={vi.fn()}
+        selectedStarter={null}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'I want to use a Canva design' }))
+      .toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('status'))
+      .toHaveTextContent('Noted — we’ll bring your Canva design in at the Extras step.');
+  });
+
+  it('offers Back only when there is onboarding history behind the entry screen', () => {
+    const onBack = vi.fn();
+    render(
+      <StartingPointScreen
+        businessName="Isla Nail Studio"
+        canGoBack
+        onBack={onBack}
+        onChooseStarter={vi.fn()}
+        selectedStarter="one_page"
+      />,
+    );
+
+    expect(screen.getByRole('button', { name: 'Back' })).toBeVisible();
   });
 
   it('uses the shared public-location resolver and never leaks an after-booking address', () => {

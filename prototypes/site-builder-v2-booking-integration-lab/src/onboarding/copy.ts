@@ -27,13 +27,11 @@ export const STAGE_METADATA: Record<OnboardingStage, OnboardingStageMetadata> = 
 };
 
 export const CORE_SCREEN_ORDER: readonly OnboardingScreenId[] = [
-  'welcome',
+  'starter',
   'business',
-  'photo_social',
+  'starting_preview',
   'location_contact',
   'booking_preferences',
-  'starter',
-  'starting_preview',
   'about',
   'about_design',
   'policies',
@@ -66,11 +64,11 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     supportingCopy: 'We’ll use these settings on your website and when showing available appointments.',
   },
   business: {
-    heading: 'Tell us about your nail business',
+    heading: 'Make it yours',
     primaryAction: 'Continue',
     stage: 'basics',
     status: 'essential',
-    supportingCopy: 'We’ll use this information throughout your site.',
+    supportingCopy: 'Add your name and branding, and watch your site come together as you type.',
   },
   extras: {
     heading: 'Add something extra',
@@ -94,6 +92,11 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     status: 'essential',
     supportingCopy: 'Add only what you’re comfortable sharing publicly.',
   },
+  /**
+   * Legacy id retained so persisted drafts and journals from before the
+   * combined "Make it yours" screen keep parsing; migration remaps it to
+   * `business` and it is no longer part of CORE_SCREEN_ORDER.
+   */
   photo_social: {
     heading: 'Add your photo and Instagram',
     primaryAction: 'Continue',
@@ -120,7 +123,7 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
   starter: {
     heading: 'Choose your starting point',
     primaryAction: 'Use this starting point',
-    stage: 'booking',
+    stage: 'basics',
     status: 'essential',
     supportingCopy: 'Start simple or with a full website. You can add or change pages and sections anytime.',
   },
@@ -128,10 +131,15 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     heading: 'Your starting site is ready',
     primaryAction: 'Continue setting up my site',
     secondaryAction: 'Preview my site',
-    stage: 'booking',
+    stage: 'basics',
     status: null,
     supportingCopy: 'We created this first version from your information. Take a look, then we’ll finish the details that make it feel like your business.',
   },
+  /**
+   * Legacy id retained so persisted drafts and journals from before the
+   * starter-first opening keep parsing; migration remaps it to `starter` and
+   * it is no longer part of CORE_SCREEN_ORDER.
+   */
   welcome: {
     heading: 'Let’s build your website',
     primaryAction: 'Build my website',
@@ -142,11 +150,13 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
   },
 };
 
-export const WELCOME_BENEFITS = [
-  'Add your details once',
-  'Start with a ready-made service menu',
-  'Switch designs without starting over',
-] as const;
+export const STARTER_ENTRY_COPY = {
+  autosaveNote: 'Your progress saves automatically on this device.',
+  canvaConfirmed: 'Noted — we’ll bring your Canva design in at the Extras step.',
+  canvaIntent: 'I want to use a Canva design',
+  kicker: 'Your website starts here',
+  reassurance: 'You’ll preview your site before choosing a plan.',
+} as const;
 
 export const ONBOARDING_STAGE_ORDER = (
   Object.entries(STAGE_METADATA) as Array<[OnboardingStage, OnboardingStageMetadata]>

@@ -6,12 +6,16 @@ import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createDefaultBusinessProfile } from '../model/defaults';
-import { BusinessScreen } from '../screens/BasicsScreens';
+import { BrandBasicsScreen } from '../screens/BasicsScreens';
 import {
   focusFirstInvalidControl,
   ImageUploadField,
   NativeSwitch,
 } from './FormFields';
+
+vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
+  useCustomDesignAssetMap: () => new Map(),
+}));
 
 describe('focusFirstInvalidControl', () => {
   it('focuses and scrolls the first enabled control nested in the first invalid group', async () => {
@@ -90,15 +94,19 @@ describe('focusFirstInvalidControl', () => {
     function Harness() {
       const [profile, setProfile] = useState(createDefaultBusinessProfile);
       return (
-        <BusinessScreen
+        <BrandBasicsScreen
           onBack={vi.fn()}
           onContinue={onContinue}
-          onProfileChange={(patch) => setProfile((current) => ({
-            ...current,
-            ...patch,
-          }))}
+          onLogoSelected={vi.fn()}
+          onProfileChange={(patch: Partial<ReturnType<typeof createDefaultBusinessProfile>>) =>
+            setProfile((current) => ({
+              ...current,
+              ...patch,
+            }))}
+          onProfilePhotoSelected={vi.fn()}
           onValidationFailure={onValidationFailure}
           profile={profile}
+          starter="quick_book"
         />
       );
     }

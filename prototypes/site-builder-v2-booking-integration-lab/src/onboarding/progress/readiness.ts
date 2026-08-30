@@ -111,7 +111,7 @@ export const getReadinessItems = (
     items.push({ id: 'canva', label: 'Upload Canva design', screen: 'extras', status: 'optional' });
   }
   if (!state.profile.logo) {
-    items.push({ id: 'logo', label: 'Add logo', screen: 'photo_social', status: 'optional' });
+    items.push({ id: 'logo', label: 'Add logo', screen: 'business', status: 'optional' });
   }
   if (state.canva.status === 'invalid') {
     items.push({

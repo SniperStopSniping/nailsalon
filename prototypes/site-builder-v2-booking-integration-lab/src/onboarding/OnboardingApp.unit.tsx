@@ -99,9 +99,9 @@ const stateAt = (
   state.progress.currentScreen = screenId;
   state.progress.lastActiveScreen = screenId;
   state.progress.lastSavedAt = null;
-  state.progress.screenHistory = ['welcome', screenId];
+  state.progress.screenHistory = ['starter', screenId];
   state.progress.sessionStatus = 'active';
-  state.progress.visitedScreens = ['welcome', screenId];
+  state.progress.visitedScreens = ['starter', screenId];
   return state;
 };
 
@@ -293,7 +293,7 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(onEnterBuilder).not.toHaveBeenCalled();
 
     await user.click(within(dialog).getByRole('button', { name: 'Continue setup' }));
-    expect(await screen.findByRole('heading', { name: 'Would you like an About section?' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Where can clients find you?' })).toBeVisible();
     expect(onEnterBuilder).not.toHaveBeenCalled();
   });
 
@@ -494,10 +494,10 @@ describe('OnboardingApp handoff boundaries', () => {
       name: 'Start over',
     }));
 
-    expect(await screen.findByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
     expect(lab.resetLab).toHaveBeenCalledOnce();
     const resetEntry = currentBrowserHistoryEntry();
-    expect(resetEntry.screen).toBe('welcome');
+    expect(resetEntry.screen).toBe('starter');
     expect(resetEntry.onboardingCursor).toBe(0);
     expect(resetEntry.onboardingSession).not.toBe(staleEntry.onboardingSession);
 
@@ -507,7 +507,7 @@ describe('OnboardingApp handoff boundaries', () => {
       screen: 'policies',
     });
     expect(forward).toHaveBeenCalledOnce();
-    expect(screen.getByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
     expect(currentBrowserHistoryEntry()).toEqual(resetEntry);
     forward.mockRestore();
   });
@@ -539,7 +539,7 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(deleteAssetsIfUnreferenced).toHaveBeenCalledOnce();
 
     finishCleanup?.([]);
-    const welcomeHeading = await screen.findByRole('heading', { name: 'Let’s build your website' });
+    const welcomeHeading = await screen.findByRole('heading', { name: 'Choose your starting point' });
     await waitFor(() => expect(welcomeHeading).toHaveFocus());
     expect(lab.resetLab).toHaveBeenCalledOnce();
   });
@@ -565,7 +565,7 @@ describe('OnboardingApp handoff boundaries', () => {
     await user.click(within(screen.getByRole('dialog', { name: 'Start over?' }))
       .getByRole('button', { name: 'Start over' }));
 
-    expect(await screen.findByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
     await waitFor(async () => {
       expect(await repository.has('onboarding-removed')).toBe(false);
       expect(await repository.has('unrelated-sentinel')).toBe(true);
@@ -593,7 +593,7 @@ describe('OnboardingApp handoff boundaries', () => {
     await user.click(within(screen.getByRole('dialog', { name: 'Lab review options' }))
       .getByRole('button', { name: 'Blank new owner' }));
 
-    expect(await screen.findByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
     await waitFor(async () => {
       expect(await repository.has('onboarding-removed')).toBe(false);
       expect(await repository.has('unrelated-sentinel')).toBe(true);
@@ -624,7 +624,7 @@ describe('OnboardingApp handoff boundaries', () => {
     await user.click(within(screen.getByRole('dialog', { name: 'Start over?' }))
       .getByRole('button', { name: 'Start over' }));
 
-    expect(await screen.findByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
     expect(await screen.findByRole('alert')).toHaveTextContent('cleanup list');
     expect(lab.resetLab).toHaveBeenCalledOnce();
     expect(deleteAssetsIfUnreferenced).toHaveBeenCalledWith([
@@ -698,7 +698,7 @@ describe('OnboardingApp handoff boundaries', () => {
     await user.click(within(screen.getByRole('dialog', { name: 'Lab review options' }))
       .getByRole('button', { name: 'Blank new owner' }));
 
-    expect(await screen.findByRole('heading', { name: 'Let’s build your website' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Choose your starting point' })).toBeVisible();
     expect(await screen.findByRole('alert')).toHaveTextContent('cleanup list');
     await waitFor(() => expect(parseOnboardingState(
       window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
@@ -793,12 +793,10 @@ describe('OnboardingApp handoff boundaries', () => {
       name: 'Switch to One-page website',
     }));
 
-    expect(await screen.findByRole('heading', {
-      name: 'Your starting site is ready',
-    })).toBeVisible();
-    expect(screen.getByRole('region', {
-      name: 'Isla Nail Studio starting website preview',
-    })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Make it yours' })).toBeVisible();
+    expect(screen.getByText('One-page website · Change it anytime')).toBeVisible();
+    expect(document.querySelector('[data-testid="starter-preview-one_page"]'))
+      .toHaveTextContent('Isla Nail Studio');
 
     await waitFor(() => {
       const savedOnboarding = parseOnboardingState(
@@ -809,7 +807,7 @@ describe('OnboardingApp handoff boundaries', () => {
         .toBe(state.profile.about.shortBio);
       expect(savedOnboarding.state.recipe.starter).toBe('one_page');
       expect(savedOnboarding.state.progress.currentScreen)
-        .toBe('starting_preview');
+        .toBe('business');
 
       const savedDocument = parseSiteBuilderDocument(
         window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY) ?? '',
@@ -823,16 +821,13 @@ describe('OnboardingApp handoff boundaries', () => {
 
     firstRender.unmount();
     render(<RealLabHarness />);
-    expect(await screen.findByRole('heading', {
-      name: 'Your starting site is ready',
-    })).toBeVisible();
-    expect(screen.getAllByText('One-page website').length).toBeGreaterThan(0);
-    expect(screen.getByRole('region', {
-      name: 'Isla Nail Studio starting website preview',
-    })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Make it yours' })).toBeVisible();
+    expect(screen.getByText('One-page website · Change it anytime')).toBeVisible();
+    expect(document.querySelector('[data-testid="starter-preview-one_page"]'))
+      .toHaveTextContent('Isla Nail Studio');
   });
 
-  it('keeps the starting-site reveal visible while remembering the newly complete Booking stage', async () => {
+  it('keeps the starting-site reveal visible while remembering the newly complete Basics stage', async () => {
     const user = userEvent.setup();
     const state = stateAt('starter');
     state.recipe.starter = null;
@@ -847,21 +842,35 @@ describe('OnboardingApp handoff boundaries', () => {
     );
     await user.click(screen.getByRole('button', { name: /Start with One-page/u }));
 
+    expect(await screen.findByRole('heading', { name: 'Make it yours' })).toBeVisible();
     expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
       'Your starting site is ready',
+    );
+    await waitFor(() => {
+      expect(document.querySelector('.visually-hidden[role="status"]')).toHaveTextContent(
+        'Your starting site is ready',
+      );
+    });
+    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(await screen.findByRole('heading', {
+      name: 'Your starting site is ready',
+    })).toBeVisible();
+    expect(screen.getByRole('region', {
+      name: 'Isla Nail Studio starting website preview',
+    })).toBeVisible();
+    // The preserved Basics stage toast takes over after the navigation.
+    expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
+      'Basics complete',
     );
     await user.click(screen.getByRole('button', { name: 'Preview my site' }));
     expect(screen.getByRole('dialog', { name: 'Preview your starting site' })).toBeVisible();
     await waitFor(() => expect(document.querySelector('.onboarding-feedback')).toBeNull());
-    expect(document.querySelector('.visually-hidden[role="status"]')).toHaveTextContent(
-      'Your starting site is ready',
-    );
     await waitFor(() => {
       const saved = parseOnboardingState(
         window.localStorage.getItem(ONBOARDING_STORAGE_KEY) ?? '',
       );
       expect(saved.state.reviewOptions.feedbackMilestones).toEqual(
-        expect.arrayContaining(['starting_site_ready', 'stage_booking']),
+        expect.arrayContaining(['starting_site_ready', 'stage_basics']),
       );
     });
   });
@@ -876,8 +885,17 @@ describe('OnboardingApp handoff boundaries', () => {
       fireEvent.click(screen.getByRole('button', { name: /^Use /u }));
 
       expect(screen.getByRole('heading', { name: 'Add something extra' })).toBeVisible();
+      // The design-stage toast survives the coinciding navigation, then hands
+      // off to the everything-ready milestone before the visuals go quiet.
+      expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
+        'Your website design is set',
+      );
       act(() => vi.advanceTimersByTime(2_300));
       expect(screen.getByText('All required steps complete')).toBeVisible();
+      expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
+        'Everything you need is ready',
+      );
+      act(() => vi.advanceTimersByTime(2_800));
       expect(document.querySelector('.onboarding-feedback')).toBeNull();
       fireEvent.click(screen.getByRole('button', { name: 'Continue to review' }));
       expect(screen.getByRole('heading', { name: 'Review your site' })).toBeVisible();

@@ -102,6 +102,7 @@ type StoredBuilderDocument = {
 
 type BusinessDetails = {
   businessName?: string;
+  instagram?: string;
   ownerName?: string;
   structure?: 'Solo nail tech' | 'Team or multi-tech salon';
 };
@@ -113,7 +114,6 @@ type LocationDetails = {
   city?: string;
   differentTextNumber?: string;
   exactAddress?: string;
-  instagram?: string;
   locationType?: 'Home studio' | 'Mobile service' | 'Salon suite' | 'Traditional salon';
   phone?: string;
   textEnabled?: boolean;
@@ -125,11 +125,20 @@ type BookingDetails = {
   visitMode?: 'Appointment only' | 'Appointments and walk-ins' | 'Walk-ins only';
 };
 
+const STARTER_TITLES: Record<StarterId, string> = {
+  multi_page: 'Multi-page website',
+  one_page: 'One-page website',
+  quick_book: 'Quick Book',
+};
+
 const screenHeading = (page: Page, name: string): Locator =>
   page.getByRole('heading', { level: 1, name });
 
 const starterCard = (page: Page, starter: StarterId): Locator =>
   page.locator(`[data-starter-id="${starter}"]`);
+
+const brandingCard = (page: Page): Locator =>
+  page.getByRole('button', { name: /Branding/u });
 
 const runtimeMonitors = new WeakMap<
   Page,
@@ -146,9 +155,19 @@ async function captureEvidence(page: Page, fileName: string): Promise<void> {
   });
 }
 
+/**
+ * The starting-point screen is now the entry point and renders outside the
+ * onboarding shell, so it carries no autosave status, no More menu, and no
+ * Back action until onboarding history exists.
+ */
 async function openFreshOnboarding(page: Page): Promise<void> {
   await page.goto('/?audit=1');
-  await expect(screenHeading(page, 'Let’s build your website')).toBeVisible();
+  await expect(screenHeading(page, 'Choose your starting point')).toBeVisible();
+  await expect(page.getByLabel('Luster', { exact: true })).toBeVisible();
+  await expect(page.getByText('Start simple or with a full website. You can add or change pages and sections anytime.')).toBeVisible();
+  await expect(page.getByLabel('Autosave status')).toHaveCount(0);
+  await expect(page.getByLabel('More onboarding options')).toHaveCount(0);
+  await expect(page.getByRole('button', { exact: true, name: 'Back' })).toHaveCount(0);
 }
 
 async function expectScreenAtTop(page: Page, name: string): Promise<void> {
@@ -181,7 +200,16 @@ async function readBuilderDocument(page: Page): Promise<StoredBuilderDocument> {
   }, LAB_STORAGE_KEY);
 }
 
-async function completeBusiness(
+/** Branding starts open only when photo, logo or Instagram data already exists. */
+async function openBrandingCard(page: Page): Promise<void> {
+  const trigger = brandingCard(page);
+  if ((await trigger.getAttribute('aria-expanded')) !== 'true') {
+    await trigger.click();
+  }
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+}
+
+async function fillBusinessBasics(
   page: Page,
   {
     businessName = 'Mia’s Nail Studio',
@@ -195,21 +223,25 @@ async function completeBusiness(
     .getByRole('radio', { name: structure })
     .check();
   await captureEvidence(page, '15-business-structure');
-  await page.getByRole('button', { exact: true, name: 'Continue' }).click();
-  await expectScreenAtTop(page, 'Add your photo and Instagram');
-  await captureEvidence(page, '26-neutral-instagram-example');
 }
 
-async function completePhotoSocial(
+async function completeBusiness(
   page: Page,
-  instagram = '@mias_nails',
+  details: BusinessDetails = {},
 ): Promise<void> {
+  const { instagram = '@mias_nails' } = details;
+  await fillBusinessBasics(page, details);
   if (instagram) {
+    await openBrandingCard(page);
     await page.getByLabel('Instagram handle').fill(instagram);
-    await page.getByRole('button', { exact: true, name: 'Continue' }).click();
-  } else {
-    await page.getByRole('button', { name: 'Skip for now' }).click();
+    await captureEvidence(page, '26-neutral-instagram-example');
   }
+  await page.getByRole('button', { exact: true, name: 'Continue' }).click();
+  await expectScreenAtTop(page, 'Your starting site is ready');
+}
+
+async function continueFromStartingPreview(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Continue setting up my site' }).click();
   await expectScreenAtTop(page, 'Where can clients find you?');
 }
 
@@ -286,44 +318,34 @@ async function completeBooking(
       .check();
   }
   await page.getByRole('button', { name: 'Save booking setup' }).click();
-  await expectScreenAtTop(page, 'Choose your starting point');
+  await expectScreenAtTop(page, 'Would you like an About section?');
 }
 
-async function reachStarter(
-  page: Page,
-  business: BusinessDetails = {},
-  location: LocationDetails = {},
-  booking: BookingDetails = {},
-): Promise<void> {
-  await openFreshOnboarding(page);
-  await page.getByRole('button', { name: 'Build my website' }).click();
-  await expectScreenAtTop(page, 'Tell us about your nail business');
-  await completeBusiness(page, business);
-  await completePhotoSocial(page, location.instagram ?? '@mias_nails');
-  await completeLocation(page, location);
-  await completeBooking(page, booking);
-}
-
+/** A first-time starter choice opens "Make it yours" after the selection beat. */
 async function chooseStarter(page: Page, starter: StarterId): Promise<void> {
   await starterCard(page, starter).click();
-  await expectScreenAtTop(page, 'Your starting site is ready');
+  await expectScreenAtTop(page, 'Make it yours');
+  await expect(page.getByText(`${STARTER_TITLES[starter]} · Change it anytime`)).toBeVisible();
   await waitForAutosave(page);
 }
 
 async function switchStarter(page: Page, starter: StarterId): Promise<void> {
   await starterCard(page, starter).click();
-  const target = starter === 'quick_book'
-    ? 'Quick Book'
-    : starter === 'one_page'
-      ? 'One-page website'
-      : 'Multi-page website';
+  const target = STARTER_TITLES[starter];
   const dialog = page.getByRole('dialog', { name: `Switch to ${target}?` });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Keep current' })).toBeVisible();
   await dialog.getByRole('button', { exact: true, name: `Switch to ${target}` }).click();
   await expect(dialog).toBeHidden();
-  await expectScreenAtTop(page, 'Your starting site is ready');
+  await expectScreenAtTop(page, 'Make it yours');
   await waitForAutosave(page);
+}
+
+async function backThroughScreens(page: Page, ...headings: string[]): Promise<void> {
+  for (const heading of headings) {
+    await page.getByRole('button', { exact: true, name: 'Back' }).click();
+    await expectScreenAtTop(page, heading);
+  }
 }
 
 async function expectStarterDocumentShape(
@@ -353,11 +375,23 @@ async function expectStarterDocumentShape(
   }
 }
 
-async function reachAbout(page: Page): Promise<void> {
-  await reachStarter(page);
-  await chooseStarter(page, 'one_page');
-  await page.getByRole('button', { name: 'Continue setting up my site' }).click();
-  await expectScreenAtTop(page, 'Would you like an About section?');
+/**
+ * Walks the new opening — starting point → Make it yours → starting preview →
+ * location → booking — and lands on the first optional design screen.
+ */
+async function reachAbout(
+  page: Page,
+  starter: StarterId = 'one_page',
+  business: BusinessDetails = {},
+  location: LocationDetails = {},
+  booking: BookingDetails = {},
+): Promise<void> {
+  await openFreshOnboarding(page);
+  await chooseStarter(page, starter);
+  await completeBusiness(page, business);
+  await continueFromStartingPreview(page);
+  await completeLocation(page, location);
+  await completeBooking(page, booking);
 }
 
 async function openLabReviewOptions(page: Page): Promise<Locator> {
@@ -386,8 +420,7 @@ async function applyFixtureFromFresh(
   destinationHeading: string,
 ): Promise<void> {
   await openFreshOnboarding(page);
-  await page.getByRole('button', { name: 'Build my website' }).click();
-  await expectScreenAtTop(page, 'Tell us about your nail business');
+  await chooseStarter(page, 'one_page');
   await applyFixture(page, label, destinationHeading);
 }
 
@@ -432,8 +465,8 @@ test.describe('Onboarding V1 final correction matrix', () => {
   test('OB-04, OB-11, OB-14, and OB-20 keep transitions, validation, More, and switches accessible', async ({ page }) => {
     await page.setViewportSize({ height: 568, width: 320 });
     await openFreshOnboarding(page);
-    await page.getByRole('button', { name: 'Build my website' }).click();
-    await expectScreenAtTop(page, 'Tell us about your nail business');
+    await chooseStarter(page, 'one_page');
+    await expect(page.getByText('4 required steps left')).toBeVisible();
 
     const more = page.getByLabel('More onboarding options');
     await more.click();
@@ -458,11 +491,17 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await page.getByRole('group', { name: 'Who are you setting Luster up for?' })
       .getByRole('radio', { name: 'Solo nail tech' })
       .check();
+
+    // Photo, logo and Instagram are optional inline branding now: the card stays
+    // collapsed and Continue proceeds without opening it.
+    const branding = brandingCard(page);
+    await expect(branding).toHaveAttribute('aria-expanded', 'false');
+    await expect(branding).toContainText('Photo, logo and Instagram · Optional');
+
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
-    await expectScreenAtTop(page, 'Add your photo and Instagram');
+    await expectScreenAtTop(page, 'Your starting site is ready');
     await captureEvidence(page, '11-screen-title-after-transition');
-    await page.getByRole('button', { name: 'Skip for now' }).click();
-    await expectScreenAtTop(page, 'Where can clients find you?');
+    await continueFromStartingPreview(page);
 
     await page.locator('button[aria-controls="onboarding-contact-card-panel"]').click();
     const bookingOnly = page.getByRole('switch', { name: 'Clients should use online booking only' });
@@ -484,32 +523,48 @@ test.describe('Onboarding V1 final correction matrix', () => {
   });
 
   test('Journey F switches Quick Book → One-page → Multi-page → Quick Book without losing the entered profile', async ({ page }) => {
-    await reachStarter(page, {
+    await openFreshOnboarding(page);
+    await starterCard(page, 'quick_book').focus();
+    await page.keyboard.press('Enter');
+    await expectScreenAtTop(page, 'Make it yours');
+    await expect(page.getByText('Quick Book · Change it anytime')).toBeVisible();
+    await expectStarterDocumentShape(page, 'quick_book');
+
+    await completeBusiness(page, {
       businessName: 'North Shore Nails',
+      instagram: '@northshore_nails',
       ownerName: 'Nora Singh',
       structure: 'Team or multi-tech salon',
-    }, {
+    });
+    await continueFromStartingPreview(page);
+    await completeLocation(page, {
       city: 'North Vancouver, British Columbia',
-      instagram: '@northshore_nails',
       locationType: 'Traditional salon',
       phone: '604-555-0191',
-    }, {
+    });
+    await completeBooking(page, {
       deposit: 'Same deposit for every service',
       visitMode: 'Appointments and walk-ins',
     });
 
-    await starterCard(page, 'quick_book').focus();
-    await page.keyboard.press('Enter');
-    await expectScreenAtTop(page, 'Your starting site is ready');
     await waitForAutosave(page);
-    await expectStarterDocumentShape(page, 'quick_book');
     const original = await readOnboardingState(page);
     const profileFingerprint = JSON.stringify(original.profile);
 
-    await page.getByRole('button', { exact: true, name: 'Back' }).click();
-    await expectScreenAtTop(page, 'Choose your starting point');
+    await backThroughScreens(
+      page,
+      'How do clients book with you?',
+      'Where can clients find you?',
+      'Your starting site is ready',
+      'Make it yours',
+      'Choose your starting point',
+    );
     await expect(starterCard(page, 'quick_book')).toHaveAttribute('aria-pressed', 'true');
     await expect(starterCard(page, 'quick_book').getByText('Current starting point')).toBeVisible();
+    await expect(starterCard(page, 'quick_book')
+      .getByText('Continue with this starting point')).toBeVisible();
+    await expect(starterCard(page, 'one_page')
+      .getByText('Switch to One-page website')).toBeVisible();
     await captureEvidence(page, '01-active-starter-marker');
 
     await starterCard(page, 'one_page').click();
@@ -517,24 +572,26 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await expect(confirmation).toContainText('keeps your business information, About details, policies, style choices, photos, Gallery draft, Canva design, and onboarding progress saved');
     await captureEvidence(page, '02-starter-switch-confirmation');
     await confirmation.getByRole('button', { exact: true, name: 'Switch to One-page website' }).click();
-    await expectScreenAtTop(page, 'Your starting site is ready');
+    await expectScreenAtTop(page, 'Make it yours');
     await expectStarterDocumentShape(page, 'one_page');
     expect(JSON.stringify((await readOnboardingState(page)).profile)).toBe(profileFingerprint);
     await captureEvidence(page, '03-starter-switch-information-preserved');
 
+    await page.getByRole('button', { exact: true, name: 'Continue' }).click();
+    await expectScreenAtTop(page, 'Your starting site is ready');
     await page.reload();
     await expect(screenHeading(page, 'Your starting site is ready')).toBeVisible();
     await expect(page.getByLabel('Personalized starting site')
       .getByText('One-page website', { exact: true })).toBeVisible();
     expect(JSON.stringify((await readOnboardingState(page)).profile)).toBe(profileFingerprint);
 
-    await page.getByRole('button', { exact: true, name: 'Back' }).click();
+    await backThroughScreens(page, 'Make it yours', 'Choose your starting point');
     await expect(starterCard(page, 'one_page')).toHaveAttribute('aria-pressed', 'true');
     await switchStarter(page, 'multi_page');
     await expectStarterDocumentShape(page, 'multi_page');
     expect(JSON.stringify((await readOnboardingState(page)).profile)).toBe(profileFingerprint);
 
-    await page.getByRole('button', { exact: true, name: 'Back' }).click();
+    await backThroughScreens(page, 'Choose your starting point');
     await switchStarter(page, 'quick_book');
     await expectStarterDocumentShape(page, 'quick_book');
     expect(JSON.stringify((await readOnboardingState(page)).profile)).toBe(profileFingerprint);
@@ -544,7 +601,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await expect(starterCard(page, 'quick_book')).toHaveAttribute('aria-pressed', 'true');
     await captureEvidence(page, '13-browser-back');
     await page.goForward();
-    await expectScreenAtTop(page, 'Your starting site is ready');
+    await expectScreenAtTop(page, 'Make it yours');
     await captureEvidence(page, '14-browser-forward');
   });
 
@@ -590,18 +647,22 @@ test.describe('Onboarding V1 final correction matrix', () => {
       },
     };
 
-    await page.getByRole('button', { exact: true, name: 'Back' }).click();
-    await expectScreenAtTop(page, 'Choose your website style');
-    await page.getByRole('button', { exact: true, name: 'Back' }).click();
-    await expectScreenAtTop(page, 'Set clear expectations');
-    await page.getByRole('button', { exact: true, name: 'Back' }).click();
-    await expectScreenAtTop(page, 'Choose your About design');
+    await backThroughScreens(
+      page,
+      'Choose your website style',
+      'Set clear expectations',
+      'Choose your About design',
+    );
     await page.getByRole('button', { name: 'Back to edit About' }).click();
     await expectScreenAtTop(page, 'Would you like an About section?');
-    await page.getByRole('button', { exact: true, name: 'Back' }).click();
-    await expectScreenAtTop(page, 'Your starting site is ready');
-    await page.getByRole('button', { exact: true, name: 'Back' }).click();
-    await expectScreenAtTop(page, 'Choose your starting point');
+    await backThroughScreens(
+      page,
+      'How do clients book with you?',
+      'Where can clients find you?',
+      'Your starting site is ready',
+      'Make it yours',
+      'Choose your starting point',
+    );
     await switchStarter(page, 'multi_page');
 
     const after = await readOnboardingState(page);
@@ -721,9 +782,9 @@ test.describe('Onboarding V1 final correction matrix', () => {
   test('Journey H keeps hours honest, derives open/closed status, and never leaks a private address through Directions', async ({ page }) => {
     await page.clock.setFixedTime(new Date('2026-08-29T21:00:00-04:00'));
     await openFreshOnboarding(page);
-    await page.getByRole('button', { name: 'Build my website' }).click();
+    await chooseStarter(page, 'one_page');
     await completeBusiness(page);
-    await completePhotoSocial(page);
+    await continueFromStartingPreview(page);
 
     const hoursTrigger = page.locator('button[aria-controls="onboarding-hours-card-panel"]');
     await expect(hoursTrigger).toContainText('Add your business hours');
@@ -781,13 +842,18 @@ test.describe('Onboarding V1 final correction matrix', () => {
 
     await page.getByRole('button', { name: 'Save and continue' }).click();
     await completeBooking(page);
-    await chooseStarter(page, 'one_page');
+
+    await backThroughScreens(
+      page,
+      'How do clients book with you?',
+      'Where can clients find you?',
+      'Your starting site is ready',
+    );
     const startingPreview = page.getByLabel('Mia’s Nail Studio starting website preview');
     await expect(startingPreview.getByRole('group', { name: 'Weekly hours' })).toContainText('Monday');
     await expect(startingPreview).not.toContainText('123 Private Studio Lane');
     await expect(startingPreview.getByRole('button', { name: 'Directions' })).toHaveCount(0);
 
-    await page.getByRole('button', { exact: true, name: 'Back' }).click();
     await applyFixture(page, 'Preview time · Closed', 'Review your site');
     const finalPreview = page.getByLabel('Final phone customer preview');
     await expect(finalPreview.locator('[data-hours-status="closed"]'))
@@ -798,29 +864,32 @@ test.describe('Onboarding V1 final correction matrix', () => {
 
   test('Journey G uses distinct business/location/contact/deposit concepts and carries Mia identity through Continue free', async ({ page }) => {
     const longBusinessName = 'Mia’s Nail Studio & Natural Nail Care Collective';
-    await reachStarter(page, {
+    await openFreshOnboarding(page);
+    await chooseStarter(page, 'quick_book');
+    await completeBusiness(page, {
       businessName: longBusinessName,
+      instagram: '@mias_hamilton_nails',
       ownerName: 'Mia Torres',
       structure: 'Solo nail tech',
-    }, {
+    });
+    await expect(page.getByLabel(`${longBusinessName} starting website preview`)).toContainText(longBusinessName);
+    await captureEvidence(page, '19-mia-business-identity-preview');
+    await continueFromStartingPreview(page);
+    await completeLocation(page, {
       bookingOnly: false,
       callEnabled: true,
       city: 'Hamilton, Ontario',
       differentTextNumber: '905-555-0179',
       exactAddress: '88 James Street North',
-      instagram: '@mias_hamilton_nails',
       locationType: 'Salon suite',
       phone: '905-555-0168',
       textEnabled: true,
-    }, {
+    });
+    await completeBooking(page, {
       deposit: 'Same deposit for every service',
       newClients: 'Ask me first',
       visitMode: 'Appointment only',
     });
-    await chooseStarter(page, 'quick_book');
-    await expect(page.getByLabel(`${longBusinessName} starting website preview`)).toContainText(longBusinessName);
-    await captureEvidence(page, '19-mia-business-identity-preview');
-    await page.getByRole('button', { name: 'Continue setting up my site' }).click();
     await page.getByRole('switch', { name: 'Include an About section' }).uncheck();
     await page.getByRole('button', { name: 'Continue without About' }).click();
     await expectScreenAtTop(page, 'Set clear expectations');
@@ -882,8 +951,9 @@ test.describe('Onboarding V1 final correction matrix', () => {
   });
 
   test('Journey J makes browser Back and Forward direction-aware across About Off and Preview history', async ({ page }) => {
-    await reachStarter(page);
+    await openFreshOnboarding(page);
     await chooseStarter(page, 'one_page');
+    await completeBusiness(page);
     await page.getByRole('button', { name: 'Preview my site' }).click();
     await expect(page.getByRole('dialog', { name: 'Preview your starting site' })).toBeVisible();
     await page.goBack();
@@ -893,8 +963,9 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await expect(page.getByRole('dialog', { name: 'Preview your starting site' })).toBeVisible();
     await page.goBack();
 
-    await page.getByRole('button', { name: 'Continue setting up my site' }).click();
-    await expectScreenAtTop(page, 'Would you like an About section?');
+    await continueFromStartingPreview(page);
+    await completeLocation(page);
+    await completeBooking(page);
     await page.getByRole('switch', { name: 'Include an About section' }).uncheck();
     await page.getByRole('button', { name: 'Continue without About' }).click();
     await expectScreenAtTop(page, 'Set clear expectations');
@@ -932,13 +1003,14 @@ test.describe('Onboarding V1 final correction matrix', () => {
 
   test('OB-07 rejects corrupt profile and Gallery bytes without discarding the prior valid image', async ({ page }) => {
     await openFreshOnboarding(page);
-    await page.getByRole('button', { name: 'Build my website' }).click();
-    await completeBusiness(page);
+    await chooseStarter(page, 'one_page');
+    await fillBusinessBasics(page);
+    await openBrandingCard(page);
 
     const profileInput = page.getByLabel('Profile photo', { exact: true });
     await profileInput.setInputFiles(DANIELA_PORTRAIT_PATH);
-    const preview = page.getByLabel('Profile preview');
-    await expect(preview.getByRole('img')).toBeVisible();
+    const identity = page.getByRole('group', { name: 'Your site so far' });
+    await expect(identity.getByRole('img')).toBeVisible();
     await profileInput.setInputFiles({
       buffer: Buffer.from('not a decodable png'),
       mimeType: 'image/png',
@@ -947,7 +1019,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await expect(page.getByRole('alert')).toContainText(
       'This photo couldn’t be read. Try selecting it again or choose another copy.',
     );
-    await expect(preview.getByRole('img')).toBeVisible();
+    await expect(identity.getByRole('img')).toBeVisible();
     await expect(page.getByText('daniela-placeholder.jpg')).toBeVisible();
     await captureEvidence(page, '18-corrupt-image-error');
 
@@ -993,24 +1065,23 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await captureEvidence(page, '29-canva-thumbnails-after-rebase');
   });
 
-  test('Reset clears only onboarding-owned state and restores a clean Welcome', async ({ page }) => {
+  test('Reset clears only onboarding-owned state and restores a clean starting point', async ({ page }) => {
     await openFreshOnboarding(page);
     await page.evaluate(() => window.localStorage.setItem('luster:unrelated-sentinel', 'preserve-me'));
-    await page.getByRole('button', { name: 'Build my website' }).click();
+    await chooseStarter(page, 'one_page');
     await completeBusiness(page);
-    await page.getByRole('button', { name: 'Skip for now' }).click();
-    await expectScreenAtTop(page, 'Where can clients find you?');
+    await continueFromStartingPreview(page);
     await page.getByLabel('More onboarding options').click();
     await page.getByRole('menuitem', { name: 'Start over' }).click();
     const reset = page.getByRole('dialog', { name: 'Start over?' });
     await reset.getByRole('button', { exact: true, name: 'Start over' }).click();
-    await expect(screenHeading(page, 'Let’s build your website')).toBeVisible();
+    await expect(screenHeading(page, 'Choose your starting point')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await page.evaluate(() => window.localStorage.getItem('luster:unrelated-sentinel'))).toBe('preserve-me');
     expect(await page.evaluate((key) => window.localStorage.getItem(key), ONBOARDING_STORAGE_KEY)).toBeNull();
     expect(await page.evaluate((key) => window.localStorage.getItem(key), LAB_STORAGE_KEY)).toBeNull();
     await page.reload();
-    await expect(screenHeading(page, 'Let’s build your website')).toBeVisible();
-    await captureEvidence(page, '34-clean-welcome-restoration');
+    await expect(screenHeading(page, 'Choose your starting point')).toBeVisible();
+    await captureEvidence(page, '34-clean-starting-point-restoration');
   });
 });

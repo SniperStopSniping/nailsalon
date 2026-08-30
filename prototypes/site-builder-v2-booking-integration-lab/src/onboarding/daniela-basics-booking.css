@@ -1,15 +1,6 @@
 /* Daniela-ready polish for the shared Basics and Booking surfaces. */
 
-.onboarding-welcome__reassurance {
-  margin: 7px 0 0;
-  color: var(--onboarding-accent-dark);
-  font-size: 0.72rem;
-  font-weight: 720;
-  text-align: center;
-}
-
 .onboarding-business-screen,
-.onboarding-photo-social-screen,
 .onboarding-location-contact-screen,
 .onboarding-booking-preferences-screen {
   padding-bottom: calc(112px + env(safe-area-inset-bottom));
@@ -886,7 +877,7 @@
   grid-column: 1;
 }
 
-.onboarding-starter-screen
+.onboarding-starter-entry
   .sticky-onboarding-actions--back-only
   > button:only-child {
   width: max-content;

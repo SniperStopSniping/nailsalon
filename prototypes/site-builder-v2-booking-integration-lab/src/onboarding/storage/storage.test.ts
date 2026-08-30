@@ -740,6 +740,46 @@ describe('onboarding browser-local storage', () => {
     expect(migrated.state.schemaVersion).toBe(ONBOARDING_SCHEMA_VERSION);
   });
 
+  it('remaps retired welcome and photo_social screens when migrating schema v8', () => {
+    const legacy = createDanielaFixtureState() as unknown as Record<string, unknown>;
+    legacy.schemaVersion = 8;
+    legacy.progress = {
+      ...(legacy.progress as Record<string, unknown>),
+      currentScreen: 'photo_social',
+      lastActiveScreen: 'photo_social',
+      screenHistory: ['welcome', 'business', 'photo_social'],
+      visitedScreens: ['welcome', 'business', 'photo_social'],
+    };
+
+    const migrated = parseOnboardingState(JSON.stringify(legacy));
+
+    expect(migrated.status).toBe('loaded');
+    expect(migrated.state.progress.currentScreen).toBe('business');
+    expect(migrated.state.progress.lastActiveScreen).toBe('business');
+    expect(migrated.state.progress.screenHistory).toEqual(['starter', 'business']);
+    expect(migrated.state.progress.visitedScreens).toEqual(['starter', 'business']);
+    expect(migrated.state.schemaVersion).toBe(ONBOARDING_SCHEMA_VERSION);
+  });
+
+  it('remaps a v8 draft parked on the old welcome screen to the starter entry', () => {
+    const legacy = createDanielaFixtureState() as unknown as Record<string, unknown>;
+    legacy.schemaVersion = 8;
+    legacy.progress = {
+      ...(legacy.progress as Record<string, unknown>),
+      currentScreen: 'welcome',
+      lastActiveScreen: 'welcome',
+      screenHistory: ['welcome'],
+      visitedScreens: ['welcome'],
+    };
+
+    const migrated = parseOnboardingState(JSON.stringify(legacy));
+
+    expect(migrated.status).toBe('loaded');
+    expect(migrated.state.progress.currentScreen).toBe('starter');
+    expect(migrated.state.progress.screenHistory).toEqual(['starter']);
+    expect(migrated.state.progress.visitedScreens).toEqual(['starter']);
+  });
+
   it('preserves an explicit Screen 4 location and a text-only number during v2 migration', () => {
     const result = parseOnboardingState(JSON.stringify(createLegacySavedState({
       businessType: 'multi_tech',

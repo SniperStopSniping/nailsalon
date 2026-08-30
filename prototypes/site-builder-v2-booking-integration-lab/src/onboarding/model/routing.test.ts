@@ -25,13 +25,11 @@ describe('onboarding conditional routing', () => {
     }
 
     expect(visited).toEqual([
-      'welcome',
+      'starter',
       'business',
-      'photo_social',
+      'starting_preview',
       'location_contact',
       'booking_preferences',
-      'starter',
-      'starting_preview',
       'about',
       'about_design',
       'policies',
@@ -82,14 +80,14 @@ describe('onboarding conditional routing', () => {
     for (let cycle = 0; cycle < 3; cycle += 1) {
       state = goToBrowserHistoryScreen(state, 'about', 'back');
       expect(state.progress.currentScreen).toBe('about');
-      expect(state.progress.screenHistory).toEqual(['welcome', 'about']);
+      expect(state.progress.screenHistory).toEqual(['starter', 'about']);
 
       const hiddenAboutDesign = goToBrowserHistoryScreen(state, 'about_design', 'forward');
       expect(hiddenAboutDesign).toBe(state);
 
       state = goToBrowserHistoryScreen(state, 'policies', 'forward');
       expect(state.progress.currentScreen).toBe('policies');
-      expect(state.progress.screenHistory).toEqual(['welcome', 'about', 'policies']);
+      expect(state.progress.screenHistory).toEqual(['starter', 'about', 'policies']);
     }
   });
 
@@ -99,7 +97,7 @@ describe('onboarding conditional routing', () => {
     state = goForward(state);
     state = goForward(state);
     expect(state.progress.screenHistory).toEqual([
-      'welcome',
+      'starter',
       'about',
       'about_design',
       'policies',
@@ -108,21 +106,21 @@ describe('onboarding conditional routing', () => {
     for (let cycle = 0; cycle < 3; cycle += 1) {
       state = goToBrowserHistoryScreen(state, 'about_design', 'back');
       expect(state.progress.screenHistory).toEqual([
-        'welcome',
+        'starter',
         'about',
         'about_design',
       ]);
       state = goToBrowserHistoryScreen(state, 'about', 'back');
-      expect(state.progress.screenHistory).toEqual(['welcome', 'about']);
+      expect(state.progress.screenHistory).toEqual(['starter', 'about']);
       state = goToBrowserHistoryScreen(state, 'about_design', 'forward');
       expect(state.progress.screenHistory).toEqual([
-        'welcome',
+        'starter',
         'about',
         'about_design',
       ]);
       state = goToBrowserHistoryScreen(state, 'policies', 'forward');
       expect(state.progress.screenHistory).toEqual([
-        'welcome',
+        'starter',
         'about',
         'about_design',
         'policies',

@@ -211,7 +211,7 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
   expect(quickFinal.transform).not.toBe('none');
   expect(await preview(page, 'quick_book').evaluate((element) => {
     const viewportRect = element.querySelector('.final-starter-preview__viewport')!.getBoundingClientRect();
-    const bookingRect = element.querySelector('[data-preview-scene="booking"]')!.getBoundingClientRect();
+    const bookingRect = element.querySelector('[data-preview-scene$="-booking"]')!.getBoundingClientRect();
     return bookingRect.top >= viewportRect.top - 1 && bookingRect.bottom <= viewportRect.bottom + 1;
   })).toBe(true);
 
@@ -231,7 +231,7 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
   await onePageTrack.evaluate((element) => element.getAnimations()[0]?.finish());
   expect(await preview(page, 'one_page').evaluate((element) => {
     const viewportRect = element.querySelector('.final-starter-preview__viewport')!.getBoundingClientRect();
-    const bookingRect = element.querySelector('[data-preview-scene="booking"]')!.getBoundingClientRect();
+    const bookingRect = element.querySelector('[data-preview-scene$="-booking"]')!.getBoundingClientRect();
     return bookingRect.top < viewportRect.bottom && bookingRect.bottom <= viewportRect.bottom + 1;
   })).toBe(true);
 
@@ -241,16 +241,16 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
   expect(await multiPageScene.evaluate((element) => {
     const style = getComputedStyle(element);
     return [style.animationDuration, style.animationIterationCount, style.animationFillMode];
-  })).toEqual(['5.6s', '1', 'both']);
+  })).toEqual(['7s', '1', 'both']);
   const multiStates = [];
-  for (const timeMs of [700, 2_400, 4_300]) {
+  for (const timeMs of [700, 2_400, 3_500]) {
     await setPreviewTimeline(page, 'multi_page', timeMs);
     multiStates.push(await preview(page, 'multi_page').evaluate((element) => ({
-      gallery: getComputedStyle(element.querySelector('[data-preview-scene="gallery"]')!).opacity,
-      home: getComputedStyle(element.querySelector('[data-preview-scene="home"]')!).opacity,
+      gallery: getComputedStyle(element.querySelector('[data-preview-scene$="-gallery"]')!).opacity,
+      home: getComputedStyle(element.querySelector('[data-preview-scene$="-home"]')!).opacity,
       nav: [...element.querySelectorAll('.final-starter-preview__nav > span')]
         .map((item) => getComputedStyle(item).backgroundColor),
-      services: getComputedStyle(element.querySelector('[data-preview-scene="services"]')!).opacity,
+      services: getComputedStyle(element.querySelector('[data-preview-scene$="-services-book"]')!).opacity,
     })));
   }
   expect(multiStates.map(({ gallery, home, services }) => [home, services, gallery]))
@@ -258,17 +258,21 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
   expect(multiStates[0]?.nav[0]).not.toBe('rgba(0, 0, 0, 0)');
   expect(multiStates[1]?.nav[1]).not.toBe('rgba(0, 0, 0, 0)');
   expect(multiStates[2]?.nav[2]).not.toBe('rgba(0, 0, 0, 0)');
-  const galleryPage = preview(page, 'multi_page').locator('[data-preview-scene="gallery"]');
+  const contactPage = preview(page, 'multi_page').locator('[data-preview-scene$="-contact"]');
   await preview(page, 'multi_page').evaluate((element) => {
     for (const animation of element.getAnimations({ subtree: true })) animation.finish();
   });
-  await expect.poll(() => galleryPage.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
+  await expect.poll(() => contactPage.evaluate((element) => getComputedStyle(element).opacity)).toBe('1');
 
   await page.getByRole('heading', { name: 'Choose your starting point' }).hover();
   await page.waitForTimeout(220);
   await expectOnlyActive(page, null);
 
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+  await page.keyboard.press('Tab');
+  // The builder surface mounts its fixed "Back to dashboard" control ahead of
+  // the chooser, so it is first in the tab order.
+  await expect(page.getByRole('button', { name: 'Back to dashboard' })).toBeFocused();
   await page.keyboard.press('Tab');
   await expect(page.getByRole('link', { name: 'Luster' })).toBeFocused();
   await page.keyboard.press('Tab');

@@ -218,13 +218,13 @@ export const createDefaultSiteRecipe = (): OnboardingSiteRecipe => ({
 });
 
 export const createDefaultProgress = (): OnboardingProgress => ({
-  currentScreen: 'welcome',
-  lastActiveScreen: 'welcome',
+  currentScreen: 'starter',
+  lastActiveScreen: 'starter',
   lastSavedAt: null,
-  screenHistory: ['welcome'],
+  screenHistory: ['starter'],
   sessionStatus: 'active',
   skippedOptionalItems: [],
-  visitedScreens: ['welcome'],
+  visitedScreens: ['starter'],
 });
 
 export const createDefaultGalleryDraft = (): GalleryDraft => ({

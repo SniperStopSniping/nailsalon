@@ -38,6 +38,11 @@ type StoredOnboardingState = {
   };
 };
 
+type StarterCta =
+  | 'Start with Quick Book'
+  | 'Start with One-page'
+  | 'Start with Multi-page';
+
 const runtimeMonitors = new WeakMap<
   Page,
   ReturnType<typeof startRuntimeMonitor>
@@ -45,6 +50,14 @@ const runtimeMonitors = new WeakMap<
 
 const heading = (page: Page, name: string): Locator =>
   page.getByRole('heading', { level: 1, name });
+
+/**
+ * The photo, logo and Instagram fields now live in the collapsible Branding
+ * card on "Make it yours" instead of the removed photo_social screen.
+ */
+const brandingCard = (page: Page): Locator => page.locator(
+  'button[aria-controls="onboarding-branding-card-panel"]',
+);
 
 const safeFileName = (value: string): string => value
   .toLowerCase()
@@ -79,12 +92,20 @@ async function waitForSaved(page: Page): Promise<void> {
 
 async function openNormalFresh(page: Page): Promise<void> {
   await page.goto('/');
-  await expect(heading(page, 'Let’s build your website')).toBeVisible();
+  await expect(heading(page, 'Choose your starting point')).toBeVisible();
 }
 
 async function openAuditFresh(page: Page): Promise<void> {
   await page.goto('/?audit=1');
-  await expect(heading(page, 'Let’s build your website')).toBeVisible();
+  await expect(heading(page, 'Choose your starting point')).toBeVisible();
+}
+
+async function chooseStartingPoint(
+  page: Page,
+  starter: StarterCta,
+): Promise<void> {
+  await page.getByRole('button', { name: starter }).click();
+  await expect(heading(page, 'Make it yours')).toBeVisible();
 }
 
 async function applyFixture(
@@ -92,8 +113,10 @@ async function applyFixture(
   fixtureName: string,
   destinationHeading: string,
 ): Promise<void> {
-  if (await heading(page, 'Let’s build your website').isVisible()) {
-    await page.getByRole('button', { name: 'Build my website' }).click();
+  // The starting point screen renders outside the shell, so the Lab menu only
+  // exists once a starting point has been chosen.
+  if (await heading(page, 'Choose your starting point').isVisible()) {
+    await chooseStartingPoint(page, 'Start with One-page');
   }
   await page.getByLabel('More onboarding options').click();
   await page.getByRole('menuitem', { name: 'Lab review options' }).click();
@@ -105,14 +128,16 @@ async function applyFixture(
 }
 
 async function reachBooking(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Build my website' }).click();
+  await chooseStartingPoint(page, 'Start with One-page');
   await page.getByLabel('Salon or studio name').fill('Isla Cutoff Studio');
   await page.getByLabel('Your name').fill('Daniela');
   await page.getByRole('group', { name: 'Who are you setting Luster up for?' })
     .getByRole('radio', { name: 'Solo nail tech' })
     .check();
   await page.getByRole('button', { exact: true, name: 'Continue' }).click();
-  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await expect(heading(page, 'Your starting site is ready')).toBeVisible();
+  await page.getByRole('button', { name: 'Continue setting up my site' }).click();
+  await expect(heading(page, 'Where can clients find you?')).toBeVisible();
   await page.getByLabel('City or general service area').fill('Toronto, Ontario');
   await page.getByRole('group', { name: 'Where do you see clients?' })
     .getByRole('radio', { name: 'Salon suite' })
@@ -131,19 +156,26 @@ async function reachBooking(page: Page): Promise<void> {
     .check();
 }
 
-async function reachPhotoScreen(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Build my website' }).click();
+async function reachBrandingCard(page: Page): Promise<Locator> {
+  await chooseStartingPoint(page, 'Start with One-page');
   await page.getByLabel('Salon or studio name').fill('Isla Role Studio');
   await page.getByLabel('Your name').fill('Daniela');
   await page.getByRole('group', { name: 'Who are you setting Luster up for?' })
     .getByRole('radio', { name: 'Solo nail tech' })
     .check();
-  await page.getByRole('button', { exact: true, name: 'Continue' }).click();
-  await expect(heading(page, 'Add your photo and Instagram')).toBeVisible();
+  const branding = brandingCard(page);
+  await expect(branding).toContainText('Photo, logo and Instagram · Optional');
+  await expect(branding).toHaveAttribute('aria-expanded', 'false');
+  await branding.click();
+  await expect(branding).toHaveAttribute('aria-expanded', 'true');
+  return branding;
 }
 
-async function continueFromPhotoToAboutDesign(page: Page): Promise<void> {
+async function continueToAboutDesign(page: Page): Promise<void> {
   await page.getByRole('button', { exact: true, name: 'Continue' }).click();
+  await expect(heading(page, 'Your starting site is ready')).toBeVisible();
+  await page.getByRole('button', { name: 'Continue setting up my site' }).click();
+  await expect(heading(page, 'Where can clients find you?')).toBeVisible();
   await page.getByLabel('City or general service area').fill('Toronto, Ontario');
   await page.getByRole('group', { name: 'Where do you see clients?' })
     .getByRole('radio', { name: 'Salon suite' })
@@ -156,8 +188,7 @@ async function continueFromPhotoToAboutDesign(page: Page): Promise<void> {
     .getByRole('radio', { name: 'Yes' })
     .check();
   await page.getByRole('button', { name: 'Save booking setup' }).click();
-  await page.getByRole('button', { name: /^One-page website/u }).click();
-  await page.getByRole('button', { name: 'Continue setting up my site' }).click();
+  await expect(heading(page, 'Would you like an About section?')).toBeVisible();
   await page.getByLabel('Short bio').fill(
     'I create thoughtful, durable nail appointments in a calm studio.',
   );
@@ -356,10 +387,10 @@ test.describe('final Owner iPhone corrections', () => {
     await notice.selectOption('preset:120');
     await expect(page.getByText(
       'Clients must book at least 2 hours before the appointment starts.',
-    )).toBeVisible();
+    ).first()).toBeVisible();
     await expect(bookingSummary).toContainText('Minimum notice2 hours');
     await expect(bookingSummary).toContainText(
-      'Booking cutoffAt least 2 hours before the appointment starts',
+      'Clients must book at least 2 hours before the appointment starts.',
     );
     await expect(customerPreview).toContainText('Minimum booking notice');
     await expect(customerPreview).toContainText(
@@ -372,7 +403,7 @@ test.describe('final Owner iPhone corrections', () => {
     await notice.selectOption('preset:1440');
     await expect(page.getByText(
       'Clients must book at least 1 day before the appointment starts.',
-    )).toBeVisible();
+    ).first()).toBeVisible();
     await expect(bookingSummary).toContainText('Minimum notice1 day');
     await expect(customerPreview).toContainText(
       'Book at least 1 day before your appointment.',
@@ -382,7 +413,16 @@ test.describe('final Owner iPhone corrections', () => {
     await expect(page.locator('[data-bookable-time]')).toHaveCount(0);
 
     await page.getByRole('button', { name: 'Save booking setup' }).click();
-    await page.getByRole('button', { name: /^One-page website/u }).click();
+    await expect(heading(page, 'Would you like an About section?')).toBeVisible();
+    // The starting site preview now sits ahead of booking, so walk back to it
+    // to confirm the saved cutoff reaches the customer-facing full preview.
+    const back = page.getByRole('button', { exact: true, name: 'Back' });
+    await back.click();
+    await expect(heading(page, 'How do clients book with you?')).toBeVisible();
+    await back.click();
+    await expect(heading(page, 'Where can clients find you?')).toBeVisible();
+    await back.click();
+    await expect(heading(page, 'Your starting site is ready')).toBeVisible();
     await page.getByRole('button', { name: 'Preview my site' }).click();
     const fullPreview = page.getByRole('dialog', { name: 'Preview your starting site' });
     await expect(fullPreview).toContainText('Minimum booking notice');
@@ -397,6 +437,13 @@ test.describe('final Owner iPhone corrections', () => {
     await openAuditFresh(page);
     await applyFixture(page, 'Multi-page starter', 'Your starting site is ready');
     await page.getByRole('button', { name: 'Continue setting up my site' }).click();
+    // Location and booking now sit between the starting site preview and
+    // About; the fixture already satisfies both, so they only need saving.
+    await expect(heading(page, 'Where can clients find you?')).toBeVisible();
+    await page.getByRole('button', { name: 'Save and continue' }).click();
+    await expect(heading(page, 'How do clients book with you?')).toBeVisible();
+    await page.getByRole('button', { name: 'Save booking setup' }).click();
+    await expect(heading(page, 'Would you like an About section?')).toBeVisible();
     await page.getByRole('button', { name: 'Choose an About design' }).click();
     await expect(heading(page, 'Choose your About design')).toBeVisible();
 
@@ -470,7 +517,7 @@ test.describe('final Owner iPhone corrections', () => {
   test('profile photo and logo retain distinct roles and asset identities after reload', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openNormalFresh(page);
-    await reachPhotoScreen(page);
+    const branding = await reachBrandingCard(page);
 
     const profileField = page.locator('.onboarding-image-upload').filter({
       has: page.getByText('Profile photo', { exact: true }),
@@ -484,6 +531,8 @@ test.describe('final Owner iPhone corrections', () => {
     await expect(logoField.getByRole('status')).toContainText('Logo ready');
     await expect(profileField.locator('img')).toBeVisible();
     await expect(logoField.locator('img')).toBeVisible();
+    await expect(branding).toContainText('Photo · Logo');
+    await expect(branding).toContainText('Complete');
     await waitForSaved(page);
     await capture(page, '08-both-profile-and-logo-uploaded');
 
@@ -496,7 +545,8 @@ test.describe('final Owner iPhone corrections', () => {
     );
 
     await page.reload();
-    await expect(heading(page, 'Add your photo and Instagram')).toBeVisible();
+    await expect(heading(page, 'Make it yours')).toBeVisible();
+    await expect(branding).toHaveAttribute('aria-expanded', 'true');
     await expect(profileField.getByRole('status')).toContainText('Profile photo ready');
     await expect(logoField.getByRole('status')).toContainText('Logo ready');
     const afterReload = await readStoredState(page);
@@ -506,7 +556,7 @@ test.describe('final Owner iPhone corrections', () => {
       .toBe(beforeReload.profile.profilePhoto?.storageId);
     expect(afterReload.profile.logo?.storageId).toBe(beforeReload.profile.logo?.storageId);
 
-    await continueFromPhotoToAboutDesign(page);
+    await continueToAboutDesign(page);
     const preview = page.getByLabel(/Selected About design preview:/u);
     const logo = preview.locator('[data-media-role="logo"]');
     const portrait = preview.locator('[data-media-role="profile"]').first();

@@ -174,12 +174,12 @@ export function useOnboardingState(
     initialWelcomeViewRecordedRef.current = true;
     const current = stateRef.current;
     if (
-      current.progress.currentScreen === 'welcome'
+      current.progress.currentScreen === 'starter'
       && !current.eventJournal.some((event) =>
-        event.type === 'screen_viewed' && event.screen === 'welcome')
+        event.type === 'screen_viewed' && event.screen === 'starter')
     ) {
       updateState((value) => recordOnboardingEvent(value, {
-        screen: 'welcome',
+        screen: 'starter',
         type: 'screen_viewed',
       }));
     }

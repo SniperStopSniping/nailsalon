@@ -78,7 +78,7 @@ export const goBack = (state: OnboardingLabState): OnboardingLabState => {
     return state;
   }
   const screenHistory = history.slice(0, -1);
-  const currentScreen = screenHistory.at(-1) ?? 'welcome';
+  const currentScreen = screenHistory.at(-1) ?? 'starter';
   return {
     ...state,
     progress: {
@@ -163,7 +163,7 @@ export const reconcileConditionalHistory = (
       ...state.progress,
       currentScreen,
       lastActiveScreen: currentScreen,
-      screenHistory: normalizedHistory.length > 0 ? normalizedHistory : ['welcome'],
+      screenHistory: normalizedHistory.length > 0 ? normalizedHistory : ['starter'],
     },
   };
 };
@@ -178,7 +178,7 @@ export const getResumeScreen = (
   if (isScreenAvailable(state.progress.lastActiveScreen, state)) {
     return state.progress.lastActiveScreen;
   }
-  return firstIncomplete ?? 'welcome';
+  return firstIncomplete ?? 'starter';
 };
 
 export const pauseOnboarding = (state: OnboardingLabState): OnboardingLabState => ({

@@ -93,11 +93,11 @@ describe('useOnboardingState', () => {
     visibility.mockRestore();
   });
 
-  it('journals the initial Welcome view and every navigation destination', () => {
+  it('journals the initial starter view and every navigation destination', () => {
     const hook = renderHook(() => useOnboardingState({ storage: createMemoryStorage() }));
 
     expect(hook.result.current.state.eventJournal[0]).toMatchObject({
-      screen: 'welcome',
+      screen: 'starter',
       type: 'screen_viewed',
     });
 
@@ -114,14 +114,14 @@ describe('useOnboardingState', () => {
     act(() => hook.result.current.continueFlow());
     act(() => hook.result.current.back());
     expect(hook.result.current.state.eventJournal.slice(-2)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ nextScreen: 'business', screen: 'photo_social', type: 'back' }),
+      expect.objectContaining({ nextScreen: 'business', screen: 'starting_preview', type: 'back' }),
       expect.objectContaining({ screen: 'business', type: 'screen_viewed' }),
     ]));
 
     act(() => hook.result.current.continueFlow());
-    act(() => hook.result.current.skip('photo'));
+    act(() => hook.result.current.skip('hours'));
     expect(hook.result.current.state.eventJournal.slice(-2)).toEqual(expect.arrayContaining([
-      expect.objectContaining({ item: 'photo', screen: 'photo_social', type: 'skip' }),
+      expect.objectContaining({ item: 'hours', screen: 'starting_preview', type: 'skip' }),
       expect.objectContaining({ screen: 'location_contact', type: 'screen_viewed' }),
     ]));
   });
@@ -170,7 +170,7 @@ describe('useOnboardingState', () => {
 
     storage.values.set('unrelated', 'preserved');
     act(() => expect(hook.result.current.reset()).toBe(true));
-    expect(hook.result.current.state.progress.currentScreen).toBe('welcome');
+    expect(hook.result.current.state.progress.currentScreen).toBe('starter');
     expect(hook.result.current.state.eventJournal).toEqual([]);
     expect(storage.values.has(ONBOARDING_STORAGE_KEY)).toBe(false);
     expect(storage.values.get('unrelated')).toBe('preserved');
@@ -207,7 +207,7 @@ describe('useOnboardingState', () => {
       allowed = hook.result.current.requestBuilderHandoff();
     });
     expect(allowed).toBe(false);
-    expect(hook.result.current.state.progress.currentScreen).toBe('business');
+    expect(hook.result.current.state.progress.currentScreen).toBe('starter');
 
     act(() => {
       hook.result.current.applyFixture('all_essentials_complete');

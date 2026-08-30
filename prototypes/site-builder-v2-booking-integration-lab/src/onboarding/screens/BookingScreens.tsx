@@ -9,7 +9,7 @@ import {
 } from 'react';
 
 import { Dialog } from '../../ui/Dialog';
-import { StarterChoiceGrid } from '../../ui/StarterChooser';
+import { StarterChoiceGrid, useMediaQuery } from '../../ui/StarterChooser';
 import {
   ChoiceGroup,
   focusFirstInvalidControl,
@@ -18,7 +18,7 @@ import {
   type ChoiceOption,
 } from '../components/FormFields';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
-import { SCREEN_METADATA } from '../copy';
+import { SCREEN_METADATA, STARTER_ENTRY_COPY } from '../copy';
 import { useFeedback } from '../feedback/useFeedback';
 import { bookingPreferencesPort } from '../integrations/adapters/booking-preferences';
 import { serviceMenuPort } from '../integrations/adapters/service-menu';
@@ -777,53 +777,123 @@ export function BookingPreferencesScreen({
 
 type StartingPointScreenProps = {
   businessName: string;
+  canGoBack?: boolean;
+  canvaIntentNoted?: boolean;
   logoUrl?: string;
   location?: LocationDraft;
   onBack: () => void;
+  onCanvaIntent?: () => void;
   onChooseStarter: (starter: StarterId) => void;
   ownerName?: string;
   reducedMotion?: boolean;
   selectedStarter: StarterId | null;
 };
 
+/**
+ * Lets the press/selection beat land before the flow advances. Kept just
+ * under the shared selection+press motion budget so the choice feels
+ * deliberate without reading as lag.
+ */
+const STARTER_COMMIT_DELAY_MS = 320;
+
 export function StartingPointScreen({
   businessName,
+  canGoBack = false,
+  canvaIntentNoted = false,
   logoUrl,
   location,
   onBack,
+  onCanvaIntent,
   onChooseStarter,
   ownerName,
   reducedMotion = false,
   selectedStarter,
 }: StartingPointScreenProps) {
   const copy = SCREEN_METADATA.starter;
+  const feedback = useFeedback();
+  const systemReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
+  const motionReduced = reducedMotion || systemReducedMotion;
+  const [committingStarter, setCommittingStarter] = useState<StarterId | null>(null);
+  const commitTimerRef = useRef<number | null>(null);
   const publicLocation = location ? getPublicLocationPreview(location).primary : '';
 
+  useEffect(() => () => {
+    if (commitTimerRef.current !== null) {
+      window.clearTimeout(commitTimerRef.current);
+    }
+  }, []);
+
+  const chooseStarter = (starter: StarterId) => {
+    if (committingStarter) return;
+    feedback.send({ kind: 'selection' });
+    // Re-selection and switching go through their own confirm flow; only a
+    // first-time choice earns the commit beat, and reduced motion skips it.
+    if (motionReduced || selectedStarter !== null) {
+      onChooseStarter(starter);
+      return;
+    }
+    setCommittingStarter(starter);
+    commitTimerRef.current = window.setTimeout(() => {
+      commitTimerRef.current = null;
+      setCommittingStarter(null);
+      onChooseStarter(starter);
+    }, STARTER_COMMIT_DELAY_MS);
+  };
+
   return (
-    <section aria-labelledby="starting-point-heading" className="onboarding-screen onboarding-starter-screen">
-      <header className="onboarding-screen__heading">
-        <p className="onboarding-screen-status">Required step</p>
-        <h1 id="starting-point-heading">{copy.heading}</h1>
-        <p>{copy.supportingCopy}</p>
-      </header>
-      <div className="onboarding-starter-grid">
-        <StarterChoiceGrid
-          businessName={businessName.trim() || 'Your business'}
-          logoUrl={logoUrl}
-          onChoose={onChooseStarter}
-          ownerName={ownerName}
-          publicLocation={publicLocation}
-          reducedMotion={reducedMotion}
-          selectedStarter={selectedStarter}
-        />
+    <main className="onboarding-starter-entry" id="onboarding-starter-entry">
+      <div aria-label="Luster" className="onboarding-starter-entry__brand">
+        <span aria-hidden="true">L</span>
+        <strong>Luster</strong>
       </div>
-      <footer
-        aria-label="Onboarding actions"
-        className="sticky-onboarding-actions sticky-onboarding-actions--back-only"
-      >
-        <button type="button" onClick={onBack}>Back</button>
-      </footer>
-    </section>
+      <section aria-labelledby="starting-point-heading" className="onboarding-starter-entry__content">
+        <header className="onboarding-starter-entry__heading">
+          <p className="onboarding-screen-kicker">{STARTER_ENTRY_COPY.kicker}</p>
+          <h1 id="starting-point-heading">{copy.heading}</h1>
+          <p>{copy.supportingCopy}</p>
+        </header>
+        <div
+          className="onboarding-starter-entry__grid"
+          data-committing-starter={committingStarter ?? undefined}
+        >
+          <StarterChoiceGrid
+            businessName={businessName.trim() || 'Your business'}
+            committingStarter={committingStarter}
+            logoUrl={logoUrl}
+            onChoose={chooseStarter}
+            ownerName={ownerName}
+            publicLocation={publicLocation}
+            reducedMotion={reducedMotion}
+            selectedStarter={selectedStarter}
+          />
+        </div>
+        {onCanvaIntent ? (
+          <div className="onboarding-starter-entry__canva">
+            <button
+              aria-pressed={canvaIntentNoted}
+              type="button"
+              onClick={() => {
+                feedback.send({ kind: 'selection' });
+                onCanvaIntent();
+              }}
+            >
+              {STARTER_ENTRY_COPY.canvaIntent}
+            </button>
+            <p role="status">{canvaIntentNoted ? STARTER_ENTRY_COPY.canvaConfirmed : ''}</p>
+          </div>
+        ) : null}
+        <p className="onboarding-lab-note">{STARTER_ENTRY_COPY.autosaveNote}</p>
+        <p className="onboarding-starter-entry__reassurance">{STARTER_ENTRY_COPY.reassurance}</p>
+      </section>
+      {canGoBack ? (
+        <footer
+          aria-label="Onboarding actions"
+          className="sticky-onboarding-actions sticky-onboarding-actions--back-only"
+        >
+          <button type="button" onClick={onBack}>Back</button>
+        </footer>
+      ) : null}
+    </main>
   );
 }
 

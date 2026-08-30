@@ -4,11 +4,10 @@ import { useState } from 'react';
 import { vi } from 'vitest';
 
 import { createDefaultBusinessProfile } from '../model/defaults';
-import type { BusinessProfileDraft } from '../model/types';
+import type { BusinessProfileDraft, StarterId } from '../model/types';
 import {
-  BusinessScreen,
+  BrandBasicsScreen,
   LocationContactScreen,
-  PhotoSocialScreen,
 } from './BasicsScreens';
 
 vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
@@ -25,7 +24,38 @@ function useProfileHarness() {
   };
 }
 
-describe('BusinessScreen', () => {
+type BrandBasicsHandlers = Partial<{
+  onContinue: () => void;
+  onLogoSelected: (file: File) => Promise<void>;
+  onProfilePhotoSelected: (file: File) => Promise<void>;
+  onValidationFailure: (fieldIds: string[]) => void;
+  starter: StarterId | null;
+}>;
+
+function renderBrandBasics(
+  handlers: BrandBasicsHandlers = {},
+  fixedProfile?: BusinessProfileDraft,
+  profileOverrides: Partial<BusinessProfileDraft> = {},
+) {
+  function Harness() {
+    const { profile, update } = useProfileHarness();
+    return (
+      <BrandBasicsScreen
+        profile={fixedProfile ?? { ...profile, ...profileOverrides }}
+        starter={handlers.starter === undefined ? 'one_page' : handlers.starter}
+        onBack={vi.fn()}
+        onContinue={handlers.onContinue ?? vi.fn()}
+        onLogoSelected={handlers.onLogoSelected ?? vi.fn()}
+        onProfileChange={fixedProfile ? vi.fn() : update}
+        onProfilePhotoSelected={handlers.onProfilePhotoSelected ?? vi.fn()}
+        onValidationFailure={handlers.onValidationFailure}
+      />
+    );
+  }
+  return render(<Harness />);
+}
+
+describe('BrandBasicsScreen', () => {
   it('shows associated inline errors, then continues with shared profile values', async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
@@ -34,17 +64,21 @@ describe('BusinessScreen', () => {
     function Harness() {
       const { profile, update } = useProfileHarness();
       return (
-        <BusinessScreen
+        <BrandBasicsScreen
           profile={profile}
+          starter="one_page"
           onBack={vi.fn()}
           onContinue={onContinue}
+          onLogoSelected={vi.fn()}
           onProfileChange={update}
+          onProfilePhotoSelected={vi.fn()}
           onValidationFailure={onValidationFailure}
         />
       );
     }
 
     render(<Harness />);
+    expect(screen.getByRole('heading', { name: 'Make it yours' })).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(screen.getAllByText('Add your salon or studio name.').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Add your name.').length).toBeGreaterThan(0);
@@ -63,46 +97,50 @@ describe('BusinessScreen', () => {
       .toBeVisible();
     expect(screen.getByRole('radio', { name: 'Team or multi-tech salon' })).toBeVisible();
     expect(screen.queryByRole('radio', { name: 'Home studio' })).not.toBeInTheDocument();
-    expect(screen.getByRole('complementary', { name: 'Business information preview' }))
+    expect(screen.getByRole('group', { name: 'Your site so far' }))
       .toHaveTextContent('Isla Nail StudioDanielaSolo nail tech');
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(onContinue).toHaveBeenCalledOnce();
     expect(screen.queryByLabelText(/website url/i)).not.toBeInTheDocument();
   });
-});
-describe('PhotoSocialScreen', () => {
-  it('uses a resilient initials preview and exposes real file controls', async () => {
+
+  it('personalizes the live starter preview as the owner types', async () => {
     const user = userEvent.setup();
-    const onProfilePhotoSelected = vi.fn();
-    const onLogoSelected = vi.fn();
+    renderBrandBasics();
 
-    function Harness() {
-      const { profile, update } = useProfileHarness();
-      return (
-        <PhotoSocialScreen
-          profile={{ ...profile, businessName: 'Isla Nail Studio', ownerName: 'Daniela' }}
-          onBack={vi.fn()}
-          onContinue={vi.fn()}
-          onLogoSelected={onLogoSelected}
-          onProfileChange={update}
-          onProfilePhotoSelected={onProfilePhotoSelected}
-          onSkipPhoto={vi.fn()}
-        />
-      );
-    }
+    expect(screen.getByText('One-page website · Change it anytime')).toBeVisible();
+    const poster = document.querySelector('[data-testid="starter-preview-one_page"]');
+    expect(poster).not.toBeNull();
+    expect(poster).toHaveAttribute('data-preview-state', 'poster');
+    expect(poster).toHaveTextContent('Your studio');
 
-    render(<Harness />);
-    expect(screen.getByRole('heading', { name: 'Add your photo and Instagram' })).toBeVisible();
-    expect(screen.getByText('Help clients recognize you and find your work.')).toBeVisible();
-    expect(screen.queryByRole('group', { name: /Preferred contact method/u }))
-      .not.toBeInTheDocument();
-    expect(screen.getByLabelText('Profile photo placeholder')).toHaveTextContent('D');
+    await user.type(screen.getByLabelText('Salon or studio name'), 'Isla Nail Studio');
+    expect(poster).toHaveTextContent('Isla Nail Studio');
+    expect(poster).not.toHaveTextContent('Your studio');
+  });
+
+  it('keeps branding collapsed until opened, then exposes real file controls', async () => {
+    const user = userEvent.setup();
+    const onProfilePhotoSelected = vi.fn().mockResolvedValue(undefined);
+    renderBrandBasics(
+      { onProfilePhotoSelected },
+      undefined,
+      { businessName: 'Isla Nail Studio', ownerName: 'Daniela' },
+    );
+
+    const brandingTrigger = screen.getByRole('button', { name: /Branding/ });
+    expect(brandingTrigger).toHaveAttribute('aria-expanded', 'false');
+    expect(brandingTrigger).toHaveTextContent('Photo, logo and Instagram · Optional');
+    await user.click(brandingTrigger);
+    expect(brandingTrigger).toHaveAttribute('aria-expanded', 'true');
+
+    const identity = screen.getByRole('group', { name: 'Your site so far' });
+    expect(identity).toHaveTextContent('Isla Nail Studio');
     const photo = new File(['portrait'], 'daniela.png', { type: 'image/png' });
     await user.upload(screen.getByLabelText('Profile photo'), photo);
     expect(onProfilePhotoSelected).toHaveBeenCalledWith(photo);
     await user.type(screen.getByLabelText('Instagram handle'), '@islanail.studio');
-    expect(screen.getByRole('complementary', { name: 'Profile preview' }))
-      .toHaveTextContent('@islanail.studio');
+    expect(identity).toHaveTextContent('@islanail.studio');
     expect(screen.getByText('Enter a username or paste an Instagram profile link.'))
       .toBeVisible();
     expect(screen.queryByLabelText('Website')).not.toBeInTheDocument();
@@ -111,28 +149,22 @@ describe('PhotoSocialScreen', () => {
   it('normalizes a pasted Instagram profile URL and blocks invalid owner input', async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
+    renderBrandBasics(
+      { onContinue },
+      undefined,
+      {
+        businessName: 'Isla Nail Studio',
+        businessStructure: 'solo',
+        ownerName: 'Daniela',
+      },
+    );
 
-    function Harness() {
-      const { profile, update } = useProfileHarness();
-      return (
-        <PhotoSocialScreen
-          profile={profile}
-          onBack={vi.fn()}
-          onContinue={onContinue}
-          onLogoSelected={vi.fn()}
-          onProfileChange={update}
-          onProfilePhotoSelected={vi.fn()}
-          onSkipPhoto={vi.fn()}
-        />
-      );
-    }
-
-    render(<Harness />);
+    await user.click(screen.getByRole('button', { name: /Branding/ }));
     const instagram = screen.getByLabelText('Instagram handle');
     await user.type(instagram, 'https://www.instagram.com/islanailstudio/');
     await user.tab();
     expect(instagram).toHaveValue('islanailstudio');
-    expect(screen.getByRole('complementary', { name: 'Profile preview' }))
+    expect(screen.getByRole('group', { name: 'Your site so far' }))
       .toHaveTextContent('@islanailstudio');
 
     await user.clear(instagram);
@@ -143,7 +175,7 @@ describe('PhotoSocialScreen', () => {
     )).toBeVisible();
     await user.click(screen.getByRole('button', { name: 'Continue' }));
     expect(onContinue).not.toHaveBeenCalled();
-    expect(instagram).toHaveFocus();
+    await waitFor(() => expect(instagram).toHaveFocus());
   });
 
   it('shows distinct role-correct ready thumbnails without crossing Profile and Logo', () => {
@@ -165,28 +197,20 @@ describe('PhotoSocialScreen', () => {
       source: 'fixture',
     };
 
-    render(
-      <PhotoSocialScreen
-        profile={profile}
-        onBack={vi.fn()}
-        onContinue={vi.fn()}
-        onLogoSelected={vi.fn()}
-        onProfileChange={vi.fn()}
-        onProfilePhotoSelected={vi.fn()}
-        onSkipPhoto={vi.fn()}
-      />,
-    );
+    renderBrandBasics({}, profile);
 
+    expect(screen.getByRole('button', { name: /Branding/ }))
+      .toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Profile photo ready')).toBeVisible();
     expect(screen.getByText('Logo ready')).toBeVisible();
     expect(screen.getByAltText('Daniela profile photo thumbnail'))
       .toHaveAttribute('src', 'https://example.test/daniela-portrait.png');
     expect(screen.getByAltText('Isla Nail Studio logo thumbnail'))
       .toHaveAttribute('src', 'https://example.test/isla-wordmark.png');
-    const preview = screen.getByRole('complementary', { name: 'Profile preview' });
-    expect(within(preview).getByRole('img', { name: 'Daniela profile photo' }))
+    const identity = screen.getByRole('group', { name: 'Your site so far' });
+    expect(within(identity).getByRole('img', { name: 'Daniela profile photo' }))
       .toHaveAttribute('src', 'https://example.test/daniela-portrait.png');
-    expect(within(preview).queryByRole('img', { name: /logo/iu })).not.toBeInTheDocument();
+    expect(within(identity).queryByRole('img', { name: /logo/iu })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Profile photo').closest('[data-media-role]'))
       .toHaveAttribute('data-media-role', 'profile');
     expect(screen.getByLabelText('Logo').closest('[data-media-role]'))
@@ -215,14 +239,14 @@ describe('PhotoSocialScreen', () => {
     const onProfilePhotoSelected = vi.fn().mockResolvedValue(undefined);
 
     render(
-      <PhotoSocialScreen
+      <BrandBasicsScreen
         profile={profile}
+        starter="quick_book"
         onBack={vi.fn()}
         onContinue={vi.fn()}
         onLogoSelected={onLogoSelected}
         onProfileChange={onProfileChange}
         onProfilePhotoSelected={onProfilePhotoSelected}
-        onSkipPhoto={vi.fn()}
       />,
     );
 
@@ -265,17 +289,7 @@ describe('PhotoSocialScreen', () => {
       source: 'missing',
     };
 
-    render(
-      <PhotoSocialScreen
-        profile={profile}
-        onBack={vi.fn()}
-        onContinue={vi.fn()}
-        onLogoSelected={vi.fn()}
-        onProfileChange={vi.fn()}
-        onProfilePhotoSelected={vi.fn()}
-        onSkipPhoto={vi.fn()}
-      />,
-    );
+    renderBrandBasics({}, profile);
 
     expect(screen.getByText(
       'This saved profile photo is no longer available on this device. Select it again to restore it.',
@@ -284,7 +298,6 @@ describe('PhotoSocialScreen', () => {
       'This saved logo is no longer available on this device. Select it again to restore it.',
     )).toBeVisible();
     expect(screen.getAllByRole('button', { name: 'Select again' })).toHaveLength(2);
-    expect(screen.getByLabelText('Profile photo placeholder')).toBeVisible();
   });
 });
 

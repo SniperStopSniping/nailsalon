@@ -1,10 +1,16 @@
 import type { DepositDraft } from '../integrations/contracts/booking-preferences';
 import type { ServiceMenuSelectionDraft } from '../integrations/contracts/service-menu';
 
-export const ONBOARDING_SCHEMA_VERSION = 8 as const;
+export const ONBOARDING_SCHEMA_VERSION = 9 as const;
 
 export type OnboardingStage = 'basics' | 'booking' | 'design' | 'review';
 
+/**
+ * `welcome` and `photo_social` are legacy ids: they left the live flow when
+ * the starter-first opening shipped (schema v9), but stay in the union so
+ * persisted drafts and event journals from older versions keep parsing.
+ * Storage migration remaps them (`welcome`→`starter`, `photo_social`→`business`).
+ */
 export type OnboardingScreenId =
   | 'welcome'
   | 'business'

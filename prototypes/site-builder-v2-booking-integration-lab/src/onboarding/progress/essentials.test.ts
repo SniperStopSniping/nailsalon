@@ -36,10 +36,10 @@ describe('onboarding essentials', () => {
   it('computes every completion rule from the shared state', () => {
     const state = createDanielaFixtureState();
     expect(getCompletedEssentialIds(state)).toEqual([
+      'starting_point',
       'business',
       'location_contact',
       'booking_preferences',
-      'starting_point',
       'site_style',
     ]);
     expect(getEssentialsMessage(state)).toBe('All required steps complete');
@@ -95,9 +95,9 @@ describe('onboarding essentials', () => {
   it('reports stage completion without counting screens', () => {
     const state = createDanielaFixtureState();
     expect(getStageEssentialProgress(state, 'basics')).toEqual({
-      complete: 2,
+      complete: 3,
       stageComplete: true,
-      total: 2,
+      total: 3,
     });
     expect(getStageEssentialProgress(state, 'review').stageComplete).toBe(true);
     expect(JSON.stringify(SCREEN_METADATA)).not.toMatch(/step\s+\d+\s+of\s+\d+/i);

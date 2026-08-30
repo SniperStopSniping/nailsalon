@@ -1,8 +1,14 @@
-import { useId, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
+import {
+  STARTER_CHOICES,
+  StarterPreview,
+  useMediaQuery,
+} from '../../ui/StarterChooser';
 import { WeeklyHoursEditor } from '../components/WeeklyHoursEditor';
 import { SCREEN_METADATA } from '../copy';
+import { useFeedback } from '../feedback/useFeedback';
 import { resolveOnboardingImage } from '../integrations/adapters/media';
 import {
   contactMethodHasValue,
@@ -25,6 +31,7 @@ import type {
   BusinessStructure,
   LocationType,
   PreferredContactMethod,
+  StarterId,
 } from '../model/types';
 import {
   ChoiceGroup,
@@ -88,21 +95,109 @@ function businessStructureLabel(value: BusinessStructure | null): string {
     ?? 'Solo or team';
 }
 
-type BusinessScreenProps = SharedBasicsScreenProps & {
+type BrandBasicsScreenProps = SharedBasicsScreenProps & {
   onContinue: () => void;
+  onLogoSelected: (file: File) => Promise<void>;
+  onProfilePhotoSelected: (file: File) => Promise<void>;
   onValidationFailure?: (fieldIds: string[]) => void;
+  reveal?: boolean;
+  starter: StarterId | null;
 };
 
-export function BusinessScreen({
+const PERSONALIZATION_PULSE_MS = 900;
+
+export function BrandBasicsScreen({
   onBack,
   onContinue,
+  onLogoSelected,
   onProfileChange,
+  onProfilePhotoSelected,
   onValidationFailure,
   profile,
-}: BusinessScreenProps) {
+  reveal = false,
+  starter,
+}: BrandBasicsScreenProps) {
   const copy = SCREEN_METADATA.business;
   const formId = useId();
+  const formRef = useRef<HTMLFormElement>(null);
+  const feedback = useFeedback();
+  const systemReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const starterChoice = starter
+    ? STARTER_CHOICES.find((choice) => choice.id === starter) ?? null
+    : null;
+
+  const imageAssetIds = [profile.profilePhoto, profile.logo]
+    .flatMap((image) => image?.storageId ? [image.storageId] : []);
+  const imageAssets = useCustomDesignAssetMap(imageAssetIds);
+  const profileImage = resolveOnboardingImage(profile.profilePhoto, imageAssets);
+  const logoImage = resolveOnboardingImage(profile.logo, imageAssets);
+  const profileNeedsReselect = profileImage.status === 'error'
+    || profileImage.status === 'missing';
+  const logoNeedsReselect = logoImage.status === 'error'
+    || logoImage.status === 'missing';
+  const instagramResolution = resolveInstagramUsername(profile.instagram);
+  const instagramError = getInstagramInputError(profile.instagram);
+  const hasBranding = Boolean(
+    profile.profilePhoto
+    || profile.logo
+    || (profile.instagram.trim() && !instagramError),
+  );
+  const [brandingOpen, setBrandingOpen] = useState(hasBranding);
+
+  const basicsComplete = Boolean(
+    profile.businessName.trim()
+    && profile.ownerName.trim()
+    && profile.businessStructure,
+  );
+  const previousBasicsCompleteRef = useRef(basicsComplete);
+  useEffect(() => {
+    if (!previousBasicsCompleteRef.current && basicsComplete) {
+      feedback.send({
+        kind: 'completed',
+        message: 'Your basics are in place',
+        onceKey: 'brand_basics_saved',
+      });
+    }
+    previousBasicsCompleteRef.current = basicsComplete;
+  }, [basicsComplete, feedback]);
+
+  const instagramConnected = instagramResolution.status === 'resolved'
+    && instagramResolution.username.length > 0;
+  const previousInstagramConnectedRef = useRef(instagramConnected);
+  useEffect(() => {
+    if (!previousInstagramConnectedRef.current && instagramConnected) {
+      feedback.send({
+        kind: 'added',
+        message: 'Instagram connected',
+        onceKey: 'instagram_connected',
+      });
+    }
+    previousInstagramConnectedRef.current = instagramConnected;
+  }, [feedback, instagramConnected]);
+
+  const [personalizing, setPersonalizing] = useState(false);
+  const personalizedOnceRef = useRef(Boolean(profile.businessName.trim()));
+  useEffect(() => {
+    if (personalizedOnceRef.current || !profile.businessName.trim()) return undefined;
+    personalizedOnceRef.current = true;
+    if (systemReducedMotion) return undefined;
+    setPersonalizing(true);
+    const timer = window.setTimeout(
+      () => setPersonalizing(false),
+      PERSONALIZATION_PULSE_MS,
+    );
+    return () => window.clearTimeout(timer);
+  }, [profile.businessName, systemReducedMotion]);
+
+  const commitInstagram = () => {
+    if (
+      instagramResolution.status === 'resolved'
+      && instagramResolution.username !== profile.instagram
+    ) {
+      onProfileChange({ instagram: instagramResolution.username });
+    }
+  };
 
   const submit = (event: FormEvent) => {
     event.preventDefault();
@@ -112,25 +207,91 @@ export function BusinessScreen({
     if (!profile.businessStructure) {
       nextErrors.businessStructure = 'Choose who you’re setting Luster up for.';
     }
+    if (instagramError) nextErrors.instagram = instagramError;
     setErrors(nextErrors);
     const failedFields = Object.keys(nextErrors);
     if (failedFields.length > 0) {
       onValidationFailure?.(failedFields);
-      focusFirstInvalidControl(event.currentTarget);
+      if (nextErrors.instagram) setBrandingOpen(true);
+      const basicsFailed = failedFields.some((field) => field !== 'instagram');
+      window.requestAnimationFrame(() => {
+        // The Branding card section carries aria-invalid, so the generic
+        // helper would land on its toggle; target the Instagram input when
+        // it is the only failing field.
+        if (basicsFailed) {
+          if (formRef.current) focusFirstInvalidControl(formRef.current);
+          return;
+        }
+        formRef.current
+          ?.querySelector<HTMLInputElement>('[data-instagram-input]')
+          ?.focus();
+      });
       return;
     }
+    commitInstagram();
     onContinue();
   };
 
+  const brandingSummary = hasBranding
+    ? [
+        profile.profilePhoto ? 'Photo' : null,
+        profile.logo ? 'Logo' : null,
+        instagramConnected ? `@${instagramResolution.username}` : null,
+      ].filter(Boolean).join(' · ')
+    : 'Photo, logo and Instagram · Optional';
+
   return (
-    <section aria-labelledby="business-screen-heading" className="onboarding-screen onboarding-business-screen">
+    <section
+      aria-labelledby="business-screen-heading"
+      className={`onboarding-screen onboarding-business-screen onboarding-brand-basics-screen${reveal ? ' is-revealing' : ''}`}
+    >
       <header className="onboarding-screen__heading">
-        <p className="onboarding-screen-status">Required step</p>
+        <p className="onboarding-screen-status">
+          {starterChoice ? `${starterChoice.title} · Change it anytime` : 'Required step'}
+        </p>
         <h1 id="business-screen-heading">{copy.heading}</h1>
         <p>{copy.supportingCopy}</p>
       </header>
-      <div className="onboarding-split-layout">
-        <form id={formId} noValidate onSubmit={submit}>
+      <div className="onboarding-split-layout onboarding-brand-basics-layout">
+        <div
+          className={`onboarding-brand-preview${personalizing ? ' is-personalizing' : ''}`}
+          data-starter={starter ?? undefined}
+        >
+          {starterChoice ? (
+            <div className="onboarding-brand-preview__stage">
+              <StarterPreview
+                active={false}
+                businessName={profile.businessName.trim() || undefined}
+                definition={starterChoice.preview}
+                logoUrl={logoImage.status === 'ready' ? logoImage.url : undefined}
+                ownerName={profile.ownerName.trim() || undefined}
+                pageVisible
+                reducedMotion={systemReducedMotion}
+                starterId={starterChoice.id}
+              />
+            </div>
+          ) : null}
+          <div aria-label="Your site so far" className="onboarding-brand-preview__identity" role="group">
+            {profileImage.status === 'ready' ? (
+              <img
+                alt={`${profile.ownerName.trim() || 'Owner'} profile photo`}
+                data-media-role="profile"
+                src={profileImage.url}
+              />
+            ) : (
+              <span aria-hidden="true" className="onboarding-brand-preview__initials">
+                {initialsFor(profile)}
+              </span>
+            )}
+            <p>
+              <strong>{profile.businessName.trim() || 'Your salon or studio name'}</strong>
+              <span>{profile.ownerName.trim() || 'Your name'}</span>
+              <span>{businessStructureLabel(profile.businessStructure)}</span>
+              {instagramConnected ? <span>@{instagramResolution.username}</span> : null}
+            </p>
+          </div>
+        </div>
+        <form id={formId} noValidate ref={formRef} onSubmit={submit}>
           <ValidationSummary errors={errors} />
           <TextField
             autoComplete="organization"
@@ -165,158 +326,75 @@ export function BusinessScreen({
               onProfileChange({ businessStructure });
             }}
           />
+          <CollapsibleFormCard
+            completed={hasBranding}
+            errorCount={[errors.instagram].filter(Boolean).length}
+            id="onboarding-branding-card"
+            open={brandingOpen}
+            summary={brandingSummary}
+            title="Branding"
+            onToggle={() => setBrandingOpen((current) => !current)}
+          >
+            <ImageUploadField
+              assetLoading={profileImage.status === 'loading'}
+              chooseLabel="Choose profile photo"
+              currentLabel={profile.profilePhoto?.fileName}
+              currentSummary={profile.profilePhoto?.width && profile.profilePhoto.height
+                ? `${profile.profilePhoto.width} × ${profile.profilePhoto.height}`
+                : undefined}
+              label="Profile photo"
+              loadingLabel="Loading saved profile photo…"
+              mediaRole="profile"
+              needsReselect={profileNeedsReselect}
+              onRemove={() => onProfileChange({ profilePhoto: undefined })}
+              onSelect={onProfilePhotoSelected}
+              previewAlt={`${profile.ownerName.trim() || 'Owner'} profile photo thumbnail`}
+              previewUrl={profileImage.status === 'ready' ? profileImage.url : undefined}
+              readyLabel="Profile photo ready"
+              recoveryMessage={profileImage.status === 'error'
+                ? 'This saved profile photo couldn’t be loaded on this device. Select it again to restore it.'
+                : 'This saved profile photo is no longer available on this device. Select it again to restore it.'}
+            />
+            <ImageUploadField
+              assetLoading={logoImage.status === 'loading'}
+              chooseLabel="Choose logo"
+              currentLabel={profile.logo?.fileName}
+              currentSummary={profile.logo?.width && profile.logo.height
+                ? `${profile.logo.width} × ${profile.logo.height}`
+                : undefined}
+              label="Logo"
+              loadingLabel="Loading saved logo…"
+              mediaRole="logo"
+              needsReselect={logoNeedsReselect}
+              onRemove={() => onProfileChange({ logo: undefined })}
+              onSelect={onLogoSelected}
+              previewAlt={`${profile.businessName.trim() || 'Salon'} logo thumbnail`}
+              previewUrl={logoImage.status === 'ready' ? logoImage.url : undefined}
+              readyLabel="Logo ready"
+              recoveryMessage={logoImage.status === 'error'
+                ? 'This saved logo couldn’t be loaded on this device. Select it again to restore it.'
+                : 'This saved logo is no longer available on this device. Select it again to restore it.'}
+            />
+            <TextField
+              autoComplete="off"
+              data-instagram-input
+              error={errors.instagram || instagramError}
+              hint="Enter a username or paste an Instagram profile link."
+              label="Instagram handle"
+              value={profile.instagram}
+              onBlur={commitInstagram}
+              onChange={(event) => {
+                setErrors((current) => ({ ...current, instagram: '' }));
+                onProfileChange({ instagram: event.target.value });
+              }}
+            />
+          </CollapsibleFormCard>
         </form>
-        <aside aria-label="Business information preview" className="business-preview-card">
-          <span aria-hidden="true" className="business-preview-card__mark">
-            {initialsFor(profile)}
-          </span>
-          <p>{profile.businessName.trim() || 'Your salon or studio name'}</p>
-          <strong>{profile.ownerName.trim() || 'Your name'}</strong>
-          <span>{businessStructureLabel(profile.businessStructure)}</span>
-        </aside>
       </div>
       <StickyOnboardingActions
         formId={formId}
         onBack={onBack}
         primaryLabel={copy.primaryAction}
-      />
-    </section>
-  );
-}
-
-type PhotoSocialScreenProps = SharedBasicsScreenProps & {
-  onContinue: () => void;
-  onLogoSelected: (file: File) => Promise<void>;
-  onProfilePhotoSelected: (file: File) => Promise<void>;
-  onSkipPhoto: () => void;
-};
-
-export function PhotoSocialScreen({
-  onBack,
-  onContinue,
-  onLogoSelected,
-  onProfileChange,
-  onProfilePhotoSelected,
-  onSkipPhoto,
-  profile,
-}: PhotoSocialScreenProps) {
-  const copy = SCREEN_METADATA.photo_social;
-  const screenRef = useRef<HTMLElement>(null);
-  const imageAssetIds = [profile.profilePhoto, profile.logo]
-    .flatMap((image) => image?.storageId ? [image.storageId] : []);
-  const imageAssets = useCustomDesignAssetMap(imageAssetIds);
-  const profileImage = resolveOnboardingImage(profile.profilePhoto, imageAssets);
-  const logoImage = resolveOnboardingImage(profile.logo, imageAssets);
-  const profileNeedsReselect = profileImage.status === 'error'
-    || profileImage.status === 'missing';
-  const logoNeedsReselect = logoImage.status === 'error'
-    || logoImage.status === 'missing';
-  const instagramResolution = resolveInstagramUsername(profile.instagram);
-  const instagramError = getInstagramInputError(profile.instagram);
-  const commitInstagram = () => {
-    if (
-      instagramResolution.status === 'resolved'
-      && instagramResolution.username !== profile.instagram
-    ) {
-      onProfileChange({ instagram: instagramResolution.username });
-    }
-  };
-  const continueFromPhotoSocial = () => {
-    if (instagramError) {
-      screenRef.current
-        ?.querySelector<HTMLInputElement>('[data-instagram-input]')
-        ?.focus();
-      return;
-    }
-    commitInstagram();
-    onContinue();
-  };
-
-  return (
-    <section ref={screenRef} aria-labelledby="photo-social-heading" className="onboarding-screen onboarding-photo-social-screen">
-      <header className="onboarding-screen__heading">
-        <p className="onboarding-screen-status">Optional</p>
-        <h1 id="photo-social-heading">{copy.heading}</h1>
-        <p>{copy.supportingCopy}</p>
-      </header>
-      <div className="onboarding-split-layout">
-        <div className="onboarding-form-stack">
-          <ImageUploadField
-            assetLoading={profileImage.status === 'loading'}
-            chooseLabel="Choose profile photo"
-            currentLabel={profile.profilePhoto?.fileName}
-            currentSummary={profile.profilePhoto?.width && profile.profilePhoto.height
-              ? `${profile.profilePhoto.width} × ${profile.profilePhoto.height}`
-              : undefined}
-            label="Profile photo"
-            loadingLabel="Loading saved profile photo…"
-            mediaRole="profile"
-            needsReselect={profileNeedsReselect}
-            onRemove={() => onProfileChange({ profilePhoto: undefined })}
-            onSelect={onProfilePhotoSelected}
-            previewAlt={`${profile.ownerName.trim() || 'Owner'} profile photo thumbnail`}
-            previewUrl={profileImage.status === 'ready' ? profileImage.url : undefined}
-            readyLabel="Profile photo ready"
-            recoveryMessage={profileImage.status === 'error'
-              ? 'This saved profile photo couldn’t be loaded on this device. Select it again to restore it.'
-              : 'This saved profile photo is no longer available on this device. Select it again to restore it.'}
-          />
-          <ImageUploadField
-            assetLoading={logoImage.status === 'loading'}
-            chooseLabel="Choose logo"
-            currentLabel={profile.logo?.fileName}
-            currentSummary={profile.logo?.width && profile.logo.height
-              ? `${profile.logo.width} × ${profile.logo.height}`
-              : undefined}
-            label="Logo"
-            loadingLabel="Loading saved logo…"
-            mediaRole="logo"
-            needsReselect={logoNeedsReselect}
-            onRemove={() => onProfileChange({ logo: undefined })}
-            onSelect={onLogoSelected}
-            previewAlt={`${profile.businessName.trim() || 'Salon'} logo thumbnail`}
-            previewUrl={logoImage.status === 'ready' ? logoImage.url : undefined}
-            readyLabel="Logo ready"
-            recoveryMessage={logoImage.status === 'error'
-              ? 'This saved logo couldn’t be loaded on this device. Select it again to restore it.'
-              : 'This saved logo is no longer available on this device. Select it again to restore it.'}
-          />
-          <TextField
-            autoComplete="off"
-            data-instagram-input
-            error={instagramError}
-            hint="Enter a username or paste an Instagram profile link."
-            label="Instagram handle"
-            value={profile.instagram}
-            onBlur={commitInstagram}
-            onChange={(event) => onProfileChange({ instagram: event.target.value })}
-          />
-        </div>
-        <aside aria-label="Profile preview" className="onboarding-profile-preview">
-          {profileImage.status === 'ready' ? (
-            <img
-              alt={`${profile.ownerName.trim() || 'Owner'} profile photo`}
-              data-media-role="profile"
-              src={profileImage.url}
-            />
-          ) : (
-            <span aria-label="Profile photo placeholder" className="onboarding-profile-preview__initials">
-              {initialsFor(profile)}
-            </span>
-          )}
-          <strong>{profile.ownerName || 'Your name'}</strong>
-          <span>{profile.businessName || 'Your business'}</span>
-          {instagramResolution.status === 'resolved'
-            ? <span>@{instagramResolution.username}</span>
-            : null}
-        </aside>
-      </div>
-      <StickyOnboardingActions
-        onBack={onBack}
-        onPrimary={continueFromPhotoSocial}
-        onSkip={onSkipPhoto}
-        primaryLabel={copy.primaryAction}
-        skipLabel={copy.secondaryAction}
       />
     </section>
   );

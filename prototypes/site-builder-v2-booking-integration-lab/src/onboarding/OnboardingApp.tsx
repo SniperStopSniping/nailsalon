@@ -72,15 +72,13 @@ import {
   StartingPreviewScreen,
 } from './screens/BookingScreens';
 import {
-  BusinessScreen,
+  BrandBasicsScreen,
   LocationContactScreen,
-  PhotoSocialScreen,
 } from './screens/BasicsScreens';
 import {
   BUILDER_HANDOFF_TRIGGER_ID,
   FinalReviewScreen,
 } from './screens/ReviewScreen';
-import { WelcomeScreen } from './screens/WelcomeScreen';
 import { switchOnboardingStarter } from './state/switchStarter';
 import { useOnboardingState } from './state/useOnboardingState';
 
@@ -501,10 +499,14 @@ export function OnboardingApp({
         previousCompletedStagesRef.current.has(stage)
         || milestoneIds.includes(milestoneId)
       ) continue;
+      // Stage completion can land in the same commit as a navigation (the
+      // design stage always does); preserve the toast across that one
+      // transition so the moment is actually seen.
       feedback.send({
         kind: 'stage_complete',
         message: stageMessages[stage],
         onceKey: milestoneId,
+        preserveOnNavigation: true,
       });
       milestonesToRemember.push(milestoneId);
     }
@@ -513,6 +515,7 @@ export function OnboardingApp({
         kind: 'milestone',
         message: 'Everything you need is ready',
         onceKey: 'all_required_complete',
+        preserveOnNavigation: true,
       });
       milestonesToRemember.push('all_required_complete');
     }
@@ -561,7 +564,7 @@ export function OnboardingApp({
     if (
       !coordinator
       || lab.document
-      || screen !== 'welcome'
+      || screen !== 'starter'
       || pendingAssetIds.length === 0
     ) return undefined;
     const signature = [...pendingAssetIds].sort().join('|');
@@ -647,7 +650,7 @@ export function OnboardingApp({
     if (
       onboarding.state.progress.sessionStatus === 'active'
       && onboarding.state.progress.lastSavedAt
-      && onboarding.state.progress.currentScreen !== 'welcome'
+      && onboarding.state.progress.currentScreen !== 'starter'
     ) {
       onboarding.resume(true);
     }
@@ -952,8 +955,10 @@ export function OnboardingApp({
       }
       return;
     }
+    // The starter is chosen before the business name exists; an empty string
+    // would bypass the model's site-name default.
     const result = lab.createStarterOnce(starter, {
-      siteName: onboarding.state.profile.businessName,
+      siteName: onboarding.state.profile.businessName.trim() || 'Your nail studio',
     });
     if (!result.success) {
       setError(result.message);
@@ -1141,16 +1146,16 @@ export function OnboardingApp({
         : '');
       browserCursorRef.current = 0;
       browserEntriesRef.current.clear();
-      browserEntriesRef.current.set(0, { screen: 'welcome' });
+      browserEntriesRef.current.set(0, { screen: 'starter' });
       browserOverlayRef.current = null;
-      browserScreenRef.current = 'welcome';
+      browserScreenRef.current = 'starter';
       applyingPopStateRef.current = false;
       historySessionRef.current += 1;
       window.history.replaceState({
         lusterOnboarding: true,
         onboardingCursor: 0,
         onboardingSession: historySessionRef.current,
-        screen: 'welcome',
+        screen: 'starter',
       } satisfies OnboardingBrowserHistoryState, '');
       integration?.onStartOver?.();
     } catch (cause) {
@@ -1204,40 +1209,22 @@ export function OnboardingApp({
 
   const renderScreen = (): ReactNode => {
     switch (screen) {
-      case 'welcome':
-        return (
-          <WelcomeScreen
-            onBuildWebsite={onboarding.continueFlow}
-            onCanvaIntent={() => {
-              onboarding.updateState((current) => continueFrom({
-                ...current,
-                recipe: { ...current.recipe, wantsCanvaFromWelcome: true },
-              }));
-            }}
-          />
-        );
       case 'business':
         return (
-          <BusinessScreen
+          <BrandBasicsScreen
             onBack={goBack}
             onContinue={() => {
-              if (syncBuilderSiteName()) onboarding.continueFlow();
+              if (!syncBuilderSiteName()) return;
+              setStartingSiteRevealActive(true);
+              onboarding.continueFlow();
             }}
-            onProfileChange={updateProfile}
-            onValidationFailure={(fieldIds) => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
-            profile={onboarding.state.profile}
-          />
-        );
-      case 'photo_social':
-        return (
-          <PhotoSocialScreen
-            onBack={goBack}
-            onContinue={onboarding.continueFlow}
             onLogoSelected={(file) => selectImage(file, 'logo')}
             onProfileChange={updatePhotoProfile}
             onProfilePhotoSelected={(file) => selectImage(file, 'profile')}
-            onSkipPhoto={() => onboarding.skip('photo')}
+            onValidationFailure={(fieldIds) => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
             profile={onboarding.state.profile}
+            reveal={startingSiteRevealActive}
+            starter={lab.document?.originStarter ?? onboarding.state.recipe.starter}
           />
         );
       case 'location_contact':
@@ -1276,9 +1263,20 @@ export function OnboardingApp({
         return (
           <StartingPointScreen
             businessName={onboarding.state.profile.businessName}
+            canGoBack={onboarding.state.progress.screenHistory.length > 1}
+            canvaIntentNoted={onboarding.state.recipe.wantsCanvaFromWelcome}
             location={onboarding.state.profile.location}
             logoUrl={starterLogoUrl ?? undefined}
             onBack={goBack}
+            onCanvaIntent={() => {
+              onboarding.updateState((current) => ({
+                ...current,
+                recipe: {
+                  ...current.recipe,
+                  wantsCanvaFromWelcome: !current.recipe.wantsCanvaFromWelcome,
+                },
+              }));
+            }}
             onChooseStarter={selectStarter}
             ownerName={onboarding.state.profile.ownerName}
             reducedMotion={onboarding.state.reviewOptions.reducedMotion}
@@ -1357,6 +1355,10 @@ export function OnboardingApp({
             state={onboarding.state}
           />
         );
+      // Legacy ids (welcome, photo_social) cannot be current: storage
+      // migration remaps them before any render.
+      default:
+        return null;
       case 'final_preview':
         return (
           <FinalReviewScreen
@@ -1403,7 +1405,7 @@ export function OnboardingApp({
             {error ? <button type="button" onClick={() => setError('')}>Dismiss</button> : null}
           </div>
         ) : null}
-        {screen === 'welcome' ? content : (
+        {screen === 'starter' ? content : (
           <OnboardingShell
             autosaveState={onboarding.saveStatus}
             completedStages={completedStages}

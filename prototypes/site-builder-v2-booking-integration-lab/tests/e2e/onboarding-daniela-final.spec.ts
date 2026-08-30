@@ -108,12 +108,12 @@ async function captureText(fileName: string, value: string): Promise<void> {
 
 async function openNormalFresh(page: Page): Promise<void> {
   await page.goto('/');
-  await expect(heading(page, 'Let’s build your website')).toBeVisible();
+  await expect(heading(page, 'Choose your starting point')).toBeVisible();
 }
 
 async function openAuditFresh(page: Page): Promise<void> {
   await page.goto('/?audit=1');
-  await expect(heading(page, 'Let’s build your website')).toBeVisible();
+  await expect(heading(page, 'Choose your starting point')).toBeVisible();
 }
 
 async function waitForSaved(page: Page): Promise<void> {
@@ -128,13 +128,30 @@ async function openReviewOptions(page: Page): Promise<Locator> {
   return dialog;
 }
 
+type StarterCta = 'Multi-page' | 'One-page' | 'Quick Book';
+
+/**
+ * The starting-point entry is now the first onboarding screen. Choosing a card
+ * plays a short selection beat before the flow advances; awaiting the next
+ * heading absorbs it without a manual wait.
+ */
+async function chooseStartingPoint(page: Page, cta: StarterCta): Promise<void> {
+  await page.getByRole('button', { name: `Start with ${cta}` }).click();
+  await expect(heading(page, 'Make it yours')).toBeVisible();
+}
+
 async function applyFixture(
   page: Page,
   fixtureLabel: string,
   destinationHeading: string,
 ): Promise<void> {
-  if (await heading(page, 'Let’s build your website').isVisible()) {
-    await page.getByRole('button', { name: 'Build my website' }).click();
+  // Lab review options live in the onboarding shell, and the starting-point
+  // entry renders outside that shell, so leave the entry before opening them.
+  const entryOrShell = heading(page, 'Choose your starting point')
+    .or(page.getByLabel('More onboarding options'));
+  await expect(entryOrShell).toBeVisible();
+  if (await heading(page, 'Choose your starting point').isVisible()) {
+    await chooseStartingPoint(page, 'One-page');
   }
   const dialog = await openReviewOptions(page);
   await dialog.getByRole('button', { exact: true, name: fixtureLabel }).click();
@@ -172,33 +189,50 @@ async function delayThumbnailGeneration(page: Page, delayMs = 550): Promise<void
   }, delayMs);
 }
 
-async function reachPhotoScreen(page: Page): Promise<void> {
-  await page.getByRole('button', { name: 'Build my website' }).click();
-  await page.getByLabel('Salon or studio name').fill('Daniela Upload Studio');
+/**
+ * Photo, logo and Instagram moved from the removed photo_social screen into a
+ * collapsible Branding card on "Make it yours". The card only starts open when
+ * branding data already exists, so open it before touching those fields.
+ */
+async function openBrandingCard(page: Page): Promise<Locator> {
+  const trigger = page.locator('button[aria-controls="onboarding-branding-card-panel"]');
+  await expect(trigger).toBeVisible();
+  if (await trigger.getAttribute('aria-expanded') !== 'true') {
+    await trigger.click();
+  }
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  return trigger;
+}
+
+async function fillBrandBasics(page: Page, businessName: string): Promise<void> {
+  await page.getByLabel('Salon or studio name').fill(businessName);
   await page.getByLabel('Your name').fill('Daniela');
   await page.getByRole('group', { name: 'Who are you setting Luster up for?' })
     .getByRole('radio', { name: 'Solo nail tech' })
     .check();
+}
+
+async function reachBrandBasics(page: Page): Promise<void> {
+  await chooseStartingPoint(page, 'One-page');
+  await fillBrandBasics(page, 'Daniela Upload Studio');
+}
+
+/** "Make it yours" now hands off to the starting-site reveal before Location. */
+async function continueToLocationScreen(page: Page): Promise<void> {
   await page.getByRole('button', { exact: true, name: 'Continue' }).click();
-  await expect(heading(page, 'Add your photo and Instagram')).toBeVisible();
+  await expect(heading(page, 'Your starting site is ready')).toBeVisible();
+  await page.getByRole('button', { name: 'Continue setting up my site' }).click();
+  await expect(heading(page, 'Where can clients find you?')).toBeVisible();
 }
 
 async function reachLocationScreen(page: Page): Promise<void> {
-  await reachPhotoScreen(page);
-  await page.getByRole('button', { name: 'Skip for now' }).click();
-  await expect(heading(page, 'Where can clients find you?')).toBeVisible();
+  await reachBrandBasics(page);
+  await continueToLocationScreen(page);
 }
 
 async function completeBasicsToBooking(page: Page): Promise<void> {
-  await page.getByLabel('Salon or studio name').fill('Daniela Test Studio');
-  await page.getByLabel('Your name').fill('Daniela');
-  await page.getByRole('group', { name: 'Who are you setting Luster up for?' })
-    .getByRole('radio', { name: 'Solo nail tech' })
-    .check();
-  await page.getByRole('button', { exact: true, name: 'Continue' }).click();
-  await expect(heading(page, 'Add your photo and Instagram')).toBeVisible();
-  await page.getByRole('button', { name: 'Skip for now' }).click();
-  await expect(heading(page, 'Where can clients find you?')).toBeVisible();
+  await fillBrandBasics(page, 'Daniela Test Studio');
+  await continueToLocationScreen(page);
   await page.getByLabel('City or general service area').fill('Toronto, Ontario');
   await page.getByRole('group', { name: 'Where do you see clients?' })
     .getByRole('radio', { name: 'Salon suite' })
@@ -208,6 +242,19 @@ async function completeBasicsToBooking(page: Page): Promise<void> {
     .toBeChecked();
   await page.getByRole('button', { name: 'Save and continue' }).click();
   await expect(heading(page, 'How do clients book with you?')).toBeVisible();
+}
+
+/**
+ * Fixture states that land on the starting-site reveal now sit before Location
+ * and Booking, so walk their already-complete essentials to reach About.
+ */
+async function continueFromStartingPreviewToAbout(page: Page): Promise<void> {
+  await page.getByRole('button', { name: 'Continue setting up my site' }).click();
+  await expect(heading(page, 'Where can clients find you?')).toBeVisible();
+  await page.getByRole('button', { name: 'Save and continue' }).click();
+  await expect(heading(page, 'How do clients book with you?')).toBeVisible();
+  await page.getByRole('button', { name: 'Save booking setup' }).click();
+  await expect(heading(page, 'Would you like an About section?')).toBeVisible();
 }
 
 test.describe('Daniela-final onboarding acceptance', () => {
@@ -228,8 +275,15 @@ test.describe('Daniela-final onboarding acceptance', () => {
   test('normal owner mode hides fixture and Lab-only controls', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openNormalFresh(page);
-    await page.getByRole('button', { name: 'Build my website' }).click();
-    await expect(heading(page, 'Tell us about your nail business')).toBeVisible();
+    // The starting-point entry renders outside the shell: no Lab controls and
+    // no shell chrome are available before a starting point is chosen.
+    await expect(page.getByLabel('More onboarding options')).toHaveCount(0);
+    await expect(page.getByLabel('Autosave status')).toHaveCount(0);
+    await expect(page.getByRole('navigation', { name: 'Onboarding progress' }))
+      .toHaveCount(0);
+    await expect(page.getByText('These fixtures affect only this browser-local onboarding Lab.'))
+      .toHaveCount(0);
+    await chooseStartingPoint(page, 'One-page');
 
     const more = page.getByLabel('More onboarding options');
     await more.click();
@@ -251,7 +305,8 @@ test.describe('Daniela-final onboarding acceptance', () => {
   test('physical-iPhone proxy shows processing, accepted thumbnails, and a precise photo failure', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openNormalFresh(page);
-    await reachPhotoScreen(page);
+    await reachBrandBasics(page);
+    await openBrandingCard(page);
     await delayThumbnailGeneration(page);
 
     const profileField = page.locator('.onboarding-image-upload').filter({
@@ -265,7 +320,8 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await profileUpload;
     await expect(profileField.getByRole('status')).toContainText('Profile photo ready');
     await expect(profileField.locator('img')).toBeVisible();
-    await expect(page.getByLabel('Profile preview').getByRole('img')).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Your site so far' }).getByRole('img'))
+      .toBeVisible();
     await captureLocator(profileField, '02-profile-thumbnail-ready');
 
     const logoField = page.locator('.onboarding-image-upload').filter({
@@ -295,7 +351,8 @@ test.describe('Daniela-final onboarding acceptance', () => {
   test('a private-storage-style denial keeps the image out of state and explains recovery', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openNormalFresh(page);
-    await reachPhotoScreen(page);
+    await reachBrandBasics(page);
+    await openBrandingCard(page);
     await waitForSaved(page);
     await page.evaluate(() => {
       IDBDatabase.prototype.transaction = function deniedTransaction() {
@@ -314,7 +371,8 @@ test.describe('Daniela-final onboarding acceptance', () => {
       'This browser tab isn’t allowing Luster to save images. If you’re using a private tab, open this page in a regular tab and try again.',
     );
     await expect(profileField.getByRole('status')).toHaveCount(0);
-    await expect(page.getByLabel('Profile preview').getByRole('img')).toHaveCount(0);
+    await expect(page.getByRole('group', { name: 'Your site so far' }).getByRole('img'))
+      .toHaveCount(0);
     const state = await readState(page);
     expect((state.profile as StoredOnboardingState['profile'] & {
       profileImage?: unknown;
@@ -386,16 +444,41 @@ test.describe('Daniela-final onboarding acceptance', () => {
   test('V01 complete Daniela onboarding journey with truthful setup states', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openNormalFresh(page);
-    await page.getByRole('button', { name: 'Build my website' }).click();
+    await chooseStartingPoint(page, 'One-page');
+    // The starting-site milestone now lands on "Make it yours", and the screen
+    // tells the owner which starting point it is building on.
+    await expect(page.locator('.onboarding-feedback')).toContainText(
+      'Your starting site is ready',
+      { timeout: 6_000 },
+    );
+    await expect(page.getByText('One-page website · Change it anytime')).toBeVisible();
+    await expect(page.getByText('4 required steps left')).toBeVisible();
     await page.getByLabel('Salon or studio name').fill('Isla Nail Studio');
     await page.getByLabel('Your name').fill('Daniela');
     await page.getByRole('group', { name: 'Who are you setting Luster up for?' })
       .getByRole('radio', { name: 'Solo nail tech' })
       .check();
-    await page.getByRole('button', { exact: true, name: 'Continue' }).click();
+    // Branding replaces the removed photo screen and stays optional inline.
+    const brandingState = page
+      .locator('button[aria-controls="onboarding-branding-card-panel"]')
+      .locator('.onboarding-collapsible-card__state');
+    await expect(page.getByText('Photo, logo and Instagram · Optional')).toBeVisible();
+    await expect(brandingState).toContainText('Set up');
+    await openBrandingCard(page);
     await page.getByLabel('Profile photo', { exact: true }).setInputFiles(PORTRAIT_PATH);
     await page.getByLabel('Instagram handle').fill('@islanail.studio');
+    await expect(brandingState).toContainText('Complete');
+    const identity = page.getByRole('group', { name: 'Your site so far' });
+    await expect(identity.getByRole('img')).toBeVisible();
+    await expect(identity).toContainText('Isla Nail Studio');
+    await expect(identity).toContainText('@islanail.studio');
+    await expect(page.locator('[data-testid="starter-preview-one_page"]'))
+      .toHaveAttribute('data-preview-state', 'poster');
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
+    await expect(heading(page, 'Your starting site is ready')).toBeVisible();
+    await captureViewport(page, '36-starting-site-reveal');
+    await waitForSaved(page);
+    await page.getByRole('button', { name: 'Continue setting up my site' }).click();
     await expect(heading(page, 'Where can clients find you?')).toBeVisible();
 
     await capture(page, '02-location-accordion-states');
@@ -452,6 +535,8 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await page.getByRole('group', { name: 'Are you accepting new clients?' })
       .getByRole('radio', { name: 'Yes' })
       .check();
+    // Booking is its own stage now that the starting point moved to the front.
+    await expect(page.locator('.onboarding-feedback')).toContainText('Booking is ready');
     await page.getByRole('button', { name: /Continue with these/u }).click();
     await page.getByLabel('How much notice do you need before an appointment?')
       .selectOption('preset:1440');
@@ -463,18 +548,11 @@ test.describe('Daniela-final onboarding acceptance', () => {
       .check();
     await page.getByRole('button', { name: 'Save booking setup' }).click();
 
-    await page.locator('[data-starter-id="one_page"]').click();
-    await expect(heading(page, 'Your starting site is ready')).toBeVisible();
-    await expect(page.locator('.onboarding-feedback')).toContainText(
-      'Your starting site is ready',
-      { timeout: 6_000 },
-    );
-    await captureViewport(page, '36-starting-site-reveal');
+    await expect(heading(page, 'Would you like an About section?')).toBeVisible();
     await waitForSaved(page);
     expect((await readState(page)).reviewOptions.feedbackMilestones)
       .toContain('stage_booking');
     await captureViewport(page, '35-booking-stage-complete');
-    await page.getByRole('button', { name: 'Continue setting up my site' }).click();
     await page.getByLabel('Short bio').fill('Hi, I’m Daniela. I create thoughtful, detailed nail appointments in a calm private studio.');
     await page.getByRole('checkbox', { name: 'Russian Manicure' }).check();
     await page.getByRole('checkbox', { name: 'BIAB' }).check();
@@ -513,7 +591,7 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await modern.click();
     await page.getByRole('button', { name: /Use Modern|Continue with Modern/u }).click();
     await expect(page.locator('.onboarding-feedback')).toContainText(
-      'Your website style is set',
+      'Your website design is set',
     );
     await captureViewport(page, '35-design-stage-complete');
     await waitForSaved(page);
@@ -536,7 +614,7 @@ test.describe('Daniela-final onboarding acceptance', () => {
   test('V02 service library is visual, searchable, and changes one canonical selection', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openNormalFresh(page);
-    await page.getByRole('button', { name: 'Build my website' }).click();
+    await chooseStartingPoint(page, 'One-page');
     await completeBasicsToBooking(page);
 
     await page.getByRole('group', { name: 'How do you accept clients?' })
@@ -691,8 +769,7 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await page.setViewportSize({ height: 800, width: 1180 });
     await openAuditFresh(page);
     await applyFixture(page, 'Multi-page starter', 'Your starting site is ready');
-    await page.getByRole('button', { name: 'Continue setting up my site' }).click();
-    await expect(heading(page, 'Would you like an About section?')).toBeVisible();
+    await continueFromStartingPreviewToAbout(page);
     await page.getByRole('button', { name: 'Choose an About design' }).click();
     await expect(heading(page, 'Choose your About design')).toBeVisible();
 
@@ -849,13 +926,15 @@ test.describe('Daniela-final onboarding acceptance', () => {
       await expect(option).toHaveAttribute('aria-pressed', 'true');
       await expect(preview.locator(`[data-style-preset="${id}"]`)).toBeVisible();
       await expect(preview).toContainText('Isla Nail Studio');
+      // Colour roles belong to the palette contract and deliberately do not
+      // vary per style; typography and shape mood are what a style owns.
       const tokens = await preview.locator('.onboarding-site-preview').evaluate((element) => {
         const styles = getComputedStyle(element);
         return [
-          styles.getPropertyValue('--customer-ground'),
-          styles.getPropertyValue('--customer-ink'),
-          styles.getPropertyValue('--customer-accent'),
-          styles.fontFamily,
+          styles.getPropertyValue('--customer-heading-font'),
+          styles.getPropertyValue('--customer-body-font'),
+          styles.getPropertyValue('--customer-radius'),
+          styles.getPropertyValue('--customer-section-space'),
         ].join('|');
       });
       tokenSnapshots.set(id, tokens);
@@ -1320,7 +1399,8 @@ test.describe('Daniela-final onboarding acceptance', () => {
   test('Start over waits for an in-flight profile upload before clearing setup', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openNormalFresh(page);
-    await reachPhotoScreen(page);
+    await reachBrandBasics(page);
+    await openBrandingCard(page);
     await delayThumbnailGeneration(page, 1_200);
 
     await page.getByLabel('Profile photo', { exact: true }).setInputFiles(PORTRAIT_PATH);
@@ -1337,7 +1417,7 @@ test.describe('Daniela-final onboarding acceptance', () => {
       'Finish the current image upload before starting over.',
     );
     await expect(confirmation).toBeVisible();
-    await expect(heading(page, 'Add your photo and Instagram')).toBeVisible();
+    await expect(heading(page, 'Make it yours')).toBeVisible();
 
     await expect.poll(() => page.evaluate((key) => {
       const raw = window.localStorage.getItem(key);
@@ -1349,21 +1429,21 @@ test.describe('Daniela-final onboarding acceptance', () => {
     }, ONBOARDING_STORAGE_KEY)).toBe('daniela-placeholder.jpg');
 
     await confirmation.getByRole('button', { exact: true, name: 'Start over' }).click();
-    await expect(heading(page, 'Let’s build your website')).toBeVisible();
+    await expect(heading(page, 'Choose your starting point')).toBeVisible();
     await expect.poll(() => page.evaluate((key) => window.localStorage.getItem(key),
       ONBOARDING_STORAGE_KEY)).toBeNull();
     await page.reload();
-    await expect(heading(page, 'Let’s build your website')).toBeVisible();
+    await expect(heading(page, 'Choose your starting point')).toBeVisible();
   });
 
-  test('live Start over and reload restore a clean Welcome', async ({ page }) => {
+  test('live Start over and reload restore a clean starting point', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openNormalFresh(page);
     await page.evaluate(() => window.localStorage.setItem(
       'luster:physical-iphone-unrelated-sentinel',
       'preserve-me',
     ));
-    await page.getByRole('button', { name: 'Build my website' }).click();
+    await chooseStartingPoint(page, 'One-page');
     await page.getByLabel('Salon or studio name').fill('Temporary Studio');
     await page.getByLabel('More onboarding options').click();
     await page.getByRole('menuitem', { name: 'Start over' }).click();
@@ -1372,7 +1452,7 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await captureLocator(confirmation, '32-start-over-confirmation');
     await confirmation.getByRole('button', { name: 'Keep my setup' }).click();
     await expect(confirmation).toBeHidden();
-    await expect(heading(page, 'Tell us about your nail business')).toBeVisible();
+    await expect(heading(page, 'Make it yours')).toBeVisible();
     await expect(page.getByLabel('Salon or studio name')).toHaveValue('Temporary Studio');
 
     await page.getByLabel('More onboarding options').click();
@@ -1386,12 +1466,12 @@ test.describe('Daniela-final onboarding acceptance', () => {
       button.click();
       button.click();
     });
-    await expect(heading(page, 'Let’s build your website')).toBeVisible();
+    await expect(heading(page, 'Choose your starting point')).toBeVisible();
     await expect.poll(() => page.evaluate(() => window.localStorage.getItem(
       'luster:physical-iphone-unrelated-sentinel',
     ))).toBe('preserve-me');
     await page.reload();
-    await expect(heading(page, 'Let’s build your website')).toBeVisible();
+    await expect(heading(page, 'Choose your starting point')).toBeVisible();
     await expect(page.getByText('Temporary Studio')).toHaveCount(0);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
@@ -1489,16 +1569,17 @@ test.describe('Daniela-final onboarding acceptance', () => {
   test('@webkit-smoke profile, logo, Gallery, and Canva media decode and persist', async ({ page }) => {
     await page.setViewportSize({ height: 844, width: 390 });
     await openNormalFresh(page);
-    await page.getByRole('button', { name: 'Build my website' }).click();
+    await chooseStartingPoint(page, 'One-page');
     await page.getByLabel('Salon or studio name').fill('WebKit Nail Studio');
     await page.getByLabel('Your name').fill('Avery');
     await page.getByRole('group', { name: 'Who are you setting Luster up for?' })
       .getByRole('radio', { name: 'Solo nail tech' })
       .check();
-    await page.getByRole('button', { exact: true, name: 'Continue' }).click();
+    await openBrandingCard(page);
     await page.getByLabel('Profile photo', { exact: true }).setInputFiles(PORTRAIT_PATH);
     await page.getByLabel('Logo', { exact: true }).setInputFiles(LOGO_PATH);
-    await expect(page.getByLabel('Profile preview').getByRole('img').first()).toBeVisible();
+    await expect(page.getByRole('group', { name: 'Your site so far' })
+      .getByRole('img').first()).toBeVisible();
     await expect.poll(async () => (await readCustomDesignAssetRecordCounts(page))['image-asset-originals-v1'] ?? 0)
       .toBeGreaterThanOrEqual(2);
 

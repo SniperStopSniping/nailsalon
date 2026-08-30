@@ -272,7 +272,7 @@ type PreviewCssProperties = CSSProperties & {
   '--preview-motion-distance': string;
 };
 
-function useMediaQuery(query: string): boolean {
+export function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => (
     typeof window === 'undefined' || typeof window.matchMedia !== 'function'
       ? false
@@ -568,7 +568,7 @@ function PreviewSceneContent({
   );
 }
 
-function StarterPreview({
+export function StarterPreview({
   active,
   businessName,
   definition,
@@ -651,6 +651,7 @@ function StarterPreview({
 
 export type StarterChoiceGridProps = {
   businessName?: string;
+  committingStarter?: OriginStarter | null;
   logoUrl?: string;
   onChoose: (starter: OriginStarter) => void;
   ownerName?: string;
@@ -661,6 +662,7 @@ export type StarterChoiceGridProps = {
 
 export function StarterChoiceGrid({
   businessName,
+  committingStarter = null,
   logoUrl,
   onChoose,
   ownerName,
@@ -672,7 +674,10 @@ export function StarterChoiceGrid({
 
   return (
     <>
-      <div className="final-starter-grid">
+      <div
+        className="final-starter-grid"
+        data-committing={committingStarter ? 'true' : undefined}
+      >
         {STARTER_CHOICES.map((starter) => {
           const previewActive = playback.activeId === starter.id;
           const selected = selectedStarter === starter.id;
@@ -685,6 +690,7 @@ export function StarterChoiceGrid({
             <button
               aria-pressed={selected}
               className="final-starter-card"
+              data-committing={committingStarter === starter.id ? 'true' : undefined}
               data-preview-active={previewActive ? 'true' : 'false'}
               data-selected={selected ? 'true' : 'false'}
               data-starter-id={starter.id}

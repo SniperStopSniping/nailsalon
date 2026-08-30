@@ -740,6 +740,36 @@ const migrateBusinessProfile = (
   return migratedProfile;
 };
 
+/**
+ * Screens removed from the live flow by the starter-first opening (schema 9).
+ * Old drafts can still point at them, so they remap onto the screens that
+ * absorbed them rather than invalidating the whole saved state.
+ */
+const LEGACY_SCREEN_REMAP: Partial<Record<OnboardingScreenId, OnboardingScreenId>> = {
+  photo_social: 'business',
+  welcome: 'starter',
+};
+
+const remapLegacyScreen = (screen: OnboardingScreenId): OnboardingScreenId =>
+  LEGACY_SCREEN_REMAP[screen] ?? screen;
+
+const remapLegacyProgressScreens = (
+  progress: Record<string, unknown>,
+): Record<string, unknown> => {
+  const screenHistory = (progress.screenHistory as OnboardingScreenId[])
+    .map(remapLegacyScreen)
+    .filter((screen, index, all) => index === 0 || screen !== all[index - 1]);
+  return {
+    ...progress,
+    currentScreen: remapLegacyScreen(progress.currentScreen as OnboardingScreenId),
+    lastActiveScreen: remapLegacyScreen(progress.lastActiveScreen as OnboardingScreenId),
+    screenHistory,
+    visitedScreens: [...new Set(
+      (progress.visitedScreens as OnboardingScreenId[]).map(remapLegacyScreen),
+    )],
+  };
+};
+
 const migrateLegacyOnboardingState = (
   value: SharedStateShape,
 ): OnboardingLabState => {
@@ -796,6 +826,9 @@ const migrateLegacyOnboardingState = (
       ...migrateBusinessProfile(profile),
       hours,
     },
+    progress: remapLegacyProgressScreens(
+      value.progress,
+    ) as unknown as OnboardingLabState['progress'],
     reviewOptions: {
       ...(reviewOptions as unknown as OnboardingLabState['reviewOptions']),
       feedbackMilestones: normalizeFeedbackMilestones(
@@ -829,6 +862,7 @@ const isLegacyOnboardingState = (value: unknown): value is SharedStateShape =>
     || (value.schemaVersion === 5 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 6 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 7 && isWeeklyHoursDraft(value.profile.hours))
+    || (value.schemaVersion === 8 && isWeeklyHoursDraft(value.profile.hours))
   );
 
 const defaultStorage = (): OnboardingStorage => {

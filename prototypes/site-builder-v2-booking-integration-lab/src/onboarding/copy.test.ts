@@ -4,11 +4,16 @@ import {
   CORE_SCREEN_ORDER,
   ONBOARDING_STAGE_ORDER,
   SCREEN_METADATA,
+  STARTER_ENTRY_COPY,
 } from './copy';
 
 describe('centralized onboarding metadata', () => {
-  it('maps all thirteen screens to four ordered stages', () => {
-    expect(CORE_SCREEN_ORDER).toHaveLength(13);
+  it('maps all eleven live screens to four ordered stages', () => {
+    expect(CORE_SCREEN_ORDER).toHaveLength(11);
+    expect(CORE_SCREEN_ORDER[0]).toBe('starter');
+    expect(CORE_SCREEN_ORDER[1]).toBe('business');
+    expect(CORE_SCREEN_ORDER).not.toContain('welcome');
+    expect(CORE_SCREEN_ORDER).not.toContain('photo_social');
     expect(ONBOARDING_STAGE_ORDER).toEqual([
       'basics',
       'booking',
@@ -21,8 +26,6 @@ describe('centralized onboarding metadata', () => {
       'basics',
       'basics',
       'booking',
-      'booking',
-      'booking',
       'design',
       'design',
       'design',
@@ -33,7 +36,7 @@ describe('centralized onboarding metadata', () => {
   });
 
   it('marks optional and recommended screens independently from essentials', () => {
-    expect(SCREEN_METADATA.photo_social.status).toBe('optional');
+    expect(SCREEN_METADATA.starter.status).toBe('essential');
     expect(SCREEN_METADATA.about.status).toBe('optional');
     expect(SCREEN_METADATA.policies.status).toBe('recommended');
     expect(SCREEN_METADATA.extras.status).toBe('optional');
@@ -41,16 +44,22 @@ describe('centralized onboarding metadata', () => {
   });
 
   it('uses the owner-reviewed nail-business copy and dashboard handoff language', () => {
-    expect(SCREEN_METADATA.welcome.supportingCopy).toBe(
-      'Tell us about your nail business once. Luster turns your details into a polished website where clients can learn about you and book online.',
+    expect(SCREEN_METADATA.starter.heading).toBe('Choose your starting point');
+    expect(SCREEN_METADATA.starter.supportingCopy).toBe(
+      'Start simple or with a full website. You can add or change pages and sections anytime.',
     );
-    expect(SCREEN_METADATA.business.heading).toBe('Tell us about your nail business');
-    expect(SCREEN_METADATA.photo_social.heading).toBe('Add your photo and Instagram');
+    expect(SCREEN_METADATA.business.heading).toBe('Make it yours');
     expect(SCREEN_METADATA.site_style.heading).toBe('Choose your website style');
     expect(SCREEN_METADATA.final_preview).toMatchObject({
       primaryAction: 'Finish setup',
       secondaryAction: 'Change setup',
       supportingCopy: 'Your website is saved. You can edit it anytime from your dashboard.',
     });
+    expect(STARTER_ENTRY_COPY.autosaveNote).toBe(
+      'Your progress saves automatically on this device.',
+    );
+    expect(STARTER_ENTRY_COPY.reassurance).toBe(
+      'You’ll preview your site before choosing a plan.',
+    );
   });
 });

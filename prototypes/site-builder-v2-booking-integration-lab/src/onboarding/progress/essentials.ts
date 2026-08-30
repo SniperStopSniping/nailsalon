@@ -9,10 +9,10 @@ import {
 } from '../model/contact';
 
 export const ESSENTIAL_IDS = [
+  'starting_point',
   'business',
   'location_contact',
   'booking_preferences',
-  'starting_point',
   'site_style',
 ] as const;
 
@@ -39,6 +39,14 @@ export const getEssentialResults = (
   state: OnboardingLabState,
 ): EssentialResult[] => [
   {
+    complete: state.recipe.starter !== null
+      && nonBlank(state.recipe.starterDocumentSiteId ?? ''),
+    id: 'starting_point',
+    label: 'Starting point',
+    screen: 'starter',
+    stage: 'basics',
+  },
+  {
     complete: nonBlank(state.profile.businessName)
       && nonBlank(state.profile.ownerName)
       && state.profile.businessStructure !== null,
@@ -62,14 +70,6 @@ export const getEssentialResults = (
     id: 'booking_preferences',
     label: 'Booking preferences',
     screen: 'booking_preferences',
-    stage: 'booking',
-  },
-  {
-    complete: state.recipe.starter !== null
-      && nonBlank(state.recipe.starterDocumentSiteId ?? ''),
-    id: 'starting_point',
-    label: 'Starting point',
-    screen: 'starter',
     stage: 'booking',
   },
   {
