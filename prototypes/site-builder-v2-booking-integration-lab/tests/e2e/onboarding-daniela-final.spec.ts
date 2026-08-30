@@ -23,6 +23,10 @@ const PORTRAIT_PATH = fileURLToPath(new URL(
   '../../src/onboarding/fixtures/assets/daniela-placeholder.jpg',
   import.meta.url,
 ));
+const LOGO_PATH = fileURLToPath(new URL(
+  '../../../../public/assets/images/clerk-logo-dark.png',
+  import.meta.url,
+));
 
 const runtimeMonitors = new WeakMap<
   Page,
@@ -259,7 +263,7 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await expect(profileField.getByRole('status')).toContainText('daniela-placeholder.jpg');
     await captureLocator(profileField, '01-profile-processing');
     await profileUpload;
-    await expect(profileField.getByRole('status')).toContainText('Photo ready');
+    await expect(profileField.getByRole('status')).toContainText('Profile photo ready');
     await expect(profileField.locator('img')).toBeVisible();
     await expect(page.getByLabel('Profile preview').getByRole('img')).toBeVisible();
     await captureLocator(profileField, '02-profile-thumbnail-ready');
@@ -267,7 +271,7 @@ test.describe('Daniela-final onboarding acceptance', () => {
     const logoField = page.locator('.onboarding-image-upload').filter({
       has: page.getByText('Logo', { exact: true }),
     });
-    await page.getByLabel('Logo', { exact: true }).setInputFiles(PORTRAIT_PATH);
+    await page.getByLabel('Logo', { exact: true }).setInputFiles(LOGO_PATH);
     await expect(logoField.getByRole('status')).toContainText('Logo ready');
     await expect(logoField.locator('img')).toBeVisible();
     await captureLocator(logoField, '03-logo-ready');
@@ -485,7 +489,10 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await page.getByLabel('How much notice do clients need to cancel?').selectOption('custom');
     await capture(page, '25-policy-incomplete');
     await page.getByLabel('Custom notice').fill('36 hours');
-    await page.getByLabel('What happens if they cancel late?').selectOption('deposit_lost');
+    await page.getByLabel('What happens to the deposit if they cancel late?')
+      .selectOption('deposit_lost');
+    await page.getByLabel('Can clients get their deposit back?').selectOption('no');
+    await page.getByLabel('Can clients move it to another appointment?').selectOption('no');
     await capture(page, '26-policy-complete');
     await page.locator('button[aria-controls="onboarding-policy-other-panel"]').click();
     const otherPolicyPanel = page.locator('#onboarding-policy-other-panel');
@@ -667,10 +674,13 @@ test.describe('Daniela-final onboarding acceptance', () => {
     expect(state.profile.serviceMenu.selectedServiceIds).toContain('svc-manicure-russian');
     expect(new Set(state.profile.serviceMenu.selectedServiceIds).size)
       .toBe(state.profile.serviceMenu.selectedServiceIds.length);
-    const timePreview = page.getByLabel('Bookable appointment times after minimum notice');
-    await timePreview.scrollIntoViewIfNeeded();
-    await expect(timePreview.locator('[data-bookable-time]').first()).toBeVisible();
-    await captureLocator(timePreview, '13-plausible-appointment-times');
+    const noticePreview = page.getByLabel('Customer booking information preview')
+      .getByText('Minimum booking notice')
+      .locator('..');
+    await noticePreview.scrollIntoViewIfNeeded();
+    await expect(noticePreview).toContainText(/Book at least .* before your appointment\./u);
+    await expect(page.locator('[data-bookable-time]')).toHaveCount(0);
+    await captureLocator(noticePreview, '13-minimum-booking-notice');
     const bookingStatus = page.getByLabel('Booking connection status');
     await bookingStatus.scrollIntoViewIfNeeded();
     await captureViewport(page, '14-booking-summary-above-footer');
@@ -693,7 +703,28 @@ test.describe('Daniela-final onboarding acceptance', () => {
       ['About + Before You Book', 'is-before-booking', '21-about-before-you-book-mobile', '22-about-before-you-book-desktop'],
     ] as const;
     const group = page.getByRole('group', { name: 'About design presets' });
-    const preview = page.getByLabel('Selected About design preview');
+    const preview = page.getByLabel(/Selected About design preview:/u);
+    const previewFrame = preview.locator('.onboarding-preview-frame');
+    const [groupBox, initialPreviewBox] = await Promise.all([
+      group.boundingBox(),
+      preview.boundingBox(),
+    ]);
+    expect(groupBox).not.toBeNull();
+    expect(initialPreviewBox).not.toBeNull();
+    expect((groupBox?.y ?? 0) + (groupBox?.height ?? 0))
+      .toBeLessThanOrEqual(initialPreviewBox?.y ?? 0);
+    await expect(previewFrame).toHaveAttribute('tabindex', '-1');
+    expect(await previewFrame.evaluate((element) => ({
+      inert: element instanceof HTMLElement ? element.inert : false,
+      overflowX: getComputedStyle(element).overflowX,
+      overflowY: getComputedStyle(element).overflowY,
+      pointerEvents: getComputedStyle(element).pointerEvents,
+    }))).toEqual({
+      inert: true,
+      overflowX: 'hidden',
+      overflowY: 'hidden',
+      pointerEvents: 'none',
+    });
     const measurements: Array<Record<string, unknown>> = [];
 
     const measurePreset = async (
@@ -702,7 +733,7 @@ test.describe('Daniela-final onboarding acceptance', () => {
       viewport: { height: number; width: number },
     ): Promise<void> => {
       const section = preview.locator(`.onboarding-customer-about.${className}`);
-      const book = section.getByRole('link', { name: 'Book now' });
+      const book = section.locator('a', { hasText: 'Book now' });
       await expect(section).toBeVisible();
       await expect(book).toBeVisible();
       const sectionBox = await section.boundingBox();
@@ -763,10 +794,25 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await page.setViewportSize({ height: 568, width: 320 });
     await group.getByRole('button', { name: /^About \+ Before You Book/u })
       .scrollIntoViewIfNeeded();
-    await expect(aboutSection.getByRole('link', { name: 'Book now' })).toBeVisible();
+    await expect(aboutSection.locator('a', { hasText: 'Book now' })).toBeVisible();
     await captureViewport(page, '19-about-spacing-320');
     await page.setViewportSize({ height: 844, width: 390 });
     await captureViewport(page, '20-about-spacing-390');
+
+    await preview.scrollIntoViewIfNeeded();
+    const frameScrollBefore = await previewFrame.evaluate((element) => ({
+      left: element.scrollLeft,
+      top: element.scrollTop,
+    }));
+    const outerScrollBefore = await page.evaluate(() => document.scrollingElement?.scrollTop ?? 0);
+    await preview.hover({ position: { x: 180, y: 200 } });
+    await page.mouse.wheel(0, 320);
+    await expect.poll(() => page.evaluate(() => document.scrollingElement?.scrollTop ?? 0))
+      .toBeGreaterThan(outerScrollBefore);
+    expect(await previewFrame.evaluate((element) => ({
+      left: element.scrollLeft,
+      top: element.scrollTop,
+    }))).toEqual(frameScrollBefore);
 
     await page.getByRole('button', { name: 'Open interactive preview' }).click();
     const fullPreview = page.getByRole('dialog', { name: 'Preview your About section' });
@@ -1451,7 +1497,7 @@ test.describe('Daniela-final onboarding acceptance', () => {
       .check();
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
     await page.getByLabel('Profile photo', { exact: true }).setInputFiles(PORTRAIT_PATH);
-    await page.getByLabel('Logo', { exact: true }).setInputFiles(PORTRAIT_PATH);
+    await page.getByLabel('Logo', { exact: true }).setInputFiles(LOGO_PATH);
     await expect(page.getByLabel('Profile preview').getByRole('img').first()).toBeVisible();
     await expect.poll(async () => (await readCustomDesignAssetRecordCounts(page))['image-asset-originals-v1'] ?? 0)
       .toBeGreaterThanOrEqual(2);

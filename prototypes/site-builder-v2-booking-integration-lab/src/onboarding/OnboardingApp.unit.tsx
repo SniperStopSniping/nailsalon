@@ -244,6 +244,29 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(isOnboardingResetBlocked(true, 2)).toBe(true);
   });
 
+  it('routes only the salon Logo into starter website headers', () => {
+    const state = stateAt('starter');
+    const profileUrl = state.profile.profilePhoto?.previewUrl;
+    state.profile.logo = {
+      fileName: 'isla-wordmark.png',
+      id: 'fixture-isla-logo',
+      mimeType: 'image/png',
+      previewUrl: 'https://example.test/isla-wordmark.png',
+      source: 'fixture',
+    };
+
+    renderAt(state);
+
+    const logos = document.querySelectorAll<HTMLImageElement>(
+      '.final-starter-preview__logo[data-media-role="logo"]',
+    );
+    expect(logos).toHaveLength(3);
+    for (const logo of logos) {
+      expect(logo).toHaveAttribute('src', 'https://example.test/isla-wordmark.png');
+      expect(logo.getAttribute('src')).not.toBe(profileUrl);
+    }
+  });
+
   it('hides Lab review options during the normal owner journey', async () => {
     const user = userEvent.setup();
     renderAt(stateAt('policies'), vi.fn(), false);

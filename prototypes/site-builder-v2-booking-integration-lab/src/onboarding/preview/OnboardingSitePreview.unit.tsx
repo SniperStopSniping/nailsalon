@@ -24,13 +24,13 @@ vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
         assetId,
         kind: 'original',
         status: 'ready',
-        url: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>',
+        url: `blob:${assetId}-original`,
       },
       thumbnail: {
         assetId,
         kind: 'thumbnail',
         status: 'ready',
-        url: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>',
+        url: `blob:${assetId}-thumbnail`,
       },
     }]),
   ),
@@ -66,19 +66,75 @@ const customSection = (
 });
 
 describe('OnboardingSitePreview shared profile composition', () => {
-  it('uses minimum notice to filter the same seeded Booking availability in customer previews', () => {
+  it.each([
+    { logo: true, profilePhoto: true, scenario: 'both uploaded' },
+    { logo: false, profilePhoto: true, scenario: 'profile only' },
+    { logo: true, profilePhoto: false, scenario: 'logo only' },
+    { logo: false, profilePhoto: false, scenario: 'neither uploaded' },
+  ])('keeps Logo in the header and Profile in About for $scenario', ({ logo, profilePhoto, scenario }) => {
+    const state = createDefaultOnboardingState();
+    state.profile.businessName = 'Isla Nail Studio';
+    state.profile.ownerName = 'Daniela';
+    state.profile.logo = logo ? {
+      fileName: 'isla-wordmark.png',
+      id: 'logo-reference',
+      mimeType: 'image/png',
+      source: 'indexed_db',
+      storageId: 'logo-asset',
+    } : undefined;
+    state.profile.profilePhoto = profilePhoto ? {
+      fileName: 'daniela-portrait.png',
+      id: 'profile-reference',
+      mimeType: 'image/png',
+      source: 'indexed_db',
+      storageId: 'profile-asset',
+    } : undefined;
+
+    render(
+      <OnboardingSitePreview document={null} label={`${scenario} preview`} state={state} />,
+    );
+    const preview = screen.getByRole('region', { name: `${scenario} preview` });
+    const brand = preview.querySelector('.onboarding-customer-brand');
+    const headerLogo = brand?.querySelector<HTMLImageElement>('img[data-media-role="logo"]');
+    const about = within(preview).getByRole('region', { name: 'About' });
+    const aboutProfile = about.querySelector<HTMLImageElement>(
+      'img[data-media-role="profile"]',
+    );
+
+    if (logo) {
+      expect(headerLogo).toHaveAttribute('src', 'blob:logo-asset-thumbnail');
+      expect(headerLogo).toHaveAttribute('alt', 'Isla Nail Studio logo');
+    } else {
+      expect(headerLogo).toBeNull();
+      expect(brand?.querySelector('i')).toHaveTextContent('IN');
+    }
+
+    if (profilePhoto) {
+      expect(aboutProfile).toHaveAttribute('src', 'blob:profile-asset-thumbnail');
+      expect(aboutProfile).toHaveAttribute('alt', 'Daniela profile photo');
+    } else {
+      expect(aboutProfile).toBeNull();
+      expect(within(about).getByRole('img', {
+        name: 'Daniela portrait placeholder',
+      })).toHaveTextContent('D');
+    }
+
+    expect(brand?.querySelector('[data-media-role="profile"]')).toBeNull();
+    expect(about.querySelector('[data-media-role="logo"]')).toBeNull();
+  });
+
+  it('presents minimum notice as a cutoff without seeded availability claims', () => {
     const state = createDefaultOnboardingState();
     state.profile.bookingPreferences.minimumNoticeMinutes = 1_440;
-    state.reviewOptions.previewTimestamp = '2026-08-27T18:30:00.000Z';
 
     const { rerender } = render(
       <OnboardingSitePreview document={initializeStarter('quick_book')} label="Notice preview" state={state} />,
     );
     let preview = screen.getByRole('region', { name: 'Notice preview' });
-    expect(preview.querySelector('[data-bookable-time="2026-08-28T19:30:00.000Z"]'))
-      .not.toBeNull();
-    expect(preview.querySelector('[data-bookable-time="2026-08-27T19:30:00.000Z"]'))
-      .toBeNull();
+    expect(within(preview).getByRole('region', { name: 'Minimum booking notice' }))
+      .toHaveTextContent('Book at least 1 day before your appointment.');
+    expect(preview.querySelector('[data-bookable-time]')).toBeNull();
+    expect(preview).not.toHaveTextContent(/available appointment|earliest bookable/iu);
 
     const withoutNotice = {
       ...state,
@@ -94,8 +150,9 @@ describe('OnboardingSitePreview shared profile composition', () => {
       <OnboardingSitePreview document={initializeStarter('quick_book')} label="Notice preview" state={withoutNotice} />,
     );
     preview = screen.getByRole('region', { name: 'Notice preview' });
-    expect(preview.querySelector('[data-bookable-time="2026-08-27T19:30:00.000Z"]'))
-      .not.toBeNull();
+    expect(within(preview).getByRole('region', { name: 'Minimum booking notice' }))
+      .toHaveTextContent('Clients can book without a minimum-notice requirement.');
+    expect(preview.querySelector('[data-bookable-time]')).toBeNull();
   });
 
   it('omits every opening claim until the owner configures public hours', () => {
@@ -414,6 +471,46 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(summaries.every((summary) => summary.textContent === '$50 deposit')).toBe(true);
   });
 
+  it('renders deposits and cancellations as one truthful customer policy', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.policiesEnabled = true;
+    state.profile.policies.deposits.amountCents = 1_500;
+    state.profile.policies.deposits.mode = 'fixed';
+    state.profile.policies.deposits.refundable = false;
+    state.profile.policies.deposits.transferable = false;
+    state.profile.policies.cancellations.notice = '24_hours';
+    state.profile.policies.cancellations.consequence = 'deposit_lost';
+    state.profile.policies.copy.deposits.visible = true;
+    state.profile.policies.copy.deposits.useSuggestedWording = true;
+    state.profile.policies.copy.cancellations.visible = true;
+    state.profile.policies.copy.cancellations.useSuggestedWording = true;
+
+    const view = render(
+      <OnboardingSitePreview document={initializeStarter('one_page')} label="Combined policy preview" state={state} />,
+    );
+    const policies = within(screen.getByRole('region', { name: 'Combined policy preview' }))
+      .getByRole('region', { name: 'Policies' });
+    expect(within(policies).getByRole('heading', { name: 'Deposits & cancellations' }))
+      .toBeVisible();
+    expect(within(policies).queryByRole('heading', { name: 'Cancellations' }))
+      .not.toBeInTheDocument();
+    expect(within(policies).queryByRole('heading', { name: 'Deposits' }))
+      .not.toBeInTheDocument();
+    expect(policies).toHaveTextContent('A $15 deposit is required to book.');
+    expect(policies).toHaveTextContent('Please provide at least 24 hours’ notice');
+
+    const noDeposit = structuredClone(state);
+    noDeposit.profile.policies.deposits.mode = 'none';
+    noDeposit.profile.policies.deposits.amountCents = null;
+    noDeposit.profile.policies.cancellations.consequence = 'cancellation_fee';
+    view.rerender(
+      <OnboardingSitePreview document={initializeStarter('one_page')} label="Combined policy preview" state={noDeposit} />,
+    );
+    expect(policies).toHaveTextContent('No deposit is required.');
+    expect(policies).toHaveTextContent('Late cancellations incur a cancellation fee.');
+    expect(policies).not.toHaveTextContent(/refundable|transferred|deposit being lost/iu);
+  });
+
   it('honours hidden identity and booking-status fields in Before You Book', () => {
     const state = createDanielaFixtureState();
     state.recipe.aboutPreset = 'about_before_you_book';
@@ -646,6 +743,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
       />,
     );
     const stage = screen.getByRole('region', { name: `${device} inline preview` });
+    const frame = stage.querySelector('.onboarding-preview-frame') as HTMLDivElement;
     const customerSurface = stage.querySelector('.onboarding-site-preview') as HTMLDivElement;
 
     expect(ONBOARDING_PREVIEW_VIEWPORTS[device]).toEqual({ height, width });
@@ -653,6 +751,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(stage).toHaveAttribute('data-preview-interaction', 'inline');
     expect(stage.style.getPropertyValue('--preview-target-width')).toBe(`${width}px`);
     expect(stage.style.getPropertyValue('--preview-target-height')).toBe(`${height}px`);
+    expect(frame.inert).toBe(true);
+    expect(frame).toHaveAttribute('tabindex', '-1');
     expect(customerSurface.inert).toBe(true);
     expect(stage).toHaveAccessibleDescription(expect.stringContaining(`${width}-pixel ${device} viewport`));
 
@@ -665,6 +765,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
         state={state}
       />,
     );
+    expect(frame.inert).toBe(false);
+    expect(frame).toHaveAttribute('tabindex', '0');
     expect(customerSurface.inert).toBe(false);
   });
 

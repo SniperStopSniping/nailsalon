@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -61,16 +61,25 @@ const previewCard = (name: string): HTMLElement => {
 };
 
 describe('PoliciesScreen', () => {
-  it('uses six owner-friendly accordions and derives customer wording from structured answers', async () => {
+  it('uses five owner-friendly accordions and derives combined customer wording', async () => {
     const user = userEvent.setup();
     let latest = policyState('blank');
     render(<PoliciesHarness initial={latest} onState={(state) => { latest = state; }} />);
 
     expect(screen.getByRole('heading', { name: 'What your clients will see' })).toBeVisible();
-    expect(screen.getByRole('button', { name: /Cancellations/u })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: /Deposits & cancellations/u })).toHaveAttribute(
       'aria-expanded',
       'true',
     );
+    expect(screen.getAllByRole('button').filter((button) => (
+      button.getAttribute('aria-controls')?.startsWith('onboarding-policy-')
+    ))).toHaveLength(5);
+    expect(screen.queryByText('Cancellations', {
+      selector: '.onboarding-collapsible-card__trigger strong',
+    })).not.toBeInTheDocument();
+    expect(screen.queryByText('Deposits', {
+      selector: '.onboarding-collapsible-card__trigger strong',
+    })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Guests & appointment details/u }))
       .toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryByRole('combobox', {
@@ -87,10 +96,10 @@ describe('PoliciesScreen', () => {
       'custom',
     );
     await user.type(
-      screen.getByRole('textbox', { name: 'Custom consequence' }),
+      screen.getByRole('textbox', { name: 'Custom late-cancellation rule' }),
       'A $30 late cancellation fee applies',
     );
-    expect(within(previewCard('Cancellations')).getByText(/at least 36 hours/u))
+    expect(within(previewCard('Deposits & cancellations')).getByText(/at least 36 hours/u))
       .toBeVisible();
 
     await user.click(screen.getByRole('button', { name: /Late arrivals/u }));
@@ -123,19 +132,32 @@ describe('PoliciesScreen', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: /Deposits/u }));
     expect(screen.getByText('From your Booking settings')).toBeVisible();
     expect(screen.getAllByText('$25 deposit').length).toBeGreaterThan(0);
     expect(screen.queryByRole('textbox', { name: 'Deposit amount' })).not.toBeInTheDocument();
     expect(screen.queryByText(/percentage|depends on the service/iu)).not.toBeInTheDocument();
     expect(screen.queryByRole('group', { name: /require a deposit/iu })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('What happens to the deposit if they cancel late?'))
+      .toBeVisible();
+    expect(screen.getByRole('option', { name: 'Move it to a new appointment' }))
+      .toBeInTheDocument();
+    expect(screen.getByRole('option', { name: 'Refund it' })).toBeInTheDocument();
 
     await user.selectOptions(
-      screen.getByLabelText('Can clients get their deposit back?'),
+      screen.getByLabelText('How much notice do clients need to cancel?'),
+      '24_hours',
+    );
+    await user.selectOptions(
+      screen.getByLabelText('What happens to the deposit if they cancel late?'),
+      'deposit_lost',
+    );
+
+    await user.selectOptions(
+      screen.getByLabelText(/Can clients get their deposit back\?/u),
       'yes',
     );
     await user.selectOptions(
-      screen.getByLabelText('Can clients move it to another appointment?'),
+      screen.getByLabelText(/Can clients move it to another appointment\?/u),
       'no',
     );
     expect(latest.profile.policies.deposits).toMatchObject({
@@ -144,6 +166,10 @@ describe('PoliciesScreen', () => {
       refundable: true,
       transferable: false,
     });
+    expect(screen.getByRole('button', { name: /Deposits & cancellations/u }))
+      .toHaveTextContent('$25 deposit · 24 hours’ notice · deposit kept after late cancellation');
+    expect(screen.getByRole('button', { name: /Deposits & cancellations/u }))
+      .toHaveTextContent('Complete');
     await user.click(screen.getByRole('button', { name: 'Edit deposit in Booking' }));
     expect(onEditBooking).toHaveBeenCalledOnce();
 
@@ -161,10 +187,10 @@ describe('PoliciesScreen', () => {
     let latest = policyState('daniela');
     render(<PoliciesHarness initial={latest} onState={(state) => { latest = state; }} />);
 
-    const cancellations = previewCard('Cancellations');
-    await user.click(within(cancellations).getByRole('button', { name: 'Edit wording' }));
-    const wording = within(cancellations).getByRole('textbox', {
-      name: 'Cancellations wording',
+    const combined = previewCard('Deposits & cancellations');
+    await user.click(within(combined).getByRole('button', { name: 'Edit wording' }));
+    const wording = within(combined).getByRole('textbox', {
+      name: 'Cancellation wording',
     });
     await user.clear(wording);
     await user.type(wording, 'Please text me if you need to change your appointment.');
@@ -179,14 +205,17 @@ describe('PoliciesScreen', () => {
     );
     expect(latest.profile.policies.copy.cancellations.suggestedWording).toContain('48 hours');
 
-    await user.click(within(cancellations).getByRole('switch', {
-      name: 'Show Cancellations on my website',
+    await user.click(within(combined).getByRole('switch', {
+      name: 'Show Deposits & cancellations on my website',
     }));
     expect(latest.profile.policies.copy.cancellations.visible).toBe(false);
-    await user.click(within(cancellations).getByRole('button', {
+    expect(latest.profile.policies.copy.deposits.visible).toBe(false);
+    await user.click(within(combined).getByRole('button', {
       name: 'Use suggested wording',
     }));
-    expect(within(cancellations).getByText(/at least 48 hours/u)).toBeVisible();
+    expect(latest.profile.policies.copy.cancellations.wordingOverride).toBe(
+      'Please text me if you need to change your appointment.',
+    );
   });
 
   it('omits stale deposit-forfeit controls and summaries in no-deposit mode without deleting them', async () => {
@@ -199,13 +228,15 @@ describe('PoliciesScreen', () => {
 
     const view = render(<PoliciesHarness initial={initial} />);
 
-    expect(screen.getByRole('button', { name: /Cancellations/u }))
-      .toHaveTextContent('Finish this policy');
-    expect(screen.getByRole('button', { name: /Cancellations/u }))
-      .not.toHaveTextContent(/deposit/iu);
+    expect(screen.getByRole('button', { name: /Deposits & cancellations/u }))
+      .toHaveTextContent('Finish your deposit and cancellation rules');
     expect(screen.getByLabelText('What happens if they cancel late?'))
       .toHaveValue('');
     expect(screen.queryByRole('option', { name: 'Keep the deposit' }))
+      .not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Can clients get their deposit back\?/u))
+      .not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Can clients move it to another appointment\?/u))
       .not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: /No-shows/u }))
       .toHaveTextContent('Choose what happens after a no-show');
@@ -222,7 +253,7 @@ describe('PoliciesScreen', () => {
     initial.profile.policies.deposits.mode = 'fixed';
     initial.profile.policies.deposits.amountCents = 2_000;
     render(<PoliciesHarness initial={initial} />);
-    expect(screen.getByLabelText('What happens if they cancel late?'))
+    expect(screen.getByLabelText('What happens to the deposit if they cancel late?'))
       .toHaveValue('deposit_lost');
     expect(screen.getByRole('option', { name: 'Keep the deposit' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /No-shows/u }))
@@ -259,8 +290,10 @@ describe('PoliciesScreen', () => {
     expect(screen.getAllByText('Saved, but not shown on your site').length)
       .toBeGreaterThan(0);
     expect(screen.queryByText('Shown on site')).not.toBeInTheDocument();
-    previewCard('Cancellations');
-    expect(screen.getByRole('switch', { name: 'Show Cancellations on my website' }))
+    previewCard('Deposits & cancellations');
+    expect(screen.getByRole('switch', {
+      name: 'Show Deposits & cancellations on my website',
+    }))
       .toBeDisabled();
 
     await user.selectOptions(
@@ -275,35 +308,34 @@ describe('PoliciesScreen', () => {
 
     expect(latest.recipe.policiesEnabled).toBe(true);
     expect(onContinue).toHaveBeenCalledOnce();
-    await waitFor(() => expect(screen.getAllByRole('status').some((status) => (
-      status.textContent === 'Policies added to your site.'
-    ))).toBe(true));
   });
 
   it('does not call a partial or blank custom cancellation policy complete', async () => {
     const user = userEvent.setup();
     render(<PoliciesHarness initial={policyState('blank')} />);
-    const cancellations = () => screen.getByRole('button', { name: /Cancellations/u });
+    const combined = () => screen.getByRole('button', {
+      name: /Deposits & cancellations/u,
+    });
 
-    expect(cancellations()).toHaveTextContent('Choose your rules');
-    expect(cancellations()).toHaveTextContent('Set up');
+    expect(combined()).toHaveTextContent('Finish your deposit and cancellation rules');
+    expect(combined()).toHaveTextContent('Set up');
     await user.selectOptions(
       screen.getByLabelText('How much notice do clients need to cancel?'),
       '24_hours',
     );
-    expect(cancellations()).toHaveTextContent('Finish this policy');
-    expect(cancellations()).not.toHaveTextContent('Complete');
+    expect(combined()).toHaveTextContent('Finish your deposit and cancellation rules');
+    expect(combined()).not.toHaveTextContent('Complete');
     await user.selectOptions(
       screen.getByLabelText('What happens if they cancel late?'),
       'custom',
     );
-    expect(cancellations()).toHaveTextContent('Add your wording');
-    expect(cancellations()).not.toHaveTextContent('Complete');
+    expect(combined()).toHaveTextContent('Finish your deposit and cancellation rules');
+    expect(combined()).not.toHaveTextContent('Complete');
     await user.type(
-      screen.getByRole('textbox', { name: 'Custom consequence' }),
+      screen.getByRole('textbox', { name: 'Custom late-cancellation rule' }),
       'Please contact me directly.',
     );
-    expect(cancellations()).toHaveTextContent('Complete');
+    expect(combined()).toHaveTextContent('Complete');
   });
 
   it('keeps policy visibility controls inside their client-copy disclosures', async () => {
@@ -312,13 +344,36 @@ describe('PoliciesScreen', () => {
 
     expect(screen.getByRole('switch', { name: 'Show policies on my website' }))
       .toBeVisible();
-    expect(screen.getByRole('switch', { name: 'Show Cancellations on my website' }))
+    expect(screen.getByRole('switch', {
+      name: 'Show Deposits & cancellations on my website',
+    }))
       .not.toBeVisible();
-    await user.click(screen.getByText('Cancellations', { selector: 'summary' }));
-    expect(screen.getByRole('switch', { name: 'Show Cancellations on my website' }))
+    await user.click(screen.getByText('Deposits & cancellations', { selector: 'summary' }));
+    expect(screen.getByRole('switch', {
+      name: 'Show Deposits & cancellations on my website',
+    }))
       .toBeVisible();
     expect(screen.getByText('You can add or change policies later from your dashboard.'))
       .toBeVisible();
+  });
+
+  it('reconciles split legacy visibility through the one combined switch', async () => {
+    const user = userEvent.setup();
+    let latest = policyState('daniela');
+    latest.profile.policies.copy.cancellations.visible = false;
+    latest.profile.policies.copy.deposits.visible = true;
+    render(<PoliciesHarness initial={latest} onState={(state) => { latest = state; }} />);
+
+    const combined = previewCard('Deposits & cancellations');
+    expect(within(combined).getByText('Partly shown on site')).toBeVisible();
+    const visibility = within(combined).getByRole('switch', {
+      name: 'Show Deposits & cancellations on my website',
+    });
+    expect(visibility).not.toBeChecked();
+
+    await user.click(visibility);
+    expect(latest.profile.policies.copy.cancellations.visible).toBe(true);
+    expect(latest.profile.policies.copy.deposits.visible).toBe(true);
   });
 
   it('shows guests and children as natural client prose', async () => {

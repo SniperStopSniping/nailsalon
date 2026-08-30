@@ -51,10 +51,24 @@ describe('BookingPreferencesScreen', () => {
       .toHaveTextContent('Services6 selected');
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
       .toHaveTextContent('Minimum notice2 hours');
+    expect(screen.getByRole('combobox', {
+      name: 'How much notice do you need before an appointment?',
+    })).toHaveAccessibleDescription(
+      'Clients must book at least 2 hours before the appointment starts.',
+    );
+    expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
+      .toHaveTextContent('Booking cutoffAt least 2 hours before the appointment starts');
     expect(screen.queryByText(/Booking mock/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/Availability sourceConnected/u)).not.toBeInTheDocument();
     expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
+      .toHaveTextContent(
+        'Minimum booking noticeBook at least 2 hours before your appointment.',
+      );
+    expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
       .toHaveTextContent('Russian Manicure1 hr 30 min · From $65');
+    expect(screen.queryByText('Available times after your notice')).not.toBeInTheDocument();
+    expect(screen.queryByText('Earliest bookable time')).not.toBeInTheDocument();
+    expect(document.querySelector('[data-bookable-time]')).toBeNull();
     expect(screen.queryByText(/Tomorrow at 10:30 AM/u)).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Save booking setup' }));
     expect(screen.getAllByText('Choose how clients can visit you.').length).toBeGreaterThan(0);
@@ -274,14 +288,46 @@ describe('BookingPreferencesScreen', () => {
     await user.selectOptions(screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
     }), 'custom');
+    await user.clear(screen.getByRole('spinbutton', { name: 'Custom amount' }));
+    await user.type(screen.getByRole('spinbutton', { name: 'Custom amount' }), '3');
+    expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(180);
+    expect(screen.getByRole('combobox', {
+      name: 'How much notice do you need before an appointment?',
+    })).toHaveAccessibleDescription(
+      'Clients must book at least 3 hours before the appointment starts.',
+    );
+    expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
+      .toHaveTextContent('Booking cutoffAt least 3 hours before the appointment starts');
+    expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
+      .toHaveTextContent('Book at least 3 hours before your appointment.');
+
     await user.selectOptions(screen.getByRole('combobox', { name: 'Unit' }), 'days');
     await user.clear(screen.getByRole('spinbutton', { name: 'Custom amount' }));
     await user.type(screen.getByRole('spinbutton', { name: 'Custom amount' }), '5');
     expect(latest.bookingPreferences.minimumNoticeMinutes).toBe(7_200);
-
+    expect(screen.getByRole('combobox', {
+      name: 'How much notice do you need before an appointment?',
+    })).toHaveAccessibleDescription(
+      'Clients must book at least 5 days before the appointment starts.',
+    );
   });
 
-  it('changes the displayed bookable appointment times when minimum notice changes', async () => {
+  it.each([
+    ['preset:0', 'No minimum notice', 'Clients can book without a minimum-notice requirement.', 'No minimum-notice requirement', 'Clients can book without a minimum-notice requirement.'],
+    ['preset:120', '2 hours', 'Clients must book at least 2 hours before the appointment starts.', 'At least 2 hours before the appointment starts', 'Book at least 2 hours before your appointment.'],
+    ['preset:240', '4 hours', 'Clients must book at least 4 hours before the appointment starts.', 'At least 4 hours before the appointment starts', 'Book at least 4 hours before your appointment.'],
+    ['preset:480', '8 hours', 'Clients must book at least 8 hours before the appointment starts.', 'At least 8 hours before the appointment starts', 'Book at least 8 hours before your appointment.'],
+    ['preset:720', '12 hours', 'Clients must book at least 12 hours before the appointment starts.', 'At least 12 hours before the appointment starts', 'Book at least 12 hours before your appointment.'],
+    ['preset:1440', '1 day', 'Clients must book at least 1 day before the appointment starts.', 'At least 1 day before the appointment starts', 'Book at least 1 day before your appointment.'],
+    ['preset:2880', '2 days', 'Clients must book at least 2 days before the appointment starts.', 'At least 2 days before the appointment starts', 'Book at least 2 days before your appointment.'],
+    ['preset:4320', '3 days', 'Clients must book at least 3 days before the appointment starts.', 'At least 3 days before the appointment starts', 'Book at least 3 days before your appointment.'],
+  ])('renders %s as a cutoff without fabricated times', async (
+    choice,
+    label,
+    helper,
+    summary,
+    customer,
+  ) => {
     const user = userEvent.setup();
     function Harness() {
       const [profile, setProfile] = useState(createDefaultBusinessProfile);
@@ -295,7 +341,6 @@ describe('BookingPreferencesScreen', () => {
           onContinue={vi.fn()}
           onDepositChange={vi.fn()}
           onServiceMenuChange={vi.fn()}
-          previewTimestamp="2026-08-27T18:30:00.000Z"
           profile={profile}
         />
       );
@@ -305,20 +350,21 @@ describe('BookingPreferencesScreen', () => {
     const notice = screen.getByRole('combobox', {
       name: 'How much notice do you need before an appointment?',
     });
-    expect(document.querySelector('[data-bookable-time="2026-08-27T19:30:00.000Z"]'))
-      .toBeNull();
-    expect(document.querySelector('[data-bookable-time="2026-08-27T22:00:00.000Z"]'))
-      .not.toBeNull();
+    await user.selectOptions(notice, choice);
 
-    await user.selectOptions(notice, 'preset:0');
-    expect(document.querySelector('[data-bookable-time="2026-08-27T19:30:00.000Z"]'))
-      .not.toBeNull();
-
-    await user.selectOptions(notice, 'preset:4320');
-    expect(document.querySelector('[data-bookable-time="2026-08-30T19:30:00.000Z"]'))
-      .not.toBeNull();
+    expect(notice).toHaveDisplayValue(label);
+    expect(notice).toHaveAccessibleDescription(helper);
     expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
-      .toHaveTextContent(/Earliest bookable time.*Sun, Aug 30 · 3:30 p\.m\./u);
+      .toHaveTextContent(`Minimum notice${label}`);
+    expect(screen.getByRole('complementary', { name: 'Booking connection status' }))
+      .toHaveTextContent(`Booking cutoff${summary}`);
+    expect(screen.getByRole('complementary', { name: 'Customer booking information preview' }))
+      .toHaveTextContent(`Minimum booking notice${customer}`);
+    expect(screen.queryByText('Available times after your notice')).not.toBeInTheDocument();
+    expect(screen.queryByText('Earliest bookable time')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Bookable appointment times after minimum notice'))
+      .not.toBeInTheDocument();
+    expect(document.querySelector('[data-bookable-time]')).toBeNull();
   });
 
   it('blocks blank custom notice and deposit values, focuses the first error, and preserves valid state', async () => {
@@ -394,9 +440,9 @@ describe('StartingPointScreen', () => {
     render(
       <StartingPointScreen
         businessName="Isla Nail Studio"
+        logoUrl="data:image/png;base64,logo"
         onBack={vi.fn()}
         onChooseStarter={onChooseStarter}
-        portraitUrl="data:image/jpeg;base64,portrait"
         selectedStarter={null}
       />,
     );
@@ -407,10 +453,11 @@ describe('StartingPointScreen', () => {
     expect(screen.getByText('Welcome · About · Services · Gallery · Reviews · Booking')).toBeVisible();
     expect(screen.getByText('Home · Services & Booking · Gallery · About · Contact')).toBeVisible();
     expect(screen.getAllByText('Isla Nail Studio').length).toBeGreaterThanOrEqual(3);
-    const portraits = document.querySelectorAll('.final-starter-preview__portrait');
-    expect(portraits).toHaveLength(3);
-    for (const portrait of portraits) {
-      expect(portrait).toHaveAttribute('src', 'data:image/jpeg;base64,portrait');
+    const logos = document.querySelectorAll('.final-starter-preview__logo');
+    expect(logos).toHaveLength(3);
+    for (const logo of logos) {
+      expect(logo).toHaveAttribute('data-media-role', 'logo');
+      expect(logo).toHaveAttribute('src', 'data:image/png;base64,logo');
     }
     expect(screen.queryByText(/custom design/i)).not.toBeInTheDocument();
 

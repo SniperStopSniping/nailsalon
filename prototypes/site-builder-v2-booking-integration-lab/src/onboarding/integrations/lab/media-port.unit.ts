@@ -6,7 +6,10 @@ import {
   type PreparedImageAsset,
 } from '../../../custom-design/assets';
 import type { LocalImageReference } from '../../model/types';
-import { resolveOnboardingImageUrl } from '../adapters/media';
+import {
+  resolveOnboardingImage,
+  resolveOnboardingImageUrl,
+} from '../adapters/media';
 import { LAB_ONBOARDING_MEDIA_PORT } from './media-port';
 
 const mediaMocks = vi.hoisted(() => ({
@@ -342,5 +345,91 @@ describe('LAB_ONBOARDING_MEDIA_PORT', () => {
 
     expect(resolveOnboardingImageUrl(legacyInline, new Map())).toBeNull();
     expect(resolveOnboardingImageUrl(missing, new Map())).toBeNull();
+  });
+
+  it('resolves only the requested role asset and exposes honest lease states', () => {
+    const profile = indexedImage('profile-asset');
+    const logoOnlyAssets = new Map([['logo-asset', {
+      original: {
+        assetId: 'logo-asset',
+        kind: 'original' as const,
+        status: 'ready' as const,
+        url: 'blob:logo-original',
+      },
+      thumbnail: {
+        assetId: 'logo-asset',
+        kind: 'thumbnail' as const,
+        status: 'ready' as const,
+        url: 'blob:logo-thumbnail',
+      },
+    }]]);
+
+    expect(resolveOnboardingImage(profile, logoOnlyAssets)).toEqual({
+      status: 'loading',
+      url: null,
+    });
+    expect(resolveOnboardingImageUrl(profile, logoOnlyAssets)).toBeNull();
+
+    const profileAssets = new Map([['profile-asset', {
+      original: {
+        assetId: 'profile-asset',
+        kind: 'original' as const,
+        status: 'missing' as const,
+      },
+      thumbnail: {
+        assetId: 'profile-asset',
+        kind: 'thumbnail' as const,
+        status: 'ready' as const,
+        url: 'blob:profile-thumbnail',
+      },
+    }]]);
+    expect(resolveOnboardingImage(profile, profileAssets)).toEqual({
+      status: 'ready',
+      url: 'blob:profile-thumbnail',
+    });
+
+    const missingAssets = new Map([['profile-asset', {
+      original: {
+        assetId: 'profile-asset',
+        kind: 'original' as const,
+        status: 'missing' as const,
+      },
+      thumbnail: {
+        assetId: 'profile-asset',
+        kind: 'thumbnail' as const,
+        status: 'missing' as const,
+      },
+    }]]);
+    expect(resolveOnboardingImage(profile, missingAssets)).toEqual({
+      status: 'missing',
+      url: null,
+    });
+  });
+
+  it('creates distinct role-bound references for profile and logo uploads', async () => {
+    const harness = createRepository();
+    harness.commit.mockImplementation(async (assetId: string) =>
+      metadataFor(assetId, assetId.startsWith('onboarding_profile_')
+        ? 'owner-portrait.png'
+        : 'salon-logo.png'));
+
+    const profile = await LAB_ONBOARDING_MEDIA_PORT.storeOne(
+      harness.repository,
+      file('owner-portrait.png'),
+      'profile',
+    );
+    const logo = await LAB_ONBOARDING_MEDIA_PORT.storeOne(
+      harness.repository,
+      file('salon-logo.png'),
+      'logo',
+    );
+
+    expect(profile.storageId).toMatch(/^onboarding_profile_/u);
+    expect(logo.storageId).toMatch(/^onboarding_logo_/u);
+    expect(profile.storageId).not.toBe(logo.storageId);
+    expect(profile.id).toMatch(/^profile_onboarding_profile_/u);
+    expect(logo.id).toMatch(/^logo_onboarding_logo_/u);
+    expect(profile.altText).toBe('Business owner portrait');
+    expect(logo.altText).toBe('Business logo');
   });
 });

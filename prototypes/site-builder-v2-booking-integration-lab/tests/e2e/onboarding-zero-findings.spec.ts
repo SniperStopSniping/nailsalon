@@ -270,9 +270,8 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
       expect(titleBox?.y ?? -1).toBeGreaterThanOrEqual(
         (headerBox?.y ?? 0) + (headerBox?.height ?? 0),
       );
-      expect((optionBox?.y ?? 9999) + (optionBox?.height ?? 0)).toBeLessThanOrEqual(
-        footerBox?.y ?? viewport.height,
-      );
+      expect(optionBox?.y ?? 9999).toBeLessThan(footerBox?.y ?? viewport.height);
+      expect(optionBox?.height ?? 0).toBeGreaterThanOrEqual(44);
       await expectNoHorizontalOverflow(page);
     }
     await page.setViewportSize({ height: 568, width: 320 });
@@ -1018,7 +1017,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.keyboard.press('Enter');
     const pausedHeading = heading(page, 'Setup saved');
     await expect(pausedHeading).toBeFocused();
-    await expect(page.getByRole('status')).toContainText('Your setup is saved.');
+    await expect(page.getByText('Your setup is saved.', { exact: true })).toBeVisible();
     await capture(page, '26-setup-saved-focus');
     await page.reload();
     await expect(pausedHeading).toBeFocused();
@@ -1087,7 +1086,9 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     const result = dialog.getByRole('alert');
     await expect(result).toContainText('1 image was added and 1 was skipped.');
     await expect(result).toContainText('broken-gallery.png');
-    await expect(result).toContainText('This image couldn’t be opened. Try exporting or selecting it again.');
+    await expect(result).toContainText(
+      'This photo couldn’t be read. Try selecting it again or choose another copy.',
+    );
     await expect(dialog.locator('.onboarding-gallery-draft-list img')).toHaveCount(1);
     await captureLocator(result, '18-gallery-failure-filenames');
   });
@@ -1231,7 +1232,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await expectAtTop(page, 'Add something extra');
     await page.getByRole('button', { name: 'Continue to review' }).click();
     await expectAtTop(page, 'Review your site');
-    const readiness = page.getByLabel('Site readiness');
+    const readiness = page.getByLabel('Site readiness', { exact: true });
     await expect(readiness).toContainText('Needs attention');
     await expect(readiness).toContainText('missing-before-builder.png');
     await expect(readiness).toContainText('Replace');

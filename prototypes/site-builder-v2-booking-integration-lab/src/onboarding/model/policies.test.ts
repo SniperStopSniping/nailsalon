@@ -3,13 +3,20 @@ import { describe, expect, it } from 'vitest';
 import { createDanielaFixtureState } from '../fixtures';
 import { createDefaultPolicies } from './defaults';
 import {
+  deriveDepositsAndCancellationsSuggestedWording,
+  deriveDepositsAndCancellationsSummary,
   deriveDepositForfeitWording,
   deriveDepositPolicySummary,
   derivePolicySuggestedWording,
+  getDepositsAndCancellationsDisplayWording,
   getDepositPolicyMode,
+  getLateCancellationChoice,
   getPolicyDisplayWording,
+  getResolvedPolicyWording,
   hasMeaningfulPublishablePolicies,
+  isDepositsAndCancellationsComplete,
   isPolicySectionComplete,
+  LATE_CANCELLATION_CUSTOM_WORDING,
   refreshPolicySuggestedWording,
   updateDepositDraft,
   updateDepositPolicyMode,
@@ -125,6 +132,120 @@ describe('policy suggested wording', () => {
     expect(isPolicySectionComplete(policies, 'late_arrivals')).toBe(true);
   });
 
+  it('derives one complete fixed-deposit and cancellation policy', () => {
+    const policies = updateDepositDraft(createDefaultPolicies(), {
+      amountCents: 1_500,
+      mode: 'fixed',
+      refundable: false,
+      transferable: false,
+    });
+    policies.cancellations.notice = '24_hours';
+    policies.cancellations.consequence = 'deposit_lost';
+
+    expect(isDepositsAndCancellationsComplete(policies)).toBe(true);
+    expect(deriveDepositsAndCancellationsSummary(policies)).toBe(
+      '$15 deposit · 24 hours’ notice · deposit kept after late cancellation',
+    );
+    expect(deriveDepositsAndCancellationsSuggestedWording(policies)).toBe(
+      'A $15 deposit is required to book. Please provide at least 24 hours’ notice when cancelling or rescheduling. Deposits are kept after late cancellations. Before the deadline, deposits are non-refundable. Before the deadline, deposits cannot be moved to another appointment.',
+    );
+  });
+
+  it('hides deposit-only rules in no-deposit mode without deleting legacy answers', () => {
+    const policies = createDefaultPolicies();
+    policies.cancellations.notice = '24_hours';
+    policies.cancellations.consequence = 'deposit_lost';
+    policies.deposits.refundable = false;
+    policies.deposits.transferable = false;
+
+    expect(getLateCancellationChoice(policies)).toBe('');
+    expect(isDepositsAndCancellationsComplete(policies)).toBe(false);
+    expect(deriveDepositsAndCancellationsSummary(policies)).toBe(
+      'Finish your deposit and cancellation rules',
+    );
+    expect(deriveDepositsAndCancellationsSuggestedWording(policies))
+      .toBe('No deposit is required. Please provide at least 24 hours’ notice when cancelling or rescheduling.');
+    expect(policies.cancellations.consequence).toBe('deposit_lost');
+    expect(policies.deposits.refundable).toBe(false);
+
+    policies.cancellations.consequence = 'cancellation_fee';
+    expect(isDepositsAndCancellationsComplete(policies)).toBe(true);
+    expect(deriveDepositsAndCancellationsSummary(policies))
+      .toBe('No deposit · 24 hours’ notice');
+  });
+
+  it('maps richer late-cancellation choices onto existing custom consequence storage', () => {
+    const policies = updateDepositDraft(createDefaultPolicies(), {
+      amountCents: 1_500,
+      mode: 'fixed',
+    });
+    policies.cancellations.consequence = 'custom';
+    policies.cancellations.customConsequence =
+      LATE_CANCELLATION_CUSTOM_WORDING.move_deposit;
+
+    expect(getLateCancellationChoice(policies)).toBe('move_deposit');
+    expect(deriveDepositsAndCancellationsSuggestedWording(policies))
+      .toContain('the deposit can be moved to a new appointment');
+
+    policies.deposits.mode = 'none';
+    expect(getLateCancellationChoice(policies)).toBe('');
+    expect(policies.cancellations.customConsequence)
+      .toBe(LATE_CANCELLATION_CUSTOM_WORDING.move_deposit);
+  });
+
+  it('combines distinct legacy overrides without collapsing either copy record', () => {
+    const policies = createDefaultPolicies();
+    policies.deposits.mode = 'fixed';
+    policies.copy.deposits.useSuggestedWording = false;
+    policies.copy.cancellations.useSuggestedWording = false;
+    policies.deposits.wordingOverride = 'Legacy deposit wording.';
+    policies.copy.cancellations.wordingOverride = 'Legacy cancellation wording.';
+
+    expect(getDepositsAndCancellationsDisplayWording(policies)).toBe(
+      'Legacy deposit wording. Legacy cancellation wording.',
+    );
+    expect(policies.copy.deposits.wordingOverride).toBe('');
+    expect(policies.deposits.wordingOverride).toBe('Legacy deposit wording.');
+    expect(policies.copy.cancellations.wordingOverride)
+      .toBe('Legacy cancellation wording.');
+  });
+
+  it('retains but withholds a contradictory no-deposit override after Booking enables a fixed deposit', () => {
+    const policies = createDefaultPolicies();
+    policies.copy.deposits.useSuggestedWording = false;
+    policies.deposits.wordingOverride = 'No deposit is required.';
+
+    const fixedPolicies = updateDepositDraft(policies, {
+      amountCents: 1_500,
+      mode: 'fixed',
+      refundable: false,
+      transferable: false,
+    });
+
+    expect(getResolvedPolicyWording(fixedPolicies, 'deposits'))
+      .toBe('A $15 deposit is required and is applied to your appointment. Deposits are non-refundable. Deposits cannot be transferred to another appointment.');
+    expect(fixedPolicies.deposits.wordingOverride).toBe('No deposit is required.');
+    expect(fixedPolicies.copy.deposits.useSuggestedWording).toBe(false);
+  });
+
+  it('retains but withholds a fixed-deposit override after Booking changes the amount', () => {
+    const policies = updateDepositDraft(createDefaultPolicies(), {
+      amountCents: 1_500,
+      mode: 'fixed',
+      refundable: false,
+      transferable: false,
+    });
+    policies.copy.deposits.useSuggestedWording = false;
+    policies.deposits.wordingOverride = 'A $15 deposit is required to book.';
+
+    const updatedPolicies = updateDepositDraft(policies, { amountCents: 5_000 });
+
+    expect(getResolvedPolicyWording(updatedPolicies, 'deposits'))
+      .toBe('A $50 deposit is required and is applied to your appointment. Deposits are non-refundable. Deposits cannot be transferred to another appointment.');
+    expect(updatedPolicies.deposits.wordingOverride)
+      .toBe('A $15 deposit is required to book.');
+  });
+
   it('only treats visible, meaningful client wording as publishable', () => {
     const policies = createDefaultPolicies();
     expect(hasMeaningfulPublishablePolicies(policies)).toBe(false);
@@ -134,6 +255,7 @@ describe('policy suggested wording', () => {
     expect(hasMeaningfulPublishablePolicies(policies)).toBe(true);
 
     policies.copy.cancellations.visible = false;
+    policies.copy.deposits.visible = false;
     expect(hasMeaningfulPublishablePolicies(policies)).toBe(false);
   });
 

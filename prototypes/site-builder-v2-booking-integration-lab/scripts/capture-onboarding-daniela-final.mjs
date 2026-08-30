@@ -21,7 +21,7 @@ const screenshotInventory = [
   '10-unselected-service-row.png',
   '11-service-library-add-ons.png',
   '12-service-library-sticky-footer.png',
-  '13-plausible-appointment-times.png',
+  '13-minimum-booking-notice.png',
   '14-booking-summary-above-footer.png',
   '15-about-photo-right-mobile.png',
   '16-about-photo-right-desktop.png',

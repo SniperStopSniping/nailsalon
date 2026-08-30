@@ -719,6 +719,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
   });
 
   test('Journey H keeps hours honest, derives open/closed status, and never leaks a private address through Directions', async ({ page }) => {
+    await page.clock.setFixedTime(new Date('2026-08-29T21:00:00-04:00'));
     await openFreshOnboarding(page);
     await page.getByRole('button', { name: 'Build my website' }).click();
     await completeBusiness(page);
@@ -824,9 +825,8 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await page.getByRole('button', { name: 'Continue without About' }).click();
     await expectScreenAtTop(page, 'Set clear expectations');
 
-    await page.getByRole('button', { name: /^Deposits/u }).click();
     await expect(page.getByText('From your Booking settings')).toBeVisible();
-    await expect(page.locator('#onboarding-policy-deposits-panel')
+    await expect(page.locator('#onboarding-policy-deposits-cancellations-panel')
       .getByText('$20 deposit', { exact: true })).toBeVisible();
     await expect(page.getByRole('group', { name: 'How do you handle booking deposits?' })).toHaveCount(0);
     await captureEvidence(page, '17-shared-deposit-state');

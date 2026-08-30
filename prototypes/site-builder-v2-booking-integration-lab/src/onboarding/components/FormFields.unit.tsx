@@ -236,6 +236,47 @@ describe('ImageUploadField', () => {
     expect(screen.getByRole('button', { name: 'Remove' })).toBeEnabled();
   });
 
+  it('does not announce a saved Logo as ready before its own thumbnail resolves', () => {
+    const view = render(
+      <ImageUploadField
+        assetLoading
+        chooseLabel="Choose logo"
+        currentLabel="isla-wordmark.png"
+        label="Logo"
+        loadingLabel="Loading saved logo…"
+        mediaRole="logo"
+        onSelect={vi.fn()}
+        previewAlt="Isla Nail Studio logo thumbnail"
+        readyLabel="Logo ready"
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Loading saved logo…isla-wordmark.png',
+    );
+    expect(screen.queryByText('Logo ready')).not.toBeInTheDocument();
+    expect(screen.queryByRole('img')).not.toBeInTheDocument();
+
+    view.rerender(
+      <ImageUploadField
+        chooseLabel="Choose logo"
+        currentLabel="isla-wordmark.png"
+        label="Logo"
+        mediaRole="logo"
+        onSelect={vi.fn()}
+        previewAlt="Isla Nail Studio logo thumbnail"
+        previewUrl="blob:logo-thumbnail"
+        readyLabel="Logo ready"
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Logo readyisla-wordmark.png',
+    );
+    expect(screen.getByRole('img', { name: 'Isla Nail Studio logo thumbnail' }))
+      .toHaveAttribute('src', 'blob:logo-thumbnail');
+  });
+
   it.each([
     ['Profile photo', 'Choose profile photo'],
     ['Logo', 'Choose logo'],

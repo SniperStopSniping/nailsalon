@@ -183,20 +183,21 @@ describe('StarterChooser copy and accessibility', () => {
     )).toBeVisible();
   });
 
-  it('personalizes every starter scene with the owner portrait without changing card names', () => {
+  it('personalizes every starter header with the salon logo without changing card names', () => {
     render(
       <StarterChoiceGrid
         businessName="Cedar Tips"
+        logoUrl="data:image/png;base64,logo"
         onChoose={vi.fn()}
-        portraitUrl="data:image/jpeg;base64,owner"
       />,
     );
 
-    const portraits = document.querySelectorAll('.final-starter-preview__portrait');
-    expect(portraits).toHaveLength(3);
-    portraits.forEach((portrait) => {
-      expect(portrait).toHaveAttribute('src', 'data:image/jpeg;base64,owner');
-      expect(portrait).toHaveAttribute('alt', '');
+    const logos = document.querySelectorAll('.final-starter-preview__logo');
+    expect(logos).toHaveLength(3);
+    logos.forEach((logo) => {
+      expect(logo).toHaveAttribute('data-media-role', 'logo');
+      expect(logo).toHaveAttribute('src', 'data:image/png;base64,logo');
+      expect(logo).toHaveAttribute('alt', '');
     });
     expect(getCard('Quick Book')).not.toHaveAccessibleName(/Cedar Tips/u);
   });

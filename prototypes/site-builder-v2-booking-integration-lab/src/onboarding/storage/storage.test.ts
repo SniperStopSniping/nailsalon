@@ -5,6 +5,7 @@ import {
   createDefaultOnboardingState,
   DEFAULT_PREVIEW_TIMESTAMP,
 } from '../model/defaults';
+import { isDepositsAndCancellationsComplete } from '../model/policies';
 import { ONBOARDING_SCHEMA_VERSION } from '../model/types';
 import {
   clearOnboardingState,
@@ -135,6 +136,53 @@ describe('onboarding browser-local storage', () => {
     expect(loaded.state.planOffer.foundingMode).toBe('locked_monthly');
     expect(loaded.state.progress.lastSavedAt).toBe('2026-08-27T14:00:00.000Z');
     expect(storage.values.get('unrelated')).toBe('keep me');
+  });
+
+  it('preserves separate saved cancellation and deposit records for the combined policy', () => {
+    const storage = createMemoryStorage();
+    const state = createDefaultOnboardingState();
+    state.profile.policies.cancellations = {
+      consequence: 'deposit_lost',
+      customConsequence: 'Retained hidden custom consequence.',
+      customNotice: '',
+      notice: '24_hours',
+    };
+    state.profile.policies.deposits = {
+      amountCents: 1_500,
+      mode: 'fixed',
+      refundable: false,
+      transferable: false,
+      wordingOverride: 'Exact legacy deposit override.',
+    };
+    state.profile.policies.copy.cancellations = {
+      suggestedWording: 'Legacy cancellation suggestion.',
+      useSuggestedWording: false,
+      visible: false,
+      wordingOverride: 'Exact legacy cancellation override.',
+    };
+    state.profile.policies.copy.deposits = {
+      suggestedWording: 'Legacy deposit suggestion.',
+      useSuggestedWording: false,
+      visible: true,
+      wordingOverride: 'Retained legacy copy-slot override.',
+    };
+
+    expect(saveOnboardingState(state, { storage }).success).toBe(true);
+    const loaded = loadOnboardingState(storage);
+
+    expect(loaded.status).toBe('loaded');
+    expect(isDepositsAndCancellationsComplete(loaded.state.profile.policies)).toBe(true);
+    expect(loaded.state.profile.policies.cancellations).toEqual(
+      state.profile.policies.cancellations,
+    );
+    expect(loaded.state.profile.policies.deposits.wordingOverride)
+      .toBe('Exact legacy deposit override.');
+    expect(loaded.state.profile.policies.copy.cancellations).toEqual(
+      state.profile.policies.copy.cancellations,
+    );
+    expect(loaded.state.profile.policies.copy.deposits).toEqual(
+      state.profile.policies.copy.deposits,
+    );
   });
 
   it('fails visibly for malformed or unsupported saved state', () => {
@@ -487,6 +535,46 @@ describe('onboarding browser-local storage', () => {
     expect(serialized).not.toContain('PROFILE_BYTES');
     expect(serialized).not.toContain('GALLERY_BYTES');
     expect(parseOnboardingState(serialized).status).toBe('loaded');
+  });
+
+  it('saves and reloads Profile and Logo references without swapping their roles', () => {
+    const state = createDefaultOnboardingState();
+    state.profile.profilePhoto = {
+      fileName: 'daniela-portrait.png',
+      id: 'profile-profile-asset',
+      mimeType: 'image/png',
+      source: 'indexed_db',
+      storageId: 'profile-asset',
+    };
+    state.profile.logo = {
+      fileName: 'isla-wordmark.png',
+      id: 'logo-logo-asset',
+      mimeType: 'image/png',
+      source: 'indexed_db',
+      storageId: 'logo-asset',
+    };
+    const storage = createMemoryStorage();
+
+    const saved = saveOnboardingState(state, {
+      storage,
+      timestamp: '2026-08-29T20:00:00.000Z',
+    });
+    expect(saved.success).toBe(true);
+
+    const loaded = loadOnboardingState(storage);
+    expect(loaded.status).toBe('loaded');
+    expect(loaded.state.profile.profilePhoto).toMatchObject({
+      fileName: 'daniela-portrait.png',
+      id: 'profile-profile-asset',
+      storageId: 'profile-asset',
+    });
+    expect(loaded.state.profile.logo).toMatchObject({
+      fileName: 'isla-wordmark.png',
+      id: 'logo-logo-asset',
+      storageId: 'logo-asset',
+    });
+    expect(loaded.state.profile.profilePhoto?.storageId)
+      .not.toBe(loaded.state.profile.logo?.storageId);
   });
 
   it('normalizes contaminated v6 image references before validation and every current save', () => {

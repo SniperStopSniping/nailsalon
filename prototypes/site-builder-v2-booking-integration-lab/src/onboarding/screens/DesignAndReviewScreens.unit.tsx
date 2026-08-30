@@ -100,7 +100,24 @@ describe('About onboarding screens', () => {
     }
 
     const { container } = render(<Harness />);
-    const preview = screen.getByRole('region', { name: 'Selected About design preview' });
+    const presets = within(screen.getByRole('group', { name: 'About design presets' }));
+    const presetGroup = presets.getAllByRole('button');
+    const preview = screen.getByRole('region', {
+      name: 'Selected About design preview: Photo Right',
+    });
+    expect(presetGroup).toHaveLength(4);
+    expect(Boolean(
+      (presetGroup[3]?.compareDocumentPosition(preview) ?? 0)
+        & Node.DOCUMENT_POSITION_FOLLOWING,
+    )).toBe(true);
+    expect(Boolean(
+      screen.getByRole('heading', { name: 'See it on your site' })
+        .compareDocumentPosition(preview)
+        & Node.DOCUMENT_POSITION_FOLLOWING,
+    )).toBe(true);
+    const inlineFrame = preview.querySelector<HTMLElement>('.onboarding-preview-frame');
+    expect(inlineFrame?.inert).toBe(true);
+    expect(inlineFrame).toHaveAttribute('tabindex', '-1');
     expect(within(preview).getByText(originalProfile.about.shortBio)).toBeVisible();
     expect(within(preview).getByText('@islanail.studio')).toBeVisible();
     expect(container.querySelector('.onboarding-customer-about.is-photo-right')).toBeInTheDocument();
@@ -119,10 +136,16 @@ describe('About onboarding screens', () => {
     expect(screen.queryByRole('button', { name: /Next About design/u }))
       .not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Content' })).not.toBeInTheDocument();
-    const presets = within(screen.getByRole('group', { name: 'About design presets' }));
     const selectedPreset = presets.getAllByRole('button', { pressed: true });
     expect(selectedPreset).toHaveLength(1);
     expect(within(selectedPreset[0]!).getByText('Selected')).toBeVisible();
+    const tabOrder = Array.from(container.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    )).map((element) => element.textContent?.trim());
+    expect(tabOrder.indexOf('Open interactive preview'))
+      .toBeLessThan(tabOrder.indexOf('Use this design'));
+    expect(tabOrder.indexOf('Use this design'))
+      .toBeLessThan(tabOrder.indexOf('Back to edit About'));
   });
 
   it('keeps the shared Instagram independently available while contact is Booking-only', async () => {

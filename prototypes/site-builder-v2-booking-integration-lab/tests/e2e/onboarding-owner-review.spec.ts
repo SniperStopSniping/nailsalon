@@ -19,6 +19,10 @@ const PORTRAIT_PATH = fileURLToPath(new URL(
   '../../src/onboarding/fixtures/assets/daniela-placeholder.jpg',
   import.meta.url,
 ));
+const LOGO_PATH = fileURLToPath(new URL(
+  '../../../../public/assets/images/clerk-logo-dark.png',
+  import.meta.url,
+));
 
 const runtimeMonitors = new WeakMap<
   Page,
@@ -230,21 +234,15 @@ test.describe('Onboarding owner-review browser acceptance', () => {
     await library.getByRole('button', { name: 'Done' }).click();
     await capture(page, '09-service-library-review');
 
-    const availableTimes = page.getByLabel(
-      'Bookable appointment times after minimum notice',
-    );
-    const bookableTimes = availableTimes.locator('[data-bookable-time]');
-    await expect(bookableTimes.first()).toBeVisible();
-    const beforeNotice = await bookableTimes.evaluateAll((elements) => elements.map((element) =>
-      element.getAttribute('data-bookable-time')));
     await page.getByLabel('How much notice do you need before an appointment?')
       .selectOption('preset:1440');
-    await expect.poll(async () => bookableTimes.evaluateAll((elements) => elements.map((element) =>
-      element.getAttribute('data-bookable-time')))).not.toEqual(beforeNotice);
-    const afterNotice = await bookableTimes.evaluateAll((elements) => elements.map((element) =>
-      element.getAttribute('data-bookable-time')));
-    expect(afterNotice.length).toBeGreaterThan(0);
-    expect(Date.parse(afterNotice[0] ?? '')).toBeGreaterThan(Date.parse(beforeNotice[0] ?? ''));
+    await expect(page.getByText('Clients must book at least 1 day before the appointment starts.').first())
+      .toBeVisible();
+    await expect(page.getByLabel('Booking connection status'))
+      .toContainText('Booking cutoffAt least 1 day before the appointment starts');
+    await expect(page.getByLabel('Customer booking information preview'))
+      .toContainText('Book at least 1 day before your appointment.');
+    await expect(page.locator('[data-bookable-time]')).toHaveCount(0);
     await page.getByRole('group', { name: 'How do you handle booking deposits?' })
       .getByRole('radio', { name: 'Same deposit for every service' })
       .check();
@@ -426,7 +424,7 @@ test.describe('Onboarding owner-review browser acceptance', () => {
       .check();
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await page.getByLabel('Profile photo', { exact: true }).setInputFiles(PORTRAIT_PATH);
-    await page.getByLabel('Logo', { exact: true }).setInputFiles(PORTRAIT_PATH);
+    await page.getByLabel('Logo', { exact: true }).setInputFiles(LOGO_PATH);
     await expect(page.getByLabel('Profile preview').getByRole('img')).toBeVisible();
 
     await applyFixture(page, 'Canva intent', 'Add something extra');

@@ -146,6 +146,110 @@ describe('PhotoSocialScreen', () => {
     expect(instagram).toHaveFocus();
   });
 
+  it('shows distinct role-correct ready thumbnails without crossing Profile and Logo', () => {
+    const profile = createDefaultBusinessProfile();
+    profile.businessName = 'Isla Nail Studio';
+    profile.ownerName = 'Daniela';
+    profile.profilePhoto = {
+      fileName: 'daniela-portrait.png',
+      id: 'fixture-profile',
+      mimeType: 'image/png',
+      previewUrl: 'https://example.test/daniela-portrait.png',
+      source: 'fixture',
+    };
+    profile.logo = {
+      fileName: 'isla-wordmark.png',
+      id: 'fixture-logo',
+      mimeType: 'image/png',
+      previewUrl: 'https://example.test/isla-wordmark.png',
+      source: 'fixture',
+    };
+
+    render(
+      <PhotoSocialScreen
+        profile={profile}
+        onBack={vi.fn()}
+        onContinue={vi.fn()}
+        onLogoSelected={vi.fn()}
+        onProfileChange={vi.fn()}
+        onProfilePhotoSelected={vi.fn()}
+        onSkipPhoto={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Profile photo ready')).toBeVisible();
+    expect(screen.getByText('Logo ready')).toBeVisible();
+    expect(screen.getByAltText('Daniela profile photo thumbnail'))
+      .toHaveAttribute('src', 'https://example.test/daniela-portrait.png');
+    expect(screen.getByAltText('Isla Nail Studio logo thumbnail'))
+      .toHaveAttribute('src', 'https://example.test/isla-wordmark.png');
+    const preview = screen.getByRole('complementary', { name: 'Profile preview' });
+    expect(within(preview).getByRole('img', { name: 'Daniela profile photo' }))
+      .toHaveAttribute('src', 'https://example.test/daniela-portrait.png');
+    expect(within(preview).queryByRole('img', { name: /logo/iu })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Profile photo').closest('[data-media-role]'))
+      .toHaveAttribute('data-media-role', 'profile');
+    expect(screen.getByLabelText('Logo').closest('[data-media-role]'))
+      .toHaveAttribute('data-media-role', 'logo');
+  });
+
+  it('keeps Profile and Logo replace/remove actions scoped to their own fields', async () => {
+    const user = userEvent.setup();
+    const profile = createDefaultBusinessProfile();
+    profile.profilePhoto = {
+      fileName: 'daniela-portrait.png',
+      id: 'fixture-profile',
+      mimeType: 'image/png',
+      previewUrl: 'https://example.test/daniela-portrait.png',
+      source: 'fixture',
+    };
+    profile.logo = {
+      fileName: 'isla-wordmark.png',
+      id: 'fixture-logo',
+      mimeType: 'image/png',
+      previewUrl: 'https://example.test/isla-wordmark.png',
+      source: 'fixture',
+    };
+    const onLogoSelected = vi.fn().mockResolvedValue(undefined);
+    const onProfileChange = vi.fn();
+    const onProfilePhotoSelected = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <PhotoSocialScreen
+        profile={profile}
+        onBack={vi.fn()}
+        onContinue={vi.fn()}
+        onLogoSelected={onLogoSelected}
+        onProfileChange={onProfileChange}
+        onProfilePhotoSelected={onProfilePhotoSelected}
+        onSkipPhoto={vi.fn()}
+      />,
+    );
+
+    const profileField = screen.getByLabelText('Profile photo').closest('[data-media-role]');
+    const logoField = screen.getByLabelText('Logo').closest('[data-media-role]');
+    if (!profileField || !logoField) throw new Error('Expected both media fields.');
+
+    await user.upload(
+      screen.getByLabelText('Profile photo'),
+      new File(['profile'], 'replacement-profile.png', { type: 'image/png' }),
+    );
+    expect(onProfilePhotoSelected).toHaveBeenCalledOnce();
+    expect(onLogoSelected).not.toHaveBeenCalled();
+
+    await user.upload(
+      screen.getByLabelText('Logo'),
+      new File(['logo'], 'replacement-logo.png', { type: 'image/png' }),
+    );
+    expect(onLogoSelected).toHaveBeenCalledOnce();
+    expect(onProfilePhotoSelected).toHaveBeenCalledOnce();
+
+    await user.click(within(profileField as HTMLElement).getByRole('button', { name: 'Remove' }));
+    expect(onProfileChange).toHaveBeenLastCalledWith({ profilePhoto: undefined });
+    await user.click(within(logoField as HTMLElement).getByRole('button', { name: 'Remove' }));
+    expect(onProfileChange).toHaveBeenLastCalledWith({ logo: undefined });
+  });
+
   it('identifies migrated metadata-only images and offers a truthful reselect action', () => {
     const profile = createDefaultBusinessProfile();
     profile.profilePhoto = {
@@ -173,9 +277,12 @@ describe('PhotoSocialScreen', () => {
       />,
     );
 
-    expect(screen.getAllByText(
-      'This saved image is no longer available on this device. Select it again to restore it.',
-    )).toHaveLength(2);
+    expect(screen.getByText(
+      'This saved profile photo is no longer available on this device. Select it again to restore it.',
+    )).toBeVisible();
+    expect(screen.getByText(
+      'This saved logo is no longer available on this device. Select it again to restore it.',
+    )).toBeVisible();
     expect(screen.getAllByRole('button', { name: 'Select again' })).toHaveLength(2);
     expect(screen.getByLabelText('Profile photo placeholder')).toBeVisible();
   });
@@ -368,7 +475,7 @@ describe('LocationContactScreen', () => {
     expect(screen.getByRole('button', { name: /^Contact/u })).not.toHaveTextContent('Complete');
     await user.click(screen.getByRole('button', { name: 'Save and continue' }));
     expect(onContinue).not.toHaveBeenCalled();
-    expect(instagram).toHaveFocus();
+    await waitFor(() => expect(instagram).toHaveFocus());
 
     await user.clear(instagram);
     await user.type(instagram, 'https://instagram.com/islanailstudio/');

@@ -344,8 +344,8 @@ test.describe('Onboarding V1 UX Lab', () => {
 
     await expect(page.getByRole('switch', { name: 'Show policies on my website' })).toBeChecked();
     await page.getByLabel('How much notice do clients need to cancel?').selectOption('24_hours');
-    await page.getByLabel('What happens if they cancel late?').selectOption('deposit_lost');
-    await page.getByRole('button', { name: /^Deposits/ }).click();
+    await page.getByLabel('What happens to the deposit if they cancel late?')
+      .selectOption('deposit_lost');
     await page.getByLabel('Can clients get their deposit back?').selectOption('no');
     await page.getByLabel('Can clients move it to another appointment?').selectOption('yes');
     await page.getByRole('button', { name: /^Late arrivals/ }).click();
@@ -360,10 +360,9 @@ test.describe('Onboarding V1 UX Lab', () => {
     await page.getByLabel('Repair conditions — optional')
       .fill('Repairs cover product issues, not accidental damage.');
     const policyCopyCards = page.locator('.onboarding-policy-copy-card');
-    await policyCopyCards.filter({ hasText: 'Cancellations' }).locator('summary').click();
-    await policyCopyCards.filter({ hasText: 'Deposits' }).locator('summary').click();
-    await expect(page.getByText(/Please cancel or reschedule at least 24 hours before your appointment/).first()).toBeVisible();
-    await expect(page.getByText(/A \$50 deposit is required and is applied to your appointment/).first()).toBeVisible();
+    await policyCopyCards.filter({ hasText: 'Deposits & cancellations' }).locator('summary').click();
+    await expect(page.getByText(/Please provide at least 24 hours’ notice when cancelling or rescheduling/).first()).toBeVisible();
+    await expect(page.getByText(/A \$50 deposit is required to book/).first()).toBeVisible();
     await page.getByRole('button', { name: 'Save policies' }).click();
 
     await expect(heading(page, 'Choose your website style')).toBeVisible();

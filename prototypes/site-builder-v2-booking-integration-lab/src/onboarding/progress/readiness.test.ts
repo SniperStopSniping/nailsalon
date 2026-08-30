@@ -52,12 +52,12 @@ describe('onboarding readiness contact metadata', () => {
     });
   });
 
-  it('clears Add policies after meaningful content is saved and names a hidden saved state', () => {
+  it('uses one combined policy readiness item across missing, ready, and hidden states', () => {
     const state = createDefaultOnboardingState();
     state.recipe.policiesEnabled = false;
     expect(getReadinessItems(state, null)).toContainEqual({
       id: 'policies',
-      label: 'Add policies',
+      label: 'Deposits & cancellation policy',
       screen: 'policies',
       status: 'recommended',
     });
@@ -65,14 +65,20 @@ describe('onboarding readiness contact metadata', () => {
     state.profile.policies.cancellations.notice = '24_hours';
     state.profile.policies.cancellations.consequence = 'cancellation_fee';
     state.recipe.policiesEnabled = true;
-    expect(getReadinessItems(state, null).some((item) => item.id === 'policies'))
-      .toBe(false);
+    expect(getReadinessItems(state, null)).toContainEqual({
+      id: 'policies',
+      label: 'Deposits & cancellation policy',
+      screen: 'policies',
+      status: 'ready',
+    });
+    expect(getReadinessItems(state, null).filter((item) => item.id === 'policies'))
+      .toHaveLength(1);
 
     state.recipe.policiesEnabled = false;
     expect(getReadinessItems(state, null)).toContainEqual({
       detail: 'Your policy answers are saved, but not shown on your site.',
       id: 'policies',
-      label: 'Show saved policies',
+      label: 'Deposits & cancellation policy',
       screen: 'policies',
       status: 'recommended',
     });
