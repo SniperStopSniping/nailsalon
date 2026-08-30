@@ -17,17 +17,24 @@ vi.mock('../../../../../../../prototypes/site-builder-v2-booking-integration-lab
 }));
 
 vi.mock('../../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/preview/OnboardingSitePreview', () => ({
-  OnboardingSitePreview: ({ device, interactionMode }: {
+  OnboardingSitePreview: ({ customerPagePlan, device, interactionMode }: {
+    customerPagePlan: unknown;
     device: string;
     interactionMode: string;
   }) => (
-    <div data-device={device} data-interaction={interactionMode} data-testid="saved-customer-site" />
+    <div
+      data-device={device}
+      data-interaction={interactionMode}
+      data-page-plan={JSON.stringify(customerPagePlan)}
+      data-testid="saved-customer-site"
+    />
   ),
 }));
 
 const model = {
   document: { pages: [] },
   media: [],
+  pagePlan: [{ id: 'home', label: 'Home', sections: [] }],
   state: {},
 } as unknown as SavedSitePreviewModel;
 
@@ -56,6 +63,8 @@ describe('SavedSitePreviewClient', () => {
       .toHaveClass('owner-workspace-theme');
     expect(container.querySelector('[data-theme-scope="site"]'))
       .toContainElement(screen.getByTestId('saved-customer-site'));
+    expect(screen.getByTestId('saved-customer-site'))
+      .toHaveAttribute('data-page-plan', JSON.stringify(model.pagePlan));
 
     fireEvent.click(screen.getByRole('button', { name: 'Desktop' }));
 

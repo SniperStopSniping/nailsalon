@@ -10,7 +10,7 @@ import {
   removePage,
   toggleNavigation,
 } from './operations';
-import { initializeStarter } from './starters';
+import { getStarterDocumentOutline, initializeStarter } from './starters';
 import type { OriginStarter } from './types';
 import { validateSiteBuilderDocument } from './validation';
 
@@ -33,6 +33,11 @@ describe('starter initialization', () => {
     expect(document.pages[0]?.sections.map((section) => section.sectionType)).toEqual(
       ['section_01', 'section_02', 'booking'],
     );
+    expect(document.pages[0]?.sections.map((section) => (
+      section.sectionType === 'booking' || section.sectionType === 'custom_design'
+        ? null
+        : section.starterSemanticRole
+    ))).toEqual(['hero', 'services', null]);
     expect(document.pages[0]?.sections.map((section) =>
       section.sectionType === 'booking'
         ? 'booking'
@@ -125,6 +130,22 @@ describe('starter initialization', () => {
       document,
     });
   });
+
+  it.each(starters)('%s keeps older schema-v1 documents without roles valid', (starter) => {
+    const document = initializeStarter(starter, {
+      idFactory: createDeterministicIdFactory(`legacy-${starter}`),
+    });
+    for (const section of document.pages.flatMap(page => page.sections)) {
+      if (section.sectionType !== 'booking' && section.sectionType !== 'custom_design') {
+        delete section.starterSemanticRole;
+      }
+    }
+
+    expect(validateSiteBuilderDocument(document)).toEqual({
+      success: true,
+      document,
+    });
+  });
 });
 
 describe('starter freedom', () => {
@@ -151,7 +172,34 @@ describe('starter freedom', () => {
         .find((page) => page.id === homeId)
         ?.sections.some((section) => section.sectionType === 'section_11'),
     ).toBe(true);
+    const ownerAdded = document.pages
+      .find(page => page.id === homeId)
+      ?.sections.find(section => section.sectionType === 'section_11');
+    expect(ownerAdded).not.toHaveProperty('starterSemanticRole');
     expect(document.navigation.enabled).toBe(true);
+  });
+
+  it('preserves semantic identity and truthful outline labels when a starter section moves', () => {
+    const source = initializeStarter('multi_page', {
+      idFactory: createDeterministicIdFactory('semantic-move'),
+    });
+    const home = source.pages.find(page => page.isHome)!;
+    const about = source.pages.find(page => page.slug === 'about')!.sections[0]!;
+    const moved = moveSectionToPage(source, about.id, home.id);
+    const movedAbout = moved.pages
+      .flatMap(page => page.sections)
+      .find(section => section.id === about.id)!;
+    movedAbout.label = 'Daniela’s story';
+    const outlinedAbout = getStarterDocumentOutline(moved)
+      .flatMap(page => page.sections)
+      .find(section => section.id === about.id);
+
+    expect(movedAbout).toMatchObject({
+      id: about.id,
+      starterSemanticRole: 'about',
+    });
+    expect(outlinedAbout?.label).toBe('Daniela’s story');
+    expect(outlinedAbout?.semanticRole).toBe('about');
   });
 
   it('lets Quick Book add fifteen sections and five pages', () => {

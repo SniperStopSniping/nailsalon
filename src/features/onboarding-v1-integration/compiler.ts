@@ -2,9 +2,23 @@ import { createHash } from 'node:crypto';
 
 import type { CustomDesignSettings } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/types';
 import {
+  getSectionLabel,
+  getStarterDocumentSemanticInfoBySectionId,
+  type StarterDocumentSemanticInfo,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
+import type {
+  SiteBuilderDocument,
+  StarterSectionSemanticRole,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
+import {
   ADD_ON_PRODUCTION_MAPPINGS,
   SERVICE_MENU_PRODUCTION_MAPPINGS,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/integrations/contracts/service-menu-production-mapping';
+import { getPublicContactActions } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/contact';
+import { getPublicWeeklyHours } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/hours';
+import { getPublicLocationPreview } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/location';
+import { hasMeaningfulPublishablePolicies } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/policies';
+import { getCustomerProfileFacts } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/profile-facts';
 import {
   type OnboardingCompiledSiteDocument,
   onboardingCompiledSiteDocumentSchema,
@@ -38,9 +52,8 @@ export function fingerprintOnboardingValue(value: unknown): string {
     .digest('hex');
 }
 
-function section(
+function injectedSection(
   siteId: string,
-  pageSlug: string,
   type: CompiledSection['type'],
   order: number,
   source: CompiledSection['source'],
@@ -49,7 +62,7 @@ function section(
 ): CompiledSection {
   return {
     ...(customDesignSettings ? { customDesignSettings } : {}),
-    id: `${siteId}:${pageSlug}:${type}`,
+    id: `${siteId}:onboarding:${type}`,
     order,
     presentation,
     source,
@@ -58,40 +71,14 @@ function section(
   };
 }
 
-function semanticSectionType(
-  sectionType: string,
-  label: string,
-): CompiledSection['type'] {
-  if (sectionType === 'booking') {
-    return 'booking';
-  }
-  if (sectionType === 'custom_design') {
-    return 'custom_design';
-  }
-  const normalized = label.trim().toLowerCase();
-  if (normalized.includes('welcome') || normalized.includes('salon intro')) {
-    return 'hero';
-  }
-  if (normalized.includes('services')) {
-    return 'services';
-  }
-  if (normalized.includes('featured work') || normalized.includes('gallery')) {
-    return 'gallery';
-  }
-  if (normalized.includes('about')) {
-    return 'about';
-  }
-  if (normalized.includes('review')) {
-    return 'reviews';
-  }
-  if (normalized.includes('visit')) {
-    return 'visit';
-  }
-  if (normalized.includes('contact')) {
-    return 'contact';
-  }
-  return 'content';
-}
+type SourcePage = SiteBuilderDocument['pages'][number];
+type SourceSection = SourcePage['sections'][number];
+
+type LocatedSourceSection = {
+  page: SourcePage;
+  semanticInfo: StarterDocumentSemanticInfo | null;
+  section: SourceSection;
+};
 
 function sourceForSection(type: CompiledSection['type']): CompiledSection['source'] {
   if (type === 'services' || type === 'booking') {
@@ -110,25 +97,6 @@ function sourceForSection(type: CompiledSection['type']): CompiledSection['sourc
     return 'starter_presentation';
   }
   return 'business_profile';
-}
-
-function shouldIncludeSection(
-  type: CompiledSection['type'],
-  snapshot: OnboardingPersistedSnapshot,
-): boolean {
-  if (type === 'about') {
-    return snapshot.site.aboutEnabled;
-  }
-  if (type === 'gallery') {
-    return snapshot.site.galleryEnabled;
-  }
-  if (type === 'policies') {
-    return snapshot.site.policiesEnabled;
-  }
-  if (type === 'custom_design') {
-    return snapshot.site.canvaEnabled;
-  }
-  return true;
 }
 
 function presentationForSection(
@@ -166,6 +134,19 @@ function presentationForSection(
   return common;
 }
 
+/** Mirrors the customer renderer using its pure public-data resolvers. */
+function hasPublicContactContent(
+  profile: OnboardingPersistedSnapshot['profile'],
+): boolean {
+  const location = getPublicLocationPreview(profile.location);
+  return Boolean(
+    location.primary
+    || getCustomerProfileFacts(profile).some(fact => fact.id === 'service_location')
+    || getPublicContactActions(profile).some(action => action.method !== 'booking')
+    || getPublicWeeklyHours(profile.hours).length > 0,
+  );
+}
+
 function compileAcceptedBuilderPages(
   siteId: string,
   snapshot: OnboardingPersistedSnapshot,
@@ -174,46 +155,103 @@ function compileAcceptedBuilderPages(
   if (!document) {
     throw new Error('The accepted universal site document is required to compile the saved site.');
   }
-
-  const pages = [...document.pages]
+  const starterSemanticInfo = getStarterDocumentSemanticInfoBySectionId(document);
+  const visibleSourcePages = [...document.pages]
     .sort((left, right) => left.order - right.order)
-    .filter(page => page.visible)
-    .map((sourcePage): CompiledPage => {
-      const sections = [...sourcePage.sections]
-        .sort((left, right) => left.order - right.order)
-        .flatMap((sourceSection) => {
-          const type = semanticSectionType(sourceSection.sectionType, sourceSection.label);
-          if (!sourceSection.visible || !shouldIncludeSection(type, snapshot)) {
-            return [];
-          }
-          return [{
-            ...(sourceSection.sectionType === 'custom_design'
-              ? { customDesignSettings: sourceSection.settings }
-              : {}),
-            id: sourceSection.id,
-            order: sourceSection.order,
-            presentation: presentationForSection(
-              type,
-              sourceSection.sectionType,
-              sourceSection.label,
-              snapshot,
-            ),
-            source: sourceForSection(type),
+    .filter(page => page.visible);
+  const locatedSections: LocatedSourceSection[] = visibleSourcePages.flatMap(page => (
+    [...page.sections]
+      .sort((left, right) => left.order - right.order)
+      .filter(section => section.visible)
+      .map(section => ({
+        page,
+        semanticInfo: starterSemanticInfo.get(section.id) ?? null,
+        section,
+      }))
+  ));
+
+  const firstWithRole = (role: StarterSectionSemanticRole) => locatedSections.find(
+    located => located.semanticInfo?.role === role,
+  );
+  const galleryHasContent = snapshot.site.galleryEnabled
+    && snapshot.gallery.imageItemIds.length > 0;
+  const contactHasContent = hasPublicContactContent(snapshot.profile);
+  const selectedSectionIds = new Set<string>();
+  const select = (located: LocatedSourceSection | undefined) => {
+    if (located) {
+      selectedSectionIds.add(located.section.id);
+    }
+  };
+
+  select(firstWithRole('hero'));
+  select(locatedSections.find(({ section }) => section.sectionType === 'booking'));
+  if (snapshot.site.aboutEnabled) {
+    select(firstWithRole('about'));
+  }
+  if (galleryHasContent) {
+    select(firstWithRole('gallery'));
+  }
+  if (contactHasContent) {
+    select(firstWithRole('contact') ?? firstWithRole('visit'));
+  }
+  if (snapshot.site.canvaEnabled) {
+    locatedSections
+      .filter(({ section }) => section.sectionType === 'custom_design')
+      .forEach(select);
+  }
+
+  const pages = visibleSourcePages.map((sourcePage): CompiledPage => {
+    const sections = locatedSections
+      .filter(located => (
+        located.page.id === sourcePage.id
+        && selectedSectionIds.has(located.section.id)
+      ))
+      .map(({ semanticInfo, section: sourceSection }, order) => {
+        const type: CompiledSection['type'] = sourceSection.sectionType === 'booking'
+          ? 'booking'
+          : sourceSection.sectionType === 'custom_design'
+            ? 'custom_design'
+            : semanticInfo?.role === 'hero'
+              ? 'hero'
+              : semanticInfo?.role === 'about'
+                ? 'about'
+                : semanticInfo?.role === 'gallery'
+                  ? 'gallery'
+                  : 'contact';
+        const presentationLabel = semanticInfo
+          && sourceSection.sectionType !== 'booking'
+          && sourceSection.sectionType !== 'custom_design'
+          && sourceSection.label === getSectionLabel(sourceSection.sectionType)
+          ? semanticInfo.previewLabel
+          : sourceSection.label;
+        return {
+          ...(sourceSection.sectionType === 'custom_design'
+            ? { customDesignSettings: sourceSection.settings }
+            : {}),
+          id: sourceSection.id,
+          order,
+          presentation: presentationForSection(
             type,
-            visible: sourceSection.visible,
-          } satisfies CompiledSection];
-        });
-      return {
-        id: sourcePage.id,
-        isHome: sourcePage.isHome,
-        label: sourcePage.name,
-        order: sourcePage.order,
-        sections,
-        slug: sourcePage.slug,
-        visible: sourcePage.visible,
-        visibleInNavigation: sourcePage.visibleInNavigation,
-      };
-    });
+            sourceSection.sectionType,
+            presentationLabel,
+            snapshot,
+          ),
+          source: sourceForSection(type),
+          type,
+          visible: sourceSection.visible,
+        } satisfies CompiledSection;
+      });
+    return {
+      id: sourcePage.id,
+      isHome: sourcePage.isHome,
+      label: sourcePage.name,
+      order: sourcePage.order,
+      sections,
+      slug: sourcePage.slug,
+      visible: sourcePage.visible,
+      visibleInNavigation: sourcePage.visibleInNavigation,
+    };
+  });
 
   const bookingPage = pages.find(page => page.sections.some(item => item.type === 'booking'))
     ?? pages.find(page => page.isHome)
@@ -233,35 +271,83 @@ function compileAcceptedBuilderPages(
     bookingPage.sections.splice(target, 0, item);
   };
 
-  if (snapshot.site.aboutEnabled && !pages.some(page => page.sections.some(item => item.type === 'about'))) {
-    insertRelativeToBooking(section(siteId, bookingPage.slug, 'about', 0, 'business_profile', {
+  const allDocumentSections = [
+    ...document.pages.flatMap(page => page.sections),
+    ...document.unusedSections,
+  ];
+  const documentHasStarterRole = (role: StarterSectionSemanticRole) => allDocumentSections.some(
+    sourceSection => starterSemanticInfo.get(sourceSection.id)?.role === role,
+  );
+  const documentOwnsCustomDesign = allDocumentSections.some(
+    sourceSection => sourceSection.sectionType === 'custom_design',
+  );
+
+  if (
+    snapshot.site.aboutEnabled
+    && !documentHasStarterRole('about')
+    && !pages.some(page => page.sections.some(item => item.type === 'about'))
+  ) {
+    insertRelativeToBooking(injectedSection(siteId, 'about', 0, 'business_profile', {
+      label: 'About',
       preset: snapshot.site.aboutPreset,
     }), 'before_booking');
   }
-  if (snapshot.site.galleryEnabled && !pages.some(page => page.sections.some(item => item.type === 'gallery'))) {
-    insertRelativeToBooking(section(siteId, bookingPage.slug, 'gallery', 0, 'gallery', {
+  if (
+    galleryHasContent
+    && !documentHasStarterRole('gallery')
+    && !pages.some(page => page.sections.some(item => item.type === 'gallery'))
+  ) {
+    insertRelativeToBooking(injectedSection(siteId, 'gallery', 0, 'gallery', {
+      label: 'Gallery',
       layout: snapshot.gallery.layout,
       source: snapshot.gallery.source,
     }), 'before_booking');
   }
-  if (snapshot.site.policiesEnabled && !pages.some(page => page.sections.some(item => item.type === 'policies'))) {
+  if (
+    contactHasContent
+    && !documentHasStarterRole('contact')
+    && !documentHasStarterRole('visit')
+    && !pages.some(page => page.sections.some(item => item.type === 'contact'))
+  ) {
+    bookingPage.sections.push(injectedSection(
+      siteId,
+      'contact',
+      bookingPage.sections.length,
+      'business_profile',
+      {
+        addressVisibility: snapshot.profile.location.addressVisibility,
+        label: 'Contact',
+        originalSectionType: 'onboarding_contact',
+        showHours: snapshot.profile.hours.showOnSite,
+      },
+    ));
+  }
+  if (
+    snapshot.site.policiesEnabled
+    && hasMeaningfulPublishablePolicies(snapshot.profile.policies)
+    && !pages.some(page => page.sections.some(item => item.type === 'policies'))
+  ) {
     insertRelativeToBooking(
-      section(siteId, bookingPage.slug, 'policies', 0, 'policies'),
+      injectedSection(siteId, 'policies', 0, 'policies', { label: 'Policies' }),
       'after_booking',
     );
   }
   if (
     snapshot.site.canvaEnabled
     && snapshot.customDesign.settings
+    && !documentOwnsCustomDesign
     && !pages.some(page => page.sections.some(item => item.type === 'custom_design'))
   ) {
-    const customSection = section(
+    const customSection = injectedSection(
       siteId,
-      bookingPage.slug,
       'custom_design',
       0,
       'custom_design',
-      { displayMode: snapshot.customDesign.displayMode },
+      {
+        displayMode: snapshot.customDesign.displayMode,
+        label: 'Custom Design',
+        originalSectionType: 'custom_design',
+      },
       snapshot.customDesign.settings,
     );
     if (snapshot.customDesign.customDesignSectionId) {
@@ -273,7 +359,9 @@ function compileAcceptedBuilderPages(
   for (const page of pages) {
     page.sections = page.sections.map((item, order) => ({ ...item, order }));
   }
-  return pages.filter(page => page.sections.length > 0);
+  return pages
+    .filter(page => page.sections.length > 0)
+    .map((page, order) => ({ ...page, order }));
 }
 
 /**

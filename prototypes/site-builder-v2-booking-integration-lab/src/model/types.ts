@@ -35,6 +35,29 @@ export type SectionType = CatalogueSectionType | 'booking' | 'custom_design';
 
 export type SectionSize = 'compact' | 'medium' | 'large';
 
+/**
+ * Stable customer-facing meaning assigned only to sections created by a
+ * starter. Catalogue section numbers are reusable presentation slots, so they
+ * cannot safely communicate this meaning by themselves.
+ *
+ * The field is optional to keep schema-v1 documents created before this
+ * metadata was introduced importable. New starter documents always include
+ * it; owner-added catalogue sections deliberately do not.
+ */
+export const STARTER_SECTION_SEMANTIC_ROLES = [
+  'hero',
+  'services',
+  'featured_work',
+  'gallery',
+  'about',
+  'reviews',
+  'visit',
+  'contact',
+] as const;
+
+export type StarterSectionSemanticRole =
+  (typeof STARTER_SECTION_SEMANTIC_ROLES)[number];
+
 export type NavigationItem = {
   id: string;
   pageId: string;
@@ -58,6 +81,7 @@ type SectionInstanceBase = {
 export type PlaceholderSectionInstance = SectionInstanceBase & {
   sectionType: CatalogueSectionType;
   size: SectionSize;
+  starterSemanticRole?: StarterSectionSemanticRole;
   placeholderSettings: {
     note?: string;
   };

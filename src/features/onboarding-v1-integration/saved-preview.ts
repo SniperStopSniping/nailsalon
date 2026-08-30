@@ -6,6 +6,10 @@ import type {
   OnboardingLabState,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/types';
 import type {
+  CurrentPreviewPagePlan,
+  CurrentPreviewSectionKind,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/preview/OnboardingSitePreview';
+import type {
   OnboardingCompiledSiteDocument,
   OnboardingPersistedSnapshot,
   OnboardingSiteMediaRole,
@@ -48,7 +52,89 @@ type PersistedSavedPreviewMedia = {
 export type SavedSitePreviewModel = {
   document: SiteBuilderDocument;
   media: SavedPreviewMedia[];
+  pagePlan: CurrentPreviewPagePlan[];
   state: OnboardingLabState;
+};
+
+const compiledPreviewKind = (
+  type: OnboardingCompiledSiteDocument['pages'][number]['sections'][number]['type'],
+): CurrentPreviewSectionKind | null => {
+  if (type === 'visit' || type === 'contact') {
+    return 'contact';
+  }
+  if (
+    type === 'about'
+    || type === 'booking'
+    || type === 'custom_design'
+    || type === 'gallery'
+    || type === 'hero'
+    || type === 'policies'
+  ) {
+    return type;
+  }
+  return null;
+};
+
+/**
+ * The account-backed preview consumes the persisted compiled pages directly.
+ * The small amount of legacy deduplication here lets previously saved V1
+ * documents render safely; it never reconstructs roles from Builder labels.
+ */
+export const createSavedCustomerPagePlan = (
+  document: OnboardingCompiledSiteDocument,
+): CurrentPreviewPagePlan[] => {
+  const visiblePages = [...document.pages]
+    .filter(page => page.visible)
+    .sort((left, right) => left.order - right.order);
+  const allSections = visiblePages.flatMap(page => page.sections.filter(section => section.visible));
+  const preferredGalleryId = allSections.find(section => (
+    section.type === 'gallery'
+    && String(section.presentation.label ?? '').trim().toLowerCase() === 'gallery'
+  ))?.id ?? allSections.find(section => section.type === 'gallery')?.id;
+  const preferredContactId = allSections.find(section => section.type === 'contact')?.id
+    ?? allSections.find(section => section.type === 'visit')?.id;
+  const seenKinds = new Set<Exclude<CurrentPreviewSectionKind, 'custom_design'>>();
+  const seenCustomDesignIds = new Set<string>();
+
+  return visiblePages.map((page) => {
+    const sections: CurrentPreviewPagePlan['sections'] = [];
+    for (const section of [...page.sections].sort((left, right) => left.order - right.order)) {
+      if (!section.visible) {
+        continue;
+      }
+      const kind = compiledPreviewKind(section.type);
+      if (!kind) {
+        continue;
+      }
+      if (kind === 'custom_design') {
+        if (seenCustomDesignIds.has(section.id)) {
+          continue;
+        }
+        seenCustomDesignIds.add(section.id);
+      } else {
+        if (kind === 'gallery' && section.id !== preferredGalleryId) {
+          continue;
+        }
+        if (kind === 'contact' && section.id !== preferredContactId) {
+          continue;
+        }
+        if (seenKinds.has(kind)) {
+          continue;
+        }
+        seenKinds.add(kind);
+      }
+      sections.push({
+        id: section.id,
+        kind,
+        label: String(section.presentation.label ?? section.type),
+      });
+    }
+    return {
+      id: page.id,
+      label: page.label,
+      sections,
+    };
+  }).filter(page => page.sections.length > 0);
 };
 
 /**
@@ -109,8 +195,9 @@ const roleMedia = (
 
 /**
  * Projects one validated account-backed snapshot into the already-accepted
- * customer Preview renderer. The persisted universal Builder document remains
- * the structural authority; this adapter only restores connected profile and
+ * customer Preview renderer. Persisted compiled pages are the customer-tree
+ * authority; the Builder document is retained only for native section settings
+ * and Custom Design actions. This adapter also restores connected profile and
  * server-owned media references that the renderer consumes.
  */
 export function createSavedSitePreviewModel(input: {
@@ -199,6 +286,7 @@ export function createSavedSitePreviewModel(input: {
       sortOrder: item.sortOrder,
       width: item.width,
     })),
+    pagePlan: createSavedCustomerPagePlan(document),
     state: {
       ...state,
       canva: {

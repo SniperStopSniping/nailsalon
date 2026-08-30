@@ -7,48 +7,57 @@ import {
   Sparkles,
 } from 'lucide-react';
 import {
+  type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
   useCallback,
   useId,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
-  type ReactNode,
 } from 'react';
 
 import { BookingSectionRenderer } from '../../booking/BookingSectionRenderer';
 import { createEmptyBookingSession, summarizeSelection } from '../../booking/helpers';
 import { createDefaultBookingPresentationSettings } from '../../booking/presentation';
 import type { BookingSessionState } from '../../booking/types';
-import type { CustomDesignDocumentNavigationTarget } from '../../custom-design/integration/document-actions';
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
-import { getStarterDocumentOutline } from '../../model/starters';
-import type { SiteBuilderDocument } from '../../model/types';
+import type { CustomDesignDocumentNavigationTarget } from '../../custom-design/integration/document-actions';
+import {
+  getStarterDocumentOutline,
+  getStarterDocumentSemanticInfoBySectionId,
+  getStarterPageDefinitions,
+} from '../../model/starters';
+import type {
+  SiteBuilderDocument,
+  StarterSectionSemanticRole,
+} from '../../model/types';
+import { resolveOnboardingImageUrl } from '../integrations/adapters/media';
 import {
   aboutPresetSupportsElement,
   resolveAboutBio,
 } from '../model/about';
 import { createOnboardingBookingFixture } from '../model/booking-preview';
-import { resolveOnboardingImageUrl } from '../integrations/adapters/media';
 import { getPublicContactActions } from '../model/contact';
 import {
   getPublicWeeklyHours,
   getWeeklyHoursPreviewStatus,
   type WeeklyHoursPreviewStatus,
 } from '../model/hours';
-import { getMinimumNoticeCopy } from '../model/minimum-notice';
 import {
   getPublicDirectionsAction,
   getPublicLocationPreview,
 } from '../model/location';
+import { getMinimumNoticeCopy } from '../model/minimum-notice';
+import { SITE_PALETTE_BY_ID } from '../model/palettes';
 import {
   deriveDepositPolicySummary,
   getDepositsAndCancellationsDisplayWording,
   getPolicyDisplayWording,
+  hasMeaningfulPublishablePolicies,
   isDepositsAndCancellationsComplete,
 } from '../model/policies';
-import { SITE_PALETTE_BY_ID } from '../model/palettes';
 import { getCustomerProfileFacts } from '../model/profile-facts';
 import type {
   AboutElementId,
@@ -306,7 +315,12 @@ function Portrait({
   );
 }
 
-function AboutActions({ profile }: { profile: BusinessProfileDraft }) {
+type PreviewBookHandler = (event: ReactMouseEvent<HTMLAnchorElement>) => void;
+
+function AboutActions({ onBook, profile }: {
+  onBook: PreviewBookHandler;
+  profile: BusinessProfileDraft;
+}) {
   const visibility = profile.about.visibility;
   const instagram = getPublicContactActions(profile).find(
     (action) => action.method === 'instagram',
@@ -318,7 +332,7 @@ function AboutActions({ profile }: { profile: BusinessProfileDraft }) {
 
   return (
     <div className="onboarding-customer-actions">
-      {hasBooking ? <a href="#booking"><CalendarDays aria-hidden="true" size={16} /> Book now</a> : null}
+      {hasBooking ? <a href="#booking" onClick={onBook}><CalendarDays aria-hidden="true" size={16} /> Book now</a> : null}
       {hasInstagram ? (
         <a
           className="is-secondary"
@@ -337,6 +351,8 @@ type AboutFact = {
   label: string;
   value: string;
 };
+
+const EMPTY_ABOUT_FACT_LABELS: readonly string[] = [];
 
 const getAboutFacts = (
   profile: BusinessProfileDraft,
@@ -376,7 +392,7 @@ const getAboutFacts = (
 };
 
 function AboutFacts({
-  excludeLabels = [],
+  excludeLabels = EMPTY_ABOUT_FACT_LABELS,
   hoursStatus,
   maxVisible = 4,
   presentation = 'grid',
@@ -488,10 +504,12 @@ function PolicySummary({ profile }: { profile: BusinessProfileDraft }) {
   return summary ? <p className="onboarding-policy-summary">{summary}</p> : null;
 }
 
-function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
+function AboutSection({ hoursStatus, onBook, preset, profile, sectionId, showPolicySummary }: {
   hoursStatus: WeeklyHoursPreviewStatus | null;
+  onBook: PreviewBookHandler;
   preset: AboutPresetId;
   profile: BusinessProfileDraft;
+  sectionId?: string;
   showPolicySummary: boolean;
 }) {
   const visibility = profile.about.visibility;
@@ -519,13 +537,14 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
       <section
         aria-label="About"
         className={`onboarding-customer-about is-editorial${showPortrait ? ' has-portrait' : ''}`}
+        data-section-id={sectionId}
         data-preview-target="about"
       >
         {showPortrait ? <Portrait large profile={profile} respectAboutVisibility /> : null}
         <div className="onboarding-about-editorial-story">
           <AboutCopy profile={profile} />
           <AboutSpecialties profile={profile} />
-          <AboutActions profile={profile} />
+          <AboutActions onBook={onBook} profile={profile} />
           <AboutFacts hoursStatus={hoursStatus} maxVisible={2} presentation="pills" profile={profile} />
           {policySummary}
         </div>
@@ -538,13 +557,14 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
       <section
         aria-label="About"
         className="onboarding-customer-about is-quick-facts"
+        data-section-id={sectionId}
         data-preview-target="about"
       >
         <div className="onboarding-about-quick-identity">
           {showPortrait ? <Portrait profile={profile} respectAboutVisibility /> : null}
           <AboutCopy profile={profile} />
         </div>
-        <AboutActions profile={profile} />
+        <AboutActions onBook={onBook} profile={profile} />
         <AboutFacts hoursStatus={hoursStatus} profile={profile} />
         <AboutSpecialties profile={profile} />
         {policySummary}
@@ -557,6 +577,7 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
       <section
         aria-label="About and before you book"
         className="onboarding-customer-about is-before-booking"
+        data-section-id={sectionId}
         data-preview-target="about"
       >
         <div className="onboarding-about-profile">
@@ -565,7 +586,7 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
             <AboutCopy profile={profile} />
           </div>
           <AboutSpecialties profile={profile} />
-          <AboutActions profile={profile} />
+          <AboutActions onBook={onBook} profile={profile} />
         </div>
         {bookingCardItems.length > 0 ? (
           <div className="onboarding-before-booking-card">
@@ -595,12 +616,13 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
     <section
       aria-label="About"
       className={`onboarding-customer-about is-photo-right${showPortrait ? ' has-portrait' : ''}`}
+      data-section-id={sectionId}
       data-preview-target="about"
     >
       <div className="onboarding-about-photo-copy">
         <AboutCopy profile={profile} />
         <AboutSpecialties profile={profile} />
-        <AboutActions profile={profile} />
+        <AboutActions onBook={onBook} profile={profile} />
         <AboutFacts hoursStatus={hoursStatus} maxVisible={2} presentation="pills" profile={profile} />
         {policySummary}
       </div>
@@ -609,7 +631,28 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
   );
 }
 
-function ContactSection({ profile }: { profile: BusinessProfileDraft }) {
+const hasPublicContactSectionContent = (profile: BusinessProfileDraft): boolean => {
+  const location = getPublicLocationPreview(profile.location);
+  const contacts = getPublicContactActions(profile).filter(
+    action => action.method !== 'booking',
+  );
+  const weeklyHours = getPublicWeeklyHours(profile.hours);
+  const serviceLocation = getCustomerProfileFacts(profile).some(
+    (fact) => fact.id === 'service_location',
+  );
+  return Boolean(
+    location.primary
+    || serviceLocation
+    || contacts.length > 0
+    || weeklyHours.length > 0
+  );
+};
+
+function ContactSection({ onBook, profile, sectionId }: {
+  onBook: PreviewBookHandler;
+  profile: BusinessProfileDraft;
+  sectionId?: string;
+}) {
   const location = getPublicLocationPreview(profile.location);
   const contacts = getPublicContactActions(profile);
   const directions = getPublicDirectionsAction(profile.location);
@@ -617,14 +660,13 @@ function ContactSection({ profile }: { profile: BusinessProfileDraft }) {
   const serviceLocation = getCustomerProfileFacts(profile).find(
     (fact) => fact.id === 'service_location',
   );
-  if (
-    !location.primary
-    && !serviceLocation
-    && contacts.length === 0
-    && weeklyHours.length === 0
-  ) return null;
+  if (!hasPublicContactSectionContent(profile)) return null;
   return (
-    <section aria-label="Visit and contact" className="onboarding-customer-contact">
+    <section
+      aria-label="Visit and contact"
+      className="onboarding-customer-contact"
+      data-section-id={sectionId}
+    >
       <div>
         <p className="onboarding-customer-eyebrow">Visit us</p>
         <h2>Plan your appointment</h2>
@@ -661,6 +703,7 @@ function ContactSection({ profile }: { profile: BusinessProfileDraft }) {
             data-contact-method={contact.method}
             href={contact.href}
             key={`${contact.method}-${contact.href}`}
+            onClick={contact.method === 'booking' ? onBook : undefined}
             rel={contact.rel}
             target={contact.target}
           >
@@ -673,7 +716,10 @@ function ContactSection({ profile }: { profile: BusinessProfileDraft }) {
   );
 }
 
-function PoliciesSection({ profile }: { profile: BusinessProfileDraft }) {
+function PoliciesSection({ profile, sectionId }: {
+  profile: BusinessProfileDraft;
+  sectionId?: string;
+}) {
   const combinedPolicyText = isDepositsAndCancellationsComplete(profile.policies)
     ? getDepositsAndCancellationsDisplayWording(profile.policies)
     : '';
@@ -697,7 +743,11 @@ function PoliciesSection({ profile }: { profile: BusinessProfileDraft }) {
     .filter((card) => card.text);
   if (cards.length === 0) return null;
   return (
-    <section aria-label="Policies" className="onboarding-customer-policies">
+    <section
+      aria-label="Policies"
+      className="onboarding-customer-policies"
+      data-section-id={sectionId}
+    >
       <p className="onboarding-customer-eyebrow">Good to know</p>
       <h2>Appointment policies</h2>
       <PolicySummary profile={profile} />
@@ -713,7 +763,10 @@ function PoliciesSection({ profile }: { profile: BusinessProfileDraft }) {
   );
 }
 
-function GallerySection({ state }: { state: OnboardingLabState }) {
+function GallerySection({ sectionId, state }: {
+  sectionId?: string;
+  state: OnboardingLabState;
+}) {
   const images = state.gallery.images;
   const assetIds = images.flatMap((image) => image.storageId ? [image.storageId] : []);
   const assets = useCustomDesignAssetMap(assetIds);
@@ -727,7 +780,11 @@ function GallerySection({ state }: { state: OnboardingLabState }) {
   });
   if (tiles.length === 0) return null;
   return (
-    <section aria-label="Gallery" className={`onboarding-customer-gallery is-${state.gallery.layout}`}>
+    <section
+      aria-label="Gallery"
+      className={`onboarding-customer-gallery is-${state.gallery.layout}`}
+      data-section-id={sectionId}
+    >
       <p className="onboarding-customer-eyebrow">Recent work</p>
       <h2>A little nail inspiration</h2>
       <div>{tiles}</div>
@@ -735,24 +792,10 @@ function GallerySection({ state }: { state: OnboardingLabState }) {
   );
 }
 
-const STARTER_STRUCTURE_COPY = {
-  multi_page: {
-    heading: 'Explore each part of the studio',
-    eyebrow: 'Five-page website',
-  },
-  one_page: {
-    heading: 'Everything in one easy scroll',
-    eyebrow: 'One-page website',
-  },
-  quick_book: {
-    heading: 'A direct path to booking',
-    eyebrow: 'Quick Book',
-  },
-} as const;
-
 type CurrentPreviewOutlineSection = {
   id: string;
   label: string;
+  semanticRole?: StarterSectionSemanticRole;
   sectionType: string;
 };
 
@@ -763,6 +806,7 @@ type CurrentPreviewOutlinePage = {
 };
 
 type CurrentPreviewOutlineOptions = {
+  contactHasContent?: boolean;
   galleryHasContent?: boolean;
   includeOptionalSections?: boolean;
   policiesHaveContent?: boolean;
@@ -774,7 +818,7 @@ const insertPreviewSection = (
   placement: 'before_booking' | 'after_booking',
 ): void => {
   if (pages.some((page) => page.sections.some((item) => (
-    item.label.toLowerCase().includes(section.label.toLowerCase())
+    item.id === section.id || item.sectionType === section.sectionType
   )))) return;
   const target = pages.find((page) => page.sections.some(
     (item) => item.sectionType === 'booking',
@@ -789,6 +833,19 @@ const insertPreviewSection = (
   target.sections.splice(insertionIndex, 0, section);
 };
 
+const appendPreviewSection = (
+  pages: CurrentPreviewOutlinePage[],
+  section: CurrentPreviewOutlineSection,
+): void => {
+  if (pages.some(page => page.sections.some(item => (
+    item.id === section.id || item.sectionType === section.sectionType
+  )))) return;
+  const target = pages.find(page => page.sections.some(
+    item => item.sectionType === 'booking',
+  )) ?? pages[0];
+  target?.sections.push(section);
+};
+
 /**
  * A truthful outline of the current preview. It starts with the real universal
  * starter document and filters isolated onboarding-preview modules without
@@ -798,23 +855,50 @@ export const getCurrentPreviewOutline = (
   document: SiteBuilderDocument | null,
   recipe: OnboardingSiteRecipe,
   {
+    contactHasContent = false,
     galleryHasContent = recipe.galleryEnabled,
     includeOptionalSections = true,
     policiesHaveContent = recipe.policiesEnabled,
   }: CurrentPreviewOutlineOptions = {},
 ): CurrentPreviewOutlinePage[] => {
-  const pages: CurrentPreviewOutlinePage[] = getStarterDocumentOutline(document)
+  const starter = document?.originStarter ?? recipe.starter ?? 'quick_book';
+  const authoritativeOutline = document
+    ? getStarterDocumentOutline(document)
+    : getStarterPageDefinitions(starter).map((page, pageIndex) => ({
+        id: `onboarding-preview-${starter}-page-${pageIndex}`,
+        label: page.previewLabel ?? page.name,
+        sections: page.sections.map((section, sectionIndex) => ({
+          id: `onboarding-preview-${starter}-section-${pageIndex}-${sectionIndex}`,
+          label: section.previewLabel,
+          ...(section.sectionType === 'booking'
+            ? {}
+            : { semanticRole: section.semanticRole }),
+          sectionType: section.sectionType,
+        })),
+      }));
+  const semanticInfoBySectionId = document
+    ? getStarterDocumentSemanticInfoBySectionId(document)
+    : new Map();
+  const documentHasStarterRole = (role: StarterSectionSemanticRole) => (
+    [...semanticInfoBySectionId.values()].some(info => info.role === role)
+  );
+  const pages: CurrentPreviewOutlinePage[] = authoritativeOutline
     .map((page) => ({
       ...page,
       sections: page.sections
         .filter((section) => {
-          if (!includeOptionalSections) return true;
-          const label = section.label.toLowerCase();
-          if (label.includes('about')) return recipe.aboutEnabled;
-          if (label.includes('gallery') || label.includes('featured work')) {
-            return recipe.galleryEnabled && galleryHasContent;
+          if (section.semanticRole === 'about') {
+            return includeOptionalSections && recipe.aboutEnabled;
           }
-          if (section.sectionType === 'custom_design') return recipe.canvaEnabled;
+          if (section.semanticRole === 'featured_work') {
+            return false;
+          }
+          if (section.semanticRole === 'gallery') {
+            return includeOptionalSections && recipe.galleryEnabled && galleryHasContent;
+          }
+          if (section.sectionType === 'custom_design') {
+            return includeOptionalSections && recipe.canvaEnabled;
+          }
           return true;
         })
         .map((section) => ({
@@ -824,23 +908,39 @@ export const getCurrentPreviewOutline = (
     }))
     .filter((page) => page.sections.length > 0);
   if (!includeOptionalSections) return pages;
-  if (recipe.aboutEnabled) {
+  if (recipe.aboutEnabled && !documentHasStarterRole('about')) {
     insertPreviewSection(pages, {
       id: 'onboarding-preview-about',
       label: 'About',
       sectionType: 'onboarding_preview_about',
     }, 'before_booking');
   }
-  const hasGalleryOutline = pages.some((page) => page.sections.some((item) => {
-    const label = item.label.toLowerCase();
-    return label.includes('gallery') || label.includes('featured work');
-  }));
-  if (recipe.galleryEnabled && galleryHasContent && !hasGalleryOutline) {
+  const hasGalleryOutline = pages.some(page => page.sections.some(item => (
+    item.semanticRole === 'gallery'
+    || item.sectionType === 'onboarding_preview_gallery'
+  )));
+  if (
+    recipe.galleryEnabled
+    && galleryHasContent
+    && !documentHasStarterRole('gallery')
+    && !hasGalleryOutline
+  ) {
     insertPreviewSection(pages, {
       id: 'onboarding-preview-gallery',
       label: 'Gallery',
       sectionType: 'onboarding_preview_gallery',
     }, 'before_booking');
+  }
+  if (
+    contactHasContent
+    && !documentHasStarterRole('contact')
+    && !documentHasStarterRole('visit')
+  ) {
+    appendPreviewSection(pages, {
+      id: 'onboarding-preview-contact',
+      label: 'Contact',
+      sectionType: 'onboarding_preview_contact',
+    });
   }
   if (recipe.policiesEnabled && policiesHaveContent) {
     insertPreviewSection(pages, {
@@ -852,61 +952,115 @@ export const getCurrentPreviewOutline = (
   return pages;
 };
 
-function StarterStructure({
-  document,
-  outline,
-}: {
-  document: SiteBuilderDocument | null;
-  outline: CurrentPreviewOutlinePage[];
-}) {
-  if (!document || outline.length === 0) return null;
-  const copy = STARTER_STRUCTURE_COPY[document.originStarter];
-  return (
-    <section
-      aria-label={`${copy.eyebrow} structure`}
-      className={`onboarding-customer-structure is-${document.originStarter}`}
-      data-starter-structure={document.originStarter}
-    >
-      <p className="onboarding-customer-eyebrow">{copy.eyebrow}</p>
-      <h2>{copy.heading}</h2>
-      <div className="onboarding-customer-structure__pages">
-        {outline.map((page) => (
-          <article
-            data-preview-page-id={page.id}
-            id={`preview-page-${page.id}`}
-            key={page.id}
-          >
-            {outline.length > 1 ? <h3>{page.label}</h3> : null}
-            <ol>
-              {page.sections.map((section) => (
-                  <li data-preview-outline-section-id={section.id} key={section.id}>
-                    {section.label}
-                  </li>
-                ))}
-            </ol>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
+export type CurrentPreviewSectionKind =
+  | 'about'
+  | 'booking'
+  | 'contact'
+  | 'custom_design'
+  | 'gallery'
+  | 'hero'
+  | 'policies';
+
+type CurrentPreviewPlannedSection = {
+  id: string;
+  kind: CurrentPreviewSectionKind;
+  label: string;
+};
+
+export type CurrentPreviewPagePlan = {
+  id: string;
+  label: string;
+  sections: CurrentPreviewPlannedSection[];
+};
+
+const semanticPreviewKind = (
+  section: CurrentPreviewOutlineSection,
+): CurrentPreviewSectionKind | null => {
+  if (section.sectionType === 'booking') return 'booking';
+  if (section.sectionType === 'custom_design') return 'custom_design';
+  if (section.sectionType === 'onboarding_preview_about') return 'about';
+  if (section.sectionType === 'onboarding_preview_gallery') return 'gallery';
+  if (section.sectionType === 'onboarding_preview_policies') return 'policies';
+  if (section.sectionType === 'onboarding_preview_contact') return 'contact';
+  if (section.semanticRole === 'hero') return 'hero';
+  if (section.semanticRole === 'about') return 'about';
+  if (section.semanticRole === 'featured_work') return null;
+  if (section.semanticRole === 'gallery') return 'gallery';
+  if (section.semanticRole === 'visit' || section.semanticRole === 'contact') return 'contact';
+  if (section.semanticRole === 'services' || section.semanticRole === 'reviews') return null;
+  // The canonical Booking renderer already owns service discovery. Rendering
+  // a separate Services placeholder would repeat the same catalogue. Reviews
+  // and unknown catalogue placeholders have no truthful customer data yet.
+  return null;
+};
+
+export const getCurrentPreviewPagePlan = (
+  outline: CurrentPreviewOutlinePage[],
+  {
+    hasPublicContact,
+  }: {
+    hasPublicContact: boolean;
+  },
+): CurrentPreviewPagePlan[] => {
+  const galleryCandidates = outline.flatMap(page => page.sections.filter(section => (
+    semanticPreviewKind(section) === 'gallery'
+  )));
+  const preferredGalleryId = galleryCandidates.find(section => (
+    section.semanticRole === 'gallery'
+    || section.label.trim().toLowerCase() === 'gallery'
+  ))?.id ?? galleryCandidates[0]?.id;
+  const contactCandidates = outline.flatMap(page => page.sections.filter(section => (
+    semanticPreviewKind(section) === 'contact'
+  )));
+  const preferredContactId = contactCandidates.find(section => (
+    section.semanticRole === 'contact'
+  ))?.id ?? contactCandidates[0]?.id;
+  const seen = new Set<CurrentPreviewSectionKind>();
+  const seenCustomDesignIds = new Set<string>();
+  const pages = outline.map((page) => {
+    const sections: CurrentPreviewPlannedSection[] = [];
+    for (const section of page.sections) {
+      const kind = semanticPreviewKind(section);
+      if (!kind) continue;
+      if (kind === 'custom_design') {
+        if (seenCustomDesignIds.has(section.id)) continue;
+        seenCustomDesignIds.add(section.id);
+        sections.push({ id: section.id, kind, label: section.label });
+        continue;
+      }
+      if (seen.has(kind)) continue;
+      if (kind === 'gallery' && section.id !== preferredGalleryId) continue;
+      if (kind === 'contact' && section.id !== preferredContactId) continue;
+      if (kind === 'contact' && !hasPublicContact) continue;
+      seen.add(kind);
+      sections.push({ id: section.id, kind, label: section.label });
+    }
+    return { id: page.id, label: page.label, sections };
+  });
+
+  return pages.filter(page => page.sections.length > 0);
+};
 
 function BookingSection({
   document,
   device,
   profile,
+  sectionId,
 }: {
   document: SiteBuilderDocument | null;
   device: OnboardingPreviewDevice;
   profile: BusinessProfileDraft;
+  sectionId?: string;
 }) {
-  const bookingSettings = document?.pages
+  const documentBookingSection = document?.pages
     .flatMap((page) => page.sections)
-    .find((section) => section.sectionType === 'booking')?.settings
-    ?? createDefaultBookingPresentationSettings();
-  const bookingSectionId = document?.pages
-    .flatMap((page) => page.sections)
-    .find((section) => section.sectionType === 'booking')?.id;
+    .find((section) => (
+      section.sectionType === 'booking'
+      && (!sectionId || section.id === sectionId)
+    ));
+  const bookingSettings = documentBookingSection?.sectionType === 'booking'
+    ? documentBookingSection.settings
+    : createDefaultBookingPresentationSettings();
   const fixture = useMemo(
     () => createOnboardingBookingFixture(profile),
     [profile],
@@ -926,7 +1080,7 @@ function BookingSection({
     <section
       aria-label="Booking"
       className="onboarding-customer-booking"
-      data-section-id={bookingSectionId}
+      data-section-id={sectionId ?? documentBookingSection?.id}
       id="booking"
     >
       {summary ? (
@@ -994,52 +1148,8 @@ export const getOnboardingDocumentBookingSequence = (
   };
 };
 
-function BookingDocumentSections({
-  device,
-  document,
-  profile,
-  onDocumentTarget,
-  showCustomDesign,
-}: {
-  device: OnboardingPreviewDevice;
-  document: SiteBuilderDocument | null;
-  onDocumentTarget: (target: CustomDesignDocumentNavigationTarget) => void;
-  profile: BusinessProfileDraft;
-  showCustomDesign: boolean;
-}) {
-  const sequence = useMemo(
-    () => getOnboardingDocumentBookingSequence(document),
-    [document],
-  );
-
-  return (
-    <>
-      {showCustomDesign && sequence?.beforeBookingCustomDesignIds.length ? (
-        <OnboardingCustomDesignSections
-          document={document}
-          onDocumentTarget={onDocumentTarget}
-          pageId={sequence.pageId}
-          sectionIds={sequence.beforeBookingCustomDesignIds}
-        />
-      ) : null}
-      <BookingSection
-        device={device}
-        document={document}
-        profile={profile}
-      />
-      {showCustomDesign && sequence?.afterBookingCustomDesignIds.length ? (
-        <OnboardingCustomDesignSections
-          document={document}
-          onDocumentTarget={onDocumentTarget}
-          pageId={sequence.pageId}
-          sectionIds={sequence.afterBookingCustomDesignIds}
-        />
-      ) : null}
-    </>
-  );
-}
-
 export type OnboardingSitePreviewProps = {
+  customerPagePlan?: CurrentPreviewPagePlan[];
   device?: OnboardingPreviewDevice;
   document: SiteBuilderDocument | null;
   fitAvailable?: boolean;
@@ -1051,6 +1161,7 @@ export type OnboardingSitePreviewProps = {
 };
 
 export function OnboardingSitePreview({
+  customerPagePlan,
   device = 'phone',
   document,
   fitAvailable = false,
@@ -1063,8 +1174,10 @@ export function OnboardingSitePreview({
   const frameRef = useRef<HTMLDivElement>(null);
   const measurementHostRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
+  const pendingDocumentTargetRef = useRef<CustomDesignDocumentNavigationTarget | null>(null);
   const summaryId = useId();
   const viewport = ONBOARDING_PREVIEW_VIEWPORTS[device];
+  const [activePageId, setActivePageId] = useState<string | null>(null);
   const [previewScale, setPreviewScale] = useState(1);
   const { profile, recipe } = state;
   const roles = ONBOARDING_STYLE_ROLES[recipe.stylePreset];
@@ -1097,32 +1210,40 @@ export function OnboardingSitePreview({
   );
   const title = profile.businessName.trim() || 'Your nail studio';
   const area = profile.location.cityOrArea.trim();
-  const policiesHaveContent = recipe.policiesEnabled && (
-    (
-      isDepositsAndCancellationsComplete(profile.policies)
-      && Boolean(getDepositsAndCancellationsDisplayWording(profile.policies))
-    )
-    || (['late_arrivals', 'no_shows', 'repairs', 'other'] as const)
-      .some((id) => Boolean(textForPolicy(profile, id)))
-  );
+  const starter = document?.originStarter ?? recipe.starter ?? 'quick_book';
+  const hasPublicContact = hasPublicContactSectionContent(profile);
+  const policiesHaveContent = recipe.policiesEnabled
+    && hasMeaningfulPublishablePolicies(profile.policies);
   const currentOutline = useMemo(
     () => getCurrentPreviewOutline(document, recipe, {
+      contactHasContent: hasPublicContact,
       galleryHasContent: state.gallery.images.length > 0,
       includeOptionalSections,
       policiesHaveContent,
     }),
     [
       document,
+      hasPublicContact,
       includeOptionalSections,
       policiesHaveContent,
       recipe,
       state.gallery.images.length,
     ],
   );
+  const derivedPagePlan = useMemo(
+    () => getCurrentPreviewPagePlan(currentOutline, {
+      hasPublicContact,
+    }),
+    [currentOutline, hasPublicContact],
+  );
+  // Account-backed Preview passes the exact persisted customer page plan.
+  // Final Review derives the same shape from the in-progress Builder document.
+  const pagePlan = customerPagePlan ?? derivedPagePlan;
+  const activePage = pagePlan.find(page => page.id === activePageId) ?? pagePlan[0] ?? null;
   const navigationItems = useMemo(() => {
     if (!document?.navigation.enabled) return [];
     const pagesById = new Map(document.pages.map((page) => [page.id, page]));
-    const visiblePageIds = new Set(currentOutline.map((page) => page.id));
+    const visiblePageIds = new Set(pagePlan.map((page) => page.id));
     return [...document.navigation.items]
       .sort((left, right) => left.order - right.order)
       .filter((item) => (
@@ -1130,19 +1251,57 @@ export function OnboardingSitePreview({
         && visiblePageIds.has(item.pageId)
       ))
       .map((item) => ({ label: item.label, pageId: item.pageId }));
-  }, [currentOutline, document]);
-  const revealDocumentTarget = useCallback((target: CustomDesignDocumentNavigationTarget) => {
+  }, [document, pagePlan]);
+  const bookingPage = pagePlan.find(page => page.sections.some(section => (
+    section.kind === 'booking'
+  ))) ?? null;
+  const revealCurrentDocumentTarget = useCallback((target: CustomDesignDocumentNavigationTarget) => {
     const preview = previewRef.current;
     if (!preview) return;
     const targetElement = target.sectionId
       ? [...preview.querySelectorAll<HTMLElement>('[data-section-id]')]
         .find((element) => element.dataset.sectionId === target.sectionId)
-        ?? [...preview.querySelectorAll<HTMLElement>('[data-preview-outline-section-id]')]
-          .find((element) => element.dataset.previewOutlineSectionId === target.sectionId)
       : [...preview.querySelectorAll<HTMLElement>('[data-preview-page-id]')]
         .find((element) => element.dataset.previewPageId === target.pageId);
     targetElement?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
+  const revealDocumentTarget = useCallback((target: CustomDesignDocumentNavigationTarget) => {
+    if (pagePlan.length <= 1 || activePage?.id === target.pageId) {
+      revealCurrentDocumentTarget(target);
+      return;
+    }
+    if (!pagePlan.some(page => page.id === target.pageId)) return;
+    pendingDocumentTargetRef.current = target;
+    setActivePageId(target.pageId);
+  }, [activePage?.id, pagePlan, revealCurrentDocumentTarget]);
+  const navigateToBooking = useCallback<PreviewBookHandler>((event) => {
+    event.preventDefault();
+    if (!bookingPage) return;
+    revealDocumentTarget({
+      kind: 'booking',
+      pageId: bookingPage.id,
+      relationship: activePage?.id === bookingPage.id ? 'same_page' : 'cross_page',
+      sectionId: bookingPage.sections.find(section => section.kind === 'booking')?.id,
+    });
+  }, [activePage?.id, bookingPage, revealDocumentTarget]);
+
+  useLayoutEffect(() => {
+    const targetPage = initialTarget === 'about'
+      ? pagePlan.find(page => page.sections.some(section => section.kind === 'about'))
+      : pagePlan[0];
+    setActivePageId((current) => (
+      initialTarget === 'about' || !pagePlan.some(page => page.id === current)
+        ? targetPage?.id ?? null
+        : current
+    ));
+  }, [initialTarget, pagePlan]);
+
+  useLayoutEffect(() => {
+    const pendingTarget = pendingDocumentTargetRef.current;
+    if (!pendingTarget || pendingTarget.pageId !== activePage?.id) return;
+    pendingDocumentTargetRef.current = null;
+    revealCurrentDocumentTarget(pendingTarget);
+  }, [activePage?.id, revealCurrentDocumentTarget]);
 
   useLayoutEffect(() => {
     const measurementHost = measurementHostRef.current;
@@ -1179,7 +1338,7 @@ export function OnboardingSitePreview({
       window.removeEventListener('orientationchange', scheduleScaleUpdate);
       visualViewport?.removeEventListener('resize', scheduleScaleUpdate);
     };
-  }, [fitAvailable, viewport.height, viewport.width]);
+  }, [fitAvailable, viewport]);
 
   useLayoutEffect(() => {
     if (frameRef.current) {
@@ -1197,7 +1356,7 @@ export function OnboardingSitePreview({
       ? frame.querySelector<HTMLElement>('[data-preview-target="about"]')
       : null;
     frame.scrollTop = target?.offsetTop ?? 0;
-  }, [device, includeOptionalSections, initialTarget, recipe.aboutEnabled, recipe.aboutPreset]);
+  }, [activePage?.id, device, includeOptionalSections, initialTarget, recipe.aboutEnabled, recipe.aboutPreset]);
 
   const stageStyle = {
     '--preview-scale': String(previewScale),
@@ -1205,6 +1364,86 @@ export function OnboardingSitePreview({
     '--preview-target-height': `${viewport.height}px`,
     '--preview-target-width': `${viewport.width}px`,
   } as CSSProperties;
+  const renderedPages = starter === 'multi_page'
+    ? (activePage ? [activePage] : [])
+    : pagePlan;
+  const renderPreviewSection = (
+    page: CurrentPreviewPagePlan,
+    section: CurrentPreviewPagePlan['sections'][number],
+  ): ReactNode => {
+    if (section.kind === 'hero') {
+      return (
+        <section
+          className="onboarding-customer-hero"
+          data-section-id={section.id}
+          key={section.id}
+        >
+          <div>
+            <p className="onboarding-customer-eyebrow">{area || 'Independent nail care'}</p>
+            <h2>{title}</h2>
+            <p>{heroDescription}</p>
+            <div className="onboarding-customer-statuses">
+              {visitMode ? <span>{visitMode}</span> : null}
+              {newClients ? <span>{newClients}</span> : null}
+              {hoursStatus ? <span data-hours-status={hoursStatus.kind}>{hoursStatus.label}</span> : null}
+            </div>
+            <a className="onboarding-customer-primary" href="#booking" onClick={navigateToBooking}>
+              Book an appointment
+            </a>
+          </div>
+        </section>
+      );
+    }
+    if (section.kind === 'about') {
+      return (
+        <AboutSection
+          key={section.id}
+          hoursStatus={hoursStatus}
+          onBook={navigateToBooking}
+          preset={recipe.aboutPreset}
+          profile={profile}
+          sectionId={section.id}
+          showPolicySummary={recipe.policiesEnabled}
+        />
+      );
+    }
+    if (section.kind === 'gallery') {
+      return <GallerySection key={section.id} sectionId={section.id} state={state} />;
+    }
+    if (section.kind === 'booking') {
+      return (
+        <BookingSection
+          key={section.id}
+          device={device}
+          document={document}
+          profile={profile}
+          sectionId={section.id}
+        />
+      );
+    }
+    if (section.kind === 'policies') {
+      return <PoliciesSection key={section.id} profile={profile} sectionId={section.id} />;
+    }
+    if (section.kind === 'contact') {
+      return (
+        <ContactSection
+          key={section.id}
+          onBook={navigateToBooking}
+          profile={profile}
+          sectionId={section.id}
+        />
+      );
+    }
+    return (
+      <OnboardingCustomDesignSections
+        key={section.id}
+        document={document}
+        onDocumentTarget={revealDocumentTarget}
+        pageId={page.id}
+        sectionIds={[section.id]}
+      />
+    );
+  };
 
   return (
     <section
@@ -1228,62 +1467,57 @@ export function OnboardingSitePreview({
         {interactionMode === 'inline' ? ' Open the full preview to use customer controls.' : ''}
       </span>
       <div
+        aria-label={interactionMode === 'interactive' ? 'Customer website viewport' : undefined}
         className={`onboarding-preview-frame is-${device}`}
         data-preview-device={device}
         data-preview-scroll-container="true"
         data-palette-preset={recipe.palettePreset}
         data-style-preset={recipe.stylePreset}
         ref={frameRef}
+        role={interactionMode === 'interactive' ? 'region' : undefined}
         tabIndex={interactionMode === 'inline' ? -1 : 0}
       >
       <div className="onboarding-site-preview" ref={previewRef} style={style}>
-        <header className="onboarding-customer-header">
+        <header className={`onboarding-customer-header${starter === 'multi_page' ? ' has-page-navigation' : ''}`}>
           <Brand profile={profile} />
-          <nav aria-label="Customer preview navigation">
-            {navigationItems.slice(0, 4).map((item) => (
-              <a href={`#preview-page-${item.pageId}`} key={item.pageId}>
-                {item.label}
-              </a>
-            ))}
-            <a href="#booking">Book</a>
-          </nav>
+          {starter !== 'quick_book' ? (
+            <nav
+              aria-label="Customer preview navigation"
+              className={starter === 'multi_page' ? 'is-page-navigation' : undefined}
+            >
+              {starter === 'multi_page' ? navigationItems.map((item) => (
+                <a
+                  aria-current={activePage?.id === item.pageId ? 'page' : undefined}
+                  href={`#preview-page-${item.pageId}`}
+                  key={item.pageId}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    pendingDocumentTargetRef.current = null;
+                    setActivePageId(item.pageId);
+                    if (frameRef.current) frameRef.current.scrollTop = 0;
+                  }}
+                >
+                  {item.label}
+                </a>
+              )) : null}
+              {bookingPage ? <a href="#booking" onClick={navigateToBooking}>Book</a> : null}
+            </nav>
+          ) : null}
         </header>
 
         <div className="onboarding-customer-content">
-          <StarterStructure document={document} outline={currentOutline} />
-
-          <section className="onboarding-customer-hero">
-            <div>
-              <p className="onboarding-customer-eyebrow">{area || 'Independent nail care'}</p>
-              <h2>{title}</h2>
-              <p>{heroDescription}</p>
-              <div className="onboarding-customer-statuses">
-                {visitMode ? <span>{visitMode}</span> : null}
-                {newClients ? <span>{newClients}</span> : null}
-                {hoursStatus ? <span data-hours-status={hoursStatus.kind}>{hoursStatus.label}</span> : null}
-              </div>
-              <a className="onboarding-customer-primary" href="#booking">Book an appointment</a>
+          {renderedPages.map((page) => (
+            <div
+              aria-label={starter === 'multi_page' ? `${page.label} page` : undefined}
+              className="onboarding-customer-page"
+              data-preview-page-id={page.id}
+              id={`preview-page-${page.id}`}
+              key={page.id}
+              role={starter === 'multi_page' ? 'region' : undefined}
+            >
+              {page.sections.map(section => renderPreviewSection(page, section))}
             </div>
-          </section>
-
-          {includeOptionalSections && recipe.aboutEnabled ? (
-            <AboutSection
-              hoursStatus={hoursStatus}
-              preset={recipe.aboutPreset}
-              profile={profile}
-              showPolicySummary={recipe.policiesEnabled}
-            />
-          ) : null}
-          {includeOptionalSections ? <GallerySection state={state} /> : null}
-          <BookingDocumentSections
-            device={device}
-            document={document}
-            onDocumentTarget={revealDocumentTarget}
-            profile={profile}
-            showCustomDesign={includeOptionalSections}
-          />
-          {includeOptionalSections && recipe.policiesEnabled ? <PoliciesSection profile={profile} /> : null}
-          <ContactSection profile={profile} />
+          ))}
         </div>
 
         <footer className="onboarding-customer-footer">

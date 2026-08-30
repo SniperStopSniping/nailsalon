@@ -4,7 +4,12 @@ import { vi } from 'vitest';
 
 import { createDefaultCustomDesignSettings } from '../../custom-design/model/settings';
 import type { CustomDesignImageItem } from '../../custom-design/model/types';
-import { initializeStarter } from '../../model';
+import {
+  initializeStarter,
+  moveSectionToPage,
+  removeSection,
+  setSectionVisible,
+} from '../../model';
 import type { CustomDesignSectionInstance } from '../../model/types';
 import { createDanielaFixtureState } from '../fixtures';
 import { createDefaultOnboardingState } from '../model/defaults';
@@ -12,6 +17,8 @@ import type { AboutPresetId } from '../model/types';
 import { parseOnboardingState } from '../storage/storage';
 import {
   calculateOnboardingPreviewScale,
+  getCurrentPreviewOutline,
+  getCurrentPreviewPagePlan,
   getOnboardingDocumentBookingSequence,
   ONBOARDING_PREVIEW_VIEWPORTS,
   OnboardingSitePreview,
@@ -258,7 +265,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
 
   it('renders real Custom Design sections around Booking in universal document order', () => {
     const state = createDanielaFixtureState();
-    state.recipe.canvaEnabled = false;
+    state.recipe.canvaEnabled = true;
     const document = initializeStarter('quick_book');
     const page = document.pages[0];
     const booking = page?.sections.find((section) => section.sectionType === 'booking');
@@ -299,6 +306,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
   it('activates a Canva Booking CTA against the real Booking section without changing the page hash', async () => {
     const user = userEvent.setup();
     const state = createDanielaFixtureState();
+    state.recipe.canvaEnabled = true;
     const document = initializeStarter('quick_book');
     const page = document.pages[0]!;
     const booking = page.sections.find((section) => section.sectionType === 'booking')!;
@@ -532,9 +540,33 @@ describe('OnboardingSitePreview shared profile composition', () => {
     view.rerender(
       <OnboardingSitePreview document={initializeStarter('one_page')} label="Combined policy preview" state={noDeposit} />,
     );
-    expect(policies).toHaveTextContent('No deposit is required.');
-    expect(policies).toHaveTextContent('Late cancellations incur a cancellation fee.');
-    expect(policies).not.toHaveTextContent(/refundable|transferred|deposit being lost/iu);
+    const noDepositPolicies = within(screen.getByRole('region', { name: 'Combined policy preview' }))
+      .getByRole('region', { name: 'Policies' });
+    expect(noDepositPolicies).toHaveTextContent('No deposit is required.');
+    expect(noDepositPolicies).toHaveTextContent('Late cancellations incur a cancellation fee.');
+    expect(noDepositPolicies).not.toHaveTextContent(/refundable|transferred|deposit being lost/iu);
+  });
+
+  it('withholds a partial policy until it has meaningful publishable wording', () => {
+    const state = createDefaultOnboardingState();
+    state.profile.businessName = 'Isla Nail Studio';
+    state.profile.businessStructure = 'solo';
+    state.profile.ownerName = 'Daniela';
+    state.profile.policies.lateArrivals.gracePeriodMinutes = '10';
+    state.recipe.policiesEnabled = true;
+
+    render(
+      <OnboardingSitePreview
+        document={initializeStarter('quick_book')}
+        label="Partial policy preview"
+        state={state}
+      />,
+    );
+
+    const preview = screen.getByRole('region', { name: 'Partial policy preview' });
+    expect(preview.querySelector('.onboarding-customer-policies')).toBeNull();
+    expect(within(preview).queryByRole('region', { name: 'Policies' }))
+      .not.toBeInTheDocument();
   });
 
   it('honours hidden identity and booking-status fields in Before You Book', () => {
@@ -620,101 +652,172 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .toBeVisible();
   });
 
-  it.each([
-    {
-      heading: 'A direct path to booking',
-      labels: ['Salon intro', 'Services', 'About', 'Gallery', 'Booking', 'Policies'],
-      pageHeadings: [],
-      starter: 'quick_book',
-    },
-    {
-      heading: 'Everything in one easy scroll',
-      labels: ['Welcome', 'About', 'Services', 'Gallery', 'Reviews', 'Booking', 'Policies'],
-      pageHeadings: [],
-      starter: 'one_page',
-    },
-    {
-      heading: 'Explore each part of the studio',
-      labels: ['Welcome', 'Featured work', 'Services', 'Booking', 'Policies', 'Gallery', 'About', 'Visit us', 'Contact'],
-      pageHeadings: ['Home', 'Services & Booking', 'Gallery', 'About', 'Contact'],
-      starter: 'multi_page',
-    },
-  ] as const)('renders the real $starter document outline distinctly', ({ heading, labels, pageHeadings, starter }) => {
+  it('renders Quick Book as one ordered customer page with no structure outline or navigation', () => {
     const state = createDanielaFixtureState();
-    state.recipe.starter = starter;
+    state.recipe.starter = 'quick_book';
+    state.recipe.aboutEnabled = false;
+    state.recipe.galleryEnabled = false;
+    state.recipe.policiesEnabled = false;
+    const document = initializeStarter('quick_book');
+    const page = document.pages[0]!;
+    const heroId = page.sections.find(section => section.label === 'Section 01')!.id;
+    const servicesId = page.sections.find(section => section.label === 'Section 02')!.id;
+    const bookingId = page.sections.find(section => section.sectionType === 'booking')!.id;
+
+    render(
+      <OnboardingSitePreview
+        document={document}
+        interactionMode="interactive"
+        label="Quick Book customer preview"
+        state={state}
+      />,
+    );
+    const preview = screen.getByRole('region', { name: 'Quick Book customer preview' });
+    const customerPage = preview.querySelector<HTMLElement>('.onboarding-customer-page')!;
+    const sectionIds = [...customerPage.children]
+      .flatMap(element => element.getAttribute('data-section-id') ?? []);
+
+    expect(preview.querySelector('[data-starter-structure]')).toBeNull();
+    expect(within(preview).queryByRole('navigation', { name: 'Customer preview navigation' }))
+      .not.toBeInTheDocument();
+    expect(sectionIds).toEqual([heroId, bookingId, 'onboarding-preview-contact']);
+    expect(sectionIds).not.toContain(servicesId);
+    expect(preview.querySelectorAll('.onboarding-customer-hero')).toHaveLength(1);
+    expect(within(preview).getAllByRole('region', { name: 'Booking' })).toHaveLength(1);
+    expect(within(preview).getAllByRole('region', { name: 'Visit and contact' })).toHaveLength(1);
+  });
+
+  it('does not duplicate Booking as an otherwise empty Contact section', () => {
+    const state = createDefaultOnboardingState();
+    state.profile.businessName = 'Isla Nail Studio';
+    state.profile.businessStructure = 'solo';
+    state.profile.ownerName = 'Daniela';
+    state.profile.bookingOnlyContact = true;
+    state.recipe.starter = 'quick_book';
+
+    render(
+      <OnboardingSitePreview
+        document={initializeStarter('quick_book')}
+        interactionMode="interactive"
+        label="Booking-only customer preview"
+        state={state}
+      />,
+    );
+
+    const preview = screen.getByRole('region', { name: 'Booking-only customer preview' });
+    expect(preview.querySelectorAll('.onboarding-customer-booking')).toHaveLength(1);
+    expect(preview.querySelector('.onboarding-customer-contact')).toBeNull();
+  });
+
+  it('renders One-page modules once in semantic order and omits unsupported placeholders', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'one_page';
     state.recipe.galleryEnabled = true;
     state.gallery.images = [{
       altText: 'Example nail set',
       fileName: 'example-gallery.jpg',
-      height: 800,
-      id: 'example-gallery',
+      id: 'example-gallery-order',
       mimeType: 'image/jpeg',
       previewUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>',
       source: 'fixture',
-      width: 800,
     }];
-    const document = initializeStarter(starter);
+    const document = initializeStarter('one_page');
+    const page = document.pages[0]!;
+    const sectionIdFor = (label: string) => page.sections.find(
+      section => section.label === label,
+    )!.id;
+    const bookingId = page.sections.find(section => section.sectionType === 'booking')!.id;
+    const originalDocument = structuredClone(document);
 
     render(
-      <OnboardingSitePreview document={document} label={`${starter} structure preview`} state={state} />,
+      <OnboardingSitePreview document={document} label="One-page customer preview" state={state} />,
     );
-    const preview = screen.getByRole('region', { name: `${starter} structure preview` });
-    const structure = preview.querySelector(`[data-starter-structure="${starter}"]`);
+    const preview = screen.getByRole('region', { name: 'One-page customer preview' });
+    const customerPage = preview.querySelector<HTMLElement>('.onboarding-customer-page')!;
+    const sectionIds = [...customerPage.children]
+      .flatMap(element => element.getAttribute('data-section-id') ?? []);
 
-    expect(structure).not.toBeNull();
-    expect(within(structure as HTMLElement).getByRole('heading', { level: 2, name: heading }))
-      .toBeVisible();
-    expect(within(structure as HTMLElement).getAllByRole('listitem').map((item) => item.textContent))
-      .toEqual(labels);
-    expect(within(structure as HTMLElement).queryAllByRole('heading', { level: 3 }).map((item) => item.textContent))
-      .toEqual(pageHeadings);
+    expect(preview.querySelector('[data-starter-structure]')).toBeNull();
+    expect(sectionIds).toEqual([
+      sectionIdFor('Section 01'),
+      sectionIdFor('Section 02'),
+      sectionIdFor('Section 04'),
+      bookingId,
+      'onboarding-preview-policies',
+      'onboarding-preview-contact',
+    ]);
+    expect(sectionIds).not.toContain(sectionIdFor('Section 03'));
+    expect(sectionIds).not.toContain(sectionIdFor('Section 05'));
+    expect(preview.querySelectorAll('.onboarding-customer-hero')).toHaveLength(1);
+    expect(preview.querySelectorAll('.onboarding-customer-about')).toHaveLength(1);
+    expect(preview.querySelectorAll('.onboarding-customer-gallery')).toHaveLength(1);
+    expect(preview.querySelectorAll('.onboarding-customer-booking')).toHaveLength(1);
+    expect(preview.querySelectorAll('.onboarding-customer-policies')).toHaveLength(1);
+    expect(preview.querySelectorAll('.onboarding-customer-contact')).toHaveLength(1);
+    expect(document).toEqual(originalDocument);
   });
 
-  it('shows a confirmed Canva section in the truthful outline without inventing another document section', () => {
+  it('renders an account-backed customer page plan without rebuilding the raw starter outline', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'one_page';
+    const document = initializeStarter('one_page');
+    const home = document.pages[0]!;
+    const hero = home.sections.find(section => section.label === 'Section 01')!;
+    const booking = home.sections.find(section => section.sectionType === 'booking')!;
+
+    render(
+      <OnboardingSitePreview
+        customerPagePlan={[{
+          id: home.id,
+          label: home.name,
+          sections: [
+            { id: hero.id, kind: 'hero', label: 'Welcome' },
+            { id: booking.id, kind: 'booking', label: 'Booking' },
+          ],
+        }]}
+        document={document}
+        interactionMode="interactive"
+        label="Persisted customer plan preview"
+        state={state}
+      />,
+    );
+
+    const preview = screen.getByRole('region', { name: 'Persisted customer plan preview' });
+    const renderedIds = [...preview.querySelectorAll<HTMLElement>('[data-section-id]')]
+      .map(section => section.dataset.sectionId);
+
+    expect(renderedIds).toEqual([hero.id, booking.id]);
+    expect(preview.querySelector('.onboarding-customer-about')).toBeNull();
+    expect(preview.querySelector('.onboarding-customer-gallery')).toBeNull();
+    expect(preview.querySelector('.onboarding-customer-contact')).toBeNull();
+  });
+
+  it('renders every distinct Custom Design section once in document order', () => {
     const state = createDanielaFixtureState();
     state.recipe.starter = 'quick_book';
     state.recipe.canvaEnabled = true;
     const document = initializeStarter('quick_book');
-    document.pages[0]?.sections.push(customSection('outline', 2.5));
+    const page = document.pages[0]!;
+    const booking = page.sections.find(section => section.sectionType === 'booking')!;
+    const before = customSection('first-preview-page', booking.order - 0.2);
+    const after = customSection('second-preview-page', booking.order + 0.2);
+    page.sections.push(after, before);
 
     render(
-      <OnboardingSitePreview document={document} label="Canva outline preview" state={state} />,
+      <OnboardingSitePreview document={document} label="Custom Design pages preview" state={state} />,
     );
-    const structure = screen.getByRole('region', { name: 'Canva outline preview' })
-      .querySelector('[data-starter-structure="quick_book"]');
+    const preview = screen.getByRole('region', { name: 'Custom Design pages preview' });
+    const renderedCustomIds = [...preview.querySelectorAll<HTMLElement>(
+      '[data-onboarding-custom-design-section]',
+    )].map(section => section.dataset.onboardingCustomDesignSection);
 
-    expect(within(structure as HTMLElement).getByText('Canva design')).toBeVisible();
-    expect(document.pages[0]?.sections.filter(
-      (section) => section.sectionType === 'custom_design',
-    )).toHaveLength(1);
+    expect(renderedCustomIds).toEqual([before.id, after.id]);
+    expect(new Set(renderedCustomIds)).toHaveProperty('size', 2);
+    expect(preview.querySelector('[data-starter-structure]')).toBeNull();
   });
 
-  it('removes optional About and Gallery labels without changing the real starter document', () => {
-    const state = createDanielaFixtureState();
-    state.recipe.starter = 'one_page';
-    state.recipe.aboutEnabled = false;
-    state.recipe.galleryEnabled = false;
-    state.recipe.policiesEnabled = false;
-    const document = initializeStarter('one_page');
-    const originalDocument = structuredClone(document);
-
-    render(
-      <OnboardingSitePreview document={document} label="Current outline preview" state={state} />,
-    );
-    const preview = screen.getByRole('region', { name: 'Current outline preview' });
-    const structure = preview.querySelector('[data-starter-structure="one_page"]');
-    const labels = within(structure as HTMLElement)
-      .getAllByRole('listitem')
-      .map((item) => item.textContent);
-
-    expect(labels).toEqual(['Welcome', 'Services', 'Reviews', 'Booking']);
-    expect(within(structure as HTMLElement).queryByText('About')).not.toBeInTheDocument();
-    expect(within(structure as HTMLElement).queryByText('Gallery')).not.toBeInTheDocument();
-    expect(within(structure as HTMLElement).queryByText('Policies')).not.toBeInTheDocument();
-    expect(document).toEqual(originalDocument);
-  });
-
-  it('connects every visible Multi-page navigation link to its real document page target', () => {
+  it('switches Multi-page navigation between real rendered customer pages', async () => {
+    const user = userEvent.setup();
     const state = createDanielaFixtureState();
     state.recipe.starter = 'multi_page';
     state.recipe.galleryEnabled = true;
@@ -740,18 +843,204 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const navigation = within(preview).getByRole('navigation', {
       name: 'Customer preview navigation',
     });
-    const pagesById = new Map(document.pages.map((page) => [page.id, page]));
-    const items = [...document.navigation.items]
-      .sort((left, right) => left.order - right.order)
-      .filter((item) => pagesById.get(item.pageId)?.visibleInNavigation)
-      .slice(0, 4);
+    const pageByName = new Map(document.pages.map(page => [page.name, page]));
+    const home = pageByName.get('Home')!;
+    const booking = pageByName.get('Services / Book')!;
+    const gallery = pageByName.get('Gallery')!;
+    const about = pageByName.get('About')!;
+    const contact = pageByName.get('Contact')!;
 
-    for (const item of items) {
-      const targetId = `preview-page-${item.pageId}`;
-      expect(within(navigation).getByRole('link', { name: item.label }))
-        .toHaveAttribute('href', `#${targetId}`);
-      expect(preview.querySelector(`#${targetId}`)).toBeInTheDocument();
-    }
+    expect(within(navigation).getByRole('link', { name: 'Home' }))
+      .toHaveAttribute('aria-current', 'page');
+    expect(within(preview).getByRole('region', { name: 'Home page' }))
+      .toHaveAttribute('data-preview-page-id', home.id);
+    expect(preview.querySelectorAll('.onboarding-customer-hero')).toHaveLength(1);
+    expect(preview.querySelector('.onboarding-customer-gallery')).toBeNull();
+
+    await user.click(within(navigation).getByRole('link', { name: 'Gallery' }));
+    expect(within(navigation).getByRole('link', { name: 'Gallery' }))
+      .toHaveAttribute('aria-current', 'page');
+    expect(within(preview).getByRole('region', { name: 'Gallery page' }))
+      .toHaveAttribute('data-preview-page-id', gallery.id);
+    expect(preview.querySelectorAll('.onboarding-customer-gallery')).toHaveLength(1);
+
+    await user.click(within(navigation).getByRole('link', { name: 'About' }));
+    expect(within(preview).getByRole('region', { name: 'About page' }))
+      .toHaveAttribute('data-preview-page-id', about.id);
+    expect(preview.querySelectorAll('.onboarding-customer-about')).toHaveLength(1);
+
+    await user.click(within(navigation).getByRole('link', { name: 'Services / Book' }));
+    expect(within(preview).getByRole('region', { name: 'Services / Book page' }))
+      .toHaveAttribute('data-preview-page-id', booking.id);
+    expect(preview.querySelectorAll('.onboarding-customer-booking')).toHaveLength(1);
+    expect(preview.querySelector(`[data-section-id="${booking.sections.find(
+      section => section.sectionType === 'booking',
+    )!.id}"]`)).not.toBeNull();
+
+    await user.click(within(navigation).getByRole('link', { name: 'Contact' }));
+    expect(within(preview).getByRole('region', { name: 'Contact page' }))
+      .toHaveAttribute('data-preview-page-id', contact.id);
+    expect(preview.querySelectorAll('.onboarding-customer-contact')).toHaveLength(1);
+    expect(preview.querySelector('[data-starter-structure]')).toBeNull();
+  });
+
+  it('opens the actual Multi-page About page for an About-targeted preview', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'multi_page';
+    const document = initializeStarter('multi_page');
+    const aboutPage = document.pages.find(page => page.name === 'About')!;
+
+    render(
+      <OnboardingSitePreview
+        document={document}
+        initialTarget="about"
+        interactionMode="interactive"
+        label="Targeted About preview"
+        state={state}
+      />,
+    );
+    const preview = screen.getByRole('region', { name: 'Targeted About preview' });
+    const navigation = within(preview).getByRole('navigation', {
+      name: 'Customer preview navigation',
+    });
+
+    expect(within(navigation).getByRole('link', { name: 'About' }))
+      .toHaveAttribute('aria-current', 'page');
+    expect(within(preview).getByRole('region', { name: 'About page' }))
+      .toHaveAttribute('data-preview-page-id', aboutPage.id);
+    expect(preview.querySelectorAll('.onboarding-customer-about')).toHaveLength(1);
+    expect(preview.querySelector('.onboarding-customer-hero')).toBeNull();
+  });
+
+  it('keeps a moved and owner-renamed About section semantic in customer Preview', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'multi_page';
+    const source = initializeStarter('multi_page');
+    const home = source.pages.find(page => page.isHome)!;
+    const aboutPage = source.pages.find(page => page.name === 'About')!;
+    const aboutSection = aboutPage.sections.find(section => (
+      section.sectionType !== 'booking'
+      && section.sectionType !== 'custom_design'
+      && section.starterSemanticRole === 'about'
+    ))!;
+    const document = moveSectionToPage(source, aboutSection.id, home.id);
+    const movedAbout = document.pages
+      .flatMap(page => page.sections)
+      .find(section => section.id === aboutSection.id)!;
+    movedAbout.label = 'Daniela’s story';
+
+    render(
+      <OnboardingSitePreview
+        document={document}
+        initialTarget="about"
+        interactionMode="interactive"
+        label="Renamed About preview"
+        state={state}
+      />,
+    );
+
+    const preview = screen.getByRole('region', { name: 'Renamed About preview' });
+    const navigation = within(preview).getByRole('navigation', {
+      name: 'Customer preview navigation',
+    });
+
+    expect(within(navigation).getByRole('link', { name: 'Home' }))
+      .toHaveAttribute('aria-current', 'page');
+    expect(preview.querySelectorAll('.onboarding-customer-about')).toHaveLength(1);
+    expect(preview.querySelector('.onboarding-customer-about'))
+      .toHaveAttribute('data-section-id', aboutSection.id);
+  });
+
+  it('filters renamed optional sections by their persisted role instead of owner copy', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'one_page';
+    state.recipe.aboutEnabled = false;
+    state.recipe.galleryEnabled = false;
+    const document = initializeStarter('one_page');
+    const about = document.pages[0]!.sections.find(section => (
+      section.sectionType !== 'booking'
+      && section.sectionType !== 'custom_design'
+      && section.starterSemanticRole === 'about'
+    ))!;
+    const gallery = document.pages[0]!.sections.find(section => (
+      section.sectionType !== 'booking'
+      && section.sectionType !== 'custom_design'
+      && section.starterSemanticRole === 'gallery'
+    ))!;
+    about.label = 'Daniela’s story';
+    gallery.label = 'My work';
+
+    const outline = getCurrentPreviewOutline(document, state.recipe, {
+      galleryHasContent: true,
+    });
+    const plan = getCurrentPreviewPagePlan(outline, { hasPublicContact: false });
+
+    expect(plan.flatMap(page => page.sections.map(section => section.kind)))
+      .not.toEqual(expect.arrayContaining(['about', 'gallery']));
+  });
+
+  it('does not re-inject hidden or removed starter modules into customer Preview', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'one_page';
+    state.recipe.aboutEnabled = true;
+    state.recipe.galleryEnabled = true;
+    const source = initializeStarter('one_page');
+    const about = source.pages[0]!.sections.find(section => (
+      section.sectionType !== 'booking'
+      && section.sectionType !== 'custom_design'
+      && section.starterSemanticRole === 'about'
+    ))!;
+    const gallery = source.pages[0]!.sections.find(section => (
+      section.sectionType !== 'booking'
+      && section.sectionType !== 'custom_design'
+      && section.starterSemanticRole === 'gallery'
+    ))!;
+    const withHiddenAbout = setSectionVisible(source, about.id, false);
+    const document = removeSection(withHiddenAbout, gallery.id);
+
+    const outline = getCurrentPreviewOutline(document, state.recipe, {
+      galleryHasContent: true,
+    });
+    const plan = getCurrentPreviewPagePlan(outline, { hasPublicContact: false });
+    const kinds = plan.flatMap(page => page.sections.map(section => section.kind));
+
+    expect(kinds).not.toContain('about');
+    expect(kinds).not.toContain('gallery');
+    expect(outline.flatMap(page => page.sections.map(section => section.id)))
+      .not.toEqual(expect.arrayContaining([
+        'onboarding-preview-about',
+        'onboarding-preview-gallery',
+      ]));
+  });
+
+  it('never promotes an owner-added catalogue label into a native customer section', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'quick_book';
+    state.recipe.policiesEnabled = true;
+    const document = initializeStarter('quick_book');
+    document.pages[0]!.sections.push({
+      id: 'owner-labelled-policies',
+      label: 'Policies',
+      order: document.pages[0]!.sections.length,
+      placeholderSettings: {},
+      sectionType: 'section_08',
+      size: 'medium',
+      visible: true,
+    });
+
+    const outline = getCurrentPreviewOutline(document, state.recipe, {
+      policiesHaveContent: true,
+    });
+    const plan = getCurrentPreviewPagePlan(outline, { hasPublicContact: false });
+    const policySections = plan.flatMap(page => page.sections.filter(section => (
+      section.kind === 'policies'
+    )));
+
+    expect(policySections).toEqual([expect.objectContaining({
+      id: 'onboarding-preview-policies',
+    })]);
+    expect(plan.flatMap(page => page.sections.map(section => section.id)))
+      .not.toContain('owner-labelled-policies');
   });
 
   it.each([

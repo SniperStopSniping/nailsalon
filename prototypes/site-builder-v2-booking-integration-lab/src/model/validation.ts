@@ -16,6 +16,7 @@ import type {
 import { hasNormalizedOrdering, normalizeDocument } from './normalize';
 import {
   SITE_BUILDER_SCHEMA_VERSION,
+  STARTER_SECTION_SEMANTIC_ROLES,
   type CustomDesignSectionInstance,
   type DocumentImportResult,
   type DocumentValidationResult,
@@ -70,6 +71,7 @@ const PLACEHOLDER_SECTION_KEYS = new Set([
   'order',
   'visible',
   'size',
+  'starterSemanticRole',
   'placeholderSettings',
 ]);
 const BOOKING_SECTION_KEYS = new Set([
@@ -173,6 +175,14 @@ const validatePlaceholderSectionShape = (
   }
   if (!isSectionSize(value.size)) {
     issues.push(`${path}.size is invalid.`);
+  }
+  if (
+    value.starterSemanticRole !== undefined
+    && !STARTER_SECTION_SEMANTIC_ROLES.some(
+      role => role === value.starterSemanticRole,
+    )
+  ) {
+    issues.push(`${path}.starterSemanticRole is invalid.`);
   }
   if (!isRecord(value.placeholderSettings)) {
     issues.push(`${path}.placeholderSettings must be an object.`);

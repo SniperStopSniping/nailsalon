@@ -69,6 +69,7 @@ export function SavedSitePreviewClient({
   const preview = (
     <div className="saved-site-preview-stage" data-theme-scope="site">
       <OnboardingSitePreview
+        customerPagePlan={model.pagePlan}
         device={embedded ? 'phone' : device}
         document={model.document}
         fitAvailable

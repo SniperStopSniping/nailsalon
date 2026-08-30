@@ -556,29 +556,29 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await capture(page, '07-no-deposit-consistent-policies');
   });
 
-  test('A01-1 shows distinct real starter structures and names a switch destination', async ({ page }) => {
+  test('A01-1 renders distinct customer sites without an owner-facing structure outline', async ({ page }) => {
     await page.setViewportSize({ height: 800, width: 1180 });
-    const expectStructureInFirstFrame = async (structure: Locator) => {
-      const geometry = await structure.evaluate((element) => {
-        const frame = element.closest('.onboarding-preview-frame')?.getBoundingClientRect();
-        const bounds = element.getBoundingClientRect();
-        return {
-          frameBottom: frame?.bottom ?? 0,
-          frameTop: frame?.top ?? 0,
-          structureBottom: bounds.bottom,
-          structureTop: bounds.top,
-        };
-      });
-      expect(geometry.structureTop).toBeGreaterThanOrEqual(geometry.frameTop);
-      expect(geometry.structureBottom).toBeLessThanOrEqual(geometry.frameBottom);
-    };
     await applyFixtureFromFresh(page, 'Multi-page starter', 'Your starting site is ready');
     let preview = page.getByLabel('Isla Nail Studio starting website preview');
-    const multiStructure = preview.locator('[data-starter-structure="multi_page"]');
-    for (const pageName of ['Home', 'Services & Booking', 'Gallery', 'About', 'Contact']) {
-      await expect(multiStructure.getByRole('heading', { name: pageName, exact: true })).toBeVisible();
-    }
-    await expectStructureInFirstFrame(multiStructure);
+    await expect(preview.locator('[data-starter-structure]')).toHaveCount(0);
+    await expect(preview.locator('.onboarding-customer-hero')).toHaveCount(1);
+    await expect(preview.locator('.onboarding-customer-booking')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Preview my site' }).click();
+    const fullPreview = page.getByRole('dialog', { name: 'Preview your starting site' });
+    const customerSite = fullPreview.getByLabel('Preview your starting site — phone');
+    const navigation = customerSite.getByRole('navigation', {
+      name: 'Customer preview navigation',
+    });
+    await expect(navigation.getByRole('link', { name: 'Home' }))
+      .toHaveAttribute('aria-current', 'page');
+    await navigation.getByRole('link', { name: 'Services / Book' }).click();
+    await expect(customerSite.getByRole('region', { name: 'Services / Book page' }))
+      .toBeVisible();
+    await expect(customerSite.locator('.onboarding-customer-booking')).toHaveCount(1);
+    await navigation.getByRole('link', { name: 'Contact' }).click();
+    await expect(customerSite.getByRole('region', { name: 'Contact page' })).toBeVisible();
+    await expect(customerSite.locator('.onboarding-customer-contact')).toHaveCount(1);
+    await fullPreview.getByRole('button', { exact: true, name: 'Back' }).click();
     await capture(page, '10-multi-page-preview');
 
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
@@ -596,12 +596,12 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
     await expectAtTop(page, 'Your starting site is ready');
     preview = page.getByLabel('Isla Nail Studio starting website preview');
-    const quickStructure = preview.locator('[data-starter-structure="quick_book"]');
-    for (const sectionName of ['Salon intro', 'Services', 'Booking']) {
-      await expect(quickStructure.getByRole('listitem').filter({ hasText: sectionName })).toBeVisible();
-    }
-    await expectStructureInFirstFrame(quickStructure);
-    await expect(preview).not.toContainText('Reviews');
+    await expect(preview.locator('[data-starter-structure]')).toHaveCount(0);
+    await expect(preview.getByRole('navigation', { name: 'Customer preview navigation' }))
+      .toHaveCount(0);
+    await expect(preview.locator('.onboarding-customer-hero')).toHaveCount(1);
+    await expect(preview.locator('.onboarding-customer-booking')).toHaveCount(1);
+    await expect(preview.locator('.onboarding-customer-contact')).toHaveCount(0);
     await capture(page, '08-quick-book-preview');
 
     await page.getByRole('button', { exact: true, name: 'Back' }).click();
@@ -616,11 +616,12 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
     await expectAtTop(page, 'Your starting site is ready');
     preview = page.getByLabel('Isla Nail Studio starting website preview');
-    const onePageStructure = preview.locator('[data-starter-structure="one_page"]');
-    for (const sectionName of ['Welcome', 'About', 'Services', 'Gallery', 'Reviews', 'Booking']) {
-      await expect(onePageStructure.getByRole('listitem').filter({ hasText: sectionName })).toBeVisible();
-    }
-    await expectStructureInFirstFrame(onePageStructure);
+    await expect(preview.locator('[data-starter-structure]')).toHaveCount(0);
+    await expect(preview.locator('.onboarding-customer-hero')).toHaveCount(1);
+    await expect(preview.locator('.onboarding-customer-booking')).toHaveCount(1);
+    await expect(preview.locator('.onboarding-customer-contact')).toHaveCount(0);
+    await expect(preview.locator('.onboarding-customer-about')).toHaveCount(0);
+    await expect(preview.locator('.onboarding-customer-gallery')).toHaveCount(0);
     await capture(page, '09-one-page-preview');
   });
 
