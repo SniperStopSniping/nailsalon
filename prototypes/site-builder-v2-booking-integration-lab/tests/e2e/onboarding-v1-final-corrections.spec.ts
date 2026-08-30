@@ -147,7 +147,7 @@ async function captureEvidence(page: Page, fileName: string): Promise<void> {
 }
 
 async function openFreshOnboarding(page: Page): Promise<void> {
-  await page.goto('/');
+  await page.goto('/?audit=1');
   await expect(screenHeading(page, 'Let’s build your website')).toBeVisible();
 }
 
@@ -205,10 +205,10 @@ async function completePhotoSocial(
   instagram = '@mias_nails',
 ): Promise<void> {
   if (instagram) {
-    await page.getByLabel('Instagram handle (optional)').fill(instagram);
+    await page.getByLabel('Instagram handle').fill(instagram);
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
   } else {
-    await page.getByRole('button', { name: 'Skip photo for now' }).click();
+    await page.getByRole('button', { name: 'Skip for now' }).click();
   }
   await expectScreenAtTop(page, 'Where can clients find you?');
 }
@@ -232,16 +232,20 @@ async function completeLocation(
   await page.getByRole('group', { name: 'Where do you see clients?' })
     .getByRole('radio', { name: locationType })
     .check();
-  await page.getByRole('group', { name: 'Address visibility' })
+  await page.getByRole('group', { name: 'Who can see your address?' })
     .getByRole('radio', { name: addressVisibility })
     .check();
   await captureEvidence(page, '16-location-type');
 
   await page.locator('button[aria-controls="onboarding-contact-card-panel"]').click();
+  const bookingOnlyControl = page.getByRole('switch', {
+    name: 'Clients should use online booking only',
+  });
   if (bookingOnly) {
-    await page.getByRole('switch', { name: 'Clients should use online booking only' }).check();
+    await bookingOnlyControl.check();
   } else {
-    await page.getByLabel('Client contact number').fill(phone);
+    await bookingOnlyControl.uncheck();
+    await page.getByLabel('Phone number clients can use').fill(phone);
     if (callEnabled) await page.getByRole('switch', { name: 'Call this number' }).check();
     if (textEnabled) await page.getByRole('switch', { name: 'Text this number' }).check();
     if (textEnabled && differentTextNumber) {
@@ -390,7 +394,7 @@ async function applyFixtureFromFresh(
 async function addSampleGallery(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Add Gallery' }).click();
   const dialog = page.getByRole('dialog', { name: 'Add Gallery' });
-  await dialog.getByRole('button', { name: 'Use temporary example photos' }).click();
+  await dialog.getByRole('button', { name: /Use example nail photos/u }).click();
   await dialog.getByRole('button', { exact: true, name: 'Add Gallery' }).click();
   await expect(dialog).toBeHidden();
   await expect(page.getByText(/Added: .*Gallery/u)).toBeVisible();
@@ -457,7 +461,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await page.getByRole('button', { exact: true, name: 'Continue' }).click();
     await expectScreenAtTop(page, 'Add your photo and Instagram');
     await captureEvidence(page, '11-screen-title-after-transition');
-    await page.getByRole('button', { name: 'Skip photo for now' }).click();
+    await page.getByRole('button', { name: 'Skip for now' }).click();
     await expectScreenAtTop(page, 'Where can clients find you?');
 
     await page.locator('button[aria-controls="onboarding-contact-card-panel"]').click();
@@ -467,7 +471,10 @@ test.describe('Onboarding V1 final correction matrix', () => {
     expect(targetBox?.width ?? 0).toBeGreaterThanOrEqual(44);
     expect(targetBox?.height ?? 0).toBeGreaterThanOrEqual(44);
     await captureEvidence(page, '28-44px-switch-target');
+    await expect(bookingOnly).toBeChecked();
     await bookingOnly.focus();
+    await page.keyboard.press('Space');
+    await expect(bookingOnly).not.toBeChecked();
     await page.keyboard.press('Space');
     await expect(bookingOnly).toBeChecked();
 
@@ -728,7 +735,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await page.getByRole('group', { name: 'Where do you see clients?' })
       .getByRole('radio', { name: 'Home studio' })
       .check();
-    await page.getByRole('group', { name: 'Address visibility' })
+    await page.getByRole('group', { name: 'Who can see your address?' })
       .getByRole('radio', { name: 'Show after booking' })
       .check();
     const locationPreview = page.getByRole('img', {
@@ -759,7 +766,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     const compactWeeklyHours = locationPreview.locator('[aria-label="Weekly hours"]');
     await expect(compactWeeklyHours).toContainText('Monday');
     await expect(compactWeeklyHours).toContainText('Sunday');
-    await expect(locationPreview).toContainText('Open until 5:00 PM');
+    await expect(locationPreview).toContainText('Opens Monday at 9:00 AM');
     await captureEvidence(page, '07-configured-hours-preview');
     await captureEvidence(page, '09-open-state');
 
@@ -861,10 +868,12 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await captureEvidence(page, '33-continue-free');
     await continueFree.focus();
     await page.keyboard.press('Enter');
-    const tour = page.getByRole('dialog', { name: 'Welcome to your Luster workspace' });
-    await tour.getByRole('button', { name: 'Skip tour' }).click();
+    await expect(page.getByRole('dialog', { name: 'Welcome to your Luster workspace' }))
+      .toHaveCount(0);
     const dashboard = page.getByRole('main');
-    await expect(page.getByRole('heading', { level: 1, name: 'Welcome to Luster, Mia Torres' })).toBeFocused();
+    await expect(page.getByRole('heading', { level: 1, name: 'Your Luster site is ready' }))
+      .toBeFocused();
+    await expect(dashboard).toContainText('Mia Torres');
     await expect(dashboard).toContainText(longBusinessName);
     await expect(dashboard).not.toContainText('Isla Nail Studio');
     await captureEvidence(page, '20-mia-builder-handoff');
@@ -926,7 +935,7 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await page.getByRole('button', { name: 'Build my website' }).click();
     await completeBusiness(page);
 
-    const profileInput = page.getByLabel('Profile photo (optional)');
+    const profileInput = page.getByLabel('Profile photo', { exact: true });
     await profileInput.setInputFiles(DANIELA_PORTRAIT_PATH);
     const preview = page.getByLabel('Profile preview');
     await expect(preview.getByRole('img')).toBeVisible();
@@ -935,7 +944,9 @@ test.describe('Onboarding V1 final correction matrix', () => {
       mimeType: 'image/png',
       name: 'corrupt-profile.png',
     });
-    await expect(page.getByRole('alert')).toContainText('This image couldn’t be opened. Try exporting or selecting it again.');
+    await expect(page.getByRole('alert')).toContainText(
+      'This photo couldn’t be read. Try selecting it again or choose another copy.',
+    );
     await expect(preview.getByRole('img')).toBeVisible();
     await expect(page.getByText('daniela-placeholder.jpg')).toBeVisible();
     await captureEvidence(page, '18-corrupt-image-error');
@@ -987,12 +998,12 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await page.evaluate(() => window.localStorage.setItem('luster:unrelated-sentinel', 'preserve-me'));
     await page.getByRole('button', { name: 'Build my website' }).click();
     await completeBusiness(page);
-    await page.getByRole('button', { name: 'Skip photo for now' }).click();
+    await page.getByRole('button', { name: 'Skip for now' }).click();
     await expectScreenAtTop(page, 'Where can clients find you?');
     await page.getByLabel('More onboarding options').click();
-    await page.getByRole('menuitem', { name: 'Restart onboarding' }).click();
-    const reset = page.getByRole('dialog', { name: 'Restart onboarding?' });
-    await reset.getByRole('button', { exact: true, name: 'Restart onboarding' }).click();
+    await page.getByRole('menuitem', { name: 'Start over' }).click();
+    const reset = page.getByRole('dialog', { name: 'Start over?' });
+    await reset.getByRole('button', { exact: true, name: 'Start over' }).click();
     await expect(screenHeading(page, 'Let’s build your website')).toBeVisible();
     await expect(page.getByRole('dialog')).toHaveCount(0);
     expect(await page.evaluate(() => window.localStorage.getItem('luster:unrelated-sentinel'))).toBe('preserve-me');

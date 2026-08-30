@@ -49,6 +49,9 @@ type StoredOnboardingState = {
     canvaEnabled: boolean;
     galleryEnabled: boolean;
   };
+  reviewOptions: {
+    feedbackMilestones: string[];
+  };
 };
 
 const heading = (page: Page, name: string): Locator =>
@@ -463,10 +466,9 @@ test.describe('Daniela-final onboarding acceptance', () => {
       { timeout: 6_000 },
     );
     await captureViewport(page, '36-starting-site-reveal');
-    await expect(page.locator('.onboarding-feedback')).toContainText(
-      'Booking is ready',
-      { timeout: 8_000 },
-    );
+    await waitForSaved(page);
+    expect((await readState(page)).reviewOptions.feedbackMilestones)
+      .toContain('stage_booking');
     await captureViewport(page, '35-booking-stage-complete');
     await page.getByRole('button', { name: 'Continue setting up my site' }).click();
     await page.getByLabel('Short bio').fill('Hi, I’m Daniela. I create thoughtful, detailed nail appointments in a calm private studio.');
@@ -507,10 +509,9 @@ test.describe('Daniela-final onboarding acceptance', () => {
       'Your website style is set',
     );
     await captureViewport(page, '35-design-stage-complete');
-    await expect(page.locator('.onboarding-feedback')).toContainText(
-      'Everything you need is ready',
-      { timeout: 6_000 },
-    );
+    await waitForSaved(page);
+    expect((await readState(page)).reviewOptions.feedbackMilestones)
+      .toContain('all_required_complete');
     await captureViewport(page, '37-all-required-complete');
     await page.getByRole('button', { name: 'Continue to review' }).click();
     await expect(heading(page, 'Review your site')).toBeVisible();
@@ -608,9 +609,10 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await expect(resultList.locator(':scope > li')).toHaveCount(1);
     await captureViewport(page, '08-service-search-categories');
     await resultList.getByRole('button', { name: 'Add Russian Manicure' }).click();
-    await expect(page.locator('.onboarding-feedback')).toContainText(
-      'Russian Manicure added.',
-    );
+    await expect(page.locator('.onboarding-feedback')).toHaveCount(0);
+    await expect(page.getByRole('status').filter({
+      hasText: 'Russian Manicure added.',
+    })).toHaveCount(1);
     await captureViewport(page, '33-service-added-interaction');
     await dialog.getByPlaceholder('Search services').fill('');
 
@@ -1007,6 +1009,9 @@ test.describe('Daniela-final onboarding acceptance', () => {
     expect((actionBox?.y ?? 9999) - ((stageBox?.y ?? 0) + (stageBox?.height ?? 0)))
       .toBeLessThanOrEqual(24);
     expect(overlayBox?.height ?? 9999).toBeLessThanOrEqual(844 * 0.9);
+    const initialPhoneBox = await stage.boundingBox();
+    expect(initialPhoneBox).not.toBeNull();
+    await captureViewport(page, 'tiny-01-preview-phone-initial');
 
     const scrollGeometry = await frame.evaluate((element) => ({
       clientHeight: element.clientHeight,
@@ -1018,13 +1023,29 @@ test.describe('Daniela-final onboarding acceptance', () => {
     await expect.poll(() => frame.evaluate((element) => element.scrollTop)).toBeGreaterThan(0);
     await captureViewport(page, '17-compact-starting-site-preview');
 
-    for (const device of ['Tablet', 'Desktop', 'Phone'] as const) {
-      await overlay.getByRole('button', { name: device }).click();
-      await expect(overlay.getByRole('button', { name: device })).toHaveAttribute('aria-pressed', 'true');
-      await expect(stage.locator(`.onboarding-preview-frame.is-${device.toLowerCase()}`))
-        .toBeVisible();
-      expect((await stage.boundingBox())?.height ?? 9999).toBeLessThanOrEqual(844 * 0.7);
+    for (let cycle = 0; cycle < 10; cycle += 1) {
+      for (const device of ['Desktop', 'Phone', 'Tablet', 'Phone'] as const) {
+        await overlay.getByRole('button', { name: device }).click();
+        await expect(overlay.getByRole('button', { name: device }))
+          .toHaveAttribute('aria-pressed', 'true');
+        await expect(stage.locator(`.onboarding-preview-frame.is-${device.toLowerCase()}`))
+          .toBeVisible();
+        expect((await stage.boundingBox())?.height ?? 9999).toBeLessThanOrEqual(844 * 0.7);
+        if (device === 'Phone') {
+          const recoveredPhoneBox = await stage.boundingBox();
+          expect(Math.abs(
+            (recoveredPhoneBox?.height ?? 0) - (initialPhoneBox?.height ?? 0),
+          )).toBeLessThanOrEqual(2);
+          expect(Math.abs(
+            (recoveredPhoneBox?.width ?? 0) - (initialPhoneBox?.width ?? 0),
+          )).toBeLessThanOrEqual(2);
+        }
+      }
     }
+    await overlay.getByRole('button', { name: 'Desktop' }).click();
+    await captureViewport(page, 'tiny-02-preview-desktop');
+    await overlay.getByRole('button', { name: 'Phone' }).click();
+    await captureViewport(page, 'tiny-03-preview-phone-recovered');
     await actions.getByRole('button', { name: 'Back' }).click();
     await expect(dialog).toBeHidden();
     await expect(heading(page, 'Your starting site is ready')).toBeVisible();
@@ -1052,6 +1073,19 @@ test.describe('Daniela-final onboarding acceptance', () => {
       .toBeGreaterThanOrEqual((previewBox?.y ?? 0) + (previewBox?.height ?? 0) - 1);
     expect(await readiness.evaluate((element) => getComputedStyle(element).position))
       .not.toMatch(/absolute|fixed/u);
+    const reviewStage = preview.locator('.onboarding-preview-stage');
+    const initialReviewPhoneBox = await reviewStage.boundingBox();
+    await page.getByRole('group', { name: 'Customer preview device size' })
+      .getByRole('button', { name: 'Desktop' })
+      .click();
+    await page.getByRole('group', { name: 'Customer preview device size' })
+      .getByRole('button', { name: 'Phone' })
+      .click();
+    const recoveredReviewPhoneBox = await reviewStage.boundingBox();
+    expect(Math.abs(
+      (recoveredReviewPhoneBox?.height ?? 0) - (initialReviewPhoneBox?.height ?? 0),
+    )).toBeLessThanOrEqual(2);
+    await captureViewport(page, 'tiny-04-final-review-phone-recovered');
     await previewFrame.evaluate((element) => { element.scrollTop = 160; });
     const previewScrollBefore = await previewFrame.evaluate((element) => element.scrollTop);
     await captureViewport(page, '24-review-unobstructed');
