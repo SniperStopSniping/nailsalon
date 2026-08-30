@@ -841,6 +841,44 @@ test.describe('Daniela-final onboarding acceptance', () => {
       await page.setViewportSize({ height: 844, width: 390 });
       await option.scrollIntoViewIfNeeded();
       await measurePreset(label, className, { height: 844, width: 390 });
+      if (label === 'Photo Right' || label === 'Editorial Portrait') {
+        const section = preview.locator(`.onboarding-customer-about.${className}`);
+        const portrait = section.locator('.onboarding-customer-portrait.is-large');
+        const copy = section.locator('.onboarding-about-copy');
+        const book = section.locator('a', { hasText: 'Book now' });
+        const [previewBox, sectionBox, portraitBox, copyBox, bookBox, objectFit] = await Promise.all([
+          preview.boundingBox(),
+          section.boundingBox(),
+          portrait.boundingBox(),
+          copy.boundingBox(),
+          book.boundingBox(),
+          portrait.evaluate((element) => getComputedStyle(element).objectFit),
+        ]);
+        expect(previewBox).not.toBeNull();
+        expect(sectionBox).not.toBeNull();
+        expect(portraitBox).not.toBeNull();
+        expect(copyBox).not.toBeNull();
+        expect(bookBox).not.toBeNull();
+        expect(objectFit).toBe('cover');
+        expect(portraitBox?.height ?? 0).toBeGreaterThan(portraitBox?.width ?? 0);
+        expect((portraitBox?.width ?? 0) / (portraitBox?.height ?? 1))
+          .toBeGreaterThanOrEqual(0.76);
+        expect((portraitBox?.width ?? 0) / (portraitBox?.height ?? 1))
+          .toBeLessThanOrEqual(0.84);
+        expect((portraitBox?.width ?? 0) / (sectionBox?.width ?? 1))
+          .toBeLessThanOrEqual(0.45);
+        expect(Math.abs((portraitBox?.y ?? 0) - (copyBox?.y ?? 0)))
+          .toBeLessThanOrEqual(1);
+        expect((bookBox?.y ?? 0) + (bookBox?.height ?? 0))
+          .toBeLessThanOrEqual((previewBox?.y ?? 0) + (previewBox?.height ?? 0) + 1);
+        const portraitCenter = (portraitBox?.x ?? 0) + ((portraitBox?.width ?? 0) / 2);
+        const copyCenter = (copyBox?.x ?? 0) + ((copyBox?.width ?? 0) / 2);
+        if (label === 'Photo Right') {
+          expect(portraitCenter).toBeGreaterThan(copyCenter);
+        } else {
+          expect(portraitCenter).toBeLessThan(copyCenter);
+        }
+      }
       await capture(page, mobileFile);
       await page.setViewportSize({ height: 800, width: 1180 });
       await option.scrollIntoViewIfNeeded();

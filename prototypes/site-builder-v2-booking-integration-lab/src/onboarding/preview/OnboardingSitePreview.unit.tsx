@@ -128,6 +128,27 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelectorAll('[data-media-role="profile"]')).toHaveLength(1);
   });
 
+  it.each([
+    ['photo_right', 'is-photo-right'],
+    ['editorial_portrait', 'is-editorial'],
+  ] satisfies Array<[AboutPresetId, string]>)('marks the portrait-led %s layout for compact phone composition', (preset, className) => {
+    const state = createDanielaFixtureState();
+    state.recipe.aboutPreset = preset;
+
+    const { container } = render(
+      <OnboardingSitePreview
+        document={initializeStarter('one_page')}
+        label={`${preset} portrait preview`}
+        state={state}
+      />,
+    );
+
+    const about = container.querySelector(`.onboarding-customer-about.${className}`);
+    expect(about).toHaveClass('has-portrait');
+    expect(about?.querySelector('.onboarding-customer-portrait.is-large'))
+      .toHaveAttribute('data-media-role', 'profile');
+  });
+
   it('presents minimum notice as a cutoff without seeded availability claims', () => {
     const state = createDefaultOnboardingState();
     state.profile.bookingPreferences.minimumNoticeMinutes = 1_440;

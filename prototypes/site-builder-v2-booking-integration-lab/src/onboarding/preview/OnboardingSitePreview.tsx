@@ -518,7 +518,7 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
     return (
       <section
         aria-label="About"
-        className="onboarding-customer-about is-editorial"
+        className={`onboarding-customer-about is-editorial${showPortrait ? ' has-portrait' : ''}`}
         data-preview-target="about"
       >
         {showPortrait ? <Portrait large profile={profile} respectAboutVisibility /> : null}
@@ -594,7 +594,7 @@ function AboutSection({ hoursStatus, preset, profile, showPolicySummary }: {
   return (
     <section
       aria-label="About"
-      className="onboarding-customer-about is-photo-right"
+      className={`onboarding-customer-about is-photo-right${showPortrait ? ' has-portrait' : ''}`}
       data-preview-target="about"
     >
       <div className="onboarding-about-photo-copy">

@@ -261,6 +261,29 @@ describe('SiteStyleScreen', () => {
     );
   });
 
+  it('keeps the two portrait-led About presets beside the introduction on phones', () => {
+    const css = readFileSync(
+      join(process.cwd(), 'src/onboarding/daniela-about-style.css'),
+      'utf8',
+    );
+
+    expect(css).toMatch(
+      /@container onboarding-preview \(max-width: 559px\) \{[\s\S]*?\.onboarding-customer-about\.is-photo-right\.has-portrait \{[^}]*grid-template-columns: minmax\(0, 1fr\) clamp\(96px, 30cqw, 124px\);/u,
+    );
+    expect(css).toMatch(
+      /\.onboarding-customer-about\.is-photo-right > \.onboarding-customer-portrait\.is-large \{[^}]*grid-column: 2;[^}]*aspect-ratio: 4 \/ 5;/su,
+    );
+    expect(css).toMatch(
+      /\.onboarding-customer-about\.is-editorial\.has-portrait \{[^}]*grid-template-columns: clamp\(104px, 33cqw, 136px\) minmax\(0, 1fr\);/su,
+    );
+    expect(css).toMatch(
+      /\.onboarding-customer-about\.is-editorial\.has-portrait > \.onboarding-customer-portrait\.is-large \{[^}]*grid-column: 1;[^}]*aspect-ratio: 4 \/ 5;/su,
+    );
+    expect(css).not.toMatch(
+      /@container onboarding-preview \(max-width: 559px\) \{[\s\S]*?\.onboarding-customer-about\.is-photo-right > \.onboarding-customer-portrait\.is-large \{[^}]*order: -1;/u,
+    );
+  });
+
   it('updates only customer-site roles and explicitly confirms the selected style', async () => {
     const user = userEvent.setup();
     const initial = createDanielaFixtureState();
