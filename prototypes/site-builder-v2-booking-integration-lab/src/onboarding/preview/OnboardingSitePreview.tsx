@@ -25,6 +25,7 @@ import type { BookingSessionState } from '../../booking/types';
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
 import type { CustomDesignDocumentNavigationTarget } from '../../custom-design/integration/document-actions';
 import { isLibrarySection } from '../../model/section-library/registry';
+import type { GallerySelection, HeroMediaChoice } from '../../model/section-library/settings';
 import {
   buildCustomerPagePlan,
   type SitePlanPage,
@@ -229,6 +230,41 @@ const identityInitials = (value: string, fallback = 'L'): string => {
   return initials || fallback;
 };
 
+/**
+ * Honest hero imagery: a photo or emblem renders only from the owner's own
+ * shared assets; with nothing to show, the gradient backdrop stands alone.
+ */
+function HeroMedia({ media, profile }: {
+  media: HeroMediaChoice;
+  profile: BusinessProfileDraft;
+}) {
+  const image = media === 'profile_photo' ? profile.profilePhoto : profile.logo;
+  const assetIds = image?.storageId ? [image.storageId] : [];
+  const assets = useCustomDesignAssetMap(assetIds);
+  if (media === 'gradient') return null;
+  const source = resolveOnboardingImageUrl(image, assets);
+  if (media === 'profile_photo') {
+    return source
+      ? (
+          <div className="onboarding-customer-hero__media">
+            <img alt="" src={source} />
+          </div>
+        )
+      : null;
+  }
+  return (
+    <div className="onboarding-customer-hero__media is-emblem">
+      {source
+        ? <img alt="" src={source} />
+        : (
+            <i aria-hidden="true">
+              {identityInitials(profile.businessName, 'L')}
+            </i>
+          )}
+    </div>
+  );
+}
+
 function Brand({ profile }: { profile: BusinessProfileDraft }) {
   const assetIds = profile.logo?.storageId ? [profile.logo.storageId] : [];
   const assets = useCustomDesignAssetMap(assetIds);
@@ -422,9 +458,17 @@ function AboutSpecialties({ profile }: { profile: BusinessProfileDraft }) {
   );
 }
 
-function AboutCopy({ profile }: { profile: BusinessProfileDraft }) {
+function AboutCopy({ introOverride, profile }: {
+  introOverride?: string;
+  profile: BusinessProfileDraft;
+}) {
   const visibility = profile.about.visibility;
-  const bio = resolveAboutBio(profile.about.shortBio, profile.about.fullBio);
+  const sharedBio = resolveAboutBio(profile.about.shortBio, profile.about.fullBio);
+  // A deliberate section-level intro replaces only the lead line; the shared
+  // expanded biography still comes from the Business Profile.
+  const bio = introOverride?.trim()
+    ? { ...sharedBio, lead: introOverride.trim() }
+    : sharedBio;
   const heading = isAboutVisible(visibility, 'owner_name') && profile.ownerName.trim()
     ? profile.ownerName.trim()
     : isAboutVisible(visibility, 'salon_name') && profile.businessName.trim()
@@ -437,7 +481,7 @@ function AboutCopy({ profile }: { profile: BusinessProfileDraft }) {
       {isAboutVisible(visibility, 'salon_name') && profile.businessName.trim()
         ? <p className="onboarding-about-salon">{profile.businessName.trim()}</p>
         : null}
-      {isAboutVisible(visibility, 'bio') && bio.lead ? (
+      {(introOverride?.trim() || isAboutVisible(visibility, 'bio')) && bio.lead ? (
         <div className="onboarding-about-biography">
           <p>{bio.lead}</p>
           {bio.expanded ? (
@@ -483,8 +527,9 @@ function PolicySummary({ profile }: { profile: BusinessProfileDraft }) {
   return summary ? <p className="onboarding-policy-summary">{summary}</p> : null;
 }
 
-function AboutSection({ hoursStatus, onBook, preset, profile, sectionId, showPolicySummary }: {
+function AboutSection({ hoursStatus, introOverride, onBook, preset, profile, sectionId, showPolicySummary }: {
   hoursStatus: WeeklyHoursPreviewStatus | null;
+  introOverride?: string;
   onBook: PreviewBookHandler;
   preset: AboutPresetId;
   profile: BusinessProfileDraft;
@@ -521,7 +566,7 @@ function AboutSection({ hoursStatus, onBook, preset, profile, sectionId, showPol
       >
         {showPortrait ? <Portrait large profile={profile} respectAboutVisibility /> : null}
         <div className="onboarding-about-editorial-story">
-          <AboutCopy profile={profile} />
+          <AboutCopy introOverride={introOverride} profile={profile} />
           <AboutSpecialties profile={profile} />
           <AboutActions onBook={onBook} profile={profile} />
           <AboutFacts hoursStatus={hoursStatus} maxVisible={2} presentation="pills" profile={profile} />
@@ -541,7 +586,7 @@ function AboutSection({ hoursStatus, onBook, preset, profile, sectionId, showPol
       >
         <div className="onboarding-about-quick-identity">
           {showPortrait ? <Portrait profile={profile} respectAboutVisibility /> : null}
-          <AboutCopy profile={profile} />
+          <AboutCopy introOverride={introOverride} profile={profile} />
         </div>
         <AboutActions onBook={onBook} profile={profile} />
         <AboutFacts hoursStatus={hoursStatus} profile={profile} />
@@ -562,7 +607,7 @@ function AboutSection({ hoursStatus, onBook, preset, profile, sectionId, showPol
         <div className="onboarding-about-profile">
           <div className="onboarding-about-before-identity">
             {showPortrait ? <Portrait profile={profile} respectAboutVisibility /> : null}
-            <AboutCopy profile={profile} />
+            <AboutCopy introOverride={introOverride} profile={profile} />
           </div>
           <AboutSpecialties profile={profile} />
           <AboutActions onBook={onBook} profile={profile} />
@@ -599,7 +644,7 @@ function AboutSection({ hoursStatus, onBook, preset, profile, sectionId, showPol
       data-preview-target="about"
     >
       <div className="onboarding-about-photo-copy">
-        <AboutCopy profile={profile} />
+        <AboutCopy introOverride={introOverride} profile={profile} />
         <AboutSpecialties profile={profile} />
         <AboutActions onBook={onBook} profile={profile} />
         <AboutFacts hoursStatus={hoursStatus} maxVisible={2} presentation="pills" profile={profile} />
@@ -695,11 +740,19 @@ function ContactSection({ onBook, profile, sectionId }: {
   );
 }
 
-function GallerySection({ sectionId, state }: {
+function GallerySection({ sectionId, selection, state }: {
   sectionId?: string;
+  selection?: GallerySelection;
   state: OnboardingLabState;
 }) {
-  const images = state.gallery.images;
+  // A deliberate picked selection shows exactly those photos, in that order;
+  // ids that no longer exist simply don't render.
+  const images = selection?.mode === 'picked'
+    ? selection.imageIds.flatMap((imageId) => {
+        const image = state.gallery.images.find(candidate => candidate.id === imageId);
+        return image ? [image] : [];
+      })
+    : state.gallery.images;
   const assetIds = images.flatMap((image) => image.storageId ? [image.storageId] : []);
   const assets = useCustomDesignAssetMap(assetIds);
   if (!state.recipe.galleryEnabled) return null;
@@ -1088,6 +1141,9 @@ export function OnboardingSitePreview({
               {heroSettings?.primaryCtaLabel.trim() || 'Book an appointment'}
             </a>
           </div>
+          {heroSettings && heroSettings.preset !== 'booking_first' ? (
+            <HeroMedia media={heroSettings.media} profile={profile} />
+          ) : null}
         </section>
       );
     }
@@ -1097,10 +1153,15 @@ export function OnboardingSitePreview({
       const aboutPreset = customerPagePlan && instance.sectionType === 'about'
         ? instance.settings.preset
         : recipe.aboutPreset;
+      const aboutIntroOverride = instance.sectionType === 'about'
+        && instance.settings.intro.source === 'override'
+        ? instance.settings.intro.value
+        : undefined;
       return (
         <AboutSection
           key={planSection.id}
           hoursStatus={hoursStatus}
+          introOverride={aboutIntroOverride}
           onBook={navigateToBooking}
           preset={aboutPreset}
           profile={profile}
@@ -1110,7 +1171,14 @@ export function OnboardingSitePreview({
       );
     }
     if (planSection.sectionType === 'gallery') {
-      return <GallerySection key={planSection.id} sectionId={planSection.id} state={state} />;
+      return (
+        <GallerySection
+          key={planSection.id}
+          sectionId={planSection.id}
+          selection={instance.sectionType === 'gallery' ? instance.settings.selection : undefined}
+          state={state}
+        />
+      );
     }
     if (planSection.sectionType === 'booking') {
       return (

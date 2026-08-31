@@ -76,17 +76,27 @@ import {
   type CustomDesignSettings,
 } from '../custom-design/model';
 import {
+  getAddSectionWarnings,
+  isAddBlocked,
+  isLibrarySection,
   isLibrarySectionType,
   type BuilderCommand,
   type CatalogueSectionType,
   type CommitSectionMoveDestination,
+  type LibrarySectionSettings,
+  type LibrarySectionType,
   type OriginStarter,
+  type OverlapWarning,
   type PageDocument,
   type PlaceholderSectionInstance,
   type SectionInstance,
   type SectionSize,
   type SiteBuilderDocument,
+  type UpdateSiteContentInput,
 } from '../model';
+import { createDefaultOnboardingState } from '../onboarding/model/defaults';
+import { deriveSiteLibraryContext } from '../onboarding/model/site-library-context';
+import { LibrarySectionSettingsDialog } from './section-editors/LibrarySectionSettingsDialog';
 import {
   getOnboardingReferencedAssetIds,
   OnboardingApp,
@@ -95,6 +105,7 @@ import { FeedbackProvider } from '../onboarding/feedback/FeedbackProvider';
 import { DashboardPreviewSurface } from '../onboarding/integrations/lab/DashboardPreviewSurface';
 import { LAB_DASHBOARD_HANDOFF_PORT } from '../onboarding/integrations/lab/createLabDashboardPorts';
 import { createOnboardingBookingFixture } from '../onboarding/model/booking-preview';
+import { SectionShowcaseSurface } from '../onboarding/preview/SectionShowcaseSurface';
 import {
   loadOnboardingState,
   ONBOARDING_STORAGE_KEY,
@@ -271,12 +282,18 @@ const restoreVisibleFocus = (element: HTMLElement | null): boolean => {
 
 type LabDocumentController = ReturnType<typeof useLabDocument>;
 
-const getInitialSurface = (): 'builder' | 'dashboard' | 'onboarding' => {
+const getInitialSurface = (): 'builder' | 'dashboard' | 'onboarding' | 'sections' => {
   const search = new URLSearchParams(window.location.search);
   const builderTestHarnessEnabled = import.meta.env.MODE === 'test'
     || import.meta.env.VITE_LUSTER_BUILDER_TEST_HARNESS === '1'
     || search.get('audit') === '1'
     || search.get('labReview') === '1';
+  if (
+    builderTestHarnessEnabled
+    && search.get('surface') === 'sections'
+  ) {
+    return 'sections';
+  }
   if (
     builderTestHarnessEnabled
     && search.get('surface') === 'builder'
@@ -306,7 +323,7 @@ const getAuditMode = (): boolean => {
 export function App() {
   const lab = useLabDocument();
   const auditMode = getAuditMode();
-  const [surface, setSurface] = useState<'builder' | 'dashboard' | 'onboarding' | 'review'>(getInitialSurface);
+  const [surface, setSurface] = useState<'builder' | 'dashboard' | 'onboarding' | 'review' | 'sections'>(getInitialSurface);
   const getReachableAssetIds = useCallback(() => {
     const reachable = new Set(lab.getReachableAssetIds());
     const loaded = loadOnboardingState();
@@ -319,7 +336,9 @@ export function App() {
   return (
     <CustomDesignAssetProvider getReachableAssetIds={getReachableAssetIds}>
       <FeedbackProvider>
-        {surface === 'dashboard' ? (
+        {surface === 'sections' ? (
+          <SectionShowcaseSurface />
+        ) : surface === 'dashboard' ? (
           <DashboardHandoffSurface
             auditMode={auditMode}
             lab={lab}
@@ -410,6 +429,10 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   const [mode, setMode] = useState<EditorMode>('edit');
   const [viewport, setViewport] = useState<PreviewViewport>('desktop');
   const [libraryPosition, setLibraryPosition] = useState<number | null>(null);
+  const [pendingLibraryAdd, setPendingLibraryAdd] = useState<{
+    sectionType: LibrarySectionType;
+    warnings: OverlapWarning[];
+  } | null>(null);
   const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
   const [moveSession, setMoveSession] = useState<MoveSession | null>(null);
   const [moveDismissPending, setMoveDismissPending] = useState(false);
@@ -621,6 +644,9 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
     && editingSection.sectionType !== 'custom_design'
     && !isLibrarySectionType(editingSection.sectionType)
     ? (editingSection as PlaceholderSectionInstance)
+    : null;
+  const editingLibrarySection = editingSection && isLibrarySection(editingSection)
+    ? editingSection
     : null;
   const editingPage = document?.pages.find((page) => page.id === editingPageId) ?? null;
   const pendingPageRemoval = document?.pages.find((page) => page.id === pendingPageRemovalId) ?? null;
@@ -1700,6 +1726,77 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
       });
     });
   };
+
+  const { libraryContext, libraryProfile } = useMemo(() => {
+    const loaded = loadOnboardingState();
+    const onboardingState = loaded.status === 'loaded'
+      ? loaded.state
+      : createDefaultOnboardingState();
+    return {
+      libraryContext: deriveSiteLibraryContext(onboardingState, document),
+      libraryProfile: onboardingState.profile,
+    };
+  }, [document]);
+
+  const libraryAddState = useCallback((sectionType: LibrarySectionType) => {
+    if (!document || !activePage) return { blocked: false } as const;
+    if (isAddBlocked(document, activePage.id, sectionType)) {
+      return { blocked: true, reason: 'Already on this page' } as const;
+    }
+    return { blocked: false } as const;
+  }, [activePage, document]);
+
+  const performLibraryAdd = (sectionType: LibrarySectionType) => {
+    if (!activePage || libraryPosition === null) return;
+    const beforeIds = new Set(activePage.sections.map(section => section.id));
+    const result = execute({
+      type: 'add_section',
+      input: {
+        pageId: activePage.id,
+        position: libraryPosition,
+        sectionType,
+      },
+    });
+    if (!result.success) return;
+    const nextPage = result.document.pages.find(page => page.id === activePage.id);
+    const created = nextPage?.sections.find(section => !beforeIds.has(section.id));
+    setSelectedSectionId(created?.id ?? null);
+    setLibraryPosition(null);
+    if (created) {
+      setToast({ message: `${created.label} added. Its details come from your shared studio info.` });
+    }
+  };
+
+  const addLibrarySection = (sectionType: LibrarySectionType) => {
+    if (!document || !activePage) return;
+    const warnings = getAddSectionWarnings(
+      document,
+      activePage.id,
+      sectionType,
+      libraryContext,
+    );
+    if (warnings.length > 0) {
+      setPendingLibraryAdd({ sectionType, warnings });
+      return;
+    }
+    performLibraryAdd(sectionType);
+  };
+
+  const saveLibrarySection = (settings: LibrarySectionSettings) => {
+    if (!editingLibrarySection) return;
+    const result = execute({
+      type: 'update_library_section_settings',
+      sectionId: editingLibrarySection.id,
+      settings,
+    });
+    if (result.success) {
+      setEditingSectionId(null);
+      setToast({ message: `${editingLibrarySection.label} saved.` });
+    }
+  };
+
+  const applySiteContent = (input: UpdateSiteContentInput): boolean =>
+    execute({ type: 'update_site_content', input }).success;
 
   const addSection = (
     sectionType: CatalogueSectionType | 'custom_design',
@@ -2953,8 +3050,54 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
       <Dialog onClose={() => setStructureOpen(false)} open={structureOpen} title="Pages & Structure" variant="structure-panel">
         {structurePanel}
       </Dialog>
-      <SectionLibraryDialog document={document} insertionPosition={libraryPosition} onAdd={addSection} onClose={() => setLibraryPosition(null)} onRestore={restoreSectionFromLibrary} page={activePage} />
+      <SectionLibraryDialog document={document} insertionPosition={libraryPosition} libraryAddState={libraryAddState} onAdd={addSection} onAddLibrary={addLibrarySection} onClose={() => setLibraryPosition(null)} onRestore={restoreSectionFromLibrary} page={activePage} />
       <SectionSettingsDialog onClose={() => setEditingSectionId(null)} onSave={saveSection} section={editingPlaceholder} />
+      <LibrarySectionSettingsDialog
+        context={libraryContext}
+        document={document}
+        onClose={() => setEditingSectionId(null)}
+        onSave={saveLibrarySection}
+        onSiteContent={applySiteContent}
+        profile={libraryProfile}
+        section={editingLibrarySection}
+      />
+      <Dialog
+        description="This section overlaps content that is already on your site."
+        onClose={() => setPendingLibraryAdd(null)}
+        open={pendingLibraryAdd !== null}
+        title={pendingLibraryAdd?.warnings[0]?.title ?? 'Already covered'}
+      >
+        {pendingLibraryAdd ? (
+          <div className="library-overlap-warnings">
+            {pendingLibraryAdd.warnings.map(warning => (
+              <div className="library-overlap-warning" key={warning.id}>
+                <strong>{warning.title}</strong>
+                <p>{warning.message}</p>
+              </div>
+            ))}
+            <div className="dialog-actions">
+              <button
+                className="secondary-button"
+                onClick={() => setPendingLibraryAdd(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="primary-button"
+                onClick={() => {
+                  const sectionType = pendingLibraryAdd.sectionType;
+                  setPendingLibraryAdd(null);
+                  performLibraryAdd(sectionType);
+                }}
+                type="button"
+              >
+                Add it anyway
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </Dialog>
       <Dialog
         initialFocusSelector="[data-dialog-title]"
         onClose={closeBookingSettings}

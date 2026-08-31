@@ -4,7 +4,10 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import type { BookingTokenPresetId, ImageFixture, MenuSize } from '../booking/types';
 import {
   ADD_SECTION_CATALOGUE,
+  type AddSectionLibraryItem,
   type CatalogueSectionType,
+  getAddSectionLibrary,
+  type LibrarySectionType,
   type OriginStarter,
   type PageDocument,
   type PlaceholderSectionInstance,
@@ -14,13 +17,19 @@ import {
 } from '../model';
 import { Dialog } from './Dialog';
 
+type LibraryAddState =
+  | { blocked: true; reason: string }
+  | { blocked: false };
+
 type SectionLibraryDialogProps = {
   document: SiteBuilderDocument;
   insertionPosition: number | null;
+  libraryAddState: (sectionType: LibrarySectionType) => LibraryAddState;
   onAdd: (
     sectionType: CatalogueSectionType | 'custom_design',
     size?: SectionSize,
   ) => void;
+  onAddLibrary: (sectionType: LibrarySectionType) => void;
   onClose: () => void;
   onRestore: (
     section: RestorableSectionInstance,
@@ -29,7 +38,27 @@ type SectionLibraryDialogProps = {
   page: PageDocument;
 };
 
-export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClose, onRestore, page }: SectionLibraryDialogProps) {
+const LIBRARY_CATEGORY_LABELS: Record<AddSectionLibraryItem['category'], string> = {
+  booking: 'Booking',
+  composition: 'Structure & chrome',
+  conversion: 'First impressions & conversion',
+  media: 'Media',
+  operations: 'Practical details',
+  portfolio: 'Work & offers',
+  trust: 'Trust & story',
+};
+
+const LIBRARY_CATEGORY_ORDER: readonly AddSectionLibraryItem['category'][] = [
+  'conversion',
+  'portfolio',
+  'trust',
+  'operations',
+  'composition',
+  'booking',
+  'media',
+];
+
+export function SectionLibraryDialog({ document, insertionPosition, libraryAddState, onAdd, onAddLibrary, onClose, onRestore, page }: SectionLibraryDialogProps) {
   const [search, setSearch] = useState('');
   const activeTypes = new Set(document.pages.flatMap((candidate) => candidate.sections.map((section) => section.sectionType)));
   const unusedTypes = new Set(document.unusedSections.map((section) => section.sectionType));
@@ -42,6 +71,17 @@ export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClo
     return searchable.some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
   });
   const bookingMatches = !normalizedSearch || 'booking client service menu'.includes(normalizedSearch);
+  const libraryItems = getAddSectionLibrary().filter((item) => {
+    if (!normalizedSearch) return true;
+    return [item.label, item.description, item.category, item.sectionType]
+      .some(value => value.toLocaleLowerCase().includes(normalizedSearch));
+  });
+  const libraryByCategory = LIBRARY_CATEGORY_ORDER
+    .map(category => ({
+      category,
+      items: libraryItems.filter(item => item.category === category),
+    }))
+    .filter(group => group.items.length > 0);
 
   useEffect(() => {
     if (insertionPosition === null) setSearch('');
@@ -70,6 +110,58 @@ export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClo
           onChange={(event) => setSearch(event.target.value)}
         />
       </label>
+      {libraryByCategory.map(group => (
+        <section aria-label={LIBRARY_CATEGORY_LABELS[group.category]} className="section-library-category" key={group.category}>
+          <h3 className="section-library-category__title">{LIBRARY_CATEGORY_LABELS[group.category]}</h3>
+          <div className="section-library-grid">
+            {group.items.map((item) => {
+              const addState = libraryAddState(item.sectionType);
+              const activeCount = document.pages.reduce(
+                (count, candidate) => count + candidate.sections.filter(
+                  section => section.sectionType === item.sectionType,
+                ).length,
+                0,
+              );
+              const removedInstances = document.unusedSections.filter(
+                section => section.sectionType === item.sectionType,
+              );
+              const stateLabel = activeCount > 0
+                ? `${activeCount} in use`
+                : removedInstances.length > 0
+                  ? 'Removed'
+                  : 'Available';
+              return (
+                <article className="library-item library-item--named" data-section-type={item.sectionType} key={item.sectionType}>
+                  <div className="library-item__copy">
+                    <strong>{item.label}</strong>
+                    <span>{item.description}</span>
+                    <span className="library-state">{stateLabel}</span>
+                    {removedInstances.map(section => (
+                      <button
+                        className="library-add-button library-restore-button"
+                        key={section.id}
+                        type="button"
+                        onClick={() => onRestore(section, insertionPosition ?? undefined)}
+                      >
+                        <RotateCcw aria-hidden="true" size={15} />
+                        <span>Restore removed {section.label}</span>
+                      </button>
+                    ))}
+                    <button
+                      className="library-add-button"
+                      disabled={addState.blocked}
+                      type="button"
+                      onClick={() => onAddLibrary(item.sectionType)}
+                    >
+                      <Plus aria-hidden="true" size={15} /> {addState.blocked ? addState.reason : `Add ${item.label}`}
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ))}
       <div className="section-library-grid">
         {visibleItems.map((item) => {
           if (item.sectionType === 'custom_design') {
@@ -173,8 +265,8 @@ export function SectionLibraryDialog({ document, insertionPosition, onAdd, onClo
             </button>
           </div>
         </article> : null}
-        {visibleItems.length === 0 && !bookingMatches ? (
-          <p className="section-library-empty">No sections match “{search.trim()}”. Try Canva, policies, or image.</p>
+        {visibleItems.length === 0 && libraryItems.length === 0 && !bookingMatches ? (
+          <p className="section-library-empty">No sections match “{search.trim()}”. Try hero, reviews, hours, or Canva.</p>
         ) : null}
       </div>
     </Dialog>
