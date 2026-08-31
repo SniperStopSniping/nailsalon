@@ -16,6 +16,11 @@ import type { ComponentType } from 'react';
 import { Dialog } from '../Dialog';
 import { ChoiceField } from './fields';
 import { LIBRARY_SECTION_EDITORS } from './index';
+import {
+  getSectionPlanExclusion,
+  type SectionPlanExclusion,
+  type SitePlanOptionalToggles,
+} from '../../model/site-plan';
 import type { LibrarySectionEditorProps } from './types';
 
 type LibrarySectionSettingsDialogProps = {
@@ -26,6 +31,25 @@ type LibrarySectionSettingsDialogProps = {
   onSiteContent: (input: UpdateSiteContentInput) => boolean;
   profile: BusinessProfileDraft;
   section: LibrarySectionInstance | null;
+  toggles: SitePlanOptionalToggles;
+};
+
+/**
+ * Why the customer is not seeing this section. Readiness answers for the
+ * section's own content; the plan answers for the reasons a single section
+ * cannot see, and both have to be sayable or the editor implies a section is
+ * live when it is not.
+ */
+const EXCLUSION_MESSAGES: Record<SectionPlanExclusion, string | null> = {
+  dropped: 'Not on your site right now.',
+  // The Builder already marks hidden sections; repeating it here would nag.
+  hidden: null,
+  not_enough_navigation_targets:
+    'An anchor menu appears once at least two sections on this page have '
+    + 'something to show.',
+  // Readiness has a specific message of its own; it is preferred below.
+  not_ready: null,
+  page_dropped: 'This page has nothing to publish yet, so it is not on your site.',
 };
 
 const PRESET_LABELS: Record<string, string> = {
@@ -67,6 +91,7 @@ export function LibrarySectionSettingsDialog({
   onSiteContent,
   profile,
   section,
+  toggles,
 }: LibrarySectionSettingsDialogProps) {
   const [draft, setDraft] = useState<LibrarySectionSettings | null>(null);
   const initializedSectionId = useRef<string | null>(null);
@@ -95,6 +120,10 @@ export function LibrarySectionSettingsDialog({
   const Editor = LIBRARY_SECTION_EDITORS[section.sectionType] as
     ComponentType<LibrarySectionEditorProps> | undefined;
   const readiness = entry.readiness(draft as never, context);
+  // The saved document, not the draft: the reasons the plan knows about are
+  // about the page this section sits on, which unsaved settings cannot change.
+  const exclusion = getSectionPlanExclusion(document, section.id, { context, toggles });
+  const planMessage = exclusion ? EXCLUSION_MESSAGES[exclusion] : null;
   const hasPresetChoice = entry.presetIds.length > 1 && 'preset' in draft;
 
   const submit = (event: FormEvent) => {
@@ -142,6 +171,10 @@ export function LibrarySectionSettingsDialog({
         {readiness.level === 'empty' && readiness.issues[0] ? (
           <p className="form-hint library-editor-readiness" role="status">
             Not on your site yet: {readiness.issues[0].message}
+          </p>
+        ) : planMessage ? (
+          <p className="form-hint library-editor-readiness" role="status">
+            Not on your site yet: {planMessage}
           </p>
         ) : null}
         <div className="dialog-actions">

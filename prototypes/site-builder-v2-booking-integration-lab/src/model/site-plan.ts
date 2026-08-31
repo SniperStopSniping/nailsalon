@@ -267,6 +267,49 @@ const resolveAdjacency = (
   return resolved;
 };
 
+/**
+ * Why a section the owner can see in the Builder is not on the customer's
+ * site. The editor can ask readiness directly, but readiness cannot answer
+ * for the reasons that only the plan knows — a page that publishes nothing,
+ * or an anchor menu with too few places to go — and a section that silently
+ * disappears while its editor says nothing is the worst of both.
+ */
+export type SectionPlanExclusion =
+  | 'dropped'
+  | 'hidden'
+  | 'not_enough_navigation_targets'
+  | 'not_ready'
+  | 'page_dropped';
+
+export const getSectionPlanExclusion = (
+  document: SiteBuilderDocument,
+  sectionId: string,
+  options: BuildCustomerPagePlanOptions,
+): SectionPlanExclusion | null => {
+  const page = document.pages.find(
+    candidate => candidate.sections.some(section => section.id === sectionId),
+  );
+  const section = page?.sections.find(candidate => candidate.id === sectionId);
+  if (!page || !section) return null;
+  if (section.visible === false) return 'hidden';
+
+  const plan = buildCustomerPagePlan(document, options);
+  const planned = plan.flatMap(planPage => planPage.sections);
+  if (planned.some(candidate => candidate.id === sectionId)) return null;
+
+  if (isLibrarySection(section)) {
+    const entry = getSectionRegistryEntry(section.sectionType);
+    if (entry.readiness(section.settings as never, options.context).level === 'empty') {
+      return 'not_ready';
+    }
+  }
+  if (!plan.some(planPage => planPage.id === page.id)) return 'page_dropped';
+  if (section.sectionType === 'section_navigation') {
+    return 'not_enough_navigation_targets';
+  }
+  return 'dropped';
+};
+
 export const buildCustomerPagePlan = (
   document: SiteBuilderDocument,
   options: BuildCustomerPagePlanOptions,
