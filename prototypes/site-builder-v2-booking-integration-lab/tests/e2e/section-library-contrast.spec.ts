@@ -109,7 +109,6 @@ const auditContrast = async (page: import('@playwright/test').Page) =>
       if (!ownText) continue;
       const style = getComputedStyle(element);
       if (style.visibility === 'hidden' || style.display === 'none') continue;
-      if (Number.parseFloat(style.opacity) < 0.5) continue;
       if (element.closest('.visually-hidden')) continue;
       const rect = element.getBoundingClientRect();
       if (rect.width < 2 || rect.height < 2) continue;
@@ -120,7 +119,18 @@ const auditContrast = async (page: import('@playwright/test').Page) =>
       const required = large ? 3 : 4.5;
       const background = effectiveBackground(element);
       if (!background) continue;
-      const measured = ratio(parse(style.color), background);
+      // Partial opacity composites the text over its ground rather than
+      // excusing it — faded text still has to be readable.
+      const opacity = Number.parseFloat(style.opacity);
+      const raw = parse(style.color);
+      const alpha = Math.min(raw[3], Number.isFinite(opacity) ? opacity : 1);
+      const composited: [number, number, number, number] = [
+        raw[0] * alpha + background[0] * (1 - alpha),
+        raw[1] * alpha + background[1] * (1 - alpha),
+        raw[2] * alpha + background[2] * (1 - alpha),
+        1,
+      ];
+      const measured = ratio(composited, background);
       if (measured < required) {
         const section = element.closest('[data-section-id]');
         offenders.push({
@@ -151,6 +161,11 @@ test.describe('rendered contrast', () => {
       for (const rendition of RENDITIONS) {
         await page.goto(showcaseUrl({ recipe, ...rendition }));
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+        // Let any entrance finish so the audit measures the resting state.
+        await page.evaluate(async () => {
+          await Promise.all(document.getAnimations().map(animation =>
+            animation.finished.catch(() => undefined)));
+        });
         const offenders = await auditContrast(page);
         for (const offender of offenders) {
           allOffenders.push({

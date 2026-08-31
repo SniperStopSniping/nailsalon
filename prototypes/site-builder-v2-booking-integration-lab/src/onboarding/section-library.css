@@ -50,6 +50,21 @@
   color: color-mix(in srgb, var(--customer-accent) 72%, var(--customer-ground));
 }
 
+/*
+ * The primary button is filled with the palette's primary, which on a
+ * contrast band is the band's own colour — a dark button on a dark ground.
+ * On that surface it inverts: the band's ground becomes the fill.
+ */
+.onboarding-site-preview [data-surface='contrast'] .onboarding-customer-primary {
+  border-color: var(--customer-ground);
+  color: var(--customer-ink);
+  background: var(--customer-ground);
+}
+
+.onboarding-site-preview [data-surface='contrast'] .onboarding-customer-primary:hover {
+  box-shadow: 0 10px 26px color-mix(in srgb, var(--customer-ground) 26%, transparent);
+}
+
 .onboarding-site-preview [data-surface='accent'] {
   color: var(--customer-button-text, var(--customer-surface));
   background: var(--customer-accent);
@@ -928,15 +943,19 @@
 /* ---------------------------------------------------------------- */
 
 @media (prefers-reduced-motion: no-preference) {
+  /*
+   * Entrances move, they never hide. An opacity-from-zero entrance leaves
+   * real customer text invisible whenever the animation has not run — a
+   * paused tab, a slow device, a screenshot, a crawler — so the rise is
+   * transform-only and the content is readable from the first frame.
+   */
   @keyframes customer-lib-rise {
     from {
       transform: translateY(10px);
-      opacity: 0;
     }
 
     to {
       transform: translateY(0);
-      opacity: 1;
     }
   }
 
@@ -1087,3 +1106,119 @@
 .section-showcase.is-full-flow .onboarding-preview-measurement-host {
   display: none;
 }
+
+/* ---------------------------------------------------------------- */
+/* Style personalities                                               */
+/* ---------------------------------------------------------------- */
+
+/*
+ * The six style presets own typography, radius, and spacing tokens, but four
+ * of them share a typeface pairing — so on their own they read as one design
+ * with different corners. These rules give each style its own section
+ * behaviour (heading scale and tracking, eyebrow treatment, card chrome,
+ * divider language) using only tokens the styles already define. No accepted
+ * style token is modified.
+ */
+
+/* Editorial — rules, tight display tracking, small-caps eyebrows. */
+.onboarding-preview-frame[data-style-preset='editorial'] [data-library-type] :where(h2) {
+  font-size: clamp(1.5rem, 6cqw, 3.1rem);
+  letter-spacing: -0.045em;
+}
+
+.onboarding-preview-frame[data-style-preset='editorial'] [data-library-type] .onboarding-customer-eyebrow {
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--customer-line);
+  margin-bottom: 14px;
+  font-variant: small-caps;
+  letter-spacing: 0.12em;
+}
+
+.onboarding-preview-frame[data-style-preset='editorial'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card) {
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* Minimal — hairlines instead of cards, quieter headings, more air. */
+.onboarding-preview-frame[data-style-preset='minimal'] [data-library-type] :where(h2) {
+  font-size: clamp(1.2rem, 4.2cqw, 2.1rem);
+  font-weight: 620;
+  letter-spacing: -0.02em;
+}
+
+.onboarding-preview-frame[data-style-preset='minimal'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card) {
+  padding-inline: 0;
+  border-width: 0 0 1px;
+  border-radius: 0;
+  background: transparent;
+}
+
+.onboarding-preview-frame[data-style-preset='minimal'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card):hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.onboarding-preview-frame[data-style-preset='minimal'] .onboarding-customer-eyebrow {
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* Bold — heavy, tight, flat: thick borders and no soft shadows. */
+.onboarding-preview-frame[data-style-preset='bold'] [data-library-type] :where(h2) {
+  font-size: clamp(1.6rem, 7cqw, 3.4rem);
+  font-weight: 860;
+  letter-spacing: -0.045em;
+  line-height: 0.98;
+  text-transform: uppercase;
+}
+
+.onboarding-preview-frame[data-style-preset='bold'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card) {
+  border-width: 2px;
+  border-color: var(--customer-ink);
+}
+
+.onboarding-preview-frame[data-style-preset='bold'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card):hover {
+  box-shadow: 5px 5px 0 var(--customer-ink);
+  transform: translate(-2px, -2px);
+}
+
+.onboarding-preview-frame[data-style-preset='bold'] .onboarding-customer-eyebrow {
+  font-weight: 820;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Luxury — wide tracking, generous rhythm, hairline chrome. */
+.onboarding-preview-frame[data-style-preset='luxury'] [data-library-type] {
+  padding-block: calc(var(--customer-section-space, 60px) * 1.18);
+}
+
+.onboarding-preview-frame[data-style-preset='luxury'] [data-library-type] :where(h2) {
+  font-size: clamp(1.45rem, 5.4cqw, 2.9rem);
+  font-weight: 420;
+  letter-spacing: -0.012em;
+}
+
+.onboarding-preview-frame[data-style-preset='luxury'] .onboarding-customer-eyebrow {
+  font-size: clamp(0.54rem, 1.7cqw, 0.68rem);
+  letter-spacing: 0.34em;
+  text-transform: uppercase;
+}
+
+.onboarding-preview-frame[data-style-preset='luxury'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card) {
+  border-color: color-mix(in srgb, var(--customer-line) 60%, transparent);
+}
+
+/* Soft — rounder, airier, gentler edges. */
+.onboarding-preview-frame[data-style-preset='soft'] :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card) {
+  border-color: color-mix(in srgb, var(--customer-line) 70%, transparent);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--customer-ink) 7%, transparent);
+}
+
+.onboarding-preview-frame[data-style-preset='soft'] .onboarding-customer-eyebrow {
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+/* Modern keeps the library's default treatment. */
