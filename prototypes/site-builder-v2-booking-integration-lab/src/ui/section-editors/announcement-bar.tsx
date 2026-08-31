@@ -1,4 +1,3 @@
-import type { AnnouncementBarSettings } from '../../model/section-library/settings';
 import { ChoiceField, TextField, ToggleField } from './fields';
 import type { LibrarySectionEditorProps } from './types';
 
