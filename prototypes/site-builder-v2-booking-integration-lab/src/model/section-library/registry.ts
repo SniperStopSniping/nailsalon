@@ -696,8 +696,13 @@ const depositsCancellations: SectionRegistryEntry<'deposits_cancellations'> = {
   },
   overlapWarnings: [],
   presetIds: ['summary_card'],
+  /*
+   * A fixed deposit amount alone is not something to publish — the renderer
+   * shows nothing until there is visible, owner-authored wording, and
+   * readiness has to agree or the section reports ready and draws a blank.
+   */
   readiness: (_settings, context) =>
-    context.policiesMeaningful || context.depositMode === 'fixed'
+    context.policiesMeaningful
       ? ready()
       : empty('deposits_empty', 'Set a deposit or cancellation policy to show this section.'),
   recommendedPageKinds: ['content'],

@@ -164,6 +164,23 @@ describe('ordered adjacency matrix (400 pairs)', () => {
     },
   );
 
+  it('keeps readiness honest: a deposit amount alone does not publish', () => {
+    // A fixed deposit with no visible wording renders nothing, so readiness
+    // must not claim the section is ready to publish.
+    const entry = getSectionRegistryEntry('deposits_cancellations');
+    const withAmountOnly = {
+      ...deriveSiteLibraryContext(state, pairDocument('hero', 'booking')),
+      depositMode: 'fixed' as const,
+      policiesMeaningful: false,
+    };
+    expect(entry.readiness(entry.defaultSettings(), withAmountOnly).level)
+      .toBe('empty');
+
+    const withWording = { ...withAmountOnly, policiesMeaningful: true };
+    expect(entry.readiness(entry.defaultSettings(), withWording).level)
+      .toBe('ready');
+  });
+
   it('never mutates the document it plans from', () => {
     const document = pairDocument('reviews', 'reviews');
     const before = JSON.stringify(document);
