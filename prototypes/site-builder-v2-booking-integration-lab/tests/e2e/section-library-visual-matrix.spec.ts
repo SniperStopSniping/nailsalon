@@ -95,6 +95,10 @@ const showcaseUrl = (params: Record<string, string>): string => {
   return `/?${search.toString()}`;
 };
 
+/** Evidence captures unclip the device frame so whole pages fit one image. */
+const captureUrl = (params: Record<string, string>): string =>
+  showcaseUrl({ ...params, full: '1' });
+
 test.describe('section library visual matrix', () => {
   test.skip(!RUN_MATRIX, 'Set LUSTER_SECTION_MATRIX=1 to run the matrix.');
 
@@ -138,6 +142,11 @@ test.describe('section library visual matrix', () => {
           expect(rendered, `${type}@${width} did not render`).toBeGreaterThan(0);
         }
         await assertNoHorizontalOverflow(page, `${type}@${width}`);
+        await page.goto(captureUrl({
+          device: width >= 1024 ? 'desktop' : 'phone',
+          type,
+        }));
+        await expect(page.locator('[data-showcase-ready]')).toBeVisible();
         await page.screenshot({
           fullPage: true,
           path: `${EVIDENCE_ROOT}/sections/${type}-${width}.png`,
@@ -161,6 +170,8 @@ test.describe('section library visual matrix', () => {
           await expect(page.locator('[data-showcase-ready]')).toBeVisible();
           await assertNoHorizontalOverflow(page, `${first}+${second}@${width}`);
           if (width === 390 && sampleSet.has(`${first}+${second}`)) {
+            await page.goto(captureUrl({ device: 'phone', second, type: first }));
+            await expect(page.locator('[data-showcase-ready]')).toBeVisible();
             await page.screenshot({
               fullPage: true,
               path: `${EVIDENCE_ROOT}/pairs/${first}--${second}-390.png`,
@@ -183,6 +194,11 @@ test.describe('section library visual matrix', () => {
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
         await expect(page.locator('.onboarding-customer-page').first()).toBeVisible();
         await assertNoHorizontalOverflow(page, `${recipe}@${width}`);
+        await page.goto(captureUrl({
+          device: width >= 1024 ? 'desktop' : 'phone',
+          recipe,
+        }));
+        await expect(page.locator('[data-showcase-ready]')).toBeVisible();
         await page.screenshot({
           fullPage: true,
           path: `${EVIDENCE_ROOT}/recipes/${recipe}-${width}.png`,
@@ -204,7 +220,15 @@ test.describe('section library visual matrix', () => {
         }));
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
         await assertNoHorizontalOverflow(page, `signature/${style}/${palette}`);
+        await page.goto(captureUrl({
+          device: 'phone',
+          palette,
+          recipe: 'signature_one_page',
+          style,
+        }));
+        await expect(page.locator('[data-showcase-ready]')).toBeVisible();
         await page.screenshot({
+          fullPage: true,
           path: `${EVIDENCE_ROOT}/style-palette/${style}--${palette}.png`,
         });
       }

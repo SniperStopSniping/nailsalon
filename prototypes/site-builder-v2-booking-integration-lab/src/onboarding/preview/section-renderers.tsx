@@ -101,6 +101,7 @@ function AnnouncementBar({ planSection, section, shared }: LibraryPreviewSection
   return (
     <aside
       {...sectionAttributes(planSection, 'announcement_bar')}
+      aria-label="Announcement"
       className={`customer-lib-announcement is-${settings.tone}`}
     >
       <p className="customer-lib-announcement-message">{message}</p>
@@ -650,6 +651,7 @@ function Footer({ planSection, section, shared }: LibraryPreviewSectionProps) {
   return (
     <footer
       {...sectionAttributes(planSection, 'footer')}
+      aria-label={`${shared.title} site footer`}
       className={`customer-lib-footer is-${settings.preset}`}
     >
       <div className="customer-lib-footer-brand">
