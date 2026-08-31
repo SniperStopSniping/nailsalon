@@ -129,6 +129,7 @@ export function LibrarySectionSettingsDialog({
             onChange={next => setDraft(next)}
             onSiteContent={onSiteContent}
             profile={profile}
+            sectionId={section.id}
             settings={draft as never}
           />
         ) : (

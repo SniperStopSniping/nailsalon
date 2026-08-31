@@ -32,16 +32,26 @@ const buildDocument = (starter: 'one_page' | 'multi_page' = 'one_page'): SiteBui
 const sharedProps = (
   document: SiteBuilderDocument,
   state: OnboardingLabState = createDemoOnboardingState(),
+  sectionId = 'section-under-test',
 ): Omit<LibrarySectionEditorProps, 'onChange' | 'settings'> => ({
   context: deriveSiteLibraryContext(state, document),
   document,
   onSiteContent: () => true,
   profile: state.profile,
+  sectionId,
 });
 
 const withoutGalleryPhotos = (): OnboardingLabState => {
   const state = createDemoOnboardingState();
   return { ...state, gallery: { ...state.gallery, images: [] } };
+};
+
+/** The id of the section-navigation instance on the page at `pageIndex`. */
+const menuIdOn = (document: SiteBuilderDocument, pageIndex: number): string => {
+  const menu = document.pages[pageIndex]?.sections
+    .find(section => section.sectionType === 'section_navigation');
+  if (!menu) throw new Error(`No on-page menu on page ${pageIndex}.`);
+  return menu.id;
 };
 
 const findSectionId = (document: SiteBuilderDocument, label: string): string => {
@@ -52,22 +62,30 @@ const findSectionId = (document: SiteBuilderDocument, label: string): string => 
   return section.id;
 };
 
-/** Two pages that each own a menu — the case where the owning page is unknowable. */
-const buildTwoMenuDocument = (): SiteBuilderDocument => {
+/**
+ * Two pages that each own a menu: the editor must still resolve ITS page from
+ * its own section id rather than guessing.
+ */
+const buildTwoMenuDocument = (): {
+  document: SiteBuilderDocument;
+  menuIds: string[];
+} => {
   const idFactory = createDeterministicIdFactory('two-menus');
   const document = buildDocument('multi_page');
-  return {
-    ...document,
-    pages: document.pages.map((page, index) => (index < 2
-      ? {
-          ...page,
-          sections: [
-            createLibrarySectionInstance('section_navigation', idFactory, { order: 0 }),
-            ...page.sections.map(section => ({ ...section, order: section.order + 1 })),
-          ],
-        }
-      : page)),
-  };
+  const menuIds: string[] = [];
+  const pages = document.pages.map((page, index) => {
+    if (index >= 2) return page;
+    const menu = createLibrarySectionInstance('section_navigation', idFactory, { order: 0 });
+    menuIds.push(menu.id);
+    return {
+      ...page,
+      sections: [
+        menu,
+        ...page.sections.map(section => ({ ...section, order: section.order + 1 })),
+      ],
+    };
+  });
+  return { document: { ...document, pages }, menuIds };
 };
 
 describe('GallerySectionEditor', () => {
@@ -195,11 +213,11 @@ describe('SectionNavigationEditor', () => {
     expect(SECTION_LIBRARY_REGISTRY.section_navigation.normalize(expected)).toEqual(expected);
   });
 
-  it('lists only the anchorable sections of the one page that owns the menu', () => {
+  it('lists only the anchorable sections of the page that owns this menu', () => {
     const document = buildDocument();
     render(
       <SectionNavigationEditor
-        {...sharedProps(document)}
+        {...sharedProps(document, createDemoOnboardingState(), menuIdOn(document, 0))}
         onChange={vi.fn()}
         settings={navigationDefaults()}
       />,
@@ -216,10 +234,11 @@ describe('SectionNavigationEditor', () => {
   it('stores a rename under the target section id and clears it when blanked', () => {
     const document = buildDocument();
     const aboutId = findSectionId(document, 'About');
+    const menuId = menuIdOn(document, 0);
     const onChange = vi.fn();
     const { rerender } = render(
       <SectionNavigationEditor
-        {...sharedProps(document)}
+        {...sharedProps(document, createDemoOnboardingState(), menuId)}
         onChange={onChange}
         settings={navigationDefaults()}
       />,
@@ -237,7 +256,7 @@ describe('SectionNavigationEditor', () => {
 
     rerender(
       <SectionNavigationEditor
-        {...sharedProps(document)}
+        {...sharedProps(document, createDemoOnboardingState(), menuId)}
         onChange={onChange}
         settings={renamed}
       />,
@@ -252,22 +271,34 @@ describe('SectionNavigationEditor', () => {
     });
   });
 
-  it('drops the rename fields when the owning page cannot be resolved', () => {
-    const document = buildTwoMenuDocument();
-    render(
+  it('resolves its own page even when another page also has a menu', () => {
+    const { document, menuIds } = buildTwoMenuDocument();
+    const [homeMenuId, servicesMenuId] = menuIds;
+
+    // The Home menu lists Home's anchorable sections.
+    const { unmount } = render(
       <SectionNavigationEditor
-        {...sharedProps(document)}
+        {...sharedProps(document, createDemoOnboardingState(), homeMenuId!)}
         onChange={vi.fn()}
         settings={navigationDefaults()}
       />,
     );
+    expect(screen.getByLabelText('Featured work')).toBeInTheDocument();
+    expect(screen.getByLabelText('Reviews')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Booking')).not.toBeInTheDocument();
+    unmount();
 
-    expect(screen.getByText(/Rename fields appear here when your site has just one/u))
-      .toBeInTheDocument();
-    expect(screen.queryByLabelText('Gallery')).not.toBeInTheDocument();
-    expect(screen.getByRole('checkbox', {
-      name: /^Keep the menu visible while scrolling/u,
-    })).toBeInTheDocument();
+    // The Services / Book menu lists that page's sections instead.
+    render(
+      <SectionNavigationEditor
+        {...sharedProps(document, createDemoOnboardingState(), servicesMenuId!)}
+        onChange={vi.fn()}
+        settings={navigationDefaults()}
+      />,
+    );
+    expect(screen.getByLabelText('Booking')).toBeInTheDocument();
+    expect(screen.getByLabelText('FAQ')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Featured work')).not.toBeInTheDocument();
   });
 });
 

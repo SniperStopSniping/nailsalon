@@ -41,6 +41,7 @@ const createEditorProps = (
     onChange: vi.fn(),
     onSiteContent: vi.fn((_input: UpdateSiteContentInput) => true),
     profile: state.profile,
+    sectionId: 'section-under-test',
   };
 };
 

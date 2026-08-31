@@ -21,6 +21,8 @@ import type { BusinessProfileDraft } from '../../onboarding/model/types';
 export type LibrarySectionEditorProps<
   T extends LibrarySectionType = LibrarySectionType,
 > = {
+  /** The instance being edited, so an editor can locate itself in the document. */
+  sectionId: string;
   settings: LibrarySectionSettingsByType[T];
   onChange: (settings: LibrarySectionSettingsByType[T]) => void;
   context: SiteLibraryContext;

@@ -25,27 +25,21 @@ const NAVIGABLE_SECTION_TYPES: ReadonlySet<string> = new Set([
   'visit_us',
 ]);
 
-const countMenus = (page: PageDocument): number =>
-  page.sections.filter(section => section.sectionType === 'section_navigation').length;
-
-/**
- * The editor is handed settings, not its own section id, so the page a menu
- * sits on is only knowable when the document holds exactly one menu. Renames
- * are keyed by section id, so a guess would silently rename the wrong page's
- * entries.
- */
-const resolveOwningPage = (document: SiteBuilderDocument): PageDocument | null => {
-  const pagesWithMenu = document.pages.filter(page => countMenus(page) > 0);
-  const onlyPage = pagesWithMenu.length === 1 ? pagesWithMenu[0] : undefined;
-  return onlyPage && countMenus(onlyPage) === 1 ? onlyPage : null;
-};
+/** The page this exact menu sits on — renames are keyed by section id. */
+const resolveOwningPage = (
+  document: SiteBuilderDocument,
+  sectionId: string,
+): PageDocument | null =>
+  document.pages.find(page =>
+    page.sections.some(section => section.id === sectionId)) ?? null;
 
 export function SectionNavigationEditor({
   document,
   onChange,
+  sectionId: menuSectionId,
   settings,
 }: LibrarySectionEditorProps<'section_navigation'>) {
-  const owningPage = resolveOwningPage(document);
+  const owningPage = resolveOwningPage(document, menuSectionId);
   const targets = owningPage
     ? [...owningPage.sections]
         .filter(section =>
@@ -95,9 +89,7 @@ export function SectionNavigationEditor({
         </div>
       ) : (
         <p className="form-hint">
-          {owningPage
-            ? 'This page has no sections the menu can link to yet.'
-            : 'Every entry uses its section’s own name. Rename fields appear here when your site has just one on-page menu.'}
+          This page has no sections the menu can link to yet.
         </p>
       )}
     </>

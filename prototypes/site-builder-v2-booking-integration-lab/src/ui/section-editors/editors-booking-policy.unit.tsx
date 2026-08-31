@@ -40,6 +40,7 @@ const createSharedProps = (state: OnboardingLabState = createDemoOnboardingState
     document: siteDocument,
     onSiteContent: vi.fn(() => true),
     profile: state.profile,
+    sectionId: 'section-under-test',
   };
 };
 
