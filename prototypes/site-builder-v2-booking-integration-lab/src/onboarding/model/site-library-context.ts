@@ -83,6 +83,11 @@ export const deriveSiteLibraryContextFromProfile = (input: {
     && deriveDepositsAndCancellationsSummary(profile.policies).trim().length > 0;
 
   return {
+    arrivalNotes: {
+      entrance: profile.location.entranceInstructions.trim().length > 0,
+      parking: profile.location.parking.trim().length > 0,
+      transit: profile.location.transitInformation.trim().length > 0,
+    },
     availablePolicyTopics,
     availableQuickFacts,
     depositsSummaryPublishable,

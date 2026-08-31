@@ -87,6 +87,8 @@ export type SiteLibraryContext = {
   hoursShownOnSite: boolean;
   policiesMeaningful: boolean;
   depositMode: 'none' | 'fixed';
+  /** Arrival notes with real text, keyed the way Visit Us's toggles are. */
+  arrivalNotes: { entrance: boolean; parking: boolean; transit: boolean };
   /** Before-You-Book topics whose owner wording resolves to real copy. */
   availablePolicyTopics: PolicyToggleId[];
   canonicalServiceIds: string[];
@@ -862,8 +864,14 @@ const visitUs: SectionRegistryEntry<'visit_us'> = {
   },
   overlapWarnings: [],
   presetIds: ['map_details', 'editorial_visit', 'compact_info'],
-  readiness: (_settings, context) =>
+  readiness: (settings, context) =>
+    // The renderer publishes a section built purely from arrival notes, so
+    // an area is not the only way this section has something to say. Each
+    // note counts only while its own toggle is on, exactly as it renders.
     context.hasPublicLocation
+      || (settings.showParking && context.arrivalNotes.parking)
+      || (settings.showEntrance && context.arrivalNotes.entrance)
+      || (settings.showTransit && context.arrivalNotes.transit)
       ? ready()
       : empty('visit_us_empty', 'Add your city or general area to show this section.'),
   recommendedPageKinds: ['content'],

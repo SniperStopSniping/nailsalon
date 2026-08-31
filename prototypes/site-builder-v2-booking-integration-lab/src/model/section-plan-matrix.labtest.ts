@@ -305,6 +305,36 @@ describe('ordered adjacency matrix (400 pairs)', () => {
       .not.toContain('gallery');
   });
 
+  it('keeps Visit Us honest: arrival notes are content too', () => {
+    // The renderer publishes a section built purely from parking, entrance,
+    // or transit notes, so readiness must not treat a missing area as
+    // nothing to say — that would silently withhold what the owner wrote.
+    const entry = SECTION_LIBRARY_REGISTRY.visit_us;
+    const base = {
+      ...deriveSiteLibraryContext(state, pairDocument('hero', 'booking')),
+      arrivalNotes: { entrance: false, parking: false, transit: false },
+      hasPublicLocation: false,
+    };
+    const settings = entry.defaultSettings();
+
+    expect(entry.readiness(settings, base).level).toBe('empty');
+    expect(entry.readiness(settings, {
+      ...base,
+      arrivalNotes: { ...base.arrivalNotes, parking: true },
+    }).level).toBe(settings.showParking ? 'ready' : 'empty');
+
+    // A note whose own toggle is off is not content this section will show.
+    const noParking = entry.normalize({ ...settings, showParking: false });
+    expect(entry.readiness(noParking, {
+      ...base,
+      arrivalNotes: { ...base.arrivalNotes, parking: true },
+    }).level).toBe('empty');
+
+    // An area alone is still enough, exactly as before.
+    expect(entry.readiness(settings, { ...base, hasPublicLocation: true }).level)
+      .toBe('ready');
+  });
+
   it('never mutates the document it plans from', () => {
     const document = pairDocument('reviews', 'reviews');
     const before = JSON.stringify(document);
