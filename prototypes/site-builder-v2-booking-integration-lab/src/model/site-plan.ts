@@ -13,8 +13,8 @@ import type { CustomDesignSettings } from '../custom-design/model/types';
 import {
   getSectionRegistryEntry,
   isLibrarySection,
-  NAVIGABLE_SECTION_TYPES,
   isLibrarySectionType,
+  NAVIGABLE_SECTION_TYPES,
   type SectionSurfaceTone,
   type SiteLibraryContext,
 } from './section-library/registry';
@@ -225,11 +225,6 @@ const INJECTION_RULES: readonly InjectionRule[] = [
 ];
 
 /**
- * Composes neighbouring surfaces: attached chrome collapses its gap, repeated
- * tint neighbours alternate back to base so backgrounds never seam, and
- * consecutive contrast sections merge into one continuous band.
- */
-/**
  * An anchor menu needs at least two places to go; with fewer, the renderer
  * draws nothing. Only the plan can count them — the count has to be taken
  * after injections and after readiness gating, which is more than a single
@@ -247,6 +242,11 @@ const dropUnanchorableNavigation = (
     : sections.filter(section => section.sectionType !== 'section_navigation');
 };
 
+/**
+ * Composes neighbouring surfaces: attached chrome collapses its gap, repeated
+ * tint neighbours alternate back to base so backgrounds never seam, and
+ * consecutive contrast sections merge into one continuous band.
+ */
 const resolveAdjacency = (
   sections: readonly SitePlanSection[],
 ): SitePlanSection[] => {
