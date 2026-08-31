@@ -313,6 +313,31 @@ test.describe('section library visual matrix', () => {
           fullPage: true,
           path: `${EVIDENCE_ROOT}/recipes/${recipe}-${width}.png`,
         });
+
+        /*
+         * A multi-page recipe is more than its home page, and the pages
+         * behind the menu were never captured — which is how The Collective
+         * came to lose its whole Gallery page without any image showing it.
+         * The preview's own navigation is the only way in: the showcase
+         * takes no page parameter, and clicking is what a visitor does.
+         */
+        const navigation = page.locator('nav.is-page-navigation a');
+        const pageCount = await navigation.count();
+        for (let index = 1; index < pageCount; index += 1) {
+          const link = navigation.nth(index);
+          const label = ((await link.textContent()) ?? `page-${index}`)
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/gu, '-');
+          await link.click();
+          await expect(page.locator('.onboarding-customer-page').first()).toBeVisible();
+          await assertNoHorizontalOverflow(page, `${recipe}/${label}@${width}`);
+          await settleForCapture(page);
+          await page.screenshot({
+            fullPage: true,
+            path: `${EVIDENCE_ROOT}/recipes/${recipe}-${label}-${width}.png`,
+          });
+        }
       }
     }
   });
