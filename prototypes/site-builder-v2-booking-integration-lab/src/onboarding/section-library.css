@@ -1238,33 +1238,32 @@
   transform: rotate(-1.6deg) scale(1.05);
 }
 
-/* FAQ: the marker turns into its own close state rather than swapping. */
+/*
+ * FAQ: the marker turns into its own close state rather than swapping glyph.
+ * It uses `rotate` rather than `transform` for the same reason the reveals
+ * do — the independent properties compose with any `transform` a style
+ * preset may add later, instead of replacing it.
+ *
+ * The answer itself deliberately does NOT animate its height. A
+ * `::details-content` height transition is fail-closed: the answer starts at
+ * `block-size: 0` and only becomes readable once the transition runs, so
+ * anywhere transitions do not advance — a background tab, a paused
+ * renderer, a capture — the open answer stays clipped to the height of its
+ * own summary. Measured doing exactly that. An answer a customer cannot
+ * read is a far worse trade than an instant open.
+ */
 .customer-lib-faq summary::after {
-  transition: transform var(--customer-motion-spring), color var(--customer-motion-color);
+  transition: rotate var(--customer-motion-spring), color var(--customer-motion-color);
 }
 
 .customer-lib-faq details[open] summary::after {
-  transform: rotate(45deg);
+  rotate: 45deg;
 }
 
 .customer-lib-faq summary:hover {
   background: color-mix(in srgb, var(--customer-accent) 7%, transparent);
 }
 
-@supports (interpolate-size: allow-keywords) {
-  .customer-lib-faq details::details-content {
-    overflow: hidden;
-    block-size: 0;
-    interpolate-size: allow-keywords;
-    transition:
-      block-size var(--customer-motion-move),
-      content-visibility var(--customer-motion-move) allow-discrete;
-  }
-
-  .customer-lib-faq details[open]::details-content {
-    block-size: auto;
-  }
-}
 
 /* Links draw their underline instead of switching it on. */
 :where(.customer-lib-footer-links, .customer-lib-visit-contact) a {
