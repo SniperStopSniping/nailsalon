@@ -17,6 +17,7 @@ import {
 } from '../../model/section-library/registry';
 import {
   buildWebsiteRecipeDocument,
+  getRecipeRequiredToggles,
   WEBSITE_RECIPE_BY_ID,
   type WebsiteRecipeId,
 } from '../../model/section-library/recipes';
@@ -145,7 +146,14 @@ export function SectionShowcaseSurface() {
         plan: undefined,
         state: {
           ...showcaseState,
-          recipe: { ...showcaseState.recipe, starter: recipe.originStarter },
+          recipe: {
+            ...showcaseState.recipe,
+            // A recipe is shown with the optional-content toggles its own
+            // pages need, not with everything switched on: the showcase
+            // should demonstrate what applying the recipe gives you.
+            ...getRecipeRequiredToggles(recipe.id),
+            starter: recipe.originStarter,
+          },
         },
       };
     }

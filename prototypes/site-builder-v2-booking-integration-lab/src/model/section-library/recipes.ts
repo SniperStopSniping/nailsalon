@@ -8,6 +8,7 @@
  * ids so demonstration renders are populated.
  */
 
+import type { SitePlanOptionalToggles } from '../site-plan';
 import type {
   IdFactory,
   LibrarySectionType,
@@ -253,6 +254,34 @@ export const WEBSITE_RECIPES: readonly WebsiteRecipe[] = [
 export const WEBSITE_RECIPE_BY_ID: Readonly<Record<WebsiteRecipeId, WebsiteRecipe>>
   = Object.fromEntries(WEBSITE_RECIPES.map(recipe => [recipe.id, recipe])) as
   Record<WebsiteRecipeId, WebsiteRecipe>;
+
+/**
+ * The optional-content toggles a recipe needs turned on to publish every page
+ * it declares. Onboarding gates About, Gallery, Canva, and policies with
+ * their own toggles in addition to readiness, so a recipe that lays out a
+ * Gallery page while the owner's gallery toggle is off would lose that page
+ * and its navigation entry without saying so.
+ *
+ * Derived from the recipe's own sections rather than declared beside them,
+ * so it cannot drift from what the recipe actually contains.
+ */
+export const getRecipeRequiredToggles = (
+  recipeId: WebsiteRecipeId,
+): SitePlanOptionalToggles => {
+  const recipe = WEBSITE_RECIPE_BY_ID[recipeId];
+  const types = new Set<string>(
+    recipe.pages === null
+      ? initializeStarter(recipe.originStarter, { idFactory: createRecipeIdFactory(recipeId) })
+        .pages.flatMap(page => page.sections.map(section => section.sectionType))
+      : recipe.pages.flatMap(page => page.sections.map(section => section.type)),
+  );
+  return {
+    aboutEnabled: types.has('about'),
+    canvaEnabled: types.has('custom_design'),
+    galleryEnabled: types.has('gallery'),
+    policiesEnabled: types.has('policies') || types.has('deposits_cancellations'),
+  };
+};
 
 export const buildWebsiteRecipeDocument = (
   recipeId: WebsiteRecipeId,
