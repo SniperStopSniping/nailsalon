@@ -2,6 +2,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  authProviders: vi.fn(() => Promise.resolve({
+    apple: false,
+    email: true,
+    google: false,
+    source: 'fallback' as const,
+  })),
   enabled: vi.fn(() => true),
   getAdmin: vi.fn(),
   loadResume: vi.fn(),
@@ -13,6 +19,10 @@ const mocks = vi.hoisted(() => ({
   }),
 }));
 
+vi.mock('server-only', () => ({}));
+vi.mock('@/features/onboarding-v1-integration/auth-providers.server', () => ({
+  getOnboardingAuthProviderAvailability: mocks.authProviders,
+}));
 vi.mock('next/navigation', () => ({
   notFound: mocks.notFound,
   redirect: mocks.redirect,
@@ -58,7 +68,10 @@ describe('account-backed onboarding resume route', () => {
 
     expect(mocks.getAdmin).not.toHaveBeenCalled();
     expect(mocks.loadResume).not.toHaveBeenCalled();
-    expect(element.props).toEqual({ locale: 'en' });
+    expect(element.props).toEqual({
+      authProviders: await mocks.authProviders(),
+      locale: 'en',
+    });
   });
 
   it('passes an exact owner-authorized revision to the client rehydration boundary', async () => {
@@ -73,7 +86,11 @@ describe('account-backed onboarding resume route', () => {
       siteId,
       verifiedRevision: 4,
     });
-    expect(element.props).toEqual({ initialResumeDraft, locale: 'en' });
+    expect(element.props).toEqual({
+      authProviders: await mocks.authProviders(),
+      initialResumeDraft,
+      locale: 'en',
+    });
   });
 
   it('redirects an expired session before loading the requested site', async () => {

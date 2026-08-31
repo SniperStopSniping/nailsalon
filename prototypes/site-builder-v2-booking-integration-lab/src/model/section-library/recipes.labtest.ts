@@ -107,4 +107,17 @@ describe('website recipes are complete sites', () => {
       ).toBe(true);
     }
   });
+
+  it('marks explicitly-authored recipe Galleries as recipe-owned', () => {
+    const document = buildWebsiteRecipeDocument('gallery_forward', {
+      siteContent: DEMO_SITE_CONTENT,
+    });
+    const gallery = document.pages.flatMap(page => page.sections)
+      .find(section => section.sectionType === 'gallery');
+
+    expect(gallery).toMatchObject({
+      galleryPresentationOwner: 'recipe',
+      settings: { preset: 'editorial' },
+    });
+  });
 });

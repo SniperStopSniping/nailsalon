@@ -272,11 +272,13 @@ describe('starter initialization', () => {
       settings: { preset: 'image_right' },
     });
     expect(document.pages[0]?.sections[3]).toMatchObject({
+      galleryPresentationOwner: 'recipe',
       sectionType: 'gallery',
       label: 'Featured work',
       settings: { preset: 'editorial', selection: { mode: 'all' }, version: 1 },
     });
     expect(document.pages[2]?.sections[0]).toMatchObject({
+      galleryPresentationOwner: 'onboarding',
       sectionType: 'gallery',
       label: 'Gallery',
       settings: { preset: 'grid', selection: { mode: 'all' }, version: 1 },

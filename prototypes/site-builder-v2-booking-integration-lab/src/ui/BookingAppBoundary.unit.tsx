@@ -527,6 +527,47 @@ describe('unified section movement', () => {
 });
 
 describe('App customer Preview boundary', () => {
+  it('opens the selected page, follows customer navigation, and preserves Builder-owned presets', async () => {
+    installViewport('desktop');
+    const user = userEvent.setup();
+    const document = initializeStarter('multi_page');
+    const about = document.pages.flatMap(page => page.sections).find(
+      section => section.sectionType === 'about',
+    );
+    if (!about || about.sectionType !== 'about') {
+      throw new Error('Multi-page starter did not include About.');
+    }
+    about.settings = { ...about.settings, preset: 'editorial_portrait' };
+    window.localStorage.setItem(SITE_BUILDER_STORAGE_KEY, JSON.stringify(document));
+
+    render(<App />);
+    await screen.findByTestId('final-hybrid-editor');
+    await user.click(screen.getByRole('button', {
+      name: 'Open Pages & Structure for Home',
+    }));
+    const structure = await screen.findByRole('dialog', { name: 'Pages & Structure' });
+    const teamPage = within(structure).getByText('Team').closest('button');
+    if (!teamPage) throw new Error('Team page control was not rendered.');
+    await user.click(teamPage);
+    await screen.findByRole('heading', { level: 1, name: 'Team' });
+
+    await user.click(screen.getByRole('button', { name: 'Preview' }));
+    const preview = await screen.findByRole('region', { name: 'Builder customer preview' });
+    expect(screen.getByLabelText('Preview controls')).toHaveTextContent('Previewing Team');
+    expect(within(preview).getByRole('region', { name: 'Team page' })).toBeVisible();
+    expect(preview.querySelector('.onboarding-customer-about.is-editorial'))
+      .toBeInTheDocument();
+    expect(preview.querySelector('.onboarding-customer-about.is-photo-right'))
+      .not.toBeInTheDocument();
+
+    await user.click(within(preview).getByRole('link', { name: 'Services / Book' }));
+    expect(await within(preview).findByRole('region', { name: 'Services / Book page' }))
+      .toBeVisible();
+    expect(screen.getByLabelText('Preview controls')).toHaveTextContent(
+      'Previewing Services / Book',
+    );
+  });
+
   it('announces the measured preview-frame width while preserving device state', async () => {
     installViewport('desktop');
     const widths = {
@@ -536,8 +577,12 @@ describe('App customer Preview boundary', () => {
     } as const;
     const originalGetBoundingClientRect = HTMLElement.prototype.getBoundingClientRect;
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-      if (this.classList.contains('preview-frame')) {
-        const viewport = this.dataset.previewViewport as keyof typeof widths;
+      if (this.classList.contains('preview-frame')
+        || this.classList.contains('onboarding-preview-frame')) {
+        const previewViewport = this.dataset.previewViewport;
+        const previewDevice = this.dataset.previewDevice;
+        const viewport = (previewViewport
+          ?? (previewDevice === 'phone' ? 'mobile' : previewDevice)) as keyof typeof widths;
         const width = widths[viewport];
         return {
           bottom: 640,

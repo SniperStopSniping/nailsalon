@@ -345,7 +345,23 @@ describe('createSavedSitePreviewModel', () => {
       siteId: 'accepted-quick-book',
       siteName: state.profile.businessName,
     });
-    const customSettings = createDefaultCustomDesignSettings();
+    const customSettings: CustomDesignSettings = {
+      ...createDefaultCustomDesignSettings(),
+      images: [{
+        accessibleSummary: 'A customer-ready design panel.',
+        altText: 'Isla custom nail design panel',
+        aspectRatio: 1,
+        assetId: 'custom-after-booking-artwork',
+        decorative: false,
+        fileName: 'custom-after-booking-artwork.png',
+        fileSize: 1_024,
+        height: 800,
+        id: 'custom-after-booking-artwork',
+        interactiveAreas: [],
+        mimeType: 'image/png',
+        width: 800,
+      }],
+    };
     document.pages[0]!.sections.push({
       id: 'custom-after-booking',
       label: 'Custom Design',
@@ -372,7 +388,19 @@ describe('createSavedSitePreviewModel', () => {
     });
     const saved = createSavedSitePreviewModel({
       document: compiled,
-      media: [],
+      media: [{
+        altText: 'Isla custom nail design panel',
+        assetId: 'server-custom-after-booking-artwork',
+        fileName: 'custom-after-booking-artwork.png',
+        fileSize: 1_024,
+        height: 800,
+        localItemId: 'custom-after-booking-artwork',
+        mimeType: 'image/png',
+        publicUrl: '/api/onboarding/v1/media/server-custom-after-booking-artwork',
+        role: 'custom_design',
+        sortOrder: 0,
+        width: 800,
+      }],
       snapshot,
     });
     const live = livePagePlan(document, state, {

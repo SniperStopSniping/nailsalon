@@ -65,6 +65,10 @@ describe('shared Booking Section renderer', () => {
       settings = switchBookingLayout(settings, layout);
       rerender(<RendererHarness initialSettings={settings} />);
       expect(screen.getByRole('region', { name: labels[layout] })).toBeVisible();
+      if (layout === 'visual_grid') {
+        expect(screen.getByRole('region', { name: 'Featured services in booking' }))
+          .toBeVisible();
+      }
     }
   });
 
@@ -123,6 +127,9 @@ describe('shared Booking Section renderer', () => {
     await user.click(within(detail).getByRole('button', { name: 'Select service' }));
 
     const summary = await screen.findByTestId('selected-service-summary');
+    expect(summary).toHaveAttribute('role', 'group');
+    expect(screen.queryByRole('complementary', { name: 'Selected service summary' }))
+      .not.toBeInTheDocument();
     expect(summary).toHaveTextContent('Russian Manicure');
     expect(summary).toHaveTextContent('1 hr 45 min · From $80');
     await user.click(within(summary).getByRole('button', { name: 'Continue' }));

@@ -87,11 +87,13 @@ const buildDraft = () => {
 
 const renderGate = (overrides: {
   authMode?: 'sign-in' | 'sign-up';
+  configureDraft?: (draft: ReturnType<typeof buildDraft>) => void;
   errorMessage?: string | null;
   needsSessionEmailVerification?: boolean;
   providers?: OnboardingAuthProviderAvailability;
 } = {}) => {
   const draft = buildDraft();
+  overrides.configureDraft?.(draft);
 
   return render(
     <PremiumAccountGate
@@ -124,6 +126,35 @@ describe('PremiumAccountGate', () => {
     expect(screen.queryByText(/Apple/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/Sign up with/u)).not.toBeInTheDocument();
     expect(screen.queryByText(/facebook/iu)).not.toBeInTheDocument();
+  });
+
+  it('does not reintroduce optional sections that onboarding turned off', () => {
+    const excludedIds: string[] = [];
+    renderGate({
+      configureDraft: ({ document, state }) => {
+        state.recipe.aboutEnabled = false;
+        state.recipe.galleryEnabled = false;
+        state.recipe.policiesEnabled = false;
+        excludedIds.push(...document.pages.flatMap(page => page.sections)
+          .filter(section => [
+            'about',
+            'deposits_cancellations',
+            'gallery',
+            'policies',
+          ].includes(section.sectionType))
+          .map(section => section.id));
+      },
+    });
+
+    const preview = document.querySelector<HTMLElement>(
+      '[aria-label="Preview of Isla Nail Studio"]',
+    );
+    expect(preview).not.toBeNull();
+    if (!preview) throw new Error('Account Gate preview was not rendered.');
+    for (const sectionId of excludedIds) {
+      expect(preview.querySelector(`[data-section-id="${sectionId}"]`))
+        .not.toBeInTheDocument();
+    }
   });
 
   it('still looks intentional when email is the only method', () => {
