@@ -35,7 +35,7 @@ const STARTERS = [
     cta: 'Start with Multi-page',
     description: 'Give each part of your business its own page and navigation link.',
     id: 'multi_page',
-    included: 'Home · Services & Booking · Gallery · About · Contact',
+    included: 'Home · Services & Booking · Gallery · Team · Contact',
     label: 'Includes pages',
     name: 'Multi-page website',
   },
@@ -140,7 +140,9 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
     element.compareDocumentPosition(document.querySelector('.final-starter-import')!)
       & Node.DOCUMENT_POSITION_FOLLOWING,
   ))).toBe(true);
-  await expect(page.getByText(/Starts with [356] (?:sections|pages)/)).toHaveCount(0);
+  // The starter documents hold 6 / 14 sections and 5 pages; none of those
+  // counts may leak into the chooser as "Starts with N …" copy.
+  await expect(page.getByText(/Starts with (?:5|6|14) (?:sections|pages)/)).toHaveCount(0);
   expect(await page.locator('[data-starter-id]').evaluateAll((elements) => (
     elements.map((element) => (element as HTMLElement).dataset.starterId)
   ))).toEqual([
@@ -311,7 +313,9 @@ test('desktop copy, semantics, exclusive playback, cleanup, and activation stay 
     (key) => window.localStorage.getItem(key) !== null,
     LAB_STORAGE_KEY,
   )).toBe(true);
-  expect((await readStoredDocument(page)).pages[0]?.sections).toHaveLength(3);
+  // Quick Book: Announcement Bar, Salon intro, Featured Services, Booking,
+  // Final Booking CTA, Footer.
+  expect((await readStoredDocument(page)).pages[0]?.sections).toHaveLength(6);
   runtime.assertClean();
   runtime.stop();
 });
@@ -485,7 +489,8 @@ test.describe('mobile visibility playback', () => {
       (key) => window.localStorage.getItem(key) !== null,
       LAB_STORAGE_KEY,
     )).toBe(true);
-    expect((await readStoredDocument(page)).pages[0]?.sections).toHaveLength(6);
+    // One-page: the 14-section single Home page from STARTER_PAGES.one_page.
+    expect((await readStoredDocument(page)).pages[0]?.sections).toHaveLength(14);
     runtime.assertClean();
     runtime.stop();
   });

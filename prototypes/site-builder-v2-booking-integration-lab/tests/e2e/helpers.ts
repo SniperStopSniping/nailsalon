@@ -100,9 +100,20 @@ export async function openFreshLab(page: Page): Promise<void> {
     storeNames: CUSTOM_DESIGN_ASSET_STORE_NAMES,
   });
   await page.reload();
-  await expect(
-    page.getByRole('heading', { name: 'Choose your starting point' }),
-  ).toBeVisible();
+  const chooserHeading = page.getByRole('heading', {
+    name: 'Choose your starting point',
+  });
+  try {
+    await expect(chooserHeading).toBeVisible({ timeout: 5_000 });
+  } catch {
+    // The Lab persists its document on a 180 ms debounce (see useLabDocument),
+    // so a write scheduled by the page we just cleared can land after the clear
+    // and repopulate storage — the reload then opens the editor instead of the
+    // chooser. Drop that write and reload once more.
+    await page.evaluate(() => window.localStorage.clear());
+    await page.reload();
+    await expect(chooserHeading).toBeVisible();
+  }
 }
 
 /**
@@ -223,8 +234,21 @@ export function startRuntimeMonitor(page: Page): RuntimeMonitor {
     issues.push(`pageerror: ${error.message}`);
   };
   const onRequestFailed = (request: Request) => {
+    const errorText = request.failure()?.errorText ?? '';
+    // The section library stylesheet pulls Inter/Newsreader from Google Fonts,
+    // so a cross-origin webfont fetch is usually still in flight when
+    // `openFreshLab` reloads the page — the navigation cancels it and Chromium
+    // reports net::ERR_ABORTED. That is the harness cancelling a third-party
+    // request, not the app failing. Same-origin failures (and any cross-origin
+    // failure that is not an abort) still fail the monitor.
+    const currentUrl = page.url();
+    const isCrossOrigin = currentUrl.startsWith('http')
+      && new URL(request.url()).origin !== new URL(currentUrl).origin;
+    if (isCrossOrigin && errorText === 'net::ERR_ABORTED') {
+      return;
+    }
     issues.push(
-      `requestfailed: ${request.method()} ${request.url()} ${request.failure()?.errorText ?? ''}`.trim(),
+      `requestfailed: ${request.method()} ${request.url()} ${errorText}`.trim(),
     );
   };
   const onResponse = (response: Response) => {

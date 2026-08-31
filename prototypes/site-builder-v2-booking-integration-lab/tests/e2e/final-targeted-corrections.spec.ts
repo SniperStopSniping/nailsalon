@@ -26,6 +26,16 @@ const LAYOUTS = [
   { id: 'editorial_price_list', label: 'Editorial Price List' },
 ] as const;
 
+/** Quick Book's Home page after Booking is moved to position 1. */
+const QUICK_BOOK_BOOKING_FIRST = [
+  'Booking',
+  'Announcement Bar',
+  'Salon intro',
+  'Featured Services',
+  'Final Booking CTA',
+  'Footer',
+] as const;
+
 test.describe.configure({ mode: 'serial' });
 
 let runtimeMonitor: ReturnType<typeof startRuntimeMonitor>;
@@ -160,9 +170,16 @@ for (const scenario of KEYBOARD_SCENARIOS) {
     const pageName = scenario.starter === 'Multi-page website'
       ? 'Services / Book'
       : 'Home';
-    const beforeSection = scenario.starter === 'Multi-page website'
-      ? 'Section 03'
-      : 'Section 02';
+    // The owner controls that bracket the Booking card on the page under test.
+    // Quick Book Home and Multi-page "Services / Book" both place Featured
+    // Services directly above Booking; the section below it differs. Booking is
+    // no longer the last section on either page, so the traversal now crosses
+    // the Booking card between its neighbours' select surfaces instead of
+    // running off the end of the canvas into the dock.
+    const beforeSection = 'Featured Services';
+    const afterSection = scenario.starter === 'Multi-page website'
+      ? 'Deposits & Cancellations'
+      : 'Final Booking CTA';
     if (pageName !== 'Home') await selectPageFromStructure(page, pageName);
     const inspectEveryLayoutInAccessibilityTree = scenario.width === 920
       && scenario.starter === 'Quick Book';
@@ -190,10 +207,9 @@ for (const scenario of KEYBOARD_SCENARIOS) {
       const before = page
         .getByRole('listitem', { name: `${beforeSection} on ${pageName}` })
         .locator('.section-card__select-surface');
-      const after = page.locator(
-        '.final-mobile-dock [data-booking-settings-trigger-for]:visible, '
-          + '.final-selected-toolbar [data-booking-settings-trigger-for]:visible',
-      ).first();
+      const after = page
+        .getByRole('listitem', { name: `${afterSection} on ${pageName}` })
+        .locator('.section-card__select-surface');
       await traverseBetween(page, before, after, 'Tab');
       await traverseBetween(page, after, before, 'Shift+Tab');
 
@@ -332,7 +348,7 @@ for (const viewport of [
       await siteOptions.getByRole('switch', { name: 'Simulate real section heights' }).click();
       await siteOptions.getByRole('button', { name: 'Close More' }).click();
     }
-    await page.getByRole('listitem', { name: 'Section 01 on Home' }).scrollIntoViewIfNeeded();
+    await page.getByRole('listitem', { name: 'Announcement Bar on Home' }).scrollIntoViewIfNeeded();
     await page.evaluate(() => window.scrollTo({ top: 0 }));
     await expect(toolbar).toHaveClass(/is-away/);
     const back = toolbar.getByRole('button', { name: 'Back to Booking' });
@@ -374,7 +390,7 @@ test('hidden settings return control stays clear through the 1179 to 1180 transi
   await chooseStarter(page, 'Quick Book');
   const { settings } = await openBookingSettings(page, 'Home');
   await settings.getByRole('button', { name: 'Hide settings' }).click();
-  await page.getByRole('listitem', { name: 'Section 01 on Home' }).scrollIntoViewIfNeeded();
+  await page.getByRole('listitem', { name: 'Announcement Bar on Home' }).scrollIntoViewIfNeeded();
   await page.evaluate(() => window.scrollTo({ top: 0 }));
   const away = page.getByTestId('selected-section-toolbar');
   await expect(away).toHaveClass(/is-away/);
@@ -587,7 +603,7 @@ test('Page settings closes only its child and restores Pages & Structure context
     await closeChildAndAssert('Gallery', async (settings) => {
       await settings.getByRole('button', { name: 'Close Gallery settings' }).click();
     });
-    await closeChildAndAssert('About', async (settings) => {
+    await closeChildAndAssert('Team', async (settings) => {
       await settings.getByLabel('Page name').focus();
       await page.keyboard.press('Escape');
     });
@@ -720,14 +736,16 @@ test('drag announcements use one live region per event', async ({ page }) => {
     expect(events[0]?.text).toMatch(text);
   };
 
+  // "Services / Book" now holds six sections and Booking sits second, so the
+  // disabled down-boundary belongs to the section that is genuinely last.
   const boundary = move.getByRole('button', {
-    name: 'Move Booking down, unavailable — already last',
+    name: 'Move Footer down, unavailable — already last',
   });
   await boundary.focus();
   await page.keyboard.press('Enter');
   await expect(page.getByTestId('reorder-live-region'))
-    .toHaveText('Booking is already at the last position.');
-  await takeSingleEvent('polite', /^Booking is already at the last position\.$/);
+    .toHaveText('Footer is already at the last position.');
+  await takeSingleEvent('polite', /^Footer is already at the last position\.$/);
 
   const handle = move.getByRole('button', {
     name: 'Drag Booking. Use arrow keys after lifting with Space.',
@@ -738,10 +756,10 @@ test('drag announcements use one live region per event', async ({ page }) => {
   await takeSingleEvent('assertive', /^Picked up Booking/);
   await resetEvents();
   await page.keyboard.press('ArrowUp');
-  await takeSingleEvent('assertive', /^Booking is over position 1 of 2\.$/);
+  await takeSingleEvent('assertive', /^Booking is over position 1 of 6\.$/);
   await resetEvents();
   await page.keyboard.press('Space');
-  await takeSingleEvent('assertive', /^Booking moved to position 1 of 2\.$/);
+  await takeSingleEvent('assertive', /^Booking moved to position 1 of 6\.$/);
 
   await resetEvents();
   await handle.focus();
@@ -972,19 +990,11 @@ test('global search, featured selection, count spacing, and session-only history
   await move.getByLabel('Position for Booking').press('Enter');
   await move.getByRole('button', { name: 'Done', exact: true }).click();
   await waitForSaved(page);
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Booking',
-    'Section 01',
-    'Section 02',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_BOOKING_FIRST]);
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeEnabled();
   const committed = await readStoredDocumentJson(page);
   await page.reload();
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Booking',
-    'Section 01',
-    'Section 02',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_BOOKING_FIRST]);
   expect(await page.evaluate(key => window.localStorage.getItem(key), LAB_STORAGE_KEY))
     .toBe(committed);
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();

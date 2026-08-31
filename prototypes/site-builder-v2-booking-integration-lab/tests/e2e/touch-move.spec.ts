@@ -307,8 +307,11 @@ test('trusted rapid double-tap on Done commits once without touching the control
     expect(committedJson).not.toBe(baselineJson);
     await expect(sectionLabels(page, 'Home')).resolves.toEqual([
       'Booking',
-      'Section 01',
-      'Section 02',
+      'Announcement Bar',
+      'Salon intro',
+      'Featured Services',
+      'Final Booking CTA',
+      'Footer',
     ]);
     await expect(page.getByRole('dialog')).toHaveCount(1);
     await expect(more).toBeVisible();
