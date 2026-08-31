@@ -400,6 +400,42 @@ describe('SiteStyleScreen', () => {
 });
 
 describe('FinalReviewScreen', () => {
+  it('keeps disabled optional sections out of the provided-document customer preview', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.aboutEnabled = false;
+    state.recipe.galleryEnabled = false;
+    state.recipe.policiesEnabled = false;
+    const document = initializeStarter('one_page');
+    const excludedIds = document.pages.flatMap(page => page.sections)
+      .filter(section => [
+        'about',
+        'deposits_cancellations',
+        'gallery',
+        'policies',
+      ].includes(section.sectionType))
+      .map(section => section.id);
+
+    render(
+      <FinalReviewScreen
+        document={document}
+        onBack={vi.fn()}
+        onEdit={vi.fn()}
+        onEditCanva={vi.fn()}
+        onOpenBuilder={vi.fn()}
+        onOpenPreview={vi.fn()}
+        state={state}
+      />,
+    );
+
+    const preview = screen.getByRole('region', {
+      name: 'Final phone customer preview',
+    });
+    for (const sectionId of excludedIds) {
+      expect(preview.querySelector(`[data-section-id="${sectionId}"]`))
+        .not.toBeInTheDocument();
+    }
+  });
+
   it('returns incomplete essentials to edit instead of opening Builder', async () => {
     const user = userEvent.setup();
     const state = createDanielaFixtureState();

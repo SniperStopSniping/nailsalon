@@ -6,7 +6,7 @@
  * shows it.
  */
 
-import { cleanup, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { getDocumentOverlapAdvisories } from '../model/section-overlap';
@@ -23,6 +23,7 @@ const panelProps = {
   onMoveNavigationItem: vi.fn(),
   onMovePage: vi.fn(),
   onRemovePage: vi.fn(),
+  onResolveAdvisory: vi.fn(),
   onRenameNavigationItem: vi.fn(),
   onRestorePage: vi.fn(),
   onRestoreSection: vi.fn(),
@@ -92,6 +93,16 @@ describe('standing overlap advisories', () => {
     const group = screen.getByRole('group', { name: 'Things worth a look' });
     expect(within(group).getByText('Policy details appear twice')).toBeInTheDocument();
     expect(within(group).getByText(/Before you book/)).toBeInTheDocument();
+    const switchAction = within(group).getByRole('button', {
+      name: 'Switch About to a design without policies',
+    });
+    expect(within(group).getByRole('button', { name: 'Keep the compact summary' }))
+      .toBeVisible();
+    fireEvent.click(switchAction);
+    expect(panelProps.onResolveAdvisory).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'about_policy_summary_duplicate' }),
+      expect.objectContaining({ id: 'switch_preset', kind: 'adjust' }),
+    );
   });
 
   it('shows nothing when the document has no overlapping content', () => {

@@ -910,6 +910,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const state = createDanielaFixtureState();
     state.recipe.starter = 'one_page';
     state.recipe.galleryEnabled = true;
+    state.gallery.layout = 'editorial';
     state.gallery.images = [galleryFixtureImage('example-gallery-order')];
     const document = initializeStarter('one_page');
     const page = document.pages[0]!;
@@ -945,6 +946,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelectorAll('.onboarding-customer-hero')).toHaveLength(1);
     expect(preview.querySelectorAll('.onboarding-customer-about')).toHaveLength(1);
     expect(preview.querySelectorAll('.onboarding-customer-gallery')).toHaveLength(1);
+    expect(preview.querySelector('.onboarding-customer-about')).toHaveClass('is-before-booking');
+    expect(preview.querySelector('.onboarding-customer-gallery')).toHaveClass('is-editorial');
     expect(preview.querySelectorAll('.onboarding-customer-booking')).toHaveLength(1);
     expect(preview.querySelectorAll('.customer-lib-deposits')).toHaveLength(1);
     expect(preview.querySelectorAll('.customer-lib-policies')).toHaveLength(1);

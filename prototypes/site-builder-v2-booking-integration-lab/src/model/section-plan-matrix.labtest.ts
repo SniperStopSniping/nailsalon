@@ -9,13 +9,17 @@
 import { describe, expect, it } from 'vitest';
 
 import { createDefaultBookingPresentationSettings } from '../booking/presentation';
-import { createDefaultCustomDesignSettings } from '../custom-design/model/settings';
+import {
+  createDefaultCustomDesignSettings,
+  hasRenderableCustomDesignContent,
+} from '../custom-design/model/settings';
+import type { CustomDesignSettings } from '../custom-design/model/types';
 import {
   createDemoOnboardingState,
   DEMO_SITE_CONTENT,
 } from '../onboarding/model/demo-content';
 import { deriveSiteLibraryContext } from '../onboarding/model/site-library-context';
-import { buildCustomerPagePlan } from './site-plan';
+import { buildCustomerPagePlan, getSectionPlanExclusion } from './site-plan';
 import {
   getSectionRegistryEntry,
   isLibrarySectionType,
@@ -64,12 +68,26 @@ const instanceOf = (type: MatrixTypeId, id: string, order: number): SectionInsta
     };
   }
   if (type === 'custom_design') {
+    const settings = createDefaultCustomDesignSettings();
+    settings.images = [{
+      altText: 'Custom Design matrix artwork',
+      aspectRatio: 1,
+      assetId: `${id}-asset`,
+      decorative: false,
+      fileName: 'matrix-artwork.png',
+      fileSize: 1_000,
+      height: 1_000,
+      id: `${id}-image`,
+      interactiveAreas: [],
+      mimeType: 'image/png',
+      width: 1_000,
+    }];
     return {
       id,
       label: 'Custom Design',
       order,
       sectionType: 'custom_design',
-      settings: createDefaultCustomDesignSettings(),
+      settings,
       visible: true,
     };
   }
@@ -163,6 +181,19 @@ describe('ordered adjacency matrix (400 pairs)', () => {
       }
     },
   );
+
+  it('renders one canonical Booking even when a corrupt pair contains two engines', () => {
+    const document = pairDocument('booking', 'booking');
+    const plan = buildCustomerPagePlan(document, {
+      context: deriveSiteLibraryContext(state, document),
+      includeOptionalSections: false,
+      toggles: TOGGLES,
+    });
+
+    expect(plan.flatMap(page => page.sections)
+      .filter(section => section.sectionType === 'booking')
+      .map(section => section.id)).toEqual(['matrix-first']);
+  });
 
   it('keeps readiness honest: a deposit amount alone does not publish', () => {
     // A fixed deposit with no visible wording renders nothing, so readiness
@@ -276,6 +307,146 @@ describe('ordered adjacency matrix (400 pairs)', () => {
     };
     expect(planTypesFor(withTeam))
       .toEqual(['section_navigation', 'reviews', 'team']);
+  });
+
+  it('drops an empty Custom Design and does not publish its otherwise blank page', () => {
+    const document = pairDocument('custom_design', 'booking');
+    const page = document.pages[0]!;
+    const emptyCustomDesign = {
+      id: 'empty-custom-design',
+      label: 'Custom Design',
+      order: 0,
+      sectionType: 'custom_design' as const,
+      settings: createDefaultCustomDesignSettings(),
+      visible: true,
+    };
+    const emptyPageDocument: SiteBuilderDocument = {
+      ...document,
+      pages: [{ ...page, sections: [emptyCustomDesign] }],
+    };
+    const options = {
+      context: {
+        ...deriveSiteLibraryContext(state, emptyPageDocument),
+        hasContactSectionContent: false,
+      },
+      toggles: {
+        aboutEnabled: false,
+        canvaEnabled: true,
+        galleryEnabled: false,
+        policiesEnabled: false,
+      },
+    };
+
+    expect(buildCustomerPagePlan(emptyPageDocument, options)).toEqual([]);
+    expect(getSectionPlanExclusion(
+      emptyPageDocument,
+      emptyCustomDesign.id,
+      options,
+    )).toBe('not_ready');
+
+    const ctaOnlySection = {
+      ...emptyCustomDesign,
+      id: 'cta-only-custom-design',
+      settings: {
+        ...emptyCustomDesign.settings,
+        cta: {
+          label: 'Book now',
+          placement: { type: 'after_all' as const },
+          type: 'book_now' as const,
+        },
+      },
+    };
+    const ctaOnlyDocument: SiteBuilderDocument = {
+      ...document,
+      pages: [{ ...page, sections: [ctaOnlySection] }],
+    };
+    const ctaOnlyOptions = {
+      ...options,
+      context: {
+        ...deriveSiteLibraryContext(state, ctaOnlyDocument),
+        hasContactSectionContent: false,
+      },
+      customDesignIsRenderable: (settings: CustomDesignSettings) =>
+        hasRenderableCustomDesignContent(settings, () => false),
+    };
+
+    expect(buildCustomerPagePlan(ctaOnlyDocument, ctaOnlyOptions)).toEqual([]);
+    expect(getSectionPlanExclusion(
+      ctaOnlyDocument,
+      ctaOnlySection.id,
+      ctaOnlyOptions,
+    )).toBe('not_ready');
+
+    const missingAssetSection = instanceOf(
+      'custom_design',
+      'missing-asset-custom-design',
+      0,
+    );
+    const missingAssetDocument: SiteBuilderDocument = {
+      ...document,
+      pages: [{ ...page, sections: [missingAssetSection] }],
+    };
+    const missingAssetOptions = {
+      ...options,
+      context: {
+        ...deriveSiteLibraryContext(state, missingAssetDocument),
+        hasContactSectionContent: false,
+      },
+      customDesignIsRenderable: () => false,
+    };
+    expect(buildCustomerPagePlan(missingAssetDocument, missingAssetOptions)).toEqual([]);
+    expect(getSectionPlanExclusion(
+      missingAssetDocument,
+      missingAssetSection.id,
+      missingAssetOptions,
+    )).toBe('not_ready');
+
+    const legacyDocument = pairDocument('booking', 'hero');
+    const legacyPlan = buildCustomerPagePlan(legacyDocument, {
+      ...options,
+      context: {
+        ...deriveSiteLibraryContext(state, legacyDocument),
+        hasContactSectionContent: false,
+      },
+      customDesignFallback: {
+        id: 'empty-legacy-custom-design',
+        placement: 'after_booking',
+        settings: createDefaultCustomDesignSettings(),
+      },
+    });
+    expect(legacyPlan.flatMap(candidate => candidate.sections)
+      .map(section => section.sectionType)).not.toContain('custom_design');
+  });
+
+  it('treats an exact document as authoritative without injecting or toggle-gating owned sections', () => {
+    const source = pairDocument('about', 'gallery');
+    const home = source.pages[0]!;
+    const document: SiteBuilderDocument = {
+      ...source,
+      pages: [{
+        ...home,
+        sections: [
+          ...home.sections,
+          instanceOf('policies', 'exact-policies', 2),
+          instanceOf('custom_design', 'exact-custom-design', 3),
+        ],
+      }],
+    };
+    const plan = buildCustomerPagePlan(document, {
+      context: deriveSiteLibraryContext(state, document),
+      includeOptionalSections: false,
+      toggles: {
+        aboutEnabled: false,
+        canvaEnabled: false,
+        galleryEnabled: false,
+        policiesEnabled: false,
+      },
+    });
+
+    expect(plan.flatMap(page => page.sections.map(section => section.sectionType)))
+      .toEqual(['about', 'gallery', 'policies', 'custom_design']);
+    expect(plan.flatMap(page => page.sections).every(section => !section.injected))
+      .toBe(true);
   });
 
   it('counts only gallery images that can actually paint', () => {

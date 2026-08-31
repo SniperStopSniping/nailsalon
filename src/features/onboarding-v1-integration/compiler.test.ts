@@ -70,6 +70,102 @@ const withStampedRecipePresets = (
 };
 
 describe('account-backed onboarding document compiler', () => {
+  it('persists non-default presentation choices in the accepted document before compiling', () => {
+    const state = acceptedState('multi_page');
+    state.recipe.aboutPreset = 'about_before_you_book';
+    addGalleryContent(state);
+    state.gallery.layout = 'carousel';
+    const source = initializeStarter('multi_page', {
+      idFactory: createDeterministicIdFactory('non-default-presentation'),
+      siteId: 'site_multi_page',
+      siteName: state.profile.businessName,
+    });
+
+    const { snapshot } = createPersistableOnboardingDraft(
+      state,
+      'black_champagne',
+      null,
+      source,
+    );
+    const compiled = compileOnboardingToSiteDocument({
+      revision: 1,
+      siteId: SITE_ID,
+      snapshot,
+    });
+
+    expect(snapshot.site.builderDocument).toEqual(compiled.builderDocument);
+    expect(compiled.builderDocument.pages.flatMap(page => page.sections)
+      .filter(section => section.sectionType === 'about')
+      .map(section => section.settings.preset))
+      .toEqual(['about_before_you_book']);
+    expect(compiled.builderDocument.pages.flatMap(page => page.sections)
+      .filter(section => section.sectionType === 'gallery')
+      .map(section => section.settings.preset))
+      .toEqual(['editorial', 'carousel']);
+    expect(compiled.pages.flatMap(page => page.sections)
+      .filter(section => section.type === 'gallery')
+      .map(section => ({
+        id: section.id,
+        layout: section.presentation.layout,
+      })))
+      .toEqual(compiled.builderDocument.pages.flatMap(page => page.sections)
+        .filter(section => section.sectionType === 'gallery')
+        .map(section => ({ id: section.id, layout: section.settings.preset })));
+    expect(source.pages.flatMap(page => page.sections)
+      .filter(section => section.sectionType === 'about')
+      .map(section => section.settings.preset))
+      .toEqual(['photo_right']);
+  });
+
+  it('keeps snapshot presentation choices for synthetic onboarding fallbacks', () => {
+    const state = acceptedState('quick_book');
+    addGalleryContent(state);
+    state.gallery.layout = 'carousel';
+    state.recipe.canvaEnabled = true;
+    state.canva.customDesignSectionId = 'synthetic-custom-design';
+    state.canva.displayMode = 'contained';
+    state.canva.status = 'ready';
+    const customDesignSettings: CustomDesignSettings = {
+      ...createDefaultCustomDesignSettings(),
+      displayMode: 'full_width',
+      images: [{
+        accessibleSummary: 'A customer-ready synthetic design panel.',
+        altText: 'Synthetic custom design panel',
+        aspectRatio: 1,
+        assetId: 'synthetic-custom-artwork',
+        decorative: false,
+        fileName: 'synthetic-custom-artwork.png',
+        fileSize: 1_024,
+        height: 800,
+        id: 'synthetic-custom-artwork',
+        interactiveAreas: [],
+        mimeType: 'image/png',
+        width: 800,
+      }],
+    };
+    const source = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('synthetic-presentation'),
+      siteId: 'site_quick_book',
+      siteName: state.profile.businessName,
+    });
+    const { snapshot } = createPersistableOnboardingDraft(
+      state,
+      'luster_berry',
+      customDesignSettings,
+      source,
+    );
+    const sections = compileOnboardingToSiteDocument({
+      revision: 1,
+      siteId: SITE_ID,
+      snapshot,
+    }).pages.flatMap(page => page.sections);
+
+    expect(sections.find(section => section.type === 'gallery')?.presentation.layout)
+      .toBe('carousel');
+    expect(sections.find(section => section.type === 'custom_design')?.presentation.displayMode)
+      .toBe('contained');
+  });
+
   it.each(['quick_book', 'one_page', 'multi_page'] as const)(
     'preserves the exact accepted %s universal document and stable IDs',
     (starter) => {
@@ -110,6 +206,7 @@ describe('account-backed onboarding document compiler', () => {
           'Team',
           'Contact',
         ]);
+
         // The starter's editorial "Featured work" gallery keeps its
         // deliberate preset; only default-preset galleries follow the
         // owner's chosen layout.
@@ -378,11 +475,17 @@ describe('account-backed onboarding document compiler', () => {
       siteName: state.profile.businessName,
     });
     const withoutFacts = createPersistableOnboardingDraft(
-      state, 'luster_berry', null, document,
+      state,
+      'luster_berry',
+      null,
+      document,
     ).snapshot;
     state.profile.bookingPreferences.visitMode = 'appointment_only';
     const withFact = createPersistableOnboardingDraft(
-      state, 'luster_berry', null, document,
+      state,
+      'luster_berry',
+      null,
+      document,
     ).snapshot;
 
     const typesOf = (snapshot: typeof withFact) => compileOnboardingToSiteDocument({
@@ -775,7 +878,23 @@ describe('account-backed onboarding document compiler', () => {
     state.recipe.canvaEnabled = true;
     state.canva.status = 'ready';
     state.canva.customDesignSectionId = 'custom-one';
-    const settings = createDefaultCustomDesignSettings();
+    const settings: CustomDesignSettings = {
+      ...createDefaultCustomDesignSettings(),
+      images: [{
+        accessibleSummary: 'A customer-ready design panel.',
+        altText: 'Custom nail design panel',
+        aspectRatio: 1,
+        assetId: 'custom-artwork',
+        decorative: false,
+        fileName: 'custom-artwork.png',
+        fileSize: 1_024,
+        height: 800,
+        id: 'custom-artwork',
+        interactiveAreas: [],
+        mimeType: 'image/png',
+        width: 800,
+      }],
+    };
     const source = initializeStarter('quick_book', {
       idFactory: createDeterministicIdFactory('multiple-custom'),
       siteId: 'site_quick_book',
@@ -795,15 +914,47 @@ describe('account-backed onboarding document compiler', () => {
         label: 'Custom Design',
         order: source.pages[0]!.sections.length + 1,
         sectionType: 'custom_design',
-        settings: { ...settings, displayMode: 'full_width' },
+        settings: {
+          ...settings,
+          displayMode: 'full_width',
+          images: [{
+            ...settings.images[0]!,
+            assetId: 'custom-artwork-two',
+            fileName: 'custom-artwork-two.png',
+            id: 'custom-artwork-two',
+          }],
+        },
         visible: true,
       },
     );
-    const { snapshot } = createPersistableOnboardingDraft(
+    source.unusedSections.push({
+      id: 'custom-restorable',
+      label: 'Custom Design',
+      order: source.unusedSections.length,
+      sectionType: 'custom_design',
+      settings: {
+        ...settings,
+        displayMode: 'contained',
+        images: [{
+          ...settings.images[0]!,
+          assetId: 'custom-artwork-restorable',
+          fileName: 'custom-artwork-restorable.png',
+          id: 'custom-artwork-restorable',
+        }],
+      },
+      visible: true,
+    });
+    const accountCustomMediaByLogicalId = new Map([
+      ['custom-artwork', '11111111-1111-4111-8111-111111111111'],
+      ['custom-artwork-two', '22222222-2222-4222-8222-222222222222'],
+      ['custom-artwork-restorable', '33333333-3333-4333-8333-333333333333'],
+    ]);
+    const { media, snapshot } = createPersistableOnboardingDraft(
       state,
       'luster_berry',
       settings,
       source,
+      accountCustomMediaByLogicalId,
     );
     const customSections = compileOnboardingToSiteDocument({
       revision: 1,
@@ -814,6 +965,31 @@ describe('account-backed onboarding document compiler', () => {
     );
 
     expect(customSections.map(section => section.id)).toEqual(['custom-one', 'custom-two']);
+    expect(customSections.map(section => section.presentation.displayMode))
+      .toEqual(['poster', 'full_width']);
+    expect(media.filter(item => item.role === 'custom_design').map(item => item.localItemId))
+      .toEqual([
+        'custom-artwork',
+        'custom-artwork-two',
+        'custom-artwork-restorable',
+      ]);
+    expect(media.filter(item => item.role === 'custom_design').map(item => item.existingMediaId))
+      .toEqual([
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+        '33333333-3333-4333-8333-333333333333',
+      ]);
+    expect(onboardingDraftClaimRequestSchema.parse({
+      anonymousDraftToken: 'multi-custom-draft-token-000000000000',
+      idempotencyKey: 'multi-custom-claim-key-0000000000000',
+      media,
+      snapshot,
+    }).media.filter(item => item.role === 'custom_design').map(item => item.localItemId))
+      .toEqual([
+        'custom-artwork',
+        'custom-artwork-two',
+        'custom-artwork-restorable',
+      ]);
   });
 
   it('round-trips full Custom Design metadata and internal destinations using logical IDs only', () => {

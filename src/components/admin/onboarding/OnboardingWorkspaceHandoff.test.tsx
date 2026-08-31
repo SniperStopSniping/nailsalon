@@ -52,8 +52,14 @@ describe('OnboardingWorkspaceHandoff', () => {
       />,
     );
 
-    expect(await screen.findByRole('heading', { name: 'Your Luster site is ready' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Your Luster site is ready' })).toHaveFocus();
+    const welcomeHeading = await screen.findByRole('heading', {
+      name: 'Your Luster site is ready',
+    });
+
+    expect(welcomeHeading).toBeInTheDocument();
+
+    await waitFor(() => expect(welcomeHeading).toHaveFocus());
+
     expect(screen.getByRole('link', { name: /Preview website/i })).toHaveAttribute(
       'href',
       '/en/admin/website/preview/site_1',

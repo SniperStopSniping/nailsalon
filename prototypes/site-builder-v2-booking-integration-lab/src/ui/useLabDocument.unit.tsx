@@ -70,4 +70,36 @@ describe('useLabDocument onboarding profile synchronization', () => {
     expect(window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY)).toBe(savedDocument);
     removeItem.mockRestore();
   });
+
+  it('atomically accepts onboarding presentation choices without changing stable IDs', () => {
+    const hook = renderHook(() => useLabDocument());
+    act(() => {
+      expect(hook.result.current.createStarterOnce('one_page', {
+        siteName: 'First Studio Name',
+      }).success).toBe(true);
+    });
+    const originalIds = hook.result.current.document?.pages
+      .flatMap(page => page.sections.map(section => section.id));
+
+    act(() => {
+      expect(hook.result.current.acceptOnboardingPresentation('Accepted Studio', {
+        aboutPreset: 'about_before_you_book',
+        galleryLayout: 'editorial',
+      })).not.toBeNull();
+    });
+
+    const accepted = hook.result.current.document;
+    expect(accepted).not.toBeNull();
+    if (!accepted) throw new Error('Expected the accepted Builder document.');
+    expect(accepted.siteName).toBe('Accepted Studio');
+    expect(accepted.pages.flatMap(page => page.sections)
+      .find(section => section.sectionType === 'about'))
+      .toMatchObject({ settings: { preset: 'about_before_you_book' } });
+    expect(accepted.pages.flatMap(page => page.sections)
+      .find(section => section.sectionType === 'gallery'))
+      .toMatchObject({ settings: { preset: 'editorial' } });
+    expect(accepted.pages.flatMap(page => page.sections.map(section => section.id)))
+      .toEqual(originalIds);
+    expect(hook.result.current.document).toEqual(accepted);
+  });
 });

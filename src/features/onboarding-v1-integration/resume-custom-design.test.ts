@@ -53,8 +53,10 @@ const setupPersistedCustomDesign = () => {
   state.profile.businessStructure = 'solo';
   state.profile.ownerName = 'Daniela';
   state.recipe.canvaEnabled = true;
+  state.recipe.aboutPreset = 'about_before_you_book';
   state.recipe.starter = 'one_page';
   state.recipe.starterDocumentSiteId = 'accepted-builder-site';
+  state.gallery.layout = 'editorial';
   state.canva.customDesignSectionId = 'section-custom-design';
   state.canva.status = 'ready';
   state.canva.images = [{

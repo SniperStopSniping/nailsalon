@@ -43,7 +43,10 @@ beforeEach(() => {
     site: { id: siteId },
   });
   mocks.snapshotParse.mockReturnValue({
-    data: { site: { palettePresetId: 'luster_berry' } },
+    data: {
+      customDesign: { customDesignSectionId: null },
+      site: { palettePresetId: 'luster_berry' },
+    },
     success: true,
   });
   mocks.compileParse.mockReturnValue({
@@ -93,7 +96,10 @@ describe('secure account-backed onboarding resume loader', () => {
         compiled: true,
       },
       media: [{ assetId: 'media-ready', localItemId: 'logical-media' }],
-      snapshot: { site: { palettePresetId: 'luster_berry' } },
+      snapshot: {
+        customDesign: { customDesignSectionId: null },
+        site: { palettePresetId: 'luster_berry' },
+      },
     });
   });
 

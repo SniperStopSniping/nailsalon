@@ -12,8 +12,9 @@
  * style-palette sweep of the flagship recipe.
  */
 
-import { expect, test } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
+
+import { expect, test } from '@playwright/test';
 
 const EVIDENCE_ROOT = '/tmp/luster-site-section-library-v1/visual';
 
@@ -144,7 +145,9 @@ const settleForCapture = async (page: import('@playwright/test').Page) => {
     // scroll, so ask for them eagerly and wait for the decode.
     for (const image of document.images) {
       image.loading = 'eager';
-      if (image.getAttribute('decoding') !== 'sync') image.decoding = 'sync';
+      if (image.getAttribute('decoding') !== 'sync') {
+        image.decoding = 'sync';
+      }
     }
     const step = window.innerHeight;
     const total = document.body.scrollHeight;
@@ -157,11 +160,11 @@ const settleForCapture = async (page: import('@playwright/test').Page) => {
       image.complete && image.naturalWidth > 0
         ? Promise.resolve()
         : new Promise((resolve) => {
-            const done = () => resolve(null);
-            image.addEventListener('load', done, { once: true });
-            image.addEventListener('error', done, { once: true });
-            window.setTimeout(done, 4000);
-          })
+          const done = () => resolve(null);
+          image.addEventListener('load', done, { once: true });
+          image.addEventListener('error', done, { once: true });
+          window.setTimeout(done, 4000);
+        })
     )));
     await Promise.all([...document.images]
       .filter(image => typeof image.decode === 'function')
@@ -185,19 +188,23 @@ test.describe('section library visual matrix', () => {
   ) => {
     const overflow = await page.evaluate(() => {
       const frame = document.querySelector('.onboarding-preview-frame');
-      if (!frame) return null;
+      if (!frame) {
+        return null;
+      }
       const overflowing: string[] = [];
       if (frame.scrollWidth > frame.clientWidth + 1) {
         overflowing.push(`frame:${frame.scrollWidth}>${frame.clientWidth}`);
       }
       return overflowing;
     });
+
     expect(overflow, `${label}: showcase frame missing`).not.toBeNull();
     expect(overflow, `${label}: horizontal overflow`).toEqual([]);
   };
 
   test('every renderable section holds at 390 and 1440 (screenshots captured)', async ({ page }) => {
     test.setTimeout(360_000);
+
     for (const type of PAIR_TYPES) {
       for (const width of WIDTHS) {
         await page.setViewportSize({ width, height: 940 });
@@ -205,7 +212,9 @@ test.describe('section library visual matrix', () => {
           device: width >= 1024 ? 'desktop' : 'phone',
           type,
         }));
+
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
         const rendered = await page.locator(`[data-section-id="showcase-${type}-0"]`).count();
         const device = width >= 1024 ? 'desktop' : 'phone';
 
@@ -217,20 +226,24 @@ test.describe('section library visual matrix', () => {
           // evidence screenshot shows.
           const run = [type, ...(CHROME_COMPANIONS[type] ?? ['hero'])];
           await page.goto(showcaseUrl({ device, types: run.join(',') }));
+
           await expect(page.locator('[data-showcase-ready]')).toBeVisible();
           await expect(
             page.locator(`[data-section-id="showcase-${type}-0"]`),
             `${type}@${width} did not render beside ${run.slice(1).join(' + ')}`,
           ).toHaveCount(1);
+
           await assertNoHorizontalOverflow(page, `${type}@${width} (in context)`);
           await page.goto(captureUrl({ device, types: run.join(',') }));
         } else {
           expect(rendered, `${type}@${width} did not render`).toBeGreaterThan(0);
+
           await assertNoHorizontalOverflow(page, `${type}@${width}`);
           await page.goto(captureUrl({ device, type }));
         }
 
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
         await settleForCapture(page);
         await page.screenshot({
           fullPage: true,
@@ -242,6 +255,7 @@ test.describe('section library visual matrix', () => {
 
   test('all 400 ordered pairs compose without overflow at both widths', async ({ page }) => {
     test.setTimeout(1_500_000);
+
     const sampleSet = new Set(SAMPLE_PAIRS.map(pair => pair.join('+')));
     for (const first of PAIR_TYPES) {
       for (const second of PAIR_TYPES) {
@@ -252,11 +266,15 @@ test.describe('section library visual matrix', () => {
             second,
             type: first,
           }));
+
           await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
           await assertNoHorizontalOverflow(page, `${first}+${second}@${width}`);
           if (width === 390 && sampleSet.has(`${first}+${second}`)) {
             await page.goto(captureUrl({ device: 'phone', second, type: first }));
+
             await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
             await settleForCapture(page);
             await page.screenshot({
               fullPage: true,
@@ -270,10 +288,13 @@ test.describe('section library visual matrix', () => {
 
   test('chrome-only seams are sampled behind a substantive section', async ({ page }) => {
     test.setTimeout(120_000);
+
     await page.setViewportSize({ width: 390, height: 940 });
     for (const run of CHROME_PAIR_SAMPLES) {
       await page.goto(showcaseUrl({ device: 'phone', types: run.join(',') }));
+
       await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
       for (const type of run.slice(1)) {
         await expect(
           page.locator(`[data-section-id^="showcase-${type}-"]`),
@@ -282,7 +303,9 @@ test.describe('section library visual matrix', () => {
       }
       await assertNoHorizontalOverflow(page, run.join('+'));
       await page.goto(captureUrl({ device: 'phone', types: run.join(',') }));
+
       await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
       await settleForCapture(page);
       await page.screenshot({
         fullPage: true,
@@ -293,6 +316,7 @@ test.describe('section library visual matrix', () => {
 
   test('all six recipes render end to end at both widths (screenshots captured)', async ({ page }) => {
     test.setTimeout(300_000);
+
     for (const recipe of RECIPES) {
       for (const width of WIDTHS) {
         await page.setViewportSize({ width, height: 940 });
@@ -300,14 +324,18 @@ test.describe('section library visual matrix', () => {
           device: width >= 1024 ? 'desktop' : 'phone',
           recipe,
         }));
+
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
         await expect(page.locator('.onboarding-customer-page').first()).toBeVisible();
+
         await assertNoHorizontalOverflow(page, `${recipe}@${width}`);
         await page.goto(captureUrl({
           device: width >= 1024 ? 'desktop' : 'phone',
           recipe,
         }));
+
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
         await settleForCapture(page);
         await page.screenshot({
           fullPage: true,
@@ -330,7 +358,9 @@ test.describe('section library visual matrix', () => {
             .toLowerCase()
             .replace(/[^a-z0-9]+/gu, '-');
           await link.click();
+
           await expect(page.locator('.onboarding-customer-page').first()).toBeVisible();
+
           await assertNoHorizontalOverflow(page, `${recipe}/${label}@${width}`);
           await settleForCapture(page);
           await page.screenshot({
@@ -344,6 +374,7 @@ test.describe('section library visual matrix', () => {
 
   test('the flagship recipe holds across all 48 style × palette pairings', async ({ page }) => {
     test.setTimeout(600_000);
+
     await page.setViewportSize({ width: 390, height: 940 });
     for (const style of STYLES) {
       for (const palette of PALETTES) {
@@ -353,7 +384,9 @@ test.describe('section library visual matrix', () => {
           recipe: 'signature_one_page',
           style,
         }));
+
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
         await assertNoHorizontalOverflow(page, `signature/${style}/${palette}`);
         await page.goto(captureUrl({
           device: 'phone',
@@ -361,7 +394,9 @@ test.describe('section library visual matrix', () => {
           recipe: 'signature_one_page',
           style,
         }));
+
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
         await settleForCapture(page);
         await page.screenshot({
           fullPage: true,

@@ -13,8 +13,10 @@ import { cleanup, render, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createDefaultBookingPresentationSettings } from '../../booking/presentation';
+import { createDefaultCustomDesignSettings } from '../../custom-design/model/settings';
 import {
   getSectionRegistryEntry,
+  NAVIGABLE_SECTION_TYPES,
   SECTION_LIBRARY_REGISTRY,
 } from '../../model/section-library/registry';
 import type { SitePlanPage } from '../../model/site-plan';
@@ -25,17 +27,34 @@ import type {
   SiteBuilderDocument,
 } from '../../model/types';
 import { createDemoOnboardingState, DEMO_SITE_CONTENT } from '../model/demo-content';
+import type { AboutPresetId } from '../model/types';
 import { OnboardingSitePreview } from './OnboardingSitePreview';
 
 vi.mock('../../custom-design/integration/CustomDesignAssetProvider', () => ({
-  useCustomDesignAssetMap: () => new Map(),
+  useCustomDesignAssetMap: (assetIds: readonly string[]) => new Map(
+    assetIds.map(assetId => [assetId, {
+      original: {
+        assetId,
+        kind: 'original',
+        status: 'ready',
+        url: `blob:https://luster.test/${assetId}`,
+      },
+      thumbnail: {
+        assetId,
+        kind: 'thumbnail',
+        status: 'ready',
+        url: `blob:https://luster.test/${assetId}-thumbnail`,
+      },
+    }]),
+  ),
 }));
 
-type AccessibleTypeId = LibrarySectionType | 'booking';
+type AccessibleTypeId = LibrarySectionType | 'booking' | 'custom_design';
 
 const ALL_TYPES: AccessibleTypeId[] = [
   ...(Object.keys(SECTION_LIBRARY_REGISTRY) as LibrarySectionType[]),
   'booking',
+  'custom_design',
 ];
 
 const BOUND_SETTINGS: Partial<Record<LibrarySectionType, Record<string, unknown>>> = {
@@ -55,6 +74,30 @@ const sectionFor = (type: AccessibleTypeId): SectionInstance => {
       order: 0,
       sectionType: 'booking',
       settings: createDefaultBookingPresentationSettings(),
+      visible: true,
+    };
+  }
+  if (type === 'custom_design') {
+    const settings = createDefaultCustomDesignSettings();
+    settings.images = [{
+      altText: 'Accessible Custom Design artwork',
+      aspectRatio: 1,
+      assetId: 'a11y-custom-design-asset',
+      decorative: false,
+      fileName: 'accessible-design.png',
+      fileSize: 1_000,
+      height: 1_000,
+      id: 'a11y-custom-design-image',
+      interactiveAreas: [],
+      mimeType: 'image/png',
+      width: 1_000,
+    }];
+    return {
+      id,
+      label: 'Custom Design',
+      order: 0,
+      sectionType: type,
+      settings,
       visible: true,
     };
   }
@@ -91,7 +134,7 @@ const planFor = (type: AccessibleTypeId): SitePlanPage[] => {
       label: section.label,
       section,
       sectionType: section.sectionType,
-      surface: section.sectionType === 'booking'
+      surface: section.sectionType === 'booking' || section.sectionType === 'custom_design'
         ? 'base'
         : getSectionRegistryEntry(section.sectionType as LibrarySectionType).surface,
     })),
@@ -113,6 +156,23 @@ const accessibleName = (element: Element): string => {
   return (element.textContent ?? '').trim();
 };
 
+const ABOUT_PRESETS: readonly AboutPresetId[] = [
+  'photo_right',
+  'editorial_portrait',
+  'profile_quick_facts',
+  'about_before_you_book',
+];
+
+const NAVIGATION_CASES: ReadonlyArray<{
+  preset?: AboutPresetId;
+  type: AccessibleTypeId;
+}> = [
+  ...[...NAVIGABLE_SECTION_TYPES]
+    .filter(type => type !== 'about')
+    .map(type => ({ type: type as AccessibleTypeId })),
+  ...ABOUT_PRESETS.map(preset => ({ preset, type: 'about' as const })),
+];
+
 describe('customer section accessibility', () => {
   afterEach(() => {
     cleanup();
@@ -124,6 +184,7 @@ describe('customer section accessibility', () => {
     recipe: {
       ...demo.recipe,
       aboutEnabled: true,
+      canvaEnabled: true,
       galleryEnabled: true,
       policiesEnabled: true,
     },
@@ -139,11 +200,22 @@ describe('customer section accessibility', () => {
   it.each(ALL_TYPES.map(type => [type] as const))(
     '%s renders as an accessible customer section',
     (type) => {
+      const plan = planFor(type);
+      const renderDocument = type === 'custom_design'
+        ? {
+            ...document_,
+            pages: [{
+              ...document_.pages[0]!,
+              id: plan[0]!.id,
+              sections: plan[0]!.sections.map(section => section.section),
+            }],
+          }
+        : document_;
       const { container } = render(
         <OnboardingSitePreview
-          customerPagePlan={planFor(type)}
+          customerPagePlan={plan}
           device="phone"
-          document={document_}
+          document={renderDocument}
           interactionMode="interactive"
           state={state}
         />,
@@ -155,7 +227,11 @@ describe('customer section accessibility', () => {
       const section = node!;
 
       // 1. The section is a labelled region or a heading-led block.
-      const label = section.getAttribute('aria-label');
+      const nestedLandmark = section.querySelector(
+        'section[aria-label], [role="region"][aria-label]',
+      );
+      const label = section.getAttribute('aria-label')
+        ?? nestedLandmark?.getAttribute('aria-label');
       const heading = section.querySelector('h1, h2, h3');
       expect(
         Boolean(label?.trim()) || Boolean(heading?.textContent?.trim()),
@@ -199,6 +275,64 @@ describe('customer section accessibility', () => {
           || container.querySelector(`#${CSS.escape(targetId)}`) !== null;
         expect(resolvable, `${type}: dangling in-page link ${href}`).toBe(true);
       }
+    },
+  );
+
+  it.each(NAVIGATION_CASES)(
+    'resolves the Section Navigation anchor for $type ($preset)',
+    ({ preset, type }) => {
+      const navigation = sectionFor('section_navigation');
+      const baseTarget = sectionFor(type);
+      const target = type === 'about' && preset
+        ? ({
+            ...baseTarget,
+            settings: getSectionRegistryEntry('about').normalize({
+              ...getSectionRegistryEntry('about').defaultSettings(),
+              preset,
+            }),
+          } as SectionInstance)
+        : baseTarget;
+      const companion = sectionFor(type === 'reviews' ? 'featured_services' : 'reviews');
+      const sections = [navigation, target, companion];
+      const pagePlan: SitePlanPage[] = [{
+        id: 'navigation-page',
+        isHome: true,
+        label: 'Navigation',
+        order: 0,
+        sections: sections.map(section => ({
+          attachedToPrevious: false,
+          id: section.id,
+          injected: false,
+          label: section.label,
+          section,
+          sectionType: section.sectionType,
+          surface: section.sectionType === 'booking'
+            ? 'base'
+            : getSectionRegistryEntry(section.sectionType as LibrarySectionType).surface,
+        })),
+        slug: '',
+        visibleInNavigation: true,
+      }];
+
+      const { container } = render(
+        <OnboardingSitePreview
+          customerPagePlan={pagePlan}
+          device="phone"
+          document={document_}
+          interactionMode="interactive"
+          state={state}
+        />,
+      );
+      const expectedId = type === 'booking' ? 'booking' : `section-${target.id}`;
+      const navigationNode = container.querySelector(
+        `[data-section-id="${navigation.id}"]`,
+      );
+      const link = navigationNode?.querySelector(`a[href="#${expectedId}"]`);
+      const targetNode = container.querySelector(`#${CSS.escape(expectedId)}`);
+
+      expect(link, `Section Navigation omitted #${expectedId}`).not.toBeNull();
+      expect(targetNode, `Section Navigation target #${expectedId} is missing`)
+        .toHaveAttribute('data-section-id', target.id);
     },
   );
 

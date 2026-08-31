@@ -1,9 +1,12 @@
 import type { AssetRepository } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/assets/types';
+import { createDefaultCustomDesignSettings } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/settings';
+import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
 import {
   claimOnboardingMedia,
   cleanupVerifiedUnreferencedOnboardingMedia,
   collectOnboardingMediaReferences,
+  collectPendingOnboardingMediaReferences,
 } from './media-claim-client';
 
 const pngBlob = new Blob([
@@ -130,6 +133,176 @@ describe('onboarding media claim client', () => {
 
     expect(uploadRequest?.[1]?.body).toBeInstanceOf(FormData);
     expect((uploadRequest?.[1]?.body as FormData).get('role')).toBe('logo');
+  });
+
+  it('uploads every active and restorable Custom Design asset in manifest order', async () => {
+    const state = createDefaultOnboardingState();
+    let nextId = 0;
+    const document = initializeStarter('quick_book', {
+      idFactory: kind => `multi-custom-${kind}-${nextId++}`,
+    });
+    const image = (id: string) => ({
+      altText: `${id} design`,
+      aspectRatio: 1,
+      assetId: `${id}-asset`,
+      decorative: false,
+      fileName: `${id}.png`,
+      fileSize: pngBlob.size,
+      height: 24,
+      id,
+      interactiveAreas: [],
+      mimeType: 'image/png' as const,
+      width: 24,
+    });
+    const settings = createDefaultCustomDesignSettings();
+
+    document.pages[0]!.sections.push({
+      id: 'custom-active',
+      label: 'Custom Design',
+      order: document.pages[0]!.sections.length,
+      sectionType: 'custom_design',
+      settings: { ...settings, images: [image('active-image')] },
+      visible: true,
+    });
+    document.unusedSections.push({
+      id: 'custom-restorable',
+      label: 'Custom Design',
+      order: 0,
+      sectionType: 'custom_design',
+      settings: { ...settings, images: [image('restorable-image')] },
+      visible: true,
+    });
+    const fetcher = vi.fn<typeof fetch>(async (input, init) => {
+      if (String(input).endsWith('/verify')) {
+        return Response.json({ data: { revision: 5 } });
+      }
+      const form = init?.body as FormData;
+      const localItemId = String(form.get('localItemId'));
+
+      return Response.json({
+        data: {
+          media: {
+            height: 24,
+            id: `media-${localItemId}`,
+            url: `/media/${localItemId}`,
+            width: 24,
+          },
+        },
+      });
+    });
+
+    expect(collectOnboardingMediaReferences(state, document)
+      .filter(reference => reference.role === 'custom_design'))
+      .toEqual([
+        expect.objectContaining({
+          assetId: 'active-image-asset',
+          localItemId: 'active-image',
+          order: 0,
+        }),
+        expect.objectContaining({
+          assetId: 'restorable-image-asset',
+          localItemId: 'restorable-image',
+          order: 1,
+        }),
+      ]);
+
+    const result = await claimOnboardingMedia({
+      document,
+      draftId: 'draft-safe',
+      fetcher,
+      idempotencyKey: 'claim-safe',
+      repository: repository(),
+      siteId: 'site-safe',
+      siteRevision: 4,
+      state,
+    });
+
+    expect(result.failures).toEqual([]);
+    expect(result.uploaded.map(item => item.localItemId))
+      .toEqual(['active-image', 'restorable-image']);
+    expect(result.verifiedRevision).toBe(5);
+  });
+
+  it('does not reupload unchanged account-backed Custom Design media across active and restorable sections', async () => {
+    const state = createDefaultOnboardingState();
+    let nextId = 0;
+    const document = initializeStarter('quick_book', {
+      idFactory: kind => `inherited-custom-${kind}-${nextId++}`,
+    });
+    const image = (id: string, assetId = id) => ({
+      altText: `${id} design`,
+      aspectRatio: 1,
+      assetId,
+      decorative: false,
+      fileName: `${id}.png`,
+      fileSize: pngBlob.size,
+      height: 24,
+      id,
+      interactiveAreas: [],
+      mimeType: 'image/png' as const,
+      width: 24,
+    });
+    const settings = createDefaultCustomDesignSettings();
+    document.pages[0]!.sections.push({
+      id: 'custom-account-active',
+      label: 'Custom Design',
+      order: document.pages[0]!.sections.length,
+      sectionType: 'custom_design',
+      settings: { ...settings, images: [image('account-active')] },
+      visible: true,
+    });
+    document.unusedSections.push({
+      id: 'custom-account-restorable',
+      label: 'Custom Design',
+      order: 0,
+      sectionType: 'custom_design',
+      settings: { ...settings, images: [image('account-restorable')] },
+      visible: true,
+    });
+    const existing = new Map([
+      ['account-active', '11111111-1111-4111-8111-111111111111'],
+      ['account-restorable', '22222222-2222-4222-8222-222222222222'],
+    ]);
+
+    expect(collectPendingOnboardingMediaReferences(state, document, existing))
+      .toEqual([]);
+
+    const fetcher = vi.fn<typeof fetch>(async (input) => {
+      expect(String(input).endsWith('/verify')).toBe(true);
+
+      return Response.json({ data: { revision: 8 } });
+    });
+    const result = await claimOnboardingMedia({
+      document,
+      draftId: 'draft-safe',
+      existingCustomMediaByLogicalId: existing,
+      fetcher,
+      idempotencyKey: 'claim-safe',
+      repository: repository(),
+      siteId: 'site-safe',
+      siteRevision: 7,
+      state,
+    });
+
+    expect(result).toEqual({ failures: [], uploaded: [], verifiedRevision: 8 });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    const active = document.pages[0]!.sections.find(
+      section => section.id === 'custom-account-active',
+    );
+    if (active?.sectionType !== 'custom_design') {
+      throw new Error('Expected the active Custom Design fixture.');
+    }
+    active.settings.images = [image('account-active', 'replacement-local-asset')];
+
+    expect(collectPendingOnboardingMediaReferences(state, document, existing))
+      .toEqual([
+        expect.objectContaining({
+          assetId: 'replacement-local-asset',
+          localItemId: 'account-active',
+          role: 'custom_design',
+        }),
+      ]);
   });
 
   it('keeps a missing local asset as a retryable failure and never deletes it', async () => {

@@ -66,15 +66,28 @@ test.describe('Section Library V1 owner journeys', () => {
     await expect(dialog.getByRole('heading', { name: 'Trust & story' })).toBeVisible();
     await expect(dialog.getByText('Section 01')).toHaveCount(0);
 
-    // Hero is hard-limited on a page that already has one.
+    // Hero is hard-limited on a page that already has one. The available
+    // action explains the conflict and takes the owner to the existing Hero;
+    // it never creates a second engine/singleton section.
     const heroCard = dialog.locator('[data-section-type="hero"]');
     const heroButton = heroCard.getByRole('button');
-    await expect(heroButton).toBeDisabled();
-    await expect(heroButton).toHaveText(/Already on this page/);
+    await expect(heroButton).toBeEnabled();
+    await expect(heroButton).toHaveText('Go to Hero');
+    await expect(heroButton).toHaveAttribute('aria-haspopup', 'dialog');
+    await heroButton.click();
+    const blocker = page.getByRole('dialog', { name: 'Hero is already on Home' });
+    await expect(blocker).toContainText('only once per page');
+    await blocker.getByRole('button', { name: 'Go to Hero' }).click();
+    await expect(blocker).not.toBeVisible();
+    await expect(page.getByRole('listitem', { name: 'Salon intro on Home' })
+      .locator('.section-card__select-surface')).toHaveAttribute('aria-pressed', 'true');
 
     // Adding Reviews (empty authority) still adds the section to the document.
-    await dialog.locator('[data-section-type="reviews"]').getByRole('button', { name: /Add Reviews/ }).click();
-    await expect(dialog).not.toBeVisible();
+    const reopenedDialog = await openAddSection(page);
+    await reopenedDialog.locator('[data-section-type="reviews"]')
+      .getByRole('button', { name: /Add Reviews/ })
+      .click();
+    await expect(reopenedDialog).not.toBeVisible();
     await waitForSaved(page);
     const stored = await readStoredDocument(page);
     const types = stored.pages[0].sections.map((section: { sectionType: string }) => section.sectionType);
@@ -98,10 +111,8 @@ test.describe('Section Library V1 owner journeys', () => {
     await expect(warning).toContainText('Home');
     await warning.getByRole('button', { name: 'Cancel' }).click();
     await expect(warning).not.toBeVisible();
-    // Cancelling the warning returns the owner to the open library so they
-    // can choose something else; closing it returns to the Builder.
-    await expect(secondAdd).toBeVisible();
-    await page.keyboard.press('Escape');
+    // Cancelling the resolution closes the modal flow and returns to Builder
+    // without adding another Team section.
     await expect(secondAdd).not.toBeVisible();
     await waitForSaved(page);
     const afterCancel = await readStoredDocument(page);

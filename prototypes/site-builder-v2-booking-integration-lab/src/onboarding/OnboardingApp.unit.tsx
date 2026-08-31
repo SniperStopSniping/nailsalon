@@ -26,6 +26,7 @@ import {
 } from './storage/storage';
 import {
   OnboardingApp,
+  type OnboardingSavePayload,
   applyCanvaIntegrationResult,
   getOnboardingAssetIds,
   isOnboardingResetBlocked,
@@ -106,6 +107,17 @@ const stateAt = (
 };
 
 const createLab = (document: SiteBuilderDocument): LabDocumentController => ({
+  acceptOnboardingPresentation: vi.fn((siteName, presentation) => {
+    const accepted = structuredClone(document);
+    accepted.siteName = siteName;
+    for (const section of accepted.pages.flatMap(page => page.sections)) {
+      if (section.sectionType === 'about') section.settings.preset = presentation.aboutPreset;
+      if (section.sectionType === 'gallery' && section.settings.preset === 'grid') {
+        section.settings.preset = presentation.galleryLayout;
+      }
+    }
+    return accepted;
+  }),
   canRedo: false,
   canUndo: false,
   chooseStarter: vi.fn(() => false),
@@ -716,7 +728,10 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(onEnterBuilder).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: 'Finish setup' }));
-    expect(lab.syncSiteName).toHaveBeenCalledWith('Isla Nail Studio');
+    expect(lab.acceptOnboardingPresentation).toHaveBeenCalledWith(
+      'Isla Nail Studio',
+      { aboutPreset: state.recipe.aboutPreset, galleryLayout: state.gallery.layout },
+    );
     const offer = screen.getByRole('dialog', { name: 'Your site is saved' });
     expect(within(offer).getByRole('button', { name: 'Continue free' })).toBeVisible();
     expect(onEnterBuilder).not.toHaveBeenCalled();
@@ -726,6 +741,45 @@ describe('OnboardingApp handoff boundaries', () => {
     const saved = window.localStorage.getItem(ONBOARDING_STORAGE_KEY);
     expect(saved).toContain('"planIntent":"free"');
     expect(saved).toContain('"sessionStatus":"dashboard"');
+  });
+
+  it('hands account save the exact non-default presentation shown in Final Review', async () => {
+    const user = userEvent.setup();
+    const state = stateAt('final_preview');
+    state.recipe.aboutPreset = 'editorial_portrait';
+    state.gallery.layout = 'editorial';
+    window.localStorage.setItem(
+      ONBOARDING_STORAGE_KEY,
+      serializeOnboardingState(state),
+    );
+    const document = initializeStarter('one_page', {
+      siteId: state.recipe.starterDocumentSiteId ?? undefined,
+      siteName: state.profile.businessName,
+    });
+    const lab = createLab(document);
+    const onSaveSite = vi.fn<(payload: OnboardingSavePayload) => void>();
+    render(
+      <OnboardingApp
+        auditMode
+        integration={{ onSaveSite }}
+        lab={lab}
+      />,
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Save my site' }));
+
+    expect(onSaveSite).toHaveBeenCalledOnce();
+    const payload = onSaveSite.mock.calls[0]?.[0];
+    expect(payload).toBeDefined();
+    if (!payload) throw new Error('Expected an account-save payload.');
+    expect(payload.document.pages.flatMap(page => page.sections)
+      .filter(section => section.sectionType === 'about')
+      .map(section => section.settings.preset))
+      .toEqual(['editorial_portrait']);
+    expect(payload.document.pages.flatMap(page => page.sections)
+      .filter(section => section.sectionType === 'gallery')
+      .map(section => section.settings.preset))
+      .toEqual(['editorial']);
   });
 
   it('treats the plan offer as a Review overlay for browser Back and Forward', async () => {

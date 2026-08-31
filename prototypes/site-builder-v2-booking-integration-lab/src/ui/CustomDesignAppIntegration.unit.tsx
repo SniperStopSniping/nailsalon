@@ -405,7 +405,9 @@ describe('Custom Design universal App integration', () => {
       ).toBe(true);
     });
     await user.click(screen.getByRole('button', { name: 'Preview' }));
-    expect(await screen.findByTestId('preview-stage')).toBeVisible();
+    expect(await screen.findByRole('region', {
+      name: 'Builder customer preview',
+    })).toBeVisible();
     expect(screen.queryByTestId('custom-design-customer-renderer')).not.toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Custom Design section' })).not.toBeInTheDocument();
 
@@ -841,5 +843,9 @@ describe('Custom Design customer Preview integration', () => {
     expect(screen.queryByRole('button', { name: 'Book from design' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('custom-design-area-custom_design_area_booking'))
       .not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(document.querySelector('[data-section-type="custom_design"]'))
+        .not.toBeInTheDocument();
+    });
   });
 });

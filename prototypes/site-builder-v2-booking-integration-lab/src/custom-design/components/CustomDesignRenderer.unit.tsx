@@ -689,6 +689,27 @@ describe('Custom Design customer renderer', () => {
       .not.toBeInTheDocument();
   });
 
+  it('does not publish a CTA-only section when required artwork is empty', () => {
+    render(
+      <CustomDesignRenderer
+        resolveAction={resolveAction}
+        resolveAsset={readyAsset}
+        settings={makeSettings({
+          cta: {
+            label: 'Book now',
+            placement: { type: 'after_all' },
+            type: 'book_now',
+          },
+          images: [],
+        })}
+      />,
+    );
+
+    expect(screen.queryByTestId('custom-design-customer-renderer'))
+      .not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Book now' })).not.toBeInTheDocument();
+  });
+
   it('suppresses a stale-valid near-full area without suppressing a safe area on another image', () => {
     const unsafeFull = makeArea({
       id: 'unsafe-full',
