@@ -736,6 +736,9 @@ test('uses universal hide/show, Move, cross-page Move, remove, restore, Undo, an
     name: 'Restore Custom Design to the current page',
   }).click();
   await expect(customDesignCard(page)).toHaveCount(1);
+  // The Lab persists on a 180 ms debounce, so the restored section reaches
+  // localStorage a beat after its card has rendered.
+  await waitForSaved(page);
   stored = JSON.parse(await page.evaluate(
     (key) => window.localStorage.getItem(key) ?? '{}',
     LAB_STORAGE_KEY,

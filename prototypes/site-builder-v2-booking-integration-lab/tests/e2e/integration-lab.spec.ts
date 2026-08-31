@@ -19,6 +19,42 @@ import {
   type StarterName,
 } from './helpers';
 
+/**
+ * The starter documents these tests exercise. Labels come from the section
+ * library registry (`getSectionLabel`) unless the starter definition in
+ * `src/model/starters.ts` overrides them (Salon intro, Welcome, Featured work).
+ */
+const QUICK_BOOK_HOME_SECTIONS = [
+  'Announcement Bar',
+  'Salon intro',
+  'Featured Services',
+  'Booking',
+  'Final Booking CTA',
+  'Footer',
+] as const;
+
+const QUICK_BOOK_BOOKING_POSITION = 4;
+
+/** Quick Book's Home order after Booking is moved to position 1. */
+const QUICK_BOOK_BOOKING_FIRST = [
+  'Booking',
+  'Announcement Bar',
+  'Salon intro',
+  'Featured Services',
+  'Final Booking CTA',
+  'Footer',
+] as const;
+
+/** Quick Book's Home order after Booking is moved to position 2. */
+const QUICK_BOOK_BOOKING_SECOND = [
+  'Announcement Bar',
+  'Booking',
+  'Salon intro',
+  'Featured Services',
+  'Final Booking CTA',
+  'Footer',
+] as const;
+
 const LAYOUTS = [
   ['visual_grid', 'Visual Grid'],
   ['clean_list', 'Clean List'],
@@ -171,38 +207,69 @@ test('all starting points initialize the same real Booking implementation', asyn
   }> = [
     {
       bookingPage: 'Home',
-      bookingSections: ['Section 01', 'Section 02', 'Booking'],
-      home: ['Section 01', 'Section 02', 'Booking'],
+      bookingSections: [...QUICK_BOOK_HOME_SECTIONS],
+      home: [...QUICK_BOOK_HOME_SECTIONS],
       name: 'Quick Book',
       pages: ['Home'],
     },
     {
       bookingPage: 'Home',
       bookingSections: [
-        'Section 01',
-        'Section 02',
-        'Section 03',
-        'Section 04',
-        'Section 05',
+        'Announcement Bar',
+        'Welcome',
+        'Quick Info',
+        'Section Navigation',
+        'About',
+        'Featured Services',
+        'Gallery',
+        'Reviews',
+        'Deposits & Cancellations',
+        'Before You Book',
+        'Visit Us',
         'Booking',
+        'Final Booking CTA',
+        'Footer',
       ],
       home: [
-        'Section 01',
-        'Section 02',
-        'Section 03',
-        'Section 04',
-        'Section 05',
+        'Announcement Bar',
+        'Welcome',
+        'Quick Info',
+        'Section Navigation',
+        'About',
+        'Featured Services',
+        'Gallery',
+        'Reviews',
+        'Deposits & Cancellations',
+        'Before You Book',
+        'Visit Us',
         'Booking',
+        'Final Booking CTA',
+        'Footer',
       ],
       name: 'One-page website',
       pages: ['Home'],
     },
     {
       bookingPage: 'Services / Book',
-      bookingSections: ['Section 03', 'Booking'],
-      home: ['Section 01', 'Section 02'],
+      bookingSections: [
+        'Featured Services',
+        'Booking',
+        'Deposits & Cancellations',
+        'Before You Book',
+        'FAQ',
+        'Footer',
+      ],
+      home: [
+        'Announcement Bar',
+        'Welcome',
+        'Quick Info',
+        'Featured work',
+        'Reviews',
+        'Final Booking CTA',
+        'Footer',
+      ],
       name: 'Multi-page website',
-      pages: ['Home', 'Services / Book', 'Gallery', 'About', 'Contact'],
+      pages: ['Home', 'Services / Book', 'Gallery', 'Team', 'Contact'],
     },
   ];
 
@@ -342,74 +409,63 @@ test('Move is transactional: Enter only, safe dirty dismissal, reload isolation,
   const activeRow = move.locator('[data-move-target-row="true"]');
   await expect(activeRow).toBeFocused();
   await expect(move.getByLabel('Position for Booking')).not.toBeFocused();
-  await expect(reorderLabels(page)).resolves.toEqual([
-    'Section 01',
-    'Section 02',
-    'Booking',
-  ]);
+  await expect(reorderLabels(page)).resolves.toEqual([...QUICK_BOOK_HOME_SECTIONS]);
+  // Booking now sits mid-list, so its own "down" control is available and the
+  // disabled boundary belongs to the section that is actually last.
+  await expect(
+    move.getByRole('button', { name: 'Move Booking down', exact: true }),
+  ).toHaveAttribute('aria-disabled', 'false');
   await expect(
     move.getByRole('button', {
-      name: 'Move Booking down, unavailable — already last',
+      name: 'Move Footer down, unavailable — already last',
     }),
   ).toHaveAttribute('aria-disabled', 'true');
 
   const position = move.getByLabel('Position for Booking');
   await position.fill('1');
   await position.press('Tab');
-  await expect(position).toHaveValue('3');
-  await expect(reorderLabels(page)).resolves.toEqual([
-    'Section 01',
-    'Section 02',
-    'Booking',
-  ]);
+  await expect(position).toHaveValue(String(QUICK_BOOK_BOOKING_POSITION));
+  await expect(reorderLabels(page)).resolves.toEqual([...QUICK_BOOK_HOME_SECTIONS]);
 
   await position.fill('1');
   await position.press('Escape');
   await expect(move).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Keep this new order?' })).toHaveCount(0);
-  await expect(position).toHaveValue('3');
+  await expect(position).toHaveValue(String(QUICK_BOOK_BOOKING_POSITION));
   await expect(activeRow).toBeFocused();
 
   await position.fill('0');
   await position.press('Enter');
-  await expect(move.getByText('Enter a position from 1 to 3.')).toBeVisible();
+  await expect(
+    move.getByText(`Enter a position from 1 to ${QUICK_BOOK_HOME_SECTIONS.length}.`),
+  ).toBeVisible();
   await expect(position).toHaveAttribute('aria-invalid', 'true');
   await expect(page.getByTestId('reorder-live-region')).toHaveText(
-    'Enter a position from 1 to 3.',
+    `Enter a position from 1 to ${QUICK_BOOK_HOME_SECTIONS.length}.`,
   );
 
   await position.fill('1');
   await position.press('Enter');
   await expect(position).toBeFocused();
   await expect(position).toHaveValue('1');
-  await expect(reorderLabels(page)).resolves.toEqual([
-    'Booking',
-    'Section 01',
-    'Section 02',
-  ]);
+  await expect(reorderLabels(page)).resolves.toEqual([...QUICK_BOOK_BOOKING_FIRST]);
   await expect(page.getByLabel('Save status')).toContainText('Order not saved yet');
   await expect(move.getByText('Order not saved yet')).toBeVisible();
   expect(await readStoredDocument(page)).toBe(committed);
 
   await page.reload();
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Section 01',
-    'Section 02',
-    'Booking',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_HOME_SECTIONS]);
 
   move = await openMoveForBooking(page, 'Home');
   await move.getByLabel('Position for Booking').fill('1');
   await move.getByLabel('Position for Booking').press('Enter');
   await move.getByRole('button', { name: 'Close Move Booking' }).click();
   let confirmation = page.getByRole('dialog', { name: 'Keep this new order?' });
-  await expect(confirmation).toContainText('position 1 instead of 3');
+  await expect(confirmation).toContainText(
+    `position 1 instead of ${QUICK_BOOK_BOOKING_POSITION}`,
+  );
   await confirmation.getByRole('button', { name: 'Discard changes' }).click();
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Section 01',
-    'Section 02',
-    'Booking',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_HOME_SECTIONS]);
 
   await page.waitForTimeout(MOVE_COMPLETION_SHIELD_DURATION_MS + 80);
   move = await openMoveForBooking(page, 'Home');
@@ -421,19 +477,11 @@ test('Move is transactional: Enter only, safe dirty dismissal, reload isolation,
   await expect(confirmation).toBeVisible();
   await confirmation.getByRole('button', { name: 'Keep order' }).click();
   await expect(page.locator('.toast').getByText('Section order saved.')).toBeVisible();
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Booking',
-    'Section 01',
-    'Section 02',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_BOOKING_FIRST]);
   await expect.poll(() => readStoredDocument(page)).not.toBe(committed);
 
   await page.reload();
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Booking',
-    'Section 01',
-    'Section 02',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_BOOKING_FIRST]);
   const bookingFirstCommitted = await readStoredDocument(page);
 
   move = await openMoveForBooking(page, 'Home');
@@ -442,11 +490,7 @@ test('Move is transactional: Enter only, safe dirty dismissal, reload isolation,
   await expect(page.getByTestId('final-hybrid-editor')).toHaveAttribute('inert', '');
   await page.keyboard.press('Control+z');
   await move.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Booking',
-    'Section 01',
-    'Section 02',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_BOOKING_FIRST]);
 
   await page.waitForTimeout(MOVE_COMPLETION_SHIELD_DURATION_MS + 80);
   move = await openMoveForBooking(page, 'Home');
@@ -456,15 +500,11 @@ test('Move is transactional: Enter only, safe dirty dismissal, reload isolation,
   confirmation = page.getByRole('dialog', { name: 'Keep this new order?' });
   await expect(confirmation).toBeVisible();
   await confirmation.getByRole('button', { name: 'Discard changes' }).click();
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Booking',
-    'Section 01',
-    'Section 02',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_BOOKING_FIRST]);
 
   await page.waitForTimeout(MOVE_COMPLETION_SHIELD_DURATION_MS + 80);
   move = await openMoveForBooking(page, 'Home');
-  await move.getByRole('button', { name: 'Move Booking down' }).click();
+  await move.getByRole('button', { name: 'Move Booking down', exact: true }).click();
   const handle = move.getByRole('button', {
     name: 'Drag Booking. Use arrow keys after lifting with Space.',
   });
@@ -479,18 +519,14 @@ test('Move is transactional: Enter only, safe dirty dismissal, reload isolation,
   await handle.press('ArrowDown');
   await handle.press('Space');
   await expect(move.getByLabel('Position for Booking')).toHaveValue('3');
-  await move.getByRole('button', { name: 'Move Booking up' }).click();
+  await move.getByRole('button', { name: 'Move Booking up', exact: true }).click();
   await expect(move.getByLabel('Position for Booking')).toHaveValue('2');
   await move.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.locator('.toast').getByText('Section order saved.')).toBeVisible();
   await expect(page.getByLabel('Save status')).toContainText('Saved');
   await expect.poll(() => readStoredDocument(page)).not.toBe(bookingFirstCommitted);
   await page.reload();
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Section 01',
-    'Booking',
-    'Section 02',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_BOOKING_SECOND]);
 });
 
 test('Pages & Structure opens the same Move surface and a one-section page exposes only cross-page movement', async ({

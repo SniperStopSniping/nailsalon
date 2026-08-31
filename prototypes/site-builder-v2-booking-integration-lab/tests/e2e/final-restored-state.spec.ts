@@ -37,16 +37,22 @@ type RestoredDocument = {
   unusedSections: unknown[];
 };
 
+/** Quick Book's Home page, straight out of `STARTER_PAGES.quick_book`. */
+const QUICK_BOOK_HOME_SECTIONS = [
+  'Announcement Bar',
+  'Salon intro',
+  'Featured Services',
+  'Booking',
+  'Final Booking CTA',
+  'Footer',
+] as const;
+
 async function expectPristineQuickBook(page: Page): Promise<void> {
   await expect(page.getByTestId('final-hybrid-editor')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Preview', exact: true })).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.getByTestId('selected-section-toolbar')).toHaveCount(0);
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Section 01',
-    'Section 02',
-    'Booking',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_HOME_SECTIONS]);
 
   const stored = await page.evaluate((key) => (
     JSON.parse(window.localStorage.getItem(key) ?? 'null') as RestoredDocument | null
@@ -58,11 +64,11 @@ async function expectPristineQuickBook(page: Page): Promise<void> {
     label: section.label,
     order: section.order,
     visible: section.visible,
-  }))).toEqual([
-    { label: 'Section 01', order: 0, visible: true },
-    { label: 'Section 02', order: 1, visible: true },
-    { label: 'Booking', order: 2, visible: true },
-  ]);
+  }))).toEqual(QUICK_BOOK_HOME_SECTIONS.map((label, order) => ({
+    label,
+    order,
+    visible: true,
+  })));
   const booking = stored?.pages[0]?.sections.find(
     (section) => section.sectionType === 'booking',
   );
@@ -135,8 +141,11 @@ test('restores the Lab through live controls and persists the pristine freeze ba
     await waitForSaved(page);
     await expect(sectionLabels(page, 'Home')).resolves.toEqual([
       'Booking',
-      'Section 01',
-      'Section 02',
+      'Announcement Bar',
+      'Salon intro',
+      'Featured Services',
+      'Final Booking CTA',
+      'Footer',
     ]);
 
     await page.getByRole('button', { name: 'More site options' }).click();

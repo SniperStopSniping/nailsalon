@@ -213,8 +213,45 @@ async function expectPreviewStayedInactive(page: Page): Promise<void> {
   await expect(page.getByRole('button', { name: 'Back to editor' })).toHaveCount(0);
 }
 
-async function selectSection01(page: Page): Promise<Locator> {
-  const card = page.getByRole('listitem', { name: 'Section 01 on Home' });
+/**
+ * Quick Book's Home page, in starter order. `FIRST_SECTION` is the non-Booking
+ * section these tests drag around; moving it down once produces
+ * `QUICK_BOOK_FIRST_SECTION_MOVED_DOWN`.
+ */
+const QUICK_BOOK_HOME_SECTIONS = [
+  'Announcement Bar',
+  'Salon intro',
+  'Featured Services',
+  'Booking',
+  'Final Booking CTA',
+  'Footer',
+] as const;
+
+const FIRST_SECTION = QUICK_BOOK_HOME_SECTIONS[0];
+
+const QUICK_BOOK_FIRST_SECTION_MOVED_DOWN = [
+  'Salon intro',
+  'Announcement Bar',
+  'Featured Services',
+  'Booking',
+  'Final Booking CTA',
+  'Footer',
+] as const;
+
+/** Multi-page Home, after Booking is moved in at the default last position. */
+const MULTI_PAGE_HOME_WITH_BOOKING_LAST = [
+  'Announcement Bar',
+  'Welcome',
+  'Quick Info',
+  'Featured work',
+  'Reviews',
+  'Final Booking CTA',
+  'Footer',
+  'Booking',
+] as const;
+
+async function selectFirstSection(page: Page): Promise<Locator> {
+  const card = page.getByRole('listitem', { name: `${FIRST_SECTION} on Home` });
   if (!(await card.evaluate((element) => element.classList.contains('is-selected')))) {
     await card.locator('.section-card__select-surface').click();
   }
@@ -222,18 +259,18 @@ async function selectSection01(page: Page): Promise<Locator> {
   return card;
 }
 
-async function openDirtySection01Move(page: Page): Promise<{
+async function openDirtyFirstSectionMove(page: Page): Promise<{
   card: Locator;
   done: Locator;
   move: Locator;
 }> {
-  const card = await selectSection01(page);
+  const card = await selectFirstSection(page);
   await page
     .getByTestId('selected-section-toolbar')
     .getByRole('button', { name: 'Move', exact: true })
     .click();
-  const move = page.getByRole('dialog', { name: 'Move Section 01' });
-  await move.getByRole('button', { name: 'Move Section 01 down' }).click();
+  const move = page.getByRole('dialog', { name: `Move ${FIRST_SECTION}` });
+  await move.getByRole('button', { name: `Move ${FIRST_SECTION} down`, exact: true }).click();
   await expect(move.getByText('Order not saved yet', { exact: true })).toBeVisible();
   return {
     card,
@@ -304,7 +341,7 @@ test('ordinary Done timing sweep protects through 450 ms and releases normally b
 
   for (const gapMs of [40, 70, 100, 120, 160, 200, 300, 450, 600]) {
     await setupQuickBook(page);
-    const { card, done, move } = await openDirtySection01Move(page);
+    const { card, done, move } = await openDirtyFirstSectionMove(page);
     const point = await center(done);
     await resetInteractionProbe(page);
     await page.mouse.click(point.x, point.y);
@@ -354,7 +391,7 @@ test('a matching pointer sequence started before expiry stays fully shielded thr
 }) => {
   await page.setViewportSize({ width: 1180, height: 800 });
   await setupQuickBook(page);
-  const { card, done, move } = await openDirtySection01Move(page);
+  const { card, done, move } = await openDirtyFirstSectionMove(page);
   const point = await center(done);
   await resetInteractionProbe(page);
   await page.mouse.click(point.x, point.y);
@@ -383,17 +420,14 @@ test('ordinary Done sequences preserve selection/focus and create one undoable t
     { count: 2, gapMs: 200 },
   ]) {
     const baseline = await setupQuickBook(page);
-    const { card, done, move } = await openDirtySection01Move(page);
+    const { card, done, move } = await openDirtyFirstSectionMove(page);
     const point = await center(done);
     await resetInteractionProbe(page);
     await ordinaryClicks(page, point, scenario.count, scenario.gapMs);
     await expect(move).toHaveCount(0);
     await waitForSaved(page);
-    await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-      'Section 02',
-      'Section 01',
-      'Booking',
-    ]);
+    await expect(sectionLabels(page, 'Home')).resolves
+      .toEqual([...QUICK_BOOK_FIRST_SECTION_MOVED_DOWN]);
     await expect(page.locator('.toast')).toHaveCount(1);
     await expect(page.locator('.toast')).toContainText('Section order saved.');
     await expectNoMoveFallthrough(page, card);
@@ -415,7 +449,7 @@ test('ordinary Done sequences preserve selection/focus and create one undoable t
 test('the first different-coordinate mouse and keyboard actions work immediately', async ({ page }) => {
   await page.setViewportSize({ width: 1180, height: 800 });
   await setupQuickBook(page);
-  const { card, done, move } = await openDirtySection01Move(page);
+  const { card, done, move } = await openDirtyFirstSectionMove(page);
   const point = await center(done);
   const preview = page.getByRole('button', { name: 'Preview', exact: true });
   await preview.evaluate((element) => {
@@ -444,12 +478,12 @@ test('the first different-coordinate mouse and keyboard actions work immediately
   await page.getByRole('button', { name: 'Back to editor' }).click();
   await expect(page.getByTestId('final-hybrid-editor')).toBeVisible();
 
-  await selectSection01(page);
+  await selectFirstSection(page);
   await page
     .getByTestId('selected-section-toolbar')
     .getByRole('button', { name: 'Move', exact: true })
     .click();
-  const secondMove = page.getByRole('dialog', { name: 'Move Section 01' });
+  const secondMove = page.getByRole('dialog', { name: `Move ${FIRST_SECTION}` });
   const secondDone = secondMove.getByRole('button', { name: 'Done', exact: true });
   await secondDone.focus();
   await page.keyboard.press('Enter');
@@ -499,11 +533,8 @@ test('ordinary cross-page Done clicks commit once without activating the destina
 
   await expect(move).toHaveCount(0);
   await waitForSaved(page);
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Section 01',
-    'Section 02',
-    'Booking',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves
+    .toEqual([...MULTI_PAGE_HOME_WITH_BOOKING_LAST]);
   const card = bookingCard(page, 'Home');
   await expectNoMoveFallthrough(page, card);
   await expect(page.locator('.toast')).toHaveCount(1);
@@ -579,7 +610,7 @@ test('ordinary Keep and Discard clicks preserve their exact transaction semantic
 
   for (const resolution of ['Keep order', 'Discard changes'] as const) {
     const baseline = await setupQuickBook(page);
-    const { card, move } = await openDirtySection01Move(page);
+    const { card, move } = await openDirtyFirstSectionMove(page);
     await page.keyboard.press('Escape');
     const warning = page.getByRole('dialog', { name: 'Keep this new order?' });
     await expect(warning).toBeVisible();
@@ -606,21 +637,15 @@ test('ordinary Keep and Discard clicks preserve their exact transaction semantic
       probe = await readInteractionProbe(page);
       expect(probe.writes).toBe(1);
       expect(await readStoredDocumentJson(page)).not.toBe(baseline);
-      await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-        'Section 02',
-        'Section 01',
-        'Booking',
-      ]);
+      await expect(sectionLabels(page, 'Home')).resolves
+        .toEqual([...QUICK_BOOK_FIRST_SECTION_MOVED_DOWN]);
       await expect(page.locator('.toast')).toHaveCount(1);
       await expect(page.locator('.toast')).toContainText('Section order saved.');
     } else {
       expect(probe.writes).toBe(0);
       expect(await readStoredDocumentJson(page)).toBe(baseline);
-      await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-        'Section 01',
-        'Section 02',
-        'Booking',
-      ]);
+      await expect(sectionLabels(page, 'Home')).resolves
+        .toEqual([...QUICK_BOOK_HOME_SECTIONS]);
       await expect(page.locator('.toast').filter({ hasText: 'Section order saved.' }))
         .toHaveCount(0);
       await expect(page.getByTestId('reorder-live-region')).toContainText('Order restored.');

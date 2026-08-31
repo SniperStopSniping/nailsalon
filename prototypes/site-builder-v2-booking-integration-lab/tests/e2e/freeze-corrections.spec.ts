@@ -1,5 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
+import { MOVE_COMPLETION_SHIELD_DURATION_MS } from '../../src/ui/move-completion-shield';
+
 import {
   bookingCard,
   chooseStarter,
@@ -26,6 +28,64 @@ import {
   startRuntimeMonitor,
   waitForSaved,
 } from './helpers';
+
+/** Quick Book's Home page, in starter order (`STARTER_PAGES.quick_book`). */
+const QUICK_BOOK_HOME = [
+  'Announcement Bar',
+  'Salon intro',
+  'Featured Services',
+  'Booking',
+  'Final Booking CTA',
+  'Footer',
+] as const;
+
+/** Quick Book's Home page after Booking is moved to position 1. */
+const QUICK_BOOK_BOOKING_FIRST = [
+  'Booking',
+  'Announcement Bar',
+  'Salon intro',
+  'Featured Services',
+  'Final Booking CTA',
+  'Footer',
+] as const;
+
+/** Multi-page starter pages, in starter order. */
+const MULTI_PAGE_HOME = [
+  'Announcement Bar',
+  'Welcome',
+  'Quick Info',
+  'Featured work',
+  'Reviews',
+  'Final Booking CTA',
+  'Footer',
+] as const;
+
+const MULTI_PAGE_SERVICES_BOOK = [
+  'Featured Services',
+  'Booking',
+  'Deposits & Cancellations',
+  'Before You Book',
+  'FAQ',
+  'Footer',
+] as const;
+
+/** "Services / Book" without Booking, i.e. what stays when Booking moves away. */
+const MULTI_PAGE_SERVICES_BOOK_WITHOUT_BOOKING = [
+  'Featured Services',
+  'Deposits & Cancellations',
+  'Before You Book',
+  'FAQ',
+  'Footer',
+] as const;
+
+/** The first section of "Services / Book" — the non-Booking section these tests move. */
+const SERVICES_BOOK_FIRST_SECTION = MULTI_PAGE_SERVICES_BOOK[0];
+
+/**
+ * A named library section no starter uses, added from the Add section dialog.
+ * Numbered placeholders are no longer offered there since schema v2.
+ */
+const ADDED_SECTION = 'Offers';
 
 type MoveDismissal = 'backdrop' | 'escape' | 'x';
 type MoveResolution = 'Discard changes' | 'Keep order';
@@ -321,7 +381,9 @@ async function runDirtyDismissalMatrix(
 test('mobile dirty Move Escape/X/backdrop Keep+Discard releases locks and restores focus', async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  // Twelve full chooser→Move→dismiss→resolve cycles; the v2 starter documents
+  // are larger than the v1 placeholders, so the matrix needs more headroom.
+  test.setTimeout(300_000);
   await runDirtyDismissalMatrix(page, {
     entry: 'mobile',
     viewport: { width: 375, height: 600 },
@@ -331,7 +393,7 @@ test('mobile dirty Move Escape/X/backdrop Keep+Discard releases locks and restor
 test('desktop dirty Move Escape/X/backdrop Keep+Discard releases locks and restores focus', async ({
   page,
 }) => {
-  test.setTimeout(180_000);
+  test.setTimeout(300_000);
   await runDirtyDismissalMatrix(page, {
     entry: 'desktop',
     viewport: { width: 1180, height: 800 },
@@ -366,6 +428,12 @@ test('dismissing the dirty warning returns to Move without rebalancing its lock'
       .toBe('hidden');
     await move.getByRole('button', { name: 'Cancel', exact: true }).click();
     await expect.poll(() => documentSurfaceState(page)).toEqual(baselineSurface);
+    // Completing a Move arms the pointer shield over the completing control for
+    // MOVE_COMPLETION_SHIELD_DURATION_MS. Quick Book's Home now scrolls Booking
+    // out of view on close, so the next iteration reaches for the dock's "Back
+    // to Booking" button — which sits inside those shield bounds. Let the
+    // shield expire first, exactly as the other Move suites do.
+    await page.waitForTimeout(MOVE_COMPLETION_SHIELD_DURATION_MS + 80);
   }
 });
 
@@ -402,19 +470,18 @@ test('native Multi-page destination selection and same-page ordering stay staged
   await selectPageFromStructure(page, 'Services / Book');
   await page.getByRole('button', { name: 'Add section', exact: true }).click();
   const library = page.getByRole('dialog', { name: 'Add section' });
-  await library.getByRole('button', { name: 'Add Section 08' }).click();
+  await library.getByRole('button', { name: `Add ${ADDED_SECTION}` }).click();
   await expect(library).toHaveCount(0);
   await waitForSaved(page);
-  await expect(sectionLabels(page, 'Services / Book')).resolves.toEqual([
-    'Section 03',
-    'Booking',
-    'Section 08',
-  ]);
+  await expect(sectionLabels(page, 'Services / Book')).resolves
+    .toEqual([...MULTI_PAGE_SERVICES_BOOK, ADDED_SECTION]);
   const baselineJson = await readStoredDocumentJson(page);
   await installStorageWriteProbe(page);
 
   let move = await openMoveForBooking(page, 'Services / Book');
-  await move.getByRole('button', { name: 'Move Section 03 down' }).click();
+  await move
+    .getByRole('button', { name: `Move ${SERVICES_BOOK_FIRST_SECTION} down`, exact: true })
+    .click();
   await expect(move).toHaveAccessibleName('Move Booking');
   await expect(
     move.getByRole('button', { name: 'Move Booking to another page' }),
@@ -431,8 +498,8 @@ test('native Multi-page destination selection and same-page ordering stay staged
   ).toBeVisible();
   await expect(reorderLabels(page)).resolves.toEqual([
     'Booking',
-    'Section 03',
-    'Section 08',
+    ...MULTI_PAGE_SERVICES_BOOK_WITHOUT_BOOKING,
+    ADDED_SECTION,
   ]);
   await page.waitForTimeout(240);
   expect(await readStoredDocumentJson(page)).toBe(baselineJson);
@@ -444,32 +511,24 @@ test('native Multi-page destination selection and same-page ordering stay staged
   await expect(move.getByRole('region', { name: 'Staged destination' }))
     .toContainText('Contact');
   await move.getByRole('button', { name: 'Cancel', exact: true }).click();
-  await expect(sectionLabels(page, 'Services / Book')).resolves.toEqual([
-    'Section 03',
-    'Booking',
-    'Section 08',
-  ]);
+  await expect(sectionLabels(page, 'Services / Book')).resolves
+    .toEqual([...MULTI_PAGE_SERVICES_BOOK, ADDED_SECTION]);
   expect(await readStoredDocumentJson(page)).toBe(baselineJson);
   expect(await storageWriteCount(page)).toBe(0);
 
   await runHistoryAction(page, 'Undo');
   await waitForSaved(page);
-  await expect(sectionLabels(page, 'Services / Book')).resolves.toEqual([
-    'Section 03',
-    'Booking',
-  ]);
+  await expect(sectionLabels(page, 'Services / Book')).resolves
+    .toEqual([...MULTI_PAGE_SERVICES_BOOK]);
   await runHistoryAction(page, 'Redo');
   await waitForSaved(page);
   expect(await readStoredDocumentJson(page)).toBe(baselineJson);
-  await expect(sectionLabels(page, 'Services / Book')).resolves.toEqual([
-    'Section 03',
-    'Booking',
-    'Section 08',
-  ]);
+  await expect(sectionLabels(page, 'Services / Book')).resolves
+    .toEqual([...MULTI_PAGE_SERVICES_BOOK, ADDED_SECTION]);
   await installStorageWriteProbe(page);
 
   move = await openMoveForBooking(page, 'Services / Book');
-  await moveSectionToPosition(move, 'Section 08', 1);
+  await moveSectionToPosition(move, ADDED_SECTION, 1);
   await move
     .getByRole('button', { name: 'Move Booking to another page' })
     .click();
@@ -480,11 +539,8 @@ test('native Multi-page destination selection and same-page ordering stay staged
   await move.getByRole('button', { name: 'Done', exact: true }).click();
 
   await expect(page.getByRole('heading', { level: 1, name: 'Home' })).toBeVisible();
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Booking',
-    'Section 01',
-    'Section 02',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves
+    .toEqual(['Booking', ...MULTI_PAGE_HOME]);
   await waitForSaved(page);
   expect(await storageWriteCount(page)).toBe(1);
   const committedJson = await readStoredDocumentJson(page);
@@ -492,8 +548,8 @@ test('native Multi-page destination selection and same-page ordering stay staged
   await expectBookingMoveFocusRestored(page, 'Home');
   await selectPageFromStructure(page, 'Services / Book');
   await expect(sectionLabels(page, 'Services / Book')).resolves.toEqual([
-    'Section 08',
-    'Section 03',
+    ADDED_SECTION,
+    ...MULTI_PAGE_SERVICES_BOOK_WITHOUT_BOOKING,
   ]);
   await selectPageFromStructure(page, 'Home');
 
@@ -501,21 +557,15 @@ test('native Multi-page destination selection and same-page ordering stay staged
   await waitForSaved(page);
   expect(await readStoredDocumentJson(page)).toBe(baselineJson);
   await selectPageFromStructure(page, 'Services / Book');
-  await expect(sectionLabels(page, 'Services / Book')).resolves.toEqual([
-    'Section 03',
-    'Booking',
-    'Section 08',
-  ]);
+  await expect(sectionLabels(page, 'Services / Book')).resolves
+    .toEqual([...MULTI_PAGE_SERVICES_BOOK, ADDED_SECTION]);
   await runHistoryAction(page, 'Redo');
   await waitForSaved(page);
   expect(await readStoredDocumentJson(page)).toBe(committedJson);
   await page.reload();
   await selectPageFromStructure(page, 'Home');
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Booking',
-    'Section 01',
-    'Section 02',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves
+    .toEqual(['Booking', ...MULTI_PAGE_HOME]);
 });
 
 test('dirty cross-page Keep commits atomically and Discard restores atomically', async ({
@@ -544,19 +594,14 @@ test('dirty cross-page Keep commits atomically and Discard restores atomically',
       await page.waitForTimeout(240);
       expect(await readStoredDocumentJson(page)).toBe(baselineJson);
       expect(await storageWriteCount(page)).toBe(0);
-      await expect(sectionLabels(page, 'Services / Book')).resolves.toEqual([
-        'Section 03',
-        'Booking',
-      ]);
+      await expect(sectionLabels(page, 'Services / Book')).resolves
+        .toEqual([...MULTI_PAGE_SERVICES_BOOK]);
     } else {
       await expectBookingMoveFocusRestored(page, 'Home');
       await waitForSaved(page);
       expect(await storageWriteCount(page)).toBe(1);
-      await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-        'Section 01',
-        'Section 02',
-        'Booking',
-      ]);
+      await expect(sectionLabels(page, 'Home')).resolves
+        .toEqual([...MULTI_PAGE_HOME, 'Booking']);
     }
   }
 });
@@ -687,11 +732,7 @@ for (const scenario of [
     expect(await storageWriteCount(page)).toBe(1);
     const committedJson = await readStoredDocumentJson(page);
     expect(committedJson).not.toBe(baselineJson);
-    await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-      'Booking',
-      'Section 01',
-      'Section 02',
-    ]);
+    await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_BOOKING_FIRST]);
     await expect(page.getByRole('dialog')).toHaveCount(0);
     await expect(page.locator('.toast')).toHaveCount(1);
     await expect(page.locator('.toast')).toContainText('Section order saved.');
@@ -735,11 +776,8 @@ test('rapid repeated Enter commits a cross-page Move exactly once', async ({ pag
   expect(await storageWriteCount(page)).toBe(1);
   const committedJson = await readStoredDocumentJson(page);
   expect(committedJson).not.toBe(baselineJson);
-  await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-    'Booking',
-    'Section 01',
-    'Section 02',
-  ]);
+  await expect(sectionLabels(page, 'Home')).resolves
+    .toEqual(['Booking', ...MULTI_PAGE_HOME]);
   await expect(page.getByRole('dialog')).toHaveCount(0);
   await expect(page.locator('.toast')).toHaveCount(1);
   await expect(page.locator('.toast')).toContainText('Booking moved to Home.');
@@ -900,11 +938,7 @@ for (const scenario of [
       expect(await storageWriteCount(page)).toBe(1);
       const committedJson = await readStoredDocumentJson(page);
       expect(committedJson).not.toBe(baselineJson);
-      await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-        'Booking',
-        'Section 01',
-        'Section 02',
-      ]);
+      await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_BOOKING_FIRST]);
       await expect(page.locator('.toast')).toHaveCount(1);
       await expect(page.locator('.toast')).toContainText('Section order saved.');
       await runHistoryAction(page, 'Undo');
@@ -914,11 +948,7 @@ for (const scenario of [
     } else {
       expect(await storageWriteCount(page)).toBe(0);
       expect(await readStoredDocumentJson(page)).toBe(baselineJson);
-      await expect(sectionLabels(page, 'Home')).resolves.toEqual([
-        'Section 01',
-        'Section 02',
-        'Booking',
-      ]);
+      await expect(sectionLabels(page, 'Home')).resolves.toEqual([...QUICK_BOOK_HOME]);
       await expect(page.locator('.toast')).toHaveCount(0);
       await expect(page.locator('button[aria-label="Undo"]')).toBeDisabled();
     }
@@ -959,10 +989,8 @@ test('Create page and move stages, cancels, survives reload rules, and is one Un
   expect((await readStoredDocument(page)).pages.map((candidate) => candidate.name))
     .not.toContain('Reload draft');
   await selectPageFromStructure(page, 'Services / Book');
-  await expect(sectionLabels(page, 'Services / Book')).resolves.toEqual([
-    'Section 03',
-    'Booking',
-  ]);
+  await expect(sectionLabels(page, 'Services / Book')).resolves
+    .toEqual([...MULTI_PAGE_SERVICES_BOOK]);
 
   await installStorageWriteProbe(page);
   move = await openMoveForBooking(page, 'Services / Book');
@@ -1039,28 +1067,30 @@ test('incidental controls keep the cross-page target pinned until explicit row a
   await selectPageFromStructure(page, 'Services / Book');
   let move = await openMoveForBooking(page, 'Services / Book');
 
-  await move.getByRole('button', { name: 'Move Section 03 down' }).click();
-  await moveSectionToPosition(move, 'Section 03', 2);
+  await move
+    .getByRole('button', { name: `Move ${SERVICES_BOOK_FIRST_SECTION} down`, exact: true })
+    .click();
+  await moveSectionToPosition(move, SERVICES_BOOK_FIRST_SECTION, 2);
   await expect(move).toHaveAccessibleName('Move Booking');
   await expect(
     move.getByRole('button', { name: 'Move Booking to another page' }),
   ).toBeVisible();
   await expect(move.locator('[data-move-target-row="true"]')).toContainText('Booking');
 
-  const selectSection03 = move.getByRole('button', {
-    name: /Select Section 03 for cross-page movement/,
+  const selectFirstSection = move.getByRole('button', {
+    name: new RegExp(`Select ${SERVICES_BOOK_FIRST_SECTION} for cross-page movement`),
   });
-  await selectSection03.click();
-  move = page.getByRole('dialog', { name: 'Move Section 03' });
+  await selectFirstSection.click();
+  move = page.getByRole('dialog', { name: `Move ${SERVICES_BOOK_FIRST_SECTION}` });
   await expect(move).toBeVisible();
   await expect(
-    move.getByRole('button', { name: 'Move Section 03 to another page' }),
+    move.getByRole('button', { name: `Move ${SERVICES_BOOK_FIRST_SECTION} to another page` }),
   ).toBeVisible();
   await expect(
-    move.locator('.reorder-row__select').filter({ hasText: 'Section 03' }),
+    move.locator('.reorder-row__select').filter({ hasText: SERVICES_BOOK_FIRST_SECTION }),
   ).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByTestId('reorder-live-region'))
-    .toHaveText('Section 03 selected for cross-page movement.');
+    .toHaveText(`${SERVICES_BOOK_FIRST_SECTION} selected for cross-page movement.`);
   await move.getByRole('button', { name: 'Cancel', exact: true }).click();
 });
 
@@ -1074,9 +1104,13 @@ test('hidden, not-in-navigation, and unavailable destinations are distinct befor
   await setPageVisibility(page, 'Gallery', 'hidden');
   await selectPageFromStructure(page, 'Services / Book');
 
-  let move = await openMoveForPlaceholder(page, 'Services / Book', 'Section 03');
+  let move = await openMoveForPlaceholder(
+    page,
+    'Services / Book',
+    SERVICES_BOOK_FIRST_SECTION,
+  );
   await move
-    .getByRole('button', { name: 'Move Section 03 to another page' })
+    .getByRole('button', { name: `Move ${SERVICES_BOOK_FIRST_SECTION} to another page` })
     .click();
   const hiddenAllowed = destinationPageButton(move, 'Gallery');
   await expect(hiddenAllowed).toContainText('Hidden from clients');
@@ -1105,13 +1139,17 @@ test('hidden, not-in-navigation, and unavailable destinations are distinct befor
   await expect(move.getByRole('region', { name: 'Staged destination' })).toHaveCount(0);
   await move.getByRole('button', { name: 'Cancel', exact: true }).click();
 
-  await setPageVisibility(page, 'About', 'not-in-navigation');
+  await setPageVisibility(page, 'Team', 'not-in-navigation');
   await selectPageFromStructure(page, 'Services / Book');
-  move = await openMoveForPlaceholder(page, 'Services / Book', 'Section 03');
+  move = await openMoveForPlaceholder(
+    page,
+    'Services / Book',
+    SERVICES_BOOK_FIRST_SECTION,
+  );
   await move
-    .getByRole('button', { name: 'Move Section 03 to another page' })
+    .getByRole('button', { name: `Move ${SERVICES_BOOK_FIRST_SECTION} to another page` })
     .click();
-  const omitted = destinationPageButton(move, 'About');
+  const omitted = destinationPageButton(move, 'Team');
   await expect(omitted).toContainText('Not in navigation');
   await expect(omitted).not.toContainText('Hidden from clients');
   await move.getByRole('button', { name: 'Cancel', exact: true }).click();

@@ -260,8 +260,8 @@ for (const viewport of MOVE_VIEWPORTS) {
 
     await exerciseMoveDismissals(
       page,
-      () => openMoveForPlaceholder(page, 'Section 01'),
-      'Move Section 01',
+      () => openMoveForPlaceholder(page, 'Announcement Bar'),
+      'Move Announcement Bar',
     );
     await exerciseMoveDismissals(
       page,
@@ -392,8 +392,10 @@ test('F2 Preview scaffold uses the warm Luster token family in every simulated d
     );
     await expect(page.locator('.client-header')).toBeVisible();
     await expect(page.locator('.client-page__heading')).toBeVisible();
+    // Quick Book's Home holds 6 sections and Booking renders through its own
+    // renderer, so 5 scaffold sections remain.
     await expect(page.locator('.preview-section:not(.preview-section--booking)'))
-      .toHaveCount(2);
+      .toHaveCount(5);
     expectWarmScaffold(await scaffoldRecord(page));
   }
 
@@ -933,8 +935,9 @@ test('Warm Ground / White Band hierarchy stays editor-only and preserves starter
     .toBe('final-starter-quick-scroll');
 
   await chooseStarter(page, 'One-page website');
-  const sectionOne = page.getByRole('listitem', { name: 'Section 01 on Home' });
-  const sectionTwo = page.getByRole('listitem', { name: 'Section 02 on Home' });
+  // The first two sections of the One-page starter's Home page.
+  const sectionOne = page.getByRole('listitem', { name: 'Announcement Bar on Home' });
+  const sectionTwo = page.getByRole('listitem', { name: 'Welcome on Home' });
   await expect(page.locator('.booking-editor-preview__fade')).toHaveCount(1);
   const editorTreatment = await page.evaluate(() => {
     const app = document.querySelector<HTMLElement>('.final-hybrid-app');
