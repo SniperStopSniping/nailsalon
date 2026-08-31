@@ -16,8 +16,6 @@ export type BoundText =
   | { source: 'shared' }
   | { source: 'override'; value: string };
 
-export const sharedText = (): BoundText => ({ source: 'shared' });
-
 export type AnnouncementBarTone = 'accent' | 'tint';
 
 export type AnnouncementBarAction =

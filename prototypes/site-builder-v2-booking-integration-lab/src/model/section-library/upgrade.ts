@@ -1,3 +1,7 @@
+import {
+  LEGACY_SITE_BUILDER_SCHEMA_VERSION,
+  SITE_BUILDER_SCHEMA_VERSION,
+} from '../types';
 /**
  * Lossless v1 → v2 document upgrade.
  *
@@ -173,8 +177,8 @@ const resolveLegacyRoles = (
  */
 export const upgradeSiteBuilderDocument = (value: unknown): unknown => {
   if (!isRecord(value)) return value;
-  if (value.schemaVersion === 2) return value;
-  if (value.schemaVersion !== 1) return value;
+  if (value.schemaVersion === SITE_BUILDER_SCHEMA_VERSION) return value;
+  if (value.schemaVersion !== LEGACY_SITE_BUILDER_SCHEMA_VERSION) return value;
 
   const roles = resolveLegacyRoles(value);
 
@@ -212,7 +216,7 @@ export const upgradeSiteBuilderDocument = (value: unknown): unknown => {
   return {
     ...value,
     pages,
-    schemaVersion: 2,
+    schemaVersion: SITE_BUILDER_SCHEMA_VERSION,
     siteContent: isRecord(value.siteContent)
       ? value.siteContent
       : createEmptySiteContent(),

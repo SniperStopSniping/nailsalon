@@ -4,7 +4,6 @@
  * reads as one system.
  */
 
-import type { ReactNode } from 'react';
 import { useId } from 'react';
 
 import type { BoundText } from '../../model/section-library/settings';
@@ -175,29 +174,6 @@ export function BoundTextField({
       ) : (
         <small className="form-hint">Currently: “{sharedValue}”</small>
       )}
-    </div>
-  );
-}
-
-/** List chrome for record-bound editors (staff, reviews, offers, FAQ). */
-export function RecordList({
-  addLabel,
-  children,
-  emptyCopy,
-  onAdd,
-}: {
-  addLabel: string;
-  children: ReactNode;
-  emptyCopy: string;
-  onAdd: () => void;
-}) {
-  return (
-    <div className="editor-record-list">
-      {children ?? null}
-      {!children ? <p className="form-hint">{emptyCopy}</p> : null}
-      <button className="secondary-button editor-record-add" onClick={onAdd} type="button">
-        {addLabel}
-      </button>
     </div>
   );
 }

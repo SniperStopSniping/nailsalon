@@ -242,7 +242,3 @@ export const createDemoOnboardingState = (): OnboardingLabState => {
     },
   };
 };
-
-export const DEMO_FEATURED_SERVICE_IDS: readonly string[] = CANONICAL_SERVICES
-  .filter(service => service.featured)
-  .map(service => service.id);
