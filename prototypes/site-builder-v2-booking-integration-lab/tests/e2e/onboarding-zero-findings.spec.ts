@@ -996,16 +996,25 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await deviceControls.getByRole('button', { name: 'Phone' }).click();
     const inlinePhonePreview = page.getByLabel('Final phone customer preview');
     const inlinePreviewFrame = inlinePhonePreview.locator('.onboarding-preview-frame');
+    // Schema v2: the one_page starter owns a Visit us section, and that type
+    // satisfies the plan builder's Contact injection rule, so the customer's
+    // call/text actions are published by the Visit us contact summary rather
+    // than by the v1-era injected Contact block. The summary carries no
+    // "· Preferred" suffix — it states the preference by ordering the
+    // preferred method first.
     const inlineContactActions = inlinePhonePreview.locator(
-      '.onboarding-customer-contact .onboarding-customer-actions',
+      '.customer-lib-visit .customer-lib-visit-contact',
     );
     await inlineContactActions.evaluate((element) => {
       const frame = element.closest<HTMLElement>('.onboarding-preview-frame');
-      const contact = element.closest<HTMLElement>('.onboarding-customer-contact');
-      if (frame && contact) frame.scrollTop = Math.max(0, contact.offsetTop - 24);
+      const visit = element.closest<HTMLElement>('.customer-lib-visit');
+      if (frame && visit) frame.scrollTop = Math.max(0, visit.offsetTop - 24);
     });
-    await expect(inlineContactActions).toContainText('Call');
-    await expect(inlineContactActions).toContainText('Text · Preferred');
+    await expect(inlineContactActions.getByRole('link')).toHaveText(['Text', 'Call']);
+    await expect(inlineContactActions.getByRole('link', { exact: true, name: 'Text' }))
+      .toHaveAttribute('href', 'sms:4165550199');
+    await expect(inlineContactActions.getByRole('link', { exact: true, name: 'Call' }))
+      .toHaveAttribute('href', 'tel:4165550188');
     await captureLocator(inlinePreviewFrame, '28-both-call-and-text-actions');
 
     await page.getByRole('button', { name: 'Open interactive preview' }).click();
@@ -1014,13 +1023,14 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
       .getByRole('button', { name: 'Desktop' })
       .click();
     await expect(fullPreview).toContainText(longBusinessName);
-    await expect(fullPreview.getByRole('link', { name: 'Call' })).toBeVisible();
-    await expect(fullPreview.getByRole('link', { name: 'Text · Preferred' })).toBeVisible();
+    const fullContactActions = fullPreview.locator(
+      '.customer-lib-visit .customer-lib-visit-contact',
+    );
+    await expect(fullContactActions.getByRole('link')).toHaveText(['Text', 'Call']);
     await fullPreview.getByRole('group', { name: 'Preview device' })
       .getByRole('button', { name: 'Phone' })
       .click();
-    const contactSection = fullPreview.locator('.onboarding-customer-contact');
-    const contactActions = contactSection.locator(':scope > .onboarding-customer-actions');
+    const contactActions = fullContactActions;
     await contactActions.scrollIntoViewIfNeeded();
     const directions = fullPreview.getByRole('link', { name: /Directions to 100 Queen Street West/u });
     await expect(directions).toHaveAttribute('href', /google\.com\/maps/u);
