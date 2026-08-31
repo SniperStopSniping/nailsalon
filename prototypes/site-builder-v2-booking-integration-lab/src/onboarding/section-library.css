@@ -1073,7 +1073,12 @@
    * name and the timeline both have to go.
    */
   .onboarding-site-preview [data-library-type],
-  .onboarding-site-preview [data-library-type] * {
+  .onboarding-site-preview [data-library-type] *,
+  .onboarding-site-preview :where(
+    .onboarding-customer-about,
+    .onboarding-customer-gallery,
+    .onboarding-customer-contact
+  ) {
     animation-name: none !important;
     animation-timeline: auto !important;
   }
@@ -1095,9 +1100,11 @@
    * supported nothing animates and the page is simply already in place —
    * the same fail-open rule the entrances follow, so no customer ever loses
    * content to an animation that did not run. The announcement and hero are
-   * excluded because they are already on screen at load, the footer because
-   * a page can end before its reveal completes, and Booking and Custom
-   * Design because they are engine sections this layer does not touch.
+   * excluded because they are already on screen at load, the anchor menu
+   * because it can be sticky and a pinned element's own view timeline stops
+   * telling the truth, the footer because a page can end before its reveal
+   * completes, and Booking and Custom Design because they are engine
+   * sections this layer does not touch.
    */
   /*
    * Reveals animate `translate` and `scale`, never `transform`. A filled
@@ -1111,9 +1118,26 @@
     .onboarding-site-preview [data-library-type]:not(
       [data-library-type='announcement_bar'],
       [data-library-type='hero'],
+      [data-library-type='section_navigation'],
       [data-library-type='footer'],
       [data-library-type='booking'],
       [data-library-type='custom_design']
+    ) {
+      animation: customer-lib-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 8% entry 52%;
+    }
+
+    /*
+     * The four accepted pre-library renderers do not carry
+     * `data-library-type`, and a page where half the sections rise and half
+     * arrive flat reads as a bug rather than a style. They are named here so
+     * the whole page moves as one.
+     */
+    .onboarding-site-preview :where(
+      .onboarding-customer-about,
+      .onboarding-customer-gallery,
+      .onboarding-customer-contact
     ) {
       animation: customer-lib-rise linear both;
       animation-timeline: view();
