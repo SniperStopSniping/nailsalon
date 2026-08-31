@@ -307,7 +307,7 @@ export function Preview({
             return (
               <section
                 key={section.id}
-                className={`preview-section preview-section--${section.size}`}
+                className={`preview-section preview-section--${'size' in section ? section.size : 'medium'}`}
                 data-section-id={section.id}
                 data-section-type={section.sectionType}
               >

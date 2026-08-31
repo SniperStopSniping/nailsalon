@@ -24,15 +24,14 @@ import { createDefaultBookingPresentationSettings } from '../../booking/presenta
 import type { BookingSessionState } from '../../booking/types';
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
 import type { CustomDesignDocumentNavigationTarget } from '../../custom-design/integration/document-actions';
+import { isLibrarySection } from '../../model/section-library/registry';
 import {
-  getStarterDocumentOutline,
-  getStarterDocumentSemanticInfoBySectionId,
-  getStarterPageDefinitions,
-} from '../../model/starters';
-import type {
-  SiteBuilderDocument,
-  StarterSectionSemanticRole,
-} from '../../model/types';
+  buildCustomerPagePlan,
+  type SitePlanPage,
+  type SitePlanSection,
+} from '../../model/site-plan';
+import { initializeStarter } from '../../model/starters';
+import type { SiteBuilderDocument } from '../../model/types';
 import { resolveOnboardingImageUrl } from '../integrations/adapters/media';
 import {
   aboutPresetSupportsElement,
@@ -53,9 +52,6 @@ import { getMinimumNoticeCopy } from '../model/minimum-notice';
 import { SITE_PALETTE_BY_ID } from '../model/palettes';
 import {
   deriveDepositPolicySummary,
-  getDepositsAndCancellationsDisplayWording,
-  getPolicyDisplayWording,
-  hasMeaningfulPublishablePolicies,
   isDepositsAndCancellationsComplete,
 } from '../model/policies';
 import { getCustomerProfileFacts } from '../model/profile-facts';
@@ -64,11 +60,18 @@ import type {
   AboutPresetId,
   BusinessProfileDraft,
   OnboardingLabState,
-  OnboardingSiteRecipe,
-  PolicySectionId,
   SiteStylePresetId,
 } from '../model/types';
+import {
+  deriveSiteLibraryContext,
+  deriveSitePlanToggles,
+} from '../model/site-library-context';
+import { labelForNewClients, labelForVisitMode } from './customer-facts';
 import { OnboardingCustomDesignSections } from './OnboardingCustomDesignSections';
+import {
+  LIBRARY_SECTION_PREVIEW_RENDERERS,
+  type LibraryPreviewShared,
+} from './section-renderers';
 
 export type OnboardingPreviewDevice = 'phone' | 'tablet' | 'desktop';
 export type OnboardingPreviewInitialTarget = 'top' | 'about';
@@ -209,30 +212,6 @@ const createPreviewBookingSession = (): BookingSessionState => ({
     addOnIds: ['addon-french'],
   },
 });
-
-const labelForVisitMode = (profile: BusinessProfileDraft): string | null => {
-  switch (profile.bookingPreferences.visitMode) {
-    case 'appointment_only': return 'Appointment only';
-    case 'walk_ins_only': return 'Walk-ins welcome';
-    case 'appointments_and_walk_ins': return 'Appointments + walk-ins';
-    default: return null;
-  }
-};
-
-const labelForNewClients = (profile: BusinessProfileDraft): string | null => {
-  switch (profile.bookingPreferences.newClientStatus) {
-    case 'yes': return 'Accepting new clients';
-    case 'no': return 'Returning clients';
-    case 'ask_first': return 'New clients: ask first';
-    case 'waitlist_only': return 'Waitlist only';
-    default: return null;
-  }
-};
-
-const textForPolicy = (
-  profile: BusinessProfileDraft,
-  sectionId: PolicySectionId,
-): string => getPolicyDisplayWording(profile.policies, sectionId);
 
 const isAboutVisible = (
   visibility: Record<AboutElementId, boolean>,
@@ -716,53 +695,6 @@ function ContactSection({ onBook, profile, sectionId }: {
   );
 }
 
-function PoliciesSection({ profile, sectionId }: {
-  profile: BusinessProfileDraft;
-  sectionId?: string;
-}) {
-  const combinedPolicyText = isDepositsAndCancellationsComplete(profile.policies)
-    ? getDepositsAndCancellationsDisplayWording(profile.policies)
-    : '';
-  const cards = [
-    {
-      id: 'deposits_cancellations',
-      label: 'Deposits & cancellations',
-      text: combinedPolicyText,
-    },
-    ...(['late_arrivals', 'no_shows', 'repairs', 'other'] as const).map((id) => ({
-      id,
-      label: {
-        late_arrivals: 'Late arrivals',
-        no_shows: 'No-shows',
-        other: 'Guests & appointment details',
-        repairs: 'Repairs',
-      }[id],
-      text: textForPolicy(profile, id),
-    })),
-  ]
-    .filter((card) => card.text);
-  if (cards.length === 0) return null;
-  return (
-    <section
-      aria-label="Policies"
-      className="onboarding-customer-policies"
-      data-section-id={sectionId}
-    >
-      <p className="onboarding-customer-eyebrow">Good to know</p>
-      <h2>Appointment policies</h2>
-      <PolicySummary profile={profile} />
-      <div className="onboarding-policy-grid">
-        {cards.map((card) => (
-          <article key={card.id}>
-            <h3>{card.label}</h3>
-            <p>{card.text}</p>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 function GallerySection({ sectionId, state }: {
   sectionId?: string;
   state: OnboardingLabState;
@@ -791,255 +723,6 @@ function GallerySection({ sectionId, state }: {
     </section>
   );
 }
-
-type CurrentPreviewOutlineSection = {
-  id: string;
-  label: string;
-  semanticRole?: StarterSectionSemanticRole;
-  sectionType: string;
-};
-
-type CurrentPreviewOutlinePage = {
-  id: string;
-  label: string;
-  sections: CurrentPreviewOutlineSection[];
-};
-
-type CurrentPreviewOutlineOptions = {
-  contactHasContent?: boolean;
-  galleryHasContent?: boolean;
-  includeOptionalSections?: boolean;
-  policiesHaveContent?: boolean;
-};
-
-const insertPreviewSection = (
-  pages: CurrentPreviewOutlinePage[],
-  section: CurrentPreviewOutlineSection,
-  placement: 'before_booking' | 'after_booking',
-): void => {
-  if (pages.some((page) => page.sections.some((item) => (
-    item.id === section.id || item.sectionType === section.sectionType
-  )))) return;
-  const target = pages.find((page) => page.sections.some(
-    (item) => item.sectionType === 'booking',
-  )) ?? pages[0];
-  if (!target) return;
-  const bookingIndex = target.sections.findIndex((item) => item.sectionType === 'booking');
-  const insertionIndex = bookingIndex < 0
-    ? target.sections.length
-    : placement === 'before_booking'
-      ? bookingIndex
-      : bookingIndex + 1;
-  target.sections.splice(insertionIndex, 0, section);
-};
-
-const appendPreviewSection = (
-  pages: CurrentPreviewOutlinePage[],
-  section: CurrentPreviewOutlineSection,
-): void => {
-  if (pages.some(page => page.sections.some(item => (
-    item.id === section.id || item.sectionType === section.sectionType
-  )))) return;
-  const target = pages.find(page => page.sections.some(
-    item => item.sectionType === 'booking',
-  )) ?? pages[0];
-  target?.sections.push(section);
-};
-
-/**
- * A truthful outline of the current preview. It starts with the real universal
- * starter document and filters isolated onboarding-preview modules without
- * mutating or pretending they are universal document sections.
- */
-export const getCurrentPreviewOutline = (
-  document: SiteBuilderDocument | null,
-  recipe: OnboardingSiteRecipe,
-  {
-    contactHasContent = false,
-    galleryHasContent = recipe.galleryEnabled,
-    includeOptionalSections = true,
-    policiesHaveContent = recipe.policiesEnabled,
-  }: CurrentPreviewOutlineOptions = {},
-): CurrentPreviewOutlinePage[] => {
-  const starter = document?.originStarter ?? recipe.starter ?? 'quick_book';
-  const authoritativeOutline = document
-    ? getStarterDocumentOutline(document)
-    : getStarterPageDefinitions(starter).map((page, pageIndex) => ({
-        id: `onboarding-preview-${starter}-page-${pageIndex}`,
-        label: page.previewLabel ?? page.name,
-        sections: page.sections.map((section, sectionIndex) => ({
-          id: `onboarding-preview-${starter}-section-${pageIndex}-${sectionIndex}`,
-          label: section.previewLabel,
-          ...(section.sectionType === 'booking'
-            ? {}
-            : { semanticRole: section.semanticRole }),
-          sectionType: section.sectionType,
-        })),
-      }));
-  const semanticInfoBySectionId = document
-    ? getStarterDocumentSemanticInfoBySectionId(document)
-    : new Map();
-  const documentHasStarterRole = (role: StarterSectionSemanticRole) => (
-    [...semanticInfoBySectionId.values()].some(info => info.role === role)
-  );
-  const pages: CurrentPreviewOutlinePage[] = authoritativeOutline
-    .map((page) => ({
-      ...page,
-      sections: page.sections
-        .filter((section) => {
-          if (section.semanticRole === 'about') {
-            return includeOptionalSections && recipe.aboutEnabled;
-          }
-          if (section.semanticRole === 'featured_work') {
-            return false;
-          }
-          if (section.semanticRole === 'gallery') {
-            return includeOptionalSections && recipe.galleryEnabled && galleryHasContent;
-          }
-          if (section.sectionType === 'custom_design') {
-            return includeOptionalSections && recipe.canvaEnabled;
-          }
-          return true;
-        })
-        .map((section) => ({
-          ...section,
-          label: section.sectionType === 'custom_design' ? 'Canva design' : section.label,
-        })),
-    }))
-    .filter((page) => page.sections.length > 0);
-  if (!includeOptionalSections) return pages;
-  if (recipe.aboutEnabled && !documentHasStarterRole('about')) {
-    insertPreviewSection(pages, {
-      id: 'onboarding-preview-about',
-      label: 'About',
-      sectionType: 'onboarding_preview_about',
-    }, 'before_booking');
-  }
-  const hasGalleryOutline = pages.some(page => page.sections.some(item => (
-    item.semanticRole === 'gallery'
-    || item.sectionType === 'onboarding_preview_gallery'
-  )));
-  if (
-    recipe.galleryEnabled
-    && galleryHasContent
-    && !documentHasStarterRole('gallery')
-    && !hasGalleryOutline
-  ) {
-    insertPreviewSection(pages, {
-      id: 'onboarding-preview-gallery',
-      label: 'Gallery',
-      sectionType: 'onboarding_preview_gallery',
-    }, 'before_booking');
-  }
-  if (
-    contactHasContent
-    && !documentHasStarterRole('contact')
-    && !documentHasStarterRole('visit')
-  ) {
-    appendPreviewSection(pages, {
-      id: 'onboarding-preview-contact',
-      label: 'Contact',
-      sectionType: 'onboarding_preview_contact',
-    });
-  }
-  if (recipe.policiesEnabled && policiesHaveContent) {
-    insertPreviewSection(pages, {
-      id: 'onboarding-preview-policies',
-      label: 'Policies',
-      sectionType: 'onboarding_preview_policies',
-    }, 'after_booking');
-  }
-  return pages;
-};
-
-export type CurrentPreviewSectionKind =
-  | 'about'
-  | 'booking'
-  | 'contact'
-  | 'custom_design'
-  | 'gallery'
-  | 'hero'
-  | 'policies';
-
-type CurrentPreviewPlannedSection = {
-  id: string;
-  kind: CurrentPreviewSectionKind;
-  label: string;
-};
-
-export type CurrentPreviewPagePlan = {
-  id: string;
-  label: string;
-  sections: CurrentPreviewPlannedSection[];
-};
-
-const semanticPreviewKind = (
-  section: CurrentPreviewOutlineSection,
-): CurrentPreviewSectionKind | null => {
-  if (section.sectionType === 'booking') return 'booking';
-  if (section.sectionType === 'custom_design') return 'custom_design';
-  if (section.sectionType === 'onboarding_preview_about') return 'about';
-  if (section.sectionType === 'onboarding_preview_gallery') return 'gallery';
-  if (section.sectionType === 'onboarding_preview_policies') return 'policies';
-  if (section.sectionType === 'onboarding_preview_contact') return 'contact';
-  if (section.semanticRole === 'hero') return 'hero';
-  if (section.semanticRole === 'about') return 'about';
-  if (section.semanticRole === 'featured_work') return null;
-  if (section.semanticRole === 'gallery') return 'gallery';
-  if (section.semanticRole === 'visit' || section.semanticRole === 'contact') return 'contact';
-  if (section.semanticRole === 'services' || section.semanticRole === 'reviews') return null;
-  // The canonical Booking renderer already owns service discovery. Rendering
-  // a separate Services placeholder would repeat the same catalogue. Reviews
-  // and unknown catalogue placeholders have no truthful customer data yet.
-  return null;
-};
-
-export const getCurrentPreviewPagePlan = (
-  outline: CurrentPreviewOutlinePage[],
-  {
-    hasPublicContact,
-  }: {
-    hasPublicContact: boolean;
-  },
-): CurrentPreviewPagePlan[] => {
-  const galleryCandidates = outline.flatMap(page => page.sections.filter(section => (
-    semanticPreviewKind(section) === 'gallery'
-  )));
-  const preferredGalleryId = galleryCandidates.find(section => (
-    section.semanticRole === 'gallery'
-    || section.label.trim().toLowerCase() === 'gallery'
-  ))?.id ?? galleryCandidates[0]?.id;
-  const contactCandidates = outline.flatMap(page => page.sections.filter(section => (
-    semanticPreviewKind(section) === 'contact'
-  )));
-  const preferredContactId = contactCandidates.find(section => (
-    section.semanticRole === 'contact'
-  ))?.id ?? contactCandidates[0]?.id;
-  const seen = new Set<CurrentPreviewSectionKind>();
-  const seenCustomDesignIds = new Set<string>();
-  const pages = outline.map((page) => {
-    const sections: CurrentPreviewPlannedSection[] = [];
-    for (const section of page.sections) {
-      const kind = semanticPreviewKind(section);
-      if (!kind) continue;
-      if (kind === 'custom_design') {
-        if (seenCustomDesignIds.has(section.id)) continue;
-        seenCustomDesignIds.add(section.id);
-        sections.push({ id: section.id, kind, label: section.label });
-        continue;
-      }
-      if (seen.has(kind)) continue;
-      if (kind === 'gallery' && section.id !== preferredGalleryId) continue;
-      if (kind === 'contact' && section.id !== preferredContactId) continue;
-      if (kind === 'contact' && !hasPublicContact) continue;
-      seen.add(kind);
-      sections.push({ id: section.id, kind, label: section.label });
-    }
-    return { id: page.id, label: page.label, sections };
-  });
-
-  return pages.filter(page => page.sections.length > 0);
-};
 
 function BookingSection({
   document,
@@ -1149,7 +832,7 @@ export const getOnboardingDocumentBookingSequence = (
 };
 
 export type OnboardingSitePreviewProps = {
-  customerPagePlan?: CurrentPreviewPagePlan[];
+  customerPagePlan?: SitePlanPage[];
   device?: OnboardingPreviewDevice;
   document: SiteBuilderDocument | null;
   fitAvailable?: boolean;
@@ -1211,34 +894,33 @@ export function OnboardingSitePreview({
   const title = profile.businessName.trim() || 'Your nail studio';
   const area = profile.location.cityOrArea.trim();
   const starter = document?.originStarter ?? recipe.starter ?? 'quick_book';
-  const hasPublicContact = hasPublicContactSectionContent(profile);
-  const policiesHaveContent = recipe.policiesEnabled
-    && hasMeaningfulPublishablePolicies(profile.policies);
-  const currentOutline = useMemo(
-    () => getCurrentPreviewOutline(document, recipe, {
-      contactHasContent: hasPublicContact,
-      galleryHasContent: state.gallery.images.length > 0,
-      includeOptionalSections,
-      policiesHaveContent,
-    }),
-    [
-      document,
-      hasPublicContact,
-      includeOptionalSections,
-      policiesHaveContent,
-      recipe,
-      state.gallery.images.length,
-    ],
+  // Before the Builder document exists, the preview plans against a pristine
+  // starter document with deterministic ids, so both eras share one ladder.
+  const effectiveDocument = useMemo(() => {
+    if (document) return document;
+    let counter = 0;
+    return initializeStarter(starter, {
+      idFactory: kind => `onboarding-preview-${starter}-${kind}-${counter++}`,
+    });
+  }, [document, starter]);
+  const libraryContext = useMemo(
+    () => deriveSiteLibraryContext(state, effectiveDocument),
+    [effectiveDocument, state],
   );
   const derivedPagePlan = useMemo(
-    () => getCurrentPreviewPagePlan(currentOutline, {
-      hasPublicContact,
+    () => buildCustomerPagePlan(effectiveDocument, {
+      context: libraryContext,
+      includeOptionalSections,
+      toggles: deriveSitePlanToggles(state),
     }),
-    [currentOutline, hasPublicContact],
+    [effectiveDocument, includeOptionalSections, libraryContext, state],
   );
   // Account-backed Preview passes the exact persisted customer page plan.
   // Final Review derives the same shape from the in-progress Builder document.
   const pagePlan = customerPagePlan ?? derivedPagePlan;
+  const presentTypes = useMemo(() => new Set(
+    pagePlan.flatMap(page => page.sections.map(section => section.sectionType)),
+  ), [pagePlan]);
   const activePage = pagePlan.find(page => page.id === activePageId) ?? pagePlan[0] ?? null;
   const navigationItems = useMemo(() => {
     if (!document?.navigation.enabled) return [];
@@ -1253,7 +935,7 @@ export function OnboardingSitePreview({
       .map((item) => ({ label: item.label, pageId: item.pageId }));
   }, [document, pagePlan]);
   const bookingPage = pagePlan.find(page => page.sections.some(section => (
-    section.kind === 'booking'
+    section.sectionType === 'booking'
   ))) ?? null;
   const revealCurrentDocumentTarget = useCallback((target: CustomDesignDocumentNavigationTarget) => {
     const preview = previewRef.current;
@@ -1281,13 +963,13 @@ export function OnboardingSitePreview({
       kind: 'booking',
       pageId: bookingPage.id,
       relationship: activePage?.id === bookingPage.id ? 'same_page' : 'cross_page',
-      sectionId: bookingPage.sections.find(section => section.kind === 'booking')?.id,
+      sectionId: bookingPage.sections.find(section => section.sectionType === 'booking')?.id,
     });
   }, [activePage?.id, bookingPage, revealDocumentTarget]);
 
   useLayoutEffect(() => {
     const targetPage = initialTarget === 'about'
-      ? pagePlan.find(page => page.sections.some(section => section.kind === 'about'))
+      ? pagePlan.find(page => page.sections.some(section => section.sectionType === 'about'))
       : pagePlan[0];
     setActivePageId((current) => (
       initialTarget === 'about' || !pagePlan.some(page => page.id === current)
@@ -1368,79 +1050,118 @@ export function OnboardingSitePreview({
     ? (activePage ? [activePage] : [])
     : pagePlan;
   const renderPreviewSection = (
-    page: CurrentPreviewPagePlan,
-    section: CurrentPreviewPagePlan['sections'][number],
+    page: SitePlanPage,
+    planSection: SitePlanSection,
   ): ReactNode => {
-    if (section.kind === 'hero') {
+    const instance = planSection.section;
+    if (planSection.sectionType === 'hero') {
+      const heroSettings = instance.sectionType === 'hero' ? instance.settings : null;
+      const headline = heroSettings && heroSettings.headline.source === 'override'
+        && heroSettings.headline.value.trim()
+        ? heroSettings.headline.value
+        : title;
+      const intro = heroSettings && heroSettings.intro.source === 'override'
+        && heroSettings.intro.value.trim()
+        ? heroSettings.intro.value
+        : heroDescription;
       return (
         <section
-          className="onboarding-customer-hero"
-          data-section-id={section.id}
-          key={section.id}
+          className={`onboarding-customer-hero is-${heroSettings?.preset ?? 'booking_first'}`}
+          data-section-id={planSection.id}
+          data-surface={planSection.surface}
+          key={planSection.id}
         >
           <div>
-            <p className="onboarding-customer-eyebrow">{area || 'Independent nail care'}</p>
-            <h2>{title}</h2>
-            <p>{heroDescription}</p>
-            <div className="onboarding-customer-statuses">
-              {visitMode ? <span>{visitMode}</span> : null}
-              {newClients ? <span>{newClients}</span> : null}
-              {hoursStatus ? <span data-hours-status={hoursStatus.kind}>{hoursStatus.label}</span> : null}
-            </div>
+            {heroSettings?.showLocationEyebrow !== false ? (
+              <p className="onboarding-customer-eyebrow">{area || 'Independent nail care'}</p>
+            ) : null}
+            <h2>{headline}</h2>
+            <p>{intro}</p>
+            {heroSettings?.showStatusLine !== false ? (
+              <div className="onboarding-customer-statuses">
+                {visitMode ? <span>{visitMode}</span> : null}
+                {newClients ? <span>{newClients}</span> : null}
+                {hoursStatus ? <span data-hours-status={hoursStatus.kind}>{hoursStatus.label}</span> : null}
+              </div>
+            ) : null}
             <a className="onboarding-customer-primary" href="#booking" onClick={navigateToBooking}>
-              Book an appointment
+              {heroSettings?.primaryCtaLabel.trim() || 'Book an appointment'}
             </a>
           </div>
         </section>
       );
     }
-    if (section.kind === 'about') {
+    if (planSection.sectionType === 'about') {
+      // Live onboarding lets the About design screen drive the preset; the
+      // saved plan renders the preset the compiler stamped into the section.
+      const aboutPreset = customerPagePlan && instance.sectionType === 'about'
+        ? instance.settings.preset
+        : recipe.aboutPreset;
       return (
         <AboutSection
-          key={section.id}
+          key={planSection.id}
           hoursStatus={hoursStatus}
           onBook={navigateToBooking}
-          preset={recipe.aboutPreset}
+          preset={aboutPreset}
           profile={profile}
-          sectionId={section.id}
+          sectionId={planSection.id}
           showPolicySummary={recipe.policiesEnabled}
         />
       );
     }
-    if (section.kind === 'gallery') {
-      return <GallerySection key={section.id} sectionId={section.id} state={state} />;
+    if (planSection.sectionType === 'gallery') {
+      return <GallerySection key={planSection.id} sectionId={planSection.id} state={state} />;
     }
-    if (section.kind === 'booking') {
+    if (planSection.sectionType === 'booking') {
       return (
         <BookingSection
-          key={section.id}
+          key={planSection.id}
           device={device}
           document={document}
           profile={profile}
-          sectionId={section.id}
+          sectionId={planSection.id}
         />
       );
     }
-    if (section.kind === 'policies') {
-      return <PoliciesSection key={section.id} profile={profile} sectionId={section.id} />;
-    }
-    if (section.kind === 'contact') {
+    if (planSection.sectionType === 'contact') {
       return (
         <ContactSection
-          key={section.id}
+          key={planSection.id}
           onBook={navigateToBooking}
           profile={profile}
-          sectionId={section.id}
+          sectionId={planSection.id}
         />
       );
     }
+    if (planSection.sectionType === 'custom_design') {
+      return (
+        <OnboardingCustomDesignSections
+          key={planSection.id}
+          document={document}
+          onDocumentTarget={revealDocumentTarget}
+          pageId={page.id}
+          sectionIds={[planSection.id]}
+        />
+      );
+    }
+    if (!isLibrarySection(instance)) return null;
+    const Renderer = LIBRARY_SECTION_PREVIEW_RENDERERS[instance.sectionType];
+    if (!Renderer) return null;
+    const shared: LibraryPreviewShared = {
+      area,
+      context: libraryContext,
+      onBook: navigateToBooking,
+      pageSections: page.sections,
+      presentTypes,
+      state,
+      title,
+    };
     return (
-      <OnboardingCustomDesignSections
-        key={section.id}
-        document={document}
-        onDocumentTarget={revealDocumentTarget}
-        pageId={page.id}
-        sectionIds={[section.id]}
+      <Renderer
+        key={planSection.id}
+        planSection={planSection}
+        section={instance}
+        shared={shared}
       />
     );
   };
@@ -1520,11 +1241,13 @@ export function OnboardingSitePreview({
           ))}
         </div>
 
-        <footer className="onboarding-customer-footer">
-          <strong>{title}</strong>
-          {area ? <span>{area}</span> : null}
-          <small>Powered by Luster</small>
-        </footer>
+        {presentTypes.has('footer') ? null : (
+          <footer className="onboarding-customer-footer">
+            <strong>{title}</strong>
+            {area ? <span>{area}</span> : null}
+            <small>Powered by Luster</small>
+          </footer>
+        )}
       </div>
       </div>
     </section>

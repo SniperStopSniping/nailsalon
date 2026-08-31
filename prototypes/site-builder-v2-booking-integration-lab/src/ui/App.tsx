@@ -76,11 +76,13 @@ import {
   type CustomDesignSettings,
 } from '../custom-design/model';
 import {
+  isLibrarySectionType,
   type BuilderCommand,
   type CatalogueSectionType,
   type CommitSectionMoveDestination,
   type OriginStarter,
   type PageDocument,
+  type PlaceholderSectionInstance,
   type SectionInstance,
   type SectionSize,
   type SiteBuilderDocument,
@@ -617,7 +619,8 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   const editingPlaceholder = editingSection
     && editingSection.sectionType !== 'booking'
     && editingSection.sectionType !== 'custom_design'
-    ? editingSection
+    && !isLibrarySectionType(editingSection.sectionType)
+    ? (editingSection as PlaceholderSectionInstance)
     : null;
   const editingPage = document?.pages.find((page) => page.id === editingPageId) ?? null;
   const pendingPageRemoval = document?.pages.find((page) => page.id === pendingPageRemovalId) ?? null;

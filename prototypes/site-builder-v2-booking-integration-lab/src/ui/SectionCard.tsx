@@ -9,18 +9,19 @@ import {
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
-import type { PageDocument, PlaceholderSectionInstance } from '../model/types';
+import { getSectionRegistryEntry, isLibrarySection } from '../model/section-library/registry';
+import type { NonEngineSectionInstance, PageDocument } from '../model/types';
 
 type SectionCardProps = {
   page: PageDocument;
-  section: PlaceholderSectionInstance;
+  section: NonEngineSectionInstance;
   selected: boolean;
-  onEdit: (section: PlaceholderSectionInstance) => void;
+  onEdit: (section: NonEngineSectionInstance) => void;
   onEnterReorder: () => void;
-  onMove: (section: PlaceholderSectionInstance) => void;
-  onRemove: (section: PlaceholderSectionInstance) => void;
-  onSelect: (section: PlaceholderSectionInstance) => void;
-  onToggleVisible: (section: PlaceholderSectionInstance) => void;
+  onMove: (section: NonEngineSectionInstance) => void;
+  onRemove: (section: NonEngineSectionInstance) => void;
+  onSelect: (section: NonEngineSectionInstance) => void;
+  onToggleVisible: (section: NonEngineSectionInstance) => void;
 };
 
 export function SectionCard({
@@ -35,6 +36,21 @@ export function SectionCard({
   onToggleVisible,
 }: SectionCardProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const placeholder = isLibrarySection(section) ? null : section;
+  const library = isLibrarySection(section) ? section : null;
+  const entry = library ? getSectionRegistryEntry(library.sectionType) : null;
+  const sizeClass = placeholder ? placeholder.size : 'medium';
+  const badge = placeholder
+    ? placeholder.size
+    : library && 'preset' in library.settings
+      ? String(library.settings.preset).replaceAll('_', ' ')
+      : entry?.category ?? 'section';
+  const note = placeholder
+    ? placeholder.placeholderSettings.note
+    : entry?.description ?? '';
+  const numberMark = placeholder
+    ? placeholder.label.replace('Section ', '')
+    : (entry?.label ?? section.label).slice(0, 2).toUpperCase();
   useEffect(() => {
     if (!selected) {
       setMenuOpen(false);
@@ -44,7 +60,7 @@ export function SectionCard({
   return (
     <article
       aria-label={`${section.label} on ${page.name}`}
-      className={`section-card section-card--${section.size}${selected ? ' is-selected' : ''}${section.visible ? '' : ' is-hidden'} section-card--final-hybrid`}
+      className={`section-card section-card--${sizeClass}${selected ? ' is-selected' : ''}${section.visible ? '' : ' is-hidden'} section-card--final-hybrid`}
       data-section-id={section.id}
       data-section-instance-id={section.id}
       data-section-label={section.label}
@@ -59,20 +75,20 @@ export function SectionCard({
       <button aria-pressed={selected} className="section-card__select-surface" type="button" onClick={() => onSelect(section)}>
         <span className="section-card__topline">
           <span className="section-card__identity">
-            <span className="section-card__number" aria-hidden="true">{section.label.replace('Section ', '')}</span>
+            <span className="section-card__number" aria-hidden="true">{numberMark}</span>
             <span>
               <strong className="section-card__title">{section.label}</strong>
-              <span className="section-card__description">{section.placeholderSettings.note}</span>
+              <span className="section-card__description">{note}</span>
             </span>
           </span>
           <span className="section-card__badges">
-            <span className="size-badge">{section.size}</span>
+            <span className="size-badge">{badge}</span>
             {!section.visible ? <span className="hidden-badge"><EyeOff aria-hidden="true" size={14} /> Hidden</span> : null}
           </span>
         </span>
       </button>
 
-      {section.placeholderSettings.note ? <p className="section-card__note">“{section.placeholderSettings.note}”</p> : null}
+      {placeholder?.placeholderSettings.note ? <p className="section-card__note">“{placeholder.placeholderSettings.note}”</p> : null}
       <div className="placeholder-grid" aria-hidden="true"><span /><span /><span /></div>
 
       <div aria-label={`Quick actions for ${section.label}`} className="section-context-toolbar">
