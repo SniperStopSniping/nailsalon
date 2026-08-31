@@ -124,7 +124,9 @@ async function addCustomDesign(
   )).toBeVisible();
   expect(within(library).getByText('Best for designs you already made.')).toBeVisible();
   await user.click(within(library).getByRole('button', { name: 'Add Custom Design' }));
-  return screen.findByRole('listitem', { name: 'Section 4: Custom Design' });
+  // Quick Book's Home already holds six library sections, so a bottom insert
+  // lands at position 7.
+  return screen.findByRole('listitem', { name: 'Section 7: Custom Design' });
 }
 
 function readStoredDocument(): SiteBuilderDocument {
@@ -453,7 +455,7 @@ describe('Custom Design universal App integration', () => {
     await user.upload(picker, file);
     expect(await within(settings).findByText('1 image was added.')).toBeVisible();
     await waitFor(() => {
-      const updated = screen.getByRole('listitem', { name: 'Section 4: Custom Design' });
+      const updated = screen.getByRole('listitem', { name: 'Section 7: Custom Design' });
       expect(updated.querySelector<HTMLImageElement>('img')?.src)
         .toMatch(/^blob:https:\/\/luster\.test\/custom-/u);
     });
@@ -499,7 +501,7 @@ describe('Custom Design universal App integration', () => {
     });
     render(<App />);
     expect(await screen.findByTestId('final-hybrid-editor')).toBeVisible();
-    const reloaded = await screen.findByRole('listitem', { name: 'Section 4: Custom Design' });
+    const reloaded = await screen.findByRole('listitem', { name: 'Section 7: Custom Design' });
     await waitFor(() => {
       expect(reloaded.querySelector<HTMLImageElement>('img')?.src)
         .toMatch(/^blob:https:\/\/luster\.test\/custom-/u);
@@ -769,9 +771,11 @@ describe('Custom Design universal App integration', () => {
       expect(getStoredCustomDesign(stored).id).toBe(secondSection.id);
       expect(stored.unusedSections.map(section => section.id)).toEqual([firstSectionId]);
     });
+    // Both Custom Designs were removed first, so Home is back to the six
+    // Quick Book library sections and the restore lands at order 6.
     expect(getStoredCustomDesign(readStoredDocument())).toEqual({
       ...exactRemoved,
-      order: 3,
+      order: 6,
     });
 
     await user.click(screen.getByRole('button', { name: 'Undo' }));

@@ -9,6 +9,15 @@ import { getStarterPageDefinitions } from '../model/starters';
 import type { OriginStarter } from '../model/types';
 import { StarterChoiceGrid, StarterChooser } from './StarterChooser';
 
+/**
+ * `included` is the owner-facing "Includes" line. Schema v2 starters carry
+ * composition chrome (announcement, on-page menu, policy blocks, final CTA,
+ * footer) that `src/model/starters.ts` marks `summary: false` precisely so it
+ * stays OUT of this line — see the `StarterSectionDefinition` doc comment.
+ * The quick_book and one_page values below are therefore unchanged; only the
+ * multi_page page list moved, because the starter's fourth page is now Team
+ * (About became a section on it) — see `STARTER_PAGES`.
+ */
 const EXPECTED_STARTERS: ReadonlyArray<{
   cta: string;
   description: string;
@@ -37,7 +46,7 @@ const EXPECTED_STARTERS: ReadonlyArray<{
     cta: 'Start with Multi-page',
     description: 'Give each part of your business its own page and navigation link.',
     id: 'multi_page',
-    included: 'Home · Services & Booking · Gallery · About · Contact',
+    included: 'Home · Services & Booking · Gallery · Team · Contact',
     includesLabel: 'Includes pages',
     title: 'Multi-page website',
   },
@@ -176,7 +185,10 @@ describe('StarterChooser copy and accessibility', () => {
     }
 
     expect(screen.getAllByRole('button')).toHaveLength(3);
-    expect(screen.queryByText(/Starts with [356] (?:sections|pages)/)).not.toBeInTheDocument();
+    // No technical count badge for any starter size (v2 totals are 6 / 14 / 23
+    // sections across 1 / 1 / 5 pages, so the old [356] character class no
+    // longer covers them).
+    expect(screen.queryByText(/Starts with \d+ (?:sections|pages)/)).not.toBeInTheDocument();
     expect(screen.getByText('Nothing is permanent.')).toBeVisible();
     expect(screen.getByText(
       'Every starting point uses the same editor. Add, remove, or rearrange pages and sections anytime.',
@@ -207,8 +219,12 @@ describe('StarterChooser copy and accessibility', () => {
 
     for (const starter of EXPECTED_STARTERS) {
       const pages = getStarterPageDefinitions(starter.id);
+      // Scenes and the structure line exclude composition chrome
+      // (`summary: false`), matching the definitions' documented contract.
       const structure = pages.flatMap(
-        (page) => page.sections.map(({ previewLabel }) => previewLabel),
+        page => page.sections
+          .filter(section => section.summary !== false)
+          .map(({ previewLabel }) => previewLabel),
       );
       const navigation = starter.id === 'quick_book' ? [] : pages.map(({ name }) => name);
       const preview = getPreview(starter.id);

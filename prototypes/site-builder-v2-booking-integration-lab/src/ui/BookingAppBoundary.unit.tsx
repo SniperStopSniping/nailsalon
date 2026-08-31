@@ -464,9 +464,12 @@ describe('unified section movement', () => {
     await user.click(within(actions).getByRole('button', { name: 'Move' }));
     let dialog = await screen.findByRole('dialog', { name: 'Move Booking' });
 
-    expect(within(dialog).getByLabelText('Position for Section 01')).toHaveValue(1);
-    expect(within(dialog).getByLabelText('Position for Section 02')).toHaveValue(2);
-    expect(within(dialog).getByLabelText('Position for Booking')).toHaveValue(3);
+    expect(within(dialog).getByLabelText('Position for Announcement Bar')).toHaveValue(1);
+    expect(within(dialog).getByLabelText('Position for Salon intro')).toHaveValue(2);
+    expect(within(dialog).getByLabelText('Position for Featured Services')).toHaveValue(3);
+    expect(within(dialog).getByLabelText('Position for Booking')).toHaveValue(4);
+    expect(within(dialog).getByLabelText('Position for Final Booking CTA')).toHaveValue(5);
+    expect(within(dialog).getByLabelText('Position for Footer')).toHaveValue(6);
     expect(within(dialog).getByLabelText('Position for Booking'))
       .toHaveAttribute('aria-describedby', 'move-position-help');
     expect(within(dialog).queryByRole('list', { name: 'Destination pages' }))
@@ -474,10 +477,16 @@ describe('unified section movement', () => {
 
     await user.clear(within(dialog).getByLabelText('Position for Booking'));
     await user.type(within(dialog).getByLabelText('Position for Booking'), '1{Enter}');
-    expect(sectionOrder()).toEqual(['Booking', 'Section 01', 'Section 02']);
+    expect(sectionOrder()).toEqual([
+      'Booking', 'Announcement Bar', 'Salon intro', 'Featured Services',
+      'Final Booking CTA', 'Footer',
+    ]);
 
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
-    expect(sectionOrder()).toEqual(['Section 01', 'Section 02', 'Booking']);
+    expect(sectionOrder()).toEqual([
+      'Announcement Bar', 'Salon intro', 'Featured Services', 'Booking',
+      'Final Booking CTA', 'Footer',
+    ]);
 
     await user.click(within(screen.getByRole('group', { name: 'Booking actions' }))
       .getByRole('button', { name: 'Move' }));
@@ -489,7 +498,10 @@ describe('unified section movement', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Move Booking up' }));
     await user.click(within(dialog).getByRole('button', { name: 'Done' }));
 
-    expect(sectionOrder()).toEqual(['Booking', 'Section 01', 'Section 02']);
+    expect(sectionOrder()).toEqual([
+      'Booking', 'Announcement Bar', 'Salon intro', 'Featured Services',
+      'Final Booking CTA', 'Footer',
+    ]);
   });
 
   it('keeps cross-page movement behind a secondary disclosure', async () => {

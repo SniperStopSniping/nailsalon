@@ -815,7 +815,9 @@ describe('OnboardingApp handoff boundaries', () => {
       expect(savedDocument.success).toBe(true);
       if (savedDocument.success) {
         expect(savedDocument.document.originStarter).toBe('one_page');
-        expect(savedDocument.document.pages[0]?.sections).toHaveLength(6);
+        // The One-page starter's single Home page carries all 14 library
+        // sections defined in `STARTER_PAGES` (src/model/starters.ts).
+        expect(savedDocument.document.pages[0]?.sections).toHaveLength(14);
       }
     });
 

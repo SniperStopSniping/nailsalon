@@ -10,15 +10,27 @@ import {
   removeSection,
   setSectionVisible,
 } from '../../model';
-import type { CustomDesignSectionInstance } from '../../model/types';
+import {
+  buildCustomerPagePlan,
+  type SitePlanPage,
+} from '../../model/site-plan';
+import type {
+  CustomDesignSectionInstance,
+  PageDocument,
+  SectionInstance,
+  SectionType,
+  SiteBuilderDocument,
+} from '../../model/types';
 import { createDanielaFixtureState } from '../fixtures';
 import { createDefaultOnboardingState } from '../model/defaults';
-import type { AboutPresetId } from '../model/types';
+import {
+  deriveSiteLibraryContext,
+  deriveSitePlanToggles,
+} from '../model/site-library-context';
+import type { AboutPresetId, OnboardingLabState } from '../model/types';
 import { parseOnboardingState } from '../storage/storage';
 import {
   calculateOnboardingPreviewScale,
-  getCurrentPreviewOutline,
-  getCurrentPreviewPagePlan,
   getOnboardingDocumentBookingSequence,
   ONBOARDING_PREVIEW_VIEWPORTS,
   OnboardingSitePreview,
@@ -55,6 +67,52 @@ const customImage = (id: string): CustomDesignImageItem => ({
   interactiveAreas: [],
   mimeType: 'image/png',
   width: 1_200,
+});
+
+/** The one customer selection ladder the preview itself renders from. */
+const customerPagePlanFor = (
+  document: SiteBuilderDocument,
+  state: OnboardingLabState,
+): SitePlanPage[] => buildCustomerPagePlan(document, {
+  context: deriveSiteLibraryContext(state, document),
+  toggles: deriveSitePlanToggles(state),
+});
+
+const planTypes = (plan: SitePlanPage[]): SectionType[] =>
+  plan.flatMap(page => page.sections.map(section => section.sectionType));
+
+const planIds = (plan: SitePlanPage[]): string[] =>
+  plan.flatMap(page => page.sections.map(section => section.id));
+
+const sectionOn = (page: PageDocument, sectionType: SectionType): SectionInstance => {
+  const section = page.sections.find(candidate => candidate.sectionType === sectionType);
+  if (!section) throw new Error(`No ${sectionType} section on page ${page.name}`);
+  return section;
+};
+
+/** Flips every Deposits & Cancellations section onto one wording mode. */
+const withDepositsWordingMode = (
+  document: SiteBuilderDocument,
+  wordingMode: 'full' | 'summary',
+): SiteBuilderDocument => {
+  const next = structuredClone(document);
+  for (const page of next.pages) {
+    page.sections = page.sections.map(section => (
+      section.sectionType === 'deposits_cancellations'
+        ? { ...section, settings: { ...section.settings, wordingMode } }
+        : section
+    ));
+  }
+  return next;
+};
+
+const galleryFixtureImage = (id: string) => ({
+  altText: 'Example nail set',
+  fileName: 'example-gallery.jpg',
+  id,
+  mimeType: 'image/jpeg',
+  previewUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>',
+  source: 'fixture' as const,
 });
 
 const customSection = (
@@ -490,10 +548,20 @@ describe('OnboardingSitePreview shared profile composition', () => {
       <OnboardingSitePreview document={initializeStarter('one_page')} label="Hidden policy summary preview" state={state} />,
     );
     const preview = screen.getByRole('region', { name: 'Hidden policy summary preview' });
+    const about = within(preview).getByRole('region', {
+      name: 'About and before you book',
+    });
+    const policies = within(preview).getByRole('region', { name: 'Studio policies' });
 
     expect(preview.querySelectorAll('.onboarding-policy-summary')).toHaveLength(0);
-    expect(within(preview).queryByText(/24-hour notice|\$50 deposit|15-minute late limit/u))
+    expect(within(about).queryByText(/24-hour notice|\$50 deposit|15-minute late limit/u))
       .not.toBeInTheDocument();
+    // The Studio policies section publishes only the still-visible policy
+    // cards; the hidden late-arrival card keeps its saved wording out.
+    expect([...policies.querySelectorAll('[data-policy]')]
+      .map(entry => entry.getAttribute('data-policy')))
+      .toEqual(['no_shows', 'repairs']);
+    expect(within(policies).queryByText(/grace period/iu)).not.toBeInTheDocument();
 
     const depositsVisible = structuredClone(state);
     depositsVisible.profile.policies.copy.deposits.visible = true;
@@ -519,17 +587,30 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.profile.policies.copy.cancellations.visible = true;
     state.profile.policies.copy.cancellations.useSuggestedWording = true;
 
+    const summaryDocument = initializeStarter('one_page');
+    const fullDocument = withDepositsWordingMode(summaryDocument, 'full');
+
     const view = render(
-      <OnboardingSitePreview document={initializeStarter('one_page')} label="Combined policy preview" state={state} />,
+      <OnboardingSitePreview document={summaryDocument} label="Combined policy preview" state={state} />,
+    );
+    const summarySection = within(screen.getByRole('region', { name: 'Combined policy preview' }))
+      .getByRole('region', { name: 'Deposits and cancellations' });
+    expect(within(summarySection).getByRole('heading', { name: 'Deposits & cancellations' }))
+      .toBeVisible();
+    expect(within(summarySection).queryByRole('heading', { name: 'Cancellations' }))
+      .not.toBeInTheDocument();
+    expect(within(summarySection).queryByRole('heading', { name: 'Deposits' }))
+      .not.toBeInTheDocument();
+    // The starter section ships wordingMode 'summary'.
+    expect(summarySection.querySelector('.customer-lib-policy-body')).toHaveTextContent(
+      '$15 deposit · 24 hours’ notice · deposit kept after late cancellation',
+    );
+
+    view.rerender(
+      <OnboardingSitePreview document={fullDocument} label="Combined policy preview" state={state} />,
     );
     const policies = within(screen.getByRole('region', { name: 'Combined policy preview' }))
-      .getByRole('region', { name: 'Policies' });
-    expect(within(policies).getByRole('heading', { name: 'Deposits & cancellations' }))
-      .toBeVisible();
-    expect(within(policies).queryByRole('heading', { name: 'Cancellations' }))
-      .not.toBeInTheDocument();
-    expect(within(policies).queryByRole('heading', { name: 'Deposits' }))
-      .not.toBeInTheDocument();
+      .getByRole('region', { name: 'Deposits and cancellations' });
     expect(policies).toHaveTextContent('A $15 deposit is required to book.');
     expect(policies).toHaveTextContent('Please provide at least 24 hours’ notice');
 
@@ -538,10 +619,10 @@ describe('OnboardingSitePreview shared profile composition', () => {
     noDeposit.profile.policies.deposits.amountCents = null;
     noDeposit.profile.policies.cancellations.consequence = 'cancellation_fee';
     view.rerender(
-      <OnboardingSitePreview document={initializeStarter('one_page')} label="Combined policy preview" state={noDeposit} />,
+      <OnboardingSitePreview document={fullDocument} label="Combined policy preview" state={noDeposit} />,
     );
     const noDepositPolicies = within(screen.getByRole('region', { name: 'Combined policy preview' }))
-      .getByRole('region', { name: 'Policies' });
+      .getByRole('region', { name: 'Deposits and cancellations' });
     expect(noDepositPolicies).toHaveTextContent('No deposit is required.');
     expect(noDepositPolicies).toHaveTextContent('Late cancellations incur a cancellation fee.');
     expect(noDepositPolicies).not.toHaveTextContent(/refundable|transferred|deposit being lost/iu);
@@ -554,19 +635,73 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.profile.ownerName = 'Daniela';
     state.profile.policies.lateArrivals.gracePeriodMinutes = '10';
     state.recipe.policiesEnabled = true;
+    const document = initializeStarter('quick_book');
 
     render(
       <OnboardingSitePreview
-        document={initializeStarter('quick_book')}
+        document={document}
         label="Partial policy preview"
         state={state}
       />,
     );
 
     const preview = screen.getByRole('region', { name: 'Partial policy preview' });
-    expect(preview.querySelector('.onboarding-customer-policies')).toBeNull();
-    expect(within(preview).queryByRole('region', { name: 'Policies' }))
+    // Booking-only default contact publishes nothing, so no Contact section
+    // is injected — the plan matches the ContactSection renderer's own
+    // show/hide predicate.
+    expect(planTypes(customerPagePlanFor(document, state)))
+      .toEqual(['hero', 'featured_services', 'about', 'booking', 'final_cta', 'footer']);
+    expect(within(preview).queryByRole('region', { name: 'Deposits and cancellations' }))
       .not.toBeInTheDocument();
+    expect(within(preview).queryByRole('region', { name: 'Studio policies' }))
+      .not.toBeInTheDocument();
+    expect(preview.querySelector('[data-library-type="deposits_cancellations"]')).toBeNull();
+    expect(preview.querySelector('[data-library-type="policies"]')).toBeNull();
+    expect(within(preview).queryByText(/grace period/iu)).not.toBeInTheDocument();
+  });
+
+  it('injects deposits and studio policies as two sections that each self-suppress', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'quick_book';
+    const document = initializeStarter('quick_book');
+    const plan = customerPagePlanFor(document, state);
+    const sections = plan[0]!.sections;
+    const bookingIndex = sections.findIndex(section => section.sectionType === 'booking');
+
+    expect(sections.slice(bookingIndex + 1, bookingIndex + 3).map(section => [
+      section.sectionType,
+      section.id,
+      section.injected,
+    ])).toEqual([
+      ['deposits_cancellations', 'onboarding-preview-deposits_cancellations', true],
+      ['policies', 'onboarding-preview-policies', true],
+    ]);
+
+    const view = render(
+      <OnboardingSitePreview document={document} label="Split policy preview" state={state} />,
+    );
+    const preview = screen.getByRole('region', { name: 'Split policy preview' });
+    expect(within(preview).getByRole('region', { name: 'Deposits and cancellations' }))
+      .toBeVisible();
+    expect(within(preview).getByRole('region', { name: 'Studio policies' })).toBeVisible();
+
+    // Hiding every before-you-book card empties the studio policies wording
+    // without touching the deposits section or the plan itself.
+    const quiet = structuredClone(state);
+    for (const sectionId of ['late_arrivals', 'no_shows', 'repairs', 'other'] as const) {
+      quiet.profile.policies.copy[sectionId].visible = false;
+    }
+    view.rerender(
+      <OnboardingSitePreview document={document} label="Split policy preview" state={quiet} />,
+    );
+
+    expect(planIds(customerPagePlanFor(document, quiet)))
+      .toContain('onboarding-preview-policies');
+    expect(within(preview).queryByRole('region', { name: 'Studio policies' }))
+      .not.toBeInTheDocument();
+    expect(preview.querySelector('[data-library-type="policies"]')).toBeNull();
+    expect(within(preview).getByRole('region', { name: 'Deposits and cancellations' }))
+      .toBeVisible();
   });
 
   it('honours hidden identity and booking-status fields in Before You Book', () => {
@@ -660,9 +795,12 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.recipe.policiesEnabled = false;
     const document = initializeStarter('quick_book');
     const page = document.pages[0]!;
-    const heroId = page.sections.find(section => section.label === 'Section 01')!.id;
-    const servicesId = page.sections.find(section => section.label === 'Section 02')!.id;
-    const bookingId = page.sections.find(section => section.sectionType === 'booking')!.id;
+    const announcementId = sectionOn(page, 'announcement_bar').id;
+    const heroId = sectionOn(page, 'hero').id;
+    const servicesId = sectionOn(page, 'featured_services').id;
+    const bookingId = sectionOn(page, 'booking').id;
+    const finalCtaId = sectionOn(page, 'final_cta').id;
+    const footerId = sectionOn(page, 'footer').id;
 
     render(
       <OnboardingSitePreview
@@ -680,11 +818,23 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelector('[data-starter-structure]')).toBeNull();
     expect(within(preview).queryByRole('navigation', { name: 'Customer preview navigation' }))
       .not.toBeInTheDocument();
-    expect(sectionIds).toEqual([heroId, bookingId, 'onboarding-preview-contact']);
-    expect(sectionIds).not.toContain(servicesId);
+    expect(sectionIds).toEqual([
+      heroId,
+      servicesId,
+      bookingId,
+      'onboarding-preview-contact',
+      finalCtaId,
+      footerId,
+    ]);
+    // The starter announcement bar carries no wording yet, so it stays unpublished.
+    expect(sectionIds).not.toContain(announcementId);
     expect(preview.querySelectorAll('.onboarding-customer-hero')).toHaveLength(1);
     expect(within(preview).getAllByRole('region', { name: 'Booking' })).toHaveLength(1);
     expect(within(preview).getAllByRole('region', { name: 'Visit and contact' })).toHaveLength(1);
+    // Every optional module is switched off in this recipe.
+    expect(preview.querySelector('.onboarding-customer-about')).toBeNull();
+    expect(preview.querySelector('.onboarding-customer-gallery')).toBeNull();
+    expect(preview.querySelector('[data-library-type="policies"]')).toBeNull();
   });
 
   it('does not duplicate Booking as an otherwise empty Contact section', () => {
@@ -709,24 +859,14 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelector('.onboarding-customer-contact')).toBeNull();
   });
 
-  it('renders One-page modules once in semantic order and omits unsupported placeholders', () => {
+  it('renders One-page library sections once in document order and omits empty authorities', () => {
     const state = createDanielaFixtureState();
     state.recipe.starter = 'one_page';
     state.recipe.galleryEnabled = true;
-    state.gallery.images = [{
-      altText: 'Example nail set',
-      fileName: 'example-gallery.jpg',
-      id: 'example-gallery-order',
-      mimeType: 'image/jpeg',
-      previewUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>',
-      source: 'fixture',
-    }];
+    state.gallery.images = [galleryFixtureImage('example-gallery-order')];
     const document = initializeStarter('one_page');
     const page = document.pages[0]!;
-    const sectionIdFor = (label: string) => page.sections.find(
-      section => section.label === label,
-    )!.id;
-    const bookingId = page.sections.find(section => section.sectionType === 'booking')!.id;
+    const idFor = (sectionType: SectionType) => sectionOn(page, sectionType).id;
     const originalDocument = structuredClone(document);
 
     render(
@@ -739,21 +879,35 @@ describe('OnboardingSitePreview shared profile composition', () => {
 
     expect(preview.querySelector('[data-starter-structure]')).toBeNull();
     expect(sectionIds).toEqual([
-      sectionIdFor('Section 01'),
-      sectionIdFor('Section 02'),
-      sectionIdFor('Section 04'),
-      bookingId,
-      'onboarding-preview-policies',
-      'onboarding-preview-contact',
+      idFor('hero'),
+      idFor('quick_info'),
+      idFor('section_navigation'),
+      idFor('about'),
+      idFor('featured_services'),
+      idFor('gallery'),
+      idFor('deposits_cancellations'),
+      idFor('policies'),
+      idFor('visit_us'),
+      idFor('booking'),
+      idFor('final_cta'),
+      idFor('footer'),
     ]);
-    expect(sectionIds).not.toContain(sectionIdFor('Section 03'));
-    expect(sectionIds).not.toContain(sectionIdFor('Section 05'));
+    // Empty shared authorities keep their starter sections unpublished.
+    expect(sectionIds).not.toContain(idFor('announcement_bar'));
+    expect(sectionIds).not.toContain(idFor('reviews'));
     expect(preview.querySelectorAll('.onboarding-customer-hero')).toHaveLength(1);
     expect(preview.querySelectorAll('.onboarding-customer-about')).toHaveLength(1);
     expect(preview.querySelectorAll('.onboarding-customer-gallery')).toHaveLength(1);
     expect(preview.querySelectorAll('.onboarding-customer-booking')).toHaveLength(1);
-    expect(preview.querySelectorAll('.onboarding-customer-policies')).toHaveLength(1);
-    expect(preview.querySelectorAll('.onboarding-customer-contact')).toHaveLength(1);
+    expect(preview.querySelectorAll('.customer-lib-deposits')).toHaveLength(1);
+    expect(preview.querySelectorAll('.customer-lib-policies')).toHaveLength(1);
+    expect(preview.querySelectorAll('.customer-lib-visit')).toHaveLength(1);
+    // The Visit Us section already covers Contact, so nothing is injected.
+    expect(preview.querySelectorAll('.onboarding-customer-contact')).toHaveLength(0);
+    expect(sectionIds).not.toContain('onboarding-preview-contact');
+    // A footer library section replaces the legacy hardcoded footer chrome.
+    expect(preview.querySelectorAll('.customer-lib-footer')).toHaveLength(1);
+    expect(preview.querySelectorAll('.onboarding-customer-footer')).toHaveLength(0);
     expect(document).toEqual(originalDocument);
   });
 
@@ -762,18 +916,38 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.recipe.starter = 'one_page';
     const document = initializeStarter('one_page');
     const home = document.pages[0]!;
-    const hero = home.sections.find(section => section.label === 'Section 01')!;
-    const booking = home.sections.find(section => section.sectionType === 'booking')!;
+    const hero = sectionOn(home, 'hero');
+    const booking = sectionOn(home, 'booking');
 
     render(
       <OnboardingSitePreview
         customerPagePlan={[{
           id: home.id,
+          isHome: home.isHome,
           label: home.name,
+          order: home.order,
           sections: [
-            { id: hero.id, kind: 'hero', label: 'Welcome' },
-            { id: booking.id, kind: 'booking', label: 'Booking' },
+            {
+              attachedToPrevious: false,
+              id: hero.id,
+              injected: false,
+              label: 'Welcome',
+              section: hero,
+              sectionType: 'hero',
+              surface: 'base',
+            },
+            {
+              attachedToPrevious: false,
+              id: booking.id,
+              injected: false,
+              label: 'Booking',
+              section: booking,
+              sectionType: 'booking',
+              surface: 'base',
+            },
           ],
+          slug: home.slug,
+          visibleInNavigation: home.visibleInNavigation,
         }]}
         document={document}
         interactionMode="interactive"
@@ -786,10 +960,16 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const renderedIds = [...preview.querySelectorAll<HTMLElement>('[data-section-id]')]
       .map(section => section.dataset.sectionId);
 
+    // The persisted plan is rendered verbatim; the ladder is not re-run over
+    // the document, so none of its other starter sections appear.
     expect(renderedIds).toEqual([hero.id, booking.id]);
     expect(preview.querySelector('.onboarding-customer-about')).toBeNull();
     expect(preview.querySelector('.onboarding-customer-gallery')).toBeNull();
     expect(preview.querySelector('.onboarding-customer-contact')).toBeNull();
+    expect(preview.querySelector('.customer-lib-deposits')).toBeNull();
+    // With no footer section in the plan, the legacy footer chrome stands in.
+    expect(preview.querySelector('.customer-lib-footer')).toBeNull();
+    expect(preview.querySelectorAll('.onboarding-customer-footer')).toHaveLength(1);
   });
 
   it('renders every distinct Custom Design section once in document order', () => {
@@ -821,14 +1001,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const state = createDanielaFixtureState();
     state.recipe.starter = 'multi_page';
     state.recipe.galleryEnabled = true;
-    state.gallery.images = [{
-      altText: 'Example nail set',
-      fileName: 'example-gallery.jpg',
-      id: 'example-gallery-navigation',
-      mimeType: 'image/jpeg',
-      previewUrl: 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg"/>',
-      source: 'fixture',
-    }];
+    state.gallery.images = [galleryFixtureImage('example-gallery-navigation')];
     const document = initializeStarter('multi_page');
 
     render(
@@ -847,15 +1020,19 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const home = pageByName.get('Home')!;
     const booking = pageByName.get('Services / Book')!;
     const gallery = pageByName.get('Gallery')!;
-    const about = pageByName.get('About')!;
+    const team = pageByName.get('Team')!;
     const contact = pageByName.get('Contact')!;
 
+    expect(within(navigation).getAllByRole('link').map(link => link.textContent))
+      .toEqual(['Home', 'Services / Book', 'Gallery', 'Team', 'Contact', 'Book']);
     expect(within(navigation).getByRole('link', { name: 'Home' }))
       .toHaveAttribute('aria-current', 'page');
     expect(within(preview).getByRole('region', { name: 'Home page' }))
       .toHaveAttribute('data-preview-page-id', home.id);
     expect(preview.querySelectorAll('.onboarding-customer-hero')).toHaveLength(1);
-    expect(preview.querySelector('.onboarding-customer-gallery')).toBeNull();
+    // Home carries the "Featured work" gallery in the v2 starter.
+    expect(preview.querySelectorAll('.onboarding-customer-gallery')).toHaveLength(1);
+    expect(preview.querySelector('.onboarding-customer-booking')).toBeNull();
 
     await user.click(within(navigation).getByRole('link', { name: 'Gallery' }));
     expect(within(navigation).getByRole('link', { name: 'Gallery' }))
@@ -863,32 +1040,42 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(preview).getByRole('region', { name: 'Gallery page' }))
       .toHaveAttribute('data-preview-page-id', gallery.id);
     expect(preview.querySelectorAll('.onboarding-customer-gallery')).toHaveLength(1);
+    expect(preview.querySelector('.onboarding-customer-hero')).toBeNull();
 
-    await user.click(within(navigation).getByRole('link', { name: 'About' }));
-    expect(within(preview).getByRole('region', { name: 'About page' }))
-      .toHaveAttribute('data-preview-page-id', about.id);
+    await user.click(within(navigation).getByRole('link', { name: 'Team' }));
+    expect(within(preview).getByRole('region', { name: 'Team page' }))
+      .toHaveAttribute('data-preview-page-id', team.id);
     expect(preview.querySelectorAll('.onboarding-customer-about')).toHaveLength(1);
+    expect(preview.querySelector(`[data-section-id="${sectionOn(team, 'about').id}"]`))
+      .not.toBeNull();
+    // The Team section itself stays unpublished until staff records exist.
+    expect(preview.querySelector('[data-library-type="team"]')).toBeNull();
 
     await user.click(within(navigation).getByRole('link', { name: 'Services / Book' }));
     expect(within(preview).getByRole('region', { name: 'Services / Book page' }))
       .toHaveAttribute('data-preview-page-id', booking.id);
     expect(preview.querySelectorAll('.onboarding-customer-booking')).toHaveLength(1);
-    expect(preview.querySelector(`[data-section-id="${booking.sections.find(
-      section => section.sectionType === 'booking',
-    )!.id}"]`)).not.toBeNull();
+    expect(preview.querySelector(`[data-section-id="${sectionOn(booking, 'booking').id}"]`))
+      .not.toBeNull();
+    expect(preview.querySelectorAll('.customer-lib-deposits')).toHaveLength(1);
+    expect(preview.querySelectorAll('.customer-lib-policies')).toHaveLength(1);
 
     await user.click(within(navigation).getByRole('link', { name: 'Contact' }));
     expect(within(preview).getByRole('region', { name: 'Contact page' }))
       .toHaveAttribute('data-preview-page-id', contact.id);
     expect(preview.querySelectorAll('.onboarding-customer-contact')).toHaveLength(1);
+    expect(preview.querySelectorAll('.customer-lib-visit')).toHaveLength(1);
+    expect(preview.querySelectorAll('.customer-lib-hours')).toHaveLength(1);
     expect(preview.querySelector('[data-starter-structure]')).toBeNull();
   });
 
-  it('opens the actual Multi-page About page for an About-targeted preview', () => {
+  it('opens the actual Multi-page page that owns About for an About-targeted preview', () => {
     const state = createDanielaFixtureState();
     state.recipe.starter = 'multi_page';
     const document = initializeStarter('multi_page');
-    const aboutPage = document.pages.find(page => page.name === 'About')!;
+    const aboutPage = document.pages.find(page => page.sections.some(
+      section => section.sectionType === 'about',
+    ))!;
 
     render(
       <OnboardingSitePreview
@@ -904,9 +1091,11 @@ describe('OnboardingSitePreview shared profile composition', () => {
       name: 'Customer preview navigation',
     });
 
-    expect(within(navigation).getByRole('link', { name: 'About' }))
+    // The v2 Multi-page starter keeps About on the Team page.
+    expect(aboutPage.name).toBe('Team');
+    expect(within(navigation).getByRole('link', { name: 'Team' }))
       .toHaveAttribute('aria-current', 'page');
-    expect(within(preview).getByRole('region', { name: 'About page' }))
+    expect(within(preview).getByRole('region', { name: 'Team page' }))
       .toHaveAttribute('data-preview-page-id', aboutPage.id);
     expect(preview.querySelectorAll('.onboarding-customer-about')).toHaveLength(1);
     expect(preview.querySelector('.onboarding-customer-hero')).toBeNull();
@@ -917,12 +1106,10 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.recipe.starter = 'multi_page';
     const source = initializeStarter('multi_page');
     const home = source.pages.find(page => page.isHome)!;
-    const aboutPage = source.pages.find(page => page.name === 'About')!;
-    const aboutSection = aboutPage.sections.find(section => (
-      section.sectionType !== 'booking'
-      && section.sectionType !== 'custom_design'
-      && section.starterSemanticRole === 'about'
+    const aboutPage = source.pages.find(page => page.sections.some(
+      section => section.sectionType === 'about',
     ))!;
+    const aboutSection = sectionOn(aboutPage, 'about');
     const document = moveSectionToPage(source, aboutSection.id, home.id);
     const movedAbout = document.pages
       .flatMap(page => page.sections)
@@ -951,32 +1138,49 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .toHaveAttribute('data-section-id', aboutSection.id);
   });
 
-  it('filters renamed optional sections by their persisted role instead of owner copy', () => {
+  it('filters renamed optional sections by their library type instead of owner copy', () => {
     const state = createDanielaFixtureState();
     state.recipe.starter = 'one_page';
     state.recipe.aboutEnabled = false;
     state.recipe.galleryEnabled = false;
+    state.gallery.images = [galleryFixtureImage('example-gallery-renamed')];
     const document = initializeStarter('one_page');
-    const about = document.pages[0]!.sections.find(section => (
-      section.sectionType !== 'booking'
-      && section.sectionType !== 'custom_design'
-      && section.starterSemanticRole === 'about'
-    ))!;
-    const gallery = document.pages[0]!.sections.find(section => (
-      section.sectionType !== 'booking'
-      && section.sectionType !== 'custom_design'
-      && section.starterSemanticRole === 'gallery'
-    ))!;
+    const page = document.pages[0]!;
+    const about = sectionOn(page, 'about');
+    const gallery = sectionOn(page, 'gallery');
     about.label = 'Daniela’s story';
     gallery.label = 'My work';
 
-    const outline = getCurrentPreviewOutline(document, state.recipe, {
-      galleryHasContent: true,
-    });
-    const plan = getCurrentPreviewPagePlan(outline, { hasPublicContact: false });
+    const plan = customerPagePlanFor(document, state);
 
-    expect(plan.flatMap(page => page.sections.map(section => section.kind)))
-      .not.toEqual(expect.arrayContaining(['about', 'gallery']));
+    expect(planTypes(plan)).toEqual([
+      'hero',
+      'quick_info',
+      'section_navigation',
+      'featured_services',
+      'deposits_cancellations',
+      'policies',
+      'visit_us',
+      'booking',
+      'final_cta',
+      'footer',
+    ]);
+    expect(planIds(plan)).not.toContain(about.id);
+    expect(planIds(plan)).not.toContain(gallery.id);
+
+    // Control: the same renamed sections publish under their library type,
+    // carrying the owner's label, as soon as their toggles are back on.
+    const enabled = customerPagePlanFor(document, {
+      ...state,
+      recipe: { ...state.recipe, aboutEnabled: true, galleryEnabled: true },
+    });
+    expect(enabled.flatMap(planPage => planPage.sections
+      .filter(section => section.sectionType === 'about' || section.sectionType === 'gallery')
+      .map(section => [section.sectionType, section.label, section.id])))
+      .toEqual([
+        ['about', 'Daniela’s story', about.id],
+        ['gallery', 'My work', gallery.id],
+      ]);
   });
 
   it('does not re-inject hidden or removed starter modules into customer Preview', () => {
@@ -984,33 +1188,27 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.recipe.starter = 'one_page';
     state.recipe.aboutEnabled = true;
     state.recipe.galleryEnabled = true;
+    state.gallery.images = [galleryFixtureImage('example-gallery-removed')];
     const source = initializeStarter('one_page');
-    const about = source.pages[0]!.sections.find(section => (
-      section.sectionType !== 'booking'
-      && section.sectionType !== 'custom_design'
-      && section.starterSemanticRole === 'about'
-    ))!;
-    const gallery = source.pages[0]!.sections.find(section => (
-      section.sectionType !== 'booking'
-      && section.sectionType !== 'custom_design'
-      && section.starterSemanticRole === 'gallery'
-    ))!;
+    const page = source.pages[0]!;
+    const about = sectionOn(page, 'about');
+    const gallery = sectionOn(page, 'gallery');
+
+    // Control: both modules publish from the untouched starter document.
+    expect(planTypes(customerPagePlanFor(source, state)))
+      .toEqual(expect.arrayContaining(['about', 'gallery']));
+
     const withHiddenAbout = setSectionVisible(source, about.id, false);
     const document = removeSection(withHiddenAbout, gallery.id);
+    const plan = customerPagePlanFor(document, state);
 
-    const outline = getCurrentPreviewOutline(document, state.recipe, {
-      galleryHasContent: true,
-    });
-    const plan = getCurrentPreviewPagePlan(outline, { hasPublicContact: false });
-    const kinds = plan.flatMap(page => page.sections.map(section => section.kind));
-
-    expect(kinds).not.toContain('about');
-    expect(kinds).not.toContain('gallery');
-    expect(outline.flatMap(page => page.sections.map(section => section.id)))
-      .not.toEqual(expect.arrayContaining([
-        'onboarding-preview-about',
-        'onboarding-preview-gallery',
-      ]));
+    expect(document.unusedSections.map(section => section.sectionType)).toEqual(['gallery']);
+    expect(planTypes(plan)).not.toContain('about');
+    expect(planTypes(plan)).not.toContain('gallery');
+    expect(planIds(plan)).not.toContain('onboarding-preview-about');
+    expect(planIds(plan)).not.toContain('onboarding-preview-gallery');
+    expect(plan.flatMap(planPage => planPage.sections.filter(section => section.injected)))
+      .toEqual([]);
   });
 
   it('never promotes an owner-added catalogue label into a native customer section', () => {
@@ -1028,19 +1226,20 @@ describe('OnboardingSitePreview shared profile composition', () => {
       visible: true,
     });
 
-    const outline = getCurrentPreviewOutline(document, state.recipe, {
-      policiesHaveContent: true,
-    });
-    const plan = getCurrentPreviewPagePlan(outline, { hasPublicContact: false });
+    const plan = customerPagePlanFor(document, state);
     const policySections = plan.flatMap(page => page.sections.filter(section => (
-      section.kind === 'policies'
+      section.sectionType === 'policies'
     )));
 
     expect(policySections).toEqual([expect.objectContaining({
       id: 'onboarding-preview-policies',
+      injected: true,
+      label: 'Before You Book',
+      sectionType: 'policies',
     })]);
-    expect(plan.flatMap(page => page.sections.map(section => section.id)))
-      .not.toContain('owner-labelled-policies');
+    expect(planIds(plan)).not.toContain('owner-labelled-policies');
+    // A legacy numbered placeholder publishes nothing at all.
+    expect(planTypes(plan)).not.toContain('section_08');
   });
 
   it.each([
@@ -1303,6 +1502,9 @@ describe('OnboardingSitePreview shared profile composition', () => {
 
   it('reuses one configured schedule and suppresses public status when hours are hidden or skipped', () => {
     const state = createDanielaFixtureState();
+    // Quick Book owns no Visit Us section, so the shared schedule reaches the
+    // customer through the injected Contact section.
+    state.recipe.starter = 'quick_book';
     state.recipe.aboutPreset = 'profile_quick_facts';
     state.reviewOptions.previewTimestamp = '2026-08-27T18:30:00.000Z';
     const view = render(
@@ -1355,6 +1557,9 @@ describe('OnboardingSitePreview shared profile composition', () => {
 
   it('respects address privacy, general-area Directions permission, and Booking-only contact', () => {
     const state = createDanielaFixtureState();
+    // Quick Book owns no Visit Us section, so Contact is the injected surface
+    // that publishes the location.
+    state.recipe.starter = 'quick_book';
     state.profile.location.exactAddress = '123 Example Avenue';
     state.profile.bookingOnlyContact = true;
     state.profile.clientContact.primaryNumber = '416-555-0100';

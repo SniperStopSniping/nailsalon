@@ -31,9 +31,13 @@ import {
   setSectionVisible,
   toggleNavigation,
   updateBookingSectionPresentation,
+  updateLibrarySectionSettings,
   updateSectionSettings,
+  updateSiteContent,
 } from './operations';
+import { getSectionRegistryEntry } from './section-library/registry';
 import { initializeStarter } from './starters';
+import { validateSiteBuilderDocument } from './validation';
 
 describe('section operations', () => {
   it('adds at an explicit position and normalizes order', () => {
@@ -50,36 +54,49 @@ describe('section operations', () => {
     );
 
     expect(document.pages[0]?.sections.map((section) => section.sectionType)).toEqual([
-      'section_01',
+      'announcement_bar',
       'section_11',
-      'section_02',
+      'hero',
+      'featured_services',
       'booking',
+      'final_cta',
+      'footer',
     ]);
     expect(document.pages[0]?.sections.map((section) => section.order)).toEqual([
-      0, 1, 2, 3,
+      0, 1, 2, 3, 4, 5, 6,
     ]);
-    expect(original.pages[0]?.sections).toHaveLength(3);
+    expect(original.pages[0]?.sections).toHaveLength(6);
   });
 
-  it('removes and restores the same instance with settings intact', () => {
-    const original = initializeStarter('quick_book', {
-      idFactory: createDeterministicIdFactory('restore'),
-    });
+  it('removes and restores the same placeholder instance with settings intact', () => {
+    const ids = createDeterministicIdFactory('restore');
+    const original = initializeStarter('quick_book', { idFactory: ids });
     const home = original.pages[0];
-    const section = home?.sections[1];
-    if (!home || !section) {
-      throw new Error('Missing starter section.');
+    if (!home) {
+      throw new Error('Missing Home.');
     }
-    const edited = updateSectionSettings(original, section.id, {
+    // Numbered placeholders are the only sections `updateSectionSettings`
+    // still edits; starter pages no longer contain any, so add one.
+    const withPlaceholder = addSection(
+      original,
+      { pageId: home.id, sectionType: 'section_11', position: 2 },
+      ids,
+    );
+    const section = withPlaceholder.pages[0]?.sections[1];
+    if (section?.sectionType !== 'section_11') {
+      throw new Error('Missing the owner-added placeholder.');
+    }
+    const edited = updateSectionSettings(withPlaceholder, section.id, {
       label: 'My future section',
       note: 'Keep this owner note.',
       size: 'large',
     });
     const removed = removeSection(edited, section.id);
 
-    expect(removed.pages[0]?.sections).toHaveLength(2);
+    expect(removed.pages[0]?.sections).toHaveLength(6);
     expect(removed.unusedSections[0]).toMatchObject({
       id: section.id,
+      sectionType: 'section_11',
       label: 'My future section',
       size: 'large',
       placeholderSettings: { note: 'Keep this owner note.' },
@@ -89,10 +106,57 @@ describe('section operations', () => {
     expect(restored.unusedSections).toHaveLength(0);
     expect(restored.pages[0]?.sections[1]).toMatchObject({
       id: section.id,
+      sectionType: 'section_11',
       label: 'My future section',
       size: 'large',
       placeholderSettings: { note: 'Keep this owner note.' },
     });
+  });
+
+  it('removes and restores a library instance with its settings intact', () => {
+    const original = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('restore-library'),
+    });
+    const home = original.pages[0];
+    const hero = home?.sections.find((section) => section.sectionType === 'hero');
+    if (!home || hero?.sectionType !== 'hero') {
+      throw new Error('Missing Hero.');
+    }
+    const customized = updateLibrarySectionSettings(original, hero.id, {
+      ...hero.settings,
+      preset: 'editorial_split',
+      primaryCtaLabel: 'Reserve your seat',
+    });
+    const removed = removeSection(customized, hero.id);
+
+    expect(removed.pages[0]?.sections.map((section) => section.sectionType)).toEqual([
+      'announcement_bar',
+      'featured_services',
+      'booking',
+      'final_cta',
+      'footer',
+    ]);
+    expect(removed.unusedSections[0]).toMatchObject({
+      id: hero.id,
+      sectionType: 'hero',
+      label: 'Salon intro',
+      settings: {
+        headline: { source: 'shared' },
+        intro: { source: 'shared' },
+        media: 'profile_photo',
+        preset: 'editorial_split',
+        primaryCtaLabel: 'Reserve your seat',
+        showLocationEyebrow: true,
+        showStatusLine: true,
+        version: 1,
+      },
+    });
+
+    const restored = restoreSection(removed, hero.id, home.id, 2);
+    expect(restored.unusedSections).toHaveLength(0);
+    expect(restored.pages[0]?.sections[1]).toEqual(
+      removed.unusedSections[0] && { ...removed.unusedSections[0], order: 1 },
+    );
   });
 
   it('supports numbered, up/down, and cross-page movement', () => {
@@ -115,7 +179,7 @@ describe('section operations', () => {
     }
     document = moveSection(document, section11.id, 2);
     expect(getSectionMoveAnnouncement(document, section11.id)).toBe(
-      'Section 11 moved to position 2 of 4.',
+      'Section 11 moved to position 2 of 7.',
     );
     document = moveSectionDown(document, section11.id);
     expect(document.pages[0]?.sections[2]?.id).toBe(section11.id);
@@ -168,7 +232,7 @@ describe('section operations', () => {
       requestedIds,
     );
     expect(reordered.pages[0]?.sections.map((section) => section.order)).toEqual([
-      0, 1, 2,
+      0, 1, 2, 3, 4, 5,
     ]);
     expect(original.pages[0]?.sections.map((section) => section.id)).toEqual(
       originalIds,
@@ -458,11 +522,9 @@ describe('Booking section operations and outcome invariants', () => {
     document = addSection(document, { pageId: gallery.id, sectionType: 'section_11' }, ids);
     document = addSection(document, { pageId: gallery.id, sectionType: 'section_12' }, ids);
     const baseline = structuredClone(document);
-    const requestedOrder = [
-      home.sections[1]?.id,
-      booking.id,
-      home.sections[0]?.id,
-    ].filter((id): id is string => Boolean(id));
+    const requestedOrder = [...home.sections]
+      .reverse()
+      .map((section) => section.id);
 
     const committed = commitSectionMove(document, {
       sourcePageId: home.id,
@@ -474,7 +536,13 @@ describe('Booking section operations and outcome invariants', () => {
     expect(document).toEqual(baseline);
     expect(committed.pages.find((page) => page.id === home.id)?.sections.map(
       (section) => section.label,
-    )).toEqual(['Section 02', 'Section 01']);
+    )).toEqual([
+      'Footer',
+      'Final Booking CTA',
+      'Featured Services',
+      'Salon intro',
+      'Announcement Bar',
+    ]);
     expect(committed.pages.find((page) => page.id === gallery.id)?.sections.map(
       (section) => section.label,
     )).toEqual(['Booking', 'Section 11', 'Section 12']);
@@ -595,5 +663,423 @@ describe('Booking section operations and outcome invariants', () => {
       'Your site needs at least one visible way for clients to start booking.',
     );
     expect(() => removePage(document, home.id)).toThrow('Home cannot be removed.');
+  });
+});
+
+describe('library section operations', () => {
+  const captureError = (operation: () => unknown): unknown => {
+    try {
+      operation();
+    } catch (error) {
+      return error;
+    }
+    throw new Error('Expected the operation to fail.');
+  };
+
+  it('adds a library section with registry defaults and with a preset', () => {
+    const original = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('library'),
+    });
+    const home = original.pages[0];
+    if (!home) {
+      throw new Error('Missing Home.');
+    }
+
+    const plain = addSection(
+      original,
+      { pageId: home.id, sectionType: 'offers' },
+      createDeterministicIdFactory('plain'),
+    );
+    const added = plain.pages[0]?.sections.at(-1);
+    if (added?.sectionType !== 'offers') {
+      throw new Error('Missing the added Offers section.');
+    }
+    expect(added).toEqual({
+      id: 'section_plain_1',
+      sectionType: 'offers',
+      label: 'Offers',
+      order: 6,
+      visible: true,
+      settings: { offerIds: [], preset: 'cards', version: 1 },
+    });
+    expect(added.settings).toEqual(
+      getSectionRegistryEntry('offers').defaultSettings(),
+    );
+
+    const withPreset = addSection(
+      original,
+      {
+        pageId: home.id,
+        sectionType: 'offers',
+        position: 1,
+        presetId: 'single_banner',
+      },
+      createDeterministicIdFactory('preset'),
+    );
+    expect(withPreset.pages[0]?.sections[0]).toEqual({
+      id: 'section_preset_1',
+      sectionType: 'offers',
+      label: 'Offers',
+      order: 0,
+      visible: true,
+      settings: { offerIds: [], preset: 'single_banner', version: 1 },
+    });
+
+    // A preset the registry does not publish is ignored, not persisted.
+    const unknownPreset = addSection(
+      original,
+      { pageId: home.id, sectionType: 'offers', presetId: 'mega_banner' },
+      createDeterministicIdFactory('unknown-preset'),
+    );
+    expect(unknownPreset.pages[0]?.sections.at(-1)).toMatchObject({
+      sectionType: 'offers',
+      settings: { preset: 'cards' },
+    });
+  });
+
+  it('hard-stops a second instance of a per-page exclusive type', () => {
+    const ids = createDeterministicIdFactory('hard-limit');
+    let document = initializeStarter('quick_book', { idFactory: ids });
+    const home = document.pages[0];
+    if (!home) {
+      throw new Error('Missing Home.');
+    }
+
+    const error = captureError(() =>
+      addSection(document, { pageId: home.id, sectionType: 'hero' }, ids),
+    );
+    expect(error).toBeInstanceOf(BuilderOperationError);
+    expect((error as BuilderOperationError).code).toBe('section_limit');
+    expect((error as BuilderOperationError).message).toBe(
+      'Hero is already on this page (maximum 1 per page). Edit the existing one instead.',
+    );
+    expect(
+      document.pages[0]?.sections.filter((section) => section.sectionType === 'hero'),
+    ).toHaveLength(1);
+
+    // The hard limit is per page, so a second page may still carry a Hero.
+    document = addPage(document, { name: 'Studio' }, ids);
+    const studio = document.pages.find((page) => page.name === 'Studio');
+    if (!studio) {
+      throw new Error('Missing Studio page.');
+    }
+    document = addSection(document, { pageId: studio.id, sectionType: 'hero' }, ids);
+    expect(
+      document.pages.find((page) => page.id === studio.id)?.sections.map(
+        (section) => section.sectionType,
+      ),
+    ).toEqual(['hero']);
+
+    // Soft-limited types warn elsewhere; the operation itself still applies.
+    document = addSection(
+      document,
+      { pageId: home.id, sectionType: 'featured_services' },
+      ids,
+    );
+    expect(
+      document.pages[0]?.sections.filter(
+        (section) => section.sectionType === 'featured_services',
+      ),
+    ).toHaveLength(2);
+  });
+
+  it('enforces the hard per-page limit on cross-page moves and restores', () => {
+    const ids = createDeterministicIdFactory('hard-limit-invariant');
+    let document = initializeStarter('quick_book', { idFactory: ids });
+    const home = document.pages[0];
+    if (!home) {
+      throw new Error('Missing Home.');
+    }
+
+    // Cross-page move: a hero legally added to a second page may not land on
+    // a page that already has one.
+    document = addPage(document, { name: 'Studio' }, ids);
+    const studio = document.pages.find(page => page.name === 'Studio');
+    if (!studio) {
+      throw new Error('Missing Studio page.');
+    }
+    document = addSection(document, { pageId: studio.id, sectionType: 'hero' }, ids);
+    const movedHeroId = document.pages
+      .find(page => page.id === studio.id)?.sections[0]?.id;
+    if (!movedHeroId) {
+      throw new Error('Missing Studio hero.');
+    }
+    const moveError = captureError(() =>
+      moveSectionToPage(document, movedHeroId, home.id),
+    );
+    expect(moveError).toBeInstanceOf(BuilderOperationError);
+    expect((moveError as BuilderOperationError).code).toBe('section_limit');
+    expect((moveError as BuilderOperationError).message).toBe(
+      'Hero is already on this page (maximum 1 per page). Edit the existing one instead.',
+    );
+
+    // Restore: a removed footer may not return once a replacement exists.
+    const footerId = home.sections.find(section => section.sectionType === 'footer')?.id;
+    if (!footerId) {
+      throw new Error('Missing Quick Book footer.');
+    }
+    document = removeSection(document, footerId);
+    document = addSection(document, { pageId: home.id, sectionType: 'footer' }, ids);
+    const restoreError = captureError(() =>
+      restoreSection(document, footerId, home.id),
+    );
+    expect(restoreError).toBeInstanceOf(BuilderOperationError);
+    expect((restoreError as BuilderOperationError).code).toBe('section_limit');
+    expect((restoreError as BuilderOperationError).message).toBe(
+      'Footer is already on this page (maximum 1 per page). Edit the existing one instead.',
+    );
+    // The failed operations changed nothing: the document still validates.
+    expect(validateSiteBuilderDocument(document).success).toBe(true);
+  });
+
+  it('refuses placeholder edits on library, Booking, and Custom Design sections', () => {
+    const ids = createDeterministicIdFactory('placeholder-edits');
+    const document = addSection(
+      initializeStarter('quick_book', { idFactory: ids }),
+      { pageId: 'page_placeholder-edits_1', sectionType: 'custom_design' },
+      ids,
+    );
+    const byType = (sectionType: string) =>
+      document.pages[0]?.sections.find(
+        (section) => section.sectionType === sectionType,
+      );
+    const hero = byType('hero');
+    const footer = byType('footer');
+    const booking = byType('booking');
+    const customDesign = byType('custom_design');
+    if (!hero || !footer || !booking || !customDesign) {
+      throw new Error('Missing Quick Book structure.');
+    }
+
+    for (const section of [hero, footer]) {
+      expect(() =>
+        updateSectionSettings(document, section.id, { label: 'Renamed' }),
+      ).toThrow('Use the section’s own settings to edit this section.');
+      expect(() =>
+        updateSectionSettings(document, section.id, { size: 'large' }),
+      ).toThrow('Use the section’s own settings to edit this section.');
+    }
+    expect(() =>
+      updateSectionSettings(document, booking.id, { note: 'nope' }),
+    ).toThrow('Use Booking presentation settings to edit this section.');
+    expect(() =>
+      updateSectionSettings(document, customDesign.id, { note: 'nope' }),
+    ).toThrow('Use Custom Design settings to edit this section.');
+  });
+
+  it('normalizes library settings through the owning registry entry', () => {
+    const document = initializeStarter('one_page', {
+      idFactory: createDeterministicIdFactory('normalize'),
+    });
+    const announcement = document.pages[0]?.sections.find(
+      (section) => section.sectionType === 'announcement_bar',
+    );
+    const quickInfo = document.pages[0]?.sections.find(
+      (section) => section.sectionType === 'quick_info',
+    );
+    const booking = document.pages[0]?.sections.find(
+      (section) => section.sectionType === 'booking',
+    );
+    if (!announcement || !quickInfo || !booking) {
+      throw new Error('Missing One-page structure.');
+    }
+
+    const announced = updateLibrarySectionSettings(document, announcement.id, {
+      action: { kind: 'url', label: 'See the offer', url: 'https://example.com/offer' },
+      dismissible: 'nope',
+      extra: 'dropped',
+      message: 'x'.repeat(140),
+      reassurance: 'y'.repeat(100),
+      tone: 'loud',
+      version: 9,
+    });
+    expect(
+      announced.pages[0]?.sections.find((section) => section.id === announcement.id),
+    ).toMatchObject({
+      settings: {
+        action: { kind: 'url', label: 'See the offer', url: 'https://example.com/offer' },
+        dismissible: true,
+        message: 'x'.repeat(120),
+        reassurance: 'y'.repeat(90),
+        tone: 'tint',
+        version: 1,
+      },
+    });
+
+    const facts = updateLibrarySectionSettings(announced, quickInfo.id, {
+      facts: [
+        'minimum_notice',
+        'not_a_fact',
+        'open_status',
+        'location',
+        'visit_mode',
+        'new_clients',
+      ],
+      version: 1,
+    });
+    expect(
+      facts.pages[0]?.sections.find((section) => section.id === quickInfo.id),
+    ).toMatchObject({
+      settings: {
+        facts: ['minimum_notice', 'open_status', 'location', 'visit_mode'],
+        version: 1,
+      },
+    });
+
+    // Wholly unusable input falls back to the registry defaults rather than
+    // persisting anything the type does not recognize.
+    const reset = updateLibrarySectionSettings(facts, quickInfo.id, 'garbage');
+    expect(
+      reset.pages[0]?.sections.find((section) => section.id === quickInfo.id),
+    ).toMatchObject({
+      settings: getSectionRegistryEntry('quick_info').defaultSettings(),
+    });
+
+    expect(() => updateLibrarySectionSettings(document, booking.id, {})).toThrow(
+      'This section does not use library settings.',
+    );
+  });
+
+  it('upserts, reorders, and removes shared site content records', () => {
+    const document = initializeStarter('one_page', {
+      idFactory: createDeterministicIdFactory('site-content'),
+    });
+    expect(document.siteContent).toEqual({
+      faq: [],
+      offers: [],
+      reviews: [],
+      staff: [],
+    });
+    const ana = {
+      id: 'review_ana',
+      quote: 'The best shape I have ever had.',
+      authorName: 'Ana',
+      rating: 5,
+      source: 'client' as const,
+      visible: true,
+    };
+    const mia = {
+      id: 'review_mia',
+      quote: 'Worth the trip across town.',
+      authorName: 'Mia',
+      rating: null,
+      source: 'google' as const,
+      visible: true,
+    };
+
+    let next = updateSiteContent(document, {
+      collection: 'reviews',
+      operation: 'upsert',
+      record: ana,
+    });
+    next = updateSiteContent(next, {
+      collection: 'reviews',
+      operation: 'upsert',
+      record: mia,
+    });
+    expect(next.siteContent.reviews.map((review) => review.id)).toEqual([
+      'review_ana',
+      'review_mia',
+    ]);
+
+    // Upserting an existing id edits in place instead of appending.
+    next = updateSiteContent(next, {
+      collection: 'reviews',
+      operation: 'upsert',
+      record: { ...ana, quote: 'Edited in place.' },
+    });
+    expect(next.siteContent.reviews.map((review) => review.id)).toEqual([
+      'review_ana',
+      'review_mia',
+    ]);
+    expect(next.siteContent.reviews[0]?.quote).toBe('Edited in place.');
+
+    next = updateSiteContent(next, {
+      collection: 'reviews',
+      operation: 'reorder',
+      orderedIds: ['review_mia', 'review_ana'],
+    });
+    expect(next.siteContent.reviews.map((review) => review.id)).toEqual([
+      'review_mia',
+      'review_ana',
+    ]);
+
+    expect(() =>
+      updateSiteContent(next, {
+        collection: 'reviews',
+        operation: 'reorder',
+        orderedIds: ['review_mia'],
+      }),
+    ).toThrow('Reordering must include every existing record exactly once.');
+    expect(() =>
+      updateSiteContent(next, {
+        collection: 'reviews',
+        operation: 'remove',
+        recordId: 'review_missing',
+      }),
+    ).toThrow('Content record not found: review_missing');
+
+    const removed = updateSiteContent(next, {
+      collection: 'reviews',
+      operation: 'remove',
+      recordId: 'review_mia',
+    });
+    expect(removed.siteContent).toEqual({
+      faq: [],
+      offers: [],
+      reviews: [{ ...ana, quote: 'Edited in place.' }],
+      staff: [],
+    });
+    // Other collections are untouched by a reviews edit.
+    expect(removed.pages).toEqual(document.pages);
+  });
+
+  it('leaves a bound section reference dangling when its record is removed', () => {
+    const document = initializeStarter('one_page', {
+      idFactory: createDeterministicIdFactory('dangling'),
+    });
+    const reviewsSection = document.pages[0]?.sections.find(
+      (section) => section.sectionType === 'reviews',
+    );
+    if (!reviewsSection) {
+      throw new Error('Missing Reviews section.');
+    }
+    const record = {
+      id: 'review_ana',
+      quote: 'The best shape I have ever had.',
+      authorName: 'Ana',
+      rating: 5,
+      source: 'client' as const,
+      visible: true,
+    };
+
+    const withReview = updateSiteContent(document, {
+      collection: 'reviews',
+      operation: 'upsert',
+      record,
+    });
+    const bound = updateLibrarySectionSettings(withReview, reviewsSection.id, {
+      preset: 'editorial_quote',
+      reviewIds: ['review_ana'],
+      showRatings: false,
+      version: 1,
+    });
+    const removed = updateSiteContent(bound, {
+      collection: 'reviews',
+      operation: 'remove',
+      recordId: 'review_ana',
+    });
+
+    expect(removed.siteContent.reviews).toEqual([]);
+    expect(
+      removed.pages[0]?.sections.find((section) => section.id === reviewsSection.id),
+    ).toMatchObject({
+      settings: {
+        preset: 'editorial_quote',
+        reviewIds: ['review_ana'],
+        showRatings: false,
+        version: 1,
+      },
+    });
   });
 });

@@ -59,8 +59,10 @@ describe('Builder handoff business metadata', () => {
     expect(within(metadata).getByRole('link', { name: 'Book now' })).toHaveAttribute('href', '#booking');
     expect(globalThis.document.querySelector('#booking'))
       .toHaveAttribute('data-section-type', 'booking');
+    // Quick Book's hero carries the explicit 'Salon intro' label; its services
+    // section takes the registry default label 'Featured Services'.
     expect(screen.getByRole('heading', { name: 'Salon intro' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Services' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Featured Services' })).toBeVisible();
     expect(screen.queryByText(/Future section/u)).not.toBeInTheDocument();
 
     view.rerender(

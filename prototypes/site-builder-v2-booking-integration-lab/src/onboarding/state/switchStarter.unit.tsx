@@ -40,10 +40,14 @@ const expectStarterShape = (
   document: SiteBuilderDocument,
   starter: StarterId,
 ) => {
+  // Schema v2 starters emit the full named section library (see
+  // `STARTER_PAGES` in src/model/starters.ts), so the per-starter totals are
+  // the sum of those definitions, excluding any Custom Design the onboarding
+  // Canva flow added on top.
   const expected = {
-    multi_page: { pages: 5, sections: 8 },
-    one_page: { pages: 1, sections: 6 },
-    quick_book: { pages: 1, sections: 3 },
+    multi_page: { pages: 5, sections: 23 },
+    one_page: { pages: 1, sections: 14 },
+    quick_book: { pages: 1, sections: 6 },
   }[starter];
   expect(document.originStarter).toBe(starter);
   expect(document.pages).toHaveLength(expected.pages);

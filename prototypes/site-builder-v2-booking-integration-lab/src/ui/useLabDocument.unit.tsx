@@ -24,7 +24,18 @@ describe('useLabDocument onboarding profile synchronization', () => {
 
     expect(hook.result.current.document?.siteName).toBe('Renamed Studio');
     expect(hook.result.current.document?.originStarter).toBe('quick_book');
-    expect(hook.result.current.document?.pages[0]?.sections).toHaveLength(3);
+    // Renaming touches only siteName: the Quick Book starter keeps its six
+    // library sections untouched.
+    expect(hook.result.current.document?.pages[0]?.sections.map(
+      (section) => section.sectionType,
+    )).toEqual([
+      'announcement_bar',
+      'hero',
+      'featured_services',
+      'booking',
+      'final_cta',
+      'footer',
+    ]);
   });
 
   it('keeps the current document when its saved browser record cannot be cleared', async () => {

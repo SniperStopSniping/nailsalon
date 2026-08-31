@@ -151,13 +151,15 @@ describe('Canva placement', () => {
     });
     const location = locateCanonicalBookingPage(quick);
     expect(location?.page.name).toBe('Home');
+    // Quick Book Home is announcement_bar, hero, featured_services, booking,
+    // final_cta, footer — Booking sits at index 3.
     expect(getCanvaPlacementTarget(quick, 'before_booking')).toMatchObject({
       pageId: location?.page.id,
-      position: 3,
+      position: 4,
     });
     expect(getCanvaPlacementTarget(quick, 'after_booking')).toMatchObject({
       pageId: location?.page.id,
-      position: 4,
+      position: 5,
     });
 
     const multi = initializeStarter('multi_page', {
@@ -288,9 +290,13 @@ describe('integrateCanvaDesign', () => {
 
     const bookingPage = locateCanonicalBookingPage(state.document)?.page;
     expect(bookingPage?.sections.map((section) => section.sectionType)).toEqual([
-      'section_03',
+      'featured_services',
       'custom_design',
       'booking',
+      'deposits_cancellations',
+      'policies',
+      'faq',
+      'footer',
     ]);
     const customDesign = bookingPage?.sections.find(
       (section) => section.sectionType === 'custom_design',

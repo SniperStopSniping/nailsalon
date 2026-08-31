@@ -2,14 +2,20 @@ import { describe, expect, it } from 'vitest';
 
 import { createDefaultCustomDesignSettings } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/settings';
 import type { CustomDesignSettings } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/types';
+import {
+  buildCustomerPagePlan,
+  type SitePlanPage,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/site-plan';
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
+import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
 import { ONBOARDING_EXAMPLE_GALLERY_IMAGES } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/gallery-examples';
 import { hasMeaningfulPublishablePolicies } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/policies';
 import {
-  getCurrentPreviewOutline,
-  getCurrentPreviewPagePlan,
-} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/preview/OnboardingSitePreview';
+  deriveSiteLibraryContext,
+  deriveSitePlanToggles,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/site-library-context';
+import type { OnboardingLabState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/types';
 import { compileOnboardingToSiteDocument } from './compiler';
 import { createSavedSitePreviewModel } from './saved-preview';
 import { createPersistableOnboardingDraft } from './snapshot';
@@ -49,6 +55,30 @@ const accountDraft = () => {
   });
   return { document, state };
 };
+
+/**
+ * The in-progress (live) customer plan: the same shared ladder the preview
+ * component runs, fed straight from the working document and lab state.
+ */
+const livePagePlan = (
+  document: SiteBuilderDocument,
+  state: OnboardingLabState,
+  customDesignFallback?: {
+    id: string;
+    placement: 'before_booking' | 'after_booking';
+    settings: CustomDesignSettings;
+  },
+): SitePlanPage[] => buildCustomerPagePlan(document, {
+  context: deriveSiteLibraryContext(state, document),
+  ...(customDesignFallback ? { customDesignFallback } : {}),
+  toggles: deriveSitePlanToggles(state),
+});
+
+const topology = (pages: readonly SitePlanPage[]) => pages.map(page => ({
+  id: page.id,
+  label: page.label,
+  sectionTypes: page.sections.map(section => section.sectionType),
+}));
 
 describe('createSavedSitePreviewModel', () => {
   it('preserves accepted page/section identity and keeps profile and logo roles independent', () => {
@@ -101,13 +131,12 @@ describe('createSavedSitePreviewModel', () => {
       .toEqual(document.pages.map(page => page.id));
     expect(model.document.pages.flatMap(page => page.sections.map(section => section.id)))
       .toEqual(document.pages.flatMap(page => page.sections.map(section => section.id)));
+    // The saved plan re-derives the persisted compiled tree exactly — every
+    // compiled section, in compiled order, including the injected ids.
     expect(model.pagePlan.flatMap(page => page.sections.map(section => section.id)))
-      .toEqual(compiled.pages.flatMap(page => page.sections.flatMap(section => (
-        ['about', 'booking', 'contact', 'custom_design', 'gallery', 'hero', 'policies']
-          .includes(section.type)
-          ? [section.id]
-          : []
-      ))));
+      .toEqual(compiled.pages.flatMap(page => page.sections.map(section => section.id)));
+    expect(model.pagePlan.flatMap(page => page.sections.map(section => section.sectionType)))
+      .toEqual(compiled.pages.flatMap(page => page.sections.map(section => section.type)));
     expect(model.state.profile.profilePhoto).toMatchObject({
       id: 'profile-local',
       previewUrl: '/api/onboarding/v1/media/server-profile',
@@ -252,9 +281,11 @@ describe('createSavedSitePreviewModel', () => {
     ]));
     expect(model.media).toHaveLength(2);
     expect(savedCustom.settings.images[0]?.assetId).not.toBe('server-profile-collision');
+    // Remapping the asset ids leaves the customer topology untouched.
+    expect(topology(model.pagePlan)).toEqual(topology(livePagePlan(document, state)));
   });
 
-  it('uses the persisted compiled customer pages instead of rebuilding the raw starter outline', () => {
+  it('derives the saved customer plan from the persisted builder document, not the compiled page array', () => {
     const { document, state } = accountDraft();
     const { snapshot } = createPersistableOnboardingDraft(
       state,
@@ -267,9 +298,15 @@ describe('createSavedSitePreviewModel', () => {
       siteId: 'account-site',
       snapshot,
     });
+    const expectedSections = compiled.pages.flatMap(page => page.sections.map(section => ({
+      id: section.id,
+      type: section.type,
+    })));
     const home = compiled.pages[0]!;
     const hero = home.sections.find(section => section.type === 'hero')!;
     const booking = home.sections.find(section => section.type === 'booking')!;
+    // Scrambling and truncating the persisted compiled page array must not
+    // move the saved plan: it is re-derived from the Builder document.
     compiled.pages = [{
       ...home,
       sections: [
@@ -285,17 +322,15 @@ describe('createSavedSitePreviewModel', () => {
     });
 
     expect(model.document.pages[0]?.sections.length).toBeGreaterThan(2);
-    expect(model.pagePlan).toEqual([{
-      id: home.id,
-      label: home.label,
-      sections: [
-        { id: hero.id, kind: 'hero', label: hero.presentation.label },
-        { id: booking.id, kind: 'booking', label: booking.presentation.label },
-      ],
-    }]);
+    expect(model.pagePlan).toHaveLength(1);
+    expect(model.pagePlan[0]).toMatchObject({ id: home.id, label: home.label });
+    expect(model.pagePlan.flatMap(page => page.sections.map(section => ({
+      id: section.id,
+      type: section.sectionType,
+    })))).toEqual(expectedSections);
   });
 
-  it('keeps public Contact after after-Booking Custom Design in live and saved previews', () => {
+  it('keeps an after-Booking Custom Design and public Contact in the same place live and saved', () => {
     const { state } = accountDraft();
     state.recipe.aboutEnabled = false;
     state.recipe.canvaEnabled = true;
@@ -340,23 +375,26 @@ describe('createSavedSitePreviewModel', () => {
       media: [],
       snapshot,
     });
-    const live = getCurrentPreviewPagePlan(
-      getCurrentPreviewOutline(document, state.recipe, {
-        contactHasContent: true,
-        galleryHasContent: false,
-        includeOptionalSections: true,
-        policiesHaveContent: true,
-      }),
-      { hasPublicContact: true },
-    );
-    const topology = (pages: typeof live) => pages.map(page => ({
-      label: page.label,
-      sectionKinds: page.sections.map(section => section.kind),
-    }));
+    const live = livePagePlan(document, state, {
+      id: 'custom-after-booking',
+      placement: state.canva.placement,
+      settings: customSettings,
+    });
 
     expect(topology(live)).toEqual([{
+      id: document.pages[0]!.id,
       label: 'Home',
-      sectionKinds: ['hero', 'booking', 'policies', 'custom_design', 'contact'],
+      sectionTypes: [
+        'hero',
+        'featured_services',
+        'booking',
+        'deposits_cancellations',
+        'policies',
+        'contact',
+        'final_cta',
+        'footer',
+        'custom_design',
+      ],
     }]);
     expect(topology(saved.pagePlan)).toEqual(topology(live));
   });
@@ -388,21 +426,17 @@ describe('createSavedSitePreviewModel', () => {
       media: [],
       snapshot,
     });
-    const live = getCurrentPreviewPagePlan(
-      getCurrentPreviewOutline(document, state.recipe, {
-        contactHasContent: false,
-        galleryHasContent: false,
-        includeOptionalSections: true,
-        policiesHaveContent: hasMeaningfulPublishablePolicies(state.profile.policies),
-      }),
-      { hasPublicContact: false },
-    );
-    const policyKinds = (pages: typeof live) => pages.flatMap(page => (
-      page.sections.filter(section => section.kind === 'policies')
+    const live = livePagePlan(document, state);
+    const policySections = (pages: readonly SitePlanPage[]) => pages.flatMap(page => (
+      page.sections.filter(section => (
+        section.sectionType === 'policies'
+        || section.sectionType === 'deposits_cancellations'
+      ))
     ));
 
-    expect(policyKinds(live)).toEqual([]);
-    expect(policyKinds(saved.pagePlan)).toEqual([]);
+    expect(hasMeaningfulPublishablePolicies(state.profile.policies)).toBe(false);
+    expect(policySections(live)).toEqual([]);
+    expect(policySections(saved.pagePlan)).toEqual([]);
   });
 
   it.each(['hidden', 'unused'] as const)(
@@ -453,21 +487,18 @@ describe('createSavedSitePreviewModel', () => {
         media: [],
         snapshot,
       });
-      const live = getCurrentPreviewPagePlan(
-        getCurrentPreviewOutline(document, state.recipe, {
-          contactHasContent: false,
-          galleryHasContent: false,
-          includeOptionalSections: true,
-          policiesHaveContent: false,
-        }),
-        { hasPublicContact: false },
-      );
-      const customKinds = (pages: typeof live) => pages.flatMap(page => (
-        page.sections.filter(section => section.kind === 'custom_design')
+      const live = livePagePlan(document, state, {
+        id: customSection.id,
+        placement: state.canva.placement,
+        settings: customSettings,
+      });
+      const customSections = (pages: readonly SitePlanPage[]) => pages.flatMap(page => (
+        page.sections.filter(section => section.sectionType === 'custom_design')
       ));
 
-      expect(customKinds(live)).toEqual([]);
-      expect(customKinds(saved.pagePlan)).toEqual([]);
+      expect(customSections(live)).toEqual([]);
+      expect(customSections(saved.pagePlan)).toEqual([]);
+      expect(topology(saved.pagePlan)).toEqual(topology(live));
     },
   );
 
@@ -499,20 +530,15 @@ describe('createSavedSitePreviewModel', () => {
         media: [],
         snapshot,
       });
-      const live = getCurrentPreviewPagePlan(
-        getCurrentPreviewOutline(document, state.recipe, {
-          galleryHasContent: true,
-          includeOptionalSections: true,
-          policiesHaveContent: false,
-        }),
-        { hasPublicContact: false },
-      );
-      const topology = (pages: typeof live) => pages.map(page => ({
-        id: page.id,
-        sectionKinds: page.sections.map(section => section.kind),
-      }));
+      const live = livePagePlan(document, state);
 
+      expect(live.length).toBeGreaterThan(0);
       expect(topology(saved.pagePlan)).toEqual(topology(live));
+      // The persisted compiled record and the re-derived saved plan agree
+      // section-for-section, so a saved site never drifts from what the owner
+      // accepted in the live preview.
+      expect(saved.pagePlan.flatMap(page => page.sections.map(section => section.sectionType)))
+        .toEqual(compiled.pages.flatMap(page => page.sections.map(section => section.type)));
     },
   );
 });

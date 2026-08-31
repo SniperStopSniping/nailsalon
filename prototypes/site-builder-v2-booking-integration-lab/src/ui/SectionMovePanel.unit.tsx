@@ -99,7 +99,7 @@ describe('shared section movement rows', () => {
     await user.tab();
 
     expect(onMove).not.toHaveBeenCalled();
-    expect(bookingPosition).toHaveValue(3);
+    expect(bookingPosition).toHaveValue(4);
   });
 
   it('moves only on Enter and keeps focus on the moved section position field', async () => {
@@ -146,16 +146,16 @@ describe('shared section movement rows', () => {
     });
     await user.click(bookingPosition);
     await user.clear(bookingPosition);
-    await user.type(bookingPosition, '4{Enter}');
+    await user.type(bookingPosition, '7{Enter}');
 
-    const error = screen.getByText('Enter a position from 1 to 3.', {
+    const error = screen.getByText('Enter a position from 1 to 6.', {
       selector: '.position-input__error',
     });
-    expect(error).toHaveTextContent('Enter a position from 1 to 3.');
+    expect(error).toHaveTextContent('Enter a position from 1 to 6.');
     expect(bookingPosition).toHaveAttribute('aria-invalid', 'true');
     expect(bookingPosition).toHaveFocus();
     expect(onMove).not.toHaveBeenCalled();
-    expect(onAnnounce).toHaveBeenCalledWith('Enter a position from 1 to 3.');
+    expect(onAnnounce).toHaveBeenCalledWith('Enter a position from 1 to 6.');
   });
 
   it('keeps boundary arrows focusable, clearly unavailable, and singly announced', async () => {
@@ -171,10 +171,10 @@ describe('shared section movement rows', () => {
     );
 
     const firstUnavailable = screen.getByRole('button', {
-      name: 'Move Section 01 up, unavailable — already first',
+      name: 'Move Announcement Bar up, unavailable — already first',
     });
     const lastUnavailable = screen.getByRole('button', {
-      name: 'Move Booking down, unavailable — already last',
+      name: 'Move Footer down, unavailable — already last',
     });
     expect(firstUnavailable).toHaveAttribute('aria-disabled', 'true');
     expect(lastUnavailable).toHaveAttribute('aria-disabled', 'true');
@@ -186,11 +186,11 @@ describe('shared section movement rows', () => {
     expect(onMove).not.toHaveBeenCalled();
     expect(onAnnounce).toHaveBeenNthCalledWith(
       1,
-      'Section 01 is already at the first position.',
+      'Announcement Bar is already at the first position.',
     );
     expect(onAnnounce).toHaveBeenNthCalledWith(
       2,
-      'Booking is already at the last position.',
+      'Footer is already at the last position.',
     );
     expect(onAnnounce).toHaveBeenCalledTimes(2);
   });
@@ -309,7 +309,7 @@ describe('shared SectionMovePanel states', () => {
       ...original,
       pages: original.pages.map((candidate) => {
         if (candidate.name === 'Gallery') return { ...candidate, visible: false };
-        if (candidate.name === 'About') return { ...candidate, visibleInNavigation: false };
+        if (candidate.name === 'Team') return { ...candidate, visibleInNavigation: false };
         return candidate;
       }),
     };
@@ -351,13 +351,13 @@ describe('shared SectionMovePanel states', () => {
       'Unavailable — Your site needs at least one visible way',
     );
     const notInNavigation = within(dialog).getByRole('button', {
-      name: /About.*Not in navigation/,
+      name: /Team.*Not in navigation/,
     });
     expect(notInNavigation).not.toHaveAttribute('aria-disabled');
     await user.click(notInNavigation);
-    expect(onMoveToPage).toHaveBeenCalledWith(
-      document.pages.find((page) => page.name === 'About')?.id,
-    );
+    const teamPageId = document.pages.find((page) => page.name === 'Team')?.id;
+    expect(teamPageId).toBeTruthy();
+    expect(onMoveToPage).toHaveBeenCalledWith(teamPageId);
 
     view.rerender(
       <SectionMovePanel

@@ -13,6 +13,7 @@ import {
   undoHistory,
 } from './history';
 import { createDeterministicIdFactory } from './ids';
+import { updateLibrarySectionSettings, updateSiteContent } from './operations';
 import { initializeStarter } from './starters';
 import type { SiteBuilderDocument } from './types';
 import {
@@ -284,6 +285,64 @@ describe('structural history', () => {
       (section) => section.id === booking.id,
     )).toMatchObject({ settings: cleanList });
   });
+
+  it('records library settings and shared content edits as single undo entries', () => {
+    const initial = initializeStarter('one_page', {
+      idFactory: createDeterministicIdFactory('library-history'),
+    });
+    const hero = initial.pages[0]?.sections.find(
+      (section) => section.sectionType === 'hero',
+    );
+    if (hero?.sectionType !== 'hero') {
+      throw new Error('Missing Hero.');
+    }
+    const member = {
+      id: 'staff_ana',
+      name: 'Ana',
+      title: 'Nail artist',
+      specialties: ['Structured gel'],
+      acceptsBookings: true,
+    };
+    let history = createHistoryState(initial);
+
+    history = applyHistoryCommand(history, {
+      type: 'update_library_section_settings',
+      sectionId: hero.id,
+      settings: { ...hero.settings, preset: 'full_bleed', showStatusLine: false },
+    });
+    expect(history.past).toHaveLength(1);
+    expect(history.present.pages[0]?.sections.find(
+      (section) => section.id === hero.id,
+    )).toMatchObject({
+      settings: {
+        headline: { source: 'shared' },
+        intro: { source: 'shared' },
+        media: 'profile_photo',
+        preset: 'full_bleed',
+        primaryCtaLabel: 'Book an appointment',
+        showLocationEyebrow: true,
+        showStatusLine: false,
+        version: 1,
+      },
+    });
+
+    history = applyHistoryCommand(history, {
+      type: 'update_site_content',
+      input: { collection: 'staff', operation: 'upsert', record: member },
+    });
+    expect(history.past).toHaveLength(2);
+    expect(history.present.siteContent.staff).toEqual([member]);
+
+    history = undoHistory(history);
+    expect(history.present.siteContent.staff).toEqual([]);
+    expect(history.present.pages[0]?.sections.find(
+      (section) => section.id === hero.id,
+    )).toMatchObject({ settings: { preset: 'full_bleed' } });
+
+    history = undoHistory(history);
+    expect(history.present).toEqual(initial);
+    expect(canUndoHistory(history)).toBe(false);
+  });
 });
 
 describe('validation, import, and export', () => {
@@ -300,10 +359,71 @@ describe('validation, import, and export', () => {
     expect(imported).toEqual({ success: true, document });
     expect(JSON.parse(json)).toEqual(document);
     expect(json).not.toContain('Russian Manicure');
-    expect(json).not.toContain('serviceId');
+    // Sections bind to the canonical menu by id; the exported document must
+    // still carry no customer selection state. `serviceIds` below is the
+    // Featured Services binding, so the guard targets the exact customer keys.
+    expect(json).not.toContain('"serviceId"');
     expect(json).not.toContain('addOnIds');
     expect(json).not.toContain('detailServiceId');
     expect(json).not.toContain('query');
+    const featuredServices = document.pages
+      .flatMap((page) => page.sections)
+      .find((section) => section.sectionType === 'featured_services');
+    expect(featuredServices).toMatchObject({
+      settings: { preset: 'grid', serviceIds: [], source: 'featured', version: 1 },
+    });
+    expect(json).toContain('"serviceIds": []');
+    expect(JSON.parse(json)).toMatchObject({
+      schemaVersion: 2,
+      siteContent: { faq: [], offers: [], reviews: [], staff: [] },
+    });
+  });
+
+  it('round-trips shared content and customized library settings', () => {
+    const initial = initializeStarter('one_page', {
+      idFactory: createDeterministicIdFactory('content-roundtrip'),
+    });
+    const reviewsSection = initial.pages[0]?.sections.find(
+      (section) => section.sectionType === 'reviews',
+    );
+    if (!reviewsSection) {
+      throw new Error('Missing Reviews section.');
+    }
+    const withContent = updateSiteContent(initial, {
+      collection: 'reviews',
+      operation: 'upsert',
+      record: {
+        id: 'review_ana',
+        quote: 'The best shape I have ever had.',
+        authorName: 'Ana',
+        rating: 5,
+        source: 'client',
+        visible: true,
+      },
+    });
+    const document = updateLibrarySectionSettings(withContent, reviewsSection.id, {
+      preset: 'editorial_quote',
+      reviewIds: ['review_ana'],
+      showRatings: false,
+      version: 1,
+    });
+
+    const json = exportSiteBuilderDocument(document);
+    expect(parseSiteBuilderDocument(json)).toEqual({ success: true, document });
+    expect(JSON.parse(json)).toMatchObject({
+      siteContent: {
+        reviews: [
+          {
+            id: 'review_ana',
+            quote: 'The best shape I have ever had.',
+            authorName: 'Ana',
+            rating: 5,
+            source: 'client',
+            visible: true,
+          },
+        ],
+      },
+    });
   });
 
   it('fails safely for malformed JSON and unsupported schema versions', () => {
@@ -320,9 +440,87 @@ describe('validation, import, and export', () => {
     const document = initializeStarter('quick_book', {
       idFactory: createDeterministicIdFactory('bad-schema'),
     });
-    const invalid = { ...document, schemaVersion: 2 };
 
-    expect(validateSiteBuilderDocument(invalid)).toMatchObject({ success: false });
+    // v2 is the only version `validateSiteBuilderDocument` itself accepts.
+    for (const schemaVersion of [0, 1, 3, '2', null]) {
+      expect(
+        validateSiteBuilderDocument({ ...document, schemaVersion }),
+      ).toMatchObject({
+        success: false,
+        issues: expect.arrayContaining(['schemaVersion must be 2.']),
+      });
+    }
+    expect(validateSiteBuilderDocument(document)).toMatchObject({ success: true });
+
+    // Import is the one path that upgrades: a v1 document is re-versioned
+    // before validation instead of being rejected.
+    expect(
+      parseSiteBuilderDocument(JSON.stringify({ ...document, schemaVersion: 1 })),
+    ).toEqual({ success: true, document });
+    expect(
+      parseSiteBuilderDocument(JSON.stringify({ ...document, schemaVersion: 3 })),
+    ).toMatchObject({
+      success: false,
+      issues: expect.arrayContaining(['schemaVersion must be 2.']),
+    });
+  });
+
+  it('rejects library sections and shared content the Builder could not create', () => {
+    const document = initializeStarter('quick_book', {
+      idFactory: createDeterministicIdFactory('library-invariants'),
+    });
+    const home = document.pages[0];
+    const hero = home?.sections[1];
+    if (!home || hero?.sectionType !== 'hero') {
+      throw new Error('Missing Hero.');
+    }
+
+    const badSettings = structuredClone(document) as unknown as {
+      pages: Array<{ sections: Array<{ settings: Record<string, unknown> }> }>;
+    };
+    const badHero = badSettings.pages[0]?.sections[1];
+    if (!badHero) {
+      throw new Error('Missing Hero.');
+    }
+    badHero.settings.preset = 'not_a_preset';
+    expect(validateSiteBuilderDocument(badSettings)).toMatchObject({
+      success: false,
+      issues: expect.arrayContaining([
+        'pages[0].sections[1].settings is not a valid Hero configuration.',
+      ]),
+    });
+
+    const twoHeroes = structuredClone(document);
+    twoHeroes.pages[0]?.sections.push({
+      ...structuredClone(hero),
+      id: 'section_second_hero',
+      order: twoHeroes.pages[0].sections.length,
+    });
+    expect(validateSiteBuilderDocument(twoHeroes)).toMatchObject({
+      success: false,
+      issues: expect.arrayContaining([
+        `Page ${home.id} exceeds the Hero limit of 1 per page.`,
+      ]),
+    });
+
+    const duplicateContent = structuredClone(document);
+    duplicateContent.siteContent.faq = [
+      { id: 'faq_1', question: 'Do you take walk-ins?', answer: 'By appointment only.' },
+      { id: 'faq_1', question: 'Do you repair a break?', answer: 'Within seven days.' },
+    ];
+    expect(validateSiteBuilderDocument(duplicateContent)).toMatchObject({
+      success: false,
+      issues: expect.arrayContaining([
+        'siteContent.faq[1].id is duplicated within siteContent.faq.',
+      ]),
+    });
+
+    expect(
+      validateSiteBuilderDocument({ ...document, siteContent: undefined }),
+    ).toMatchObject({
+      success: false,
+      issues: expect.arrayContaining(['siteContent must be an object.']),
+    });
   });
 
   it('rejects corrupted invariants and non-normalized ordering', () => {
