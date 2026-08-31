@@ -19,6 +19,10 @@ import {
   type OriginStarter,
   type SiteBuilderDocument,
 } from '../model';
+import {
+  applyOnboardingSitePresentation,
+  type OnboardingSitePresentation,
+} from '../onboarding/model/site-document-presentation';
 
 type CommandResult =
   | { success: true; document: SiteBuilderDocument; changed: boolean }
@@ -147,6 +151,33 @@ export function useLabDocument() {
     setSaveStatus('saving');
     replaceHistory({ future, past, present });
     return true;
+  }, [replaceHistory]);
+
+  const acceptOnboardingPresentation = useCallback((
+    siteName: string,
+    presentation: OnboardingSitePresentation,
+  ): SiteBuilderDocument | null => {
+    if (preparedTransitionRef.current) return null;
+    const current = historyRef.current;
+    if (!current) return null;
+    const normalizedSiteName = siteName.trim() || 'My nail studio';
+    const accept = (document: SiteBuilderDocument): SiteBuilderDocument => {
+      const presented = applyOnboardingSitePresentation(document, presentation);
+      return presented.siteName === normalizedSiteName
+        ? presented
+        : { ...presented, siteName: normalizedSiteName };
+    };
+    const present = accept(current.present);
+    const past = current.past.map(accept);
+    const future = current.future.map(accept);
+    const changed = present !== current.present
+      || past.some((document, index) => document !== current.past[index])
+      || future.some((document, index) => document !== current.future[index]);
+    if (changed) {
+      setSaveStatus('saving');
+      replaceHistory({ future, past, present });
+    }
+    return present;
   }, [replaceHistory]);
 
   const runCommand = useCallback((command: BuilderCommand): CommandResult => {
@@ -383,6 +414,7 @@ export function useLabDocument() {
   }, [redo, undo]);
 
   return {
+    acceptOnboardingPresentation,
     canRedo: !transactionPending && history ? canRedoHistory(history) : false,
     canUndo: !transactionPending && history ? canUndoHistory(history) : false,
     chooseStarter,

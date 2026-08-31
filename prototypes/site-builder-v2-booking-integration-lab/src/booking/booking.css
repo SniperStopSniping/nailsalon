@@ -129,6 +129,16 @@
   --body-caption: 15px;
 }
 
+/*
+ * The selected-service summary is portalled to the Preview viewport and
+ * floats above this scroll surface. Reserve only the space it actually
+ * needs, and only while a selection exists, so the last service remains a
+ * complete hit target at the bottom of phone and short-landscape previews.
+ */
+.booking-surface[data-has-selection='true'] {
+  padding-bottom: 128px;
+}
+
 .booking-surface h1,
 .booking-surface h2,
 .booking-surface h3,
@@ -2895,7 +2905,7 @@
 /* Customer overlays are contained by the active simulated Preview frame. */
 .booking-preview-overlays {
   position: absolute;
-  z-index: 1;
+  z-index: 40;
   inset: 0;
   color: var(--booking-text);
   font-family: var(--body-font);
@@ -3051,6 +3061,10 @@
 }
 
 @container booking-frame (max-width: 350px) {
+  .booking-surface[data-has-selection='true'] {
+    padding-bottom: 160px;
+  }
+
   .booking-preview-summary[data-preview-viewport='mobile'] .selected-summary {
     grid-template-columns: minmax(0, 1fr) auto;
     padding-inline: 10px;

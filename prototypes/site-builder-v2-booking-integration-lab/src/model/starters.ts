@@ -12,6 +12,7 @@ import {
   type BookingSectionInstance,
   type CatalogueSectionType,
   type CustomDesignSectionInstance,
+  type GalleryPresentationOwner,
   type IdFactory,
   type LibrarySectionType,
   type NavigationItem,
@@ -41,6 +42,7 @@ export type StarterSectionDefinition =
     sectionType: LibrarySectionType;
     preset?: string;
     label?: string;
+    galleryPresentationOwner?: GalleryPresentationOwner;
     summary?: boolean;
   }
   | { previewLabel: 'Booking'; sectionType: 'booking'; summary?: boolean };
@@ -84,7 +86,11 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
         { previewLabel: 'On-page menu', sectionType: 'section_navigation', summary: false },
         { previewLabel: 'About', sectionType: 'about' },
         { previewLabel: 'Services', sectionType: 'featured_services' },
-        { previewLabel: 'Gallery', sectionType: 'gallery' },
+        {
+          galleryPresentationOwner: 'onboarding',
+          previewLabel: 'Gallery',
+          sectionType: 'gallery',
+        },
         { previewLabel: 'Reviews', sectionType: 'reviews' },
         { previewLabel: 'Deposits', sectionType: 'deposits_cancellations', summary: false },
         { previewLabel: 'Policies', sectionType: 'policies', summary: false },
@@ -103,7 +109,13 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
         { previewLabel: 'Announcement', sectionType: 'announcement_bar', summary: false },
         { label: 'Welcome', previewLabel: 'Welcome', sectionType: 'hero' },
         { previewLabel: 'Quick facts', sectionType: 'quick_info', summary: false },
-        { label: 'Featured work', preset: 'editorial', previewLabel: 'Featured work', sectionType: 'gallery' },
+        {
+          galleryPresentationOwner: 'recipe',
+          label: 'Featured work',
+          preset: 'editorial',
+          previewLabel: 'Featured work',
+          sectionType: 'gallery',
+        },
         { previewLabel: 'Reviews', sectionType: 'reviews', summary: false },
         { previewLabel: 'Final CTA', sectionType: 'final_cta', summary: false },
         { previewLabel: 'Footer', sectionType: 'footer', summary: false },
@@ -126,7 +138,11 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
       name: 'Gallery',
       slug: 'gallery',
       sections: [
-        { previewLabel: 'Gallery', sectionType: 'gallery' },
+        {
+          galleryPresentationOwner: 'onboarding',
+          previewLabel: 'Gallery',
+          sectionType: 'gallery',
+        },
         { previewLabel: 'Final CTA', sectionType: 'final_cta', summary: false },
         { previewLabel: 'Footer', sectionType: 'footer', summary: false },
       ],
@@ -318,7 +334,12 @@ export const createCustomDesignSectionInstance = (
 export const createLibrarySectionInstance = (
   sectionType: LibrarySectionType,
   idFactory: IdFactory,
-  options: { label?: string; order?: number; presetId?: string } = {},
+  options: {
+    galleryPresentationOwner?: GalleryPresentationOwner;
+    label?: string;
+    order?: number;
+    presetId?: string;
+  } = {},
 ): SectionInstance => {
   const entry = getSectionRegistryEntry(sectionType);
   const settings: Record<string, unknown> = { ...entry.defaultSettings() };
@@ -335,6 +356,9 @@ export const createLibrarySectionInstance = (
     sectionType,
     settings: entry.normalize(settings),
     visible: true,
+    ...(sectionType === 'gallery' && options.galleryPresentationOwner
+      ? { galleryPresentationOwner: options.galleryPresentationOwner }
+      : {}),
   } as SectionInstance;
 };
 
@@ -342,6 +366,7 @@ export const createSectionInstance = (
   sectionType: SectionType,
   idFactory: IdFactory,
   options: {
+    galleryPresentationOwner?: GalleryPresentationOwner;
     size?: SectionSize;
     label?: string;
     note?: string;
@@ -355,6 +380,9 @@ export const createSectionInstance = (
       ? createCustomDesignSectionInstance(idFactory, { order: options.order })
       : isLibrarySectionType(sectionType)
         ? createLibrarySectionInstance(sectionType, idFactory, {
+            ...(options.galleryPresentationOwner !== undefined
+              ? { galleryPresentationOwner: options.galleryPresentationOwner }
+              : {}),
             ...(options.label !== undefined ? { label: options.label } : {}),
             ...(options.order !== undefined ? { order: options.order } : {}),
             ...(options.presetId !== undefined ? { presetId: options.presetId } : {}),
@@ -377,6 +405,9 @@ const createStarterPage = (
     section.sectionType === 'booking'
       ? createBookingSectionInstance(idFactory, { order: sectionOrder })
       : createLibrarySectionInstance(section.sectionType, idFactory, {
+          ...(section.galleryPresentationOwner !== undefined
+            ? { galleryPresentationOwner: section.galleryPresentationOwner }
+            : {}),
           ...(section.label !== undefined ? { label: section.label } : {}),
           order: sectionOrder,
           ...(section.preset !== undefined ? { presetId: section.preset } : {}),

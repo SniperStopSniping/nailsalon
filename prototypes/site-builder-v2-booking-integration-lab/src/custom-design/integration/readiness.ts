@@ -3,6 +3,7 @@ import {
   rectanglesHaveInteriorOverlap,
   validateNormalizedRect,
 } from '../model/geometry';
+import { hasCustomDesignArtwork } from '../model/settings';
 import type {
   CustomDesignAction,
   CustomDesignActionResolution,
@@ -144,7 +145,7 @@ export const getCustomDesignReadiness = (
   context: CustomDesignReadinessContext,
 ): CustomDesignReadiness => {
   const issues: CustomDesignReadinessIssue[] = [];
-  if (settings.images.length === 0) {
+  if (!hasCustomDesignArtwork(settings)) {
     issues.push(issue(
       'empty_section',
       'Upload at least one image before this section can appear in Preview.',

@@ -2798,6 +2798,23 @@ body.onboarding-modal-open {
   container: onboarding-preview-host / inline-size;
 }
 
+/*
+ * Product consumers do not load the prototype shell's global styles.css.
+ * Keep preview-only accessible descriptions visually hidden at this
+ * component boundary so helper copy cannot paint around the customer frame.
+ */
+.onboarding-preview-stage .visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0, 0, 0, 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 .onboarding-preview-measurement-host {
   position: absolute;
   top: 0;
@@ -2943,7 +2960,7 @@ body.onboarding-modal-open {
 .onboarding-customer-header nav a {
   display: inline-flex;
   min-width: 44px;
-  min-height: 40px;
+  min-height: 44px;
   align-items: center;
   justify-content: center;
   padding: 7px 8px;
@@ -4329,8 +4346,14 @@ body.onboarding-modal-open {
   text-decoration: none;
 }
 
-@media (max-width: 767px) {
-  .onboarding-builder-return {
+.onboarding-builder-surface:has(.final-hybrid-preview)
+  > .onboarding-builder-return {
+  display: none;
+}
+
+@media (max-width: 899px) {
+  .onboarding-builder-surface:has(.final-mobile-dock)
+    > .onboarding-builder-return {
     bottom: calc(max(12px, env(safe-area-inset-bottom)) + 76px);
   }
 }

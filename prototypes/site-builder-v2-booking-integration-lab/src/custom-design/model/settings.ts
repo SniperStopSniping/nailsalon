@@ -341,6 +341,26 @@ export const createDefaultCustomDesignSettings = (): CustomDesignSettings => ({
   cta: { type: 'none' },
 });
 
+/**
+ * The shared structural publishability rule for Custom Design. A section
+ * without artwork is an owner upload prompt, not customer-site content.
+ */
+export const hasCustomDesignArtwork = (
+  settings: Pick<CustomDesignSettings, 'images'>,
+): boolean => settings.images.length > 0;
+
+/**
+ * The customer renderer's visible-output rule. Structural artwork is not
+ * enough when every referenced file is missing. Accessible native copy can
+ * keep a section meaningful, but a CTA never substitutes for the required
+ * artwork: readiness and the customer renderer both treat that as empty.
+ */
+export const hasRenderableCustomDesignContent = (
+  settings: CustomDesignSettings,
+  assetCanPaint: (assetId: string) => boolean,
+): boolean => settings.images.some(image => Boolean(image.accessibleSummary?.trim()))
+  || settings.images.some(image => assetCanPaint(image.assetId));
+
 const parseImagesDefensively = (value: unknown): CustomDesignImageItem[] => {
   if (!Array.isArray(value)) return [];
   const images: CustomDesignImageItem[] = [];

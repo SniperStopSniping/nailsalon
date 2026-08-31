@@ -2894,9 +2894,11 @@ body[data-editor-shell='final-hybrid'] .library-restore-button small {
   min-height: 44px;
 }
 
-.final-preview-toolbar__back {
+.final-preview-toolbar__back,
+.final-preview-toolbar__dashboard {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   padding: 7px 10px;
   border: 1px solid rgba(255, 255, 255, 0.13);
@@ -2924,13 +2926,26 @@ body[data-editor-shell='final-hybrid'] .library-restore-button small {
   background: rgba(255, 255, 255, 0.05);
 }
 
+.final-preview-toolbar__actions {
+  display: flex;
+  min-width: 0;
+  grid-column: 3;
+  align-items: center;
+  justify-self: end;
+  gap: 6px;
+}
+
+.final-preview-toolbar__dashboard {
+  min-width: 44px;
+}
+
 /* The legacy preview toolbar used a two-row mobile layout. The final shell keeps
-   Back and the single relevant Phone control in one compact row. */
+   Back and the relevant owner actions in one compact row. */
 .final-preview-toolbar .final-preview-devices {
   width: auto;
-  grid-column: 3;
+  grid-column: auto;
   grid-row: auto;
-  justify-self: end;
+  justify-self: auto;
   padding: 3px;
 }
 
@@ -2960,6 +2975,12 @@ body[data-editor-shell='final-hybrid'] .library-restore-button small {
   }
 }
 
+@media (min-width: 700px) and (max-width: 899px) {
+  .final-preview-toolbar__dashboard span {
+    display: none;
+  }
+}
+
 .final-preview-toolbar.is-zoom-compact .final-preview-toolbar__back {
   width: 44px;
   padding-inline: 0;
@@ -2967,6 +2988,7 @@ body[data-editor-shell='final-hybrid'] .library-restore-button small {
 }
 
 .final-preview-toolbar.is-zoom-compact .final-preview-toolbar__back span,
+.final-preview-toolbar.is-zoom-compact .final-preview-toolbar__dashboard span,
 .final-preview-toolbar.is-zoom-compact .final-preview-toolbar__page,
 .final-preview-toolbar.is-zoom-compact .final-preview-devices button:not(:last-child),
 .final-preview-toolbar.is-zoom-compact .final-preview-devices button span {
@@ -2978,6 +3000,20 @@ body[data-editor-shell='final-hybrid'] .library-restore-button small {
   padding: 0;
   background: #292426;
   transition: none;
+}
+
+.final-canonical-preview {
+  min-height: calc(100dvh - 62px);
+  padding: 0;
+  background: #292426;
+}
+
+.final-canonical-preview .onboarding-preview-measurement-host {
+  height: min(var(--preview-target-height), calc(100dvh - 62px));
+}
+
+.final-canonical-preview .onboarding-preview-stage {
+  margin-inline: auto;
 }
 
 .final-hybrid-preview .preview-frame {
@@ -3288,6 +3324,14 @@ body[data-editor-shell='final-hybrid'] .toast {
 
   .final-hybrid-preview .preview-stage {
     padding: 28px;
+  }
+
+  .final-canonical-preview {
+    padding: 28px;
+  }
+
+  .final-canonical-preview .onboarding-preview-measurement-host {
+    height: min(var(--preview-target-height), calc(100dvh - 118px));
   }
 
   .final-hybrid-preview .preview-frame {
@@ -4061,4 +4105,28 @@ body[data-editor-shell='final-hybrid'] .toast {
   color: var(--muted, #74696b);
   font-size: 0.78rem;
   line-height: 1.5;
+}
+
+.final-structure__advisory-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 9px;
+}
+
+.final-structure__advisory-actions button {
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent, #8f3155) 26%, transparent);
+  border-radius: 999px;
+  background: var(--surface, #fff);
+  color: var(--ink, #241b1d);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-align: left;
+}
+
+.final-structure__advisory-actions button:hover {
+  border-color: var(--accent, #8f3155);
 }

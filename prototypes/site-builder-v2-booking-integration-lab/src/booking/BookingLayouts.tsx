@@ -376,7 +376,7 @@ export function VisualGridLayout(props: LayoutProps) {
       )}
 
       {layoutSettings.showFeatured && featured.length > 0 && (
-        <section className="vg-section" aria-labelledby="visual-featured-heading">
+        <section className="vg-section" aria-label="Featured services in booking">
           <div className="vg-section-heading">
             <h2 id="visual-featured-heading">Featured services</h2>
             <span>{serviceCountLabel(featured.length)}</span>

@@ -23,7 +23,6 @@ import {
   CustomDesignAssetProvider,
   useCustomDesignAssetRepository,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/integration/CustomDesignAssetProvider';
-import type { CustomDesignSettings } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/types';
 import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
 import { recordOnboardingEvent } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/events/journal';
 import { FeedbackProvider } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/feedback/FeedbackProvider';
@@ -68,6 +67,10 @@ import type {
   OnboardingPlanIntent,
 } from './contracts';
 import {
+  type ExistingCustomDesignMediaByLogicalId,
+  resolveOnboardingCustomDesignSettings,
+} from './custom-design-media';
+import {
   canResumeVerifiedOnboardingSetup,
   clearOnboardingIntegrationBrowserState,
   clearOnboardingIntegrationFlow,
@@ -84,7 +87,7 @@ import {
 import {
   claimOnboardingMedia,
   cleanupVerifiedUnreferencedOnboardingMedia,
-  collectOnboardingMediaReferences,
+  collectPendingOnboardingMediaReferences,
 } from './media-claim-client';
 import { ResumedOnboardingAssetRepository } from './resume-assets';
 import { hydrateInitialOnboardingResumeDraft } from './resume-client';
@@ -121,23 +124,17 @@ const getPayloadFromBrowser = (
   return document ? { document, state: loaded.state } : null;
 };
 
-const getCustomDesignSettings = (
-  document: SiteBuilderDocument,
+const countSavedMedia = (
   state: OnboardingLabState,
-): CustomDesignSettings | null => {
-  const sections = document.pages.flatMap(page => page.sections);
-  const selected = state.canva.customDesignSectionId
-    ? sections.find(section => (
-        section.id === state.canva.customDesignSectionId
-        && section.sectionType === 'custom_design'
-      ))
-    : sections.find(section => section.sectionType === 'custom_design');
-  return selected?.sectionType === 'custom_design' ? selected.settings : null;
-};
-
-const countSavedMedia = (state: OnboardingLabState): number => {
+  document: SiteBuilderDocument | null = null,
+  existingCustomMediaByLogicalId: ExistingCustomDesignMediaByLogicalId = new Map(),
+): number => {
   try {
-    return collectOnboardingMediaReferences(state).length;
+    return collectPendingOnboardingMediaReferences(
+      state,
+      document,
+      existingCustomMediaByLogicalId,
+    ).length;
   } catch {
     return 0;
   }
@@ -230,6 +227,11 @@ function OnboardingV1Runtime({
   const resumeRepository = useMemo(() => initialResumeDraft
     ? new ResumedOnboardingAssetRepository(initialResumeDraft.media)
     : undefined, [initialResumeDraft]);
+  const existingCustomMediaByLogicalId = useMemo(() => new Map(
+    initialResumeDraft?.media.flatMap(item => item.role === 'custom_design'
+      ? [[item.localItemId, item.assetId] as const]
+      : []) ?? [],
+  ), [initialResumeDraft]);
   const getLabReachableAssetIds = lab.getReachableAssetIds;
   const getReachableAssetIds = useCallback(() => {
     const reachable = new Set(getLabReachableAssetIds());
@@ -246,6 +248,7 @@ function OnboardingV1Runtime({
       <FeedbackProvider testMode={false}>
         <OnboardingIntegrationController
           authProviders={authProviders}
+          existingCustomMediaByLogicalId={existingCustomMediaByLogicalId}
           lab={lab}
           locale={locale}
         />
@@ -256,10 +259,12 @@ function OnboardingV1Runtime({
 
 function OnboardingIntegrationController({
   authProviders,
+  existingCustomMediaByLogicalId,
   lab,
   locale,
 }: {
   authProviders: OnboardingAuthProviderAvailability;
+  existingCustomMediaByLogicalId: ExistingCustomDesignMediaByLogicalId;
   lab: ReturnType<typeof useLabDocument>;
   locale: string;
 }) {
@@ -308,9 +313,17 @@ function OnboardingIntegrationController({
     currentPayload: OnboardingSavePayload,
     idempotencyKey: string,
   ) => {
-    setSavingStep(countSavedMedia(currentPayload.state) > 0 ? 'media' : 'finalizing');
+    setSavingStep(countSavedMedia(
+      currentPayload.state,
+      currentPayload.document,
+      existingCustomMediaByLogicalId,
+    ) > 0
+      ? 'media'
+      : 'finalizing');
     const mediaResult = await claimOnboardingMedia({
+      document: currentPayload.document,
       draftId: currentPayload.state.anonymousDraftId,
+      existingCustomMediaByLogicalId,
       idempotencyKey,
       repository,
       siteId: savedSite.siteId,
@@ -338,6 +351,7 @@ function OnboardingIntegrationController({
     const cleanup = await cleanupVerifiedUnreferencedOnboardingMedia(
       repository,
       currentPayload.state,
+      currentPayload.document,
     );
     if (cleanup.removedAssetIds.length > 0) {
       const removed = new Set(cleanup.removedAssetIds);
@@ -367,7 +381,7 @@ function OnboardingIntegrationController({
       phase: 'saved',
       savedSite: { ...savedSite, revision: mediaResult.verifiedRevision },
     }));
-  }, [repository, setFlow]);
+  }, [existingCustomMediaByLogicalId, repository, setFlow]);
 
   const claim = useCallback(async (
     target?: IntegrationTarget,
@@ -398,15 +412,16 @@ function OnboardingIntegrationController({
     let coreSavedSite: OnboardingClaimSuccess | null = null;
     try {
       recordIntegrationEvent({ type: 'draft_claim_started' });
-      const customDesignSettings = getCustomDesignSettings(
+      const customDesignSettings = resolveOnboardingCustomDesignSettings(
         currentPayload.document,
-        currentPayload.state,
+        currentPayload.state.canva.customDesignSectionId,
       );
       const persisted = createPersistableOnboardingDraft(
         currentPayload.state,
         currentPayload.state.recipe.palettePreset,
         customDesignSettings,
         currentPayload.document,
+        existingCustomMediaByLogicalId,
       );
       const result = await claimOnboardingDraft({
         anonymousDraftToken: currentPayload.state.anonymousDraftId,
@@ -454,7 +469,7 @@ function OnboardingIntegrationController({
     } finally {
       claimInFlightRef.current = false;
     }
-  }, [finishCoreClaim, resolvePayload, setFlow, user]);
+  }, [existingCustomMediaByLogicalId, finishCoreClaim, resolvePayload, setFlow, user]);
 
   useEffect(() => {
     if (!authSettled || !accountReady || flow.phase !== 'account') {
@@ -819,7 +834,13 @@ function OnboardingIntegrationController({
     case 'saving':
       return (
         <SavingScreen
-          mediaCount={currentPayload ? countSavedMedia(currentPayload.state) : 0}
+          mediaCount={currentPayload
+            ? countSavedMedia(
+              currentPayload.state,
+              currentPayload.document,
+              existingCustomMediaByLogicalId,
+            )
+            : 0}
           salonName={currentPayload?.state.profile.businessName.trim() || 'your website'}
           step={savingStep}
         />

@@ -4,16 +4,17 @@ import {
   buildCustomerPagePlan,
   type SitePlanSection,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/site-plan';
-import type {
-  BusinessProfileDraft,
-} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/types';
 import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
 import {
   ADD_ON_PRODUCTION_MAPPINGS,
   SERVICE_MENU_PRODUCTION_MAPPINGS,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/integrations/contracts/service-menu-production-mapping';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
+import { applyOnboardingSitePresentation } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/site-document-presentation';
 import { deriveSiteLibraryContextFromProfile } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/site-library-context';
+import type {
+  BusinessProfileDraft,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/types';
 import {
   type OnboardingCompiledSiteDocument,
   onboardingCompiledSiteDocumentSchema,
@@ -47,46 +48,6 @@ export function fingerprintOnboardingValue(value: unknown): string {
     .digest('hex');
 }
 
-/**
- * The compiler stamps the onboarding recipe's presentation choices into the
- * owning sections' settings so the persisted document is self-describing:
- * the saved preview and Builder then read presets from the sections alone.
- */
-function stampRecipePresets(
-  document: SiteBuilderDocument,
-  snapshot: OnboardingPersistedSnapshot,
-): SiteBuilderDocument {
-  const stampSection = (
-    section: SiteBuilderDocument['pages'][number]['sections'][number],
-  ): SiteBuilderDocument['pages'][number]['sections'][number] => {
-    if (section.sectionType === 'about') {
-      return {
-        ...section,
-        settings: { ...section.settings, preset: snapshot.site.aboutPreset },
-      };
-    }
-    if (section.sectionType === 'gallery' && section.settings.preset === 'grid') {
-      // Only the default-preset gallery follows the onboarding layout choice;
-      // a deliberate starter/owner preset (e.g. the multi_page Home
-      // 'Featured work' editorial strip) is preserved.
-      return {
-        ...section,
-        settings: { ...section.settings, preset: snapshot.gallery.layout },
-      };
-    }
-    return section;
-  };
-  return {
-    ...document,
-    pages: document.pages.map(page => ({
-      ...page,
-      sections: page.sections.map(stampSection),
-    })),
-    unusedSections: document.unusedSections.map(section =>
-      stampSection(section) as SiteBuilderDocument['unusedSections'][number]),
-  };
-}
-
 function sourceForSection(type: CompiledSection['type']): CompiledSection['source'] {
   if (type === 'services' || type === 'booking' || type === 'featured_services') {
     return 'service_menu';
@@ -116,11 +77,13 @@ function sourceForSection(type: CompiledSection['type']): CompiledSection['sourc
 }
 
 function presentationForSection(
-  type: CompiledSection['type'],
-  originalSectionType: string,
-  label: string,
+  planSection: SitePlanSection,
   snapshot: OnboardingPersistedSnapshot,
 ): Record<string, Primitive> {
+  const type = planSection.sectionType as CompiledSection['type'];
+  const { section } = planSection;
+  const originalSectionType = section.sectionType;
+  const { label } = planSection;
   const common = { label, originalSectionType };
   if (type === 'hero') {
     return { ...common, starter: snapshot.site.starter };
@@ -129,7 +92,10 @@ function presentationForSection(
     return { ...common, preset: snapshot.site.aboutPreset };
   }
   if (type === 'gallery') {
-    return { ...common, layout: snapshot.gallery.layout, source: snapshot.gallery.source };
+    const layout = !planSection.injected && section.sectionType === 'gallery'
+      ? section.settings.preset
+      : snapshot.gallery.layout;
+    return { ...common, layout, source: snapshot.gallery.source };
   }
   if (type === 'booking') {
     return {
@@ -145,7 +111,10 @@ function presentationForSection(
     };
   }
   if (type === 'custom_design') {
-    return { ...common, displayMode: snapshot.customDesign.displayMode };
+    const displayMode = !planSection.injected && section.sectionType === 'custom_design'
+      ? section.settings.displayMode
+      : snapshot.customDesign.displayMode;
+    return { ...common, displayMode };
   }
   return common;
 }
@@ -202,9 +171,7 @@ function compileAcceptedBuilderPages(
       id: planSection.id,
       order,
       presentation: presentationForSection(
-        type,
-        planSection.section.sectionType,
-        planSection.label,
+        planSection,
         snapshot,
       ),
       source: sourceForSection(type),
@@ -241,7 +208,10 @@ export function compileOnboardingToSiteDocument(input: {
   if (!builderDocument) {
     throw new Error('The accepted universal site document is required to compile the saved site.');
   }
-  const stampedDocument = stampRecipePresets(builderDocument, snapshot);
+  const stampedDocument = applyOnboardingSitePresentation(builderDocument, {
+    aboutPreset: snapshot.site.aboutPreset,
+    galleryLayout: snapshot.gallery.layout,
+  });
   const pages = compileAcceptedBuilderPages(siteId, snapshot, stampedDocument);
   const visiblePageIds = new Set(pages.map(page => page.id));
 

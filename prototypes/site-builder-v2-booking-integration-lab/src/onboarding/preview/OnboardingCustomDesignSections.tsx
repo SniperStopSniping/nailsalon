@@ -8,6 +8,10 @@ import {
   type CustomDesignDocumentNavigationTarget,
 } from '../../custom-design/integration/document-actions';
 import type { CustomDesignOwnerAssetMap } from '../../custom-design/integration/ui-types';
+import {
+  hasCustomDesignArtwork,
+  hasRenderableCustomDesignContent,
+} from '../../custom-design/model/settings';
 import type { CustomDesignSectionInstance, SiteBuilderDocument } from '../../model';
 import { toCustomDesignOwnerAssetMap } from '../../ui/custom-design-adapters';
 
@@ -43,7 +47,7 @@ export function OnboardingCustomDesignSections({
       .flatMap((section) => (
         section.sectionType === 'custom_design'
         && section.visible
-        && section.settings.images.length > 0
+        && hasCustomDesignArtwork(section.settings)
         && (!requestedIds || requestedIds.has(section.id))
           ? [{ pageId: page.id, section }]
           : []
@@ -62,9 +66,15 @@ export function OnboardingCustomDesignSections({
         : asset,
     ]));
   }, [assetPairs, renderErrorAssetIds]);
+  const renderableSections = useMemo(() => sections.filter(({ section }) => (
+    hasRenderableCustomDesignContent(section.settings, assetId => {
+      const status = assets[assetId]?.status;
+      return status === 'loading' || status === 'ready';
+    })
+  )), [assets, sections]);
   const actionResolvers = useMemo<Map<string, ResolveCustomDesignAction>>(() => (
     document
-      ? new Map(sections.map(({ pageId: activePageId }) => [
+      ? new Map(renderableSections.map(({ pageId: activePageId }) => [
           activePageId,
           createHostedCustomDesignActionResolver(
             { activePageId, document },
@@ -72,13 +82,13 @@ export function OnboardingCustomDesignSections({
           ),
         ] as const))
       : new Map()
-  ), [document, onDocumentTarget, sections]);
+  ), [document, onDocumentTarget, renderableSections]);
 
-  if (!document || sections.length === 0) return null;
+  if (!document || renderableSections.length === 0) return null;
 
   return (
     <>
-      {sections.map(({ pageId: sectionPageId, section }) => (
+      {renderableSections.map(({ pageId: sectionPageId, section }) => (
         <div
           data-onboarding-custom-design-section={section.id}
           data-onboarding-custom-design-mode={section.settings.displayMode}

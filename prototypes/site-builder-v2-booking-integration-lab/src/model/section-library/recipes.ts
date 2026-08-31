@@ -127,6 +127,9 @@ const buildRecipePages = (
       spec.type === 'booking'
         ? createBookingSectionInstance(idFactory, { order })
         : createLibrarySectionInstance(spec.type, idFactory, {
+            ...(spec.type === 'gallery'
+              ? { galleryPresentationOwner: 'recipe' as const }
+              : {}),
             ...(spec.label !== undefined ? { label: spec.label } : {}),
             order,
             ...(spec.preset !== undefined ? { presetId: spec.preset } : {}),

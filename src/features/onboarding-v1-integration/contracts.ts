@@ -52,6 +52,16 @@ export const ONBOARDING_SITE_MEDIA_CLAIM_STATUSES = [
   'failed',
 ] as const;
 
+/**
+ * Account persistence/storage guard. Builder documents may retain richer
+ * active and restorable content, but one saved revision claims at most this
+ * many image rows across every role.
+ */
+export const ONBOARDING_SITE_MEDIA_MAX_ITEMS = 80;
+
+export const ONBOARDING_SITE_MEDIA_LIMIT_MESSAGE
+  = 'Account save supports up to 80 website images across profile, logo, Gallery, and Custom Design sections. Remove or reduce images, including restorable sections, then try again.';
+
 export type OnboardingStylePresetId = (typeof ONBOARDING_STYLE_PRESET_IDS)[number];
 export type OnboardingPalettePresetId = (typeof ONBOARDING_PALETTE_PRESET_IDS)[number];
 export type OnboardingPlanIntent = (typeof ONBOARDING_PLAN_INTENTS)[number];
@@ -392,8 +402,10 @@ export const onboardingPersistedSnapshotSchema = z.object({
     }
   }
   if (value.site.builderDocument) {
-    const customSections = value.site.builderDocument.pages
-      .flatMap(page => page.sections)
+    const customSections = [
+      ...value.site.builderDocument.pages.flatMap(page => page.sections),
+      ...value.site.builderDocument.unusedSections,
+    ]
       .filter(section => section.sectionType === 'custom_design');
     for (const section of customSections) {
       for (const [index, image] of section.settings.images.entries()) {
@@ -417,6 +429,9 @@ export const onboardingMediaManifestItemSchema = localMediaReferenceSchema.exten
   order: z.number().int().min(0).max(1_000),
   role: z.enum(ONBOARDING_SITE_MEDIA_ROLES),
 }).strict();
+
+export const onboardingMediaManifestSchema = z.array(onboardingMediaManifestItemSchema)
+  .max(ONBOARDING_SITE_MEDIA_MAX_ITEMS, ONBOARDING_SITE_MEDIA_LIMIT_MESSAGE);
 
 export type OnboardingMediaManifestItem = z.infer<typeof onboardingMediaManifestItemSchema>;
 
@@ -529,7 +544,7 @@ const targetSchema = z.union([
 export const onboardingDraftClaimRequestSchema = z.object({
   anonymousDraftToken: opaqueTokenSchema,
   idempotencyKey: opaqueTokenSchema,
-  media: z.array(onboardingMediaManifestItemSchema).max(80),
+  media: onboardingMediaManifestSchema,
   snapshot: onboardingPersistedSnapshotSchema,
   target: targetSchema.optional(),
 }).strict().superRefine((value, context) => {
@@ -540,9 +555,22 @@ export const onboardingDraftClaimRequestSchema = z.object({
       path: ['snapshot', 'site', 'builderDocument'],
     });
   }
+  const customDesignImageIds = new Set([
+    ...(value.snapshot.customDesign.settings?.images.map(image => image.id) ?? []),
+    ...(value.snapshot.site.builderDocument
+      ? [
+          ...value.snapshot.site.builderDocument.pages.flatMap(page => page.sections),
+          ...value.snapshot.site.builderDocument.unusedSections,
+        ].flatMap(section => (
+          section.sectionType === 'custom_design'
+            ? section.settings.images.map(image => image.id)
+            : []
+        ))
+      : []),
+  ]);
   const identities = new Set<string>();
   const expectedByRole = {
-    custom_design: new Set(value.snapshot.customDesign.settings?.images.map(image => image.id) ?? []),
+    custom_design: customDesignImageIds,
     gallery: new Set(value.snapshot.gallery.source === 'uploads'
       ? value.snapshot.gallery.imageItemIds
       : []),

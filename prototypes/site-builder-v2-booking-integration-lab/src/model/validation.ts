@@ -108,6 +108,7 @@ const LIBRARY_SECTION_KEYS = new Set([
   'order',
   'visible',
   'settings',
+  'galleryPresentationOwner',
 ]);
 const SITE_CONTENT_RECORD_KEYS: Record<SiteContentCollectionKey, ReadonlySet<string>> = {
   faq: new Set(['id', 'question', 'answer']),
@@ -287,6 +288,16 @@ const validateLibrarySectionShape = (
   if (!isLibrarySectionType(value.sectionType)) {
     issues.push(`${path}.sectionType is not a library section type.`);
     return;
+  }
+  if (value.galleryPresentationOwner !== undefined) {
+    if (value.sectionType !== 'gallery') {
+      issues.push(`${path}.galleryPresentationOwner is only valid for Gallery.`);
+    } else if (
+      value.galleryPresentationOwner !== 'onboarding'
+      && value.galleryPresentationOwner !== 'recipe'
+    ) {
+      issues.push(`${path}.galleryPresentationOwner is invalid.`);
+    }
   }
   const entry = getSectionRegistryEntry(value.sectionType);
   const normalized = entry.normalize(value.settings);

@@ -3,15 +3,16 @@
 import { useMemo, useState } from 'react';
 
 import { createDefaultBookingPresentationSettings } from '../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/booking/presentation';
-import {
-  getSectionRegistryEntry,
-  SECTION_LIBRARY_REGISTRY,
-} from '../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/model/section-library/registry';
+import { CustomDesignAssetProvider } from '../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/integration/CustomDesignAssetProvider';
 import {
   buildWebsiteRecipeDocument,
   WEBSITE_RECIPES,
   type WebsiteRecipeId,
 } from '../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/model/section-library/recipes';
+import {
+  getSectionRegistryEntry,
+  SECTION_LIBRARY_REGISTRY,
+} from '../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/model/section-library/registry';
 import type { SitePlanPage } from '../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/model/site-plan';
 import { initializeStarter } from '../../../../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
 import type {
@@ -64,8 +65,16 @@ const STYLE_IDS = Object.keys(ONBOARDING_STYLE_ROLES) as SiteStylePresetId[];
 
 const DEVICES: readonly OnboardingPreviewDevice[] = ['phone', 'tablet', 'desktop'];
 
+const getGalleryAssetIds = (): ReadonlySet<string> => new Set();
+
 /** Demo-record bindings so content-bound sections preview populated. */
 const DEMO_BOUND_SETTINGS: Partial<Record<LibrarySectionType, Record<string, unknown>>> = {
+  announcement_bar: {
+    action: { kind: 'booking', label: 'Book September appointments' },
+    dismissible: true,
+    message: 'September appointments are now open.',
+    reassurance: 'New clients are welcome.',
+  },
   faq: { itemIds: DEMO_SITE_CONTENT.faq.map(item => item.id) },
   offers: { offerIds: DEMO_SITE_CONTENT.offers.map(offer => offer.id) },
   reviews: { reviewIds: DEMO_SITE_CONTENT.reviews.map(review => review.id) },
@@ -113,7 +122,7 @@ const galleryMeta = (id: GalleryTypeId): GalleryEntryMeta => {
     id,
     label: entry.label,
     presetIds: entry.presetIds,
-    sampleContent: entry.dataDomains.some(domain =>
+    sampleContent: id === 'announcement_bar' || entry.dataDomains.some(domain =>
       domain === 'staff' || domain === 'reviews' || domain === 'offers' || domain === 'faq'),
   };
 };
@@ -222,32 +231,57 @@ export function SectionGalleryClient() {
         order: 0,
         sectionType: selectedId,
         settings,
+        visible: true,
       // The registry's own normalizer produced the settings, so the
       // correlated (type, settings) pair is definitionally valid.
       } as SectionInstance;
     }
+
+    const sections: SectionInstance[] = [section];
+
+    // Section Navigation needs real, visible destinations in order to render
+    // meaningful customer output. Keep those destinations inside the gallery
+    // fixture so the standalone preview exercises the same plan used by a
+    // customer site instead of displaying an empty navigation band.
+    if (selectedId === 'section_navigation') {
+      (['featured_services', 'reviews'] as const).forEach((sectionType, index) => {
+        const entry = getSectionRegistryEntry(sectionType);
+        sections.push({
+          id: `gallery-preview-navigation-target-${sectionType}`,
+          label: entry.label,
+          order: index + 1,
+          sectionType,
+          settings: entry.normalize({
+            ...entry.defaultSettings(),
+            ...DEMO_BOUND_SETTINGS[sectionType],
+          }),
+          visible: true,
+        } as SectionInstance);
+      });
+    }
+
     return [{
       id: 'section-gallery-page',
       isHome: true,
       label: 'Preview',
       order: 0,
-      sections: [{
+      sections: sections.map(candidate => ({
         attachedToPrevious: false,
-        id: sectionId,
+        id: candidate.id,
         injected: false,
-        label: section.label,
-        section,
-        sectionType: section.sectionType,
-        surface: selectedId === 'booking'
+        label: candidate.label,
+        section: candidate,
+        sectionType: candidate.sectionType,
+        surface: candidate.sectionType === 'booking'
           ? 'base'
-          : getSectionRegistryEntry(selectedId).surface,
-      }],
+          : getSectionRegistryEntry(candidate.sectionType as LibrarySectionType).surface,
+      })),
       slug: '',
       visibleInNavigation: true,
     }];
   }, [selectedId, selectedPreset]);
 
-  return (
+  const gallery = (
     <main className="section-gallery">
       <header className="section-gallery__header">
         <div>
@@ -359,6 +393,7 @@ export function SectionGalleryClient() {
               <OnboardingSitePreview
                 device={device}
                 document={recipeDocument}
+                includeOptionalSections={false}
                 interactionMode="interactive"
                 key={`${recipe.id}-${styleId}-${paletteId}-${device}`}
                 label={`${recipe.name} website preview`}
@@ -482,6 +517,7 @@ export function SectionGalleryClient() {
                 customerPagePlan={previewPlan}
                 device={device}
                 document={demoDocument}
+                includeOptionalSections={false}
                 interactionMode="interactive"
                 key={`${selectedId}-${selectedPreset}-${styleId}-${paletteId}-${device}`}
                 label={`${meta.label} section preview`}
@@ -503,5 +539,11 @@ export function SectionGalleryClient() {
       </div>
       )}
     </main>
+  );
+
+  return (
+    <CustomDesignAssetProvider getReachableAssetIds={getGalleryAssetIds}>
+      {gallery}
+    </CustomDesignAssetProvider>
   );
 }

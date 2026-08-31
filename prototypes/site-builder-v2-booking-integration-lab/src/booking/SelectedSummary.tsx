@@ -14,10 +14,11 @@ export function SelectedSummary({
   onContinue,
 }: SelectedSummaryProps) {
   return (
-    <aside
+    <div
       className="selected-summary"
       aria-label="Selected service summary"
       data-testid="selected-service-summary"
+      role="group"
     >
       <div className="selected-summary-copy">
         <p className="selected-summary-label">
@@ -38,6 +39,6 @@ export function SelectedSummary({
           Continue
         </button>
       </div>
-    </aside>
+    </div>
   );
 }

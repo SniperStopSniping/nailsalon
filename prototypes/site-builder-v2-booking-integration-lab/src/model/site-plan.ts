@@ -9,6 +9,7 @@
  * attachment, dividers).
  */
 
+import { hasCustomDesignArtwork } from '../custom-design/model/settings';
 import type { CustomDesignSettings } from '../custom-design/model/types';
 import {
   getSectionRegistryEntry,
@@ -65,6 +66,8 @@ export type SitePlanPage = {
 
 export type BuildCustomerPagePlanOptions = {
   context: SiteLibraryContext;
+  /** Asset-aware customer visibility for Custom Design; structural by default. */
+  customDesignIsRenderable?: (settings: CustomDesignSettings) => boolean;
   toggles: SitePlanOptionalToggles;
   /** Injections are skipped entirely on surfaces that only show the document as-is. */
   includeOptionalSections?: boolean;
@@ -119,37 +122,42 @@ const attachesToNext = (section: SectionInstance): boolean =>
     : false;
 
 /**
- * Should this section render for a customer right now? Engine sections always
- * render (Booking is canonical; Custom Design keeps its own readiness inside
- * its renderer). Library sections render unless their shared authority has
- * nothing truthful to show, or their onboarding-era toggle is off.
+ * Should this section render for a customer right now? Booking is canonical;
+ * Custom Design must own artwork before its renderer has customer content.
+ * Library sections render unless their shared authority has nothing truthful
+ * to show, or their onboarding-era toggle is off.
  */
 const sectionRendersForCustomer = (
   section: SectionInstance,
   context: SiteLibraryContext,
   toggles: SitePlanOptionalToggles,
   includeOptionalSections: boolean,
+  customDesignIsRenderable: (settings: CustomDesignSettings) => boolean,
 ): boolean => {
   if (section.sectionType === 'booking') return true;
   if (section.sectionType === 'custom_design') {
-    return includeOptionalSections && toggles.canvaEnabled;
+    return customDesignIsRenderable(section.settings)
+      && (!includeOptionalSections || toggles.canvaEnabled);
   }
   if (!isLibrarySection(section)) return false; // legacy placeholders render nothing
   if (
     section.sectionType === 'about'
-    && !(includeOptionalSections && toggles.aboutEnabled)
+    && includeOptionalSections
+    && !toggles.aboutEnabled
   ) {
     return false;
   }
   if (
     section.sectionType === 'gallery'
-    && !(includeOptionalSections && toggles.galleryEnabled)
+    && includeOptionalSections
+    && !toggles.galleryEnabled
   ) {
     return false;
   }
   if (
     (section.sectionType === 'policies'
       || section.sectionType === 'deposits_cancellations')
+    && includeOptionalSections
     && !toggles.policiesEnabled
   ) {
     return false;
@@ -267,6 +275,19 @@ const resolveAdjacency = (
   return resolved;
 };
 
+/** Re-plans a persisted page plan after a runtime-only visibility check. */
+export const filterCustomerPagePlanSections = (
+  pages: readonly SitePlanPage[],
+  include: (section: SitePlanSection) => boolean,
+): SitePlanPage[] => pages.flatMap((page) => {
+  const filtered = page.sections.filter(include);
+  if (filtered.length === page.sections.length) return [page];
+  const sections = resolveAdjacency(dropUnanchorableNavigation(filtered));
+  return sections.some(section => !CHROME_SECTION_TYPES.has(section.sectionType))
+    ? [{ ...page, sections }]
+    : [];
+});
+
 /**
  * Why a section the owner can see in the Builder is not on the customer's
  * site. The editor can ask readiness directly, but readiness cannot answer
@@ -303,6 +324,12 @@ export const getSectionPlanExclusion = (
       return 'not_ready';
     }
   }
+  if (
+    section.sectionType === 'custom_design'
+    && !(options.customDesignIsRenderable ?? hasCustomDesignArtwork)(section.settings)
+  ) {
+    return 'not_ready';
+  }
   if (!plan.some(planPage => planPage.id === page.id)) return 'page_dropped';
   if (section.sectionType === 'section_navigation') {
     return 'not_enough_navigation_targets';
@@ -317,6 +344,7 @@ export const buildCustomerPagePlan = (
   const {
     context,
     customDesignFallback,
+    customDesignIsRenderable = hasCustomDesignArtwork,
     includeOptionalSections = true,
     injectionId = defaultInjectionId,
     toggles,
@@ -354,9 +382,12 @@ export const buildCustomerPagePlan = (
         rule.wanted(context, toggles) && !hasType(rule.satisfiedBy))
     : [];
 
+  const canonicalBooking = visiblePages.flatMap(page => [...page.sections]
+    .filter(section => section.visible)
+    .sort((left, right) => left.order - right.order))
+    .find(section => section.sectionType === 'booking');
   const bookingPage = visiblePages.find(page =>
-    page.sections.some(section =>
-      section.sectionType === 'booking' && section.visible))
+    page.sections.some(section => section.id === canonicalBooking?.id))
     ?? visiblePages.find(page => page.isHome)
     ?? visiblePages[0];
 
@@ -364,11 +395,15 @@ export const buildCustomerPagePlan = (
     const rendered: SitePlanSection[] = [...page.sections]
       .filter(section => section.visible)
       .sort((left, right) => left.order - right.order)
+      .filter(section => (
+        section.sectionType !== 'booking' || section.id === canonicalBooking?.id
+      ))
       .filter(section => sectionRendersForCustomer(
         section,
         context,
         toggles,
         includeOptionalSections,
+        customDesignIsRenderable,
       ))
       .map(section => ({
         attachedToPrevious: false,
@@ -394,6 +429,7 @@ export const buildCustomerPagePlan = (
         customDesignFallback
         && includeOptionalSections
         && toggles.canvaEnabled
+        && customDesignIsRenderable(customDesignFallback.settings)
         && !allSections.some(section => section.sectionType === 'custom_design')
       ) {
         const fallbackSection: SitePlanSection = {
