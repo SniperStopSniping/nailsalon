@@ -198,7 +198,9 @@
 
 .customer-lib-announcement.is-tint {
   color: var(--customer-ink);
-  background: color-mix(in srgb, var(--customer-accent) 14%, var(--customer-surface));
+  /* A real tonal step from the hero below, not a whisper against it. */
+  background: color-mix(in srgb, var(--customer-accent) 22%, var(--customer-surface));
+  box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--customer-accent) 32%, transparent);
 }
 
 .customer-lib-announcement-message {
@@ -226,9 +228,11 @@
 .customer-lib-announcement-dismiss {
   position: absolute;
   top: 50%;
-  right: 8px;
-  width: 26px;
-  height: 26px;
+  right: max(8px, calc(clamp(16px, 7cqw, 68px) - 22px));
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
   padding: 0;
   transform: translateY(-50%);
   border: 0;
@@ -404,6 +408,54 @@
   border-width: 0 0 1px;
   border-radius: 0;
   background: transparent;
+}
+
+/*
+ * The editorial preset is a price list. At width it reads as a menu — copy
+ * on the left, price and duration set right against the rule — instead of a
+ * short column with two thirds of the row empty.
+ */
+@container onboarding-preview (min-width: 720px) {
+  .customer-lib-featured.is-editorial .customer-lib-featured-items {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .customer-lib-featured.is-editorial .customer-lib-featured-body {
+    display: grid;
+    align-items: baseline;
+    grid-template-areas:
+      'title meta'
+      'copy cta';
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: clamp(20px, 5cqw, 64px);
+  }
+
+  .customer-lib-featured.is-editorial .customer-lib-badge {
+    grid-area: title;
+    justify-self: start;
+    align-self: start;
+  }
+
+  .customer-lib-featured.is-editorial .customer-lib-featured-body h3 {
+    grid-area: title;
+    margin-top: 22px;
+  }
+
+  .customer-lib-featured.is-editorial .customer-lib-featured-body > p:not(.customer-lib-featured-meta) {
+    grid-area: copy;
+    max-width: 58ch;
+  }
+
+  .customer-lib-featured.is-editorial .customer-lib-featured-meta {
+    grid-area: meta;
+    justify-content: flex-end;
+    white-space: nowrap;
+  }
+
+  .customer-lib-featured.is-editorial .customer-lib-text-cta {
+    grid-area: cta;
+    justify-self: end;
+  }
 }
 
 .customer-lib-featured.is-editorial .customer-lib-featured-card:hover {
@@ -712,10 +764,15 @@
 /* ---------------------------------------------------------------- */
 
 .customer-lib-hours-status {
-  margin: 0 0 12px;
+  margin: 0 0 14px;
   color: var(--customer-muted);
-  font-size: clamp(0.64rem, 2cqw, 0.78rem);
-  font-weight: 700;
+  font-size: clamp(0.6rem, 1.8cqw, 0.72rem);
+  font-weight: 640;
+  letter-spacing: 0.02em;
+}
+
+.customer-lib-hours-rows dt {
+  color: var(--customer-ink);
 }
 
 .customer-lib-hours-status[data-hours-status='open'] {
@@ -732,12 +789,20 @@
 }
 
 .customer-lib-hours-rows > div {
-  display: flex;
+  display: grid;
   align-items: baseline;
-  justify-content: space-between;
+  grid-template-columns: 4.5ch minmax(0, 1fr);
   gap: 12px;
   padding-bottom: 6px;
   border-bottom: 1px solid color-mix(in srgb, var(--customer-line) 62%, transparent);
+}
+
+.customer-lib-hours.is-full .customer-lib-hours-rows > div {
+  grid-template-columns: 10ch minmax(0, 1fr);
+}
+
+.customer-lib-hours-rows dd {
+  font-variant-numeric: tabular-nums;
 }
 
 .customer-lib-hours-rows dt {

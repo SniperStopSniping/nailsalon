@@ -658,8 +658,14 @@ test.describe('final Owner iPhone corrections', () => {
     await readiness.getByRole('button', { name: /View checklist/u }).click();
     await expect(readiness.getByText('Deposits & cancellation policy', { exact: true }))
       .toHaveCount(1);
-    await expect(page.getByLabel('Final phone customer preview'))
-      .toContainText('A $15 deposit is required to book.');
+    // Schema v2: the Deposits & cancellations section defaults to
+    // `wordingMode: 'summary'` (src/model/section-library/registry.ts), so once
+    // the rules are complete the customer site publishes the same one-line
+    // summary the owner's trigger shows, not the long-form wording that stays
+    // on the owner's policy copy card above.
+    await expect(page.getByLabel('Final phone customer preview')
+      .locator('.customer-lib-deposits .customer-lib-policy-body'))
+      .toHaveText('$15 deposit · 24 hours’ notice · deposit kept after late cancellation');
     await capture(page, '19-review-combined-readiness-item', readiness);
 
     await preparePolicyState(page, 'none');
@@ -695,7 +701,8 @@ test.describe('final Owner iPhone corrections', () => {
       { exact: true },
     )).toHaveCount(1);
     const finalPreview = page.getByLabel('Final phone customer preview');
-    await expect(finalPreview).toContainText('No deposit is required.');
+    await expect(finalPreview.locator('.customer-lib-deposits .customer-lib-policy-body'))
+      .toHaveText('No deposit · 24 hours’ notice');
     await expect(finalPreview).not.toContainText(
       /A (?:\$\d+(?:\.\d{2})? )?deposit is required|deposits are non-refundable/iu,
     );

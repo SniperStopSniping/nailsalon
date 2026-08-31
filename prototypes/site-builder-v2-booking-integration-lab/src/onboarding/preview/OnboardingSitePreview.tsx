@@ -2,12 +2,15 @@ import {
   CalendarDays,
   Clock3,
   Instagram,
+  Mail,
   MapPin,
   MessageCircle,
+  Phone,
   Sparkles,
 } from 'lucide-react';
 import {
   type CSSProperties,
+  Fragment,
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
@@ -43,7 +46,10 @@ import {
   resolveAboutBio,
 } from '../model/about';
 import { createOnboardingBookingFixture } from '../model/booking-preview';
-import { getPublicContactActions } from '../model/contact';
+import {
+  getPublicContactActions,
+  type PublicContactAction,
+} from '../model/contact';
 import {
   getPublicWeeklyHours,
   getWeeklyHoursPreviewStatus,
@@ -217,6 +223,20 @@ const createPreviewBookingSession = (): BookingSessionState => ({
     addOnIds: ['addon-french'],
   },
 });
+
+/**
+ * Each contact method gets its own mark. A single generic glyph made
+ * "Book now" and "Instagram" look like the same action.
+ */
+const ContactMethodIcon = ({ method }: {
+  method: PublicContactAction['method'];
+}) => {
+  if (method === 'booking') return <CalendarDays aria-hidden="true" size={16} />;
+  if (method === 'instagram') return <Instagram aria-hidden="true" size={16} />;
+  if (method === 'call') return <Phone aria-hidden="true" size={16} />;
+  if (method === 'email') return <Mail aria-hidden="true" size={16} />;
+  return <MessageCircle aria-hidden="true" size={16} />;
+};
 
 const isAboutVisible = (
   visibility: Record<AboutElementId, boolean>,
@@ -716,28 +736,32 @@ function ContactSection({ onBook, profile, sectionId }: {
         </div>
       ) : null}
       <div className="onboarding-customer-actions">
-        {directions ? (
-          <a
-            aria-label={directions.accessibleLabel}
-            className="is-secondary"
-            href={directions.href}
-            rel={directions.rel}
-            target={directions.target}
-          >Directions</a>
-        ) : null}
-        {contacts.map((contact) => (
+        {/* The preferred way to reach the salon leads; Directions follows it. */}
+        {contacts.map((contact, index) => (
+          <Fragment key={`${contact.method}-${contact.href}`}>
           <a
             className={contact.preferred ? 'is-preferred' : 'is-secondary'}
             data-contact-method={contact.method}
             href={contact.href}
-            key={`${contact.method}-${contact.href}`}
             onClick={contact.method === 'booking' ? onBook : undefined}
             rel={contact.rel}
             target={contact.target}
           >
-            <MessageCircle aria-hidden="true" size={16} />
+            <ContactMethodIcon method={contact.method} />
             {contact.actionLabel}{contact.preferred && contact.method !== 'booking' ? ' · Preferred' : ''}
           </a>
+          {index === 0 && directions ? (
+            <a
+              aria-label={directions.accessibleLabel}
+              className="is-secondary"
+              href={directions.href}
+              rel={directions.rel}
+              target={directions.target}
+            >
+              <MapPin aria-hidden="true" size={16} /> Directions
+            </a>
+          ) : null}
+          </Fragment>
         ))}
       </div>
     </section>

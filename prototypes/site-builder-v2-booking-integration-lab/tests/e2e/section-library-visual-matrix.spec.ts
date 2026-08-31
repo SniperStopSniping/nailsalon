@@ -79,10 +79,17 @@ const SAMPLE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   ['hours', 'visit_us'],
   ['visit_us', 'contact'],
   ['contact', 'final_cta'],
-  ['final_cta', 'footer'],
   ['reviews', 'reviews'],
-  ['final_cta', 'final_cta'],
   ['footer', 'hero'],
+];
+
+/**
+ * Pairs made only of composition chrome publish nothing on their own (the
+ * page-viability rule), so their seam is sampled behind a hero instead.
+ */
+const CHROME_PAIR_SAMPLES: ReadonlyArray<readonly string[]> = [
+  ['hero', 'final_cta', 'footer'],
+  ['hero', 'announcement_bar', 'quick_info'],
 ];
 
 /**
@@ -126,6 +133,12 @@ const captureUrl = (params: Record<string, string>): string =>
  * first so the evidence shows what a real visitor sees.
  */
 const settleForCapture = async (page: import('@playwright/test').Page) => {
+  // `content-visibility: auto` re-skips rendering the moment a card scrolls
+  // away again, and a full-page screenshot scrolls. Pin it on for the
+  // capture so the image shows what a visitor sees at that scroll position.
+  await page.addStyleTag({
+    content: '.onboarding-site-preview * { content-visibility: visible !important; }',
+  });
   await page.evaluate(async () => {
     const step = window.innerHeight;
     const total = document.body.scrollHeight;
@@ -239,6 +252,29 @@ test.describe('section library visual matrix', () => {
           }
         }
       }
+    }
+  });
+
+  test('chrome-only seams are sampled behind a substantive section', async ({ page }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 390, height: 940 });
+    for (const run of CHROME_PAIR_SAMPLES) {
+      await page.goto(showcaseUrl({ device: 'phone', types: run.join(',') }));
+      await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+      for (const type of run.slice(1)) {
+        await expect(
+          page.locator(`[data-section-id^="showcase-${type}-"]`),
+          `${type} missing from ${run.join('+')}`,
+        ).toHaveCount(1);
+      }
+      await assertNoHorizontalOverflow(page, run.join('+'));
+      await page.goto(captureUrl({ device: 'phone', types: run.join(',') }));
+      await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+      await settleForCapture(page);
+      await page.screenshot({
+        fullPage: true,
+        path: `${EVIDENCE_ROOT}/pairs/${run.join('--')}-390.png`,
+      });
     }
   });
 
