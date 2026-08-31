@@ -1030,8 +1030,7 @@ test.describe('Onboarding zero-findings browser acceptance', () => {
     await fullPreview.getByRole('group', { name: 'Preview device' })
       .getByRole('button', { name: 'Phone' })
       .click();
-    const contactActions = fullContactActions;
-    await contactActions.scrollIntoViewIfNeeded();
+    await fullContactActions.scrollIntoViewIfNeeded();
     const directions = fullPreview.getByRole('link', { name: /Directions to 100 Queen Street West/u });
     await expect(directions).toHaveAttribute('href', /google\.com\/maps/u);
     const directionsHref = await directions.getAttribute('href');
