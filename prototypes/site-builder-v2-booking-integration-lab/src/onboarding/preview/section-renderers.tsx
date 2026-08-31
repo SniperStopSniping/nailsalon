@@ -598,14 +598,28 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
           ) : null}
         </div>
         {hoursRows.length > 0 ? (
-          <dl className="customer-lib-hours-rows is-summary">
-            {hoursRows.filter(row => row.hours !== 'Closed').map(row => (
-              <div key={row.weekday}>
-                <dt>{row.label.slice(0, 3)}</dt>
-                <dd>{row.hours}</dd>
-              </div>
-            ))}
-          </dl>
+          <div className="customer-lib-visit-hours">
+            <dl className="customer-lib-hours-rows is-summary">
+              {hoursRows.filter(row => row.hours !== 'Closed').map(row => (
+                <div key={row.weekday}>
+                  <dt>{row.label.slice(0, 3)}</dt>
+                  <dd>{row.hours}</dd>
+                </div>
+              ))}
+            </dl>
+            {/* Name the closed days rather than leaving a silent gap. */}
+            {hoursRows.some(row => row.hours === 'Closed') ? (
+              <p className="customer-lib-hours-closed">
+                Closed
+                {' '}
+                {hoursRows
+                  .filter(row => row.hours === 'Closed')
+                  .map(row => row.label)
+                  .join(' and ')}
+                .
+              </p>
+            ) : null}
+          </div>
         ) : null}
         {contactActions.length > 0 ? (
           <p className="customer-lib-visit-contact">
