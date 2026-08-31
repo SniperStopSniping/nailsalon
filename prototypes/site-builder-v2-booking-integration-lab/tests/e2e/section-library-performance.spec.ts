@@ -23,10 +23,18 @@ const RECIPES = [
   'gallery_forward',
 ] as const;
 
-/** Properties that force layout or paint off the compositor when animated. */
+/**
+ * Properties that force layout or paint off the compositor when animated.
+ * The size keywords earn their place: a height transition from zero is not
+ * just expensive, it is fail-closed — the content is unreadable until the
+ * transition runs, which is how the FAQ answer once ended up clipped to its
+ * own summary anywhere animations do not advance.
+ */
 const NON_COMPOSITED = [
   'width',
   'height',
+  'block-size',
+  'inline-size',
   'top',
   'left',
   'right',
@@ -71,27 +79,51 @@ test.describe('section library performance', () => {
 
     const offenders = await page.evaluate((banned) => {
       const found: string[] = [];
-      for (const sheet of [...document.styleSheets]) {
-        let rules: CSSRuleList;
-        try {
-          rules = sheet.cssRules;
-        } catch {
-          continue; // cross-origin (Google Fonts)
+
+      const checkStyleRule = (rule: CSSStyleRule) => {
+        const selector = rule.selectorText ?? '';
+        if (!selector.includes('customer-lib') && !selector.includes('onboarding-customer')) {
+          return;
         }
-        for (const rule of [...rules]) {
-          if (!(rule instanceof CSSStyleRule)) continue;
-          const selector = rule.selectorText ?? '';
-          if (!selector.includes('customer-lib') && !selector.includes('onboarding-customer')) {
-            continue;
+        const transition = `${rule.style.getPropertyValue('transition')} `
+          + `${rule.style.getPropertyValue('transition-property')} `;
+        for (const property of banned) {
+          // `transition: all` is equally disqualifying: it animates layout.
+          if (transition.includes(`${property} `) || transition.trim().startsWith('all')) {
+            found.push(`${selector} → ${transition.trim()}`);
           }
-          const transition = rule.style.getPropertyValue('transition')
-            + rule.style.getPropertyValue('transition-property');
+        }
+      };
+
+      const checkKeyframes = (rule: CSSKeyframesRule) => {
+        for (const frame of [...rule.cssRules]) {
+          if (!(frame instanceof CSSKeyframeRule)) continue;
           for (const property of banned) {
-            // `transition: all` is equally disqualifying: it animates layout.
-            if (transition.includes(`${property} `) || transition.trim().startsWith('all')) {
-              found.push(`${selector} → ${transition.trim()}`);
+            if (frame.style.getPropertyValue(property)) {
+              found.push(`@keyframes ${rule.name} → ${property}`);
             }
           }
+        }
+      };
+
+      /*
+       * Rules that matter live inside `@media` and `@supports` as often as at
+       * the top level — the height animation this test now bans was written
+       * inside an `@supports` block, where a flat scan could not see it.
+       */
+      const walk = (rules: CSSRuleList) => {
+        for (const rule of [...rules]) {
+          if (rule instanceof CSSStyleRule) checkStyleRule(rule);
+          else if (rule instanceof CSSKeyframesRule) checkKeyframes(rule);
+          else if ('cssRules' in rule) walk((rule as CSSGroupingRule).cssRules);
+        }
+      };
+
+      for (const sheet of [...document.styleSheets]) {
+        try {
+          walk(sheet.cssRules);
+        } catch {
+          continue; // cross-origin (Google Fonts)
         }
       }
       return found;

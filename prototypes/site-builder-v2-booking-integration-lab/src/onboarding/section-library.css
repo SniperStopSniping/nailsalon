@@ -16,7 +16,10 @@
 /*
  * Two-speed motion system (from the Phantom teardown): colour/opacity
  * feedback is instant, movement and elevation travel unhurried. Only
- * transform/opacity/box-shadow/border-color/background ever animate.
+ * compositor-friendly properties ever animate — the transform family
+ * (transform, translate, scale, rotate), opacity, box-shadow, colour, and
+ * background — never a layout property. A performance test enforces it,
+ * including inside @media, @supports, and @keyframes.
  */
 .onboarding-site-preview {
   --customer-motion-color: 150ms cubic-bezier(0.25, 1, 0.5, 1);
