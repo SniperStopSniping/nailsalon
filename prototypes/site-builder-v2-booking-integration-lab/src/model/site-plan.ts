@@ -195,8 +195,7 @@ const INJECTION_RULES: readonly InjectionRule[] = [
     satisfiedBy: ['deposits_cancellations'],
     type: 'deposits_cancellations',
     wanted: (context, toggles) =>
-      toggles.policiesEnabled
-      && (context.policiesMeaningful || context.depositMode === 'fixed'),
+      toggles.policiesEnabled && context.policiesMeaningful,
   },
   {
     placement: 'after_booking',
