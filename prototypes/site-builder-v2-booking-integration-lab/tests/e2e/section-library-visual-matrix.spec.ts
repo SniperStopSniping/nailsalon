@@ -85,8 +85,28 @@ const SAMPLE_PAIRS: ReadonlyArray<readonly [string, string]> = [
   ['footer', 'hero'],
 ];
 
-/** Section Navigation needs 2+ anchor targets; alone it is honestly absent. */
-const HONESTLY_ABSENT_ALONE = new Set(['section_navigation']);
+/**
+ * Composition chrome never justifies publishing a page by itself, so a page
+ * holding only chrome drops entirely — these types are honestly absent when
+ * shown alone and are captured beside a substantive section instead.
+ * Section Navigation additionally needs two anchor targets before it renders.
+ */
+const CHROME_ALONE_DROPS = new Set([
+  'announcement_bar',
+  'quick_info',
+  'section_navigation',
+  'final_cta',
+  'footer',
+]);
+
+/** Companions that give a chrome section a realistic page to sit in. */
+const CHROME_COMPANIONS: Record<string, readonly string[]> = {
+  announcement_bar: ['hero'],
+  final_cta: ['hero'],
+  footer: ['hero'],
+  quick_info: ['hero'],
+  section_navigation: ['featured_services', 'reviews'],
+};
 
 const WIDTHS = [390, 1440] as const;
 
@@ -136,16 +156,29 @@ test.describe('section library visual matrix', () => {
         }));
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
         const rendered = await page.locator(`[data-section-id="showcase-${type}-0"]`).count();
-        if (HONESTLY_ABSENT_ALONE.has(type)) {
-          expect(rendered, `${type}@${width} should be honestly absent alone`).toBe(0);
+        const device = width >= 1024 ? 'desktop' : 'phone';
+
+        if (CHROME_ALONE_DROPS.has(type)) {
+          // Alone, the page is pure chrome and correctly publishes nothing.
+          expect(rendered, `${type}@${width} should drop when alone`).toBe(0);
+
+          // Beside a substantive section it must render, and that is what the
+          // evidence screenshot shows.
+          const run = [type, ...(CHROME_COMPANIONS[type] ?? ['hero'])];
+          await page.goto(showcaseUrl({ device, types: run.join(',') }));
+          await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+          await expect(
+            page.locator(`[data-section-id="showcase-${type}-0"]`),
+            `${type}@${width} did not render beside ${run.slice(1).join(' + ')}`,
+          ).toHaveCount(1);
+          await assertNoHorizontalOverflow(page, `${type}@${width} (in context)`);
+          await page.goto(captureUrl({ device, types: run.join(',') }));
         } else {
           expect(rendered, `${type}@${width} did not render`).toBeGreaterThan(0);
+          await assertNoHorizontalOverflow(page, `${type}@${width}`);
+          await page.goto(captureUrl({ device, type }));
         }
-        await assertNoHorizontalOverflow(page, `${type}@${width}`);
-        await page.goto(captureUrl({
-          device: width >= 1024 ? 'desktop' : 'phone',
-          type,
-        }));
+
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
         await page.screenshot({
           fullPage: true,

@@ -112,6 +112,8 @@ export function SectionShowcaseSurface() {
   const recipeParam = search.get('recipe');
   const typeParam = search.get('type');
   const secondParam = search.get('second');
+  // `types=a,b,c` renders an ordered run; `type`/`second` stay supported.
+  const typesParam = search.get('types');
   const presetParam = search.get('preset');
 
   const model = useMemo(() => {
@@ -148,7 +150,10 @@ export function SectionShowcaseSurface() {
       };
     }
 
-    const types = [typeParam, secondParam]
+    const requested = typesParam
+      ? typesParam.split(',').map(value => value.trim())
+      : [typeParam, secondParam];
+    const types = requested
       .filter((value): value is string => Boolean(value))
       .filter(isShowcaseType)
       .filter(type => type !== 'custom_design');
@@ -188,7 +193,7 @@ export function SectionShowcaseSurface() {
       plan,
       state: showcaseState,
     };
-  }, [paletteId, presetParam, recipeParam, secondParam, styleId, typeParam]);
+  }, [paletteId, presetParam, recipeParam, secondParam, styleId, typeParam, typesParam]);
 
   if (!model) {
     return (
