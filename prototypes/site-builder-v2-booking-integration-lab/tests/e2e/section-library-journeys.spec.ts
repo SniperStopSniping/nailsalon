@@ -5,18 +5,37 @@
  *     truthfully (populated ones present, empty ones honestly absent).
  * B — Add Section shows the named, grouped library; hard limits block with a
  *     reason; adding a library section lands it selected.
- * C — the Team flow: solo-business overlap warning names the conflict, "Add
- *     anyway" proceeds, the editor manages shared records, and the document
- *     persists the normalized settings.
+ * C — overlap + records: a duplicate add is warned about by name with a real
+ *     "Add anyway" path, and the Team editor manages shared siteContent
+ *     records that the document then persists in normalized form.
  * D — the showcase surface (the same pixels the owner Section Gallery
  *     renders) restyles a full recipe across styles/palettes/devices.
  * E — customer policy surfaces never leak owner-prompt copy.
- * F — library sections and shared records survive reload with undo intact.
+ * F — a library section survives reload (with history honestly reset), and
+ *     one Undo reverses an in-session add.
  */
 
 import { expect, test, type Page } from '@playwright/test';
 
-import { LAB_STORAGE_KEY, openFreshLab } from './helpers';
+import { chooseStarter, LAB_STORAGE_KEY, openFreshLab, waitForSaved } from './helpers';
+
+/** Opens the Add Section dialog from whichever affordance is on screen. */
+const openAddSection = async (page: Page) => {
+  const insertion = page.locator('button.final-insertion:visible').last();
+  if (await insertion.isVisible()) {
+    await insertion.click();
+  } else {
+    await page.getByRole('button', { name: 'Add section', exact: true }).click();
+  }
+  const dialog = page.getByRole('dialog', { name: 'Add section' });
+  await expect(dialog).toBeVisible();
+  return dialog;
+};
+
+const startBuilder = async (page: Page) => {
+  await openFreshLab(page);
+  await chooseStarter(page, 'Quick Book');
+};
 
 const readStoredDocument = async (page: Page) => page.evaluate((key) => {
   const raw = window.localStorage.getItem(key);
@@ -39,10 +58,8 @@ test.describe('Section Library V1 owner journeys', () => {
   });
 
   test('Journey B: Add Section lists the named library and enforces hard limits', async ({ page }) => {
-    await openFreshLab(page);
-    await page.getByRole('button', { name: 'Add section', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Add section' });
-    await expect(dialog).toBeVisible();
+    await startBuilder(page);
+    const dialog = await openAddSection(page);
 
     // Grouped, named library — not numbered placeholders.
     await expect(dialog.getByRole('heading', { name: 'First impressions & conversion' })).toBeVisible();
@@ -58,33 +75,70 @@ test.describe('Section Library V1 owner journeys', () => {
     // Adding Reviews (empty authority) still adds the section to the document.
     await dialog.locator('[data-section-type="reviews"]').getByRole('button', { name: /Add Reviews/ }).click();
     await expect(dialog).not.toBeVisible();
+    await waitForSaved(page);
     const stored = await readStoredDocument(page);
     const types = stored.pages[0].sections.map((section: { sectionType: string }) => section.sectionType);
     expect(types).toContain('reviews');
   });
 
-  test('Journey C: Team warns on solo overlap, then manages shared records honestly', async ({ page }) => {
-    await openFreshLab(page);
-    await page.getByRole('button', { name: 'Add section', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Add section' });
-    await dialog.locator('[data-section-type="team"]').getByRole('button', { name: /Add Team/ }).click();
+  test('Journey C: duplicate adds are warned by name, and Team manages shared records', async ({ page }) => {
+    await startBuilder(page);
 
-    // The overlap engine names the real conflict before anything is added.
-    const warning = page.getByRole('dialog', { name: 'Solo business' });
+    // First Team add is unremarkable — no warning, no interruption.
+    const firstAdd = await openAddSection(page);
+    await firstAdd.locator('[data-section-type="team"]').getByRole('button', { name: /Add Team/ }).click();
+    await expect(firstAdd).not.toBeVisible();
+    await waitForSaved(page);
+
+    // A second Team add names the existing one and offers a real way through.
+    const secondAdd = await openAddSection(page);
+    await secondAdd.locator('[data-section-type="team"]').getByRole('button', { name: /Add Team/ }).click();
+    const warning = page.getByRole('dialog', { name: 'Team is already on your site' });
     await expect(warning).toBeVisible();
-    await expect(warning).toContainText('solo nail tech');
-    await warning.getByRole('button', { name: 'Add it anyway' }).click();
+    await expect(warning).toContainText('Home');
+    await warning.getByRole('button', { name: 'Cancel' }).click();
+    await expect(warning).not.toBeVisible();
+    // Cancelling the warning returns the owner to the open library so they
+    // can choose something else; closing it returns to the Builder.
+    await expect(secondAdd).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(secondAdd).not.toBeVisible();
+    await waitForSaved(page);
+    const afterCancel = await readStoredDocument(page);
+    expect(afterCancel.pages[0].sections.filter(
+      (section: { sectionType: string }) => section.sectionType === 'team',
+    )).toHaveLength(1);
 
-    // Edit the new Team section and add a shared staff record.
-    const teamCard = page.locator('article[data-section-id]').filter({ hasText: 'Team' }).first();
-    await teamCard.click();
-    await teamCard.getByRole('button', { name: 'Edit', exact: true }).click();
+    // Edit the Team section and add a shared staff record. The Builder shows
+    // its edit affordance in the card toolbar or the selected-section toolbar
+    // depending on viewport, exactly as the Booking flows do.
+    const teamCard = page.locator('[data-section-label="Team"]').first();
+    await teamCard.scrollIntoViewIfNeeded();
+    // Adding a section already selects it; clicking the card would toggle the
+    // selection off, so only select when the owner controls are not showing.
+    const toolbar = page.getByRole('complementary', { name: 'Team owner controls' });
+    if (!(await toolbar.isVisible().catch(() => false))) {
+      await teamCard.click();
+    }
+    await expect(toolbar).toBeVisible();
+    // The toolbar parks in an "away" state while the selected card is out of
+    // view; its return control brings the card and its controls back.
+    const returnToSection = toolbar.getByRole('button', { name: 'Back to Team' });
+    if (await returnToSection.isVisible().catch(() => false)) {
+      await returnToSection.click();
+    }
+    const selectedEdit = toolbar.getByRole('button', { name: 'Edit', exact: true });
+    await expect(selectedEdit).toBeVisible();
+    await selectedEdit.click();
     const editor = page.getByRole('dialog', { name: 'Edit Team' });
     await expect(editor).toBeVisible();
     await editor.getByPlaceholder('New team member’s name').fill('Vy Tran');
     await editor.getByRole('button', { name: 'Add member', exact: true }).click();
-    await expect(editor.getByText('Vy Tran')).toBeVisible();
+    // The new record appears with its own include control, ticked on.
+    await expect(editor.getByRole('checkbox', { name: 'Show Vy Tran in this section' }))
+      .toBeChecked();
     await editor.getByRole('button', { name: 'Save section' }).click();
+    await waitForSaved(page);
 
     const stored = await readStoredDocument(page);
     expect(stored.siteContent.staff.map((member: { name: string }) => member.name))
@@ -128,29 +182,31 @@ test.describe('Section Library V1 owner journeys', () => {
     await expect(page.locator('[data-library-type="policies"]')).toContainText('Late arrivals');
   });
 
-  test('Journey F: library sections and shared records survive reload with undo intact', async ({ page }) => {
-    await openFreshLab(page);
-    await page.getByRole('button', { name: 'Add section', exact: true }).click();
-    await page.getByRole('dialog', { name: 'Add section' })
-      .locator('[data-section-type="faq"]')
+  test('Journey F: a library section survives reload and one Undo reverses an add', async ({ page }) => {
+    await startBuilder(page);
+    const dialog = await openAddSection(page);
+    await dialog.locator('[data-section-type="faq"]')
       .getByRole('button', { name: /Add FAQ/ })
       .click();
+    await waitForSaved(page);
 
-    await page.reload();
-    await expect(page.locator('article[data-section-id]').filter({ hasText: 'FAQ' }).first())
-      .toBeVisible();
-    const afterReload = await readStoredDocument(page);
-    const faqCount = afterReload.pages[0].sections.filter(
-      (section: { sectionType: string }) => section.sectionType === 'faq',
-    ).length;
-    expect(faqCount).toBe(1);
-
-    // One undo removes the addition — history survived the operation intact.
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+z' : 'Control+z');
+    // One Undo reverses the add within the session.
+    await page.getByRole('button', { name: 'Undo', exact: true }).click();
+    await waitForSaved(page);
     const afterUndo = await readStoredDocument(page);
-    const faqAfterUndo = afterUndo.pages[0].sections.filter(
+    expect(afterUndo.pages[0].sections.filter(
       (section: { sectionType: string }) => section.sectionType === 'faq',
-    ).length;
-    expect(faqAfterUndo).toBe(0);
+    )).toHaveLength(0);
+
+    // Redo, then reload: the section persists and history honestly resets.
+    await page.getByRole('button', { name: 'Redo', exact: true }).click();
+    await waitForSaved(page);
+    await page.reload();
+    await expect(page.locator('[data-section-label="FAQ"]').first()).toBeVisible();
+    const afterReload = await readStoredDocument(page);
+    expect(afterReload.pages[0].sections.filter(
+      (section: { sectionType: string }) => section.sectionType === 'faq',
+    )).toHaveLength(1);
+    await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   });
 });

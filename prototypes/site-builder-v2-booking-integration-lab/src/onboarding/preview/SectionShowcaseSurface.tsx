@@ -106,6 +106,9 @@ export function SectionShowcaseSurface() {
   const device: OnboardingPreviewDevice = deviceParam === 'desktop' || deviceParam === 'tablet'
     ? deviceParam
     : 'phone';
+  // Evidence capture: unclip the device frame so a full-page screenshot
+  // contains the whole customer page rather than one viewport of it.
+  const fullFlow = search.get('full') === '1';
   const recipeParam = search.get('recipe');
   const typeParam = search.get('type');
   const secondParam = search.get('second');
@@ -200,7 +203,11 @@ export function SectionShowcaseSurface() {
   }
 
   return (
-    <main data-showcase-ready="true" data-showcase-target={model.label}>
+    <main
+      className={fullFlow ? 'section-showcase is-full-flow' : 'section-showcase'}
+      data-showcase-ready="true"
+      data-showcase-target={model.label}
+    >
       <OnboardingSitePreview
         customerPagePlan={model.plan}
         device={device}

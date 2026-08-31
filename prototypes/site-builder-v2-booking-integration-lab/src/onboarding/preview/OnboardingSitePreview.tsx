@@ -25,7 +25,11 @@ import type { BookingSessionState } from '../../booking/types';
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
 import type { CustomDesignDocumentNavigationTarget } from '../../custom-design/integration/document-actions';
 import { isLibrarySection } from '../../model/section-library/registry';
-import type { GallerySelection, HeroMediaChoice } from '../../model/section-library/settings';
+import type {
+  GalleryPresetId,
+  GallerySelection,
+  HeroMediaChoice,
+} from '../../model/section-library/settings';
 import {
   buildCustomerPagePlan,
   type SitePlanPage,
@@ -740,7 +744,8 @@ function ContactSection({ onBook, profile, sectionId }: {
   );
 }
 
-function GallerySection({ sectionId, selection, state }: {
+function GallerySection({ preset, sectionId, selection, state }: {
+  preset?: GalleryPresetId;
   sectionId?: string;
   selection?: GallerySelection;
   state: OnboardingLabState;
@@ -767,7 +772,7 @@ function GallerySection({ sectionId, selection, state }: {
   return (
     <section
       aria-label="Gallery"
-      className={`onboarding-customer-gallery is-${state.gallery.layout}`}
+      className={`onboarding-customer-gallery is-${preset ?? state.gallery.layout}`}
       data-section-id={sectionId}
     >
       <p className="onboarding-customer-eyebrow">Recent work</p>
@@ -1174,6 +1179,7 @@ export function OnboardingSitePreview({
       return (
         <GallerySection
           key={planSection.id}
+          preset={instance.sectionType === 'gallery' ? instance.settings.preset : undefined}
           sectionId={planSection.id}
           selection={instance.sectionType === 'gallery' ? instance.settings.selection : undefined}
           state={state}

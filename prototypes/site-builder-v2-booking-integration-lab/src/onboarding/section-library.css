@@ -1005,3 +1005,29 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* ---------------------------------------------------------------- */
+/* Showcase capture mode (harness only)                              */
+/* ---------------------------------------------------------------- */
+
+/*
+ * `?full=1` unclips the emulated device frame so automated evidence can
+ * capture a whole customer page in one screenshot. It changes only the
+ * capture container — every section still renders at its real width.
+ */
+.section-showcase.is-full-flow .onboarding-preview-stage {
+  height: auto;
+  min-height: 0;
+}
+
+.section-showcase.is-full-flow .onboarding-preview-frame {
+  position: relative;
+  left: auto;
+  height: auto;
+  overflow: visible;
+  transform: none;
+}
+
+.section-showcase.is-full-flow .onboarding-preview-measurement-host {
+  display: none;
+}
