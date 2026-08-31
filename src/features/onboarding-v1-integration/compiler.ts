@@ -65,7 +65,10 @@ function stampRecipePresets(
         settings: { ...section.settings, preset: snapshot.site.aboutPreset },
       };
     }
-    if (section.sectionType === 'gallery') {
+    if (section.sectionType === 'gallery' && section.settings.preset === 'grid') {
+      // Only the default-preset gallery follows the onboarding layout choice;
+      // a deliberate starter/owner preset (e.g. the multi_page Home
+      // 'Featured work' editorial strip) is preserved.
       return {
         ...section,
         settings: { ...section.settings, preset: snapshot.gallery.layout },

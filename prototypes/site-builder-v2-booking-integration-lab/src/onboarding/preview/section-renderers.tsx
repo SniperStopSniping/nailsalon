@@ -34,6 +34,7 @@ import {
   deriveDepositsAndCancellationsSummary,
   getDepositsAndCancellationsDisplayWording,
   getPolicyDisplayWording,
+  isDepositsAndCancellationsComplete,
 } from '../model/policies';
 import type { OnboardingLabState, PolicySectionId } from '../model/types';
 import {
@@ -400,7 +401,11 @@ function DepositsCancellations({ planSection, section, shared }: LibraryPreviewS
   const settings = settingsOf(section, 'deposits_cancellations');
   if (!settings) return null;
   const { policies } = shared.state.profile;
+  // The one-line summary exists only once the deposit/cancellation rules are
+  // complete; before that its helper returns owner-facing prompt copy, which
+  // must never reach a customer. Fall back to the full owner-authored wording.
   const wording = settings.wordingMode === 'summary'
+    && isDepositsAndCancellationsComplete(policies)
     ? deriveDepositsAndCancellationsSummary(policies)
     : getDepositsAndCancellationsDisplayWording(policies);
   if (!wording.trim()) return null;
@@ -570,6 +575,7 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
           {location.detail ? <p className="customer-lib-visit-detail">{location.detail}</p> : null}
           {directions ? (
             <a
+              aria-label={directions.accessibleLabel}
               className="customer-lib-text-cta"
               href={directions.href}
               rel={directions.rel}

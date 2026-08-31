@@ -93,6 +93,19 @@ const defaultInjectionId = (type: SitePlanInjectableType): string =>
 
 const syntheticIdFactory: IdFactory = () => 'synthetic-section';
 
+/**
+ * Composition chrome never justifies publishing a page by itself: a page
+ * whose substantive sections all gated away (empty gallery, private contact)
+ * drops entirely, together with its navigation entry.
+ */
+const CHROME_SECTION_TYPES: ReadonlySet<string> = new Set([
+  'announcement_bar',
+  'section_navigation',
+  'quick_info',
+  'final_cta',
+  'footer',
+]);
+
 /** Registry tone for library types; engine sections sit on the base surface. */
 const toneFor = (section: SectionInstance): SectionSurfaceTone =>
   isLibrarySection(section)
@@ -362,5 +375,7 @@ export const buildCustomerPagePlan = (
     };
   });
 
-  return planPages.filter(page => page.sections.length > 0);
+  return planPages.filter(page => page.sections.some(
+    section => !CHROME_SECTION_TYPES.has(section.sectionType),
+  ));
 };

@@ -43,11 +43,12 @@ export const deriveSiteLibraryContextFromProfile = (input: {
     depositMode: profile.policies.deposits.mode,
     featuredServiceIds,
     galleryImageIds: [...galleryImageIds],
-    // Mirrors the accepted ContactSection renderer's own show/hide predicate.
+    // Mirrors the accepted ContactSection renderer's own show/hide predicate
+    // (booking-only contact does not count as publishable contact content).
     hasContactSectionContent: Boolean(
       publicLocation.primary.trim()
       || getCustomerProfileFacts(profile).some(fact => fact.id === 'service_location')
-      || contactActions.length > 0
+      || contactActions.some(action => action.method !== 'booking')
       || getPublicWeeklyHours(profile.hours).length > 0,
     ),
     hasPublicContact: contactActions.some(action => action.method !== 'booking'),

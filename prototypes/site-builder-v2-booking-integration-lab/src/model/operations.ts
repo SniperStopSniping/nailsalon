@@ -306,6 +306,30 @@ export const removeSection = (
   return next;
 };
 
+/**
+ * The hard per-page limit is a document invariant, not an add-time nicety:
+ * restore and cross-page moves enforce it with the same error contract as
+ * addSection, so no operation can hand back a document validation rejects.
+ */
+const failOnHardSectionLimit = (
+  page: PageDocument,
+  section: SectionInstance,
+): void => {
+  if (!isLibrarySectionType(section.sectionType)) return;
+  const entry = getSectionRegistryEntry(section.sectionType);
+  if (entry.limitKind !== 'hard' || entry.maxPerPage === undefined) return;
+  const existing = page.sections.filter(
+    candidate => candidate.sectionType === section.sectionType
+      && candidate.id !== section.id,
+  ).length;
+  if (existing >= entry.maxPerPage) {
+    fail(
+      'section_limit',
+      `${entry.label} is already on this page (maximum ${entry.maxPerPage} per page). Edit the existing one instead.`,
+    );
+  }
+};
+
 export const restoreSection = (
   document: SiteBuilderDocument,
   sectionId: string,
@@ -327,6 +351,7 @@ export const restoreSection = (
   if (!page) {
     return fail('not_found', `Page not found: ${pageId}`);
   }
+  failOnHardSectionLimit(page, section);
 
   const next = normalizeDocument({
     ...replacePage(document, pageIndex, {
@@ -646,6 +671,7 @@ export const moveSectionToPage = (
   if (!destination) {
     return fail('not_found', `Page not found: ${destinationPageId}`);
   }
+  failOnHardSectionLimit(destination, located.section);
 
   const pages = document.pages.map((page) => {
     if (page.id === located.page.id) {

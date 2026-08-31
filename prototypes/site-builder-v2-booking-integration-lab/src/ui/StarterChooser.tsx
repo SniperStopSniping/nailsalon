@@ -68,11 +68,16 @@ export type StarterChoiceDefinition = {
   title: string;
 };
 
+/** Composition chrome (`summary: false`) stays out of owner-facing summaries. */
+const summarySections = (
+  page: ReturnType<typeof getStarterPageDefinitions>[number],
+) => page.sections.filter(section => section.summary !== false);
+
 const getIncludedItems = (starter: OriginStarter): readonly string[] => {
   const pages = getStarterPageDefinitions(starter);
   return starter === 'multi_page'
-    ? pages.map((page) => page.previewLabel ?? page.name)
-    : pages.flatMap((page) => page.sections.map((section) => section.previewLabel));
+    ? pages.map(page => page.previewLabel ?? page.name)
+    : pages.flatMap(page => summarySections(page).map(section => section.previewLabel));
 };
 
 const CANONICAL_FEATURED_SELECTION = summarizeSelection({
@@ -185,7 +190,7 @@ const createPageScene = (
   page: StarterPageDefinition,
   index: number,
 ): PreviewScene => {
-  const structureLabels = page.sections.map(({ previewLabel }) => previewLabel);
+  const structureLabels = summarySections(page).map(({ previewLabel }) => previewLabel);
   const kind = index === 0 && page.slug === '' ? 'hero' : getSceneKind(structureLabels);
   const heading = page.previewLabel ?? page.name;
   return {
@@ -202,13 +207,13 @@ const createStarterPreview = (starter: OriginStarter): StarterPreviewDefinition 
   const pages = getStarterPageDefinitions(starter);
   const scenes = starter === 'multi_page'
     ? pages.map(createPageScene)
-    : pages.flatMap((page) => page.sections).map(createSectionScene);
+    : pages.flatMap(page => summarySections(page)).map(createSectionScene);
   const posterItems = starter === 'multi_page'
-    ? pages.map((page) => ({
+    ? pages.map(page => ({
         label: page.previewLabel ?? page.name,
-        meta: page.sections.map(({ previewLabel }) => previewLabel).join(' · '),
+        meta: summarySections(page).map(({ previewLabel }) => previewLabel).join(' · '),
       }))
-    : pages.flatMap((page) => page.sections.map(({ previewLabel }) => ({ label: previewLabel })));
+    : pages.flatMap(page => summarySections(page).map(({ previewLabel }) => ({ label: previewLabel })));
   const posterKind = starter === 'quick_book'
     ? 'quick-summary'
     : starter === 'one_page'
