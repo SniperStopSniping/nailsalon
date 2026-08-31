@@ -167,7 +167,7 @@ describe('ordered adjacency matrix (400 pairs)', () => {
   it('keeps readiness honest: a deposit amount alone does not publish', () => {
     // A fixed deposit with no visible wording renders nothing, so readiness
     // must not claim the section is ready to publish.
-    const entry = getSectionRegistryEntry('deposits_cancellations');
+    const entry = SECTION_LIBRARY_REGISTRY.deposits_cancellations;
     const withAmountOnly = {
       ...deriveSiteLibraryContext(state, pairDocument('hero', 'booking')),
       depositMode: 'fixed' as const,
@@ -179,6 +179,24 @@ describe('ordered adjacency matrix (400 pairs)', () => {
     const withWording = { ...withAmountOnly, policiesMeaningful: true };
     expect(entry.readiness(entry.defaultSettings(), withWording).level)
       .toBe('ready');
+  });
+
+  it('keeps Quick Info honest: selected facts with no content do not publish', () => {
+    const entry = SECTION_LIBRARY_REGISTRY.quick_info;
+    const base = deriveSiteLibraryContext(state, pairDocument('hero', 'booking'));
+    const settings = entry.normalize({
+      ...entry.defaultSettings(),
+      facts: ['visit_mode', 'new_clients'],
+    });
+
+    expect(entry.readiness(settings, base).level).toBe('ready');
+    expect(entry.readiness(settings, { ...base, availableQuickFacts: [] }).level)
+      .toBe('empty');
+    // A fact the owner did not select cannot rescue the section either.
+    expect(entry.readiness(settings, {
+      ...base,
+      availableQuickFacts: ['open_status'],
+    }).level).toBe('empty');
   });
 
   it('never mutates the document it plans from', () => {
