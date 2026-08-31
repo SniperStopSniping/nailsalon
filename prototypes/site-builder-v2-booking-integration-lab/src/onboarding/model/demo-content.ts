@@ -126,6 +126,9 @@ export const createDemoOnboardingState = (): OnboardingLabState => {
       ...state.profile,
       about: {
         ...state.profile.about,
+        // No demo portrait exists, and a monogram at portrait scale reads as
+        // a missing image; the About section shows its copy instead.
+        visibility: { ...state.profile.about.visibility, profile_photo: false },
         shortBio: 'Precision nail care in a calm Leslieville studio — thoughtful shaping, long-wearing gel, and art that suits you.',
         specialties: ['Russian manicure', 'BIAB', 'Detailed nail art'],
         yearsOfExperience: '8 years',

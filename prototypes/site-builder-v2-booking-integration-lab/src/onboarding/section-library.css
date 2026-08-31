@@ -34,6 +34,14 @@
 }
 
 .onboarding-site-preview [data-surface='contrast'] {
+  /*
+   * Secondary tokens are authored for light grounds. On a contrast band they
+   * must be relit from the ground, or muted text lands at ~2.5:1.
+   */
+  --customer-muted: color-mix(in srgb, var(--customer-ground) 76%, var(--customer-ink));
+  --customer-line: color-mix(in srgb, var(--customer-ground) 26%, var(--customer-ink));
+  --customer-surface: color-mix(in srgb, var(--customer-ground) 9%, var(--customer-ink));
+
   color: var(--customer-ground);
   background: var(--customer-ink);
 }
@@ -49,6 +57,15 @@
 
 .onboarding-site-preview [data-attached='true'] {
   padding-top: 0;
+}
+
+/*
+ * A sticky on-page menu attaches to the content it introduces, but the
+ * content still needs air beneath the bar — only an announcement bar or a
+ * merged contrast band sits flush against its neighbour.
+ */
+.onboarding-site-preview [data-library-type='section_navigation'] + [data-attached='true'] {
+  padding-top: clamp(20px, 4cqw, 40px);
 }
 
 .onboarding-site-preview [data-library-type] :where(h2) {
@@ -247,7 +264,7 @@
   font-weight: 680;
 }
 
-.customer-lib-quick-info li::before {
+.customer-lib-quick-info li + li::before {
   content: '';
   width: 4px;
   height: 4px;
@@ -265,7 +282,7 @@
   min-width: 0;
   overflow-x: auto;
   gap: 6px;
-  padding: 10px clamp(14px, 5cqw, 42px) !important;
+  padding: 10px clamp(16px, 7cqw, 68px) !important;
   border-bottom: 1px solid var(--customer-line);
   background: color-mix(in srgb, var(--customer-surface) 94%, transparent);
   backdrop-filter: blur(8px);
@@ -310,7 +327,34 @@
 }
 
 .customer-lib-featured.is-grid .customer-lib-featured-items {
-  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+}
+
+/* Four columns crushes the descriptions; three keeps a readable measure. */
+@container onboarding-preview (min-width: 1000px) {
+  .customer-lib-featured.is-grid .customer-lib-featured-items {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Cards share a baseline: body grows, the action sits on the card floor. */
+.customer-lib-featured-card,
+.customer-lib-offer-card,
+.customer-lib-team-card {
+  display: flex;
+  flex-direction: column;
+}
+
+.customer-lib-featured-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.customer-lib-featured-card .customer-lib-text-cta,
+.customer-lib-offer-card .customer-lib-text-cta,
+.customer-lib-team-card .customer-lib-text-cta {
+  margin-top: auto;
 }
 
 .customer-lib-featured.is-carousel .customer-lib-featured-items {
@@ -370,7 +414,8 @@
   display: flex;
   align-items: baseline;
   gap: 6px;
-  color: var(--customer-ink);
+  /* Inherit so the same run reads on light grounds and contrast bands. */
+  color: inherit;
   font-size: clamp(0.68rem, 2cqw, 0.82rem);
   font-weight: 720;
   font-variant-numeric: tabular-nums;
@@ -696,16 +741,22 @@
 }
 
 .customer-lib-hours.is-compact .customer-lib-hours-rows {
-  display: flex;
-  max-width: none;
-  flex-wrap: wrap;
-  gap: 6px 18px;
+  display: grid;
+  max-width: 460px;
+  grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
+  gap: 4px 24px;
 }
 
 .customer-lib-hours.is-compact .customer-lib-hours-rows > div {
-  gap: 7px;
-  padding-bottom: 0;
-  border: 0;
+  gap: 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--customer-line) 45%, transparent);
+}
+
+.customer-lib-hours-closed {
+  margin: 10px 0 0;
+  color: var(--customer-muted);
+  font-size: clamp(0.64rem, 1.9cqw, 0.77rem);
 }
 
 /* ---------------------------------------------------------------- */
@@ -715,6 +766,8 @@
 .customer-lib-visit-body {
   display: grid;
   min-width: 0;
+  /* Columns size to their own content; nothing stretches to the tallest one. */
+  align-items: start;
   gap: clamp(14px, 4cqw, 26px);
 }
 
@@ -758,6 +811,8 @@
 
 .customer-lib-visit-contact {
   display: flex;
+  align-items: flex-start;
+  align-content: flex-start;
   flex-wrap: wrap;
   gap: 8px;
   margin: 0;
@@ -767,7 +822,7 @@
   padding: 8px 12px;
   border: 1px solid var(--customer-line);
   border-radius: var(--customer-button-radius);
-  color: var(--customer-ink);
+  color: inherit;
   font-size: clamp(0.64rem, 1.9cqw, 0.77rem);
   font-weight: 720;
   text-decoration: none;
@@ -789,11 +844,12 @@
 
 .customer-lib-final-cta h2 {
   margin-inline: auto;
-  max-width: 18ch;
+  max-width: 22ch;
+  text-align: center;
 }
 
 .customer-lib-final-cta > p {
-  max-width: 40ch;
+  max-width: 52ch;
   margin: 0 auto 16px;
   color: var(--customer-muted);
   font-size: clamp(0.72rem, 2.2cqw, 0.9rem);
@@ -842,7 +898,7 @@
 }
 
 .customer-lib-footer-links a {
-  color: var(--customer-ink);
+  color: inherit;
   font-weight: 700;
   text-decoration: none;
   text-underline-offset: 3px;

@@ -364,14 +364,20 @@ async function expectStarterDocumentShape(
     (total, current) => total + current.sections.length,
     0,
   );
+  // Schema v2 starter shapes (src/model/starters.ts, STARTER_PAGES): the named
+  // section library replaced v1's numbered placeholders, so the documents now
+  // carry the full coordinated set including composition chrome.
   if (starter === 'quick_book') {
     expect(document.pages).toHaveLength(1);
-    expect(sectionCount).toBe(3);
+    expect(sectionCount).toBe(6);
   } else if (starter === 'one_page') {
     expect(document.pages).toHaveLength(1);
-    expect(sectionCount).toBe(6);
+    expect(sectionCount).toBe(14);
   } else {
     expect(document.pages).toHaveLength(5);
+    expect(sectionCount).toBe(23);
+    expect(document.pages.map(current => current.sections.length))
+      .toEqual([7, 6, 3, 3, 4]);
   }
 }
 
@@ -581,8 +587,13 @@ test.describe('Onboarding V1 final correction matrix', () => {
     await expectScreenAtTop(page, 'Your starting site is ready');
     await page.reload();
     await expect(screenHeading(page, 'Your starting site is ready')).toBeVisible();
-    await expect(page.getByLabel('Personalized starting site')
+    // The starter name is named by the screen's own summary line. Schema v1
+    // additionally repeated it as an eyebrow inside the preview stage, in a
+    // StarterStructure outline block; the v2 preview renders the real customer
+    // site tree instead, so the summary line is the single naming surface.
+    await expect(page.locator('.onboarding-starting-preview__summary')
       .getByText('One-page website', { exact: true })).toBeVisible();
+    await expect(page.getByLabel('Personalized starting site')).toBeVisible();
     expect(JSON.stringify((await readOnboardingState(page)).profile)).toBe(profileFingerprint);
 
     await backThroughScreens(page, 'Make it yours', 'Choose your starting point');
@@ -850,15 +861,44 @@ test.describe('Onboarding V1 final correction matrix', () => {
       'Your starting site is ready',
     );
     const startingPreview = page.getByLabel('Mia’s Nail Studio starting website preview');
-    await expect(startingPreview.getByRole('group', { name: 'Weekly hours' })).toContainText('Monday');
+    // Schema v2: the one_page starter publishes hours through the Visit us
+    // section's open-day summary (`hours` — the full day-by-day table with the
+    // closed days — is a multi_page-only section) plus the hero's derived
+    // status line. The v1-era "Weekly hours" group belonged to the legacy
+    // injected Contact block, which the section library replaced.
+    const startingHours = startingPreview.locator('.customer-lib-hours-rows.is-summary');
+    await expect(startingHours.locator('dt')).toHaveText(['Mon', 'Tue', 'Wed', 'Thu', 'Fri']);
+    await expect(startingHours.locator('dd')).toHaveText([
+      '9:00 AM–5:00 PM',
+      '9:00 AM–5:00 PM',
+      '9:00 AM–5:00 PM',
+      '9:00 AM–5:00 PM',
+      '9:00 AM–5:00 PM',
+    ]);
+    await expect(startingPreview.locator('[data-hours-status="closed"]'))
+      .toHaveText('Opens Monday at 9:00 AM');
     await expect(startingPreview).not.toContainText('123 Private Studio Lane');
     await expect(startingPreview.getByRole('button', { name: 'Directions' })).toHaveCount(0);
+    await expect(startingPreview.getByRole('link', { name: /directions/iu })).toHaveCount(0);
 
     await applyFixture(page, 'Preview time · Closed', 'Review your site');
     const finalPreview = page.getByLabel('Final phone customer preview');
     await expect(finalPreview.locator('[data-hours-status="closed"]'))
       .toContainText('Opens tomorrow at 10:00 AM');
-    await expect(finalPreview.getByRole('group', { name: 'Weekly hours' })).toContainText('Sunday');
+    // Sunday is the fixture's closed day, so the Visit us summary publishes the
+    // six open days and omits it rather than listing it as "Closed" the way the
+    // v1 Contact block's full "Weekly hours" table did.
+    const finalHours = finalPreview.locator('.customer-lib-hours-rows.is-summary');
+    await expect(finalHours.locator('dt'))
+      .toHaveText(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']);
+    await expect(finalHours.locator('dd')).toHaveText([
+      '10:00 AM–6:00 PM',
+      '10:00 AM–6:00 PM',
+      '10:00 AM–6:00 PM',
+      '10:00 AM–6:00 PM',
+      '10:00 AM–6:00 PM',
+      '10:00 AM–4:00 PM',
+    ]);
     await captureEvidence(page, '10-closed-state');
   });
 

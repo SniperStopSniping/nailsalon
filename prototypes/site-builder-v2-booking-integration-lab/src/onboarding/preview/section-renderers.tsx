@@ -514,6 +514,7 @@ function Hours({ planSection, section, shared }: LibraryPreviewSectionProps) {
     shared.state.reviewOptions.previewTimestamp,
   );
   const openRows = rows.filter(row => row.hours !== 'Closed');
+  const closedRows = rows.filter(row => row.hours === 'Closed');
   const compact = settings.layout === 'compact';
   return (
     <section
@@ -537,6 +538,11 @@ function Hours({ planSection, section, shared }: LibraryPreviewSectionProps) {
           </div>
         ))}
       </dl>
+      {compact && closedRows.length > 0 ? (
+        <p className="customer-lib-hours-closed">
+          Closed {closedRows.map(row => row.label).join(' and ')}.
+        </p>
+      ) : null}
     </section>
   );
 }

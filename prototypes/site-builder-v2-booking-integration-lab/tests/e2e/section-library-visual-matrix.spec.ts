@@ -119,6 +119,31 @@ const showcaseUrl = (params: Record<string, string>): string => {
 const captureUrl = (params: Record<string, string>): string =>
   showcaseUrl({ ...params, full: '1' });
 
+/**
+ * Booking's service cards use `content-visibility: auto` and its images are
+ * lazy — both correct for a customer on a phone, both invisible-in-a-
+ * screenshot if the page is captured without ever scrolling. Walk the page
+ * first so the evidence shows what a real visitor sees.
+ */
+const settleForCapture = async (page: import('@playwright/test').Page) => {
+  await page.evaluate(async () => {
+    const step = window.innerHeight;
+    const total = document.body.scrollHeight;
+    for (let offset = 0; offset < total; offset += step) {
+      window.scrollTo(0, offset);
+      await new Promise(resolve => requestAnimationFrame(() => resolve(null)));
+    }
+    window.scrollTo(0, 0);
+    await Promise.all([...document.images]
+      .filter(image => !image.complete)
+      .map(image => new Promise((resolve) => {
+        image.addEventListener('load', resolve, { once: true });
+        image.addEventListener('error', resolve, { once: true });
+      })));
+  });
+  await page.waitForTimeout(250);
+};
+
 test.describe('section library visual matrix', () => {
   test.skip(!RUN_MATRIX, 'Set LUSTER_SECTION_MATRIX=1 to run the matrix.');
 
@@ -180,6 +205,7 @@ test.describe('section library visual matrix', () => {
         }
 
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+        await settleForCapture(page);
         await page.screenshot({
           fullPage: true,
           path: `${EVIDENCE_ROOT}/sections/${type}-${width}.png`,
@@ -205,6 +231,7 @@ test.describe('section library visual matrix', () => {
           if (width === 390 && sampleSet.has(`${first}+${second}`)) {
             await page.goto(captureUrl({ device: 'phone', second, type: first }));
             await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+            await settleForCapture(page);
             await page.screenshot({
               fullPage: true,
               path: `${EVIDENCE_ROOT}/pairs/${first}--${second}-390.png`,
@@ -232,6 +259,7 @@ test.describe('section library visual matrix', () => {
           recipe,
         }));
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+        await settleForCapture(page);
         await page.screenshot({
           fullPage: true,
           path: `${EVIDENCE_ROOT}/recipes/${recipe}-${width}.png`,
@@ -260,6 +288,7 @@ test.describe('section library visual matrix', () => {
           style,
         }));
         await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+        await settleForCapture(page);
         await page.screenshot({
           fullPage: true,
           path: `${EVIDENCE_ROOT}/style-palette/${style}--${palette}.png`,
