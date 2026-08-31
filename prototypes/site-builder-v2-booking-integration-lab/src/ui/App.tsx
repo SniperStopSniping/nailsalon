@@ -5,6 +5,7 @@ import {
   ChevronDown,
   Eye,
   Laptop,
+  LayoutDashboard,
   Maximize2,
   Menu,
   Minimize2,
@@ -76,6 +77,7 @@ import {
   type CustomDesignSettings,
 } from '../custom-design/model';
 import {
+  getAddSectionBlocker,
   getAddSectionWarnings,
   getDocumentOverlapAdvisories,
   isAddBlocked,
@@ -87,6 +89,7 @@ import {
   type LibrarySectionSettings,
   type LibrarySectionType,
   type OriginStarter,
+  type OverlapResolution,
   type OverlapWarning,
   type PageDocument,
   type PlaceholderSectionInstance,
@@ -96,8 +99,8 @@ import {
   type UpdateSiteContentInput,
 } from '../model';
 import { createDefaultOnboardingState } from '../onboarding/model/defaults';
+import { goToScreen } from '../onboarding/model/routing';
 import { deriveSiteLibraryContext, deriveSitePlanToggles } from '../onboarding/model/site-library-context';
-import { LibrarySectionSettingsDialog } from './section-editors/LibrarySectionSettingsDialog';
 import {
   getOnboardingReferencedAssetIds,
   OnboardingApp,
@@ -106,6 +109,7 @@ import { FeedbackProvider } from '../onboarding/feedback/FeedbackProvider';
 import { DashboardPreviewSurface } from '../onboarding/integrations/lab/DashboardPreviewSurface';
 import { LAB_DASHBOARD_HANDOFF_PORT } from '../onboarding/integrations/lab/createLabDashboardPorts';
 import { createOnboardingBookingFixture } from '../onboarding/model/booking-preview';
+import { OnboardingSitePreview } from '../onboarding/preview/OnboardingSitePreview';
 import { SectionShowcaseSurface } from '../onboarding/preview/SectionShowcaseSurface';
 import {
   loadOnboardingState,
@@ -145,12 +149,11 @@ import {
   type MoveCompletionShield,
   type MoveCompletionSource,
 } from './move-completion-shield';
-import { createOnboardingClientBusinessMetadata } from './onboarding-business-metadata';
-import { Preview } from './Preview';
 import { SectionCard } from './SectionCard';
 import { SectionMovePanel } from './SectionMovePanel';
 import { StarterChooser } from './StarterChooser';
 import { getSectionOwnerIdentity } from './section-identity';
+import { LibrarySectionSettingsDialog } from './section-editors/LibrarySectionSettingsDialog';
 import { useLabDocument } from './useLabDocument';
 
 type EditorMode = 'edit' | 'preview';
@@ -334,6 +337,14 @@ export function App() {
     }
     return reachable;
   }, [lab.getReachableAssetIds]);
+  const openBusinessSetup = useCallback((): boolean => {
+    const loaded = loadOnboardingState();
+    if (loaded.status === 'error') return false;
+    const saved = saveOnboardingState(goToScreen(loaded.state, 'business'));
+    if (!saved.success) return false;
+    setSurface('onboarding');
+    return true;
+  }, []);
   return (
     <CustomDesignAssetProvider getReachableAssetIds={getReachableAssetIds}>
       <FeedbackProvider>
@@ -355,7 +366,11 @@ export function App() {
             >
               Back to dashboard
             </button>
-            <BuilderApp lab={lab} />
+            <BuilderApp
+              lab={lab}
+              onBackToDashboard={() => setSurface('dashboard')}
+              onChangeBusinessSetup={openBusinessSetup}
+            />
           </div>
         ) : (
           <OnboardingApp
@@ -420,7 +435,15 @@ function DashboardHandoffSurface({
   );
 }
 
-function BuilderApp({ lab }: { lab: LabDocumentController }) {
+function BuilderApp({
+  lab,
+  onBackToDashboard,
+  onChangeBusinessSetup,
+}: {
+  lab: LabDocumentController;
+  onBackToDashboard: () => void;
+  onChangeBusinessSetup: () => boolean;
+}) {
   const document = lab.document;
   const customDesignAssetCoordinator = useCustomDesignAssetCoordinator();
   const customDesignStorageError = useCustomDesignAssetStorageError();
@@ -431,6 +454,9 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   const [viewport, setViewport] = useState<PreviewViewport>('desktop');
   const [libraryPosition, setLibraryPosition] = useState<number | null>(null);
   const [pendingLibraryAdd, setPendingLibraryAdd] = useState<{
+    adjustment?: { sectionId: string; settings: LibrarySectionSettings };
+    pageId: string;
+    position: number;
     sectionType: LibrarySectionType;
     warnings: OverlapWarning[];
   } | null>(null);
@@ -596,12 +622,13 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
       : null;
   }, [document?.siteName]);
   const onboardingProfile = onboardingHandoffState?.profile ?? null;
-  const onboardingBusinessMetadata = useMemo(
-    () => onboardingHandoffState
-      ? createOnboardingClientBusinessMetadata(onboardingHandoffState)
-      : undefined,
-    [onboardingHandoffState],
-  );
+  const customerPreviewState = useMemo(() => {
+    if (onboardingHandoffState) return onboardingHandoffState;
+    const fallback = createDefaultOnboardingState();
+    fallback.profile.businessName = document?.siteName ?? fallback.profile.businessName;
+    fallback.recipe.starter = document?.originStarter ?? fallback.recipe.starter;
+    return fallback;
+  }, [document?.originStarter, document?.siteName, onboardingHandoffState]);
   const bookingFixture = useMemo(() => {
     const fixture = createMenuFixture({ imageFixture, menuSize });
     if (!onboardingProfile) return fixture;
@@ -1464,13 +1491,14 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   const openMoveSection = (
     sectionId: string,
     entry: MoveSession['entry'] = 'section',
+    sourceDocument: SiteBuilderDocument | null = document,
   ) => {
     if (editingCustomDesign && customDesignImageOrderDirty) {
       requestCustomDesignSettingsClose();
       return;
     }
-    if (!document || moveSession) return;
-    const page = findSectionPage(document, sectionId);
+    if (!sourceDocument || moveSession) return;
+    const page = findSectionPage(sourceDocument, sectionId);
     if (!page) return;
     const baselineOrder = [...page.sections]
       .sort((left, right) => left.order - right.order)
@@ -1705,9 +1733,11 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
         const announceSettledWidth = () => {
           window.requestAnimationFrame(() => {
             if (previewAnnouncementTokenRef.current !== announcementToken) return;
-            const frame = window.document.querySelector<HTMLElement>(
+            const canonicalDevice = nextViewport === 'mobile' ? 'phone' : nextViewport;
+            const frame = window.document.querySelector<HTMLElement>([
+              `#site-preview-stage .onboarding-preview-frame[data-preview-device="${canonicalDevice}"]`,
               `#site-preview-stage .preview-frame[data-preview-viewport="${nextViewport}"]`,
-            );
+            ].join(', '));
             if (!frame) return;
             const measuredWidth = Math.round(frame.getBoundingClientRect().width);
             if (measuredWidth <= 0) return;
@@ -1747,46 +1777,128 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
 
   const libraryAddState = useCallback((sectionType: LibrarySectionType) => {
     if (!document || !activePage) return { blocked: false } as const;
-    if (isAddBlocked(document, activePage.id, sectionType)) {
-      return { blocked: true, reason: 'Already on this page' } as const;
-    }
+    const blocker = getAddSectionBlocker(document, activePage.id, sectionType);
+    if (blocker && isAddBlocked(document, activePage.id, sectionType)) return {
+      blocked: true,
+      reason: blocker.resolutions.find(resolution => resolution.kind === 'navigate')
+        ?.label ?? blocker.title,
+    } as const;
     return { blocked: false } as const;
   }, [activePage, document]);
 
-  const performLibraryAdd = (sectionType: LibrarySectionType) => {
-    if (!activePage || libraryPosition === null) return;
-    const beforeIds = new Set(activePage.sections.map(section => section.id));
-    const result = execute({
-      type: 'add_section',
-      input: {
-        pageId: activePage.id,
-        position: libraryPosition,
-        sectionType,
-      },
-    });
-    if (!result.success) return;
-    const nextPage = result.document.pages.find(page => page.id === activePage.id);
+  const performLibraryAdd = (
+    sectionType: LibrarySectionType,
+    pageId: string | null = activePage?.id ?? null,
+    position: number | null = libraryPosition,
+    adjustment?: { sectionId: string; settings: LibrarySectionSettings },
+  ): { created: SectionInstance; document: SiteBuilderDocument } | null => {
+    if (!document || !pageId || position === null) return null;
+    const beforePage = document.pages.find(page => page.id === pageId);
+    if (!beforePage) return null;
+    const beforeIds = new Set(beforePage.sections.map(section => section.id));
+    const input = { pageId, position, sectionType } as const;
+    const command: BuilderCommand = adjustment
+      ? { type: 'add_library_section_with_adjustment', adjustment, input }
+      : { type: 'add_section', input };
+    const result = execute(command);
+    if (!result.success) return null;
+    const nextPage = result.document.pages.find(page => page.id === pageId);
     const created = nextPage?.sections.find(section => !beforeIds.has(section.id));
     setSelectedSectionId(created?.id ?? null);
     setLibraryPosition(null);
+    setPendingLibraryAdd(null);
     if (created) {
       setToast({ message: `${created.label} added. Its details come from your shared studio info.` });
+      return { created, document: result.document };
     }
+    return null;
+  };
+
+  const focusOverlapTarget = (target: NonNullable<OverlapResolution['target']>) => {
+    setPendingLibraryAdd(null);
+    setLibraryPosition(null);
+    setActivePageId(target.pageId);
+    setSelectedSectionId(target.sectionId);
+    setStructureOpen(false);
+    setToast({ message: 'Showing the section that already owns this content.' });
   };
 
   const addLibrarySection = (sectionType: LibrarySectionType) => {
-    if (!document || !activePage) return;
+    if (!document || !activePage || libraryPosition === null) return;
+    const blocker = getAddSectionBlocker(document, activePage.id, sectionType);
     const warnings = getAddSectionWarnings(
       document,
       activePage.id,
       sectionType,
       libraryContext,
+      libraryPosition,
     );
-    if (warnings.length > 0) {
-      setPendingLibraryAdd({ sectionType, warnings });
+    if (blocker || warnings.length > 0) {
+      setPendingLibraryAdd({
+        pageId: activePage.id,
+        position: libraryPosition,
+        sectionType,
+        warnings: blocker ? [blocker] : warnings,
+      });
+      setLibraryPosition(null);
       return;
     }
     performLibraryAdd(sectionType);
+  };
+
+  const resolvePendingLibraryAdd = (resolution: OverlapResolution) => {
+    if (!pendingLibraryAdd || !document) return;
+    if (resolution.kind === 'cancel') {
+      setPendingLibraryAdd(null);
+      return;
+    }
+    if (resolution.kind === 'navigate') {
+      if (resolution.id === 'change_setup') {
+        if (!onChangeBusinessSetup()) {
+          showError(
+            'Your saved setup could not be opened. Try again after reloading.',
+            'Business setup is unavailable',
+          );
+        }
+        setPendingLibraryAdd(null);
+        return;
+      }
+      if (resolution.target) focusOverlapTarget(resolution.target);
+      return;
+    }
+
+    let adjustment = pendingLibraryAdd.adjustment;
+    if (resolution.id === 'move_out' && resolution.target) {
+      const target = findSection(document, resolution.target.sectionId);
+      if (target && isLibrarySection(target) && target.sectionType === 'visit_us') {
+        adjustment = {
+          sectionId: target.id,
+          settings: pendingLibraryAdd.sectionType === 'hours'
+            ? { ...target.settings, hoursSummary: 'hide' }
+            : { ...target.settings, contactSummary: 'hide' },
+        };
+      }
+    }
+
+    const remainingWarnings = pendingLibraryAdd.warnings.slice(1);
+    if (remainingWarnings.length > 0) {
+      setPendingLibraryAdd({
+        ...pendingLibraryAdd,
+        ...(adjustment ? { adjustment } : {}),
+        warnings: remainingWarnings,
+      });
+      return;
+    }
+
+    const added = performLibraryAdd(
+      pendingLibraryAdd.sectionType,
+      pendingLibraryAdd.pageId,
+      pendingLibraryAdd.position,
+      adjustment,
+    );
+    if (resolution.id === 'move_after_add' && added) {
+      openMoveSection(added.created.id, 'section', added.document);
+    }
   };
 
   const saveLibrarySection = (settings: LibrarySectionSettings) => {
@@ -2523,6 +2635,49 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
     setStructureOpen(true);
   };
 
+  const resolveDocumentAdvisory = (
+    advisory: OverlapWarning,
+    resolution: OverlapResolution,
+  ) => {
+    if (resolution.kind === 'cancel') {
+      setStructureOpen(false);
+      setToast({ message: resolution.label });
+      return;
+    }
+    if (resolution.id === 'change_setup') {
+      if (!onChangeBusinessSetup()) {
+        showError(
+          'Your saved setup could not be opened. Try again after reloading.',
+          'Business setup is unavailable',
+        );
+      }
+      return;
+    }
+    if (advisory.id === 'about_policy_summary_duplicate'
+      && resolution.id === 'switch_preset'
+      && resolution.target
+      && document) {
+      const section = findSection(document, resolution.target.sectionId);
+      if (section && isLibrarySection(section) && section.sectionType === 'about') {
+        const result = execute({
+          type: 'update_library_section_settings',
+          sectionId: section.id,
+          settings: { ...section.settings, preset: 'photo_right' },
+        });
+        if (result.success) {
+          setActivePageId(resolution.target.pageId);
+          setSelectedSectionId(section.id);
+          setStructureOpen(false);
+          setToast({
+            message: 'About now uses a design without the duplicate policy summary.',
+            undoable: true,
+          });
+          setAnnouncement('About design updated.');
+        }
+      }
+    }
+  };
+
   const structurePanel = (
     <FinalStructurePanel
       activePageId={activePage.id}
@@ -2534,6 +2689,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
       onMoveNavigationItem={(pageId, position) => execute({ type: 'move_navigation_item', pageId, position })}
       onMovePage={movePage}
       onRemovePage={(page) => { setStructureOpen(false); setPendingPageRemovalId(page.id); }}
+      onResolveAdvisory={resolveDocumentAdvisory}
       onRenameNavigationItem={(pageId, label) => execute({ type: 'rename_navigation_item', pageId, label })}
       onRestorePage={restorePage}
       onRestoreSection={restoreSection}
@@ -2633,30 +2789,40 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
         <header className={`preview-toolbar final-preview-toolbar${zoomCompactedPreview ? ' is-zoom-compact' : ''}`} aria-label="Preview controls">
           <button aria-label="Back to editor" className="final-preview-toolbar__back" type="button" onClick={leavePreview}><ArrowLeft aria-hidden="true" size={18} /><span>Back to editor</span></button>
           <div className="final-preview-toolbar__page"><Eye aria-hidden="true" size={17} /><span>Previewing <strong>{previewPage.name}</strong></span></div>
-          <div className="segmented-control final-preview-devices" role="group" aria-label="Preview viewport" aria-controls="site-preview-stage">
-            <button aria-label="Desktop" aria-pressed={viewport === 'desktop'} type="button" onClick={() => selectPreviewViewport('desktop')}><Laptop aria-hidden="true" size={17} /><span>Desktop</span></button>
-            <button aria-label="Tablet" aria-pressed={viewport === 'tablet'} type="button" onClick={() => selectPreviewViewport('tablet')}><Tablet aria-hidden="true" size={17} /><span>Tablet</span></button>
-            <button aria-label="Phone" aria-pressed={viewport === 'mobile'} type="button" onClick={() => selectPreviewViewport('mobile')}><Smartphone aria-hidden="true" size={17} /><span>Phone</span></button>
+          <div className="final-preview-toolbar__actions">
+            <div className="segmented-control final-preview-devices" role="group" aria-label="Preview viewport" aria-controls="site-preview-stage">
+              <button aria-label="Desktop" aria-pressed={viewport === 'desktop'} type="button" onClick={() => selectPreviewViewport('desktop')}><Laptop aria-hidden="true" size={17} /><span>Desktop</span></button>
+              <button aria-label="Tablet" aria-pressed={viewport === 'tablet'} type="button" onClick={() => selectPreviewViewport('tablet')}><Tablet aria-hidden="true" size={17} /><span>Tablet</span></button>
+              <button aria-label="Phone" aria-pressed={viewport === 'mobile'} type="button" onClick={() => selectPreviewViewport('mobile')}><Smartphone aria-hidden="true" size={17} /><span>Phone</span></button>
+            </div>
+            <button
+              aria-label="Back to dashboard"
+              className="final-preview-toolbar__dashboard"
+              type="button"
+              onClick={onBackToDashboard}
+            >
+              <LayoutDashboard aria-hidden="true" size={17} />
+              <span>Dashboard</span>
+            </button>
           </div>
         </header>
         <section aria-label="Site preview">
-          <Preview
-            activePage={previewPage}
-            bookingFixture={bookingFixture}
-            bookingSession={bookingSession}
-            businessMetadata={onboardingBusinessMetadata}
-            document={document}
-            tokenPreset={tokenPreset}
-            viewport={viewport}
-            stageId="site-preview-stage"
-            onBookingSessionChange={setBookingSession}
-            onNavigate={(pageId) => {
-              const page = document.pages.find((candidate) => candidate.id === pageId);
-              if (page?.visible) {
-                setActivePageId(pageId);
-              }
-            }}
-          />
+          <div className="final-canonical-preview" id="site-preview-stage">
+            <OnboardingSitePreview
+              bookingSession={bookingSession}
+              device={viewport === 'mobile' ? 'phone' : viewport}
+              document={document}
+              fitAvailable
+              includeOptionalSections={false}
+              initialPageId={previewPage.id}
+              interactionMode="interactive"
+              label="Builder customer preview"
+              onActivePageChange={setActivePageId}
+              onBookingSessionChange={setBookingSession}
+              preserveDocumentPresentation
+              state={customerPreviewState}
+            />
+          </div>
         </section>
         <div
           aria-live="polite"
@@ -3058,7 +3224,23 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
       <Dialog onClose={() => setStructureOpen(false)} open={structureOpen} title="Pages & Structure" variant="structure-panel">
         {structurePanel}
       </Dialog>
-      <SectionLibraryDialog document={document} insertionPosition={libraryPosition} libraryAddState={libraryAddState} onAdd={addSection} onAddLibrary={addLibrarySection} onClose={() => setLibraryPosition(null)} onRestore={restoreSectionFromLibrary} page={activePage} />
+      <SectionLibraryDialog
+        document={document}
+        insertionPosition={libraryPosition}
+        libraryAddState={libraryAddState}
+        onAdd={addSection}
+        onAddLibrary={addLibrarySection}
+        onClose={() => setLibraryPosition(null)}
+        onGoToBooking={() => {
+          const blocker = getAddSectionBlocker(document, activePage.id, 'booking');
+          const target = blocker?.resolutions.find(
+            resolution => resolution.kind === 'navigate',
+          )?.target;
+          if (target) focusOverlapTarget(target);
+        }}
+        onRestore={restoreSectionFromLibrary}
+        page={activePage}
+      />
       <SectionSettingsDialog onClose={() => setEditingSectionId(null)} onSave={saveSection} section={editingPlaceholder} />
       <LibrarySectionSettingsDialog
         context={libraryContext}
@@ -3078,31 +3260,32 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
       >
         {pendingLibraryAdd ? (
           <div className="library-overlap-warnings">
-            {pendingLibraryAdd.warnings.map(warning => (
-              <div className="library-overlap-warning" key={warning.id}>
-                <strong>{warning.title}</strong>
-                <p>{warning.message}</p>
-              </div>
-            ))}
+            <div
+              className="library-overlap-warning"
+              key={pendingLibraryAdd.warnings[0]?.id}
+            >
+              <strong>{pendingLibraryAdd.warnings[0]?.title}</strong>
+              <p>{pendingLibraryAdd.warnings[0]?.message}</p>
+              {pendingLibraryAdd.warnings.length > 1 ? (
+                <small>
+                  {pendingLibraryAdd.warnings.length - 1} more overlap choice
+                  {pendingLibraryAdd.warnings.length === 2 ? '' : 's'} follows.
+                </small>
+              ) : null}
+            </div>
             <div className="dialog-actions">
-              <button
-                className="secondary-button"
-                onClick={() => setPendingLibraryAdd(null)}
-                type="button"
-              >
-                Cancel
-              </button>
-              <button
-                className="primary-button"
-                onClick={() => {
-                  const sectionType = pendingLibraryAdd.sectionType;
-                  setPendingLibraryAdd(null);
-                  performLibraryAdd(sectionType);
-                }}
-                type="button"
-              >
-                Add it anyway
-              </button>
+              {pendingLibraryAdd.warnings[0]?.resolutions.map(resolution => (
+                <button
+                  className={resolution.kind === 'cancel'
+                    ? 'secondary-button'
+                    : 'primary-button'}
+                  key={resolution.id}
+                  onClick={() => resolvePendingLibraryAdd(resolution)}
+                  type="button"
+                >
+                  {resolution.label}
+                </button>
+              ))}
             </div>
           </div>
         ) : null}

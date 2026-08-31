@@ -22,6 +22,7 @@ import {
   createHostedCustomDesignActionResolver,
   type CustomDesignDocumentNavigationTarget,
 } from '../custom-design/integration/document-actions';
+import { hasRenderableCustomDesignContent } from '../custom-design/model/settings';
 import { getStarterDocumentOutline } from '../model/starters';
 import type { PageDocument, SiteBuilderDocument } from '../model/types';
 import type { PublicContactAction } from '../onboarding/model/contact';
@@ -282,7 +283,10 @@ export function Preview({
             }
 
             if (section.sectionType === 'custom_design') {
-              if (section.settings.images.length === 0) return null;
+              if (!hasRenderableCustomDesignContent(section.settings, assetId => {
+                const status = customDesignAssets[assetId]?.status;
+                return status === 'loading' || status === 'ready';
+              })) return null;
               return (
                 <div
                   key={section.id}

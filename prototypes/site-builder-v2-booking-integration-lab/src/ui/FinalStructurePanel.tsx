@@ -15,6 +15,7 @@ import {
 import { useEffect, useState } from 'react';
 
 import type {
+  OverlapResolution,
   OverlapWarning,
   PageDocument,
   RestorableSectionInstance,
@@ -36,6 +37,10 @@ type FinalStructurePanelProps = {
   onMoveNavigationItem: (pageId: string, position: number) => void;
   onMovePage: (page: PageDocument, position: number) => void;
   onRemovePage: (page: PageDocument) => void;
+  onResolveAdvisory: (
+    advisory: OverlapWarning,
+    resolution: OverlapResolution,
+  ) => void;
   onRenameNavigationItem: (pageId: string, label: string) => void;
   onRestorePage: (pageId: string) => void;
   onRestoreSection: (section: RestorableSectionInstance) => void;
@@ -56,6 +61,7 @@ export function FinalStructurePanel({
   onMoveNavigationItem,
   onMovePage,
   onRemovePage,
+  onResolveAdvisory,
   onRenameNavigationItem,
   onRestorePage,
   onRestoreSection,
@@ -181,6 +187,17 @@ export function FinalStructurePanel({
             <div className="final-structure__advisory" key={advisory.id}>
               <strong>{advisory.title}</strong>
               <p>{advisory.message}</p>
+              <div className="final-structure__advisory-actions">
+                {advisory.resolutions.map(resolution => (
+                  <button
+                    key={resolution.id}
+                    type="button"
+                    onClick={() => onResolveAdvisory(advisory, resolution)}
+                  >
+                    {resolution.label}
+                  </button>
+                ))}
+              </div>
             </div>
           ))}
         </div>

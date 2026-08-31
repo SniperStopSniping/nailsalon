@@ -31,6 +31,7 @@ type SectionLibraryDialogProps = {
   ) => void;
   onAddLibrary: (sectionType: LibrarySectionType) => void;
   onClose: () => void;
+  onGoToBooking: () => void;
   onRestore: (
     section: RestorableSectionInstance,
     position?: number,
@@ -58,7 +59,7 @@ const LIBRARY_CATEGORY_ORDER: readonly AddSectionLibraryItem['category'][] = [
   'media',
 ];
 
-export function SectionLibraryDialog({ document, insertionPosition, libraryAddState, onAdd, onAddLibrary, onClose, onRestore, page }: SectionLibraryDialogProps) {
+export function SectionLibraryDialog({ document, insertionPosition, libraryAddState, onAdd, onAddLibrary, onClose, onGoToBooking, onRestore, page }: SectionLibraryDialogProps) {
   const [search, setSearch] = useState('');
   const activeTypes = new Set(document.pages.flatMap((candidate) => candidate.sections.map((section) => section.sectionType)));
   const unusedTypes = new Set(document.unusedSections.map((section) => section.sectionType));
@@ -148,8 +149,8 @@ export function SectionLibraryDialog({ document, insertionPosition, libraryAddSt
                       </button>
                     ))}
                     <button
+                      aria-haspopup={addState.blocked ? 'dialog' : undefined}
                       className="library-add-button"
-                      disabled={addState.blocked}
                       type="button"
                       onClick={() => onAddLibrary(item.sectionType)}
                     >
@@ -256,12 +257,12 @@ export function SectionLibraryDialog({ document, insertionPosition, libraryAddSt
             <span>Client service menu</span>
             <span className="library-state">Currently used</span>
             <button
-              aria-label="Booking is currently used"
+              aria-label="Go to Booking"
               className="library-add-button"
-              disabled
               type="button"
+              onClick={onGoToBooking}
             >
-              Currently used
+              Go to Booking
             </button>
           </div>
         </article> : null}

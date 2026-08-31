@@ -1,4 +1,3 @@
-import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
 import {
   exportSiteBuilderDocument,
   SITE_BUILDER_STORAGE_KEY,
@@ -10,6 +9,7 @@ import {
   type OnboardingStorage,
   saveOnboardingState,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/storage/storage';
+import { resolveOnboardingCustomDesignSettings } from './custom-design-media';
 import {
   authorizeVerifiedOnboardingSetupResume,
   canResumeVerifiedOnboardingSetup,
@@ -25,13 +25,6 @@ import { createPersistableOnboardingDraft } from './snapshot';
 type ResumeHydrationResult =
   | { success: true }
   | { message: string; success: false };
-
-const getCustomDesignSettings = (document: SiteBuilderDocument) => {
-  const section = document.pages
-    .flatMap(page => page.sections)
-    .find(candidate => candidate.sectionType === 'custom_design');
-  return section?.sectionType === 'custom_design' ? section.settings : null;
-};
 
 const restoreStorageValue = (
   storage: OnboardingStorage,
@@ -87,8 +80,14 @@ export const hydrateInitialOnboardingResumeDraft = (
     const persisted = createPersistableOnboardingDraft(
       hydratedState,
       hydratedState.recipe.palettePreset,
-      getCustomDesignSettings(draft.document),
+      resolveOnboardingCustomDesignSettings(
+        draft.document,
+        hydratedState.canva.customDesignSectionId,
+      ),
       draft.document,
+      new Map(draft.media.flatMap(item => item.role === 'custom_design'
+        ? [[item.localItemId, item.assetId] as const]
+        : [])),
     );
     if (fingerprintOnboardingPayload(persisted.snapshot) !== draft.payloadFingerprint) {
       return {

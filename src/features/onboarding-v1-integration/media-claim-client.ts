@@ -1,9 +1,15 @@
 import type { AssetRepository } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/assets/types';
+import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
 import type {
   LocalImageReference,
   OnboardingLabState,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/types';
 import type { OnboardingSiteMediaRole } from './contracts';
+import {
+  collectCustomDesignMediaSources,
+  collectInheritedCustomDesignMedia,
+  type ExistingCustomDesignMediaByLogicalId,
+} from './custom-design-media';
 
 export type OnboardingMediaRole = OnboardingSiteMediaRole;
 
@@ -47,6 +53,7 @@ export type ClaimOnboardingMediaResult = {
 
 type ClaimOnboardingMediaInput = {
   draftId: string;
+  existingCustomMediaByLogicalId?: ExistingCustomDesignMediaByLogicalId;
   fetcher?: typeof fetch;
   idempotencyKey: string;
   repository: AssetRepository | null;
@@ -54,6 +61,7 @@ type ClaimOnboardingMediaInput = {
   siteId: string;
   siteRevision: number;
   state: OnboardingLabState;
+  document?: SiteBuilderDocument | null;
 };
 
 type UploadResponse = {
@@ -107,14 +115,27 @@ const asReference = (
 
 export const collectOnboardingMediaReferences = (
   state: OnboardingLabState,
+  document: SiteBuilderDocument | null = null,
 ): OnboardingMediaReference[] => {
+  const customDesignReferences = document
+    ? collectCustomDesignMediaSources(document).map(({ image }, order) => ({
+      altText: image.altText.trim() || null,
+      assetId: image.assetId,
+      fileName: image.fileName,
+      localItemId: image.id,
+      mimeType: image.mimeType,
+      order,
+      role: 'custom_design' as const,
+    }))
+    : state.canva.images.map((image, order) =>
+      asReference(image, 'custom_design', order))
+      .filter((reference): reference is OnboardingMediaReference => reference !== null);
   const candidates = [
     asReference(state.profile.profilePhoto, 'profile', 0),
     asReference(state.profile.logo, 'logo', 0),
     ...state.gallery.images.map((image, order) =>
       asReference(image, 'gallery', order)),
-    ...state.canva.images.map((image, order) =>
-      asReference(image, 'custom_design', order)),
+    ...customDesignReferences,
   ].filter((reference): reference is OnboardingMediaReference => reference !== null);
 
   const identityRoles = new Map<string, OnboardingMediaRole>();
@@ -142,6 +163,34 @@ export const collectOnboardingMediaReferences = (
   return [...unique.values()];
 };
 
+const collectExistingCustomMediaCandidates = (
+  state: OnboardingLabState,
+  accountCustomMediaByLogicalId: ExistingCustomDesignMediaByLogicalId,
+): Map<string, string> => new Map<string, string>([
+  ...accountCustomMediaByLogicalId,
+  ...state.canva.images.flatMap(image => (
+    image.source === 'fixture' && image.storageId
+      ? [[image.id, image.storageId] as const]
+      : []
+  )),
+]);
+
+export const collectPendingOnboardingMediaReferences = (
+  state: OnboardingLabState,
+  document: SiteBuilderDocument | null = null,
+  accountCustomMediaByLogicalId: ExistingCustomDesignMediaByLogicalId = new Map(),
+): OnboardingMediaReference[] => {
+  const inheritedCustomMedia = collectInheritedCustomDesignMedia(
+    document,
+    null,
+    collectExistingCustomMediaCandidates(state, accountCustomMediaByLogicalId),
+  );
+  return collectOnboardingMediaReferences(state, document).filter(reference => (
+    reference.role !== 'custom_design'
+    || !inheritedCustomMedia.has(reference.localItemId)
+  ));
+};
+
 /**
  * Once the server has verified the saved revision, remove only assets retained
  * in the onboarding cleanup ledger that are no longer referenced by the
@@ -151,9 +200,10 @@ export const collectOnboardingMediaReferences = (
 export const cleanupVerifiedUnreferencedOnboardingMedia = async (
   repository: AssetRepository | null,
   state: OnboardingLabState,
+  document: SiteBuilderDocument | null = null,
 ): Promise<{ failedAssetIds: string[]; removedAssetIds: string[] }> => {
   const referenced = new Set(
-    collectOnboardingMediaReferences(state).map(reference => reference.assetId),
+    collectOnboardingMediaReferences(state, document).map(reference => reference.assetId),
   );
   const candidates = [...new Set(state.canva.ownedAssetIds)]
     .filter(assetId => !referenced.has(assetId));
@@ -254,7 +304,9 @@ const uploadOne = async ({
 };
 
 export const claimOnboardingMedia = async ({
+  document,
   draftId,
+  existingCustomMediaByLogicalId = new Map(),
   fetcher = fetch,
   idempotencyKey,
   repository,
@@ -265,7 +317,11 @@ export const claimOnboardingMedia = async ({
 }: ClaimOnboardingMediaInput): Promise<ClaimOnboardingMediaResult> => {
   let references: OnboardingMediaReference[];
   try {
-    references = collectOnboardingMediaReferences(state);
+    references = collectPendingOnboardingMediaReferences(
+      state,
+      document,
+      existingCustomMediaByLogicalId,
+    );
   } catch {
     const fallbackReference: OnboardingMediaReference = {
       altText: null,

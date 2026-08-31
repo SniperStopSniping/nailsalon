@@ -11,6 +11,7 @@ import type {
   OnboardingClaimSuccess,
   OnboardingPlanIntent,
 } from './contracts';
+import { resolveOnboardingCustomDesignSettings } from './custom-design-media';
 import { fingerprintOnboardingPayload } from './payload-fingerprint';
 import { createPersistableOnboardingDraft } from './snapshot';
 
@@ -133,12 +134,12 @@ export const loadOnboardingIntegrationFlow = (): OnboardingIntegrationFlow => {
       mediaComplete: parsed.mediaComplete !== false,
       mediaFailures: Array.isArray(parsed.mediaFailures)
         ? parsed.mediaFailures.filter((item): item is StoredMediaFailure => (
-            Boolean(item)
-            && typeof item.assetId === 'string'
-            && typeof item.fileName === 'string'
-            && typeof item.message === 'string'
-            && ['custom_design', 'gallery', 'logo', 'profile'].includes(item.role)
-          ))
+          Boolean(item)
+          && typeof item.assetId === 'string'
+          && typeof item.fileName === 'string'
+          && typeof item.message === 'string'
+          && ['custom_design', 'gallery', 'logo', 'profile'].includes(item.role)
+        ))
         : [],
       phase: parsed.phase,
       planIdempotencyKey: typeof parsed.planIdempotencyKey === 'string'
@@ -292,16 +293,10 @@ export const canResumeVerifiedOnboardingSetup = (input: {
         return true;
       }
     }
-    const sections = parsedDocument.document.pages.flatMap(page => page.sections);
-    const selected = loaded.state.canva.customDesignSectionId
-      ? sections.find(section => (
-          section.id === loaded.state.canva.customDesignSectionId
-          && section.sectionType === 'custom_design'
-        ))
-      : sections.find(section => section.sectionType === 'custom_design');
-    const customDesign = selected?.sectionType === 'custom_design'
-      ? selected.settings
-      : null;
+    const customDesign = resolveOnboardingCustomDesignSettings(
+      parsedDocument.document,
+      loaded.state.canva.customDesignSectionId,
+    );
     const { snapshot } = createPersistableOnboardingDraft(
       loaded.state,
       loaded.state.recipe.palettePreset,

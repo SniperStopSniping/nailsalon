@@ -1,10 +1,10 @@
 import 'server-only';
 
-import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
 import {
   onboardingCompiledSiteDocumentSchema,
   onboardingPersistedSnapshotSchema,
 } from './contracts';
+import { resolveOnboardingCustomDesignSettings } from './custom-design-media';
 import { fingerprintOnboardingPayload } from './payload-fingerprint';
 import { getClaimedOnboardingSite } from './persistence.server';
 import type { InitialOnboardingResumeDraft } from './resume-draft';
@@ -13,13 +13,6 @@ import {
   createSavedSitePreviewModel,
 } from './saved-preview';
 import { createPersistableOnboardingDraft } from './snapshot';
-
-const getCustomDesignSettings = (document: SiteBuilderDocument) => {
-  const section = document.pages
-    .flatMap(page => page.sections)
-    .find(candidate => candidate.sectionType === 'custom_design');
-  return section?.sectionType === 'custom_design' ? section.settings : null;
-};
 
 /**
  * Loads one exact current draft through the existing tenant-scoped site
@@ -70,8 +63,14 @@ export async function loadInitialOnboardingResumeDraft(input: {
     const roundTrip = createPersistableOnboardingDraft(
       model.state,
       snapshot.data.site.palettePresetId,
-      getCustomDesignSettings(editableDocument),
+      resolveOnboardingCustomDesignSettings(
+        editableDocument,
+        snapshot.data.customDesign.customDesignSectionId,
+      ),
       editableDocument,
+      new Map(media.flatMap(item => item.role === 'custom_design'
+        ? [[item.localItemId, item.assetId] as const]
+        : [])),
     );
     if (fingerprintOnboardingPayload(roundTrip.snapshot) !== payloadFingerprint) {
       return null;

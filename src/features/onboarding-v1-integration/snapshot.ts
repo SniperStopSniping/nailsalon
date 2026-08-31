@@ -1,12 +1,19 @@
 import type { CustomDesignSettings } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/types';
 import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
+import { applyOnboardingSitePresentation } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/site-document-presentation';
 import type { OnboardingLabState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/types';
 import {
   type OnboardingMediaManifestItem,
+  onboardingMediaManifestSchema,
   type OnboardingPalettePresetId,
   type OnboardingPersistedSnapshot,
   onboardingPersistedSnapshotSchema,
 } from './contracts';
+import {
+  collectCustomDesignMediaSources,
+  collectInheritedCustomDesignMedia,
+  type ExistingCustomDesignMediaByLogicalId,
+} from './custom-design-media';
 
 const sanitizeCustomDesignSettings = (
   settings: CustomDesignSettings,
@@ -80,51 +87,67 @@ export function createPersistableOnboardingDraft(
   palettePresetId: OnboardingPalettePresetId,
   customDesignSettings: CustomDesignSettings | null = null,
   document: SiteBuilderDocument | null = null,
+  accountCustomMediaByLogicalId: ExistingCustomDesignMediaByLogicalId = new Map(),
 ): { media: OnboardingMediaManifestItem[]; snapshot: OnboardingPersistedSnapshot } {
   const sanitizedCustomDesignSettings = customDesignSettings
     ? sanitizeCustomDesignSettings(customDesignSettings)
     : null;
   const sanitizedBuilderDocument = sanitizeBuilderDocument(document);
+  const acceptedBuilderDocument = sanitizedBuilderDocument
+    ? applyOnboardingSitePresentation(sanitizedBuilderDocument, {
+      aboutPreset: state.recipe.aboutPreset,
+      galleryLayout: state.gallery.layout,
+    })
+    : null;
   const profilePhoto = mediaReference(state.profile.profilePhoto, 'profile', 0, 'cover');
   const logo = mediaReference(state.profile.logo, 'logo', 0, 'contain');
   const galleryMedia = state.gallery.images.flatMap((image, order) => {
     const item = mediaReference(image, 'gallery', order, 'cover');
     return item ? [item] : [];
   });
-  const existingCustomMediaByLogicalId = new Map(
-    state.canva.images.flatMap(image => (
+  const existingCustomMediaCandidates = new Map<string, string>([
+    ...accountCustomMediaByLogicalId,
+    ...state.canva.images.flatMap(image => (
       image.source === 'fixture' && image.storageId
         ? [[image.id, image.storageId] as const]
         : []
     )),
+  ]);
+  const inheritedCustomMediaByLogicalId = collectInheritedCustomDesignMedia(
+    document,
+    customDesignSettings,
+    existingCustomMediaCandidates,
   );
-  const customDesignMedia: OnboardingMediaManifestItem[] = sanitizedCustomDesignSettings
-    ? sanitizedCustomDesignSettings.images.map((image, order) => {
-        const existingMediaId = existingCustomMediaByLogicalId.get(image.id);
-        return {
-          ...(image.accessibleSummary ? { accessibleSummary: image.accessibleSummary } : {}),
-          altText: image.altText,
-          decorative: image.decorative,
-          displayMode: sanitizedCustomDesignSettings.displayMode === 'contained'
-            ? 'contain'
-            : sanitizedCustomDesignSettings.displayMode,
-          ...(existingMediaId
-            ? { existingMediaId }
-            : {}),
-          fileName: image.fileName,
-          fileSize: image.fileSize,
-          height: image.height,
-          imageItemId: image.id,
-          localItemId: image.id,
-          mimeType: image.mimeType,
-          order,
-          role: 'custom_design',
-          width: image.width,
-        };
-      })
-    : [];
-  const media = [profilePhoto, logo, ...galleryMedia, ...customDesignMedia]
-    .filter((item): item is OnboardingMediaManifestItem => item !== null);
+  const customDesignMedia: OnboardingMediaManifestItem[] = collectCustomDesignMediaSources(
+    document,
+    customDesignSettings,
+  ).map(({ displayMode, image }, order) => {
+    const existingMediaId = inheritedCustomMediaByLogicalId.get(image.id);
+    return {
+      ...(image.accessibleSummary ? { accessibleSummary: image.accessibleSummary } : {}),
+      altText: image.altText,
+      decorative: image.decorative,
+      displayMode: displayMode === 'contained'
+        ? 'contain'
+        : displayMode,
+      ...(existingMediaId
+        ? { existingMediaId }
+        : {}),
+      fileName: image.fileName,
+      fileSize: image.fileSize,
+      height: image.height,
+      imageItemId: image.id,
+      localItemId: image.id,
+      mimeType: image.mimeType,
+      order,
+      role: 'custom_design',
+      width: image.width,
+    };
+  });
+  const media = onboardingMediaManifestSchema.parse(
+    [profilePhoto, logo, ...galleryMedia, ...customDesignMedia]
+      .filter((item): item is OnboardingMediaManifestItem => item !== null),
+  );
 
   const snapshot = onboardingPersistedSnapshotSchema.parse({
     customDesign: {
@@ -177,7 +200,7 @@ export function createPersistableOnboardingDraft(
     site: {
       aboutEnabled: state.recipe.aboutEnabled,
       aboutPreset: state.recipe.aboutPreset,
-      builderDocument: sanitizedBuilderDocument,
+      builderDocument: acceptedBuilderDocument,
       canvaEnabled: state.recipe.canvaEnabled,
       galleryEnabled: state.recipe.galleryEnabled,
       palettePresetId,

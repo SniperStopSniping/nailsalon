@@ -89,6 +89,17 @@ export const STARTER_SECTION_SEMANTIC_ROLES = [
 export type StarterSectionSemanticRole =
   (typeof STARTER_SECTION_SEMANTIC_ROLES)[number];
 
+/**
+ * Stable provenance for a Gallery layout choice. Onboarding owns the primary
+ * Gallery module selected in its recipe screens; supporting/recipe Galleries
+ * keep their authored layout when that choice changes.
+ *
+ * The field is optional so documents saved before this provenance existed
+ * remain importable. The document normalizer tags untouched legacy starter
+ * shapes deterministically without consulting mutable owner-facing labels.
+ */
+export type GalleryPresentationOwner = 'onboarding' | 'recipe';
+
 export type NavigationItem = {
   id: string;
   pageId: string;
@@ -136,6 +147,9 @@ export type CustomDesignSectionInstance = SectionInstanceBase & {
 export type LibrarySectionInstance<
   TType extends LibrarySectionType = LibrarySectionType,
 > = SectionInstanceBase & {
+  galleryPresentationOwner?: TType extends 'gallery'
+    ? GalleryPresentationOwner
+    : never;
   sectionType: TType;
   settings: LibrarySectionSettingsByType[TType];
 };
@@ -296,6 +310,11 @@ export type CommitSectionMoveInput = {
 
 export type BuilderCommand =
   | { type: 'add_section'; input: AddSectionInput }
+  | {
+      type: 'add_library_section_with_adjustment';
+      input: AddLibrarySectionInput;
+      adjustment: { sectionId: string; settings: unknown };
+    }
   | { type: 'remove_section'; sectionId: string }
   | {
       type: 'restore_section';

@@ -56,6 +56,7 @@ import {
   labelForNewClients,
   labelForVisitMode,
 } from './customer-facts';
+import { sectionAnchorId } from './section-anchors';
 
 export type LibraryPreviewBookHandler = (
   event: ReactMouseEvent<HTMLAnchorElement>,
@@ -214,7 +215,7 @@ function SectionNavigation({ planSection, section, shared }: LibraryPreviewSecti
     >
       {targets.map(target => (
         <a
-          href={`#${target.sectionType === 'booking' ? 'booking' : `section-${target.id}`}`}
+          href={`#${sectionAnchorId(target.id, target.sectionType)}`}
           key={target.id}
           onClick={target.sectionType === 'booking' ? shared.onBook : undefined}
         >
@@ -242,7 +243,7 @@ function FeaturedServices({ planSection, section, shared }: LibraryPreviewSectio
       {...sectionAttributes(planSection, 'featured_services')}
       aria-label="Featured services"
       className={`customer-lib-featured is-${settings.preset}`}
-      id={`section-${planSection.id}`}
+      id={sectionAnchorId(planSection.id, 'featured_services')}
     >
       <p className="onboarding-customer-eyebrow">Services</p>
       <h2>{settings.preset === 'editorial' ? 'Signature services' : 'Popular services'}</h2>
@@ -286,7 +287,7 @@ function Offers({ planSection, section, shared }: LibraryPreviewSectionProps) {
       {...sectionAttributes(planSection, 'offers')}
       aria-label="Offers"
       className={`customer-lib-offers is-${settings.preset}`}
-      id={`section-${planSection.id}`}
+      id={sectionAnchorId(planSection.id, 'offers')}
     >
       <p className="onboarding-customer-eyebrow">Offers</p>
       <h2>Current offers</h2>
@@ -336,7 +337,7 @@ function Team({ planSection, section, shared }: LibraryPreviewSectionProps) {
       {...sectionAttributes(planSection, 'team')}
       aria-label="Team"
       className={`customer-lib-team is-${settings.preset}`}
-      id={`section-${planSection.id}`}
+      id={sectionAnchorId(planSection.id, 'team')}
     >
       <p className="onboarding-customer-eyebrow">The team</p>
       <h2>Who you’ll see</h2>
@@ -376,7 +377,7 @@ function Reviews({ planSection, section, shared }: LibraryPreviewSectionProps) {
       {...sectionAttributes(planSection, 'reviews')}
       aria-label="Reviews"
       className={`customer-lib-reviews is-${settings.preset}`}
-      id={`section-${planSection.id}`}
+      id={sectionAnchorId(planSection.id, 'reviews')}
     >
       <p className="onboarding-customer-eyebrow">Kind words</p>
       <h2>What clients say</h2>
@@ -425,7 +426,7 @@ function DepositsCancellations({ planSection, section, shared }: LibraryPreviewS
       {...sectionAttributes(planSection, 'deposits_cancellations')}
       aria-label="Deposits and cancellations"
       className="customer-lib-deposits"
-      id={`section-${planSection.id}`}
+      id={sectionAnchorId(planSection.id, 'deposits_cancellations')}
     >
       <p className="onboarding-customer-eyebrow">Before you book</p>
       <h2>Deposits &amp; cancellations</h2>
@@ -468,7 +469,7 @@ function Policies({ planSection, section, shared }: LibraryPreviewSectionProps) 
       {...sectionAttributes(planSection, 'policies')}
       aria-label="Studio policies"
       className="customer-lib-policies"
-      id={`section-${planSection.id}`}
+      id={sectionAnchorId(planSection.id, 'policies')}
     >
       <p className="onboarding-customer-eyebrow">Before you book</p>
       <h2>Studio policies</h2>
@@ -497,7 +498,7 @@ function Faq({ planSection, section, shared }: LibraryPreviewSectionProps) {
       {...sectionAttributes(planSection, 'faq')}
       aria-label="Frequently asked questions"
       className="customer-lib-faq"
-      id={`section-${planSection.id}`}
+      id={sectionAnchorId(planSection.id, 'faq')}
     >
       <p className="onboarding-customer-eyebrow">Questions</p>
       <h2>Good to know</h2>
@@ -531,7 +532,7 @@ function Hours({ planSection, section, shared }: LibraryPreviewSectionProps) {
       {...sectionAttributes(planSection, 'hours')}
       aria-label="Hours"
       className={`customer-lib-hours is-${settings.layout}`}
-      id={`section-${planSection.id}`}
+      id={sectionAnchorId(planSection.id, 'hours')}
     >
       <p className="onboarding-customer-eyebrow">Hours</p>
       <h2>When we’re open</h2>
@@ -582,7 +583,7 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
       {...sectionAttributes(planSection, 'visit_us')}
       aria-label="Visit us"
       className={`customer-lib-visit is-${settings.preset}`}
-      id={`section-${planSection.id}`}
+      id={sectionAnchorId(planSection.id, 'visit_us')}
     >
       <p className="onboarding-customer-eyebrow">Visit us</p>
       <h2>Finding the studio</h2>

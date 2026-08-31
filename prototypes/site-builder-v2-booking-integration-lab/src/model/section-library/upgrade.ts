@@ -98,6 +98,13 @@ const upgradePlaceholderToLibrarySection = (
     : previewLabel;
   return {
     id: section.id,
+    ...(type === 'gallery'
+      ? {
+          galleryPresentationOwner: role === 'featured_work'
+            ? 'recipe'
+            : 'onboarding',
+        }
+      : {}),
     label,
     order: section.order,
     sectionType: type,

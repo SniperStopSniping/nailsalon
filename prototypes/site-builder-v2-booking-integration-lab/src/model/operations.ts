@@ -1213,6 +1213,16 @@ export const applyBuilderCommand = (
   switch (command.type) {
     case 'add_section':
       return addSection(document, command.input, idFactory);
+    case 'add_library_section_with_adjustment':
+      return addSection(
+        updateLibrarySectionSettings(
+          document,
+          command.adjustment.sectionId,
+          command.adjustment.settings,
+        ),
+        command.input,
+        idFactory,
+      );
     case 'remove_section':
       return removeSection(document, command.sectionId);
     case 'restore_section':

@@ -5,6 +5,7 @@ import type {
 } from '../../model/types';
 import type { ResolveCustomDesignAction } from '../components/view-types';
 import { resolveCustomDesignAction } from '../model/actions';
+import { hasCustomDesignArtwork } from '../model/settings';
 import type {
   CustomDesignAction,
   CustomDesignActionResolution,
@@ -58,7 +59,10 @@ const locateInternalTarget = (
   if (!sectionId) return { page };
 
   const section = page.sections.find((candidate) => candidate.id === sectionId);
-  if (section?.sectionType === 'custom_design' && section.settings.images.length === 0) {
+  if (
+    section?.sectionType === 'custom_design'
+    && !hasCustomDesignArtwork(section.settings)
+  ) {
     return null;
   }
   return section?.visible ? { page, section } : null;

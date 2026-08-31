@@ -41,6 +41,7 @@ import {
   goForward,
   reconcileConditionalHistory,
 } from './model/routing';
+import { applyOnboardingSitePresentation } from './model/site-document-presentation';
 import type {
   BusinessProfileDraft,
   CanvaDisplayMode,
@@ -1174,15 +1175,28 @@ export function OnboardingApp({
     return synced;
   };
 
+  const acceptedBuilderDocument = lab.document
+    ? applyOnboardingSitePresentation(lab.document, {
+        aboutPreset: onboarding.state.recipe.aboutPreset,
+        galleryLayout: onboarding.state.gallery.layout,
+      })
+    : null;
+
   const openBuilder = () => {
-    if (!syncBuilderSiteName()) return;
+    const accepted = lab.acceptOnboardingPresentation(
+      onboarding.state.profile.businessName,
+      {
+        aboutPreset: onboarding.state.recipe.aboutPreset,
+        galleryLayout: onboarding.state.gallery.layout,
+      },
+    );
+    if (!accepted) {
+      setError('Finish the current image upload before updating the Builder site.');
+      return;
+    }
     if (integration) {
-      if (!lab.document) {
-        setError('Your website preview is still being prepared. Return to your starting point and try again.');
-        return;
-      }
       integration.onSaveSite({
-        document: structuredClone(lab.document),
+        document: structuredClone(accepted),
         state: structuredClone(onboarding.state),
       });
       return;
@@ -1362,7 +1376,7 @@ export function OnboardingApp({
       case 'final_preview':
         return (
           <FinalReviewScreen
-            document={lab.document}
+            document={acceptedBuilderDocument}
             onBack={goBack}
             onEdit={(target) => onboarding.viewScreen(target)}
             onEditCanva={() => {

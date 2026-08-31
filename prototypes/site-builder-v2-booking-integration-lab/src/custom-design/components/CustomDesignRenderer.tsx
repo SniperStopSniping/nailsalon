@@ -1,4 +1,5 @@
 import { CUSTOM_DESIGN_POSTER_MAX_WIDTH_PX } from '../model/constants';
+import { hasRenderableCustomDesignContent } from '../model/settings';
 import type { CustomDesignSettings } from '../model/types';
 import { CustomDesignImageStack } from './CustomDesignImageStack';
 import type {
@@ -39,12 +40,14 @@ export function CustomDesignRenderer({
     asset: resolveAsset(image.assetId, image),
     image,
   }));
-  const hasRenderableImage = images.some(entry => (
-    entry.asset.status === 'ready' || entry.asset.status === 'loading'
-  ))
-    || (missingAssetFallback === 'placeholder' && images.length > 0)
-    || settings.cta.type !== 'none'
-    || images.some((entry) => Boolean(entry.image.accessibleSummary?.trim()));
+  const assetsById = new Map(images.map(entry => [entry.image.assetId, entry.asset]));
+  const hasRenderableImage = hasRenderableCustomDesignContent(
+    settings,
+    assetId => {
+      const asset = assetsById.get(assetId);
+      return asset?.status === 'ready' || asset?.status === 'loading';
+    },
+  ) || (missingAssetFallback === 'placeholder' && images.length > 0);
 
   if (!hasRenderableImage) {
     return null;

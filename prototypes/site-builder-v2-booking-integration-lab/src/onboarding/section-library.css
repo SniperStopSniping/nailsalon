@@ -119,7 +119,7 @@
 
 .customer-lib-text-cta {
   display: inline-flex;
-  min-height: 40px;
+  min-height: 44px;
   align-items: center;
   gap: 5px;
   color: var(--customer-accent);
@@ -332,7 +332,10 @@
 }
 
 .customer-lib-section-nav a {
+  display: inline-flex;
+  min-height: 44px;
   flex: 0 0 auto;
+  align-items: center;
   padding: 7px 11px;
   border: 1px solid var(--customer-line);
   border-radius: 999px;
@@ -742,6 +745,7 @@
 
 .customer-lib-faq summary {
   display: flex;
+  min-height: 44px;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -917,6 +921,9 @@
 }
 
 .customer-lib-visit-contact a {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
   padding: 8px 12px;
   border: 1px solid var(--customer-line);
   border-radius: var(--customer-button-radius);

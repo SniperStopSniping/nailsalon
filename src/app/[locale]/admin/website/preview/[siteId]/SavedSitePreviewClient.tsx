@@ -73,6 +73,7 @@ export function SavedSitePreviewClient({
         device={embedded ? 'phone' : device}
         document={model.document}
         fitAvailable
+        includeOptionalSections={false}
         interactionMode={embedded ? 'inline' : 'interactive'}
         label={embedded ? 'Saved customer website' : 'Interactive saved customer website'}
         state={model.state}

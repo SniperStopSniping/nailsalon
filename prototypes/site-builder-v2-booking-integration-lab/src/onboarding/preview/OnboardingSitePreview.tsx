@@ -14,6 +14,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type ReactNode,
   useCallback,
+  useEffect,
   useId,
   useLayoutEffect,
   useMemo,
@@ -21,12 +22,17 @@ import {
   useState,
 } from 'react';
 
-import { BookingSectionRenderer } from '../../booking/BookingSectionRenderer';
+import {
+  BookingSectionRenderer,
+  type BookingSessionUpdater,
+} from '../../booking/BookingSectionRenderer';
 import { createEmptyBookingSession, summarizeSelection } from '../../booking/helpers';
 import { createDefaultBookingPresentationSettings } from '../../booking/presentation';
 import type { BookingSessionState } from '../../booking/types';
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
 import type { CustomDesignDocumentNavigationTarget } from '../../custom-design/integration/document-actions';
+import { hasRenderableCustomDesignContent } from '../../custom-design/model/settings';
+import type { CustomDesignSettings } from '../../custom-design/model/types';
 import { isLibrarySection } from '../../model/section-library/registry';
 import type {
   GalleryPresetId,
@@ -35,6 +41,7 @@ import type {
 } from '../../model/section-library/settings';
 import {
   buildCustomerPagePlan,
+  filterCustomerPagePlanSections,
   type SitePlanPage,
   type SitePlanSection,
 } from '../../model/site-plan';
@@ -66,6 +73,7 @@ import {
   isDepositsAndCancellationsComplete,
 } from '../model/policies';
 import { getCustomerProfileFacts } from '../model/profile-facts';
+import { applyOnboardingSitePresentation } from '../model/site-document-presentation';
 import type {
   AboutElementId,
   AboutPresetId,
@@ -79,6 +87,7 @@ import {
 } from '../model/site-library-context';
 import { labelForNewClients, labelForVisitMode } from './customer-facts';
 import { OnboardingCustomDesignSections } from './OnboardingCustomDesignSections';
+import { sectionAnchorId } from './section-anchors';
 import {
   LIBRARY_SECTION_PREVIEW_RENDERERS,
   type LibraryPreviewShared,
@@ -587,6 +596,7 @@ function AboutSection({ hoursStatus, introOverride, onBook, preset, profile, sec
         className={`onboarding-customer-about is-editorial${showPortrait ? ' has-portrait' : ''}`}
         data-section-id={sectionId}
         data-preview-target="about"
+        id={sectionId ? sectionAnchorId(sectionId, 'about') : undefined}
       >
         {showPortrait ? <Portrait large profile={profile} respectAboutVisibility /> : null}
         <div className="onboarding-about-editorial-story">
@@ -607,6 +617,7 @@ function AboutSection({ hoursStatus, introOverride, onBook, preset, profile, sec
         className="onboarding-customer-about is-quick-facts"
         data-section-id={sectionId}
         data-preview-target="about"
+        id={sectionId ? sectionAnchorId(sectionId, 'about') : undefined}
       >
         <div className="onboarding-about-quick-identity">
           {showPortrait ? <Portrait profile={profile} respectAboutVisibility /> : null}
@@ -627,6 +638,7 @@ function AboutSection({ hoursStatus, introOverride, onBook, preset, profile, sec
         className="onboarding-customer-about is-before-booking"
         data-section-id={sectionId}
         data-preview-target="about"
+        id={sectionId ? sectionAnchorId(sectionId, 'about') : undefined}
       >
         <div className="onboarding-about-profile">
           <div className="onboarding-about-before-identity">
@@ -666,6 +678,7 @@ function AboutSection({ hoursStatus, introOverride, onBook, preset, profile, sec
       className={`onboarding-customer-about is-photo-right${showPortrait ? ' has-portrait' : ''}`}
       data-section-id={sectionId}
       data-preview-target="about"
+      id={sectionId ? sectionAnchorId(sectionId, 'about') : undefined}
     >
       <div className="onboarding-about-photo-copy">
         <AboutCopy introOverride={introOverride} profile={profile} />
@@ -714,6 +727,7 @@ function ContactSection({ onBook, profile, sectionId }: {
       aria-label="Visit and contact"
       className="onboarding-customer-contact"
       data-section-id={sectionId}
+      id={sectionId ? sectionAnchorId(sectionId, 'contact') : undefined}
     >
       <div>
         <p className="onboarding-customer-eyebrow">Visit us</p>
@@ -798,6 +812,7 @@ function GallerySection({ preset, sectionId, selection, state }: {
       aria-label="Gallery"
       className={`onboarding-customer-gallery is-${preset ?? state.gallery.layout}`}
       data-section-id={sectionId}
+      id={sectionId ? sectionAnchorId(sectionId, 'gallery') : undefined}
     >
       <p className="onboarding-customer-eyebrow">Recent work</p>
       <h2>A little nail inspiration</h2>
@@ -809,13 +824,17 @@ function GallerySection({ preset, sectionId, selection, state }: {
 function BookingSection({
   document,
   device,
+  onSessionChange,
   profile,
   sectionId,
+  session,
 }: {
   document: SiteBuilderDocument | null;
   device: OnboardingPreviewDevice;
+  onSessionChange?: BookingSessionUpdater;
   profile: BusinessProfileDraft;
   sectionId?: string;
+  session?: BookingSessionState;
 }) {
   const documentBookingSection = document?.pages
     .flatMap((page) => page.sections)
@@ -830,12 +849,16 @@ function BookingSection({
     () => createOnboardingBookingFixture(profile),
     [profile],
   );
-  const [session, setSession] = useState<BookingSessionState>(createPreviewBookingSession);
+  const [internalSession, setInternalSession] = useState<BookingSessionState>(
+    createPreviewBookingSession,
+  );
+  const effectiveSession = session ?? internalSession;
+  const updateSession = onSessionChange ?? setInternalSession;
   const summary = useMemo(() => summarizeSelection(
-    session.selection,
+    effectiveSession.selection,
     fixture.services,
     fixture.addOns,
-  ), [fixture.addOns, fixture.services, session.selection]);
+  ), [effectiveSession.selection, fixture.addOns, fixture.services]);
   const minimumNoticeCopy = useMemo(
     () => getMinimumNoticeCopy(profile.bookingPreferences.minimumNoticeMinutes),
     [profile.bookingPreferences.minimumNoticeMinutes],
@@ -846,7 +869,7 @@ function BookingSection({
       aria-label="Booking"
       className="onboarding-customer-booking"
       data-section-id={sectionId ?? documentBookingSection?.id}
-      id="booking"
+      id={sectionAnchorId(sectionId ?? documentBookingSection?.id ?? '', 'booking')}
     >
       {summary ? (
         <div className="onboarding-booking-example" data-testid="canonical-booking-example">
@@ -866,10 +889,10 @@ function BookingSection({
         fixture={fixture}
         headingLevel="h2"
         mode="preview"
-        onSessionChange={setSession}
+        onSessionChange={updateSession}
         presentationSettings={bookingSettings}
         previewViewport={device === 'phone' ? 'mobile' : device}
-        session={session}
+        session={effectiveSession}
         tokenPreset="warm"
       />
     </section>
@@ -914,26 +937,36 @@ export const getOnboardingDocumentBookingSequence = (
 };
 
 export type OnboardingSitePreviewProps = {
+  bookingSession?: BookingSessionState;
   customerPagePlan?: SitePlanPage[];
   device?: OnboardingPreviewDevice;
   document: SiteBuilderDocument | null;
   fitAvailable?: boolean;
   includeOptionalSections?: boolean;
+  initialPageId?: string;
   initialTarget?: OnboardingPreviewInitialTarget;
   interactionMode?: OnboardingPreviewInteractionMode;
   label?: string;
+  onActivePageChange?: (pageId: string) => void;
+  onBookingSessionChange?: BookingSessionUpdater;
+  preserveDocumentPresentation?: boolean;
   state: OnboardingLabState;
 };
 
 export function OnboardingSitePreview({
+  bookingSession,
   customerPagePlan,
   device = 'phone',
   document,
   fitAvailable = false,
   includeOptionalSections = true,
+  initialPageId,
   initialTarget = 'top',
   interactionMode = 'inline',
   label = 'Customer website preview',
+  onActivePageChange,
+  onBookingSessionChange,
+  preserveDocumentPresentation = false,
   state,
 }: OnboardingSitePreviewProps) {
   const frameRef = useRef<HTMLDivElement>(null);
@@ -979,12 +1012,45 @@ export function OnboardingSitePreview({
   // Before the Builder document exists, the preview plans against a pristine
   // starter document with deterministic ids, so both eras share one ladder.
   const effectiveDocument = useMemo(() => {
-    if (document) return document;
-    let counter = 0;
-    return initializeStarter(starter, {
-      idFactory: kind => `onboarding-preview-${starter}-${kind}-${counter++}`,
-    });
-  }, [document, starter]);
+    let baseDocument = document;
+    if (!baseDocument) {
+      let counter = 0;
+      baseDocument = initializeStarter(starter, {
+        idFactory: kind => `onboarding-preview-${starter}-${kind}-${counter++}`,
+      });
+    }
+    return preserveDocumentPresentation
+      ? baseDocument
+      : applyOnboardingSitePresentation(baseDocument, {
+        aboutPreset: recipe.aboutPreset,
+        galleryLayout: state.gallery.layout,
+      });
+  }, [
+    document,
+    preserveDocumentPresentation,
+    recipe.aboutPreset,
+    starter,
+    state.gallery.layout,
+  ]);
+  const customDesignAssetIds = useMemo(() => [
+    ...effectiveDocument.pages.flatMap(page => page.sections.flatMap(section => (
+      section.sectionType === 'custom_design'
+        ? section.settings.images.map(image => image.assetId)
+        : []
+    ))),
+    ...(customerPagePlan?.flatMap(page => page.sections.flatMap(planSection => (
+      planSection.section.sectionType === 'custom_design'
+        ? planSection.section.settings.images.map(image => image.assetId)
+        : []
+    ))) ?? []),
+  ], [customerPagePlan, effectiveDocument]);
+  const customDesignAssets = useCustomDesignAssetMap(customDesignAssetIds);
+  const customDesignIsRenderable = useCallback((settings: CustomDesignSettings) => (
+    hasRenderableCustomDesignContent(settings, assetId => {
+      const status = customDesignAssets.get(assetId)?.original.status;
+      return status === 'loading' || status === 'ready';
+    })
+  ), [customDesignAssets]);
   const libraryContext = useMemo(
     () => deriveSiteLibraryContext(state, effectiveDocument),
     [effectiveDocument, state],
@@ -992,14 +1058,26 @@ export function OnboardingSitePreview({
   const derivedPagePlan = useMemo(
     () => buildCustomerPagePlan(effectiveDocument, {
       context: libraryContext,
+      customDesignIsRenderable,
       includeOptionalSections,
       toggles: deriveSitePlanToggles(state),
     }),
-    [effectiveDocument, includeOptionalSections, libraryContext, state],
+    [
+      customDesignIsRenderable,
+      effectiveDocument,
+      includeOptionalSections,
+      libraryContext,
+      state,
+    ],
   );
   // Account-backed Preview passes the exact persisted customer page plan.
   // Final Review derives the same shape from the in-progress Builder document.
-  const pagePlan = customerPagePlan ?? derivedPagePlan;
+  const pagePlan = useMemo(() => customerPagePlan
+    ? filterCustomerPagePlanSections(customerPagePlan, planSection => (
+        planSection.section.sectionType !== 'custom_design'
+        || customDesignIsRenderable(planSection.section.settings)
+      ))
+    : derivedPagePlan, [customerPagePlan, customDesignIsRenderable, derivedPagePlan]);
   const presentTypes = useMemo(() => new Set(
     pagePlan.flatMap(page => page.sections.map(section => section.sectionType)),
   ), [pagePlan]);
@@ -1052,13 +1130,19 @@ export function OnboardingSitePreview({
   useLayoutEffect(() => {
     const targetPage = initialTarget === 'about'
       ? pagePlan.find(page => page.sections.some(section => section.sectionType === 'about'))
-      : pagePlan[0];
+      : pagePlan.find(page => page.id === initialPageId) ?? pagePlan[0];
     setActivePageId((current) => (
-      initialTarget === 'about' || !pagePlan.some(page => page.id === current)
+      initialTarget === 'about'
+      || (initialPageId !== undefined && targetPage?.id !== current)
+      || !pagePlan.some(page => page.id === current)
         ? targetPage?.id ?? null
         : current
     ));
-  }, [initialTarget, pagePlan]);
+  }, [initialPageId, initialTarget, pagePlan]);
+
+  useEffect(() => {
+    if (activePage) onActivePageChange?.(activePage.id);
+  }, [activePage, onActivePageChange]);
 
   useLayoutEffect(() => {
     const pendingTarget = pendingDocumentTargetRef.current;
@@ -1179,7 +1263,8 @@ export function OnboardingSitePreview({
     if (planSection.sectionType === 'about') {
       // Live onboarding lets the About design screen drive the preset; the
       // saved plan renders the preset the compiler stamped into the section.
-      const aboutPreset = customerPagePlan && instance.sectionType === 'about'
+      const aboutPreset = (customerPagePlan || preserveDocumentPresentation)
+        && instance.sectionType === 'about'
         ? instance.settings.preset
         : recipe.aboutPreset;
       const aboutIntroOverride = instance.sectionType === 'about'
@@ -1216,8 +1301,10 @@ export function OnboardingSitePreview({
           key={planSection.id}
           device={device}
           document={document}
+          onSessionChange={onBookingSessionChange}
           profile={profile}
           sectionId={planSection.id}
+          session={bookingSession}
         />
       );
     }

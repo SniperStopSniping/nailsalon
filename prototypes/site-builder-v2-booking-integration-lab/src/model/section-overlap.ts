@@ -25,6 +25,8 @@ export type OverlapResolution = {
   id: string;
   label: string;
   kind: 'proceed' | 'navigate' | 'adjust' | 'cancel';
+  /** Existing section to focus when this choice navigates instead of adding. */
+  target?: { pageId: string; sectionId: string };
 };
 
 export type OverlapWarning = {
@@ -62,6 +64,7 @@ export const getAddSectionWarnings = (
   pageId: string,
   type: LibrarySectionType,
   context: SiteLibraryContext,
+  insertionPosition?: number,
 ): OverlapWarning[] => {
   const warnings: OverlapWarning[] = [];
   const entry = getSectionRegistryEntry(type);
@@ -79,14 +82,33 @@ export const getAddSectionWarnings = (
       warnings.push({
         id: `duplicate_${type}`,
         message: `${entry.label} already appears on your ${existing?.page.name ?? 'site'} page. Most sites work best with ${entry.maxPerSite === 1 ? 'one' : String(entry.maxPerSite)}.`,
-        resolutions: [proceed('Add it anyway'), cancel],
+        resolutions: [
+          proceed('Add it anyway'),
+          ...(existing ? [{
+            id: 'go_existing',
+            kind: 'navigate' as const,
+            label: `Go to existing ${entry.label}`,
+            target: { pageId: existing.page.id, sectionId: existing.section.id },
+          }] : []),
+          cancel,
+        ],
         title: `${entry.label} is already on your site`,
       });
     } else if (entry.maxPerPage !== undefined && pageCount >= entry.maxPerPage) {
+      const existing = page.sections.find(section => section.sectionType === type);
       warnings.push({
         id: `duplicate_${type}_page`,
         message: `${entry.label} already appears on this page.`,
-        resolutions: [proceed('Add it anyway'), cancel],
+        resolutions: [
+          proceed('Add it anyway'),
+          ...(existing ? [{
+            id: 'go_existing',
+            kind: 'navigate' as const,
+            label: `Go to existing ${entry.label}`,
+            target: { pageId: page.id, sectionId: existing.id },
+          }] : []),
+          cancel,
+        ],
         title: `${entry.label} is already on this page`,
       });
     }
@@ -108,6 +130,7 @@ export const getAddSectionWarnings = (
             id: 'move_out',
             kind: 'adjust',
             label: 'Remove hours from Visit Us and add the section',
+            target: { pageId: visitUs.page.id, sectionId: visitUs.section.id },
           },
         ],
         title: 'Hours are already shown',
@@ -130,6 +153,7 @@ export const getAddSectionWarnings = (
             id: 'move_out',
             kind: 'adjust',
             label: 'Remove contact from Visit Us and add the section',
+            target: { pageId: visitUs.page.id, sectionId: visitUs.section.id },
           },
         ],
         title: 'Contact details are already shown',
@@ -138,14 +162,28 @@ export const getAddSectionWarnings = (
   }
 
   if (type === 'featured_services') {
-    const bookingOnPage = page.sections.some(
-      section => section.sectionType === 'booking' && section.visible,
+    const orderedSections = [...page.sections]
+      .sort((left, right) => left.order - right.order);
+    const requestedIndex = Math.max(
+      0,
+      Math.min(
+        orderedSections.length,
+        (insertionPosition ?? orderedSections.length + 1) - 1,
+      ),
     );
-    if (bookingOnPage) {
+    const adjacentBooking = [
+      orderedSections[requestedIndex - 1],
+      orderedSections[requestedIndex],
+    ].find(section => section?.sectionType === 'booking' && section.visible);
+    if (adjacentBooking) {
       warnings.push({
         id: 'featured_beside_full_menu',
         message: 'Featured services would sit beside your full service menu on this page. They work best on a page that links to Booking.',
-        resolutions: [proceed('Add it here anyway'), cancel],
+        resolutions: [
+          proceed('Keep both (separate them later)'),
+          { id: 'move_after_add', kind: 'adjust', label: 'Move Featured Services' },
+          cancel,
+        ],
         title: 'Your full menu is already here',
       });
     }
@@ -203,17 +241,25 @@ export const getDocumentOverlapAdvisories = (
     ...visibleSectionsOfType(document, 'deposits_cancellations'),
     ...visibleSectionsOfType(document, 'policies'),
   ];
-  const aboutShowsPolicySummary = aboutSections.some(({ section }) =>
+  const aboutPolicySection = aboutSections.find(({ section }) =>
     isLibrarySection(section)
     && section.sectionType === 'about'
     && section.settings.preset === 'about_before_you_book');
-  if (aboutShowsPolicySummary && policySections.length > 0) {
+  if (aboutPolicySection && policySections.length > 0) {
     advisories.push({
       id: 'about_policy_summary_duplicate',
       message: `About uses the “Before you book” design, which repeats a policy summary that ${policySections[0]?.page.name ?? 'another page'} already shows in full.`,
       resolutions: [
         { id: 'keep', kind: 'cancel', label: 'Keep the compact summary' },
-        { id: 'switch_preset', kind: 'adjust', label: 'Switch About to a design without policies' },
+        {
+          id: 'switch_preset',
+          kind: 'adjust',
+          label: 'Switch About to a design without policies',
+          target: {
+            pageId: aboutPolicySection.page.id,
+            sectionId: aboutPolicySection.section.id,
+          },
+        },
       ],
       title: 'Policy details appear twice',
     });
@@ -235,21 +281,67 @@ export const getDocumentOverlapAdvisories = (
   return advisories;
 };
 
+/**
+ * Resolves a hard add conflict to the exact existing instance. Hard limits
+ * remain non-overridable, but the owner can review the section that owns the
+ * content instead of facing a disabled generic card.
+ */
+export const getAddSectionBlocker = (
+  document: SiteBuilderDocument,
+  pageId: string,
+  type: SectionInstance['sectionType'],
+): OverlapWarning | null => {
+  const page = document.pages.find(candidate => candidate.id === pageId);
+  if (!page) return null;
+  if (type !== 'booking') {
+    if (!isLibrarySectionType(type)) return null;
+    const entry = getSectionRegistryEntry(type);
+    if (entry.limitKind !== 'hard' || entry.maxPerPage === undefined) return null;
+  }
+
+  const existing = type === 'booking'
+    ? document.pages.flatMap(candidate => candidate.sections
+      .filter(section => section.sectionType === 'booking')
+      .map(section => ({ page: candidate, section })))[0]
+    : page.sections
+      .filter(section => section.sectionType === type)
+      .map(section => ({ page, section }))[0];
+  if (!existing) return null;
+
+  const label = type === 'booking'
+    ? 'Booking'
+    : isLibrarySectionType(type)
+      ? getSectionRegistryEntry(type).label
+      : existing.section.label;
+  return {
+    id: `blocked_${type}`,
+    message: type === 'booking'
+      ? `Booking already appears on the ${existing.page.name} page. Your site can have only one booking engine.`
+      : `${label} already appears on the ${existing.page.name} page. This section can appear only once per page.`,
+    resolutions: [
+      {
+        id: 'go_existing',
+        kind: 'navigate',
+        label: `Go to ${label}`,
+        target: { pageId: existing.page.id, sectionId: existing.section.id },
+      },
+      cancel,
+    ],
+    title: `${label} is already on ${existing.page.name}`,
+  };
+};
+
 /** True when the type may not be added to the page at all (hard exclusivity). */
 export const isAddBlocked = (
   document: SiteBuilderDocument,
   pageId: string,
   type: SectionInstance['sectionType'],
 ): boolean => {
-  if (type === 'booking') {
-    return document.pages.some(page =>
-      page.sections.some(section => section.sectionType === 'booking'));
-  }
+  if (type === 'booking') return getAddSectionBlocker(document, pageId, type) !== null;
   if (!isLibrarySectionType(type)) return false;
   const entry = getSectionRegistryEntry(type);
   if (entry.limitKind !== 'hard' || entry.maxPerPage === undefined) return false;
   const page = document.pages.find(candidate => candidate.id === pageId);
   if (!page) return false;
-  return page.sections.filter(section => section.sectionType === type).length
-    >= entry.maxPerPage;
+  return getAddSectionBlocker(document, pageId, type) !== null;
 };
