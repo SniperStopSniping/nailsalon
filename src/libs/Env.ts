@@ -8,6 +8,7 @@ export const Env = createEnv({
     // Feature-flagged account-backed Onboarding V1 integration. Omission is
     // disabled; both the page and mutating APIs enforce this server-side.
     LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED: z.enum(['true', 'false']).optional(),
+    LUSTER_SECTION_LIBRARY_V1_ENABLED: z.enum(['true', 'false']).optional(),
     // Local development only: an absolute directory outside the repository
     // for restart-persistent PGlite. Hosted environments reject PGlite before
     // this seam is considered.
@@ -119,6 +120,8 @@ export const Env = createEnv({
     DATABASE_URL: process.env.DATABASE_URL,
     LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED:
       process.env.LUSTER_ONBOARDING_V1_INTEGRATION_ENABLED,
+    LUSTER_SECTION_LIBRARY_V1_ENABLED:
+      process.env.LUSTER_SECTION_LIBRARY_V1_ENABLED,
     LUSTER_PGLITE_DATA_DIR: process.env.LUSTER_PGLITE_DATA_DIR,
     LUSTER_ONBOARDING_MEDIA_DIR: process.env.LUSTER_ONBOARDING_MEDIA_DIR,
     LOGTAIL_SOURCE_TOKEN: process.env.LOGTAIL_SOURCE_TOKEN,
