@@ -15,6 +15,7 @@ import {
 import { useEffect, useState } from 'react';
 
 import type {
+  OverlapWarning,
   PageDocument,
   RestorableSectionInstance,
   SectionInstance,
@@ -26,6 +27,8 @@ type StructureView = 'overview' | 'navigation' | 'removed-pages' | 'removed-sect
 
 type FinalStructurePanelProps = {
   activePageId: string;
+  /** Standing advisories about content that appears in more than one place. */
+  advisories: readonly OverlapWarning[];
   document: SiteBuilderDocument;
   onAddPage: () => void;
   onEditPage: (page: PageDocument) => void;
@@ -45,6 +48,7 @@ type FinalStructurePanelProps = {
 
 export function FinalStructurePanel({
   activePageId,
+  advisories,
   document,
   onAddPage,
   onEditPage,
@@ -170,6 +174,17 @@ export function FinalStructurePanel({
         <div><span>Your website</span><strong>{document.siteName}</strong><small>{pages.length} page{pages.length === 1 ? '' : 's'}</small></div>
         <button type="button" onClick={onAddPage}><FilePlus2 aria-hidden="true" size={18} /> Add page</button>
       </div>
+
+      {advisories.length > 0 ? (
+        <div aria-label="Things worth a look" className="final-structure__advisories" role="group">
+          {advisories.map(advisory => (
+            <div className="final-structure__advisory" key={advisory.id}>
+              <strong>{advisory.title}</strong>
+              <p>{advisory.message}</p>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <ol aria-label="Site pages" className="final-structure__pages">
         {pages.map((page, pageIndex) => {

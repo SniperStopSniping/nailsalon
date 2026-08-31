@@ -4036,3 +4036,29 @@ body[data-editor-shell='final-hybrid'] .toast {
 .library-item--named .library-item__copy {
   gap: 4px;
 }
+
+.final-structure__advisories {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.final-structure__advisory {
+  padding: 11px 13px;
+  border-left: 3px solid var(--accent, #8f3155);
+  border-radius: 0 10px 10px 0;
+  background: color-mix(in srgb, var(--accent, #8f3155) 7%, transparent);
+}
+
+.final-structure__advisory strong {
+  display: block;
+  margin-bottom: 3px;
+  font-size: 0.82rem;
+}
+
+.final-structure__advisory p {
+  margin: 0;
+  color: var(--muted, #74696b);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}

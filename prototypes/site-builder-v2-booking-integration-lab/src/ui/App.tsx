@@ -77,6 +77,7 @@ import {
 } from '../custom-design/model';
 import {
   getAddSectionWarnings,
+  getDocumentOverlapAdvisories,
   isAddBlocked,
   isLibrarySection,
   isLibrarySectionType,
@@ -1738,6 +1739,11 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
     };
   }, [document]);
 
+  const documentAdvisories = useMemo(
+    () => (document ? getDocumentOverlapAdvisories(document, libraryContext) : []),
+    [document, libraryContext],
+  );
+
   const libraryAddState = useCallback((sectionType: LibrarySectionType) => {
     if (!document || !activePage) return { blocked: false } as const;
     if (isAddBlocked(document, activePage.id, sectionType)) {
@@ -2519,6 +2525,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
   const structurePanel = (
     <FinalStructurePanel
       activePageId={activePage.id}
+      advisories={documentAdvisories}
       document={document}
       onAddPage={() => { setToast(null); setStructureOpen(false); setAddPageOpen(true); }}
       onEditPage={(page) => { setEditingPageId(page.id); }}
