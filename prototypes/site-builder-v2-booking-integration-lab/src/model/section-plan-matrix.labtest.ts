@@ -164,6 +164,36 @@ describe('ordered adjacency matrix (400 pairs)', () => {
     },
   );
 
+  it('never mutates the document it plans from', () => {
+    const document = pairDocument('reviews', 'reviews');
+    const before = JSON.stringify(document);
+    buildCustomerPagePlan(document, {
+      context: deriveSiteLibraryContext(state, document),
+      toggles: TOGGLES,
+    });
+    expect(JSON.stringify(document), 'the plan mutated its input').toBe(before);
+  });
+
+  it('resolves adjacency from the resolved neighbour, not the raw one', () => {
+    // Three tinted sections in a row must alternate tint → base → tint,
+    // which only holds if each decision reads the previous RESOLVED surface.
+    const document = pairDocument('reviews', 'reviews');
+    const home = document.pages[0]!;
+    const third = instanceOf('reviews', 'matrix-third', 2);
+    const withThree: SiteBuilderDocument = {
+      ...document,
+      pages: [{ ...home, sections: [...home.sections, third] }],
+    };
+    const plan = buildCustomerPagePlan(withThree, {
+      context: deriveSiteLibraryContext(state, withThree),
+      toggles: TOGGLES,
+    });
+    const surfaces = plan.flatMap(page => page.sections)
+      .filter(section => section.id.startsWith('matrix-'))
+      .map(section => section.surface);
+    expect(surfaces).toEqual(['tint', 'base', 'tint']);
+  });
+
   it('renders every populated library type for the demo context (no silent blanks)', () => {
     for (const type of ALL_TYPES) {
       const document = pairDocument(type, 'booking');

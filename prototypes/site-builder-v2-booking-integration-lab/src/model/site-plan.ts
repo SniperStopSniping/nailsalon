@@ -218,21 +218,25 @@ const INJECTION_RULES: readonly InjectionRule[] = [
  * tint neighbours alternate back to base so backgrounds never seam, and
  * consecutive contrast sections merge into one continuous band.
  */
-const resolveAdjacency = (sections: SitePlanSection[]): SitePlanSection[] =>
-  sections.map((section, index) => {
-    const previous = index > 0 ? sections[index - 1] : undefined;
-    let surface = section.surface;
-    if (previous && surface === 'tint' && previous.surface === 'tint') {
-      surface = 'base';
-    }
+const resolveAdjacency = (
+  sections: readonly SitePlanSection[],
+): SitePlanSection[] => {
+  // Each decision reads the RESOLVED previous section, not the raw one, so a
+  // tint that fell back to base cannot make its neighbour fall back too.
+  const resolved: SitePlanSection[] = [];
+  for (const section of sections) {
+    const previous = resolved.at(-1);
+    const surface = previous?.surface === 'tint' && section.surface === 'tint'
+      ? 'base'
+      : section.surface;
     const attachedToPrevious = previous !== undefined && (
       attachesToNext(previous.section)
       || (surface === 'contrast' && previous.surface === 'contrast')
     );
-    const resolved = { ...section, attachedToPrevious, surface };
-    sections[index] = resolved;
-    return resolved;
-  });
+    resolved.push({ ...section, attachedToPrevious, surface });
+  }
+  return resolved;
+};
 
 export const buildCustomerPagePlan = (
   document: SiteBuilderDocument,
