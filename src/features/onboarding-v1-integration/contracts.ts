@@ -7,7 +7,7 @@ import {
 import { validateCustomDesignSettings } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/settings';
 import type { CustomDesignSettings } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/types';
 import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
-import { validateSiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
+import { validateImportedDocumentValue } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/validation';
 
 export const ONBOARDING_SITE_SNAPSHOT_VERSION = 1 as const;
 export const ONBOARDING_SITE_DOCUMENT_VERSION = 1 as const;
@@ -247,11 +247,13 @@ const profileSchema = z.object({
   hours: weeklyHoursSchema,
 }).strict();
 
+// Runs the lab's schema upgrade before validation, so persisted v1 documents
+// (earlier drafts, saved revisions) keep parsing losslessly as v2.
 const siteBuilderDocumentSchema = z.custom<SiteBuilderDocument>(
-  value => validateSiteBuilderDocument(value).success,
+  value => validateImportedDocumentValue(value).success,
   { message: 'The universal site document is invalid.' },
 ).transform((value, context) => {
-  const result = validateSiteBuilderDocument(value);
+  const result = validateImportedDocumentValue(value);
   if (!result.success) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -431,6 +433,19 @@ const compiledSectionTypeSchema = z.enum([
   'contact',
   'content',
   'footer',
+  // V1 section library types (additive; 'services'/'visit'/'content' remain
+  // accepted for previously persisted compiled documents only).
+  'announcement_bar',
+  'quick_info',
+  'section_navigation',
+  'featured_services',
+  'offers',
+  'team',
+  'deposits_cancellations',
+  'faq',
+  'hours',
+  'visit_us',
+  'final_cta',
 ]);
 
 const compiledSectionSchema = z.object({
@@ -445,6 +460,7 @@ const compiledSectionSchema = z.object({
     'gallery',
     'custom_design',
     'starter_presentation',
+    'site_content',
   ]),
   type: compiledSectionTypeSchema,
   visible: z.boolean(),

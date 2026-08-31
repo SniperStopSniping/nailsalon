@@ -1,14 +1,18 @@
+import {
+  buildCustomerPagePlan,
+  type SitePlanPage,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/site-plan';
 import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
 import { ONBOARDING_EXAMPLE_GALLERY_IMAGES } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/gallery-examples';
+import {
+  deriveSiteLibraryContext,
+  deriveSitePlanToggles,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/site-library-context';
 import type {
   LocalImageReference,
   OnboardingLabState,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/types';
-import type {
-  CurrentPreviewPagePlan,
-  CurrentPreviewSectionKind,
-} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/preview/OnboardingSitePreview';
 import type {
   OnboardingCompiledSiteDocument,
   OnboardingPersistedSnapshot,
@@ -52,89 +56,8 @@ type PersistedSavedPreviewMedia = {
 export type SavedSitePreviewModel = {
   document: SiteBuilderDocument;
   media: SavedPreviewMedia[];
-  pagePlan: CurrentPreviewPagePlan[];
+  pagePlan: SitePlanPage[];
   state: OnboardingLabState;
-};
-
-const compiledPreviewKind = (
-  type: OnboardingCompiledSiteDocument['pages'][number]['sections'][number]['type'],
-): CurrentPreviewSectionKind | null => {
-  if (type === 'visit' || type === 'contact') {
-    return 'contact';
-  }
-  if (
-    type === 'about'
-    || type === 'booking'
-    || type === 'custom_design'
-    || type === 'gallery'
-    || type === 'hero'
-    || type === 'policies'
-  ) {
-    return type;
-  }
-  return null;
-};
-
-/**
- * The account-backed preview consumes the persisted compiled pages directly.
- * The small amount of legacy deduplication here lets previously saved V1
- * documents render safely; it never reconstructs roles from Builder labels.
- */
-export const createSavedCustomerPagePlan = (
-  document: OnboardingCompiledSiteDocument,
-): CurrentPreviewPagePlan[] => {
-  const visiblePages = [...document.pages]
-    .filter(page => page.visible)
-    .sort((left, right) => left.order - right.order);
-  const allSections = visiblePages.flatMap(page => page.sections.filter(section => section.visible));
-  const preferredGalleryId = allSections.find(section => (
-    section.type === 'gallery'
-    && String(section.presentation.label ?? '').trim().toLowerCase() === 'gallery'
-  ))?.id ?? allSections.find(section => section.type === 'gallery')?.id;
-  const preferredContactId = allSections.find(section => section.type === 'contact')?.id
-    ?? allSections.find(section => section.type === 'visit')?.id;
-  const seenKinds = new Set<Exclude<CurrentPreviewSectionKind, 'custom_design'>>();
-  const seenCustomDesignIds = new Set<string>();
-
-  return visiblePages.map((page) => {
-    const sections: CurrentPreviewPagePlan['sections'] = [];
-    for (const section of [...page.sections].sort((left, right) => left.order - right.order)) {
-      if (!section.visible) {
-        continue;
-      }
-      const kind = compiledPreviewKind(section.type);
-      if (!kind) {
-        continue;
-      }
-      if (kind === 'custom_design') {
-        if (seenCustomDesignIds.has(section.id)) {
-          continue;
-        }
-        seenCustomDesignIds.add(section.id);
-      } else {
-        if (kind === 'gallery' && section.id !== preferredGalleryId) {
-          continue;
-        }
-        if (kind === 'contact' && section.id !== preferredContactId) {
-          continue;
-        }
-        if (seenKinds.has(kind)) {
-          continue;
-        }
-        seenKinds.add(kind);
-      }
-      sections.push({
-        id: section.id,
-        kind,
-        label: String(section.presentation.label ?? section.type),
-      });
-    }
-    return {
-      id: page.id,
-      label: page.label,
-      sections,
-    };
-  }).filter(page => page.sections.length > 0);
 };
 
 /**
@@ -272,22 +195,8 @@ export function createSavedSitePreviewModel(input: {
       : structuredClone(section)),
   });
 
-  return {
-    document: remapCustomDesignAssets(document.builderDocument),
-    media: media.map(item => ({
-      altText: item.altText,
-      assetId: item.assetId,
-      fileName: item.fileName,
-      fileSize: item.fileSize,
-      height: item.height,
-      mimeType: item.mimeType,
-      publicUrl: item.publicUrl,
-      role: item.role,
-      sortOrder: item.sortOrder,
-      width: item.width,
-    })),
-    pagePlan: createSavedCustomerPagePlan(document),
-    state: {
+  const previewDocument = remapCustomDesignAssets(document.builderDocument);
+  const savedState: OnboardingLabState = {
       ...state,
       canva: {
         ...state.canva,
@@ -331,6 +240,40 @@ export function createSavedSitePreviewModel(input: {
         styleConfirmed: true,
         stylePreset: snapshot.site.stylePresetId,
       },
-    },
+  };
+
+  // The saved plan re-derives from the persisted Builder document through the
+  // same shared ladder the live preview and compiler use; compiler-minted
+  // injected ids are reproduced so section anchors stay stable across saves.
+  const pagePlan = buildCustomerPagePlan(previewDocument, {
+    context: deriveSiteLibraryContext(savedState, previewDocument),
+    customDesignFallback: snapshot.customDesign.settings
+      ? {
+          id: snapshot.customDesign.customDesignSectionId
+            ?? `${document.siteId}:onboarding:custom_design`,
+          placement: snapshot.customDesign.placement,
+          settings: snapshot.customDesign.settings,
+        }
+      : undefined,
+    injectionId: type => `${document.siteId}:onboarding:${type}`,
+    toggles: deriveSitePlanToggles(savedState),
+  });
+
+  return {
+    document: previewDocument,
+    media: media.map(item => ({
+      altText: item.altText,
+      assetId: item.assetId,
+      fileName: item.fileName,
+      fileSize: item.fileSize,
+      height: item.height,
+      mimeType: item.mimeType,
+      publicUrl: item.publicUrl,
+      role: item.role,
+      sortOrder: item.sortOrder,
+      width: item.width,
+    })),
+    pagePlan,
+    state: savedState,
   };
 }

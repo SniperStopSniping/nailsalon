@@ -1,24 +1,19 @@
 import { createHash } from 'node:crypto';
 
-import type { CustomDesignSettings } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/custom-design/model/types';
 import {
-  getSectionLabel,
-  getStarterDocumentSemanticInfoBySectionId,
-  type StarterDocumentSemanticInfo,
-} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
+  buildCustomerPagePlan,
+  type SitePlanSection,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/site-plan';
 import type {
-  SiteBuilderDocument,
-  StarterSectionSemanticRole,
-} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
+  BusinessProfileDraft,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/types';
+import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
 import {
   ADD_ON_PRODUCTION_MAPPINGS,
   SERVICE_MENU_PRODUCTION_MAPPINGS,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/integrations/contracts/service-menu-production-mapping';
-import { getPublicContactActions } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/contact';
-import { getPublicWeeklyHours } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/hours';
-import { getPublicLocationPreview } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/location';
-import { hasMeaningfulPublishablePolicies } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/policies';
-import { getCustomerProfileFacts } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/profile-facts';
+import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
+import { deriveSiteLibraryContextFromProfile } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/site-library-context';
 import {
   type OnboardingCompiledSiteDocument,
   onboardingCompiledSiteDocumentSchema,
@@ -52,39 +47,48 @@ export function fingerprintOnboardingValue(value: unknown): string {
     .digest('hex');
 }
 
-function injectedSection(
-  siteId: string,
-  type: CompiledSection['type'],
-  order: number,
-  source: CompiledSection['source'],
-  presentation: Record<string, Primitive> = {},
-  customDesignSettings?: CustomDesignSettings,
-): CompiledSection {
+/**
+ * The compiler stamps the onboarding recipe's presentation choices into the
+ * owning sections' settings so the persisted document is self-describing:
+ * the saved preview and Builder then read presets from the sections alone.
+ */
+function stampRecipePresets(
+  document: SiteBuilderDocument,
+  snapshot: OnboardingPersistedSnapshot,
+): SiteBuilderDocument {
+  const stampSection = (
+    section: SiteBuilderDocument['pages'][number]['sections'][number],
+  ): SiteBuilderDocument['pages'][number]['sections'][number] => {
+    if (section.sectionType === 'about') {
+      return {
+        ...section,
+        settings: { ...section.settings, preset: snapshot.site.aboutPreset },
+      };
+    }
+    if (section.sectionType === 'gallery') {
+      return {
+        ...section,
+        settings: { ...section.settings, preset: snapshot.gallery.layout },
+      };
+    }
+    return section;
+  };
   return {
-    ...(customDesignSettings ? { customDesignSettings } : {}),
-    id: `${siteId}:onboarding:${type}`,
-    order,
-    presentation,
-    source,
-    type,
-    visible: true,
+    ...document,
+    pages: document.pages.map(page => ({
+      ...page,
+      sections: page.sections.map(stampSection),
+    })),
+    unusedSections: document.unusedSections.map(section =>
+      stampSection(section) as SiteBuilderDocument['unusedSections'][number]),
   };
 }
 
-type SourcePage = SiteBuilderDocument['pages'][number];
-type SourceSection = SourcePage['sections'][number];
-
-type LocatedSourceSection = {
-  page: SourcePage;
-  semanticInfo: StarterDocumentSemanticInfo | null;
-  section: SourceSection;
-};
-
 function sourceForSection(type: CompiledSection['type']): CompiledSection['source'] {
-  if (type === 'services' || type === 'booking') {
+  if (type === 'services' || type === 'booking' || type === 'featured_services') {
     return 'service_menu';
   }
-  if (type === 'policies') {
+  if (type === 'policies' || type === 'deposits_cancellations') {
     return 'policies';
   }
   if (type === 'gallery') {
@@ -93,7 +97,16 @@ function sourceForSection(type: CompiledSection['type']): CompiledSection['sourc
   if (type === 'custom_design') {
     return 'custom_design';
   }
-  if (type === 'reviews' || type === 'content') {
+  if (type === 'team' || type === 'reviews' || type === 'offers' || type === 'faq') {
+    return 'site_content';
+  }
+  if (
+    type === 'content'
+    || type === 'announcement_bar'
+    || type === 'section_navigation'
+    || type === 'final_cta'
+    || type === 'footer'
+  ) {
     return 'starter_presentation';
   }
   return 'business_profile';
@@ -121,7 +134,7 @@ function presentationForSection(
       minimumNoticeMinutes: snapshot.profile.bookingPreferences.minimumNoticeMinutes,
     };
   }
-  if (type === 'visit' || type === 'contact') {
+  if (type === 'visit' || type === 'visit_us' || type === 'contact') {
     return {
       ...common,
       addressVisibility: snapshot.profile.location.addressVisibility,
@@ -134,234 +147,79 @@ function presentationForSection(
   return common;
 }
 
-/** Mirrors the customer renderer using its pure public-data resolvers. */
-function hasPublicContactContent(
-  profile: OnboardingPersistedSnapshot['profile'],
-): boolean {
-  const location = getPublicLocationPreview(profile.location);
-  return Boolean(
-    location.primary
-    || getCustomerProfileFacts(profile).some(fact => fact.id === 'service_location')
-    || getPublicContactActions(profile).some(action => action.method !== 'booking')
-    || getPublicWeeklyHours(profile.hours).length > 0,
-  );
-}
-
+/**
+ * Projects the shared customer page plan into the persisted compiled-page
+ * record. All selection, injection, and ordering decisions live in
+ * `buildCustomerPagePlan` — the compiler adds only persistence concerns
+ * (stable injected ids, per-section provenance, presentation records).
+ */
 function compileAcceptedBuilderPages(
   siteId: string,
   snapshot: OnboardingPersistedSnapshot,
+  document: SiteBuilderDocument,
 ): CompiledPage[] {
-  const document = snapshot.site.builderDocument;
-  if (!document) {
-    throw new Error('The accepted universal site document is required to compile the saved site.');
-  }
-  const starterSemanticInfo = getStarterDocumentSemanticInfoBySectionId(document);
-  const visibleSourcePages = [...document.pages]
-    .sort((left, right) => left.order - right.order)
-    .filter(page => page.visible);
-  const locatedSections: LocatedSourceSection[] = visibleSourcePages.flatMap(page => (
-    [...page.sections]
-      .sort((left, right) => left.order - right.order)
-      .filter(section => section.visible)
-      .map(section => ({
-        page,
-        semanticInfo: starterSemanticInfo.get(section.id) ?? null,
-        section,
-      }))
-  ));
-
-  const firstWithRole = (role: StarterSectionSemanticRole) => locatedSections.find(
-    located => located.semanticInfo?.role === role,
-  );
-  const galleryHasContent = snapshot.site.galleryEnabled
-    && snapshot.gallery.imageItemIds.length > 0;
-  const contactHasContent = hasPublicContactContent(snapshot.profile);
-  const selectedSectionIds = new Set<string>();
-  const select = (located: LocatedSourceSection | undefined) => {
-    if (located) {
-      selectedSectionIds.add(located.section.id);
-    }
+  const profile: BusinessProfileDraft = {
+    ...createDefaultOnboardingState().profile,
+    ...snapshot.profile,
   };
-
-  select(firstWithRole('hero'));
-  select(locatedSections.find(({ section }) => section.sectionType === 'booking'));
-  if (snapshot.site.aboutEnabled) {
-    select(firstWithRole('about'));
-  }
-  if (galleryHasContent) {
-    select(firstWithRole('gallery'));
-  }
-  if (contactHasContent) {
-    select(firstWithRole('contact') ?? firstWithRole('visit'));
-  }
-  if (snapshot.site.canvaEnabled) {
-    locatedSections
-      .filter(({ section }) => section.sectionType === 'custom_design')
-      .forEach(select);
-  }
-
-  const pages = visibleSourcePages.map((sourcePage): CompiledPage => {
-    const sections = locatedSections
-      .filter(located => (
-        located.page.id === sourcePage.id
-        && selectedSectionIds.has(located.section.id)
-      ))
-      .map(({ semanticInfo, section: sourceSection }, order) => {
-        const type: CompiledSection['type'] = sourceSection.sectionType === 'booking'
-          ? 'booking'
-          : sourceSection.sectionType === 'custom_design'
-            ? 'custom_design'
-            : semanticInfo?.role === 'hero'
-              ? 'hero'
-              : semanticInfo?.role === 'about'
-                ? 'about'
-                : semanticInfo?.role === 'gallery'
-                  ? 'gallery'
-                  : 'contact';
-        const presentationLabel = semanticInfo
-          && sourceSection.sectionType !== 'booking'
-          && sourceSection.sectionType !== 'custom_design'
-          && sourceSection.label === getSectionLabel(sourceSection.sectionType)
-          ? semanticInfo.previewLabel
-          : sourceSection.label;
-        return {
-          ...(sourceSection.sectionType === 'custom_design'
-            ? { customDesignSettings: sourceSection.settings }
-            : {}),
-          id: sourceSection.id,
-          order,
-          presentation: presentationForSection(
-            type,
-            sourceSection.sectionType,
-            presentationLabel,
-            snapshot,
-          ),
-          source: sourceForSection(type),
-          type,
-          visible: sourceSection.visible,
-        } satisfies CompiledSection;
-      });
-    return {
-      id: sourcePage.id,
-      isHome: sourcePage.isHome,
-      label: sourcePage.name,
-      order: sourcePage.order,
-      sections,
-      slug: sourcePage.slug,
-      visible: sourcePage.visible,
-      visibleInNavigation: sourcePage.visibleInNavigation,
-    };
+  const plan = buildCustomerPagePlan(document, {
+    context: deriveSiteLibraryContextFromProfile({
+      document,
+      galleryImageIds: snapshot.site.galleryEnabled
+        ? snapshot.gallery.imageItemIds
+        : [],
+      profile,
+    }),
+    customDesignFallback: snapshot.customDesign.settings
+      ? {
+          id: snapshot.customDesign.customDesignSectionId
+            ?? `${siteId}:onboarding:custom_design`,
+          placement: snapshot.customDesign.placement,
+          settings: snapshot.customDesign.settings,
+        }
+      : undefined,
+    injectionId: type => `${siteId}:onboarding:${type}`,
+    toggles: {
+      aboutEnabled: snapshot.site.aboutEnabled,
+      canvaEnabled: snapshot.site.canvaEnabled,
+      galleryEnabled: snapshot.site.galleryEnabled,
+      policiesEnabled: snapshot.site.policiesEnabled,
+    },
   });
 
-  const bookingPage = pages.find(page => page.sections.some(item => item.type === 'booking'))
-    ?? pages.find(page => page.isHome)
-    ?? pages[0];
-  if (!bookingPage) {
-    throw new Error('The accepted universal site document has no visible page.');
-  }
-  const bookingIndex = () => bookingPage.sections.findIndex(item => item.type === 'booking');
-  const insertRelativeToBooking = (
-    item: CompiledSection,
-    placement: 'before_booking' | 'after_booking',
-  ) => {
-    const index = bookingIndex();
-    const target = index < 0
-      ? bookingPage.sections.length
-      : placement === 'before_booking' ? index : index + 1;
-    bookingPage.sections.splice(target, 0, item);
+  const compileSection = (
+    planSection: SitePlanSection,
+    order: number,
+  ): CompiledSection => {
+    const type = planSection.sectionType as CompiledSection['type'];
+    return {
+      ...(planSection.section.sectionType === 'custom_design'
+        ? { customDesignSettings: planSection.section.settings }
+        : {}),
+      id: planSection.id,
+      order,
+      presentation: presentationForSection(
+        type,
+        planSection.section.sectionType,
+        planSection.label,
+        snapshot,
+      ),
+      source: sourceForSection(type),
+      type,
+      visible: true,
+    } satisfies CompiledSection;
   };
 
-  const allDocumentSections = [
-    ...document.pages.flatMap(page => page.sections),
-    ...document.unusedSections,
-  ];
-  const documentHasStarterRole = (role: StarterSectionSemanticRole) => allDocumentSections.some(
-    sourceSection => starterSemanticInfo.get(sourceSection.id)?.role === role,
-  );
-  const documentOwnsCustomDesign = allDocumentSections.some(
-    sourceSection => sourceSection.sectionType === 'custom_design',
-  );
-
-  if (
-    snapshot.site.aboutEnabled
-    && !documentHasStarterRole('about')
-    && !pages.some(page => page.sections.some(item => item.type === 'about'))
-  ) {
-    insertRelativeToBooking(injectedSection(siteId, 'about', 0, 'business_profile', {
-      label: 'About',
-      preset: snapshot.site.aboutPreset,
-    }), 'before_booking');
-  }
-  if (
-    galleryHasContent
-    && !documentHasStarterRole('gallery')
-    && !pages.some(page => page.sections.some(item => item.type === 'gallery'))
-  ) {
-    insertRelativeToBooking(injectedSection(siteId, 'gallery', 0, 'gallery', {
-      label: 'Gallery',
-      layout: snapshot.gallery.layout,
-      source: snapshot.gallery.source,
-    }), 'before_booking');
-  }
-  if (
-    contactHasContent
-    && !documentHasStarterRole('contact')
-    && !documentHasStarterRole('visit')
-    && !pages.some(page => page.sections.some(item => item.type === 'contact'))
-  ) {
-    bookingPage.sections.push(injectedSection(
-      siteId,
-      'contact',
-      bookingPage.sections.length,
-      'business_profile',
-      {
-        addressVisibility: snapshot.profile.location.addressVisibility,
-        label: 'Contact',
-        originalSectionType: 'onboarding_contact',
-        showHours: snapshot.profile.hours.showOnSite,
-      },
-    ));
-  }
-  if (
-    snapshot.site.policiesEnabled
-    && hasMeaningfulPublishablePolicies(snapshot.profile.policies)
-    && !pages.some(page => page.sections.some(item => item.type === 'policies'))
-  ) {
-    insertRelativeToBooking(
-      injectedSection(siteId, 'policies', 0, 'policies', { label: 'Policies' }),
-      'after_booking',
-    );
-  }
-  if (
-    snapshot.site.canvaEnabled
-    && snapshot.customDesign.settings
-    && !documentOwnsCustomDesign
-    && !pages.some(page => page.sections.some(item => item.type === 'custom_design'))
-  ) {
-    const customSection = injectedSection(
-      siteId,
-      'custom_design',
-      0,
-      'custom_design',
-      {
-        displayMode: snapshot.customDesign.displayMode,
-        label: 'Custom Design',
-        originalSectionType: 'custom_design',
-      },
-      snapshot.customDesign.settings,
-    );
-    if (snapshot.customDesign.customDesignSectionId) {
-      customSection.id = snapshot.customDesign.customDesignSectionId;
-    }
-    insertRelativeToBooking(customSection, snapshot.customDesign.placement);
-  }
-
-  for (const page of pages) {
-    page.sections = page.sections.map((item, order) => ({ ...item, order }));
-  }
-  return pages
-    .filter(page => page.sections.length > 0)
-    .map((page, order) => ({ ...page, order }));
+  return plan.map((page, order): CompiledPage => ({
+    id: page.id,
+    isHome: page.isHome,
+    label: page.label,
+    order,
+    sections: page.sections.map(compileSection),
+    slug: page.slug,
+    visible: true,
+    visibleInNavigation: page.visibleInNavigation,
+  }));
 }
 
 /**
@@ -380,11 +238,12 @@ export function compileOnboardingToSiteDocument(input: {
   if (!builderDocument) {
     throw new Error('The accepted universal site document is required to compile the saved site.');
   }
-  const pages = compileAcceptedBuilderPages(siteId, snapshot);
+  const stampedDocument = stampRecipePresets(builderDocument, snapshot);
+  const pages = compileAcceptedBuilderPages(siteId, snapshot, stampedDocument);
   const visiblePageIds = new Set(pages.map(page => page.id));
 
   const document = {
-    builderDocument,
+    builderDocument: stampedDocument,
     navigation: [...builderDocument.navigation.items]
       .sort((left, right) => left.order - right.order)
       .filter(item => visiblePageIds.has(item.pageId))
