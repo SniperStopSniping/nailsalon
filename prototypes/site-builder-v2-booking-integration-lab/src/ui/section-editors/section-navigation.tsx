@@ -4,7 +4,6 @@ import type { PageDocument, SiteBuilderDocument } from '../../model/types';
 import { TextField, ToggleField } from './fields';
 import type { LibrarySectionEditorProps } from './types';
 
-
 /** The page this exact menu sits on — renames are keyed by section id. */
 const resolveOwningPage = (
   document: SiteBuilderDocument,
