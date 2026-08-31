@@ -1,29 +1,9 @@
+import { NAVIGABLE_SECTION_TYPES } from '../../model/section-library/registry';
 import type { SectionNavigationSettings } from '../../model/section-library/settings';
 import type { PageDocument, SiteBuilderDocument } from '../../model/types';
 import { TextField, ToggleField } from './fields';
 import type { LibrarySectionEditorProps } from './types';
 
-/**
- * Mirrors the anchor targets the customer renderer accepts (NAVIGABLE_TYPES
- * in `onboarding/preview/section-renderers.tsx`). Anything outside this set
- * never becomes a menu entry, so offering to rename it would be a control
- * that does nothing. Keep the two lists in step.
- */
-const NAVIGABLE_SECTION_TYPES: ReadonlySet<string> = new Set([
-  'about',
-  'booking',
-  'contact',
-  'deposits_cancellations',
-  'faq',
-  'featured_services',
-  'gallery',
-  'hours',
-  'offers',
-  'policies',
-  'reviews',
-  'team',
-  'visit_us',
-]);
 
 /** The page this exact menu sits on — renames are keyed by section id. */
 const resolveOwningPage = (

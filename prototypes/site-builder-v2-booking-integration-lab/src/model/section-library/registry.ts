@@ -87,7 +87,13 @@ export type SiteLibraryContext = {
   hoursShownOnSite: boolean;
   policiesMeaningful: boolean;
   depositMode: 'none' | 'fixed';
+  /** Before-You-Book topics whose owner wording resolves to real copy. */
+  availablePolicyTopics: PolicyToggleId[];
   canonicalServiceIds: string[];
+  /** The deposits summary is complete, visible, and non-empty. */
+  depositsSummaryPublishable: boolean;
+  /** The owner-authored deposits/cancellations wording is visible and non-empty. */
+  depositsWordingPublishable: boolean;
   featuredServiceIds: string[];
   /** Quick Info facts that resolve to real content right now. */
   availableQuickFacts: QuickInfoFactId[];
@@ -699,10 +705,16 @@ const depositsCancellations: SectionRegistryEntry<'deposits_cancellations'> = {
    * shows nothing until there is visible, owner-authored wording, and
    * readiness has to agree or the section reports ready and draws a blank.
    */
-  readiness: (_settings, context) =>
-    context.policiesMeaningful
+  readiness: (settings, context) => (
+    // Mirrors the renderer's own branch: the summary is used only when it is
+    // complete and the owner has not hidden that copy, and anything else
+    // falls back to the authored wording. `policiesMeaningful` is true for
+    // policy topics this section cannot draw, so it cannot answer this.
+    (settings.wordingMode === 'summary' && context.depositsSummaryPublishable)
+      || context.depositsWordingPublishable
       ? ready()
-      : empty('deposits_empty', 'Set a deposit or cancellation policy to show this section.'),
+      : empty('deposits_empty', 'Set a deposit or cancellation policy to show this section.')
+  ),
   recommendedPageKinds: ['content'],
   surface: 'tint',
   type: 'deposits_cancellations',
@@ -736,8 +748,10 @@ const policies: SectionRegistryEntry<'policies'> = {
   },
   overlapWarnings: [],
   presetIds: ['expandable_list'],
-  readiness: (_settings, context) =>
-    context.policiesMeaningful
+  readiness: (settings, context) =>
+    // Only the ticked topics can render, and only where the wording
+    // resolved — which is exactly what the editor's own hint promises.
+    settings.includedSections.some(topic => context.availablePolicyTopics.includes(topic))
       ? ready()
       : empty('policies_empty', 'Answer the policy questions to show this section.'),
   recommendedPageKinds: ['content'],
@@ -965,6 +979,28 @@ const footer: SectionRegistryEntry<'footer'> = {
 /* ------------------------------------------------------------------ */
 
 type AnyEntry = { [T in LibrarySectionType]: SectionRegistryEntry<T> }[LibrarySectionType];
+
+/**
+ * Section types that make sense as in-page anchor targets. The customer
+ * renderer, the plan (which decides whether an anchor menu has anything to
+ * point at) and the Section Navigation editor all read this one list — three
+ * copies of it used to drift.
+ */
+export const NAVIGABLE_SECTION_TYPES: ReadonlySet<string> = new Set([
+  'about',
+  'booking',
+  'contact',
+  'deposits_cancellations',
+  'faq',
+  'featured_services',
+  'gallery',
+  'hours',
+  'offers',
+  'policies',
+  'reviews',
+  'team',
+  'visit_us',
+]);
 
 export const SECTION_LIBRARY_REGISTRY: {
   readonly [T in LibrarySectionType]: SectionRegistryEntry<T>;

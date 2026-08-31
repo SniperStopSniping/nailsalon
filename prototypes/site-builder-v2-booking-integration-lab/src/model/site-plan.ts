@@ -13,6 +13,7 @@ import type { CustomDesignSettings } from '../custom-design/model/types';
 import {
   getSectionRegistryEntry,
   isLibrarySection,
+  NAVIGABLE_SECTION_TYPES,
   isLibrarySectionType,
   type SectionSurfaceTone,
   type SiteLibraryContext,
@@ -194,15 +195,26 @@ const INJECTION_RULES: readonly InjectionRule[] = [
     placement: 'after_booking',
     satisfiedBy: ['deposits_cancellations'],
     type: 'deposits_cancellations',
+    /*
+     * Two different questions, both of which must answer yes.
+     * `policiesMeaningful` is the product rule about whether a policy is
+     * worth adding a section for at all — a partial answer is not. The second
+     * is whether the section would render anything: without it, an owner who
+     * hid the deposit copy gets an injected band that draws nothing.
+     */
     wanted: (context, toggles) =>
-      toggles.policiesEnabled && context.policiesMeaningful,
+      toggles.policiesEnabled
+      && context.policiesMeaningful
+      && (context.depositsSummaryPublishable || context.depositsWordingPublishable),
   },
   {
     placement: 'after_booking',
     satisfiedBy: ['policies'],
     type: 'policies',
     wanted: (context, toggles) =>
-      toggles.policiesEnabled && context.policiesMeaningful,
+      toggles.policiesEnabled
+      && context.policiesMeaningful
+      && context.availablePolicyTopics.length > 0,
   },
   {
     placement: 'end',
@@ -217,6 +229,24 @@ const INJECTION_RULES: readonly InjectionRule[] = [
  * tint neighbours alternate back to base so backgrounds never seam, and
  * consecutive contrast sections merge into one continuous band.
  */
+/**
+ * An anchor menu needs at least two places to go; with fewer, the renderer
+ * draws nothing. Only the plan can count them — the count has to be taken
+ * after injections and after readiness gating, which is more than a single
+ * section's readiness rule can see — so the menu is dropped here rather than
+ * left to report itself ready and then render blank.
+ */
+const dropUnanchorableNavigation = (
+  sections: readonly SitePlanSection[],
+): SitePlanSection[] => {
+  const targets = sections.filter(
+    section => NAVIGABLE_SECTION_TYPES.has(section.sectionType),
+  ).length;
+  return targets >= 2
+    ? [...sections]
+    : sections.filter(section => section.sectionType !== 'section_navigation');
+};
+
 const resolveAdjacency = (
   sections: readonly SitePlanSection[],
 ): SitePlanSection[] => {
@@ -372,7 +402,7 @@ export const buildCustomerPagePlan = (
       isHome: page.isHome,
       label: page.name,
       order: page.order,
-      sections: resolveAdjacency(rendered),
+      sections: resolveAdjacency(dropUnanchorableNavigation(rendered)),
       slug: page.slug,
       visibleInNavigation: page.visibleInNavigation,
     };

@@ -166,19 +166,62 @@ describe('ordered adjacency matrix (400 pairs)', () => {
 
   it('keeps readiness honest: a deposit amount alone does not publish', () => {
     // A fixed deposit with no visible wording renders nothing, so readiness
-    // must not claim the section is ready to publish.
+    // must not claim the section is ready to publish. `policiesMeaningful` is
+    // deliberately true throughout: it is satisfied by policy topics this
+    // section cannot draw, so it must not be what decides this.
     const entry = SECTION_LIBRARY_REGISTRY.deposits_cancellations;
     const withAmountOnly = {
       ...deriveSiteLibraryContext(state, pairDocument('hero', 'booking')),
       depositMode: 'fixed' as const,
-      policiesMeaningful: false,
+      depositsSummaryPublishable: false,
+      depositsWordingPublishable: false,
+      policiesMeaningful: true,
     };
     expect(entry.readiness(entry.defaultSettings(), withAmountOnly).level)
       .toBe('empty');
 
-    const withWording = { ...withAmountOnly, policiesMeaningful: true };
-    expect(entry.readiness(entry.defaultSettings(), withWording).level)
-      .toBe('ready');
+    // Either wording the renderer can choose is enough on its own, and each
+    // is only honoured in the mode that actually uses it.
+    const summarySettings = entry.normalize({
+      ...entry.defaultSettings(),
+      wordingMode: 'summary',
+    });
+    const fullSettings = entry.normalize({
+      ...entry.defaultSettings(),
+      wordingMode: 'full',
+    });
+    const withSummary = { ...withAmountOnly, depositsSummaryPublishable: true };
+    const withWording = { ...withAmountOnly, depositsWordingPublishable: true };
+
+    expect(entry.readiness(summarySettings, withSummary).level).toBe('ready');
+    expect(entry.readiness(fullSettings, withSummary).level).toBe('empty');
+    expect(entry.readiness(fullSettings, withWording).level).toBe('ready');
+    expect(entry.readiness(summarySettings, withWording).level).toBe('ready');
+  });
+
+  it('keeps Before You Book honest: only ticked topics with wording publish', () => {
+    const entry = SECTION_LIBRARY_REGISTRY.policies;
+    const base = {
+      ...deriveSiteLibraryContext(state, pairDocument('hero', 'booking')),
+      policiesMeaningful: true,
+    };
+    const settings = entry.normalize({
+      ...entry.defaultSettings(),
+      includedSections: ['repairs'],
+    });
+
+    // The topic the owner ticked is the only one that counts, even when
+    // another topic has wording — the renderer draws exactly the ticked set.
+    expect(entry.readiness(settings, {
+      ...base,
+      availablePolicyTopics: ['late_arrivals'],
+    }).level).toBe('empty');
+    expect(entry.readiness(settings, {
+      ...base,
+      availablePolicyTopics: ['late_arrivals', 'repairs'],
+    }).level).toBe('ready');
+    expect(entry.readiness(settings, { ...base, availablePolicyTopics: [] }).level)
+      .toBe('empty');
   });
 
   it('keeps Quick Info honest: selected facts with no content do not publish', () => {
@@ -197,6 +240,69 @@ describe('ordered adjacency matrix (400 pairs)', () => {
       ...base,
       availableQuickFacts: ['open_status'],
     }).level).toBe('empty');
+  });
+
+  it('drops an anchor menu that has fewer than two places to go', () => {
+    // The renderer draws nothing under two targets, and only the plan can
+    // count them: the count has to be taken after injections and readiness
+    // gating, which no single section's readiness rule can see.
+    // Injections supply navigable targets of their own, so they are turned
+    // off here to make the count on the page itself the thing under test.
+    const noInjections = {
+      aboutEnabled: false,
+      canvaEnabled: false,
+      galleryEnabled: false,
+      policiesEnabled: false,
+    };
+    const planTypesFor = (document: SiteBuilderDocument) => buildCustomerPagePlan(document, {
+      context: {
+        ...deriveSiteLibraryContext(state, document),
+        hasContactSectionContent: false,
+      },
+      toggles: noInjections,
+    }).flatMap(page => page.sections).map(section => section.sectionType);
+
+    const lonely = pairDocument('section_navigation', 'reviews');
+    expect(planTypesFor(lonely)).toEqual(['reviews']);
+
+    // Give it a second target and the menu earns its place.
+    const home = lonely.pages[0]!;
+    const withTeam: SiteBuilderDocument = {
+      ...lonely,
+      pages: [{
+        ...home,
+        sections: [...home.sections, instanceOf('team', 'matrix-third', 2)],
+      }],
+    };
+    expect(planTypesFor(withTeam))
+      .toEqual(['section_navigation', 'reviews', 'team']);
+  });
+
+  it('counts only gallery images that can actually paint', () => {
+    // Storage read-back deliberately turns unreachable images into `missing`,
+    // which keeps the id and resolves to no URL. Counting those ids would
+    // report a gallery ready that renders an empty section.
+    const document = pairDocument('gallery', 'booking');
+    const entry = SECTION_LIBRARY_REGISTRY.gallery;
+    const unreachable = {
+      ...state,
+      gallery: {
+        ...state.gallery,
+        images: state.gallery.images.map(image => ({
+          ...image,
+          previewUrl: undefined,
+          source: 'missing' as const,
+        })),
+      },
+    };
+    const context = deriveSiteLibraryContext(unreachable, document);
+
+    expect(context.galleryImageIds).toEqual([]);
+    expect(entry.readiness(entry.defaultSettings(), context).level).toBe('empty');
+    expect(buildCustomerPagePlan(document, { context, toggles: TOGGLES })
+      .flatMap(page => page.sections)
+      .map(section => section.sectionType))
+      .not.toContain('gallery');
   });
 
   it('never mutates the document it plans from', () => {

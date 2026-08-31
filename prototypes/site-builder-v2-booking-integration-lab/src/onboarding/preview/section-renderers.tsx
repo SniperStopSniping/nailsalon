@@ -23,6 +23,7 @@ import {
 
 import { CANONICAL_SERVICES } from '../../booking/data';
 import { formatDuration, formatPrice } from '../../booking/helpers';
+import { NAVIGABLE_SECTION_TYPES } from '../../model/section-library/registry';
 import type { SiteLibraryContext } from '../../model/section-library/registry';
 import type { BoundText } from '../../model/section-library/settings';
 import type { SitePlanSection } from '../../model/site-plan';
@@ -47,6 +48,7 @@ import {
   getDepositsAndCancellationsDisplayWording,
   getPolicyDisplayWording,
   isDepositsAndCancellationsComplete,
+  isDepositsAndCancellationsVisible,
 } from '../model/policies';
 import type { OnboardingLabState, PolicySectionId } from '../model/types';
 import {
@@ -193,28 +195,11 @@ function QuickInfo({ planSection, section, shared }: LibraryPreviewSectionProps)
   );
 }
 
-/** Types that make sense as in-page anchor targets. */
-const NAVIGABLE_TYPES = new Set<string>([
-  'about',
-  'booking',
-  'contact',
-  'deposits_cancellations',
-  'faq',
-  'featured_services',
-  'gallery',
-  'hours',
-  'offers',
-  'policies',
-  'reviews',
-  'team',
-  'visit_us',
-]);
-
 function SectionNavigation({ planSection, section, shared }: LibraryPreviewSectionProps) {
   const settings = settingsOf(section, 'section_navigation');
   if (!settings) return null;
   const targets = shared.pageSections
-    .filter(candidate => NAVIGABLE_TYPES.has(candidate.sectionType))
+    .filter(candidate => NAVIGABLE_SECTION_TYPES.has(candidate.sectionType))
     .map(candidate => ({
       id: candidate.id,
       label: settings.labelOverrides[candidate.id]?.trim() || candidate.label,
@@ -426,7 +411,11 @@ function DepositsCancellations({ planSection, section, shared }: LibraryPreviewS
   // The one-line summary exists only once the deposit/cancellation rules are
   // complete; before that its helper returns owner-facing prompt copy, which
   // must never reach a customer. Fall back to the full owner-authored wording.
+  // The summary is also derived straight from the answers, so it has to be
+  // gated on the same visibility flags the long wording honours — otherwise
+  // an owner who hid this copy still sees it published.
   const wording = settings.wordingMode === 'summary'
+    && isDepositsAndCancellationsVisible(policies)
     && isDepositsAndCancellationsComplete(policies)
     ? deriveDepositsAndCancellationsSummary(policies)
     : getDepositsAndCancellationsDisplayWording(policies);

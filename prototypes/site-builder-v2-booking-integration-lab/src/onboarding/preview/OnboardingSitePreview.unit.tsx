@@ -573,6 +573,50 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(summaries.every((summary) => summary.textContent === '$50 deposit')).toBe(true);
   });
 
+  it('never publishes deposit copy the owner hid, in either wording mode', () => {
+    // The one-line summary is derived straight from the deposit and
+    // cancellation answers, so unlike the long wording it has no visibility
+    // check of its own. Without one, an owner who turned this copy off still
+    // had it printed on their site.
+    const state = createDanielaFixtureState();
+    state.recipe.policiesEnabled = true;
+    state.profile.policies.deposits.amountCents = 3_000;
+    state.profile.policies.deposits.mode = 'fixed';
+    state.profile.policies.deposits.refundable = false;
+    state.profile.policies.deposits.transferable = true;
+    state.profile.policies.cancellations.notice = '24_hours';
+    state.profile.policies.cancellations.consequence = 'deposit_lost';
+    // The owner hid both — the combined control in the Policies screen.
+    state.profile.policies.copy.deposits.visible = false;
+    state.profile.policies.copy.cancellations.visible = false;
+
+    const summaryDocument = initializeStarter('one_page');
+    const view = render(
+      <OnboardingSitePreview document={summaryDocument} label="Hidden policy preview" state={state} />,
+    );
+    const preview = screen.getByRole('region', { name: 'Hidden policy preview' });
+
+    expect(within(preview).queryByRole('region', { name: 'Deposits and cancellations' }))
+      .not.toBeInTheDocument();
+    expect(within(preview).queryByText(/\$30 deposit/u)).not.toBeInTheDocument();
+    expect(preview.textContent).not.toMatch(/24 hours/iu);
+
+    // And the section leaves the plan too, rather than reporting itself live.
+    expect(planTypes(customerPagePlanFor(summaryDocument, state)))
+      .not.toContain('deposits_cancellations');
+
+    // The long-wording mode was already honest; it stays that way.
+    view.rerender(
+      <OnboardingSitePreview
+        document={withDepositsWordingMode(summaryDocument, 'full')}
+        label="Hidden policy preview"
+        state={state}
+      />,
+    );
+    expect(within(preview).queryByRole('region', { name: 'Deposits and cancellations' }))
+      .not.toBeInTheDocument();
+  });
+
   it('renders deposits and cancellations as one truthful customer policy', () => {
     const state = createDanielaFixtureState();
     state.recipe.policiesEnabled = true;
@@ -660,7 +704,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(preview).queryByText(/grace period/iu)).not.toBeInTheDocument();
   });
 
-  it('injects deposits and studio policies as two sections that each self-suppress', () => {
+  it('injects deposits and studio policies only while each has something to say', () => {
     const state = createDanielaFixtureState();
     state.recipe.starter = 'quick_book';
     const document = initializeStarter('quick_book');
@@ -685,8 +729,11 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .toBeVisible();
     expect(within(preview).getByRole('region', { name: 'Studio policies' })).toBeVisible();
 
-    // Hiding every before-you-book card empties the studio policies wording
-    // without touching the deposits section or the plan itself.
+    // Hiding every before-you-book card empties the studio policies wording.
+    // The section then leaves the plan as well as the page: an injected
+    // section that renders nothing is a blank band on a customer's site, and
+    // it also reports itself "on your site" in the settings dialog. The
+    // deposits section, whose copy is untouched, is unaffected.
     const quiet = structuredClone(state);
     for (const sectionId of ['late_arrivals', 'no_shows', 'repairs', 'other'] as const) {
       quiet.profile.policies.copy[sectionId].visible = false;
@@ -696,7 +743,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
 
     expect(planIds(customerPagePlanFor(document, quiet)))
-      .toContain('onboarding-preview-policies');
+      .not.toContain('onboarding-preview-policies');
     expect(within(preview).queryByRole('region', { name: 'Studio policies' }))
       .not.toBeInTheDocument();
     expect(preview.querySelector('[data-library-type="policies"]')).toBeNull();
