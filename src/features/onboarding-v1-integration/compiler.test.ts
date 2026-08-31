@@ -363,8 +363,36 @@ describe('account-backed onboarding document compiler', () => {
     // starter's, and neither absorbs the other's identity.
     expect(compiledAbout.map(section => section.id))
       .toEqual([duplicate.id, originalAbout.id]);
+    // Quick Info is absent because this fixture sets no location, hours, or
+    // booking preference — none of its facts resolve to content, so it would
+    // publish an empty strip. The next test shows it returning on its own.
     expect(compiled.pages[0]?.sections.map(section => section.type))
-      .toEqual(['about', 'hero', 'quick_info', 'final_cta', 'footer']);
+      .toEqual(['about', 'hero', 'final_cta', 'footer']);
+  });
+
+  it('publishes Quick Info as soon as one of its facts has content', () => {
+    const state = acceptedState('one_page');
+    const document = initializeStarter('one_page', {
+      idFactory: createDeterministicIdFactory('quick-info-facts'),
+      siteId: 'site_one_page',
+      siteName: state.profile.businessName,
+    });
+    const withoutFacts = createPersistableOnboardingDraft(
+      state, 'luster_berry', null, document,
+    ).snapshot;
+    state.profile.bookingPreferences.visitMode = 'appointment_only';
+    const withFact = createPersistableOnboardingDraft(
+      state, 'luster_berry', null, document,
+    ).snapshot;
+
+    const typesOf = (snapshot: typeof withFact) => compileOnboardingToSiteDocument({
+      revision: 1,
+      siteId: SITE_ID,
+      snapshot,
+    }).pages.flatMap(page => page.sections.map(section => section.type));
+
+    expect(typesOf(withoutFacts)).not.toContain('quick_info');
+    expect(typesOf(withFact)).toContain('quick_info');
   });
 
   it('keeps injected optional IDs stable when the target page slug changes', () => {

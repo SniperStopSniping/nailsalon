@@ -204,6 +204,7 @@ const CURATED: Record<LibrarySectionType, Curated> = {
 };
 
 const context: SiteLibraryContext = {
+  availableQuickFacts: [],
   businessStructure: null,
   canonicalServiceIds: [],
   depositMode: 'none',

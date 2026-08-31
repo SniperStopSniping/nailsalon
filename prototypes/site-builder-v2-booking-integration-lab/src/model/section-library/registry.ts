@@ -89,6 +89,8 @@ export type SiteLibraryContext = {
   depositMode: 'none' | 'fixed';
   canonicalServiceIds: string[];
   featuredServiceIds: string[];
+  /** Quick Info facts that resolve to real content right now. */
+  availableQuickFacts: QuickInfoFactId[];
   siteContent: SiteContentCollections;
 };
 
@@ -328,17 +330,13 @@ const quickInfo: SectionRegistryEntry<'quick_info'> = {
   },
   overlapWarnings: [],
   presetIds: ['strip'],
-  readiness: (settings, context) => {
-    const anyAvailable = settings.facts.some(fact =>
-      fact === 'location'
-        ? context.hasPublicLocation
-        : fact === 'open_status'
-          ? context.hoursConfigured && context.hoursShownOnSite
-          : true);
-    return anyAvailable
+  readiness: (settings, context) => (
+    // Mirrors the renderer, which drops facts with no value and shows
+    // nothing at all once every selected fact is empty.
+    settings.facts.some(fact => context.availableQuickFacts.includes(fact))
       ? ready()
-      : empty('quick_info_empty', 'None of the selected facts have content yet.');
-  },
+      : empty('quick_info_empty', 'None of the selected facts have content yet.')
+  ),
   recommendedPageKinds: ['home'],
   surface: 'tint',
   type: 'quick_info',
