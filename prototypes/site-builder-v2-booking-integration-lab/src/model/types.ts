@@ -1,9 +1,31 @@
 import type { BookingSectionPresentationSettings } from '../booking/types';
 import type { CustomDesignSettings } from '../custom-design/model/types';
+import type {
+  LibrarySectionSettingsByType,
+  LibrarySectionType,
+} from './section-library/settings';
+import type { SiteContentCollections, UpdateSiteContentInput } from './section-library/site-content';
 
 export type { BookingSectionPresentationSettings } from '../booking/types';
+export type {
+  LibrarySectionSettings,
+  LibrarySectionSettingsByType,
+  LibrarySectionType,
+} from './section-library/settings';
+export type {
+  SiteContentCollections,
+  UpdateSiteContentInput,
+} from './section-library/site-content';
 
-export const SITE_BUILDER_SCHEMA_VERSION = 1 as const;
+/**
+ * v2 introduced the named section library: typed `LibrarySectionInstance`
+ * members, the shared `siteContent` collections, and the retirement of
+ * numbered catalogue placeholders from Add Section. v1 documents upgrade
+ * losslessly via `upgradeSiteBuilderDocument` before validation.
+ */
+export const SITE_BUILDER_SCHEMA_VERSION = 2 as const;
+
+export const LEGACY_SITE_BUILDER_SCHEMA_VERSION = 1 as const;
 
 export type OriginStarter = 'quick_book' | 'one_page' | 'multi_page';
 
@@ -29,9 +51,18 @@ export type SectionNumber =
   | '19'
   | '20';
 
+/**
+ * Legacy numbered placeholder slots. v2 keeps them importable (an owner may
+ * have added them in the Builder) but withdraws them from Add Section; role-
+ * tagged starter placeholders upgrade into real library sections instead.
+ */
 export type CatalogueSectionType = `section_${SectionNumber}`;
 
-export type SectionType = CatalogueSectionType | 'booking' | 'custom_design';
+export type SectionType =
+  | CatalogueSectionType
+  | LibrarySectionType
+  | 'booking'
+  | 'custom_design';
 
 export type SectionSize = 'compact' | 'medium' | 'large';
 
@@ -98,6 +129,22 @@ export type CustomDesignSectionInstance = SectionInstanceBase & {
 };
 
 /**
+ * A named V1 library section. Settings hold presentation, presets, and
+ * deliberate overrides only; business content stays with its shared authority
+ * or in `siteContent`, referenced by id.
+ */
+export type LibrarySectionInstance<
+  TType extends LibrarySectionType = LibrarySectionType,
+> = SectionInstanceBase & {
+  sectionType: TType;
+  settings: LibrarySectionSettingsByType[TType];
+};
+
+type AnyLibrarySectionInstance = {
+  [T in LibrarySectionType]: LibrarySectionInstance<T>;
+}[LibrarySectionType];
+
+/**
  * The section type is the document-level discriminator. Booking owns only
  * bounded presentation settings; canonical services and customer intent live
  * outside the site document.
@@ -105,11 +152,18 @@ export type CustomDesignSectionInstance = SectionInstanceBase & {
 export type SectionInstance =
   | PlaceholderSectionInstance
   | BookingSectionInstance
-  | CustomDesignSectionInstance;
+  | CustomDesignSectionInstance
+  | AnyLibrarySectionInstance;
 
 export type RestorableSectionInstance =
   | PlaceholderSectionInstance
-  | CustomDesignSectionInstance;
+  | CustomDesignSectionInstance
+  | AnyLibrarySectionInstance;
+
+/** Sections rendered by the generic Builder card (not Booking/Custom Design). */
+export type NonEngineSectionInstance =
+  | PlaceholderSectionInstance
+  | AnyLibrarySectionInstance;
 
 export type PageDocument = {
   id: string;
@@ -138,6 +192,8 @@ export type SiteBuilderDocument = {
   pages: PageDocument[];
   unusedSections: RestorableSectionInstance[];
   removedPages: RemovedPageRecord[];
+  /** Shared record collections sections bind to by id (staff, reviews, offers, faq). */
+  siteContent: SiteContentCollections;
 };
 
 export type EntityKind = 'site' | 'page' | 'section' | 'navigation_item';
@@ -190,10 +246,20 @@ export type AddCustomDesignSectionInput = {
   position?: number;
 };
 
+export type AddLibrarySectionInput = {
+  pageId: string;
+  sectionType: LibrarySectionType;
+  position?: number;
+  presetId?: string;
+  /** Set when the owner explicitly confirmed a soft overlap warning. */
+  acknowledgedWarnings?: readonly string[];
+};
+
 export type AddSectionInput =
   | AddPlaceholderSectionInput
   | AddBookingSectionInput
-  | AddCustomDesignSectionInput;
+  | AddCustomDesignSectionInput
+  | AddLibrarySectionInput;
 
 export type AddPageInput = {
   name: string;
@@ -255,6 +321,13 @@ export type BuilderCommand =
       sectionId: string;
       settings: CustomDesignSettings;
     }
+  | {
+      type: 'update_library_section_settings';
+      sectionId: string;
+      /** Normalized through the registry before it touches the document. */
+      settings: unknown;
+    }
+  | { type: 'update_site_content'; input: UpdateSiteContentInput }
   | { type: 'reset_booking_presentation'; sectionId: string }
   | { type: 'move_section'; sectionId: string; position: number }
   | { type: 'move_section_up'; sectionId: string }

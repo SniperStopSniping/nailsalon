@@ -15,6 +15,15 @@ import type {
 } from '../custom-design/model/types';
 import { hasNormalizedOrdering, normalizeDocument } from './normalize';
 import {
+  getSectionRegistryEntry,
+  isLibrarySectionType,
+} from './section-library/registry';
+import {
+  SITE_CONTENT_COLLECTION_KEYS,
+  type SiteContentCollectionKey,
+} from './section-library/site-content';
+import { upgradeSiteBuilderDocument } from './section-library/upgrade';
+import {
   SITE_BUILDER_SCHEMA_VERSION,
   STARTER_SECTION_SEMANTIC_ROLES,
   type CustomDesignSectionInstance,
@@ -36,6 +45,7 @@ const ROOT_KEYS = new Set([
   'pages',
   'unusedSections',
   'removedPages',
+  'siteContent',
 ]);
 const NAVIGATION_KEYS = new Set(['enabled', 'style', 'items']);
 const NAVIGATION_ITEM_KEYS = new Set(['id', 'pageId', 'label', 'order']);
@@ -91,6 +101,29 @@ const CUSTOM_DESIGN_SECTION_KEYS = new Set([
   'settings',
 ]);
 const PLACEHOLDER_SETTINGS_KEYS = new Set(['note']);
+const LIBRARY_SECTION_KEYS = new Set([
+  'id',
+  'sectionType',
+  'label',
+  'order',
+  'visible',
+  'settings',
+]);
+const SITE_CONTENT_RECORD_KEYS: Record<SiteContentCollectionKey, ReadonlySet<string>> = {
+  faq: new Set(['id', 'question', 'answer']),
+  offers: new Set(['id', 'title', 'detail', 'terms', 'expiresAt', 'actionLabel']),
+  reviews: new Set(['id', 'quote', 'authorName', 'rating', 'source', 'visible']),
+  staff: new Set(['id', 'name', 'title', 'specialties', 'acceptsBookings']),
+};
+
+const stableStringify = (value: unknown): string =>
+  JSON.stringify(value, (_key, entry: unknown) =>
+    entry && typeof entry === 'object' && !Array.isArray(entry)
+      ? Object.fromEntries(
+          Object.entries(entry as Record<string, unknown>).sort(([a], [b]) =>
+            a.localeCompare(b)),
+        )
+      : entry);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -244,6 +277,24 @@ const validateCustomDesignSectionShape = (
   }
 };
 
+const validateLibrarySectionShape = (
+  value: Record<string, unknown>,
+  path: string,
+  issues: string[],
+): void => {
+  rejectUnknownKeys(value, LIBRARY_SECTION_KEYS, path, issues);
+  validateSectionBaseShape(value, path, issues);
+  if (!isLibrarySectionType(value.sectionType)) {
+    issues.push(`${path}.sectionType is not a library section type.`);
+    return;
+  }
+  const entry = getSectionRegistryEntry(value.sectionType);
+  const normalized = entry.normalize(value.settings);
+  if (stableStringify(normalized) !== stableStringify(value.settings)) {
+    issues.push(`${path}.settings is not a valid ${entry.label} configuration.`);
+  }
+};
+
 const validateSectionShape = (
   value: unknown,
   path: string,
@@ -266,7 +317,99 @@ const validateSectionShape = (
     validateCustomDesignSectionShape(value, path, issues);
     return;
   }
+  if (isLibrarySectionType(value.sectionType)) {
+    validateLibrarySectionShape(value, path, issues);
+    return;
+  }
   validatePlaceholderSectionShape(value, path, issues);
+};
+
+const validateSiteContentShape = (
+  value: unknown,
+  issues: string[],
+): void => {
+  if (!isRecord(value)) {
+    issues.push('siteContent must be an object.');
+    return;
+  }
+  rejectUnknownKeys(
+    value,
+    new Set(SITE_CONTENT_COLLECTION_KEYS),
+    'siteContent',
+    issues,
+  );
+  for (const key of SITE_CONTENT_COLLECTION_KEYS) {
+    const collection = value[key];
+    if (!Array.isArray(collection)) {
+      issues.push(`siteContent.${key} must be an array.`);
+      continue;
+    }
+    const seenIds = new Set<string>();
+    collection.forEach((record, index) => {
+      const path = `siteContent.${key}[${index}]`;
+      if (!isRecord(record)) {
+        issues.push(`${path} must be an object.`);
+        return;
+      }
+      rejectUnknownKeys(record, SITE_CONTENT_RECORD_KEYS[key], path, issues);
+      if (!isString(record.id) || record.id.length === 0) {
+        issues.push(`${path}.id must be a non-empty string.`);
+      } else if (seenIds.has(record.id)) {
+        issues.push(`${path}.id is duplicated within siteContent.${key}.`);
+      } else {
+        seenIds.add(record.id);
+      }
+      if (key === 'staff') {
+        if (!isString(record.name) || record.name.trim().length === 0) {
+          issues.push(`${path}.name must be a non-empty string.`);
+        }
+        if (!isString(record.title)) issues.push(`${path}.title must be a string.`);
+        if (!Array.isArray(record.specialties) || !record.specialties.every(isString)) {
+          issues.push(`${path}.specialties must be a string array.`);
+        }
+        if (!isBoolean(record.acceptsBookings)) {
+          issues.push(`${path}.acceptsBookings must be a boolean.`);
+        }
+      } else if (key === 'reviews') {
+        if (!isString(record.quote) || record.quote.trim().length === 0) {
+          issues.push(`${path}.quote must be a non-empty string.`);
+        }
+        if (!isString(record.authorName)) {
+          issues.push(`${path}.authorName must be a string.`);
+        }
+        if (record.rating !== null
+          && (typeof record.rating !== 'number'
+            || record.rating < 1 || record.rating > 5)) {
+          issues.push(`${path}.rating must be null or between 1 and 5.`);
+        }
+        if (record.source !== 'client' && record.source !== 'google' && record.source !== 'other') {
+          issues.push(`${path}.source is invalid.`);
+        }
+        if (!isBoolean(record.visible)) {
+          issues.push(`${path}.visible must be a boolean.`);
+        }
+      } else if (key === 'offers') {
+        if (!isString(record.title) || record.title.trim().length === 0) {
+          issues.push(`${path}.title must be a non-empty string.`);
+        }
+        if (!isString(record.detail)) issues.push(`${path}.detail must be a string.`);
+        if (!isString(record.terms)) issues.push(`${path}.terms must be a string.`);
+        if (record.expiresAt !== null && !isString(record.expiresAt)) {
+          issues.push(`${path}.expiresAt must be null or a string.`);
+        }
+        if (record.actionLabel !== null && !isString(record.actionLabel)) {
+          issues.push(`${path}.actionLabel must be null or a string.`);
+        }
+      } else {
+        if (!isString(record.question) || record.question.trim().length === 0) {
+          issues.push(`${path}.question must be a non-empty string.`);
+        }
+        if (!isString(record.answer) || record.answer.trim().length === 0) {
+          issues.push(`${path}.answer must be a non-empty string.`);
+        }
+      }
+    });
+  }
 };
 
 const validatePageShape = (
@@ -415,6 +558,7 @@ const validateRootShape = (
       validateRemovedPageShape(record, `removedPages[${index}]`, issues),
     );
   }
+  validateSiteContentShape(value.siteContent, issues);
   return issues.length === 0;
 };
 
@@ -579,6 +723,24 @@ const validateDocumentInvariants = (
     );
   }
   const bookingId = bookingLocations[0]?.section.id;
+  // Per-page hard exclusivity for library sections; imports cannot smuggle a
+  // configuration the Builder would refuse to create.
+  for (const page of document.pages) {
+    const counts = new Map<string, number>();
+    for (const section of page.sections) {
+      if (!isLibrarySectionType(section.sectionType)) continue;
+      const entry = getSectionRegistryEntry(section.sectionType);
+      if (entry.limitKind !== 'hard' || entry.maxPerPage === undefined) continue;
+      const next = (counts.get(section.sectionType) ?? 0) + 1;
+      counts.set(section.sectionType, next);
+      if (next > entry.maxPerPage) {
+        issues.push(
+          `Page ${page.id} exceeds the ${entry.label} limit of ${entry.maxPerPage} per page.`,
+        );
+      }
+    }
+  }
+
   document.removedPages.forEach((record) => {
     if (record.page.isHome) {
       issues.push(`Removed page ${record.page.id} cannot be Home.`);
@@ -701,10 +863,13 @@ const getCustomDesignSettings = (
 ): CustomDesignSettings[] =>
   getCustomDesignSections(document).map((section) => section.settings);
 
-const validateImportedDocumentValue = (
+export const validateImportedDocumentValue = (
   value: unknown,
 ): DocumentImportResult => {
-  const normalized = normalizeImportedSiteBuilderDocument(value);
+  // Schema upgrades run before any shape validation so v1 documents (local
+  // drafts, backups, persisted revisions) keep importing losslessly.
+  const upgraded = upgradeSiteBuilderDocument(value);
+  const normalized = normalizeImportedSiteBuilderDocument(upgraded);
   return normalized.success
     ? validateSiteBuilderDocument(normalized.value)
     : normalized;

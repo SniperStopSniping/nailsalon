@@ -4,10 +4,16 @@ import { getSectionCatalogueItem } from './catalogue';
 import { createIdFactory } from './ids';
 import { normalizeDocument } from './normalize';
 import {
+  getSectionRegistryEntry,
+  isLibrarySectionType,
+} from './section-library/registry';
+import { createEmptySiteContent } from './section-library/site-content';
+import {
   type BookingSectionInstance,
   type CatalogueSectionType,
   type CustomDesignSectionInstance,
   type IdFactory,
+  type LibrarySectionType,
   type NavigationItem,
   type OriginStarter,
   type PageDocument,
@@ -22,14 +28,22 @@ import {
 
 const DEFAULT_SECTION_NOTE = 'Content and settings will be designed later.';
 
+/**
+ * `summary: false` marks composition chrome (announcement, navigation, CTAs,
+ * footer, policy blocks) that stays out of the starter cards' "Includes"
+ * copy and animated mini-preview scenes — the cards keep describing what the
+ * owner recognizes as content, while the real document carries the full
+ * coordinated section set.
+ */
 export type StarterSectionDefinition =
   | {
     previewLabel: string;
-    semanticRole: StarterSectionSemanticRole;
-    sectionType: CatalogueSectionType;
-    size?: SectionSize;
+    sectionType: LibrarySectionType;
+    preset?: string;
+    label?: string;
+    summary?: boolean;
   }
-  | { previewLabel: 'Booking'; sectionType: 'booking' };
+  | { previewLabel: 'Booking'; sectionType: 'booking'; summary?: boolean };
 
 export type StarterPageDefinition = {
   name: string;
@@ -50,19 +64,12 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
       name: 'Home',
       slug: '',
       sections: [
-        {
-          previewLabel: 'Salon intro',
-          semanticRole: 'hero',
-          sectionType: 'section_01',
-          size: 'compact',
-        },
-        {
-          previewLabel: 'Services',
-          semanticRole: 'services',
-          sectionType: 'section_02',
-          size: 'medium',
-        },
+        { previewLabel: 'Announcement', sectionType: 'announcement_bar', summary: false },
+        { label: 'Salon intro', preset: 'booking_first', previewLabel: 'Salon intro', sectionType: 'hero' },
+        { previewLabel: 'Services', sectionType: 'featured_services' },
         { previewLabel: 'Booking', sectionType: 'booking' },
+        { previewLabel: 'Final CTA', sectionType: 'final_cta', summary: false },
+        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
       ],
     },
   ],
@@ -71,37 +78,20 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
       name: 'Home',
       slug: '',
       sections: [
-        {
-          previewLabel: 'Welcome',
-          semanticRole: 'hero',
-          sectionType: 'section_01',
-          size: 'large',
-        },
-        {
-          previewLabel: 'About',
-          semanticRole: 'about',
-          sectionType: 'section_02',
-          size: 'medium',
-        },
-        {
-          previewLabel: 'Services',
-          semanticRole: 'services',
-          sectionType: 'section_03',
-          size: 'medium',
-        },
-        {
-          previewLabel: 'Gallery',
-          semanticRole: 'gallery',
-          sectionType: 'section_04',
-          size: 'large',
-        },
-        {
-          previewLabel: 'Reviews',
-          semanticRole: 'reviews',
-          sectionType: 'section_05',
-          size: 'compact',
-        },
+        { previewLabel: 'Announcement', sectionType: 'announcement_bar', summary: false },
+        { label: 'Welcome', previewLabel: 'Welcome', sectionType: 'hero' },
+        { previewLabel: 'Quick facts', sectionType: 'quick_info', summary: false },
+        { previewLabel: 'On-page menu', sectionType: 'section_navigation', summary: false },
+        { previewLabel: 'About', sectionType: 'about' },
+        { previewLabel: 'Services', sectionType: 'featured_services' },
+        { previewLabel: 'Gallery', sectionType: 'gallery' },
+        { previewLabel: 'Reviews', sectionType: 'reviews' },
+        { previewLabel: 'Deposits', sectionType: 'deposits_cancellations', summary: false },
+        { previewLabel: 'Policies', sectionType: 'policies', summary: false },
+        { previewLabel: 'Visit us', sectionType: 'visit_us', summary: false },
         { previewLabel: 'Booking', sectionType: 'booking' },
+        { previewLabel: 'Final CTA', sectionType: 'final_cta', summary: false },
+        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
       ],
     },
   ],
@@ -110,16 +100,13 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
       name: 'Home',
       slug: '',
       sections: [
-        {
-          previewLabel: 'Welcome',
-          semanticRole: 'hero',
-          sectionType: 'section_01',
-        },
-        {
-          previewLabel: 'Featured work',
-          semanticRole: 'featured_work',
-          sectionType: 'section_02',
-        },
+        { previewLabel: 'Announcement', sectionType: 'announcement_bar', summary: false },
+        { label: 'Welcome', previewLabel: 'Welcome', sectionType: 'hero' },
+        { previewLabel: 'Quick facts', sectionType: 'quick_info', summary: false },
+        { label: 'Featured work', preset: 'editorial', previewLabel: 'Featured work', sectionType: 'gallery' },
+        { previewLabel: 'Reviews', sectionType: 'reviews', summary: false },
+        { previewLabel: 'Final CTA', sectionType: 'final_cta', summary: false },
+        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
       ],
     },
     {
@@ -127,46 +114,40 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
       previewLabel: 'Services & Booking',
       slug: 'services-book',
       sections: [
-        {
-          previewLabel: 'Services',
-          semanticRole: 'services',
-          sectionType: 'section_03',
-        },
+        { previewLabel: 'Services', sectionType: 'featured_services' },
         { previewLabel: 'Booking', sectionType: 'booking' },
+        { previewLabel: 'Deposits', sectionType: 'deposits_cancellations', summary: false },
+        { previewLabel: 'Policies', sectionType: 'policies', summary: false },
+        { previewLabel: 'FAQ', sectionType: 'faq', summary: false },
+        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
       ],
     },
     {
       name: 'Gallery',
       slug: 'gallery',
-      sections: [{
-        previewLabel: 'Gallery',
-        semanticRole: 'gallery',
-        sectionType: 'section_04',
-      }],
+      sections: [
+        { previewLabel: 'Gallery', sectionType: 'gallery' },
+        { previewLabel: 'Final CTA', sectionType: 'final_cta', summary: false },
+        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
+      ],
     },
     {
-      name: 'About',
-      slug: 'about',
-      sections: [{
-        previewLabel: 'About',
-        semanticRole: 'about',
-        sectionType: 'section_05',
-      }],
+      name: 'Team',
+      slug: 'team',
+      sections: [
+        { previewLabel: 'Team', sectionType: 'team' },
+        { previewLabel: 'About', sectionType: 'about' },
+        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
+      ],
     },
     {
       name: 'Contact',
       slug: 'contact',
       sections: [
-        {
-          previewLabel: 'Visit us',
-          semanticRole: 'visit',
-          sectionType: 'section_06',
-        },
-        {
-          previewLabel: 'Contact',
-          semanticRole: 'contact',
-          sectionType: 'section_07',
-        },
+        { previewLabel: 'Visit us', sectionType: 'visit_us' },
+        { previewLabel: 'Hours', sectionType: 'hours', summary: false },
+        { previewLabel: 'Contact', sectionType: 'contact' },
+        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
       ],
     },
   ],
@@ -181,7 +162,9 @@ export const getSectionLabel = (sectionType: SectionType): string =>
     ? 'Booking'
     : sectionType === 'custom_design'
       ? 'Custom Design'
-      : getSectionCatalogueItem(sectionType).label;
+      : isLibrarySectionType(sectionType)
+        ? getSectionRegistryEntry(sectionType).label
+        : getSectionCatalogueItem(sectionType).label;
 
 export type StarterDocumentSemanticInfo = {
   previewLabel: string;
@@ -202,66 +185,27 @@ export const getStarterDocumentSemanticInfoBySectionId = (
     ...pages.flatMap(page => page.sections),
     ...document.unusedSections,
   ].filter((section): section is PlaceholderSectionInstance => (
-    section.sectionType !== 'booking' && section.sectionType !== 'custom_design'
+    section.sectionType !== 'booking'
+    && section.sectionType !== 'custom_design'
+    && !isLibrarySectionType(section.sectionType)
   ));
-  const hasExplicitMetadata = activeAndUnusedPlaceholders.some(
-    section => section.starterSemanticRole !== undefined,
-  );
-  const definitionByRole = new Map<StarterSectionSemanticRole, {
-    pageSlug: string;
-    previewLabel: string;
-    sectionOrder: number;
-    sectionType: PlaceholderSectionInstance['sectionType'];
-  }>();
-
-  for (const pageDefinition of pageDefinitions) {
-    pageDefinition.sections.forEach((sectionDefinition, sectionOrder) => {
-      if (sectionDefinition.sectionType === 'booking') {
-        return;
-      }
-      definitionByRole.set(sectionDefinition.semanticRole, {
-        pageSlug: pageDefinition.slug,
-        previewLabel: sectionDefinition.previewLabel,
-        sectionOrder,
-        sectionType: sectionDefinition.sectionType,
-      });
-    });
-  }
-
+  // Since schema v2, role-tagged placeholders no longer exist in validated
+  // documents — the upgrade path converts them into real library sections
+  // before any consumer sees them. The map stays exported for the compiler's
+  // legacy branch, and only ever carries entries for a residual v1-era
+  // placeholder that slipped past the upgrade (explicit metadata only; the
+  // positional fallback moved into the upgrade module with the frozen v1
+  // starter layouts).
+  void pageDefinitions;
+  void pages;
   const infoBySectionId = new Map<string, StarterDocumentSemanticInfo>();
-  if (hasExplicitMetadata) {
-    for (const section of activeAndUnusedPlaceholders) {
-      if (!section.starterSemanticRole) {
-        continue;
-      }
-      const definition = definitionByRole.get(section.starterSemanticRole);
-      infoBySectionId.set(section.id, {
-        previewLabel: definition?.previewLabel ?? section.label,
-        role: section.starterSemanticRole,
-      });
-    }
-    return infoBySectionId;
-  }
-
-  const assignedSectionIds = new Set<string>();
-  for (const [role, definition] of definitionByRole) {
-    const candidates = pages.flatMap(page => page.sections
-      .filter((section): section is PlaceholderSectionInstance => (
-        section.sectionType === definition.sectionType
-        && !assignedSectionIds.has(section.id)
-      ))
-      .map(section => ({ page, section })));
-    const matched = candidates.find(({ page, section }) => (
-      page.slug === definition.pageSlug && section.order === definition.sectionOrder
-    )) ?? candidates.find(({ page }) => page.slug === definition.pageSlug)
-    ?? candidates[0];
-    if (!matched) {
+  for (const section of activeAndUnusedPlaceholders) {
+    if (!section.starterSemanticRole) {
       continue;
     }
-    assignedSectionIds.add(matched.section.id);
-    infoBySectionId.set(matched.section.id, {
-      previewLabel: definition.previewLabel,
-      role,
+    infoBySectionId.set(section.id, {
+      previewLabel: section.label,
+      role: section.starterSemanticRole,
     });
   }
   return infoBySectionId;
@@ -371,6 +315,29 @@ export const createCustomDesignSectionInstance = (
   settings: createDefaultCustomDesignSettings(),
 });
 
+export const createLibrarySectionInstance = (
+  sectionType: LibrarySectionType,
+  idFactory: IdFactory,
+  options: { label?: string; order?: number; presetId?: string } = {},
+): SectionInstance => {
+  const entry = getSectionRegistryEntry(sectionType);
+  const settings: Record<string, unknown> = { ...entry.defaultSettings() };
+  if (options.presetId && entry.presetIds.includes(options.presetId)
+    && 'preset' in settings) {
+    settings.preset = options.presetId;
+  }
+  // The settings come from the type's own normalizer, so the correlated pair
+  // is definitionally valid; TypeScript cannot see across the mapped union.
+  return {
+    id: idFactory('section'),
+    label: options.label ?? entry.label,
+    order: options.order ?? 0,
+    sectionType,
+    settings: entry.normalize(settings),
+    visible: true,
+  } as SectionInstance;
+};
+
 export const createSectionInstance = (
   sectionType: SectionType,
   idFactory: IdFactory,
@@ -379,13 +346,20 @@ export const createSectionInstance = (
     label?: string;
     note?: string;
     order?: number;
+    presetId?: string;
   } = {},
 ): SectionInstance =>
   sectionType === 'booking'
     ? createBookingSectionInstance(idFactory, { order: options.order })
     : sectionType === 'custom_design'
       ? createCustomDesignSectionInstance(idFactory, { order: options.order })
-      : createPlaceholderSectionInstance(sectionType, idFactory, options);
+      : isLibrarySectionType(sectionType)
+        ? createLibrarySectionInstance(sectionType, idFactory, {
+            ...(options.label !== undefined ? { label: options.label } : {}),
+            ...(options.order !== undefined ? { order: options.order } : {}),
+            ...(options.presetId !== undefined ? { presetId: options.presetId } : {}),
+          })
+        : createPlaceholderSectionInstance(sectionType, idFactory, options);
 
 const createStarterPage = (
   definition: StarterPageDefinition,
@@ -402,11 +376,10 @@ const createStarterPage = (
   sections: definition.sections.map((section, sectionOrder) =>
     section.sectionType === 'booking'
       ? createBookingSectionInstance(idFactory, { order: sectionOrder })
-      : createPlaceholderSectionInstance(section.sectionType, idFactory, {
+      : createLibrarySectionInstance(section.sectionType, idFactory, {
+          ...(section.label !== undefined ? { label: section.label } : {}),
           order: sectionOrder,
-          starterSemanticRole: section.semanticRole,
-          size:
-            section.size ?? getDefaultSectionSize(section.sectionType),
+          ...(section.preset !== undefined ? { presetId: section.preset } : {}),
         }),
   ),
 });
@@ -437,6 +410,7 @@ export const initializeStarter = (
       items: navigationItems,
     },
     pages,
+    siteContent: createEmptySiteContent(),
     unusedSections: [],
     removedPages: [],
   });

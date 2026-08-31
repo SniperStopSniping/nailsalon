@@ -1,7 +1,13 @@
+import {
+  LIBRARY_SECTION_TYPES,
+  SECTION_LIBRARY_REGISTRY,
+  type SectionLibraryCategory,
+} from './section-library/registry';
 import type {
   AddSectionCatalogueItem,
   CatalogueSectionType,
   CustomDesignCatalogueItem,
+  LibrarySectionType,
   SectionCatalogueItem,
   SectionNumber,
   SectionSize,
@@ -67,10 +73,50 @@ export const CUSTOM_DESIGN_CATALOGUE_ITEM: CustomDesignCatalogueItem = {
   tags: ['Upload', 'Design', 'About', 'Policies'],
 };
 
+/**
+ * Since schema v2 the numbered placeholder slots are no longer offered in Add
+ * Section — the named library (see `getAddSectionLibrary`) replaces them.
+ * `SECTION_CATALOGUE` stays exported so legacy instances keep resolving
+ * labels and sizes.
+ */
 export const ADD_SECTION_CATALOGUE: readonly AddSectionCatalogueItem[] = [
-  ...SECTION_CATALOGUE,
   CUSTOM_DESIGN_CATALOGUE_ITEM,
 ];
+
+export type AddSectionLibraryItem = {
+  kind: 'library';
+  sectionType: LibrarySectionType;
+  label: string;
+  description: string;
+  category: SectionLibraryCategory;
+  presetIds: readonly string[];
+  defaultPresetId: string;
+  maxPerPage?: number;
+  maxPerSite?: number;
+  limitKind: 'hard' | 'soft';
+};
+
+/**
+ * The Add Section library: every named V1 section (Booking and Custom Design
+ * keep their existing dedicated affordances), grouped for the dialog by
+ * category in registry order.
+ */
+export const getAddSectionLibrary = (): readonly AddSectionLibraryItem[] =>
+  LIBRARY_SECTION_TYPES.map((type) => {
+    const entry = SECTION_LIBRARY_REGISTRY[type];
+    return {
+      category: entry.category,
+      defaultPresetId: entry.defaultPresetId,
+      description: entry.description,
+      kind: 'library' as const,
+      label: entry.label,
+      limitKind: entry.limitKind,
+      ...(entry.maxPerPage !== undefined ? { maxPerPage: entry.maxPerPage } : {}),
+      ...(entry.maxPerSite !== undefined ? { maxPerSite: entry.maxPerSite } : {}),
+      presetIds: entry.presetIds,
+      sectionType: entry.type,
+    };
+  });
 
 export const getSectionCatalogueItem = (
   sectionType: CatalogueSectionType,

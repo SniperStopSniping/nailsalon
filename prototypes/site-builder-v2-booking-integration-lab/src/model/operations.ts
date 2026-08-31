@@ -6,10 +6,19 @@ import { validateCustomDesignSettings } from '../custom-design/model/settings';
 import type { CustomDesignSettings } from '../custom-design/model/types';
 import { createIdFactory } from './ids';
 import { normalizeDocument } from './normalize';
-import { createSectionInstance } from './starters';
+import {
+  getSectionRegistryEntry,
+  isLibrarySectionType,
+} from './section-library/registry';
+import {
+  SITE_CONTENT_COLLECTION_KEYS,
+} from './section-library/site-content';
+import { createLibrarySectionInstance, createSectionInstance } from './starters';
 import { validateSiteBuilderDocument } from './validation';
 import type {
+  AddLibrarySectionInput,
   AddPageInput,
+  AddPlaceholderSectionInput,
   AddSectionInput,
   BookingSectionPresentationSettings,
   BuilderCommand,
@@ -22,6 +31,7 @@ import type {
   SectionInstance,
   SectionSize,
   SiteBuilderDocument,
+  UpdateSiteContentInput,
 } from './types';
 
 export type BuilderOperationErrorCode =
@@ -31,7 +41,8 @@ export type BuilderOperationErrorCode =
   | 'not_found'
   | 'invalid_input'
   | 'duplicate_id'
-  | 'duplicate_booking';
+  | 'duplicate_booking'
+  | 'section_limit';
 
 export class BuilderOperationError extends Error {
   readonly code: BuilderOperationErrorCode;
@@ -231,14 +242,36 @@ export const addSection = (
       'Booking is already on this site. Move the existing Booking section instead.',
     );
   }
-  const section = input.sectionType === 'booking' ||
-    input.sectionType === 'custom_design'
-    ? createSectionInstance(input.sectionType, idFactory)
-    : createSectionInstance(input.sectionType, idFactory, {
-        label: input.label,
-        note: input.note,
-        size: input.size,
-      });
+  let section: SectionInstance;
+  if (input.sectionType === 'booking' || input.sectionType === 'custom_design') {
+    section = createSectionInstance(input.sectionType, idFactory);
+  } else if (isLibrarySectionType(input.sectionType)) {
+    const entry = getSectionRegistryEntry(input.sectionType);
+    if (entry.limitKind === 'hard' && entry.maxPerPage !== undefined) {
+      const existing = page.sections.filter(
+        (candidate) => candidate.sectionType === input.sectionType,
+      ).length;
+      if (existing >= entry.maxPerPage) {
+        return fail(
+          'section_limit',
+          `${entry.label} is already on this page (maximum ${entry.maxPerPage} per page). Edit the existing one instead.`,
+        );
+      }
+    }
+    const libraryInput = input as AddLibrarySectionInput;
+    section = createLibrarySectionInstance(input.sectionType, idFactory, {
+      ...(libraryInput.presetId !== undefined
+        ? { presetId: libraryInput.presetId }
+        : {}),
+    });
+  } else {
+    const placeholderInput = input as AddPlaceholderSectionInput;
+    section = createSectionInstance(placeholderInput.sectionType, idFactory, {
+      label: placeholderInput.label,
+      note: placeholderInput.note,
+      size: placeholderInput.size,
+    });
+  }
   assertNewId(document, section.id);
 
   return normalizeDocument(
@@ -348,7 +381,16 @@ export const updateSectionSettings = (
       'Use Custom Design settings to edit this section.',
     );
   }
-  const placeholder = located.section;
+  if (isLibrarySectionType(located.section.sectionType)) {
+    return fail(
+      'invalid_input',
+      'Use the section’s own settings to edit this section.',
+    );
+  }
+  const placeholder = located.section as Extract<
+    SectionInstance,
+    { placeholderSettings: unknown }
+  >;
   if (changes.label !== undefined && changes.label.trim().length === 0) {
     return fail('invalid_input', 'Section label cannot be empty.');
   }
@@ -1054,6 +1096,89 @@ export const getSectionMoveAnnouncement = (
   return `${located.section.label} moved to position ${located.sectionIndex + 1} of ${located.page.sections.length}.`;
 };
 
+export const updateLibrarySectionSettings = (
+  document: SiteBuilderDocument,
+  sectionId: string,
+  rawSettings: unknown,
+): SiteBuilderDocument => {
+  const located = locateSection(document, sectionId);
+  if (!isLibrarySectionType(located.section.sectionType)) {
+    return fail('invalid_input', 'This section does not use library settings.');
+  }
+  const entry = getSectionRegistryEntry(located.section.sectionType);
+  const settings = entry.normalize(rawSettings);
+  const sections = located.page.sections.map((section) =>
+    section.id === sectionId
+      ? ({ ...section, settings } as SectionInstance)
+      : section,
+  );
+  const next = normalizeDocument(
+    replacePage(document, located.pageIndex, { ...located.page, sections }),
+  );
+  const validated = validateSiteBuilderDocument(next);
+  if (!validated.success) {
+    return fail('invalid_input', validated.issues.join(' '));
+  }
+  return validated.document;
+};
+
+export const updateSiteContent = (
+  document: SiteBuilderDocument,
+  input: UpdateSiteContentInput,
+): SiteBuilderDocument => {
+  if (!SITE_CONTENT_COLLECTION_KEYS.includes(input.collection)) {
+    return fail('invalid_input', `Unknown content collection: ${input.collection}`);
+  }
+  const collection = document.siteContent[input.collection] as Array<{ id: string }>;
+  let nextCollection: Array<{ id: string }>;
+  if (input.operation === 'upsert') {
+    if (!input.record.id) {
+      return fail('invalid_input', 'Content records need an id.');
+    }
+    nextCollection = collection.some((record) => record.id === input.record.id)
+      ? collection.map((record) =>
+          record.id === input.record.id ? input.record : record)
+      : [...collection, input.record];
+  } else if (input.operation === 'remove') {
+    if (!collection.some((record) => record.id === input.recordId)) {
+      return fail('not_found', `Content record not found: ${input.recordId}`);
+    }
+    // Section settings that referenced the record keep the dangling id;
+    // readiness surfaces it and renderers skip it. Sections are never edited
+    // silently on the owner's behalf.
+    nextCollection = collection.filter((record) => record.id !== input.recordId);
+  } else {
+    const ids = new Set(collection.map((record) => record.id));
+    if (
+      input.orderedIds.length !== collection.length
+      || input.orderedIds.some((id) => !ids.has(id))
+      || new Set(input.orderedIds).size !== input.orderedIds.length
+    ) {
+      return fail(
+        'invalid_input',
+        'Reordering must include every existing record exactly once.',
+      );
+    }
+    const byId = new Map(collection.map((record) => [record.id, record]));
+    nextCollection = input.orderedIds.flatMap((id) => {
+      const record = byId.get(id);
+      return record ? [record] : [];
+    });
+  }
+  const next = normalizeDocument({
+    ...document,
+    siteContent: {
+      ...document.siteContent,
+      [input.collection]: nextCollection,
+    },
+  });
+  const validated = validateSiteBuilderDocument(next);
+  if (!validated.success) {
+    return fail('invalid_input', validated.issues.join(' '));
+  }
+  return validated.document;
+};
+
 export const applyBuilderCommand = (
   document: SiteBuilderDocument,
   command: BuilderCommand,
@@ -1087,6 +1212,14 @@ export const applyBuilderCommand = (
         command.sectionId,
         command.settings,
       );
+    case 'update_library_section_settings':
+      return updateLibrarySectionSettings(
+        document,
+        command.sectionId,
+        command.settings,
+      );
+    case 'update_site_content':
+      return updateSiteContent(document, command.input);
     case 'reset_booking_presentation':
       return resetBookingSectionPresentation(document, command.sectionId);
     case 'move_section':
