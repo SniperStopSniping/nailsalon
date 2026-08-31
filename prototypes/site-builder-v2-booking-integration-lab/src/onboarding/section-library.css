@@ -1032,11 +1032,11 @@
    */
   @keyframes customer-lib-rise {
     from {
-      transform: translateY(10px);
+      translate: 0 10px;
     }
 
     to {
-      transform: translateY(0);
+      translate: 0 0;
     }
   }
 
@@ -1099,6 +1099,14 @@
    * a page can end before its reveal completes, and Booking and Custom
    * Design because they are engine sections this layer does not touch.
    */
+  /*
+   * Reveals animate `translate` and `scale`, never `transform`. A filled
+   * animation outranks the declared style for the property it animates, so
+   * a transform-based reveal would hold `transform` for the life of the
+   * page and silently swallow every hover lift and press. The independent
+   * properties compose with `transform` by the CSS transform model instead,
+   * which needs no composition mode and no browser-specific behaviour.
+   */
   @supports (animation-timeline: view()) {
     .onboarding-site-preview [data-library-type]:not(
       [data-library-type='announcement_bar'],
@@ -1110,7 +1118,6 @@
       animation: customer-lib-rise linear both;
       animation-timeline: view();
       animation-range: entry 8% entry 52%;
-      animation-composition: add;
     }
 
     /*
@@ -1128,22 +1135,17 @@
       animation: customer-lib-settle linear both;
       animation-timeline: view();
       animation-range: entry 4% entry 46%;
-      /*
-       * A filled animation outranks the declared style for the property it
-       * touches, so without composition the reveal would hold `transform`
-       * for the life of the page and the hover lift would never be seen.
-       * Composing adds the reveal onto whatever the card is already doing.
-       */
-      animation-composition: add;
     }
 
     @keyframes customer-lib-settle {
       from {
-        transform: translateY(8px) scale(0.994);
+        translate: 0 8px;
+        scale: 0.994;
       }
 
       to {
-        transform: translateY(0) scale(1);
+        translate: 0 0;
+        scale: 1;
       }
     }
   }

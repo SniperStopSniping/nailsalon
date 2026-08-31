@@ -164,12 +164,22 @@ test.describe('customer section motion', () => {
 
   test('a card still lifts on hover while its reveal is applied', async ({ page }) => {
     // A filled animation outranks the declared style for the property it
-    // animates, so a reveal that sets `transform` can silently swallow the
-    // hover lift for the life of the page. The reveal composes instead;
-    // this is the test that says so.
+    // animates, so a reveal that set `transform` would hold it for the life
+    // of the page and silently swallow every hover lift and press. The
+    // reveals animate `translate`/`scale` instead, which compose with
+    // `transform` by the CSS transform model. This is the test that says so.
     await page.goto('/?audit=1&surface=sections&type=featured_services&full=1');
     const card = page.locator('.customer-lib-featured-card').first();
     await expect(card).toBeVisible();
+
+    const revealProperties = await card.evaluate(element => [...new Set(
+      element.getAnimations().flatMap(animation => {
+        const effect = animation.effect;
+        if (!(effect instanceof KeyframeEffect)) return [];
+        return effect.getKeyframes().flatMap(frame => Object.keys(frame));
+      }),
+    )].filter(name => !['offset', 'computedOffset', 'easing', 'composite'].includes(name)));
+    expect(revealProperties).not.toContain('transform');
 
     const translateY = async () => card.evaluate(element => {
       const matrix = new DOMMatrixReadOnly(window.getComputedStyle(element).transform);

@@ -9,7 +9,8 @@
 import { CANONICAL_SERVICES } from '../../booking/data';
 import { createEmptySiteContent } from '../../model/section-library/site-content';
 import type { SiteLibraryContext } from '../../model/section-library/registry';
-import type { QuickInfoFactId } from '../../model/section-library/settings';
+import type { PolicyToggleId, QuickInfoFactId } from '../../model/section-library/settings';
+import { POLICY_TOGGLE_IDS } from '../../model/section-library/settings';
 import type { SitePlanOptionalToggles } from '../../model/site-plan';
 import type { SiteBuilderDocument } from '../../model/types';
 import {
@@ -20,7 +21,14 @@ import {
 import { getPublicContactActions } from './contact';
 import { getPublicWeeklyHours, hasCompleteWeeklyHours } from './hours';
 import { getPublicLocationPreview } from './location';
-import { hasMeaningfulPublishablePolicies } from './policies';
+import {
+  deriveDepositsAndCancellationsSummary,
+  getDepositsAndCancellationsDisplayWording,
+  getPolicyDisplayWording,
+  hasMeaningfulPublishablePolicies,
+  isDepositsAndCancellationsComplete,
+  isDepositsAndCancellationsVisible,
+} from './policies';
 import { getCustomerProfileFacts } from './profile-facts';
 import type { BusinessProfileDraft, OnboardingLabState } from './types';
 
@@ -55,8 +63,31 @@ export const deriveSiteLibraryContextFromProfile = (input: {
     ...(hoursConfigured && profile.hours.showOnSite ? ['open_status' as const] : []),
   ];
 
+  /*
+   * Before You Book can only draw the four toggle topics, and only where the
+   * owner's wording actually resolved. `policiesMeaningful` is a six-topic
+   * disjunction that includes deposits and cancellations, so it answers a
+   * question that section never asks.
+   */
+  const availablePolicyTopics: PolicyToggleId[] = POLICY_TOGGLE_IDS.filter(
+    topic => getPolicyDisplayWording(profile.policies, topic).trim().length > 0,
+  );
+
+  /*
+   * Deposits & Cancellations picks between two wordings, and each has its own
+   * emptiness rule. Both are carried so readiness can mirror the renderer's
+   * own branch rather than approximate it.
+   */
+  const depositsSummaryPublishable = isDepositsAndCancellationsVisible(profile.policies)
+    && isDepositsAndCancellationsComplete(profile.policies)
+    && deriveDepositsAndCancellationsSummary(profile.policies).trim().length > 0;
+
   return {
+    availablePolicyTopics,
     availableQuickFacts,
+    depositsSummaryPublishable,
+    depositsWordingPublishable: getDepositsAndCancellationsDisplayWording(profile.policies)
+      .trim().length > 0,
     businessStructure: profile.businessStructure,
     canonicalServiceIds: [...selectedServiceIds],
     depositMode: profile.policies.deposits.mode,
@@ -84,7 +115,14 @@ export const deriveSiteLibraryContext = (
   document: SiteBuilderDocument | null,
 ): SiteLibraryContext => deriveSiteLibraryContextFromProfile({
   document,
-  galleryImageIds: state.gallery.images.map(image => image.id),
+  // `data_url` and `missing` images keep their id but resolve to no URL
+  // (`resolveOnboardingImage`), and storage read-back deliberately produces
+  // both. Counting them would report a gallery ready that renders nothing.
+  // A `loading` image is left in: that is a render-time state, and dropping
+  // it would make the section flicker out while assets arrive.
+  galleryImageIds: state.gallery.images
+    .filter(image => image.source !== 'missing' && image.source !== 'data_url')
+    .map(image => image.id),
   profile: state.profile,
 });
 

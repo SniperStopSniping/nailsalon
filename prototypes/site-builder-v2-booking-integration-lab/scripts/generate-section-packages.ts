@@ -13,7 +13,8 @@ import {
   SECTION_LIBRARY_REGISTRY,
   type SiteLibraryContext,
 } from '../src/model/section-library/registry';
-import { createEmptySiteContent } from '../src/model/section-library/site-content';
+import { createDefaultOnboardingState } from '../src/onboarding/model/defaults';
+import { deriveSiteLibraryContext } from '../src/onboarding/model/site-library-context';
 import type { LibrarySectionType } from '../src/model/types';
 
 /** Types still drawn by the accepted pre-library renderers. */
@@ -203,21 +204,16 @@ const CURATED: Record<LibrarySectionType, Curated> = {
   },
 };
 
-const context: SiteLibraryContext = {
-  availableQuickFacts: [],
-  businessStructure: null,
-  canonicalServiceIds: [],
-  depositMode: 'none',
-  featuredServiceIds: [],
-  galleryImageIds: [],
-  hasContactSectionContent: false,
-  hasPublicContact: false,
-  hasPublicLocation: false,
-  hoursConfigured: false,
-  hoursShownOnSite: false,
-  policiesMeaningful: false,
-  siteContent: createEmptySiteContent(),
-};
+/*
+ * The empty context is derived, not restated. A hand-written literal drifts
+ * silently every time the context gains a field, and what it documents —
+ * what each section says before the owner has filled anything in — is only
+ * true if it is the real derivation.
+ */
+const context: SiteLibraryContext = deriveSiteLibraryContext(
+  createDefaultOnboardingState(),
+  null,
+);
 
 const lines: string[] = [
   '# Section completion packages — Site Section Library V1',
