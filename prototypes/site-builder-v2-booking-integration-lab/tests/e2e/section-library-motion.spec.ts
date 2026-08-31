@@ -147,19 +147,31 @@ test.describe('customer section motion', () => {
     const summary = page.locator('.customer-lib-faq summary').first();
     await expect(summary).toBeVisible();
 
-    const markerTransform = async () => summary.evaluate(
-      element => window.getComputedStyle(element, '::after').transform,
+    const markerRotate = async () => summary.evaluate(
+      element => window.getComputedStyle(element, '::after').rotate,
     );
 
-    const closed = await markerTransform();
+    const closed = await markerRotate();
     await summary.click();
-    await expect(page.locator('.customer-lib-faq details[open]').first()).toBeAttached();
+    const open = page.locator('.customer-lib-faq details[open]').first();
+    await expect(open).toBeAttached();
     await page.waitForTimeout(400);
-    const open = await markerTransform();
 
-    expect(open).not.toBe(closed);
-    // rotate(45deg) — the plus becomes a close mark rather than swapping glyph.
-    expect(open).toMatch(/matrix\(0\.7071/);
+    expect(closed).toBe('none');
+    // The plus becomes a close mark rather than swapping glyph.
+    expect(await markerRotate()).toBe('45deg');
+
+    // And the answer is readable the moment it opens, not once an animation
+    // has run: a height transition from zero leaves it clipped anywhere
+    // transitions do not advance.
+    const answer = open.locator('p').first();
+    const [answerBox, detailsBox] = await Promise.all([
+      answer.boundingBox(),
+      open.boundingBox(),
+    ]);
+    expect(answerBox?.height ?? 0).toBeGreaterThan(0);
+    expect((detailsBox?.y ?? 0) + (detailsBox?.height ?? 0))
+      .toBeGreaterThanOrEqual((answerBox?.y ?? 0) + (answerBox?.height ?? 0) - 1);
   });
 
   test('a card still lifts on hover while its reveal is applied', async ({ page }) => {
