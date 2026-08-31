@@ -1067,10 +1067,190 @@
     animation-delay: 0ms !important;
   }
 
+  /*
+   * A scroll-linked animation takes its progress from the scroll position,
+   * not from a duration, so shortening the duration would not stop it. The
+   * name and the timeline both have to go.
+   */
+  .onboarding-site-preview [data-library-type],
+  .onboarding-site-preview [data-library-type] * {
+    animation-name: none !important;
+    animation-timeline: auto !important;
+  }
+
   .onboarding-site-preview :where(.onboarding-customer-primary, .customer-lib-text-cta):hover,
-  .onboarding-site-preview :where(.onboarding-customer-primary, .customer-lib-text-cta):active {
+  .onboarding-site-preview :where(.onboarding-customer-primary, .customer-lib-text-cta):active,
+  :where(.customer-lib-featured-card, .customer-lib-offer-card, .customer-lib-review-card, .customer-lib-team-card):active {
     transform: none;
   }
+}
+
+/* ---------------------------------------------------------------- */
+/* Motion: scroll reveals and per-section micro-interactions         */
+/* ---------------------------------------------------------------- */
+
+@media (prefers-reduced-motion: no-preference) {
+  /*
+   * Scroll-linked reveals as progressive enhancement. Where `view()` is not
+   * supported nothing animates and the page is simply already in place —
+   * the same fail-open rule the entrances follow, so no customer ever loses
+   * content to an animation that did not run. The announcement and hero are
+   * excluded because they are already on screen at load, the footer because
+   * a page can end before its reveal completes, and Booking and Custom
+   * Design because they are engine sections this layer does not touch.
+   */
+  @supports (animation-timeline: view()) {
+    .onboarding-site-preview [data-library-type]:not(
+      [data-library-type='announcement_bar'],
+      [data-library-type='hero'],
+      [data-library-type='footer'],
+      [data-library-type='booking'],
+      [data-library-type='custom_design']
+    ) {
+      animation: customer-lib-rise linear both;
+      animation-timeline: view();
+      animation-range: entry 8% entry 52%;
+      animation-composition: add;
+    }
+
+    /*
+     * Collection items carry their own timeline, so the cascade comes from
+     * where each card actually sits on the page rather than from a scripted
+     * delay that guesses at it.
+     */
+    :where(
+      .customer-lib-featured-card,
+      .customer-lib-offer-card,
+      .customer-lib-review-card,
+      .customer-lib-team-card,
+      .customer-lib-faq details
+    ) {
+      animation: customer-lib-settle linear both;
+      animation-timeline: view();
+      animation-range: entry 4% entry 46%;
+      /*
+       * A filled animation outranks the declared style for the property it
+       * touches, so without composition the reveal would hold `transform`
+       * for the life of the page and the hover lift would never be seen.
+       * Composing adds the reveal onto whatever the card is already doing.
+       */
+      animation-composition: add;
+    }
+
+    @keyframes customer-lib-settle {
+      from {
+        transform: translateY(8px) scale(0.994);
+      }
+
+      to {
+        transform: translateY(0) scale(1);
+      }
+    }
+  }
+
+  /* The open/closed line is the one live fact on the page: let it breathe. */
+  .customer-lib-hours-status[data-hours-status='open']::before {
+    animation: customer-lib-breathe 2600ms ease-in-out infinite;
+  }
+
+  @keyframes customer-lib-breathe {
+    0%,
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+
+    50% {
+      opacity: 0.5;
+      transform: scale(0.82);
+    }
+  }
+}
+
+/* The dot marks "open now" whether or not it is allowed to breathe. */
+.customer-lib-hours-status[data-hours-status='open']::before {
+  content: '';
+  display: inline-block;
+  width: 0.42em;
+  height: 0.42em;
+  margin-right: 0.5em;
+  border-radius: 50%;
+  background: currentcolor;
+  vertical-align: 0.06em;
+}
+
+/*
+ * Press acknowledgement on every card, including the styles whose hover
+ * deliberately does not lift — a tap should still answer.
+ */
+:where(
+  .customer-lib-featured-card,
+  .customer-lib-offer-card,
+  .customer-lib-review-card,
+  .customer-lib-team-card
+):active {
+  transform: scale(0.992);
+  transition-duration: 90ms;
+}
+
+/* Reviews warm as the card is read. */
+.customer-lib-review-stars {
+  transition: color var(--customer-motion-color), letter-spacing var(--customer-motion-move);
+}
+
+.customer-lib-review-card:hover .customer-lib-review-stars {
+  color: var(--customer-accent);
+  letter-spacing: 0.05em;
+}
+
+/* On a featured service the badge is the draw, so it answers the hover. */
+.customer-lib-featured-card .customer-lib-badge {
+  transition: transform var(--customer-motion-spring);
+}
+
+.customer-lib-featured-card:hover .customer-lib-badge {
+  transform: rotate(-1.6deg) scale(1.05);
+}
+
+/* FAQ: the marker turns into its own close state rather than swapping. */
+.customer-lib-faq summary::after {
+  transition: transform var(--customer-motion-spring), color var(--customer-motion-color);
+}
+
+.customer-lib-faq details[open] summary::after {
+  transform: rotate(45deg);
+}
+
+.customer-lib-faq summary:hover {
+  background: color-mix(in srgb, var(--customer-accent) 7%, transparent);
+}
+
+@supports (interpolate-size: allow-keywords) {
+  .customer-lib-faq details::details-content {
+    overflow: hidden;
+    block-size: 0;
+    interpolate-size: allow-keywords;
+    transition:
+      block-size var(--customer-motion-move),
+      content-visibility var(--customer-motion-move) allow-discrete;
+  }
+
+  .customer-lib-faq details[open]::details-content {
+    block-size: auto;
+  }
+}
+
+/* Links draw their underline instead of switching it on. */
+:where(.customer-lib-footer-links, .customer-lib-visit-contact) a {
+  background-image: linear-gradient(currentcolor, currentcolor);
+  background-repeat: no-repeat;
+  background-position: 0 100%;
+  background-size: 0% 1px;
+  transition: background-size var(--customer-motion-move), color var(--customer-motion-color);
+}
+
+:where(.customer-lib-footer-links, .customer-lib-visit-contact) a:hover {
+  background-size: 100% 1px;
 }
 
 /* ---------------------------------------------------------------- */
