@@ -4,6 +4,7 @@ export * from './ids';
 export * from './normalize';
 export * from './operations';
 export * from './section-overlap';
+export * from './section-library/recipes';
 export * from './section-library/registry';
 export * from './section-library/settings';
 export * from './section-library/site-content';
