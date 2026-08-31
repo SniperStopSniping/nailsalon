@@ -12,6 +12,15 @@
 import type { MouseEvent as ReactMouseEvent, ReactNode } from 'react';
 import { useState } from 'react';
 
+import {
+  CalendarDays,
+  Instagram,
+  Mail,
+  MapPin,
+  MessageCircle,
+  Phone,
+} from 'lucide-react';
+
 import { CANONICAL_SERVICES } from '../../booking/data';
 import { formatDuration, formatPrice } from '../../booking/helpers';
 import type { SiteLibraryContext } from '../../model/section-library/registry';
@@ -21,7 +30,10 @@ import type {
   LibrarySectionInstance,
   LibrarySectionType,
 } from '../../model/types';
-import { getPublicContactActions } from '../model/contact';
+import {
+  getPublicContactActions,
+  type PublicContactAction,
+} from '../model/contact';
 import {
   getPublicWeeklyHours,
   getWeeklyHoursPreviewStatus,
@@ -67,6 +79,15 @@ export type LibraryPreviewSectionProps = {
 };
 
 type LibraryPreviewRenderer = (props: LibraryPreviewSectionProps) => ReactNode;
+
+/** Mirrors the Contact section's per-method marks so the two agree. */
+const ContactMark = ({ method }: { method: PublicContactAction['method'] }) => {
+  if (method === 'booking') return <CalendarDays aria-hidden="true" size={15} />;
+  if (method === 'instagram') return <Instagram aria-hidden="true" size={15} />;
+  if (method === 'call') return <Phone aria-hidden="true" size={15} />;
+  if (method === 'email') return <Mail aria-hidden="true" size={15} />;
+  return <MessageCircle aria-hidden="true" size={15} />;
+};
 
 const resolveBound = (bound: BoundText, sharedValue: string): string =>
   bound.source === 'override' && bound.value.trim()
@@ -588,7 +609,7 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
               rel={directions.rel}
               target={directions.target}
             >
-              Get directions
+              <MapPin aria-hidden="true" size={15} /> Get directions
             </a>
           ) : null}
           {practicalNotes.length > 0 ? (
@@ -630,6 +651,7 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
                 rel={action.rel}
                 target={action.target}
               >
+                <ContactMark method={action.method} />
                 {action.actionLabel}
               </a>
             ))}

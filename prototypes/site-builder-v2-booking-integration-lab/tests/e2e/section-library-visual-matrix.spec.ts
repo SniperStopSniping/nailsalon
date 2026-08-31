@@ -140,6 +140,12 @@ const settleForCapture = async (page: import('@playwright/test').Page) => {
     content: '.onboarding-site-preview * { content-visibility: visible !important; }',
   });
   await page.evaluate(async () => {
+    // Lazy images below the fold may never start loading during a scripted
+    // scroll, so ask for them eagerly and wait for the decode.
+    for (const image of document.images) {
+      image.loading = 'eager';
+      if (image.getAttribute('decoding') !== 'sync') image.decoding = 'sync';
+    }
     const step = window.innerHeight;
     const total = document.body.scrollHeight;
     for (let offset = 0; offset < total; offset += step) {
@@ -147,14 +153,21 @@ const settleForCapture = async (page: import('@playwright/test').Page) => {
       await new Promise(resolve => requestAnimationFrame(() => resolve(null)));
     }
     window.scrollTo(0, 0);
+    await Promise.all([...document.images].map(image => (
+      image.complete && image.naturalWidth > 0
+        ? Promise.resolve()
+        : new Promise((resolve) => {
+            const done = () => resolve(null);
+            image.addEventListener('load', done, { once: true });
+            image.addEventListener('error', done, { once: true });
+            window.setTimeout(done, 4000);
+          })
+    )));
     await Promise.all([...document.images]
-      .filter(image => !image.complete)
-      .map(image => new Promise((resolve) => {
-        image.addEventListener('load', resolve, { once: true });
-        image.addEventListener('error', resolve, { once: true });
-      })));
+      .filter(image => typeof image.decode === 'function')
+      .map(image => image.decode().catch(() => undefined)));
   });
-  await page.waitForTimeout(250);
+  await page.waitForTimeout(400);
 };
 
 test.describe('section library visual matrix', () => {

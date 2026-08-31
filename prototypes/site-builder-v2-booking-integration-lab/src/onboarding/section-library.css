@@ -164,7 +164,10 @@
 }
 
 .customer-lib-badge {
+  /* A flex child stretches by default; a tag must shrink-wrap its label. */
   display: inline-block;
+  align-self: flex-start;
+  width: fit-content;
   margin-bottom: 6px;
   padding: 3px 8px;
   border-radius: 999px;
@@ -283,12 +286,24 @@
   font-weight: 680;
 }
 
-.customer-lib-quick-info li + li::before {
+.customer-lib-quick-info li:not(:last-child)::after {
   content: '';
   width: 4px;
   height: 4px;
   border-radius: 999px;
   background: var(--customer-accent);
+}
+
+/* Narrow strips wrap, and a separator at the start of a line reads as a
+   bullet — space alone carries the separation there. */
+@container onboarding-preview (max-width: 640px) {
+  .customer-lib-quick-info li:not(:last-child)::after {
+    display: none;
+  }
+
+  .customer-lib-quick-info ul {
+    gap: 4px 16px;
+  }
 }
 
 /* ---------------------------------------------------------------- */
@@ -922,7 +937,7 @@
   text-align: center;
 }
 
-.customer-lib-final-cta h2 {
+.onboarding-site-preview .customer-lib-final-cta h2 {
   margin-inline: auto;
   max-width: 22ch;
   text-align: center;
@@ -930,6 +945,7 @@
 
 .customer-lib-final-cta > p {
   max-width: 52ch;
+  text-wrap: pretty;
   margin: 0 auto 16px;
   color: var(--customer-muted);
   font-size: clamp(0.72rem, 2.2cqw, 0.9rem);
@@ -1287,3 +1303,30 @@
 }
 
 /* Modern keeps the library's default treatment. */
+
+/* ---------------------------------------------------------------- */
+/* Accepted-renderer corrections                                     */
+/* ---------------------------------------------------------------- */
+
+/*
+ * Every section in a page shares one gutter. About carried its own narrower
+ * one (18px against 26.6px at phone width), so its copy sat proud of the
+ * sections above and below it.
+ */
+.onboarding-site-preview .onboarding-customer-about {
+  padding-inline: clamp(16px, 7cqw, 68px);
+}
+
+/*
+ * About's two-column shells reserve a portrait column. With no portrait to
+ * show, the column stays empty and the copy sits in half a section — so the
+ * section collapses to one column and the copy takes the full measure.
+ */
+.onboarding-site-preview .onboarding-customer-about.is-photo-right:not(.has-portrait),
+.onboarding-site-preview .onboarding-customer-about.is-editorial:not(.has-portrait) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.onboarding-site-preview .onboarding-customer-about:not(.has-portrait) .onboarding-about-copy {
+  max-width: 62ch;
+}
