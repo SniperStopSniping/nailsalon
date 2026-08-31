@@ -96,7 +96,7 @@ import {
   type UpdateSiteContentInput,
 } from '../model';
 import { createDefaultOnboardingState } from '../onboarding/model/defaults';
-import { deriveSiteLibraryContext } from '../onboarding/model/site-library-context';
+import { deriveSiteLibraryContext, deriveSitePlanToggles } from '../onboarding/model/site-library-context';
 import { LibrarySectionSettingsDialog } from './section-editors/LibrarySectionSettingsDialog';
 import {
   getOnboardingReferencedAssetIds,
@@ -1728,7 +1728,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
     });
   };
 
-  const { libraryContext, libraryProfile } = useMemo(() => {
+  const { libraryContext, libraryProfile, libraryToggles } = useMemo(() => {
     const loaded = loadOnboardingState();
     const onboardingState = loaded.status === 'loaded'
       ? loaded.state
@@ -1736,6 +1736,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
     return {
       libraryContext: deriveSiteLibraryContext(onboardingState, document),
       libraryProfile: onboardingState.profile,
+      libraryToggles: deriveSitePlanToggles(onboardingState),
     };
   }, [document]);
 
@@ -3067,6 +3068,7 @@ function BuilderApp({ lab }: { lab: LabDocumentController }) {
         onSiteContent={applySiteContent}
         profile={libraryProfile}
         section={editingLibrarySection}
+        toggles={libraryToggles}
       />
       <Dialog
         description="This section overlaps content that is already on your site."
