@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import {
+  type ComponentType,
+  type FormEvent,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 
 import {
   getSectionRegistryEntry,
@@ -11,12 +17,12 @@ import type {
   UpdateSiteContentInput,
 } from '../../model/types';
 import type { BusinessProfileDraft } from '../../onboarding/model/types';
-import type { ComponentType } from 'react';
 
 import { Dialog } from '../Dialog';
 import { ChoiceField } from './fields';
 import { LIBRARY_SECTION_EDITORS } from './index';
 import {
+  getSectionContentPlacementSuppressions,
   getSectionPlanExclusion,
   type SectionPlanExclusion,
   type SitePlanOptionalToggles,
@@ -27,6 +33,9 @@ type LibrarySectionSettingsDialogProps = {
   context: SiteLibraryContext;
   document: SiteBuilderDocument;
   onClose: () => void;
+  onGoToSection: (sectionId: string) => void;
+  onHideSection: (sectionId: string) => void;
+  onMoveSection: (sectionId: string) => void;
   onSave: (settings: LibrarySectionSettings) => void;
   onSiteContent: (input: UpdateSiteContentInput) => boolean;
   profile: BusinessProfileDraft;
@@ -41,6 +50,7 @@ type LibrarySectionSettingsDialogProps = {
  * live when it is not.
  */
 const EXCLUSION_MESSAGES: Record<SectionPlanExclusion, string | null> = {
+  content_owned_elsewhere: 'This section’s shared content is already shown elsewhere.',
   dropped: 'Not on your site right now.',
   // The Builder already marks hidden sections; repeating it here would nag.
   hidden: null,
@@ -87,6 +97,9 @@ export function LibrarySectionSettingsDialog({
   context,
   document,
   onClose,
+  onGoToSection,
+  onHideSection,
+  onMoveSection,
   onSave,
   onSiteContent,
   profile,
@@ -124,6 +137,10 @@ export function LibrarySectionSettingsDialog({
   // about the page this section sits on, which unsaved settings cannot change.
   const exclusion = getSectionPlanExclusion(document, section.id, { context, toggles });
   const planMessage = exclusion ? EXCLUSION_MESSAGES[exclusion] : null;
+  const suppressionNotices = [...new Map(
+    getSectionContentPlacementSuppressions(document, section.id, { context, toggles })
+      .map(notice => [`${notice.reason}:${notice.ownerSectionId ?? ''}`, notice]),
+  ).values()];
   const hasPresetChoice = entry.presetIds.length > 1 && 'preset' in draft;
 
   const submit = (event: FormEvent) => {
@@ -168,11 +185,50 @@ export function LibrarySectionSettingsDialog({
             hide, or remove the section, and pick its design above.
           </p>
         )}
+        {suppressionNotices.length > 0 ? (
+          <div aria-label="Shared content placement" className="library-editor-readiness" role="status">
+            {suppressionNotices.map(notice => (
+              <div data-content-suppression={notice.contentKey} key={`${notice.contentKey}-${notice.reason}`}>
+                <p className="form-hint">{notice.reason}</p>
+                {notice.ownerSectionId && notice.actionLabel ? (
+                  <button
+                    className="secondary-button"
+                    onClick={() => onGoToSection(notice.ownerSectionId as string)}
+                    type="button"
+                  >
+                    {notice.actionLabel}
+                  </button>
+                ) : null}
+                {section.sectionType === 'featured_services'
+                  && notice.suppressEntireSection ? (
+                    <div className="library-editor-placement-actions">
+                      <button
+                        className="secondary-button"
+                        onClick={() => onMoveSection(section.id)}
+                        type="button"
+                      >
+                        Move Featured Services to another page
+                      </button>
+                      {typeof notice.ownerSectionId === 'string' ? (
+                        <button
+                          className="secondary-button"
+                          onClick={() => onHideSection(notice.ownerSectionId as string)}
+                          type="button"
+                        >
+                          Hide Services &amp; Booking and show Featured Services
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+              </div>
+            ))}
+          </div>
+        ) : null}
         {readiness.level === 'empty' && readiness.issues[0] ? (
           <p className="form-hint library-editor-readiness" role="status">
             Not on your site yet: {readiness.issues[0].message}
           </p>
-        ) : planMessage ? (
+        ) : planMessage && suppressionNotices.length === 0 ? (
           <p className="form-hint library-editor-readiness" role="status">
             Not on your site yet: {planMessage}
           </p>

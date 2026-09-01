@@ -1,5 +1,5 @@
 import type { HeroSettings } from '../../model/section-library/settings';
-import { BoundTextField, ChoiceField, TextField, ToggleField } from './fields';
+import { BoundTextField, TextField } from './fields';
 import type { LibrarySectionEditorProps } from './types';
 
 /**
@@ -17,7 +17,6 @@ export function HeroEditor({
   const sharedIntro = profile.businessStructure === 'multi_tech'
     ? 'Thoughtful nail care from a team, shaped around you.'
     : 'Thoughtful nail care, shaped around you.';
-  const eyebrow = profile.location.cityOrArea.trim() || 'Independent nail care';
   return (
     <>
       <BoundTextField
@@ -36,34 +35,10 @@ export function HeroEditor({
         sharedValue={sharedIntro}
         value={settings.intro}
       />
-      <ChoiceField
-        label="Hero image"
-        onChange={media => onChange({ ...settings, media } satisfies HeroSettings)}
-        options={[
-          { label: 'My photo', value: 'profile_photo' },
-          { label: 'Logo emblem', value: 'logo_emblem' },
-          { label: 'Soft gradient', value: 'gradient' },
-        ]}
-        value={settings.media}
-      />
-      <ToggleField
-        hint={`Shows “${eyebrow}” above your headline.`}
-        label="Show the location line"
-        onChange={showLocationEyebrow => onChange({
-          ...settings,
-          showLocationEyebrow,
-        } satisfies HeroSettings)}
-        value={settings.showLocationEyebrow}
-      />
-      <ToggleField
-        hint="Shows appointment mode, new-client status, and today’s open status — each one only when you have set it."
-        label="Show the status line"
-        onChange={showStatusLine => onChange({
-          ...settings,
-          showStatusLine,
-        } satisfies HeroSettings)}
-        value={settings.showStatusLine}
-      />
+      <p className="form-hint">
+        Hero uses the selected design’s no-media treatment. Your Profile photo stays in About,
+        while location and booking facts stay in their dedicated sections.
+      </p>
       <TextField
         hint="Up to 40 characters. Left empty, the button reads “Book an appointment”."
         label="Booking button label"

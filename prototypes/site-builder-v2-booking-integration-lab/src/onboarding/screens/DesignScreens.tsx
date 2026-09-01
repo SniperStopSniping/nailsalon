@@ -624,43 +624,25 @@ export function AboutScreen({
             <summary>
               <span>
                 <strong>Details from your setup</strong>
-                <small>Appointment status, new clients, policies and Instagram.</small>
+                <small>Shared details keep one clear home on your customer site.</small>
               </span>
               <i aria-hidden="true" />
             </summary>
             <div className="onboarding-about-shared-details__fields">
               {state.profile.bookingPreferences.visitMode ? (
-                <AboutFieldVisibility
-                  description={appointmentStatus}
-                  id="appointment_status"
-                  label="Show appointment status in About"
-                  onUpdate={onUpdate}
-                  state={state}
-                />
+                <p>{appointmentStatus} is shown in Quick Info or Services &amp; Booking, not repeated in About.</p>
               ) : null}
               {state.profile.bookingPreferences.newClientStatus ? (
-                <AboutFieldVisibility
-                  description={newClientStatus}
-                  id="new_client_status"
-                  label="Show new-client status in About"
-                  onUpdate={onUpdate}
-                  state={state}
-                />
+                <p>{newClientStatus} is shown in Quick Info or Services &amp; Booking, not repeated in About.</p>
               ) : null}
               {state.recipe.policiesEnabled ? (
-                <AboutFieldVisibility
-                  description="A short summary of your saved policies."
-                  id="policy_summary"
-                  label="Show policy summary in About"
-                  onUpdate={onUpdate}
-                  state={state}
-                />
+                <p>Policies are shown in their dedicated policy sections, not repeated in About.</p>
               ) : null}
               <div className="onboarding-about-field-with-visibility">
                 <TextField
                   data-instagram-input
                   error={instagramError}
-                  hint="This is the same Instagram used in your contact details. Editing it here updates it everywhere."
+                  hint="Editing this shared handle updates Contact everywhere it is used."
                   label="Instagram handle"
                   value={state.profile.instagram}
                   onBlur={commitInstagram}
@@ -673,12 +655,7 @@ export function AboutScreen({
                   }}
                 />
                 {instagramResolution.status === 'resolved' ? (
-                  <AboutFieldVisibility
-                    id="instagram"
-                    label="Show Instagram in About"
-                    onUpdate={onUpdate}
-                    state={state}
-                  />
+                  <p>Instagram is shown once in Contact or Footer, not repeated in About.</p>
                 ) : null}
               </div>
             </div>

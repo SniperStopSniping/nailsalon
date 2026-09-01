@@ -24,11 +24,16 @@ type LegacyStarterPageShape = {
  * persisted. Requiring the complete structural match prevents an authored
  * recipe or owner-added Gallery from being mistaken for onboarding's module.
  */
-const LEGACY_STARTER_GALLERY_MIGRATIONS: Partial<Record<OriginStarter, {
+type LegacyStarterGalleryMigration = {
   bindings: readonly LegacyStarterGalleryBinding[];
   pages: readonly LegacyStarterPageShape[];
-}>> = {
-  one_page: {
+};
+
+const LEGACY_STARTER_GALLERY_MIGRATIONS: Partial<Record<
+  OriginStarter,
+  readonly LegacyStarterGalleryMigration[]
+>> = {
+  one_page: [{
     bindings: [{ owner: 'onboarding', pageSlug: '', sectionOrder: 6 }],
     pages: [{
       sectionTypes: [
@@ -49,8 +54,8 @@ const LEGACY_STARTER_GALLERY_MIGRATIONS: Partial<Record<OriginStarter, {
       ],
       slug: '',
     }],
-  },
-  multi_page: {
+  }],
+  multi_page: [{
     bindings: [
       { owner: 'recipe', pageSlug: '', sectionOrder: 3 },
       { owner: 'onboarding', pageSlug: 'gallery', sectionOrder: 0 },
@@ -92,7 +97,52 @@ const LEGACY_STARTER_GALLERY_MIGRATIONS: Partial<Record<OriginStarter, {
         slug: 'contact',
       },
     ],
-  },
+  }, {
+    // Content-uniqueness V1 moves the non-transactional service sampler to
+    // Home. Imports that lost their explicit Gallery owner still normalize
+    // deterministically, while the frozen pre-move shape above remains valid.
+    bindings: [
+      { owner: 'recipe', pageSlug: '', sectionOrder: 4 },
+      { owner: 'onboarding', pageSlug: 'gallery', sectionOrder: 0 },
+    ],
+    pages: [
+      {
+        sectionTypes: [
+          'announcement_bar',
+          'hero',
+          'quick_info',
+          'featured_services',
+          'gallery',
+          'reviews',
+          'final_cta',
+          'footer',
+        ],
+        slug: '',
+      },
+      {
+        sectionTypes: [
+          'booking',
+          'deposits_cancellations',
+          'policies',
+          'faq',
+          'footer',
+        ],
+        slug: 'services-book',
+      },
+      {
+        sectionTypes: ['gallery', 'final_cta', 'footer'],
+        slug: 'gallery',
+      },
+      {
+        sectionTypes: ['team', 'about', 'footer'],
+        slug: 'team',
+      },
+      {
+        sectionTypes: ['visit_us', 'hours', 'contact', 'footer'],
+        slug: 'contact',
+      },
+    ],
+  }],
 };
 
 const matchesLegacyStarterShape = (
@@ -120,8 +170,9 @@ const matchesLegacyStarterShape = (
 export const normalizeGalleryPresentationOwnership = (
   document: SiteBuilderDocument,
 ): SiteBuilderDocument => {
-  const migration = LEGACY_STARTER_GALLERY_MIGRATIONS[document.originStarter];
-  if (!migration || !matchesLegacyStarterShape(document, migration.pages)) {
+  const migration = LEGACY_STARTER_GALLERY_MIGRATIONS[document.originStarter]
+    ?.find(candidate => matchesLegacyStarterShape(document, candidate.pages));
+  if (!migration) {
     return document;
   }
   let changed = false;

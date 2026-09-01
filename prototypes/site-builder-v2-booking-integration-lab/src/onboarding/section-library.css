@@ -594,6 +594,10 @@
   transition: transform var(--customer-motion-spring);
 }
 
+.customer-lib-avatar.is-image {
+  object-fit: cover;
+}
+
 .customer-lib-team-card:hover .customer-lib-avatar {
   transform: scale(1.06) rotate(-2deg);
 }

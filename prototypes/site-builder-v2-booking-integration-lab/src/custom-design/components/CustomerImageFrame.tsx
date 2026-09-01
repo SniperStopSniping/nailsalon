@@ -70,6 +70,8 @@ export function CustomerImageFrame({
         <img
           alt={image.decorative ? '' : image.altText}
           className="custom-design-customer-image"
+          data-media-id={image.assetId}
+          data-media-role="custom_design"
           decoding="async"
           draggable={false}
           height={image.height}

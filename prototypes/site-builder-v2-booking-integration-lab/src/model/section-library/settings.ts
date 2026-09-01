@@ -39,7 +39,7 @@ export type HeroPresetId =
   | 'editorial_split'
   | 'booking_first';
 
-export type HeroMediaChoice = 'profile_photo' | 'logo_emblem' | 'gradient';
+export type HeroMediaChoice = 'gradient';
 
 export type HeroSettings = {
   version: 1;

@@ -78,10 +78,16 @@ export type PageKind = 'home' | 'content';
  */
 export type SiteLibraryContext = {
   businessStructure: 'solo' | 'multi_tech' | null;
+  /** Shared staff record that represents the Business Profile owner, when exact. */
+  ownerStaffMemberId: string | null;
+  hasLogoGraphic: boolean;
+  hasProfilePhoto: boolean;
   hasPublicContact: boolean;
+  publicContactMethods: Array<'email' | 'instagram' | 'phone' | 'text'>;
   /** Broad Contact-section predicate: any location, contact, or hours content. */
   hasContactSectionContent: boolean;
   hasPublicLocation: boolean;
+  hasPublicExactAddress: boolean;
   galleryImageIds: string[];
   hoursConfigured: boolean;
   hoursShownOnSite: boolean;
@@ -260,19 +266,19 @@ const announcementBar: SectionRegistryEntry<'announcement_bar'> = {
 const hero: SectionRegistryEntry<'hero'> = {
   allowedPageKinds: ['home', 'content'],
   category: 'conversion',
-  dataDomains: ['profile', 'location', 'booking', 'hours'],
+  dataDomains: ['profile', 'booking'],
   defaultPresetId: 'image_right',
   defaultSettings: (): HeroSettings => ({
     headline: { source: 'shared' },
     intro: { source: 'shared' },
-    media: 'profile_photo',
+    media: 'gradient',
     preset: 'image_right',
     primaryCtaLabel: 'Book an appointment',
-    showLocationEyebrow: true,
-    showStatusLine: true,
+    showLocationEyebrow: false,
+    showStatusLine: false,
     version: 1,
   }),
-  description: 'The first impression: salon identity, location, and the primary booking action.',
+  description: 'The first impression: salon identity and the primary booking action.',
   label: 'Hero',
   legacySemanticRoles: ['hero'],
   limitKind: 'hard',
@@ -282,11 +288,9 @@ const hero: SectionRegistryEntry<'hero'> = {
     return {
       headline: asBoundText(record.headline),
       intro: asBoundText(record.intro),
-      media: asChoice(
-        record.media,
-        ['profile_photo', 'logo_emblem', 'gradient'] as const,
-        'profile_photo',
-      ),
+      // Profile and Logo are distinct semantic roles. Legacy choices migrate
+      // to the style-owned no-media treatment instead of borrowing an asset.
+      media: 'gradient',
       preset: asChoice(
         record.preset,
         ['image_right', 'full_bleed', 'editorial_split', 'booking_first'] as const,
@@ -294,8 +298,8 @@ const hero: SectionRegistryEntry<'hero'> = {
       ),
       primaryCtaLabel: asString(record.primaryCtaLabel, 'Book an appointment').slice(0, 40)
         || 'Book an appointment',
-      showLocationEyebrow: asBoolean(record.showLocationEyebrow, true),
-      showStatusLine: asBoolean(record.showStatusLine, true),
+      showLocationEyebrow: false,
+      showStatusLine: false,
       version: 1,
     };
   },
@@ -872,8 +876,12 @@ const visitUs: SectionRegistryEntry<'visit_us'> = {
       || (settings.showParking && context.arrivalNotes.parking)
       || (settings.showEntrance && context.arrivalNotes.entrance)
       || (settings.showTransit && context.arrivalNotes.transit)
+      || (settings.hoursSummary !== 'hide'
+        && context.hoursConfigured
+        && context.hoursShownOnSite)
+      || (settings.contactSummary !== 'hide' && context.hasPublicContact)
       ? ready()
-      : empty('visit_us_empty', 'Add your city or general area to show this section.'),
+      : empty('visit_us_empty', 'Add public location, arrival, hours, or contact details to show this section.'),
   recommendedPageKinds: ['content'],
   surface: 'base',
   type: 'visit_us',
