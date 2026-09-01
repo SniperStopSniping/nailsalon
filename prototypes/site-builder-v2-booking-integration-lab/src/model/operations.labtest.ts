@@ -143,11 +143,11 @@ describe('section operations', () => {
       settings: {
         headline: { source: 'shared' },
         intro: { source: 'shared' },
-        media: 'profile_photo',
+        media: 'gradient',
         preset: 'editorial_split',
         primaryCtaLabel: 'Reserve your seat',
-        showLocationEyebrow: true,
-        showStatusLine: true,
+        showLocationEyebrow: false,
+        showStatusLine: false,
         version: 1,
       },
     });

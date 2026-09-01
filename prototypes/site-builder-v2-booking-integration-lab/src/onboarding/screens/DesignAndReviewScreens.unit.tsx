@@ -133,7 +133,7 @@ describe('About onboarding screens', () => {
     expect(inlineFrame?.inert).toBe(true);
     expect(inlineFrame).toHaveAttribute('tabindex', '-1');
     expect(within(preview).getByText(originalProfile.about.shortBio)).toBeVisible();
-    expect(within(preview).getByText('@islanail.studio')).toBeVisible();
+    expect(within(preview).queryByText('@islanail.studio')).not.toBeInTheDocument();
     expect(container.querySelector('.onboarding-customer-about.is-photo-right')).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Editorial Portrait/ }));
@@ -162,7 +162,7 @@ describe('About onboarding screens', () => {
       .toBeLessThan(tabOrder.indexOf('Back to edit About'));
   });
 
-  it('keeps the shared Instagram independently available while contact is Booking-only', async () => {
+  it('keeps shared Instagram saved while Booking-only prevents publication', async () => {
     const user = userEvent.setup();
     const initial = aboutState();
     initial.profile.bookingOnlyContact = true;
@@ -179,15 +179,14 @@ describe('About onboarding screens', () => {
     );
 
     await user.click(screen.getByText('Details from your setup'));
-    const instagram = screen.getByRole('switch', {
-      name: 'Show Instagram in About',
-    });
-    expect(instagram).toBeChecked();
-    expect(instagram).toBeEnabled();
     expect(screen.getByRole('textbox', { name: 'Instagram handle' }))
       .toHaveValue('@islanail.studio');
+    expect(screen.getByText('Instagram is shown once in Contact or Footer, not repeated in About.'))
+      .toBeVisible();
+    expect(screen.queryByRole('switch', { name: 'Show Instagram in About' }))
+      .not.toBeInTheDocument();
     expect(within(screen.getByRole('region', { name: 'About section live preview' }))
-      .getByText('@islanail.studio')).toBeVisible();
+      .queryByText('@islanail.studio')).not.toBeInTheDocument();
   });
 
   it('normalizes the shared Instagram value from About and blocks malformed input', async () => {
@@ -216,7 +215,7 @@ describe('About onboarding screens', () => {
     await user.tab();
     expect(instagram).toHaveValue('islanailstudio');
     expect(within(screen.getByRole('region', { name: 'About section live preview' }))
-      .getByText('@islanailstudio')).toBeVisible();
+      .queryByText('@islanailstudio')).not.toBeInTheDocument();
 
     await user.clear(instagram);
     await user.type(instagram, 'instagram.com/islanailstudio/reels');

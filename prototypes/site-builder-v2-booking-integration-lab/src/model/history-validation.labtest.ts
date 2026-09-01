@@ -317,10 +317,10 @@ describe('structural history', () => {
       settings: {
         headline: { source: 'shared' },
         intro: { source: 'shared' },
-        media: 'profile_photo',
+        media: 'gradient',
         preset: 'full_bleed',
         primaryCtaLabel: 'Book an appointment',
-        showLocationEyebrow: true,
+        showLocationEyebrow: false,
         showStatusLine: false,
         version: 1,
       },

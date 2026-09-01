@@ -161,11 +161,26 @@ describe('section renderer matrix (20 types × 6 styles × 8 palettes × 2 devic
                 stylePreset: styleId,
               },
             };
+            const renderDocument: SiteBuilderDocument = {
+              ...demoDocument,
+              navigation: { ...demoDocument.navigation, enabled: false, items: [] },
+              pages: [{
+                ...demoDocument.pages[0]!,
+                id: plan[0]!.id,
+                isHome: true,
+                name: plan[0]!.label,
+                order: 0,
+                sections: plan[0]!.sections.map(section => section.section),
+                slug: plan[0]!.slug,
+                visible: true,
+                visibleInNavigation: plan[0]!.visibleInNavigation,
+              }],
+            };
             const { container, unmount } = render(
               <OnboardingSitePreview
                 customerPagePlan={plan}
                 device={device}
-                document={demoDocument}
+                document={renderDocument}
                 interactionMode="interactive"
                 state={state}
               />,

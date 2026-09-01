@@ -66,29 +66,28 @@ describe('Hero editor', () => {
     )).toBeVisible();
     expect(screen.getByRole('button', { name: 'Use my business name' }))
       .toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'My photo' }))
-      .toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByText('Shows “Leslieville, Toronto” above your headline.')).toBeVisible();
-    expect(screen.getByRole('checkbox', { name: /Show the location line/u })).toBeChecked();
-    expect(screen.getByRole('checkbox', { name: /Show the status line/u })).toBeChecked();
+    expect(screen.getByText(/Hero uses the selected design’s no-media treatment/u)).toBeVisible();
+    expect(screen.queryByRole('button', { name: 'My photo' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Logo emblem' })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: /Show the location line/u })).toBeNull();
+    expect(screen.queryByRole('checkbox', { name: /Show the status line/u })).toBeNull();
     const cta = screen.getByDisplayValue('Book an appointment');
     expect(cta).toHaveAttribute('maxlength', '40');
   });
 
-  it('changes the media choice to the exact settings the registry keeps', async () => {
-    const user = userEvent.setup();
-    const shared = createSharedProps();
+  it('migrates legacy Profile and Logo Hero choices to the no-media treatment', () => {
     const settings = SECTION_LIBRARY_REGISTRY.hero.defaultSettings();
-    const onChange = vi.fn();
 
-    render(<HeroEditor {...shared} onChange={onChange} settings={settings} />);
-    await user.click(screen.getByRole('button', { name: 'Logo emblem' }));
-
-    const next = { ...settings, media: 'logo_emblem' } satisfies HeroSettings;
-    expect(onChange).toHaveBeenCalledTimes(1);
-    expect(onChange).toHaveBeenCalledWith(next);
-    // Rule 7: an edited draft must survive its own normalize unchanged.
-    expect(SECTION_LIBRARY_REGISTRY.hero.normalize(next)).toEqual(next);
+    expect(SECTION_LIBRARY_REGISTRY.hero.normalize({
+      ...settings,
+      media: 'profile_photo',
+      showLocationEyebrow: true,
+      showStatusLine: true,
+    })).toEqual(settings);
+    expect(SECTION_LIBRARY_REGISTRY.hero.normalize({
+      ...settings,
+      media: 'logo_emblem',
+    })).toEqual(settings);
   });
 
   it('seeds a headline override from the shared business name without touching the profile', async () => {
@@ -249,8 +248,11 @@ describe('Contact editor', () => {
       />,
     );
 
-    expect(screen.getByText('Book now: Booking is the best way to reach us')).toBeVisible();
-    expect(screen.getByText('Instagram: islanailstudio')).toBeVisible();
+    expect(screen.getByText(/Instagram: islanailstudio · Preferred/u)).toBeVisible();
+    expect(screen.getByText(/Text: \(437\) 555-0155/u)).toBeVisible();
+    expect(screen.getByText(/Call: \(437\) 555-0155/u)).toBeVisible();
+    expect(screen.getByText(/Email: hello@islanailstudio\.example/u)).toBeVisible();
+    expect(screen.queryByText(/Book now:/u)).not.toBeInTheDocument();
     expect(screen.queryAllByRole('button')).toHaveLength(0);
     expect(screen.queryAllByRole('textbox')).toHaveLength(0);
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);

@@ -102,15 +102,21 @@ describe('account-backed onboarding document compiler', () => {
       .filter(section => section.sectionType === 'gallery')
       .map(section => section.settings.preset))
       .toEqual(['editorial', 'carousel']);
+
+    const customerGalleryOwner = compiled.builderDocument.pages
+      .find(page => page.slug === 'gallery')!
+      .sections.find(section => section.sectionType === 'gallery')!;
+
     expect(compiled.pages.flatMap(page => page.sections)
       .filter(section => section.type === 'gallery')
       .map(section => ({
         id: section.id,
         layout: section.presentation.layout,
       })))
-      .toEqual(compiled.builderDocument.pages.flatMap(page => page.sections)
-        .filter(section => section.sectionType === 'gallery')
-        .map(section => ({ id: section.id, layout: section.settings.preset })));
+      .toEqual([{
+        id: customerGalleryOwner.id,
+        layout: customerGalleryOwner.settings.preset,
+      }]);
     expect(source.pages.flatMap(page => page.sections)
       .filter(section => section.sectionType === 'about')
       .map(section => section.settings.preset))
@@ -232,7 +238,6 @@ describe('account-backed onboarding document compiler', () => {
         booking: 1,
         contact: 1,
         deposits_cancellations: 1,
-        featured_services: 1,
         final_cta: 1,
         footer: 1,
         gallery: 1,
@@ -246,13 +251,11 @@ describe('account-backed onboarding document compiler', () => {
         about: 1,
         booking: 1,
         deposits_cancellations: 1,
-        featured_services: 1,
         final_cta: 1,
         footer: 1,
         gallery: 1,
         hero: 1,
         policies: 1,
-        quick_info: 1,
         section_navigation: 1,
         visit_us: 1,
       },
@@ -262,15 +265,13 @@ describe('account-backed onboarding document compiler', () => {
       expectedCounts: {
         about: 1,
         booking: 1,
-        contact: 1,
         deposits_cancellations: 1,
         featured_services: 1,
         final_cta: 2,
         footer: 5,
-        gallery: 2,
+        gallery: 1,
         hero: 1,
         policies: 1,
-        quick_info: 1,
         visit_us: 1,
       },
       starter: 'multi_page',
@@ -331,8 +332,15 @@ describe('account-backed onboarding document compiler', () => {
           .sections.find(section => section.sectionType === 'contact')!;
 
         expect(sections.filter(item => item.type === 'gallery').map(item => item.id))
-          .toEqual([homeGallery.id, galleryPageGallery.id]);
-        expect(sections.find(item => item.type === 'contact')?.id).toBe(contactSource.id);
+          .toEqual([galleryPageGallery.id]);
+        expect(compiled.builderDocument.pages.flatMap(page => page.sections))
+          .toEqual(expect.arrayContaining([
+            expect.objectContaining({ id: homeGallery.id }),
+            expect.objectContaining({ id: galleryPageGallery.id }),
+          ]));
+        expect(sections.find(item => item.type === 'contact')).toBeUndefined();
+        expect(compiled.builderDocument.pages.flatMap(page => page.sections))
+          .toContainEqual(expect.objectContaining({ id: contactSource.id }));
       }
     },
   );
@@ -464,7 +472,7 @@ describe('account-backed onboarding document compiler', () => {
     // booking preference — none of its facts resolve to content, so it would
     // publish an empty strip. The next test shows it returning on its own.
     expect(compiled.pages[0]?.sections.map(section => section.type))
-      .toEqual(['about', 'hero', 'final_cta', 'footer']);
+      .toEqual(['about', 'hero', 'featured_services', 'final_cta', 'footer']);
   });
 
   it('publishes Quick Info as soon as one of its facts has content', () => {
@@ -731,11 +739,11 @@ describe('account-backed onboarding document compiler', () => {
       ],
     ]);
     expect(compiled.pages.map(page => page.sections.map(section => section.type))).toEqual([
-      ['hero', 'gallery'],
-      ['featured_services', 'booking'],
+      ['hero'],
+      ['booking'],
       ['gallery'],
       ['about'],
-      ['visit_us', 'contact'],
+      ['visit_us'],
     ]);
   });
 
@@ -776,7 +784,11 @@ describe('account-backed onboarding document compiler', () => {
           .find(page => page.slug === 'contact')!
           .sections.find(section => section.sectionType === 'contact')!;
 
-        expect(contacts.map(section => section.id)).toEqual([sourceContact.id]);
+        // Visit Us owns the only public location value in this fixture. Contact
+        // stays in the saved Builder document but has no unique customer data.
+        expect(contacts).toEqual([]);
+        expect(compiled.builderDocument.pages.flatMap(page => page.sections))
+          .toContainEqual(expect.objectContaining({ id: sourceContact.id }));
       } else if (starter === 'one_page') {
         // Visit Us already carries the location and contact summary, so the
         // ladder does not inject a second Contact surface behind it.
@@ -873,7 +885,7 @@ describe('account-backed onboarding document compiler', () => {
     },
   );
 
-  it('retains every distinct Custom Design section by stable ID', () => {
+  it('retains every Custom Design section while publishing one per page', () => {
     const state = acceptedState('quick_book');
     state.recipe.canvaEnabled = true;
     state.canva.status = 'ready';
@@ -956,17 +968,22 @@ describe('account-backed onboarding document compiler', () => {
       source,
       accountCustomMediaByLogicalId,
     );
-    const customSections = compileOnboardingToSiteDocument({
+    const compiled = compileOnboardingToSiteDocument({
       revision: 1,
       siteId: SITE_ID,
       snapshot,
-    }).pages.flatMap(page => page.sections).filter(
+    });
+    const customSections = compiled.pages.flatMap(page => page.sections).filter(
       section => section.type === 'custom_design',
     );
 
-    expect(customSections.map(section => section.id)).toEqual(['custom-one', 'custom-two']);
+    expect(customSections.map(section => section.id)).toEqual(['custom-one']);
     expect(customSections.map(section => section.presentation.displayMode))
-      .toEqual(['poster', 'full_width']);
+      .toEqual(['poster']);
+    expect(compiled.builderDocument.pages.flatMap(page => page.sections)
+      .filter(section => section.sectionType === 'custom_design')
+      .map(section => section.id))
+      .toEqual(['custom-one', 'custom-two']);
     expect(media.filter(item => item.role === 'custom_design').map(item => item.localItemId))
       .toEqual([
         'custom-artwork',

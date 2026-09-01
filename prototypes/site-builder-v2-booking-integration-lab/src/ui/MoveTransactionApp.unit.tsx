@@ -456,7 +456,7 @@ describe('transactional shared Move surface', () => {
     expect(within(dialog).getByText('Order not saved yet')).toBeVisible();
     expect(screen.getByRole('heading', { level: 1, name: 'Services / Book' })).toBeVisible();
     expect(sectionOrder('Services / Book')).toEqual([
-      'Featured Services', 'Booking', 'Deposits & Cancellations',
+      'Booking', 'Deposits & Cancellations',
       'Before You Book', 'FAQ', 'Footer',
     ]);
     expect(window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY)).toBe(committed);
@@ -473,7 +473,7 @@ describe('transactional shared Move surface', () => {
 
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(sectionOrder('Services / Book')).toEqual([
-      'Featured Services', 'Booking', 'Deposits & Cancellations',
+      'Booking', 'Deposits & Cancellations',
       'Before You Book', 'FAQ', 'Footer',
     ]);
     expect(window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY)).toBe(committed);
@@ -501,7 +501,7 @@ describe('transactional shared Move surface', () => {
 
     expect(screen.getByRole('heading', { level: 1, name: 'Services / Book' })).toBeVisible();
     expect(sectionOrder('Services / Book')).toEqual([
-      'Featured Services', 'Booking', 'Deposits & Cancellations',
+      'Booking', 'Deposits & Cancellations',
       'Before You Book', 'FAQ', 'Footer',
     ]);
     expect(window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY)).toBe(committed);
@@ -519,13 +519,13 @@ describe('transactional shared Move surface', () => {
 
     await screen.findByRole('heading', { level: 1, name: 'Home' });
     expect(sectionOrder()).toEqual([
-      'Announcement Bar', 'Welcome', 'Quick Info', 'Featured work', 'Reviews',
+      'Announcement Bar', 'Welcome', 'Quick Info', 'Featured Services', 'Featured work', 'Reviews',
       'Final Booking CTA', 'Footer', 'Booking',
     ]);
     await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     expect(sectionOrder()).toEqual([
-      'Announcement Bar', 'Welcome', 'Quick Info', 'Featured work', 'Reviews',
+      'Announcement Bar', 'Welcome', 'Quick Info', 'Featured Services', 'Featured work', 'Reviews',
       'Final Booking CTA', 'Footer',
     ]);
   });
@@ -548,7 +548,7 @@ describe('transactional shared Move surface', () => {
 
     await screen.findByRole('heading', { level: 1, name: 'Home' });
     expect(sectionOrder()).toEqual([
-      'Booking', 'Announcement Bar', 'Welcome', 'Quick Info', 'Featured work',
+      'Booking', 'Announcement Bar', 'Welcome', 'Quick Info', 'Featured Services', 'Featured work',
       'Reviews', 'Final Booking CTA', 'Footer',
     ]);
     await waitFor(() => expect(write).toHaveBeenCalledTimes(1));
@@ -556,13 +556,13 @@ describe('transactional shared Move surface', () => {
 
     await user.click(screen.getByRole('button', { name: 'Undo' }));
     expect(sectionOrder()).toEqual([
-      'Announcement Bar', 'Welcome', 'Quick Info', 'Featured work', 'Reviews',
+      'Announcement Bar', 'Welcome', 'Quick Info', 'Featured Services', 'Featured work', 'Reviews',
       'Final Booking CTA', 'Footer',
     ]);
     expect(screen.getByRole('button', { name: 'Redo' })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: 'Redo' }));
     expect(sectionOrder()).toEqual([
-      'Booking', 'Announcement Bar', 'Welcome', 'Quick Info', 'Featured work',
+      'Booking', 'Announcement Bar', 'Welcome', 'Quick Info', 'Featured Services', 'Featured work',
       'Reviews', 'Final Booking CTA', 'Footer',
     ]);
     dialog = screen.queryByRole('dialog', { name: 'Move Booking' }) as HTMLElement;
