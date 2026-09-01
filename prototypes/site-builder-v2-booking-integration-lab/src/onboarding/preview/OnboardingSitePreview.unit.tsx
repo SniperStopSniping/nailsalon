@@ -919,6 +919,54 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelector('[data-library-type="policies"]')).toBeNull();
   });
 
+  it('hosts service details at the customer viewport without moving the long preview page', async () => {
+    const user = userEvent.setup();
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'quick_book';
+
+    render(
+      <OnboardingSitePreview
+        device="phone"
+        document={initializeStarter('quick_book')}
+        interactionMode="interactive"
+        label="Mobile service dialog preview"
+        state={state}
+      />,
+    );
+
+    const preview = screen.getByRole('region', { name: 'Mobile service dialog preview' });
+    const frame = preview.querySelector<HTMLElement>('[data-preview-scroll-container="true"]');
+    const overlayHost = preview.querySelector<HTMLElement>('.onboarding-preview-overlay-host');
+    const booking = within(preview).getByRole('region', { name: 'Booking' });
+
+    expect(frame).not.toBeNull();
+
+    expect(overlayHost).not.toBeNull();
+    if (frame) {
+      frame.scrollTop = 640;
+    }
+
+    await user.click(within(booking).getAllByRole('button', {
+      name: /View details for Gel Manicure, 1 hr, \$50/,
+    })[0]!);
+
+    const detail = await screen.findByTestId('service-detail-dialog');
+    const close = within(detail).getByRole('button', { name: 'Close service details' });
+
+    expect(overlayHost).toContainElement(detail);
+
+    expect(booking).not.toContainElement(detail);
+
+    expect(frame?.scrollTop).toBe(640);
+    await waitFor(() => expect(close).toHaveFocus());
+
+    await user.click(close);
+
+    expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
+
+    expect(frame?.scrollTop).toBe(640);
+  });
+
   it('does not duplicate Booking as an otherwise empty Contact section', () => {
     const state = createDefaultOnboardingState();
     state.profile.businessName = 'Isla Nail Studio';

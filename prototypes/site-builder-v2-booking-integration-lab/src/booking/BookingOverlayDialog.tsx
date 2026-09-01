@@ -20,6 +20,58 @@ type BookingOverlayDialogProps = {
 
 const openBookingDialogStack: symbol[] = [];
 
+type DialogScrollSnapshot = {
+  ancestors: Array<{
+    element: HTMLElement;
+    left: number;
+    top: number;
+  }>;
+  windowX: number;
+  windowY: number;
+};
+
+const captureDialogScroll = (anchor: HTMLElement | null): DialogScrollSnapshot => {
+  const ancestors: DialogScrollSnapshot['ancestors'] = [];
+  let current = anchor?.parentElement ?? null;
+  while (current) {
+    if (
+      current.scrollTop !== 0
+      || current.scrollLeft !== 0
+      || current.scrollHeight > current.clientHeight
+      || current.scrollWidth > current.clientWidth
+    ) {
+      ancestors.push({
+        element: current,
+        left: current.scrollLeft,
+        top: current.scrollTop,
+      });
+    }
+    current = current.parentElement;
+  }
+  return {
+    ancestors,
+    windowX: window.scrollX,
+    windowY: window.scrollY,
+  };
+};
+
+const restoreDialogScroll = (snapshot: DialogScrollSnapshot) => {
+  for (const { element, left, top } of snapshot.ancestors) {
+    if (!element.isConnected) {
+      continue;
+    }
+    if (element.scrollLeft !== left) {
+      element.scrollLeft = left;
+    }
+    if (element.scrollTop !== top) {
+      element.scrollTop = top;
+    }
+  }
+  if (window.scrollX !== snapshot.windowX || window.scrollY !== snapshot.windowY) {
+    window.scrollTo(snapshot.windowX, snapshot.windowY);
+  }
+};
+
 export function BookingOverlayDialog({
   children,
   className = '',
@@ -42,7 +94,14 @@ export function BookingOverlayDialog({
     const stackToken = stackTokenRef.current;
     openBookingDialogStack.push(stackToken);
     const first = panel?.querySelector<HTMLElement>(FOCUSABLE);
-    window.requestAnimationFrame(() => (first ?? panel)?.focus());
+    const openingScroll = captureDialogScroll(previousFocus);
+    let restoreFrame: number | null = null;
+    const focusFrame = window.requestAnimationFrame(() => {
+      (first ?? panel)?.focus({ preventScroll: true });
+      restoreDialogScroll(openingScroll);
+      // WebKit may finish its focus reveal after the focus call returns.
+      restoreFrame = window.requestAnimationFrame(() => restoreDialogScroll(openingScroll));
+    });
 
     const keydown = (event: KeyboardEvent) => {
       if (openBookingDialogStack.at(-1) !== stackToken) return;
@@ -71,11 +130,17 @@ export function BookingOverlayDialog({
     };
     document.addEventListener('keydown', keydown);
     return () => {
+      window.cancelAnimationFrame(focusFrame);
+      if (restoreFrame !== null) {
+        window.cancelAnimationFrame(restoreFrame);
+      }
       document.removeEventListener('keydown', keydown);
       const stackIndex = openBookingDialogStack.lastIndexOf(stackToken);
       if (stackIndex >= 0) openBookingDialogStack.splice(stackIndex, 1);
       window.requestAnimationFrame(() => {
         if (previousFocus?.isConnected) previousFocus.focus({ preventScroll: true });
+        restoreDialogScroll(openingScroll);
+        window.requestAnimationFrame(() => restoreDialogScroll(openingScroll));
       });
     };
   }, []);

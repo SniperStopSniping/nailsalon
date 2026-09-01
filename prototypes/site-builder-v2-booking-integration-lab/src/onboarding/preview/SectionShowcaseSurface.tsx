@@ -227,6 +227,7 @@ export function SectionShowcaseSurface() {
         document={model.document}
         interactionMode="interactive"
         label={model.label}
+        overlayMode={fullFlow ? 'page' : 'contained'}
         state={model.state}
       />
     </main>
