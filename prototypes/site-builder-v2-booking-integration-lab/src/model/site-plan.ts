@@ -45,7 +45,6 @@ export type SitePlanInjectableType =
   | 'about'
   | 'gallery'
   | 'contact'
-  | 'deposits_cancellations'
   | 'policies';
 
 export type SitePlanSection = {
@@ -195,7 +194,7 @@ type InjectionRule = {
 const INJECTION_RULES: readonly InjectionRule[] = [
   {
     placement: 'before_booking',
-    satisfiedBy: ['about'],
+    satisfiedBy: ['about', 'team'],
     type: 'about',
     wanted: (_context, toggles) => toggles.aboutEnabled,
   },
@@ -208,28 +207,14 @@ const INJECTION_RULES: readonly InjectionRule[] = [
   },
   {
     placement: 'after_booking',
-    satisfiedBy: ['deposits_cancellations'],
-    type: 'deposits_cancellations',
-    /*
-     * Two different questions, both of which must answer yes.
-     * `policiesMeaningful` is the product rule about whether a policy is
-     * worth adding a section for at all — a partial answer is not. The second
-     * is whether the section would render anything: without it, an owner who
-     * hid the deposit copy gets an injected band that draws nothing.
-     */
-    wanted: (context, toggles) =>
-      toggles.policiesEnabled
-      && context.policiesMeaningful
-      && (context.depositsSummaryPublishable || context.depositsWordingPublishable),
-  },
-  {
-    placement: 'after_booking',
     satisfiedBy: ['policies'],
     type: 'policies',
     wanted: (context, toggles) =>
       toggles.policiesEnabled
       && context.policiesMeaningful
-      && context.availablePolicyTopics.length > 0,
+      && (context.depositsSummaryPublishable
+        || context.depositsWordingPublishable
+        || context.availablePolicyTopics.length > 0),
   },
   {
     placement: 'end',
@@ -392,7 +377,12 @@ const buildStructuralCustomerPagePlan = (
 
   const injections = includeOptionalSections
     ? INJECTION_RULES.filter(rule =>
-        rule.wanted(context, toggles) && !hasType(rule.satisfiedBy))
+        // Quick Book owns its compact policy disclosure inside the canonical
+        // Services & Booking section. Injecting a second standalone Policies
+        // section would violate the locked five-slot product recipe.
+        !(document.originStarter === 'quick_book' && rule.type === 'policies')
+        && rule.wanted(context, toggles)
+        && !hasType(rule.satisfiedBy))
     : [];
 
   const canonicalBooking = visiblePages.flatMap(page => [...page.sections]

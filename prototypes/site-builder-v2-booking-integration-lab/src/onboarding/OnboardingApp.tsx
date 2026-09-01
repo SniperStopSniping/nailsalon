@@ -13,6 +13,7 @@ import {
   useCustomDesignAssetRepository,
 } from '../custom-design/integration/CustomDesignAssetProvider';
 import { formatCustomDesignUploadSummary } from '../custom-design/integration/upload-summary';
+import { reconcileV1StarterDocument } from '../model/v1-starter-recipes';
 import type { SiteBuilderDocument } from '../model/types';
 import { Dialog } from '../ui/Dialog';
 import { ConfirmationDialog } from '../ui/EditorDialogs';
@@ -42,6 +43,10 @@ import {
   reconcileConditionalHistory,
 } from './model/routing';
 import { applyOnboardingSitePresentation } from './model/site-document-presentation';
+import {
+  deriveSiteLibraryContext,
+  deriveSitePlanToggles,
+} from './model/site-library-context';
 import type {
   BusinessProfileDraft,
   CanvaDisplayMode,
@@ -449,6 +454,7 @@ export function OnboardingApp({
   const applyingPopStateRef = useRef(false);
   const continueAfterPreviewCloseRef = useRef(false);
   const cleanupRetrySignatureRef = useRef('');
+  const recipeSyncSignatureRef = useRef('');
   const profileMediaOperationsRef = useRef(0);
   const feedbackInitializedRef = useRef(false);
   const previousCompletedStagesRef = useRef(new Set(
@@ -1175,12 +1181,65 @@ export function OnboardingApp({
     return synced;
   };
 
-  const acceptedBuilderDocument = lab.document
-    ? applyOnboardingSitePresentation(lab.document, {
+  const recipeContext = lab.document ? {
+    context: deriveSiteLibraryContext(onboarding.state, lab.document),
+    toggles: deriveSitePlanToggles(onboarding.state),
+  } : null;
+  const acceptedBuilderDocument = lab.document && recipeContext
+    ? reconcileV1StarterDocument(
+        applyOnboardingSitePresentation(lab.document, {
+          aboutPreset: onboarding.state.recipe.aboutPreset,
+          galleryLayout: onboarding.state.gallery.layout,
+        }),
+        recipeContext,
+      ).document
+    : null;
+  const recipeSyncSignature = lab.document && recipeContext
+    ? JSON.stringify({
+        aboutEnabled: recipeContext.toggles.aboutEnabled,
+        aboutPreset: onboarding.state.recipe.aboutPreset,
+        businessStructure: recipeContext.context.businessStructure,
+        galleryEnabled: recipeContext.toggles.galleryEnabled,
+        galleryImageIds: recipeContext.context.galleryImageIds,
+        galleryLayout: onboarding.state.gallery.layout,
+        policiesEnabled: recipeContext.toggles.policiesEnabled,
+        policiesMeaningful: recipeContext.context.policiesMeaningful,
+        reviewIds: recipeContext.context.siteContent.reviews
+          .filter(review => review.visible)
+          .map(review => review.id),
+        siteId: lab.document.siteId,
+        siteName: onboarding.state.profile.businessName,
+      })
+    : '';
+
+  useEffect(() => {
+    if (
+      !lab.document
+      || !recipeContext
+      || recipeSyncSignature === ''
+      || recipeSyncSignatureRef.current === recipeSyncSignature
+    ) {
+      return;
+    }
+    const accepted = lab.acceptOnboardingPresentation(
+      onboarding.state.profile.businessName,
+      {
         aboutPreset: onboarding.state.recipe.aboutPreset,
         galleryLayout: onboarding.state.gallery.layout,
-      })
-    : null;
+      },
+      recipeContext,
+    );
+    if (accepted) {
+      recipeSyncSignatureRef.current = recipeSyncSignature;
+    }
+  }, [
+    lab,
+    onboarding.state.gallery.layout,
+    onboarding.state.profile.businessName,
+    onboarding.state.recipe.aboutPreset,
+    recipeContext,
+    recipeSyncSignature,
+  ]);
 
   const openBuilder = () => {
     const accepted = lab.acceptOnboardingPresentation(
@@ -1189,6 +1248,7 @@ export function OnboardingApp({
         aboutPreset: onboarding.state.recipe.aboutPreset,
         galleryLayout: onboarding.state.gallery.layout,
       },
+      recipeContext ?? undefined,
     );
     if (!accepted) {
       setError('Finish the current image upload before updating the Builder site.');

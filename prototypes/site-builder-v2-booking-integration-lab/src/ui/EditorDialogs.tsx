@@ -7,6 +7,7 @@ import {
   type AddSectionLibraryItem,
   type CatalogueSectionType,
   getAddSectionLibrary,
+  getNormalV1AddSectionTypes,
   type LibrarySectionType,
   type OriginStarter,
   type PageDocument,
@@ -22,11 +23,13 @@ type LibraryAddState =
   | { blocked: false };
 
 type SectionLibraryDialogProps = {
+  auditMode: boolean;
+  businessStructure: 'multi_tech' | 'solo' | null;
   document: SiteBuilderDocument;
   insertionPosition: number | null;
   libraryAddState: (sectionType: LibrarySectionType) => LibraryAddState;
   onAdd: (
-    sectionType: CatalogueSectionType | 'custom_design',
+    sectionType: CatalogueSectionType | 'booking' | 'custom_design',
     size?: SectionSize,
   ) => void;
   onAddLibrary: (sectionType: LibrarySectionType) => void;
@@ -59,24 +62,44 @@ const LIBRARY_CATEGORY_ORDER: readonly AddSectionLibraryItem['category'][] = [
   'media',
 ];
 
-export function SectionLibraryDialog({ document, insertionPosition, libraryAddState, onAdd, onAddLibrary, onClose, onGoToBooking, onRestore, page }: SectionLibraryDialogProps) {
+export function SectionLibraryDialog({
+  auditMode,
+  businessStructure,
+  document,
+  insertionPosition,
+  libraryAddState,
+  onAdd,
+  onAddLibrary,
+  onClose,
+  onGoToBooking,
+  onRestore,
+  page,
+}: SectionLibraryDialogProps) {
   const [search, setSearch] = useState('');
   const activeTypes = new Set(document.pages.flatMap((candidate) => candidate.sections.map((section) => section.sectionType)));
   const unusedTypes = new Set(document.unusedSections.map((section) => section.sectionType));
-  const normalizedSearch = search.trim().toLocaleLowerCase();
-  const visibleItems = ADD_SECTION_CATALOGUE.filter((item) => {
+  const normalizedSearch = auditMode ? search.trim().toLocaleLowerCase() : '';
+  const visibleItems = auditMode ? ADD_SECTION_CATALOGUE.filter((item) => {
     if (!normalizedSearch) return true;
     const searchable = item.sectionType === 'custom_design'
       ? [item.label, item.description, item.helper, ...item.searchKeywords, ...item.tags]
       : [item.label, item.defaultSize, 'placeholder', 'future section'];
     return searchable.some((value) => value.toLocaleLowerCase().includes(normalizedSearch));
-  });
-  const bookingMatches = !normalizedSearch || 'booking client service menu'.includes(normalizedSearch);
+  }) : [];
+  const bookingMatches = auditMode
+    && (!normalizedSearch || 'booking client service menu'.includes(normalizedSearch));
+  const normalSectionTypes = new Set<LibrarySectionType | 'booking'>(getNormalV1AddSectionTypes({
+    businessStructure,
+    document,
+    page,
+  }));
   const libraryItems = getAddSectionLibrary().filter((item) => {
+    if (!auditMode && !normalSectionTypes.has(item.sectionType)) return false;
     if (!normalizedSearch) return true;
     return [item.label, item.description, item.category, item.sectionType]
       .some(value => value.toLocaleLowerCase().includes(normalizedSearch));
   });
+  const normalBookingAvailable = !auditMode && normalSectionTypes.has('booking');
   const libraryByCategory = LIBRARY_CATEGORY_ORDER
     .map(category => ({
       category,
@@ -90,17 +113,21 @@ export function SectionLibraryDialog({ document, insertionPosition, libraryAddSt
 
   return (
     <Dialog
-      description={`Choose what to add to ${page.name}${insertionPosition ? ` at position ${insertionPosition}` : ''}. Booking is already included and can move anywhere in your site.`}
+      description={auditMode
+        ? `Choose what to add to ${page.name}${insertionPosition ? ` at position ${insertionPosition}` : ''}. Booking is already included and can move anywhere in your site.`
+        : `Choose a missing core section for ${page.name}. Your shared business information stays connected.`}
       onClose={onClose}
       open={insertionPosition !== null}
       title="Add section"
       variant="section-library"
     >
       <div className="section-library-intro">
-        <strong>Section library</strong>
-        <span>All starting points use the same library.</span>
+        <strong>{auditMode ? 'Section library' : 'Core website sections'}</strong>
+        <span>{auditMode
+          ? 'All starting points use the same library.'
+          : 'Only sections that belong on this page are shown.'}</span>
       </div>
-      <label className="section-library-search">
+      {auditMode ? <label className="section-library-search">
         <span className="visually-hidden">Search sections</span>
         <Search aria-hidden="true" size={18} />
         <input
@@ -110,13 +137,19 @@ export function SectionLibraryDialog({ document, insertionPosition, libraryAddSt
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
-      </label>
+      </label> : null}
       {libraryByCategory.map(group => (
         <section aria-label={LIBRARY_CATEGORY_LABELS[group.category]} className="section-library-category" key={group.category}>
           <h3 className="section-library-category__title">{LIBRARY_CATEGORY_LABELS[group.category]}</h3>
           <div className="section-library-grid">
             {group.items.map((item) => {
               const addState = libraryAddState(item.sectionType);
+              const itemDescription = !auditMode && item.sectionType === 'visit_us'
+                ? 'Location, hours, arrival details, and public contact actions in one place.'
+                : item.description;
+              const itemLabel = !auditMode && item.sectionType === 'visit_us'
+                ? 'Visit & Contact'
+                : item.label;
               const activeCount = document.pages.reduce(
                 (count, candidate) => count + candidate.sections.filter(
                   section => section.sectionType === item.sectionType,
@@ -126,6 +159,9 @@ export function SectionLibraryDialog({ document, insertionPosition, libraryAddSt
               const removedInstances = document.unusedSections.filter(
                 section => section.sectionType === item.sectionType,
               );
+              const visibleRemovedInstances = auditMode
+                ? removedInstances
+                : removedInstances.slice(0, 1);
               const stateLabel = activeCount > 0
                 ? `${activeCount} in use`
                 : removedInstances.length > 0
@@ -134,10 +170,10 @@ export function SectionLibraryDialog({ document, insertionPosition, libraryAddSt
               return (
                 <article className="library-item library-item--named" data-section-type={item.sectionType} key={item.sectionType}>
                   <div className="library-item__copy">
-                    <strong>{item.label}</strong>
-                    <span>{item.description}</span>
+                    <strong>{itemLabel}</strong>
+                    <span>{itemDescription}</span>
                     <span className="library-state">{stateLabel}</span>
-                    {removedInstances.map(section => (
+                    {visibleRemovedInstances.map(section => (
                       <button
                         className="library-add-button library-restore-button"
                         key={section.id}
@@ -148,14 +184,16 @@ export function SectionLibraryDialog({ document, insertionPosition, libraryAddSt
                         <span>Restore removed {section.label}</span>
                       </button>
                     ))}
-                    <button
-                      aria-haspopup={addState.blocked ? 'dialog' : undefined}
-                      className="library-add-button"
-                      type="button"
-                      onClick={() => onAddLibrary(item.sectionType)}
-                    >
-                      <Plus aria-hidden="true" size={15} /> {addState.blocked ? addState.reason : `Add ${item.label}`}
-                    </button>
+                    {auditMode || removedInstances.length === 0 ? (
+                      <button
+                        aria-haspopup={addState.blocked ? 'dialog' : undefined}
+                        className="library-add-button"
+                        type="button"
+                        onClick={() => onAddLibrary(item.sectionType)}
+                      >
+                        <Plus aria-hidden="true" size={15} /> {addState.blocked ? addState.reason : `Add ${itemLabel}`}
+                      </button>
+                    ) : null}
                   </div>
                 </article>
               );
@@ -265,9 +303,27 @@ export function SectionLibraryDialog({ document, insertionPosition, libraryAddSt
               Go to Booking
             </button>
           </div>
-        </article> : null}
-        {visibleItems.length === 0 && libraryItems.length === 0 && !bookingMatches ? (
-          <p className="section-library-empty">No sections match “{search.trim()}”. Try hero, reviews, hours, or Canva.</p>
+        </article> : normalBookingAvailable ? (
+          <article className="library-item" data-section-type="booking">
+            <div className="library-item__preview">B</div>
+            <div className="library-item__copy">
+              <strong>Services &amp; Booking</strong>
+              <span>Your single service catalogue and booking experience.</span>
+              <span className="library-state">Available</span>
+              <button
+                className="library-add-button"
+                type="button"
+                onClick={() => onAdd('booking')}
+              >
+                <Plus aria-hidden="true" size={15} /> Add Services &amp; Booking
+              </button>
+            </div>
+          </article>
+        ) : null}
+        {visibleItems.length === 0 && libraryItems.length === 0 && !bookingMatches && !normalBookingAvailable ? (
+          <p className="section-library-empty">{auditMode
+            ? `No sections match “${search.trim()}”. Try hero, reviews, hours, or Canva.`
+            : `Every core section available for ${page.name} is already in your website.`}</p>
         ) : null}
       </div>
     </Dialog>

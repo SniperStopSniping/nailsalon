@@ -6,6 +6,9 @@ import {
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/site-plan';
 import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
 import {
+  reconcileV1StarterDocument,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/v1-starter-recipes';
+import {
   ADD_ON_PRODUCTION_MAPPINGS,
   SERVICE_MENU_PRODUCTION_MAPPINGS,
 } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/integrations/contracts/service-menu-production-mapping';
@@ -208,22 +211,45 @@ export function compileOnboardingToSiteDocument(input: {
   if (!builderDocument) {
     throw new Error('The accepted universal site document is required to compile the saved site.');
   }
-  const stampedDocument = applyOnboardingSitePresentation(builderDocument, {
+  const presentedDocument = applyOnboardingSitePresentation(builderDocument, {
     aboutPreset: snapshot.site.aboutPreset,
     galleryLayout: snapshot.gallery.layout,
   });
+  const profile: BusinessProfileDraft = {
+    ...createDefaultOnboardingState().profile,
+    ...snapshot.profile,
+  };
+  const recipe = reconcileV1StarterDocument(presentedDocument, {
+    context: deriveSiteLibraryContextFromProfile({
+      document: presentedDocument,
+      galleryImageIds: snapshot.site.galleryEnabled
+        ? snapshot.gallery.imageItemIds
+        : [],
+      profile,
+    }),
+    toggles: {
+      aboutEnabled: snapshot.site.aboutEnabled,
+      canvaEnabled: snapshot.site.canvaEnabled,
+      galleryEnabled: snapshot.site.galleryEnabled,
+      policiesEnabled: snapshot.site.policiesEnabled,
+    },
+  });
+  const stampedDocument = recipe.document;
   const pages = compileAcceptedBuilderPages(siteId, snapshot, stampedDocument);
   const visiblePageIds = new Set(pages.map(page => page.id));
 
   const document = {
     builderDocument: stampedDocument,
-    navigation: [...builderDocument.navigation.items]
+    compilerVersion: recipe.compilerVersion,
+    navigation: [...stampedDocument.navigation.items]
       .sort((left, right) => left.order - right.order)
       .filter(item => visiblePageIds.has(item.pageId))
       .map((item, order) => ({ label: item.label, order, pageId: item.pageId })),
-    navigationEnabled: builderDocument.navigation.enabled,
+    navigationEnabled: stampedDocument.navigation.enabled,
     pages,
     palettePresetId: snapshot.site.palettePresetId,
+    recipeMigrationResult: recipe.migrationResult,
+    recipeVersion: recipe.recipeVersion,
     revision,
     schemaVersion: 1 as const,
     serviceSelection: {

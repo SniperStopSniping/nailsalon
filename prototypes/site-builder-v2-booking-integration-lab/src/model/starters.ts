@@ -1,4 +1,7 @@
-import { createDefaultBookingPresentationSettings } from '../booking/presentation';
+import {
+  createDefaultBookingPresentationSettings,
+  withoutFeaturedServicesRail,
+} from '../booking/presentation';
 import { createDefaultCustomDesignSettings } from '../custom-design/model/settings';
 import { getSectionCatalogueItem } from './catalogue';
 import { createIdFactory } from './ids';
@@ -29,13 +32,7 @@ import {
 
 const DEFAULT_SECTION_NOTE = 'Content and settings will be designed later.';
 
-/**
- * `summary: false` marks composition chrome (announcement, navigation, CTAs,
- * footer, policy blocks) that stays out of the starter cards' "Includes"
- * copy and animated mini-preview scenes — the cards keep describing what the
- * owner recognizes as content, while the real document carries the full
- * coordinated section set.
- */
+/** The release recipe is the owner-visible document, not a larger hidden set. */
 export type StarterSectionDefinition =
   | {
     previewLabel: string;
@@ -45,7 +42,7 @@ export type StarterSectionDefinition =
     galleryPresentationOwner?: GalleryPresentationOwner;
     summary?: boolean;
   }
-  | { previewLabel: 'Booking'; sectionType: 'booking'; summary?: boolean };
+  | { previewLabel: string; sectionType: 'booking'; summary?: boolean };
 
 export type StarterPageDefinition = {
   name: string;
@@ -61,110 +58,87 @@ export type InitializeStarterOptions = {
 };
 
 const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
-  quick_book: [
-    {
-      name: 'Home',
-      slug: '',
-      sections: [
-        { previewLabel: 'Announcement', sectionType: 'announcement_bar', summary: false },
-        { label: 'Salon intro', preset: 'booking_first', previewLabel: 'Salon intro', sectionType: 'hero' },
-        { previewLabel: 'Services', sectionType: 'featured_services' },
-        { previewLabel: 'Booking', sectionType: 'booking' },
-        { previewLabel: 'Final CTA', sectionType: 'final_cta', summary: false },
-        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
-      ],
-    },
-  ],
-  one_page: [
-    {
-      name: 'Home',
-      slug: '',
-      sections: [
-        { previewLabel: 'Announcement', sectionType: 'announcement_bar', summary: false },
-        { label: 'Welcome', previewLabel: 'Welcome', sectionType: 'hero' },
-        { previewLabel: 'Quick facts', sectionType: 'quick_info', summary: false },
-        { previewLabel: 'On-page menu', sectionType: 'section_navigation', summary: false },
-        { previewLabel: 'About', sectionType: 'about' },
-        { previewLabel: 'Services', sectionType: 'featured_services' },
-        {
-          galleryPresentationOwner: 'onboarding',
-          previewLabel: 'Gallery',
-          sectionType: 'gallery',
-        },
-        { previewLabel: 'Reviews', sectionType: 'reviews' },
-        { previewLabel: 'Deposits', sectionType: 'deposits_cancellations', summary: false },
-        { previewLabel: 'Policies', sectionType: 'policies', summary: false },
-        { previewLabel: 'Visit us', sectionType: 'visit_us', summary: false },
-        { previewLabel: 'Booking', sectionType: 'booking' },
-        { previewLabel: 'Final CTA', sectionType: 'final_cta', summary: false },
-        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
-      ],
-    },
-  ],
+  quick_book: [{
+    name: 'Home',
+    sections: [
+      { label: 'Salon intro', preset: 'booking_first', previewLabel: 'Salon intro', sectionType: 'hero' },
+      {
+        galleryPresentationOwner: 'onboarding',
+        preset: 'carousel',
+        previewLabel: 'Nail work',
+        sectionType: 'gallery',
+      },
+      { previewLabel: 'Services & Booking', sectionType: 'booking' },
+      { previewLabel: 'About', sectionType: 'about' },
+      {
+        label: 'Visit & Contact',
+        preset: 'compact_info',
+        previewLabel: 'Visit & Contact',
+        sectionType: 'visit_us',
+      },
+    ],
+    slug: '',
+  }],
+  one_page: [{
+    name: 'Home',
+    sections: [
+      { label: 'Welcome', previewLabel: 'Welcome', sectionType: 'hero' },
+      {
+        galleryPresentationOwner: 'onboarding',
+        previewLabel: 'Gallery',
+        sectionType: 'gallery',
+      },
+      { previewLabel: 'About', sectionType: 'about' },
+      { previewLabel: 'Services & Booking', sectionType: 'booking' },
+      { previewLabel: 'Reviews', sectionType: 'reviews' },
+      { previewLabel: 'Before You Book', sectionType: 'policies' },
+      {
+        label: 'Visit & Contact',
+        previewLabel: 'Visit & Contact',
+        sectionType: 'visit_us',
+      },
+    ],
+    slug: '',
+  }],
   multi_page: [
     {
       name: 'Home',
-      slug: '',
       sections: [
-        { previewLabel: 'Announcement', sectionType: 'announcement_bar', summary: false },
         { label: 'Welcome', previewLabel: 'Welcome', sectionType: 'hero' },
-        { previewLabel: 'Quick facts', sectionType: 'quick_info', summary: false },
-        { previewLabel: 'Services', sectionType: 'featured_services' },
-        {
-          galleryPresentationOwner: 'recipe',
-          label: 'Featured work',
-          preset: 'editorial',
-          previewLabel: 'Featured work',
-          sectionType: 'gallery',
-        },
-        { previewLabel: 'Reviews', sectionType: 'reviews', summary: false },
-        { previewLabel: 'Final CTA', sectionType: 'final_cta', summary: false },
-        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
+        { previewLabel: 'Reviews', sectionType: 'reviews' },
       ],
+      slug: '',
     },
     {
-      name: 'Services / Book',
-      previewLabel: 'Services & Booking',
-      slug: 'services-book',
+      name: 'Services & Booking',
       sections: [
-        { previewLabel: 'Booking', sectionType: 'booking' },
-        { previewLabel: 'Deposits', sectionType: 'deposits_cancellations', summary: false },
-        { previewLabel: 'Policies', sectionType: 'policies', summary: false },
-        { previewLabel: 'FAQ', sectionType: 'faq', summary: false },
-        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
+        { previewLabel: 'Services & Booking', sectionType: 'booking' },
+        { previewLabel: 'Before You Book', sectionType: 'policies' },
       ],
+      slug: 'services-book',
     },
     {
       name: 'Gallery',
+      sections: [{
+        galleryPresentationOwner: 'onboarding',
+        previewLabel: 'Gallery',
+        sectionType: 'gallery',
+      }],
       slug: 'gallery',
-      sections: [
-        {
-          galleryPresentationOwner: 'onboarding',
-          previewLabel: 'Gallery',
-          sectionType: 'gallery',
-        },
-        { previewLabel: 'Final CTA', sectionType: 'final_cta', summary: false },
-        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
-      ],
     },
     {
-      name: 'Team',
-      slug: 'team',
-      sections: [
-        { previewLabel: 'Team', sectionType: 'team' },
-        { previewLabel: 'About', sectionType: 'about' },
-        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
-      ],
+      name: 'About',
+      sections: [{ previewLabel: 'About', sectionType: 'about' }],
+      slug: 'about',
     },
     {
       name: 'Contact',
+      sections: [{
+        label: 'Visit & Contact',
+        previewLabel: 'Visit & Contact',
+        sectionType: 'visit_us',
+      }],
       slug: 'contact',
-      sections: [
-        { previewLabel: 'Visit us', sectionType: 'visit_us' },
-        { previewLabel: 'Hours', sectionType: 'hours', summary: false },
-        { previewLabel: 'Contact', sectionType: 'contact' },
-        { previewLabel: 'Footer', sectionType: 'footer', summary: false },
-      ],
     },
   ],
 };
@@ -309,15 +283,20 @@ export const createPlaceholderSectionInstance = (
 
 export const createBookingSectionInstance = (
   idFactory: IdFactory,
-  options: { order?: number } = {},
-): BookingSectionInstance => ({
-  id: idFactory('section'),
-  sectionType: 'booking',
-  label: 'Booking',
-  order: options.order ?? 0,
-  visible: true,
-  settings: createDefaultBookingPresentationSettings(),
-});
+  options: { order?: number; showFeatured?: boolean } = {},
+): BookingSectionInstance => {
+  const settings = createDefaultBookingPresentationSettings();
+  return {
+    id: idFactory('section'),
+    sectionType: 'booking',
+    label: 'Booking',
+    order: options.order ?? 0,
+    visible: true,
+    settings: options.showFeatured === false
+      ? withoutFeaturedServicesRail(settings)
+      : settings,
+  };
+};
 
 export const createCustomDesignSectionInstance = (
   idFactory: IdFactory,
@@ -403,7 +382,7 @@ const createStarterPage = (
   visibleInNavigation: true,
   sections: definition.sections.map((section, sectionOrder) =>
     section.sectionType === 'booking'
-      ? createBookingSectionInstance(idFactory, { order: sectionOrder })
+      ? createBookingSectionInstance(idFactory, { order: sectionOrder, showFeatured: false })
       : createLibrarySectionInstance(section.sectionType, idFactory, {
           ...(section.galleryPresentationOwner !== undefined
             ? { galleryPresentationOwner: section.galleryPresentationOwner }

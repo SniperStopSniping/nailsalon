@@ -1,9 +1,10 @@
 /**
  * Customer renderers for the V1 section library types that are new in v2.
  *
- * The seven pre-library renderers (hero, about, gallery, booking, policies,
- * contact, custom design) stay in OnboardingSitePreview.tsx unchanged; the
- * dispatch there falls through to this map for every other library type. Each
+ * The pre-library renderers (hero, about, gallery, booking, contact, and
+ * custom design) stay in OnboardingSitePreview.tsx; the dispatch there falls
+ * through to this map for the library-owned types, including the composite
+ * Before You Book presentation. Each
  * renderer binds to its shared authority (profile, hours, policies, catalogue)
  * or `siteContent` records by id — never to copied business data — and shows
  * nothing it cannot show truthfully.
@@ -31,7 +32,11 @@ import {
 } from '../../model/content-placement';
 import { NAVIGABLE_SECTION_TYPES } from '../../model/section-library/registry';
 import type { SiteLibraryContext } from '../../model/section-library/registry';
-import type { BoundText } from '../../model/section-library/settings';
+import {
+  POLICY_TOGGLE_IDS,
+  type BoundText,
+  type PolicyToggleId,
+} from '../../model/section-library/settings';
 import type { SitePlanSection } from '../../model/site-plan';
 import type {
   LibrarySectionInstance,
@@ -57,7 +62,11 @@ import {
   isDepositsAndCancellationsComplete,
   isDepositsAndCancellationsVisible,
 } from '../model/policies';
-import type { OnboardingLabState, PolicySectionId } from '../model/types';
+import type {
+  OnboardingLabState,
+  PoliciesDraft,
+  PolicySectionId,
+} from '../model/types';
 import {
   labelForMinimumNotice,
   labelForNewClients,
@@ -450,11 +459,6 @@ function Team({ planSection, section, shared }: LibraryPreviewSectionProps) {
             {member.specialties.length > 0 ? (
               <p className="customer-lib-team-specialties">{member.specialties.join(' · ')}</p>
             ) : null}
-            {member.acceptsBookings ? (
-              <a className="customer-lib-text-cta" href="#booking" onClick={shared.onBook}>
-                Book with {member.name.split(/\s+/u)[0]}
-              </a>
-            ) : null}
           </article>
         ))}
       </div>
@@ -468,7 +472,8 @@ function Reviews({ planSection, section, shared }: LibraryPreviewSectionProps) {
   const byId = new Map(shared.context.siteContent.reviews.map(review => [review.id, review]));
   const reviews = settings.reviewIds
     .map(id => byId.get(id))
-    .filter((review): review is NonNullable<typeof review> => Boolean(review?.visible));
+    .filter((review): review is NonNullable<typeof review> => Boolean(review?.visible))
+    .slice(0, 3);
   if (reviews.length === 0) return null;
   return (
     <section
@@ -535,48 +540,101 @@ function DepositsCancellations({ planSection, section, shared }: LibraryPreviewS
   );
 }
 
-const POLICY_TOGGLE_TO_SECTION: Record<string, PolicySectionId> = {
+const POLICY_TOGGLE_TO_SECTION: Record<PolicyToggleId, PolicySectionId> = {
   late_arrivals: 'late_arrivals',
   no_shows: 'no_shows',
   other: 'other',
   repairs: 'repairs',
 };
 
-const POLICY_HEADINGS: Record<string, string> = {
+const POLICY_HEADINGS: Record<PolicyToggleId, string> = {
   late_arrivals: 'Late arrivals',
   no_shows: 'No-shows',
   other: 'Good to know',
   repairs: 'Repairs',
 };
 
+export type BeforeYouBookEntry = Readonly<{
+  contentKey: 'before_you_book_policies' | 'deposit_cancellation_policy';
+  heading: string;
+  id: 'deposits_cancellations' | PolicyToggleId;
+  wording: string;
+}>;
+
+/**
+ * Resolves the one customer-facing Before You Book summary from the existing
+ * shared policy authority. Quick Book can reuse this exact entry list inside
+ * Booking; the standalone one-page/multi-page section renders the same list.
+ */
+export const getBeforeYouBookEntries = (
+  policies: PoliciesDraft,
+  includedSections: readonly PolicyToggleId[] = POLICY_TOGGLE_IDS,
+): BeforeYouBookEntry[] => {
+  const depositsAndCancellations = isDepositsAndCancellationsVisible(policies)
+    ? (
+        isDepositsAndCancellationsComplete(policies)
+          ? deriveDepositsAndCancellationsSummary(policies)
+          : getDepositsAndCancellationsDisplayWording(policies)
+      ).trim()
+    : '';
+  const entries: BeforeYouBookEntry[] = depositsAndCancellations
+    ? [{
+        contentKey: 'deposit_cancellation_policy',
+        heading: 'Deposits & cancellations',
+        id: 'deposits_cancellations',
+        wording: depositsAndCancellations,
+      }]
+    : [];
+
+  includedSections.forEach((toggleId) => {
+    const sectionId = POLICY_TOGGLE_TO_SECTION[toggleId];
+    const wording = getPolicyDisplayWording(policies, sectionId).trim();
+    if (!wording) return;
+    entries.push({
+      contentKey: 'before_you_book_policies',
+      heading: POLICY_HEADINGS[toggleId],
+      id: toggleId,
+      wording,
+    });
+  });
+
+  return entries;
+};
+
 function Policies({ planSection, section, shared }: LibraryPreviewSectionProps) {
   const settings = settingsOf(section, 'policies');
   if (!settings) return null;
   const { policies } = shared.state.profile;
-  const entries = settings.includedSections
-    .map((toggleId) => {
-      const sectionId = POLICY_TOGGLE_TO_SECTION[toggleId];
-      if (!sectionId) return null;
-      const wording = getPolicyDisplayWording(policies, sectionId).trim();
-      return wording
-        ? { heading: POLICY_HEADINGS[toggleId] ?? toggleId, toggleId, wording }
-        : null;
-    })
-    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  const entries = getBeforeYouBookEntries(policies, settings.includedSections)
+    .filter(entry => sectionOwnsContent(
+      shared.contentPlacement,
+      entry.contentKey,
+      planSection.id,
+      shared.pageId,
+    ));
   if (entries.length === 0) return null;
+  const firstGeneralPolicyIndex = entries.findIndex(
+    entry => entry.contentKey === 'before_you_book_policies',
+  );
   return (
     <section
       {...sectionAttributes(planSection, 'policies')}
-      {...contentAttributes(shared, 'before_you_book_policies', planSection.id)}
-      aria-label="Studio policies"
+      aria-label="Before you book"
       className="customer-lib-policies"
       id={sectionAnchorId(planSection.id, 'policies')}
     >
-      <p className="onboarding-customer-eyebrow">Before you book</p>
-      <h2>Studio policies</h2>
+      <p className="onboarding-customer-eyebrow">Appointment details</p>
+      <h2>Before you book</h2>
       <dl>
-        {entries.map(entry => (
-          <div data-policy={entry.toggleId} key={entry.toggleId}>
+        {entries.map((entry, index) => (
+          <div
+            {...(entry.contentKey === 'deposit_cancellation_policy'
+              || index === firstGeneralPolicyIndex
+              ? contentAttributes(shared, entry.contentKey, planSection.id)
+              : {})}
+            data-policy={entry.id}
+            key={entry.id}
+          >
             <dt>{entry.heading}</dt>
             <dd>{entry.wording}</dd>
           </div>
@@ -676,6 +734,12 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
     'business_hours',
     planSection.id,
   ) && settings.hoursSummary !== 'hide';
+  const ownsArrivalDetails = sectionOwnsContent(
+    shared.contentPlacement,
+    'arrival_details',
+    planSection.id,
+    shared.pageId,
+  );
   const hoursRows = ownsHours ? getPublicWeeklyHours(profile.hours) : [];
   const contentKeyForMethod = (method: PublicContactAction['method']): SiteContentKey | null => {
     if (method === 'instagram') return 'instagram';
@@ -697,26 +761,32 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
         ? [{ action, contentKey }]
         : [];
     });
-  const practicalNotes = [
+  const practicalNotes = ownsArrivalDetails ? [
     settings.showParking ? profile.location.parking.trim() : '',
     settings.showEntrance ? profile.location.entranceInstructions.trim() : '',
     settings.showTransit ? profile.location.transitInformation.trim() : '',
-  ].filter(Boolean);
+  ].filter(Boolean) : [];
+  const showBookingOnlyContact = settings.contactSummary !== 'hide'
+    && profile.bookingOnlyContact;
   if ((!ownsLocation || !location.primary.trim())
     && practicalNotes.length === 0
     && hoursRows.length === 0
-    && contactActions.length === 0) return null;
+    && contactActions.length === 0
+    && !showBookingOnlyContact) return null;
   return (
     <section
       {...sectionAttributes(planSection, 'visit_us')}
-      aria-label="Visit us"
+      aria-label="Visit and contact"
       className={`customer-lib-visit is-${settings.preset}`}
       id={sectionAnchorId(planSection.id, 'visit_us')}
     >
-      <p className="onboarding-customer-eyebrow">Visit us</p>
-      <h2>Finding the studio</h2>
+      <p className="onboarding-customer-eyebrow">Visit &amp; contact</p>
+      <h2>Plan your visit</h2>
       <div className="customer-lib-visit-body">
         <div className="customer-lib-visit-place">
+          {(ownsLocation && location.primary.trim()) || practicalNotes.length > 0 ? (
+            <h3>Visit</h3>
+          ) : null}
           {ownsLocation && location.primary.trim() ? (
             <p
               {...contentAttributes(shared, 'location', planSection.id)}
@@ -756,6 +826,7 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
             {...contentAttributes(shared, 'business_hours', planSection.id)}
             className="customer-lib-visit-hours"
           >
+            <h3>Hours</h3>
             <dl className="customer-lib-hours-rows is-summary">
               {hoursRows.filter(row => row.hours !== 'Closed').map(row => (
                 <div key={row.weekday}>
@@ -778,21 +849,34 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
             ) : null}
           </div>
         ) : null}
-        {contactActions.length > 0 ? (
-          <p className="customer-lib-visit-contact">
-            {contactActions.map(({ action, contentKey }) => (
-              <a
-                {...contentAttributes(shared, contentKey, planSection.id)}
-                href={action.href}
-                key={action.method}
-                rel={action.rel}
-                target={action.target}
+        {contactActions.length > 0 || showBookingOnlyContact ? (
+          <div className="customer-lib-visit-contact-group">
+            <h3>Contact</h3>
+            {showBookingOnlyContact ? (
+              <p
+                {...contentAttributes(shared, 'booking_only_contact', planSection.id)}
+                className="customer-lib-visit-detail"
               >
-                <ContactMark method={action.method} />
-                {action.actionLabel}
-              </a>
-            ))}
-          </p>
+                Online booking is the best way to reach us.
+              </p>
+            ) : null}
+            {contactActions.length > 0 ? (
+              <p className="customer-lib-visit-contact">
+                {contactActions.map(({ action, contentKey }) => (
+                  <a
+                    {...contentAttributes(shared, contentKey, planSection.id)}
+                    href={action.href}
+                    key={action.method}
+                    rel={action.rel}
+                    target={action.target}
+                  >
+                    <ContactMark method={action.method} />
+                    {action.actionLabel}
+                  </a>
+                ))}
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </section>
@@ -872,8 +956,8 @@ function Footer({ planSection, section, shared }: LibraryPreviewSectionProps) {
 
 /**
  * Renderers for the library types OnboardingSitePreview does not render with
- * its pre-library components. Keys deliberately omit hero/about/gallery/
- * policies/contact — the dispatch handles those first.
+ * its pre-library components. Keys deliberately omit hero/about/gallery and
+ * contact — the dispatch handles those first.
  */
 export const LIBRARY_SECTION_PREVIEW_RENDERERS: Partial<
   Record<LibrarySectionType, LibraryPreviewRenderer>

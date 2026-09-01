@@ -10,7 +10,11 @@ import {
 import { useEffect, useState } from 'react';
 
 import { getSectionRegistryEntry, isLibrarySection } from '../model/section-library/registry';
-import type { NonEngineSectionInstance, PageDocument } from '../model/types';
+import type {
+  LibrarySectionType,
+  NonEngineSectionInstance,
+  PageDocument,
+} from '../model/types';
 
 type SectionCardProps = {
   page: PageDocument;
@@ -51,6 +55,17 @@ export function SectionCard({
   const numberMark = placeholder
     ? placeholder.label.replace('Section ', '')
     : (entry?.label ?? section.label).slice(0, 2).toUpperCase();
+  const connectedSummary = library ? ({
+    about: 'Uses the owner profile, portrait, biography, and specialties saved during setup.',
+    gallery: 'Uses the nail-work photos and display choice saved for this site.',
+    hero: 'Uses the salon identity and a dedicated opening image when one is available.',
+    policies: 'Uses the shared appointment rules from Before You Book.',
+    reviews: 'Shows only real client reviews that are ready to publish.',
+    team: 'Uses the salon introduction and real staff profiles saved for this business.',
+    visit_us: 'Uses the shared location, privacy, hours, and public contact settings.',
+  } as Partial<Record<LibrarySectionType, string>>)[library.sectionType]
+    ?? entry?.description
+    : null;
   useEffect(() => {
     if (!selected) {
       setMenuOpen(false);
@@ -89,7 +104,18 @@ export function SectionCard({
       </button>
 
       {placeholder?.placeholderSettings.note ? <p className="section-card__note">“{placeholder.placeholderSettings.note}”</p> : null}
-      <div className="placeholder-grid" aria-hidden="true"><span /><span /><span /></div>
+      {library ? (
+        <div className="section-card__connected-preview" data-builder-section-state="connected">
+          <span aria-hidden="true">{numberMark}</span>
+          <div>
+            <strong>{entry?.label ?? section.label}</strong>
+            <p>{connectedSummary}</p>
+            <small>Open Preview to see the exact customer experience.</small>
+          </div>
+        </div>
+      ) : (
+        <div className="placeholder-grid" aria-hidden="true"><span /><span /><span /></div>
+      )}
 
       <div aria-label={`Quick actions for ${section.label}`} className="section-context-toolbar">
         <span aria-hidden="true" className="section-context-toolbar__label">{section.label}</span>

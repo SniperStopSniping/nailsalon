@@ -49,7 +49,7 @@ import {
   type SitePlanSection,
 } from '../../model/site-plan';
 import { initializeStarter } from '../../model/starters';
-import type { SiteBuilderDocument } from '../../model/types';
+import type { SectionType, SiteBuilderDocument } from '../../model/types';
 import { resolveOnboardingImageUrl } from '../integrations/adapters/media';
 import {
   aboutPresetSupportsElement,
@@ -88,6 +88,7 @@ import { labelForNewClients, labelForVisitMode } from './customer-facts';
 import { OnboardingCustomDesignSections } from './OnboardingCustomDesignSections';
 import { sectionAnchorId } from './section-anchors';
 import {
+  getBeforeYouBookEntries,
   LIBRARY_SECTION_PREVIEW_RENDERERS,
   type LibraryPreviewShared,
 } from './section-renderers';
@@ -273,6 +274,17 @@ const identityInitials = (value: string, fallback = 'L'): string => {
   return initials || fallback;
 };
 
+const V1_SECTION_NAVIGATION_LABELS: Partial<Record<SectionType, string>> = {
+  about: 'About',
+  booking: 'Services & Booking',
+  gallery: 'Gallery',
+  hero: 'Home',
+  policies: 'Before You Book',
+  reviews: 'Reviews',
+  team: 'About',
+  visit_us: 'Visit & Contact',
+};
+
 /** A style-owned no-media treatment; it never borrows Profile or Logo. */
 function HeroDecoration({ title }: { title: string }) {
   return (
@@ -358,42 +370,6 @@ function Portrait({
 }
 
 type PreviewBookHandler = (event: ReactMouseEvent<HTMLAnchorElement>) => void;
-
-function AboutActions({ contentPlacement, onBook, pageId, profile, sectionId }: {
-  contentPlacement: SiteContentPlacementPlan;
-  onBook: PreviewBookHandler;
-  pageId: string;
-  profile: BusinessProfileDraft;
-  sectionId: string;
-}) {
-  const visibility = profile.about.visibility;
-  const instagram = getPublicContactActions(profile).find(
-    (action) => action.method === 'instagram',
-  );
-  const hasInstagram = isAboutVisible(visibility, 'instagram')
-    && instagram
-    && sectionOwnsContent(contentPlacement, 'instagram', sectionId, pageId);
-  const hasBooking = isAboutVisible(visibility, 'book_button');
-  if (!hasInstagram && !hasBooking) return null;
-
-  return (
-    <div className="onboarding-customer-actions">
-      {hasBooking ? <a href="#booking" onClick={onBook}><CalendarDays aria-hidden="true" size={16} /> Book now</a> : null}
-      {hasInstagram ? (
-        <a
-          className="is-secondary"
-          data-content-key="instagram"
-          data-content-owner={sectionId}
-          href={instagram.href}
-          rel={instagram.rel}
-          target={instagram.target}
-        >
-          <Instagram aria-hidden="true" size={16} /> @{instagram.detail}
-        </a>
-      ) : null}
-    </div>
-  );
-}
 
 type AboutFact = {
   contentKey?: SiteContentKey;
@@ -572,7 +548,6 @@ function AboutSection({
   contentPlacement,
   hoursStatus,
   introOverride,
-  onBook,
   pageId,
   preset,
   profile,
@@ -581,7 +556,6 @@ function AboutSection({
   contentPlacement: SiteContentPlacementPlan;
   hoursStatus: WeeklyHoursPreviewStatus | null;
   introOverride?: string;
-  onBook: PreviewBookHandler;
   pageId: string;
   preset: AboutPresetId;
   profile: BusinessProfileDraft;
@@ -597,15 +571,6 @@ function AboutSection({
       sectionId,
       pageId,
     );
-  const actions = (
-    <AboutActions
-      contentPlacement={contentPlacement}
-      onBook={onBook}
-      pageId={pageId}
-      profile={profile}
-      sectionId={sectionId}
-    />
-  );
   const facts = (props: Pick<Parameters<typeof AboutFacts>[0],
     'excludeLabels' | 'maxVisible' | 'presentation'> = {}) => (
       <AboutFacts
@@ -633,7 +598,6 @@ function AboutSection({
         <div className="onboarding-about-editorial-story">
           <AboutCopy introOverride={introOverride} profile={profile} />
           <AboutSpecialties profile={profile} />
-          {actions}
           {facts({ maxVisible: 2, presentation: 'pills' })}
         </div>
       </section>
@@ -655,7 +619,6 @@ function AboutSection({
           ) : null}
           <AboutCopy introOverride={introOverride} profile={profile} />
         </div>
-        {actions}
         {facts()}
         <AboutSpecialties profile={profile} />
       </section>
@@ -679,7 +642,6 @@ function AboutSection({
             <AboutCopy introOverride={introOverride} profile={profile} />
           </div>
           <AboutSpecialties profile={profile} />
-          {actions}
         </div>
         {facts({
           excludeLabels: ['Appointments', 'New clients'],
@@ -701,7 +663,6 @@ function AboutSection({
       <div className="onboarding-about-photo-copy">
         <AboutCopy introOverride={introOverride} profile={profile} />
         <AboutSpecialties profile={profile} />
-        {actions}
         {facts({ maxVisible: 2, presentation: 'pills' })}
       </div>
       {showPortrait ? (
@@ -711,9 +672,8 @@ function AboutSection({
   );
 }
 
-function ContactSection({ contentPlacement, onBook, pageId, profile, sectionId }: {
+function ContactSection({ contentPlacement, pageId, profile, sectionId }: {
   contentPlacement: SiteContentPlacementPlan;
-  onBook: PreviewBookHandler;
   pageId: string;
   profile: BusinessProfileDraft;
   sectionId: string;
@@ -737,7 +697,9 @@ function ContactSection({ contentPlacement, onBook, pageId, profile, sectionId }
   };
   const contacts = getPublicContactActions(profile).flatMap(
     (contact): ContactPlacementAction[] => {
-    if (contact.method === 'booking') return [{ contact, contentKey: null }];
+    // Booking already has canonical actions in the Hero, shell shortcut, and
+    // Services & Booking. Visit & Contact owns only public contact methods.
+    if (contact.method === 'booking') return [];
     const contentKey = contentKeyForContactMethod(contact.method);
     return contentKey && sectionOwnsContent(
       contentPlacement,
@@ -757,7 +719,8 @@ function ContactSection({ contentPlacement, onBook, pageId, profile, sectionId }
   const publicContacts = contacts.filter(({ contentKey }) => contentKey !== null);
   if ((!ownsLocation || !location.primary)
     && publicContacts.length === 0
-    && weeklyHours.length === 0) return null;
+    && weeklyHours.length === 0
+    && !profile.bookingOnlyContact) return null;
   return (
     <section
       aria-label="Visit and contact"
@@ -766,8 +729,8 @@ function ContactSection({ contentPlacement, onBook, pageId, profile, sectionId }
       id={sectionId ? sectionAnchorId(sectionId, 'contact') : undefined}
     >
       <div>
-        <p className="onboarding-customer-eyebrow">Visit us</p>
-        <h2>Plan your appointment</h2>
+        <p className="onboarding-customer-eyebrow">Visit &amp; Contact</p>
+        <h2>Find or contact the salon</h2>
         {ownsLocation && location.primary ? (
           <p data-content-key="location" data-content-owner={sectionId}>
             <MapPin aria-hidden="true" size={17} />
@@ -782,6 +745,11 @@ function ContactSection({ contentPlacement, onBook, pageId, profile, sectionId }
         ) : null}
         {ownsLocation && location.detail ? <small>{location.detail}</small> : null}
         {ownsLocation && serviceLocation ? <small>{serviceLocation.value}</small> : null}
+        {profile.bookingOnlyContact ? (
+          <small data-content-key="booking_only_contact" data-content-owner={sectionId}>
+            Contact is kept private. Please use online booking to arrange your appointment.
+          </small>
+        ) : null}
       </div>
       {weeklyHours.length > 0 ? (
         <div
@@ -809,7 +777,6 @@ function ContactSection({ contentPlacement, onBook, pageId, profile, sectionId }
             data-content-owner={contentKey ? sectionId : undefined}
             data-contact-method={contact.method}
             href={contact.href}
-            onClick={contact.method === 'booking' ? onBook : undefined}
             rel={contact.rel}
             target={contact.target}
           >
@@ -834,7 +801,8 @@ function ContactSection({ contentPlacement, onBook, pageId, profile, sectionId }
   );
 }
 
-function GallerySection({ preset, sectionId, selection, state }: {
+function GallerySection({ compact = false, preset, sectionId, selection, state }: {
+  compact?: boolean;
   preset?: GalleryPresetId;
   sectionId?: string;
   selection?: GallerySelection;
@@ -842,12 +810,13 @@ function GallerySection({ preset, sectionId, selection, state }: {
 }) {
   // A deliberate picked selection shows exactly those photos, in that order;
   // ids that no longer exist simply don't render.
-  const images = selection?.mode === 'picked'
+  const selectedImages = selection?.mode === 'picked'
     ? selection.imageIds.flatMap((imageId) => {
         const image = state.gallery.images.find(candidate => candidate.id === imageId);
         return image ? [image] : [];
       })
     : state.gallery.images;
+  const images = selectedImages.slice(0, compact ? 4 : 6);
   const assetIds = images.flatMap((image) => image.storageId ? [image.storageId] : []);
   const assets = useCustomDesignAssetMap(assetIds);
   if (!state.recipe.galleryEnabled) return null;
@@ -868,7 +837,7 @@ function GallerySection({ preset, sectionId, selection, state }: {
   return (
     <section
       aria-label="Gallery"
-      className={`onboarding-customer-gallery is-${preset ?? state.gallery.layout}`}
+      className={`onboarding-customer-gallery is-${preset ?? state.gallery.layout}${compact ? ' is-compact' : ''}`}
       data-content-key="gallery_media"
       data-content-owner={sectionId}
       data-section-id={sectionId}
@@ -882,6 +851,7 @@ function GallerySection({ preset, sectionId, selection, state }: {
 }
 
 function BookingSection({
+  compactPolicies = false,
   contentPlacement,
   document,
   device,
@@ -892,6 +862,7 @@ function BookingSection({
   sectionId,
   session,
 }: {
+  compactPolicies?: boolean;
   contentPlacement: SiteContentPlacementPlan;
   document: SiteBuilderDocument | null;
   device: OnboardingPreviewDevice;
@@ -974,6 +945,14 @@ function BookingSection({
       value: minimumNoticeCopy.customer,
     },
   ].filter(fact => fact.value && ownsBookingFact(fact.contentKey));
+  const policyEntries = compactPolicies
+    ? getBeforeYouBookEntries(profile.policies).filter(entry => sectionOwnsContent(
+        contentPlacement,
+        entry.contentKey,
+        sectionId ?? null,
+        pageId,
+      ))
+    : [];
 
   return (
     <section
@@ -1015,6 +994,23 @@ function BookingSection({
         summaryHost={overlayHost}
         tokenPreset="warm"
       />
+      {policyEntries.length > 0 ? (
+        <details className="onboarding-quick-book-policies">
+          <summary>Before you book</summary>
+          <dl>
+            {policyEntries.map(entry => (
+              <div
+                data-content-key={entry.contentKey}
+                data-content-owner={sectionId}
+                key={entry.id}
+              >
+                <dt>{entry.heading}</dt>
+                <dd>{entry.wording}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      ) : null}
     </section>
   );
 }
@@ -1095,9 +1091,11 @@ export function OnboardingSitePreview({
   const measurementHostRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDivElement>(null);
   const pendingDocumentTargetRef = useRef<CustomDesignDocumentNavigationTarget | null>(null);
+  const pendingPageNavigationFocusRef = useRef(false);
   const summaryId = useId();
   const viewport = ONBOARDING_PREVIEW_VIEWPORTS[device];
   const [activePageId, setActivePageId] = useState<string | null>(initialPageId ?? null);
+  const [heroActionVisible, setHeroActionVisible] = useState(true);
   const [overlayHost, setOverlayHost] = useState<HTMLDivElement | null>(null);
   const [previewScale, setPreviewScale] = useState(1);
   const { profile, recipe } = state;
@@ -1208,29 +1206,52 @@ export function OnboardingSitePreview({
   ), [pagePlan]);
   const activePage = pagePlan.find(page => page.id === activePageId) ?? pagePlan[0] ?? null;
   const navigationItems = useMemo(() => {
-    if (!document?.navigation.enabled) return [];
-    const pagesById = new Map(document.pages.map((page) => [page.id, page]));
+    if (!effectiveDocument.navigation.enabled) return [];
+    const pagesById = new Map(effectiveDocument.pages.map((page) => [page.id, page]));
     const visiblePageIds = new Set(pagePlan.map((page) => page.id));
-    return [...document.navigation.items]
+    return [...effectiveDocument.navigation.items]
       .sort((left, right) => left.order - right.order)
       .filter((item) => (
         pagesById.get(item.pageId)?.visibleInNavigation
         && visiblePageIds.has(item.pageId)
       ))
       .map((item) => ({ label: item.label, pageId: item.pageId }));
-  }, [document, pagePlan]);
+  }, [effectiveDocument, pagePlan]);
+  const onePageNavigationItems = useMemo(() => starter === 'one_page'
+    ? (pagePlan[0]?.sections.flatMap(section => {
+        const label = V1_SECTION_NAVIGATION_LABELS[section.sectionType];
+        return label ? [{ label, section }] : [];
+      }) ?? [])
+    : [], [pagePlan, starter]);
   const bookingPage = pagePlan.find(page => page.sections.some(section => (
     section.sectionType === 'booking'
   ))) ?? null;
   const revealCurrentDocumentTarget = useCallback((target: CustomDesignDocumentNavigationTarget) => {
+    const frame = frameRef.current;
     const preview = previewRef.current;
-    if (!preview) return;
+    if (!frame || !preview) return;
     const targetElement = target.sectionId
       ? [...preview.querySelectorAll<HTMLElement>('[data-section-id]')]
         .find((element) => element.dataset.sectionId === target.sectionId)
       : [...preview.querySelectorAll<HTMLElement>('[data-preview-page-id]')]
         .find((element) => element.dataset.previewPageId === target.pageId);
-    targetElement?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!targetElement) return;
+    const headerHeight = preview.querySelector<HTMLElement>('.onboarding-customer-header')
+      ?.getBoundingClientRect().height ?? 0;
+    const frameTop = frame.getBoundingClientRect().top;
+    const targetTop = targetElement.getBoundingClientRect().top;
+    const top = Math.max(0, frame.scrollTop + targetTop - frameTop - headerHeight - 8);
+    if (typeof frame.scrollTo === 'function') {
+      frame.scrollTo({ behavior: 'smooth', top });
+    } else {
+      // jsdom and a small number of embedded browsers do not expose
+      // Element.scrollTo. Preserve the same frame-scoped navigation without
+      // falling back to document scrolling.
+      frame.scrollTop = top;
+    }
+    const focusTarget = targetElement.querySelector<HTMLElement>('h1, h2') ?? targetElement;
+    if (!focusTarget.hasAttribute('tabindex')) focusTarget.tabIndex = -1;
+    focusTarget.focus({ preventScroll: true });
   }, []);
   const revealDocumentTarget = useCallback((target: CustomDesignDocumentNavigationTarget) => {
     if (pagePlan.length <= 1 || activePage?.id === target.pageId) {
@@ -1275,6 +1296,38 @@ export function OnboardingSitePreview({
     pendingDocumentTargetRef.current = null;
     revealCurrentDocumentTarget(pendingTarget);
   }, [activePage?.id, revealCurrentDocumentTarget]);
+
+  useLayoutEffect(() => {
+    if (!pendingPageNavigationFocusRef.current || !activePage) return;
+    pendingPageNavigationFocusRef.current = false;
+    [...(frameRef.current?.querySelectorAll<HTMLElement>('[data-preview-page-id]') ?? [])]
+      .find((page) => page.dataset.previewPageId === activePage.id)
+      ?.querySelector<HTMLElement>('[data-preview-page-heading="true"]')
+      ?.focus({ preventScroll: true });
+  }, [activePage]);
+
+  useLayoutEffect(() => {
+    const frame = frameRef.current;
+    const heroAction = previewRef.current?.querySelector<HTMLElement>(
+      '[data-hero-book-action="true"]',
+    );
+    if (!frame || !heroAction) {
+      setHeroActionVisible(false);
+      return undefined;
+    }
+    if (typeof IntersectionObserver === 'undefined') {
+      setHeroActionVisible(true);
+      return undefined;
+    }
+    const observer = new IntersectionObserver(([entry]) => {
+      setHeroActionVisible(Boolean(entry?.isIntersecting));
+    }, {
+      root: frame,
+      threshold: 0.01,
+    });
+    observer.observe(heroAction);
+    return () => observer.disconnect();
+  }, [activePage?.id, device, pagePlan, starter]);
 
   useLayoutEffect(() => {
     const measurementHost = measurementHostRef.current;
@@ -1373,15 +1426,21 @@ export function OnboardingSitePreview({
           className={`onboarding-customer-hero is-${heroSettings?.preset ?? 'booking_first'}`}
           data-section-id={planSection.id}
           data-surface={planSection.surface}
+          id={sectionAnchorId(planSection.id, 'hero')}
           key={planSection.id}
         >
           <div>
             {heroSettings?.showLocationEyebrow !== false ? (
               <p className="onboarding-customer-eyebrow">Independent nail care</p>
             ) : null}
-            <h2>{headline}</h2>
+            <h1 data-preview-page-heading="true" tabIndex={-1}>{headline}</h1>
             <p>{intro}</p>
-            <a className="onboarding-customer-primary" href="#booking" onClick={navigateToBooking}>
+            <a
+              className="onboarding-customer-primary"
+              data-hero-book-action="true"
+              href="#booking"
+              onClick={navigateToBooking}
+            >
               {heroSettings?.primaryCtaLabel.trim() || 'Book an appointment'}
             </a>
           </div>
@@ -1408,7 +1467,6 @@ export function OnboardingSitePreview({
           key={planSection.id}
           hoursStatus={hoursStatus}
           introOverride={aboutIntroOverride}
-          onBook={navigateToBooking}
           pageId={page.id}
           preset={aboutPreset}
           profile={profile}
@@ -1419,6 +1477,7 @@ export function OnboardingSitePreview({
     if (planSection.sectionType === 'gallery') {
       return (
         <GallerySection
+          compact={starter === 'quick_book'}
           key={planSection.id}
           preset={instance.sectionType === 'gallery' ? instance.settings.preset : undefined}
           sectionId={planSection.id}
@@ -1430,6 +1489,7 @@ export function OnboardingSitePreview({
     if (planSection.sectionType === 'booking') {
       return (
         <BookingSection
+          compactPolicies={starter === 'quick_book' && state.recipe.policiesEnabled}
           contentPlacement={contentPlacement}
           key={planSection.id}
           device={device}
@@ -1448,7 +1508,6 @@ export function OnboardingSitePreview({
         <ContactSection
           contentPlacement={contentPlacement}
           key={planSection.id}
-          onBook={navigateToBooking}
           pageId={page.id}
           profile={profile}
           sectionId={planSection.id}
@@ -1523,13 +1582,16 @@ export function OnboardingSitePreview({
         tabIndex={interactionMode === 'inline' ? -1 : 0}
       >
       <div className="onboarding-site-preview" ref={previewRef} style={style}>
-        <header className={`onboarding-customer-header${starter === 'multi_page' ? ' has-page-navigation' : ''}`}>
+        <header className={`onboarding-customer-header${starter === 'multi_page' ? ' has-page-navigation' : ''}${starter === 'one_page' ? ' has-anchor-navigation' : ''}`}>
           <Brand profile={profile} />
-          {starter !== 'quick_book' ? (
-            <nav
-              aria-label="Customer preview navigation"
-              className={starter === 'multi_page' ? 'is-page-navigation' : undefined}
-            >
+          <nav
+            aria-label="Customer preview navigation"
+            className={starter === 'multi_page'
+              ? 'is-page-navigation'
+              : starter === 'one_page'
+                ? 'is-anchor-navigation'
+                : undefined}
+          >
               {starter === 'multi_page' ? navigationItems.map((item) => (
                 <a
                   aria-current={activePage?.id === item.pageId ? 'page' : undefined}
@@ -1538,6 +1600,7 @@ export function OnboardingSitePreview({
                   onClick={(event) => {
                     event.preventDefault();
                     pendingDocumentTargetRef.current = null;
+                    pendingPageNavigationFocusRef.current = true;
                     setActivePageId(item.pageId);
                     if (frameRef.current) frameRef.current.scrollTop = 0;
                   }}
@@ -1545,9 +1608,35 @@ export function OnboardingSitePreview({
                   {item.label}
                 </a>
               )) : null}
-              {bookingPage ? <a href="#booking" onClick={navigateToBooking}>Book</a> : null}
-            </nav>
-          ) : null}
+              {starter === 'one_page' ? onePageNavigationItems.map(({ label: itemLabel, section }) => (
+                <a
+                  href={`#${sectionAnchorId(section.id, section.sectionType)}`}
+                  key={section.id}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    revealCurrentDocumentTarget({
+                      kind: section.sectionType === 'booking' ? 'booking' : 'internal',
+                      pageId: activePage?.id ?? pagePlan[0]?.id ?? '',
+                      relationship: 'same_page',
+                      sectionId: section.id,
+                    });
+                  }}
+                >
+                  {itemLabel}
+                </a>
+              )) : null}
+              {bookingPage ? (
+                <a
+                  aria-hidden={device === 'phone' && heroActionVisible ? 'true' : undefined}
+                  className={`customer-book-shortcut${device === 'phone' && heroActionVisible ? ' is-hidden' : ''}`}
+                  href="#booking"
+                  onClick={navigateToBooking}
+                  tabIndex={device === 'phone' && heroActionVisible ? -1 : undefined}
+                >
+                  Book
+                </a>
+              ) : null}
+          </nav>
         </header>
 
         <div className="onboarding-customer-content">
@@ -1560,6 +1649,16 @@ export function OnboardingSitePreview({
               key={page.id}
               role={starter === 'multi_page' ? 'region' : undefined}
             >
+              {starter === 'multi_page'
+                && !page.sections.some(section => section.sectionType === 'hero') ? (
+                  <h1
+                    className="onboarding-customer-page-title"
+                    data-preview-page-heading="true"
+                    tabIndex={-1}
+                  >
+                    {page.label}
+                  </h1>
+                ) : null}
               {page.sections.map(section => renderPreviewSection(page, section))}
             </div>
           ))}

@@ -32,6 +32,10 @@ import {
 } from 'react';
 
 import {
+  createDefaultBookingPresentationSettings,
+  withoutFeaturedServicesRail,
+} from '../booking/presentation';
+import {
   createEmptyBookingSession,
   createMenuFixture,
   normalizeBookingSelection,
@@ -100,7 +104,10 @@ import {
 } from '../model';
 import { createDefaultOnboardingState } from '../onboarding/model/defaults';
 import { goToScreen } from '../onboarding/model/routing';
-import { deriveSiteLibraryContext, deriveSitePlanToggles } from '../onboarding/model/site-library-context';
+import {
+  deriveBuilderSitePlanToggles,
+  deriveSiteLibraryContext,
+} from '../onboarding/model/site-library-context';
 import {
   getOnboardingReferencedAssetIds,
   OnboardingApp,
@@ -367,6 +374,7 @@ export function App() {
               Back to dashboard
             </button>
             <BuilderApp
+              auditMode={auditMode}
               lab={lab}
               onBackToDashboard={() => setSurface('dashboard')}
               onChangeBusinessSetup={openBusinessSetup}
@@ -436,10 +444,12 @@ function DashboardHandoffSurface({
 }
 
 function BuilderApp({
+  auditMode,
   lab,
   onBackToDashboard,
   onChangeBusinessSetup,
 }: {
+  auditMode: boolean;
   lab: LabDocumentController;
   onBackToDashboard: () => void;
   onChangeBusinessSetup: () => boolean;
@@ -1766,7 +1776,7 @@ function BuilderApp({
     return {
       libraryContext: deriveSiteLibraryContext(onboardingState, document),
       libraryProfile: onboardingState.profile,
-      libraryToggles: deriveSitePlanToggles(onboardingState),
+      libraryToggles: deriveBuilderSitePlanToggles(onboardingState, document),
     };
   }, [document]);
 
@@ -1918,7 +1928,7 @@ function BuilderApp({
     execute({ type: 'update_site_content', input }).success;
 
   const addSection = (
-    sectionType: CatalogueSectionType | 'custom_design',
+    sectionType: CatalogueSectionType | 'booking' | 'custom_design',
     size?: SectionSize,
   ) => {
     if (!activePage || libraryPosition === null) {
@@ -1931,12 +1941,18 @@ function BuilderApp({
           position: libraryPosition,
           sectionType,
         } as const
-      : {
-          pageId: activePage.id,
-          position: libraryPosition,
-          sectionType,
-          size: size ?? 'medium',
-        } as const;
+      : sectionType === 'booking'
+        ? {
+            pageId: activePage.id,
+            position: libraryPosition,
+            sectionType,
+          } as const
+        : {
+            pageId: activePage.id,
+            position: libraryPosition,
+            sectionType,
+            size: size ?? 'medium',
+          } as const;
     const result = execute({ type: 'add_section', input });
     if (!result.success) {
       return;
@@ -2010,7 +2026,7 @@ function BuilderApp({
     const result = execute({
       type: 'update_booking_presentation',
       sectionId: editingBooking.id,
-      settings,
+      settings: auditMode ? settings : withoutFeaturedServicesRail(settings),
     });
     if (!result.success) {
       return;
@@ -2022,10 +2038,16 @@ function BuilderApp({
     if (!editingBooking) {
       return;
     }
-    const result = execute({
-      type: 'reset_booking_presentation',
-      sectionId: editingBooking.id,
-    });
+    const result = auditMode
+      ? execute({
+          type: 'reset_booking_presentation',
+          sectionId: editingBooking.id,
+        })
+      : execute({
+          type: 'update_booking_presentation',
+          sectionId: editingBooking.id,
+          settings: withoutFeaturedServicesRail(createDefaultBookingPresentationSettings()),
+        });
     if (result.success) {
       setToast({ message: 'Booking presentation reset.' });
     }
@@ -3075,6 +3097,7 @@ function BuilderApp({
           </header>
           <div className="final-booking-settings-drawer__body">
             <BookingSettingsPanel
+              allowFeaturedServices={auditMode}
               settings={editingBooking.settings}
               showIntro={false}
               onChange={updateBookingPresentation}
@@ -3225,6 +3248,8 @@ function BuilderApp({
         {structurePanel}
       </Dialog>
       <SectionLibraryDialog
+        auditMode={auditMode}
+        businessStructure={libraryContext.businessStructure}
         document={document}
         insertionPosition={libraryPosition}
         libraryAddState={libraryAddState}
@@ -3315,6 +3340,7 @@ function BuilderApp({
       >
         {editingBooking ? (
           <BookingSettingsPanel
+            allowFeaturedServices={auditMode}
             settings={editingBooking.settings}
             onChange={updateBookingPresentation}
             onReset={resetBookingPresentation}
