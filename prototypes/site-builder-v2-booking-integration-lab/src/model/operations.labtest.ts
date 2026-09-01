@@ -54,18 +54,17 @@ describe('section operations', () => {
     );
 
     expect(document.pages[0]?.sections.map((section) => section.sectionType)).toEqual([
-      'announcement_bar',
-      'section_11',
       'hero',
-      'featured_services',
+      'section_11',
+      'gallery',
       'booking',
-      'final_cta',
-      'footer',
+      'about',
+      'visit_us',
     ]);
     expect(document.pages[0]?.sections.map((section) => section.order)).toEqual([
-      0, 1, 2, 3, 4, 5, 6,
+      0, 1, 2, 3, 4, 5,
     ]);
-    expect(original.pages[0]?.sections).toHaveLength(6);
+    expect(original.pages[0]?.sections).toHaveLength(5);
   });
 
   it('removes and restores the same placeholder instance with settings intact', () => {
@@ -93,7 +92,7 @@ describe('section operations', () => {
     });
     const removed = removeSection(edited, section.id);
 
-    expect(removed.pages[0]?.sections).toHaveLength(6);
+    expect(removed.pages[0]?.sections).toHaveLength(5);
     expect(removed.unusedSections[0]).toMatchObject({
       id: section.id,
       sectionType: 'section_11',
@@ -130,11 +129,10 @@ describe('section operations', () => {
     const removed = removeSection(customized, hero.id);
 
     expect(removed.pages[0]?.sections.map((section) => section.sectionType)).toEqual([
-      'announcement_bar',
-      'featured_services',
+      'gallery',
       'booking',
-      'final_cta',
-      'footer',
+      'about',
+      'visit_us',
     ]);
     expect(removed.unusedSections[0]).toMatchObject({
       id: hero.id,
@@ -179,7 +177,7 @@ describe('section operations', () => {
     }
     document = moveSection(document, section11.id, 2);
     expect(getSectionMoveAnnouncement(document, section11.id)).toBe(
-      'Section 11 moved to position 2 of 7.',
+      'Section 11 moved to position 2 of 6.',
     );
     document = moveSectionDown(document, section11.id);
     expect(document.pages[0]?.sections[2]?.id).toBe(section11.id);
@@ -232,7 +230,7 @@ describe('section operations', () => {
       requestedIds,
     );
     expect(reordered.pages[0]?.sections.map((section) => section.order)).toEqual([
-      0, 1, 2, 3, 4, 5,
+      0, 1, 2, 3, 4,
     ]);
     expect(original.pages[0]?.sections.map((section) => section.id)).toEqual(
       originalIds,
@@ -537,11 +535,10 @@ describe('Booking section operations and outcome invariants', () => {
     expect(committed.pages.find((page) => page.id === home.id)?.sections.map(
       (section) => section.label,
     )).toEqual([
-      'Footer',
-      'Final Booking CTA',
-      'Featured Services',
+      'Visit & Contact',
+      'About',
+      'Gallery',
       'Salon intro',
-      'Announcement Bar',
     ]);
     expect(committed.pages.find((page) => page.id === gallery.id)?.sections.map(
       (section) => section.label,
@@ -698,7 +695,7 @@ describe('library section operations', () => {
       id: 'section_plain_1',
       sectionType: 'offers',
       label: 'Offers',
-      order: 6,
+      order: 5,
       visible: true,
       settings: { offerIds: [], preset: 'cards', version: 1 },
     });
@@ -776,6 +773,11 @@ describe('library section operations', () => {
       { pageId: home.id, sectionType: 'featured_services' },
       ids,
     );
+    document = addSection(
+      document,
+      { pageId: home.id, sectionType: 'featured_services' },
+      ids,
+    );
     expect(
       document.pages[0]?.sections.filter(
         (section) => section.sectionType === 'featured_services',
@@ -813,8 +815,12 @@ describe('library section operations', () => {
       'Hero is already on this page (maximum 1 per page). Edit the existing one instead.',
     );
 
-    // Restore: a removed footer may not return once a replacement exists.
-    const footerId = home.sections.find(section => section.sectionType === 'footer')?.id;
+    // Footer is an advanced shell section, so add it explicitly before
+    // exercising the generic hard-limit restore invariant.
+    document = addSection(document, { pageId: home.id, sectionType: 'footer' }, ids);
+    const footerId = document.pages
+      .find(page => page.id === home.id)?.sections
+      .find(section => section.sectionType === 'footer')?.id;
     if (!footerId) {
       throw new Error('Missing Quick Book footer.');
     }
@@ -834,9 +840,13 @@ describe('library section operations', () => {
 
   it('refuses placeholder edits on library, Booking, and Custom Design sections', () => {
     const ids = createDeterministicIdFactory('placeholder-edits');
-    const document = addSection(
-      initializeStarter('quick_book', { idFactory: ids }),
-      { pageId: 'page_placeholder-edits_1', sectionType: 'custom_design' },
+    let document = initializeStarter('quick_book', { idFactory: ids });
+    const homeId = document.pages[0]?.id;
+    if (!homeId) throw new Error('Missing Quick Book Home.');
+    document = addSection(document, { pageId: homeId, sectionType: 'footer' }, ids);
+    document = addSection(
+      document,
+      { pageId: homeId, sectionType: 'custom_design' },
       ids,
     );
     const byType = (sectionType: string) =>
@@ -868,9 +878,20 @@ describe('library section operations', () => {
   });
 
   it('normalizes library settings through the owning registry entry', () => {
-    const document = initializeStarter('one_page', {
-      idFactory: createDeterministicIdFactory('normalize'),
-    });
+    const ids = createDeterministicIdFactory('normalize');
+    let document = initializeStarter('one_page', { idFactory: ids });
+    const homeId = document.pages[0]?.id;
+    if (!homeId) throw new Error('Missing One-page Home.');
+    document = addSection(
+      document,
+      { pageId: homeId, sectionType: 'announcement_bar' },
+      ids,
+    );
+    document = addSection(
+      document,
+      { pageId: homeId, sectionType: 'quick_info' },
+      ids,
+    );
     const announcement = document.pages[0]?.sections.find(
       (section) => section.sectionType === 'announcement_bar',
     );

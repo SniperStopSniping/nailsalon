@@ -7,7 +7,8 @@ import {
   createHistoryState,
   undoHistory,
 } from './history';
-import { updateLibrarySectionSettings } from './operations';
+import { createDeterministicIdFactory } from './ids';
+import { addSection, updateLibrarySectionSettings } from './operations';
 import { isLibrarySection } from './section-library/registry';
 import {
   getAddSectionBlocker,
@@ -18,7 +19,20 @@ import { initializeStarter } from './starters';
 
 describe('section overlap resolutions', () => {
   it('points hard limits and recommended duplicates at the exact existing section', () => {
-    const document = initializeStarter('one_page');
+    const ids = createDeterministicIdFactory('advanced-overlap');
+    let document = initializeStarter('one_page', { idFactory: ids });
+    const initialHome = document.pages[0];
+    if (!initialHome) throw new Error('Missing Home.');
+    for (const sectionType of [
+      'announcement_bar',
+      'footer',
+      'section_navigation',
+    ] as const) {
+      document = addSection(document, {
+        pageId: initialHome.id,
+        sectionType,
+      }, ids);
+    }
     const home = document.pages[0]!;
     const hero = home.sections.find(section => section.sectionType === 'hero')!;
     const context = deriveSiteLibraryContext(createDemoOnboardingState(), document);
@@ -125,7 +139,16 @@ describe('section overlap resolutions', () => {
   });
 
   it('keeps Team, CTA-density, and policy-summary choices specific and actionable', () => {
-    const document = initializeStarter('one_page');
+    const ids = createDeterministicIdFactory('cta-overlap');
+    let document = initializeStarter('one_page', { idFactory: ids });
+    const initialHome = document.pages[0];
+    if (!initialHome) throw new Error('Missing Home.');
+    // Final CTA is advanced-only in the locked recipe. Add one explicitly so
+    // the density warning still exercises an existing third booking action.
+    document = addSection(document, {
+      pageId: initialHome.id,
+      sectionType: 'final_cta',
+    }, ids);
     const home = document.pages[0]!;
     const context = deriveSiteLibraryContext(createDemoOnboardingState(), document);
 

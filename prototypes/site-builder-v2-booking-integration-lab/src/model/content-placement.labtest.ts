@@ -1,17 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import { createDemoOnboardingState, DEMO_SITE_CONTENT } from '../onboarding/model/demo-content';
-import { deriveSiteLibraryContext, deriveSitePlanToggles } from '../onboarding/model/site-library-context';
+import {
+  deriveBuilderSitePlanToggles,
+  deriveSiteLibraryContext,
+  deriveSitePlanToggles,
+} from '../onboarding/model/site-library-context';
 import {
   getContentPlacement,
   getSectionContentSuppressions,
   SITE_CONTENT_PLACEMENT_VERSION,
 } from './content-placement';
-import { setSectionVisible } from './operations';
-import {
-  buildWebsiteRecipeDocument,
-  getRecipeRequiredToggles,
-} from './section-library/recipes';
+import { addSection, setSectionVisible } from './operations';
 import { buildCustomerSiteComposition } from './site-plan';
 import { initializeStarter } from './starters';
 import type { SectionType, SiteBuilderDocument } from './types';
@@ -35,6 +35,12 @@ const stateWithMedia = () => {
     source: 'fixture',
   };
   state.profile.about.visibility.profile_photo = true;
+  state.recipe = {
+    ...state.recipe,
+    aboutEnabled: true,
+    galleryEnabled: true,
+    policiesEnabled: true,
+  };
   return state;
 };
 
@@ -60,149 +66,193 @@ describe('site content placement plan', () => {
     const state = stateWithMedia();
     state.recipe.starter = 'one_page';
     const document = initializeStarter('one_page');
+    document.siteContent = structuredClone(DEMO_SITE_CONTENT);
+    const reviews = sectionOf(document, 'reviews');
+    if (reviews.sectionType !== 'reviews') throw new Error('Expected Reviews');
+    reviews.settings.reviewIds = DEMO_SITE_CONTENT.reviews.map(review => review.id);
     const { contentPlacement, pages } = compositionFor(document, state);
     const about = sectionOf(document, 'about');
     const booking = sectionOf(document, 'booking');
-    const deposits = sectionOf(document, 'deposits_cancellations');
-    const featured = sectionOf(document, 'featured_services');
-    const footer = sectionOf(document, 'footer');
+    const gallery = sectionOf(document, 'gallery');
     const policies = sectionOf(document, 'policies');
-    const quickInfo = sectionOf(document, 'quick_info');
     const visit = sectionOf(document, 'visit_us');
 
     expect(contentPlacement.version).toBe(SITE_CONTENT_PLACEMENT_VERSION);
+    expect(pages.flatMap(page => page.sections).map(section => section.sectionType))
+      .toEqual(['hero', 'gallery', 'about', 'booking', 'reviews', 'policies', 'visit_us']);
     expect(getContentPlacement(contentPlacement, 'brand_logo').ownerSectionId)
       .toBe('site_header');
     expect(getContentPlacement(contentPlacement, 'owner_profile_photo').ownerSectionId)
       .toBe(about.id);
     expect(getContentPlacement(contentPlacement, 'instagram').ownerSectionId)
-      .toBe(footer.id);
+      .toBe(visit.id);
     expect(getContentPlacement(contentPlacement, 'phone').ownerSectionId).toBe(visit.id);
     expect(getContentPlacement(contentPlacement, 'text').ownerSectionId).toBe(visit.id);
+    expect(getContentPlacement(contentPlacement, 'email').ownerSectionId).toBe(visit.id);
     expect(getContentPlacement(contentPlacement, 'location').ownerSectionId).toBe(visit.id);
     expect(getContentPlacement(contentPlacement, 'business_hours').ownerSectionId)
       .toBe(visit.id);
     expect(getContentPlacement(contentPlacement, 'appointment_mode').ownerSectionId)
-      .toBe(quickInfo.id);
+      .toBe(booking.id);
     expect(getContentPlacement(contentPlacement, 'new_client_status').ownerSectionId)
-      .toBe(quickInfo.id);
-    // Default Quick Info does not opt into this fact, so Booking is the next
-    // eligible owner rather than silently losing the notice.
+      .toBe(booking.id);
     expect(getContentPlacement(contentPlacement, 'minimum_notice').ownerSectionId)
       .toBe(booking.id);
     expect(getContentPlacement(contentPlacement, 'deposit_cancellation_policy').ownerSectionId)
-      .toBe(deposits.id);
+      .toBe(policies.id);
     expect(getContentPlacement(contentPlacement, 'before_you_book_policies').ownerSectionId)
       .toBe(policies.id);
-    expect(pages.flatMap(page => page.sections).map(section => section.id))
-      .not.toContain(featured.id);
-    expect(getSectionContentSuppressions(contentPlacement, featured.id)).toEqual([
-      expect.objectContaining({
-        actionLabel: 'Go to Services & Booking',
-        ownerSectionId: booking.id,
-        reason: 'Featured Services is not shown on this page because Services & Booking already displays your services.',
-        suppressEntireSection: true,
-      }),
-    ]);
-    expect(contentPlacement.showBookingFeaturedRail).toBe(true);
+    expect(getContentPlacement(contentPlacement, 'service_catalogue').ownerSectionId)
+      .toBe(booking.id);
+    expect(getContentPlacement(contentPlacement, 'service_marketing').ownerSectionId)
+      .toBeNull();
+    expect(getContentPlacement(contentPlacement, 'gallery_media').ownerSectionId)
+      .toBe(gallery.id);
+    expect(getContentPlacement(contentPlacement, 'reviews', pages[0]!.id).ownerSectionId)
+      .toBe(reviews.id);
+    expect(contentPlacement.showBookingFeaturedRail).toBe(false);
   });
 
-  it('falls back deterministically when Contact, Hours, About, or policies hide', () => {
+  it('does not move hidden core content into duplicate technical sections', () => {
     const state = stateWithMedia();
     state.recipe.starter = 'multi_page';
     let document = initializeStarter('multi_page');
     document.siteContent = structuredClone(DEMO_SITE_CONTENT);
-    const team = sectionOf(document, 'team');
-    if (team.sectionType !== 'team') {
-      throw new Error('Expected Team');
-    }
-    team.settings.memberIds = DEMO_SITE_CONTENT.staff.map(member => member.id);
-    const contact = sectionOf(document, 'contact');
-    const hours = sectionOf(document, 'hours');
     const about = sectionOf(document, 'about');
-    const deposits = sectionOf(document, 'deposits_cancellations');
+    const booking = sectionOf(document, 'booking');
     const policies = sectionOf(document, 'policies');
     const visit = sectionOf(document, 'visit_us');
 
     let plan = compositionFor(document, state).contentPlacement;
 
-    expect(getContentPlacement(plan, 'instagram').ownerSectionId).toBe(contact.id);
-    expect(getContentPlacement(plan, 'phone').ownerSectionId).toBe(contact.id);
-    expect(getContentPlacement(plan, 'business_hours').ownerSectionId).toBe(hours.id);
-    expect(getContentPlacement(plan, 'owner_profile_photo').ownerSectionId).toBe(about.id);
-
-    document = setSectionVisible(document, contact.id, false);
-    plan = compositionFor(document, state).contentPlacement;
-
+    expect(getContentPlacement(plan, 'instagram').ownerSectionId).toBe(visit.id);
     expect(getContentPlacement(plan, 'phone').ownerSectionId).toBe(visit.id);
-    expect(getContentPlacement(plan, 'instagram').ownerSectionId)
-      .toBe(document.pages[0]?.sections.find(section => section.sectionType === 'footer')?.id);
-
-    document = setSectionVisible(document, hours.id, false);
-    plan = compositionFor(document, state).contentPlacement;
-
     expect(getContentPlacement(plan, 'business_hours').ownerSectionId).toBe(visit.id);
+    expect(getContentPlacement(plan, 'owner_profile_photo').ownerSectionId).toBe(about.id);
+    expect(getContentPlacement(plan, 'deposit_cancellation_policy').ownerSectionId)
+      .toBe(policies.id);
+    expect(getContentPlacement(plan, 'before_you_book_policies').ownerSectionId)
+      .toBe(policies.id);
 
-    const quickInfo = sectionOf(document, 'quick_info');
-    const booking = sectionOf(document, 'booking');
-    document = setSectionVisible(document, quickInfo.id, false);
+    document = setSectionVisible(document, visit.id, false);
     plan = compositionFor(document, state).contentPlacement;
 
-    expect(getContentPlacement(plan, 'appointment_mode').ownerSectionId).toBe(booking.id);
-    expect(getContentPlacement(plan, 'new_client_status').ownerSectionId).toBe(booking.id);
-    expect(getContentPlacement(plan, 'minimum_notice').ownerSectionId).toBe(booking.id);
+    expect(getContentPlacement(plan, 'instagram').ownerSectionId).toBeNull();
+    expect(getContentPlacement(plan, 'phone').ownerSectionId).toBeNull();
+    expect(getContentPlacement(plan, 'business_hours').ownerSectionId).toBeNull();
+    expect(getContentPlacement(plan, 'location').ownerSectionId).toBeNull();
 
     document = setSectionVisible(document, about.id, false);
     plan = compositionFor(document, state).contentPlacement;
 
-    expect(getContentPlacement(plan, 'owner_profile_photo').ownerSectionId).toBe(team.id);
+    expect(getContentPlacement(plan, 'owner_profile_photo').ownerSectionId).toBeNull();
     expect(getContentPlacement(plan, 'hero_media').ownerSectionId).toBeNull();
 
-    const stateWithoutOwnerStaff = structuredClone(state);
-    stateWithoutOwnerStaff.profile.ownerName = 'Owner not listed in Team';
-
-    expect(getContentPlacement(
-      compositionFor(document, stateWithoutOwnerStaff).contentPlacement,
-      'owner_profile_photo',
-    ).ownerSectionId).toBeNull();
-
-    document = setSectionVisible(document, deposits.id, false);
     document = setSectionVisible(document, policies.id, false);
     plan = compositionFor(document, state).contentPlacement;
 
-    expect(getContentPlacement(plan, 'deposit_cancellation_policy').ownerSectionId).toBeNull();
-    expect(getContentPlacement(plan, 'before_you_book_policies').ownerSectionId).toBeNull();
+    // Booking remains the one permissible transactional fallback. No hidden
+    // Deposits or second policy section is introduced into the document.
+    expect(getContentPlacement(plan, 'deposit_cancellation_policy').ownerSectionId)
+      .toBe(booking.id);
+    expect(getContentPlacement(plan, 'before_you_book_policies').ownerSectionId)
+      .toBe(booking.id);
+    expect(document.pages.flatMap(page => page.sections).some(section => (
+      section.sectionType === 'deposits_cancellations'
+    ))).toBe(false);
 
     expect(compositionFor(document, state).contentPlacement)
       .toEqual(compositionFor(structuredClone(document), structuredClone(state)).contentPlacement);
   });
 
-  it('allows Featured on Home while Booking owns the catalogue on Services', () => {
+  it('keeps one catalogue on Services and no Featured Services duplicate on Home', () => {
     const state = stateWithMedia();
     state.recipe.starter = 'multi_page';
     const document = initializeStarter('multi_page');
-    const featured = sectionOf(document, 'featured_services');
+    document.siteContent = structuredClone(DEMO_SITE_CONTENT);
+    const reviews = sectionOf(document, 'reviews');
+    if (reviews.sectionType !== 'reviews') throw new Error('Expected Reviews');
+    reviews.settings.reviewIds = DEMO_SITE_CONTENT.reviews.map(review => review.id);
     const booking = sectionOf(document, 'booking');
     const { contentPlacement, pages } = compositionFor(document, state);
     const home = pages.find(page => page.isHome)!;
     const services = pages.find(page => page.slug === 'services-book')!;
 
-    expect(home.sections.map(section => section.id)).toContain(featured.id);
+    expect(home.sections.map(section => section.sectionType)).toEqual(['hero', 'reviews']);
     expect(services.sections.map(section => section.id)).toContain(booking.id);
+    expect(pages.flatMap(page => page.sections).filter(section => (
+      section.sectionType === 'booking'
+    ))).toHaveLength(1);
+    expect(pages.flatMap(page => page.sections).some(section => (
+      section.sectionType === 'featured_services'
+    ))).toBe(false);
     expect(getContentPlacement(contentPlacement, 'service_marketing', home.id).ownerSectionId)
-      .toBe(featured.id);
+      .toBeNull();
     expect(getContentPlacement(contentPlacement, 'service_catalogue').ownerSectionId)
       .toBe(booking.id);
     expect(contentPlacement.showBookingFeaturedRail).toBe(false);
   });
 
-  it('gives a repeated Gallery collection to the dedicated Gallery page', () => {
+  it('lets an explicitly added core section override an older onboarding skip', () => {
     const state = stateWithMedia();
-    state.recipe = {
-      ...state.recipe,
-      ...getRecipeRequiredToggles('the_collective'),
+    state.recipe.aboutEnabled = false;
+    state.recipe.canvaEnabled = false;
+    state.recipe.galleryEnabled = false;
+    state.recipe.policiesEnabled = false;
+    const starter = initializeStarter('one_page');
+    const home = starter.pages[0];
+    if (!home) {
+      throw new Error('One-page starter is missing Home.');
+    }
+    const withoutOptionalSections = {
+      ...starter,
+      pages: [{
+        ...home,
+        sections: home.sections.filter(section => ![
+          'about',
+          'gallery',
+          'policies',
+        ].includes(section.sectionType)),
+      }],
     };
-    const document = buildWebsiteRecipeDocument('the_collective');
+
+    expect(deriveSitePlanToggles(state)).toEqual({
+      aboutEnabled: false,
+      canvaEnabled: false,
+      galleryEnabled: false,
+      policiesEnabled: false,
+    });
+    expect(deriveBuilderSitePlanToggles(state, withoutOptionalSections)).toEqual({
+      aboutEnabled: false,
+      canvaEnabled: false,
+      galleryEnabled: false,
+      policiesEnabled: false,
+    });
+
+    const withAddedGallery = addSection(withoutOptionalSections, {
+      pageId: home.id,
+      position: 1,
+      sectionType: 'gallery',
+    });
+
+    const builderToggles = deriveBuilderSitePlanToggles(state, withAddedGallery);
+
+    expect(builderToggles).toEqual({
+      aboutEnabled: false,
+      canvaEnabled: false,
+      galleryEnabled: true,
+      policiesEnabled: false,
+    });
+    expect(buildCustomerSiteComposition(withAddedGallery, {
+      context: deriveSiteLibraryContext(state, withAddedGallery),
+      toggles: builderToggles,
+    }).pages[0]?.sections.map(section => section.sectionType)).toContain('gallery');
+  });
+
+  it('gives Gallery media only to the dedicated Multi-page Gallery page', () => {
+    const state = stateWithMedia();
+    state.recipe.starter = 'multi_page';
+    const document = initializeStarter('multi_page');
     const { contentPlacement, pages } = compositionFor(document, state);
     const galleryPage = pages.find(page => page.label === 'Gallery')!;
     const home = pages.find(page => page.isHome)!;
@@ -211,17 +261,12 @@ describe('site content placement plan', () => {
     expect(getContentPlacement(contentPlacement, 'gallery_media').ownerSectionId)
       .toBe(galleryOwner.id);
     expect(home.sections.some(section => section.sectionType === 'gallery')).toBe(false);
-    expect(getSectionContentSuppressions(
-      contentPlacement,
-      document.pages.find(page => page.isHome)!.sections.find(
-        section => section.sectionType === 'gallery',
-      )!.id,
-    )).toEqual([
-      expect.objectContaining({
-        actionLabel: 'Go to Gallery',
-        ownerSectionId: galleryOwner.id,
-        suppressEntireSection: true,
-      }),
-    ]);
+    expect(document.pages.flatMap(page => page.sections).filter(section => (
+      section.sectionType === 'gallery'
+    ))).toHaveLength(1);
+    expect(pages.flatMap(page => page.sections).filter(section => (
+      section.sectionType === 'gallery'
+    ))).toHaveLength(1);
+    expect(getSectionContentSuppressions(contentPlacement, galleryOwner.id)).toEqual([]);
   });
 });

@@ -9,7 +9,7 @@ import { createPersistableOnboardingDraft } from './snapshot';
 const SITE_ID = '11111111-1111-4111-8111-111111111111';
 
 describe('account-backed Gallery presentation ownership', () => {
-  it('round-trips stable provenance after customer-facing labels are exchanged', () => {
+  it('round-trips one stable onboarding-owned Gallery without a duplicate presentation', () => {
     const state = createDefaultOnboardingState();
     state.profile.businessName = 'Isla Nail Studio';
     state.profile.businessStructure = 'solo';
@@ -24,17 +24,13 @@ describe('account-backed Gallery presentation ownership', () => {
     });
     const galleries = source.pages.flatMap(page => page.sections)
       .filter(section => section.sectionType === 'gallery');
-    const supporting = galleries.find(
-      section => section.galleryPresentationOwner === 'recipe',
-    );
-    const primary = galleries.find(
-      section => section.galleryPresentationOwner === 'onboarding',
-    );
-    if (!supporting || !primary) {
-      throw new Error('Missing starter Galleries.');
+    const gallery = galleries[0];
+    if (!gallery) {
+      throw new Error('Missing starter Gallery.');
     }
-    supporting.label = 'Portfolio';
-    primary.label = 'Featured work';
+
+    expect(galleries).toHaveLength(1);
+    expect(gallery.galleryPresentationOwner).toBe('onboarding');
 
     const { snapshot } = createPersistableOnboardingDraft(
       state,
@@ -51,17 +47,12 @@ describe('account-backed Gallery presentation ownership', () => {
       .flatMap(page => page.sections)
       .filter(section => section.sectionType === 'gallery');
 
-    expect(compiledGalleries.find(section => section.id === supporting.id))
-      .toMatchObject({
-        galleryPresentationOwner: 'recipe',
-        label: 'Portfolio',
-        settings: { preset: 'editorial' },
-      });
-    expect(compiledGalleries.find(section => section.id === primary.id))
-      .toMatchObject({
-        galleryPresentationOwner: 'onboarding',
-        label: 'Featured work',
-        settings: { preset: 'carousel' },
-      });
+    expect(compiledGalleries).toHaveLength(1);
+    expect(compiledGalleries[0]).toMatchObject({
+      galleryPresentationOwner: 'onboarding',
+      id: gallery.id,
+      label: 'Gallery',
+      settings: { preset: 'carousel' },
+    });
   });
 });

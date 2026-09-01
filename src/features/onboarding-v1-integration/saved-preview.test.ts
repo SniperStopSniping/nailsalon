@@ -128,9 +128,11 @@ describe('createSavedSitePreviewModel', () => {
     });
 
     expect(model.document.pages.map(page => page.id))
-      .toEqual(document.pages.map(page => page.id));
+      .toEqual(compiled.builderDocument.pages.map(page => page.id));
     expect(model.document.pages.flatMap(page => page.sections.map(section => section.id)))
-      .toEqual(document.pages.flatMap(page => page.sections.map(section => section.id)));
+      .toEqual(compiled.builderDocument.pages.flatMap(
+        page => page.sections.map(section => section.id),
+      ));
     // The saved plan re-derives the persisted compiled tree exactly — every
     // compiled section, in compiled order, including the injected ids.
     expect(model.pagePlan.flatMap(page => page.sections.map(section => section.id)))
@@ -281,8 +283,11 @@ describe('createSavedSitePreviewModel', () => {
     ]));
     expect(model.media).toHaveLength(2);
     expect(savedCustom.settings.images[0]?.assetId).not.toBe('server-profile-collision');
-    // Remapping the asset ids leaves the customer topology untouched.
-    expect(topology(model.pagePlan)).toEqual(topology(livePagePlan(document, state)));
+    // Remapping asset ids leaves the reconciled V1 customer topology untouched.
+    expect(model.pagePlan.flatMap(page => page.sections.map(section => section.id)))
+      .toEqual(compiled.pages.flatMap(page => page.sections.map(section => section.id)));
+    expect(model.pagePlan.flatMap(page => page.sections.map(section => section.sectionType)))
+      .toEqual(compiled.pages.flatMap(page => page.sections.map(section => section.type)));
   });
 
   it('derives the saved customer plan from the persisted builder document, not the compiled page array', () => {
@@ -403,24 +408,16 @@ describe('createSavedSitePreviewModel', () => {
       }],
       snapshot,
     });
-    const live = livePagePlan(document, state, {
-      id: 'custom-after-booking',
-      placement: state.canva.placement,
-      settings: customSettings,
-    });
+    const live = livePagePlan(compiled.builderDocument, state);
 
     expect(topology(live)).toEqual([{
-      id: document.pages[0]!.id,
+      id: compiled.builderDocument.pages[0]!.id,
       label: 'Home',
       sectionTypes: [
         'hero',
         'booking',
-        'deposits_cancellations',
-        'policies',
-        'contact',
-        'final_cta',
-        'footer',
         'custom_design',
+        'visit_us',
       ],
     }]);
     expect(topology(saved.pagePlan)).toEqual(topology(live));

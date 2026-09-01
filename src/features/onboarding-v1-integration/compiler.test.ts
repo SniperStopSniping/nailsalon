@@ -46,28 +46,39 @@ const addGalleryContent = (state: ReturnType<typeof acceptedState>) => {
   }];
 };
 
-/**
- * The compiler stamps the recipe's About/Gallery presentation choices into the
- * owning library sections' settings, so the persisted Builder document is the
- * accepted document plus exactly those preset writes. A gallery whose preset
- * was deliberately set away from the default (the multi_page Home
- * "Featured work" editorial strip) keeps its own preset.
- */
-const withStampedRecipePresets = (
-  document: SiteBuilderDocument,
-  presets: { aboutPreset: 'photo_right'; galleryLayout: 'grid' },
-): SiteBuilderDocument => {
-  const stamped = structuredClone(document);
-  for (const section of stamped.pages.flatMap(page => page.sections)) {
-    if (section.sectionType === 'about') {
-      section.settings.preset = presets.aboutPreset;
-    }
-    if (section.sectionType === 'gallery' && section.settings.preset === 'grid') {
-      section.settings.preset = presets.galleryLayout;
-    }
+const addRealReview = (document: SiteBuilderDocument): SiteBuilderDocument => {
+  const next = structuredClone(document);
+  const reviewId = 'review-daniela-client';
+  next.siteContent.reviews = [{
+    authorName: 'Ana',
+    id: reviewId,
+    quote: 'Beautiful work and a thoughtful appointment.',
+    rating: 5,
+    source: 'client',
+    visible: true,
+  }];
+  const reviews = next.pages
+    .flatMap(page => page.sections)
+    .find(section => section.sectionType === 'reviews');
+  if (!reviews || reviews.sectionType !== 'reviews') {
+    throw new Error('Compiler fixture needs a Reviews section.');
   }
-  return stamped;
+  reviews.settings.reviewIds = [reviewId];
+  return next;
 };
+
+const pageSectionTypes = (document: SiteBuilderDocument) =>
+  [...document.pages]
+    .sort((left, right) => left.order - right.order)
+    .map(page => [...page.sections]
+      .sort((left, right) => left.order - right.order)
+      .map(section => section.sectionType));
+
+const AUTOMATIC_SHELL_TYPES = [
+  'section_navigation',
+  'final_cta',
+  'footer',
+] as const;
 
 describe('account-backed onboarding document compiler', () => {
   it('persists non-default presentation choices in the accepted document before compiling', () => {
@@ -93,7 +104,14 @@ describe('account-backed onboarding document compiler', () => {
       snapshot,
     });
 
-    expect(snapshot.site.builderDocument).toEqual(compiled.builderDocument);
+    expect(compiled.recipeMigrationResult).toBe('fresh_v1');
+    expect(pageSectionTypes(compiled.builderDocument)).toEqual([
+      ['hero'],
+      ['booking'],
+      ['gallery'],
+      ['about'],
+      ['visit_us'],
+    ]);
     expect(compiled.builderDocument.pages.flatMap(page => page.sections)
       .filter(section => section.sectionType === 'about')
       .map(section => section.settings.preset))
@@ -101,7 +119,7 @@ describe('account-backed onboarding document compiler', () => {
     expect(compiled.builderDocument.pages.flatMap(page => page.sections)
       .filter(section => section.sectionType === 'gallery')
       .map(section => section.settings.preset))
-      .toEqual(['editorial', 'carousel']);
+      .toEqual(['carousel']);
 
     const customerGalleryOwner = compiled.builderDocument.pages
       .find(page => page.slug === 'gallery')!
@@ -121,6 +139,10 @@ describe('account-backed onboarding document compiler', () => {
       .filter(section => section.sectionType === 'about')
       .map(section => section.settings.preset))
       .toEqual(['photo_right']);
+    expect(source.pages.flatMap(page => page.sections)
+      .filter(section => section.sectionType === 'gallery')
+      .map(section => section.settings.preset))
+      .toEqual(['grid']);
   });
 
   it('keeps snapshot presentation choices for synthetic onboarding fallbacks', () => {
@@ -173,14 +195,21 @@ describe('account-backed onboarding document compiler', () => {
   });
 
   it.each(['quick_book', 'one_page', 'multi_page'] as const)(
-    'preserves the exact accepted %s universal document and stable IDs',
+    'persists the exact locked %s recipe and stable source IDs',
     (starter) => {
       const state = acceptedState(starter);
-      const source = initializeStarter(starter, {
+      state.recipe.aboutEnabled = true;
+      state.profile.bookingOnlyContact = true;
+      state.profile.location.cityOrArea = 'Toronto';
+      state.profile.location.locationType = 'salon_suite';
+      addGalleryContent(state);
+      addMeaningfulPolicy(state);
+      let source = initializeStarter(starter, {
         idFactory: createDeterministicIdFactory(starter),
         siteId: `site_${starter}`,
         siteName: state.profile.businessName,
       });
+      if (starter !== 'quick_book') source = addRealReview(source);
       const { snapshot } = createPersistableOnboardingDraft(
         state,
         'luster_berry',
@@ -193,12 +222,29 @@ describe('account-backed onboarding document compiler', () => {
         snapshot,
       });
 
-      // The accepted document survives verbatim apart from the recipe presets
-      // the compiler stamps into the About and Gallery sections.
-      expect(compiled.builderDocument).toEqual(withStampedRecipePresets(source, {
-        aboutPreset: 'photo_right',
-        galleryLayout: 'grid',
-      }));
+      const expected = starter === 'quick_book'
+        ? [['hero', 'gallery', 'booking', 'about', 'visit_us']]
+        : starter === 'one_page'
+          ? [[
+              'hero',
+              'gallery',
+              'about',
+              'booking',
+              'reviews',
+              'policies',
+              'visit_us',
+            ]]
+          : [
+              ['hero', 'reviews'],
+              ['booking', 'policies'],
+              ['gallery'],
+              ['about'],
+              ['visit_us'],
+            ];
+
+      expect(pageSectionTypes(compiled.builderDocument)).toEqual(expected);
+      expect(compiled.pages.map(page => page.sections.map(section => section.type)))
+        .toEqual(expected);
       expect(compiled.builderDocument.pages.map(page => page.id))
         .toEqual(source.pages.map(page => page.id));
       expect(compiled.builderDocument.pages.flatMap(page => page.sections.map(section => section.id)))
@@ -207,42 +253,88 @@ describe('account-backed onboarding document compiler', () => {
       if (starter === 'multi_page') {
         expect(compiled.builderDocument.pages.map(page => page.name)).toEqual([
           'Home',
-          'Services / Book',
+          'Services & Booking',
           'Gallery',
-          'Team',
+          'About',
           'Contact',
         ]);
+      }
 
-        // The starter's editorial "Featured work" gallery keeps its
-        // deliberate preset; only default-preset galleries follow the
-        // owner's chosen layout.
-        const homeGallery = compiled.builderDocument.pages[0]!.sections.find(
-          section => section.sectionType === 'gallery',
-        );
-
-        expect(homeGallery).toMatchObject({
-          label: 'Featured work',
-          settings: { preset: 'editorial' },
-        });
-        expect(source.pages[0]!.sections.find(
-          section => section.sectionType === 'gallery',
-        )).toMatchObject({ settings: { preset: 'editorial' } });
+      for (const shellType of AUTOMATIC_SHELL_TYPES) {
+        expect(compiled.builderDocument.pages.flatMap(page => page.sections)
+          .some(section => section.sectionType === shellType)).toBe(false);
       }
     },
   );
+
+  it('keeps the optional recipe floor at Quick 4, One-page 5, and Multi-page five pages', () => {
+    const compile = (
+      starter: 'quick_book' | 'one_page' | 'multi_page',
+      includeGallery: boolean,
+    ) => {
+      const state = acceptedState(starter);
+      state.recipe.aboutEnabled = true;
+      state.recipe.galleryEnabled = includeGallery;
+      state.recipe.policiesEnabled = false;
+      state.profile.bookingOnlyContact = true;
+      if (includeGallery) addGalleryContent(state);
+      const source = initializeStarter(starter, {
+        idFactory: createDeterministicIdFactory(`recipe-floor-${starter}`),
+        siteId: `site_${starter}`,
+        siteName: state.profile.businessName,
+      });
+      const { snapshot } = createPersistableOnboardingDraft(
+        state,
+        'luster_berry',
+        null,
+        source,
+      );
+      return compileOnboardingToSiteDocument({
+        revision: 1,
+        siteId: SITE_ID,
+        snapshot,
+      });
+    };
+
+    const quick = compile('quick_book', false);
+    const onePage = compile('one_page', true);
+    const multiPage = compile('multi_page', true);
+
+    expect(pageSectionTypes(quick.builderDocument)).toEqual([
+      ['hero', 'booking', 'about', 'visit_us'],
+    ]);
+    expect(pageSectionTypes(onePage.builderDocument)).toEqual([[
+      'hero',
+      'gallery',
+      'about',
+      'booking',
+      'visit_us',
+    ]]);
+    expect(multiPage.builderDocument.pages).toHaveLength(5);
+    expect(multiPage.builderDocument.pages.map(page => page.slug)).toEqual([
+      '',
+      'services-book',
+      'gallery',
+      'about',
+      'contact',
+    ]);
+    expect(pageSectionTypes(multiPage.builderDocument)).toEqual([
+      ['hero'],
+      ['booking'],
+      ['gallery'],
+      ['about'],
+      ['visit_us'],
+    ]);
+  });
 
   it.each([
     {
       expectedCounts: {
         about: 1,
         booking: 1,
-        contact: 1,
-        deposits_cancellations: 1,
-        final_cta: 1,
-        footer: 1,
         gallery: 1,
         hero: 1,
-        policies: 1,
+        visit_us: 1,
       },
       starter: 'quick_book',
     },
@@ -250,13 +342,9 @@ describe('account-backed onboarding document compiler', () => {
       expectedCounts: {
         about: 1,
         booking: 1,
-        deposits_cancellations: 1,
-        final_cta: 1,
-        footer: 1,
         gallery: 1,
         hero: 1,
         policies: 1,
-        section_navigation: 1,
         visit_us: 1,
       },
       starter: 'one_page',
@@ -265,10 +353,6 @@ describe('account-backed onboarding document compiler', () => {
       expectedCounts: {
         about: 1,
         booking: 1,
-        deposits_cancellations: 1,
-        featured_services: 1,
-        final_cta: 2,
-        footer: 5,
         gallery: 1,
         hero: 1,
         policies: 1,
@@ -318,29 +402,32 @@ describe('account-backed onboarding document compiler', () => {
       expect(sections).not.toContainEqual(expect.objectContaining({ type: 'team' }));
       expect(sections).not.toContainEqual(expect.objectContaining({ type: 'faq' }));
       expect(sections).not.toContainEqual(expect.objectContaining({ type: 'offers' }));
+      expect(sections).not.toContainEqual(expect.objectContaining({ type: 'quick_info' }));
+      expect(sections).not.toContainEqual(expect.objectContaining({ type: 'featured_services' }));
+      expect(sections).not.toContainEqual(
+        expect.objectContaining({ type: 'deposits_cancellations' }),
+      );
+      for (const shellType of AUTOMATIC_SHELL_TYPES) {
+        expect(sections).not.toContainEqual(expect.objectContaining({ type: shellType }));
+      }
       expect(sections.map(item => item.presentation.label))
         .not.toContainEqual(expect.stringMatching(/^Section \d+$/u));
       expect(typeCounts).toEqual(expectedCounts);
 
       if (starter === 'multi_page') {
-        const homeGallery = source.pages[0]!.sections.find(
-          section => section.sectionType === 'gallery',
-        )!;
         const galleryPageGallery = source.pages.find(page => page.slug === 'gallery')!.sections[0]!;
-        const contactSource = source.pages
-          .find(page => page.slug === 'contact')!
-          .sections.find(section => section.sectionType === 'contact')!;
 
         expect(sections.filter(item => item.type === 'gallery').map(item => item.id))
           .toEqual([galleryPageGallery.id]);
-        expect(compiled.builderDocument.pages.flatMap(page => page.sections))
-          .toEqual(expect.arrayContaining([
-            expect.objectContaining({ id: homeGallery.id }),
-            expect.objectContaining({ id: galleryPageGallery.id }),
-          ]));
         expect(sections.find(item => item.type === 'contact')).toBeUndefined();
-        expect(compiled.builderDocument.pages.flatMap(page => page.sections))
-          .toContainEqual(expect.objectContaining({ id: contactSource.id }));
+        expect(compiled.builderDocument.pages.map(page => page.slug)).toEqual([
+          '',
+          'services-book',
+          'gallery',
+          'about',
+          'contact',
+        ]);
+        expect(new Set(sections.map(item => item.type)).size).toBe(sections.length);
       }
     },
   );
@@ -354,8 +441,8 @@ describe('account-backed onboarding document compiler', () => {
       siteName: state.profile.businessName,
     });
     const home = source.pages.find(page => page.isHome)!;
-    const teamPage = source.pages.find(page => page.slug === 'team')!;
-    const aboutSection = teamPage.sections.find(section => section.sectionType === 'about')!;
+    const aboutPage = source.pages.find(page => page.slug === 'about')!;
+    const aboutSection = aboutPage.sections.find(section => section.sectionType === 'about')!;
     const moved = moveSectionToPage(source, aboutSection.id, home.id);
     const movedAbout = moved.pages
       .flatMap(page => page.sections)
@@ -376,6 +463,12 @@ describe('account-backed onboarding document compiler', () => {
       .flatMap(page => page.sections)
       .filter(section => section.type === 'about');
 
+    expect(compiled.recipeMigrationResult).toBe('preserved_manual_edits');
+    expect(compiled.builderDocument.pages.find(page => page.id === home.id)?.sections)
+      .toContainEqual(expect.objectContaining({
+        id: aboutSection.id,
+        label: 'Daniela’s story',
+      }));
     expect(compiledAbout).toHaveLength(1);
     expect(compiledAbout[0]).toMatchObject({
       id: aboutSection.id,
@@ -431,7 +524,7 @@ describe('account-backed onboarding document compiler', () => {
     });
     const home = original.pages.find(page => page.isHome)!;
     const originalAbout = original.pages
-      .find(page => page.slug === 'team')!
+      .find(page => page.slug === 'about')!
       .sections.find(section => section.sectionType === 'about')!;
     // Positions are 1-based, so this lands the owner's About first on Home.
     const withDuplicate = addSection(original, {
@@ -464,18 +557,21 @@ describe('account-backed onboarding document compiler', () => {
     // the Add Section library gives the new section the registry label.
     expect(duplicate).not.toHaveProperty('starterSemanticRole');
     expect(duplicate).toMatchObject({ label: 'About', sectionType: 'about' });
-    // About is a soft per-site limit: the owner's copy is kept alongside the
-    // starter's, and neither absorbs the other's identity.
+    // A deliberate advanced Builder duplicate is outside the compiler-owned
+    // starter recipe. The compiler preserves both identities instead of
+    // silently overwriting the owner's document.
+    expect(compiled.recipeMigrationResult).toBe('preserved_manual_edits');
+    expect(compiled.builderDocument.pages.flatMap(page => page.sections)
+      .filter(section => section.sectionType === 'about')
+      .map(section => section.id))
+      .toEqual([duplicate.id, originalAbout.id]);
     expect(compiledAbout.map(section => section.id))
       .toEqual([duplicate.id, originalAbout.id]);
-    // Quick Info is absent because this fixture sets no location, hours, or
-    // booking preference — none of its facts resolve to content, so it would
-    // publish an empty strip. The next test shows it returning on its own.
-    expect(compiled.pages[0]?.sections.map(section => section.type))
-      .toEqual(['about', 'hero', 'featured_services', 'final_cta', 'footer']);
+    expect(compiled.pages.flatMap(page => page.sections.map(section => section.type)))
+      .not.toContain('featured_services');
   });
 
-  it('publishes Quick Info as soon as one of its facts has content', () => {
+  it('keeps Quick Info out of V1 even when its former facts have content', () => {
     const state = acceptedState('one_page');
     const document = initializeStarter('one_page', {
       idFactory: createDeterministicIdFactory('quick-info-facts'),
@@ -503,10 +599,11 @@ describe('account-backed onboarding document compiler', () => {
     }).pages.flatMap(page => page.sections.map(section => section.type));
 
     expect(typesOf(withoutFacts)).not.toContain('quick_info');
-    expect(typesOf(withFact)).toContain('quick_info');
+    expect(typesOf(withFact)).not.toContain('quick_info');
+    expect(typesOf(withFact).filter(type => type === 'visit_us')).toHaveLength(1);
   });
 
-  it('keeps injected optional IDs stable when the target page slug changes', () => {
+  it('keeps core section IDs stable and avoids legacy injections after a page rename', () => {
     const state = acceptedState('quick_book');
     state.recipe.aboutEnabled = true;
     state.profile.location.cityOrArea = 'Toronto';
@@ -518,13 +615,6 @@ describe('account-backed onboarding document compiler', () => {
       siteId: 'site_quick_book',
       siteName: state.profile.businessName,
     });
-    const injectedTypes = [
-      'about',
-      'contact',
-      'deposits_cancellations',
-      'gallery',
-      'policies',
-    ];
     const compile = (document: SiteBuilderDocument) => {
       const { snapshot } = createPersistableOnboardingDraft(
         state,
@@ -538,24 +628,34 @@ describe('account-backed onboarding document compiler', () => {
         snapshot,
       });
     };
-    const originalIds = compile(source).pages
+    const original = compile(source);
+    const originalIds = original.builderDocument.pages
       .flatMap(page => page.sections)
-      .filter(section => injectedTypes.includes(section.type))
       .map(section => section.id);
     source.pages[0]!.slug = 'daniela-home';
-    const renamedIds = compile(source).pages
+    const renamed = compile(source);
+    const renamedIds = renamed.builderDocument.pages
       .flatMap(page => page.sections)
-      .filter(section => injectedTypes.includes(section.type))
       .map(section => section.id);
 
     expect(renamedIds).toEqual(originalIds);
-    expect(originalIds).toEqual([
-      `${SITE_ID}:onboarding:about`,
-      `${SITE_ID}:onboarding:gallery`,
-      `${SITE_ID}:onboarding:deposits_cancellations`,
-      `${SITE_ID}:onboarding:policies`,
-      `${SITE_ID}:onboarding:contact`,
-    ]);
+    expect(renamed.recipeMigrationResult).toBe('preserved_manual_edits');
+    expect(renamed.builderDocument.pages[0]?.slug).toBe('daniela-home');
+    expect(renamed.builderDocument.pages[0]?.sections.map(section => section.sectionType))
+      .toEqual(['hero', 'gallery', 'booking', 'about', 'visit_us']);
+    expect(renamedIds.some(id => id.includes(':onboarding:'))).toBe(false);
+    const renamedCustomerTypes = renamed.pages.flatMap(
+      page => page.sections.map(section => section.type),
+    );
+    for (const removedType of [
+      'quick_info',
+      'deposits_cancellations',
+      'contact',
+      'final_cta',
+      'footer',
+    ] as const) {
+      expect(renamedCustomerTypes).not.toContain(removedType);
+    }
   });
 
   it('never promotes an owner label to a native Policies section', () => {
@@ -595,7 +695,7 @@ describe('account-backed onboarding document compiler', () => {
     );
   });
 
-  it('migrates an older v1 starter document without semantic metadata', () => {
+  it('preserves an unrecognized manually composed schema-v1 document', () => {
     const state = acceptedState('multi_page');
     state.recipe.aboutEnabled = true;
     state.profile.location.cityOrArea = 'Toronto';
@@ -615,8 +715,9 @@ describe('account-backed onboarding document compiler', () => {
       size: 'medium',
       visible: true,
     });
-    // A schema-v1 document as it was persisted before starterSemanticRole
-    // existed: numbered placeholders resolved positionally by the upgrade.
+    // This eight-section schema-v1 shape is not one of the exact compiler-owned
+    // 6/14/23 legacy recipes. It must therefore be normalized without being
+    // destructively rewritten as a locked V1 starter.
     const legacyDocument = {
       navigation: {
         enabled: true,
@@ -716,9 +817,10 @@ describe('account-backed onboarding document compiler', () => {
       snapshot,
     });
 
-    // The v1 placeholders become real library sections, keeping their ids and
-    // the frozen v1 preview labels; "featured work" becomes an editorial
-    // gallery and keeps that preset through recipe stamping.
+    expect(compiled.recipeMigrationResult).toBe('preserved_manual_edits');
+    // The compatibility upgrader keeps stable ids for this unknown manual
+    // document. Generic/duplicated legacy responsibilities stay out of the
+    // resolved customer tree.
     expect(compiled.builderDocument.schemaVersion).toBe(2);
     expect(compiled.builderDocument.pages.map(page => page.sections.map(
       section => [section.sectionType, section.label, section.id],
@@ -745,10 +847,22 @@ describe('account-backed onboarding document compiler', () => {
       ['about'],
       ['visit_us'],
     ]);
+    const customerTypes = compiled.pages.flatMap(
+      page => page.sections.map(section => section.type),
+    );
+    for (const removedType of [
+      'featured_services',
+      'contact',
+      'footer',
+      'final_cta',
+      'quick_info',
+    ] as const) {
+      expect(customerTypes).not.toContain(removedType);
+    }
   });
 
   it.each([
-    { expectedVisitUsCount: 0, starter: 'quick_book' },
+    { expectedVisitUsCount: 1, starter: 'quick_book' },
     { expectedVisitUsCount: 1, starter: 'one_page' },
     { expectedVisitUsCount: 1, starter: 'multi_page' },
   ] as const)(
@@ -779,28 +893,14 @@ describe('account-backed onboarding document compiler', () => {
 
       expect(visitUs).toHaveLength(expectedVisitUsCount);
 
-      if (starter === 'multi_page') {
-        const sourceContact = source.pages
-          .find(page => page.slug === 'contact')!
-          .sections.find(section => section.sectionType === 'contact')!;
-
-        // Visit Us owns the only public location value in this fixture. Contact
-        // stays in the saved Builder document but has no unique customer data.
-        expect(contacts).toEqual([]);
-        expect(compiled.builderDocument.pages.flatMap(page => page.sections))
-          .toContainEqual(expect.objectContaining({ id: sourceContact.id }));
-      } else if (starter === 'one_page') {
-        // Visit Us already carries the location and contact summary, so the
-        // ladder does not inject a second Contact surface behind it.
-        expect(contacts).toEqual([]);
-      } else {
-        expect(contacts.map(section => section.id))
-          .toEqual([`${SITE_ID}:onboarding:contact`]);
-      }
+      expect(contacts).toEqual([]);
+      expect(compiled.builderDocument.pages.flatMap(page => page.sections)
+        .filter(section => section.sectionType === 'visit_us'))
+        .toHaveLength(1);
     },
   );
 
-  it('does not compile Booking-only as a duplicate empty Contact section', () => {
+  it('compiles Booking-only as one truthful Visit & Contact surface', () => {
     const state = acceptedState('quick_book');
     state.profile.bookingOnlyContact = true;
     const source = initializeStarter('quick_book', {
@@ -822,6 +922,7 @@ describe('account-backed onboarding document compiler', () => {
 
     expect(sections.filter(section => section.type === 'booking')).toHaveLength(1);
     expect(sections).not.toContainEqual(expect.objectContaining({ type: 'contact' }));
+    expect(sections.filter(section => section.type === 'visit_us')).toHaveLength(1);
   });
 
   it.each(['quick_book', 'one_page', 'multi_page'] as const)(

@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import { createDeterministicIdFactory } from '../../model/ids';
+import { addSection } from '../../model/operations';
 import { isLibrarySection } from '../../model/section-library/registry';
 import { initializeStarter } from '../../model/starters';
 import { createDemoOnboardingState } from '../../onboarding/model/demo-content';
@@ -13,7 +15,14 @@ describe('LibrarySectionSettingsDialog content placement feedback', () => {
     const user = userEvent.setup();
     const state = createDemoOnboardingState();
     state.recipe.starter = 'one_page';
-    const document = initializeStarter('one_page');
+    const ids = createDeterministicIdFactory('featured-dialog');
+    let document = initializeStarter('one_page', { idFactory: ids });
+    const home = document.pages[0];
+    if (!home) throw new Error('One-page starter is missing Home.');
+    document = addSection(document, {
+      pageId: home.id,
+      sectionType: 'featured_services',
+    }, ids);
     const featured = document.pages[0]?.sections.find(
       section => section.sectionType === 'featured_services',
     );

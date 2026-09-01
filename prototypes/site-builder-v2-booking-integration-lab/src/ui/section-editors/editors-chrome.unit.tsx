@@ -63,6 +63,30 @@ const findSectionId = (document: SiteBuilderDocument, label: string): string => 
 };
 
 /**
+ * Section Navigation is automatic shell chrome in the locked V1 recipes.
+ * These editor tests add an explicit advanced instance so they continue to
+ * exercise its generic editor without putting it back into starter defaults.
+ */
+const withAdvancedNavigation = (
+  document: SiteBuilderDocument,
+  pageIndex = 0,
+): SiteBuilderDocument => {
+  const idFactory = createDeterministicIdFactory(`advanced-menu-${pageIndex}`);
+  return {
+    ...document,
+    pages: document.pages.map((page, index) => index === pageIndex
+      ? {
+          ...page,
+          sections: [
+            createLibrarySectionInstance('section_navigation', idFactory, { order: 0 }),
+            ...page.sections.map(section => ({ ...section, order: section.order + 1 })),
+          ],
+        }
+      : page),
+  };
+};
+
+/**
  * Two pages that each own a menu: the editor must still resolve ITS page from
  * its own section id rather than guessing.
  */
@@ -76,12 +100,21 @@ const buildTwoMenuDocument = (): {
   const pages = document.pages.map((page, index) => {
     if (index >= 2) return page;
     const menu = createLibrarySectionInstance('section_navigation', idFactory, { order: 0 });
+    const explicitAdvancedSections = index === 0
+      ? [createLibrarySectionInstance('gallery', idFactory, {
+          label: 'Featured work',
+          order: page.sections.length + 1,
+        })]
+      : [createLibrarySectionInstance('faq', idFactory, {
+          order: page.sections.length + 1,
+        })];
     menuIds.push(menu.id);
     return {
       ...page,
       sections: [
         menu,
         ...page.sections.map(section => ({ ...section, order: section.order + 1 })),
+        ...explicitAdvancedSections,
       ],
     };
   });
@@ -214,7 +247,7 @@ describe('SectionNavigationEditor', () => {
   });
 
   it('lists only the anchorable sections of the page that owns this menu', () => {
-    const document = buildDocument();
+    const document = withAdvancedNavigation(buildDocument());
     render(
       <SectionNavigationEditor
         {...sharedProps(document, createDemoOnboardingState(), menuIdOn(document, 0))}
@@ -232,7 +265,7 @@ describe('SectionNavigationEditor', () => {
   });
 
   it('stores a rename under the target section id and clears it when blanked', () => {
-    const document = buildDocument();
+    const document = withAdvancedNavigation(buildDocument());
     const aboutId = findSectionId(document, 'About');
     const menuId = menuIdOn(document, 0);
     const onChange = vi.fn();

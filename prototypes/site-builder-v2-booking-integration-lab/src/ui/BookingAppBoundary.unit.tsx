@@ -464,12 +464,11 @@ describe('unified section movement', () => {
     await user.click(within(actions).getByRole('button', { name: 'Move' }));
     let dialog = await screen.findByRole('dialog', { name: 'Move Booking' });
 
-    expect(within(dialog).getByLabelText('Position for Announcement Bar')).toHaveValue(1);
-    expect(within(dialog).getByLabelText('Position for Salon intro')).toHaveValue(2);
-    expect(within(dialog).getByLabelText('Position for Featured Services')).toHaveValue(3);
-    expect(within(dialog).getByLabelText('Position for Booking')).toHaveValue(4);
-    expect(within(dialog).getByLabelText('Position for Final Booking CTA')).toHaveValue(5);
-    expect(within(dialog).getByLabelText('Position for Footer')).toHaveValue(6);
+    expect(within(dialog).getByLabelText('Position for Salon intro')).toHaveValue(1);
+    expect(within(dialog).getByLabelText('Position for Gallery')).toHaveValue(2);
+    expect(within(dialog).getByLabelText('Position for Booking')).toHaveValue(3);
+    expect(within(dialog).getByLabelText('Position for About')).toHaveValue(4);
+    expect(within(dialog).getByLabelText('Position for Visit & Contact')).toHaveValue(5);
     expect(within(dialog).getByLabelText('Position for Booking'))
       .toHaveAttribute('aria-describedby', 'move-position-help');
     expect(within(dialog).queryByRole('list', { name: 'Destination pages' }))
@@ -478,14 +477,12 @@ describe('unified section movement', () => {
     await user.clear(within(dialog).getByLabelText('Position for Booking'));
     await user.type(within(dialog).getByLabelText('Position for Booking'), '1{Enter}');
     expect(sectionOrder()).toEqual([
-      'Booking', 'Announcement Bar', 'Salon intro', 'Featured Services',
-      'Final Booking CTA', 'Footer',
+      'Booking', 'Salon intro', 'Gallery', 'About', 'Visit & Contact',
     ]);
 
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }));
     expect(sectionOrder()).toEqual([
-      'Announcement Bar', 'Salon intro', 'Featured Services', 'Booking',
-      'Final Booking CTA', 'Footer',
+      'Salon intro', 'Gallery', 'Booking', 'About', 'Visit & Contact',
     ]);
 
     await user.click(within(screen.getByRole('group', { name: 'Booking actions' }))
@@ -499,8 +496,7 @@ describe('unified section movement', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Done' }));
 
     expect(sectionOrder()).toEqual([
-      'Booking', 'Announcement Bar', 'Salon intro', 'Featured Services',
-      'Final Booking CTA', 'Footer',
+      'Booking', 'Salon intro', 'Gallery', 'About', 'Visit & Contact',
     ]);
   });
 
@@ -546,25 +542,25 @@ describe('App customer Preview boundary', () => {
       name: 'Open Pages & Structure for Home',
     }));
     const structure = await screen.findByRole('dialog', { name: 'Pages & Structure' });
-    const teamPage = within(structure).getByText('Team').closest('button');
-    if (!teamPage) throw new Error('Team page control was not rendered.');
-    await user.click(teamPage);
-    await screen.findByRole('heading', { level: 1, name: 'Team' });
+    const aboutPage = within(structure).getByText('About').closest('button');
+    if (!aboutPage) throw new Error('About page control was not rendered.');
+    await user.click(aboutPage);
+    await screen.findByRole('heading', { level: 1, name: 'About' });
 
     await user.click(screen.getByRole('button', { name: 'Preview' }));
     const preview = await screen.findByRole('region', { name: 'Builder customer preview' });
-    expect(screen.getByLabelText('Preview controls')).toHaveTextContent('Previewing Team');
-    expect(within(preview).getByRole('region', { name: 'Team page' })).toBeVisible();
+    expect(screen.getByLabelText('Preview controls')).toHaveTextContent('Previewing About');
+    expect(within(preview).getByRole('region', { name: 'About page' })).toBeVisible();
     expect(preview.querySelector('.onboarding-customer-about.is-editorial'))
       .toBeInTheDocument();
     expect(preview.querySelector('.onboarding-customer-about.is-photo-right'))
       .not.toBeInTheDocument();
 
-    await user.click(within(preview).getByRole('link', { name: 'Services / Book' }));
-    expect(await within(preview).findByRole('region', { name: 'Services / Book page' }))
+    await user.click(within(preview).getByRole('link', { name: 'Services & Booking' }));
+    expect(await within(preview).findByRole('region', { name: 'Services & Booking page' }))
       .toBeVisible();
     expect(screen.getByLabelText('Preview controls')).toHaveTextContent(
-      'Previewing Services / Book',
+      'Previewing Services & Booking',
     );
   });
 
