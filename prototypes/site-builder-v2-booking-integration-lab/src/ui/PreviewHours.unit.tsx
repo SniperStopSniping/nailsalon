@@ -59,10 +59,22 @@ describe('Builder handoff business metadata', () => {
     expect(within(metadata).getByRole('link', { name: 'Book now' })).toHaveAttribute('href', '#booking');
     expect(globalThis.document.querySelector('#booking'))
       .toHaveAttribute('data-section-type', 'booking');
-    // Quick Book's hero carries the explicit 'Salon intro' label; its services
-    // section takes the registry default label 'Featured Services'.
+    // Quick Book owns one opening Hero and one transactional service catalogue.
+    // The catalogue lives inside Booking; there is no separate Featured Services
+    // section in the locked V1 document.
     expect(screen.getByRole('heading', { name: 'Salon intro' })).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Featured Services' })).toBeVisible();
+    expect(activePage.sections.map(section => section.sectionType)).toEqual([
+      'hero',
+      'gallery',
+      'booking',
+      'about',
+      'visit_us',
+    ]);
+    expect(view.container.querySelectorAll('[data-section-type="booking"]')).toHaveLength(1);
+    expect(view.container.querySelector('[data-section-type="featured_services"]'))
+      .not.toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Booking section' }))
+      .getByRole('heading', { name: 'All services' })).toBeVisible();
     expect(screen.queryByText(/Future section/u)).not.toBeInTheDocument();
 
     view.rerender(

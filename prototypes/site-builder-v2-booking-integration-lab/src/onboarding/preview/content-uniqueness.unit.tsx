@@ -139,12 +139,12 @@ describe('customer content uniqueness markers', () => {
     },
   );
 
-  it('moves the Profile photo to the matching owner card when About is hidden', () => {
+  it('keeps the Profile photo in About and never rehomes it when About is hidden', () => {
     const state = createDemoOnboardingState();
     state.profile.profilePhoto = {
       altText: 'Distinct owner portrait',
       fileName: 'owner.jpeg',
-      id: 'profile-team-fallback',
+      id: 'profile-about-owner',
       mimeType: 'image/jpeg',
       previewUrl: '/assets/images/tech-daniela.jpeg',
       source: 'fixture',
@@ -155,29 +155,53 @@ describe('customer content uniqueness markers', () => {
     });
     const about = document.pages.flatMap(page => page.sections)
       .find(section => section.sectionType === 'about')!;
-    const teamPage = document.pages.find(page => page.sections.some(
-      section => section.sectionType === 'team',
+    const aboutPage = document.pages.find(page => page.sections.some(
+      section => section.sectionType === 'about',
     ))!;
-    about.visible = false;
+    const homePage = document.pages.find(page => page.isHome)!;
 
-    const { container } = render(
+    const visibleView = render(
       <OnboardingSitePreview
         document={document}
-        initialPageId={teamPage.id}
+        initialPageId={aboutPage.id}
         interactionMode="interactive"
-        label="Team fallback"
+        label="About profile owner"
         preserveDocumentPresentation
         state={state}
       />,
     );
 
-    const profile = container.querySelector<HTMLElement>(
+    const profile = visibleView.container.querySelector<HTMLElement>(
       '[data-content-key="owner_profile_photo"]',
     );
 
     expect(profile).not.toBeNull();
+    expect(profile).toHaveAttribute('data-media-id', 'profile-about-owner');
     expect(profile).toHaveAttribute('data-media-role', 'profile');
-    expect(profile?.closest('[data-library-type="team"]')).not.toBeNull();
+    expect(profile?.closest('section[aria-label="About"]')).not.toBeNull();
+    expect(visibleView.container.querySelectorAll(
+      '[data-content-key="owner_profile_photo"]',
+    )).toHaveLength(1);
+    expect(visibleView.container.querySelector(
+      '[data-library-type="hero"] [data-media-role="profile"]',
+    )).toBeNull();
+    visibleView.unmount();
+
+    about.visible = false;
+
+    const { container } = render(
+      <OnboardingSitePreview
+        document={document}
+        initialPageId={homePage.id}
+        interactionMode="interactive"
+        label="Hidden About"
+        preserveDocumentPresentation
+        state={state}
+      />,
+    );
+
+    expect(container.querySelector('[data-content-key="owner_profile_photo"]')).toBeNull();
+    expect(container.querySelector('[data-media-id="profile-about-owner"]')).toBeNull();
     expect(container.querySelector('[data-library-type="hero"] [data-media-role="profile"]'))
       .toBeNull();
   });

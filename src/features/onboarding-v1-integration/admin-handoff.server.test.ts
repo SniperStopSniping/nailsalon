@@ -14,6 +14,7 @@ const document = (bookingVisible = true): OnboardingCompiledSiteDocument => ({
     siteId: 'site_1',
     siteName: 'Isla Nail Studio',
   }),
+  compilerVersion: 1,
   navigation: [{ label: 'Home', order: 0, pageId: 'site:page:home' }],
   navigationEnabled: true,
   pages: [{
@@ -34,6 +35,8 @@ const document = (bookingVisible = true): OnboardingCompiledSiteDocument => ({
     visibleInNavigation: true,
   }],
   palettePresetId: 'luster_berry',
+  recipeMigrationResult: 'fresh_v1',
+  recipeVersion: 1,
   revision: 3,
   schemaVersion: 1,
   serviceSelection: { selectedAddOnIds: [], selectedServiceIds: ['service_1'] },

@@ -199,48 +199,36 @@ describe('Builder overlap resolution UI', () => {
       .toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('walks duplicate and adjacency warnings before opening the real move flow', async () => {
+  it('walks the duplicate About warning before opening the real move flow', async () => {
     seedBuilder(initializeStarter('quick_book'));
     const user = userEvent.setup();
     render(<App />);
 
     await user.click(screen.getByRole('button', {
-      name: 'Add section after Featured Services',
+      name: 'Add section after About',
     }));
     const library = await screen.findByRole('dialog', { name: 'Add section' });
     await user.click(within(library).getByRole('button', {
-      name: 'Add Featured Services',
+      name: 'Add About',
     }));
 
     const duplicate = await screen.findByRole('dialog', {
-      name: 'Featured Services is already on this page',
+      name: 'About is already on your site',
     });
 
-    expect(within(duplicate).getByText(/1 more overlap choice follows/)).toBeVisible();
     expect(within(duplicate).getByRole('button', {
-      name: 'Go to existing Featured Services',
+      name: 'Go to existing About',
     })).toBeVisible();
 
     await user.click(within(duplicate).getByRole('button', { name: 'Add it anyway' }));
 
-    const adjacency = await screen.findByRole('dialog', {
-      name: 'Your full menu is already here',
-    });
-
-    expect(within(adjacency).getByRole('button', {
-      name: 'Keep both (separate them later)',
-    })).toBeVisible();
-
-    await user.click(within(adjacency).getByRole('button', {
-      name: 'Move Featured Services',
-    }));
-
-    expect(await screen.findByRole('dialog', { name: 'Move Featured Services' }))
-      .toBeVisible();
-
     await waitFor(() => expect(readDocument().pages[0]?.sections.filter(
-      section => section.sectionType === 'featured_services',
+      section => section.sectionType === 'about',
     )).toHaveLength(2));
+
+    const actions = await screen.findByRole('group', { name: 'About actions' });
+    await user.click(within(actions).getByRole('button', { name: 'Move' }));
+    expect(await screen.findByRole('dialog', { name: 'Move About' })).toBeVisible();
   });
 
   it('switches the duplicate About policy design through the advisory and Undo restores it', async () => {

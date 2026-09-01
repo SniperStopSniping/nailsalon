@@ -9,15 +9,7 @@ import { getStarterPageDefinitions } from '../model/starters';
 import type { OriginStarter } from '../model/types';
 import { StarterChoiceGrid, StarterChooser } from './StarterChooser';
 
-/**
- * `included` is the owner-facing "Includes" line. Schema v2 starters carry
- * composition chrome (announcement, on-page menu, policy blocks, final CTA,
- * footer) that `src/model/starters.ts` marks `summary: false` precisely so it
- * stays OUT of this line — see the `StarterSectionDefinition` doc comment.
- * The quick_book and one_page values below are therefore unchanged; only the
- * multi_page page list moved, because the starter's fourth page is now Team
- * (About became a section on it) — see `STARTER_PAGES`.
- */
+/** The chooser describes the locked V1 documents, not an older hidden recipe. */
 const EXPECTED_STARTERS: ReadonlyArray<{
   cta: string;
   description: string;
@@ -30,7 +22,7 @@ const EXPECTED_STARTERS: ReadonlyArray<{
     cta: 'Start with Quick Book',
     description: 'Start taking bookings with only the essentials.',
     id: 'quick_book',
-    included: 'Salon intro · Services · Booking',
+    included: 'Salon intro · Nail work · Services & Booking · About · Visit & Contact',
     includesLabel: 'Includes',
     title: 'Quick Book',
   },
@@ -38,7 +30,7 @@ const EXPECTED_STARTERS: ReadonlyArray<{
     cta: 'Start with One-page',
     description: 'Show your whole business on one scrolling page.',
     id: 'one_page',
-    included: 'Welcome · About · Services · Gallery · Reviews · Booking',
+    included: 'Welcome · Gallery · About · Services & Booking · Reviews · Before You Book · Visit & Contact',
     includesLabel: 'Includes',
     title: 'One-page website',
   },
@@ -46,7 +38,7 @@ const EXPECTED_STARTERS: ReadonlyArray<{
     cta: 'Start with Multi-page',
     description: 'Give each part of your business its own page and navigation link.',
     id: 'multi_page',
-    included: 'Home · Services & Booking · Gallery · Team · Contact',
+    included: 'Home · Services & Booking · Gallery · About · Contact',
     includesLabel: 'Includes pages',
     title: 'Multi-page website',
   },
@@ -185,9 +177,7 @@ describe('StarterChooser copy and accessibility', () => {
     }
 
     expect(screen.getAllByRole('button')).toHaveLength(3);
-    // No technical count badge for any starter size (v2 totals are 6 / 14 / 23
-    // sections across 1 / 1 / 5 pages, so the old [356] character class no
-    // longer covers them).
+    // Product cards explain their real content without exposing technical counts.
     expect(screen.queryByText(/Starts with \d+ (?:sections|pages)/)).not.toBeInTheDocument();
     expect(screen.getByText('Nothing is permanent.')).toBeVisible();
     expect(screen.getByText(

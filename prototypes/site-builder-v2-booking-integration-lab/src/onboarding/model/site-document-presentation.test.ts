@@ -8,7 +8,7 @@ import { applyOnboardingSitePresentation } from './site-document-presentation';
 
 describe('onboarding site presentation ownership', () => {
   it.each(['one_page', 'multi_page'] as const)(
-    'immutably stamps non-default About and Gallery choices into %s',
+    'immutably stamps choices into the one authoritative About and Gallery in %s',
     (starter) => {
       const source = initializeStarter(starter, {
         idFactory: createDeterministicIdFactory(`presentation-${starter}`),
@@ -23,22 +23,42 @@ describe('onboarding site presentation ownership', () => {
       expect(result.pages.flatMap(page => page.sections)
         .filter(section => section.sectionType === 'about')
         .map(section => section.settings.preset))
-        .toEqual(starter === 'one_page'
-          ? ['about_before_you_book']
-          : ['about_before_you_book']);
+        .toEqual(['about_before_you_book']);
 
       const galleries = result.pages.flatMap(page => page.sections)
         .filter(section => section.sectionType === 'gallery');
 
-      expect(galleries.find(
+      expect(galleries).toHaveLength(1);
+      expect(galleries[0]).toMatchObject({
+        galleryPresentationOwner: 'onboarding',
+        settings: { preset: 'carousel' },
+      });
+      expect(galleries.some(
         section => section.galleryPresentationOwner === 'recipe',
-      )?.settings.preset)
-        .toBe(starter === 'multi_page' ? 'editorial' : undefined);
-      expect(galleries.filter(
-        section => section.galleryPresentationOwner === 'onboarding',
-      )
-        .map(section => section.settings.preset))
-        .toEqual(['carousel']);
+      )).toBe(false);
+      expect(result.pages.map(page => ({
+        name: page.name,
+        sectionTypes: page.sections.map(section => section.sectionType),
+      }))).toEqual(starter === 'one_page'
+        ? [{
+            name: 'Home',
+            sectionTypes: [
+              'hero',
+              'gallery',
+              'about',
+              'booking',
+              'reviews',
+              'policies',
+              'visit_us',
+            ],
+          }]
+        : [
+            { name: 'Home', sectionTypes: ['hero', 'reviews'] },
+            { name: 'Services & Booking', sectionTypes: ['booking', 'policies'] },
+            { name: 'Gallery', sectionTypes: ['gallery'] },
+            { name: 'About', sectionTypes: ['about'] },
+            { name: 'Contact', sectionTypes: ['visit_us'] },
+          ]);
       expect(result.pages.flatMap(page => page.sections.map(section => section.id)))
         .toEqual(source.pages.flatMap(page => page.sections.map(section => section.id)));
       expect(applyOnboardingSitePresentation(result, {
@@ -53,34 +73,27 @@ describe('onboarding site presentation ownership', () => {
 
       expect(changedChoice.pages.flatMap(page => page.sections)
         .filter(section => section.sectionType === 'gallery')
-        .find(section => section.galleryPresentationOwner === 'onboarding')
-        ?.settings.preset)
-        .toBe('editorial');
-      expect(changedChoice.pages.flatMap(page => page.sections)
-        .filter(section => section.sectionType === 'gallery')
-        .find(section => section.galleryPresentationOwner === 'recipe')
-        ?.settings.preset)
-        .toBe(starter === 'multi_page' ? 'editorial' : undefined);
+        .map(section => ({
+          owner: section.galleryPresentationOwner,
+          preset: section.settings.preset,
+        })))
+        .toEqual([{ owner: 'onboarding', preset: 'editorial' }]);
     },
   );
 
-  it('uses stable provenance when Gallery labels are renamed or exchanged', () => {
+  it('uses stable provenance when the authoritative Gallery is renamed', () => {
     const source = initializeStarter('multi_page', {
       idFactory: createDeterministicIdFactory('renamed-gallery'),
     });
     const galleries = source.pages.flatMap(page => page.sections)
       .filter(section => section.sectionType === 'gallery');
-    const supporting = galleries.find(
-      section => section.galleryPresentationOwner === 'recipe',
-    );
-    const primary = galleries.find(
-      section => section.galleryPresentationOwner === 'onboarding',
-    );
-    if (!supporting || !primary) {
-      throw new Error('Missing starter Galleries.');
+    const gallery = galleries[0];
+    if (!gallery) {
+      throw new Error('Missing authoritative starter Gallery.');
     }
-    supporting.label = 'Portfolio';
-    primary.label = 'Featured work';
+    expect(galleries).toHaveLength(1);
+    expect(gallery.galleryPresentationOwner).toBe('onboarding');
+    gallery.label = 'Portfolio';
 
     const result = applyOnboardingSitePresentation(source, {
       aboutPreset: 'photo_right',
@@ -89,29 +102,30 @@ describe('onboarding site presentation ownership', () => {
     const resultGalleries = result.pages.flatMap(page => page.sections)
       .filter(section => section.sectionType === 'gallery');
 
-    expect(resultGalleries.find(section => section.id === supporting.id))
-      .toMatchObject({ label: 'Portfolio', settings: { preset: 'editorial' } });
-    expect(resultGalleries.find(section => section.id === primary.id))
-      .toMatchObject({ label: 'Featured work', settings: { preset: 'carousel' } });
+    expect(resultGalleries).toEqual([
+      expect.objectContaining({
+        galleryPresentationOwner: 'onboarding',
+        id: gallery.id,
+        label: 'Portfolio',
+        settings: expect.objectContaining({ preset: 'carousel' }),
+      }),
+    ]);
   });
 
-  it('normalizes untouched legacy-v2 starter ownership without label inference', () => {
-    const legacy = initializeStarter('multi_page', {
-      idFactory: createDeterministicIdFactory('legacy-gallery-owner'),
+  it('round-trips the exact multi-page recipe with one persisted Gallery owner', () => {
+    const source = initializeStarter('multi_page', {
+      idFactory: createDeterministicIdFactory('persisted-gallery-owner'),
     });
-    const galleries = legacy.pages.flatMap(page => page.sections)
+    const galleries = source.pages.flatMap(page => page.sections)
       .filter(section => section.sectionType === 'gallery');
-    const homeGallery = galleries[0];
-    const pageGallery = galleries[1];
-    if (!homeGallery || !pageGallery) {
-      throw new Error('Missing starter Galleries.');
+    const gallery = galleries[0];
+    if (!gallery) {
+      throw new Error('Missing authoritative starter Gallery.');
     }
-    delete homeGallery.galleryPresentationOwner;
-    delete pageGallery.galleryPresentationOwner;
-    homeGallery.label = 'Portfolio';
-    pageGallery.label = 'Featured work';
+    expect(galleries).toHaveLength(1);
+    gallery.label = 'Featured work';
 
-    const imported = parseSiteBuilderDocument(JSON.stringify(legacy));
+    const imported = parseSiteBuilderDocument(JSON.stringify(source));
 
     expect(imported.success).toBe(true);
 
@@ -126,63 +140,59 @@ describe('onboarding site presentation ownership', () => {
     const resultGalleries = result.pages.flatMap(page => page.sections)
       .filter(section => section.sectionType === 'gallery');
 
-    expect(resultGalleries.find(section => section.id === homeGallery.id))
-      .toMatchObject({
-        galleryPresentationOwner: 'recipe',
-        label: 'Portfolio',
-        settings: { preset: 'editorial' },
-      });
-    expect(resultGalleries.find(section => section.id === pageGallery.id))
-      .toMatchObject({
+    expect(resultGalleries).toEqual([
+      expect.objectContaining({
         galleryPresentationOwner: 'onboarding',
+        id: gallery.id,
         label: 'Featured work',
-        settings: { preset: 'carousel' },
-      });
+        settings: expect.objectContaining({ preset: 'carousel' }),
+      }),
+    ]);
+    expect(imported.document.pages.find(page => page.name === 'Gallery')?.sections)
+      .toHaveLength(1);
   });
 
-  it('normalizes the intact active starter despite unrelated recoverable records', () => {
-    const legacy = initializeStarter('multi_page', {
-      idFactory: createDeterministicIdFactory('legacy-gallery-recoverable'),
+  it('preserves the sole active Gallery owner beside unrelated recoverable records', () => {
+    const source = initializeStarter('multi_page', {
+      idFactory: createDeterministicIdFactory('gallery-recoverable'),
     });
-    const galleries = legacy.pages.flatMap(page => page.sections)
+    const galleries = source.pages.flatMap(page => page.sections)
       .filter(section => section.sectionType === 'gallery');
-    const homeGallery = galleries[0];
-    const pageGallery = galleries[1];
-    const about = legacy.pages.flatMap(page => page.sections)
+    const gallery = galleries[0];
+    const about = source.pages.flatMap(page => page.sections)
       .find(section => section.sectionType === 'about');
-    if (!homeGallery || !pageGallery || !about) {
+    if (!gallery || !about) {
       throw new Error('Missing starter sections.');
     }
-    delete homeGallery.galleryPresentationOwner;
-    delete pageGallery.galleryPresentationOwner;
+    expect(galleries).toHaveLength(1);
 
     const restorableSection = {
       ...structuredClone(about),
       id: 'legacy-unrelated-restorable-section',
       order: 0,
     };
-    legacy.unusedSections.push(restorableSection);
-    legacy.removedPages.push({
+    source.unusedSections.push(restorableSection);
+    source.removedPages.push({
       navigationItem: {
         id: 'legacy-unrelated-removed-navigation',
         label: 'Archived notes',
-        order: legacy.navigation.items.length,
+        order: source.navigation.items.length,
         pageId: 'legacy-unrelated-removed-page',
       },
       page: {
         id: 'legacy-unrelated-removed-page',
         isHome: false,
         name: 'Archived notes',
-        order: legacy.pages.length,
+        order: source.pages.length,
         slug: 'archived-notes',
         visible: true,
         visibleInNavigation: true,
       },
-      removedAtOrder: legacy.pages.length,
+      removedAtOrder: source.pages.length,
       sectionIds: [restorableSection.id],
     });
 
-    const imported = parseSiteBuilderDocument(JSON.stringify(legacy));
+    const imported = parseSiteBuilderDocument(JSON.stringify(source));
 
     expect(imported.success).toBe(true);
 
@@ -196,10 +206,7 @@ describe('onboarding site presentation ownership', () => {
     expect(importedGalleries.map(section => ({
       id: section.id,
       owner: section.galleryPresentationOwner,
-    }))).toEqual([
-      { id: homeGallery.id, owner: 'recipe' },
-      { id: pageGallery.id, owner: 'onboarding' },
-    ]);
+    }))).toEqual([{ id: gallery.id, owner: 'onboarding' }]);
     expect(imported.document.unusedSections).toEqual([
       expect.objectContaining({
         id: restorableSection.id,
@@ -257,6 +264,12 @@ describe('onboarding site presentation ownership', () => {
       }>;
     };
     const galleries = upgraded.pages.flatMap(page => page.sections);
+
+    // Historical v1 imported two Gallery responsibilities. This upgrade is
+    // backward-compatible only; the current starter itself owns one Gallery.
+    expect(initializeStarter('multi_page').pages.flatMap(page => page.sections)
+      .filter(section => section.sectionType === 'gallery'))
+      .toHaveLength(1);
 
     expect(galleries).toEqual([
       expect.objectContaining({

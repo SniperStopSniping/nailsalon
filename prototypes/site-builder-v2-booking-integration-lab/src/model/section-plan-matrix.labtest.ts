@@ -230,10 +230,12 @@ describe('ordered adjacency matrix (400 pairs)', () => {
     expect(entry.readiness(summarySettings, withWording).level).toBe('ready');
   });
 
-  it('keeps Before You Book honest: only ticked topics with wording publish', () => {
+  it('keeps Before You Book honest across its deposit and selected-topic authorities', () => {
     const entry = SECTION_LIBRARY_REGISTRY.policies;
     const base = {
       ...deriveSiteLibraryContext(state, pairDocument('hero', 'booking')),
+      depositsSummaryPublishable: false,
+      depositsWordingPublishable: false,
       policiesMeaningful: true,
     };
     const settings = entry.normalize({
@@ -253,6 +255,14 @@ describe('ordered adjacency matrix (400 pairs)', () => {
     }).level).toBe('ready');
     expect(entry.readiness(settings, { ...base, availablePolicyTopics: [] }).level)
       .toBe('empty');
+    // Deposits & cancellations are now composed into this same section. A
+    // publishable deposit policy makes it ready without inventing a second
+    // standalone policy owner.
+    expect(entry.readiness(settings, {
+      ...base,
+      availablePolicyTopics: [],
+      depositsSummaryPublishable: true,
+    }).level).toBe('ready');
   });
 
   it('keeps Quick Info honest: selected facts with no content do not publish', () => {

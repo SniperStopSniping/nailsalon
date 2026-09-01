@@ -731,6 +731,19 @@ describe('OnboardingApp handoff boundaries', () => {
     expect(lab.acceptOnboardingPresentation).toHaveBeenCalledWith(
       'Isla Nail Studio',
       { aboutPreset: state.recipe.aboutPreset, galleryLayout: state.gallery.layout },
+      expect.objectContaining({
+        context: expect.objectContaining({
+          businessStructure: 'solo',
+          canonicalServiceIds: state.profile.serviceMenu.selectedServiceIds,
+          policiesMeaningful: true,
+        }),
+        toggles: {
+          aboutEnabled: true,
+          canvaEnabled: false,
+          galleryEnabled: false,
+          policiesEnabled: true,
+        },
+      }),
     );
     const offer = screen.getByRole('dialog', { name: 'Your site is saved' });
     expect(within(offer).getByRole('button', { name: 'Continue free' })).toBeVisible();
@@ -869,9 +882,18 @@ describe('OnboardingApp handoff boundaries', () => {
       expect(savedDocument.success).toBe(true);
       if (savedDocument.success) {
         expect(savedDocument.document.originStarter).toBe('one_page');
-        // The One-page starter's single Home page carries all 14 library
-        // sections defined in `STARTER_PAGES` (src/model/starters.ts).
-        expect(savedDocument.document.pages[0]?.sections).toHaveLength(14);
+        // This fixture has no Gallery or real Reviews, so the locked One-page
+        // recipe persists only the five customer-ready responsibilities.
+        // Shell navigation and the footer remain automatic.
+        expect(savedDocument.document.pages[0]?.sections.map(
+          section => section.sectionType,
+        )).toEqual([
+          'hero',
+          'about',
+          'booking',
+          'policies',
+          'visit_us',
+        ]);
       }
     });
 

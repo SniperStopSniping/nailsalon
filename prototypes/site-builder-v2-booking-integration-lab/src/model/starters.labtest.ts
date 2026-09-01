@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { DEFAULT_BOOKING_PRESENTATION_SETTINGS } from '../booking/presentation';
+import {
+  DEFAULT_BOOKING_PRESENTATION_SETTINGS,
+  withoutFeaturedServicesRail,
+} from '../booking/presentation';
 import {
   ADD_SECTION_CATALOGUE,
   SECTION_CATALOGUE,
@@ -29,7 +32,28 @@ const starters: readonly OriginStarter[] = [
   'multi_page',
 ];
 
+const V1_BOOKING_PRESENTATION_SETTINGS = withoutFeaturedServicesRail(
+  DEFAULT_BOOKING_PRESENTATION_SETTINGS,
+);
+
 describe('starter initialization', () => {
+  it.each(starters)('%s starts with one catalogue and no duplicate featured rail', (starter) => {
+    const document = initializeStarter(starter, {
+      idFactory: createDeterministicIdFactory(`single-catalogue-${starter}`),
+    });
+    const bookingSections = document.pages
+      .flatMap(page => page.sections)
+      .filter(section => section.sectionType === 'booking');
+
+    expect(bookingSections).toHaveLength(1);
+    const booking = bookingSections[0];
+    if (booking?.sectionType !== 'booking') throw new Error('Booking section is missing.');
+    if (booking.settings.layout !== 'visual_grid') {
+      throw new Error('V1 Booking must use the Visual Grid fixture.');
+    }
+    expect(booking.settings.layoutSettings.showFeatured).toBe(false);
+  });
+
   it('creates the exact Quick Book defaults', () => {
     const document = initializeStarter('quick_book', {
       idFactory: createDeterministicIdFactory('quick'),
@@ -51,24 +75,9 @@ describe('starter initialization', () => {
     expect(document.pages[0]?.sections).toEqual([
       {
         id: 'section_quick_1',
-        sectionType: 'announcement_bar',
-        label: 'Announcement Bar',
-        order: 0,
-        visible: true,
-        settings: {
-          action: null,
-          dismissible: true,
-          message: '',
-          reassurance: '',
-          tone: 'tint',
-          version: 1,
-        },
-      },
-      {
-        id: 'section_quick_2',
         sectionType: 'hero',
         label: 'Salon intro',
-        order: 1,
+        order: 0,
         visible: true,
         settings: {
           headline: { source: 'shared' },
@@ -82,55 +91,66 @@ describe('starter initialization', () => {
         },
       },
       {
-        id: 'section_quick_3',
-        sectionType: 'featured_services',
-        label: 'Featured Services',
-        order: 2,
+        id: 'section_quick_2',
+        sectionType: 'gallery',
+        label: 'Gallery',
+        order: 1,
         visible: true,
+        galleryPresentationOwner: 'onboarding',
         settings: {
-          preset: 'grid',
-          serviceIds: [],
-          source: 'featured',
+          preset: 'carousel',
+          selection: { mode: 'all' },
           version: 1,
         },
+      },
+      {
+        id: 'section_quick_3',
+        sectionType: 'booking',
+        label: 'Booking',
+        order: 2,
+        visible: true,
+        settings: V1_BOOKING_PRESENTATION_SETTINGS,
       },
       {
         id: 'section_quick_4',
-        sectionType: 'booking',
-        label: 'Booking',
+        sectionType: 'about',
+        label: 'About',
         order: 3,
         visible: true,
-        settings: DEFAULT_BOOKING_PRESENTATION_SETTINGS,
-      },
-      {
-        id: 'section_quick_5',
-        sectionType: 'final_cta',
-        label: 'Final Booking CTA',
-        order: 4,
-        visible: true,
         settings: {
-          headline: { source: 'shared' },
-          preset: 'simple_banner',
+          intro: { source: 'shared' },
+          preset: 'photo_right',
           version: 1,
         },
       },
       {
-        id: 'section_quick_6',
-        sectionType: 'footer',
-        label: 'Footer',
-        order: 5,
+        id: 'section_quick_5',
+        sectionType: 'visit_us',
+        label: 'Visit & Contact',
+        order: 4,
         visible: true,
-        settings: { preset: 'columns', showAttribution: true, version: 1 },
+        settings: {
+          contactSummary: 'auto',
+          hoursSummary: 'auto',
+          preset: 'compact_info',
+          showEntrance: true,
+          showParking: true,
+          showTransit: true,
+          version: 1,
+        },
       },
     ]);
 
-    const booking = document.pages[0]?.sections[3];
+    const booking = document.pages[0]?.sections[2];
     expect(booking?.sectionType).toBe('booking');
     if (booking?.sectionType !== 'booking') {
       throw new Error('Quick Book is missing Booking.');
     }
-    expect(booking.settings).toEqual(DEFAULT_BOOKING_PRESENTATION_SETTINGS);
-    expect(booking.settings.layout).toBe('visual_grid');
+    expect(booking.settings).toEqual(V1_BOOKING_PRESENTATION_SETTINGS);
+    if (booking.settings.layout !== 'visual_grid') {
+      throw new Error('Quick Book must use the Visual Grid fixture.');
+    }
+    expect(booking.settings.layoutSettings.showFeatured).toBe(false);
 
     // Library sections carry per-type settings only: no numbered-placeholder
     // presentation slots and no retired starter role metadata.
@@ -149,41 +169,27 @@ describe('starter initialization', () => {
     expect(document.navigation.enabled).toBe(true);
     expect(document.pages).toHaveLength(1);
     expect(document.siteContent).toEqual(createEmptySiteContent());
-    expect(document.pages[0]?.sections).toHaveLength(14);
+    expect(document.pages[0]?.sections).toHaveLength(7);
     expect(document.pages[0]?.sections.map((section) => section.sectionType)).toEqual([
-      'announcement_bar',
       'hero',
-      'quick_info',
-      'section_navigation',
-      'about',
-      'featured_services',
       'gallery',
+      'about',
+      'booking',
       'reviews',
-      'deposits_cancellations',
       'policies',
       'visit_us',
-      'booking',
-      'final_cta',
-      'footer',
     ]);
     expect(document.pages[0]?.sections.map((section) => section.label)).toEqual([
-      'Announcement Bar',
       'Welcome',
-      'Quick Info',
-      'Section Navigation',
-      'About',
-      'Featured Services',
       'Gallery',
-      'Reviews',
-      'Deposits & Cancellations',
-      'Before You Book',
-      'Visit Us',
+      'About',
       'Booking',
-      'Final Booking CTA',
-      'Footer',
+      'Reviews',
+      'Before You Book',
+      'Visit & Contact',
     ]);
     expect(document.pages[0]?.sections.map((section) => section.order)).toEqual([
-      0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
+      0, 1, 2, 3, 4, 5, 6,
     ]);
     expect(
       document.pages[0]?.sections.every((section) => section.visible),
@@ -199,7 +205,7 @@ describe('starter initialization', () => {
         getSectionRegistryEntry(section.sectionType).defaultSettings(),
       );
     }
-    expect(document.pages[0]?.sections[1]).toMatchObject({
+    expect(document.pages[0]?.sections[0]).toMatchObject({
       sectionType: 'hero',
       label: 'Welcome',
       settings: { preset: 'image_right' },
@@ -214,67 +220,48 @@ describe('starter initialization', () => {
     expect(document.navigation.enabled).toBe(true);
     expect(document.pages.map((page) => page.name)).toEqual([
       'Home',
-      'Services / Book',
+      'Services & Booking',
       'Gallery',
-      'Team',
+      'About',
       'Contact',
     ]);
     expect(document.pages.map((page) => page.slug)).toEqual([
       '',
       'services-book',
       'gallery',
-      'team',
+      'about',
       'contact',
     ]);
-    expect(document.pages.flatMap((page) => page.sections)).toHaveLength(23);
+    expect(document.pages.flatMap((page) => page.sections)).toHaveLength(7);
     expect(
       document.pages.map((page) =>
         page.sections.map((section) => section.sectionType),
       ),
     ).toEqual([
       [
-        'announcement_bar',
         'hero',
-        'quick_info',
-        'featured_services',
-        'gallery',
         'reviews',
-        'final_cta',
-        'footer',
       ],
       [
         'booking',
-        'deposits_cancellations',
         'policies',
-        'faq',
-        'footer',
       ],
-      ['gallery', 'final_cta', 'footer'],
-      ['team', 'about', 'footer'],
-      ['visit_us', 'hours', 'contact', 'footer'],
+      ['gallery'],
+      ['about'],
+      ['visit_us'],
     ]);
     expect(
       document.pages[1]?.sections.map((section) => section.label),
     ).toEqual([
       'Booking',
-      'Deposits & Cancellations',
       'Before You Book',
-      'FAQ',
-      'Footer',
     ]);
 
-    // Home overrides the gallery label and preset; the dedicated Gallery page
-    // keeps the registry defaults.
-    expect(document.pages[0]?.sections[1]).toMatchObject({
+    // The content pages contain only their release-owned responsibility.
+    expect(document.pages[0]?.sections[0]).toMatchObject({
       sectionType: 'hero',
       label: 'Welcome',
       settings: { preset: 'image_right' },
-    });
-    expect(document.pages[0]?.sections[4]).toMatchObject({
-      galleryPresentationOwner: 'recipe',
-      sectionType: 'gallery',
-      label: 'Featured work',
-      settings: { preset: 'editorial', selection: { mode: 'all' }, version: 1 },
     });
     expect(document.pages[2]?.sections[0]).toMatchObject({
       galleryPresentationOwner: 'onboarding',
@@ -286,9 +273,9 @@ describe('starter initialization', () => {
     expect(document.navigation.items).toHaveLength(5);
     expect(document.navigation.items.map((item) => item.label)).toEqual([
       'Home',
-      'Services / Book',
+      'Services & Booking',
       'Gallery',
-      'Team',
+      'About',
       'Contact',
     ]);
     expect(document.siteContent).toEqual(createEmptySiteContent());
@@ -450,8 +437,8 @@ describe('starter freedom', () => {
       idFactory: createDeterministicIdFactory('semantic-move'),
     });
     const home = source.pages.find(page => page.isHome)!;
-    const team = source.pages.find(page => page.slug === 'team')!;
-    const about = team.sections.find(section => section.sectionType === 'about')!;
+    const aboutPage = source.pages.find(page => page.slug === 'about')!;
+    const about = aboutPage.sections.find(section => section.sectionType === 'about')!;
     const moved = moveSectionToPage(source, about.id, home.id);
     const movedAbout = moved.pages
       .flatMap(page => page.sections)
@@ -464,19 +451,13 @@ describe('starter freedom', () => {
     expect(moved.pages.find(page => page.id === home.id)?.sections.map(
       section => section.sectionType,
     )).toEqual([
-      'announcement_bar',
       'hero',
-      'quick_info',
-      'featured_services',
-      'gallery',
       'reviews',
-      'final_cta',
-      'footer',
       'about',
     ]);
-    expect(moved.pages.find(page => page.id === team.id)?.sections.map(
+    expect(moved.pages.find(page => page.id === aboutPage.id)?.sections.map(
       section => section.sectionType,
-    )).toEqual(['team', 'footer']);
+    )).toEqual([]);
     expect(movedAbout).toMatchObject({
       id: about.id,
       sectionType: 'about',
@@ -496,7 +477,7 @@ describe('starter freedom', () => {
     if (!home) {
       throw new Error('Quick Book is missing Home.');
     }
-    expect(home.sections).toHaveLength(6);
+    expect(home.sections).toHaveLength(5);
 
     for (const item of SECTION_CATALOGUE.slice(2, 17)) {
       document = addSection(
@@ -509,7 +490,7 @@ describe('starter freedom', () => {
       document = addPage(document, { name: `Added page ${pageNumber}` }, ids);
     }
 
-    expect(document.pages[0]?.sections).toHaveLength(21);
+    expect(document.pages[0]?.sections).toHaveLength(20);
     expect(document.pages).toHaveLength(6);
   });
 

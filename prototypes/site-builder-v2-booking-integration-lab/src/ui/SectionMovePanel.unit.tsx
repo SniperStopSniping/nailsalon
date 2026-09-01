@@ -99,7 +99,7 @@ describe('shared section movement rows', () => {
     await user.tab();
 
     expect(onMove).not.toHaveBeenCalled();
-    expect(bookingPosition).toHaveValue(4);
+    expect(bookingPosition).toHaveValue(3);
   });
 
   it('moves only on Enter and keeps focus on the moved section position field', async () => {
@@ -148,14 +148,14 @@ describe('shared section movement rows', () => {
     await user.clear(bookingPosition);
     await user.type(bookingPosition, '7{Enter}');
 
-    const error = screen.getByText('Enter a position from 1 to 6.', {
+    const error = screen.getByText('Enter a position from 1 to 5.', {
       selector: '.position-input__error',
     });
-    expect(error).toHaveTextContent('Enter a position from 1 to 6.');
+    expect(error).toHaveTextContent('Enter a position from 1 to 5.');
     expect(bookingPosition).toHaveAttribute('aria-invalid', 'true');
     expect(bookingPosition).toHaveFocus();
     expect(onMove).not.toHaveBeenCalled();
-    expect(onAnnounce).toHaveBeenCalledWith('Enter a position from 1 to 6.');
+    expect(onAnnounce).toHaveBeenCalledWith('Enter a position from 1 to 5.');
   });
 
   it('keeps boundary arrows focusable, clearly unavailable, and singly announced', async () => {
@@ -171,10 +171,10 @@ describe('shared section movement rows', () => {
     );
 
     const firstUnavailable = screen.getByRole('button', {
-      name: 'Move Announcement Bar up, unavailable — already first',
+      name: 'Move Salon intro up, unavailable — already first',
     });
     const lastUnavailable = screen.getByRole('button', {
-      name: 'Move Footer down, unavailable — already last',
+      name: 'Move Visit & Contact down, unavailable — already last',
     });
     expect(firstUnavailable).toHaveAttribute('aria-disabled', 'true');
     expect(lastUnavailable).toHaveAttribute('aria-disabled', 'true');
@@ -186,11 +186,11 @@ describe('shared section movement rows', () => {
     expect(onMove).not.toHaveBeenCalled();
     expect(onAnnounce).toHaveBeenNthCalledWith(
       1,
-      'Announcement Bar is already at the first position.',
+      'Salon intro is already at the first position.',
     );
     expect(onAnnounce).toHaveBeenNthCalledWith(
       2,
-      'Footer is already at the last position.',
+      'Visit & Contact is already at the last position.',
     );
     expect(onAnnounce).toHaveBeenCalledTimes(2);
   });
@@ -301,7 +301,7 @@ describe('shared SectionMovePanel states', () => {
     installMobileDialogEnvironment();
     const user = userEvent.setup();
     const original = initializeStarter('multi_page');
-    const source = original.pages.find((page) => page.name === 'Services / Book');
+    const source = original.pages.find((page) => page.name === 'Services & Booking');
     const home = original.pages.find((page) => page.name === 'Home');
     const booking = source?.sections.find((section) => section.sectionType === 'booking');
     if (!source || !home || !booking) throw new Error('Multi-page fixture unavailable.');
@@ -309,7 +309,7 @@ describe('shared SectionMovePanel states', () => {
       ...original,
       pages: original.pages.map((candidate) => {
         if (candidate.name === 'Gallery') return { ...candidate, visible: false };
-        if (candidate.name === 'Team') return { ...candidate, visibleInNavigation: false };
+        if (candidate.name === 'About') return { ...candidate, visibleInNavigation: false };
         return candidate;
       }),
     };
@@ -351,13 +351,13 @@ describe('shared SectionMovePanel states', () => {
       'Unavailable — Your site needs at least one visible way',
     );
     const notInNavigation = within(dialog).getByRole('button', {
-      name: /Team.*Not in navigation/,
+      name: /About.*Not in navigation/,
     });
     expect(notInNavigation).not.toHaveAttribute('aria-disabled');
     await user.click(notInNavigation);
-    const teamPageId = document.pages.find((page) => page.name === 'Team')?.id;
-    expect(teamPageId).toBeTruthy();
-    expect(onMoveToPage).toHaveBeenCalledWith(teamPageId);
+    const aboutPageId = document.pages.find((page) => page.name === 'About')?.id;
+    expect(aboutPageId).toBeTruthy();
+    expect(onMoveToPage).toHaveBeenCalledWith(aboutPageId);
 
     view.rerender(
       <SectionMovePanel
@@ -374,7 +374,7 @@ describe('shared SectionMovePanel states', () => {
       .toHaveTextContent('1BookingMoving here');
     await user.selectOptions(position, '3');
     expect(onDestinationPositionChange).toHaveBeenCalledWith(3);
-    await user.click(within(dialog).getByRole('button', { name: 'Keep Booking on Services / Book' }));
+    await user.click(within(dialog).getByRole('button', { name: 'Keep Booking on Services & Booking' }));
     expect(onClearDestination).toHaveBeenCalledTimes(1);
   });
 

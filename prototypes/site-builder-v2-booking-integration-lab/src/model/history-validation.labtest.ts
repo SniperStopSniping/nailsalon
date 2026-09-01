@@ -13,7 +13,11 @@ import {
   undoHistory,
 } from './history';
 import { createDeterministicIdFactory } from './ids';
-import { updateLibrarySectionSettings, updateSiteContent } from './operations';
+import {
+  addSection,
+  updateLibrarySectionSettings,
+  updateSiteContent,
+} from './operations';
 import { initializeStarter } from './starters';
 import type { SiteBuilderDocument } from './types';
 import {
@@ -179,7 +183,9 @@ describe('structural history', () => {
     const initial = initializeStarter('multi_page', {
       idFactory: createDeterministicIdFactory('cross-page-history'),
     });
-    const source = initial.pages.find((page) => page.name === 'Services / Book');
+    const source = initial.pages.find(page => page.sections.some(
+      section => section.sectionType === 'booking',
+    ));
     const destination = initial.pages.find((page) => page.name === 'Home');
     const booking = source?.sections.find((section) => section.sectionType === 'booking');
     if (!source || !destination || !booking) throw new Error('Missing multi-page structure.');
@@ -347,9 +353,17 @@ describe('structural history', () => {
 
 describe('validation, import, and export', () => {
   it('round-trips a valid serializable document', () => {
-    const document = initializeStarter('multi_page', {
-      idFactory: createDeterministicIdFactory('roundtrip'),
-    });
+    const ids = createDeterministicIdFactory('roundtrip');
+    const starter = initializeStarter('multi_page', { idFactory: ids });
+    const home = starter.pages.find(page => page.isHome);
+    if (!home) throw new Error('Missing Home.');
+    // Featured Services is advanced-only in V1. Add it explicitly so this
+    // serialization test still covers canonical service-id bindings.
+    const document = addSection(
+      starter,
+      { pageId: home.id, sectionType: 'featured_services' },
+      ids,
+    );
     const json = exportSiteBuilderDocument(document);
     const imported = parseSiteBuilderDocument(json);
 
@@ -470,7 +484,8 @@ describe('validation, import, and export', () => {
       idFactory: createDeterministicIdFactory('library-invariants'),
     });
     const home = document.pages[0];
-    const hero = home?.sections[1];
+    const heroIndex = home?.sections.findIndex(section => section.sectionType === 'hero') ?? -1;
+    const hero = heroIndex >= 0 ? home?.sections[heroIndex] : undefined;
     if (!home || hero?.sectionType !== 'hero') {
       throw new Error('Missing Hero.');
     }
@@ -478,7 +493,7 @@ describe('validation, import, and export', () => {
     const badSettings = structuredClone(document) as unknown as {
       pages: Array<{ sections: Array<{ settings: Record<string, unknown> }> }>;
     };
-    const badHero = badSettings.pages[0]?.sections[1];
+    const badHero = badSettings.pages[0]?.sections[heroIndex];
     if (!badHero) {
       throw new Error('Missing Hero.');
     }
@@ -486,7 +501,7 @@ describe('validation, import, and export', () => {
     expect(validateSiteBuilderDocument(badSettings)).toMatchObject({
       success: false,
       issues: expect.arrayContaining([
-        'pages[0].sections[1].settings is not a valid Hero configuration.',
+        `pages[0].sections[${heroIndex}].settings is not a valid Hero configuration.`,
       ]),
     });
 

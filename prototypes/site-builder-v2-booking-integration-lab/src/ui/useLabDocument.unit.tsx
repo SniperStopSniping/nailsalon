@@ -24,17 +24,16 @@ describe('useLabDocument onboarding profile synchronization', () => {
 
     expect(hook.result.current.document?.siteName).toBe('Renamed Studio');
     expect(hook.result.current.document?.originStarter).toBe('quick_book');
-    // Renaming touches only siteName: the Quick Book starter keeps its six
-    // library sections untouched.
+    // Renaming touches only siteName: the exact five-section Quick Book recipe
+    // remains intact, without old hidden composition sections.
     expect(hook.result.current.document?.pages[0]?.sections.map(
       (section) => section.sectionType,
     )).toEqual([
-      'announcement_bar',
       'hero',
-      'featured_services',
+      'gallery',
       'booking',
-      'final_cta',
-      'footer',
+      'about',
+      'visit_us',
     ]);
   });
 

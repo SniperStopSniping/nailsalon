@@ -40,20 +40,49 @@ const expectStarterShape = (
   document: SiteBuilderDocument,
   starter: StarterId,
 ) => {
-  // Schema v2 starters emit the full named section library (see
-  // `STARTER_PAGES` in src/model/starters.ts), so the per-starter totals are
-  // the sum of those definitions, excluding any Custom Design the onboarding
-  // Canva flow added on top.
+  // Custom Design is an owner-added integration section. The remaining
+  // topology must exactly match the locked V1 release recipe after every
+  // starter switch.
   const expected = {
-    multi_page: { pages: 5, sections: 23 },
-    one_page: { pages: 1, sections: 14 },
-    quick_book: { pages: 1, sections: 6 },
+    multi_page: {
+      names: ['Home', 'Services & Booking', 'Gallery', 'About', 'Contact'],
+      sections: [
+        ['hero', 'reviews'],
+        ['booking', 'policies'],
+        ['gallery'],
+        ['about'],
+        ['visit_us'],
+      ],
+    },
+    one_page: {
+      names: ['Home'],
+      sections: [[
+        'hero',
+        'gallery',
+        'about',
+        'booking',
+        'reviews',
+        'policies',
+        'visit_us',
+      ]],
+    },
+    quick_book: {
+      names: ['Home'],
+      sections: [[
+        'hero',
+        'gallery',
+        'booking',
+        'about',
+        'visit_us',
+      ]],
+    },
   }[starter];
   expect(document.originStarter).toBe(starter);
-  expect(document.pages).toHaveLength(expected.pages);
-  expect(document.pages.flatMap((page) => page.sections)
-    .filter((section) => section.sectionType !== 'custom_design'))
-    .toHaveLength(expected.sections);
+  expect(document.pages.map((page) => page.name)).toEqual(expected.names);
+  expect(document.pages.map((page) => page.sections
+    .filter((section) => section.sectionType !== 'custom_design')
+    .map((section) => section.sectionType)))
+    .toEqual(expected.sections);
 };
 
 const createState = (): OnboardingLabState => {

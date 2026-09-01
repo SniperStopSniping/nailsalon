@@ -15,6 +15,7 @@ import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v
 vi.mock('server-only', () => ({}));
 
 /* eslint-disable import/first */
+import { compileOnboardingToSiteDocument } from './compiler';
 import { onboardingDraftClaimRequestSchema } from './contracts';
 import {
   type AuthenticatedOnboardingIdentity,
@@ -179,9 +180,14 @@ describe.sequential('account-backed onboarding persistence', () => {
 
     const [revision] = await database.select().from(schema.onboardingSiteRevisionSchema)
       .where(eq(schema.onboardingSiteRevisionSchema.id, first.data.revisionId));
+    const expectedCompiledDocument = compileOnboardingToSiteDocument({
+      revision: first.data.revision,
+      siteId: first.data.siteId,
+      snapshot: input.snapshot,
+    });
 
     expect(revision?.snapshot.site.builderDocument).toEqual(input.snapshot.site.builderDocument);
-    expect(revision?.document.builderDocument).toEqual(input.snapshot.site.builderDocument);
+    expect(revision?.document).toEqual(expectedCompiledDocument);
     expect(JSON.stringify(revision)).not.toContain('indexed_db_first_claim_must_not_persist');
     expect(JSON.stringify(revision)).not.toContain('blob:http');
 

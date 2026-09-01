@@ -121,11 +121,24 @@ const setupPersistedCustomDesign = () => {
     settings,
     visible: true,
   });
-  const persisted = createPersistableOnboardingDraft(
+  const initialPersisted = createPersistableOnboardingDraft(
     state,
     state.recipe.palettePreset,
     settings,
     document,
+  );
+  const initiallyCompiled = compileOnboardingToSiteDocument({
+    revision: 4,
+    siteId: SITE_ID,
+    snapshot: initialPersisted.snapshot,
+  });
+  // The integrated client persists the reconciled V1 document it previews,
+  // not the pre-reconciliation starter inventory used to construct a fixture.
+  const persisted = createPersistableOnboardingDraft(
+    state,
+    state.recipe.palettePreset,
+    settings,
+    initiallyCompiled.builderDocument,
   );
   const compiled = compileOnboardingToSiteDocument({
     revision: 4,

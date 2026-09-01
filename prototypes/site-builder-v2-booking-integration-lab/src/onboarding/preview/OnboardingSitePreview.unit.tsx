@@ -403,11 +403,11 @@ describe('OnboardingSitePreview shared profile composition', () => {
       type: 'book_now',
     };
     page.sections.push(canva);
-    const scrollIntoView = vi.fn();
-    const originalScrollIntoView = HTMLElement.prototype.scrollIntoView;
-    Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+    const scrollTo = vi.fn();
+    const originalScrollTo = HTMLElement.prototype.scrollTo;
+    Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
       configurable: true,
-      value: scrollIntoView,
+      value: scrollTo,
     });
     window.location.hash = '#onboarding-preview';
 
@@ -427,21 +427,24 @@ describe('OnboardingSitePreview shared profile composition', () => {
       const bookingSection = preview.querySelector<HTMLElement>(
         `[data-section-id="${booking.id}"]`,
       );
+      const frame = preview.querySelector<HTMLElement>('[data-preview-scroll-container="true"]');
       expect(canvaSection).not.toBeNull();
       expect(bookingSection).toHaveAttribute('aria-label', 'Booking');
+      expect(frame).not.toBeNull();
       await user.click(within(canvaSection!).getByRole('button', { name: 'Book now' }));
 
-      expect(scrollIntoView).toHaveBeenCalledOnce();
-      expect(scrollIntoView.mock.instances[0]).toBe(bookingSection);
+      expect(scrollTo).toHaveBeenCalledOnce();
+      expect(scrollTo.mock.instances[0]).toBe(frame);
+      expect(scrollTo).toHaveBeenCalledWith(expect.objectContaining({ top: expect.any(Number) }));
       expect(window.location.hash).toBe('#onboarding-preview');
     } finally {
-      if (originalScrollIntoView) {
-        Object.defineProperty(HTMLElement.prototype, 'scrollIntoView', {
+      if (originalScrollTo) {
+        Object.defineProperty(HTMLElement.prototype, 'scrollTo', {
           configurable: true,
-          value: originalScrollIntoView,
+          value: originalScrollTo,
         });
       } else {
-        Reflect.deleteProperty(HTMLElement.prototype, 'scrollIntoView');
+        Reflect.deleteProperty(HTMLElement.prototype, 'scrollTo');
       }
     }
   });
@@ -458,8 +461,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(about).getByText(state.profile.about.shortBio)).toBeVisible();
     expect(within(about).queryByRole('link', { name: /@islanail\.studio/ }))
       .not.toBeInTheDocument();
-    const footer = within(preview).getByRole('contentinfo', { name: /site footer/u });
-    expect(within(footer).getByRole('link', { name: /Instagram/ })).toBeVisible();
+    const contact = within(preview).getByRole('region', { name: 'Visit and contact' });
+    expect(within(contact).getByRole('link', { name: /Instagram/ })).toBeVisible();
     expect(within(preview).getByTestId('canonical-booking-example')).toHaveTextContent(
       'Russian Manicure + French1 hr 45 min · From $80',
     );
@@ -476,7 +479,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(updatedAbout).getByText(state.profile.about.shortBio)).toBeVisible();
     expect(within(updatedAbout).queryByRole('link', { name: /@isla\.updated/ }))
       .not.toBeInTheDocument();
-    expect(within(footer).getByRole('link', { name: /Instagram/ }))
+    expect(within(contact).getByRole('link', { name: /Instagram/ }))
       .toHaveAttribute('href', 'https://www.instagram.com/isla.updated/');
     expect(within(updatedAbout).queryByText('@islanail.studio')).not.toBeInTheDocument();
     expect(next.profile.about).toBe(originalProfile.about);
@@ -491,7 +494,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     view.rerender(
       <OnboardingSitePreview document={null} label="Shared profile preview" state={pastedUrl} />,
     );
-    expect(within(footer).getByRole('link', { name: /Instagram/ }))
+    expect(within(contact).getByRole('link', { name: /Instagram/ }))
       .toHaveAttribute('href', 'https://www.instagram.com/islanailstudio/');
 
     view.rerender(
@@ -504,7 +507,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
         }}
       />,
     );
-    expect(within(footer).queryByRole('link', { name: /instagram/iu }))
+    expect(within(contact).queryByRole('link', { name: /instagram/iu }))
       .not.toBeInTheDocument();
   });
 
@@ -550,7 +553,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .not.toBeInTheDocument();
     expect(within(about).queryByRole('link', { name: /@islanail\.studio/u }))
       .not.toBeInTheDocument();
-    expect(within(about).getByRole('link', { name: 'Book now' })).toBeVisible();
+    expect(within(about).queryByRole('link', { name: 'Book now' }))
+      .not.toBeInTheDocument();
     expect(within(about).queryByText('Solo nail tech')).not.toBeInTheDocument();
     expect(within(about).queryByText('Private home studio')).not.toBeInTheDocument();
     expect(about.querySelectorAll('.onboarding-about-facts > div').length)
@@ -586,12 +590,12 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const about = within(preview).getByRole('region', {
       name: 'About and before you book',
     });
-    const policies = within(preview).getByRole('region', { name: 'Studio policies' });
+    const policies = within(preview).getByRole('region', { name: 'Before you book' });
 
     expect(preview.querySelectorAll('.onboarding-policy-summary')).toHaveLength(0);
     expect(within(about).queryByText(/24-hour notice|\$50 deposit|15-minute late limit/u))
       .not.toBeInTheDocument();
-    // The Studio policies section publishes only the still-visible policy
+    // Before You Book publishes only the still-visible policy
     // cards; the hidden late-arrival card keeps its saved wording out.
     expect([...policies.querySelectorAll('[data-policy]')]
       .map(entry => entry.getAttribute('data-policy')))
@@ -604,7 +608,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
       <OnboardingSitePreview document={initializeStarter('one_page')} label="Hidden policy summary preview" state={depositsVisible} />,
     );
     expect(preview.querySelectorAll('.onboarding-policy-summary')).toHaveLength(0);
-    expect(within(preview).getByRole('region', { name: 'Deposits and cancellations' }))
+    expect(within(preview).getByRole('region', { name: 'Before you book' })
+      .querySelector('[data-policy="deposits_cancellations"]'))
       .toHaveTextContent('$50 deposit');
   });
 
@@ -631,8 +636,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
     const preview = screen.getByRole('region', { name: 'Hidden policy preview' });
 
-    expect(within(preview).queryByRole('region', { name: 'Deposits and cancellations' }))
-      .not.toBeInTheDocument();
+    expect(preview.querySelector('[data-policy="deposits_cancellations"]')).toBeNull();
     expect(within(preview).queryByText(/\$30 deposit/u)).not.toBeInTheDocument();
     expect(preview.textContent).not.toMatch(/24 hours/iu);
 
@@ -648,8 +652,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
         state={state}
       />,
     );
-    expect(within(preview).queryByRole('region', { name: 'Deposits and cancellations' }))
-      .not.toBeInTheDocument();
+    expect(preview.querySelector('[data-policy="deposits_cancellations"]')).toBeNull();
   });
 
   it('renders deposits and cancellations as one truthful customer policy', () => {
@@ -673,15 +676,18 @@ describe('OnboardingSitePreview shared profile composition', () => {
       <OnboardingSitePreview document={summaryDocument} label="Combined policy preview" state={state} />,
     );
     const summarySection = within(screen.getByRole('region', { name: 'Combined policy preview' }))
-      .getByRole('region', { name: 'Deposits and cancellations' });
-    expect(within(summarySection).getByRole('heading', { name: 'Deposits & cancellations' }))
-      .toBeVisible();
+      .getByRole('region', { name: 'Before you book' });
+    const combinedPolicy = summarySection.querySelector<HTMLElement>(
+      '[data-policy="deposits_cancellations"]',
+    );
+    expect(combinedPolicy).not.toBeNull();
+    expect(within(combinedPolicy!).getByText('Deposits & cancellations')).toBeVisible();
     expect(within(summarySection).queryByRole('heading', { name: 'Cancellations' }))
       .not.toBeInTheDocument();
     expect(within(summarySection).queryByRole('heading', { name: 'Deposits' }))
       .not.toBeInTheDocument();
     // The starter section ships wordingMode 'summary'.
-    expect(summarySection.querySelector('.customer-lib-policy-body')).toHaveTextContent(
+    expect(combinedPolicy).toHaveTextContent(
       '$15 deposit · 24 hours’ notice · deposit kept after late cancellation',
     );
 
@@ -689,9 +695,9 @@ describe('OnboardingSitePreview shared profile composition', () => {
       <OnboardingSitePreview document={fullDocument} label="Combined policy preview" state={state} />,
     );
     const policies = within(screen.getByRole('region', { name: 'Combined policy preview' }))
-      .getByRole('region', { name: 'Deposits and cancellations' });
-    expect(policies).toHaveTextContent('A $15 deposit is required to book.');
-    expect(policies).toHaveTextContent('Please provide at least 24 hours’ notice');
+      .getByRole('region', { name: 'Before you book' });
+    expect(policies.querySelector('[data-policy="deposits_cancellations"]'))
+      .toHaveTextContent('$15 deposit · 24 hours’ notice');
 
     const noDeposit = structuredClone(state);
     noDeposit.profile.policies.deposits.mode = 'none';
@@ -701,13 +707,13 @@ describe('OnboardingSitePreview shared profile composition', () => {
       <OnboardingSitePreview document={fullDocument} label="Combined policy preview" state={noDeposit} />,
     );
     const noDepositPolicies = within(screen.getByRole('region', { name: 'Combined policy preview' }))
-      .getByRole('region', { name: 'Deposits and cancellations' });
-    expect(noDepositPolicies).toHaveTextContent('No deposit is required.');
-    expect(noDepositPolicies).toHaveTextContent('Late cancellations incur a cancellation fee.');
+      .getByRole('region', { name: 'Before you book' });
+    expect(noDepositPolicies.querySelector('[data-policy="deposits_cancellations"]'))
+      .toHaveTextContent('No deposit · 24 hours’ notice');
     expect(noDepositPolicies).not.toHaveTextContent(/refundable|transferred|deposit being lost/iu);
   });
 
-  it('withholds a partial policy until it has meaningful publishable wording', () => {
+  it('publishes a meaningful grace-period rule beside the truthful no-deposit disclosure', () => {
     const state = createDefaultOnboardingState();
     state.profile.businessName = 'Isla Nail Studio';
     state.profile.businessStructure = 'solo';
@@ -725,65 +731,64 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
 
     const preview = screen.getByRole('region', { name: 'Partial policy preview' });
-    // Booking-only default contact publishes nothing, so no Contact section
-    // is injected — the plan matches the ContactSection renderer's own
-    // show/hide predicate.
+    // Gallery has no image, but the locked Quick Book still keeps its four
+    // other customer responsibilities. Booking-only contact is meaningful
+    // Visit & Contact content and must not disappear.
     expect(planTypes(customerPagePlanFor(document, state)))
-      .toEqual(['hero', 'about', 'booking', 'final_cta', 'footer']);
-    expect(within(preview).queryByRole('region', { name: 'Deposits and cancellations' }))
-      .not.toBeInTheDocument();
-    expect(within(preview).queryByRole('region', { name: 'Studio policies' }))
-      .not.toBeInTheDocument();
+      .toEqual(['hero', 'booking', 'about', 'visit_us']);
     expect(preview.querySelector('[data-library-type="deposits_cancellations"]')).toBeNull();
     expect(preview.querySelector('[data-library-type="policies"]')).toBeNull();
-    expect(within(preview).queryByText(/grace period/iu)).not.toBeInTheDocument();
+    const disclosure = preview.querySelector<HTMLElement>('.onboarding-quick-book-policies');
+    expect(disclosure).not.toBeNull();
+    expect(disclosure).toHaveTextContent('No deposit is required.');
+    expect(within(preview).getByRole('region', { name: 'Visit and contact' })).toBeVisible();
+    expect(disclosure).toHaveTextContent('A 10-minute grace period is available.');
   });
 
-  it('injects deposits and studio policies only while each has something to say', () => {
+  it('keeps Quick Book policy disclosure inside its one Booking section', () => {
     const state = createDanielaFixtureState();
     state.recipe.starter = 'quick_book';
     const document = initializeStarter('quick_book');
     const plan = customerPagePlanFor(document, state);
     const sections = plan[0]!.sections;
-    const bookingIndex = sections.findIndex(section => section.sectionType === 'booking');
-
-    expect(sections.slice(bookingIndex + 1, bookingIndex + 3).map(section => [
-      section.sectionType,
-      section.id,
-      section.injected,
-    ])).toEqual([
-      ['deposits_cancellations', 'onboarding-preview-deposits_cancellations', true],
-      ['policies', 'onboarding-preview-policies', true],
-    ]);
+    expect(sections.filter(section => section.sectionType === 'booking')).toHaveLength(1);
+    expect(sections.some(section => section.sectionType === 'deposits_cancellations'))
+      .toBe(false);
+    expect(sections.some(section => section.sectionType === 'policies')).toBe(false);
 
     const view = render(
-      <OnboardingSitePreview document={document} label="Split policy preview" state={state} />,
+      <OnboardingSitePreview document={document} label="Compact policy preview" state={state} />,
     );
-    const preview = screen.getByRole('region', { name: 'Split policy preview' });
-    expect(within(preview).getByRole('region', { name: 'Deposits and cancellations' }))
-      .toBeVisible();
-    expect(within(preview).getByRole('region', { name: 'Studio policies' })).toBeVisible();
+    const preview = screen.getByRole('region', { name: 'Compact policy preview' });
+    const booking = within(preview).getByRole('region', { name: 'Booking' });
+    const disclosure = booking.querySelector<HTMLElement>('.onboarding-quick-book-policies');
+    expect(disclosure).not.toBeNull();
+    expect(within(disclosure!).getByText('Before you book')).toBeVisible();
+    expect(disclosure!.querySelector('[data-content-key="deposit_cancellation_policy"]'))
+      .not.toBeNull();
+    expect(disclosure!.querySelector('[data-content-key="before_you_book_policies"]'))
+      .not.toBeNull();
+    expect(preview.querySelector('[data-library-type="deposits_cancellations"]')).toBeNull();
+    expect(preview.querySelector('[data-library-type="policies"]')).toBeNull();
 
-    // Hiding every before-you-book card empties the studio policies wording.
-    // The section then leaves the plan as well as the page: an injected
-    // section that renders nothing is a blank band on a customer's site, and
-    // it also reports itself "on your site" in the settings dialog. The
-    // deposits section, whose copy is untouched, is unaffected.
+    // Hiding every non-deposit topic leaves one concise deposit/cancellation
+    // entry in the same Booking disclosure; no second section appears.
     const quiet = structuredClone(state);
     for (const sectionId of ['late_arrivals', 'no_shows', 'repairs', 'other'] as const) {
       quiet.profile.policies.copy[sectionId].visible = false;
     }
     view.rerender(
-      <OnboardingSitePreview document={document} label="Split policy preview" state={quiet} />,
+      <OnboardingSitePreview document={document} label="Compact policy preview" state={quiet} />,
     );
 
-    expect(planIds(customerPagePlanFor(document, quiet)))
-      .not.toContain('onboarding-preview-policies');
-    expect(within(preview).queryByRole('region', { name: 'Studio policies' }))
-      .not.toBeInTheDocument();
+    const quietDisclosure = within(preview).getByRole('region', { name: 'Booking' })
+      .querySelector<HTMLElement>('.onboarding-quick-book-policies');
+    expect(quietDisclosure).not.toBeNull();
+    expect(quietDisclosure!.querySelector('[data-content-key="before_you_book_policies"]'))
+      .toBeNull();
+    expect(quietDisclosure!.querySelector('[data-content-key="deposit_cancellation_policy"]'))
+      .not.toBeNull();
     expect(preview.querySelector('[data-library-type="policies"]')).toBeNull();
-    expect(within(preview).getByRole('region', { name: 'Deposits and cancellations' }))
-      .toBeVisible();
   });
 
   it('honours hidden identity and booking-status fields in Before You Book', () => {
@@ -841,7 +846,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(aboutRegion).getByRole('heading', { name: 'Daniela' })).toBeVisible();
     expect(within(aboutRegion).getByText('Isla Nail Studio')).toBeVisible();
     expect(within(aboutRegion).getByText(migrated.profile.about.fullBio)).toBeInTheDocument();
-    expect(within(aboutRegion).getByRole('link', { name: 'Book now' })).toBeVisible();
+    expect(within(aboutRegion).queryByRole('link', { name: 'Book now' }))
+      .not.toBeInTheDocument();
     expect(within(aboutRegion).queryByText('Russian Manicure · BIAB · Gel-X · Hard Gel'))
       .not.toBeInTheDocument();
   });
@@ -877,12 +883,9 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.recipe.policiesEnabled = false;
     const document = initializeStarter('quick_book');
     const page = document.pages[0]!;
-    const announcementId = sectionOn(page, 'announcement_bar').id;
     const heroId = sectionOn(page, 'hero').id;
-    const servicesId = sectionOn(page, 'featured_services').id;
     const bookingId = sectionOn(page, 'booking').id;
-    const finalCtaId = sectionOn(page, 'final_cta').id;
-    const footerId = sectionOn(page, 'footer').id;
+    const visitId = sectionOn(page, 'visit_us').id;
 
     render(
       <OnboardingSitePreview
@@ -898,18 +901,18 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .flatMap(element => element.getAttribute('data-section-id') ?? []);
 
     expect(preview.querySelector('[data-starter-structure]')).toBeNull();
-    expect(within(preview).queryByRole('navigation', { name: 'Customer preview navigation' }))
-      .not.toBeInTheDocument();
+    const navigation = within(preview).getByRole('navigation', {
+      name: 'Customer preview navigation',
+    });
+    expect(within(navigation).getAllByRole('link', { hidden: true })).toHaveLength(1);
+    const shortcut = navigation.querySelector<HTMLAnchorElement>('.customer-book-shortcut');
+    expect(shortcut).toHaveTextContent('Book');
+    expect(shortcut).toHaveClass('customer-book-shortcut');
     expect(sectionIds).toEqual([
       heroId,
       bookingId,
-      'onboarding-preview-contact',
-      finalCtaId,
-      footerId,
+      visitId,
     ]);
-    // The starter announcement bar carries no wording yet, so it stays unpublished.
-    expect(sectionIds).not.toContain(announcementId);
-    expect(sectionIds).not.toContain(servicesId);
     expect(preview.querySelectorAll('.onboarding-customer-hero')).toHaveLength(1);
     expect(within(preview).getAllByRole('region', { name: 'Booking' })).toHaveLength(1);
     expect(within(preview).getAllByRole('region', { name: 'Visit and contact' })).toHaveLength(1);
@@ -917,6 +920,74 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelector('.onboarding-customer-about')).toBeNull();
     expect(preview.querySelector('.onboarding-customer-gallery')).toBeNull();
     expect(preview.querySelector('[data-library-type="policies"]')).toBeNull();
+    expect(preview.querySelector('.customer-lib-final-cta')).toBeNull();
+    expect(preview.querySelector('.customer-lib-footer')).toBeNull();
+    expect(preview.querySelectorAll('.onboarding-customer-footer')).toHaveLength(1);
+  });
+
+  it('reveals the mobile shell Book shortcut only after the Hero action leaves view', () => {
+    let callback: IntersectionObserverCallback | null = null;
+    const observe = vi.fn();
+    const disconnect = vi.fn();
+    class HeroActionObserver {
+      readonly root = null;
+      readonly rootMargin = '0px';
+      readonly thresholds = [0.01];
+
+      constructor(nextCallback: IntersectionObserverCallback) {
+        callback = nextCallback;
+      }
+
+      observe = observe;
+      disconnect = disconnect;
+      takeRecords = vi.fn(() => [] as IntersectionObserverEntry[]);
+      unobserve = vi.fn();
+    }
+    vi.stubGlobal(
+      'IntersectionObserver',
+      HeroActionObserver as unknown as typeof IntersectionObserver,
+    );
+
+    try {
+      const state = createDanielaFixtureState();
+      state.recipe.starter = 'quick_book';
+      render(
+        <OnboardingSitePreview
+          device="phone"
+          document={initializeStarter('quick_book')}
+          interactionMode="interactive"
+          label="Hero shortcut preview"
+          state={state}
+        />,
+      );
+      const preview = screen.getByRole('region', { name: 'Hero shortcut preview' });
+      const heroAction = preview.querySelector<HTMLElement>('[data-hero-book-action="true"]')!;
+      const shortcut = preview.querySelector<HTMLAnchorElement>('.customer-book-shortcut')!;
+
+      expect(observe).toHaveBeenCalledWith(heroAction);
+      expect(shortcut).toHaveClass('is-hidden');
+      expect(shortcut).toHaveAttribute('aria-hidden', 'true');
+      expect(shortcut).toHaveAttribute('tabindex', '-1');
+
+      act(() => callback?.([{
+        isIntersecting: false,
+        target: heroAction,
+      } as unknown as IntersectionObserverEntry], {} as IntersectionObserver));
+
+      expect(shortcut).not.toHaveClass('is-hidden');
+      expect(shortcut).not.toHaveAttribute('aria-hidden');
+      expect(shortcut).not.toHaveAttribute('tabindex');
+
+      act(() => callback?.([{
+        isIntersecting: true,
+        target: heroAction,
+      } as unknown as IntersectionObserverEntry], {} as IntersectionObserver));
+
+      expect(shortcut).toHaveClass('is-hidden');
+      expect(shortcut).toHaveAttribute('aria-hidden', 'true');
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('hosts service details at the customer viewport without moving the long preview page', async () => {
@@ -967,7 +1038,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(frame?.scrollTop).toBe(640);
   });
 
-  it('does not duplicate Booking as an otherwise empty Contact section', () => {
+  it('keeps the booking-only Quick Book at four truthful sections without duplicating Booking', () => {
     const state = createDefaultOnboardingState();
     state.profile.businessName = 'Isla Nail Studio';
     state.profile.businessStructure = 'solo';
@@ -985,16 +1056,24 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
 
     const preview = screen.getByRole('region', { name: 'Booking-only customer preview' });
+    const plan = customerPagePlanFor(initializeStarter('quick_book'), state);
+
+    expect(planTypes(plan)).toEqual(['hero', 'booking', 'about', 'visit_us']);
     expect(preview.querySelectorAll('.onboarding-customer-booking')).toHaveLength(1);
     expect(preview.querySelector('.onboarding-customer-contact')).toBeNull();
+    expect(preview.querySelectorAll('.customer-lib-visit')).toHaveLength(1);
+    expect(preview.querySelectorAll('[data-content-key="booking_only_contact"]'))
+      .toHaveLength(1);
+    expect(within(preview).getByText('Online booking is the best way to reach us.'))
+      .toBeVisible();
+    expect(within(preview).getByRole('region', { name: 'Visit and contact' })
+      .querySelector('a[href="#booking"]')).toBeNull();
   });
 
-  it('moves all Booking facts into Booking when Quick Info is hidden', () => {
+  it('keeps all Booking facts in the one catalogue without a Quick Info section', () => {
     const state = createDanielaFixtureState();
     state.recipe.starter = 'one_page';
-    let document = initializeStarter('one_page');
-    const quickInfo = sectionOn(document.pages[0]!, 'quick_info');
-    document = setSectionVisible(document, quickInfo.id, false);
+    const document = initializeStarter('one_page');
 
     render(
       <OnboardingSitePreview
@@ -1014,6 +1093,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelectorAll('[data-content-key="appointment_mode"]')).toHaveLength(1);
     expect(preview.querySelectorAll('[data-content-key="new_client_status"]')).toHaveLength(1);
     expect(preview.querySelectorAll('[data-content-key="minimum_notice"]')).toHaveLength(1);
+    expect(preview.querySelectorAll('[data-content-key="service_catalogue"]')).toHaveLength(1);
   });
 
   it('renders One-page library sections once in document order and omits empty authorities', () => {
@@ -1038,35 +1118,44 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelector('[data-starter-structure]')).toBeNull();
     expect(sectionIds).toEqual([
       idFor('hero'),
-      idFor('quick_info'),
-      idFor('section_navigation'),
-      idFor('about'),
       idFor('gallery'),
-      idFor('deposits_cancellations'),
+      idFor('about'),
+      idFor('booking'),
       idFor('policies'),
       idFor('visit_us'),
-      idFor('booking'),
-      idFor('final_cta'),
-      idFor('footer'),
     ]);
-    // Empty shared authorities keep their starter sections unpublished.
-    expect(sectionIds).not.toContain(idFor('announcement_bar'));
-    expect(sectionIds).not.toContain(idFor('reviews'));
+    // Empty shared authorities do not become customer content or obsolete
+    // technical rows.
+    expect(page.sections.some(section => section.sectionType === 'announcement_bar')).toBe(false);
+    expect(preview.querySelector('.customer-lib-reviews')).toBeNull();
     expect(preview.querySelectorAll('.onboarding-customer-hero')).toHaveLength(1);
     expect(preview.querySelectorAll('.onboarding-customer-about')).toHaveLength(1);
     expect(preview.querySelectorAll('.onboarding-customer-gallery')).toHaveLength(1);
-    expect(preview.querySelector('.onboarding-customer-about')).toHaveClass('is-before-booking');
-    expect(preview.querySelector('.onboarding-customer-gallery')).toHaveClass('is-editorial');
     expect(preview.querySelectorAll('.onboarding-customer-booking')).toHaveLength(1);
-    expect(preview.querySelectorAll('.customer-lib-deposits')).toHaveLength(1);
+    expect(preview.querySelectorAll('.customer-lib-deposits')).toHaveLength(0);
     expect(preview.querySelectorAll('.customer-lib-policies')).toHaveLength(1);
     expect(preview.querySelectorAll('.customer-lib-visit')).toHaveLength(1);
     // The Visit Us section already covers Contact, so nothing is injected.
     expect(preview.querySelectorAll('.onboarding-customer-contact')).toHaveLength(0);
     expect(sectionIds).not.toContain('onboarding-preview-contact');
-    // A footer library section replaces the legacy hardcoded footer chrome.
-    expect(preview.querySelectorAll('.customer-lib-footer')).toHaveLength(1);
-    expect(preview.querySelectorAll('.onboarding-customer-footer')).toHaveLength(0);
+    const navigation = within(preview).getByRole('navigation', {
+      name: 'Customer preview navigation',
+    });
+    expect(within(navigation).getAllByRole('link', { hidden: true }).map(link => link.textContent))
+      .toEqual([
+        'Home',
+        'Gallery',
+        'About',
+        'Services & Booking',
+        'Before You Book',
+        'Visit & Contact',
+        'Book',
+      ]);
+    expect(preview.querySelector('.onboarding-customer-about a[href="#booking"]')).toBeNull();
+    expect(within(preview).getByRole('region', { name: 'Visit and contact' })
+      .querySelector('a[href="#booking"]')).toBeNull();
+    expect(preview.querySelectorAll('.customer-lib-footer')).toHaveLength(0);
+    expect(preview.querySelectorAll('.onboarding-customer-footer')).toHaveLength(1);
     expect(document).toEqual(originalDocument);
   });
 
@@ -1177,56 +1266,63 @@ describe('OnboardingSitePreview shared profile composition', () => {
     });
     const pageByName = new Map(document.pages.map(page => [page.name, page]));
     const home = pageByName.get('Home')!;
-    const booking = pageByName.get('Services / Book')!;
+    const booking = pageByName.get('Services & Booking')!;
     const gallery = pageByName.get('Gallery')!;
-    const team = pageByName.get('Team')!;
+    const about = pageByName.get('About')!;
     const contact = pageByName.get('Contact')!;
 
     expect(within(navigation).getAllByRole('link').map(link => link.textContent))
-      .toEqual(['Home', 'Services / Book', 'Gallery', 'Team', 'Contact', 'Book']);
+      .toEqual(['Home', 'Services & Booking', 'Gallery', 'About', 'Contact']);
+    expect(navigation.querySelector('.customer-book-shortcut')).toHaveTextContent('Book');
     expect(within(navigation).getByRole('link', { name: 'Home' }))
       .toHaveAttribute('aria-current', 'page');
     expect(within(preview).getByRole('region', { name: 'Home page' }))
       .toHaveAttribute('data-preview-page-id', home.id);
     expect(preview.querySelectorAll('.onboarding-customer-hero')).toHaveLength(1);
-    // The starter retains its Home Gallery record, but the shared collection
-    // has one customer owner on the dedicated Gallery page.
-    expect(home.sections.some(section => section.sectionType === 'gallery')).toBe(true);
+    expect(home.sections.some(section => section.sectionType === 'gallery')).toBe(false);
     expect(preview.querySelectorAll('.onboarding-customer-gallery')).toHaveLength(0);
     expect(preview.querySelector('.onboarding-customer-booking')).toBeNull();
 
     await user.click(within(navigation).getByRole('link', { name: 'Gallery' }));
     expect(within(navigation).getByRole('link', { name: 'Gallery' }))
       .toHaveAttribute('aria-current', 'page');
-    expect(within(preview).getByRole('region', { name: 'Gallery page' }))
-      .toHaveAttribute('data-preview-page-id', gallery.id);
+    const galleryPage = within(preview).getByRole('region', { name: 'Gallery page' });
+    expect(galleryPage).toHaveAttribute('data-preview-page-id', gallery.id);
+    expect(window.document.activeElement).toBe(
+      within(galleryPage).getByRole('heading', { level: 1, name: 'Gallery' }),
+    );
     expect(preview.querySelectorAll('.onboarding-customer-gallery')).toHaveLength(1);
     expect(preview.querySelector('.onboarding-customer-hero')).toBeNull();
 
-    await user.click(within(navigation).getByRole('link', { name: 'Team' }));
-    expect(within(preview).getByRole('region', { name: 'Team page' }))
-      .toHaveAttribute('data-preview-page-id', team.id);
+    await user.click(within(navigation).getByRole('link', { name: 'About' }));
+    expect(within(preview).getByRole('region', { name: 'About page' }))
+      .toHaveAttribute('data-preview-page-id', about.id);
     expect(preview.querySelectorAll('.onboarding-customer-about')).toHaveLength(1);
-    expect(preview.querySelector(`[data-section-id="${sectionOn(team, 'about').id}"]`))
+    expect(preview.querySelector(`[data-section-id="${sectionOn(about, 'about').id}"]`))
       .not.toBeNull();
-    // The Team section itself stays unpublished until staff records exist.
     expect(preview.querySelector('[data-library-type="team"]')).toBeNull();
+    expect(preview.querySelector('.onboarding-customer-about a[href="#booking"]')).toBeNull();
 
-    await user.click(within(navigation).getByRole('link', { name: 'Services / Book' }));
-    expect(within(preview).getByRole('region', { name: 'Services / Book page' }))
+    await user.click(within(navigation).getByRole('link', { name: 'Services & Booking' }));
+    expect(within(preview).getByRole('region', { name: 'Services & Booking page' }))
       .toHaveAttribute('data-preview-page-id', booking.id);
     expect(preview.querySelectorAll('.onboarding-customer-booking')).toHaveLength(1);
     expect(preview.querySelector(`[data-section-id="${sectionOn(booking, 'booking').id}"]`))
       .not.toBeNull();
-    expect(preview.querySelectorAll('.customer-lib-deposits')).toHaveLength(1);
+    expect(preview.querySelectorAll('[data-content-key="service_catalogue"]')).toHaveLength(1);
+    expect(preview.querySelectorAll('.customer-lib-deposits')).toHaveLength(0);
     expect(preview.querySelectorAll('.customer-lib-policies')).toHaveLength(1);
 
     await user.click(within(navigation).getByRole('link', { name: 'Contact' }));
     expect(within(preview).getByRole('region', { name: 'Contact page' }))
       .toHaveAttribute('data-preview-page-id', contact.id);
-    expect(preview.querySelectorAll('.onboarding-customer-contact')).toHaveLength(1);
+    expect(preview.querySelectorAll('.onboarding-customer-contact')).toHaveLength(0);
     expect(preview.querySelectorAll('.customer-lib-visit')).toHaveLength(1);
-    expect(preview.querySelectorAll('.customer-lib-hours')).toHaveLength(1);
+    expect(preview.querySelectorAll('[data-content-key="business_hours"]')).toHaveLength(1);
+    expect(within(preview).getByRole('region', { name: 'Visit and contact' })
+      .querySelector('a[href="#booking"]')).toBeNull();
+    expect(document.pages.flatMap(page => page.sections)
+      .filter(section => section.sectionType === 'booking')).toHaveLength(1);
     expect(preview.querySelector('[data-starter-structure]')).toBeNull();
   });
 
@@ -1280,11 +1376,10 @@ describe('OnboardingSitePreview shared profile composition', () => {
       name: 'Customer preview navigation',
     });
 
-    // The v2 Multi-page starter keeps About on the Team page.
-    expect(aboutPage.name).toBe('Team');
-    expect(within(navigation).getByRole('link', { name: 'Team' }))
+    expect(aboutPage.name).toBe('About');
+    expect(within(navigation).getByRole('link', { name: 'About' }))
       .toHaveAttribute('aria-current', 'page');
-    expect(within(preview).getByRole('region', { name: 'Team page' }))
+    expect(within(preview).getByRole('region', { name: 'About page' }))
       .toHaveAttribute('data-preview-page-id', aboutPage.id);
     expect(preview.querySelectorAll('.onboarding-customer-about')).toHaveLength(1);
     expect(preview.querySelector('.onboarding-customer-hero')).toBeNull();
@@ -1342,17 +1437,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
 
     const plan = customerPagePlanFor(document, state);
 
-    expect(planTypes(plan)).toEqual([
-      'hero',
-      'quick_info',
-      'section_navigation',
-      'deposits_cancellations',
-      'policies',
-      'visit_us',
-      'booking',
-      'final_cta',
-      'footer',
-    ]);
+    expect(planTypes(plan)).toEqual(['hero', 'booking', 'policies', 'visit_us']);
     expect(planIds(plan)).not.toContain(about.id);
     expect(planIds(plan)).not.toContain(gallery.id);
 
@@ -1366,8 +1451,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .filter(section => section.sectionType === 'about' || section.sectionType === 'gallery')
       .map(section => [section.sectionType, section.label, section.id])))
       .toEqual([
-        ['about', 'Daniela’s story', about.id],
         ['gallery', 'My work', gallery.id],
+        ['about', 'Daniela’s story', about.id],
       ]);
   });
 
@@ -1419,12 +1504,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
       section.sectionType === 'policies'
     )));
 
-    expect(policySections).toEqual([expect.objectContaining({
-      id: 'onboarding-preview-policies',
-      injected: true,
-      label: 'Before You Book',
-      sectionType: 'policies',
-    })]);
+    expect(policySections).toEqual([]);
+    expect(planTypes(plan).filter(sectionType => sectionType === 'booking')).toHaveLength(1);
     expect(planIds(plan)).not.toContain('owner-labelled-policies');
     // A legacy numbered placeholder publishes nothing at all.
     expect(planTypes(plan)).not.toContain('section_08');
@@ -1622,7 +1703,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     }
   });
 
-  it('publishes both allowed phone actions, emphasizes the preferred one, and preserves a distinct text number', () => {
+  it('publishes each allowed phone action once in Visit & Contact and preserves a distinct text number', () => {
     const state = createDanielaFixtureState();
     state.profile.bookingOnlyContact = false;
     state.profile.instagram = '';
@@ -1641,15 +1722,14 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
     const contact = within(screen.getByRole('region', { name: 'Call and text preview' }))
       .getByRole('region', { name: 'Visit and contact' });
-    const text = within(contact).getByRole('link', { name: 'Text · Preferred' });
+    const text = within(contact).getByRole('link', { name: 'Text' });
     const call = within(contact).getByRole('link', { name: 'Call' });
 
     expect(text).toHaveAttribute('href', 'sms:6475550199');
-    expect(text).toHaveAttribute('data-contact-method', 'text');
-    expect(text).toHaveClass('is-preferred');
+    expect(text).toHaveAttribute('data-content-key', 'text');
     expect(call).toHaveAttribute('href', 'tel:4165550100');
-    expect(call).toHaveAttribute('data-contact-method', 'call');
-    expect(call).toHaveClass('is-secondary');
+    expect(call).toHaveAttribute('data-content-key', 'phone');
+    expect(within(contact).queryByRole('link', { name: /Book/u })).not.toBeInTheDocument();
   });
 
   it('keeps a long business identity intact for assistive access while navigation remains separate', () => {
@@ -1740,8 +1820,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
 
   it('respects address privacy, general-area Directions permission, and Booking-only contact', () => {
     const state = createDanielaFixtureState();
-    // Quick Book owns no Visit Us section, so Contact is the injected surface
-    // that publishes the location.
+    // Quick Book owns one compact Visit & Contact section, including the
+    // truthful Booking-only state without another Book action.
     state.recipe.starter = 'quick_book';
     state.profile.location.exactAddress = '123 Example Avenue';
     state.profile.bookingOnlyContact = true;
@@ -1758,7 +1838,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(contact).queryByText('123 Example Avenue')).not.toBeInTheDocument();
     expect(within(contact).queryByText('416-555-0100')).not.toBeInTheDocument();
     expect(within(contact).queryByRole('link', { name: /Directions/u })).not.toBeInTheDocument();
-    expect(within(contact).getByRole('link', { name: 'Book now' })).toBeVisible();
+    expect(within(contact).getByText('Online booking is the best way to reach us.')).toBeVisible();
+    expect(within(contact).queryByRole('link', { name: /Book/u })).not.toBeInTheDocument();
 
     const publicArea = {
       ...state,
