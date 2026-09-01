@@ -220,4 +220,78 @@ test.describe('Section Library V1 owner journeys', () => {
     )).toHaveLength(1);
     await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeDisabled();
   });
+
+  for (const viewport of [
+    { height: 568, label: 'narrow portrait', width: 320 },
+    { height: 844, label: 'standard portrait', width: 390 },
+    { height: 390, label: 'phone landscape', width: 844 },
+  ]) {
+    test(`mobile service details stay in the visible viewport at ${viewport.label}`, async ({ page }) => {
+      await page.setViewportSize({ height: viewport.height, width: viewport.width });
+      await page.goto('/?audit=1&surface=sections&recipe=signature_one_page&device=phone&full=1');
+
+      await expect(page.locator('[data-showcase-ready]')).toBeVisible();
+
+      const service = page.getByRole('button', {
+        name: /View details for Gel Manicure, 1 hr, \$50/,
+      }).first();
+      await service.scrollIntoViewIfNeeded();
+      const scrollBefore = await page.evaluate(() => window.scrollY);
+      await service.click();
+
+      const detail = page.getByTestId('service-detail-dialog');
+      const backdrop = page.getByTestId('service-detail-dialog-backdrop');
+
+      await expect(detail).toBeVisible();
+
+      await expect(detail.getByRole('button', { name: 'Close service details' })).toBeFocused();
+
+      const [detailBox, backdropBox] = await Promise.all([
+        detail.boundingBox(),
+        backdrop.boundingBox(),
+      ]);
+
+      expect(detailBox).not.toBeNull();
+
+      expect(backdropBox).not.toBeNull();
+
+      expect(detailBox!.y).toBeGreaterThanOrEqual(0);
+
+      expect(detailBox!.y + detailBox!.height).toBeLessThanOrEqual(viewport.height + 1);
+
+      expect(backdropBox!.y).toBe(0);
+
+      expect(Math.abs(backdropBox!.height - viewport.height)).toBeLessThanOrEqual(1);
+
+      expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore);
+
+      await detail.getByRole('button', { name: 'Close service details' }).click();
+
+      await expect(detail).toHaveCount(0);
+
+      expect(await page.evaluate(() => window.scrollY)).toBe(scrollBefore);
+
+      await page.evaluate(() => new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()));
+      }));
+      await service.focus();
+
+      await expect(service).toBeFocused();
+
+      const keyboardScrollBefore = await page.evaluate(() => window.scrollY);
+      await page.keyboard.press('Enter');
+
+      await expect(detail).toBeVisible();
+
+      await expect(detail.getByRole('button', { name: 'Close service details' })).toBeFocused();
+      await page.keyboard.press('Escape');
+
+      await expect(detail).toHaveCount(0);
+
+      await expect(service).toBeFocused();
+
+      await expect.poll(() => page.evaluate(() => window.scrollY))
+        .toBe(keyboardScrollBefore);
+    });
+  }
 });

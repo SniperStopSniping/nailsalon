@@ -19,6 +19,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { createPortal } from 'react-dom';
 
 import {
   BookingSectionRenderer,
@@ -94,6 +95,7 @@ import {
 export type OnboardingPreviewDevice = 'phone' | 'tablet' | 'desktop';
 export type OnboardingPreviewInitialTarget = 'top' | 'about';
 export type OnboardingPreviewInteractionMode = 'inline' | 'interactive';
+export type OnboardingPreviewOverlayMode = 'contained' | 'page';
 
 type PreviewBounds = {
   height: number;
@@ -884,6 +886,7 @@ function BookingSection({
   document,
   device,
   onSessionChange,
+  overlayHost,
   pageId,
   profile,
   sectionId,
@@ -893,6 +896,7 @@ function BookingSection({
   document: SiteBuilderDocument | null;
   device: OnboardingPreviewDevice;
   onSessionChange?: BookingSessionUpdater;
+  overlayHost?: HTMLElement | null;
   pageId: string;
   profile: BusinessProfileDraft;
   sectionId?: string;
@@ -1004,9 +1008,11 @@ function BookingSection({
         headingLevel="h2"
         mode="preview"
         onSessionChange={updateSession}
+        overlayHost={overlayHost}
         presentationSettings={placementAwareBookingSettings}
         previewViewport={device === 'phone' ? 'mobile' : device}
         session={effectiveSession}
+        summaryHost={overlayHost}
         tokenPreset="warm"
       />
     </section>
@@ -1063,6 +1069,7 @@ export type OnboardingSitePreviewProps = {
   label?: string;
   onActivePageChange?: (pageId: string) => void;
   onBookingSessionChange?: BookingSessionUpdater;
+  overlayMode?: OnboardingPreviewOverlayMode;
   preserveDocumentPresentation?: boolean;
   state: OnboardingLabState;
 };
@@ -1080,6 +1087,7 @@ export function OnboardingSitePreview({
   label = 'Customer website preview',
   onActivePageChange,
   onBookingSessionChange,
+  overlayMode = 'contained',
   preserveDocumentPresentation = false,
   state,
 }: OnboardingSitePreviewProps) {
@@ -1090,6 +1098,7 @@ export function OnboardingSitePreview({
   const summaryId = useId();
   const viewport = ONBOARDING_PREVIEW_VIEWPORTS[device];
   const [activePageId, setActivePageId] = useState<string | null>(initialPageId ?? null);
+  const [overlayHost, setOverlayHost] = useState<HTMLDivElement | null>(null);
   const [previewScale, setPreviewScale] = useState(1);
   const { profile, recipe } = state;
   const roles = ONBOARDING_STYLE_ROLES[recipe.stylePreset];
@@ -1331,6 +1340,19 @@ export function OnboardingSitePreview({
   const renderedPages = starter === 'multi_page'
     ? (activePage ? [activePage] : [])
     : pagePlan;
+  const overlayHostElement = (
+    <div
+      aria-hidden={interactionMode === 'inline' ? 'true' : undefined}
+      className={`onboarding-preview-overlay-host${overlayMode === 'page' ? ' is-page-viewport' : ''}`}
+      data-preview-viewport={device === 'phone' ? 'mobile' : device}
+      ref={setOverlayHost}
+      style={stageStyle}
+    />
+  );
+  let renderedOverlayHost: ReactNode = overlayHostElement;
+  if (overlayMode === 'page' && typeof window !== 'undefined') {
+    renderedOverlayHost = createPortal(overlayHostElement, window.document.body);
+  }
   const renderPreviewSection = (
     page: SitePlanPage,
     planSection: SitePlanSection,
@@ -1413,6 +1435,7 @@ export function OnboardingSitePreview({
           device={device}
           document={document}
           onSessionChange={onBookingSessionChange}
+          overlayHost={overlayHost}
           pageId={page.id}
           profile={profile}
           sectionId={planSection.id}
@@ -1550,6 +1573,7 @@ export function OnboardingSitePreview({
         )}
       </div>
       </div>
+      {renderedOverlayHost}
     </section>
   );
 }
