@@ -83,6 +83,8 @@ export type SiteLibraryContext = {
   hasLogoGraphic: boolean;
   hasProfilePhoto: boolean;
   hasPublicContact: boolean;
+  /** The owner deliberately sends clients to Booking instead of public contact details. */
+  bookingOnlyContact?: boolean;
   publicContactMethods: Array<'email' | 'instagram' | 'phone' | 'text'>;
   /** Broad Contact-section predicate: any location, contact, or hours content. */
   hasContactSectionContent: boolean;
@@ -737,7 +739,7 @@ const policies: SectionRegistryEntry<'policies'> = {
     includedSections: [...POLICY_TOGGLE_IDS],
     version: 1,
   }),
-  description: 'Before-you-book expectations: arrivals, no-shows, repairs, house rules.',
+  description: 'All appointment rules in one concise Before You Book section.',
   label: 'Before You Book',
   legacySemanticRoles: [],
   limitKind: 'soft',
@@ -755,9 +757,9 @@ const policies: SectionRegistryEntry<'policies'> = {
   overlapWarnings: [],
   presetIds: ['expandable_list'],
   readiness: (settings, context) =>
-    // Only the ticked topics can render, and only where the wording
-    // resolved — which is exactly what the editor's own hint promises.
-    settings.includedSections.some(topic => context.availablePolicyTopics.includes(topic))
+    context.depositsSummaryPublishable
+      || context.depositsWordingPublishable
+      || settings.includedSections.some(topic => context.availablePolicyTopics.includes(topic))
       ? ready()
       : empty('policies_empty', 'Answer the policy questions to show this section.'),
   recommendedPageKinds: ['content'],
@@ -843,8 +845,8 @@ const visitUs: SectionRegistryEntry<'visit_us'> = {
     showTransit: true,
     version: 1,
   }),
-  description: 'Where to find you, with privacy-safe directions and arrival details.',
-  label: 'Visit Us',
+  description: 'Location, hours, arrival details, and public contact actions in one place.',
+  label: 'Visit & Contact',
   legacySemanticRoles: ['visit'],
   limitKind: 'soft',
   maxPerSite: 1,
@@ -880,8 +882,9 @@ const visitUs: SectionRegistryEntry<'visit_us'> = {
         && context.hoursConfigured
         && context.hoursShownOnSite)
       || (settings.contactSummary !== 'hide' && context.hasPublicContact)
+      || context.bookingOnlyContact === true
       ? ready()
-      : empty('visit_us_empty', 'Add public location, arrival, hours, or contact details to show this section.'),
+      : empty('visit_us_empty', 'Add location, hours, or contact details to show this section.'),
   recommendedPageKinds: ['content'],
   surface: 'base',
   type: 'visit_us',

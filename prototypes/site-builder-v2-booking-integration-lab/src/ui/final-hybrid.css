@@ -1252,6 +1252,59 @@ body[data-editor-shell='final-hybrid'] summary:focus-visible {
   min-height: 255px;
 }
 
+.final-hybrid-app .section-card__connected-preview {
+  display: grid;
+  min-height: 112px;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid rgba(141, 44, 79, 0.16);
+  border-radius: 16px;
+  color: #553944;
+  background:
+    radial-gradient(circle at 88% 12%, rgba(164, 49, 92, 0.1), transparent 32%),
+    linear-gradient(145deg, #fffaf8, #f8eff1);
+}
+
+.final-hybrid-app .section-card__connected-preview > span {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border: 1px solid rgba(141, 44, 79, 0.2);
+  border-radius: 14px;
+  color: #8d2c4f;
+  background: #fff;
+  font-family: Georgia, serif;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.final-hybrid-app .section-card__connected-preview div {
+  min-width: 0;
+}
+
+.final-hybrid-app .section-card__connected-preview strong,
+.final-hybrid-app .section-card__connected-preview p,
+.final-hybrid-app .section-card__connected-preview small {
+  display: block;
+}
+
+.final-hybrid-app .section-card__connected-preview p {
+  margin: 4px 0;
+  color: #6d5d62;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.final-hybrid-app .section-card__connected-preview small {
+  color: #8d2c4f;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
 .final-hybrid-app .booking-placeholder {
   display: grid;
   min-height: 110px;

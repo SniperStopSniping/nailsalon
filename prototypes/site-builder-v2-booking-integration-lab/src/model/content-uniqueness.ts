@@ -11,6 +11,7 @@ export const HARD_SITE_UNIQUE_CONTENT_KEYS = [
   'business_hours',
   'deposit_cancellation_policy',
   'before_you_book_policies',
+  'booking_only_contact',
 ] as const satisfies readonly SiteContentKey[];
 
 export const HARD_PAGE_UNIQUE_CONTENT_KEYS = [

@@ -13,6 +13,7 @@ import type {
 } from './types';
 
 export type BookingSettingsPanelProps = {
+  allowFeaturedServices?: boolean;
   settings: BookingSectionPresentationSettings;
   showIntro?: boolean;
   onChange: (settings: BookingSectionPresentationSettings) => void;
@@ -116,9 +117,10 @@ function Control({ children, label }: { children: ReactNode; label: string }) {
 }
 
 function LayoutControls({
+  allowFeaturedServices = true,
   settings,
   onChange,
-}: Pick<BookingSettingsPanelProps, 'settings' | 'onChange'>) {
+}: Pick<BookingSettingsPanelProps, 'allowFeaturedServices' | 'settings' | 'onChange'>) {
   if (settings.layout === 'visual_grid') {
     const options = settings.layoutSettings;
     const update = (patch: Partial<typeof options>) => onChange(
@@ -150,7 +152,9 @@ function LayoutControls({
             onChange={imageMode => update({ imageMode })}
           />
         </Control>
-        <Toggle label="Featured services" checked={options.showFeatured} onChange={showFeatured => update({ showFeatured })} />
+        {allowFeaturedServices ? (
+          <Toggle label="Featured services" checked={options.showFeatured} onChange={showFeatured => update({ showFeatured })} />
+        ) : null}
         <Toggle label="Category pills" checked={options.categoryNavigation === 'pills'} onChange={enabled => update({ categoryNavigation: enabled ? 'pills' : 'none' })} />
         <Toggle label="Short descriptions" checked={options.showDescriptions} onChange={showDescriptions => update({ showDescriptions })} />
       </>
@@ -331,6 +335,7 @@ function LayoutControls({
 }
 
 export function BookingSettingsPanel({
+  allowFeaturedServices = true,
   settings,
   showIntro = true,
   onChange,
@@ -463,7 +468,11 @@ export function BookingSettingsPanel({
         <h3 id={`${id}-options-heading`}>Layout options</h3>
         <p className="booking-settings-caption">Compatible controls only</p>
         <div className="booking-layout-controls">
-          <LayoutControls settings={settings} onChange={onChange} />
+          <LayoutControls
+            allowFeaturedServices={allowFeaturedServices}
+            settings={settings}
+            onChange={onChange}
+          />
         </div>
       </section>
 

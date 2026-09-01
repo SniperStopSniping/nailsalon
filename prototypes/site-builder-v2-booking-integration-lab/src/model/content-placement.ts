@@ -24,6 +24,7 @@ export type SiteContentKey =
   | 'minimum_notice'
   | 'deposit_cancellation_policy'
   | 'before_you_book_policies'
+  | 'booking_only_contact'
   | 'service_marketing'
   | 'service_catalogue'
   | 'gallery_media'
@@ -74,6 +75,7 @@ export const getSiteContentAvailability = (
     arrival_details: Object.values(context.arrivalNotes).some(Boolean),
     appointment_mode: context.availableQuickFacts.includes('visit_mode'),
     before_you_book_policies: context.availablePolicyTopics.length > 0,
+    booking_only_contact: context.bookingOnlyContact === true,
     brand_logo: context.hasLogoGraphic,
     business_hours: context.hoursConfigured && context.hoursShownOnSite,
     custom_design: true,
@@ -129,6 +131,7 @@ const SITE_KEYS: readonly SiteContentKey[] = [
   'minimum_notice',
   'deposit_cancellation_policy',
   'before_you_book_policies',
+  'booking_only_contact',
   'service_marketing',
   'service_catalogue',
   'gallery_media',
@@ -199,8 +202,8 @@ const reasonFor = (
   }
   if (key === 'deposit_cancellation_policy') {
     return owner
-      ? 'Deposit and cancellation details are shown in Deposits & Cancellations.'
-      : 'Deposit and cancellation details publish only from Deposits & Cancellations.';
+      ? 'Deposit and cancellation details are shown in Before You Book.'
+      : 'Deposit and cancellation details publish only from Before You Book.';
   }
   if (key === 'before_you_book_policies') {
     return owner
@@ -353,11 +356,12 @@ export const buildSiteContentPlacementPlan = (
   assign('owner_profile_photo', ['about', 'team'], ['about', 'team', 'hero'], {
     owner: aboutProfileOwner ?? teamProfileOwner,
   });
-  assign('instagram', ['contact', 'footer', 'about'], ['contact', 'visit_us', 'footer', 'about']);
-  assign('phone', ['contact', 'visit_us', 'footer'], ['contact', 'visit_us', 'footer', 'about']);
-  assign('text', ['contact', 'visit_us', 'footer'], ['contact', 'visit_us', 'footer', 'about']);
-  assign('email', ['contact', 'visit_us', 'footer'], ['contact', 'visit_us', 'footer', 'about']);
-  assign('location', ['visit_us', 'contact', 'quick_info'], [
+  assign('instagram', ['visit_us', 'contact'], ['visit_us', 'contact', 'footer', 'about']);
+  assign('phone', ['visit_us', 'contact'], ['visit_us', 'contact', 'footer', 'about']);
+  assign('text', ['visit_us', 'contact'], ['visit_us', 'contact', 'footer', 'about']);
+  assign('email', ['visit_us', 'contact'], ['visit_us', 'contact', 'footer', 'about']);
+  assign('booking_only_contact', ['visit_us', 'contact'], ['visit_us', 'contact']);
+  assign('location', ['visit_us', 'contact'], [
     'visit_us',
     'contact',
     'quick_info',
@@ -365,7 +369,7 @@ export const buildSiteContentPlacementPlan = (
     'booking',
     'footer',
   ]);
-  assign('exact_address', ['visit_us', 'contact', 'quick_info'], [
+  assign('exact_address', ['visit_us', 'contact'], [
     'visit_us',
     'contact',
     'quick_info',
@@ -374,7 +378,7 @@ export const buildSiteContentPlacementPlan = (
     'footer',
   ]);
   assign('arrival_details', ['visit_us'], ['visit_us', 'contact', 'footer']);
-  assign('business_hours', ['hours', 'visit_us', 'quick_info'], [
+  assign('business_hours', ['visit_us', 'hours'], [
     'hours',
     'visit_us',
     'quick_info',
@@ -386,7 +390,7 @@ export const buildSiteContentPlacementPlan = (
   assign('appointment_mode', ['quick_info', 'booking'], ['quick_info', 'booking', 'hero', 'about']);
   assign('new_client_status', ['quick_info', 'booking'], ['quick_info', 'booking', 'hero', 'about']);
   assign('minimum_notice', ['quick_info', 'booking'], ['quick_info', 'booking', 'hero', 'about']);
-  assign('deposit_cancellation_policy', ['deposits_cancellations'], [
+  assign('deposit_cancellation_policy', ['policies', 'deposits_cancellations', 'booking'], [
     'deposits_cancellations',
     'about',
     'booking',
@@ -394,7 +398,7 @@ export const buildSiteContentPlacementPlan = (
     'quick_info',
     'footer',
   ]);
-  assign('before_you_book_policies', ['policies'], [
+  assign('before_you_book_policies', ['policies', 'booking'], [
     'policies',
     'about',
     'faq',
@@ -465,11 +469,6 @@ export const buildSiteContentPlacementPlan = (
     assignPageUnique('custom_design', ['custom_design']);
   }
 
-  const renderedFeatured = candidates.filter(section => (
-    section.sectionType === 'featured_services'
-    && !sectionSuppressions[section.id]?.some(notice => notice.suppressEntireSection)
-  ));
-
   const suppressWhenNoUniqueContent = (
     type: SectionType,
     keys: readonly SiteContentKey[],
@@ -490,6 +489,7 @@ export const buildSiteContentPlacementPlan = (
     'phone',
     'text',
     'email',
+    'booking_only_contact',
     'location',
     'business_hours',
   ], 'Contact is not shown because its shared details are already shown elsewhere.');
@@ -497,9 +497,11 @@ export const buildSiteContentPlacementPlan = (
     'location',
     'arrival_details',
     'business_hours',
+    'instagram',
     'phone',
     'text',
     'email',
+    'booking_only_contact',
   ], 'Visit Us is not shown because its shared details are already shown elsewhere.');
   suppressWhenNoUniqueContent('quick_info', [
     'location',
@@ -513,7 +515,7 @@ export const buildSiteContentPlacementPlan = (
     pagePlacements,
     placements,
     sectionSuppressions,
-    showBookingFeaturedRail: renderedFeatured.length === 0,
+    showBookingFeaturedRail: false,
     version: SITE_CONTENT_PLACEMENT_VERSION,
   };
 };

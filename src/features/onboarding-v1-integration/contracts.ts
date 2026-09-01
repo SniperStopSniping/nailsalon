@@ -494,6 +494,7 @@ const compiledPageSchema = z.object({
 
 export const onboardingCompiledSiteDocumentSchema = z.object({
   builderDocument: siteBuilderDocumentSchema,
+  compilerVersion: z.literal(1).default(1),
   navigation: z.array(z.object({
     label: nonEmptyText(100),
     order: z.number().int().min(0),
@@ -502,6 +503,12 @@ export const onboardingCompiledSiteDocumentSchema = z.object({
   navigationEnabled: z.boolean(),
   pages: z.array(compiledPageSchema).min(1).max(10),
   palettePresetId: z.enum(ONBOARDING_PALETTE_PRESET_IDS),
+  recipeMigrationResult: z.enum([
+    'fresh_v1',
+    'migrated_legacy_recipe',
+    'preserved_manual_edits',
+  ]).default('preserved_manual_edits'),
+  recipeVersion: z.literal(1).default(1),
   revision: z.number().int().positive(),
   schemaVersion: z.literal(ONBOARDING_SITE_DOCUMENT_VERSION),
   serviceSelection: z.object({

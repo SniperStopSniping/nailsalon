@@ -101,6 +101,7 @@ export const deriveSiteLibraryContextFromProfile = (input: {
       transit: profile.location.transitInformation.trim().length > 0,
     },
     availablePolicyTopics,
+    bookingOnlyContact: profile.bookingOnlyContact,
     availableQuickFacts,
     depositsSummaryPublishable,
     depositsWordingPublishable: getDepositsAndCancellationsDisplayWording(profile.policies)
@@ -164,3 +165,32 @@ export const deriveSitePlanToggles = (
   galleryEnabled: state.recipe.galleryEnabled,
   policiesEnabled: state.recipe.policiesEnabled,
 });
+
+/**
+ * The Builder document becomes authoritative once an owner explicitly adds or
+ * restores an optional core section. Preserve the onboarding choices as the
+ * initial defaults, then let a real active document section opt its matching
+ * customer responsibility back in. This keeps Add Section truthful without
+ * mutating or duplicating the shared onboarding state.
+ */
+export const deriveBuilderSitePlanToggles = (
+  state: OnboardingLabState,
+  document: SiteBuilderDocument | null,
+): SitePlanOptionalToggles => {
+  const onboardingToggles = deriveSitePlanToggles(state);
+  const activeSectionTypes = new Set(
+    document?.pages.flatMap(page => page.sections.map(section => section.sectionType)) ?? [],
+  );
+
+  return {
+    aboutEnabled: onboardingToggles.aboutEnabled
+      || activeSectionTypes.has('about')
+      || activeSectionTypes.has('team'),
+    canvaEnabled: onboardingToggles.canvaEnabled
+      || activeSectionTypes.has('custom_design'),
+    galleryEnabled: onboardingToggles.galleryEnabled
+      || activeSectionTypes.has('gallery'),
+    policiesEnabled: onboardingToggles.policiesEnabled
+      || activeSectionTypes.has('policies'),
+  };
+};

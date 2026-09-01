@@ -18,6 +18,8 @@ import {
   type HistoryState,
   type OriginStarter,
   type SiteBuilderDocument,
+  type V1StarterRecipeContext,
+  reconcileV1StarterDocument,
 } from '../model';
 import {
   applyOnboardingSitePresentation,
@@ -156,6 +158,7 @@ export function useLabDocument() {
   const acceptOnboardingPresentation = useCallback((
     siteName: string,
     presentation: OnboardingSitePresentation,
+    recipeContext?: V1StarterRecipeContext,
   ): SiteBuilderDocument | null => {
     if (preparedTransitionRef.current) return null;
     const current = historyRef.current;
@@ -163,9 +166,12 @@ export function useLabDocument() {
     const normalizedSiteName = siteName.trim() || 'My nail studio';
     const accept = (document: SiteBuilderDocument): SiteBuilderDocument => {
       const presented = applyOnboardingSitePresentation(document, presentation);
-      return presented.siteName === normalizedSiteName
-        ? presented
-        : { ...presented, siteName: normalizedSiteName };
+      const reconciled = recipeContext
+        ? reconcileV1StarterDocument(presented, recipeContext).document
+        : presented;
+      return reconciled.siteName === normalizedSiteName
+        ? reconciled
+        : { ...reconciled, siteName: normalizedSiteName };
     };
     const present = accept(current.present);
     const past = current.past.map(accept);

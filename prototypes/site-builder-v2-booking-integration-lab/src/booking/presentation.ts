@@ -44,6 +44,20 @@ export const DEFAULT_LAYOUT_SETTINGS = deepFreeze<LayoutSettingsByLayout>({
   },
 });
 
+/**
+ * V1 starter sites use one catalogue inside the canonical Booking engine.
+ * Advanced/audit documents can still opt into the legacy featured rail, but
+ * the normal starter path removes that duplicate presentation centrally.
+ */
+export const withoutFeaturedServicesRail = (
+  settings: BookingSectionPresentationSettings,
+): BookingSectionPresentationSettings => settings.layout === 'visual_grid'
+  ? {
+      ...settings,
+      layoutSettings: { ...settings.layoutSettings, showFeatured: false },
+    }
+  : settings;
+
 export const BOOKING_TOKEN_PRESETS = deepFreeze<
   Record<'warm' | 'neutral', BookingPresentationTokens>
 >({
