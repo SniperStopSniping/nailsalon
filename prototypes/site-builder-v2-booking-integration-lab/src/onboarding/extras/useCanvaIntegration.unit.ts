@@ -167,8 +167,8 @@ describe('Canva placement', () => {
     });
     const multiLocation = locateCanonicalBookingPage(multi);
     expect(multiLocation?.page.name).toBe('Services / Book');
-    expect(getCanvaPlacementTarget(multi, 'before_booking')?.position).toBe(2);
-    expect(getCanvaPlacementTarget(multi, 'after_booking')?.position).toBe(3);
+    expect(getCanvaPlacementTarget(multi, 'before_booking')?.position).toBe(1);
+    expect(getCanvaPlacementTarget(multi, 'after_booking')?.position).toBe(2);
   });
 });
 
@@ -290,7 +290,6 @@ describe('integrateCanvaDesign', () => {
 
     const bookingPage = locateCanonicalBookingPage(state.document)?.page;
     expect(bookingPage?.sections.map((section) => section.sectionType)).toEqual([
-      'featured_services',
       'custom_design',
       'booking',
       'deposits_cancellations',

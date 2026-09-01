@@ -73,11 +73,11 @@ describe('starter initialization', () => {
         settings: {
           headline: { source: 'shared' },
           intro: { source: 'shared' },
-          media: 'profile_photo',
+          media: 'gradient',
           preset: 'booking_first',
           primaryCtaLabel: 'Book an appointment',
-          showLocationEyebrow: true,
-          showStatusLine: true,
+          showLocationEyebrow: false,
+          showStatusLine: false,
           version: 1,
         },
       },
@@ -236,13 +236,13 @@ describe('starter initialization', () => {
         'announcement_bar',
         'hero',
         'quick_info',
+        'featured_services',
         'gallery',
         'reviews',
         'final_cta',
         'footer',
       ],
       [
-        'featured_services',
         'booking',
         'deposits_cancellations',
         'policies',
@@ -256,7 +256,6 @@ describe('starter initialization', () => {
     expect(
       document.pages[1]?.sections.map((section) => section.label),
     ).toEqual([
-      'Featured Services',
       'Booking',
       'Deposits & Cancellations',
       'Before You Book',
@@ -271,7 +270,7 @@ describe('starter initialization', () => {
       label: 'Welcome',
       settings: { preset: 'image_right' },
     });
-    expect(document.pages[0]?.sections[3]).toMatchObject({
+    expect(document.pages[0]?.sections[4]).toMatchObject({
       galleryPresentationOwner: 'recipe',
       sectionType: 'gallery',
       label: 'Featured work',
@@ -468,6 +467,7 @@ describe('starter freedom', () => {
       'announcement_bar',
       'hero',
       'quick_info',
+      'featured_services',
       'gallery',
       'reviews',
       'final_cta',

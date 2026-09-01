@@ -414,7 +414,6 @@ describe('createSavedSitePreviewModel', () => {
       label: 'Home',
       sectionTypes: [
         'hero',
-        'featured_services',
         'booking',
         'deposits_cancellations',
         'policies',

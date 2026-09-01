@@ -196,21 +196,27 @@ describe('customer section accessibility', () => {
     }),
     siteContent: DEMO_SITE_CONTENT,
   };
+  const documentForPlan = (plan: SitePlanPage[]): SiteBuilderDocument => ({
+    ...document_,
+    navigation: { ...document_.navigation, enabled: false, items: [] },
+    pages: plan.map((page, index) => ({
+      ...document_.pages[0]!,
+      id: page.id,
+      isHome: page.isHome,
+      name: page.label,
+      order: index,
+      sections: page.sections.map(section => section.section),
+      slug: page.slug,
+      visible: true,
+      visibleInNavigation: page.visibleInNavigation,
+    })),
+  });
 
   it.each(ALL_TYPES.map(type => [type] as const))(
     '%s renders as an accessible customer section',
     (type) => {
       const plan = planFor(type);
-      const renderDocument = type === 'custom_design'
-        ? {
-            ...document_,
-            pages: [{
-              ...document_.pages[0]!,
-              id: plan[0]!.id,
-              sections: plan[0]!.sections.map(section => section.section),
-            }],
-          }
-        : document_;
+      const renderDocument = documentForPlan(plan);
       const { container } = render(
         <OnboardingSitePreview
           customerPagePlan={plan}
@@ -318,7 +324,7 @@ describe('customer section accessibility', () => {
         <OnboardingSitePreview
           customerPagePlan={pagePlan}
           device="phone"
-          document={document_}
+          document={documentForPlan(pagePlan)}
           interactionMode="interactive"
           state={state}
         />,

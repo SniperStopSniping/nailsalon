@@ -92,6 +92,9 @@ const renderDialog = (document: SiteBuilderDocument, section: LibrarySectionInst
     context={deriveSiteLibraryContext(state, document)}
     document={document}
     onClose={() => {}}
+    onGoToSection={() => {}}
+    onHideSection={() => {}}
+    onMoveSection={() => {}}
     onSave={() => {}}
     onSiteContent={() => true}
     profile={state.profile}

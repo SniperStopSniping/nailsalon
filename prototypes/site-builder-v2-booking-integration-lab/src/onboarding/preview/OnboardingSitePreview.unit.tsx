@@ -182,15 +182,45 @@ describe('OnboardingSitePreview shared profile composition', () => {
       expect(aboutProfile).toHaveAttribute('alt', 'Daniela profile photo');
     } else {
       expect(aboutProfile).toBeNull();
-      expect(within(about).getByRole('img', {
+      expect(within(about).queryByRole('img', {
         name: 'Daniela portrait placeholder',
-      })).toHaveTextContent('D');
+      })).not.toBeInTheDocument();
     }
 
     expect(brand?.querySelector('[data-media-role="profile"]')).toBeNull();
     expect(about.querySelector('[data-media-role="logo"]')).toBeNull();
     expect(heroProfile).toBeNull();
-    expect(preview.querySelectorAll('[data-media-role="profile"]')).toHaveLength(1);
+    expect(preview.querySelectorAll('[data-media-role="profile"]'))
+      .toHaveLength(profilePhoto ? 1 : 0);
+  });
+
+  it('never publishes one stored asset under both Logo and Profile roles', () => {
+    const state = createDefaultOnboardingState();
+    state.profile.businessName = 'Isla Nail Studio';
+    state.profile.logo = {
+      fileName: 'shared.png',
+      id: 'logo-reference',
+      mimeType: 'image/png',
+      source: 'indexed_db',
+      storageId: 'same-stored-asset',
+    };
+    state.profile.profilePhoto = {
+      fileName: 'shared.png',
+      id: 'profile-reference',
+      mimeType: 'image/png',
+      source: 'indexed_db',
+      storageId: 'same-stored-asset',
+    };
+
+    const { container } = render(
+      <OnboardingSitePreview document={null} label="Shared media role preview" state={state} />,
+    );
+
+    expect(container.querySelectorAll('[data-media-id="same-stored-asset"]'))
+      .toHaveLength(1);
+    expect(container.querySelector('[data-media-id="same-stored-asset"]'))
+      .toHaveAttribute('data-media-role', 'logo');
+    expect(state.profile.profilePhoto.storageId).toBe('same-stored-asset');
   });
 
   it.each([
@@ -241,8 +271,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
       <OnboardingSitePreview document={initializeStarter('quick_book')} label="Notice preview" state={withoutNotice} />,
     );
     preview = screen.getByRole('region', { name: 'Notice preview' });
-    expect(within(preview).getByRole('region', { name: 'Minimum booking notice' }))
-      .toHaveTextContent('Clients can book without a minimum-notice requirement.');
+    expect(within(preview).queryByRole('region', { name: 'Minimum booking notice' }))
+      .not.toBeInTheDocument();
     expect(preview.querySelector('[data-bookable-time]')).toBeNull();
   });
 
@@ -265,7 +295,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .not.toBeInTheDocument();
   });
 
-  it('renders the next opening derived from the shared schedule and deterministic preview clock', () => {
+  it('publishes the configured schedule only in the eligible Visit Us owner', () => {
     const state = createDefaultOnboardingState();
     state.profile.businessName = 'Mia’s Nail Studio';
     state.profile.hours.setupState = 'configured';
@@ -283,15 +313,13 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.reviewOptions.previewTimestamp = '2026-09-02T16:00:00.000Z';
 
     render(
-      <OnboardingSitePreview document={initializeStarter('quick_book')} label="Derived hours preview" state={state} />,
+      <OnboardingSitePreview document={initializeStarter('one_page')} label="Derived hours preview" state={state} />,
     );
     const preview = screen.getByRole('region', { name: 'Derived hours preview' });
 
-    expect(preview.querySelector('[data-hours-status="closed"]')).toHaveTextContent(
-      'Opens tomorrow at 10:30 AM',
-    );
-    expect(within(preview).getByRole('group', { name: 'Weekly hours' }))
-      .toHaveTextContent('Thursday10:30 AM–6:00 PM');
+    const hoursOwner = preview.querySelector('[data-content-key="business_hours"]');
+    expect(hoursOwner).toHaveTextContent('Thu10:30 AM–6:00 PM');
+    expect(preview.querySelectorAll('[data-content-key="business_hours"]')).toHaveLength(1);
     expect(within(preview).queryByText(/Tomorrow at 10:30 AM|Next opening/u))
       .not.toBeInTheDocument();
   });
@@ -310,11 +338,12 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const booking = within(preview).getByRole('region', { name: 'Booking' });
 
     expect(within(booking).getByRole('heading', { level: 2, name: 'Cedar Tips' })).toBeVisible();
-    expect(within(booking).getByText('Ottawa, Ontario')).toBeVisible();
+    expect(within(booking).getByText('Location shared during booking')).toBeVisible();
+    expect(within(booking).queryByText('Ottawa, Ontario')).not.toBeInTheDocument();
     expect(within(booking).queryByText('Isla Nail Studio')).not.toBeInTheDocument();
     expect(within(booking).queryByText('Toronto, Ontario')).not.toBeInTheDocument();
     expect(within(booking).queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
-    expect(within(preview).getAllByText('Open until 6:00 PM').length).toBeGreaterThan(0);
+    expect(preview.querySelectorAll('[data-content-key="location"]')).toHaveLength(1);
     expect(within(preview).queryByText(/Next opening/u)).not.toBeInTheDocument();
     expect(within(preview).getByTestId('canonical-booking-example')).toHaveTextContent(
       'Russian Manicure + French1 hr 45 min · From $80',
@@ -354,11 +383,10 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const bookingElement = within(preview).getByRole('region', { name: 'Booking' });
 
     expect(beforeElement).not.toBeNull();
-    expect(afterElement).not.toBeNull();
+    expect(afterElement).toBeNull();
     expect((beforeElement!.compareDocumentPosition(bookingElement)
       & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
-    expect((bookingElement.compareDocumentPosition(afterElement!)
-      & Node.DOCUMENT_POSITION_FOLLOWING) !== 0).toBe(true);
+    expect(preview.querySelectorAll('[data-content-key="custom_design"]')).toHaveLength(1);
   });
 
   it('activates a Canva Booking CTA against the real Booking section without changing the page hash', async () => {
@@ -418,7 +446,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     }
   });
 
-  it('reuses the same profile across About layouts and updates every Instagram use', () => {
+  it('reuses the same profile across About layouts and updates the one Instagram owner', () => {
     const state = createDanielaFixtureState();
     state.recipe.aboutPreset = 'photo_right';
     const originalProfile = state.profile;
@@ -428,7 +456,10 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const preview = screen.getByRole('region', { name: 'Shared profile preview' });
     const about = within(preview).getByRole('region', { name: 'About' });
     expect(within(about).getByText(state.profile.about.shortBio)).toBeVisible();
-    expect(within(about).getByRole('link', { name: /@islanail\.studio/ })).toBeVisible();
+    expect(within(about).queryByRole('link', { name: /@islanail\.studio/ }))
+      .not.toBeInTheDocument();
+    const footer = within(preview).getByRole('contentinfo', { name: /site footer/u });
+    expect(within(footer).getByRole('link', { name: /Instagram/ })).toBeVisible();
     expect(within(preview).getByTestId('canonical-booking-example')).toHaveTextContent(
       'Russian Manicure + French1 hr 45 min · From $80',
     );
@@ -443,7 +474,10 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
     const updatedAbout = within(preview).getByRole('region', { name: 'About' });
     expect(within(updatedAbout).getByText(state.profile.about.shortBio)).toBeVisible();
-    expect(within(updatedAbout).getByRole('link', { name: /@isla\.updated/ })).toBeVisible();
+    expect(within(updatedAbout).queryByRole('link', { name: /@isla\.updated/ }))
+      .not.toBeInTheDocument();
+    expect(within(footer).getByRole('link', { name: /Instagram/ }))
+      .toHaveAttribute('href', 'https://www.instagram.com/isla.updated/');
     expect(within(updatedAbout).queryByText('@islanail.studio')).not.toBeInTheDocument();
     expect(next.profile.about).toBe(originalProfile.about);
 
@@ -457,7 +491,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     view.rerender(
       <OnboardingSitePreview document={null} label="Shared profile preview" state={pastedUrl} />,
     );
-    expect(within(updatedAbout).getByRole('link', { name: '@islanailstudio' }))
+    expect(within(footer).getByRole('link', { name: /Instagram/ }))
       .toHaveAttribute('href', 'https://www.instagram.com/islanailstudio/');
 
     view.rerender(
@@ -470,7 +504,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
         }}
       />,
     );
-    expect(within(updatedAbout).queryByRole('link', { name: /instagram/iu }))
+    expect(within(footer).queryByRole('link', { name: /instagram/iu }))
       .not.toBeInTheDocument();
   });
 
@@ -510,14 +544,15 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(about).getByText('Russian manicure certification · BIAB certification'))
       .toBeInTheDocument();
     expect(within(about).getByText('English · Spanish')).toBeInTheDocument();
-    expect(within(about).getByText('Appointment only')).toBeInTheDocument();
-    expect(within(about).getByText('Accepting new clients')).toBeInTheDocument();
-    expect(within(about).getByText('24-hour notice · $50 deposit · 15-minute late limit'))
-      .toBeVisible();
-    expect(within(about).getByRole('link', { name: /@islanail\.studio/u })).toBeVisible();
+    expect(within(about).queryByText('Appointment only')).not.toBeInTheDocument();
+    expect(within(about).queryByText('Accepting new clients')).not.toBeInTheDocument();
+    expect(within(about).queryByText('24-hour notice · $50 deposit · 15-minute late limit'))
+      .not.toBeInTheDocument();
+    expect(within(about).queryByRole('link', { name: /@islanail\.studio/u }))
+      .not.toBeInTheDocument();
     expect(within(about).getByRole('link', { name: 'Book now' })).toBeVisible();
     expect(within(about).queryByText('Solo nail tech')).not.toBeInTheDocument();
-    expect(within(about).getByText('Private home studio')).toBeInTheDocument();
+    expect(within(about).queryByText('Private home studio')).not.toBeInTheDocument();
     expect(about.querySelectorAll('.onboarding-about-facts > div').length)
       .toBeLessThanOrEqual(4);
   });
@@ -568,9 +603,9 @@ describe('OnboardingSitePreview shared profile composition', () => {
     view.rerender(
       <OnboardingSitePreview document={initializeStarter('one_page')} label="Hidden policy summary preview" state={depositsVisible} />,
     );
-    const summaries = [...preview.querySelectorAll('.onboarding-policy-summary')];
-    expect(summaries.length).toBeGreaterThan(0);
-    expect(summaries.every((summary) => summary.textContent === '$50 deposit')).toBe(true);
+    expect(preview.querySelectorAll('.onboarding-policy-summary')).toHaveLength(0);
+    expect(within(preview).getByRole('region', { name: 'Deposits and cancellations' }))
+      .toHaveTextContent('$50 deposit');
   });
 
   it('never publishes deposit copy the owner hid, in either wording mode', () => {
@@ -694,7 +729,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     // is injected — the plan matches the ContactSection renderer's own
     // show/hide predicate.
     expect(planTypes(customerPagePlanFor(document, state)))
-      .toEqual(['hero', 'featured_services', 'about', 'booking', 'final_cta', 'footer']);
+      .toEqual(['hero', 'about', 'booking', 'final_cta', 'footer']);
     expect(within(preview).queryByRole('region', { name: 'Deposits and cancellations' }))
       .not.toBeInTheDocument();
     expect(within(preview).queryByRole('region', { name: 'Studio policies' }))
@@ -771,9 +806,9 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(about).queryByText('Isla Nail Studio')).not.toBeInTheDocument();
     expect(within(about).queryByText('Appointment only')).not.toBeInTheDocument();
     expect(within(about).queryByText('Accepting new clients')).not.toBeInTheDocument();
-    expect(within(about).getByRole('img', {
+    expect(within(about).queryByRole('img', {
       name: 'Business owner portrait placeholder',
-    })).toBeVisible();
+    })).not.toBeInTheDocument();
   });
 
   it('renders structural About content after migrating a legacy draft that hid removed controls', () => {
@@ -867,7 +902,6 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .not.toBeInTheDocument();
     expect(sectionIds).toEqual([
       heroId,
-      servicesId,
       bookingId,
       'onboarding-preview-contact',
       finalCtaId,
@@ -875,6 +909,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     ]);
     // The starter announcement bar carries no wording yet, so it stays unpublished.
     expect(sectionIds).not.toContain(announcementId);
+    expect(sectionIds).not.toContain(servicesId);
     expect(preview.querySelectorAll('.onboarding-customer-hero')).toHaveLength(1);
     expect(within(preview).getAllByRole('region', { name: 'Booking' })).toHaveLength(1);
     expect(within(preview).getAllByRole('region', { name: 'Visit and contact' })).toHaveLength(1);
@@ -906,6 +941,33 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelector('.onboarding-customer-contact')).toBeNull();
   });
 
+  it('moves all Booking facts into Booking when Quick Info is hidden', () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'one_page';
+    let document = initializeStarter('one_page');
+    const quickInfo = sectionOn(document.pages[0]!, 'quick_info');
+    document = setSectionVisible(document, quickInfo.id, false);
+
+    render(
+      <OnboardingSitePreview
+        document={document}
+        label="Booking facts fallback preview"
+        state={state}
+      />,
+    );
+
+    const preview = screen.getByRole('region', { name: 'Booking facts fallback preview' });
+    const booking = within(preview).getByRole('region', { name: 'Booking' });
+
+    expect(preview.querySelector('[data-library-type="quick_info"]')).toBeNull();
+    expect(within(booking).getByRole('region', { name: 'Appointments' })).toBeVisible();
+    expect(within(booking).getByRole('region', { name: 'New clients' })).toBeVisible();
+    expect(within(booking).getByRole('region', { name: 'Minimum booking notice' })).toBeVisible();
+    expect(preview.querySelectorAll('[data-content-key="appointment_mode"]')).toHaveLength(1);
+    expect(preview.querySelectorAll('[data-content-key="new_client_status"]')).toHaveLength(1);
+    expect(preview.querySelectorAll('[data-content-key="minimum_notice"]')).toHaveLength(1);
+  });
+
   it('renders One-page library sections once in document order and omits empty authorities', () => {
     const state = createDanielaFixtureState();
     state.recipe.starter = 'one_page';
@@ -931,7 +993,6 @@ describe('OnboardingSitePreview shared profile composition', () => {
       idFor('quick_info'),
       idFor('section_navigation'),
       idFor('about'),
-      idFor('featured_services'),
       idFor('gallery'),
       idFor('deposits_cancellations'),
       idFor('policies'),
@@ -1041,8 +1102,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
       '[data-onboarding-custom-design-section]',
     )].map(section => section.dataset.onboardingCustomDesignSection);
 
-    expect(renderedCustomIds).toEqual([before.id, after.id]);
-    expect(new Set(renderedCustomIds)).toHaveProperty('size', 2);
+    expect(renderedCustomIds).toEqual([before.id]);
+    expect(new Set(renderedCustomIds)).toHaveProperty('size', 1);
     expect(preview.querySelector('[data-starter-structure]')).toBeNull();
   });
 
@@ -1080,8 +1141,10 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(preview).getByRole('region', { name: 'Home page' }))
       .toHaveAttribute('data-preview-page-id', home.id);
     expect(preview.querySelectorAll('.onboarding-customer-hero')).toHaveLength(1);
-    // Home carries the "Featured work" gallery in the v2 starter.
-    expect(preview.querySelectorAll('.onboarding-customer-gallery')).toHaveLength(1);
+    // The starter retains its Home Gallery record, but the shared collection
+    // has one customer owner on the dedicated Gallery page.
+    expect(home.sections.some(section => section.sectionType === 'gallery')).toBe(true);
+    expect(preview.querySelectorAll('.onboarding-customer-gallery')).toHaveLength(0);
     expect(preview.querySelector('.onboarding-customer-booking')).toBeNull();
 
     await user.click(within(navigation).getByRole('link', { name: 'Gallery' }));
@@ -1117,6 +1180,34 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(preview.querySelectorAll('.customer-lib-visit')).toHaveLength(1);
     expect(preview.querySelectorAll('.customer-lib-hours')).toHaveLength(1);
     expect(preview.querySelector('[data-starter-structure]')).toBeNull();
+  });
+
+  it('does not report Home before the requested Builder Preview page', async () => {
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'multi_page';
+    const document = initializeStarter('multi_page');
+    const contact = document.pages.find(page => page.name === 'Contact')!;
+    const onActivePageChange = vi.fn();
+
+    render(
+      <OnboardingSitePreview
+        document={document}
+        initialPageId={contact.id}
+        interactionMode="interactive"
+        label="Contact Builder preview"
+        onActivePageChange={onActivePageChange}
+        state={state}
+      />,
+    );
+
+    const preview = screen.getByRole('region', { name: 'Contact Builder preview' });
+
+    expect(within(preview).getByRole('region', { name: 'Contact page' }))
+      .toHaveAttribute('data-preview-page-id', contact.id);
+
+    await waitFor(() => expect(onActivePageChange).toHaveBeenCalled());
+
+    expect(onActivePageChange.mock.calls[0]).toEqual([contact.id]);
   });
 
   it('opens the actual Multi-page page that owns About for an About-targeted preview', () => {
@@ -1207,7 +1298,6 @@ describe('OnboardingSitePreview shared profile composition', () => {
       'hero',
       'quick_info',
       'section_navigation',
-      'featured_services',
       'deposits_cancellations',
       'policies',
       'visit_us',
@@ -1552,26 +1642,22 @@ describe('OnboardingSitePreview shared profile composition', () => {
 
   it('reuses one configured schedule and suppresses public status when hours are hidden or skipped', () => {
     const state = createDanielaFixtureState();
-    // Quick Book owns no Visit Us section, so the shared schedule reaches the
-    // customer through the injected Contact section.
-    state.recipe.starter = 'quick_book';
+    // The one-page site owns the schedule in Visit Us. About and the rest of
+    // the site consult the same plan and do not repeat it.
+    state.recipe.starter = 'one_page';
     state.recipe.aboutPreset = 'profile_quick_facts';
     state.reviewOptions.previewTimestamp = '2026-08-27T18:30:00.000Z';
     const view = render(
-      <OnboardingSitePreview document={null} label="Shared hours preview" state={state} />,
+      <OnboardingSitePreview document={initializeStarter('one_page')} label="Shared hours preview" state={state} />,
     );
     const preview = screen.getByRole('region', { name: 'Shared hours preview' });
     const about = within(preview).getByRole('region', { name: 'About' });
-    expect(preview.querySelector('[data-hours-status="open"]')).toHaveTextContent(
-      'Open until 6:00 PM',
-    );
-    const weeklyHours = within(preview).getByRole('group', { name: 'Weekly hours' });
-    expect(within(weeklyHours).getByText('Thursday')).toBeVisible();
+    const weeklyHours = preview.querySelector<HTMLElement>('[data-content-key="business_hours"]')!;
+    expect(within(weeklyHours).getByText('Thu')).toBeVisible();
     expect(within(weeklyHours).getAllByText('10:00 AM–6:00 PM')).toHaveLength(5);
-    expect(within(weeklyHours).getByText('Sunday')).toBeVisible();
-    expect(within(weeklyHours).getByText('Closed')).toBeVisible();
-    expect(within(about).getByText('Hours')).toBeInTheDocument();
-    expect(within(about).getByText('Open until 6:00 PM')).toBeInTheDocument();
+    expect(weeklyHours).toHaveTextContent('Closed Sunday.');
+    expect(within(about).queryByText('Hours')).not.toBeInTheDocument();
+    expect(preview.querySelectorAll('[data-content-key="business_hours"]')).toHaveLength(1);
 
     const hidden = {
       ...state,
@@ -1581,13 +1667,12 @@ describe('OnboardingSitePreview shared profile composition', () => {
       },
     };
     view.rerender(
-      <OnboardingSitePreview document={null} label="Shared hours preview" state={hidden} />,
+      <OnboardingSitePreview document={initializeStarter('one_page')} label="Shared hours preview" state={hidden} />,
     );
     expect(preview.querySelector('[data-hours-status]')).toBeNull();
     expect(within(preview).queryByRole('group', { name: 'Weekly hours' }))
       .not.toBeInTheDocument();
-    expect(within(about).queryByText('Hours')).not.toBeInTheDocument();
-    expect(within(about).queryByText(/Open until|Closed/u)).not.toBeInTheDocument();
+    expect(preview.querySelectorAll('[data-content-key="business_hours"]')).toHaveLength(0);
 
     const skipped = {
       ...hidden,
@@ -1597,10 +1682,10 @@ describe('OnboardingSitePreview shared profile composition', () => {
       },
     };
     view.rerender(
-      <OnboardingSitePreview document={null} label="Shared hours preview" state={skipped} />,
+      <OnboardingSitePreview document={initializeStarter('one_page')} label="Shared hours preview" state={skipped} />,
     );
     expect(preview.querySelector('[data-hours-status]')).toBeNull();
-    expect(within(about).queryByText('Hours')).not.toBeInTheDocument();
+    expect(preview.querySelectorAll('[data-content-key="business_hours"]')).toHaveLength(0);
     expect(within(preview).queryByRole('group', { name: 'Weekly hours' }))
       .not.toBeInTheDocument();
   });

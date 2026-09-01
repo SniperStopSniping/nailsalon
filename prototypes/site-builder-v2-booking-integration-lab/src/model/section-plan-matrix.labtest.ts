@@ -484,7 +484,11 @@ describe('ordered adjacency matrix (400 pairs)', () => {
     const base = {
       ...deriveSiteLibraryContext(state, pairDocument('hero', 'booking')),
       arrivalNotes: { entrance: false, parking: false, transit: false },
+      hasPublicContact: false,
       hasPublicLocation: false,
+      hoursConfigured: false,
+      hoursShownOnSite: false,
+      publicContactMethods: [],
     };
     const settings = entry.defaultSettings();
 
@@ -519,9 +523,9 @@ describe('ordered adjacency matrix (400 pairs)', () => {
   it('resolves adjacency from the resolved neighbour, not the raw one', () => {
     // Three tinted sections in a row must alternate tint → base → tint,
     // which only holds if each decision reads the previous RESOLVED surface.
-    const document = pairDocument('reviews', 'reviews');
+    const document = pairDocument('reviews', 'offers');
     const home = document.pages[0]!;
-    const third = instanceOf('reviews', 'matrix-third', 2);
+    const third = instanceOf('deposits_cancellations', 'matrix-third', 2);
     const withThree: SiteBuilderDocument = {
       ...document,
       pages: [{ ...home, sections: [...home.sections, third] }],
@@ -538,7 +542,13 @@ describe('ordered adjacency matrix (400 pairs)', () => {
 
   it('renders every populated library type for the demo context (no silent blanks)', () => {
     for (const type of ALL_TYPES) {
-      const document = pairDocument(type, 'booking');
+      // Featured Services deliberately yields to Booking on the same page;
+      // pair it with Hero when this census is testing readiness rather than
+      // the separate ownership rule.
+      const document = pairDocument(
+        type,
+        type === 'featured_services' ? 'hero' : 'booking',
+      );
       const context = deriveSiteLibraryContext(state, document);
       const plan = buildCustomerPagePlan(document, {
         context,
