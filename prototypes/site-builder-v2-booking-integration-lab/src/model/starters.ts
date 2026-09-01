@@ -109,6 +109,7 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
         { previewLabel: 'Announcement', sectionType: 'announcement_bar', summary: false },
         { label: 'Welcome', previewLabel: 'Welcome', sectionType: 'hero' },
         { previewLabel: 'Quick facts', sectionType: 'quick_info', summary: false },
+        { previewLabel: 'Services', sectionType: 'featured_services' },
         {
           galleryPresentationOwner: 'recipe',
           label: 'Featured work',
@@ -126,7 +127,6 @@ const STARTER_PAGES: Record<OriginStarter, readonly StarterPageDefinition[]> = {
       previewLabel: 'Services & Booking',
       slug: 'services-book',
       sections: [
-        { previewLabel: 'Services', sectionType: 'featured_services' },
         { previewLabel: 'Booking', sectionType: 'booking' },
         { previewLabel: 'Deposits', sectionType: 'deposits_cancellations', summary: false },
         { previewLabel: 'Policies', sectionType: 'policies', summary: false },

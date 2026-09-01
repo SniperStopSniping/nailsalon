@@ -280,6 +280,8 @@ function ServiceMedia({
       <img
         src={service.image.src}
         alt={decorative ? '' : service.image.alt}
+        data-media-id={service.image.id}
+        data-media-role="service"
         loading={loading}
         decoding="async"
       />

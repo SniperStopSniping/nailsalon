@@ -12,6 +12,13 @@
 import { hasCustomDesignArtwork } from '../custom-design/model/settings';
 import type { CustomDesignSettings } from '../custom-design/model/types';
 import {
+  buildSiteContentPlacementPlan,
+  getSiteContentAvailability,
+  getSectionContentSuppressions,
+  type SectionContentSuppression,
+  type SiteContentPlacementPlan,
+} from './content-placement';
+import {
   getSectionRegistryEntry,
   isLibrarySection,
   isLibrarySectionType,
@@ -296,6 +303,7 @@ export const filterCustomerPagePlanSections = (
  * disappears while its editor says nothing is the worst of both.
  */
 export type SectionPlanExclusion =
+  | 'content_owned_elsewhere'
   | 'dropped'
   | 'hidden'
   | 'not_enough_navigation_targets'
@@ -318,6 +326,11 @@ export const getSectionPlanExclusion = (
   const planned = plan.flatMap(planPage => planPage.sections);
   if (planned.some(candidate => candidate.id === sectionId)) return null;
 
+  if (getSectionContentPlacementSuppressions(document, sectionId, options)
+    .some(notice => notice.suppressEntireSection)) {
+    return 'content_owned_elsewhere';
+  }
+
   if (isLibrarySection(section)) {
     const entry = getSectionRegistryEntry(section.sectionType);
     if (entry.readiness(section.settings as never, options.context).level === 'empty') {
@@ -337,7 +350,7 @@ export const getSectionPlanExclusion = (
   return 'dropped';
 };
 
-export const buildCustomerPagePlan = (
+const buildStructuralCustomerPagePlan = (
   document: SiteBuilderDocument,
   options: BuildCustomerPagePlanOptions,
 ): SitePlanPage[] => {
@@ -490,4 +503,53 @@ export const buildCustomerPagePlan = (
   return planPages.filter(page => page.sections.some(
     section => !CHROME_SECTION_TYPES.has(section.sectionType),
   ));
+};
+
+export type CustomerSiteComposition = {
+  contentPlacement: SiteContentPlacementPlan;
+  pages: SitePlanPage[];
+};
+
+/**
+ * The structural page plan and the shared-content placement plan are resolved
+ * together. Entire sections with no unique customer content are removed here,
+ * so every Preview/compiler consumer receives the same blank-band-free pages.
+ */
+export const buildCustomerSiteComposition = (
+  document: SiteBuilderDocument,
+  options: BuildCustomerPagePlanOptions,
+): CustomerSiteComposition => {
+  const structuralPages = buildStructuralCustomerPagePlan(document, options);
+  const contentPlacement = buildSiteContentPlacementPlan(
+    structuralPages,
+    getSiteContentAvailability(options.context),
+    { ownerStaffMemberId: options.context.ownerStaffMemberId },
+  );
+  const pages = filterCustomerPagePlanSections(structuralPages, section => (
+    !getSectionContentSuppressions(contentPlacement, section.id)
+      .some(notice => notice.suppressEntireSection)
+  ));
+  return { contentPlacement, pages };
+};
+
+export const buildCustomerPagePlan = (
+  document: SiteBuilderDocument,
+  options: BuildCustomerPagePlanOptions,
+): SitePlanPage[] => buildCustomerSiteComposition(document, options).pages;
+
+/** Owner-facing detail for content the plan suppresses without deleting. */
+export const getSectionContentPlacementSuppressions = (
+  document: SiteBuilderDocument,
+  sectionId: string,
+  options: BuildCustomerPagePlanOptions,
+): readonly SectionContentSuppression[] => {
+  const structuralPages = buildStructuralCustomerPagePlan(document, options);
+  return getSectionContentSuppressions(
+    buildSiteContentPlacementPlan(
+      structuralPages,
+      getSiteContentAvailability(options.context),
+      { ownerStaffMemberId: options.context.ownerStaffMemberId },
+    ),
+    sectionId,
+  );
 };

@@ -139,13 +139,16 @@ export const createDemoOnboardingState = (): OnboardingLabState => {
         newClientStatus: 'yes',
         visitMode: 'appointment_only',
       },
+      bookingOnlyContact: false,
       businessName: 'Isla Nail Studio',
       businessStructure: 'multi_tech',
       clientContact: {
         ...state.profile.clientContact,
+        callEnabled: true,
         primaryNumber: '(437) 555-0155',
         textEnabled: true,
       },
+      email: 'hello@islanailstudio.example',
       hours: {
         days: {
           friday: { ...DEMO_OPEN_DAY },

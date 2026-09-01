@@ -81,6 +81,18 @@ export const deriveSiteLibraryContextFromProfile = (input: {
   const depositsSummaryPublishable = isDepositsAndCancellationsVisible(profile.policies)
     && isDepositsAndCancellationsComplete(profile.policies)
     && deriveDepositsAndCancellationsSummary(profile.policies).trim().length > 0;
+  const logoIsRenderable = profile.logo?.source === 'fixture'
+    || profile.logo?.source === 'indexed_db';
+  const profilePhotoIsRenderable = profile.profilePhoto?.source === 'fixture'
+    || profile.profilePhoto?.source === 'indexed_db';
+  const logoAssetId = profile.logo?.storageId ?? profile.logo?.id;
+  const profileAssetId = profile.profilePhoto?.storageId ?? profile.profilePhoto?.id;
+  const normalizedOwnerName = profile.ownerName.trim().toLocaleLowerCase();
+  const ownerStaffMemberId = normalizedOwnerName
+    ? document?.siteContent.staff.find(
+      member => member.name.trim().toLocaleLowerCase() === normalizedOwnerName,
+    )?.id ?? null
+    : null;
 
   return {
     arrivalNotes: {
@@ -98,6 +110,9 @@ export const deriveSiteLibraryContextFromProfile = (input: {
     depositMode: profile.policies.deposits.mode,
     featuredServiceIds,
     galleryImageIds: [...galleryImageIds],
+    hasLogoGraphic: logoIsRenderable,
+    hasProfilePhoto: profilePhotoIsRenderable
+      && (!logoIsRenderable || profileAssetId !== logoAssetId),
     // Mirrors the accepted ContactSection renderer's own show/hide predicate
     // (booking-only contact does not count as publishable contact content).
     hasContactSectionContent: Boolean(
@@ -107,9 +122,19 @@ export const deriveSiteLibraryContextFromProfile = (input: {
       || getPublicWeeklyHours(profile.hours).length > 0,
     ),
     hasPublicContact: contactActions.some(action => action.method !== 'booking'),
+    publicContactMethods: contactActions.flatMap((action) => {
+      if (action.method === 'instagram') return ['instagram' as const];
+      if (action.method === 'call') return ['phone' as const];
+      if (action.method === 'text') return ['text' as const];
+      if (action.method === 'email') return ['email' as const];
+      return [];
+    }),
+    hasPublicExactAddress: profile.location.addressVisibility === 'public'
+      && profile.location.exactAddress.trim().length > 0,
     hasPublicLocation: Boolean(publicLocation.primary.trim()),
     hoursConfigured,
     hoursShownOnSite: profile.hours.showOnSite,
+    ownerStaffMemberId,
     policiesMeaningful: hasMeaningfulPublishablePolicies(profile.policies),
     siteContent: document?.siteContent ?? createEmptySiteContent(),
   };

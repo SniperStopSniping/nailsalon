@@ -90,6 +90,8 @@ export function OnboardingCustomDesignSections({
     <>
       {renderableSections.map(({ pageId: sectionPageId, section }) => (
         <div
+          data-content-key="custom_design"
+          data-content-owner={section.id}
           data-onboarding-custom-design-section={section.id}
           data-onboarding-custom-design-mode={section.settings.displayMode}
           data-section-id={section.id}

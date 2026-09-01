@@ -23,6 +23,12 @@ import {
 
 import { CANONICAL_SERVICES } from '../../booking/data';
 import { formatDuration, formatPrice } from '../../booking/helpers';
+import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
+import {
+  sectionOwnsContent,
+  type SiteContentKey,
+  type SiteContentPlacementPlan,
+} from '../../model/content-placement';
 import { NAVIGABLE_SECTION_TYPES } from '../../model/section-library/registry';
 import type { SiteLibraryContext } from '../../model/section-library/registry';
 import type { BoundText } from '../../model/section-library/settings';
@@ -31,6 +37,7 @@ import type {
   LibrarySectionInstance,
   LibrarySectionType,
 } from '../../model/types';
+import { resolveOnboardingImageUrl } from '../integrations/adapters/media';
 import {
   getPublicContactActions,
   type PublicContactAction,
@@ -67,6 +74,8 @@ export type LibraryPreviewShared = {
   state: OnboardingLabState;
   context: SiteLibraryContext;
   onBook: LibraryPreviewBookHandler;
+  contentPlacement: SiteContentPlacementPlan;
+  pageId: string;
   /** Rendered plan sections on the page this section sits on (for anchors). */
   pageSections: readonly SitePlanSection[];
   /** Every section type rendering anywhere on the site (for auto summaries). */
@@ -106,6 +115,17 @@ const sectionAttributes = (
   'data-section-id': planSection.id,
   'data-surface': planSection.surface,
 });
+
+const contentAttributes = (
+  shared: LibraryPreviewShared,
+  key: SiteContentKey,
+  sectionId: string,
+) => sectionOwnsContent(shared.contentPlacement, key, sectionId, shared.pageId)
+  ? {
+      'data-content-key': key,
+      'data-content-owner': sectionId,
+    }
+  : {};
 
 const settingsOf = <T extends LibrarySectionType>(
   section: LibrarySectionInstance,
@@ -169,16 +189,41 @@ function QuickInfo({ planSection, section, shared }: LibraryPreviewSectionProps)
     profile.hours,
     shared.state.reviewOptions.previewTimestamp,
   );
-  const factValues: Record<string, string | null> = {
-    location: getPublicLocationPreview(profile.location).primary.trim() || null,
-    minimum_notice: labelForMinimumNotice(profile),
-    new_clients: labelForNewClients(profile),
-    open_status: hoursStatus?.label ?? null,
-    visit_mode: labelForVisitMode(profile),
+  const factValues: Record<string, { contentKey: SiteContentKey; value: string | null }> = {
+    location: {
+      contentKey: 'location',
+      value: getPublicLocationPreview(profile.location).primary.trim() || null,
+    },
+    minimum_notice: {
+      contentKey: 'minimum_notice',
+      value: labelForMinimumNotice(profile),
+    },
+    new_clients: {
+      contentKey: 'new_client_status',
+      value: labelForNewClients(profile),
+    },
+    open_status: {
+      contentKey: 'business_hours',
+      value: hoursStatus?.label ?? null,
+    },
+    visit_mode: {
+      contentKey: 'appointment_mode',
+      value: labelForVisitMode(profile),
+    },
   };
   const facts = settings.facts
-    .map(factId => ({ factId, value: factValues[factId] ?? null }))
-    .filter((fact): fact is { factId: typeof fact.factId; value: string } => Boolean(fact.value))
+    .flatMap((factId) => {
+      const fact = factValues[factId];
+      return fact?.value
+        ? [{ contentKey: fact.contentKey, factId, value: fact.value }]
+        : [];
+    })
+    .filter(fact => sectionOwnsContent(
+      shared.contentPlacement,
+      fact.contentKey,
+      planSection.id,
+      shared.pageId,
+    ))
     .slice(0, 4);
   if (facts.length === 0) return null;
   return (
@@ -189,7 +234,19 @@ function QuickInfo({ planSection, section, shared }: LibraryPreviewSectionProps)
     >
       <ul>
         {facts.map(fact => (
-          <li data-fact={fact.factId} key={fact.factId}>{fact.value}</li>
+          <li
+            {...contentAttributes(shared, fact.contentKey, planSection.id)}
+            data-fact={fact.factId}
+            key={fact.factId}
+          >
+            {fact.factId === 'location'
+              && profile.location.addressVisibility === 'public'
+              && profile.location.exactAddress.trim() === fact.value ? (
+                <span {...contentAttributes(shared, 'exact_address', planSection.id)}>
+                  {fact.value}
+                </span>
+              ) : fact.value}
+          </li>
         ))}
       </ul>
     </section>
@@ -241,6 +298,7 @@ function FeaturedServices({ planSection, section, shared }: LibraryPreviewSectio
   return (
     <section
       {...sectionAttributes(planSection, 'featured_services')}
+      {...contentAttributes(shared, 'service_marketing', planSection.id)}
       aria-label="Featured services"
       className={`customer-lib-featured is-${settings.preset}`}
       id={sectionAnchorId(planSection.id, 'featured_services')}
@@ -251,7 +309,13 @@ function FeaturedServices({ planSection, section, shared }: LibraryPreviewSectio
         {services.map(service => (
           <article className="customer-lib-featured-card" key={service.id}>
             {settings.preset !== 'editorial' && service.image ? (
-              <img alt={service.image.alt} loading="lazy" src={service.image.src} />
+              <img
+                alt={service.image.alt}
+                data-media-id={service.id}
+                data-media-role="service"
+                loading="lazy"
+                src={service.image.src}
+              />
             ) : null}
             <div className="customer-lib-featured-body">
               {service.badge ? <span className="customer-lib-badge">{service.badge}</span> : null}
@@ -327,6 +391,20 @@ const initialsOf = (name: string): string =>
 function Team({ planSection, section, shared }: LibraryPreviewSectionProps) {
   const settings = settingsOf(section, 'team');
   if (!settings) return null;
+  const profileAssetIds = shared.state.profile.profilePhoto?.storageId
+    ? [shared.state.profile.profilePhoto.storageId]
+    : [];
+  const profileAssets = useCustomDesignAssetMap(profileAssetIds);
+  const profileSource = resolveOnboardingImageUrl(
+    shared.state.profile.profilePhoto,
+    profileAssets,
+  );
+  const ownsOwnerProfile = sectionOwnsContent(
+    shared.contentPlacement,
+    'owner_profile_photo',
+    planSection.id,
+    shared.pageId,
+  );
   const byId = new Map(shared.context.siteContent.staff.map(member => [member.id, member]));
   const members = settings.memberIds
     .map(id => byId.get(id))
@@ -335,6 +413,7 @@ function Team({ planSection, section, shared }: LibraryPreviewSectionProps) {
   return (
     <section
       {...sectionAttributes(planSection, 'team')}
+      {...contentAttributes(shared, 'team_profiles', planSection.id)}
       aria-label="Team"
       className={`customer-lib-team is-${settings.preset}`}
       id={sectionAnchorId(planSection.id, 'team')}
@@ -344,9 +423,28 @@ function Team({ planSection, section, shared }: LibraryPreviewSectionProps) {
       <div className="customer-lib-team-items">
         {members.map(member => (
           <article className="customer-lib-team-card" key={member.id}>
-            <span aria-hidden="true" className="customer-lib-avatar">
-              {initialsOf(member.name)}
-            </span>
+            {ownsOwnerProfile
+              && member.id === shared.context.ownerStaffMemberId
+              && profileSource
+              ? (
+                  // The lab renders local/object URLs that Next Image cannot own.
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    alt={`${member.name} profile photo`}
+                    className="customer-lib-avatar is-image"
+                    data-content-key="owner_profile_photo"
+                    data-content-owner={planSection.id}
+                    data-media-id={shared.state.profile.profilePhoto?.storageId
+                      ?? shared.state.profile.profilePhoto?.id}
+                    data-media-role="profile"
+                    src={profileSource}
+                  />
+                )
+              : (
+                  <span aria-hidden="true" className="customer-lib-avatar">
+                    {initialsOf(member.name)}
+                  </span>
+                )}
             <h3>{member.name}</h3>
             {member.title.trim() ? <p className="customer-lib-team-title">{member.title}</p> : null}
             {member.specialties.length > 0 ? (
@@ -375,6 +473,7 @@ function Reviews({ planSection, section, shared }: LibraryPreviewSectionProps) {
   return (
     <section
       {...sectionAttributes(planSection, 'reviews')}
+      {...contentAttributes(shared, 'reviews', planSection.id)}
       aria-label="Reviews"
       className={`customer-lib-reviews is-${settings.preset}`}
       id={sectionAnchorId(planSection.id, 'reviews')}
@@ -424,6 +523,7 @@ function DepositsCancellations({ planSection, section, shared }: LibraryPreviewS
   return (
     <section
       {...sectionAttributes(planSection, 'deposits_cancellations')}
+      {...contentAttributes(shared, 'deposit_cancellation_policy', planSection.id)}
       aria-label="Deposits and cancellations"
       className="customer-lib-deposits"
       id={sectionAnchorId(planSection.id, 'deposits_cancellations')}
@@ -467,6 +567,7 @@ function Policies({ planSection, section, shared }: LibraryPreviewSectionProps) 
   return (
     <section
       {...sectionAttributes(planSection, 'policies')}
+      {...contentAttributes(shared, 'before_you_book_policies', planSection.id)}
       aria-label="Studio policies"
       className="customer-lib-policies"
       id={sectionAnchorId(planSection.id, 'policies')}
@@ -530,6 +631,7 @@ function Hours({ planSection, section, shared }: LibraryPreviewSectionProps) {
   return (
     <section
       {...sectionAttributes(planSection, 'hours')}
+      {...contentAttributes(shared, 'business_hours', planSection.id)}
       aria-label="Hours"
       className={`customer-lib-hours is-${settings.layout}`}
       id={sectionAnchorId(planSection.id, 'hours')}
@@ -564,20 +666,46 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
   const { profile } = shared.state;
   const location = getPublicLocationPreview(profile.location);
   const directions = getPublicDirectionsAction(profile.location);
-  const showHours = settings.hoursSummary === 'show'
-    || (settings.hoursSummary === 'auto' && !shared.presentTypes.has('hours'));
-  const showContact = settings.contactSummary === 'show'
-    || (settings.contactSummary === 'auto' && !shared.presentTypes.has('contact'));
-  const hoursRows = showHours ? getPublicWeeklyHours(profile.hours) : [];
-  const contactActions = showContact
-    ? getPublicContactActions(profile).filter(action => action.method !== 'booking').slice(0, 2)
-    : [];
+  const ownsLocation = sectionOwnsContent(
+    shared.contentPlacement,
+    'location',
+    planSection.id,
+  );
+  const ownsHours = sectionOwnsContent(
+    shared.contentPlacement,
+    'business_hours',
+    planSection.id,
+  ) && settings.hoursSummary !== 'hide';
+  const hoursRows = ownsHours ? getPublicWeeklyHours(profile.hours) : [];
+  const contentKeyForMethod = (method: PublicContactAction['method']): SiteContentKey | null => {
+    if (method === 'instagram') return 'instagram';
+    if (method === 'call') return 'phone';
+    if (method === 'text') return 'text';
+    if (method === 'email') return 'email';
+    return null;
+  };
+  const contactActions = settings.contactSummary === 'hide'
+    ? []
+    : getPublicContactActions(profile)
+    .flatMap((action) => {
+      const contentKey = contentKeyForMethod(action.method);
+      return contentKey && sectionOwnsContent(
+        shared.contentPlacement,
+        contentKey,
+        planSection.id,
+      )
+        ? [{ action, contentKey }]
+        : [];
+    });
   const practicalNotes = [
     settings.showParking ? profile.location.parking.trim() : '',
     settings.showEntrance ? profile.location.entranceInstructions.trim() : '',
     settings.showTransit ? profile.location.transitInformation.trim() : '',
   ].filter(Boolean);
-  if (!location.primary.trim() && practicalNotes.length === 0) return null;
+  if ((!ownsLocation || !location.primary.trim())
+    && practicalNotes.length === 0
+    && hoursRows.length === 0
+    && contactActions.length === 0) return null;
   return (
     <section
       {...sectionAttributes(planSection, 'visit_us')}
@@ -589,9 +717,21 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
       <h2>Finding the studio</h2>
       <div className="customer-lib-visit-body">
         <div className="customer-lib-visit-place">
-          {location.primary.trim() ? <p className="customer-lib-visit-primary">{location.primary}</p> : null}
-          {location.detail ? <p className="customer-lib-visit-detail">{location.detail}</p> : null}
-          {directions ? (
+          {ownsLocation && location.primary.trim() ? (
+            <p
+              {...contentAttributes(shared, 'location', planSection.id)}
+              className="customer-lib-visit-primary"
+            >
+              {profile.location.addressVisibility === 'public'
+                && profile.location.exactAddress.trim() === location.primary ? (
+                  <span {...contentAttributes(shared, 'exact_address', planSection.id)}>
+                    {location.primary}
+                  </span>
+                ) : location.primary}
+            </p>
+          ) : null}
+          {ownsLocation && location.detail ? <p className="customer-lib-visit-detail">{location.detail}</p> : null}
+          {ownsLocation && directions ? (
             <a
               aria-label={directions.accessibleLabel}
               className="customer-lib-text-cta"
@@ -603,13 +743,19 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
             </a>
           ) : null}
           {practicalNotes.length > 0 ? (
-            <ul className="customer-lib-visit-notes">
+            <ul
+              {...contentAttributes(shared, 'arrival_details', planSection.id)}
+              className="customer-lib-visit-notes"
+            >
               {practicalNotes.map(note => <li key={note}>{note}</li>)}
             </ul>
           ) : null}
         </div>
         {hoursRows.length > 0 ? (
-          <div className="customer-lib-visit-hours">
+          <div
+            {...contentAttributes(shared, 'business_hours', planSection.id)}
+            className="customer-lib-visit-hours"
+          >
             <dl className="customer-lib-hours-rows is-summary">
               {hoursRows.filter(row => row.hours !== 'Closed').map(row => (
                 <div key={row.weekday}>
@@ -634,8 +780,9 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
         ) : null}
         {contactActions.length > 0 ? (
           <p className="customer-lib-visit-contact">
-            {contactActions.map(action => (
+            {contactActions.map(({ action, contentKey }) => (
               <a
+                {...contentAttributes(shared, contentKey, planSection.id)}
                 href={action.href}
                 key={action.method}
                 rel={action.rel}
@@ -675,11 +822,25 @@ function Footer({ planSection, section, shared }: LibraryPreviewSectionProps) {
   const settings = settingsOf(section, 'footer');
   if (!settings) return null;
   const { profile } = shared.state;
-  const location = getPublicLocationPreview(profile.location);
   const contactActions = getPublicContactActions(profile)
-    .filter(action => action.method !== 'booking')
-    .slice(0, 3);
-  const compact = settings.preset === 'compact';
+    .flatMap((action) => {
+      const contentKey: SiteContentKey | null = action.method === 'instagram'
+        ? 'instagram'
+        : action.method === 'call'
+          ? 'phone'
+          : action.method === 'text'
+            ? 'text'
+            : action.method === 'email'
+              ? 'email'
+              : null;
+      return contentKey && sectionOwnsContent(
+        shared.contentPlacement,
+        contentKey,
+        planSection.id,
+      )
+        ? [{ action, contentKey }]
+        : [];
+    });
   return (
     <footer
       {...sectionAttributes(planSection, 'footer')}
@@ -688,12 +849,12 @@ function Footer({ planSection, section, shared }: LibraryPreviewSectionProps) {
     >
       <div className="customer-lib-footer-brand">
         <strong>{shared.title}</strong>
-        {location.primary.trim() ? <span>{location.primary}</span> : null}
       </div>
-      {!compact && contactActions.length > 0 ? (
+      {contactActions.length > 0 ? (
         <div className="customer-lib-footer-links">
-          {contactActions.map(action => (
+          {contactActions.map(({ action, contentKey }) => (
             <a
+              {...contentAttributes(shared, contentKey, planSection.id)}
               href={action.href}
               key={action.method}
               rel={action.rel}

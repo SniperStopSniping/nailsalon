@@ -3246,6 +3246,22 @@ function BuilderApp({
         context={libraryContext}
         document={document}
         onClose={() => setEditingSectionId(null)}
+        onGoToSection={(sectionId) => {
+          const page = findSectionPage(document, sectionId);
+          if (!page) return;
+          setEditingSectionId(null);
+          focusOverlapTarget({ pageId: page.id, sectionId });
+        }}
+        onHideSection={(sectionId) => {
+          const target = findSection(document, sectionId);
+          if (!target || !target.visible) return;
+          setEditingSectionId(null);
+          toggleSection(target);
+        }}
+        onMoveSection={(sectionId) => {
+          setEditingSectionId(null);
+          openMoveSection(sectionId);
+        }}
         onSave={saveLibrarySection}
         onSiteContent={applySiteContent}
         profile={libraryProfile}
