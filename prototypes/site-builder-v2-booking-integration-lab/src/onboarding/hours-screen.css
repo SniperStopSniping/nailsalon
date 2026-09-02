@@ -1,0 +1,569 @@
+.onboarding-hours-screen {
+  --hours-card-padding: clamp(16px, 3vw, 28px);
+  max-width: 980px;
+  padding-bottom: calc(112px + env(safe-area-inset-bottom));
+}
+
+.onboarding-hours-screen > .onboarding-screen__heading {
+  margin-bottom: 20px;
+}
+
+.onboarding-hours-screen
+  > footer.sticky-onboarding-actions.is-primary-first
+  > button.sticky-onboarding-actions__primary {
+  width: 100%;
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.onboarding-hours-screen
+  > footer.sticky-onboarding-actions.is-primary-first
+  > button.sticky-onboarding-actions__back {
+  width: auto;
+  min-width: min(150px, 100%);
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: start;
+}
+
+.onboarding-hours-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--onboarding-accent) 17%, var(--onboarding-line));
+  border-radius: 20px;
+  background: color-mix(in srgb, white 97%, var(--onboarding-accent-soft));
+  box-shadow: 0 12px 32px rgba(72, 43, 52, 0.065);
+}
+
+.onboarding-hours-card__trigger {
+  display: grid;
+  width: 100%;
+  min-height: 72px;
+  grid-template-columns: 42px minmax(0, 1fr) auto 22px;
+  align-items: center;
+  gap: 11px;
+  padding: 13px var(--hours-card-padding);
+  border: 0;
+  color: var(--onboarding-ink);
+  background: transparent;
+  text-align: left;
+}
+
+.onboarding-hours-card__trigger > svg {
+  width: 18px;
+  height: 18px;
+}
+
+.onboarding-hours-card__icon {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border-radius: 999px;
+  color: var(--onboarding-accent);
+  background: var(--onboarding-accent-soft);
+}
+
+.onboarding-hours-card__icon svg {
+  width: 21px;
+  height: 21px;
+}
+
+.onboarding-hours-card__title {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.onboarding-hours-card__title strong {
+  font-size: 0.94rem;
+  font-weight: 820;
+}
+
+.onboarding-hours-card__title small {
+  overflow: hidden;
+  color: var(--onboarding-muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onboarding-hours-card__status {
+  display: inline-flex;
+  min-height: 27px;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 9px;
+  border-radius: 999px;
+  color: var(--onboarding-accent-dark);
+  background: var(--onboarding-accent-soft);
+  font-size: 0.68rem;
+  font-weight: 810;
+  white-space: nowrap;
+}
+
+.onboarding-hours-card__status svg {
+  width: 14px;
+  height: 14px;
+}
+
+.onboarding-hours-card__status.is-complete {
+  color: #25734f;
+  background: #e8f5ed;
+}
+
+.onboarding-hours-card__status.is-skipped {
+  color: var(--onboarding-muted);
+  background: #f0edeb;
+}
+
+.onboarding-hours-card__content {
+  display: grid;
+  min-width: 0;
+  gap: 0;
+  padding: 0 var(--hours-card-padding) 4px;
+  border-top: 1px solid var(--onboarding-line);
+}
+
+.onboarding-hours-card__content > .onboarding-switch-row {
+  margin: 0;
+  padding: 20px 0;
+  border-bottom: 1px solid var(--onboarding-line);
+}
+
+.onboarding-hours-card__content > .onboarding-switch-row strong {
+  font-size: 0.82rem;
+}
+
+.onboarding-hours-card__content > .onboarding-switch-row small {
+  max-width: 560px;
+}
+
+.onboarding-hours-card .onboarding-hours-editor {
+  gap: 0;
+}
+
+.onboarding-hours-card .onboarding-regular-hours {
+  gap: 16px;
+  padding: 22px 0;
+  border: 0;
+  border-bottom: 1px solid var(--onboarding-line);
+  border-radius: 0;
+  background: transparent;
+}
+
+.onboarding-hours-card .onboarding-regular-hours h2,
+.onboarding-hours-card .onboarding-individual-hours h3 {
+  font-family: inherit;
+  font-size: 0.88rem;
+  font-weight: 820;
+}
+
+.onboarding-hours-card .onboarding-regular-hours header p,
+.onboarding-hours-card .onboarding-individual-hours header p {
+  max-width: 620px;
+  font-size: 0.74rem;
+}
+
+.onboarding-hours-card .onboarding-hours-presets > div {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.onboarding-hours-card .onboarding-hours-presets label {
+  min-height: 52px;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 0.72rem;
+}
+
+.onboarding-hours-card .onboarding-hours-presets label input {
+  order: 2;
+}
+
+.onboarding-hours-card .onboarding-hours-time-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.onboarding-hours-card .onboarding-hours-time-field select {
+  min-height: 48px;
+  padding: 9px 12px;
+}
+
+.onboarding-hours-apply-row {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(170px, 0.8fr) minmax(190px, 1fr);
+  align-items: stretch;
+  gap: 12px;
+}
+
+.onboarding-hours-card .onboarding-hours-apply {
+  min-height: 50px;
+  border-radius: 10px;
+}
+
+.onboarding-hours-applied {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid #addbc0;
+  border-radius: 10px;
+  color: #25734f;
+  background: #f1faf5;
+}
+
+.onboarding-hours-applied > svg {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+}
+
+.onboarding-hours-applied > span {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.onboarding-hours-applied strong,
+.onboarding-hours-applied small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onboarding-hours-applied strong {
+  font-size: 0.72rem;
+}
+
+.onboarding-hours-applied small {
+  font-size: 0.66rem;
+}
+
+.onboarding-hours-card .onboarding-individual-hours {
+  gap: 13px;
+  padding: 22px 0;
+  border-bottom: 1px solid var(--onboarding-line);
+}
+
+.onboarding-hours-card .onboarding-individual-hours ul {
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 12px;
+  background: white;
+}
+
+.onboarding-hours-card .onboarding-individual-hours li {
+  display: grid;
+  min-height: 48px;
+  grid-template-columns: 8px minmax(100px, 0.8fr) minmax(120px, 1fr) auto;
+  gap: 9px;
+  padding: 5px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--onboarding-line);
+  border-radius: 0;
+}
+
+.onboarding-hours-card .onboarding-individual-hours li:last-child {
+  border-bottom: 0;
+}
+
+.onboarding-hours-card .onboarding-individual-hours li > span:not(.onboarding-hours-day-state) {
+  display: contents;
+}
+
+.onboarding-hours-card .onboarding-individual-hours li strong,
+.onboarding-hours-card .onboarding-individual-hours li small {
+  align-self: center;
+}
+
+.onboarding-hours-card .onboarding-individual-hours li small {
+  font-size: 0.72rem;
+  text-align: center;
+}
+
+.onboarding-hours-card .onboarding-individual-hours li > button {
+  min-width: 58px;
+  min-height: 38px;
+  padding: 6px 10px;
+  border-radius: 9px;
+}
+
+.onboarding-hours-day-state {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #2ea969;
+}
+
+.onboarding-hours-day-state.is-closed {
+  background: #b7afb1;
+}
+
+.onboarding-hours-timezone {
+  display: grid;
+  min-height: 72px;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 11px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--onboarding-line);
+}
+
+.onboarding-hours-timezone > svg,
+.onboarding-hours-skip > svg {
+  width: 38px;
+  height: 38px;
+  padding: 9px;
+  border-radius: 999px;
+  color: var(--onboarding-accent);
+  background: var(--onboarding-accent-soft);
+}
+
+.onboarding-hours-timezone > span,
+.onboarding-hours-skip > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.onboarding-hours-timezone strong,
+.onboarding-hours-skip strong {
+  font-size: 0.76rem;
+}
+
+.onboarding-hours-timezone small,
+.onboarding-hours-skip small {
+  color: var(--onboarding-muted);
+  font-size: 0.68rem;
+  line-height: 1.35;
+}
+
+.onboarding-hours-timezone > button {
+  min-width: 76px;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 10px;
+  color: var(--onboarding-ink);
+  background: white;
+  font-size: 0.7rem;
+  font-weight: 790;
+}
+
+.onboarding-hours-skip {
+  display: grid;
+  width: 100%;
+  min-height: 76px;
+  grid-template-columns: 40px minmax(0, 1fr);
+  align-items: center;
+  gap: 11px;
+  padding: 14px 0;
+  border: 0;
+  color: var(--onboarding-accent-dark);
+  background: transparent;
+  text-align: left;
+}
+
+.onboarding-timezone-dialog {
+  display: grid;
+  gap: 12px;
+}
+
+.onboarding-timezone-dialog > label {
+  font-size: 0.76rem;
+  font-weight: 790;
+}
+
+.onboarding-timezone-dialog > select {
+  min-height: 48px;
+  padding: 9px 11px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 11px;
+  background: white;
+}
+
+.dialog-panel:has(.onboarding-day-hours-editor),
+.dialog-panel--bottom-sheet:has(.onboarding-timezone-dialog) {
+  --onboarding-accent: #8f3155;
+  --onboarding-accent-dark: #70223f;
+  --onboarding-accent-soft: #f8e9ee;
+  --onboarding-line: #ddd3d0;
+  width: min(100% - 20px, 560px);
+  height: auto;
+  max-height: min(86dvh, 680px);
+}
+
+.onboarding-day-hours-editor {
+  gap: 15px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.dialog-panel .onboarding-day-hours-editor > .onboarding-day-hours-primary {
+  display: inline-flex;
+  position: static;
+  width: 100%;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  opacity: 1;
+  visibility: visible;
+  color: white;
+  border: 1px solid var(--onboarding-accent);
+  border-radius: 11px;
+  background: var(--onboarding-accent);
+}
+
+.onboarding-day-hours-actions {
+  margin-top: 2px;
+}
+
+.onboarding-hours-day-status {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.onboarding-hours-day-status legend {
+  grid-column: 1 / -1;
+  margin-bottom: 2px;
+  font-size: 0.72rem;
+  font-weight: 790;
+}
+
+.onboarding-hours-day-status label {
+  display: flex;
+  min-height: 46px;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 11px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 11px;
+}
+
+.onboarding-hours-day-status label:has(input:checked) {
+  border-color: var(--onboarding-accent);
+  color: var(--onboarding-accent-dark);
+  background: var(--onboarding-accent-soft);
+}
+
+.onboarding-hours-day-status input {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--onboarding-accent);
+}
+
+@media (min-width: 720px) {
+  .onboarding-hours-card .onboarding-regular-hours {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .onboarding-hours-card .onboarding-regular-hours > header,
+  .onboarding-hours-card .onboarding-hours-presets,
+  .onboarding-hours-card .onboarding-hours-day-chips,
+  .onboarding-hours-card .onboarding-field__error {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 560px) {
+  .onboarding-hours-screen {
+    --hours-card-padding: 14px;
+  }
+
+  .onboarding-hours-card__trigger {
+    grid-template-columns: 38px minmax(0, 1fr) auto 18px;
+    gap: 8px;
+  }
+
+  .onboarding-hours-card__icon {
+    width: 38px;
+    height: 38px;
+  }
+
+  .onboarding-hours-card__status {
+    padding: 5px 7px;
+    font-size: 0.62rem;
+  }
+
+  .onboarding-hours-card .onboarding-hours-presets > div {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .onboarding-hours-card .onboarding-hours-presets label {
+    min-height: 48px;
+    padding: 8px 9px;
+    font-size: 0.68rem;
+  }
+
+  .onboarding-hours-apply-row {
+    grid-template-columns: 1fr;
+  }
+
+  .onboarding-hours-card .onboarding-individual-hours li {
+    grid-template-columns: 7px minmax(76px, 0.8fr) minmax(92px, 1fr) 52px;
+    gap: 6px;
+    padding-right: 7px;
+    padding-left: 8px;
+  }
+
+  .onboarding-hours-card .onboarding-individual-hours li strong,
+  .onboarding-hours-card .onboarding-individual-hours li small {
+    font-size: 0.66rem;
+  }
+
+  .onboarding-hours-card .onboarding-individual-hours li > button {
+    min-width: 50px;
+    padding-right: 6px;
+    padding-left: 6px;
+  }
+}
+
+@media (max-width: 340px) {
+  .onboarding-hours-card__trigger {
+    grid-template-columns: 34px minmax(0, 1fr) 18px;
+  }
+
+  .onboarding-hours-card__status {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .onboarding-hours-card__trigger > svg:last-child {
+    grid-column: 3;
+    grid-row: 1 / span 2;
+  }
+
+  .onboarding-hours-card .onboarding-hours-time-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .onboarding-hours-card .onboarding-individual-hours li {
+    grid-template-columns: 7px minmax(68px, 0.8fr) minmax(80px, 1fr) 46px;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .onboarding-hours-applied {
+    animation: onboarding-hours-applied-in 260ms ease-out both;
+  }
+}
+
+@keyframes onboarding-hours-applied-in {
+  from { opacity: 0; transform: translateY(3px) scale(0.99); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}

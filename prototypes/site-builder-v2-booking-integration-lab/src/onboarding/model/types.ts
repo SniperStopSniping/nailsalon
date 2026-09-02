@@ -242,6 +242,7 @@ export type BusinessProfileDraft = {
   bookingOnlyContact: boolean;
   location: LocationDraft;
   hours: WeeklyHoursDraft;
+  timeZone: string;
   about: AboutProfileDraft;
   bookingPreferences: BookingPreferencesDraft;
   serviceMenu: ServiceMenuSelectionDraft;

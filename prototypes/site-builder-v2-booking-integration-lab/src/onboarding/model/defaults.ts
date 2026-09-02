@@ -187,6 +187,7 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
   },
   email: '',
   hours: createDefaultWeeklyHours(),
+  timeZone: 'America/Toronto',
   instagram: '',
   location: {
     allowGeneralAreaDirections: false,

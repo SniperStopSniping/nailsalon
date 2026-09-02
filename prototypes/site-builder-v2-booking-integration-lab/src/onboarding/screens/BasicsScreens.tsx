@@ -512,7 +512,11 @@ export function LocationContactScreen({
         ? `${CONTACT_METHODS.find(({ value }) => value === availableContactMethods[0])?.label} added`
       : 'Add phone, email or Instagram';
   const hoursSummary = getWeeklyHoursCardSummary(profile.hours);
-  const hoursStatus = getWeeklyHoursPreviewStatus(profile.hours, previewTimestamp);
+  const hoursStatus = getWeeklyHoursPreviewStatus(
+    profile.hours,
+    previewTimestamp,
+    profile.timeZone,
+  );
 
   const publicLocation = getPublicLocationPreview(profile.location);
   const publicContact = getPublicContactPreview(profile);

@@ -1378,6 +1378,7 @@ export function OnboardingSitePreview({
   const hoursStatus = getWeeklyHoursPreviewStatus(
     profile.hours,
     state.reviewOptions.previewTimestamp,
+    profile.timeZone,
   );
   const title = profile.businessName.trim() || 'Your nail studio';
   const area = profile.location.cityOrArea.trim();

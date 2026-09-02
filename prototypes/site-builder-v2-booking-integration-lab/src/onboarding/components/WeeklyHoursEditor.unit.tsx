@@ -103,7 +103,7 @@ describe('WeeklyHoursEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Edit Friday hours' }));
     await user.selectOptions(screen.getByRole('combobox', { name: 'Friday opens' }), '09:00');
     await user.selectOptions(screen.getByRole('combobox', { name: 'Friday closes' }), '17:00');
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await user.click(screen.getByRole('button', { name: 'Save Friday' }));
     await user.click(screen.getByRole('radio', { name: 'Monday–Friday' }));
     await user.click(screen.getByRole('button', { name: 'Apply to selected days' }));
 
@@ -135,8 +135,8 @@ describe('WeeklyHoursEditor', () => {
     const firstMount = renderEditor(initial);
 
     await user.click(screen.getByRole('button', { name: 'Edit Wednesday hours' }));
-    await user.click(screen.getByRole('checkbox', { name: 'Closed' }));
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await user.click(screen.getByRole('radio', { name: 'Closed' }));
+    await user.click(screen.getByRole('button', { name: 'Save Wednesday' }));
     const customized = firstMount.getLatest();
     firstMount.unmount();
 
@@ -179,18 +179,18 @@ describe('WeeklyHoursEditor', () => {
     await user.click(screen.getByRole('button', { name: 'Edit Friday hours' }));
     await user.selectOptions(screen.getByRole('combobox', { name: 'Friday opens' }), '09:00');
     await user.selectOptions(screen.getByRole('combobox', { name: 'Friday closes' }), '17:00');
-    await user.click(screen.getByRole('button', { name: 'Copy to other days' }));
-    const copyGroup = screen.getByRole('group', { name: 'Copy Friday to' });
+    await user.click(screen.getByRole('button', { name: 'Copy these hours to other days' }));
+    const copyGroup = screen.getByRole('group', { name: 'Apply these hours to:' });
     await user.click(within(copyGroup).getByRole('checkbox', { name: 'Sat' }));
     expect(getLatest().days.friday.open).toBe('10:00');
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    await user.click(screen.getByRole('button', { name: 'Apply hours' }));
 
     expect(getLatest().days.friday).toEqual({ close: '17:00', closed: false, open: '09:00' });
     expect(getLatest().days.saturday).toEqual(getLatest().days.friday);
 
     await user.click(screen.getByRole('button', { name: 'Edit Sunday hours' }));
-    expect(screen.getByRole('checkbox', { name: 'Closed' })).toBeChecked();
-    await user.click(screen.getByRole('button', { name: 'Save changes' }));
+    expect(screen.getByRole('radio', { name: 'Closed' })).toBeChecked();
+    await user.click(screen.getByRole('button', { name: 'Save Sunday' }));
     expect(getLatest().days.sunday.closed).toBe(true);
   });
 

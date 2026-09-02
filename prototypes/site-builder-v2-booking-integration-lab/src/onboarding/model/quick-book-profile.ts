@@ -201,7 +201,11 @@ export const resolveQuickBookProfile = (input: {
     visibility,
   } = input;
   const publicLocation = getPublicLocationPreview(profile.location);
-  const hoursStatus = getWeeklyHoursPreviewStatus(profile.hours, previewTimestamp);
+  const hoursStatus = getWeeklyHoursPreviewStatus(
+    profile.hours,
+    previewTimestamp,
+    profile.timeZone,
+  );
   const phone = visibility.showPhone ? resolvePhone(profile) : null;
   const email = visibility.showEmail ? resolveEmail(profile) : null;
   const visibleReviews = visibility.showReviews

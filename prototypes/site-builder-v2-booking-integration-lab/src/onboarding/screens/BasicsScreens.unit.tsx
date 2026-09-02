@@ -512,7 +512,7 @@ describe('LocationContactScreen', () => {
       'Mon–Sat · 11:00 AM–6:00 PM',
     );
     await user.click(screen.getByRole('button', { name: 'Edit Sunday hours' }));
-    expect(screen.getByRole('checkbox', { name: 'Closed' })).toBeChecked();
+    expect(screen.getByRole('radio', { name: 'Closed' })).toBeChecked();
   });
 
   it('keeps hours optional and only shows a deterministic public status when configured and visible', async () => {
