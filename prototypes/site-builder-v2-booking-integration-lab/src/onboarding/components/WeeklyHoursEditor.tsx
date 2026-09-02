@@ -4,6 +4,7 @@ import {
   useState,
   type Ref,
 } from 'react';
+import { CheckCircle2 } from 'lucide-react';
 
 import { Dialog } from '../../ui/Dialog';
 import {
@@ -28,6 +29,7 @@ type RegularHoursPreset = 'custom' | 'every_day' | 'monday_friday' | 'monday_sat
 
 type WeeklyHoursEditorProps = {
   hours: WeeklyHoursDraft;
+  hideSkipAction?: boolean;
   onChange: (hours: WeeklyHoursDraft) => void;
   onSkip: () => void;
 };
@@ -159,6 +161,7 @@ function TimeSelect({
 
 export function WeeklyHoursEditor({
   hours,
+  hideSkipAction = false,
   onChange,
   onSkip,
 }: WeeklyHoursEditorProps) {
@@ -181,6 +184,7 @@ export function WeeklyHoursEditor({
   const [copyTargets, setCopyTargets] = useState<Weekday[]>([]);
   const [showCopyTargets, setShowCopyTargets] = useState(false);
   const [announcement, setAnnouncement] = useState('');
+  const [appliedSummary, setAppliedSummary] = useState('');
   const [hasIndividualAdjustments, setHasIndividualAdjustments] = useState(
     () => hasIndividualHoursAdjustments(hours, initial),
   );
@@ -207,7 +211,9 @@ export function WeeklyHoursEditor({
     setDayDraft(null);
     setCopyTargets([]);
     setShowCopyTargets(false);
-    setAnnouncement(`Regular hours applied to ${selectedDays.length} ${selectedDays.length === 1 ? 'day' : 'days'}.`);
+    const message = `Regular hours applied to ${selectedDays.length} ${selectedDays.length === 1 ? 'day' : 'days'}.`;
+    setAnnouncement('Business hours updated.');
+    setAppliedSummary(message);
   };
 
   const apply = () => {
@@ -278,7 +284,7 @@ export function WeeklyHoursEditor({
       <section aria-labelledby="regular-hours-heading" className="onboarding-regular-hours">
         <header>
           <h2 id="regular-hours-heading">Set your regular hours</h2>
-          <p>Choose the days that usually use the same schedule. You can adjust any day afterward.</p>
+          <p>Choose the days that usually follow the same schedule.</p>
         </header>
         <fieldset className="onboarding-hours-presets">
           <legend>Days using these hours</legend>
@@ -337,20 +343,29 @@ export function WeeklyHoursEditor({
         {bulkError ? (
           <p className="onboarding-field__error" id={bulkErrorId} role="alert">{bulkError}</p>
         ) : null}
-        <button className="onboarding-hours-apply" type="button" onClick={apply}>
-          Apply to selected days
-        </button>
+        <div className="onboarding-hours-apply-row">
+          <button className="onboarding-hours-apply" type="button" onClick={apply}>
+            Apply to selected days
+          </button>
+          {appliedSummary ? (
+            <p className="onboarding-hours-applied" role="status">
+              <CheckCircle2 aria-hidden="true" />
+              <span><strong>Applied</strong><small>{appliedSummary}</small></span>
+            </p>
+          ) : null}
+        </div>
       </section>
 
       {hours.setupState === 'configured' ? (
         <section aria-labelledby="individual-hours-heading" className="onboarding-individual-hours">
           <header>
             <h3 id="individual-hours-heading">Adjust individual days</h3>
-            <p>Close a day or give it different hours without re-entering the full week.</p>
+            <p>Close a day or give it different hours without changing your regular schedule.</p>
           </header>
           <ul>
             {WEEKDAYS.map((weekday) => (
               <li key={weekday}>
+                <span className={`onboarding-hours-day-state${hours.days[weekday].closed ? ' is-closed' : ''}`} aria-hidden="true" />
                 <span>
                   <strong>{WEEKDAY_LABELS[weekday]}</strong>
                   <small>{formatHoursInterval(hours.days[weekday])}</small>
@@ -368,89 +383,121 @@ export function WeeklyHoursEditor({
         </section>
       ) : null}
 
-      {editingDay && dayDraft ? (
-        <section
-          aria-labelledby="edit-day-hours-heading"
-          className="onboarding-day-hours-editor"
-        >
-          <header>
-            <h3 id="edit-day-hours-heading">Edit {WEEKDAY_LABELS[editingDay]}</h3>
-            <button
-              type="button"
-              onClick={() => { setEditingDay(null); setDayDraft(null); }}
-            >
-              Cancel
-            </button>
-          </header>
-          <label className="onboarding-hours-closed-control">
-            <input
-              checked={dayDraft.closed}
-              type="checkbox"
-              onChange={(event) => {
-                setDayDraft({ ...dayDraft, closed: event.target.checked });
-                setDayError('');
-              }}
-            />
-            <span>Closed</span>
-          </label>
-          {!dayDraft.closed ? (
-            <div className="onboarding-hours-time-fields">
-              <TimeSelect
-                describedBy={dayError ? dayErrorId : undefined}
-                inputRef={dayOpenRef}
-                label={`${WEEKDAY_LABELS[editingDay]} opens`}
-                value={dayDraft.open}
-                onChange={(open) => { setDayDraft({ ...dayDraft, open }); setDayError(''); }}
-              />
-              <TimeSelect
-                describedBy={dayError ? dayErrorId : undefined}
-                inputRef={dayCloseRef}
-                label={`${WEEKDAY_LABELS[editingDay]} closes`}
-                value={dayDraft.close}
-                onChange={(close) => { setDayDraft({ ...dayDraft, close }); setDayError(''); }}
-              />
-            </div>
-          ) : null}
-          {dayError ? (
-            <p className="onboarding-field__error" id={dayErrorId} role="alert">{dayError}</p>
-          ) : null}
-          <button
-            aria-expanded={showCopyTargets}
-            className="onboarding-hours-copy-toggle"
-            type="button"
-            onClick={() => setShowCopyTargets((current) => !current)}
-          >
-            Copy to other days
-          </button>
-          {showCopyTargets ? (
-            <fieldset className="onboarding-hours-day-chips">
-              <legend>Copy {WEEKDAY_LABELS[editingDay]} to</legend>
-              <div>
-                {WEEKDAYS.filter((weekday) => weekday !== editingDay).map((weekday) => (
-                  <label key={weekday}>
-                    <input
-                      checked={copyTargets.includes(weekday)}
-                      type="checkbox"
-                      onChange={() => setCopyTargets((current) => current.includes(weekday)
-                        ? current.filter((item) => item !== weekday)
-                        : WEEKDAYS.filter((item) => item !== editingDay
-                          && (item === weekday || current.includes(item))))}
-                    />
-                    <span>{WEEKDAY_LABELS[weekday].slice(0, 3)}</span>
-                  </label>
-                ))}
-              </div>
+      <Dialog
+        description={editingDay ? `Set ${WEEKDAY_LABELS[editingDay]}'s hours or mark the day closed.` : ''}
+        initialFocusSelector="[name='day-open-state']"
+        onClose={() => { setEditingDay(null); setDayDraft(null); }}
+        open={Boolean(editingDay && dayDraft)}
+        title={editingDay ? `Edit ${WEEKDAY_LABELS[editingDay]}` : 'Edit day'}
+        variant="dialog"
+      >
+        {editingDay && dayDraft ? (
+          <section className="onboarding-day-hours-editor">
+            <fieldset className="onboarding-hours-day-status">
+              <legend>Status</legend>
+              <label>
+                <input
+                  checked={!dayDraft.closed}
+                  name="day-open-state"
+                  type="radio"
+                  onChange={() => {
+                    setDayDraft({ ...dayDraft, closed: false });
+                    setDayError('');
+                  }}
+                />
+                <span>Open</span>
+              </label>
+              <label>
+                <input
+                  checked={dayDraft.closed}
+                  name="day-open-state"
+                  type="radio"
+                  onChange={() => {
+                    setDayDraft({ ...dayDraft, closed: true });
+                    setDayError('');
+                  }}
+                />
+                <span>Closed</span>
+              </label>
             </fieldset>
-          ) : null}
-          <button className="onboarding-hours-save-day" type="button" onClick={saveDay}>
-            Save changes
-          </button>
-        </section>
-      ) : null}
+            {!dayDraft.closed ? (
+              <div className="onboarding-hours-time-fields">
+                <TimeSelect
+                  describedBy={dayError ? dayErrorId : undefined}
+                  inputRef={dayOpenRef}
+                  label={`${WEEKDAY_LABELS[editingDay]} opens`}
+                  value={dayDraft.open}
+                  onChange={(open) => {
+                    setDayDraft({ ...dayDraft, open });
+                    setDayError('');
+                  }}
+                />
+                <TimeSelect
+                  describedBy={dayError ? dayErrorId : undefined}
+                  inputRef={dayCloseRef}
+                  label={`${WEEKDAY_LABELS[editingDay]} closes`}
+                  value={dayDraft.close}
+                  onChange={(close) => {
+                    setDayDraft({ ...dayDraft, close });
+                    setDayError('');
+                  }}
+                />
+              </div>
+            ) : null}
+            {dayError ? (
+              <p className="onboarding-field__error" id={dayErrorId} role="alert">{dayError}</p>
+            ) : null}
+            {!showCopyTargets ? (
+              <button
+                className="onboarding-day-hours-primary"
+                type="button"
+                onClick={saveDay}
+              >
+                Save {WEEKDAY_LABELS[editingDay]}
+              </button>
+            ) : null}
+            <button
+              aria-expanded={showCopyTargets}
+              className="onboarding-hours-copy-toggle"
+              type="button"
+              onClick={() => setShowCopyTargets((current) => !current)}
+            >
+              Copy these hours to other days
+            </button>
+            {showCopyTargets ? (
+              <fieldset className="onboarding-hours-day-chips">
+                <legend>Apply these hours to:</legend>
+                <div>
+                  {WEEKDAYS.filter((weekday) => weekday !== editingDay).map((weekday) => (
+                    <label key={weekday}>
+                      <input
+                        checked={copyTargets.includes(weekday)}
+                        type="checkbox"
+                        onChange={() => setCopyTargets((current) => current.includes(weekday)
+                          ? current.filter((item) => item !== weekday)
+                          : WEEKDAYS.filter((item) => item !== editingDay
+                            && (item === weekday || current.includes(item))))}
+                      />
+                      <span>{WEEKDAY_LABELS[weekday].slice(0, 3)}</span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            ) : null}
+            {showCopyTargets ? (
+              <footer className="onboarding-overlay-actions onboarding-day-hours-actions">
+                <button className="is-primary" type="button" onClick={saveDay}>Apply hours</button>
+              </footer>
+            ) : null}
+          </section>
+        ) : null}
+      </Dialog>
 
-      <div className="onboarding-inline-actions">
-        <button type="button" onClick={onSkip}>Skip hours for now</button>
-      </div>
+      {!hideSkipAction ? (
+        <div className="onboarding-inline-actions">
+          <button type="button" onClick={onSkip}>Skip hours for now</button>
+        </div>
+      ) : null}
       <p aria-live="polite" className="visually-hidden">{announcement}</p>
       <Dialog
         description="This applies the new regular schedule to the selected days and marks the other days Closed. Individual changes to those days will be replaced."

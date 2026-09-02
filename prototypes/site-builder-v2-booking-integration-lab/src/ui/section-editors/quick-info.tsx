@@ -38,7 +38,7 @@ export function QuickInfoEditor({
 }: LibrarySectionEditorProps<'quick_info'>) {
   // The customer strip reads the preview clock; the owner reads it now.
   const now = useMemo(() => new Date().toISOString(), []);
-  const hoursStatus = getWeeklyHoursPreviewStatus(profile.hours, now);
+  const hoursStatus = getWeeklyHoursPreviewStatus(profile.hours, now, profile.timeZone);
   const factValues: Record<QuickInfoFactId, string | null> = {
     location: getPublicLocationPreview(profile.location).primary.trim() || null,
     minimum_notice: labelForMinimumNotice(profile),

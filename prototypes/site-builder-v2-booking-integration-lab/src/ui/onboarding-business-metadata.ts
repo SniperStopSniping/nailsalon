@@ -19,6 +19,7 @@ export const createOnboardingClientBusinessMetadata = (
     currentHoursStatusLabel: getWeeklyHoursPreviewStatus(
       state.profile.hours,
       state.reviewOptions.previewTimestamp,
+      state.profile.timeZone,
     )?.label,
     directions: getPublicDirectionsAction(state.profile.location),
     location: {

@@ -783,6 +783,9 @@ const migrateBusinessProfile = (
     siteSlugCustomized: typeof value.siteSlugCustomized === 'boolean'
       ? value.siteSlugCustomized
       : false,
+    timeZone: typeof value.timeZone === 'string' && value.timeZone.trim()
+      ? value.timeZone
+      : defaults.timeZone,
   } satisfies BusinessProfileDraft;
 
   const instagram = resolveInstagramUsername(migratedProfile.instagram);

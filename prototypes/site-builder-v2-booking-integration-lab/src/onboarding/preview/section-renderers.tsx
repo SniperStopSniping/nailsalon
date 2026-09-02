@@ -197,6 +197,7 @@ function QuickInfo({ planSection, section, shared }: LibraryPreviewSectionProps)
   const hoursStatus = getWeeklyHoursPreviewStatus(
     profile.hours,
     shared.state.reviewOptions.previewTimestamp,
+    profile.timeZone,
   );
   const factValues: Record<string, { contentKey: SiteContentKey; value: string | null }> = {
     location: {
@@ -682,6 +683,7 @@ function Hours({ planSection, section, shared }: LibraryPreviewSectionProps) {
   const status = getWeeklyHoursPreviewStatus(
     profile.hours,
     shared.state.reviewOptions.previewTimestamp,
+    profile.timeZone,
   );
   const openRows = rows.filter(row => row.hours !== 'Closed');
   const closedRows = rows.filter(row => row.hours === 'Closed');
