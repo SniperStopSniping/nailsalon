@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { vi } from 'vitest';
 
+import { MOCK_ADD_ONS } from '../../booking/data';
 import { FeedbackProvider } from '../feedback/FeedbackProvider';
 import { createDefaultBusinessProfile } from '../model/defaults';
 import {
@@ -187,7 +188,9 @@ describe('BookingPreferencesScreen', () => {
     }
 
     render(<FeedbackProvider testMode><Harness /></FeedbackProvider>);
-    await user.click(screen.getByRole('button', { name: 'Review services' }));
+    expect(document.querySelector('.onboarding-service-menu-count'))
+      .toHaveTextContent('4 add-ons ready');
+    await user.click(screen.getByRole('button', { name: 'Review services & add-ons' }));
     let library = screen.getByRole('dialog', { name: 'Choose your services' });
     expect(within(library).queryByText('French')).not.toBeInTheDocument();
     expect(within(library).getByText('6 services selected')).toBeVisible();
@@ -216,6 +219,13 @@ describe('BookingPreferencesScreen', () => {
     await user.click(within(library).getByRole('tab', { name: 'Add-ons' }));
     expect(within(library).getByText('French')).toBeVisible();
     expect(within(library).queryByText('Russian Manicure')).not.toBeInTheDocument();
+    expect(within(library).getByText('4 add-ons added')).toBeVisible();
+    for (const addOn of MOCK_ADD_ONS) {
+      const item = within(library).getByText(addOn.name).closest('li');
+      expect(item).not.toBeNull();
+      expect(within(item!).getByRole('button', { name: `Remove ${addOn.name}` }))
+        .toBeVisible();
+    }
   });
 
   it('keeps the category rail separate from results and reveals the selected category', async () => {
@@ -238,7 +248,7 @@ describe('BookingPreferencesScreen', () => {
           onServiceMenuChange={vi.fn()}
         />,
       );
-      await user.click(screen.getByRole('button', { name: 'Review services' }));
+      await user.click(screen.getByRole('button', { name: 'Review services & add-ons' }));
       const library = screen.getByRole('dialog', { name: 'Choose your services' });
       const categories = within(library).getByLabelText('Service categories');
       const servicesTab = within(library).getByRole('tab', { name: 'Services' });

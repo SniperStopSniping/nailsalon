@@ -21,7 +21,12 @@ describe('onboarding Booking preview adapter', () => {
     expect(fixture.services.map(({ id }) => id))
       .toEqual(profile.serviceMenu.selectedServiceIds);
     expect(fixture.services.every((service) => CANONICAL_SERVICES.includes(service))).toBe(true);
-    expect(fixture.addOns.map(({ id }) => id)).toEqual(['addon-french']);
+    expect(fixture.addOns.map(({ id }) => id)).toEqual([
+      'addon-french',
+      'addon-chrome',
+      'addon-simple-art',
+      'addon-detailed-art',
+    ]);
     expect(fixture.categories).toBe(CANONICAL_ONBOARDING_BOOKING_FIXTURE.categories);
     expect(fixture.labAvailability.minimumNoticeMinutes).toBe(120);
   });

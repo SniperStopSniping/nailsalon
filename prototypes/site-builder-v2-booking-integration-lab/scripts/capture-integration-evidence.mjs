@@ -380,7 +380,7 @@ async function captureMobile(browser) {
     await openRussianDetail(page);
     await capture(page, evidence.mobileServiceDetail);
     await page.getByRole('checkbox', { name: /French/ }).check();
-    await page.getByRole('button', { name: 'Select service' }).click();
+    await page.getByRole('button', { name: 'Keep browsing' }).click();
     const summary = page.getByTestId('selected-service-summary');
     await summary.waitFor();
     await assertFullyInViewport(summary, 'Mobile selected-service summary');
@@ -439,7 +439,7 @@ async function captureDesktop(browser) {
     await openRussianDetail(page);
     await capture(page, evidence.desktopServiceDetail);
     await page.getByRole('checkbox', { name: /French/ }).check();
-    await page.getByRole('button', { name: 'Select service' }).click();
+    await page.getByRole('button', { name: 'Keep browsing' }).click();
     const summary = page.getByTestId('selected-service-summary');
     await summary.waitFor();
     await assertFullyInViewport(summary, 'Desktop selected-service summary');
@@ -665,7 +665,7 @@ async function capturePreviewBoundaryCorrections(browser) {
     await assertContainedWithin(detail, frame, 'Phone Service Detail');
     await capture(page, evidence.correctionPhoneDetail);
     await page.getByRole('checkbox', { name: /French/ }).check();
-    await page.getByRole('button', { name: 'Select service' }).click();
+    await page.getByRole('button', { name: 'Keep browsing' }).click();
     const summary = page.getByTestId('selected-service-summary');
     await summary.waitFor();
     await assertContainedWithin(summary, frame, 'Phone selected-service summary');

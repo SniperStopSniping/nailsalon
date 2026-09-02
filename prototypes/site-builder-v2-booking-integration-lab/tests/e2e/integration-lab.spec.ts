@@ -330,7 +330,7 @@ test('Edit is readable but inert, while Phone Preview restores contained custome
 
   const detail = page.getByTestId('service-detail-dialog');
   await expectContainedBy(detail, frame);
-  await detail.getByRole('button', { name: 'Select service' }).click();
+  await detail.getByRole('button', { name: 'Keep browsing' }).click();
 
   const summary = page.getByTestId('selected-service-summary');
   await expect(summary).toContainText('Russian Manicure');

@@ -130,7 +130,14 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
     expect(scrollBody.parentElement).toHaveClass('booking-dialog-panel');
     expect(scrollBody).not.toContainElement(actionFooter);
     expect(within(actionFooter).getByRole('button', { name: 'Keep browsing' })).toBeVisible();
-    expect(within(actionFooter).getByRole('button', { name: 'Select service' })).toBeVisible();
+    expect(within(actionFooter).getByRole('button', { name: 'Continue' })).toBeVisible();
+    expect(within(actionFooter).getAllByRole('button')).toHaveLength(2);
+    expect(within(actionFooter).queryByRole('button', { name: 'Select service' }))
+      .not.toBeInTheDocument();
+    expect(readSession().selection).toEqual({
+      serviceId: 'svc-manicure-russian',
+      addOnIds: [],
+    });
     expect(scrollBody).toHaveAttribute(
       'data-image-mode',
       layout === 'visual_grid' ? 'auto' : 'show',
@@ -143,9 +150,8 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
     expect(french).toBeChecked();
     expect(within(detail).getByTestId('service-detail-total'))
       .toHaveTextContent('1 hr 45 min·From $80');
-    await user.click(within(detail).getByRole('button', {
-      name: 'Select service',
-    }));
+    expect(readSession().selection.addOnIds).toEqual([]);
+    await user.click(within(detail).getByRole('button', { name: 'Keep browsing' }));
 
     const summary = await screen.findByTestId('selected-service-summary');
     expect(summary).toHaveTextContent('Russian Manicure');

@@ -159,7 +159,7 @@ test('Preview owner controls leave selected-service actions visible and tappable
   await service.click();
 
   const detail = page.getByTestId('service-detail-dialog');
-  await detail.getByRole('button', { name: 'Select service' }).click();
+  await detail.getByRole('button', { name: 'Keep browsing' }).click();
 
   const summary = page.getByTestId('selected-service-summary');
   const change = summary.getByRole('button', { name: 'Change' });
@@ -204,7 +204,7 @@ test('the selected-service summary leaves the final service cards tappable', asy
   await service.scrollIntoViewIfNeeded();
   await service.click();
   await page.getByTestId('service-detail-dialog')
-    .getByRole('button', { name: 'Select service' })
+    .getByRole('button', { name: 'Keep browsing' })
     .click();
 
   await expect(page.getByTestId('selected-service-summary')).toBeVisible();

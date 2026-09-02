@@ -118,7 +118,7 @@ for (const layout of LAYOUTS) {
     await detail.getByRole('checkbox', { name: /French/ }).check();
     await expect(detail.getByTestId('service-detail-total')).toContainText('1 hr 45 min');
     await expect(detail.getByTestId('service-detail-total')).toContainText('From $80');
-    await detail.getByRole('button', { name: 'Select service' }).click();
+    await detail.getByRole('button', { name: 'Keep browsing' }).click();
 
     const summary = page.getByTestId('selected-service-summary');
     await expect(summary).toContainText('Russian Manicure');

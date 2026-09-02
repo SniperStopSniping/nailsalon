@@ -128,7 +128,7 @@ if (exitCode !== 0) {
     await basics.getByRole('group', { name: 'Are you accepting new clients?' })
       .getByRole('radio', { name: 'Yes' }).check();
     await capture(basics, '08-service-menu-ready');
-    await basics.getByRole('button', { name: 'Review services' }).click();
+    await basics.getByRole('button', { name: 'Review services & add-ons' }).click();
     await capture(basics, '09-service-library-review');
     await basics.getByRole('dialog', { name: 'Service Library' })
       .getByRole('button', { name: 'Done' }).click();
@@ -261,7 +261,7 @@ if (exitCode !== 0) {
     await recordJourney(browser, '02-service-library-review.webm', async (page) => {
       await applyFixture(page, 'Daniela / Isla Nail Studio', 'Review your site');
       await navigateBackTo(page, 'How do clients book with you?');
-      await page.getByRole('button', { name: 'Review services' }).click();
+      await page.getByRole('button', { name: 'Review services & add-ons' }).click();
       const library = page.getByRole('dialog', { name: 'Service Library' });
       await settle(page, 700);
       await library.getByRole('button', { name: /^Remove/u }).first().click();

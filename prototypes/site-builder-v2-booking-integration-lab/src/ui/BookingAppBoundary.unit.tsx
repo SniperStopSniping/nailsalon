@@ -678,9 +678,7 @@ describe('App customer Preview boundary', () => {
     await user.click(within(detail).getByRole('checkbox', { name: /French/ }));
     expect(within(detail).getByTestId('service-detail-total'))
       .toHaveTextContent('1 hr 45 min·From $80');
-    await user.click(within(detail).getByRole('button', {
-      name: 'Select service',
-    }));
+    await user.click(within(detail).getByRole('button', { name: 'Keep browsing' }));
     expect(await screen.findByTestId('selected-service-summary'))
       .toHaveTextContent('Russian Manicure1 hr 45 min · From $80 · 1 add-on');
     expect(window.localStorage.getItem(SITE_BUILDER_STORAGE_KEY))

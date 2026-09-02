@@ -47,7 +47,12 @@ const LIBRARY_ADD_ONS = Object.freeze(MOCK_ADD_ONS.map((addOn) => Object.freeze(
 const DEFAULT_SELECTED_SERVICE_IDS = Object.freeze(
   CANONICAL_SERVICES.filter(({ featured }) => featured).map(({ id }) => id),
 );
-const DEFAULT_SELECTED_ADD_ON_IDS = Object.freeze(['addon-french']);
+const DEFAULT_SELECTED_ADD_ON_IDS = Object.freeze([
+  'addon-french',
+  'addon-chrome',
+  'addon-simple-art',
+  'addon-detailed-art',
+]);
 
 const normalizeOverrides = (
   overrides: Record<string, ServiceMenuOwnerOverride>,

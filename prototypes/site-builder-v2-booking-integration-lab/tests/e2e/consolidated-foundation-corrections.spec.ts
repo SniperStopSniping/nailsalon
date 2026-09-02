@@ -394,7 +394,7 @@ for (const layout of LAYOUTS) {
         );
         const detail = page.getByTestId('service-detail-dialog');
         const scrollBody = detail.getByTestId('service-detail-scroll-body');
-        const primary = detail.getByRole('button', { name: 'Select service' });
+        const primary = detail.getByRole('button', { name: 'Continue' });
         const closeStart = await expectCloseExcludedFromScrollBody(detail);
 
         const initial = await detail.evaluate((shell) => {
@@ -549,7 +549,7 @@ test('simulated Phone contains the same internal Service Detail scroller', async
       await page.locator('[data-preview-scroll-container="true"]').evaluate(element => element.scrollTop)
       - menuScrollTop,
     )).toBeLessThanOrEqual(1);
-    await detail.getByRole('button', { name: 'Select service' }).click({ trial: true });
+    await detail.getByRole('button', { name: 'Continue' }).click({ trial: true });
     await detail.getByRole('button', { name: 'Close service details' }).click();
 
     await page.getByRole('group', { name: 'Preview viewport' })
@@ -614,7 +614,7 @@ test.describe('real-mobile-style Chromium context', () => {
       )).toBe(true);
       const closeEnd = await expectCloseExcludedFromScrollBody(detail);
       expectClosePositionStable(closeStart, closeEnd);
-      const primary = detail.getByRole('button', { name: 'Select service' });
+      const primary = detail.getByRole('button', { name: 'Continue' });
       await expectActionInBottomFooter(detail, body, primary);
       const visualReachability = await primary.evaluate((action) => {
         const rectangle = action.getBoundingClientRect();
@@ -781,7 +781,7 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
     await selectedDetail.getByTestId('service-detail-scroll-body').evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
-    await selectedDetail.getByRole('button', { name: 'Select service' }).click();
+    await selectedDetail.getByRole('button', { name: 'Keep browsing' }).click();
     await expect(previewTile).toHaveAttribute('aria-pressed', 'true');
     await expect(previewTile).toHaveAttribute('data-selected', 'true');
     await expect(previewTile.locator('.booking-selected-indicator')).toBeVisible();
@@ -841,7 +841,7 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
         const closeEnd = await expectCloseExcludedFromScrollBody(detail);
         expectClosePositionStable(closeStart, closeEnd);
         const primary = detail.getByRole('button', {
-          name: 'Select service',
+          name: 'Continue',
         });
         await expectActionInBottomFooter(detail, body, primary);
         await primary.click({ trial: true });
@@ -879,7 +879,7 @@ test('Visual Grid keeps Featured geometry and image-mode detail behavior across 
       )).toBe(true);
       const phoneCloseEnd = await expectCloseExcludedFromScrollBody(phoneDetail);
       expectClosePositionStable(phoneCloseStart, phoneCloseEnd);
-      await phoneDetail.getByRole('button', { name: 'Select service' }).click({ trial: true });
+      await phoneDetail.getByRole('button', { name: 'Continue' }).click({ trial: true });
       expect(Math.abs(
         await page.locator('[data-preview-scroll-container="true"]').evaluate(element => element.scrollTop)
         - menuScrollTop,
@@ -1038,7 +1038,8 @@ for (const layout of LAYOUTS) {
       let warning = page.getByTestId('booking-option-warning-dialog');
       await warning.getByRole('button', { name: 'Discard changes' }).click();
       await expect(detail).toHaveCount(0);
-      await expect(page.getByTestId('selected-service-summary')).toHaveCount(0);
+      await expect(page.getByTestId('selected-service-summary'))
+        .toContainText('Russian Manicure');
 
       await openRussianService(page, layout.search);
       const saveDetail = page.getByTestId('service-detail-dialog');
@@ -1204,7 +1205,7 @@ for (const layout of LAYOUTS) {
         await expectActionInBottomFooter(
           detail,
           body,
-          detail.getByRole('button', { name: 'Select service' }),
+          detail.getByRole('button', { name: 'Continue' }),
         );
         await detail.getByRole('checkbox', { name: 'French' }).check();
         await expect(detail.getByTestId('service-detail-total'))
@@ -1220,17 +1221,7 @@ for (const layout of LAYOUTS) {
         await expect(detail.getByTestId('service-detail-total'))
           .toContainText('1 hr 45 min');
         await detail.getByRole('button', { name: 'Keep browsing' }).click();
-        await page.getByTestId('booking-option-warning-dialog')
-          .getByRole('button', { name: 'Discard changes' })
-          .click();
         await expect(detail).toHaveCount(0);
-
-        await openRussianService(page, layout.search);
-        detail = page.getByTestId('service-detail-dialog');
-        body = detail.getByTestId('service-detail-scroll-body');
-        await detail.getByRole('checkbox', { name: 'French' }).check();
-        await scrollToBottom(body);
-        await detail.getByRole('button', { name: 'Select service' }).click();
         const summary = page.getByTestId('selected-service-summary');
         await expect(summary).toContainText('1 hr 45 min · From $80 · 1 add-on');
 
@@ -1291,7 +1282,7 @@ for (const layout of LAYOUTS) {
           await shortService.click();
           detail = page.getByTestId('service-detail-dialog');
           await scrollToBottom(detail.getByTestId('service-detail-scroll-body'));
-          await detail.getByRole('button', { name: 'Select service' }).click({ trial: true });
+          await detail.getByRole('button', { name: 'Continue' }).click({ trial: true });
           await detail.getByRole('button', { name: 'Close service details' }).click();
           await renderer.getByRole('button', { name: 'Clear service search' }).click();
           await expect(search).toBeFocused();
@@ -1319,7 +1310,7 @@ for (const layout of LAYOUTS) {
           await shortService.click();
           detail = page.getByTestId('service-detail-dialog');
           await scrollToBottom(detail.getByTestId('service-detail-scroll-body'));
-          await detail.getByRole('button', { name: 'Select service' }).click({ trial: true });
+          await detail.getByRole('button', { name: 'Continue' }).click({ trial: true });
           await detail.getByRole('button', { name: 'Close service details' }).click();
         }
 

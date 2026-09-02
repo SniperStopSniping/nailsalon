@@ -238,7 +238,7 @@ test.describe('three locked V1 customer recipes', () => {
     expect(Math.abs(footerAfterScroll.y - footerBeforeScroll.y)).toBeLessThanOrEqual(1);
     expect(Math.abs(footerAfterScroll.height - footerBeforeScroll.height)).toBeLessThanOrEqual(1);
 
-    await detail.getByRole('button', { name: 'Select service' }).click();
+    await detail.getByRole('button', { name: 'Keep browsing' }).click();
 
     const summary = page.getByTestId('selected-service-summary');
     const summaryHost = page.getByTestId('onboarding-booking-selection-host');

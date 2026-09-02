@@ -53,11 +53,29 @@ describe('Lab ServiceMenuPort', () => {
   it('keeps add-ons distinct and stores canonical add-on IDs only', () => {
     const initial = port.createDefaultSelection();
     const firstAddOn = port.getLibraryAddOns()[0]!;
-    const added = port.setAddOnSelected(initial, firstAddOn.id, true);
+    const expectedDefaultIds = MOCK_ADD_ONS.map(({ id }) => id);
+    const removed = port.setAddOnSelected(initial, firstAddOn.id, false);
+    const restored = port.setAddOnSelected(removed, firstAddOn.id, true);
 
     expect(firstAddOn.itemKind).toBe('add_on');
-    expect(added.selectedAddOnIds).toEqual([firstAddOn.id]);
-    expect(port.getSelectedAddOns(added)).toEqual([firstAddOn]);
-    expect(port.setAddOnSelected(added, 'unknown-add-on', true)).toEqual(added);
+    expect(initial.selectedAddOnIds).toEqual(expectedDefaultIds);
+    expect(port.getSelectedAddOns(initial)).toHaveLength(4);
+    expect(removed.selectedAddOnIds).not.toContain(firstAddOn.id);
+    expect(restored.selectedAddOnIds).toEqual(expectedDefaultIds);
+    expect(port.setAddOnSelected(restored, firstAddOn.id, true)).toEqual(restored);
+    expect(port.setAddOnSelected(restored, 'unknown-add-on', true)).toEqual(restored);
+  });
+
+  it('preserves an owner’s explicit saved add-on selection', () => {
+    const initial = port.createDefaultSelection();
+
+    expect(port.normalizeSelection({
+      ...initial,
+      selectedAddOnIds: ['addon-french'],
+    }).selectedAddOnIds).toEqual(['addon-french']);
+    expect(port.normalizeSelection({
+      ...initial,
+      selectedAddOnIds: [],
+    }).selectedAddOnIds).toEqual([]);
   });
 });

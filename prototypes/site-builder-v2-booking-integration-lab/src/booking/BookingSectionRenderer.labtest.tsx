@@ -120,11 +120,14 @@ describe('shared Booking Section renderer', () => {
 
     const detail = await screen.findByTestId('service-detail-dialog');
     expect(within(detail).getByRole('heading', { name: 'Russian Manicure' })).toBeVisible();
+    expect(within(detail).getByRole('button', { name: 'Continue' })).toBeVisible();
+    expect(within(detail).queryByRole('button', { name: 'Select service' }))
+      .not.toBeInTheDocument();
     await user.click(within(detail).getByRole('checkbox', { name: /French/ }));
     expect(within(detail).getByTestId('service-detail-total')).toHaveTextContent(
       '1 hr 45 min·From $80',
     );
-    await user.click(within(detail).getByRole('button', { name: 'Select service' }));
+    await user.click(within(detail).getByRole('button', { name: 'Keep browsing' }));
 
     const summary = await screen.findByTestId('selected-service-summary');
     expect(summary).toHaveAttribute('role', 'group');

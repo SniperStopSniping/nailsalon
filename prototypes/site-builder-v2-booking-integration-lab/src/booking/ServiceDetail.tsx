@@ -22,7 +22,6 @@ export type ServiceDetailProps = {
   onDismissDirtyWarning: () => void;
   onKeepBrowsing: (service: MockService) => void;
   onSaveChanges: (service: MockService) => void;
-  onSelect: (service: MockService) => void;
   onToggleAddOn: (service: MockService, addOnId: string) => void;
   showDirtyWarning: boolean;
 };
@@ -41,7 +40,6 @@ export function ServiceDetail({
   onDismissDirtyWarning,
   onKeepBrowsing,
   onSaveChanges,
-  onSelect,
   onToggleAddOn,
   showDirtyWarning,
 }: ServiceDetailProps) {
@@ -153,6 +151,15 @@ export function ServiceDetail({
                     No add-ons are offered with this service.
                   </p>
                 )}
+                {selected ? (
+                  <button
+                    className="booking-detail-remove-selection"
+                    type="button"
+                    onClick={() => onDeselect(service)}
+                  >
+                    Remove selected service
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>
@@ -164,27 +171,18 @@ export function ServiceDetail({
               <button
                 className="customer-secondary-button"
                 type="button"
-                onClick={() => selected ? onKeepBrowsing(service) : onClose()}
+                onClick={() => onKeepBrowsing(service)}
               >
                 Keep browsing
               </button>
               <button
                 className="customer-primary-button"
                 type="button"
-                onClick={() => selected ? onContinue(service) : onSelect(service)}
+                onClick={() => onContinue(service)}
               >
-                {selected ? 'Continue' : 'Select service'}
+                Continue
               </button>
             </div>
-            {selected ? (
-              <button
-                className="booking-detail-remove-selection"
-                type="button"
-                onClick={() => onDeselect(service)}
-              >
-                Remove selected service
-              </button>
-            ) : null}
           </footer>
         </div>
       </BookingOverlayDialog>

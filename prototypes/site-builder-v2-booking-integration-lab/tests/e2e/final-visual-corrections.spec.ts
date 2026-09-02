@@ -675,7 +675,7 @@ async function selectCategoryService(
   await row.click();
   const detail = page.getByTestId('service-detail-dialog');
   await expect(detail).toBeVisible();
-  await detail.getByRole('button', { name: 'Select service' }).click();
+  await detail.getByRole('button', { name: 'Keep browsing' }).click();
   const selected = renderer.getByRole('button', {
     name: new RegExp(`^Change options for ${exactName},.*selected$`),
   });

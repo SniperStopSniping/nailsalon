@@ -42,6 +42,7 @@ const request = (
     idempotencyKey?: string;
     localPhotoId?: string;
     ownerOverridesByServiceId?: Record<string, { durationMinutes?: number; priceCents?: number }>;
+    selectedAddOnIds?: string[];
     selectedServiceIds?: string[];
     target?: { mode: 'create_business' } | {
       existingSiteStrategy?: 'new_draft' | 'replace_draft';
@@ -73,6 +74,9 @@ const request = (
   state.recipe.starterDocumentSiteId = `site_${suffix}`;
   if (options.selectedServiceIds) {
     state.profile.serviceMenu.selectedServiceIds = options.selectedServiceIds;
+  }
+  if (options.selectedAddOnIds) {
+    state.profile.serviceMenu.selectedAddOnIds = options.selectedAddOnIds;
   }
   if (options.ownerOverridesByServiceId) {
     state.profile.serviceMenu.ownerOverridesByServiceId = options.ownerOverridesByServiceId;
@@ -485,11 +489,23 @@ describe.sequential('account-backed onboarding persistence', () => {
     if (initial.kind !== 'success') {
       throw new Error('Expected initial claim.');
     }
-    const selectedServiceIds = ['svc-manicure-russian', 'svc-manicure-gel'];
+    const selectedServiceIds = [
+      'svc-manicure-russian',
+      'svc-manicure-gel',
+      'svc-art-tier-one',
+      'svc-art-tier-two',
+    ];
+    const selectedAddOnIds = [
+      'addon-french',
+      'addon-chrome',
+      'addon-simple-art',
+      'addon-detailed-art',
+    ];
     const replacement = await claimOnboardingDraft(owner, request('menu_reconcile_replace', {
       ownerOverridesByServiceId: {
         'svc-manicure-gel': { durationMinutes: 111, priceCents: 7777 },
       },
+      selectedAddOnIds,
       selectedServiceIds,
       target: {
         existingSiteStrategy: 'replace_draft',
@@ -520,6 +536,17 @@ describe.sequential('account-backed onboarding persistence', () => {
       .toEqual([...selectedServiceIds].sort());
     expect(ownedRows.find(row => row.onboardingSourceServiceId === 'svc-manicure-gel'))
       .toMatchObject({ durationMinutes: 111, price: 7777 });
+
+    const ownedAddOns = await database.select({
+      isActive: schema.addOnSchema.isActive,
+      onboardingSourceAddOnId: schema.addOnSchema.onboardingSourceAddOnId,
+    }).from(schema.addOnSchema).where(and(
+      eq(schema.addOnSchema.salonId, initial.data.salonId),
+      isNotNull(schema.addOnSchema.onboardingSourceAddOnId),
+    ));
+    expect(ownedAddOns.filter(row => row.isActive).map(
+      row => row.onboardingSourceAddOnId,
+    ).sort()).toEqual([...selectedAddOnIds].sort());
   });
 
   it('requires an owner membership before an existing-business claim can mutate Product data', async () => {

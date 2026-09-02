@@ -11,7 +11,10 @@ import {
 import { initializeStarter } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/starters';
 import type { SiteBuilderDocument } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/model/types';
 import { createDefaultOnboardingState } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/onboarding/model/defaults';
-import { compileOnboardingToSiteDocument } from './compiler';
+import {
+  compileOnboardingToSiteDocument,
+  resolveProductionServiceSelection,
+} from './compiler';
 import { onboardingDraftClaimRequestSchema } from './contracts';
 import { createPersistableOnboardingDraft } from './snapshot';
 
@@ -1247,6 +1250,28 @@ describe('account-backed onboarding document compiler', () => {
 
     expect(() => createPersistableOnboardingDraft(state, 'luster_berry', null, document))
       .toThrow(/Selected service/);
+  });
+
+  it('resolves all four starter add-ons through exact Production template mappings', () => {
+    const state = acceptedState('quick_book');
+    const document = initializeStarter('quick_book', {
+      siteId: 'site_quick_book',
+      siteName: state.profile.businessName,
+    });
+    const draft = createPersistableOnboardingDraft(
+      state,
+      'luster_berry',
+      null,
+      document,
+    );
+
+    expect(resolveProductionServiceSelection(draft.snapshot).addOnTemplateKeys)
+      .toEqual([
+        'french_tips',
+        'chrome',
+        'simple_nail_art',
+        'detailed_nail_art',
+      ]);
   });
 
   it('accepts overrides only for selected canonical menu items and bounds the map', () => {
