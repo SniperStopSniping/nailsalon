@@ -663,6 +663,20 @@
   gap: 9px;
 }
 
+.booking-service-detail-footer {
+  z-index: 2;
+  flex: 0 0 auto;
+  padding: 14px 38px 18px;
+  background: var(--booking-card);
+  border-top: 1px solid var(--booking-border);
+  box-shadow: 0 -10px 24px rgb(43 29 25 / 7%);
+}
+
+.booking-service-detail-footer .booking-detail-actions {
+  width: min(100%, 480px);
+  margin-left: auto;
+}
+
 .booking-detail-actions .customer-primary-button {
   min-height: 50px;
 }
@@ -2782,7 +2796,7 @@
   }
 
   .booking-detail-copy {
-    padding: 24px 18px max(24px, env(safe-area-inset-bottom));
+    padding: 24px 18px;
   }
 
   .booking-detail-title {
@@ -2790,11 +2804,13 @@
     font-size: 27px;
   }
 
-  .booking-detail-actions {
-    position: sticky;
-    bottom: 0;
-    padding: 10px 0 calc(12px + env(safe-area-inset-bottom));
-    background: linear-gradient(transparent, var(--booking-card) 20%);
+  .booking-service-detail-footer {
+    grid-row: 3;
+    padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
+  }
+
+  .booking-service-detail-footer .booking-detail-actions {
+    width: 100%;
   }
 
   .booking-handoff-panel {
@@ -2814,7 +2830,7 @@
 @media (max-width: 620px), (max-height: 620px) {
   .booking-service-detail-shell > .booking-dialog-panel {
     display: grid;
-    grid-template-rows: 72px minmax(0, 1fr);
+    grid-template-rows: 72px minmax(0, 1fr) auto;
   }
 
   .booking-service-detail-shell .booking-dialog-close {
@@ -3000,7 +3016,7 @@
 .booking-preview-overlays[data-preview-viewport='mobile']
   .booking-service-detail-shell > .booking-dialog-panel {
   display: grid;
-  grid-template-rows: 72px minmax(0, 1fr);
+  grid-template-rows: 72px minmax(0, 1fr) auto;
 }
 
 .booking-preview-overlays[data-preview-viewport='mobile']
@@ -3033,7 +3049,7 @@
 }
 
 .booking-preview-overlays[data-preview-viewport='mobile'] .booking-detail-copy {
-  padding: 22px 16px max(22px, env(safe-area-inset-bottom));
+  padding: 22px 16px;
 }
 
 .booking-preview-overlays[data-preview-viewport='mobile'] .booking-detail-title {
@@ -3041,11 +3057,14 @@
   font-size: 27px;
 }
 
-.booking-preview-overlays[data-preview-viewport='mobile'] .booking-detail-actions {
-  position: sticky;
-  bottom: 0;
-  padding: 10px 0 calc(12px + env(safe-area-inset-bottom));
-  background: linear-gradient(transparent, var(--booking-card) 20%);
+.booking-preview-overlays[data-preview-viewport='mobile'] .booking-service-detail-footer {
+  grid-row: 3;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+}
+
+.booking-preview-overlays[data-preview-viewport='mobile']
+  .booking-service-detail-footer .booking-detail-actions {
+  width: 100%;
 }
 
 .booking-preview-overlays[data-preview-viewport='mobile'] .booking-handoff-panel {

@@ -113,6 +113,7 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
 
     const detail = screen.getByTestId('service-detail-dialog');
     const scrollBody = within(detail).getByTestId('service-detail-scroll-body');
+    const actionFooter = within(detail).getByTestId('service-detail-action-footer');
     const closeControls = within(detail).getAllByRole('button', {
       name: 'Close service details',
     });
@@ -125,7 +126,11 @@ describe.each(APPROVED_LAYOUTS)('%s customer renderer', (layout) => {
     expect(scrollBody).not.toContainElement(closeControl);
     expect(closeControl.parentElement).toBe(scrollBody.parentElement);
     expect(closeControl.nextElementSibling).toBe(scrollBody);
+    expect(scrollBody.nextElementSibling).toBe(actionFooter);
     expect(scrollBody.parentElement).toHaveClass('booking-dialog-panel');
+    expect(scrollBody).not.toContainElement(actionFooter);
+    expect(within(actionFooter).getByRole('button', { name: 'Keep browsing' })).toBeVisible();
+    expect(within(actionFooter).getByRole('button', { name: 'Select service' })).toBeVisible();
     expect(scrollBody).toHaveAttribute(
       'data-image-mode',
       layout === 'visual_grid' ? 'auto' : 'show',
@@ -637,7 +642,7 @@ describe('Booking renderer mode and session boundaries', () => {
       /@media \(max-width: 620px\), \(max-height: 620px\) \{[\s\S]*?\.booking-service-detail-shell > \.booking-dialog-panel \{([^}]*)\}/,
     )?.[1];
     expect(compactPanelRule).toContain('display: grid;');
-    expect(compactPanelRule).toContain('grid-template-rows: 72px minmax(0, 1fr);');
+    expect(compactPanelRule).toContain('grid-template-rows: 72px minmax(0, 1fr) auto;');
 
     const compactCloseRule = bookingCss.match(
       /\.booking-service-detail-shell \.booking-dialog-close \{([^}]*)\}/,
@@ -651,7 +656,18 @@ describe('Booking renderer mode and session boundaries', () => {
     )?.[1];
     expect(simulatedPhonePanelRule).toContain('display: grid;');
     expect(simulatedPhonePanelRule)
-      .toContain('grid-template-rows: 72px minmax(0, 1fr);');
+      .toContain('grid-template-rows: 72px minmax(0, 1fr) auto;');
+
+    const footerRule = bookingCss.match(
+      /\.booking-service-detail-footer \{([^}]*)\}/,
+    )?.[1];
+    expect(footerRule).toContain('flex: 0 0 auto;');
+    expect(footerRule).toContain('border-top: 1px solid var(--booking-border);');
+    const actionRules = [...bookingCss.matchAll(/\.booking-detail-actions \{([^}]*)\}/gu)];
+    expect(actionRules.length).toBeGreaterThan(0);
+    for (const actionRule of actionRules) {
+      expect(actionRule[1]).not.toContain('position: sticky;');
+    }
   });
 
   it('gives the Visual Grid featured tile the selected service semantics', async () => {

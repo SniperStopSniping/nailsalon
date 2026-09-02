@@ -209,9 +209,36 @@ test.describe('three locked V1 customer recipes', () => {
     await page.getByRole('button', {
       name: /View details for Russian Manicure/u,
     }).first().click();
-    await page.getByTestId('service-detail-dialog')
-      .getByRole('button', { name: 'Select service' })
-      .click();
+    const detail = page.getByTestId('service-detail-dialog');
+    const detailBody = detail.getByTestId('service-detail-scroll-body');
+    const detailFooter = detail.getByTestId('service-detail-action-footer');
+    const footerBeforeScroll = await detailFooter.boundingBox();
+    const panelBeforeScroll = await detail.locator('.booking-dialog-panel').boundingBox();
+    const bodyBeforeScroll = await detailBody.boundingBox();
+    expect(footerBeforeScroll).not.toBeNull();
+    expect(panelBeforeScroll).not.toBeNull();
+    expect(bodyBeforeScroll).not.toBeNull();
+    if (!footerBeforeScroll || !panelBeforeScroll || !bodyBeforeScroll) return;
+    expect(Math.abs(bodyBeforeScroll.y + bodyBeforeScroll.height - footerBeforeScroll.y))
+      .toBeLessThanOrEqual(1);
+    expect(Math.abs(
+      footerBeforeScroll.y + footerBeforeScroll.height
+      - (panelBeforeScroll.y + panelBeforeScroll.height),
+    )).toBeLessThanOrEqual(1);
+    expect(await detailBody.evaluate((body, footerSelector) => (
+      !body.contains(document.querySelector(footerSelector))
+    ), '[data-testid="service-detail-action-footer"]')).toBe(true);
+
+    await detailBody.evaluate(element => {
+      element.scrollTop = element.scrollHeight;
+    });
+    const footerAfterScroll = await detailFooter.boundingBox();
+    expect(footerAfterScroll).not.toBeNull();
+    if (!footerAfterScroll) return;
+    expect(Math.abs(footerAfterScroll.y - footerBeforeScroll.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(footerAfterScroll.height - footerBeforeScroll.height)).toBeLessThanOrEqual(1);
+
+    await detail.getByRole('button', { name: 'Select service' }).click();
 
     const summary = page.getByTestId('selected-service-summary');
     const summaryHost = page.getByTestId('onboarding-booking-selection-host');

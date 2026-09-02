@@ -153,35 +153,39 @@ export function ServiceDetail({
                     No add-ons are offered with this service.
                   </p>
                 )}
-
-                <div className="booking-detail-actions">
-                  <button
-                    className="customer-secondary-button"
-                    type="button"
-                    onClick={() => selected ? onKeepBrowsing(service) : onClose()}
-                  >
-                    Keep browsing
-                  </button>
-                  <button
-                    className="customer-primary-button"
-                    type="button"
-                    onClick={() => selected ? onContinue(service) : onSelect(service)}
-                  >
-                    {selected ? 'Continue' : 'Select service'}
-                  </button>
-                </div>
-                {selected ? (
-                  <button
-                    className="booking-detail-remove-selection"
-                    type="button"
-                    onClick={() => onDeselect(service)}
-                  >
-                    Remove selected service
-                  </button>
-                ) : null}
               </div>
             </div>
           </div>
+          <footer
+            className="booking-service-detail-footer"
+            data-testid="service-detail-action-footer"
+          >
+            <div className="booking-detail-actions">
+              <button
+                className="customer-secondary-button"
+                type="button"
+                onClick={() => selected ? onKeepBrowsing(service) : onClose()}
+              >
+                Keep browsing
+              </button>
+              <button
+                className="customer-primary-button"
+                type="button"
+                onClick={() => selected ? onContinue(service) : onSelect(service)}
+              >
+                {selected ? 'Continue' : 'Select service'}
+              </button>
+            </div>
+            {selected ? (
+              <button
+                className="booking-detail-remove-selection"
+                type="button"
+                onClick={() => onDeselect(service)}
+              >
+                Remove selected service
+              </button>
+            ) : null}
+          </footer>
         </div>
       </BookingOverlayDialog>
       {showDirtyWarning ? (
