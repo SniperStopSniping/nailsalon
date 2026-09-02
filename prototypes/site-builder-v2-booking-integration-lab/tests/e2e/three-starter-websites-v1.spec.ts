@@ -238,23 +238,34 @@ test.describe('three locked V1 customer recipes', () => {
     expect(Math.abs(footerAfterScroll.y - footerBeforeScroll.y)).toBeLessThanOrEqual(1);
     expect(Math.abs(footerAfterScroll.height - footerBeforeScroll.height)).toBeLessThanOrEqual(1);
 
+    const frame = page.locator('.onboarding-preview-frame');
+    const scrollBeforeKeepBrowsing = await frame.evaluate(element => element.scrollTop);
     await detail.getByRole('button', { name: 'Keep browsing' }).click();
 
     const summary = page.getByTestId('selected-service-summary');
     const summaryHost = page.getByTestId('onboarding-booking-selection-host');
+    const bookingRenderer = page.getByTestId('booking-section-preview');
     await expect(summary).toBeVisible();
     await expect(summaryHost).toContainText('Russian Manicure');
     await expect(summaryHost.getByTestId('selected-service-summary')).toHaveCount(1);
-
-    const frame = page.locator('.onboarding-preview-frame');
-    await frame.evaluate(element => {
-      element.scrollTop = element.scrollHeight;
-    });
-    await expect.poll(() => summary.evaluate((element) => {
-      const summaryBounds = element.getBoundingClientRect();
-      const frameBounds = document.querySelector('.onboarding-preview-frame')?.getBoundingClientRect();
-      return frameBounds ? summaryBounds.bottom < frameBounds.top : false;
-    })).toBe(true);
+    await expect(summaryHost.locator('.booking-preview-summary')).toHaveCSS('position', 'static');
+    await expect(summary).toHaveCSS('position', 'static');
+    await expect.poll(() => frame.evaluate((element, before) => (
+      Math.abs(element.scrollTop - before)
+    ), scrollBeforeKeepBrowsing)).toBeLessThanOrEqual(1);
+    expect(await summaryHost.evaluate(host => (
+      host.previousElementSibling?.getAttribute('data-testid') === 'booking-section-preview'
+    ))).toBe(true);
+    await summary.scrollIntoViewIfNeeded();
+    const summaryBounds = await summary.boundingBox();
+    const rendererBounds = await bookingRenderer.boundingBox();
+    expect(summaryBounds).not.toBeNull();
+    expect(rendererBounds).not.toBeNull();
+    if (summaryBounds && rendererBounds) {
+      expect(summaryBounds.y).toBeGreaterThanOrEqual(
+        rendererBounds.y + rendererBounds.height - 1,
+      );
+    }
 
     await expect(page.locator('nav[aria-label="Customer preview navigation"] a')).toHaveCount(1);
 

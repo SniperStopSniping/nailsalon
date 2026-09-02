@@ -3449,10 +3449,10 @@ body.onboarding-modal-open {
   display: none;
 }
 
-/* A customer selection is ordinary Booking content, never viewport chrome. */
+/* A customer selection belongs after the service catalogue, never above it or in viewport chrome. */
 .onboarding-booking-selection-host:not(:empty) {
   position: static;
-  margin: 0 auto 12px;
+  margin: 12px auto 0;
 }
 
 .onboarding-booking-selection-host .booking-preview-summary {
