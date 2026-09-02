@@ -1063,9 +1063,14 @@ describe('OnboardingSitePreview shared profile composition', () => {
       name: /View details for Gel Manicure, 1 hr, \$50/,
     })[0]!);
     const detail = await screen.findByTestId('service-detail-dialog');
-    await user.click(within(detail).getByRole('button', { name: 'Select service' }));
-
-    const summary = await screen.findByTestId('selected-service-summary');
+    const summary = screen.getByTestId('selected-service-summary');
+    expect(summary).not.toBeVisible();
+    expect(within(detail).getByRole('button', { name: 'Continue' })).toBeVisible();
+    expect(within(detail).queryByRole('button', { name: 'Select service' }))
+      .not.toBeInTheDocument();
+    await user.click(within(detail).getByRole('button', { name: 'Keep browsing' }));
+    expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
+    expect(summary).toBeVisible();
     expect(summaryHost).toContainElement(summary);
     expect(overlayHost).not.toContainElement(summary);
     expect(within(summary).getByText('Gel Manicure')).toBeVisible();

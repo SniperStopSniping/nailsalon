@@ -375,6 +375,7 @@ export function BookingPreferencesScreen({
   const [menuCelebrating, setMenuCelebrating] = useState(false);
   const preferences = profile.bookingPreferences;
   const selectedServices = serviceMenuPort.getSelectedServices(profile.serviceMenu);
+  const selectedAddOns = serviceMenuPort.getSelectedAddOns(profile.serviceMenu);
   const [celebrationCount, setCelebrationCount] = useState(selectedServices.length);
   const selectedService = selectedServices[0];
   const storedNoticeChoice = bookingPreferencesPort.getMinimumNoticeChoice(
@@ -498,8 +499,8 @@ export function BookingPreferencesScreen({
             <div>
               <h2 id="service-menu-heading">Your service menu is ready</h2>
               <p>
-                We added popular nail services to get you started. Remove anything you don’t
-                offer. You can change prices, durations, add-ons and photos later.
+                We added popular nail services and common add-ons to get you started. Remove
+                anything you don’t offer. You can change prices, durations and photos later.
               </p>
             </div>
             <p aria-live="polite" className="onboarding-service-menu-count">
@@ -509,6 +510,9 @@ export function BookingPreferencesScreen({
                 {' '}{selectedServices.length === 1 ? 'service' : 'services'} on your menu
               </strong>
               {selectedServices.length > 6 ? <span> · showing 6</span> : null}
+              <span>
+                {' · '}{selectedAddOns.length} {selectedAddOns.length === 1 ? 'add-on' : 'add-ons'} ready
+              </span>
             </p>
             {selectedServices.length > 0 ? (
               <ul className="onboarding-service-menu-sample" aria-label="Selected services">
@@ -531,7 +535,7 @@ export function BookingPreferencesScreen({
             ) : null}
             <div className="onboarding-inline-actions">
               <button type="button" onClick={() => setServiceLibraryOpen(true)}>
-                Review services
+                Review services &amp; add-ons
               </button>
               <button
                 type="button"

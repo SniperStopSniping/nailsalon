@@ -107,6 +107,13 @@ export function BookingSectionRenderer({
   const detailImageMode = presentationSettings.layout === 'visual_grid'
     ? presentationSettings.layoutSettings.imageMode
     : 'show';
+  const customerSummaryVisible = mode === 'preview'
+    && selectedSummary !== null
+    && detailService === null
+    && !session.handoffOpen;
+  const menuSelection = mode === 'preview' && detailService !== null
+    ? { serviceId: null, addOnIds: [] }
+    : displaySession.selection;
 
   useEffect(() => {
     if (previousLayoutRef.current === presentationSettings.layout) {
@@ -126,15 +133,24 @@ export function BookingSectionRenderer({
 
   const openDetails = useCallback((service: MockService) => {
     setOptionWarningOpen(false);
-    onSessionChange(current => ({
-      ...current,
-      detailServiceId: service.id,
-      draftAddOnIds: current.selection.serviceId === service.id
+    onSessionChange(current => {
+      const addOnIds = current.selection.serviceId === service.id
         ? [...current.selection.addOnIds]
-        : [],
-      handoffOpen: false,
-    }));
-  }, [onSessionChange]);
+        : [];
+      const selection = normalizeBookingSelection(
+        { serviceId: service.id, addOnIds },
+        fixture.services,
+        fixture.addOns,
+      );
+      return {
+        ...current,
+        selection,
+        detailServiceId: service.id,
+        draftAddOnIds: [...selection.addOnIds],
+        handoffOpen: false,
+      };
+    });
+  }, [fixture.addOns, fixture.services, onSessionChange]);
 
   const closeDetails = useCallback(() => {
     setOptionWarningOpen(false);
@@ -207,6 +223,7 @@ export function BookingSectionRenderer({
   const customerSummary = mode === 'preview' && selectedSummary ? (
     <div
       className="booking-preview-summary"
+      hidden={!customerSummaryVisible}
       data-body-scale={presentationSettings.bodyScale}
       data-heading-scale={presentationSettings.headingScale}
       data-preview-viewport={previewViewport}
@@ -246,7 +263,6 @@ export function BookingSectionRenderer({
         onDismissDirtyWarning={() => setOptionWarningOpen(false)}
         onKeepBrowsing={service => commitService(service, false)}
         onSaveChanges={service => commitService(service, false)}
-        onSelect={service => commitService(service, false)}
         onToggleAddOn={toggleDraftAddOn}
         showDirtyWarning={optionWarningOpen}
       />
@@ -289,7 +305,7 @@ export function BookingSectionRenderer({
           data-typography={presentationSettings.typographyPreset}
           data-heading-scale={presentationSettings.headingScale}
           data-body-scale={presentationSettings.bodyScale}
-          data-has-selection={mode === 'preview' && selectedSummary ? 'true' : 'false'}
+          data-has-selection={customerSummaryVisible ? 'true' : 'false'}
           data-spacing={presentationSettings.spacing}
           aria-label={`${BOOKING_LAYOUT_META[presentationSettings.layout].label} booking menu`}
         >
@@ -298,7 +314,7 @@ export function BookingSectionRenderer({
             fixture={fixture}
             headingLevel={headingLevel}
             settings={presentationSettings}
-            selection={displaySession.selection}
+            selection={menuSelection}
             activeCategory={displaySession.activeCategory}
             query={displaySession.query}
             onCategoryChange={updateCategory}

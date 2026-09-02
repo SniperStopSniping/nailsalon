@@ -392,7 +392,7 @@ function detailBody(page) {
 
 function primaryDetailAction(page) {
   return detailDialog(page)
-    .getByRole('button', { name: /^(Select service|Continue)$/ });
+    .getByRole('button', { name: 'Continue' });
 }
 
 async function trustedVerticalSwipe(
@@ -523,7 +523,7 @@ async function measureServiceDetail(page, metadata) {
     const scrollBody = element.querySelector('.booking-service-detail-body')
       ?? element.querySelector('.booking-dialog-panel');
     const actionElement = [...element.querySelectorAll('button')]
-      .find((button) => ['Select service', 'Continue'].includes(button.textContent?.trim() ?? ''));
+      .find((button) => button.textContent?.trim() === 'Continue');
     const image = element.querySelector('.booking-detail-image-wrap img');
     const dialogRect = element.getBoundingClientRect();
     const bodyRect = scrollBody?.getBoundingClientRect();

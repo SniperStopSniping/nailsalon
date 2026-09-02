@@ -141,7 +141,7 @@ async function openRussianWithFrench(page: Page): Promise<void> {
     .click();
   const detail = page.getByTestId('service-detail-dialog');
   await detail.getByRole('checkbox', { name: 'French' }).check();
-  await detail.getByRole('button', { name: 'Select service' }).click();
+  await detail.getByRole('button', { name: 'Keep browsing' }).click();
   await expect(page.getByTestId('selected-service-summary'))
     .toContainText('1 hr 45 min · From $80');
 }
@@ -950,7 +950,7 @@ test('global search, featured selection, count spacing, and session-only history
     .click();
   await renderer.locator('.featured-tile').filter({ hasText: 'Russian Manicure' }).click();
   let detail = page.getByTestId('service-detail-dialog');
-  await detail.getByRole('button', { name: 'Select service' }).click();
+  await detail.getByRole('button', { name: 'Keep browsing' }).click();
   const featured = renderer.locator('.featured-tile').filter({ hasText: 'Russian Manicure' });
   await expect(featured).toHaveAttribute('aria-pressed', 'true');
   await expect(featured).toHaveAttribute('data-selected', 'true');
@@ -966,7 +966,7 @@ test('global search, featured selection, count spacing, and session-only history
   await featured.focus();
   await page.keyboard.press('Enter');
   detail = page.getByTestId('service-detail-dialog');
-  await detail.getByRole('button', { name: 'Select service' }).click();
+  await detail.getByRole('button', { name: 'Keep browsing' }).click();
   await expect(featured).toHaveAttribute('aria-pressed', 'true');
   await expect(featured.getByText('Selected')).toBeVisible();
   await featured.focus();

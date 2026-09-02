@@ -22,7 +22,10 @@ import {
   technicianServicesSchema,
 } from '@/models/Schema';
 
-import { CANONICAL_SERVICES } from '../../../prototypes/site-builder-v2-booking-integration-lab/src/booking/data';
+import {
+  CANONICAL_SERVICES,
+  MOCK_ADD_ONS,
+} from '../../../prototypes/site-builder-v2-booking-integration-lab/src/booking/data';
 import {
   ADD_ON_PRODUCTION_MAPPINGS,
   SERVICE_MENU_PRODUCTION_MAPPINGS,
@@ -683,11 +686,6 @@ async function ensureOwnerServicesForUnmappedSelection(input: {
   return ownerServiceIds;
 }
 
-const ONBOARDING_MENU_MAPPINGS = [
-  ...SERVICE_MENU_PRODUCTION_MAPPINGS,
-  ...ADD_ON_PRODUCTION_MAPPINGS,
-];
-
 type StarterSeedResult = Awaited<ReturnType<typeof seedStarterMenuForSalon>>;
 
 /**
@@ -701,18 +699,30 @@ async function markSeededOnboardingMenuRows(input: {
   seed: StarterSeedResult;
   snapshot: OnboardingPersistedSnapshot;
 }): Promise<void> {
-  const selectedIds = new Set([
-    ...input.snapshot.profile.serviceMenu.selectedServiceIds,
-    ...input.snapshot.profile.serviceMenu.selectedAddOnIds,
-  ]);
-  const sourceIdForTemplate = (templateKey: string | null): string | null => {
+  const selectedServiceIds = new Set(
+    input.snapshot.profile.serviceMenu.selectedServiceIds,
+  );
+  const selectedAddOnIds = new Set(
+    input.snapshot.profile.serviceMenu.selectedAddOnIds,
+  );
+  const serviceSourceIdForTemplate = (templateKey: string | null): string | null => {
     if (!templateKey) {
       return null;
     }
-    return ONBOARDING_MENU_MAPPINGS.find(mapping => (
+    return SERVICE_MENU_PRODUCTION_MAPPINGS.find(mapping => (
       mapping.mappingKind === 'exact_template'
       && mapping.productionCanonicalId === templateKey
-      && selectedIds.has(mapping.labServiceId)
+      && selectedServiceIds.has(mapping.labServiceId)
+    ))?.labServiceId ?? null;
+  };
+  const addOnSourceIdForTemplate = (templateKey: string | null): string | null => {
+    if (!templateKey) {
+      return null;
+    }
+    return ADD_ON_PRODUCTION_MAPPINGS.find(mapping => (
+      mapping.mappingKind === 'exact_template'
+      && mapping.productionCanonicalId === templateKey
+      && selectedAddOnIds.has(mapping.labServiceId)
     ))?.labServiceId ?? null;
   };
 
@@ -730,7 +740,7 @@ async function markSeededOnboardingMenuRows(input: {
       inArray(serviceSchema.id, seededServiceIds),
     ));
     for (const row of rows) {
-      const sourceId = sourceIdForTemplate(row.templateKey);
+      const sourceId = serviceSourceIdForTemplate(row.templateKey);
       if (!sourceId || row.onboardingSourceServiceId) {
         continue;
       }
@@ -758,7 +768,7 @@ async function markSeededOnboardingMenuRows(input: {
       inArray(addOnSchema.id, seededAddOnIds),
     ));
     for (const row of rows) {
-      const sourceId = sourceIdForTemplate(row.templateKey);
+      const sourceId = addOnSourceIdForTemplate(row.templateKey);
       if (!sourceId || row.onboardingSourceAddOnId) {
         continue;
       }
@@ -783,19 +793,41 @@ async function reconcileOnboardingOwnedMenu(input: {
   snapshot: OnboardingPersistedSnapshot;
   technicianId: string | null;
 }): Promise<void> {
-  const selectedIds = new Set([
-    ...input.snapshot.profile.serviceMenu.selectedServiceIds,
-    ...input.snapshot.profile.serviceMenu.selectedAddOnIds,
-  ]);
-  const canonicalById = new Map(CANONICAL_SERVICES.map(service => [service.id, service]));
-  const selectedMapping = (sourceId: string, templateKey: string | null) => (
-    ONBOARDING_MENU_MAPPINGS.find(mapping => (
-      selectedIds.has(mapping.labServiceId)
-      && (
-        mapping.labServiceId === sourceId
-        || (templateKey !== null && mapping.productionCanonicalId === templateKey)
-      )
-    )) ?? null
+  const selectedServiceIds = new Set(
+    input.snapshot.profile.serviceMenu.selectedServiceIds,
+  );
+  const selectedAddOnIds = new Set(
+    input.snapshot.profile.serviceMenu.selectedAddOnIds,
+  );
+  const canonicalServiceById = new Map(
+    CANONICAL_SERVICES.map(service => [service.id, service]),
+  );
+  const canonicalAddOnById = new Map(MOCK_ADD_ONS.map(addOn => [addOn.id, addOn]));
+  const selectedServiceMapping = (sourceId: string, templateKey: string | null) => (
+    SERVICE_MENU_PRODUCTION_MAPPINGS.find(mapping => (
+      selectedServiceIds.has(mapping.labServiceId)
+      && mapping.labServiceId === sourceId
+    ))
+    ?? SERVICE_MENU_PRODUCTION_MAPPINGS.find(mapping => (
+      selectedServiceIds.has(mapping.labServiceId)
+      && mapping.mappingKind === 'exact_template'
+      && templateKey !== null
+      && mapping.productionCanonicalId === templateKey
+    ))
+    ?? null
+  );
+  const selectedAddOnMapping = (sourceId: string, templateKey: string | null) => (
+    ADD_ON_PRODUCTION_MAPPINGS.find(mapping => (
+      selectedAddOnIds.has(mapping.labServiceId)
+      && mapping.labServiceId === sourceId
+    ))
+    ?? ADD_ON_PRODUCTION_MAPPINGS.find(mapping => (
+      selectedAddOnIds.has(mapping.labServiceId)
+      && mapping.mappingKind === 'exact_template'
+      && templateKey !== null
+      && mapping.productionCanonicalId === templateKey
+    ))
+    ?? null
   );
 
   const services = await input.database.select({
@@ -810,8 +842,8 @@ async function reconcileOnboardingOwnedMenu(input: {
     if (!row.onboardingSourceServiceId) {
       continue;
     }
-    const mapping = selectedMapping(row.onboardingSourceServiceId, row.templateKey);
-    const canonical = mapping ? canonicalById.get(mapping.labServiceId) : null;
+    const mapping = selectedServiceMapping(row.onboardingSourceServiceId, row.templateKey);
+    const canonical = mapping ? canonicalServiceById.get(mapping.labServiceId) : null;
     const selected = Boolean(mapping && canonical);
     const override = mapping
       ? input.snapshot.profile.serviceMenu.ownerOverridesByServiceId[mapping.labServiceId]
@@ -860,21 +892,10 @@ async function reconcileOnboardingOwnedMenu(input: {
     if (!row.onboardingSourceAddOnId) {
       continue;
     }
-    const mapping = selectedMapping(row.onboardingSourceAddOnId, row.templateKey);
-    const canonical = mapping ? canonicalById.get(mapping.labServiceId) : null;
+    const mapping = selectedAddOnMapping(row.onboardingSourceAddOnId, row.templateKey);
+    const canonical = mapping ? canonicalAddOnById.get(mapping.labServiceId) : null;
     const selected = Boolean(mapping && canonical);
-    const override = mapping
-      ? input.snapshot.profile.serviceMenu.ownerOverridesByServiceId[mapping.labServiceId]
-      : undefined;
-    const price = canonical ? onboardingServicePrice(canonical) : null;
     await input.database.update(addOnSchema).set({
-      ...(selected && canonical && price
-        ? {
-            durationMinutes: override?.durationMinutes ?? canonical.durationMinutes,
-            priceCents: override?.priceCents ?? price.price,
-            priceDisplayText: override?.priceCents === undefined ? price.priceDisplayText : null,
-          }
-        : {}),
       isActive: selected,
     }).where(and(
       eq(addOnSchema.id, row.id),

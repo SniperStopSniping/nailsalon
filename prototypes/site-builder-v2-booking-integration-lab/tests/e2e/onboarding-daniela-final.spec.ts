@@ -631,7 +631,7 @@ test.describe('Daniela-final onboarding acceptance', () => {
       .toBeVisible();
     await expect(serviceCard.locator('img').first()).toBeVisible();
     await captureLocator(serviceCard, '06-styled-service-summary');
-    await serviceCard.getByRole('button', { name: 'Review services' }).click();
+    await serviceCard.getByRole('button', { name: 'Review services & add-ons' }).click();
 
     const dialog = page.getByRole('dialog', { name: 'Choose your services' });
     await expect(dialog).toBeVisible();

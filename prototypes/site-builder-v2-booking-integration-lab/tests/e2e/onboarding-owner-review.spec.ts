@@ -270,7 +270,7 @@ test.describe('Onboarding owner-review browser acceptance', () => {
       .check();
     await expect(page.getByRole('heading', { name: 'Your service menu is ready' })).toBeVisible();
     await expect(page.locator('.onboarding-service-menu-card')).toContainText(/\d+ services on your menu/u);
-    await page.getByRole('button', { name: 'Review services' }).click();
+    await page.getByRole('button', { name: 'Review services & add-ons' }).click();
     const library = page.getByRole('dialog', { name: 'Choose your services' });
     await expect(library).toBeVisible();
     await expect(library.getByText(/\$\d+/u).first()).toBeVisible();
