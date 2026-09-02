@@ -50,6 +50,7 @@ describe('onboarding essentials', () => {
   it('accepts Booking-only contact explicitly', () => {
     const state = createDefaultOnboardingState();
     state.profile.businessName = 'Isla Nail Studio';
+    state.profile.businessType = 'independent_salon';
     state.profile.ownerName = 'Daniela';
     state.profile.businessStructure = 'solo';
     state.profile.location.cityOrArea = 'Scarborough, Ontario';

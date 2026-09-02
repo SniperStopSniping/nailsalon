@@ -28,6 +28,7 @@ type BrandBasicsHandlers = Partial<{
   onContinue: () => void;
   onLogoSelected: (file: File) => Promise<void>;
   onProfilePhotoSelected: (file: File) => Promise<void>;
+  onQuickBookProfileChange: (patch: Record<string, boolean>) => void;
   onValidationFailure: (fieldIds: string[]) => void;
   starter: StarterId | null;
 }>;
@@ -48,6 +49,7 @@ function renderBrandBasics(
         onLogoSelected={handlers.onLogoSelected ?? vi.fn()}
         onProfileChange={fixedProfile ? vi.fn() : update}
         onProfilePhotoSelected={handlers.onProfilePhotoSelected ?? vi.fn()}
+        onQuickBookProfileChange={handlers.onQuickBookProfileChange}
         onValidationFailure={handlers.onValidationFailure}
       />
     );
@@ -56,7 +58,7 @@ function renderBrandBasics(
 }
 
 describe('BrandBasicsScreen', () => {
-  it('shows associated inline errors, then continues with shared profile values', async () => {
+  it('shows associated inline errors, then continues with canonical business identity', async () => {
     const user = userEvent.setup();
     const onContinue = vi.fn();
     const onValidationFailure = vi.fn();
@@ -78,72 +80,54 @@ describe('BrandBasicsScreen', () => {
     }
 
     render(<Harness />);
-    expect(screen.getByRole('heading', { name: 'Make it yours' })).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    expect(screen.getByRole('heading', { name: 'Let’s start with your business' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
     expect(screen.getAllByText('Add your salon or studio name.').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Add your name.').length).toBeGreaterThan(0);
-    expect(screen.getAllByText('Choose who you’re setting Luster up for.').length)
+    expect(screen.getAllByText('Choose what best describes your business.').length)
       .toBeGreaterThan(0);
     expect(onValidationFailure).toHaveBeenCalledWith([
       'businessName',
-      'ownerName',
-      'businessStructure',
+      'businessType',
     ]);
 
-    await user.type(screen.getByLabelText('Salon or studio name'), 'Isla Nail Studio');
-    await user.type(screen.getByLabelText('Your name'), 'Daniela');
-    await user.click(screen.getByRole('radio', { name: 'Solo nail tech' }));
-    expect(screen.getByRole('group', { name: 'Who are you setting Luster up for?' }))
-      .toBeVisible();
-    expect(screen.getByRole('radio', { name: 'Team or multi-tech salon' })).toBeVisible();
-    expect(screen.queryByRole('radio', { name: 'Home studio' })).not.toBeInTheDocument();
-    expect(screen.getByRole('group', { name: 'Your site so far' }))
-      .toHaveTextContent('Isla Nail StudioDanielaSolo nail tech');
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    const businessName = screen.getByLabelText(/Salon or studio name/u);
+    await waitFor(() => expect(businessName).toHaveFocus());
+    await user.type(businessName, 'Isla Nail Studio');
+    await user.click(screen.getByRole('radio', { name: /Independent nail tech/u }));
+    await user.type(screen.getByLabelText('Your name *'), 'Daniela');
+    expect(businessName).toHaveValue('Isla Nail Studio');
+    expect(screen.getByText('lustergel.app/isla-nail-studio')).toBeVisible();
+    expect(screen.getAllByRole('radio')).toHaveLength(4);
+    await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(onContinue).toHaveBeenCalledOnce();
-    expect(screen.queryByLabelText(/website url/i)).not.toBeInTheDocument();
+    expect(screen.getByText('You can change all of this later.')).toBeVisible();
   });
 
-  it('personalizes the live starter preview as the owner types', async () => {
+  it('generates a URL and keeps an owner-customized slug stable', async () => {
     const user = userEvent.setup();
     renderBrandBasics();
 
-    expect(screen.getByText('One-page website · Change it anytime')).toBeVisible();
-    const poster = document.querySelector('[data-testid="starter-preview-one_page"]');
-    expect(poster).not.toBeNull();
-    expect(poster).toHaveAttribute('data-preview-state', 'poster');
-    expect(poster).toHaveTextContent('Your studio');
-
-    await user.type(screen.getByLabelText('Salon or studio name'), 'Isla Nail Studio');
-    expect(poster).toHaveTextContent('Isla Nail Studio');
-    expect(poster).not.toHaveTextContent('Your studio');
+    await user.type(screen.getByLabelText(/Salon or studio name/u), 'Isla Nail Studio');
+    expect(screen.getByText('lustergel.app/isla-nail-studio')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: 'Change URL' }));
+    const slug = screen.getByLabelText('Custom Luster URL');
+    await user.clear(slug);
+    await user.type(slug, 'daniela-nails');
+    await user.clear(screen.getByLabelText(/Salon or studio name/u));
+    await user.type(screen.getByLabelText(/Salon or studio name/u), 'Daniela Nail Studio');
+    expect(slug).toHaveValue('daniela-nails');
   });
 
-  it('keeps branding collapsed until opened, then exposes real file controls', async () => {
+  it('hides personal identity fields for a salon or studio team', async () => {
     const user = userEvent.setup();
-    const onProfilePhotoSelected = vi.fn().mockResolvedValue(undefined);
-    renderBrandBasics(
-      { onProfilePhotoSelected },
-      undefined,
-      { businessName: 'Isla Nail Studio', ownerName: 'Daniela' },
-    );
+    renderBrandBasics();
 
-    const brandingTrigger = screen.getByRole('button', { name: /Branding/ });
-    expect(brandingTrigger).toHaveAttribute('aria-expanded', 'false');
-    expect(brandingTrigger).toHaveTextContent('Photo, logo and Instagram · Optional');
-    await user.click(brandingTrigger);
-    expect(brandingTrigger).toHaveAttribute('aria-expanded', 'true');
-
-    const identity = screen.getByRole('group', { name: 'Your site so far' });
-    expect(identity).toHaveTextContent('Isla Nail Studio');
-    const photo = new File(['portrait'], 'daniela.png', { type: 'image/png' });
-    await user.upload(screen.getByLabelText('Profile photo'), photo);
-    expect(onProfilePhotoSelected).toHaveBeenCalledWith(photo);
-    await user.type(screen.getByLabelText('Instagram handle'), '@islanail.studio');
-    expect(identity).toHaveTextContent('@islanail.studio');
-    expect(screen.getByText('Enter a username or paste an Instagram profile link.'))
-      .toBeVisible();
-    expect(screen.queryByLabelText('Website')).not.toBeInTheDocument();
+    await user.click(screen.getByRole('radio', { name: /Salon \/ studio/u }));
+    expect(screen.queryByLabelText('Your name *')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Profile photo')).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Logo')).toBeVisible();
+    expect(screen.getByLabelText('Instagram handle')).toBeVisible();
   });
 
   it('normalizes a pasted Instagram profile URL and blocks invalid owner input', async () => {
@@ -154,18 +138,16 @@ describe('BrandBasicsScreen', () => {
       undefined,
       {
         businessName: 'Isla Nail Studio',
+        businessType: 'independent_salon',
         businessStructure: 'solo',
         ownerName: 'Daniela',
       },
     );
 
-    await user.click(screen.getByRole('button', { name: /Branding/ }));
     const instagram = screen.getByLabelText('Instagram handle');
     await user.type(instagram, 'https://www.instagram.com/islanailstudio/');
     await user.tab();
     expect(instagram).toHaveValue('islanailstudio');
-    expect(screen.getByRole('group', { name: 'Your site so far' }))
-      .toHaveTextContent('@islanailstudio');
 
     await user.clear(instagram);
     await user.type(instagram, 'isla nail studio');
@@ -173,7 +155,7 @@ describe('BrandBasicsScreen', () => {
     expect(screen.getByText(
       'Enter only your Instagram username, such as islanailstudio.',
     )).toBeVisible();
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
     expect(onContinue).not.toHaveBeenCalled();
     await waitFor(() => expect(instagram).toHaveFocus());
   });
@@ -181,6 +163,7 @@ describe('BrandBasicsScreen', () => {
   it('shows distinct role-correct ready thumbnails without crossing Profile and Logo', () => {
     const profile = createDefaultBusinessProfile();
     profile.businessName = 'Isla Nail Studio';
+    profile.businessType = 'independent_salon';
     profile.ownerName = 'Daniela';
     profile.profilePhoto = {
       fileName: 'daniela-portrait.png',
@@ -199,18 +182,12 @@ describe('BrandBasicsScreen', () => {
 
     renderBrandBasics({}, profile);
 
-    expect(screen.getByRole('button', { name: /Branding/ }))
-      .toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Profile photo ready')).toBeVisible();
     expect(screen.getByText('Logo ready')).toBeVisible();
     expect(screen.getByAltText('Daniela profile photo thumbnail'))
       .toHaveAttribute('src', 'https://example.test/daniela-portrait.png');
     expect(screen.getByAltText('Isla Nail Studio logo thumbnail'))
       .toHaveAttribute('src', 'https://example.test/isla-wordmark.png');
-    const identity = screen.getByRole('group', { name: 'Your site so far' });
-    expect(within(identity).getByRole('img', { name: 'Daniela profile photo' }))
-      .toHaveAttribute('src', 'https://example.test/daniela-portrait.png');
-    expect(within(identity).queryByRole('img', { name: /logo/iu })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Profile photo').closest('[data-media-role]'))
       .toHaveAttribute('data-media-role', 'profile');
     expect(screen.getByLabelText('Logo').closest('[data-media-role]'))
@@ -220,6 +197,7 @@ describe('BrandBasicsScreen', () => {
   it('keeps Profile and Logo replace/remove actions scoped to their own fields', async () => {
     const user = userEvent.setup();
     const profile = createDefaultBusinessProfile();
+    profile.businessType = 'independent_salon';
     profile.profilePhoto = {
       fileName: 'daniela-portrait.png',
       id: 'fixture-profile',
@@ -276,6 +254,7 @@ describe('BrandBasicsScreen', () => {
 
   it('identifies migrated metadata-only images and offers a truthful reselect action', () => {
     const profile = createDefaultBusinessProfile();
+    profile.businessType = 'independent_salon';
     profile.profilePhoto = {
       fileName: 'saved-owner.png',
       id: 'legacy-owner-photo',

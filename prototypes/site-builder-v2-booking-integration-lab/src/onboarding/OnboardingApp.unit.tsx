@@ -860,10 +860,10 @@ describe('OnboardingApp handoff boundaries', () => {
       name: 'Switch to One-page website',
     }));
 
-    expect(await screen.findByRole('heading', { name: 'Make it yours' })).toBeVisible();
-    expect(screen.getByText('One-page website · Change it anytime')).toBeVisible();
-    expect(document.querySelector('[data-testid="starter-preview-one_page"]'))
-      .toHaveTextContent('Isla Nail Studio');
+    expect(await screen.findByRole('heading', {
+      name: 'Let’s start with your business',
+    })).toBeVisible();
+    expect(screen.getByDisplayValue('Isla Nail Studio')).toBeVisible();
 
     await waitFor(() => {
       const savedOnboarding = parseOnboardingState(
@@ -899,10 +899,10 @@ describe('OnboardingApp handoff boundaries', () => {
 
     firstRender.unmount();
     render(<RealLabHarness />);
-    expect(await screen.findByRole('heading', { name: 'Make it yours' })).toBeVisible();
-    expect(screen.getByText('One-page website · Change it anytime')).toBeVisible();
-    expect(document.querySelector('[data-testid="starter-preview-one_page"]'))
-      .toHaveTextContent('Isla Nail Studio');
+    expect(await screen.findByRole('heading', {
+      name: 'Let’s start with your business',
+    })).toBeVisible();
+    expect(screen.getByDisplayValue('Isla Nail Studio')).toBeVisible();
   });
 
   it('keeps the starting-site reveal visible while remembering the newly complete Basics stage', async () => {
@@ -920,7 +920,9 @@ describe('OnboardingApp handoff boundaries', () => {
     );
     await user.click(screen.getByRole('button', { name: /Start with One-page/u }));
 
-    expect(await screen.findByRole('heading', { name: 'Make it yours' })).toBeVisible();
+    expect(await screen.findByRole('heading', {
+      name: 'Let’s start with your business',
+    })).toBeVisible();
     expect(document.querySelector('.onboarding-feedback')).toHaveTextContent(
       'Your starting site is ready',
     );
@@ -929,7 +931,7 @@ describe('OnboardingApp handoff boundaries', () => {
         'Your starting site is ready',
       );
     });
-    await user.click(screen.getByRole('button', { name: 'Continue' }));
+    await user.click(screen.getByRole('button', { name: 'Show me my site →' }));
     expect(await screen.findByRole('heading', {
       name: 'Your starting site is ready',
     })).toBeVisible();

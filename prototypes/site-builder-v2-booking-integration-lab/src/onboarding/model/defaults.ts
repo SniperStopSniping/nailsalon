@@ -176,6 +176,7 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
     styleNotes: '',
   },
   businessName: '',
+  businessType: null,
   businessStructure: null,
   clientContact: {
     callEnabled: false,
@@ -198,6 +199,8 @@ export const createDefaultBusinessProfile = (): BusinessProfileDraft => ({
     transitInformation: '',
   },
   ownerName: '',
+  siteSlug: '',
+  siteSlugCustomized: false,
   policies: createDefaultPolicies(),
   preferredContact: null,
   serviceMenu: serviceMenuPort.createDefaultSelection(),

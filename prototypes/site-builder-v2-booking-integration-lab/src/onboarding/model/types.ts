@@ -1,7 +1,7 @@
 import type { DepositDraft } from '../integrations/contracts/booking-preferences';
 import type { ServiceMenuSelectionDraft } from '../integrations/contracts/service-menu';
 
-export const ONBOARDING_SCHEMA_VERSION = 10 as const;
+export const ONBOARDING_SCHEMA_VERSION = 11 as const;
 
 export type OnboardingStage = 'basics' | 'booking' | 'design' | 'review';
 
@@ -36,6 +36,12 @@ export type OptionalOnboardingItem =
   | 'extras';
 
 export type BusinessStructure = 'solo' | 'multi_tech';
+
+export type OnboardingBusinessType =
+  | 'independent_salon'
+  | 'home_based'
+  | 'mobile'
+  | 'salon_team';
 
 export type PreferredContactMethod = 'text' | 'call' | 'instagram' | 'email';
 
@@ -220,8 +226,11 @@ export type BrandStyleDraft = {
 
 export type BusinessProfileDraft = {
   businessName: string;
+  businessType: OnboardingBusinessType | null;
   ownerName: string;
   businessStructure: BusinessStructure | null;
+  siteSlug: string;
+  siteSlugCustomized: boolean;
   profilePhoto?: LocalImageReference;
   logo?: LocalImageReference;
   instagram: string;
@@ -290,12 +299,12 @@ export const DEFAULT_QUICK_BOOK_PROFILE_VISIBILITY = {
   showCancellationPolicy: false,
   showEmail: false,
   showHours: false,
-  showInstagram: false,
+  showInstagram: true,
   showLocation: false,
   showPhone: false,
   showReviews: false,
-  showTechName: false,
-  showTechPhoto: false,
+  showTechName: true,
+  showTechPhoto: true,
 } as const satisfies QuickBookProfileVisibilityDraft;
 
 export type OnboardingSiteRecipe = {

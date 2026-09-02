@@ -1,15 +1,31 @@
+import {
+  BriefcaseBusiness,
+  Camera,
+  CarFront,
+  Check,
+  House,
+  Image,
+  Instagram,
+  Store,
+  UserRound,
+  UsersRound,
+} from 'lucide-react';
 import { useEffect, useId, useRef, useState, type FormEvent } from 'react';
 
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
-import {
-  STARTER_CHOICES,
-  StarterPreview,
-  useMediaQuery,
-} from '../../ui/StarterChooser';
 import { WeeklyHoursEditor } from '../components/WeeklyHoursEditor';
 import { SCREEN_METADATA } from '../copy';
 import { useFeedback } from '../feedback/useFeedback';
 import { resolveOnboardingImage } from '../integrations/adapters/media';
+import {
+  BUSINESS_TYPE_OPTIONS,
+  deriveLegacyBusinessFields,
+  isPersonalBusinessType,
+  normalizeSiteSlug,
+  normalizeSiteSlugInput,
+  siteUrlForSlug,
+  validateSiteSlug,
+} from '../model/business-identity';
 import {
   contactMethodHasValue,
   getAvailableContactMethods,
@@ -28,9 +44,10 @@ import { getPublicLocationPreview } from '../model/location';
 import type {
   AddressVisibility,
   BusinessProfileDraft,
-  BusinessStructure,
   LocationType,
+  OnboardingBusinessType,
   PreferredContactMethod,
+  QuickBookProfileVisibilityDraft,
   StarterId,
 } from '../model/types';
 import {
@@ -47,6 +64,7 @@ import {
 } from '../components/FormFields';
 import { StickyOnboardingActions } from '../components/StickyOnboardingActions';
 import '../daniela-basics-booking.css';
+import '../your-business.css';
 
 type ProfilePatch = Partial<BusinessProfileDraft>;
 
@@ -55,11 +73,6 @@ type SharedBasicsScreenProps = {
   onProfileChange: (patch: ProfilePatch) => void;
   profile: BusinessProfileDraft;
 };
-
-const BUSINESS_STRUCTURES: readonly ChoiceOption<BusinessStructure>[] = [
-  { label: 'Solo nail tech', value: 'solo' },
-  { label: 'Team or multi-tech salon', value: 'multi_tech' },
-];
 
 const CONTACT_METHODS: readonly ChoiceOption<PreferredContactMethod>[] = [
   { label: 'Text', value: 'text' },
@@ -90,21 +103,15 @@ function initialsFor(profile: BusinessProfileDraft): string {
     .join('');
 }
 
-function businessStructureLabel(value: BusinessStructure | null): string {
-  return BUSINESS_STRUCTURES.find((option) => option.value === value)?.label
-    ?? 'Solo or team';
-}
-
 type BrandBasicsScreenProps = SharedBasicsScreenProps & {
   onContinue: () => void;
   onLogoSelected: (file: File) => Promise<void>;
   onProfilePhotoSelected: (file: File) => Promise<void>;
+  onQuickBookProfileChange?: (patch: Partial<QuickBookProfileVisibilityDraft>) => void;
   onValidationFailure?: (fieldIds: string[]) => void;
   reveal?: boolean;
   starter: StarterId | null;
 };
-
-const PERSONALIZATION_PULSE_MS = 900;
 
 export function BrandBasicsScreen({
   onBack,
@@ -112,20 +119,16 @@ export function BrandBasicsScreen({
   onLogoSelected,
   onProfileChange,
   onProfilePhotoSelected,
+  onQuickBookProfileChange,
   onValidationFailure,
   profile,
   reveal = false,
-  starter,
 }: BrandBasicsScreenProps) {
-  const copy = SCREEN_METADATA.business;
   const formId = useId();
   const formRef = useRef<HTMLFormElement>(null);
   const feedback = useFeedback();
-  const systemReducedMotion = useMediaQuery('(prefers-reduced-motion: reduce)');
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const starterChoice = starter
-    ? STARTER_CHOICES.find((choice) => choice.id === starter) ?? null
-    : null;
+  const [editingSlug, setEditingSlug] = useState(profile.siteSlugCustomized);
 
   const imageAssetIds = [profile.profilePhoto, profile.logo]
     .flatMap((image) => image?.storageId ? [image.storageId] : []);
@@ -138,17 +141,15 @@ export function BrandBasicsScreen({
     || logoImage.status === 'missing';
   const instagramResolution = resolveInstagramUsername(profile.instagram);
   const instagramError = getInstagramInputError(profile.instagram);
-  const hasBranding = Boolean(
-    profile.profilePhoto
-    || profile.logo
-    || (profile.instagram.trim() && !instagramError),
-  );
-  const [brandingOpen, setBrandingOpen] = useState(hasBranding);
-
+  const personalBusiness = isPersonalBusinessType(profile.businessType);
+  const effectiveSlug = profile.siteSlugCustomized
+    ? profile.siteSlug
+    : normalizeSiteSlug(profile.businessName);
+  const slugError = validateSiteSlug(effectiveSlug);
   const basicsComplete = Boolean(
     profile.businessName.trim()
-    && profile.ownerName.trim()
-    && profile.businessStructure,
+    && profile.businessType
+    && (!personalBusiness || profile.ownerName.trim()),
   );
   const previousBasicsCompleteRef = useRef(basicsComplete);
   useEffect(() => {
@@ -176,20 +177,6 @@ export function BrandBasicsScreen({
     previousInstagramConnectedRef.current = instagramConnected;
   }, [feedback, instagramConnected]);
 
-  const [personalizing, setPersonalizing] = useState(false);
-  const personalizedOnceRef = useRef(Boolean(profile.businessName.trim()));
-  useEffect(() => {
-    if (personalizedOnceRef.current || !profile.businessName.trim()) return undefined;
-    personalizedOnceRef.current = true;
-    if (systemReducedMotion) return undefined;
-    setPersonalizing(true);
-    const timer = window.setTimeout(
-      () => setPersonalizing(false),
-      PERSONALIZATION_PULSE_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [profile.businessName, systemReducedMotion]);
-
   const commitInstagram = () => {
     if (
       instagramResolution.status === 'resolved'
@@ -203,138 +190,114 @@ export function BrandBasicsScreen({
     event.preventDefault();
     const nextErrors: Record<string, string> = {};
     if (!profile.businessName.trim()) nextErrors.businessName = 'Add your salon or studio name.';
-    if (!profile.ownerName.trim()) nextErrors.ownerName = 'Add your name.';
-    if (!profile.businessStructure) {
-      nextErrors.businessStructure = 'Choose who you’re setting Luster up for.';
-    }
+    if (!profile.businessType) nextErrors.businessType = 'Choose what best describes your business.';
+    if (personalBusiness && !profile.ownerName.trim()) nextErrors.ownerName = 'Add your name.';
+    if (profile.businessName.trim() && slugError) nextErrors.siteSlug = slugError;
     if (instagramError) nextErrors.instagram = instagramError;
     setErrors(nextErrors);
     const failedFields = Object.keys(nextErrors);
     if (failedFields.length > 0) {
       onValidationFailure?.(failedFields);
-      if (nextErrors.instagram) setBrandingOpen(true);
-      const basicsFailed = failedFields.some((field) => field !== 'instagram');
       window.requestAnimationFrame(() => {
-        // The Branding card section carries aria-invalid, so the generic
-        // helper would land on its toggle; target the Instagram input when
-        // it is the only failing field.
-        if (basicsFailed) {
-          if (formRef.current) focusFirstInvalidControl(formRef.current);
-          return;
-        }
-        formRef.current
-          ?.querySelector<HTMLInputElement>('[data-instagram-input]')
-          ?.focus();
+        if (formRef.current) focusFirstInvalidControl(formRef.current);
       });
       return;
     }
     commitInstagram();
+    if (!profile.siteSlugCustomized && profile.siteSlug !== effectiveSlug) {
+      onProfileChange({ siteSlug: effectiveSlug });
+    }
     onContinue();
   };
 
-  const brandingSummary = hasBranding
-    ? [
-        profile.profilePhoto ? 'Photo' : null,
-        profile.logo ? 'Logo' : null,
-        instagramConnected ? `@${instagramResolution.username}` : null,
-      ].filter(Boolean).join(' · ')
-    : 'Photo, logo and Instagram · Optional';
+  const updateVisibility = (
+    element: 'instagram' | 'owner_name' | 'profile_photo',
+    quickBookKey: 'showInstagram' | 'showTechName' | 'showTechPhoto',
+    checked: boolean,
+  ) => {
+    onProfileChange({
+      about: {
+        ...profile.about,
+        visibility: { ...profile.about.visibility, [element]: checked },
+      },
+    });
+    onQuickBookProfileChange?.({ [quickBookKey]: checked });
+  };
+
+  const selectBusinessType = (businessType: OnboardingBusinessType) => {
+    const derived = deriveLegacyBusinessFields(businessType);
+    setErrors((current) => ({ ...current, businessType: '', ownerName: '' }));
+    onProfileChange({
+      businessStructure: derived.businessStructure,
+      businessType,
+      location: {
+        ...profile.location,
+        ...(derived.addressVisibility
+          ? { addressVisibility: derived.addressVisibility }
+          : {}),
+        locationType: derived.locationType,
+      },
+    });
+  };
+
+  const changeBusinessName = (businessName: string) => {
+    setErrors((current) => ({ ...current, businessName: '', siteSlug: '' }));
+    onProfileChange({
+      businessName,
+    });
+  };
 
   return (
     <section
       aria-labelledby="business-screen-heading"
-      className={`onboarding-screen onboarding-business-screen onboarding-brand-basics-screen${reveal ? ' is-revealing' : ''}`}
+      className={`onboarding-screen onboarding-business-screen onboarding-your-business-screen${reveal ? ' is-revealing' : ''}`}
     >
       <header className="onboarding-screen__heading">
-        <p className="onboarding-screen-status">
-          {starterChoice ? `${starterChoice.title} · Change it anytime` : 'Required step'}
-        </p>
-        <h1 id="business-screen-heading">{copy.heading}</h1>
-        <p>{copy.supportingCopy}</p>
+        <p className="onboarding-screen-status">Your business</p>
+        <h1 id="business-screen-heading">Let’s start with your business</h1>
+        <p>Tell us a few basics and we’ll start building your site.</p>
       </header>
-      <div className="onboarding-split-layout onboarding-brand-basics-layout">
-        <div
-          className={`onboarding-brand-preview${personalizing ? ' is-personalizing' : ''}`}
-          data-starter={starter ?? undefined}
-        >
-          {starterChoice ? (
-            <div className="onboarding-brand-preview__stage">
-              <StarterPreview
-                active={false}
-                businessName={profile.businessName.trim() || undefined}
-                definition={starterChoice.preview}
-                logoUrl={logoImage.status === 'ready' ? logoImage.url : undefined}
-                ownerName={profile.ownerName.trim() || undefined}
-                pageVisible
-                reducedMotion={systemReducedMotion}
-                starterId={starterChoice.id}
-              />
-            </div>
-          ) : null}
-          <div aria-label="Your site so far" className="onboarding-brand-preview__identity" role="group">
-            {profileImage.status === 'ready' ? (
-              <img
-                alt={`${profile.ownerName.trim() || 'Owner'} profile photo`}
-                data-media-role="profile"
-                src={profileImage.url}
-              />
-            ) : (
-              <span aria-hidden="true" className="onboarding-brand-preview__initials">
-                {initialsFor(profile)}
-              </span>
-            )}
-            <p>
-              <strong>{profile.businessName.trim() || 'Your salon or studio name'}</strong>
-              <span>{profile.ownerName.trim() || 'Your name'}</span>
-              <span>{businessStructureLabel(profile.businessStructure)}</span>
-              {instagramConnected ? <span>@{instagramResolution.username}</span> : null}
-            </p>
-          </div>
-        </div>
-        <form id={formId} noValidate ref={formRef} onSubmit={submit}>
+      <form id={formId} noValidate ref={formRef} onSubmit={submit}>
           <ValidationSummary errors={errors} />
-          <TextField
-            autoComplete="organization"
-            error={errors.businessName}
-            label="Salon or studio name"
-            required
-            value={profile.businessName}
-            onChange={(event) => {
-              setErrors((current) => ({ ...current, businessName: '' }));
-              onProfileChange({ businessName: event.target.value });
-            }}
-          />
-          <TextField
-            autoComplete="name"
-            error={errors.ownerName}
-            label="Your name"
-            required
-            value={profile.ownerName}
-            onChange={(event) => {
-              setErrors((current) => ({ ...current, ownerName: '' }));
-              onProfileChange({ ownerName: event.target.value });
-            }}
-          />
-          <ChoiceGroup
-            error={errors.businessStructure}
-            legend="Who are you setting Luster up for?"
-            name="business-structure"
-            options={BUSINESS_STRUCTURES}
-            value={profile.businessStructure}
-            onChange={(businessStructure) => {
-              setErrors((current) => ({ ...current, businessStructure: '' }));
-              onProfileChange({ businessStructure });
-            }}
-          />
-          <CollapsibleFormCard
-            completed={hasBranding}
-            errorCount={[errors.instagram].filter(Boolean).length}
-            id="onboarding-branding-card"
-            open={brandingOpen}
-            summary={brandingSummary}
-            title="Branding"
-            onToggle={() => setBrandingOpen((current) => !current)}
-          >
+          <section className="onboarding-business-card is-expanded">
+            <header><Store aria-hidden="true" size={22} /><div><h2>Business name</h2><p>The name of your salon or nail business.</p></div></header>
+            <TextField autoComplete="organization" error={errors.businessName} label="Salon or studio name *" required value={profile.businessName} onChange={(event) => changeBusinessName(event.target.value)} />
+            {profile.businessName.trim() ? (
+              <div className="onboarding-site-url">
+                <div><span>Your Luster URL</span>{editingSlug ? (
+                  <button type="button" onClick={() => { setEditingSlug(false); onProfileChange({ siteSlug: normalizeSiteSlug(profile.businessName), siteSlugCustomized: false }); }}>Use suggested URL</button>
+                ) : <button type="button" onClick={() => setEditingSlug(true)}>Change URL</button>}</div>
+                {editingSlug ? (
+                  <label><span>lustergel.app/</span><input aria-label="Custom Luster URL" aria-invalid={errors.siteSlug ? 'true' : undefined} value={effectiveSlug} onChange={(event) => { const siteSlug = normalizeSiteSlugInput(event.target.value); setErrors((current) => ({ ...current, siteSlug: '' })); onProfileChange({ siteSlug, siteSlugCustomized: true }); }} /></label>
+                ) : <strong>{siteUrlForSlug(effectiveSlug)}</strong>}
+                {errors.siteSlug ? <p className="onboarding-field__error">{errors.siteSlug}</p> : !slugError ? <p className="onboarding-site-url__valid"><Check aria-hidden="true" size={14} /> This URL looks good <small>Final availability is confirmed when you save.</small></p> : null}
+              </div>
+            ) : null}
+          </section>
+
+          <fieldset className={`onboarding-business-card onboarding-business-type${errors.businessType ? ' has-error' : ''}`} aria-invalid={errors.businessType ? 'true' : undefined}>
+            <legend>Which best describes your business?</legend>
+            <p>Choose the option that fits you best.</p>
+            <div>
+              {BUSINESS_TYPE_OPTIONS.map((option) => {
+                const Icon = option.id === 'independent_salon' ? BriefcaseBusiness : option.id === 'home_based' ? House : option.id === 'mobile' ? CarFront : UsersRound;
+                return <label key={option.id}><input checked={profile.businessType === option.id} name="business-type" type="radio" value={option.id} onChange={() => selectBusinessType(option.id)} /><span><Icon aria-hidden="true" size={25} /><strong>{option.label}</strong><small>{option.description}</small>{profile.businessType === option.id ? <Check aria-hidden="true" className="onboarding-business-type__check" size={15} /> : null}</span></label>;
+              })}
+            </div>
+            {errors.businessType ? <p className="onboarding-field__error">{errors.businessType}</p> : null}
+          </fieldset>
+
+          {personalBusiness ? (
+            <section className="onboarding-business-card onboarding-business-card--split">
+              <header><UserRound aria-hidden="true" size={22} /><div><h2>Your name</h2><p>Your name helps clients know who they’re booking with.</p></div></header>
+              <TextField autoComplete="name" error={errors.ownerName} label="Your name *" required value={profile.ownerName} onChange={(event) => { setErrors((current) => ({ ...current, ownerName: '' })); onProfileChange({ ownerName: event.target.value }); }} />
+              <NativeSwitch checked={profile.about.visibility.owner_name} description="Your name can appear with your business on your booking site." label="Show my name to clients" onChange={(checked) => updateVisibility('owner_name', 'showTechName', checked)} />
+            </section>
+          ) : null}
+
+          {personalBusiness ? (
+            <section className="onboarding-business-card onboarding-business-card--split">
+              <header><Camera aria-hidden="true" size={22} /><div><h2>Profile photo <span>Optional</span></h2><p>Add a photo of yourself for your nail-tech profile.</p></div></header>
             <ImageUploadField
               assetLoading={profileImage.status === 'loading'}
               chooseLabel="Choose profile photo"
@@ -355,6 +318,12 @@ export function BrandBasicsScreen({
                 ? 'This saved profile photo couldn’t be loaded on this device. Select it again to restore it.'
                 : 'This saved profile photo is no longer available on this device. Select it again to restore it.'}
             />
+              <NativeSwitch checked={profile.about.visibility.profile_photo} description="Your photo can appear in your nail-tech profile." label="Show my photo to clients" onChange={(checked) => updateVisibility('profile_photo', 'showTechPhoto', checked)} />
+            </section>
+          ) : null}
+
+          <section className="onboarding-business-card">
+            <header><Image aria-hidden="true" size={22} /><div><h2>Logo <span>Optional</span></h2><p>Your business logo appears in your site header.</p></div></header>
             <ImageUploadField
               assetLoading={logoImage.status === 'loading'}
               chooseLabel="Choose logo"
@@ -375,6 +344,10 @@ export function BrandBasicsScreen({
                 ? 'This saved logo couldn’t be loaded on this device. Select it again to restore it.'
                 : 'This saved logo is no longer available on this device. Select it again to restore it.'}
             />
+          </section>
+
+          <section className="onboarding-business-card onboarding-business-card--split">
+            <header><Instagram aria-hidden="true" size={22} /><div><h2>Instagram <span>Optional</span></h2><p>Add your Instagram so clients can find your work.</p></div></header>
             <TextField
               autoComplete="off"
               data-instagram-input
@@ -388,13 +361,15 @@ export function BrandBasicsScreen({
                 onProfileChange({ instagram: event.target.value });
               }}
             />
-          </CollapsibleFormCard>
-        </form>
-      </div>
+            <NativeSwitch checked={profile.about.visibility.instagram} description="Your Instagram link can appear on your booking site." label="Show Instagram to clients" onChange={(checked) => updateVisibility('instagram', 'showInstagram', checked)} />
+          </section>
+      </form>
+      <p className="onboarding-business-reassurance">You can change all of this later.</p>
       <StickyOnboardingActions
         formId={formId}
         onBack={onBack}
-        primaryLabel={copy.primaryAction}
+        primaryFirst
+        primaryLabel="Show me my site →"
       />
     </section>
   );

@@ -72,7 +72,9 @@ const setCurrentScreen = (
 export const createDanielaFixtureState = (): OnboardingLabState => {
   const state = createDefaultOnboardingState();
   state.profile.businessName = 'Isla Nail Studio';
+  state.profile.businessType = 'home_based';
   state.profile.ownerName = 'Daniela';
+  state.profile.siteSlug = 'isla-nail-studio';
   state.profile.businessStructure = 'solo';
   state.profile.profilePhoto = {
     altText: 'Daniela portrait illustration',
