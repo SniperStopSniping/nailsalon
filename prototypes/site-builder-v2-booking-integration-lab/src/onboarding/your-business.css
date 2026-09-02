@@ -169,13 +169,17 @@
 }
 
 .onboarding-business-type > legend {
+  float: left;
+  width: 100%;
   padding: 0;
+  margin: 0 0 6px;
   color: var(--onboarding-ink);
   font-size: 0.93rem;
   font-weight: 810;
 }
 
 .onboarding-business-type > p {
+  clear: both;
   margin-bottom: 14px;
 }
 
