@@ -4,6 +4,7 @@ type RecipeId = 'quick_book' | 'signature_one_page' | 'the_collective';
 
 type CustomerAudit = {
   blankSections: string[];
+  businessIdentityOwners: string[];
   contentOwners: Array<{ key: string; owner: string }>;
   documentOverflow: number;
   frameOverflow: number;
@@ -103,9 +104,16 @@ const auditCurrentCustomerPage = async (page: Page): Promise<CustomerAudit> =>
     const blankSections = sections
       .filter(section => !(section.textContent ?? '').trim())
       .map(section => section.dataset.sectionId ?? 'unknown');
+    const site = pageElement.closest<HTMLElement>('.onboarding-site-preview') ?? pageElement;
+    const businessIdentityOwners = [...site.querySelectorAll<HTMLElement>(
+      '[data-business-identity]',
+    )]
+      .filter(visible)
+      .map(owner => owner.dataset.businessIdentity ?? 'unknown');
 
     return {
       blankSections,
+      businessIdentityOwners,
       contentOwners,
       documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       frameOverflow: frame.scrollWidth - frame.clientWidth,
@@ -120,6 +128,7 @@ const auditCurrentCustomerPage = async (page: Page): Promise<CustomerAudit> =>
 
 const expectCleanCustomerPage = (audit: CustomerAudit): void => {
   expect(audit.blankSections).toEqual([]);
+  expect(audit.businessIdentityOwners).toHaveLength(1);
   expect(audit.documentOverflow).toBeLessThanOrEqual(1);
   expect(audit.frameOverflow).toBeLessThanOrEqual(1);
   expect(audit.nonCanonicalBookActions).toEqual([]);
@@ -195,6 +204,30 @@ test.describe('three locked V1 customer recipes', () => {
 
     expectCleanCustomerPage(audit);
     await expectSingleCataloguePresentation(page);
+    await expect(page.getByTestId('selected-service-summary')).toHaveCount(0);
+
+    await page.getByRole('button', {
+      name: /View details for Russian Manicure/u,
+    }).first().click();
+    await page.getByTestId('service-detail-dialog')
+      .getByRole('button', { name: 'Select service' })
+      .click();
+
+    const summary = page.getByTestId('selected-service-summary');
+    const summaryHost = page.getByTestId('onboarding-booking-selection-host');
+    await expect(summary).toBeVisible();
+    await expect(summaryHost).toContainText('Russian Manicure');
+    await expect(summaryHost.getByTestId('selected-service-summary')).toHaveCount(1);
+
+    const frame = page.locator('.onboarding-preview-frame');
+    await frame.evaluate(element => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect.poll(() => summary.evaluate((element) => {
+      const summaryBounds = element.getBoundingClientRect();
+      const frameBounds = document.querySelector('.onboarding-preview-frame')?.getBoundingClientRect();
+      return frameBounds ? summaryBounds.bottom < frameBounds.top : false;
+    })).toBe(true);
 
     await expect(page.locator('nav[aria-label="Customer preview navigation"] a')).toHaveCount(1);
 

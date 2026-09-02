@@ -14,6 +14,7 @@ export type ServiceDetailProps = {
   imageMode: 'auto' | 'show' | 'hide';
   selection: BookingSelection;
   service: MockService | null;
+  showSalonIdentity: boolean;
   onClose: () => void;
   onContinue: (service: MockService) => void;
   onDeselect: (service: MockService) => void;
@@ -32,6 +33,7 @@ export function ServiceDetail({
   imageMode,
   selection,
   service,
+  showSalonIdentity,
   onClose,
   onContinue,
   onDeselect,
@@ -99,7 +101,7 @@ export function ServiceDetail({
                       role="img"
                       aria-label={`No service photo available for ${service.name}`}
                     >
-                      <span>{fixture.salon.name}</span>
+                      <span>{showSalonIdentity ? fixture.salon.name : 'Service photo coming soon'}</span>
                     </div>
                   )}
                 </div>
@@ -123,7 +125,9 @@ export function ServiceDetail({
                 </p>
                 <p className="booking-detail-description">
                   {service.longDescription
-                    ?? `Ask ${fixture.salon.name} about the finish and options available for this service.`}
+                    ?? (showSalonIdentity
+                      ? `Ask ${fixture.salon.name} about the finish and options available for this service.`
+                      : 'Ask about the finish and options available for this service.')}
                 </p>
 
                 {compatibleAddOns.length > 0 ? (

@@ -25,7 +25,7 @@ import {
   BookingSectionRenderer,
   type BookingSessionUpdater,
 } from '../../booking/BookingSectionRenderer';
-import { createEmptyBookingSession, summarizeSelection } from '../../booking/helpers';
+import { createEmptyBookingSession } from '../../booking/helpers';
 import { createDefaultBookingPresentationSettings } from '../../booking/presentation';
 import type { BookingSessionState } from '../../booking/types';
 import { useCustomDesignAssetMap } from '../../custom-design/integration/CustomDesignAssetProvider';
@@ -226,14 +226,6 @@ export const ONBOARDING_STYLE_ROLES: Record<SiteStylePresetId, StyleRoles> = {
   },
 };
 
-const createPreviewBookingSession = (): BookingSessionState => ({
-  ...createEmptyBookingSession(),
-  selection: {
-    serviceId: 'svc-manicure-russian',
-    addOnIds: ['addon-french'],
-  },
-});
-
 /**
  * Each contact method gets its own mark. A single generic glyph made
  * "Book now" and "Instagram" look like the same action.
@@ -294,7 +286,10 @@ function HeroDecoration({ title }: { title: string }) {
   );
 }
 
-function Brand({ profile }: { profile: BusinessProfileDraft }) {
+function Brand({ profile, showName }: {
+  profile: BusinessProfileDraft;
+  showName: boolean;
+}) {
   const assetIds = profile.logo?.storageId ? [profile.logo.storageId] : [];
   const assets = useCustomDesignAssetMap(assetIds);
   const source = resolveOnboardingImageUrl(profile.logo, assets);
@@ -314,7 +309,7 @@ function Brand({ profile }: { profile: BusinessProfileDraft }) {
       ) : (
         <i aria-hidden="true">{identityInitials(title)}</i>
       )}
-      <strong>{title}</strong>
+      {showName ? <strong data-business-identity="site_header">{title}</strong> : null}
     </span>
   );
 }
@@ -516,16 +511,11 @@ function AboutCopy({ introOverride, profile }: {
     : sharedBio;
   const heading = isAboutVisible(visibility, 'owner_name') && profile.ownerName.trim()
     ? profile.ownerName.trim()
-    : isAboutVisible(visibility, 'salon_name') && profile.businessName.trim()
-      ? `About ${profile.businessName.trim()}`
-      : 'About';
+    : 'About';
   return (
     <div className="onboarding-about-copy">
       <p className="onboarding-customer-eyebrow">Meet your nail artist</p>
       <h2>{heading}</h2>
-      {isAboutVisible(visibility, 'salon_name') && profile.businessName.trim()
-        ? <p className="onboarding-about-salon">{profile.businessName.trim()}</p>
-        : null}
       {(introOverride?.trim() || isAboutVisible(visibility, 'bio')) && bio.lead ? (
         <div className="onboarding-about-biography">
           <p>{bio.lead}</p>
@@ -915,15 +905,11 @@ function BookingSection({
     [profile],
   );
   const [internalSession, setInternalSession] = useState<BookingSessionState>(
-    createPreviewBookingSession,
+    createEmptyBookingSession,
   );
+  const [summaryHost, setSummaryHost] = useState<HTMLDivElement | null>(null);
   const effectiveSession = session ?? internalSession;
   const updateSession = onSessionChange ?? setInternalSession;
-  const summary = useMemo(() => summarizeSelection(
-    effectiveSession.selection,
-    fixture.services,
-    fixture.addOns,
-  ), [effectiveSession.selection, fixture.addOns, fixture.services]);
   const minimumNoticeCopy = useMemo(
     () => getMinimumNoticeCopy(profile.bookingPreferences.minimumNoticeMinutes),
     [profile.bookingPreferences.minimumNoticeMinutes],
@@ -963,13 +949,6 @@ function BookingSection({
       data-section-id={sectionId ?? documentBookingSection?.id}
       id={sectionAnchorId(sectionId ?? documentBookingSection?.id ?? '', 'booking')}
     >
-      {summary ? (
-        <div className="onboarding-booking-example" data-testid="canonical-booking-example">
-          <span>Selected</span>
-          <strong>{summary.service.name} + {summary.addOns.map((addOn) => addOn.name).join(' + ')}</strong>
-          <small>{summary.durationLabel} · {summary.price.label}</small>
-        </div>
-      ) : null}
       {bookingFacts.map(fact => (
         <section
           aria-label={fact.label}
@@ -982,6 +961,11 @@ function BookingSection({
           <strong>{fact.value}</strong>
         </section>
       ))}
+      <div
+        className="onboarding-booking-selection-host"
+        data-testid="onboarding-booking-selection-host"
+        ref={setSummaryHost}
+      />
       <BookingSectionRenderer
         fixture={fixture}
         headingLevel="h2"
@@ -991,7 +975,8 @@ function BookingSection({
         presentationSettings={placementAwareBookingSettings}
         previewViewport={device === 'phone' ? 'mobile' : device}
         session={effectiveSession}
-        summaryHost={overlayHost}
+        showSalonIdentity={false}
+        summaryHost={summaryHost}
         tokenPreset="warm"
       />
       {policyEntries.length > 0 ? (
@@ -1205,6 +1190,13 @@ export function OnboardingSitePreview({
     pagePlan.flatMap(page => page.sections.map(section => section.sectionType)),
   ), [pagePlan]);
   const activePage = pagePlan.find(page => page.id === activePageId) ?? pagePlan[0] ?? null;
+  const activeHero = activePage?.sections.find(section => section.sectionType === 'hero');
+  const activeHeroHeadline = activeHero?.section.sectionType === 'hero'
+    && activeHero.section.settings.headline.source === 'override'
+    && activeHero.section.settings.headline.value.trim()
+    ? activeHero.section.settings.headline.value.trim()
+    : activeHero ? title : null;
+  const activeHeroOwnsBusinessIdentity = activeHeroHeadline === title;
   const navigationItems = useMemo(() => {
     if (!effectiveDocument.navigation.enabled) return [];
     const pagesById = new Map(effectiveDocument.pages.map((page) => [page.id, page]));
@@ -1433,7 +1425,13 @@ export function OnboardingSitePreview({
             {heroSettings?.showLocationEyebrow !== false ? (
               <p className="onboarding-customer-eyebrow">Independent nail care</p>
             ) : null}
-            <h1 data-preview-page-heading="true" tabIndex={-1}>{headline}</h1>
+            <h1
+              data-business-identity={headline === title ? 'hero' : undefined}
+              data-preview-page-heading="true"
+              tabIndex={-1}
+            >
+              {headline}
+            </h1>
             <p>{intro}</p>
             <a
               className="onboarding-customer-primary"
@@ -1583,7 +1581,7 @@ export function OnboardingSitePreview({
       >
       <div className="onboarding-site-preview" ref={previewRef} style={style}>
         <header className={`onboarding-customer-header${starter === 'multi_page' ? ' has-page-navigation' : ''}${starter === 'one_page' ? ' has-anchor-navigation' : ''}`}>
-          <Brand profile={profile} />
+          <Brand profile={profile} showName={!activeHeroOwnsBusinessIdentity} />
           <nav
             aria-label="Customer preview navigation"
             className={starter === 'multi_page'
@@ -1666,7 +1664,6 @@ export function OnboardingSitePreview({
 
         {presentTypes.has('footer') ? null : (
           <footer className="onboarding-customer-footer">
-            <strong>{title}</strong>
             <small>Powered by Luster</small>
           </footer>
         )}

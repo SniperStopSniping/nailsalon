@@ -55,6 +55,7 @@ export type BookingSectionRendererProps = {
   presentationSettings: BookingSectionPresentationSettings;
   previewViewport?: 'desktop' | 'tablet' | 'mobile';
   session: BookingSessionState;
+  showSalonIdentity?: boolean;
   tokenPreset?: BookingTokenPresetId;
   onSessionChange: BookingSessionUpdater;
 };
@@ -69,6 +70,7 @@ export function BookingSectionRenderer({
   presentationSettings,
   previewViewport = 'desktop',
   session,
+  showSalonIdentity = true,
   tokenPreset = 'warm',
   onSessionChange,
 }: BookingSectionRendererProps) {
@@ -236,6 +238,7 @@ export function BookingSectionRenderer({
         imageMode={detailImageMode}
         selection={session.selection}
         service={detailService}
+        showSalonIdentity={showSalonIdentity}
         onClose={requestCloseDetails}
         onContinue={service => commitService(service, true)}
         onDeselect={deselectService}
@@ -302,6 +305,7 @@ export function BookingSectionRenderer({
             onOpenDetails={openDetails}
             onQueryChange={updateQuery}
             readOnly={mode === 'edit'}
+            showSalonIdentity={showSalonIdentity}
           />
         </div>
       </div>

@@ -324,7 +324,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .not.toBeInTheDocument();
   });
 
-  it('personalizes embedded Booking identity while preserving its canonical menu and shared hours', () => {
+  it('keeps embedded Booking focused on the canonical menu without repeating the salon identity', () => {
     const state = createDanielaFixtureState();
     state.profile.businessName = 'Cedar Tips';
     state.profile.location.cityOrArea = 'Ottawa, Ontario';
@@ -337,17 +337,16 @@ describe('OnboardingSitePreview shared profile composition', () => {
     const preview = screen.getByRole('region', { name: 'Personalized Booking preview' });
     const booking = within(preview).getByRole('region', { name: 'Booking' });
 
-    expect(within(booking).getByRole('heading', { level: 2, name: 'Cedar Tips' })).toBeVisible();
-    expect(within(booking).getByText('Location shared during booking')).toBeVisible();
+    expect(within(booking).getByRole('heading', { level: 2, name: 'Services & Booking' })).toBeVisible();
+    expect(within(booking).queryByText('Cedar Tips')).not.toBeInTheDocument();
     expect(within(booking).queryByText('Ottawa, Ontario')).not.toBeInTheDocument();
     expect(within(booking).queryByText('Isla Nail Studio')).not.toBeInTheDocument();
     expect(within(booking).queryByText('Toronto, Ontario')).not.toBeInTheDocument();
     expect(within(booking).queryByRole('heading', { level: 1 })).not.toBeInTheDocument();
     expect(preview.querySelectorAll('[data-content-key="location"]')).toHaveLength(1);
     expect(within(preview).queryByText(/Next opening/u)).not.toBeInTheDocument();
-    expect(within(preview).getByTestId('canonical-booking-example')).toHaveTextContent(
-      'Russian Manicure + French1 hr 45 min · From $80',
-    );
+    expect(within(preview).queryByTestId('canonical-booking-example')).not.toBeInTheDocument();
+    expect(within(preview).queryByTestId('selected-service-summary')).not.toBeInTheDocument();
   });
 
   it('renders real Custom Design sections around Booking in universal document order', () => {
@@ -463,9 +462,8 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .not.toBeInTheDocument();
     const contact = within(preview).getByRole('region', { name: 'Visit and contact' });
     expect(within(contact).getByRole('link', { name: /Instagram/ })).toBeVisible();
-    expect(within(preview).getByTestId('canonical-booking-example')).toHaveTextContent(
-      'Russian Manicure + French1 hr 45 min · From $80',
-    );
+    expect(within(preview).queryByTestId('canonical-booking-example')).not.toBeInTheDocument();
+    expect(within(preview).queryByTestId('selected-service-summary')).not.toBeInTheDocument();
 
     const next = {
       ...state,
@@ -535,7 +533,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
       name: 'Daniela portrait illustration',
     })).toBeVisible();
     expect(within(about).getByRole('heading', { level: 2, name: 'Daniela' })).toBeVisible();
-    expect(within(about).getByText('Isla Nail Studio')).toBeVisible();
+    expect(about.querySelector('.onboarding-about-salon')).not.toBeInTheDocument();
     expect(within(about).getByText(state.profile.about.shortBio)).toBeVisible();
     expect(within(about).getByText(state.profile.about.fullBio)).toBeInTheDocument();
     expect(within(about).getByText('Read more')).toBeInTheDocument();
@@ -844,7 +842,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
       .getByRole('region', { name: 'About' });
 
     expect(within(aboutRegion).getByRole('heading', { name: 'Daniela' })).toBeVisible();
-    expect(within(aboutRegion).getByText('Isla Nail Studio')).toBeVisible();
+    expect(aboutRegion.querySelector('.onboarding-about-salon')).not.toBeInTheDocument();
     expect(within(aboutRegion).getByText(migrated.profile.about.fullBio)).toBeInTheDocument();
     expect(within(aboutRegion).queryByRole('link', { name: 'Book now' }))
       .not.toBeInTheDocument();
@@ -1036,6 +1034,41 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(screen.queryByTestId('service-detail-dialog')).not.toBeInTheDocument();
 
     expect(frame?.scrollTop).toBe(640);
+  });
+
+  it('starts without a selected service and keeps an explicit selection inside Booking', async () => {
+    const user = userEvent.setup();
+    const state = createDanielaFixtureState();
+    state.recipe.starter = 'quick_book';
+
+    render(
+      <OnboardingSitePreview
+        device="phone"
+        document={initializeStarter('quick_book')}
+        interactionMode="interactive"
+        label="Unselected Booking preview"
+        state={state}
+      />,
+    );
+
+    const preview = screen.getByRole('region', { name: 'Unselected Booking preview' });
+    const booking = within(preview).getByRole('region', { name: 'Booking' });
+    const summaryHost = within(booking).getByTestId('onboarding-booking-selection-host');
+    const overlayHost = preview.querySelector<HTMLElement>('.onboarding-preview-overlay-host');
+
+    expect(within(preview).queryByTestId('selected-service-summary')).not.toBeInTheDocument();
+    expect(summaryHost).toBeEmptyDOMElement();
+
+    await user.click(within(booking).getAllByRole('button', {
+      name: /View details for Gel Manicure, 1 hr, \$50/,
+    })[0]!);
+    const detail = await screen.findByTestId('service-detail-dialog');
+    await user.click(within(detail).getByRole('button', { name: 'Select service' }));
+
+    const summary = await screen.findByTestId('selected-service-summary');
+    expect(summaryHost).toContainElement(summary);
+    expect(overlayHost).not.toContainElement(summary);
+    expect(within(summary).getByText('Gel Manicure')).toBeVisible();
   });
 
   it('keeps the booking-only Quick Book at four truthful sections without duplicating Booking', () => {
@@ -1732,7 +1765,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     expect(within(contact).queryByRole('link', { name: /Book/u })).not.toBeInTheDocument();
   });
 
-  it('keeps a long business identity intact for assistive access while navigation remains separate', () => {
+  it('renders one long business identity on a Hero page while navigation remains separate', () => {
     const state = createDanielaFixtureState();
     const longName = 'Polished Beauty Lounge and Academy with an Exceptionally Long Studio Name';
     state.profile.businessName = longName;
@@ -1742,14 +1775,43 @@ describe('OnboardingSitePreview shared profile composition', () => {
     );
     const preview = screen.getByRole('region', { name: 'Long identity preview' });
     const brand = preview.querySelector('.onboarding-customer-brand');
-    const brandText = brand?.querySelector('strong');
+    const identityOwners = preview.querySelectorAll('[data-business-identity]');
+    const heroIdentity = preview.querySelector<HTMLElement>('[data-business-identity="hero"]');
     const navigation = within(preview).getByRole('navigation', { name: 'Customer preview navigation' });
 
     expect(brand).toHaveClass('onboarding-customer-brand');
-    expect(brandText).toHaveTextContent(longName);
+    expect(brand?.querySelector('strong')).toBeNull();
+    expect(identityOwners).toHaveLength(1);
+    expect(heroIdentity).toHaveTextContent(longName);
     expect(brand).toHaveAttribute('title', longName);
-    expect(navigation).not.toContainElement(brandText ?? null);
+    expect(navigation).not.toContainElement(heroIdentity);
     expect(within(navigation).getByRole('link', { name: 'Book' })).toBeVisible();
+  });
+
+  it('moves the single visible business identity to the header on a page without Hero', async () => {
+    const user = userEvent.setup();
+    const state = createDanielaFixtureState();
+    state.profile.businessName = 'Isla Nails';
+
+    render(
+      <OnboardingSitePreview
+        document={initializeStarter('multi_page')}
+        interactionMode="interactive"
+        label="Single identity preview"
+        state={state}
+      />,
+    );
+    const preview = screen.getByRole('region', { name: 'Single identity preview' });
+
+    expect(preview.querySelectorAll('[data-business-identity]')).toHaveLength(1);
+    expect(preview.querySelector('[data-business-identity="hero"]')).toHaveTextContent('Isla Nails');
+
+    await user.click(within(preview).getByRole('link', { name: 'Services & Booking' }));
+
+    expect(preview.querySelectorAll('[data-business-identity]')).toHaveLength(1);
+    expect(preview.querySelector('[data-business-identity="site_header"]')).toHaveTextContent('Isla Nails');
+    expect(within(preview).getByRole('region', { name: 'Booking' }))
+      .not.toHaveTextContent('Isla Nails');
   });
 
   it('omits disabled optional modules without erasing their source drafts or leaving headings', () => {
