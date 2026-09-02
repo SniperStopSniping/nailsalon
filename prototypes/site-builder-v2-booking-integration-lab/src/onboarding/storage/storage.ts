@@ -78,6 +78,7 @@ const SCREEN_IDS = new Set<OnboardingScreenId>([
   'business',
   'photo_social',
   'location_contact',
+  'hours',
   'booking_preferences',
   'starter',
   'starting_preview',

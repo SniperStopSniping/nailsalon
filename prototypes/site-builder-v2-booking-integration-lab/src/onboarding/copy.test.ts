@@ -8,8 +8,8 @@ import {
 } from './copy';
 
 describe('centralized onboarding metadata', () => {
-  it('maps all eleven live screens to four ordered stages', () => {
-    expect(CORE_SCREEN_ORDER).toHaveLength(11);
+  it('maps all twelve live screens to four ordered stages', () => {
+    expect(CORE_SCREEN_ORDER).toHaveLength(12);
     expect(CORE_SCREEN_ORDER[0]).toBe('starter');
     expect(CORE_SCREEN_ORDER[1]).toBe('business');
     expect(CORE_SCREEN_ORDER).not.toContain('welcome');
@@ -21,6 +21,7 @@ describe('centralized onboarding metadata', () => {
       'review',
     ]);
     expect(CORE_SCREEN_ORDER.map((screen) => SCREEN_METADATA[screen].stage)).toEqual([
+      'basics',
       'basics',
       'basics',
       'basics',
@@ -48,7 +49,7 @@ describe('centralized onboarding metadata', () => {
     expect(SCREEN_METADATA.starter.supportingCopy).toBe(
       'Start simple or with a full website. You can add or change pages and sections anytime.',
     );
-    expect(SCREEN_METADATA.business.heading).toBe('Make it yours');
+    expect(SCREEN_METADATA.business.heading).toBe('Let’s start with your business');
     expect(SCREEN_METADATA.site_style.heading).toBe('Choose your website style');
     expect(SCREEN_METADATA.final_preview).toMatchObject({
       primaryAction: 'Finish setup',

@@ -58,8 +58,10 @@ export const getEssentialResults = (
     stage: 'basics',
   },
   {
-    complete: nonBlank(state.profile.location.cityOrArea)
-      && state.profile.location.locationType !== null
+    complete: state.profile.businessType !== null
+      && nonBlank(state.profile.location.cityOrArea)
+      && (state.profile.businessType === 'mobile'
+        || nonBlank(state.profile.location.exactAddress))
       && hasPublicContactMethod(state),
     id: 'location_contact',
     label: 'Location and contact',

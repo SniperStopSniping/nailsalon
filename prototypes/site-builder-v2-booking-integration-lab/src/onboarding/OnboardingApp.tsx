@@ -77,10 +77,9 @@ import {
   StartingPointScreen,
   StartingPreviewScreen,
 } from './screens/BookingScreens';
-import {
-  BrandBasicsScreen,
-  LocationContactScreen,
-} from './screens/BasicsScreens';
+import { BrandBasicsScreen } from './screens/BasicsScreens';
+import { HoursScreen } from './screens/HoursScreen';
+import { LocationContactScreen } from './screens/LocationContactScreen';
 import {
   BUILDER_HANDOFF_TRIGGER_ID,
   FinalReviewScreen,
@@ -1314,9 +1313,17 @@ export function OnboardingApp({
             onBack={goBack}
             onContinue={onboarding.continueFlow}
             onProfileChange={updateProfile}
-            onSkipHours={() => onboarding.recordEvent({ item: 'hours', screen, type: 'skip' })}
             onValidationFailure={(fieldIds) => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
-            previewTimestamp={onboarding.state.reviewOptions.previewTimestamp}
+            profile={onboarding.state.profile}
+          />
+        );
+      case 'hours':
+        return (
+          <HoursScreen
+            onBack={goBack}
+            onContinue={onboarding.continueFlow}
+            onProfileChange={updateProfile}
+            onSkipHours={() => onboarding.recordEvent({ item: 'hours', screen, type: 'skip' })}
             profile={onboarding.state.profile}
           />
         );

@@ -54,6 +54,7 @@ describe('onboarding essentials', () => {
     state.profile.ownerName = 'Daniela';
     state.profile.businessStructure = 'solo';
     state.profile.location.cityOrArea = 'Scarborough, Ontario';
+    state.profile.location.exactAddress = '880 Ellesmere Rd';
     state.profile.location.locationType = 'salon_suite';
     state.profile.bookingOnlyContact = true;
 
@@ -65,7 +66,9 @@ describe('onboarding essentials', () => {
 
   it('requires an enabled, coherent preferred contact method when not Booking-only', () => {
     const state = createDefaultOnboardingState();
+    state.profile.businessType = 'independent_salon';
     state.profile.location.cityOrArea = 'Scarborough, Ontario';
+    state.profile.location.exactAddress = '880 Ellesmere Rd';
     state.profile.location.locationType = 'salon_suite';
     state.profile.bookingOnlyContact = false;
     state.profile.clientContact.primaryNumber = '416-555-0100';

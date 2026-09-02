@@ -295,7 +295,7 @@ type CollapsibleFormCardProps = {
   onToggle: () => void;
   open: boolean;
   summary?: string;
-  status?: 'set_up' | 'finish' | 'complete' | 'not_shown';
+  status?: 'set_up' | 'finish' | 'complete' | 'not_shown' | 'optional';
   title: string;
 };
 
@@ -319,6 +319,8 @@ export function CollapsibleFormCard({
     ? 'Complete'
     : resolvedStatus === 'not_shown'
       ? 'Not shown'
+      : resolvedStatus === 'optional'
+        ? 'Optional'
       : resolvedStatus === 'finish'
         ? 'Finish'
         : 'Set up';

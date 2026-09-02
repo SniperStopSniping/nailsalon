@@ -6,7 +6,6 @@ import {
 } from './quick-book-profile';
 import {
   type BusinessProfileDraft,
-  DEFAULT_QUICK_BOOK_PROFILE_VISIBILITY,
   type QuickBookProfileVisibilityDraft,
 } from './types';
 
@@ -118,7 +117,19 @@ describe('resolveQuickBookProfile', () => {
       previewTimestamp: MONDAY_AT_NOON_IN_TORONTO,
       profile: createFullProfile(),
       verifiedReviews: REVIEWS,
-      visibility: { ...DEFAULT_QUICK_BOOK_PROFILE_VISIBILITY },
+      visibility: {
+        showBio: false,
+        showBookingPolicy: false,
+        showCancellationPolicy: false,
+        showEmail: false,
+        showHours: false,
+        showInstagram: false,
+        showLocation: false,
+        showPhone: false,
+        showReviews: false,
+        showTechName: false,
+        showTechPhoto: false,
+      },
     });
 
     expect(view).toEqual({

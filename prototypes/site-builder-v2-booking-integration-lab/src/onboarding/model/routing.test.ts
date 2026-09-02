@@ -29,6 +29,7 @@ describe('onboarding conditional routing', () => {
       'business',
       'starting_preview',
       'location_contact',
+      'hours',
       'booking_preferences',
       'about',
       'about_design',
