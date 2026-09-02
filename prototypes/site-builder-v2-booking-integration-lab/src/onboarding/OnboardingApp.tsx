@@ -1295,6 +1295,13 @@ export function OnboardingApp({
             onLogoSelected={(file) => selectImage(file, 'logo')}
             onProfileChange={updatePhotoProfile}
             onProfilePhotoSelected={(file) => selectImage(file, 'profile')}
+            onQuickBookProfileChange={(patch) => updateState((current) => ({
+              ...current,
+              recipe: {
+                ...current.recipe,
+                quickBookProfile: { ...current.recipe.quickBookProfile, ...patch },
+              },
+            }))}
             onValidationFailure={(fieldIds) => onboarding.recordEvent({ fieldIds, screen, type: 'validation_failure' })}
             profile={onboarding.state.profile}
             reveal={startingSiteRevealActive}
@@ -1363,25 +1370,8 @@ export function OnboardingApp({
             onBack={goBack}
             onContinue={onboarding.continueFlow}
             onOpenPreview={() => openPreview('starting_preview')}
-            onQuickBookBioChange={(shortBio) => onboarding.updateProfile({
-              about: {
-                ...onboarding.state.profile.about,
-                shortBio,
-              },
-            })}
-            onQuickBookProfileChange={(patch) => updateState((current) => ({
-              ...current,
-              recipe: {
-                ...current.recipe,
-                quickBookProfile: {
-                  ...current.recipe.quickBookProfile,
-                  ...patch,
-                },
-              },
-            }))}
             preview={previewFor(onboarding.state, lab.document, 'Personalized starting site preview')}
             profile={onboarding.state.profile}
-            quickBookProfile={onboarding.state.recipe.quickBookProfile}
             reveal={startingSiteRevealActive}
             starter={onboarding.state.recipe.starter}
           />

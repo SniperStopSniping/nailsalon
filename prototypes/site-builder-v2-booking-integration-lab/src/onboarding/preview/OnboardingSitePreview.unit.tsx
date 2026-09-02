@@ -1007,6 +1007,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.recipe.policiesEnabled = false;
     state.recipe.quickBookProfile = {
       ...state.recipe.quickBookProfile,
+      showInstagram: false,
       showTechName: false,
       showTechPhoto: false,
     };
@@ -2073,6 +2074,7 @@ describe('OnboardingSitePreview shared profile composition', () => {
     state.recipe.starter = 'quick_book';
     state.recipe.quickBookProfile.showLocation = true;
     state.recipe.quickBookProfile.showPhone = true;
+    state.recipe.quickBookProfile.showInstagram = false;
     state.profile.location.exactAddress = '123 Example Avenue';
     state.profile.bookingOnlyContact = true;
     state.profile.clientContact.primaryNumber = '416-555-0100';

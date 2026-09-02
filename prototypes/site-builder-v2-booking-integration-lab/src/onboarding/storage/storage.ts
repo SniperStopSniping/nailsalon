@@ -10,6 +10,10 @@ import {
   resolveInstagramUsername,
 } from '../model/contact';
 import { createDefaultOnboardingState } from '../model/defaults';
+import {
+  inferOnboardingBusinessType,
+  normalizeSiteSlug,
+} from '../model/business-identity';
 import { getResolvedPolicyWording } from '../model/policies';
 import {
   type BusinessProfileDraft,
@@ -22,6 +26,7 @@ import {
   type GalleryDraft,
   type LocalImageReference,
   type LocationType,
+  type OnboardingBusinessType,
   ONBOARDING_SCHEMA_VERSION,
   type OnboardingLabState,
   type OnboardingScreenId,
@@ -132,6 +137,14 @@ const isClientContactDraft = (value: unknown): value is ClientContactDraft => is
 
 const isBusinessStructure = (value: unknown): value is BusinessStructure | null =>
   value === null || value === 'solo' || value === 'multi_tech';
+
+const isOnboardingBusinessType = (
+  value: unknown,
+): value is OnboardingBusinessType | null => value === null
+  || value === 'independent_salon'
+  || value === 'home_based'
+  || value === 'mobile'
+  || value === 'salon_team';
 
 const isNullableBoolean = (value: unknown): value is boolean | null =>
   value === null || typeof value === 'boolean';
@@ -438,6 +451,9 @@ const isOnboardingState = (value: unknown): value is OnboardingLabState => {
     && typeof value.anonymousDraftId === 'string'
     && /^draft_[a-z0-9_-]{12,100}$/iu.test(value.anonymousDraftId)
     && isBusinessStructure(value.profile.businessStructure)
+    && isOnboardingBusinessType(value.profile.businessType)
+    && typeof value.profile.siteSlug === 'string'
+    && typeof value.profile.siteSlugCustomized === 'boolean'
     && isClientContactDraft(value.profile.clientContact)
     && (value.profile.profilePhoto === undefined
       || isCurrentLocalImageReference(value.profile.profilePhoto))
@@ -739,6 +755,14 @@ const migrateBusinessProfile = (
       visibility: aboutVisibility,
     },
     businessStructure,
+    businessType: isOnboardingBusinessType(value.businessType)
+      ? value.businessType
+      : inferOnboardingBusinessType({
+          businessStructure,
+          locationType: location.locationType
+            ? location.locationType as LocationType
+            : legacyLocationType ?? null,
+        }),
     clientContact: migrateClientContact(value),
     ...depositPolicy,
     serviceMenu,
@@ -752,6 +776,12 @@ const migrateBusinessProfile = (
         ? location.locationType as LocationType
         : legacyLocationType ?? null,
     },
+    siteSlug: typeof value.siteSlug === 'string' && value.siteSlug.trim()
+      ? normalizeSiteSlug(value.siteSlug)
+      : normalizeSiteSlug(typeof value.businessName === 'string' ? value.businessName : ''),
+    siteSlugCustomized: typeof value.siteSlugCustomized === 'boolean'
+      ? value.siteSlugCustomized
+      : false,
   } satisfies BusinessProfileDraft;
 
   const instagram = resolveInstagramUsername(migratedProfile.instagram);
@@ -962,6 +992,7 @@ const isLegacyOnboardingState = (value: unknown): value is SharedStateShape =>
     || (value.schemaVersion === 7 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 8 && isWeeklyHoursDraft(value.profile.hours))
     || (value.schemaVersion === 9 && isWeeklyHoursDraft(value.profile.hours))
+    || (value.schemaVersion === 10 && isWeeklyHoursDraft(value.profile.hours))
   );
 
 const defaultStorage = (): OnboardingStorage => {

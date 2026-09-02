@@ -64,11 +64,11 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     supportingCopy: 'We’ll use these settings on your website and when showing available appointments.',
   },
   business: {
-    heading: 'Make it yours',
-    primaryAction: 'Continue',
+    heading: 'Let’s start with your business',
+    primaryAction: 'Show me my site →',
     stage: 'basics',
     status: 'essential',
-    supportingCopy: 'Add your name and branding, and watch your site come together as you type.',
+    supportingCopy: 'Tell us a few basics and we’ll start building your site.',
   },
   extras: {
     heading: 'Add something extra',
@@ -133,7 +133,7 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     secondaryAction: 'Preview my site',
     stage: 'basics',
     status: null,
-    supportingCopy: 'We created this first version from your information. Take a look, then we’ll finish the details that make it feel like your business.',
+    supportingCopy: 'This first version already uses your business identity. Take a look—there’s nothing else to answer on this screen.',
   },
   /**
    * Legacy id retained so persisted drafts and journals from before the

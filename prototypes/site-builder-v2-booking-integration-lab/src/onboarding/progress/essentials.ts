@@ -7,6 +7,7 @@ import {
   contactMethodHasValue,
   resolveInstagramUsername,
 } from '../model/contact';
+import { isPersonalBusinessType } from '../model/business-identity';
 
 export const ESSENTIAL_IDS = [
   'starting_point',
@@ -48,8 +49,9 @@ export const getEssentialResults = (
   },
   {
     complete: nonBlank(state.profile.businessName)
-      && nonBlank(state.profile.ownerName)
-      && state.profile.businessStructure !== null,
+      && state.profile.businessType !== null
+      && (!isPersonalBusinessType(state.profile.businessType)
+        || nonBlank(state.profile.ownerName)),
     id: 'business',
     label: 'Business information',
     screen: 'business',
