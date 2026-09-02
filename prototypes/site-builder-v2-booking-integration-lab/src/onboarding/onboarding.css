@@ -3445,20 +3445,37 @@ body.onboarding-modal-open {
   background: var(--customer-ground);
 }
 
-.onboarding-booking-example {
-  display: grid;
-  gap: 3px;
-  margin: 0 auto 12px;
-  padding: 12px;
-  border: 1px solid var(--customer-line);
-  border-radius: var(--customer-radius);
-  background: var(--customer-surface);
+.onboarding-booking-selection-host:empty {
+  display: none;
 }
 
-.onboarding-booking-example span,
-.onboarding-booking-example small {
-  color: var(--customer-muted);
-  font-size: 0.67rem;
+/* A customer selection is ordinary Booking content, never viewport chrome. */
+.onboarding-booking-selection-host:not(:empty) {
+  position: static;
+  margin: 0 auto 12px;
+}
+
+.onboarding-booking-selection-host .booking-preview-summary {
+  position: static;
+  width: 100%;
+  height: auto;
+  color: var(--booking-text);
+  pointer-events: auto;
+}
+
+.onboarding-booking-selection-host .booking-preview-summary .selected-summary {
+  position: static;
+  right: auto;
+  bottom: auto;
+  left: auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  border-radius: 16px;
+}
+
+.onboarding-customer-booking .booking-surface[data-has-selection='true'] {
+  padding-bottom: 0;
 }
 
 .onboarding-quick-book-policies {
@@ -3498,10 +3515,6 @@ body.onboarding-modal-open {
   color: var(--customer-muted);
   font-size: 0.72rem;
   line-height: 1.5;
-}
-
-.onboarding-booking-example strong {
-  font-size: 0.79rem;
 }
 
 .onboarding-customer-bookable-times {
