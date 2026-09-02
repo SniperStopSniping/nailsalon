@@ -89,6 +89,7 @@ export const createDanielaFixtureState = (): OnboardingLabState => {
   state.profile.instagram = '@islanail.studio';
   state.profile.preferredContact = 'instagram';
   state.profile.location.cityOrArea = 'Scarborough, Ontario';
+  state.profile.location.exactAddress = '880 Ellesmere Rd, Scarborough, ON';
   state.profile.location.locationType = 'home_studio';
   state.profile.location.addressVisibility = 'after_booking';
   state.profile.location.allowGeneralAreaDirections = false;

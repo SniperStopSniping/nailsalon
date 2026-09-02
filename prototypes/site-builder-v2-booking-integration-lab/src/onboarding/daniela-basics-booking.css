@@ -21,6 +21,11 @@
   background: #f8f5f3;
 }
 
+.onboarding-collapsible-card.is-optional {
+  border-color: var(--onboarding-line);
+  background: var(--onboarding-surface);
+}
+
 .onboarding-collapsible-card.is-finish,
 .onboarding-collapsible-card.has-error {
   border-color: var(--onboarding-accent);
@@ -64,6 +69,11 @@
 .is-not_shown .onboarding-collapsible-card__state {
   color: var(--onboarding-muted);
   background: #ece8e6;
+}
+
+.is-optional .onboarding-collapsible-card__state {
+  color: var(--onboarding-muted);
+  background: #f1eeec;
 }
 
 .onboarding-collapsible-card__chevron {

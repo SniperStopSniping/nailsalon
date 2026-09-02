@@ -1,0 +1,257 @@
+.onboarding-location-contact-v2 {
+  width: min(100%, 940px);
+  padding-bottom: calc(112px + env(safe-area-inset-bottom));
+}
+
+.onboarding-location-contact-v2 > form {
+  display: grid;
+  gap: 12px;
+}
+
+.onboarding-location-contact-v2 .onboarding-collapsible-card > div:not([hidden]) {
+  display: grid;
+  gap: 16px;
+}
+
+.onboarding-location-contact-v2__intro,
+.onboarding-mobile-location-note,
+.onboarding-private-arrival-note {
+  margin: 0;
+  color: var(--onboarding-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.onboarding-location-contact-v2__fields,
+.onboarding-direct-contact-fields {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+}
+
+.onboarding-address-visibility,
+.onboarding-contact-mode {
+  display: grid;
+  min-width: 0;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+}
+
+.onboarding-address-visibility > legend,
+.onboarding-contact-mode > legend {
+  padding: 0;
+  color: var(--onboarding-ink);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.onboarding-address-visibility > p {
+  margin: -5px 0 4px;
+  color: var(--onboarding-muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
+.onboarding-address-visibility > div:first-of-type,
+.onboarding-contact-mode {
+  display: grid;
+  gap: 9px;
+}
+
+.onboarding-address-visibility label,
+.onboarding-contact-mode label {
+  display: block;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.onboarding-address-visibility label > input,
+.onboarding-contact-mode label > input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.onboarding-address-visibility label > span,
+.onboarding-contact-mode label > span {
+  display: grid;
+  min-height: 64px;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 13px;
+  background: #fff;
+}
+
+.onboarding-address-visibility label > span {
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+}
+
+.onboarding-contact-mode label > span {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.onboarding-address-visibility label > input:checked + span,
+.onboarding-contact-mode label > input:checked + span {
+  border-color: var(--onboarding-accent);
+  background: color-mix(in srgb, var(--onboarding-accent-soft) 58%, white);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--onboarding-accent) 18%, transparent);
+}
+
+.onboarding-address-visibility label > input:focus-visible + span,
+.onboarding-contact-mode label > input:focus-visible + span {
+  outline: 3px solid color-mix(in srgb, var(--onboarding-accent) 24%, transparent);
+  outline-offset: 2px;
+}
+
+.onboarding-address-visibility label > span > span:nth-child(2),
+.onboarding-contact-mode label > span {
+  min-width: 0;
+}
+
+.onboarding-address-visibility strong,
+.onboarding-contact-mode strong,
+.onboarding-address-visibility small,
+.onboarding-contact-mode small {
+  display: block;
+}
+
+.onboarding-address-visibility strong,
+.onboarding-contact-mode strong {
+  color: var(--onboarding-ink);
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+.onboarding-address-visibility small,
+.onboarding-contact-mode small {
+  margin-top: 3px;
+  color: var(--onboarding-muted);
+  font-size: 0.69rem;
+  line-height: 1.4;
+}
+
+.onboarding-address-visibility em {
+  align-self: start;
+  padding: 4px 7px;
+  border-radius: 999px;
+  color: var(--onboarding-accent-dark);
+  background: var(--onboarding-accent-soft);
+  font-size: 0.58rem;
+  font-style: normal;
+  font-weight: 760;
+  white-space: nowrap;
+}
+
+.onboarding-address-visibility__check {
+  display: inline-grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 999px;
+  color: white;
+  font-size: 0.68rem;
+  font-weight: 900;
+}
+
+input:checked + span > .onboarding-address-visibility__check {
+  border-color: var(--onboarding-accent);
+  background: var(--onboarding-accent);
+}
+
+.onboarding-address-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--onboarding-line);
+  border-radius: 13px;
+  background: var(--onboarding-surface-soft);
+}
+
+.onboarding-address-summary > div {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 11px 12px;
+}
+
+.onboarding-address-summary > div + div {
+  border-left: 1px solid var(--onboarding-line);
+}
+
+.onboarding-address-summary span {
+  color: var(--onboarding-muted);
+  font-size: 0.63rem;
+}
+
+.onboarding-address-summary strong {
+  overflow-wrap: anywhere;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.onboarding-shared-instagram small {
+  color: var(--onboarding-success);
+}
+
+.onboarding-private-arrival-note,
+.onboarding-mobile-location-note {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--onboarding-surface-soft);
+}
+
+.onboarding-location-contact-v2
+  > footer.sticky-onboarding-actions.is-primary-first
+  > button.sticky-onboarding-actions__primary {
+  width: 100%;
+  grid-column: 1 / -1;
+  grid-row: 1;
+  color: white;
+  border-color: var(--onboarding-accent);
+  background: var(--onboarding-accent);
+}
+
+.onboarding-location-contact-v2
+  > footer.sticky-onboarding-actions.is-primary-first
+  > button.sticky-onboarding-actions__back {
+  width: auto;
+  min-width: min(150px, 100%);
+  grid-column: 1;
+  grid-row: 2;
+  justify-self: start;
+  color: var(--onboarding-ink);
+  border-color: var(--onboarding-line);
+  background: var(--onboarding-surface);
+  box-shadow: none;
+}
+
+@media (min-width: 760px) {
+  .onboarding-location-contact-v2__fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 390px) {
+  .onboarding-address-visibility label > span {
+    grid-template-columns: 20px minmax(0, 1fr);
+  }
+
+  .onboarding-address-visibility em {
+    grid-column: 2;
+    justify-self: start;
+  }
+
+  .onboarding-address-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .onboarding-address-summary > div + div {
+    border-top: 1px solid var(--onboarding-line);
+    border-left: 0;
+  }
+}

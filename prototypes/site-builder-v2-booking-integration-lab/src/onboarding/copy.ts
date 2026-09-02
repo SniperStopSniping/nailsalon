@@ -31,6 +31,7 @@ export const CORE_SCREEN_ORDER: readonly OnboardingScreenId[] = [
   'business',
   'starting_preview',
   'location_contact',
+  'hours',
   'booking_preferences',
   'about',
   'about_design',
@@ -90,7 +91,14 @@ export const SCREEN_METADATA: Record<OnboardingScreenId, OnboardingScreenMetadat
     primaryAction: 'Save and continue',
     stage: 'basics',
     status: 'essential',
-    supportingCopy: 'Add only what you’re comfortable sharing publicly.',
+    supportingCopy: 'Add your location and choose what clients can see.',
+  },
+  hours: {
+    heading: 'When are you open?',
+    primaryAction: 'Save and continue',
+    stage: 'basics',
+    status: 'optional',
+    supportingCopy: 'Set your regular business hours once, then adjust individual days if needed.',
   },
   /**
    * Legacy id retained so persisted drafts and journals from before the

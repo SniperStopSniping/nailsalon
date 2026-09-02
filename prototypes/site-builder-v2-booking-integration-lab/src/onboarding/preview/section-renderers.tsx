@@ -761,7 +761,8 @@ function VisitUs({ planSection, section, shared }: LibraryPreviewSectionProps) {
         ? [{ action, contentKey }]
         : [];
     });
-  const practicalNotes = ownsArrivalDetails ? [
+  const practicalNotes = ownsArrivalDetails
+    && profile.location.addressVisibility === 'public' ? [
     settings.showParking ? profile.location.parking.trim() : '',
     settings.showEntrance ? profile.location.entranceInstructions.trim() : '',
     settings.showTransit ? profile.location.transitInformation.trim() : '',

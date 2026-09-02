@@ -16,6 +16,7 @@ export type OnboardingScreenId =
   | 'business'
   | 'photo_social'
   | 'location_contact'
+  | 'hours'
   | 'booking_preferences'
   | 'starter'
   | 'starting_preview'
@@ -95,6 +96,7 @@ export type LocalImageReference = {
 export type LocationDraft = {
   cityOrArea: string;
   exactAddress: string;
+  serviceAreas?: string;
   locationType: LocationType | null;
   addressVisibility: AddressVisibility;
   allowGeneralAreaDirections: boolean;
